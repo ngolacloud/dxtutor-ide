@@ -126,5 +126,6 @@
 
 <script src="/app.js"></script>
 <script src="/bridge.js"></script>
-<script src="/pair.js"></script>
+<!-- módulos ESM são deferred: só o ÚLTIMO script da cadeia pode ser módulo sem mudar a ordem -->
+<script type="module" src="/src/pair.ts"></script>
 </body></html>
