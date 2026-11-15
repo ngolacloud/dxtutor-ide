@@ -9,6 +9,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "test": "cargo test --workspace",
+    "ui:build": "vite build --config ui-app/vite.config.ts",
     "ui-next:dev": "vite --config ui-next/vite.config.ts",
     "ui-next:build": "tsc --noEmit -p ui-next/tsconfig.json && vite build --config ui-next/vite.config.ts"
   },

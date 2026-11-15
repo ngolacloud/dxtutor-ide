@@ -1,13 +1,13 @@
 use std::path::Path;
 
 fn main() {
-    // Re-embed the frontend whenever anything under ../ui changes. The UI is embedded at
-    // build time (frontendDist="../ui", no dev server), but tauri_build does not reliably
-    // emit rerun-if-changed for individual files inside frontendDist — so a plain
-    // `cargo build` / `npm run tauri dev` after editing ui/bridge.js would ship the STALE
+    // Re-embed the frontend whenever anything under ../ui-app/dist changes. The UI is embedded
+    // at build time (frontendDist="../ui-app/dist", no dev server), but tauri_build does not
+    // reliably emit rerun-if-changed for individual files inside frontendDist — so a plain
+    // `cargo build` / `npm run tauri dev` after `npm run ui:build` would ship the STALE
     // cached UI (the bug that made the desktop and the headless selftest disagree). Declaring
     // each file explicitly forces the build script (and thus the re-embed) to re-run.
-    watch_dir(Path::new("../ui"));
+    watch_dir(Path::new("../ui-app/dist"));
     tauri_build::build();
 }
 

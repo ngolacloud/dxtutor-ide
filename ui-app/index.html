@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>dxtutor IDE — protótipo navegável</title><link rel="stylesheet" href="/styles.css"></head><body>
+
+<div class="app">
+  <!-- MENU BAR -->
+  <div class="titlebar">
+    <div class="tb-brand" id="brand"></div>
+    <div class="menubar" id="menubar"></div>
+    <button class="cmd-center" onclick="palette('')"><span data-ic="search"></span>dxtutor — ficheiros e comandos <kbd>Ctrl+P</kbd></button>
+    <div class="tb-right">
+      <button class="tb-ic" id="tgl-side" title="Toggle sidebar" data-ic="layout-side" onclick="toggleSide()"></button>
+      <button class="tb-ic" id="tgl-panel" title="Toggle panel" data-ic="layout-panel" onclick="togglePanel()"></button>
+      <button class="tb-ic on" id="tgl-agent" title="Painel do Co-Dev" data-ic="sparkle" onclick="toggleAgent()"></button>
+      <button class="tb-ic" data-ic="account" title="Conta" onclick="goPane('account')"></button>
+      <span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
+    </div>
+  </div>
+
+  <!-- MIDDLE -->
+  <div class="mid">
+    <div class="activity" id="activity"></div>
+
+    <div class="side">
+      <!-- EXPLORER pane -->
+      <div class="pane show" id="pane-explorer">
+        <div class="side-hd"><span class="t">Explorer</span>
+          <span class="acts">
+            <button data-ic="new-file" title="New File" onclick="newFile()"></button>
+            <button data-ic="new-folder" title="New Folder" onclick="newFolder()"></button>
+            <button data-ic="refresh" title="Refresh" onclick="refresh(false,true)"></button>
+            <button data-ic="collapse" title="Collapse Folders" onclick="collapseAll()"></button>
+          </span>
+        </div>
+        <div class="sections" id="exp-sections"></div>
+      </div>
+      <div class="pane" id="pane-search"></div><div class="pane" id="pane-scm"></div><div class="pane" id="pane-run"></div><div class="pane" id="pane-remote"></div>
+      <!-- CONTAINERS (Docker) -->
+      <div class="pane" id="pane-containers">
+        <div class="side-hd"><span class="t">Containers</span></div>
+        <div class="sections">
+          <div class="sec-hd open"><span class="chev">{chev}</span><span class="lbl">Containers</span></div>
+          <div class="sec-body show"><div class="tree" id="dk-containers"></div></div>
+          <div class="sec-hd open"><span class="chev">{chev}</span><span class="lbl">Images</span></div>
+          <div class="sec-body show"><div class="tree" id="dk-images"></div></div>
+          
+        </div>
+      </div>
+      <div class="pane" id="pane-ext"></div><div class="pane" id="pane-test"></div><div class="pane" id="pane-codev"></div><div class="pane" id="pane-account"></div>
+    </div>
+
+    <!-- EDITOR -->
+    <div class="edit">
+      <div class="tabs" id="tabs"></div>
+      <div class="breadcrumbs" id="breadcrumbs"></div>
+      <div class="ebody">
+        <div class="ebody-scroll with-mm" id="ebody"></div>
+        <div class="minimap" id="minimap"></div>
+      </div>
+      <div class="panel" id="panel">
+        <div class="panel-tabs">
+          <button class="ptab" data-pt="problems">Problems <span class="pb" id="pb-prob">0</span></button>
+          <button class="ptab" data-pt="output">Output · Co-Dev</button>
+          <button class="ptab on" data-pt="terminal">Terminal</button>
+          <span class="panel-tools">
+            <button data-ic="trash" title="Limpar terminal" onclick="termClear()"></button>
+            <button data-ic="close" title="Fechar painel" onclick="togglePanel()"></button>
+          </span>
+        </div>
+        <div class="panel-body">
+          <div class="pcontent show" id="pc-terminal"><div id="term"></div></div>
+          <div class="pcontent" id="pc-problems"></div>
+          <div class="pcontent" id="pc-output"></div>
+        </div>
+        <div class="tmux"><span class="win">[2] 0:bash*</span><span class="sp"></span><span class="host">"delonix" <span id="clock"></span></span></div>
+      </div>
+    </div>
+
+    <!-- CO-DEV -->
+    <div class="agent" id="agent">
+      <div class="ag-hd"><div class="ag-mark" data-ic="sparkle"></div><div class="ag-name">Co-Dev</div>
+        <button class="ag-model" id="ag-model" title="Escolher modelo" onclick="pickModel()"><span class="live"></span><span id="ag-model-l"></span></button>
+        <button class="ag-ic" data-ic="popout" title="Abrir no centro" onclick="assistantCenter()"></button>
+        <button class="ag-ic" data-ic="history" title="Gestor de missões" onclick="openManager()"></button>
+        <button class="ag-ic" data-ic="plus" title="Nova conversa" onclick="newChat()"></button>
+      </div>
+      <div id="ag-body">
+        <div class="modebar" id="modebar"></div>
+        <div class="ag-msgs" id="ag-msgs"></div>
+        <div class="run-ctl hidden" id="ag-runctl">
+          <div class="rc-top"><span class="spin"></span><span class="rc-lbl" id="rc-lbl"></span><span class="rc-el" id="rc-el"></span></div>
+          <div class="rc-cmds"><button class="rc" id="rc-pause" onclick="agCtl('pause')"><kbd>p</kbd> pausar</button><button class="rc" onclick="agCtl('stop')"><kbd>x</kbd> parar</button><button class="rc" onclick="agCtl('details')"><kbd>d</kbd> registo</button></div>
+        </div>
+        <div class="ag-compose" id="ag-compose"><div class="composer">
+          <textarea id="ag-input" rows="2" placeholder="Descreve o que queres construir, corrigir ou rever…"></textarea>
+          <div class="comp-bar"><button class="pill" id="pill-ctx" title="Incluir o ficheiro activo como contexto" onclick="CTX_ON=!CTX_ON;ctxPill()"></button><button class="pill" title="Correr os testes" onclick="handlePrompt('/test')">/test</button><button class="pill" title="Lint do Design System" onclick="handlePrompt('/lint')">/lint</button><button class="send" data-ic="arrow-up" title="Enviar" onclick="agSend()"></button></div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="rsz" id="rsz-side"></div>
+    <div class="rsz" id="rsz-agent"></div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status">
+    <button class="si remote" data-ic="remote-arrows" title="Comandos" onclick="palette('>')"></button>
+    <button class="si" data-ic="branch-sm" title="Mudar de ramo" onclick="pickBranch()"><span id="st-branch-l">main</span></button>
+    <button class="si" id="st-prob" title="Problemas" onclick="setPanelTab('problems')"></button>
+    <button class="si opt" id="st-tests" title="Testes" onclick="goPane('test')"></button>
+    <span class="spacer"></span>
+    <button class="si opt" id="st-pos" title="Ir para a linha" onclick="palette(':')"></button>
+    <span class="si opt" id="st-lang"></span>
+    <button class="si opt" id="st-ctx" title="Contexto usado na conversa" onclick="openManager()"></button>
+    <button class="si" data-ic="sparkle" title="Modelo da conversa" onclick="pickModel()"><span id="st-model-l"></span></button>
+    <button class="si mode" id="st-mode" title="Alternar o modo de autonomia" onclick="cycleMode()"></button>
+    <button class="si" id="st-bell" data-ic="bell" title="Notificações" onclick="toggleNotes()"><span id="st-bell-n"></span></button>
+  </div>
+</div>
+
+<div id="pal"><div class="pal-box"><input id="pal-in" autocomplete="off" spellcheck="false"><div id="pal-list"></div></div></div>
+<div id="notes"></div>
+<div id="toast" style="position:fixed;bottom:40px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-menu);border:1px solid var(--border-strong);box-shadow:var(--sh-pop);border-radius:9px;padding:9px 16px;font-size:12.5px;opacity:0;transition:.2s;pointer-events:none;z-index:500"></div>
+
+<script src="/boot.js"></script>
+
+
+<script src="/app.js"></script>
+<script src="/bridge.js"></script>
+<script src="/pair.js"></script>
+</body></html>

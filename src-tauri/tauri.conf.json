@@ -4,7 +4,7 @@
   "version": "0.7.0",
   "identifier": "ao.ngolacloud.dxtutor-ide",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../ui-app/dist"
   },
   "app": {
     "withGlobalTauri": true,
