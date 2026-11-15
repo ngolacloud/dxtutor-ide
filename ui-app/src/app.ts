@@ -1664,5 +1664,6 @@ Object.assign(window, {
   toggleProv, toggleRight, toggleSide, tplNode, trAttrs, trNode, trText, urlHosts, use, user, validateDesign, waiting,
   who, writeFile
 });
-boot();boot3();boot4();boot5();boot6();boot7();i18nBoot();
+/* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — o último módulo
+   da cadeia, de modo a correr depois de as camadas v3–v7 publicarem os seus bootN. */
 
