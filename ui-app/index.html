@@ -125,7 +125,8 @@
 
 
 <script src="/app.js"></script>
-<script src="/bridge.js"></script>
-<!-- módulos ESM são deferred: só o ÚLTIMO script da cadeia pode ser módulo sem mudar a ordem -->
+<!-- módulos ESM são deferred: correm DEPOIS dos clássicos, por ordem de documento —
+     a tag do bridge.ts tem de ficar ANTES da do pair.ts (o pair captura os wraps do bridge) -->
+<script type="module" src="/src/bridge.ts"></script>
 <script type="module" src="/src/pair.ts"></script>
 </body></html>

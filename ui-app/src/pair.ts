@@ -6,8 +6,8 @@
    travels inside the same encrypted PairCode channel. Desktop app only.
 
    Fase 2 da componentização: este é o primeiro módulo TypeScript do ui-app, servido como
-   <script type="module"> no FIM da cadeia boot.js → app.js → bridge.js. O contrato com os
-   scripts clássicos mantém-se o do pair.js: lê as globais lexicais (FS, ROOT, BRANCH, CWD,
+   <script type="module"> no FIM da cadeia boot.js → app.js (clássicos) → bridge.ts (módulo).
+   O contrato com os scripts clássicos mantém-se o do pair.js: lê as globais lexicais (FS, ROOT, BRANCH, CWD,
    OPEN, TABS, cur, VIEW, MENUS, CMD, $, tabOf) e re-atribui as globais function-declaradas
    via binding do window (refresh, promptHTML, window.run, commit, checkout, …). As
    declarações em `declare global` abaixo são esse contrato, tipado. */
