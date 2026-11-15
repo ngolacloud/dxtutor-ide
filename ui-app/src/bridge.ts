@@ -26,8 +26,12 @@ interface GitState {
 interface Prov { name: string; model: string; ep?: string; on?: boolean; local?: boolean }
 interface Envs { rt: string; rtOn: boolean; sock: Record<string, string>; kube: string; k8sOn: boolean; ctx: string; ns: string }
 interface Tool { name: string; description?: string; inputSchema?: Record<string, unknown>; execute: (input: any) => unknown }
-interface SampleOpts { tools?: Tool[]; signal?: AbortSignal | null; onText?: (x: { text: string }) => void }
+interface SampleOpts { tools?: Tool[]; signal?: AbortSignal | null; onText?: (x: { text: string }) => void; step?: string | null; cache?: boolean; modelTier?: string; modelHint?: string }
 interface SampleMsg { role: string; content?: unknown }
+/** Config real de providers (tutor-llm, ~/.config/dxtutor/providers.json, serde camelCase). */
+interface ProvidersConfig { provider: string; anthropicKey: string; anthropicWorkspaceId: string; openaiKey: string; geminiKey: string; ollamaHost: string; ollamaModel: string; assistantModel: string }
+/** Capacidade honesta de cada provider, reportada por list_providers (RF-AG-06). */
+interface ProviderInfo { id: string; name: string; available: boolean; streaming: boolean; cancel: boolean; tools: boolean; context: boolean; note: string; models: string[] }
 
 /** O objecto R exposto como window.DXR — tem de continuar atribuível ao Dxr que o pair.ts declara. */
 interface Desktop {
@@ -41,7 +45,12 @@ interface Desktop {
   termLine?: (t: string, e?: boolean) => void; envFor?: () => Record<string, string>;
   gitInit?: () => unknown; approve?: (id: string, ok: boolean) => void;
   logs?: (cmd: string) => unknown; open?: (p?: string) => unknown; close?: () => void;
+  delegate?: (writes: [string, string][], o?: { signal?: AbortSignal | null; onStatus?: (s: string) => void }) => Promise<DelegateResult>;
+  cancelTask?: (id: string) => Promise<boolean>;
+  delegateReview?: (title: string, writes: [string, string][]) => Promise<void>;
 }
+/** Resultado de uma delegação isolada (agent_task_* → git worktree de HEAD). */
+interface DelegateResult { id: string; status: string; patch: string; error: string }
 
 declare global {
   // Globais lexicais (let/const em boot.js/app.js) que o pair.ts não declara.
@@ -414,7 +423,21 @@ gfFinish = function (b?: string, author?: string) {
 };
 
 /* ───── LLM providers ───── */
-async function loadKeys(): Promise<void> { try { R.keys = await inv("keys_status"); } catch { R.keys = {}; } }
+/** UI prov-key → id do provider de streaming do backend (codex é a marca OpenAI do protótipo). */
+const STREAM_PROV: Record<string, string> = { claude: "claude", codex: "openai", gemini: "gemini", ollama: "ollama" };
+/** Config real de providers em memória (fonte única: providers.json via tutor-llm). */
+let CFG: ProvidersConfig | null = null;
+let PROVCAPS: ProviderInfo[] = [];
+/** Lê a config real do backend e deriva R.keys (o que `usable()` consulta). Ollama é sempre
+    local — sem chave. As chaves vivem agora em providers.json, que tanto o streaming
+    (`assistant_chat_stream`) como o tool-loop (`llm_chat`, via keys::resolve) lêem. */
+async function loadKeys(): Promise<void> {
+  try {
+    CFG = await inv("get_providers_config") as ProvidersConfig;
+    R.keys = { claude: CFG.anthropicKey || "", codex: CFG.openaiKey || "", gemini: CFG.geminiKey || "" };
+  } catch { CFG = null; R.keys = {}; }
+  try { PROVCAPS = await inv("list_providers") as ProviderInfo[]; } catch { PROVCAPS = []; }
+}
 const usable = (k: string) => !!(PROV[k] && PROV[k].on && (PROV[k].local || R.keys[k]));
 function pickProv(): string {
   if (usable(ACTIVE)) return ACTIVE;
@@ -451,27 +474,116 @@ function extraTools(): Tool[] {
     },
   }];
 }
+/** Um turno de chat em streaming real: liga aos eventos `llm://token|done|error`, chama
+    `assistant_chat_stream` e devolve o texto acumulado. O Stop (AbortSignal) dispara
+    `assistant_cancel`. O modo é derivado do contexto: pasta real aberta → "project"
+    (par-a-par completo); sem pasta → "study" (contrato de tutor imposto no backend). */
+async function streamChat(k: string, msgs: { role: string; content: string }[], o: SampleOpts): Promise<{ text: string; provider: string; inputTokens: number; outputTokens: number }> {
+  const prov = STREAM_PROV[k] || "ollama";
+  const id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  let text = "";
+  let settleOk!: (v: { text: string; provider: string; inputTokens: number; outputTokens: number }) => void;
+  let settleErr!: (e: unknown) => void;
+  const done = new Promise<{ text: string; provider: string; inputTokens: number; outputTokens: number }>((res, rej) => { settleOk = res; settleErr = rej; });
+  const offs: Array<() => void> = [];
+  function cleanup(): void { offs.splice(0).forEach(f => { try { f(); } catch { /* já removido */ } }); if (o.signal) o.signal.removeEventListener("abort", onAbort); }
+  function onAbort(): void { void inv("assistant_cancel", { requestId: id }); cleanup(); settleErr(STOP); }
+  const mine = (e: { payload: unknown }): Record<string, unknown> | null => { const p = e.payload as { requestId?: string } | null; return p && p.requestId === id ? (p as Record<string, unknown>) : null; };
+  offs.push((await T.event.listen("llm://token", e => { const p = mine(e); if (!p) return; text += String(p.delta ?? ""); if (o.onText) o.onText({ text }); })) as () => void);
+  offs.push((await T.event.listen("llm://done", e => { const p = mine(e); if (!p) return; cleanup(); settleOk({ text, provider: k, inputTokens: 0, outputTokens: Math.round(text.length / 4) }); })) as () => void);
+  offs.push((await T.event.listen("llm://error", e => { const p = mine(e); if (!p) return; cleanup(); settleErr(new Error(String(p.error ?? "erro do modelo"))); })) as () => void);
+  if (o.signal) { if (o.signal.aborted) { onAbort(); return done; } o.signal.addEventListener("abort", onAbort); }
+  const mode = R.root ? "project" : "study";
+  void inv("assistant_chat_stream", { messages: msgs, provider: prov, model: PROV[k].model, requestId: id, mode, stepId: o.step ?? null })
+    .catch(e => { cleanup(); settleErr(e); });
+  return done;
+}
 async function desktopSample(input: string | SampleMsg[], o: SampleOpts = {}) {
-  const k = pickProv(), P = PROV[k];
-  const msgs: any[] = typeof input === "string" ? [{ role: "user", text: input }] : input.map(m => ({ role: m.role, text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }));
+  const k = pickProv();
+  // Chat de texto puro (sem ferramentas) → caminho de streaming real. O tool-loop agêntico
+  // (write_file/run_tests/…) continua no llm_chat one-shot: é o protocolo co-dev, fora do
+  // escopo desta sessão. STREAM_PROV cobre os quatro providers com adaptador SSE.
+  if (!o.tools || !o.tools.length) {
+    const msgs: { role: string; content: string }[] = typeof input === "string"
+      ? [{ role: "user", content: input }]
+      : input.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }));
+    const r = await streamChat(k, msgs, o);
+    try { use(k, r.inputTokens + r.outputTokens); } catch { /* sem contador de uso */ }
+    return r;
+  }
+  // ── Protocolo de acção estruturada: streaming + ferramentas no MESMO canal ──
+  // O tool-loop nativo (`llm_chat`) é one-shot por volta e não faz streaming. Para unir
+  // streaming E ferramentas, o Co-Dev agêntico corre agora sobre `assistant_chat_stream`
+  // (tokens ao vivo) e o modelo declara acções INLINE no texto, em blocos cercados que o
+  // cliente analisa à medida que chegam e executa SEM parar o stream:
+  //   ```dxcode path=<rel>\n<conteúdo completo do ficheiro>\n```   → corre a ferramenta write_file
+  //   ```dxaction\n{"tool":"run_tests","input":{…}}\n```           → corre a ferramenta nomeada
+  // Dentro de uma volta o texto à volta dos blocos faz stream ao vivo (onText) enquanto as
+  // acções já detectadas correm. No fim da volta, se correu alguma acção, os resultados
+  // voltam ao modelo numa mensagem de continuação (dxcontinue) e o stream recomeça — até
+  // uma volta sem acções. É assim que streaming e ferramentas acontecem na mesma resposta.
   const tools = (o.tools || []).concat(o.tools ? extraTools() : []);
+  const catalog = tools.map(t => `- ${t.name}: ${t.description || ""}`).join("\n");
+  const directive =
+    "És o Co-Dev do dxtutor a programar num projecto real. Além de explicares, podes AGIR sobre o " +
+    "workspace emitindo blocos de acção cercados no meio da tua resposta — o texto à volta é mostrado " +
+    "ao vivo ao programador. Formatos:\n" +
+    "• Escrever/substituir um ficheiro inteiro (conteúdo COMPLETO, nunca um excerto):\n" +
+    "```dxcode path=caminho/relativo.rs\n<conteúdo completo>\n```\n" +
+    "• Correr uma ferramenta, com JSON numa só linha:\n" +
+    "```dxaction\n{\"tool\":\"run_tests\",\"input\":{\"package\":\"lexer\"}}\n```\n" +
+    "Um bloco por acção, com a cerca ``` no início da linha. Depois de eu te devolver os resultados " +
+    "(dxcontinue), continua; quando terminares de vez, responde sem mais blocos. Ferramentas:\n" + catalog;
+  const base: { role: string; content: string }[] = typeof input === "string"
+    ? [{ role: "user", content: input }]
+    : input.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }));
+  const convo: { role: string; content: string }[] = [{ role: "system", content: directive }, ...base];
+
+  const parsePath = (s: string): string => { const m = /path\s*=\s*"?([^"\n]+?)"?\s*$/.exec(s.trim()); return m ? m[1].trim() : ""; };
+  const runAction = async (kind: string, head: string, body: string): Promise<string> => {
+    try {
+      if (kind === "code") {
+        const path = parsePath(head);
+        if (!path) return "dxcode sem path=";
+        const wf = tools.find(t => t.name === "write_file");
+        if (!wf) return "sem ferramenta write_file";
+        const out = await wf.execute({ path, content: body });
+        return `write_file ${path} → ${typeof out === "string" ? out : JSON.stringify(out)}`;
+      }
+      const spec = JSON.parse(body) as { tool?: string; input?: unknown };
+      const t = tools.find(x => x.name === spec.tool);
+      if (!t) return "ferramenta desconhecida: " + (spec.tool || "?");
+      const out = await t.execute(spec.input || {});
+      return `${spec.tool} → ${typeof out === "string" ? out : JSON.stringify(out)}`;
+    } catch (e) { return "erro: " + ((e as Error) && (e as Error).message || e); }
+  };
+
   let total = "", tin = 0, tout = 0;
   for (let round = 0; round < 16; round++) {
     if (o.signal && o.signal.aborted) throw STOP;
-    const r = await inv("llm_chat", { req: { provider: k, endpoint: P.ep, model: P.model, messages: msgs, tools: tools.map(t => ({ name: t.name, description: t.description || "", input_schema: t.inputSchema || { type: "object", properties: {} } })), maxTokens: 4096 } });
+    let consumed = 0;
+    const results: string[] = [];
+    let acted = 0;
+    let queue: Promise<unknown> = Promise.resolve();
+    // Analisa o texto acumulado da volta e executa cada bloco COMPLETO uma única vez. Um
+    // bloco ainda a chegar (sem cerca de fecho) não casa — esperamos pela volta seguinte.
+    const onText = ({ text: acc }: { text: string }) => {
+      if (o.onText) o.onText({ text: total + (total ? "\n\n" : "") + acc });
+      const blocks = [...acc.matchAll(/^```dx(code|action)[ \t]*([^\n]*)\n([\s\S]*?)\n```[ \t]*$/gm)];
+      for (let i = consumed; i < blocks.length; i++) {
+        const [, kind, head, body] = blocks[i];
+        acted++;
+        queue = queue.then(async () => { results.push(await runAction(kind, head, body)); });
+      }
+      consumed = blocks.length;
+    };
+    const r = await streamChat(k, convo, { ...o, onText });
+    await queue; // garante que toda a acção detectada terminou antes de continuar/sair
     tin += r.inputTokens; tout += r.outputTokens;
-    if (r.text) { total += (total ? "\n\n" : "") + r.text; if (o.onText) o.onText({ text: total }); }
-    if (!r.toolCalls || !r.toolCalls.length) break;
-    msgs.push({ role: "assistant", text: r.text || "", toolCalls: r.toolCalls });
-    const results: { id: unknown; content: string }[] = [];
-    for (const c of r.toolCalls) {
-      if (o.signal && o.signal.aborted) throw STOP;
-      const t = tools.find(x => x.name === c.name);
-      let out: unknown;
-      try { out = t ? await t.execute(c.input || {}) : "unknown tool " + c.name; } catch (e) { out = "error: " + ((e as Error) && (e as Error).message || e); }
-      results.push({ id: c.id, content: typeof out === "string" ? out : JSON.stringify(out) });
-    }
-    msgs.push({ role: "user", text: "", toolResults: results });
+    total += (total ? "\n\n" : "") + r.text;
+    if (!acted) break;
+    convo.push({ role: "assistant", content: r.text });
+    convo.push({ role: "user", content: "[dxcontinue] Resultados das acções:\n" + results.map((x, i) => `${i + 1}. ${x}`).join("\n") });
   }
   try { use(k, tin + tout); } catch { /* sem contador de uso */ }
   return { text: total, provider: k, inputTokens: tin, outputTokens: tout };
@@ -479,6 +591,48 @@ async function desktopSample(input: string | SampleMsg[], o: SampleOpts = {}) {
 SAMPLE = desktopSample;
 LIVE_OK = true;
 provState = k => PROV[k].local ? "local" : R.keys[k] ? "live" : "no key";
+
+/* ───── delegação isolada (agent_task_*) ─────
+   Corre um conjunto de writes num git worktree de HEAD e devolve o diff para revisão,
+   SEM tocar na árvore de trabalho (RF-AG-01/05). Superfície de UI real do lifecycle
+   submit → status → cancel: o Co-Dev delega aqui e o humano revê/aplica o patch. */
+async function delegate(writes: [string, string][], o: { signal?: AbortSignal | null; onStatus?: (s: string) => void } = {}): Promise<DelegateResult> {
+  if (!R.root) throw new Error("abre uma pasta primeiro");
+  const id = await inv("agent_task_submit", { root: R.root, writes }) as string;
+  for (let i = 0; i < 1200; i++) {
+    if (o.signal && o.signal.aborted) { await inv("agent_task_cancel", { id }); throw STOP; }
+    const st = await inv("agent_task_status", { id }) as DelegateResult | null;
+    if (!st) throw new Error("tarefa desconhecida: " + id);
+    if (o.onStatus) o.onStatus(st.status);
+    if (st.status !== "running") return st;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  await inv("agent_task_cancel", { id });
+  throw new Error("a delegação não terminou a tempo");
+}
+R.delegate = (writes, o) => delegate(writes, o);
+R.cancelTask = id => inv("agent_task_cancel", { id }) as Promise<boolean>;
+/** Card de revisão: mostra o patch isolado e deixa aplicá-lo ao projecto ou descartá-lo. */
+async function delegateReview(title: string, writes: [string, string][]): Promise<void> {
+  const ac = new AbortController();
+  const c = card("delegate", `Delegação isolada: <b>${escH(title)}</b><div class="dlg-st"><span class="spin"></span> a correr… <button class="mini" id="dlg-x">Cancelar</button></div><div class="dlg-body"></div>`);
+  const stEl = () => c.bd.querySelector(".dlg-st") as HTMLElement | null;
+  const xb = c.bd.querySelector("#dlg-x") as HTMLButtonElement | null;
+  if (xb) xb.onclick = () => ac.abort();
+  let res: DelegateResult;
+  try { res = await delegate(writes, { signal: ac.signal }); }
+  catch (e) { const el = stEl(); if (el) el.innerHTML = e === STOP ? '<span style="color:var(--red)">✖ cancelada</span>' : '<span style="color:var(--red)">✖ ' + escH(String((e as Error) && (e as Error).message || e)) + "</span>"; return; }
+  const el = stEl();
+  if (el) el.innerHTML = res.status === "done" ? '<span class="okc">✓ patch pronto para revisão</span>' : '<span style="color:var(--red)">✖ ' + escH(res.error || res.status) + "</span>";
+  const body = c.bd.querySelector(".dlg-body") as HTMLElement | null;
+  if (!body) return;
+  body.innerHTML = `<pre style="white-space:pre-wrap;max-height:300px;overflow:auto;margin:6px 0">${escH(res.patch || "(sem alterações)")}</pre>` + (res.status === "done" && res.patch ? `<button class="mini pri" id="dlg-ap">Aplicar ao projecto</button> <button class="mini" id="dlg-no">Descartar</button>` : "");
+  const ap = body.querySelector("#dlg-ap") as HTMLButtonElement | null;
+  if (ap) ap.onclick = () => { writes.forEach(([rel, content]) => writeFile(ROOT + rel, content)); flushSave(); body.innerHTML = '<span class="okc">✓ aplicado ao projecto</span>'; };
+  const no = body.querySelector("#dlg-no") as HTMLButtonElement | null;
+  if (no) no.onclick = () => { body.innerHTML = '<span class="dim">descartado — o worktree isolado não tocou nos teus ficheiros</span>'; };
+}
+R.delegateReview = (title, writes) => delegateReview(title, writes);
 const _updateAgentUI = updateAgentUI;
 updateAgentUI = function (this: unknown, ...args: any[]) {
   _updateAgentUI.apply(this, args);
@@ -495,22 +649,36 @@ testProv = async function (k: string, btn: HTMLElement) {
   } catch (e) { o.innerHTML = `<span style="color:var(--red)">✖</span> ${escH(String(e).slice(0, 240))}`; }
   btn.textContent = "Test connection";
 };
+/** UI prov-key → campo da config real (camelCase). Ollama não tem chave (é local). */
+const CFG_FIELD: Record<string, "anthropicKey" | "openaiKey" | "geminiKey"> = { claude: "anthropicKey", codex: "openaiKey", gemini: "geminiKey" };
 const _settings = VIEW.settings;
 VIEW.settings = (t: any, host: any) => {
   _settings(t, host);
   const ks = Object.keys(PROV);
   host.querySelectorAll(".pgrid")[0] && host.querySelectorAll(".pgrid")[0].querySelectorAll(".pcard").forEach((cd: any, i: number) => {
-    const k = ks[i], inp = cd.querySelector("input[type=password]");
+    const k = ks[i];
+    // Capacidades honestas do backend (streaming/cancel/disponível) por baixo de cada provider.
+    const cap = PROVCAPS.find(c => c.id === STREAM_PROV[k]);
+    const pd = cd.querySelector(".pd");
+    if (pd && cap) pd.innerHTML = `<span class="tag ${cap.available ? "live" : ""}">${cap.available ? "disponível" : (PROV[k].local ? "inactivo" : "sem chave")}</span> ${[cap.streaming && "streaming", cap.cancel && "cancelável"].filter(Boolean).join(" · ")} — ${escH(cap.note)}`;
+    const inp = cd.querySelector("input[type=password]");
     if (!inp || PROV[k].local) return;
-    inp.placeholder = R.keys[k] ? "saved ✓ — type to replace" : "paste the API key";
+    inp.placeholder = R.keys[k] ? "guardada ✓ — escreve para substituir" : "cola a chave da API";
     inp.onchange = async () => {
       const v = inp.value.trim();
-      try { await inv("save_key", { provider: k, key: v }); await loadKeys(); inp.value = ""; toast(v ? PROV[k].name + " key saved" : PROV[k].name + " key removed"); show(cur); updateAgentUI(); }
-      catch (e) { toast("Could not save the key: " + e); }
+      const field = CFG_FIELD[k];
+      if (!field) return;
+      try {
+        const base: ProvidersConfig = CFG || (await inv("get_providers_config") as ProvidersConfig);
+        await inv("save_providers_config", { config: { ...base, [field]: v } });
+        await loadKeys(); inp.value = "";
+        toast(v ? PROV[k].name + ": chave guardada" : PROV[k].name + ": chave removida");
+        show(cur); updateAgentUI();
+      } catch (e) { toast("Não consegui guardar a chave: " + e); }
     };
   });
   const sub = host.querySelector(".sub");
-  if (sub) sub.textContent = `Desktop app ${R.info.version || ""} · keys are stored in ${R.info.configDir || "the app config folder"}/keys.json (readable only by you), or read from ANTHROPIC_API_KEY, OPENAI_API_KEY and GEMINI_API_KEY.`;
+  if (sub) sub.textContent = `App desktop ${R.info.version || ""} · as chaves vivem em ~/.config/dxtutor/providers.json (só legível por ti, 0600), ou lidas de ANTHROPIC_API_KEY, OPENAI_API_KEY e GEMINI_API_KEY. O streaming e o tool-loop lêem a mesma config.`;
 };
 /* sensible real model ids instead of the prototype's placeholders */
 if (PROV.gemini.model === "gemini-pro") PROV.gemini.model = "gemini-2.5-flash";
@@ -683,6 +851,38 @@ async function selftest(): Promise<void> {
   };
   await step("ui", () => ({ files: Object.keys(FS).length, menus: MENUS.map(m => m.t), sample: typeof SAMPLE, provState: Object.keys(PROV).map(provState) }));
   await step("exec", async () => (await sh("sh", ["-c", "echo ok"], { cwd: R.info.home })).stdout.trim());
+  // Caminho de streaming real (sem ferramentas): confirma entrega incremental de tokens via
+  // assistant_chat_stream. Sem pasta aberta corre em mode="study" (exercita a política de tutor).
+  await step("llmStream", async () => {
+    const lens: number[] = [];
+    let last = "";
+    const r = await desktopSample("Responde apenas com: streaming ok.", { onText: ({ text }) => { lens.push(text.length); last = text; } });
+    const grew = lens.length > 1 && lens[lens.length - 1] > lens[0];
+    return { provider: r.provider, mode: R.root ? "project" : "study", chunks: lens.length, incremental: grew, finalLen: (r.text || last).length };
+  }).then(() => { if (String(rep.steps.llmStream).startsWith("FAIL")) rep.steps.llmStream = "skipped — no model reachable: " + String(rep.steps.llmStream).slice(6, 120); });
+  // Cancelamento a meio: aborta ao primeiro token e confirma que assistant_cancel interrompe.
+  await step("llmCancel", async () => {
+    const ac = new AbortController();
+    let chunks = 0;
+    try {
+      await desktopSample("Escreve um parágrafo longo sobre Scrum e XP.", { signal: ac.signal, onText: () => { chunks++; if (chunks === 1) ac.abort(); } });
+      return { cancelled: false, chunks };
+    } catch (e) { return { cancelled: e === STOP || /abort|stop|cancel/i.test(String((e as Error) && (e as Error).message || e)), chunks }; }
+  }).then(() => { if (String(rep.steps.llmCancel).startsWith("FAIL")) rep.steps.llmCancel = "skipped — no model reachable: " + String(rep.steps.llmCancel).slice(6, 120); });
+  // Config real de providers: flags honestas (list_providers) + round-trip de get/save_providers_config.
+  // A ESCRITA aqui grava uma chave-sonda descartável — este passo só deve correr com HOME apontado a um
+  // dir temporário (DXTUTOR_SELFTEST headless), nunca no providers.json real do utilizador.
+  await step("providers", async () => {
+    const caps = PROVCAPS.map(c => ({ id: c.id, available: c.available, streaming: c.streaming, cancel: c.cancel }));
+    const before = await inv("get_providers_config") as ProvidersConfig;
+    await inv("save_providers_config", { config: { ...before, openaiKey: "sk-selftest-probe" } });
+    const after = await inv("get_providers_config") as ProvidersConfig;
+    const saved = after.openaiKey === "sk-selftest-probe", keptOthers = after.anthropicKey === before.anthropicKey;
+    // Restaura a config original — o passo é net-zero mesmo se correr com HOME real: nunca deixa a sonda gravada.
+    await inv("save_providers_config", { config: before });
+    const restored = await inv("get_providers_config") as ProvidersConfig;
+    return { caps, saved, keptOthers, restored: restored.openaiKey === before.openaiKey };
+  });
   if (R.root) {
     await step("open", () => ({ root: R.root, git: R.git, branch: BRANCH, commits: GIT.order.length, files: Object.keys(R.disk).length }));
     await step("autosave", async () => { writeFile(ROOT + "notes/selftest.txt", "written by the IDE\n"); flushSave(); await Q; return (await sh("cat", ["notes/selftest.txt"])).stdout.trim(); });
@@ -700,6 +900,30 @@ async function selftest(): Promise<void> {
       const r = await desktopSample([{ role: "user", content: "list the files" }], { tools: [{ name: "list_files", description: "Lists files", inputSchema: { type: "object", properties: {} }, execute: async () => { seen.push("list_files"); return Object.keys(R.disk); } }] });
       return { text: r.text, provider: r.provider, toolsRun: seen };
     }).then(() => { if (String(rep.steps.llmLoop).startsWith("FAIL")) rep.steps.llmLoop = "skipped — no model reachable: " + String(rep.steps.llmLoop).slice(6, 90); });
+    // Done-when A: streaming + ferramentas na MESMA resposta. Arma uma ferramenta, pede ao
+    // modelo prosa seguida de UM bloco dxaction, e confirma que `onText` cresceu de forma
+    // incremental (tokens ao vivo) E que a ferramenta correu (toolsRun) na mesma volta.
+    await step("llmStreamTools", async () => {
+      const seen: string[] = [];
+      const lens: number[] = [];
+      const r = await desktopSample(
+        [{ role: "user", content: "Primeiro escreve uma frase curta a dizer que vais listar os ficheiros. Depois, numa linha nova, emite EXACTAMENTE este bloco e mais nada a seguir:\n```dxaction\n{\"tool\":\"list_files\",\"input\":{}}\n```" }],
+        { tools: [{ name: "list_files", description: "Lista os caminhos dos ficheiros do workspace.", inputSchema: { type: "object", properties: {} }, execute: async () => { seen.push("list_files"); return Object.keys(R.disk); } }], onText: ({ text }) => lens.push(text.length) },
+      );
+      const incremental = lens.length > 1 && lens[lens.length - 1] >= lens[0];
+      return { provider: r.provider, chunks: lens.length, incremental, toolsRun: seen, textLen: (r.text || "").length };
+    }).then(() => { if (String(rep.steps.llmStreamTools).startsWith("FAIL")) rep.steps.llmStreamTools = "skipped — no model reachable: " + String(rep.steps.llmStreamTools).slice(6, 110); });
+    // Done-when B: a superfície de delegação isolada (agent_task_*). submit → status(done,
+    // patch não-vazio) num worktree de HEAD sem tocar na árvore de trabalho; depois
+    // submit → cancel para provar o cancelamento. Corre sem modelo — é puro backend git.
+    await step("agentTask", async () => {
+      const res = await R.delegate!([["notes/delegated.txt", "escrito num worktree isolado pelo executor delegado\n"]]);
+      const patchHasFile = res.status === "done" && /delegated\.txt/.test(res.patch);
+      const untouched = !FS[ROOT + "notes/delegated.txt"]; // a delegação não toca na árvore real
+      const id = await inv("agent_task_submit", { root: R.root, writes: [["notes/cancel.txt", "x\n"]] }) as string;
+      const cancelled = await R.cancelTask!(id);
+      return { status: res.status, patchHasFile, patchLen: res.patch.length, untouched, cancelled };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

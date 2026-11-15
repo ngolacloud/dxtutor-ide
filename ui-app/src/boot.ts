@@ -1,7 +1,32 @@
-const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+// @ts-nocheck
+/* ═════════ dxtutor IDE — boot (monólito navegável) ═════════
+   Fase 5 da componentização: quarto e último módulo TypeScript do ui-app. boot.js
+   era o ÚNICO script clássico; agora toda a cadeia (boot→app→bridge→pair) é de
+   módulos ESM.
+
+   TUDO o que boot declara ao topo (funções, consts e mutáveis) vive no WINDOW, sem
+   binding léxico — `window.foo = …`, nunca `function foo(){…}`. Isto replica a
+   semântica do script clássico: num clássico, `function foo` ia ao object-record do
+   global, pelo que as chamadas internas do boot a nomes que o app redefine (hydrate,
+   svg, setPane, agCtl…) faziam late-binding e usavam a versão do app (que corre a
+   seguir e sobrepõe-se no window). Num módulo, `function foo` criaria um binding
+   léxico do módulo e as chamadas internas ficariam presas à versão do boot — por ex.
+   o buildDocker do boot chamaria a hydrate DESTRUTIVA do boot (innerHTML=) em vez da
+   NÃO-destrutiva do app (insertAdjacentHTML), apagando #st-model-l/#st-branch-l.
+   Com tudo window-backed, boot e app partilham UMA fonte por nome e o app continua a
+   ganhar onde redefine. @ts-nocheck: tipar fica para fase posterior. */
+export {};
+
+/* ── mutáveis partilhadas: window-backed SEM binding léxico. Fonte única, lida e
+   escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
+   Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
+   livre em modo estrito (módulo). ── */
+Object.assign(window, { toTimer: undefined, openMenu: null, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'], HIST: [], hidx: 0 });
+
+window.$=s=>document.querySelector(s);window.$$=s=>[...document.querySelectorAll(s)];
 
 /* ═════════ ICON LIBRARY (codicon-style SVG) ═════════ */
-const P={
+window.P={
   explorer:'<rect x="5.2" y="2.3" width="7" height="9.3" rx="1"/><path d="M5.2 4.6H3.8a1 1 0 0 0-1 1v7.1a1 1 0 0 0 1 1h5.9a1 1 0 0 0 1-1v-1.1"/>',
   search:'<circle cx="7" cy="7" r="4.1"/><path d="M10 10l3.6 3.6"/>',
   scm:'<circle cx="4.5" cy="3.6" r="1.7"/><circle cx="4.5" cy="12.4" r="1.7"/><circle cx="11.5" cy="6" r="1.7"/><path d="M4.5 5.3v5.4"/><path d="M11.5 7.7a4 4 0 0 1-4 4h-1.3"/>',
@@ -30,7 +55,6 @@ const P={
   collapse:'<path d="M9 2.5 6.5 5H8.5V8"/><path d="M5 11H3M7 5.5l4-4M11 11.5 9 9.5M11 9.5H9V11.5M2.5 7 5 9.5V11"/>',
   check:'<path d="M3 8.5 6.3 12 13 4.5"/>',
   plus:'<path d="M8 3v10M3 8h10"/>',
-  split:'<rect x="2" y="2.5" width="12" height="11" rx="1.2"/><path d="M8 2.5v11"/>',
   trash:'<path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 8.5a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.5"/>',
   close:'<path d="M4 4l8 8M12 4l-8 8"/>',
   'layout-side':'<rect x="2" y="2.5" width="12" height="11" rx="1.2"/><path d="M6 2.5v11"/>',
@@ -55,17 +79,17 @@ const P={
   popout:'<path d="M9 2.5h4.5V7"/><path d="M13.5 2.5 8 8"/><path d="M12 9v3.5a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1H7"/>',
   'dock-right':'<rect x="2" y="2.5" width="12" height="11" rx="1.2"/><path d="M9.5 2.5v11"/>',
 };
-function svg(name,cls){return `<svg class="ico${cls?' '+cls:''}" viewBox="0 0 16 16">${P[name]||P.file}</svg>`;}
-function hydrate(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.innerHTML=svg(el.dataset.ic);el.dataset.done=1;});}
+window.svg = function(name,cls){return `<svg class="ico${cls?' '+cls:''}" viewBox="0 0 16 16">${P[name]||P.file}</svg>`;}
+window.hydrate = function(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.innerHTML=svg(el.dataset.ic);el.dataset.done=1;});}
 
 /* ═════════ TOAST / CLOCK ═════════ */
-let toTimer;function toast(m){const t=$('#toast');t.textContent=m;t.style.opacity='1';t.style.transform='translateX(-50%) translateY(0)';clearTimeout(toTimer);toTimer=setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(-50%) translateY(20px)';},1600);}
-function tick(){const d=new Date(),p=n=>String(n).padStart(2,'0');const m=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d.getMonth()];$('#clock').textContent=`${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}-${m}`;}
+window.toast = function(m){const t=$('#toast');t.textContent=m;t.style.opacity='1';t.style.transform='translateX(-50%) translateY(0)';clearTimeout(toTimer);toTimer=setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(-50%) translateY(20px)';},1600);}
+window.tick = function(){const d=new Date(),p=n=>String(n).padStart(2,'0');const m=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d.getMonth()];$('#clock').textContent=`${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}-${m}`;}
 
 /* ═════════ ACTIVITY BAR ═════════ */
 // Activity bar NATIVA (VS Code core) + o Assistant próprio do dxtutor.
 // Ícones contribuídos por plugins NÃO entram aqui — vão para o overflow "…".
-const ACTS=[
+window.ACTS=[
   {ic:'explorer',pane:'explorer',title:'Explorer'},
   {ic:'search',pane:'search',title:'Search'},
   {ic:'scm',pane:'scm',title:'Source Control',badge:'3'},
@@ -78,31 +102,31 @@ const ACTS=[
   {ic:'settings',pane:'settings',title:'Settings'},
 ];
 // Vistas de plugin (só aparecem se o plugin estiver instalado) — vivem no overflow.
-const OVERFLOW=[
+window.OVERFLOW=[
   {l:'Remote Explorer',pane:'remote'},{l:'Containers',pane:'containers'},{l:'GitLens'},{l:'Python'},{l:'Launchpad'},
   {sep:1},
   {l:'Colab'},{l:'Cloud Code'},{l:'Google Cloud Data Agent Kit'},{l:'Firebase SQL Connect'},{l:'Kubernetes'},{l:'Makefile'},{l:'Prisma'},{l:'Ansible'},{l:'SonarQube Setup'},{l:'Trunk'},
 ];
-function buildActivity(){
+window.buildActivity = function(){
   const bar=$('#activity');
   ACTS.forEach((a,i)=>{const el=document.createElement('button');el.className='act'+(i===0?' on':'')+(a.spacer?' spacer':'');
     el.title=a.title;el.innerHTML=svg(a.ic)+(a.badge?`<span class="badge${a.accBadge?' acc':''}">${a.badge}</span>`:'');
     el.onclick=e=>{e.stopPropagation();if(a.overflow)openOverflow(el);else if(a.pane)setPane(a.pane,el);else toast(a.title);};bar.appendChild(el);});
 }
-function openOverflow(btn){closeMenus();const r=btn.getBoundingClientRect();const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
+window.openOverflow = function(btn){closeMenus();const r=btn.getBoundingClientRect();const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
   const title=document.createElement('div');title.className='mi';title.style.cssText='color:var(--fg-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;pointer-events:none';title.textContent='Additional Views';pop.appendChild(title);
   OVERFLOW.forEach(it=>{if(it.sep){const s=document.createElement('div');s.className='mi-sep';pop.appendChild(s);return;}
     const mi=document.createElement('div');mi.className='mi';mi.innerHTML=`<span>${it.l}</span>`+(it.pane?'':'<span class="key">plugin</span>');
     mi.onclick=e=>{e.stopPropagation();closeMenus();if(it.pane)setPane(it.pane);else toast(it.l+' — requer o plugin instalado');};pop.appendChild(mi);});
   let x=r.right+4,y=r.top;const h=pop.offsetHeight;if(y+h>innerHeight)y=innerHeight-h-6;pop.style.left=x+'px';pop.style.top=y+'px';}
-function setPane(p,el){
+window.setPane = function(p,el){
   $$('.act').forEach(a=>a.classList.remove('on'));
   if(el)el.classList.add('on');else{const idx=ACTS.findIndex(a=>a.pane===p);if(idx>=0)$$('.act')[idx].classList.add('on');}
   $$('.pane').forEach(x=>x.classList.remove('show'));const pe=$('#pane-'+p);if(pe)pe.classList.add('show');
 }
 
 /* ═════════ MENUS ═════════ */
-const MENUS=[
+window.MENUS=[
   {t:'File',items:[{l:'New Text File',k:'Ctrl+N'},{l:'New File…',k:'Ctrl+Alt+N'},{l:'New Window',k:'Ctrl+Shift+N'},{sep:1},{l:'Open File…',k:'Ctrl+O'},{l:'Open Folder…'},{l:'Open Recent',sub:[{l:'~/workspaces/NgolaCloud/projects'},{l:'~/workspaces/delonix-runtime'},{l:'~/workspaces/DORM'},{sep:1},{l:'Clear Recently Opened'}]},{sep:1},{l:'Save',k:'Ctrl+S'},{l:'Save As…',k:'Ctrl+Shift+S'},{l:'Save All'},{sep:1},{l:'Preferences',sub:[{l:'Settings',k:'Ctrl+,'},{l:'Keyboard Shortcuts'},{l:'Color Theme',sub:[{l:'Grafite laranja',on:1},{l:'Slate índigo'},{l:'Dark+ (clássico)'}]},{l:'Extensions'}]},{sep:1},{l:'Exit',k:'Ctrl+Q'}]},
   {t:'Edit',items:[{l:'Undo',k:'Ctrl+Z'},{l:'Redo',k:'Ctrl+Y'},{sep:1},{l:'Cut',k:'Ctrl+X'},{l:'Copy',k:'Ctrl+C'},{l:'Paste',k:'Ctrl+V'},{sep:1},{l:'Find',k:'Ctrl+F'},{l:'Replace',k:'Ctrl+H'},{l:'Find in Files',k:'Ctrl+Shift+F'}]},
   {t:'Selection',items:[{l:'Select All',k:'Ctrl+A'},{l:'Expand Selection',k:'Shift+Alt+→'},{sep:1},{l:'Add Cursor Above',k:'Ctrl+Alt+↑'},{l:'Add Cursor Below',k:'Ctrl+Alt+↓'},{l:'Select All Occurrences',k:'Ctrl+Shift+L'},{sep:1},{l:'Column Selection Mode'}]},
@@ -112,11 +136,10 @@ const MENUS=[
   {t:'Terminal',items:[{l:'New Terminal',k:'Ctrl+Shift+`'},{l:'Split Terminal',k:'Ctrl+Shift+5'},{sep:1},{l:'Run Task…'},{l:'Run Build Task…',k:'Ctrl+Shift+B'},{sep:1},{l:'Clear',act:'termClear'}]},
   {t:'Help',items:[{l:'Welcome'},{l:'Documentation'},{l:'Show All Commands',k:'Ctrl+Shift+P'},{sep:1},{l:'About dxtutor IDE'}]},
 ];
-let openMenu=null;
-function buildMenubar(){const mb=$('#menubar');MENUS.forEach((m,i)=>{const b=document.createElement('button');b.className='menu-top';b.textContent=m.t;b.onclick=e=>{e.stopPropagation();openMenu===i?closeMenus():showMenu(i,b);};b.onmouseenter=()=>{if(openMenu!==null&&openMenu!==i)showMenu(i,b);};mb.appendChild(b);});}
-function closeMenus(){$$('.menu-pop').forEach(p=>p.remove());$$('.menu-top').forEach(b=>b.classList.remove('open'));openMenu=null;}
-function showMenu(i,btn){closeMenus();openMenu=i;btn.classList.add('open');const r=btn.getBoundingClientRect();renderPop(MENUS[i].items,r.left,r.bottom+2);}
-function renderPop(items,x,y){const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
+window.buildMenubar = function(){const mb=$('#menubar');MENUS.forEach((m,i)=>{const b=document.createElement('button');b.className='menu-top';b.textContent=m.t;b.onclick=e=>{e.stopPropagation();openMenu===i?closeMenus():showMenu(i,b);};b.onmouseenter=()=>{if(openMenu!==null&&openMenu!==i)showMenu(i,b);};mb.appendChild(b);});}
+window.closeMenus = function(){$$('.menu-pop').forEach(p=>p.remove());$$('.menu-top').forEach(b=>b.classList.remove('open'));openMenu=null;}
+window.showMenu = function(i,btn){closeMenus();openMenu=i;btn.classList.add('open');const r=btn.getBoundingClientRect();renderPop(MENUS[i].items,r.left,r.bottom+2);}
+window.renderPop = function(items,x,y){const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
   items.forEach(it=>{if(it.sep){const s=document.createElement('div');s.className='mi-sep';pop.appendChild(s);return;}
     const mi=document.createElement('div');mi.className='mi'+(it.k?' has-key':'');let h='';
     if(it.on!==undefined||it.check!==undefined)h+=`<span class="mi-check">${(it.on||it.check)?'✓':''}</span>`;
@@ -128,7 +151,7 @@ function renderPop(items,x,y){const pop=document.createElement('div');pop.classN
 document.addEventListener('click',closeMenus);
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
-const TREE={projects:{dir:1,open:1,children:{
+window.TREE={projects:{dir:1,open:1,children:{
   '.claude':{dir:1},'.worktrees':{dir:1},'audits':{dir:1},
   'delonix-console':{dir:1,git:'u'},'delonix-deploy':{dir:1},'delonix-desktop':{dir:1,git:'m'},
   'delonix-mail':{dir:1,git:'m'},'delonix-runtime':{dir:1,git:'m'},'DORM':{dir:1},'dx':{dir:1},'dxjs':{dir:1},
@@ -144,14 +167,14 @@ const TREE={projects:{dir:1,open:1,children:{
   }},
   'ngolacloud-control-plane':{dir:1,git:'m'},'ngolacloud-control-plane_bkp':{dir:1},'seiva':{dir:1},'still-js':{dir:1},
 }}};
-const DOCS={
+window.DOCS={
   'lib.rs':[['cm','// Tokeniza uma expressão aritmética.'],['','<span class="kw">pub fn</span> <span class="fn">tokenize</span>(src: <span class="ty">&str</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">Token</span>&gt; {'],['','    <span class="kw">let mut</span> tokens = <span class="ty">Vec</span>::<span class="fn">new</span>();'],['','    <span class="kw">let mut</span> chars = src.<span class="fn">chars</span>().<span class="fn">peekable</span>();'],['err','    <span class="kw">for</span> c <span class="kw">in</span> chars {  <span class="cm">// ← E0382: use of moved value</span>'],['','        <span class="kw">if</span> c.<span class="fn">is_ascii_digit</span>() {'],['','            tokens.<span class="fn">push</span>(<span class="ty">Token</span>::<span class="ty">Num</span>(c));'],['','        }'],['','    }'],['','    <span class="mac">println!</span>(<span class="str">"{} tokens"</span>, tokens.<span class="fn">len</span>());'],['','    tokens'],['','}']],
   'assistant.ts':[['cm','// Painel Assistant — render das mensagens.'],['','<span class="kw">export function</span> <span class="fn">renderMessages</span>(): <span class="ty">void</span> {'],['','  <span class="kw">const</span> host = <span class="fn">$</span>(<span class="str">"#ag-msgs"</span>);'],['','  host.innerHTML = state.messages.<span class="fn">map</span>(<span class="fn">bubble</span>).<span class="fn">join</span>(<span class="str">""</span>);'],['','}']],
   'styles.css':[['cm','/* dxtutor — tema Grafite + laranja */'],['',':root {'],['','  --bg-base: <span class="num">#0f0f11</span>;'],['','  --accent: <span class="num">#e06c3b</span>;'],['','  --accent-hover: <span class="num">#f08a4b</span>;'],['','}']],
 };
-function iconFor(node,open){if(node.dir)return svg(open?'folderOpen':'folder',open?'':'folder-ic');return svg(node.t==='rust'?'rust':'file');}
-function iconClass(node){return node.dir?'folder':(node.t||'file');}
-function buildExplorer(){
+window.iconFor = function(node,open){if(node.dir)return svg(open?'folderOpen':'folder',open?'':'folder-ic');return svg(node.t==='rust'?'rust':'file');}
+window.iconClass = function(node){return node.dir?'folder':(node.t||'file');}
+window.buildExplorer = function(){
   const host=$('#exp-sections');host.innerHTML='';
   // Root folder section (projects) — file tree
   const treeSec=document.createElement('div');treeSec.className='section flexible';
@@ -175,7 +198,7 @@ function buildExplorer(){
     sec.appendChild(h);sec.appendChild(b);host.appendChild(sec);
   });
 }
-function renderLevel(obj,host,depth,path){
+window.renderLevel = function(obj,host,depth,path){
   Object.keys(obj).forEach(name=>{
     const node=obj[name];const pad=8+depth*12;
     const row=document.createElement('div');row.className='row'+(node.git?' git-'+node.git:'');row.style.paddingLeft=pad+'px';
@@ -197,51 +220,50 @@ function renderLevel(obj,host,depth,path){
     }
   });
 }
-function sel(r){$$('.row.sel').forEach(x=>x.classList.remove('sel'));r.classList.add('sel');}
-function collapseAll(){$$('#exp-sections .tree .row.open').forEach(r=>{r.classList.remove('open');const k=r.nextElementSibling;if(k&&k.classList.contains('children'))k.style.display='none';r.querySelector('.ic').innerHTML=svg('folder','folder-ic');});}
+window.sel = function(r){$$('.row.sel').forEach(x=>x.classList.remove('sel'));r.classList.add('sel');}
+window.collapseAll = function(){$$('#exp-sections .tree .row.open').forEach(r=>{r.classList.remove('open');const k=r.nextElementSibling;if(k&&k.classList.contains('children'))k.style.display='none';r.querySelector('.ic').innerHTML=svg('folder','folder-ic');});}
 
 /* ═════════ TABS / EDITOR ═════════ */
-let TABS=[],activeTab=null;
-function openFile(name,t){let x=TABS.find(o=>o.name===name);if(!x){x={name,t:t||'file'};TABS.push(x);}setActive(name);}
-function tabIcon(t){if(t==='chat'||t==='agent')return svg('sparkle','chat');if(t==='rust')return svg('rust','rs');if(t==='css')return svg('file','css');return svg('file');}
-function renderTabs(){const host=$('#tabs');host.innerHTML='';TABS.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.name===activeTab?' active':'');
+window.openFile = function(name,t){let x=TABS.find(o=>o.name===name);if(!x){x={name,t:t||'file'};TABS.push(x);}setActive(name);}
+window.tabIcon = function(t){if(t==='chat'||t==='agent')return svg('sparkle','chat');if(t==='rust')return svg('rust','rs');if(t==='css')return svg('file','css');return svg('file');}
+window.renderTabs = function(){const host=$('#tabs');host.innerHTML='';TABS.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.name===activeTab?' active':'');
   el.innerHTML=`<span class="ic ${t.t==='rust'?'rs':t.t==='css'?'css':t.t==='chat'||t.t==='agent'?'chat':''}">${tabIcon(t.t)}</span><span class="nm">${t.name}</span><button class="x" data-ic="close"></button>`;
   el.onclick=e=>{if(e.target.closest('.x')){closeTab(t.name);e.stopPropagation();return;}setActive(t.name);};host.appendChild(el);});hydrate();}
-function renderDocs(){const host=$('#ebody');TABS.forEach(t=>{if($('#doc-'+cid(t.name)))return;const d=document.createElement('div');d.className='doc';d.id='doc-'+cid(t.name);
+window.renderDocs = function(){const host=$('#ebody');TABS.forEach(t=>{if($('#doc-'+cid(t.name)))return;const d=document.createElement('div');d.className='doc';d.id='doc-'+cid(t.name);
   if(t.t==='chat')d.innerHTML=welcome();
   else if(t.t==='agent'){d.innerHTML=agentShell();host.appendChild(d);placeAgentCenter();return;}
   else{const lines=DOCS[t.name]||[['dim','// '+t.name+' — pré-visualização']];const code=document.createElement('div');code.className='code';
     lines.forEach((ln,i)=>{const r=document.createElement('div');r.className='cl'+(ln[0]==='err'?' err':'');r.innerHTML=`<span class="ln">${i+1}</span><span class="tx ${ln[0]!=='err'?ln[0]:''}">${ln[1]}</span>`;code.appendChild(r);});d.appendChild(code);}
   host.appendChild(d);});}
-function agentShell(){return `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Assistant</div><div class="ag-model"><span class="live"></span>opus-4.8</div><button class="ac-dock" onclick="assistantDock()">${svg('dock-right')} Dock à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`;}
-function placeAgentCenter(){const s=$('#agent-slot');if(s)s.append($('#ag-msgs'),$('#budget'),$('#ag-runctl'),$('#ag-compose'));}
-function placeAgentDock(){const a=$('#agent');if(a)a.append($('#ag-msgs'),$('#budget'),$('#ag-runctl'),$('#ag-compose'));}
-function agCtl(a){const msg={pause:'Pausa agendada para o fim do passo 5',stop:'Execução parada',details:'A abrir detalhes do passo 5 — Verificar a mudança',esc:'De volta à lista de etapas'}[a];toast(msg);if(a==='stop'){const rc=$('#ag-runctl');if(rc)rc.classList.add('hidden');}}
+window.agentShell = function(){return `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Assistant</div><div class="ag-model"><span class="live"></span>opus-4.8</div><button class="ac-dock" onclick="assistantDock()">${svg('dock-right')} Dock à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`;}
+window.placeAgentCenter = function(){const s=$('#agent-slot');if(s)s.append($('#ag-msgs'),$('#budget'),$('#ag-runctl'),$('#ag-compose'));}
+window.placeAgentDock = function(){const a=$('#agent');if(a)a.append($('#ag-msgs'),$('#budget'),$('#ag-runctl'),$('#ag-compose'));}
+window.agCtl = function(a){const msg={pause:'Pausa agendada para o fim do passo 5',stop:'Execução parada',details:'A abrir detalhes do passo 5 — Verificar a mudança',esc:'De volta à lista de etapas'}[a];toast(msg);if(a==='stop'){const rc=$('#ag-runctl');if(rc)rc.classList.add('hidden');}}
 document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test(e.target.tagName))return;
   const open=getComputedStyle(document.body).getPropertyValue('--agent-w').trim()!=='0px'||(activeTab==='Assistant');if(!open)return;
   const rc=$('#ag-runctl');if(e.key==='Escape'){agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
   const m={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
-function assistantCenter(){document.body.style.setProperty('--agent-w','0px');$('#tgl-agent').classList.remove('on');let x=TABS.find(o=>o.name==='Assistant');if(!x){x={name:'Assistant',t:'agent'};TABS.push(x);}setActive('Assistant');}
-function assistantDock(){closeTab('Assistant');}
-function cid(s){return s.replace(/[^a-z0-9]/gi,'_');}
-function setActive(name){activeTab=name;renderTabs();renderDocs();$$('.doc').forEach(d=>d.classList.remove('show'));const d=$('#doc-'+cid(name));if(d)d.classList.add('show');
+window.assistantCenter = function(){document.body.style.setProperty('--agent-w','0px');$('#tgl-agent').classList.remove('on');let x=TABS.find(o=>o.name==='Assistant');if(!x){x={name:'Assistant',t:'agent'};TABS.push(x);}setActive('Assistant');}
+window.assistantDock = function(){closeTab('Assistant');}
+window.cid = function(s){return s.replace(/[^a-z0-9]/gi,'_');}
+window.setActive = function(name){activeTab=name;renderTabs();renderDocs();$$('.doc').forEach(d=>d.classList.remove('show'));const d=$('#doc-'+cid(name));if(d)d.classList.add('show');
   const t=TABS.find(o=>o.name===name);$('#breadcrumbs').innerHTML=t?`<span class="crumb">dxtutor</span><span class="sep">›</span><span class="crumb">desktop</span><span class="sep">›</span><span class="crumb">src</span><span class="sep">›</span><span class="crumb" style="color:var(--fg)">${name}</span>`:'';
   renderMinimap(name);}
-function renderMinimap(name){const mm=$('#minimap'),scroll=$('#ebody'),t=TABS.find(o=>o.name===name);
+window.renderMinimap = function(name){const mm=$('#minimap'),scroll=$('#ebody'),t=TABS.find(o=>o.name===name);
   if(!t||t.t==='chat'||!DOCS[name]){mm.classList.add('hidden');scroll.classList.remove('with-mm');return;}
   mm.classList.remove('hidden');scroll.classList.add('with-mm');
   mm.innerHTML='<div class="mm-view"></div>'+DOCS[name].map(l=>{const len=(l[1]||'').replace(/<[^>]+>/g,'').length,w=Math.max(7,Math.min(52,len*1.05));return `<div class="mm-line${l[0]==='err'?' err':''}" style="width:${w}px"></div>`;}).join('');}
-function wireSections(scope){scope.querySelectorAll('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
-function buildDocker(){const pane=$('#pane-containers');pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
+window.wireSections = function(scope){scope.querySelectorAll('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
+window.buildDocker = function(){const pane=$('#pane-containers');pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
   const cts=[['kaeso-odoo','Exited (130) · 21 horas'],['ecm_val_364','Exited (1) · 2 dias'],['kaeso-odoo-ecm','Exited (255) · 39 min'],['lab-ao-odoo','Exited (0) · 5 dias']];
   $('#dk-containers').innerHTML=`<div class="row open" style="padding-left:8px"><span class="chev">${svg('chev')}</span><span class="ic" style="color:var(--fg-dim)">${svg('container')}</span><span class="nm">kaeso</span></div>`+
     cts.map(c=>`<div class="row" style="padding-left:30px"><span class="ct-dot"></span><span class="nm" style="flex:none">kaeso-odoo:16</span><span class="pth" style="margin-left:8px;overflow:hidden;text-overflow:ellipsis">${c[0]} · ${c[1]}</span></div>`).join('');
   $('#dk-images').innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row" style="padding-left:8px"><span class="chev">${svg('chev')}</span><span class="ic" style="color:var(--fg-dim)">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
   wireSections(pane);hydrate();}
-function closeTab(name){const i=TABS.findIndex(t=>t.name===name);if(i<0)return;
+window.closeTab = function(name){const i=TABS.findIndex(t=>t.name===name);if(i<0)return;
   if(name==='Assistant'){placeAgentDock();document.body.style.setProperty('--agent-w','380px');$('#tgl-agent').classList.add('on');}
   const d=$('#doc-'+cid(name));if(d)d.remove();TABS.splice(i,1);if(activeTab===name)activeTab=TABS.length?TABS[Math.max(0,i-1)].name:null;renderTabs();if(activeTab)setActive(activeTab);else $('#breadcrumbs').innerHTML='';}
-function welcome(){return `<div style="max-width:620px;margin:50px auto;padding:0 24px">
+window.welcome = function(){return `<div style="max-width:620px;margin:50px auto;padding:0 24px">
   <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><div style="font-size:26px;font-weight:300;letter-spacing:.4px">dxtutor <b style="font-weight:600">IDE</b></div></div>
   <div style="color:var(--fg-dim);font-size:13.5px;line-height:1.7;margin-bottom:26px">Protótipo navegável · organização do Antigravity · ícones SVG codicon. Clica à vontade: menus, Explorer (com secções), activity bar, tabs e o terminal em baixo.</div>
   <div style="display:grid;gap:9px">
@@ -249,36 +271,36 @@ function welcome(){return `<div style="max-width:620px;margin:50px auto;padding:
     ${wbtn('run','Experimentar o terminal','Escreve help · ls · git status',"setPanelTab('terminal');setTimeout(()=>{var c=document.getElementById('cmd');if(c)c.focus()},50)")}
     ${wbtn('sparkle','Falar com o Assistant','Painel à direita, com budget',"toggleAgentOn()")}
   </div></div>`;}
-function wbtn(ic,t,s,act){return `<button onclick="${act}" style="display:flex;align-items:center;gap:13px;text-align:left;background:var(--bg-elevated);border:1px solid var(--border);border-radius:11px;padding:13px 15px;width:100%"><span style="color:var(--accent-hover)">${svg(ic)}</span><span><span style="display:block;color:var(--fg);font-size:13.5px;font-weight:500">${t}</span><span style="color:var(--fg-muted);font-size:12px">${s}</span></span></button>`;}
+window.wbtn = function(ic,t,s,act){return `<button onclick="${act}" style="display:flex;align-items:center;gap:13px;text-align:left;background:var(--bg-elevated);border:1px solid var(--border);border-radius:11px;padding:13px 15px;width:100%"><span style="color:var(--accent-hover)">${svg(ic)}</span><span><span style="display:block;color:var(--fg);font-size:13.5px;font-weight:500">${t}</span><span style="color:var(--fg-muted);font-size:12px">${s}</span></span></button>`;}
 
 /* ═════════ BOTTOM PANEL ═════════ */
-function setPanelTab(pt){if(getComputedStyle(document.body).getPropertyValue('--panel-h').trim()==='0px')togglePanel();
+window.setPanelTab = function(pt){if(getComputedStyle(document.body).getPropertyValue('--panel-h').trim()==='0px')togglePanel();
   $$('.ptab').forEach(b=>b.classList.toggle('on',b.dataset.pt===pt));$$('.pcontent').forEach(c=>c.classList.remove('show'));const el=$('#pc-'+pt);if(el)el.classList.add('show');
   if(pt==='terminal'){const c=$('#cmd');if(c)c.focus();}}
-function togglePanel(){const c=getComputedStyle(document.body).getPropertyValue('--panel-h').trim();document.body.style.setProperty('--panel-h',c==='0px'?'230px':'0px');$('#tgl-panel').classList.toggle('on',c==='0px');}
-function toggleSide(){const c=getComputedStyle(document.body).getPropertyValue('--side-w').trim();document.body.style.setProperty('--side-w',c==='0px'?'250px':'0px');$('#tgl-side').classList.toggle('on',c!=='0px');}
+window.togglePanel = function(){const c=getComputedStyle(document.body).getPropertyValue('--panel-h').trim();document.body.style.setProperty('--panel-h',c==='0px'?'230px':'0px');$('#tgl-panel').classList.toggle('on',c==='0px');}
+window.toggleSide = function(){const c=getComputedStyle(document.body).getPropertyValue('--side-w').trim();document.body.style.setProperty('--side-w',c==='0px'?'250px':'0px');$('#tgl-side').classList.toggle('on',c!=='0px');}
 
 /* ═════════ AGENT ═════════ */
-function toggleAgent(){if(TABS.find(o=>o.name==='Assistant')){assistantDock();return;}const c=getComputedStyle(document.body).getPropertyValue('--agent-w').trim();const show=c==='0px';document.body.style.setProperty('--agent-w',show?'380px':'0px');$('#tgl-agent').classList.toggle('on',show);}
-function toggleAgentOn(){if(getComputedStyle(document.body).getPropertyValue('--agent-w').trim()==='0px')toggleAgent();}
-function agSend(){const i=$('#ag-input');if(!i.value.trim())return;const msgs=$('#ag-msgs');const q=i.value;
+window.toggleAgent = function(){if(TABS.find(o=>o.name==='Assistant')){assistantDock();return;}const c=getComputedStyle(document.body).getPropertyValue('--agent-w').trim();const show=c==='0px';document.body.style.setProperty('--agent-w',show?'380px':'0px');$('#tgl-agent').classList.toggle('on',show);}
+window.toggleAgentOn = function(){if(getComputedStyle(document.body).getPropertyValue('--agent-w').trim()==='0px')toggleAgent();}
+window.agSend = function(){const i=$('#ag-input');if(!i.value.trim())return;const msgs=$('#ag-msgs');const q=i.value;
   msgs.insertAdjacentHTML('beforeend',`<div class="m user"><div class="bub"><div class="bh"><span class="br2">você</span><span class="bt">agora</span></div><div class="bd">${q.replace(/</g,'&lt;')}</div></div></div>`);i.value='';msgs.scrollTop=msgs.scrollHeight;
   setTimeout(()=>{msgs.insertAdjacentHTML('beforeend',`<div class="m ai"><div class="bub"><div class="bh"><span>⊡</span><span class="br2">assistant</span><span class="bt">agora</span></div><div class="bd">Recebido: <code>${q.slice(0,40).replace(/</g,'&lt;')}</code>. (protótipo — sem backend)</div></div></div>`);msgs.scrollTop=msgs.scrollHeight;},250);}
 
 /* ═════════ TERMINAL ═════════ */
-let CWD=['~','workspaces','NgolaCloud','projects'],HIST=[],hidx=0;const USER='walter',HOST='delonix';
-function promptHTML(){return `<span class="pr"><span>${USER}</span><span class="at">@</span><span>${HOST}</span><span class="at">:</span><span class="pth">${CWD.join('/')}</span><span class="br"> (main)</span><span class="at">$</span></span> `;}
-function termNew(){termClear();}
-function termClear(){const t=$('#term');t.innerHTML='';echo(`<span class="ac">delonix shell</span> <span class="dim">· emulado · </span><span class="ok">help</span><span class="dim"> para começar</span>`);newInput();}
-function echo(h){const t=$('#term');const d=document.createElement('div');d.className='line';d.innerHTML=h;t.appendChild(d);scrollTerm();}
-function scrollTerm(){const p=$('#pc-terminal');p.scrollTop=p.scrollHeight;}
-function newInput(){const t=$('#term');const old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';t.appendChild(w);const c=$('#cmd');c.focus();c.onkeydown=onKey;scrollTerm();}
-function onKey(e){const c=e.target;if(e.key==='Enter'){const v=c.value;run(v);if(v.trim())HIST.push(v);hidx=HIST.length;}else if(e.key==='ArrowUp'){if(hidx>0){hidx--;c.value=HIST[hidx]||'';}e.preventDefault();}else if(e.key==='ArrowDown'){if(hidx<HIST.length-1){hidx++;c.value=HIST[hidx]||'';}else{hidx=HIST.length;c.value='';}e.preventDefault();}else if(e.key==='Tab'){e.preventDefault();complete(c);}else if(e.ctrlKey&&e.key==='l'){e.preventDefault();termClear();}}
-function dirAt(parts){let n=TREE.projects;for(const p of parts){if(!n.children||!n.children[p])return null;n=n.children[p];}return n;}
-function curDir(){return dirAt(CWD.slice(4));}
-function complete(c){const parts=c.value.split(' '),frag=parts[parts.length-1],d=curDir();if(!d||!d.children)return;const m=Object.keys(d.children).filter(x=>x.startsWith(frag));if(m.length===1){parts[parts.length-1]=m[0];c.value=parts.join(' ');}else if(m.length>1){echoCmd(c.value);echo('<span class="dim">'+m.join('   ')+'</span>');newInput();$('#cmd').value=c.value;}}
-function echoCmd(v){const w=$('#inputwrap');if(w)w.remove();echo(promptHTML()+'<span class="cmd">'+(v||'').replace(/</g,'&lt;')+'</span>');}
-function run(raw){echoCmd(raw);const v=raw.trim();if(!v){newInput();return;}const[cmd,...a]=v.split(/\s+/);
+window.USER='walter';window.HOST='delonix';
+window.promptHTML = function(){return `<span class="pr"><span>${USER}</span><span class="at">@</span><span>${HOST}</span><span class="at">:</span><span class="pth">${CWD.join('/')}</span><span class="br"> (main)</span><span class="at">$</span></span> `;}
+window.termNew = function(){termClear();}
+window.termClear = function(){const t=$('#term');t.innerHTML='';echo(`<span class="ac">delonix shell</span> <span class="dim">· emulado · </span><span class="ok">help</span><span class="dim"> para começar</span>`);newInput();}
+window.echo = function(h){const t=$('#term');const d=document.createElement('div');d.className='line';d.innerHTML=h;t.appendChild(d);scrollTerm();}
+window.scrollTerm = function(){const p=$('#pc-terminal');p.scrollTop=p.scrollHeight;}
+window.newInput = function(){const t=$('#term');const old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';t.appendChild(w);const c=$('#cmd');c.focus();c.onkeydown=onKey;scrollTerm();}
+window.onKey = function(e){const c=e.target;if(e.key==='Enter'){const v=c.value;run(v);if(v.trim())HIST.push(v);hidx=HIST.length;}else if(e.key==='ArrowUp'){if(hidx>0){hidx--;c.value=HIST[hidx]||'';}e.preventDefault();}else if(e.key==='ArrowDown'){if(hidx<HIST.length-1){hidx++;c.value=HIST[hidx]||'';}else{hidx=HIST.length;c.value='';}e.preventDefault();}else if(e.key==='Tab'){e.preventDefault();complete(c);}else if(e.ctrlKey&&e.key==='l'){e.preventDefault();termClear();}}
+window.dirAt = function(parts){let n=TREE.projects;for(const p of parts){if(!n.children||!n.children[p])return null;n=n.children[p];}return n;}
+window.curDir = function(){return dirAt(CWD.slice(4));}
+window.complete = function(c){const parts=c.value.split(' '),frag=parts[parts.length-1],d=curDir();if(!d||!d.children)return;const m=Object.keys(d.children).filter(x=>x.startsWith(frag));if(m.length===1){parts[parts.length-1]=m[0];c.value=parts.join(' ');}else if(m.length>1){echoCmd(c.value);echo('<span class="dim">'+m.join('   ')+'</span>');newInput();$('#cmd').value=c.value;}}
+window.echoCmd = function(v){const w=$('#inputwrap');if(w)w.remove();echo(promptHTML()+'<span class="cmd">'+(v||'').replace(/</g,'&lt;')+'</span>');}
+window.run = function(raw){echoCmd(raw);const v=raw.trim();if(!v){newInput();return;}const[cmd,...a]=v.split(/\s+/);
   const C={
     help(){echo(`<span class="ac">comandos:</span>\n<span class="ok">ls</span> [dir]   <span class="ok">cd</span> &lt;dir&gt;   <span class="ok">pwd</span>   <span class="ok">cat</span> &lt;f&gt;   <span class="ok">tree</span>\n<span class="ok">git</span> status|branch|log   <span class="ok">cargo</span> build|test\n<span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">neofetch</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
     ls(){const d=a[0]?dirAt(CWD.slice(4).concat(a[0].split('/').filter(Boolean))):curDir();if(!d||!d.children){echo('<span class="er">ls: '+(a[0]||'.')+': não encontrado</span>');return;}echo(Object.keys(d.children).map(n=>d.children[n].dir?`<span class="dir">${n}/</span>`:`<span class="${d.children[n].t==='rust'?'ac':''}">${n}</span>`).join('   ')||'<span class="dim">(vazio)</span>');},
@@ -296,8 +318,8 @@ function run(raw){echoCmd(raw);const v=raw.trim();if(!v){newInput();return;}cons
   let r;if(XC[cmd])r=XC[cmd](a,v);else if(C[cmd])r=C[cmd]();else echo('<span class="er">'+cmd+': comando não encontrado</span> <span class="dim">(help)</span>');if(r!=='skip'&&r!=='async')newInput();}
 
 /* ═════════ PROBLEMS ═════════ */
-function buildProblems(){$('#pc-problems').innerHTML=[['e','E0382: use of moved value: `chars`','desktop/src/lib.rs:5'],['w','variável `peek` nunca usada','desktop/src/parser.rs:22'],['w','preferir `while let` a `loop`+`match`','desktop/src/main.rs:88'],['w','import não usado: `std::fmt`','desktop/src/i18n.ts:3']].map(d=>`<div class="prob"><span class="pi ${d[0]}">${d[0]==='e'?'✖':'⚠'}</span><span><span>${d[1]}</span> <span class="ploc">${d[2]}</span></span></div>`).join('');}
+window.buildProblems = function(){$('#pc-problems').innerHTML=[['e','E0382: use of moved value: `chars`','desktop/src/lib.rs:5'],['w','variável `peek` nunca usada','desktop/src/parser.rs:22'],['w','preferir `while let` a `loop`+`match`','desktop/src/main.rs:88'],['w','import não usado: `std::fmt`','desktop/src/i18n.ts:3']].map(d=>`<div class="prob"><span class="pi ${d[0]}">${d[0]==='e'?'✖':'⚠'}</span><span><span>${d[1]}</span> <span class="ploc">${d[2]}</span></span></div>`).join('');}
 
 /* ═════════ RESIZE ═════════ */
-function mkRz(el,v,base,min,max,inv){el.onmousedown=e=>{e.preventDefault();el.classList.add('drag');const sx=e.clientX,start=parseInt(getComputedStyle(document.body).getPropertyValue(v))||base;const mv=ev=>{let d=ev.clientX-sx;if(inv)d=-d;document.body.style.setProperty(v,Math.min(max,Math.max(min,start+d))+'px');};const up=()=>{el.classList.remove('drag');removeEventListener('mousemove',mv);removeEventListener('mouseup',up);};addEventListener('mousemove',mv);addEventListener('mouseup',up);};}
+window.mkRz = function(el,v,base,min,max,inv){el.onmousedown=e=>{e.preventDefault();el.classList.add('drag');const sx=e.clientX,start=parseInt(getComputedStyle(document.body).getPropertyValue(v))||base;const mv=ev=>{let d=ev.clientX-sx;if(inv)d=-d;document.body.style.setProperty(v,Math.min(max,Math.max(min,start+d))+'px');};const up=()=>{el.classList.remove('drag');removeEventListener('mousemove',mv);removeEventListener('mouseup',up);};addEventListener('mousemove',mv);addEventListener('mouseup',up);};}
 
