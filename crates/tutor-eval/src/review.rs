@@ -1,0 +1,1442 @@
+//! Offline code review over REAL project files (not the guided snippets).
+//!
+//! This is the AI-independent primary review layer: it runs whatever local
+//! analyzers are available (Rust `cargo`/Clippy, Go `go vet`, Python Ruff) over a
+//! real project and turns their output into a rich [`Finding`] model — origin,
+//! rule, location (with cross-file related spans), severity, class, evidence,
+//! consequence and how to verify a fix. It must work with the network down and no
+//! model configured; it reports which analyzers ran, which failed and what was
+//! covered, so a missing tool degrades honestly instead of pretending "no issues".
+//!
+//! Reuses the `tutor-eval` sandbox harness ([`run_guarded`]) so a runaway analyzer
+//! is killed by wall-clock with its whole process group.
+
+use std::path::Path;
+use std::process::Command;
+use std::time::Duration;
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+use crate::runner::{configure_cargo_env, run_guarded};
+
+/// Wall-clock cap for a single analyzer invocation over a real project.
+const REVIEW_TIMEOUT: Duration = Duration::from_secs(180);
+
+// ── The finding model ───────────────────────────────────────────────────────────
+
+/// How strong a finding's claim is. The distinction is the honesty contract of the
+/// review: we never call a style lint a bug, nor a compile error a mere suggestion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FindingClass {
+    /// Demonstrated defect — e.g. the code does not compile, or a provably wrong use.
+    Bug,
+    /// Conditional risk — a latent problem that bites under some reachable condition.
+    Risk,
+    /// Optional improvement — correct today, but clearer/faster/simpler if changed.
+    Opportunity,
+}
+
+/// Severity as surfaced to the editor (maps onto Monaco marker severities).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewSeverity {
+    Error,
+    Warning,
+    Info,
+}
+
+/// A location in the project. Lines/columns are 1-based; `file` is whatever path the
+/// analyzer reported (usually project-relative), echoed verbatim so the UI can open it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Span {
+    pub file: String,
+    pub start_line: u32,
+    pub start_col: u32,
+    pub end_line: u32,
+    pub end_col: u32,
+    /// An analyzer-provided label for this span (e.g. "value moved here"), if any.
+    pub label: Option<String>,
+}
+
+/// One review finding, carrying every field the panel needs: origin, rule,
+/// location + related locations (cross-file evidence), severity, class, and the
+/// honest "what is the evidence / what breaks / how do I verify the fix" triple.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Finding {
+    /// Where it came from: "clippy", "rustc", "go vet", "ruff", …
+    pub analyzer: String,
+    /// Rule / lint / error code when the analyzer gives one (e.g. "clippy::needless_return", "E0382", "F821").
+    pub rule: Option<String>,
+    pub class: FindingClass,
+    pub severity: ReviewSeverity,
+    pub message: String,
+    /// Primary location — the expression/line the finding anchors to.
+    pub primary: Span,
+    /// Related locations (notes/help, the other side of a move, a cross-file cause).
+    pub related: Vec<Span>,
+    /// The concrete evidence (a span label or snippet), when the analyzer supplies it.
+    pub evidence: Option<String>,
+    /// What goes wrong if left unaddressed.
+    pub consequence: Option<String>,
+    /// How to confirm a fix.
+    pub verification: Option<String>,
+    /// A machine-applicable fix the analyzer itself proposes (Clippy/Ruff), ready to
+    /// drop into the editor as a placeholder. `None` when the tool offers no auto-fix.
+    pub fix: Option<SuggestedFix>,
+}
+
+/// One edit of a fix: replace the given span with `replacement` (empty = delete).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixEdit {
+    pub replacement: String,
+    pub file: String,
+    pub start_line: u32,
+    pub start_col: u32,
+    pub end_line: u32,
+    pub end_col: u32,
+    /// The EXACT source text this edit expects to be replacing, captured when the
+    /// analyzer ran. Before applying, [`verify_fix`] re-reads the span and refuses if
+    /// it no longer matches — a line-addressed edit must never land on code that drifted
+    /// since the review. Empty when the analyzer did not report the original text.
+    #[serde(default)]
+    pub expected: String,
+}
+
+/// A machine-applicable fix: ALL its edits must be applied together (a partial apply
+/// can break the file). Only built from suggestions the analyzer marks safe to apply
+/// automatically (clippy `MachineApplicable`, Ruff `safe`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestedFix {
+    /// Human title, e.g. "replace with `x`", "remove this", or "apply 2 edits".
+    pub title: String,
+    pub edits: Vec<FixEdit>,
+}
+
+// ── Revision identity (P0: a stale fix must never touch other lines) ─────────────
+
+/// A stable, dependency-free content token for a buffer (FNV-1a, 64-bit, hex). Two
+/// buffers hashing equal are byte-identical; a fix computed against one is safe to
+/// apply to the other. The frontend mirrors this exact function so a result computed
+/// over revision *v* is dropped the moment the buffer is no longer *v*.
+pub fn content_version(source: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in source.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// Extract the text of a 1-based `[start..end]` span (end column exclusive) from
+/// `source`. Returns `None` when the span falls outside the buffer.
+fn span_text(source: &str, sl: u32, sc: u32, el: u32, ec: u32) -> Option<String> {
+    let lines: Vec<&str> = source.split('\n').collect();
+    let (sli, eli) = (sl as usize, el as usize);
+    if sl == 0 || el == 0 || sli > lines.len() || eli > lines.len() || sl > el {
+        return None;
+    }
+    if sl == el {
+        let chars: Vec<char> = lines[sli - 1].chars().collect();
+        let a = (sc as usize).saturating_sub(1).min(chars.len());
+        let b = (ec as usize).saturating_sub(1).min(chars.len());
+        if b < a {
+            return None;
+        }
+        return Some(chars[a..b].iter().collect());
+    }
+    let mut out = String::new();
+    for l in sli..=eli {
+        let chars: Vec<char> = lines[l - 1].chars().collect();
+        if l == sli {
+            let a = (sc as usize).saturating_sub(1).min(chars.len());
+            out.extend(&chars[a..]);
+        } else if l == eli {
+            let b = (ec as usize).saturating_sub(1).min(chars.len());
+            out.push('\n');
+            out.extend(&chars[..b]);
+        } else {
+            out.push('\n');
+            out.extend(&chars[..]);
+        }
+    }
+    Some(out)
+}
+
+/// The verdict of checking a fix against the current buffer before applying it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FixVerification {
+    pub applicable: bool,
+    pub reason: String,
+}
+
+/// Verify a fix is still safe to apply to `current_source`, given the `analyzed_version`
+/// the review was computed against. The identity gate is byte-level: if the buffer no
+/// longer hashes to `analyzed_version` the fix is refused (its line/column spans may
+/// now point at unrelated code), so the developer's edits are preserved and they are
+/// asked to re-run. When spans still carry their expected snippet, each one is also
+/// re-checked as a defence in depth.
+pub fn verify_fix(
+    current_source: &str,
+    analyzed_version: &str,
+    fix: &SuggestedFix,
+) -> FixVerification {
+    if content_version(current_source) != analyzed_version {
+        return FixVerification {
+            applicable: false,
+            reason: "the buffer changed since the review ran — re-run Review".into(),
+        };
+    }
+    for e in &fix.edits {
+        if e.expected.is_empty() {
+            continue;
+        }
+        let actual = span_text(current_source, e.start_line, e.start_col, e.end_line, e.end_col);
+        if actual.as_deref() != Some(e.expected.as_str()) {
+            return FixVerification {
+                applicable: false,
+                reason: format!(
+                    "the code at {}:{} no longer matches the reviewed snippet — re-run Review",
+                    e.start_line, e.start_col
+                ),
+            };
+        }
+    }
+    FixVerification {
+        applicable: true,
+        reason: String::new(),
+    }
+}
+
+// ── Analyzer availability & run report ──────────────────────────────────────────
+
+/// A locally-installed analyzer the review can use, with its probed version.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzerInfo {
+    pub id: String,
+    pub language: String,
+    pub available: bool,
+    pub version: Option<String>,
+    /// Why it is unavailable, or any caveat.
+    pub note: Option<String>,
+}
+
+/// What happened to one analyzer during a review pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnalyzerStatus {
+    /// Ran and produced results (possibly zero findings).
+    Ran,
+    /// Started but failed (timeout, offline deps missing, crash).
+    Failed,
+    /// Not installed on this host.
+    Unavailable,
+    /// Not applicable to the selected scope (no files of its language).
+    Skipped,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzerRun {
+    pub id: String,
+    pub language: String,
+    pub status: AnalyzerStatus,
+    /// Human-readable detail (failure reason, coverage note).
+    pub detail: Option<String>,
+    pub files_covered: usize,
+}
+
+/// The scope the developer chose to review.
+#[derive(Debug, Clone)]
+pub enum ReviewScope {
+    /// Just this one file (findings from other files are filtered out).
+    File(String),
+    /// Files with uncommitted changes (via `git`), falling back to the whole project.
+    WorkingChanges,
+    /// The whole project.
+    Project,
+}
+
+/// The full result of a review pass: the findings plus an honest coverage report.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewReport {
+    pub findings: Vec<Finding>,
+    pub analyzers: Vec<AnalyzerRun>,
+    /// Echoed document/content version so a late result never paints over new code.
+    pub version: Option<String>,
+    /// Content version ([`content_version`]) of each analyzed file, keyed by the SAME
+    /// path string the findings use. The frontend compares the live buffer against this
+    /// before painting a marker or applying a fix, so a result computed over an older
+    /// revision is dropped instead of landing on code that has since changed.
+    pub file_versions: std::collections::BTreeMap<String, String>,
+}
+
+// ── Availability detection ──────────────────────────────────────────────────────
+
+/// Probes a tool's version by running `prog args…` and capturing the first output
+/// line. Returns `None` if the program is absent or errors.
+fn probe_version(prog: &str, args: &[&str]) -> Option<String> {
+    let out = Command::new(prog).args(args).output().ok()?;
+    if !out.status.success() && out.stdout.is_empty() {
+        return None;
+    }
+    let text = if out.stdout.is_empty() {
+        String::from_utf8_lossy(&out.stderr)
+    } else {
+        String::from_utf8_lossy(&out.stdout)
+    };
+    text.lines().next().map(|l| l.trim().to_string())
+}
+
+/// The `go` binary: prefer the standard install path, fall back to PATH.
+fn go_bin() -> String {
+    let p = "/usr/local/go/bin/go";
+    if Path::new(p).exists() {
+        p.to_string()
+    } else {
+        "go".to_string()
+    }
+}
+
+/// Detect which review analyzers are installed on this host. Drives the honest
+/// "which analyzers worked" report and lets the UI advertise real capability.
+pub fn detect_analyzers() -> Vec<AnalyzerInfo> {
+    let info = |id: &str, language: &str, version: Option<String>, note: Option<String>| AnalyzerInfo {
+        id: id.to_string(),
+        language: language.to_string(),
+        available: version.is_some(),
+        version,
+        note,
+    };
+
+    vec![
+        info("cargo", "rust", probe_version("cargo", &["--version"]), None),
+        info(
+            "clippy",
+            "rust",
+            probe_version("cargo", &["clippy", "--version"]),
+            Some("Lints beyond the compiler.".into()),
+        ),
+        info(
+            "rust-analyzer",
+            "rust",
+            probe_version("rust-analyzer", &["--version"]),
+            Some("Semantic engine for the CodeMap.".into()),
+        ),
+        info("go", "go", probe_version(&go_bin(), &["version"]), None),
+        info(
+            "gopls",
+            "go",
+            probe_version("gopls", &["version"]),
+            Some("Semantic engine for Go review and the CodeMap.".into()),
+        ),
+        info("ruff", "python", probe_version("ruff", &["--version"]), None),
+        info("python", "python", probe_version("python3", &["--version"]), None),
+    ]
+}
+
+// ── Public entry point ──────────────────────────────────────────────────────────
+
+/// Review `root` at the given `scope`. Runs every applicable, available analyzer,
+/// returning the findings plus a per-analyzer coverage report. `version` is echoed
+/// back untouched so the caller can drop a result that is stale for the buffer.
+///
+/// Analyzers are additive: today Rust (Clippy/cargo) is wired; Go and Python slot in
+/// behind the same `AnalyzerRun`/`Finding` contract without changing this signature.
+pub fn review(root: &Path, scope: &ReviewScope, version: Option<String>) -> Result<ReviewReport> {
+    let mut findings = Vec::new();
+    let mut analyzers = Vec::new();
+
+    // ── Rust ────────────────────────────────────────────────────────────────────
+    if root.join("Cargo.toml").exists() {
+        let (run, mut rust_findings) = review_rust(root, scope);
+        analyzers.push(run);
+        findings.append(&mut rust_findings);
+    }
+
+    // ── Go ──────────────────────────────────────────────────────────────────────
+    if root.join("go.mod").exists() {
+        let (run, mut go_findings) = review_go(root, scope);
+        analyzers.push(run);
+        findings.append(&mut go_findings);
+    }
+
+    // ── Python ──────────────────────────────────────────────────────────────────
+    if scope_has_python(root, scope) {
+        let (run, mut py_findings) = review_python(root, scope);
+        analyzers.push(run);
+        findings.append(&mut py_findings);
+    }
+
+    dedup_findings(&mut findings); // `--all-targets` lints lib+test → same finding twice
+
+    // Snapshot the on-disk content version of every file a finding points at (keyed by
+    // the finding's own path string), so the frontend can refuse a stale apply/paint.
+    let mut file_versions = std::collections::BTreeMap::new();
+    for f in &findings {
+        let key = f.primary.file.clone();
+        if file_versions.contains_key(&key) {
+            continue;
+        }
+        let abs = resolve_under(root, &key);
+        if let Ok(src) = std::fs::read_to_string(&abs) {
+            file_versions.insert(key, content_version(&src));
+        }
+    }
+
+    Ok(ReviewReport {
+        findings,
+        analyzers,
+        version,
+        file_versions,
+    })
+}
+
+/// Resolve an analyzer-reported path (often relative like `src/x.rs` or `./x`) to an
+/// absolute path under `root`. Absolute paths are returned unchanged.
+fn resolve_under(root: &Path, file: &str) -> std::path::PathBuf {
+    let trimmed = file.strip_prefix("./").unwrap_or(file);
+    let p = Path::new(trimmed);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        root.join(trimmed)
+    }
+}
+
+/// Drop duplicate findings (same analyzer/rule/location/message), e.g. a lib warning
+/// reported once under the lib target and once under its unit-test target.
+fn dedup_findings(findings: &mut Vec<Finding>) {
+    let mut seen = std::collections::HashSet::new();
+    findings.retain(|f| {
+        seen.insert((
+            f.analyzer.clone(),
+            f.rule.clone().unwrap_or_default(),
+            f.primary.file.clone(),
+            f.primary.start_line,
+            f.primary.start_col,
+            f.message.clone(),
+        ))
+    });
+}
+
+// ── Rust adapter ────────────────────────────────────────────────────────────────
+
+/// Runs Clippy (or `cargo check` when Clippy is absent) over the Rust project and
+/// parses the compiler JSON stream into findings, filtered to `scope`.
+fn review_rust(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) {
+    let clippy = probe_version("cargo", &["clippy", "--version"]).is_some();
+    let (tool, subcmd) = if clippy { ("clippy", "clippy") } else { ("rustc", "check") };
+
+    let mut cmd = Command::new("cargo");
+    cmd.args([subcmd, "--quiet", "--message-format=json", "--all-targets"]);
+    cmd.current_dir(root);
+    configure_cargo_env(&mut cmd);
+
+    // The guard writes stdout/stderr to files in a scratch dir, not the project.
+    let scratch = match tempfile::Builder::new().prefix("dxtutor-review-").tempdir() {
+        Ok(d) => d,
+        Err(e) => {
+            return (
+                failed_run(tool, "rust", format!("scratch dir: {e}")),
+                Vec::new(),
+            )
+        }
+    };
+
+    let outcome = match run_guarded(cmd, scratch.path(), "review", REVIEW_TIMEOUT, None) {
+        Ok(o) => o,
+        Err(e) => return (failed_run(tool, "rust", format!("spawn: {e}")), Vec::new()),
+    };
+
+    if outcome.timed_out {
+        return (
+            failed_run(tool, "rust", format!("timed out after {}s", REVIEW_TIMEOUT.as_secs())),
+            Vec::new(),
+        );
+    }
+
+    let mut findings = parse_cargo_json(&outcome.stdout, tool);
+
+    // Offline builds with uncached deps fail before linting: surface that honestly
+    // instead of reporting a misleading "no issues".
+    if findings.is_empty() && outcome.status.map(|s| !s.success()).unwrap_or(true) {
+        let reason = first_nonempty_line(&outcome.stderr)
+            .unwrap_or_else(|| "cargo exited non-zero with no diagnostics".into());
+        return (failed_run(tool, "rust", reason), Vec::new());
+    }
+
+    findings.retain(|f| !is_noise_path(&f.primary.file)); // drop target/ generated code
+    let mut covered = count_scope_files(&findings, scope);
+    filter_scope(&mut findings, scope, root);
+
+    // LOOSE-FILE fallback: a single-file scope that `cargo clippy --all-targets` never
+    // compiled (it is not a cargo target — e.g. an orphan `examples/…/main.rs`) comes back
+    // with 0 covered files, which reads as a misleading "clean" even when the file does not
+    // compile. Compile THAT file standalone with rustc so its real errors surface — the same
+    // reasoning as the Explorer runner (a loose file ≠ a cargo target).
+    let mut detail = if clippy {
+        None
+    } else {
+        Some("Clippy not installed — compiler checks only.".to_string())
+    };
+    if covered == 0 {
+        if let ReviewScope::File(path) = scope {
+            let p = Path::new(path);
+            if p.extension().and_then(|e| e.to_str()) == Some("rs") && p.is_file() {
+                let standalone = rustc_check_file(p, scratch.path());
+                if !standalone.is_empty() {
+                    covered = 1;
+                    findings = standalone;
+                    detail = Some("Ficheiro solto — verificado standalone com rustc.".to_string());
+                }
+            }
+        }
+    }
+
+    (
+        AnalyzerRun {
+            id: tool.to_string(),
+            language: "rust".into(),
+            status: AnalyzerStatus::Ran,
+            detail,
+            files_covered: covered,
+        },
+        findings,
+    )
+}
+
+/// Compile a LOOSE `.rs` file standalone with `rustc --emit=metadata` and turn its
+/// JSON diagnostics into findings. rustc prints the compiler-message JSON on STDERR and
+/// without cargo's `{"reason":"compiler-message", …}` wrapper, so we re-wrap each line
+/// and reuse [`parse_cargo_json`]. Used when a File-scope review wasn't covered by cargo.
+fn rustc_check_file(file: &Path, scratch_dir: &Path) -> Vec<Finding> {
+    let out = scratch_dir.join("dxtutor-review-meta");
+    let mut cmd = Command::new("rustc");
+    cmd.args(["--edition", "2021", "--error-format=json", "--emit=metadata", "-o"])
+        .arg(&out)
+        .arg(file);
+    if let Some(dir) = file.parent() {
+        cmd.current_dir(dir);
+    }
+    let outcome = match run_guarded(cmd, scratch_dir, "review-rustc", REVIEW_TIMEOUT, None) {
+        Ok(o) => o,
+        Err(_) => return Vec::new(),
+    };
+    let wrapped = outcome
+        .stderr
+        .lines()
+        .filter_map(|l| {
+            let l = l.trim();
+            if l.is_empty() {
+                return None;
+            }
+            let v: serde_json::Value = serde_json::from_str(l).ok()?;
+            // Keep only diagnostic objects (they carry a "level"); wrap as cargo would.
+            v.get("level").and_then(|x| x.as_str())?;
+            Some(serde_json::json!({ "reason": "compiler-message", "message": v }).to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    parse_cargo_json(&wrapped, "rustc")
+}
+
+fn failed_run(tool: &str, language: &str, detail: impl Into<String>) -> AnalyzerRun {
+    AnalyzerRun {
+        id: tool.to_string(),
+        language: language.to_string(),
+        status: AnalyzerStatus::Failed,
+        detail: Some(detail.into()),
+        files_covered: 0,
+    }
+}
+
+/// Parse `cargo --message-format=json` output (one JSON object per line) into
+/// findings. Only `compiler-message` records with a primary span become findings;
+/// child notes/help turn into related spans.
+fn parse_cargo_json(stdout: &str, tool: &str) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let v: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if v.get("reason").and_then(|r| r.as_str()) != Some("compiler-message") {
+            continue;
+        }
+        let msg = match v.get("message") {
+            Some(m) => m,
+            None => continue,
+        };
+        let level = msg.get("level").and_then(|l| l.as_str()).unwrap_or("");
+        // Skip pure note/help top-level records; they appear as children of a real one.
+        let severity = match level {
+            "error" | "error: internal compiler error" => ReviewSeverity::Error,
+            "warning" => ReviewSeverity::Warning,
+            _ => continue,
+        };
+
+        let text = msg
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("")
+            .to_string();
+        // "aborting due to N previous errors" etc. carry no span — skip summaries.
+        let rule = msg
+            .get("code")
+            .and_then(|c| c.get("code"))
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string());
+
+        let spans = msg.get("spans").and_then(|s| s.as_array());
+        let (primary, related) = match split_spans(spans) {
+            Some(pair) => pair,
+            None => continue, // no location → not an actionable finding
+        };
+
+        // Children (notes/help) contribute related spans and evidence.
+        let mut related = related;
+        if let Some(children) = msg.get("children").and_then(|c| c.as_array()) {
+            for child in children {
+                if let Some(cspans) = child.get("spans").and_then(|s| s.as_array()) {
+                    for s in cspans {
+                        if let Some(span) = span_from_json(s) {
+                            related.push(span);
+                        }
+                    }
+                }
+            }
+        }
+
+        let evidence = primary.label.clone();
+        let analyzer = finding_analyzer(tool, rule.as_deref());
+        let class = classify(severity, rule.as_deref());
+        let fix = cargo_fix(msg);
+
+        out.push(Finding {
+            analyzer,
+            rule,
+            class,
+            severity,
+            message: text,
+            consequence: consequence_for(class),
+            verification: Some(
+                "Apply the change and re-run Code Review; the finding clears when the analyzer no longer reports it.".into(),
+            ),
+            evidence,
+            primary,
+            related,
+            fix,
+        });
+    }
+    out
+}
+
+/// Pick the primary span and collect the rest as related. Returns `None` when there
+/// is no span at all.
+fn split_spans(spans: Option<&Vec<serde_json::Value>>) -> Option<(Span, Vec<Span>)> {
+    let spans = spans?;
+    let mut primary = None;
+    let mut related = Vec::new();
+    for s in spans {
+        let is_primary = s.get("is_primary").and_then(|b| b.as_bool()).unwrap_or(false);
+        if let Some(span) = span_from_json(s) {
+            if is_primary && primary.is_none() {
+                primary = Some(span);
+            } else {
+                related.push(span);
+            }
+        }
+    }
+    // If nothing was flagged primary, promote the first span.
+    let primary = primary.or_else(|| {
+        if related.is_empty() {
+            None
+        } else {
+            Some(related.remove(0))
+        }
+    })?;
+    Some((primary, related))
+}
+
+fn span_from_json(s: &serde_json::Value) -> Option<Span> {
+    let file = s.get("file_name")?.as_str()?.to_string();
+    let start_line = s.get("line_start")?.as_u64()? as u32;
+    let end_line = s.get("line_end").and_then(|l| l.as_u64()).unwrap_or(start_line as u64) as u32;
+    let start_col = s.get("column_start").and_then(|c| c.as_u64()).unwrap_or(1) as u32;
+    let end_col = s.get("column_end").and_then(|c| c.as_u64()).unwrap_or(start_col as u64) as u32;
+    let label = s
+        .get("label")
+        .and_then(|l| l.as_str())
+        .map(|l| l.to_string());
+    Some(Span {
+        file,
+        start_line,
+        start_col,
+        end_line,
+        end_col,
+        label,
+    })
+}
+
+/// The reporting origin: a `clippy::` code means Clippy even when invoked via cargo.
+fn finding_analyzer(tool: &str, rule: Option<&str>) -> String {
+    match rule {
+        Some(r) if r.starts_with("clippy::") => "clippy".into(),
+        _ if tool == "clippy" => "rustc".into(), // clippy run, but this one is a compiler diagnostic
+        _ => "rustc".into(),
+    }
+}
+
+/// Honest class mapping. A compile error is a demonstrated bug; a plain rustc
+/// warning is a conditional risk; a Clippy lint is an optional improvement. (This is
+/// deliberately conservative; a Clippy-correctness allowlist can refine it later.)
+fn classify(severity: ReviewSeverity, rule: Option<&str>) -> FindingClass {
+    match severity {
+        ReviewSeverity::Error => FindingClass::Bug,
+        _ => match rule {
+            Some(r) if r.starts_with("clippy::") => FindingClass::Opportunity,
+            _ => FindingClass::Risk,
+        },
+    }
+}
+
+fn consequence_for(class: FindingClass) -> Option<String> {
+    match class {
+        FindingClass::Bug => Some("The code does not compile as written.".into()),
+        FindingClass::Risk => Some("May misbehave under some reachable condition.".into()),
+        FindingClass::Opportunity => None,
+    }
+}
+
+fn unavailable_run(tool: &str, language: &str, detail: impl Into<String>) -> AnalyzerRun {
+    AnalyzerRun {
+        id: tool.to_string(),
+        language: language.to_string(),
+        status: AnalyzerStatus::Unavailable,
+        detail: Some(detail.into()),
+        files_covered: 0,
+    }
+}
+
+// ── Go adapter (`go vet`) ───────────────────────────────────────────────────────
+
+/// Runs `go vet ./...` over the module and turns each `file:line:col: message` into a
+/// conditional-risk finding (vet flags suspicious-but-compiling constructs — a
+/// `Printf` format/arg mismatch is the canonical example).
+fn review_go(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) {
+    let go = go_bin();
+    if probe_version(&go, &["version"]).is_none() {
+        return (unavailable_run("go vet", "go", "Go toolchain not installed."), Vec::new());
+    }
+    let scratch = match tempfile::Builder::new().prefix("dxtutor-review-go-").tempdir() {
+        Ok(d) => d,
+        Err(e) => return (failed_run("go vet", "go", format!("scratch dir: {e}")), Vec::new()),
+    };
+    let mut cmd = Command::new(&go);
+    cmd.args(["vet", "./..."]);
+    cmd.current_dir(root);
+    cmd.env("GOTOOLCHAIN", "local"); // never pull a toolchain mid-review
+    let outcome = match run_guarded(cmd, scratch.path(), "review-go", REVIEW_TIMEOUT, None) {
+        Ok(o) => o,
+        Err(e) => return (failed_run("go vet", "go", format!("spawn: {e}")), Vec::new()),
+    };
+    if outcome.timed_out {
+        return (
+            failed_run("go vet", "go", format!("timed out after {}s", REVIEW_TIMEOUT.as_secs())),
+            Vec::new(),
+        );
+    }
+    // `go vet` writes diagnostics to stderr.
+    let mut findings = parse_go_vet(&outcome.stderr);
+    findings.retain(|f| !is_noise_path(&f.primary.file));
+    let covered = count_scope_files(&findings, scope);
+    filter_scope(&mut findings, scope, root);
+    (
+        AnalyzerRun {
+            id: "go vet".into(),
+            language: "go".into(),
+            status: AnalyzerStatus::Ran,
+            detail: None,
+            files_covered: covered,
+        },
+        findings,
+    )
+}
+
+/// Parse `go vet` stderr: lines are either `# package` headers (skipped) or
+/// `file:line[:col]: message`.
+fn parse_go_vet(stderr: &str) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for line in stderr.lines() {
+        let line = line.trim_end();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let parts: Vec<&str> = line.splitn(4, ':').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let file = parts[0].to_string();
+        let lineno: u32 = match parts[1].trim().parse() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        let (col, msg) = match parts[2].trim().parse::<u32>() {
+            Ok(c) => (c, parts.get(3).map(|s| s.trim()).unwrap_or("").to_string()),
+            Err(_) => {
+                // No column: the message starts at parts[2].
+                let m = if parts.len() > 3 {
+                    format!("{}:{}", parts[2], parts[3])
+                } else {
+                    parts[2].to_string()
+                };
+                (1, m.trim().to_string())
+            }
+        };
+        if msg.is_empty() {
+            continue;
+        }
+        out.push(Finding {
+            analyzer: "go vet".into(),
+            rule: None,
+            class: FindingClass::Risk,
+            severity: ReviewSeverity::Warning,
+            message: msg,
+            primary: Span {
+                file,
+                start_line: lineno,
+                start_col: col,
+                end_line: lineno,
+                end_col: col,
+                label: None,
+            },
+            related: Vec::new(),
+            evidence: None,
+            consequence: Some("A suspicious construct that can misbehave at runtime.".into()),
+            verification: Some("Fix it and re-run Code Review; `go vet` should no longer flag it.".into()),
+            fix: None,
+        });
+    }
+    out
+}
+
+/// Extract a machine-applicable fix from a cargo/clippy message. Collects EVERY edit
+/// from suggestions marked `MachineApplicable` (in the message or its help children);
+/// `MaybeIncorrect` / `HasPlaceholders` / `Unspecified` suggestions are NOT offered
+/// as one-click fixes. Returns `None` when there is no safe suggestion.
+fn cargo_fix(msg: &serde_json::Value) -> Option<SuggestedFix> {
+    let mut edits = Vec::new();
+    push_cargo_suggestion(msg, &mut edits);
+    if let Some(children) = msg.get("children").and_then(|c| c.as_array()) {
+        for child in children {
+            push_cargo_suggestion(child, &mut edits);
+        }
+    }
+    if edits.is_empty() {
+        None
+    } else {
+        Some(SuggestedFix {
+            title: fix_title(&edits),
+            edits,
+        })
+    }
+}
+
+/// If `m` is a `MachineApplicable` suggestion, push each of its replacement spans.
+fn push_cargo_suggestion(m: &serde_json::Value, out: &mut Vec<FixEdit>) {
+    if m.get("suggestion_applicability").and_then(|a| a.as_str()) != Some("MachineApplicable") {
+        return;
+    }
+    if let Some(spans) = m.get("spans").and_then(|s| s.as_array()) {
+        for s in spans {
+            if let Some(rep) = s.get("suggested_replacement").and_then(|r| r.as_str()) {
+                if let Some(span) = span_from_json(s) {
+                    out.push(fix_edit(rep, &span, span_original_text(s)));
+                }
+            }
+        }
+    }
+}
+
+/// The exact source text a cargo/clippy span points at (the bytes a fix replaces),
+/// reconstructed from the span's `text` rows (`highlight_start`/`highlight_end` are
+/// 1-based char columns, end exclusive). Empty when the span carries no text — the
+/// buffer-hash identity check in [`verify_fix`] still protects the apply.
+fn span_original_text(s: &serde_json::Value) -> String {
+    let rows = match s.get("text").and_then(|t| t.as_array()) {
+        Some(r) => r,
+        None => return String::new(),
+    };
+    let mut out = String::new();
+    for (i, row) in rows.iter().enumerate() {
+        let line = row.get("text").and_then(|t| t.as_str()).unwrap_or("");
+        let chars: Vec<char> = line.chars().collect();
+        let hs = row.get("highlight_start").and_then(|n| n.as_u64()).unwrap_or(1) as usize;
+        let he = row
+            .get("highlight_end")
+            .and_then(|n| n.as_u64())
+            .unwrap_or(chars.len() as u64 + 1) as usize;
+        let a = hs.saturating_sub(1).min(chars.len());
+        let b = he.saturating_sub(1).min(chars.len()).max(a);
+        if i > 0 {
+            out.push('\n');
+        }
+        out.extend(&chars[a..b]);
+    }
+    out
+}
+
+fn fix_edit(replacement: &str, span: &Span, expected: String) -> FixEdit {
+    FixEdit {
+        replacement: replacement.to_string(),
+        file: span.file.clone(),
+        start_line: span.start_line,
+        start_col: span.start_col,
+        end_line: span.end_line,
+        end_col: span.end_col,
+        expected,
+    }
+}
+
+/// Title a fix by its edits: a single replace/remove, or "apply N edits".
+fn fix_title(edits: &[FixEdit]) -> String {
+    if edits.len() == 1 {
+        let r = &edits[0].replacement;
+        if r.trim().is_empty() {
+            "remove this".to_string()
+        } else {
+            let one = r.replace('\n', " ");
+            let short: String = one.chars().take(56).collect();
+            let ell = if one.chars().count() > 56 { "…" } else { "" };
+            format!("replace with `{short}{ell}`")
+        }
+    } else {
+        format!("apply {} edits", edits.len())
+    }
+}
+
+/// Extract Ruff's auto-fix, but ONLY when Ruff marks it `safe` to apply. Collects all
+/// of the fix's edits (some fixes relocate/sort across several spans).
+fn ruff_fix(item: &serde_json::Value) -> Option<SuggestedFix> {
+    let fix = item.get("fix")?;
+    if fix.get("applicability").and_then(|a| a.as_str()) != Some("safe") {
+        return None;
+    }
+    let file = item.get("filename").and_then(|f| f.as_str()).unwrap_or("").to_string();
+    let n = |v: &serde_json::Value, a: &str, b: &str, d: u64| {
+        v.get(a).and_then(|l| l.get(b)).and_then(|x| x.as_u64()).unwrap_or(d) as u32
+    };
+    let mut edits = Vec::new();
+    for edit in fix.get("edits")?.as_array()? {
+        let content = edit.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+        let sr = n(edit, "location", "row", 1);
+        let sc = n(edit, "location", "column", 1);
+        let er = n(edit, "end_location", "row", sr as u64);
+        let ec = n(edit, "end_location", "column", sc as u64);
+        edits.push(FixEdit {
+            replacement: content,
+            file: file.clone(),
+            start_line: sr,
+            start_col: sc,
+            end_line: er,
+            end_col: ec,
+            // Ruff's JSON does not echo the original text; the buffer-hash gate in
+            // `verify_fix` still refuses the apply if the file drifted.
+            expected: String::new(),
+        });
+    }
+    if edits.is_empty() {
+        return None;
+    }
+    let title = fix
+        .get("message")
+        .and_then(|m| m.as_str())
+        .filter(|m| !m.is_empty())
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| fix_title(&edits));
+    Some(SuggestedFix { title, edits })
+}
+
+// ── Python adapter (Ruff) ───────────────────────────────────────────────────────
+
+/// Reviews Python with Ruff (`--output-format=json`), which covers both syntax
+/// errors (E999) and lints. When Ruff is absent the run is reported Unavailable so
+/// the coverage report stays honest.
+fn review_python(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) {
+    if probe_version("ruff", &["--version"]).is_none() {
+        return (
+            unavailable_run("ruff", "python", "Ruff not installed — Python review degraded."),
+            Vec::new(),
+        );
+    }
+    let target = match scope {
+        ReviewScope::File(p) => normalize(p, root),
+        _ => root.to_string_lossy().to_string(),
+    };
+    let scratch = match tempfile::Builder::new().prefix("dxtutor-review-py-").tempdir() {
+        Ok(d) => d,
+        Err(e) => return (failed_run("ruff", "python", format!("scratch dir: {e}")), Vec::new()),
+    };
+    let mut cmd = Command::new("ruff");
+    cmd.args([
+        "check",
+        "--output-format=json",
+        "--quiet",
+        "--exclude",
+        ".ruff_cache,target,node_modules,.git,dist,build,.venv,venv,__pycache__,vendor",
+        &target,
+    ]);
+    cmd.current_dir(root);
+    let outcome = match run_guarded(cmd, scratch.path(), "review-py", REVIEW_TIMEOUT, None) {
+        Ok(o) => o,
+        Err(e) => return (failed_run("ruff", "python", format!("spawn: {e}")), Vec::new()),
+    };
+    if outcome.timed_out {
+        return (
+            failed_run("ruff", "python", format!("timed out after {}s", REVIEW_TIMEOUT.as_secs())),
+            Vec::new(),
+        );
+    }
+    // Ruff exits non-zero when it finds issues — that is success, not failure. A true
+    // failure prints to stderr and leaves stdout empty.
+    if outcome.stdout.trim().is_empty() && !outcome.stderr.trim().is_empty() {
+        return (
+            failed_run("ruff", "python", first_nonempty_line(&outcome.stderr).unwrap_or_default()),
+            Vec::new(),
+        );
+    }
+    let mut findings = parse_ruff_json(&outcome.stdout);
+    findings.retain(|f| !is_noise_path(&f.primary.file));
+    let covered = count_scope_files(&findings, scope);
+    filter_scope(&mut findings, scope, root);
+    (
+        AnalyzerRun {
+            id: "ruff".into(),
+            language: "python".into(),
+            status: AnalyzerStatus::Ran,
+            detail: None,
+            files_covered: covered,
+        },
+        findings,
+    )
+}
+
+/// Parse Ruff's JSON array. Each item carries `code`, `message`, `filename`,
+/// `location`/`end_location` (1-based row/column). `code == null`/`E999` is a syntax
+/// error (a demonstrated bug); `F…` is pyflakes (undefined/unused → conditional
+/// risk); everything else is a style opportunity.
+fn parse_ruff_json(stdout: &str) -> Vec<Finding> {
+    let arr: Vec<serde_json::Value> = serde_json::from_str(stdout.trim()).unwrap_or_default();
+    let mut out = Vec::new();
+    for item in arr {
+        let code = item.get("code").and_then(|c| c.as_str()).map(|s| s.to_string());
+        let message = item
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("")
+            .to_string();
+        let file = item
+            .get("filename")
+            .and_then(|f| f.as_str())
+            .unwrap_or("")
+            .to_string();
+        let row = item
+            .get("location")
+            .and_then(|l| l.get("row"))
+            .and_then(|r| r.as_u64())
+            .unwrap_or(1) as u32;
+        let col = item
+            .get("location")
+            .and_then(|l| l.get("column"))
+            .and_then(|c| c.as_u64())
+            .unwrap_or(1) as u32;
+        let end_row = item
+            .get("end_location")
+            .and_then(|l| l.get("row"))
+            .and_then(|r| r.as_u64())
+            .unwrap_or(row as u64) as u32;
+        let end_col = item
+            .get("end_location")
+            .and_then(|l| l.get("column"))
+            .and_then(|c| c.as_u64())
+            .unwrap_or(col as u64) as u32;
+        let (class, severity) = classify_ruff(code.as_deref());
+        let fix = ruff_fix(&item);
+        out.push(Finding {
+            analyzer: "ruff".into(),
+            rule: code,
+            class,
+            severity,
+            message,
+            primary: Span {
+                file,
+                start_line: row,
+                start_col: col,
+                end_line: end_row,
+                end_col: end_col,
+                label: None,
+            },
+            related: Vec::new(),
+            evidence: None,
+            consequence: consequence_for(class),
+            verification: Some("Fix it and re-run Code Review; Ruff should no longer report it.".into()),
+            fix,
+        });
+    }
+    out
+}
+
+fn classify_ruff(code: Option<&str>) -> (FindingClass, ReviewSeverity) {
+    match code {
+        None => (FindingClass::Bug, ReviewSeverity::Error), // a syntax error with no rule code
+        Some("E999") => (FindingClass::Bug, ReviewSeverity::Error),
+        Some(c) if c.starts_with('F') => (FindingClass::Risk, ReviewSeverity::Warning), // pyflakes
+        _ => (FindingClass::Opportunity, ReviewSeverity::Info), // pycodestyle & friends
+    }
+}
+
+/// True for generated/cache/vendor paths that are never the developer's source —
+/// their contents (binary caches, generated code) produce garbage findings.
+fn is_noise_path(file: &str) -> bool {
+    file.split(['/', '\\']).any(|seg| {
+        matches!(
+            seg,
+            "target"
+                | ".ruff_cache"
+                | ".git"
+                | "node_modules"
+                | "dist"
+                | "build"
+                | ".venv"
+                | "venv"
+                | "__pycache__"
+                | ".mypy_cache"
+                | ".pytest_cache"
+                | ".cargo"
+                | "vendor"
+        )
+    })
+}
+
+/// Does the scope contain Python? Avoids spawning Ruff on a pure Rust/Go project.
+fn scope_has_python(root: &Path, scope: &ReviewScope) -> bool {
+    match scope {
+        ReviewScope::File(p) => p.ends_with(".py"),
+        _ => has_file_with_ext(root, "py", 20_000),
+    }
+}
+
+/// Bounded recursive scan for a file with the given extension. Skips the usual noise
+/// dirs and caps the number of entries visited so a huge tree can't stall the probe.
+fn has_file_with_ext(root: &Path, ext: &str, cap: usize) -> bool {
+    let mut stack = vec![root.to_path_buf()];
+    let mut seen = 0usize;
+    while let Some(dir) = stack.pop() {
+        let rd = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+        for entry in rd.flatten() {
+            seen += 1;
+            if seen > cap {
+                return false;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if matches!(name.as_ref(), "target" | ".git" | "node_modules" | "__pycache__" | ".venv") {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.extension().and_then(|e| e.to_str()) == Some(ext) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+// ── Scope handling ──────────────────────────────────────────────────────────────
+
+/// Count distinct files the analyzer actually produced findings for (coverage proxy).
+fn count_scope_files(findings: &[Finding], _scope: &ReviewScope) -> usize {
+    let mut files: Vec<&str> = findings.iter().map(|f| f.primary.file.as_str()).collect();
+    files.sort_unstable();
+    files.dedup();
+    files.len()
+}
+
+/// Keep only findings whose primary span belongs to the selected scope.
+fn filter_scope(findings: &mut Vec<Finding>, scope: &ReviewScope, root: &Path) {
+    match scope {
+        ReviewScope::Project => {}
+        ReviewScope::File(path) => {
+            let want = normalize(path, root);
+            findings.retain(|f| normalize(&f.primary.file, root) == want);
+        }
+        ReviewScope::WorkingChanges => {
+            let changed = git_changed_files(root);
+            if changed.is_empty() {
+                return; // fall back to the whole project rather than hiding everything
+            }
+            let changed: Vec<String> = changed.iter().map(|p| normalize(p, root)).collect();
+            findings.retain(|f| changed.contains(&normalize(&f.primary.file, root)));
+        }
+    }
+}
+
+/// Normalize a path to an absolute, lexically-cleaned string for comparison.
+fn normalize(path: &str, root: &Path) -> String {
+    let p = Path::new(path);
+    let abs = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        root.join(p)
+    };
+    abs.to_string_lossy().replace("/./", "/")
+}
+
+/// Files with uncommitted changes, via `git`: both tracked edits AND new untracked
+/// files. Empty on any failure (caller falls back to the whole project).
+fn git_changed_files(root: &Path) -> Vec<String> {
+    let run = |args: &[&str]| -> Vec<String> {
+        match Command::new("git").args(args).current_dir(root).output() {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    let mut files = run(&["diff", "--name-only", "HEAD"]);
+    files.extend(run(&["ls-files", "--others", "--exclude-standard"])); // new untracked files
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn first_nonempty_line(s: &str) -> Option<String> {
+    s.lines().map(str::trim).find(|l| !l.is_empty()).map(|l| l.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn fix_with(expected: &str, sl: u32, sc: u32, el: u32, ec: u32) -> SuggestedFix {
+        SuggestedFix {
+            title: "t".into(),
+            edits: vec![FixEdit {
+                replacement: "REPL".into(),
+                file: "a.rs".into(),
+                start_line: sl,
+                start_col: sc,
+                end_line: el,
+                end_col: ec,
+                expected: expected.into(),
+            }],
+        }
+    }
+
+    /// P0-3 regression: a fix computed over one revision must NOT apply to another.
+    /// The reproduction mirrors the owner's script — review, then the developer inserts
+    /// a line; the stale result must refuse to apply so their edit is preserved.
+    #[test]
+    fn stale_revision_fix_is_refused() {
+        let analyzed = "fn main() {\n    let x = 1;\n}\n";
+        let version = content_version(analyzed);
+        // Clippy would point at line 2; capture its exact snippet as `expected`.
+        let fix = fix_with("let x = 1;", 2, 5, 2, 15);
+        // Same buffer → applicable.
+        assert!(verify_fix(analyzed, &version, &fix).applicable);
+
+        // Developer inserts a line at the top; line 2 is now different code.
+        let edited = "// a new comment\nfn main() {\n    let x = 1;\n}\n";
+        let v = verify_fix(edited, &version, &fix);
+        assert!(!v.applicable, "a fix from an older revision must be refused");
+        assert!(v.reason.contains("re-run Review"), "reason: {}", v.reason);
+    }
+
+    /// Isolates the buffer-hash gate: a fix with NO expected snippet (as Ruff produces)
+    /// is protected ONLY by the content version. If the buffer drifts it must still be
+    /// refused — reverting the hash gate makes this fail.
+    #[test]
+    fn stale_buffer_without_snippet_relies_on_hash() {
+        let analyzed = "import os\nx = 1\n";
+        let version = content_version(analyzed);
+        let fix = SuggestedFix {
+            title: "remove unused import".into(),
+            edits: vec![FixEdit {
+                replacement: String::new(),
+                file: "a.py".into(),
+                start_line: 1,
+                start_col: 1,
+                end_line: 2,
+                end_col: 1,
+                expected: String::new(), // Ruff gives no original text
+            }],
+        };
+        assert!(verify_fix(analyzed, &version, &fix).applicable);
+        let edited = "import os\nimport sys\nx = 1\n";
+        assert!(
+            !verify_fix(edited, &version, &fix).applicable,
+            "a snippet-less fix must still be refused when the buffer changed"
+        );
+    }
+
+    /// Even when the whole-buffer hash somehow matched, a drifted snippet at the span is
+    /// a second line of defence (end column exclusive, 1-based).
+    #[test]
+    fn snippet_mismatch_is_refused() {
+        let src = "let y = 2;\n";
+        // Pretend the review was computed against this exact buffer…
+        let version = content_version(src);
+        // …but the fix expects different text at the span than what is there.
+        let fix = fix_with("let x = 1;", 1, 1, 1, 11);
+        let v = verify_fix(src, &version, &fix);
+        assert!(!v.applicable);
+        assert!(v.reason.contains("no longer matches"), "reason: {}", v.reason);
+    }
+
+    #[test]
+    fn content_version_is_stable_and_sensitive() {
+        assert_eq!(content_version("abc"), content_version("abc"));
+        assert_ne!(content_version("abc"), content_version("abc "));
+    }
+
+    #[test]
+    fn span_text_extracts_single_and_multi_line() {
+        let s = "alpha\nbravo\ncharlie\n";
+        assert_eq!(span_text(s, 2, 1, 2, 6).as_deref(), Some("bravo"));
+        assert_eq!(span_text(s, 1, 3, 2, 3).as_deref(), Some("pha\nbr"));
+        assert!(span_text(s, 9, 1, 9, 2).is_none());
+    }
+
+    #[test]
+    fn detects_at_least_cargo() {
+        let found = detect_analyzers();
+        assert!(found.iter().any(|a| a.id == "cargo"));
+        // The list always advertises every known analyzer, available or not.
+        assert!(found.iter().any(|a| a.id == "ruff"));
+    }
+
+    /// End-to-end on a throwaway Rust crate with a known Clippy lint. Skips its
+    /// assertion when Clippy is not installed (keeps CI honest on bare hosts).
+    #[test]
+    fn rust_review_finds_a_clippy_lint() {
+        let clippy = probe_version("cargo", &["clippy", "--version"]).is_some();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"rev\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[lib]\npath = \"src/lib.rs\"\n",
+        )
+        .unwrap();
+        // `return x;` as the last expression trips clippy::needless_return.
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn f() -> i32 {\n    let x = 5;\n    return x;\n}\n",
+        )
+        .unwrap();
+
+        let report = review(root, &ReviewScope::Project, Some("v1".into())).expect("review");
+        assert_eq!(report.version.as_deref(), Some("v1"));
+        assert!(report.analyzers.iter().any(|a| a.language == "rust"));
+
+        if clippy {
+            let rust = report
+                .analyzers
+                .iter()
+                .find(|a| a.language == "rust")
+                .unwrap();
+            assert_eq!(rust.status, AnalyzerStatus::Ran, "detail: {:?}", rust.detail);
+            assert!(
+                report
+                    .findings
+                    .iter()
+                    .any(|f| f.rule.as_deref() == Some("clippy::needless_return")),
+                "expected a needless_return finding, got: {:?}",
+                report.findings.iter().map(|f| &f.rule).collect::<Vec<_>>()
+            );
+            // That finding is an optional improvement, not a bug, and it is located.
+            let nr = report
+                .findings
+                .iter()
+                .find(|f| f.rule.as_deref() == Some("clippy::needless_return"))
+                .unwrap();
+            assert_eq!(nr.class, FindingClass::Opportunity);
+            assert_eq!(nr.analyzer, "clippy");
+            assert!(nr.primary.file.ends_with("lib.rs"));
+            assert!(nr.primary.start_line >= 1);
+        }
+    }
+
+    /// `go vet` over a module with a `Printf` format/arg mismatch — the prompt's own
+    /// Go example. Skips when the Go toolchain is absent.
+    #[test]
+    fn go_review_finds_a_vet_issue() {
+        if probe_version(&go_bin(), &["version"]).is_none() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("go.mod"), "module rev\n\ngo 1.21\n").unwrap();
+        fs::write(
+            root.join("main.go"),
+            "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%d\", \"hello\")\n}\n",
+        )
+        .unwrap();
+
+        let report = review(root, &ReviewScope::Project, None).expect("review");
+        let go = report.analyzers.iter().find(|a| a.language == "go").unwrap();
+        assert_eq!(go.status, AnalyzerStatus::Ran, "detail: {:?}", go.detail);
+        let f = report
+            .findings
+            .iter()
+            .find(|f| f.analyzer == "go vet" && f.message.contains("Printf"))
+            .expect("expected a Printf vet finding");
+        assert_eq!(f.class, FindingClass::Risk);
+        assert!(f.primary.file.ends_with("main.go"));
+    }
+
+    /// Ruff over a file that references an undefined name — the prompt's Python
+    /// example (F821). Skips when Ruff is absent.
+    #[test]
+    fn python_review_finds_undefined_name() {
+        if probe_version("ruff", &["--version"]).is_none() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("mod.py"), "def f():\n    return undefined_name\n").unwrap();
+
+        let report = review(root, &ReviewScope::Project, None).expect("review");
+        let py = report.analyzers.iter().find(|a| a.language == "python").unwrap();
+        assert_eq!(py.status, AnalyzerStatus::Ran, "detail: {:?}", py.detail);
+        let f = report
+            .findings
+            .iter()
+            .find(|f| f.rule.as_deref() == Some("F821"))
+            .expect("expected an F821 undefined-name finding");
+        assert_eq!(f.class, FindingClass::Risk);
+        assert!(f.primary.file.ends_with("mod.py"));
+        assert!(f.primary.start_line >= 1);
+    }
+}

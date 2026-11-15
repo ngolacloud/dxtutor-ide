@@ -71,6 +71,14 @@ pub struct ChatResp {
     pub stop: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Which pipeline produced this reply. The raw [`chat`] leaves it empty; the governed
+    /// entry [`chat_governed`] stamps `"tutor-llm"` so a caller (and the selftest) can prove
+    /// the Co-Dev turn went through the tutor brain, not a parallel ungoverned path.
+    #[serde(default)]
+    pub origin: String,
+    /// True when the study tutor contract governed this turn (directive prepended).
+    #[serde(default)]
+    pub tutored: bool,
 }
 
 pub fn is_anthropic(provider: &str) -> bool {
@@ -202,10 +210,35 @@ pub fn parse_openai(v: &Value) -> ChatResp {
     r
 }
 
-pub async fn chat(req: ChatReq, key: Option<String>) -> Result<ChatResp, String> {
+/// Resolve the model to actually send to Ollama. Ollama 404s when the requested model
+/// isn't pulled, so — only for the local Ollama provider — fall back to an available
+/// model (preferring Qwen) exactly like [`tutor_llm::chat::ollama_chat`]. When no model
+/// is available (Ollama down/empty) the requested id is kept verbatim so the existing
+/// error surfaces unchanged. Other providers never reach here: they keep `req.model`
+/// verbatim because they carry an explicit key + model.
+fn resolve_ollama_model(requested: &str, available: &[String]) -> String {
+    tutor_llm::chat::pick_model(Some(requested), available).unwrap_or_else(|| requested.to_string())
+}
+
+/// The `anthropic-workspace-id` header to attach, if a non-empty workspace id is configured.
+/// Only org-scoped Anthropic keys need it; a blank/absent id yields no header.
+fn anthropic_ws_header(workspace_id: Option<&str>) -> Option<(&'static str, String)> {
+    workspace_id
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .map(|w| ("anthropic-workspace-id", w.to_string()))
+}
+
+pub async fn chat(mut req: ChatReq, key: Option<String>, workspace_id: Option<String>) -> Result<ChatResp, String> {
     let anth = is_anthropic(&req.provider);
     if key.is_none() && env_key(&req.provider).is_some() {
         return Err(format!("No API key for {}. Add it in Settings → Models and providers, or set {}.", req.provider, env_key(&req.provider).unwrap()));
+    }
+    if req.provider == "ollama" {
+        let available = tutor_llm::chat::ollama_models();
+        if !available.is_empty() {
+            req.model = resolve_ollama_model(&req.model, &available);
+        }
     }
     let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(180)).build().map_err(|e| e.to_string())?;
     let mut rb = client.post(url_for(&req));
@@ -214,6 +247,11 @@ pub async fn chat(req: ChatReq, key: Option<String>) -> Result<ChatResp, String>
         rb = rb.header("anthropic-version", "2023-06-01");
         if let Some(k) = &key {
             rb = rb.header("x-api-key", k);
+        }
+        // Org-scoped keys (sk-ant-usr-…) require the workspace id, exactly like the legacy
+        // streaming path in tutor_llm::chat; without it the API rejects the request.
+        if let Some((h, v)) = anthropic_ws_header(workspace_id.as_deref()) {
+            rb = rb.header(h, v);
         }
     } else if let Some(k) = &key {
         rb = rb.bearer_auth(k);
@@ -227,6 +265,27 @@ pub async fn chat(req: ChatReq, key: Option<String>) -> Result<ChatResp, String>
     }
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("invalid JSON from {}: {e}", req.provider))?;
     Ok(if anth { parse_anthropic(&v) } else { parse_openai(&v) })
+}
+
+/// Run a chat turn through the tutor brain. The governance in [`tutor_llm::policy`]
+/// decides the system prompt from the active mode (study ⇒ the tutor directive leads;
+/// project ⇒ full pair-programming) exactly as `assistant_chat_stream` does, then the
+/// provider is called and the reply stamped with its provenance. This is the single
+/// entry the desktop Co-Dev uses, so it is governed instead of being a generic LLM path.
+/// The tool-capable request/response transport (which `tutor_llm` deliberately lacks)
+/// stays here in [`chat`]; only the governance moves into the brain crate.
+pub async fn chat_governed(
+    mut req: ChatReq,
+    key: Option<String>,
+    mode: tutor_llm::policy::Mode,
+    workspace_id: Option<String>,
+) -> Result<ChatResp, String> {
+    let governed = tutor_llm::policy::govern_chat(mode, req.system.as_deref());
+    req.system = governed.system;
+    let mut resp = chat(req, key, workspace_id).await?;
+    resp.origin = "tutor-llm".into();
+    resp.tutored = governed.tutored;
+    Ok(resp)
 }
 
 #[cfg(test)]
@@ -277,6 +336,32 @@ mod tests {
         assert_eq!(b["messages"][3]["role"], "tool");
         assert_eq!(b["messages"][3]["tool_call_id"], "t1");
         assert_eq!(b["tools"][0]["type"], "function");
+    }
+
+    #[test]
+    fn ollama_falls_back_to_available_model_preferring_qwen() {
+        let available = vec!["llama3.2:latest".to_string(), "qwen3:8b".to_string(), "gemma3:27b".to_string()];
+        // UI default not pulled ⇒ pick an available model, preferring Qwen.
+        assert_eq!(resolve_ollama_model("qwen2.5-coder:14b", &available), "qwen3:8b");
+        // Requested model present ⇒ kept as-is.
+        assert_eq!(resolve_ollama_model("llama3.2:latest", &available), "llama3.2:latest");
+        // Nothing available ⇒ keep the request verbatim so the usual error surfaces.
+        assert_eq!(resolve_ollama_model("qwen2.5-coder:14b", &[]), "qwen2.5-coder:14b");
+    }
+
+    #[test]
+    fn anthropic_workspace_header_only_when_configured() {
+        assert_eq!(
+            anthropic_ws_header(Some("wrkspc_019")),
+            Some(("anthropic-workspace-id", "wrkspc_019".to_string()))
+        );
+        // Trimmed, and blank/None yield no header.
+        assert_eq!(
+            anthropic_ws_header(Some("  wrkspc_019  ")),
+            Some(("anthropic-workspace-id", "wrkspc_019".to_string()))
+        );
+        assert_eq!(anthropic_ws_header(Some("   ")), None);
+        assert_eq!(anthropic_ws_header(None), None);
     }
 
     #[test]

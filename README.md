@@ -73,18 +73,33 @@ O modelo e o endpoint de cada provedor editam-se nas Definições (por omissão:
 
 ## Estrutura
 
+O repositório é um workspace Cargo: o «cérebro» dxtutor (crates `tutor-*`) +
+a casca desktop Tauri. A UI que embarca continua a ser a v7 estática (`ui/`);
+o `ui-next/` é a reescrita TS modular (Vite + Monaco), construída em paralelo
+até atingir paridade — componentes reutilizáveis, zero demo.
+
 ```
-ui/index.html          interface (protótipo v7, com três ajustes para o desktop)
+crates/
+  tutor-core           modelo de domínio + currículo (competências/CS2023/labs)
+  tutor-eval           avaliador (testes isolados), sonda de complexidade, review,
+                       CodeMap, LSP, git (DAG + worktree isolada), arch (System Design)
+  tutor-llm            fornecedores de dica/plano/correcção, chat, policy do tutor
+  tutor-track          registo institucional de tentativas (SQLite)
+  tutor-board          Board kanban durável por workspace (SQLite)
+  tutor-tui            editor TUI (ratatui)
+  tutor-cli            prova ponta-a-ponta do cérebro (dxt demo)
+ui/index.html          interface que embarca (protótipo v7)
 ui/bridge.js           liga a interface ao backend (só actua dentro da aplicação)
 ui/pair.js             PairCode: sessão, sincronização, controlo, chamada
 ui/jszip.min.js        leitura de VSIX offline
+ui-next/               frontend TS modular (classe por superfície, src/<nome>.ts);
+                       npm run ui-next:build compila, npm run ui-next:dev serve (5190)
 src-tauri/src/
-  lib.rs               comandos Tauri
-  workspace.rs         carregar, gravar e apagar ficheiros dentro da pasta
-  procs.rs             exec sem shell e terminal com streaming, paragem por grupo de processos
-  llm.rs               Anthropic e OpenAI-compatível, com ferramentas
-  keys.rs              chaves (ficheiro 0600 + variáveis de ambiente)
-  vsix.rs              manifesto de um .vsix
+  main.rs              entrada fina; lib.rs regista os ~130 comandos
+  lib.rs               comandos ricos do dxtutor (estudo, git, debug, LSP, agent,
+                       devcontainers, arch, board) + PairCode
+  bridge.rs            comandos genéricos da v7 (workspace/exec/llm/keys/vsix)
+  fsops.rs lsp.rs pty.rs debug.rs board.rs …  módulos por domínio
   pair.rs              PairCode: token, canal WebSocket cifrado, um convidado de cada vez
 src-tauri/Info.plist   textos de autorização da câmara e do microfone (macOS)
 scripts/selftest.sh    teste de fumo ponta a ponta

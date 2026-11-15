@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-AO">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>dxtutor</title>
+  </head>
+  <body>
+    <div id="app">
+      <div class="toolbar">
+        <div class="mb"></div>
+        <button class="tb-search"><span class="tb-search-ic" data-icon="search"></span><span class="tb-search-label" data-i18n="shell.cmdCenter"></span><span class="tb-kbd">Ctrl+P</span></button>
+        <div class="tb-right"></div>
+      </div>
+      <div class="body">
+        <nav class="activity">
+          <button class="on" data-view="explorer" data-icon="explorer" data-i18n-title="nav.explorer"></button>
+          <button data-view="search" data-icon="search" data-i18n-title="nav.search"></button>
+          <button data-view="scm" data-icon="scm" data-i18n-title="nav.scm"></button>
+          <button data-view="changelog" data-icon="history" data-i18n-title="nav.changelog"></button>
+          <button data-view="remote" data-icon="remote" data-i18n-title="nav.remote"></button>
+          <button data-view="containers" data-icon="container" data-i18n-title="nav.containers"></button>
+          <button data-view="infra" data-icon="cube" data-i18n-title="nav.infra"></button>
+          <button data-view="debug" data-icon="debug" data-i18n-title="nav.debug"></button>
+          <button data-view="tests" data-icon="test" data-i18n-title="nav.tests"></button>
+          <button data-view="explain" data-icon="book" data-i18n-title="nav.explain"></button>
+          <button data-view="extensions" data-icon="extensions" data-i18n-title="nav.extensions"></button>
+          <button data-view="providers" data-icon="sparkle" data-i18n-title="nav.providers"></button>
+          <button data-view="team" data-icon="account" data-i18n-title="nav.team"></button>
+          <button data-view="codevhub" data-icon="graph" data-i18n-title="nav.codevhub"></button>
+          <button data-view="account" data-icon="gauge" data-i18n-title="nav.account"></button>
+          <button data-view="settings" data-icon="settings" data-i18n-title="nav.settings"></button>
+        </nav>
+        <aside class="side">
+          <div class="view view-explorer">
+            <div class="side-head">
+              <span data-i18n="nav.explorer"></span>
+              <span class="side-actions"><button data-icon="folderOpen" data-i18n-title="shell.openFolderTitle"></button></span>
+            </div>
+            <div class="tree">
+              <div class="tree-empty" data-i18n="tree.noFolder"></div>
+            </div>
+            <div class="side-head side-head-ol"><span data-i18n="nav.outline"></span></div>
+            <div id="outline" class="outline"></div>
+          </div>
+          <div class="view view-search hidden">
+            <div class="side-head"><span data-i18n="nav.search"></span></div>
+            <div id="search"></div>
+          </div>
+          <div class="view view-scm hidden">
+            <div class="side-head"><span data-i18n="nav.scm"></span></div>
+            <div id="scm"></div>
+            <div id="gitflow"></div>
+          </div>
+          <div class="view view-changelog hidden">
+            <div class="side-head"><span data-i18n="nav.changelog"></span></div>
+            <div id="changelog"></div>
+          </div>
+          <div class="view view-remote hidden">
+            <div class="side-head"><span data-i18n="nav.remote"></span></div>
+            <div id="remote"></div>
+          </div>
+          <div class="view view-containers hidden">
+            <div class="side-head"><span data-i18n="nav.containers"></span></div>
+            <div id="containers"></div>
+          </div>
+          <div class="view view-infra hidden">
+            <div class="side-head"><span data-i18n="nav.infra"></span></div>
+            <div id="infra"></div>
+          </div>
+          <div class="view view-debug hidden">
+            <div class="side-head"><span data-i18n="nav.debug"></span></div>
+            <div id="debug"></div>
+          </div>
+          <div class="view view-tests hidden">
+            <div class="side-head"><span data-i18n="nav.tests"></span></div>
+            <div id="tests"></div>
+          </div>
+          <div class="view view-explain hidden">
+            <div class="side-head"><span data-i18n="nav.explain"></span></div>
+            <div id="explain"></div>
+          </div>
+          <div class="view view-extensions hidden">
+            <div class="side-head"><span data-i18n="nav.extensions"></span></div>
+            <div id="extensions"></div>
+          </div>
+          <div class="view view-providers hidden">
+            <div class="side-head"><span data-i18n="view.providers"></span></div>
+            <div id="providers"></div>
+          </div>
+          <div class="view view-team hidden">
+            <div class="side-head"><span data-i18n="nav.team"></span></div>
+            <div id="team"></div>
+          </div>
+          <div class="view view-codevhub hidden">
+            <div class="side-head"><span data-i18n="nav.codevhub"></span></div>
+            <div id="codevhub"></div>
+          </div>
+          <div class="view view-account hidden">
+            <div class="side-head"><span data-i18n="nav.account"></span></div>
+            <div id="account"></div>
+          </div>
+          <div class="view view-settings hidden">
+            <div class="side-head"><span data-i18n="nav.settings"></span></div>
+            <div id="settings"></div>
+          </div>
+        </aside>
+        <main class="main">
+          <div class="tabs"></div>
+          <div class="breadcrumb"></div>
+          <div class="editarea">
+            <div class="editor-empty"><div id="welcome"></div></div>
+            <div id="editor"></div>
+            <div id="diffeditor" class="hidden"></div>
+            <div id="board" class="eview hidden"></div>
+            <div id="studio" class="eview hidden"></div>
+            <div id="learn" class="eview hidden"></div>
+            <div id="manager" class="eview hidden"></div>
+            <div id="theatre" class="eview hidden"></div>
+            <div id="harness" class="eview hidden"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-tabs">
+              <span class="panel-tab on" data-ptab="term" data-i18n="panel.terminal"></span>
+              <span class="panel-tab" data-ptab="problems"><span data-i18n="panel.problems"></span><span class="pr-badge"></span></span>
+              <span class="panel-tab" data-ptab="output" data-i18n="panel.output"></span>
+              <span class="panel-tab" data-ptab="services" data-i18n="panel.services"></span>
+              <span class="panel-tab" data-ptab="dbgassist" data-i18n="panel.dbgassist"></span>
+            </div>
+            <div class="panel-body">
+              <div id="term" data-pane="term"></div>
+              <div id="problems" data-pane="problems" class="hidden"></div>
+              <div id="output" data-pane="output" class="hidden"></div>
+              <div id="services" data-pane="services" class="hidden"></div>
+              <div id="dbgassist" data-pane="dbgassist" class="hidden"></div>
+            </div>
+          </div>
+        </main>
+        <aside class="dock"><div id="codev"></div></aside>
+      </div>
+      <div class="statusbar">
+        <span class="sb-item sb-branch"></span>
+        <span class="sb-item sb-problems"></span>
+        <span class="sb-item sb-tests"></span>
+        <span class="sb-item sb-blame"></span>
+        <span class="sb-spacer"></span>
+        <span class="sb-item sb-cursor">Ln 1, Col 1</span>
+        <span class="sb-item sb-lang"></span>
+        <span class="sb-item sb-mode"></span>
+      </div>
+    </div>
+    <div id="toast"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -13,10 +13,10 @@ git -C "$T/repo" config user.name pair
 printf 'fn main() {}\n' > "$T/repo/main.rs"
 git -C "$T/repo" add . && git -C "$T/repo" commit -qm "chore: initial"
 mkdir -p "$T/host-home" "$T/guest-home"
-(cd src-tauri && cargo build -q)
-HOME="$T/host-home" DXTUTOR_PAIRTEST=host DXTUTOR_SELFTEST="$T/host.json" ./src-tauri/target/debug/dxtutor-ide "$T/repo" &
+cargo build -q -p dxtutor-ide
+HOME="$T/host-home" DXTUTOR_PAIRTEST=host DXTUTOR_SELFTEST="$T/host.json" ./target/debug/dxtutor-ide "$T/repo" &
 sleep 3
-HOME="$T/guest-home" DXTUTOR_PAIRTEST=guest DXTUTOR_SELFTEST="$T/guest.json" ./src-tauri/target/debug/dxtutor-ide &
+HOME="$T/guest-home" DXTUTOR_PAIRTEST=guest DXTUTOR_SELFTEST="$T/guest.json" ./target/debug/dxtutor-ide &
 wait
 echo "== host";  cat "$T/host.json";  echo
 echo "== guest"; cat "$T/guest.json"; echo

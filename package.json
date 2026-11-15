@@ -3,13 +3,24 @@
   "version": "0.7.0",
   "private": true,
   "description": "dxtutor IDE — desktop app (Tauri 2 + Rust) for the Co-Dev prototype",
+  "type": "module",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
-    "test": "cd src-tauri && cargo test"
+    "test": "cargo test --workspace",
+    "ui-next:dev": "vite --config ui-next/vite.config.ts",
+    "ui-next:build": "tsc --noEmit -p ui-next/tsconfig.json && vite build --config ui-next/vite.config.ts"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "monaco-editor": "^0.52.2"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
   }
 }

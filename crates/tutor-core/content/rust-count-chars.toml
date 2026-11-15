@@ -1,0 +1,187 @@
+id = "rust-count-chars"
+language = "rust"
+title = "Contar Caracteres (bytes vs Unicode)"
+summary = """
+O primeiro cenário verificável do percurso Rust: contar caracteres. Parece
+trivial, mas esconde a diferença entre **bytes** e **valores escalares Unicode**.
+Uma solução que conta bytes passa em `"casa"` e falha em `"ação"`. Aqui aprendes
+a contar o que um humano chama «caracteres» — de forma honesta.
+"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FASE 1 — Contar caracteres (valores escalares Unicode)
+# ─────────────────────────────────────────────────────────────────────────────
+[[phase]]
+id = "p1-count-chars"
+title = "Fase 1 — Contar caracteres, não bytes"
+level = "básico"
+entry = "count_chars"
+instructions = """
+## Objectivo
+
+Implementa `count_chars`, que recebe um texto e devolve **quantos caracteres**
+tem — onde «caractere» significa **valor escalar Unicode** (o que o tipo `char`
+do Rust representa).
+
+- `"casa"` → `4`
+- `"ação"` → `4`  (atenção: são **5 bytes** em UTF-8, mas **4** caracteres)
+- `"Rust 🦀"` → `6`  (o emoji conta como **um** caractere, não como 4 bytes)
+- `""` → `0`
+
+## A armadilha
+
+Em Rust, `&str` guarda texto em **UTF-8**. `input.len()` devolve o número de
+**bytes**, não de caracteres — e `'ç'`, `'ã'` ou `'🦀'` ocupam mais de um byte.
+Contar bytes dá a resposta certa só para texto ASCII. O que queres é percorrer os
+**valores escalares Unicode**.
+
+A eficiência e a referência discutimos no gabarito.
+"""
+starter = """
+pub fn count_chars(input: &str) -> usize {
+    todo!("conta os caracteres (valores escalares Unicode), não os bytes")
+}
+"""
+tests = """
+use student::count_chars;
+
+#[test]
+fn ascii_simples() {
+    assert_eq!(count_chars("casa"), 4);
+}
+
+#[test]
+fn acentos_contam_como_um() {
+    // "ação" tem 5 bytes em UTF-8 mas 4 caracteres. Contar bytes daria 5.
+    assert_eq!(count_chars("ação"), 4);
+}
+
+#[test]
+fn emoji_conta_como_um() {
+    // "Rust 🦀" = R u s t espaço 🦀 = 6 caracteres (o emoji são 4 bytes).
+    assert_eq!(count_chars("Rust 🦀"), 6);
+}
+
+#[test]
+fn vazio_e_zero() {
+    assert_eq!(count_chars(""), 0);
+}
+"""
+
+# Pistas progressivas curadas (offline, determinísticas): empurram sem dar o código.
+hints = [
+  "Contra-exemplo: experimenta `\"ação\"`. Contar bytes dá **5** (`.len()`), mas a resposta certa é **4**. O que o teu código devolve para `\"ação\"`?",
+  "Compara `\"a\"` com `\"ã\"`. Em UTF-8, `'a'` ocupa 1 byte e `'ã'` ocupa 2. Logo o número de **bytes** não é o número de **caracteres**. Precisas de percorrer os caracteres, não os bytes.",
+  "Vê a documentação de `str::chars()` — devolve um iterador de `char` (valores escalares Unicode). O que acontece se lhe pedires `.count()`?",
+]
+
+[phase.gabarito]
+time = "O(n)"
+space = "O(1)"
+solution = """
+pub fn count_chars(input: &str) -> usize {
+    // `chars()` descodifica o UTF-8 em valores escalares Unicode (`char`);
+    // `count()` consome o iterador uma vez. Percorre os bytes uma só vez → O(n).
+    input.chars().count()
+}
+"""
+justification = """
+`str::chars()` descodifica a sequência UTF-8 em **valores escalares Unicode**,
+avançando byte a byte mas emitindo um `char` por caractere. `count()` percorre o
+iterador uma única vez, logo o tempo é **O(n)** no comprimento em bytes do texto,
+e o espaço é **O(1)** (não acumula nada).
+
+**Porque é que contar bytes está errado:** `str::len()` devolve bytes. Em UTF-8,
+um valor escalar ocupa 1 a 4 bytes (`'a'`=1, `'ç'`/`'ã'`=2, `'🦀'`=4). Logo
+`"ação".len()` = 5 e `"Rust 🦀".len()` = 9 — contagens que não correspondem ao
+que um humano chama «caracteres».
+
+**Nota de honestidade:** nem «caractere» é um conceito único. Um valor escalar
+Unicode ainda não é um *grapheme cluster* percebido (ex.: `'e'` + acento
+combinante podem formar um só símbolo visual com dois escalares). Para a maioria
+dos casos, contar `char`s é a resposta correcta e honesta; contar *graphemes*
+exige a crate `unicode-segmentation` e é um passo posterior.
+"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FASE 2 — Variação: inverter por caracteres (mesmo conceito, outro problema)
+# ─────────────────────────────────────────────────────────────────────────────
+[[phase]]
+id = "p2-reverse-chars"
+title = "Fase 2 — Inverter uma string por caracteres"
+level = "básico"
+entry = "reverse_chars"
+instructions = """
+## Objectivo
+
+Implementa `reverse_chars`, que devolve o texto **invertido caractere a
+caractere** (valores escalares Unicode):
+
+- `"casa"` → `"asac"`
+- `"ação"` → `"oãça"`
+- `""` → `""`
+
+## O mesmo conceito, outra vez
+
+Inverter os **bytes** de uma string UTF-8 parte os caracteres multibyte ao meio e
+produz lixo (ou texto inválido). `'ç'` são 2 bytes; ao inverter bytes, esses dois
+bytes trocam de ordem e deixam de formar o `'ç'`. Como em "contar caracteres", a
+unidade certa é o **valor escalar**, não o byte. Inverte os `char`s.
+"""
+starter = """
+pub fn reverse_chars(input: &str) -> String {
+    todo!("inverte por caracteres (valores escalares), não por bytes")
+}
+"""
+tests = """
+use student::reverse_chars;
+
+#[test]
+fn ascii_simples() {
+    assert_eq!(reverse_chars("casa"), "asac");
+}
+
+#[test]
+fn acentos_sobrevivem() {
+    // Inverter bytes partiria o 'ç'/'ã'. Por caracteres, "ação" -> "oãça".
+    assert_eq!(reverse_chars("ação"), "oãça");
+}
+
+#[test]
+fn vazio_fica_vazio() {
+    assert_eq!(reverse_chars(""), "");
+}
+"""
+hints = [
+  "Contra-exemplo: inverter os **bytes** de `\"ação\"` parte o `'ç'` e o `'ã'` ao meio. O que queres inverter são os caracteres, não os bytes.",
+  "`'ç'` ocupa 2 bytes; se trocares a ordem dos bytes, esses 2 bytes deixam de formar o `'ç'`. Percorre os **caracteres** (valores escalares), não os bytes.",
+  "Vê `str::chars()` e o método `rev()` de um iterador. Como é que juntas um iterador de `char` numa `String` outra vez?",
+]
+
+[phase.gabarito]
+time = "O(n)"
+space = "O(n)"
+solution = """
+pub fn reverse_chars(input: &str) -> String {
+    // `chars()` descodifica em valores escalares; `rev()` inverte a ordem deles;
+    // `collect()` volta a juntar numa String válida. Uma passagem → O(n).
+    input.chars().rev().collect()
+}
+"""
+justification = """
+A unidade correcta é o **valor escalar Unicode**, não o byte. `str::chars()`
+descodifica o UTF-8 em `char`s; `Iterator::rev()` inverte a sequência desses
+`char`s; `collect::<String>()` recodifica-os em UTF-8 válido. Tempo **O(n)**
+(uma passagem), espaço **O(n)** (a nova String).
+
+**Porque é que inverter bytes está errado:** em UTF-8, `'ç'`=`[0xC3, 0xA7]`.
+Inverter os bytes de `"ação"` troca a ordem desses pares e produz uma sequência
+que já não descodifica nos mesmos caracteres — no melhor caso lixo, no pior UTF-8
+inválido. É a mesma lição de "contar caracteres": opera sobre escalares, não bytes.
+
+**Nota de honestidade:** tal como na contagem, isto inverte *valores escalares*,
+não *grapheme clusters*. Um caractere com acento combinante (base + combinante)
+seria invertido para (combinante + base), o que visualmente desloca o acento.
+Para texto com combinantes, a inversão correcta usa `unicode-segmentation` — passo
+posterior; para a esmagadora maioria dos casos, inverter `char`s é a via honesta.
+"""

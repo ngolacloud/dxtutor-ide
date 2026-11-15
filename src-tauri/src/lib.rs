@@ -1,133 +1,2399 @@
-//! dxtutor IDE desktop backend. The commands are thin; the logic lives in the modules,
-//! each with its own tests (`cargo test`).
+//! dxtutor IDE — Tauri backend.
+//!
+//! Exposes the dxtutor "brain" (the `tutor-*` crates) to the webview through a
+//! handful of Tauri commands, and bridges an embedded xterm terminal to a real
+//! PTY. Every command serializes with serde_json and handles errors without
+//! panicking (results come back as `Result<_, String>`).
+//!
+//! Honesty principle: `submit` reports correctness strictly from the hidden
+//! tests (`tutor_eval::assess`), exposes the empirical complexity estimate with
+//! its R²/confidence, and only ships the curated gabarito. `request_hint` uses
+//! the offline-safe provider when no API key is present.
 
+mod board;
+mod bridge;
+mod debug;
+mod fsops;
 mod keys;
 mod llm;
+mod lsp;
 mod pair;
 mod procs;
+mod pty;
 mod vsix;
 mod workspace;
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_dialog::DialogExt;
+use serde::Serialize;
+use tutor_core::{Level, Phase, StepKind};
+use tutor_eval::{
+    Assessment, Confidence, Estimate, ExecutionTrace, MemSample, Pipeline, Severity, Telemetry,
+};
+use tutor_llm::{
+    default_fix_provider, default_plan_provider, default_provider, FixRequest, HintRequest,
+    PlanRequest,
+};
 
-fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path().app_config_dir().map_err(|e| e.to_string())
+/// The project the editor loads. Kept in one place so a future selector is easy.
+const PROJECT_ID: &str = "rust-word-frequency";
+
+// ── Serializable DTOs (camelCase to match the TypeScript frontend) ───────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PhaseDto {
+    id: String,
+    title: String,
+    level: String,
+    instructions: String,
+    starter: String,
+    entry: String,
 }
 
-#[tauri::command]
-async fn pick_folder(app: AppHandle) -> Option<String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        app.dialog().file().blocking_pick_folder().and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().to_string())
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectDto {
+    project_id: String,
+    project_title: String,
+    language: String,
+    summary: String,
+    phases: Vec<PhaseDto>,
+}
+
+#[derive(Serialize)]
+struct CorrectnessDto {
+    passed: bool,
+    summary: String,
+    raw: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ComplexityDto {
+    big_o: String,
+    r_squared: f64,
+    exponent: f64,
+    confidence: String,
+    ranking: Vec<(String, f64)>,
+}
+
+#[derive(Serialize)]
+struct GabaritoDto {
+    solution: String,
+    time: String,
+    space: String,
+    justification: String,
+}
+
+#[derive(Serialize)]
+struct AssessmentDto {
+    correctness: CorrectnessDto,
+    complexity: Option<ComplexityDto>,
+    expected: Option<String>,
+    /// The curated reference solution — **only present after the hidden tests pass**.
+    /// On a failed attempt this is `None`, so no application path can leak the answer
+    /// (P0 honesty contract). See [`reveal_gabarito`].
+    gabarito: Option<GabaritoDto>,
+}
+
+#[derive(Serialize)]
+struct HintDto {
+    text: String,
+    provider: String,
+    level: u8,
+}
+
+#[derive(Serialize)]
+struct DiagnosticDto {
+    line: u32,
+    col: u32,
+    severity: String,
+    message: String,
+    /// Internal, offline, rule-based fix suggestion (no AI). `None` when no rule
+    /// matched — the frontend may then fall back to the optional LLM provider.
+    suggestion: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PlanDto {
+    steps: Vec<String>,
+}
+
+// ── Guided-learning DTOs (camelCase) ─────────────────────────────────────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StepDto {
+    /// "concept" | "drill" | "challenge".
+    kind: String,
+    id: String,
+    title: String,
+    points: u32,
+    /// Pedagogical briefing shown BEFORE the exercise: how the computation solves
+    /// this problem (markdown). Populated for every step kind.
+    intro: String,
+    /// Increasing difficulty marker (0 = none). Presentation only.
+    difficulty: u8,
+    /// concept: markdown body.
+    body: String,
+    /// drill: what/why (markdown).
+    prompt: String,
+    /// drill: the exact complete Rust program to retype.
+    target: String,
+    /// drill: shown after the program runs.
+    explanation: String,
+    /// drill: one explanation per line of `target`, aligned by index
+    /// (`lineComments[i]` explains line `i` of `target.split('\n')`). Empty when
+    /// the step carries no per-line comments.
+    line_comments: Vec<String>,
+    /// "shown" (basic units: the placeholder/target appears at once) or
+    /// "on_demand" (advanced units: hidden until the student clicks Show
+    /// placeholder). Defaults to "shown".
+    placeholder_policy: String,
+    /// Package-manager commands to SHOW the student to install this exercise's
+    /// external packages (e.g. `["go get github.com/google/uuid"]`). Empty when the
+    /// exercise needs only the standard library. Display/teaching only.
+    install_commands: Vec<String>,
+    /// Command to SHOW the student to run this exercise on the CLI (e.g.
+    /// `"go run ."` or `"go test ./..."`). Empty when not applicable. Display only.
+    run_command: String,
+    /// Extra Cargo `[dependencies]` lines this step needs (Rust). Unlike
+    /// `install_commands` (display only), these are actually sent to `run_drill`
+    /// and written into the scaffolded crate so it compiles. Empty for std-only.
+    dependencies: Vec<String>,
+    /// challenge: markdown instructions.
+    instructions: String,
+    /// challenge: the function name to implement.
+    entry: String,
+    /// challenge: starter code.
+    starter: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitDto {
+    id: String,
+    title: String,
+    intro: String,
+    /// Increasing difficulty marker (0 = none). Presentation only.
+    difficulty: u8,
+    /// Pedagogical level: "basic" | "intermediate" | "advanced". Lets the
+    /// frontend organize and filter the track by level.
+    level: String,
+    steps: Vec<StepDto>,
+}
+
+// ── Scaffolding DTOs (glossary + study guide) ────────────────────────────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GlossaryEntryDto {
+    keyword: String,
+    summary: String,
+    when_to_use: String,
+    example: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GlossaryDto {
+    entries: Vec<GlossaryEntryDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StudyGuideDto {
+    title: String,
+    /// Markdown body re-explaining the unit's concepts calmly.
+    body: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CourseDto {
+    id: String,
+    language: String,
+    title: String,
+    level: String,
+    summary: String,
+    units: Vec<UnitDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunDto {
+    ok: bool,
+    stdout: String,
+    stderr: String,
+}
+
+// ── Honest observability DTOs (measured run + compiler pipeline) ──────────────
+
+/// One point of the memory time-series sampled DURING the measured run: elapsed
+/// time (ms) and resident set size (KB), read from `/proc/<pid>/statm`. Serialized
+/// as `tMs`/`rssKb`. Nothing fabricated — it's what the kernel reported.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SampleDto {
+    t_ms: f64,
+    rss_kb: u64,
+}
+
+/// Real, kernel-measured telemetry of the student's binary (nothing fabricated):
+/// wall clock, user/sys CPU, peak RSS, I/O blocks (all from `wait4`/`rusage`), plus
+/// a memory time-series (`samples`) sampled live from `/proc` during the run.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TelemetryDto {
+    wall_ms: f64,
+    cpu_user_ms: f64,
+    cpu_sys_ms: f64,
+    peak_rss_kb: u64,
+    io_read_blocks: u64,
+    io_write_blocks: u64,
+    exit_code: i32,
+    /// Memory time-series sampled during execution (empty if unavailable).
+    samples: Vec<SampleDto>,
+}
+
+/// A run plus its telemetry. `run` has the same shape as `run_drill`'s output.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MeasuredRunDto {
+    run: RunDto,
+    telemetry: TelemetryDto,
+}
+
+/// The compiler's intermediate representations for the student's code, produced
+/// by the real toolchain. Anything the toolchain cannot emit stays empty, with
+/// the honest reason in `notes`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PipelineDto {
+    mir: String,
+    llvm_ir: String,
+    asm: String,
+    binary_bytes: u64,
+    disasm: String,
+    notes: String,
+}
+
+// ── Step-through execution trace DTOs (camelCase) ─────────────────────────────
+
+/// One observed variable in a trace step: name, truncated `repr()`, and its
+/// Python `type(...).__name__`. Read from the student's real frame — nothing
+/// fabricated.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VarDto {
+    name: String,
+    value: String,
+    ty: String,
+}
+
+/// One step of the execution trace: the line about to run (or the call/return),
+/// the function, the stack depth, the locals, and the accumulated stdout length.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TraceStepDto {
+    line: u32,
+    /// "line" | "call" | "return".
+    event: String,
+    func: String,
+    depth: u32,
+    locals: Vec<VarDto>,
+    stdout_len: u32,
+}
+
+/// A full step-through trace of a program's REAL execution (Python-Tutor style).
+/// `supported = false` for languages without tracing here, with an honest reason
+/// in `notes`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExecutionTraceDto {
+    supported: bool,
+    notes: String,
+    steps: Vec<TraceStepDto>,
+    stdout: String,
+}
+
+// ── Conversions ───────────────────────────────────────────────────────────────
+
+fn level_str(level: Level) -> &'static str {
+    match level {
+        Level::Basico => "basico",
+        Level::Intermedio => "intermedio",
+        Level::Avancado => "avancado",
+    }
+}
+
+fn confidence_str(c: Confidence) -> &'static str {
+    match c {
+        Confidence::Low => "low",
+        Confidence::Medium => "medium",
+        Confidence::High => "high",
+    }
+}
+
+/// `serde_json` turns non-finite floats (`NaN`, `±∞`) into JSON `null`, which then
+/// crashes `.toFixed()` in the webview. Some complexity classes (e.g. exponential
+/// at these sizes) legitimately fit to a non-finite R², so sanitize before sending.
+fn finite(x: f64) -> f64 {
+    if x.is_finite() {
+        x
+    } else {
+        0.0
+    }
+}
+
+fn complexity_dto(est: &Estimate) -> ComplexityDto {
+    ComplexityDto {
+        big_o: est.big_o().to_string(),
+        r_squared: finite(est.r_squared),
+        exponent: finite(est.loglog_exponent),
+        confidence: confidence_str(est.confidence).to_string(),
+        ranking: est
+            .ranking
+            .iter()
+            .map(|(class, r2)| (class.big_o().to_string(), finite(*r2)))
+            .collect(),
+    }
+}
+
+fn phase_dto(p: &Phase) -> PhaseDto {
+    PhaseDto {
+        id: p.id.clone(),
+        title: p.title.clone(),
+        level: level_str(p.level).to_string(),
+        instructions: p.instructions.clone(),
+        starter: p.starter.clone(),
+        entry: p.entry.clone(),
+    }
+}
+
+fn step_kind_str(kind: StepKind) -> &'static str {
+    match kind {
+        StepKind::Concept => "concept",
+        StepKind::Drill => "drill",
+        StepKind::Challenge => "challenge",
+    }
+}
+
+fn step_dto(s: &tutor_core::Step) -> StepDto {
+    // Note: the hidden `tests` and `gabarito` are deliberately NOT exposed — the
+    // honesty principle keeps the source of truth out of the webview.
+    StepDto {
+        kind: step_kind_str(s.kind).to_string(),
+        id: s.id.clone(),
+        title: s.title.clone(),
+        points: s.points,
+        intro: s.intro.clone(),
+        difficulty: s.difficulty,
+        body: s.body.clone(),
+        prompt: s.prompt.clone(),
+        target: s.target.clone(),
+        explanation: s.explanation.clone(),
+        line_comments: s.line_comments.clone(),
+        placeholder_policy: s.placeholder_policy.clone(),
+        install_commands: s.install_commands.clone(),
+        run_command: s.run_command.clone(),
+        dependencies: s.dependencies.clone(),
+        instructions: s.instructions.clone(),
+        entry: s.entry.clone(),
+        starter: s.starter.clone(),
+    }
+}
+
+fn course_dto(c: &tutor_core::Course) -> CourseDto {
+    CourseDto {
+        id: c.id.clone(),
+        language: c.language.clone(),
+        title: c.title.clone(),
+        level: c.level.clone(),
+        summary: c.summary.clone(),
+        units: c
+            .units
+            .iter()
+            .map(|u| UnitDto {
+                id: u.id.clone(),
+                title: u.title.clone(),
+                intro: u.intro.clone(),
+                difficulty: u.difficulty,
+                level: u.level.clone(),
+                steps: u.steps.iter().map(step_dto).collect(),
+            })
+            .collect(),
+    }
+}
+
+/// Reveal the curated gabarito **only when the submission passed the hidden tests**.
+///
+/// This is the single decision that gates the reference solution: a failed attempt
+/// gets `None`, so the DTO that reaches the webview never carries the answer (nor its
+/// revealing justification). Pure and deterministic, so the harness can prove the
+/// contract at the real serialization boundary without building a `Phase`.
+fn reveal_gabarito(passed: bool, g: &tutor_core::Gabarito) -> Option<GabaritoDto> {
+    if !passed {
+        return None;
+    }
+    Some(GabaritoDto {
+        solution: g.solution.clone(),
+        time: g.time.clone(),
+        space: g.space.clone(),
+        justification: g.justification.clone(),
     })
-    .await
-    .ok()
-    .flatten()
 }
 
-#[tauri::command]
-async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
-    tauri::async_runtime::spawn_blocking(move || workspace::load(std::path::Path::new(&root), 4000, 768 * 1024).map_err(|e| format!("{root}: {e}")))
-        .await
-        .map_err(|e| e.to_string())?
+/// Build the assessment DTO from an evaluation plus the phase that was graded
+/// (the gabarito travels with the phase). Shared by `submit` and `submit_step`.
+fn assessment_dto(a: &Assessment, phase: &Phase) -> AssessmentDto {
+    AssessmentDto {
+        correctness: CorrectnessDto {
+            passed: a.correctness.passed,
+            summary: a.correctness.summary.clone(),
+            raw: a.correctness.raw.clone(),
+        },
+        complexity: a.complexity.as_ref().map(complexity_dto),
+        expected: a.expected.as_ref().map(|c| c.big_o().to_string()),
+        // Honesty contract: no solution in the payload unless the tests passed.
+        gabarito: reveal_gabarito(a.correctness.passed, &phase.gabarito),
+    }
 }
 
-#[tauri::command]
-fn write_file(root: String, rel: String, content: String) -> Result<(), String> {
-    workspace::write(std::path::Path::new(&root), &rel, &content)
+fn sample_dto(s: &MemSample) -> SampleDto {
+    SampleDto {
+        t_ms: finite(s.t_ms),
+        rss_kb: s.rss_kb,
+    }
 }
 
-#[tauri::command]
-fn delete_file(root: String, rel: String) -> Result<(), String> {
-    workspace::delete(std::path::Path::new(&root), &rel)
+fn telemetry_dto(t: &Telemetry) -> TelemetryDto {
+    TelemetryDto {
+        wall_ms: finite(t.wall_ms),
+        cpu_user_ms: finite(t.cpu_user_ms),
+        cpu_sys_ms: finite(t.cpu_sys_ms),
+        peak_rss_kb: t.peak_rss_kb,
+        io_read_blocks: t.io_read_blocks,
+        io_write_blocks: t.io_write_blocks,
+        exit_code: t.exit_code,
+        samples: t.samples.iter().map(sample_dto).collect(),
+    }
 }
 
-#[tauri::command]
-fn expand_path(path: String) -> String {
-    workspace::expand_home(&path)
+fn pipeline_dto(p: Pipeline) -> PipelineDto {
+    PipelineDto {
+        mir: p.mir,
+        llvm_ir: p.llvm_ir,
+        asm: p.asm,
+        binary_bytes: p.binary_bytes,
+        disasm: p.disasm,
+        notes: p.notes,
+    }
 }
 
+fn execution_trace_dto(t: ExecutionTrace) -> ExecutionTraceDto {
+    ExecutionTraceDto {
+        supported: t.supported,
+        notes: t.notes,
+        steps: t
+            .steps
+            .into_iter()
+            .map(|s| TraceStepDto {
+                line: s.line,
+                event: s.event,
+                func: s.func,
+                depth: s.depth,
+                locals: s
+                    .locals
+                    .into_iter()
+                    .map(|v| VarDto {
+                        name: v.name,
+                        value: v.value,
+                        ty: v.ty,
+                    })
+                    .collect(),
+                stdout_len: s.stdout_len,
+            })
+            .collect(),
+        stdout: t.stdout,
+    }
+}
+
+// ── Brain commands ──────────────────────────────────────────────────────────────
+
+/// List the project title and its phases (shown in the sidebar as "files").
 #[tauri::command]
-async fn exec(program: String, args: Vec<String>, cwd: Option<String>, env: Option<HashMap<String, String>>, stdin: Option<String>, timeout_ms: Option<u64>) -> Result<procs::ExecOut, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        procs::exec(&program, &args, cwd.as_deref(), &env.unwrap_or_default(), stdin.as_deref(), Duration::from_millis(timeout_ms.unwrap_or(120_000)))
+fn list_phases() -> Result<ProjectDto, String> {
+    let project = tutor_core::load_project(PROJECT_ID)
+        .ok_or_else(|| format!("project `{PROJECT_ID}` not found"))?;
+    Ok(ProjectDto {
+        project_id: project.id.clone(),
+        project_title: project.title.clone(),
+        language: project.language.clone(),
+        summary: project.summary.clone(),
+        phases: project.phases.iter().map(phase_dto).collect(),
+    })
+}
+
+/// Evaluate the student's code for a phase: run the hidden tests (source of
+/// truth) and, on pass, measure complexity. Reveal the curated gabarito.
+#[tauri::command]
+async fn submit(phase_id: String, code: String) -> Result<AssessmentDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<AssessmentDto, String> {
+        let project = tutor_core::load_project(PROJECT_ID)
+            .ok_or_else(|| format!("project `{PROJECT_ID}` not found"))?;
+        let phase = project
+            .phase(&phase_id)
+            .ok_or_else(|| format!("phase `{phase_id}` not found"))?;
+
+        let assessment =
+            tutor_eval::assess(phase, &code).map_err(|e| format!("evaluation failed: {e}"))?;
+
+        Ok(assessment_dto(&assessment, phase))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-fn run_shell(app: AppHandle, procs_state: State<'_, procs::Procs>, id: String, line: String, cwd: Option<String>, env: Option<HashMap<String, String>>) -> Result<(), String> {
-    let a1 = app.clone();
-    procs::spawn_shell(
-        &procs_state,
-        id,
-        &line,
-        cwd.as_deref(),
-        &env.unwrap_or_default(),
-        move |l| {
-            let _ = a1.emit("proc-line", l);
-        },
-        move |e| {
-            let _ = app.emit("proc-exit", e);
-        },
-    )
+/// Find a guided-course step by id across every built-in course; returns the
+/// course language alongside the step. The frontend addresses hints/diagnostics
+/// by step id (passed as `phaseId`/`stepId`).
+fn course_step(step_id: &str) -> Option<(String, tutor_core::Step)> {
+    for course in tutor_core::builtin_courses() {
+        if let Some(step) = course.step(step_id) {
+            return Some((course.language.clone(), step.clone()));
+        }
+    }
+    None
 }
 
-#[tauri::command]
-fn kill_shell(procs_state: State<'_, procs::Procs>, id: String) -> bool {
-    procs::kill(&procs_state, &id)
+/// Language of the step's course (defaults to Rust when the id is unknown).
+fn step_language(step_id: &str) -> String {
+    course_step(step_id)
+        .map(|(lang, _)| lang)
+        .unwrap_or_else(|| "rust".to_string())
 }
 
+/// Produce a progressive hint (level 1..3) for a guided-course step. Offline-safe:
+/// without `ANTHROPIC_API_KEY` the OfflineProvider returns a useful generic message.
 #[tauri::command]
-fn keys_status(app: AppHandle) -> Result<HashMap<String, bool>, String> {
-    let dir = config_dir(&app)?;
-    Ok(["claude", "codex", "gemini", "ollama"].iter().map(|p| (p.to_string(), keys::resolve(&dir, p).is_some())).collect())
-}
+fn request_hint(phase_id: String, code: String, level: u8) -> Result<HintDto, String> {
+    // Prefer a curated, offline progressive hint when the phase ships one (e.g. the
+    // "count characters" scenario). Deterministic and model-free — the essential path
+    // works with no provider. Falls through to the provider otherwise.
+    if let Some(phase) = tutor_core::find_phase(&phase_id) {
+        if let Some(hint) = phase.hint(level) {
+            return Ok(HintDto {
+                text: hint.to_string(),
+                provider: "curated".to_string(),
+                level: level.clamp(1, 3),
+            });
+        }
+    }
 
-#[tauri::command]
-fn save_key(app: AppHandle, provider: String, key: String) -> Result<(), String> {
-    keys::save(&config_dir(&app)?, &provider, &key)
-}
+    let (instructions, entry) = match course_step(&phase_id) {
+        Some((_, step)) => (step.instructions.clone(), step.entry.clone()),
+        None => (String::new(), String::new()),
+    };
 
-#[tauri::command]
-async fn llm_chat(app: AppHandle, req: llm::ChatReq) -> Result<llm::ChatResp, String> {
-    let key = keys::resolve(&config_dir(&app)?, &req.provider);
-    llm::chat(req, key).await
-}
+    let req = HintRequest {
+        instructions,
+        entry,
+        student_code: code,
+        test_output: None,
+        level,
+    };
+    let provider = default_provider();
+    let text = provider
+        .hint(&req)
+        .map_err(|e| format!("hint provider failed: {e}"))?;
 
-#[tauri::command]
-fn vsix_manifest(b64: String) -> Result<serde_json::Value, String> {
-    vsix::manifest_b64(&b64)
-}
-
-#[tauri::command]
-fn app_info(app: AppHandle) -> serde_json::Value {
-    serde_json::json!({
-        "version": app.package_info().version.to_string(),
-        "os": std::env::consts::OS,
-        "arch": std::env::consts::ARCH,
-        "home": workspace::expand_home("~"),
-        "configDir": config_dir(&app).map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-        "selftest": std::env::var("DXTUTOR_SELFTEST").ok(),
-        "openAtStart": std::env::args().nth(1),
-        "pairtest": std::env::var("DXTUTOR_PAIRTEST").ok(),
+    Ok(HintDto {
+        text,
+        provider: provider.name().to_string(),
+        level: req.level(),
     })
 }
 
-/// Used by the smoke test: the UI reports what it saw, the app writes it to a file and quits.
+/// Load a phase (owned) by id, or a readable error.
+fn load_phase(phase_id: &str) -> Result<Phase, String> {
+    let project = tutor_core::load_project(PROJECT_ID)
+        .ok_or_else(|| format!("project `{PROJECT_ID}` not found"))?;
+    project
+        .phase(phase_id)
+        .cloned()
+        .ok_or_else(|| format!("phase `{phase_id}` not found"))
+}
+
+/// Compiler/syntax diagnostics for the current code — the raw material for the
+/// red underline. The runner is chosen by the phase's language (Rust via
+/// `cargo check`, JS via the embedded engine). Never judges the exercise.
 #[tauri::command]
-fn selftest_report(app: AppHandle, report: serde_json::Value) {
-    if let Ok(path) = std::env::var("DXTUTOR_SELFTEST") {
-        let _ = std::fs::write(path, serde_json::to_string_pretty(&report).unwrap_or_default());
-        app.exit(0);
+fn get_diagnostics(step_id: String, code: String) -> Result<Vec<DiagnosticDto>, String> {
+    let language = step_language(&step_id);
+    let diags = tutor_eval::diagnostics_for(&language, &code)
+        .map_err(|e| format!("diagnostics failed: {e}"))?;
+    Ok(diags
+        .into_iter()
+        .map(|d| DiagnosticDto {
+            line: d.line,
+            col: d.col,
+            severity: match d.severity {
+                Severity::Error => "error",
+                Severity::Warning => "warning",
+            }
+            .to_string(),
+            // Internal rule-based suggestion — works offline, no AI needed.
+            suggestion: tutor_eval::advise(&language, &d),
+            message: d.message,
+        })
+        .collect())
+}
+
+/// Turn a "what I want to solve" comment into a high-level PLAN (steps, no code)
+/// so the student types the solution themselves. Offline-safe.
+#[tauri::command]
+fn request_plan(phase_id: String, comment: String, code: String) -> Result<PlanDto, String> {
+    let phase = load_phase(&phase_id)?;
+    let req = PlanRequest {
+        language: phase.language.clone(),
+        comment,
+        context_code: code,
+    };
+    let plan = default_plan_provider()
+        .plan(&req)
+        .map_err(|e| format!("plan provider failed: {e}"))?;
+    Ok(PlanDto { steps: plan.steps })
+}
+
+/// Explain a single diagnostic and how to fix THAT line — never rewrites the
+/// whole function or solves the exercise. Offline-safe.
+#[tauri::command]
+fn request_fix(
+    phase_id: String,
+    code: String,
+    line: u32,
+    message: String,
+) -> Result<String, String> {
+    let phase = load_phase(&phase_id)?;
+    let req = FixRequest {
+        language: phase.language.clone(),
+        code,
+        line,
+        message,
+    };
+    default_fix_provider()
+        .fix_suggestion(&req)
+        .map_err(|e| format!("fix provider failed: {e}"))
+}
+
+// ── Guided-learning commands ─────────────────────────────────────────────────
+
+/// Load the guided course for a language (e.g. `"rust"`). Returns the course
+/// tree (units → steps) the beginner mode renders.
+#[tauri::command]
+fn get_course(language: String) -> Result<CourseDto, String> {
+    let course = tutor_core::builtin_courses()
+        .into_iter()
+        .find(|c| c.language.eq_ignore_ascii_case(language.trim()))
+        .ok_or_else(|| format!("no course for language `{language}`"))?;
+    Ok(course_dto(&course))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CourseSummaryDto {
+    id: String,
+    language: String,
+    title: String,
+    level: String,
+    summary: String,
+}
+
+/// List every built-in course (one per language curriculum) so the onboarding can
+/// build its language picker dynamically, instead of hard-coding which languages
+/// are available. Adding a course (or a plugin language with a course) makes it
+/// appear without any frontend change.
+#[tauri::command]
+fn list_courses() -> Vec<CourseSummaryDto> {
+    tutor_core::builtin_courses()
+        .into_iter()
+        .map(|c| CourseSummaryDto {
+            id: c.id,
+            language: c.language,
+            title: c.title,
+            level: c.level,
+            summary: c.summary,
+        })
+        .collect()
+}
+
+/// Offline Code Review over a REAL project folder. Runs on a blocking worker (NOT
+/// the UI thread), so a multi-second analyzer never stalls the window. `scope` is
+/// "file" | "changes" | "project"; `path` names the file for "file" scope. `version`
+/// is echoed back untouched so the frontend can discard a result that is stale for
+/// the current buffer. Works with the network down and no model configured.
+#[tauri::command]
+async fn review_code(
+    root: String,
+    scope: String,
+    path: Option<String>,
+    version: Option<String>,
+) -> Result<tutor_eval::review::ReviewReport, String> {
+    use tutor_eval::review::{review, ReviewScope};
+    let scope = match scope.as_str() {
+        "file" => ReviewScope::File(path.ok_or_else(|| "file scope needs a path".to_string())?),
+        "changes" => ReviewScope::WorkingChanges,
+        _ => ReviewScope::Project,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        review(std::path::Path::new(&root), &scope, version)
+    })
+    .await
+    .map_err(|e| format!("review task failed: {e}"))?
+    .map_err(|e| format!("review failed: {e}"))
+}
+
+/// The local analyzers installed on this host, so the review UI can advertise what
+/// it can really do and show which tools are missing.
+#[tauri::command]
+fn list_review_analyzers() -> Vec<tutor_eval::review::AnalyzerInfo> {
+    tutor_eval::review::detect_analyzers()
+}
+
+/// P0-3: verify a review fix is still safe to apply to the CURRENT buffer. `currentSource`
+/// is the live editor content; `analyzedVersion` is the file's `content_version` captured
+/// when the review ran (from `ReviewReport.fileVersions`). Refuses — preserving the
+/// developer's edits — if the buffer drifted or the target snippet no longer matches.
+#[tauri::command]
+fn verify_review_fix(
+    current_source: String,
+    analyzed_version: String,
+    fix: tutor_eval::review::SuggestedFix,
+) -> tutor_eval::review::FixVerification {
+    tutor_eval::review::verify_fix(&current_source, &analyzed_version, &fix)
+}
+
+/// Dev Assistant: the locally-available Ollama models (empty if none/offline).
+#[tauri::command]
+fn assistant_models() -> Vec<String> {
+    tutor_llm::chat::ollama_models()
+}
+
+/// Dev Assistant: send a chat turn to the local model (Ollama) and return the reply.
+/// Non-streaming for now; P4 adds streaming + a multi-provider picker. Runs off the
+/// UI thread because the HTTP call is blocking.
+#[tauri::command]
+async fn assistant_chat(
+    messages: Vec<tutor_llm::chat::ChatMsg>,
+    model: Option<String>,
+) -> Result<tutor_llm::chat::ChatReply, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_llm::chat::ollama_chat(&messages, model.as_deref())
+    })
+    .await
+    .map_err(|e| format!("assistant task failed: {e}"))?
+    .map_err(|e| format!("{e}"))
+}
+
+/// Cancellation flags for in-flight streaming LLM requests, keyed by request id.
+static LLM_CANCELS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+> = std::sync::OnceLock::new();
+fn llm_cancels(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>
+{
+    LLM_CANCELS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Stream a Dev-Assistant chat turn. Emits `llm://token` {requestId, delta} per token
+/// chunk, then `llm://done` {requestId, model} or `llm://error` {requestId, error}.
+/// Returns immediately; the stream runs on a thread (the pty.rs pattern). Cancel it
+/// mid-flight with `assistant_cancel(requestId)` — the Stop button.
+/// The AI providers and what each can do right now (Ollama live; others gated).
+#[tauri::command]
+fn list_providers() -> Vec<tutor_llm::chat::ProviderInfo> {
+    tutor_llm::chat::list_providers()
+}
+
+/// The saved AI/provider settings (keys + Ollama config), for the settings form.
+#[tauri::command]
+fn get_providers_config() -> tutor_llm::chat::ProvidersConfig {
+    tutor_llm::chat::load_config()
+}
+
+/// Persist AI/provider settings to `~/.config/dxtutor/providers.json` (mode 0600).
+#[tauri::command]
+fn save_providers_config(config: tutor_llm::chat::ProvidersConfig) -> Result<(), String> {
+    tutor_llm::chat::save_config(&config).map_err(|e| format!("{e}"))
+}
+
+/// Is `step_id` an autonomous-application exercise (a challenge the student must
+/// implement), as opposed to a transcription drill or concept? Unknown ids are treated
+/// as autonomous (fail closed toward the stricter contract).
+fn step_is_autonomous(step_id: Option<&str>) -> bool {
+    match step_id {
+        Some(id) => course_step(id)
+            .map(|(_, s)| matches!(s.kind, StepKind::Challenge))
+            .unwrap_or(true),
+        None => true,
     }
 }
 
-fn pair_events(app: &AppHandle) -> pair::Events {
+/// The active study policy for the given mode + step. The frontend uses it to hide
+/// solution/buffer-writing surfaces while an exercise is open (defence in depth); the
+/// backend commands enforce the same policy regardless of what the UI shows.
+#[tauri::command]
+fn study_policy(mode: String, step_id: Option<String>) -> tutor_llm::policy::StudyPolicy {
+    use tutor_llm::policy::{policy_for, Mode};
+    policy_for(Mode::parse(&mode), step_is_autonomous(step_id.as_deref()))
+}
+
+/// The active Co-Dev approval policy for the modebar mode (Manual/Assist/Auto). The
+/// frontend consults it so the modebar governs whether edits/commands auto-apply or must
+/// be approved. Destructive actions and push always ask, in every mode.
+#[tauri::command]
+fn codev_policy(mode: String) -> tutor_llm::policy::CoDevPolicy {
+    use tutor_llm::policy::{codev_policy, CoDevMode};
+    codev_policy(CoDevMode::parse(&mode))
+}
+
+#[tauri::command]
+fn assistant_chat_stream(
+    app: tauri::AppHandle,
+    messages: Vec<tutor_llm::chat::ChatMsg>,
+    provider: Option<String>,
+    model: Option<String>,
+    request_id: String,
+    mode: Option<String>,
+    step_id: Option<String>,
+) {
+    use std::sync::atomic::Ordering;
+    use tauri::Emitter;
+    use tutor_llm::chat::ChatMsg;
+    use tutor_llm::policy::{policy_for, tutor_directive, Mode};
+
+    // P0-2: the backend — not the webview — decides the policy from the active mode and
+    // step. In study mode the chat is tutor-constrained: prepend the authoritative tutor
+    // directive so every provider (local or remote) is steered away from handing over the
+    // solution. This is the soft layer; the hard layer is that no command writes the
+    // student's buffer and solution/edit surfaces are gated off in study mode.
+    let policy = policy_for(
+        Mode::parse(mode.as_deref().unwrap_or("study")),
+        step_is_autonomous(step_id.as_deref()),
+    );
+    let messages: Vec<ChatMsg> = if policy.chat_is_tutor {
+        let mut m = Vec::with_capacity(messages.len() + 1);
+        m.push(ChatMsg {
+            role: "system".into(),
+            content: tutor_directive().into(),
+        });
+        m.extend(messages);
+        m
+    } else {
+        messages
+    };
+
+    // ollama (local), claude, openai and gemini all have SSE streaming adapters. Any
+    // other id fails honestly rather than silently doing nothing.
+    let prov = provider.as_deref().unwrap_or("ollama").to_string();
+    if !matches!(prov.as_str(), "ollama" | "claude" | "openai" | "gemini") {
+        let _ = app.emit(
+            "llm://error",
+            serde_json::json!({
+                "requestId": request_id,
+                "error": format!("The “{prov}” provider has no streaming adapter yet. Use Ollama, Claude, OpenAI or Gemini."),
+            }),
+        );
+        return;
+    }
+
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    llm_cancels().lock().unwrap().insert(request_id.clone(), flag.clone());
+    std::thread::spawn(move || {
+        let emit_app = app.clone();
+        let rid = request_id.clone();
+        // One cancel-aware token sink shared by every provider branch.
+        let emit = |delta: &str| -> bool {
+            if flag.load(Ordering::Relaxed) {
+                return false; // cancelled via the Stop button
+            }
+            let _ = emit_app.emit("llm://token", serde_json::json!({ "requestId": rid, "delta": delta }));
+            true
+        };
+        let res = match prov.as_str() {
+            "claude" => tutor_llm::chat::claude_chat_stream_env(&messages, emit),
+            "openai" => tutor_llm::chat::openai_chat_stream_env(&messages, model.as_deref(), emit),
+            "gemini" => tutor_llm::chat::gemini_chat_stream_env(&messages, model.as_deref(), emit),
+            _ => tutor_llm::chat::ollama_chat_stream(&messages, model.as_deref(), emit),
+        };
+        llm_cancels().lock().unwrap().remove(&request_id);
+        match res {
+            Ok(reply) => {
+                let _ = app.emit(
+                    "llm://done",
+                    serde_json::json!({ "requestId": request_id, "model": reply.model }),
+                );
+            }
+            Err(e) => {
+                let _ = app.emit(
+                    "llm://error",
+                    serde_json::json!({ "requestId": request_id, "error": format!("{e}") }),
+                );
+            }
+        }
+    });
+}
+
+/// Cancel an in-flight streaming request (the Stop button / interrupt).
+#[tauri::command]
+fn assistant_cancel(request_id: String) {
+    use std::sync::atomic::Ordering;
+    if let Some(f) = llm_cancels().lock().unwrap().get(&request_id) {
+        f.store(true, Ordering::Relaxed);
+    }
+}
+
+/// CodeMap: the definitions, references and (inferred) callers of `symbol` across
+/// the project at `root`. Runs off the UI thread. This slice is Rust + syntactic
+/// (`resolution: "inferred"`); a rust-analyzer-backed resolved path lands later.
+#[tauri::command]
+async fn symbol_relations(
+    root: String,
+    symbol: String,
+) -> Result<tutor_eval::codemap::Relations, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::codemap::symbol_relations(std::path::Path::new(&root), &symbol)
+    })
+    .await
+    .map_err(|e| format!("codemap task failed: {e}"))?
+    .map_err(|e| format!("codemap failed: {e}"))
+}
+
+/// Add-entrypoint: propose the idiomatic `main` for `lang` given `code`, or `None` when one
+/// already exists. The UI appends the snippet as a reviewed localized edit. Pure.
+#[tauri::command]
+async fn propose_entrypoint(
+    lang: String,
+    code: String,
+) -> Result<Option<tutor_eval::entrypoint::EntrypointProposal>, String> {
+    tauri::async_runtime::spawn_blocking(move || tutor_eval::entrypoint::propose_entrypoint(&lang, &code))
+        .await
+        .map_err(|e| format!("propose_entrypoint task failed: {e}"))
+}
+
+/// Localized editing review: a line-level diff of the original block `old` vs the proposed
+/// `new`, each line tagged context/add/del — the basis for the "show what changes" highlight
+/// and "accept selected lines". Pure; runs off the UI thread.
+#[tauri::command]
+async fn diff_lines(old: String, new: String) -> Result<Vec<tutor_eval::textdiff::DiffLine>, String> {
+    tauri::async_runtime::spawn_blocking(move || tutor_eval::textdiff::line_diff(&old, &new))
+        .await
+        .map_err(|e| format!("diff_lines task failed: {e}"))
+}
+
+/// Localized editing: the line span(s) of the Rust function/method named `name` in
+/// `code` — the exact target range for a scoped edit, and the candidates to disambiguate
+/// homonyms. Pure/syntactic; runs off the UI thread.
+#[tauri::command]
+async fn symbol_ranges(
+    code: String,
+    name: String,
+) -> Result<Vec<tutor_eval::codemap::SymbolRange>, String> {
+    tauri::async_runtime::spawn_blocking(move || tutor_eval::codemap::symbol_ranges(&code, &name))
+        .await
+        .map_err(|e| format!("symbol_ranges task failed: {e}"))
+}
+
+/// The symbol outline of a file, for a precise Explain anchored to real lines. Prefers the
+/// real language server (textDocument/documentSymbol — rust-analyzer/pyright/gopls/tsserver,
+/// on host or in the container) when `root`+`file` are given and a server answers; otherwise
+/// the syntactic outline (Rust AST, or the Python/Go/JS/TS heuristic).
+#[tauri::command]
+async fn file_outline(
+    code: String,
+    lang: String,
+    root: Option<String>,
+    file: Option<String>,
+) -> Result<Vec<tutor_eval::codemap::SymbolRange>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let (Some(r), Some(f)) = (root.as_ref(), file.as_ref()) {
+            let via_lsp = tutor_eval::lsp::document_symbols(
+                std::path::Path::new(r),
+                std::path::Path::new(f),
+                &lang,
+                &code,
+            );
+            if !via_lsp.is_empty() {
+                return via_lsp;
+            }
+        }
+        tutor_eval::codemap::outline(&code, &lang)
+    })
+    .await
+    .map_err(|e| format!("file_outline task failed: {e}"))
+}
+
+/// Section 5 (daily work): every symbol definition across the project at `root` (Rust via
+/// `syn`; Go/Python syntactic), for a "go to symbol" palette. Runs off the UI thread.
+#[tauri::command]
+async fn list_symbols(
+    root: String,
+    max: Option<usize>,
+) -> Result<Vec<tutor_eval::codemap::SymbolRef>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::codemap::all_symbols(std::path::Path::new(&root), max.unwrap_or(5000))
+    })
+    .await
+    .map_err(|e| format!("list_symbols task failed: {e}"))
+}
+
+/// Section 5: discover the `#[test]` functions under `root` so the UI can list them and
+/// run one individually. Syntactic (`syn`); notes `#[ignore]`. Runs off the UI thread.
+#[tauri::command]
+async fn list_tests(root: String) -> Result<Vec<tutor_eval::testnav::TestItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::testnav::discover_tests(std::path::Path::new(&root))
+    })
+    .await
+    .map_err(|e| format!("test discovery task failed: {e}"))
+}
+
+/// Section 5: run one test by its `path` (from `list_tests`) in the project at `root`,
+/// dispatching by `lang`: Rust via `cargo test --exact`, Go via `go test -run`. Returns
+/// pass/fail + the captured output. Hardened + timed; runs off the UI thread.
+#[tauri::command]
+async fn run_test(
+    root: String,
+    path: String,
+    lang: Option<String>,
+) -> Result<tutor_eval::testnav::TestRun, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = std::path::Path::new(&root);
+        match lang.as_deref() {
+            Some("go") => tutor_eval::testnav::run_go_test(root, &path),
+            Some("python") => tutor_eval::testnav::run_python_test(root, &path),
+            _ => tutor_eval::testnav::run_test(root, &path),
+        }
+    })
+    .await
+    .map_err(|e| format!("run_test task failed: {e}"))
+}
+
+/// Section 5: run the WHOLE test suite in the project at `root` (the "Run all" button),
+/// returning the overall pass/fail + captured output. Hardened + timed; off the UI thread.
+#[tauri::command]
+async fn run_all_tests(root: String) -> Result<tutor_eval::testnav::TestRun, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::testnav::run_suite(std::path::Path::new(&root))
+    })
+    .await
+    .map_err(|e| format!("run_all_tests task failed: {e}"))
+}
+
+/// A rust-analyzer-resolved definition location (1-based line/col, absolute path).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolvedDef {
+    file: String,
+    line: u32,
+    col: u32,
+}
+
+// ── Real debugging via gdb/MI (section 5). Thin Tauri wrappers over debug::driver. ──
+
+#[tauri::command]
+fn debug_available() -> bool {
+    debug::available()
+}
+#[tauri::command]
+fn debug_launch(sessions: tauri::State<'_, debug::DebugSessions>, id: String, program: String, cwd: Option<String>) -> Result<(), String> {
+    debug::driver::launch(&sessions, id, program, cwd)
+}
+#[tauri::command]
+fn debug_break(sessions: tauri::State<'_, debug::DebugSessions>, id: String, file: String, line: u32) -> Result<u32, String> {
+    debug::driver::set_break(&sessions, &id, &file, line)
+}
+#[tauri::command]
+fn debug_run(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<debug::Stop, String> {
+    debug::driver::run(&sessions, &id)
+}
+#[tauri::command]
+fn debug_continue(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<debug::Stop, String> {
+    debug::driver::cont(&sessions, &id)
+}
+#[tauri::command]
+fn debug_step(sessions: tauri::State<'_, debug::DebugSessions>, id: String, into: bool) -> Result<debug::Stop, String> {
+    debug::driver::step(&sessions, &id, into)
+}
+#[tauri::command]
+fn debug_locals(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<Vec<debug::Var>, String> {
+    debug::driver::locals(&sessions, &id)
+}
+#[tauri::command]
+fn debug_stack(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<Vec<debug::Frame>, String> {
+    debug::driver::stack(&sessions, &id)
+}
+#[tauri::command]
+fn debug_stop(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<(), String> {
+    debug::driver::stop(&sessions, &id)
+}
+
+/// Section 5: resolve the definition of the symbol at (`line`, `col`) — both 1-based — in
+/// `file` via rust-analyzer (REAL semantic navigation, not name-based). Returns `None` when
+/// rust-analyzer is absent or can't resolve, so the UI falls back to the syntactic CodeMap.
+/// Runs off the UI thread (spawns + indexes with rust-analyzer).
+#[tauri::command]
+async fn resolve_definition(
+    root: String,
+    file: String,
+    line: u32,
+    col: u32,
+    text: Option<String>,
+) -> Result<Option<ResolvedDef>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let loc = tutor_eval::lsp::resolve_definition(
+            std::path::Path::new(&root),
+            std::path::Path::new(&file),
+            line.saturating_sub(1), // editor 1-based → LSP 0-based
+            col.saturating_sub(1),
+            text.as_deref(),
+        )?;
+        let path = tutor_eval::lsp::uri_to_path(&loc.uri);
+        Some(ResolvedDef { file: path, line: loc.line + 1, col: loc.character + 1 })
+    })
+    .await
+    .map_err(|e| format!("resolve_definition task failed: {e}"))
+}
+
+/// Section 5: hover info (type/docs markdown) for the symbol at (`line`, `col`) — both
+/// 1-based — via rust-analyzer. `None` when absent/unresolved. Runs off the UI thread.
+#[tauri::command]
+async fn resolve_hover(
+    root: String,
+    file: String,
+    line: u32,
+    col: u32,
+    text: Option<String>,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::lsp::resolve_hover(
+            std::path::Path::new(&root),
+            std::path::Path::new(&file),
+            line.saturating_sub(1),
+            col.saturating_sub(1),
+            text.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("resolve_hover task failed: {e}"))
+}
+
+/// Section 5: resolve ALL references to the symbol at (`line`, `col`) — both 1-based — via
+/// rust-analyzer. Empty when absent/unresolved. Runs off the UI thread.
+#[tauri::command]
+async fn resolve_references(
+    root: String,
+    file: String,
+    line: u32,
+    col: u32,
+    text: Option<String>,
+) -> Result<Vec<ResolvedDef>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::lsp::resolve_references(
+            std::path::Path::new(&root),
+            std::path::Path::new(&file),
+            line.saturating_sub(1),
+            col.saturating_sub(1),
+            text.as_deref(),
+        )
+        .into_iter()
+        .map(|loc| ResolvedDef {
+            file: tutor_eval::lsp::uri_to_path(&loc.uri),
+            line: loc.line + 1,
+            col: loc.character + 1,
+        })
+        .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| format!("resolve_references task failed: {e}"))
+}
+
+/// Section 5 (daily work): the working-tree changes in the git repo at `root` (read-only).
+#[tauri::command]
+async fn git_changes(root: String) -> Result<Vec<tutor_eval::git::GitChange>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::changed_files(std::path::Path::new(&root))
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))
+}
+
+/// SCM write ops (stage / unstage / stage-all / commit). Each runs off the UI thread and
+/// surfaces git's stderr on failure so the Git view can report it.
+#[tauri::command]
+async fn git_stage(root: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::stage(std::path::Path::new(&root), &path)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn git_unstage(root: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::unstage(std::path::Path::new(&root), &path)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn git_stage_all(root: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::stage_all(std::path::Path::new(&root))
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn git_commit(root: String, message: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::commit(std::path::Path::new(&root), &message)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn git_log(root: String, max: Option<usize>) -> Result<Vec<tutor_eval::git::GitCommit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::log(std::path::Path::new(&root), max.unwrap_or(200))
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))
+}
+
+#[tauri::command]
+async fn git_show(root: String, hash: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::show(std::path::Path::new(&root), &hash)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestRun {
+    command: String,
+    ok: bool,
+    stdout: String,
+    stderr: String,
+}
+
+/// Run the project's test suite and return the command + its outcome, so the Agent's
+/// verify step cites real evidence (RF-AG-02) instead of claiming success. Runs inside the
+/// container session when one is active (its toolchain), else on the host.
+#[tauri::command]
+async fn run_tests(root: String) -> Result<TestRun, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        let cmd = tutor_eval::project_test_command(base)
+            .ok_or_else(|| "No known test command for this project.".to_string())?;
+        let name = tutor_eval::session_name(base);
+        if tutor_eval::session_running(&name) {
+            let out = tutor_eval::session_exec(&name, &format!("cd /work && {cmd}"))
+                .map_err(|e| e.to_string())?;
+            Ok(TestRun { command: cmd.into(), ok: out.ok, stdout: out.stdout, stderr: out.stderr })
+        } else {
+            let out = std::process::Command::new("sh")
+                .arg("-lc")
+                .arg(cmd)
+                .current_dir(base)
+                .output()
+                .map_err(|e| format!("could not start tests: {e}"))?;
+            Ok(TestRun {
+                command: cmd.into(),
+                ok: out.status.success(),
+                stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            })
+        }
+    })
+    .await
+    .map_err(|e| format!("test task failed: {e}"))?
+}
+
+/// Validate a System Design (Architecture Studio): run the structural rules over the drawn
+/// components + connections and return the findings (errors first). Pure; no I/O.
+#[tauri::command]
+async fn arch_validate(
+    arch: tutor_eval::arch::Architecture,
+) -> Result<Vec<tutor_eval::arch::Finding>, String> {
+    Ok(arch.validate())
+}
+
+/// Generate a project scaffold from a VALID System Design: writes a folder per live component
+/// plus ARCHITECTURE.md under `root` (never overwriting existing files). Returns the relative
+/// paths written. Errors if the design is invalid.
+#[tauri::command]
+async fn arch_scaffold(
+    root: String,
+    arch: tutor_eval::arch::Architecture,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let files = arch.scaffold();
+        if files.is_empty() {
+            return Err("design has errors — fix them before scaffolding".to_string());
+        }
+        let base = std::path::Path::new(&root);
+        let mut written = Vec::new();
+        for (rel, content) in files {
+            let p = base.join(&rel);
+            if p.exists() {
+                continue; // never overwrite an existing file
+            }
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&p, content).map_err(|e| e.to_string())?;
+            written.push(rel);
+        }
+        Ok(written)
+    })
+    .await
+    .map_err(|e| format!("scaffold task failed: {e}"))?
+}
+
+/// Preview the scaffold of a design WITHOUT writing: returns the (relPath, content) pairs
+/// `arch_scaffold` would write. Feeds the isolated-task delegation (agent_task_submit), so a
+/// mission can be reviewed as a worktree patch before anything lands. Empty if the design is
+/// invalid (same rule as scaffold).
+#[tauri::command]
+fn arch_scaffold_preview(arch: tutor_eval::arch::Architecture) -> Vec<(String, String)> {
+    arch.scaffold()
+}
+
+/// Run a delegated task in an isolated git worktree of HEAD: apply `writes` ([relPath,
+/// content] pairs) there and return the unified diff, WITHOUT touching the working tree
+/// (RF-AG-01/05). The caller reviews the patch before anything lands.
+#[tauri::command]
+async fn agent_isolated_patch(
+    root: String,
+    writes: Vec<(String, String)>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::worktree_patch(std::path::Path::new(&root), &writes)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+// ── Cloud-shaped task API (RF-AG-01) ────────────────────────────────────────
+// A submit → status → collect lifecycle over the LOCAL isolated executor (worktree_patch).
+// Local today; the same API is what a real remote backend would expose, so the UI already
+// talks the cloud shape. Honestly local: no network, no credentials.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentTask {
+    id: String,
+    status: String, // "running" | "done" | "error"
+    patch: String,
+    error: String,
+}
+
+static AGENT_TASKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, AgentTask>>> =
+    std::sync::OnceLock::new();
+fn agent_tasks() -> &'static std::sync::Mutex<std::collections::HashMap<String, AgentTask>> {
+    AGENT_TASKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+fn next_task_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    format!("task-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed))
+}
+
+/// Submit a delegated task: runs the isolated executor and registers the result under a task
+/// id (submit → the task runs → collectable by id). Returns the id immediately.
+#[tauri::command]
+async fn agent_task_submit(root: String, writes: Vec<(String, String)>) -> Result<String, String> {
+    let id = next_task_id();
+    agent_tasks().lock().unwrap().insert(
+        id.clone(),
+        AgentTask { id: id.clone(), status: "running".into(), patch: String::new(), error: String::new() },
+    );
+    let id2 = id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let rec = match tutor_eval::git::worktree_patch(std::path::Path::new(&root), &writes) {
+            Ok(patch) => AgentTask { id: id2.clone(), status: "done".into(), patch, error: String::new() },
+            Err(e) => AgentTask { id: id2.clone(), status: "error".into(), patch: String::new(), error: e },
+        };
+        agent_tasks().lock().unwrap().insert(id2, rec);
+    });
+    Ok(id)
+}
+
+/// Status + result of a submitted task (collect). `None` when the id is unknown.
+#[tauri::command]
+fn agent_task_status(id: String) -> Option<AgentTask> {
+    agent_tasks().lock().unwrap().get(&id).cloned()
+}
+
+/// Cancel/forget a task (removes its record). Returns whether it existed.
+#[tauri::command]
+fn agent_task_cancel(id: String) -> bool {
+    agent_tasks().lock().unwrap().remove(&id).is_some()
+}
+
+#[tauri::command]
+async fn git_branches(root: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::branches(std::path::Path::new(&root))
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))
+}
+
+#[tauri::command]
+async fn git_checkout(root: String, branch: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::checkout(std::path::Path::new(&root), &branch)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn git_create_branch(root: String, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::create_branch(std::path::Path::new(&root), &name)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+/// Co-Dev session (Claude-Code style): open an isolated git worktree on a `codev/<slug>`
+/// branch from HEAD, where the assistant works without touching the base tree.
+#[tauri::command]
+async fn codev_session_start(
+    root: String,
+    name: String,
+) -> Result<tutor_eval::git::SessionInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::session_start(std::path::Path::new(&root), &name)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+/// Deliver a Co-Dev session: commit its work, integrate (`merge --no-ff`) into the base branch
+/// and tear down the worktree.
+#[tauri::command]
+async fn codev_session_deliver(
+    root: String,
+    slug: String,
+    message: String,
+) -> Result<tutor_eval::git::DeliverInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::session_deliver(std::path::Path::new(&root), &slug, &message)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+/// Discard a Co-Dev session without integrating: drop the worktree and its branch.
+#[tauri::command]
+async fn codev_session_discard(root: String, slug: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::session_discard(std::path::Path::new(&root), &slug)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+/// List the open Co-Dev sessions (worktrees on `codev/*` branches) for `root`.
+#[tauri::command]
+async fn codev_session_list(root: String) -> Result<Vec<tutor_eval::git::SessionInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::sessions(std::path::Path::new(&root))
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))
+}
+
+/// Section 5 (daily work): the current git branch at `root` (or a short commit when
+/// detached), for the status bar. `None` → not a repo.
+#[tauri::command]
+async fn git_branch(root: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::current_branch(std::path::Path::new(&root))
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))
+}
+
+/// Section 5 (daily work): a unified diff of the working tree vs HEAD, optionally scoped to
+/// `file`. Read-only; empty when there is nothing to show or it is not a repo.
+#[tauri::command]
+async fn git_diff(
+    root: String,
+    file: Option<String>,
+    staged: Option<bool>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::diff(
+            std::path::Path::new(&root),
+            file.as_deref(),
+            staged.unwrap_or(false),
+        )
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))
+}
+
+/// Clone a git repository `url` into `parent_dir`, returning the new repo's path so the
+/// workspace can mount it. Runs off the UI thread; errors carry git's stderr.
+#[tauri::command]
+async fn git_clone(url: String, parent_dir: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::git::clone_repo(&url, std::path::Path::new(&parent_dir))
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}
+
+/// Section 5 (daily work): global literal search across the project at `root`. Returns up
+/// to `max` hits (file-relative). Offline, bounded; runs off the UI thread.
+#[tauri::command]
+async fn search_project(
+    root: String,
+    query: String,
+    max: Option<usize>,
+    ignore_case: Option<bool>,
+) -> Result<Vec<tutor_eval::search::SearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::search::search_project(
+            std::path::Path::new(&root),
+            &query,
+            max.unwrap_or(500),
+            ignore_case.unwrap_or(false),
+        )
+    })
+    .await
+    .map_err(|e| format!("search task failed: {e}"))
+}
+
+/// Section 5 (daily work): list the project's files (relative, sorted) for quick-open.
+/// Offline, bounded; runs off the UI thread.
+#[tauri::command]
+async fn list_files(root: String, max: Option<usize>) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::search::list_files(std::path::Path::new(&root), max.unwrap_or(5000))
+    })
+    .await
+    .map_err(|e| format!("list_files task failed: {e}"))
+}
+
+/// Section 5 (DAP): what the host can really do for debugging. Honest — `available` is
+/// true only when a real DAP adapter is installed; otherwise the note points at the
+/// instrumentation tracer (Visualize) as the fallback. Detection only, starts nothing.
+#[tauri::command]
+fn debug_capabilities() -> tutor_eval::dap::DebugCapability {
+    tutor_eval::dap::detect_debug_adapter()
+}
+
+/// Compile and run a COMPLETE Rust program (a drill's target the student retyped)
+/// and return its output. Never judges an exercise — it just executes.
+#[tauri::command]
+async fn run_drill(code: String, language: String, dependencies: Vec<String>) -> Result<RunDto, String> {
+    // Compile + run a complete program in the drill's language. Go uses `go run`
+    // (with `go mod tidy` to fetch any imports); everything else uses the Rust path.
+    // `dependencies` are extra Cargo `[dependencies]` lines the drill needs (e.g.
+    // rusqlite for the database track); empty for std-only drills. Go resolves its
+    // imports via `go mod tidy`, so it ignores this list.
+    // async + spawn_blocking: compiling/running is long blocking work — keep it off the
+    // webview's main thread so the app never freezes while a drill runs.
+    tauri::async_runtime::spawn_blocking(move || -> Result<RunDto, String> {
+        let out = match language.trim().to_ascii_lowercase().as_str() {
+            "go" | "golang" => tutor_eval::run_go_program_with_deps(&code, &dependencies),
+            _ => tutor_eval::run_rust_snippet_with_deps(&code, &dependencies),
+        }
+        .map_err(|e| format!("run failed: {e}"))?;
+        Ok(RunDto {
+            ok: out.ok,
+            stdout: out.stdout,
+            stderr: out.stderr,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Compile and run a COMPLETE Rust program and return its output PLUS real,
+/// kernel-measured telemetry (wall clock, user/sys CPU, peak RSS, I/O blocks).
+/// Honest observability: every number is measured from the student's own
+/// process via `wait4`/`rusage` — no fabricated GPU/NPU figures.
+#[tauri::command]
+async fn run_measured(code: String) -> Result<MeasuredRunDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<MeasuredRunDto, String> {
+        let (out, telemetry) = tutor_eval::run_rust_snippet_measured(&code)
+            .map_err(|e| format!("measured run failed: {e}"))?;
+        Ok(MeasuredRunDto {
+            run: RunDto {
+                ok: out.ok,
+                stdout: out.stdout,
+                stderr: out.stderr,
+            },
+            telemetry: telemetry_dto(&telemetry),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Run the real compiler pipeline over the student's code: MIR, LLVM-IR, assembly,
+/// binary size, and (if `objdump` exists) a disassembly. Shows honestly what the
+/// toolchain actually produces; missing stages are reported in `notes`.
+#[tauri::command]
+async fn compile_pipeline(code: String) -> Result<PipelineDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<PipelineDto, String> {
+        let pipeline =
+            tutor_eval::compile_pipeline(&code).map_err(|e| format!("compile pipeline failed: {e}"))?;
+        Ok(pipeline_dto(pipeline))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Produce a step-through execution TRACE of the student's program (Python-Tutor
+/// style): run it under `sys.settrace` and return every executed line/call/return
+/// with the frame's locals, stack depth, and accumulated stdout length. Honest:
+/// the trace is the REAL execution; runtime errors land in `notes`, nothing is
+/// fabricated. Only Python is supported here; other languages come back with
+/// `supported = false` and an honest reason.
+#[tauri::command]
+async fn trace_execution(language: String, code: String) -> Result<ExecutionTraceDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<ExecutionTraceDto, String> {
+        let trace = tutor_eval::trace_execution(&language, &code)
+            .map_err(|e| format!("trace failed: {e}"))?;
+        Ok(execution_trace_dto(trace))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Grade a `challenge` step: find it across the courses' units, build a `Phase`
+/// from it and reuse the honest evaluator (`tutor_eval::assess`).
+#[tauri::command]
+async fn submit_step(step_id: String, code: String) -> Result<AssessmentDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<AssessmentDto, String> {
+        for course in tutor_core::builtin_courses() {
+            if let Some(step) = course.step(&step_id) {
+                let phase = step
+                    .as_phase(&course.language, Level::Basico)
+                    .ok_or_else(|| format!("step `{step_id}` is not a challenge"))?;
+                let assessment =
+                    tutor_eval::assess(&phase, &code).map_err(|e| format!("evaluation failed: {e}"))?;
+                return Ok(assessment_dto(&assessment, &phase));
+            }
+        }
+        Err(format!("step `{step_id}` not found"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ── Scaffolding commands (glossary + study guide) ────────────────────────────
+
+/// Load the curated glossary for a language (e.g. `"rust"`). Each entry explains
+/// a reserved word or core item: what it does, when to use it, and an example.
+#[tauri::command]
+fn get_glossary(language: String) -> Result<GlossaryDto, String> {
+    let glossary = tutor_core::load_glossary(&language)
+        .ok_or_else(|| format!("no glossary for language `{language}`"))?;
+    Ok(GlossaryDto {
+        entries: glossary
+            .entries
+            .into_iter()
+            .map(|e| GlossaryEntryDto {
+                keyword: e.keyword,
+                summary: e.summary,
+                when_to_use: e.when_to_use,
+                example: e.example,
+            })
+            .collect(),
+    })
+}
+
+/// Load the remediation study guide for a unit (e.g. `"u1-hello"`) in a language.
+/// Shown to a struggling learner so they can re-read the unit's concepts calmly.
+#[tauri::command]
+fn get_study_guide(language: String, unit_id: String) -> Result<StudyGuideDto, String> {
+    let guide = tutor_core::load_study_guide(&language, &unit_id).ok_or_else(|| {
+        format!("no study guide for language `{language}` unit `{unit_id}`")
+    })?;
+    Ok(StudyGuideDto {
+        title: guide.title,
+        body: guide.body,
+    })
+}
+
+// ── IDE/Workspace runner command ─────────────────────────────────────────────
+
+/// Run a real file/project from the Explorer and return its captured output.
+/// Reuses `RunDto { ok, stdout, stderr }`. Runner selection and the wall-clock
+/// timeout + kill live in `fsops::run_file`.
+#[tauri::command]
+async fn run_path(path: String, args: Option<String>) -> Result<RunDto, String> {
+    // Optional program arguments (e.g. "add 2 3") are split on whitespace and forwarded to the
+    // program — so a CLI can actually be exercised, not just run with no args.
+    let argv: Vec<String> = args
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    // MUST be async + spawn_blocking: `fsops::run_file` compiles/runs the file (and, under
+    // the Delonix/Docker sandbox, spins up a container) — long blocking work. On a SYNC
+    // command that runs on the webview's main thread and FREEZES the whole app until it
+    // returns. Off-loading it keeps the UI responsive (the spinner shows, the app stays live).
+    tauri::async_runtime::spawn_blocking(move || -> Result<RunDto, String> {
+        let r = fsops::run_file(&path, &argv)?;
+        Ok(RunDto {
+            ok: r.ok,
+            stdout: r.stdout,
+            stderr: r.stderr,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The project's runnable entry file under `root`, if one can be identified by its build
+/// manifest (Cargo/Go/Python), else `null`. The Explorer's Run button uses this so it runs
+/// the PROJECT entry point (e.g. `cargo run`) rather than whichever file is focused.
+#[tauri::command]
+fn project_entrypoint(root: String) -> Option<String> {
+    fsops::project_entrypoint(&root)
+}
+
+// ── Stack services (F8): docker compose ps → lista estruturada para a vista Services ──────
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ComposeService {
+    name: String,
+    service: String,
+    state: String,
+    status: String,
+    image: String,
+    ports: Vec<String>,
+}
+
+/// Faz o parse de `docker compose ps --format json`. O Compose v2 emite NDJSON (um objecto
+/// por linha); algumas versões emitem um único array JSON. Tolerante a campos em falta (usa
+/// `serde_json::Value`), para que uma mudança de formato degrade para vazios em vez de falhar.
+/// Função PURA → testada.
+fn parse_compose_ps(stdout: &str) -> Vec<ComposeService> {
+    let s = stdout.trim();
+    if s.is_empty() {
+        return Vec::new();
+    }
+    let objs: Vec<serde_json::Value> = if s.starts_with('[') {
+        serde_json::from_str::<Vec<serde_json::Value>>(s).unwrap_or_default()
+    } else {
+        s.lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .collect()
+    };
+    let field = |v: &serde_json::Value, keys: &[&str]| -> String {
+        for k in keys {
+            if let Some(x) = v.get(*k).and_then(|x| x.as_str()) {
+                return x.to_string();
+            }
+        }
+        String::new()
+    };
+    objs.iter()
+        .map(|v| {
+            let ports = v
+                .get("Publishers")
+                .and_then(|p| p.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|pb| {
+                            let tgt = pb.get("TargetPort").and_then(|x| x.as_u64());
+                            let publ = pb.get("PublishedPort").and_then(|x| x.as_u64());
+                            match (publ, tgt) {
+                                (Some(p), Some(t)) if p != 0 => Some(format!("{p}->{t}")),
+                                (_, Some(t)) => Some(format!("{t}")),
+                                _ => None,
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            ComposeService {
+                name: field(v, &["Name"]),
+                service: field(v, &["Service"]),
+                state: field(v, &["State"]),
+                status: field(v, &["Status", "Health"]),
+                image: field(v, &["Image"]),
+                ports,
+            }
+        })
+        .collect()
+}
+
+/// Lista os serviços da stack em execução sob `root`, via `docker compose ps --format json`.
+/// Honesto: se docker/compose não existir, devolve o erro do spawn; se não há stack ou ficheiro
+/// compose, o compose sai com uma mensagem que é propagada. Nada é simulado.
+#[tauri::command]
+async fn compose_ps(root: String) -> Result<Vec<ComposeService>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ComposeService>, String> {
+        let out = std::process::Command::new("docker")
+            .args(["compose", "ps", "--format", "json"])
+            .current_dir(&root)
+            .output()
+            .map_err(|e| format!("could not run docker: {e}"))?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            return Err(if err.trim().is_empty() {
+                "docker compose ps failed".to_string()
+            } else {
+                err.trim().to_string()
+            });
+        }
+        Ok(parse_compose_ps(&String::from_utf8_lossy(&out.stdout)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ── Sandbox engine selection ──────────────────────────────────────────────────
+
+/// Current sandbox engine as a short string: `"host" | "delonix" | "docker" |
+/// "podman"`. Reflects the runtime override (set via `set_sandbox_engine`), else
+/// the `DXTUTOR_SANDBOX_ENGINE` env var, else `"host"`.
+#[tauri::command]
+fn get_sandbox_engine() -> String {
+    tutor_eval::engine_name(tutor_eval::current_engine()).to_string()
+}
+
+/// Switch the sandbox engine at runtime. Accepts `"delonix" | "docker" | "podman" |
+/// "host"` (case-insensitive). Everything that executes student/user code
+/// afterwards (drills, measured runs, traces, the Explorer runner) honors it.
+#[tauri::command]
+fn set_sandbox_engine(engine: String) -> Result<String, String> {
+    let parsed = tutor_eval::parse_engine(&engine)
+        .ok_or_else(|| format!("unknown engine `{engine}` (use host|delonix|docker|podman)"))?;
+    tutor_eval::set_engine(parsed);
+    Ok(tutor_eval::engine_name(parsed).to_string())
+}
+
+/// A project detected inside the open folder — a sub-directory (or the root itself) that
+/// carries a recognised build-manifest. Lets the Agent focus on one project when a
+/// workspace holds several.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectInfo {
+    name: String,
+    path: String,
+    kind: String,
+}
+
+fn project_kind(dir: &std::path::Path) -> Option<&'static str> {
+    const MARKERS: &[(&str, &str)] = &[
+        ("Cargo.toml", "rust"),
+        ("go.mod", "go"),
+        ("package.json", "node"),
+        ("pyproject.toml", "python"),
+        ("requirements.txt", "python"),
+        ("pom.xml", "java"),
+        ("build.gradle", "java"),
+        ("composer.json", "php"),
+        ("Gemfile", "ruby"),
+    ];
+    MARKERS
+        .iter()
+        .find(|(file, _)| dir.join(file).is_file())
+        .map(|(_, kind)| *kind)
+}
+
+/// Detect projects at the root and one level down (skipping hidden / build dirs), so the
+/// Agent can pin its focus to a specific project in a multi-project workspace.
+#[tauri::command]
+async fn detect_projects(root: String) -> Result<Vec<ProjectInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        let mut out = Vec::new();
+        let mut push = |dir: &std::path::Path| {
+            if let Some(kind) = project_kind(dir) {
+                out.push(ProjectInfo {
+                    name: dir
+                        .file_name()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| dir.to_string_lossy().into_owned()),
+                    path: dir.to_string_lossy().into_owned(),
+                    kind: kind.to_string(),
+                });
+            }
+        };
+        push(base);
+        if let Ok(rd) = std::fs::read_dir(base) {
+            let mut subdirs: Vec<_> = rd
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| {
+                    p.is_dir()
+                        && !p
+                            .file_name()
+                            .map(|n| {
+                                let n = n.to_string_lossy();
+                                n.starts_with('.')
+                                    || matches!(
+                                        n.as_ref(),
+                                        "node_modules" | "target" | "dist" | "build" | "vendor"
+                                    )
+                            })
+                            .unwrap_or(false)
+                })
+                .collect();
+            subdirs.sort();
+            for d in subdirs {
+                push(&d);
+            }
+        }
+        out
+    })
+    .await
+    .map_err(|e| format!("detect_projects task failed: {e}"))
+}
+
+/// One source file gathered for a folder-level Explain.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FolderSource {
+    path: String,
+    content: String,
+}
+
+/// Collect source files under `dir` (recursive, skipping hidden / build dirs), bounded by
+/// `max_files` and `max_bytes` total, for a module-level Explain. Honest truncation: stops
+/// adding once a cap is hit.
+#[tauri::command]
+async fn read_folder_sources(
+    dir: String,
+    max_files: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<Vec<FolderSource>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        const EXTS: &[&str] = &[
+            "rs", "py", "js", "mjs", "ts", "tsx", "jsx", "go", "java", "rb", "php", "c", "h",
+            "cpp", "hpp", "cs", "swift", "kt",
+        ];
+        let max_files = max_files.unwrap_or(10);
+        let max_bytes = max_bytes.unwrap_or(48_000);
+        let base = std::path::Path::new(&dir);
+        let mut out: Vec<FolderSource> = Vec::new();
+        let mut total = 0usize;
+        let mut stack = vec![base.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let rd = match std::fs::read_dir(&d) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let mut entries: Vec<_> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+            entries.sort();
+            for p in entries {
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                if name.starts_with('.') {
+                    continue;
+                }
+                if p.is_dir() {
+                    if !matches!(name.as_str(), "node_modules" | "target" | "dist" | "build" | "vendor") {
+                        stack.push(p);
+                    }
+                    continue;
+                }
+                if out.len() >= max_files || total >= max_bytes {
+                    return out;
+                }
+                let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if !EXTS.contains(&ext) {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&p) {
+                    total += content.len();
+                    out.push(FolderSource {
+                        path: p.to_string_lossy().into_owned(),
+                        content,
+                    });
+                }
+            }
+        }
+        out
+    })
+    .await
+    .map_err(|e| format!("read_folder_sources task failed: {e}"))
+}
+
+/// Dev Container presence + name for the Remote view. Looks for
+/// `.devcontainer/devcontainer.json` or a top-level `.devcontainer.json`.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevcontainerInfo {
+    present: bool,
+    name: Option<String>,
+    image: Option<String>,
+    path: Option<String>,
+}
+
+#[tauri::command]
+async fn devcontainer_info(root: String) -> Result<DevcontainerInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        for rel in [".devcontainer/devcontainer.json", ".devcontainer.json"] {
+            let p = base.join(rel);
+            if p.is_file() {
+                // devcontainer.json is JSONC; strip // and /* */ comments before parsing so
+                // a commented template still yields its fields. Best-effort (None on failure).
+                let v = std::fs::read_to_string(&p).ok().and_then(|s| {
+                    serde_json::from_str::<serde_json::Value>(&strip_jsonc_comments(&s)).ok()
+                });
+                let field = |k: &str| {
+                    v.as_ref()
+                        .and_then(|v| v.get(k).and_then(|n| n.as_str().map(String::from)))
+                };
+                // Prefer the explicit image; fall back to a dockerfile reference for display.
+                let image = field("image").or_else(|| {
+                    v.as_ref()
+                        .and_then(|v| v.get("build"))
+                        .and_then(|b| b.get("dockerfile"))
+                        .and_then(|d| d.as_str().map(|s| format!("Dockerfile: {s}")))
+                });
+                return DevcontainerInfo {
+                    present: true,
+                    name: field("name"),
+                    image,
+                    path: Some(p.to_string_lossy().into_owned()),
+                };
+            }
+        }
+        DevcontainerInfo { present: false, name: None, image: None, path: None }
+    })
+    .await
+    .map_err(|e| format!("devcontainer task failed: {e}"))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevcontainerUp {
+    ok: bool,
+    image: String,
+    built: bool,
+    ran: String,
+    stdout: String,
+    stderr: String,
+}
+
+/// Resolve the image to run for a devcontainer: an explicit `image`, or a built image from
+/// `build.dockerfile`. Returns `(image_ref, built)` — building when necessary. Build output
+/// is prefixed onto `log` so the caller can surface it.
+fn devcontainer_image(
+    base: &std::path::Path,
+    v: &serde_json::Value,
+    log: &mut String,
+) -> Result<(String, bool), String> {
+    if let Some(img) = v.get("image").and_then(|i| i.as_str()) {
+        return Ok((img.to_string(), false));
+    }
+    // build: { dockerfile, context } — dockerfile path is relative to the .devcontainer dir.
+    let build = v.get("build").ok_or_else(|| {
+        "devcontainer.json has neither `image` nor `build.dockerfile`.".to_string()
+    })?;
+    let dockerfile = build
+        .get("dockerfile")
+        .and_then(|d| d.as_str())
+        .ok_or_else(|| "build has no `dockerfile`.".to_string())?;
+    // The .devcontainer directory is the reference dir for build paths.
+    let dc_dir = base.join(".devcontainer");
+    let ref_dir = if dc_dir.is_dir() { dc_dir } else { base.to_path_buf() };
+    let dockerfile_path = ref_dir.join(dockerfile);
+    let context = build
+        .get("context")
+        .and_then(|c| c.as_str())
+        .map(|c| ref_dir.join(c))
+        .unwrap_or_else(|| ref_dir.clone());
+    let tag = format!(
+        "dxtutor-dc-{}",
+        base.file_name()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_else(|| "project".into())
+    );
+    log.push_str(&format!("▸ building {tag} from {}\n", dockerfile_path.display()));
+    let out = tutor_eval::build_image(&context, &dockerfile_path, &tag).map_err(|e| e.to_string())?;
+    log.push_str(&out);
+    log.push('\n');
+    Ok((tag, true))
+}
+
+/// Bring the Dev Container up: resolve/build its image, then run `postCreateCommand` (or a
+/// readiness probe) inside it with the workspace bind-mounted, via the active engine. Now
+/// supports Dockerfile-based devcontainers (it builds first). One-shot per call.
+#[tauri::command]
+async fn devcontainer_up(root: String) -> Result<DevcontainerUp, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        let file = [".devcontainer/devcontainer.json", ".devcontainer.json"]
+            .iter()
+            .map(|r| base.join(r))
+            .find(|p| p.is_file())
+            .ok_or_else(|| "No devcontainer.json in this folder.".to_string())?;
+        let text = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
+        let v: serde_json::Value = serde_json::from_str(&strip_jsonc_comments(&text))
+            .map_err(|e| format!("devcontainer.json is not valid JSON: {e}"))?;
+
+        let mut log = String::new();
+        let (image, built) = devcontainer_image(base, &v, &mut log)?;
+
+        // postCreateCommand: string, array (joined), else a readiness probe.
+        let post = match v.get("postCreateCommand") {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(serde_json::Value::Array(a)) => a
+                .iter()
+                .filter_map(|x| x.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => "echo \"container ready: $(pwd)\"; uname -s; ls -a".to_string(),
+        };
+
+        let mut spec = tutor_eval::ContainerSpec::new(
+            image.clone(),
+            base.to_path_buf(),
+            vec!["sh".into(), "-lc".into(), post.clone()],
+        );
+        spec.network = true;
+        spec.timeout = std::time::Duration::from_secs(300);
+
+        let out = tutor_eval::run_in_container(spec).map_err(|e| e.to_string())?;
+        Ok(DevcontainerUp {
+            ok: out.ok,
+            image,
+            built,
+            ran: post,
+            stdout: format!("{log}{}", out.stdout),
+            stderr: out.stderr,
+        })
+    })
+    .await
+    .map_err(|e| format!("devcontainer task failed: {e}"))?
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStatus {
+    running: bool,
+    name: String,
+}
+
+/// Start a PERSISTENT devcontainer session: resolve/build the image, then run a long-lived
+/// container with the workspace mounted. Unlike devcontainer_up (one-shot), state persists
+/// across exec calls — the real attached session. Returns the build log + container name.
+#[tauri::command]
+async fn devcontainer_session_up(root: String) -> Result<DevcontainerUp, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        let file = [".devcontainer/devcontainer.json", ".devcontainer.json"]
+            .iter()
+            .map(|r| base.join(r))
+            .find(|p| p.is_file())
+            .ok_or_else(|| "No devcontainer.json in this folder.".to_string())?;
+        let v: serde_json::Value =
+            serde_json::from_str(&strip_jsonc_comments(&std::fs::read_to_string(&file).map_err(
+                |e| e.to_string(),
+            )?))
+            .map_err(|e| format!("devcontainer.json is not valid JSON: {e}"))?;
+        let mut log = String::new();
+        let (image, built) = devcontainer_image(base, &v, &mut log)?;
+        let name = tutor_eval::session_up(base, &image).map_err(|e| e.to_string())?;
+        log.push_str(&format!("▸ session started: {name}\n"));
+        Ok(DevcontainerUp {
+            ok: true,
+            image,
+            built,
+            ran: "session up".into(),
+            stdout: log,
+            stderr: String::new(),
+        })
+    })
+    .await
+    .map_err(|e| format!("devcontainer task failed: {e}"))?
+}
+
+/// Exec a command inside the RUNNING persistent session (state preserved between calls).
+#[tauri::command]
+async fn devcontainer_session_exec(root: String, cmd: String) -> Result<DevcontainerUp, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        let name = tutor_eval::session_name(base);
+        if !tutor_eval::session_running(&name) {
+            return Err("No running session — press Reopen in Container first.".to_string());
+        }
+        let out = tutor_eval::session_exec(&name, &cmd).map_err(|e| e.to_string())?;
+        Ok(DevcontainerUp {
+            ok: out.ok,
+            image: name,
+            built: false,
+            ran: cmd,
+            stdout: out.stdout,
+            stderr: out.stderr,
+        })
+    })
+    .await
+    .map_err(|e| format!("devcontainer task failed: {e}"))?
+}
+
+/// Run the active file INSIDE the persistent session (the container's toolchain), picking
+/// the runner by extension and executing from /work. The project agent for execution.
+#[tauri::command]
+async fn devcontainer_session_run(root: String, file: String) -> Result<DevcontainerUp, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        let name = tutor_eval::session_name(base);
+        if !tutor_eval::session_running(&name) {
+            return Err("No running session — press Reopen in Container first.".to_string());
+        }
+        let rel = std::path::Path::new(&file)
+            .strip_prefix(base)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or(file.clone());
+        let has_cargo = base.join("Cargo.toml").is_file();
+        let runner = tutor_eval::run_file_command(&rel, has_cargo)
+            .ok_or_else(|| format!("No in-container runner for `{rel}`."))?;
+        let out = tutor_eval::session_exec(&name, &format!("cd /work && {runner}"))
+            .map_err(|e| e.to_string())?;
+        Ok(DevcontainerUp {
+            ok: out.ok,
+            image: name,
+            built: false,
+            ran: runner,
+            stdout: out.stdout,
+            stderr: out.stderr,
+        })
+    })
+    .await
+    .map_err(|e| format!("devcontainer task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn devcontainer_session_status(root: String) -> Result<SessionStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = tutor_eval::session_name(std::path::Path::new(&root));
+        SessionStatus {
+            running: tutor_eval::session_running(&name),
+            name,
+        }
+    })
+    .await
+    .map_err(|e| format!("devcontainer task failed: {e}"))
+}
+
+#[tauri::command]
+async fn devcontainer_session_down(root: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = tutor_eval::session_name(std::path::Path::new(&root));
+        tutor_eval::session_down(&name).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("devcontainer task failed: {e}"))?
+}
+
+/// Run an arbitrary command inside the devcontainer image with the workspace mounted — the
+/// practical "attach" affordance (exec a shell line in the project's container env).
+#[tauri::command]
+async fn devcontainer_exec(root: String, cmd: String) -> Result<DevcontainerUp, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        let file = [".devcontainer/devcontainer.json", ".devcontainer.json"]
+            .iter()
+            .map(|r| base.join(r))
+            .find(|p| p.is_file())
+            .ok_or_else(|| "No devcontainer.json in this folder.".to_string())?;
+        let v: serde_json::Value =
+            serde_json::from_str(&strip_jsonc_comments(&std::fs::read_to_string(&file).map_err(
+                |e| e.to_string(),
+            )?))
+            .map_err(|e| format!("devcontainer.json is not valid JSON: {e}"))?;
+        let mut log = String::new();
+        let (image, built) = devcontainer_image(base, &v, &mut log)?;
+        let mut spec = tutor_eval::ContainerSpec::new(
+            image.clone(),
+            base.to_path_buf(),
+            vec!["sh".into(), "-lc".into(), cmd.clone()],
+        );
+        spec.network = true;
+        spec.timeout = std::time::Duration::from_secs(300);
+        let out = tutor_eval::run_in_container(spec).map_err(|e| e.to_string())?;
+        Ok(DevcontainerUp {
+            ok: out.ok,
+            image,
+            built,
+            ran: cmd,
+            stdout: format!("{log}{}", out.stdout),
+            stderr: out.stderr,
+        })
+    })
+    .await
+    .map_err(|e| format!("devcontainer task failed: {e}"))?
+}
+
+/// Strip `//` line and `/* */` block comments (JSONC) outside of string literals.
+fn strip_jsonc_comments(src: &str) -> String {
+    let b = src.as_bytes();
+    let mut out = String::with_capacity(src.len());
+    let (mut i, mut in_str, mut esc) = (0usize, false, false);
+    while i < b.len() {
+        let c = b[i] as char;
+        if in_str {
+            out.push(c);
+            if esc {
+                esc = false;
+            } else if c == '\\' {
+                esc = true;
+            } else if c == '"' {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        if c == '"' {
+            in_str = true;
+            out.push(c);
+            i += 1;
+        } else if c == '/' && i + 1 < b.len() && b[i + 1] == b'/' {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+        } else if c == '/' && i + 1 < b.len() && b[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                i += 1;
+            }
+            i += 2;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
+// ── PairCode (exclusivo do dxtutor-ide): sessão par-a-par com WebRTC no webview ──
+
+fn pair_events(app: &tauri::AppHandle) -> pair::Events {
+    use tauri::Emitter;
     let (a, b) = (app.clone(), app.clone());
     pair::Events {
         status: std::sync::Arc::new(move |v| {
@@ -141,25 +2407,26 @@ fn pair_events(app: &AppHandle) -> pair::Events {
 
 /// PairCode: start hosting and return the token for the other developer.
 #[tauri::command]
-async fn pair_host(app: AppHandle, state: State<'_, pair::Pair>, name: String, port: Option<u16>) -> Result<String, String> {
+async fn pair_host(app: tauri::AppHandle, state: tauri::State<'_, pair::Pair>, name: String, port: Option<u16>) -> Result<String, String> {
     let p = state.inner().clone();
     p.host(&name, port, pair_events(&app)).await
 }
 
 /// PairCode: join with a token; `via` ("host:port") overrides the addresses inside it.
 #[tauri::command]
-async fn pair_join(app: AppHandle, state: State<'_, pair::Pair>, token: String, via: Option<String>) -> Result<String, String> {
+async fn pair_join(app: tauri::AppHandle, state: tauri::State<'_, pair::Pair>, token: String, via: Option<String>) -> Result<String, String> {
     let p = state.inner().clone();
     p.join(&token, via, pair_events(&app)).await
 }
 
 #[tauri::command]
-fn pair_send(state: State<'_, pair::Pair>, msg: String) -> Result<(), String> {
+fn pair_send(state: tauri::State<'_, pair::Pair>, msg: String) -> Result<(), String> {
     state.send(&msg)
 }
 
 #[tauri::command]
-fn pair_stop(app: AppHandle, state: State<'_, pair::Pair>) {
+fn pair_stop(app: tauri::AppHandle, state: tauri::State<'_, pair::Pair>) {
+    use tauri::Emitter;
     state.stop();
     let _ = app.emit("pair-status", serde_json::json!({"state": "idle"}));
 }
@@ -167,6 +2434,7 @@ fn pair_stop(app: AppHandle, state: State<'_, pair::Pair>) {
 /// Camera and microphone for the PairCode call: WebKitGTK has them off by default.
 #[cfg(target_os = "linux")]
 fn enable_media(app: &tauri::App) {
+    use tauri::Manager;
     use webkit2gtk::glib::prelude::*;
     use webkit2gtk::{PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, WebViewExt};
     if let Some(w) = app.get_webview_window("main") {
@@ -192,9 +2460,20 @@ fn enable_media(app: &tauri::App) {
 }
 
 pub fn run() {
+    // Default the desktop to running student/user code inside Delonix containers
+    // (real isolation + package caches). The user can switch at runtime via
+    // `set_sandbox_engine`. The env var still wins if it was set explicitly first:
+    // only default to Delonix when nothing was requested through the environment.
+    if std::env::var(tutor_eval::container::ENGINE_ENV).is_err() {
+        tutor_eval::set_engine(tutor_eval::SandboxEngine::Delonix);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(pty::PtyState::default())
+        .manage(lsp::LspState::default())
         .manage(procs::Procs::default())
+        .manage(debug::DebugSessions::default())
         .manage(pair::Pair::default())
         .setup(|_app| {
             #[cfg(target_os = "linux")]
@@ -202,25 +2481,249 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            pick_folder,
-            load_workspace,
-            write_file,
-            delete_file,
-            expand_path,
-            exec,
-            run_shell,
-            kill_shell,
-            keys_status,
-            save_key,
-            llm_chat,
-            vsix_manifest,
-            app_info,
-            selftest_report,
+            // ── PairCode (exclusivo do dxtutor-ide) ──
             pair_host,
             pair_join,
             pair_send,
-            pair_stop
+            pair_stop,
+            // ── v7 desktop UI bridge (ui/bridge.js) — 14 generic commands ──
+            // pick_folder is provided by the existing fsops (non-blocking on Linux).
+            fsops::pick_folder,
+            bridge::load_workspace,
+            bridge::write_file,
+            bridge::delete_file,
+            bridge::expand_path,
+            bridge::exec,
+            bridge::run_shell,
+            bridge::kill_shell,
+            bridge::keys_status,
+            bridge::save_key,
+            bridge::llm_chat,
+            bridge::llm_plan,
+            bridge::vsix_manifest,
+            bridge::app_info,
+            bridge::selftest_report,
+            // ── rich dxtutor backend (unchanged) ──
+            list_phases,
+            submit,
+            request_hint,
+            get_diagnostics,
+            review_code,
+            list_review_analyzers,
+            verify_review_fix,
+            study_policy,
+            codev_policy,
+            symbol_relations,
+            list_symbols,
+            symbol_ranges,
+            file_outline,
+            diff_lines,
+            propose_entrypoint,
+            resolve_definition,
+            resolve_references,
+            resolve_hover,
+            list_tests,
+            run_test,
+            run_all_tests,
+            search_project,
+            list_files,
+            git_changes,
+            git_diff,
+            git_clone,
+            git_stage,
+            git_unstage,
+            git_stage_all,
+            git_commit,
+            git_branches,
+            git_checkout,
+            git_create_branch,
+            agent_isolated_patch,
+            arch_scaffold_preview,
+            agent_task_submit,
+            agent_task_status,
+            agent_task_cancel,
+            arch_validate,
+            arch_scaffold,
+            run_tests,
+            git_log,
+            git_show,
+            git_branch,
+            codev_session_start,
+            codev_session_deliver,
+            codev_session_discard,
+            codev_session_list,
+            debug_capabilities,
+            assistant_models,
+            assistant_chat,
+            assistant_chat_stream,
+            assistant_cancel,
+            list_providers,
+            get_providers_config,
+            save_providers_config,
+            request_plan,
+            request_fix,
+            get_course,
+            list_courses,
+            run_drill,
+            run_measured,
+            compile_pipeline,
+            trace_execution,
+            submit_step,
+            get_glossary,
+            get_study_guide,
+            fsops::list_dir,
+            fsops::read_text_file,
+            fsops::write_text_file,
+            fsops::create_path,
+            fsops::delete_path,
+            fsops::rename_path,
+            fsops::workspace_tree,
+            fsops::workspace_action,
+            fsops::workspace_resolve,
+            run_path,
+            project_entrypoint,
+            compose_ps,
+            get_sandbox_engine,
+            set_sandbox_engine,
+            read_folder_sources,
+            debug_available,
+            debug_launch,
+            debug_break,
+            debug_run,
+            debug_continue,
+            debug_step,
+            debug_locals,
+            debug_stack,
+            debug_stop,
+            devcontainer_info,
+            devcontainer_up,
+            devcontainer_exec,
+            devcontainer_session_up,
+            devcontainer_session_exec,
+            devcontainer_session_run,
+            devcontainer_session_status,
+            devcontainer_session_down,
+            detect_projects,
+            pty::pty_spawn,
+            pty::pty_spawn_in_session,
+            pty::pty_write,
+            pty::pty_resize,
+            lsp::lsp_start,
+            lsp::lsp_did_open,
+            lsp::lsp_did_change,
+            lsp::lsp_definition,
+            lsp::lsp_references,
+            lsp::lsp_hover,
+            lsp::lsp_rename,
+            lsp::lsp_prepare_rename,
+            board::board_load,
+            board::board_save,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dxtutor IDE");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_gabarito() -> tutor_core::Gabarito {
+        tutor_core::Gabarito {
+            solution: "fn answer() -> u32 { 42 }".into(),
+            time: "O(1)".into(),
+            space: "O(1)".into(),
+            justification: "constant work".into(),
+        }
+    }
+
+    /// F4 gestor de missões: o payload de `arch_scaffold_preview` (== `arch.scaffold()`) é o
+    /// conjunto de ficheiros que a missão delega como patch isolado — inclui o compose.
+    #[test]
+    fn scaffold_preview_payload_has_compose() {
+        use tutor_eval::arch::{Architecture, Component, Kind};
+        let arch = Architecture {
+            components: vec![Component { id: "api".into(), name: "api".into(), kind: Kind::Service, outbox: false }],
+            connections: vec![],
+        };
+        let files = arch.scaffold(); // exactamente o que arch_scaffold_preview devolve
+        assert!(files.iter().any(|(p, _)| p == "docker-compose.yml"), "sem compose: {:?}", files.iter().map(|(p, _)| p).collect::<Vec<_>>());
+        assert!(files.iter().any(|(p, _)| p == "services/api/Dockerfile"));
+    }
+
+    /// F8 Services: NDJSON (um objecto por linha) do `docker compose ps` é parseado nos
+    /// campos que a vista mostra, incluindo as portas publicadas (published->target).
+    #[test]
+    fn parse_compose_ps_ndjson_extracts_fields_and_ports() {
+        let out = concat!(
+            r#"{"Name":"app-web-1","Service":"web","State":"running","Status":"Up 3s","Image":"nginx","Publishers":[{"PublishedPort":8080,"TargetPort":80}]}"#,
+            "\n",
+            r#"{"Name":"app-db-1","Service":"db","State":"running","Status":"Up 3s (healthy)","Image":"postgres:16-alpine","Publishers":[{"PublishedPort":0,"TargetPort":5432}]}"#,
+            "\n",
+        );
+        let svcs = parse_compose_ps(out);
+        assert_eq!(svcs.len(), 2);
+        assert_eq!(svcs[0].service, "web");
+        assert_eq!(svcs[0].ports, vec!["8080->80".to_string()]);
+        assert_eq!(svcs[1].service, "db");
+        assert_eq!(svcs[1].status, "Up 3s (healthy)");
+        assert_eq!(svcs[1].ports, vec!["5432".to_string()]); // não publicado → só a porta interna
+    }
+
+    #[test]
+    fn parse_compose_ps_handles_array_form_and_empty() {
+        assert!(parse_compose_ps("").is_empty());
+        assert!(parse_compose_ps("   \n ").is_empty());
+        let arr = r#"[{"Name":"x","Service":"x","State":"exited","Status":"Exited (0)","Image":"alpine"}]"#;
+        let svcs = parse_compose_ps(arr);
+        assert_eq!(svcs.len(), 1);
+        assert_eq!(svcs[0].state, "exited");
+        assert!(svcs[0].ports.is_empty());
+    }
+
+    /// P0-1 regression: a FAILED attempt must never carry the reference solution.
+    /// Serialize the DTO (the exact payload the webview receives) and assert the
+    /// gabarito field is `null` and the solution text appears nowhere in the JSON.
+    #[test]
+    fn failed_attempt_hides_gabarito() {
+        let g = sample_gabarito();
+        assert!(reveal_gabarito(false, &g).is_none());
+
+        let dto = AssessmentDto {
+            correctness: CorrectnessDto {
+                passed: false,
+                summary: "1 test failed".into(),
+                raw: "assertion failed".into(),
+            },
+            complexity: None,
+            expected: None,
+            gabarito: reveal_gabarito(false, &g),
+        };
+        let json = serde_json::to_string(&dto).expect("serialize");
+        assert!(json.contains("\"gabarito\":null"), "gabarito must be null: {json}");
+        assert!(
+            !json.contains("fn answer") && !json.contains("constant work"),
+            "failed payload leaked the solution/justification: {json}"
+        );
+    }
+
+    /// A PASSED attempt unlocks the gabarito (the reward is real on success).
+    #[test]
+    fn passed_attempt_reveals_gabarito() {
+        let g = sample_gabarito();
+        let revealed = reveal_gabarito(true, &g).expect("passed → Some");
+        assert_eq!(revealed.solution, "fn answer() -> u32 { 42 }");
+
+        let dto = AssessmentDto {
+            correctness: CorrectnessDto {
+                passed: true,
+                summary: "ok".into(),
+                raw: String::new(),
+            },
+            complexity: None,
+            expected: None,
+            gabarito: reveal_gabarito(true, &g),
+        };
+        let json = serde_json::to_string(&dto).expect("serialize");
+        assert!(json.contains("fn answer"), "passed payload should include the solution: {json}");
+    }
 }

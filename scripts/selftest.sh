@@ -10,8 +10,8 @@ git -C "$T" config user.name selftest
 printf 'fn main() {}\n' > "$T/main.rs"
 git -C "$T" add . && git -C "$T" commit -qm "chore: initial"
 git -C "$T" branch develop
-(cd src-tauri && cargo build -q)
-DXTUTOR_SELFTEST="$T/report.json" ./src-tauri/target/debug/dxtutor-ide "$T"
+cargo build -q -p dxtutor-ide
+DXTUTOR_SELFTEST="$T/report.json" ./target/debug/dxtutor-ide "$T"
 cat "$T/report.json"
 echo
 git -C "$T" log --all --oneline --graph

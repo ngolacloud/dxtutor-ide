@@ -1,0 +1,37 @@
+# dxtutor-ide — workspace Cargo.
+#
+# Reúne o "cérebro" dxtutor (crates tutor-*) e a casca desktop Tauri (src-tauri)
+# num único workspace: um só Cargo.lock e um só target/ para toda a app.
+[workspace]
+resolver = "2"
+members = [
+    "crates/tutor-core",
+    "crates/tutor-eval",
+    "crates/tutor-llm",
+    "crates/tutor-tui",
+    "crates/tutor-cli",
+    "crates/tutor-track",
+    "crates/tutor-board",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.7.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["angolardevops"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+tempfile = "3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Perfil de release da app desktop (vivia no src-tauri/Cargo.toml; num
+# workspace, os perfis definem-se na raiz).
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
