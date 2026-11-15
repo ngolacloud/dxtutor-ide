@@ -429,6 +429,44 @@ export class Editor {
     return this.models.has(rel);
   }
 
+  // ── PairCode: só-leitura para quem navega + caret remoto do par ──
+  private pairDecos: string[] = [];
+
+  /** Liga/desliga o modo só-de-leitura (quem navega numa sessão PairCode não escreve). */
+  setReadOnly(ro: boolean, message?: string): void {
+    this.ed.updateOptions({ readOnly: ro, readOnlyMessage: message ? { value: message } : undefined });
+  }
+
+  isReadOnly(): boolean {
+    return this.ed.getOption(monaco.editor.EditorOption.readOnly);
+  }
+
+  /** Posição do cursor (1-based) + scroll — a «vista» que o condutor difunde. */
+  viewState(): { line: number; col: number; top: number } {
+    const p = this.ed.getPosition();
+    return { line: p?.lineNumber ?? 0, col: p?.column ?? 0, top: Math.round(this.ed.getScrollTop()) };
+  }
+
+  setScrollTop(top: number): void {
+    this.ed.setScrollTop(top);
+  }
+
+  /** Pinta a linha do cursor do par (rótulo com o nome); rel null limpa a decoração. */
+  remoteCaret(rel: string | null, line: number, label: string): void {
+    if (!rel || this.current !== rel || line < 1) {
+      this.pairDecos = this.ed.deltaDecorations(this.pairDecos, []);
+      return;
+    }
+    this.pairDecos = this.ed.deltaDecorations(this.pairDecos, [{
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        isWholeLine: true,
+        className: "pair-remote-line",
+        after: { content: `  ⟵ ${label}`, inlineClassName: "pair-remote-tag" },
+      },
+    }]);
+  }
+
   /** Move the cursor to (line, col) — both 1-based — and reveal it. */
   reveal(line: number, col: number): void {
     this.ed.setPosition({ lineNumber: line, column: col });

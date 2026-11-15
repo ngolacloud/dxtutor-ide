@@ -28,6 +28,7 @@
           <button data-view="providers" data-icon="sparkle" data-i18n-title="nav.providers"></button>
           <button data-view="team" data-icon="account" data-i18n-title="nav.team"></button>
           <button data-view="codevhub" data-icon="graph" data-i18n-title="nav.codevhub"></button>
+          <button data-view="pair" data-icon="account" data-i18n-title="nav.pair"></button>
           <button data-view="account" data-icon="gauge" data-i18n-title="nav.account"></button>
           <button data-view="settings" data-icon="settings" data-i18n-title="nav.settings"></button>
         </nav>
@@ -96,6 +97,10 @@
             <div class="side-head"><span data-i18n="nav.codevhub"></span></div>
             <div id="codevhub"></div>
           </div>
+          <div class="view view-pair hidden">
+            <div class="side-head"><span data-i18n="nav.pair"></span></div>
+            <div id="pair"></div>
+          </div>
           <div class="view view-account hidden">
             <div class="side-head"><span data-i18n="nav.account"></span></div>
             <div id="account"></div>
@@ -143,6 +148,7 @@
         <span class="sb-item sb-problems"></span>
         <span class="sb-item sb-tests"></span>
         <span class="sb-item sb-blame"></span>
+        <span class="sb-item sb-pair" style="display:none"></span>
         <span class="sb-spacer"></span>
         <span class="sb-item sb-cursor">Ln 1, Col 1</span>
         <span class="sb-item sb-lang"></span>

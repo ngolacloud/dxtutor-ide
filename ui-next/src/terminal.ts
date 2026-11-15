@@ -35,6 +35,9 @@ export class Terminal {
   private histIdx = -1;
   private seq = 0;
   private cwd = () => "";
+  /** Gancho do PairCode: devolve true quando o comando foi tratado noutro sítio (viajou
+   * para o anfitrião, ou quem navega foi avisado) — o run local não acontece. */
+  intercept: ((cmd: string) => boolean) | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -103,6 +106,7 @@ export class Terminal {
   run(raw: string): Promise<number> {
     const cmd = raw.trim();
     if (!cmd) return Promise.resolve(0);
+    if (this.intercept && this.intercept(cmd)) return Promise.resolve(0);
     if (cmd === "clear") {
       this.out.innerHTML = "";
       return Promise.resolve(0);
@@ -225,6 +229,11 @@ export class Terminal {
   /** Quantos listeners Tauri o modo PTY tem vivos — tem de ser 0 depois de stopPty. */
   ptyListeners(): number {
     return this.pty?.unlisten.length ?? 0;
+  }
+
+  /** Espelha no modo linha uma linha vinda do par (terminal partilhado do PairCode). */
+  echoLine(text: string, err = false): void {
+    this.write(text, err);
   }
 
   private write(text: string, err = false): void {

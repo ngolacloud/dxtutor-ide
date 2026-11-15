@@ -39,6 +39,8 @@ export interface Loaded {
 export interface AppInfo {
   version: string; os: string; arch: string; home: string;
   configDir: string; selftest: string | null; openAtStart: string | null;
+  /** DXTUTOR_PAIRTEST=host|guest — liga o teste de duas instâncias do PairCode. */
+  pairtest: string | null;
 }
 
 export const api = {
@@ -190,6 +192,12 @@ export const api = {
   readTextFile: (path: string) => invoke<string>("read_text_file", { path }),
   writeTextFile: (path: string, contents: string) =>
     invoke<void>("write_text_file", { path, contents }),
+  // PairCode (src-tauri/src/pair.rs): sessão cifrada host↔convidado; o estado chega pelos
+  // eventos pair-status e as mensagens do par por pair-msg (strings JSON tal-e-qual).
+  pairHost: (name: string, port?: number) => invoke<string>("pair_host", { name, port: port ?? null }),
+  pairJoin: (token: string, via: string | null) => invoke<string>("pair_join", { token, via }),
+  pairSend: (msg: string) => invoke<void>("pair_send", { msg }),
+  pairStop: () => invoke<void>("pair_stop"),
 };
 
 // Espelham crates/tutor-board/src/lib.rs (serde camelCase; note/branch com default).

@@ -29,6 +29,7 @@ import { Changelog } from "./changelog";
 import { Team } from "./team";
 import { CodevHub } from "./codevhub";
 import { Harness, type HarnessConfig } from "./harness";
+import { Pair, runPairtest } from "./pair";
 import { Settings } from "./settings";
 import { Board } from "./board";
 import { Studio } from "./studio";
@@ -83,6 +84,7 @@ class App {
   readonly team!: Team;
   readonly codevhub!: CodevHub;
   readonly harness!: Harness;
+  readonly pair!: Pair;
   /** O harness corrente do workspace (.dxtutor/harness.toml) — null sem contrato. */
   private harnessCfg: HarnessConfig | null = null;
   readonly settings!: Settings;
@@ -265,6 +267,23 @@ class App {
     });
     // O Gestor espelha as sessões reais do dock: abrir/entregar/descartar repinta a lista.
     this.codev.onSessionChange = () => void this.manager.refresh();
+    // PairCode: sessão host↔convidado sobre pair_host/pair_join reais (porte de ui/pair.js).
+    // No convidado em sessão o autosave local fica bloqueado — as edições viajam para o
+    // anfitrião, que é a única fonte de verdade do disco.
+    this.pair = new Pair($("#pair"), {
+      ws: this.ws,
+      editor: this.editor,
+      terminal: this.terminal,
+      openTabs: () => this.openTabs,
+      openTab: () => this.openTab || null,
+      openFile: (rel) => this.openFile(rel),
+      closeTab: (rel) => this.closeTab(rel),
+      renderTree: () => this.renderTree(),
+      flush: async () => { await this.autosave(); },
+      notify: (m) => toast(m),
+      showPair: () => this.showView("pair"),
+      showTerminal: () => this.showPanelTab("term"),
+    });
     ($(".side-actions button") as HTMLButtonElement).onclick = () => this.pickAndOpen();
     this.renderWelcome();
     document.querySelectorAll(".activity button[data-view]").forEach((b) => {
@@ -323,6 +342,10 @@ class App {
         { label: t("mode.manual"), run: () => void this.codev.setMode("manual") },
         { label: t("mode.assist"), run: () => void this.codev.setMode("assist") },
         { label: t("mode.auto"), run: () => void this.codev.setMode("auto") },
+        { sep: true, label: "" },
+        { label: t("cmd.pairHost"), run: () => void this.pair.start() },
+        { label: t("cmd.pairJoin"), run: () => this.showView("pair") },
+        { label: t("cmd.pairEnd"), run: () => void this.pair.end() },
       ] },
       { title: t("menu.help"), items: [
         { label: t("menu.about"), run: () => toast("dxtutor IDE") },
@@ -358,6 +381,7 @@ class App {
     this.learn.applyLocale();
     this.manager.applyLocale();
     this.theatre.applyLocale();
+    this.pair.applyLocale();
     if (!this.openTab) this.renderWelcome();
     void this.updateStatus();
   }
@@ -422,7 +446,7 @@ class App {
   }
 
   openCommands(): void {
-    const views: PaletteItem[] = ["explorer", "search", "scm", "changelog", "remote", "containers", "infra", "debug", "tests", "explain", "extensions", "providers", "team", "codevhub", "account", "settings"].map((v) => ({
+    const views: PaletteItem[] = ["explorer", "search", "scm", "changelog", "remote", "containers", "infra", "debug", "tests", "explain", "extensions", "providers", "team", "codevhub", "pair", "account", "settings"].map((v) => ({
       label: t("cmd.view", { name: t(`view.${v}`) }), hint: "", run: () => this.showView(v),
     }));
     const acts: PaletteItem[] = [
@@ -441,6 +465,11 @@ class App {
       { label: t("cmd.theatre"), hint: "", run: () => { this.openSpecial("theatre"); this.theatre.showMode("trace"); } },
       { label: t("cmd.pipeline"), hint: "", run: () => { this.openSpecial("theatre"); this.theatre.showMode("pipeline"); } },
       { label: t("cmd.harness"), hint: "", run: () => this.openSpecial("harness") },
+      { label: t("cmd.pairHost"), hint: "", run: () => void this.pair.start() },
+      { label: t("cmd.pairJoin"), hint: "", run: () => this.showView("pair") },
+      { label: t("cmd.pairRequest"), hint: "", run: () => this.pair.requestControl() },
+      { label: t("cmd.pairGive"), hint: "", run: () => this.pair.giveControl() },
+      { label: t("cmd.pairEnd"), hint: "", run: () => void this.pair.end() },
     ];
     this.palette.open(">", [...acts, ...views]);
   }
@@ -516,6 +545,7 @@ class App {
     $(".view-providers").classList.toggle("hidden", view !== "providers");
     $(".view-team").classList.toggle("hidden", view !== "team");
     $(".view-codevhub").classList.toggle("hidden", view !== "codevhub");
+    $(".view-pair").classList.toggle("hidden", view !== "pair");
     $(".view-settings").classList.toggle("hidden", view !== "settings");
     document.querySelectorAll(".activity button[data-view]").forEach((b) => {
       b.classList.toggle("on", (b as HTMLElement).dataset.view === view);
@@ -532,6 +562,7 @@ class App {
     if (view === "providers") void this.providers.refresh();
     if (view === "team") void this.team.refresh();
     if (view === "codevhub") void this.codevhub.refresh();
+    if (view === "pair") this.pair.refresh();
     if (view === "settings") void this.settings.refresh();
   }
 
@@ -600,6 +631,7 @@ class App {
     this.renderTabs();
     $(".breadcrumb").textContent = `${this.ws.name} › ${rel}`;
     this.codev.refreshDock(); // o chip @ e os cartões seguem a tab activa
+    this.pair.onFileOpened(); // caret remoto do par segue a tab activa
     void this.updateStatus();
   }
 
@@ -639,6 +671,12 @@ class App {
   }
 
   async autosave(): Promise<void> {
+    // Convidado numa sessão PairCode: nada se grava no disco local — as edições seguem
+    // pelo canal para o anfitrião (a única fonte de verdade do workspace partilhado).
+    if (this.pair?.blocksAutosave()) {
+      this.renderTabs();
+      return;
+    }
     try {
       const written = await this.ws.flush();
       if (written.length) toast(t("toast.saved", { files: written.join(", ") }));
@@ -2041,10 +2079,19 @@ async function runSelftest(app: App, root: string): Promise<void> {
 document.addEventListener("DOMContentLoaded", () => {
   const app = new App();
   if (isDesktop()) {
-    api.appInfo().then((info) => {
+    api.appInfo().then(async (info) => {
       const start = info.openAtStart;
-      if (info.selftest && start) void runSelftest(app, start);
-      else if (start) void app.open(start);
+      if (info.pairtest) {
+        // Teste de duas instâncias do PairCode: o anfitrião abre o repo recebido; o
+        // convidado arranca sem pasta. Tem precedência sobre o selftest — o pairtest.sh
+        // define as DUAS variáveis (o relatório sai pelo mesmo selftest_report).
+        if (start && info.pairtest.startsWith("host")) await app.open(start);
+        void runPairtest(app.pair, app.pair.ctx, info);
+      } else if (info.selftest && start) {
+        void runSelftest(app, start);
+      } else if (start) {
+        void app.open(start);
+      }
     });
   }
 });
