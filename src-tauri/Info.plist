@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>PairCode shows your camera to the developer you are pairing with.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>PairCode lets you talk with the developer you are pairing with.</string>
+</dict>
+</plist>

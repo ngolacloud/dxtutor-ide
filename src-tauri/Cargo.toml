@@ -1,0 +1,36 @@
+[package]
+name = "dxtutor-ide"
+version = "0.7.0"
+description = "dxtutor IDE — desktop shell for the Co-Dev prototype"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "dxtutor_ide_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["time", "net", "sync", "macros", "rt-multi-thread"] }
+tokio-tungstenite = "0.24"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+chacha20poly1305 = "0.10"
+local-ip-address = "0.6"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+base64 = "0.22"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0", features = ["v2_38"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -1,0 +1,15 @@
+{
+  "name": "dxtutor-ide",
+  "version": "0.7.0",
+  "private": true,
+  "description": "dxtutor IDE — desktop app (Tauri 2 + Rust) for the Co-Dev prototype",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "cd src-tauri && cargo test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
