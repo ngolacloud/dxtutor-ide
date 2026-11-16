@@ -126,6 +126,15 @@
      e publica no window as globais que os seguintes consomem por nome; app corre a
      seguir e, onde redefine funções do boot, o seu Object.assign (posterior) ganha. -->
 <script type="module" src="/src/boot.ts"></script>
+<!-- features por funcionalidade (reestruturação): consomem src/core.ts e publicam o
+     seu shim no window ANTES do app.ts, que ainda lê THEMES/THEME eagerly (palette CMD). -->
+<script type="module" src="/src/features/theme.ts"></script>
+<script type="module" src="/src/features/notifications.ts"></script>
+<script type="module" src="/src/features/remote.ts"></script>
+<script type="module" src="/src/features/account.ts"></script>
+<script type="module" src="/src/features/run.ts"></script>
+<script type="module" src="/src/features/test.ts"></script>
+<script type="module" src="/src/features/search.ts"></script>
 <script type="module" src="/src/app.ts"></script>
 <script type="module" src="/src/v5.ts"></script>
 <script type="module" src="/src/v6.ts"></script>

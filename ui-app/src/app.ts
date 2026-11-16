@@ -107,7 +107,7 @@ function drawProblems(){const d=diagnostics(),e=d.filter(x=>x.sev==='e').length,
 function nextProblem(){const d=diagnostics();if(!d.length){toast('Sem problemas');return;}NP=(NP+1)%d.length;openPath(d[NP].p,d[NP].line);}let NP=-1;
 
 /* ───── separadores e vistas ───── */
-let TB=[],PANE='explorer';window.cur=null;const VIEW={};
+let TB=[];window.cur=null;window.PANE='explorer';const VIEW={};
 const tabOf=id=>TB.find(o=>o.id===id);
 function openTab(t,act){let x=tabOf(t.id);if(x)Object.assign(x,t);else TB.push(t);if(act===false)drawTabs();else show(t.id);}
 function openPath(p,line){if(!FS[p]){toast('Ficheiro não existe: '+short(p));return;}openTab({id:p,title:p.split('/').pop(),kind:'file',path:p});if(line)gotoLine(line);}
@@ -179,12 +179,7 @@ function toggleSide(){const o=sideOpen();setVar('--side-w',o?'0px':'250px');$('#
 function togglePanel(){const o=getVar('--panel-h')!=='0px';setVar('--panel-h',o?'0px':'230px');$('#tgl-panel').classList.toggle('on',!o);}
 const hd=(t,acts)=>`<div class="side-hd"><span class="t">${t}</span><span class="acts">${acts||''}</span></div>`;
 
-RP.search=()=>{const el=$('#pane-search');if(!el.dataset.b){el.dataset.b=1;el.innerHTML=hd('Pesquisa')+`<div class="sections"><input class="inp" id="s-q" placeholder="Procurar em todos os ficheiros"><input class="inp" id="s-r" placeholder="Substituir por…"><button class="btn ghost" onclick="replaceAll()">Substituir tudo</button><div id="s-res"></div></div>`;$('#s-q').oninput=doSearch;}doSearch();};
-function doSearch(){const q=$('#s-q').value,res=$('#s-res');if(!q){res.innerHTML='<div class="sec-empty">Escreve para procurar no workspace dxtutor.</div>';return;}const lq=q.toLowerCase();let n=0,files=0,h='';
-  Object.keys(FS).sort().forEach(p=>{const hits=[];FS[p].content.split('\n').forEach((l,i)=>{const k=l.toLowerCase().indexOf(lq);if(k>=0)hits.push([i+1,l,k]);});if(!hits.length)return;files++;n+=hits.length;
-    h+=`<div class="row" style="padding-left:8px" onclick="openPath('${p}')">${fIcon(p)}<span class="nm">${esc(p.split('/').pop())}</span><span class="deco" style="color:var(--fg-muted)">${hits.length}</span></div>`+hits.slice(0,30).map(x=>`<div class="s-hit" onclick="openPath('${p}',${x[0]})"><span class="n">${x[0]}</span><span>${esc(x[1].slice(Math.max(0,x[2]-18),x[2]))}<mark>${esc(x[1].substr(x[2],q.length))}</mark>${esc(x[1].slice(x[2]+q.length,x[2]+q.length+60))}</span></div>`).join('');});
-  res.innerHTML=`<div class="sec-empty"><b style="color:var(--accent-hover)">${n}</b> resultados em <b style="color:var(--accent-hover)">${files}</b> ficheiros</div><div class="tree">${h}</div>`;}
-function replaceAll(){const q=$('#s-q').value,r=$('#s-r').value;if(!q){toast('Indica o texto a procurar');return;}let n=0;Object.keys(FS).forEach(p=>{const c=FS[p].content;if(c.includes(q)){n+=c.split(q).length-1;FS[p].content=c.split(q).join(r);}});refresh();doSearch();toast(n?`${n} ocorrências substituídas`:'Nada para substituir');}
+RP.search=()=>window.renderSearchPane();/* corpo + leaves doSearch/replaceAll migrados p/ features/search.ts; shim delega (lazy, no switch de pane) */
 
 RP.scm=()=>{const el=$('#pane-scm'),ch=changes(),st=ch.filter(p=>STAGED.has(p)),un=ch.filter(p=>!STAGED.has(p));
   const row=(p,staged)=>`<div class="scm-row" onclick="openDiff('${p}')">${fIcon(p)}<span class="nm">${esc(p.split('/').pop())}</span><span class="pth">${esc(short(p).split('/').slice(0,-1).join('/'))}</span><span class="ra"><button title="Abrir ficheiro" onclick="event.stopPropagation();openPath('${p}')">↗</button><button title="Descartar alterações" onclick="event.stopPropagation();discard('${p}')">↶</button><button title="${staged?'Retirar do stage':'Stage'}" onclick="event.stopPropagation();stage('${p}')">${staged?'−':'+'}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
@@ -200,13 +195,13 @@ window.commit = function(msg){msg=msg||COMMIT_MSG.trim();const list=(STAGED.size
   list.forEach(p=>{FS[p].orig=FS[p].content;});STAGED.clear();COMMIT_MSG='';const c={h:Math.random().toString(16).slice(2,9),m:msg,n:list.length};COMMITS.unshift(c);refresh(false,true);drawTimeline();toast(`Commit ${c.h} · ${list.length} ficheiro(s)`);return c;}
 function pickBranch$dup0(){palette('',{ph:'Mudar de ramo…',items:BRANCHES.map(b=>({l:b,d:b===BRANCH?'actual':'',run:()=>{BRANCH=b;$('#st-branch-l').textContent=b;refresh();termRefreshPrompt();toast('Ramo: '+b);}}))});}
 
-RP.run=()=>{$('#pane-run').innerHTML=hd('Run and Debug')+`<div class="sections"><div class="sec-empty">Configurações de arranque do workspace. Cada uma corre no terminal integrado.</div>${[['cargo build','Compilar todos os crates'],['cargo test','Correr todos os testes'],['cargo test -p lexer','Testes do lexer'],['cargo test -p store','Testes do store'],['dx lint','Lint do Design System'],['npm run dev','Servidor de desenvolvimento']].map(c=>`<div class="scm-row" onclick="runTask('${c[0]}')"><span class="ic" style="color:var(--green)">${svg('run')}</span><span class="nm">${c[0]}</span><span class="pth">${c[1]}</span></div>`).join('')}</div>`;};
+RP.run=()=>window.renderRunPane();/* corpo migrado p/ features/run.ts; shim delega (lazy, no switch de pane) */
 function runTask(c){setPanelTab('terminal');return termExec(c);}
-RP.test=()=>{const r=runTests();$('#pane-test').innerHTML=hd('Testing',`<button title="Correr todos" onclick="runTask('cargo test')">${svg('run')}</button>`)+`<div class="sections">${!r.build?`<div class="sec-empty" style="color:var(--red)">Build falhou — ${esc(r.err.split('\n')[0])}</div><button class="btn ghost" onclick="openPath(P_LX,10)">Ir para o erro</button>`:`<div class="sec-empty"><b style="color:var(--green)">${r.tests.filter(t=>t.ok).length} passados</b> · <b style="color:${r.ok?'var(--fg-muted)':'var(--red)'}">${r.tests.filter(t=>!t.ok).length} falhados</b></div>`+r.tests.map(t=>`<div class="scm-row" onclick="runTask('cargo test -p ${t.n.split('::')[0]}')"><span style="color:${t.ok?'var(--green)':'var(--red)'};width:14px;text-align:center">${t.ok?'✓':'✖'}</span><span class="nm" style="max-width:none">${t.n}</span></div>`).join('')}<div class="sec-empty">O resultado é calculado a partir do conteúdo actual dos ficheiros.</div></div>`;};
+RP.test=()=>window.renderTestPane();/* corpo migrado p/ features/test.ts; shim delega (lazy, no switch de pane) */
 RP.ext=()=>{$('#pane-ext').innerHTML=hd('Extensions')+`<div class="sections"><div class="scm-grp">Provedores de LLM<span class="cnt">${Object.values(PROV).filter(p=>p.on).length}/4</span></div>${Object.entries(PROV).map(([k,p])=>`<div class="scm-row" onclick="toggleProv('${k}')"><span class="pdot${p.on?'':' off'}" style="background:${p.col}"></span><span class="nm">${p.name}</span><span class="pth">${p.vendor}</span><span class="sw${p.on?' on':''}" style="margin-left:auto"></span></div>`).join('')}
   <div class="scm-grp">Linguagem e qualidade<span class="cnt">4</span></div>${[['rust','rust-analyzer','diagnósticos Rust'],['shield','Design System Lint','dx lint'],['test','Test Explorer','cargo test'],['check','Spell Checker','pt-AO (pré-AO90)']].map(e=>`<div class="scm-row" style="cursor:default"><span class="ic">${svg(e[0])}</span><span class="nm">${e[1]}</span><span class="pth">${e[2]}</span></div>`).join('')}<button class="btn ghost" onclick="openSettings()">Configurar provedores…</button></div>`;};
-RP.remote=()=>{$('#pane-remote').innerHTML=hd('Remote Explorer')+`<div class="sections"><div class="scm-grp">Local</div><div class="scm-row" style="cursor:default"><span class="pdot" style="background:var(--green)"></span><span class="nm">delonix</span><span class="pth">ligado · este protótipo</span></div><div class="scm-grp">SSH</div>${['kaeso-preprod','ngolacloud-cp-01'].map(h=>`<div class="scm-row" onclick="toast('${h}: ligação remota não disponível no protótipo')"><span class="pdot off"></span><span class="nm">${h}</span><span class="pth">desligado</span></div>`).join('')}<div class="sec-empty">Ligações remotas reais dependem do backend da aplicação.</div></div>`;};
-RP.account=()=>{$('#pane-account').innerHTML=hd('Conta')+`<div class="sections"><div class="kv"><span class="ic">${svg('account')}</span><b>walter</b><span class="v">Team SYS</span></div><div class="scm-grp">Provedores</div>${Object.entries(PROV).map(([k,p])=>`<div class="kv"><span class="pdot${p.on?'':' off'}" style="background:${p.col}"></span>${p.name}<span class="v">${p.on?provState(k):'desligado'}</span></div>`).join('')}<button class="btn ghost" onclick="openSettings()">Abrir Definições</button><button class="btn ghost" onclick="openManager()">Uso e missões</button></div>`;};
+RP.remote=()=>window.renderRemotePane();/* corpo migrado p/ features/remote.ts; shim delega (lazy, no switch de pane) */
+RP.account=()=>window.renderAccountPane();/* corpo migrado p/ features/account.ts; shim delega (lazy, no switch de pane) */
 RP.codev=()=>{const kn=Object.keys(FS).filter(p=>p.includes('/.dxtutor/')).sort();
   $('#pane-codev').innerHTML=hd('Co-Dev',`<button title="Gestor de missões" onclick="openManager()">${svg('graph')}</button><button title="Definições" onclick="openSettings()">${svg('settings')}</button>`)+`<div class="sections">
    <div class="scm-grp">Missões<span class="cnt">${MISSIONS.length}</span></div>${MISSIONS.slice(0,5).map(m=>`<div class="scm-row" onclick="openManager()"><span class="ic" style="color:var(--accent-hover)">${svg('sparkle')}</span><span class="nm">${esc(m.title)}</span><span class="pth">${m.state}${m.score!=null?' · '+m.score:''}</span></div>`).join('')||'<div class="sec-empty">Ainda sem missões. Experimenta uma das demonstrações no painel do Co-Dev.</div>'}
@@ -269,17 +264,12 @@ let PAL_TEXT=()=>{};
 function palRun(i){const it=PITEMS[i];if(!it)return;if(PAL&&PAL.text)PAL_TEXT=PAL.text;closePal();it.run();}
 
 /* ───── temas ───── */
-const THEMES={'Grafite laranja':{},
- 'Slate índigo':{'--accent':'#6d7cff','--accent-hover':'#8f9bff','--accent-grad':'linear-gradient(135deg,#6d7cff,#8f9bff)','--accent-soft':'rgba(109,124,255,.14)','--sh-acc':'0 4px 14px rgba(109,124,255,.3)','--bg-base':'#0e1016','--bg-editor':'#141722','--bg-elevated':'#191d2a','--bg-side':'#161a26','--bg-activity':'#11141d','--bg-title':'#11141d','--bg-status':'#11141d','--bg-panel':'#141722','--bg-tab-inactive':'#161a26','--bg-input':'#1e2331','--bg-hover':'#232939','--bg-sel':'#2a3145','--bg-sel-inactive':'#252b3c','--bg-menu':'#1a1f2c','--border':'#272d3d','--border-strong':'#343b50','--seam':'#1e2331','--guide':'#2c3346'},
- 'Papel claro':{'--bg-base':'#f4f2ec','--bg-editor':'#fbfaf6','--bg-elevated':'#f6f4ee','--bg-side':'#efede6','--bg-activity':'#e9e6de','--bg-title':'#e9e6de','--bg-status':'#e9e6de','--bg-panel':'#fbfaf6','--bg-tab-inactive':'#efede6','--bg-input':'#ffffff','--bg-hover':'#e6e3da','--bg-sel':'#dcd8cc','--bg-sel-inactive':'#e3e0d6','--bg-menu':'#ffffff','--border':'#dcd8cc','--border-strong':'#c9c4b6','--seam':'#e2dfd5','--guide':'#d6d2c6','--fg':'#1d1c1a','--fg-dim':'#5f5d57','--fg-muted':'#86837b','--fg-bright':'#000000','--accent':'#c8562a','--accent-hover':'#b84a20','--purple':'#8b3fc0','--blue':'#1f6fd6','--cyan':'#0f7f8c','--green':'#1e8a63','--git-u':'#1e8a63','--git-m':'#a66a00','--git-d':'#c8323f','--red':'#c8323f','--yellow':'#9a7400','--folder':'#7a7669','--sh-card':'0 1px 2px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.06)','--sh-pop':'0 10px 30px rgba(0,0,0,.18)'}};
-let THEME='Grafite laranja';
-function setTheme(n){const r=document.documentElement.style;Object.values(THEMES).forEach(t=>Object.keys(t).forEach(k=>r.removeProperty(k)));Object.entries(THEMES[n]||{}).forEach(([k,v])=>r.setProperty(k,v));THEME=n;r.colorScheme=n==='Papel claro'?'light':'dark';save();if(tabOf(cur)&&tabOf(cur).kind==='settings')show(cur);}
+// THEMES/THEME/setTheme migrados para src/features/theme.ts (Fase 0 por feature);
+// o residual (save/loadCfg/vistas/onclick) resolve-os via window (shim transitório).
 
 /* ───── notificações ───── */
-const NOTES=[];let UNREAD=0;
-function note(m){NOTES.unshift({t:hhmm(),m});UNREAD++;drawBell();}
-function drawBell(){$('#st-bell-n').innerHTML=UNREAD?`<span class="nb">${UNREAD}</span>`:'';}
-function toggleNotes(){const n=$('#notes');if(n.classList.toggle('show')){UNREAD=0;drawBell();n.innerHTML=NOTES.length?NOTES.slice(0,20).map(x=>`<div class="nt"><span class="tm">${x.t}</span><span>${esc(x.m)}</span></div>`).join(''):'<div class="nt">Sem notificações.</div>';}}
+// NOTES/UNREAD/note/drawBell/toggleNotes migraram para src/features/notifications.ts
+// (Fase 1). O residual (app.ts/v6.ts) emite via window.note e o sino via window.toggleNotes.
 
 /* ═════════ dxtutor IDE v2 — Co-Dev ═════════ */
 const PROV={
@@ -1194,17 +1184,17 @@ Object.assign(window, {
   badges, beat, blame, boot, boot3, boot4, buildActivity, buildExplorer, buildMenus, card, changes,
   checkpoint, closePal, closeTab, cloudMap, collapseAll, composeServices, composeYaml, council, ctxPill,
   cycleMode, dec, decideQ,
-  delegate, demo, diagnostics, diffLines, diffStat, discard, dk, doSearch, doTool, dockerfile, drawBell,
+  delegate, demo, diagnostics, diffLines, diffStat, discard, dk, doTool, dockerfile,
   drawOutline, drawProblems, drawStudio, drawTabs, drawTimeline, drillState, dropIssue, dsLint, edCmd, esc, evaluate, execSteps, fIcon, focusAgent, fuzzy, genBacklog, genBacklogIssues, gfAsk, gfGuide, gfPrompt, gfStart, gitInit, goPane, gotoLine, graphLayout, handlePrompt, harnessCheck, harnessCmd,
   hlLine, hydrate, i18nBoot, isFlow, k8sYaml, lessonAsk,
   lessonCheck, lessonHint, lessonOpen, lessonQuiz, liveChat, loadCfg, loadSeed, loadTeam, log, ltAsk,
   ltGo, ltOnboard, ltOpen, ltRes, ltResume, ltStart, markActive, md, mdFull, miniOff, mkIssue, newChat, newFile,
-  newFolder, newInput, newIssue, nextLesson, nextProblem, note, openAnalysis, openBoard, openDiff, openFile, openGraph,
+  newFolder, newInput, newIssue, nextLesson, nextProblem, openAnalysis, openBoard, openDiff, openFile, openGraph,
   openLesson, openManager, openPath, openSettings, openStudio, openTab, paintEd, palDraw, palRun, palette,
-  parkAgent, phase, pickAgent, pickBranch, pickModel, rankModels, reflect, rejectIssue, renderLevel, replaceAll,
+  parkAgent, phase, pickAgent, pickBranch, pickModel, rankModels, reflect, rejectIssue, renderLevel,
   rerender, resetAll, restoreCkpt, routeModel, runIssue, runLabel, runState, runTask, runTests,
-  save, saveLT, saveSD, saveTeam, scopeProbe, scrollMsgs, sdAdd, sdDel, selText, setActive, setLocale, setMode, setPane, setPanelTab, setStage, setTheme, show, stLang, stOf, stPos, stage,
-  stars, stepTab, symbols, tabIc, tabOf, termRefreshPrompt, tl, toggleAgent, toggleAgentOn, toggleNotes, togglePanel,
+  save, saveLT, saveSD, saveTeam, scopeProbe, scrollMsgs, sdAdd, sdDel, selText, setActive, setLocale, setMode, setPane, setPanelTab, setStage, show, stLang, stOf, stPos, stage,
+  stars, stepTab, symbols, tabIc, tabOf, termRefreshPrompt, tl, toggleAgent, toggleAgentOn, togglePanel,
   toggleProv, toggleSide, tplNode, trAttrs, trNode, trText, use, user, validateDesign, waiting,
   who, writeFile,
   // núcleo que as camadas v5 (src/v5.ts) e v6 (src/v6.ts) consomem como referências livres via window:
