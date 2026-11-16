@@ -1,6 +1,6 @@
 # Open session contracts — modular-ui-app
 
-Rebuilt 2026-11-16 00:18. One contract per branch, except where a second session
+Rebuilt 2026-11-16 13:46. One contract per branch, except where a second session
 claimed its own — those rows carry the session suffix after the branch.
 `/escopo` opens, `/fechar` closes.
 
