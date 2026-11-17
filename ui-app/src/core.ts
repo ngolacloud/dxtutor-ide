@@ -150,6 +150,22 @@ declare global {
     envState: (e: string) => any;
     openObserve: (env: string, n: string) => void;
     renderInfraPane: () => void;
+    /* feature `syntax` (migrada de app.ts): realce de uma linha. O editor (paintEd),
+       o diff, o `cat` do terminal e o outline — em app.ts e em v5.ts/v6.ts —
+       resolvem-no por nome livre. */
+    hlLine: (s: string, ext: string) => string;
+    /* feature `palette` (migrada de app.ts): paleta de comandos / quick open. O estado
+       é window-backed porque o resíduo boot/keydown de app.ts o lê por nome livre:
+       boot usa PIDX/PITEMS + palDraw/palRun, o keydown usa closePal. */
+    PAL: any;
+    PIDX: number;
+    PITEMS: any[];
+    PAL_TEXT: (q: string) => void;
+    palette: (pre?: string, cfg?: any) => void;
+    closePal: () => void;
+    fuzzy: (q: string, s: string) => boolean;
+    palDraw: () => void;
+    palRun: (i: number) => void;
   }
 }
 

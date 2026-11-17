@@ -70,15 +70,7 @@ function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/
 function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',verb:'Criar pasta',text:q=>{q=q.trim().replace(/\/$/,'');if(!q)return;writeFile(norm(q+'/.gitkeep'),'');OPEN.add('dxtutor/'+q);refresh(true,true);toast('Pasta criada: '+q);}});}
 
 /* ───── realce de sintaxe ───── */
-const KW=/^(?:pub|fn|let|mut|for|in|if|else|while|loop|match|return|use|mod|impl|trait|struct|enum|type|const|static|self|Self|crate|async|await|export|import|from|function|class|interface|extends|new|var|void|null|true|false|as|CREATE|TABLE|INDEX|ON|NOT|NULL|PRIMARY|KEY|REFERENCES|DELETE|CASCADE|SELECT|FROM|WHERE|ORDER|BY|DESC|ASC|LIMIT|INSERT|INTO|VALUES|TEXT|INTEGER|UNIQUE|DEFAULT|AND|OR)$/;
-function hlLine(s,ext){
-  if(ext==='md'){if(/^#/.test(s))return `<span class="kw">${esc(s)}</span>`;return esc(s).replace(/`[^`]+`/g,m=>`<span class="str">${m}</span>`).replace(/\*\*[^*]+\*\*/g,m=>`<span class="ty">${m}</span>`);}
-  const re=/(\/\/.*$|--\s.*$|\/\*.*?\*\/|#\s.*$|<!--.*?-->)|("(?:\\.|[^"\\])*"|`[^`]*`)|(\b\d[\d_.]*\b|#[0-9a-fA-F]{3,8}\b)|([A-Za-z_]\w*!)|([A-Za-z_]\w*)(?=\()|([A-Za-z_][\w-]*)/g;
-  let out='',i=0,m;while((m=re.exec(s))){out+=esc(s.slice(i,m.index));const x=esc(m[0]);
-    if(m[1])out+=`<span class="cm">${x}</span>`;else if(m[2])out+=`<span class="str">${x}</span>`;else if(m[3])out+=`<span class="num">${x}</span>`;else if(m[4])out+=`<span class="mac">${x}</span>`;
-    else if(m[5])out+=`<span class="${KW.test(m[5])?'kw':'fn'}">${x}</span>`;else out+=KW.test(m[6])?`<span class="kw">${x}</span>`:/^[A-Z][a-z]/.test(m[6])?`<span class="ty">${x}</span>`:x;
-    i=m.index+m[0].length;}
-  return out+esc(s.slice(i));}
+/* KW + hlLine (realce de uma linha) migrados p/ features/syntax.ts; lidos por global (window.hlLine) em paintEd/diff/cat/outline e em v5.ts/v6.ts */
 
 /* ───── diagnósticos, lint e testes (derivados do estado real dos ficheiros) ───── */
 const P_LX=ROOT+'crates/lexer/src/lib.rs',P_REPO=ROOT+'crates/store/src/conversations.rs',P_MIG=ROOT+'db/migrations/0002_conversations.sql',P_TEST=ROOT+'crates/store/tests/conversations_test.rs',P_HIST=ROOT+'desktop/src/history.ts',P_ADR=ROOT+'.dxtutor/arquitectura/ADR-003-historico.md',P_STORE=ROOT+'crates/store/src/lib.rs';
@@ -144,15 +136,8 @@ function stLang(){const t=tabOf(cur);$('#st-lang').textContent=t&&t.path?(LANG[e
 function edCmd(c){const ta=$('#ed-ta');if(!ta){toast('Abre um ficheiro primeiro');return;}ta.focus();if(c==='selectAll')ta.select();else if(c==='line'){const b=ta.value.slice(0,ta.selectionStart).split('\n').length;gotoLine(b);}else{document.execCommand(c);ta.oninput();}}
 function selText(){const ta=$('#ed-ta');return ta?ta.value.slice(ta.selectionStart,ta.selectionEnd):'';}
 
-/* diff */
-function diffLines(a,b){const A=a?a.split('\n'):[],B=b?b.split('\n'):[],n=A.length,m=B.length,L=Array.from({length:n+1},()=>new Uint16Array(m+1));
-  for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i][j]=A[i]===B[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
-  const out=[];let i=0,j=0;while(i<n&&j<m){if(A[i]===B[j]){out.push([' ',A[i],i+1,j+1]);i++;j++;}else if(L[i+1][j]>=L[i][j+1]){out.push(['-',A[i],i+1,'']);i++;}else{out.push(['+',B[j],'',j+1]);j++;}}
-  while(i<n){out.push(['-',A[i],i+1,'']);i++;}while(j<m){out.push(['+',B[j],'',j+1]);j++;}return out;}
-function diffStat(a,b){const d=diffLines(a,b);return{add:d.filter(x=>x[0]==='+').length,del:d.filter(x=>x[0]==='-').length};}
-VIEW.diff=(t,host)=>{const a=t.fixed?t.a:(FS[t.path]?FS[t.path].orig:''),b=t.fixed?t.b:(FS[t.path]?FS[t.path].content:''),d=diffLines(a,b),ext=extOf(t.path),s=diffStat(a,b);
-  host.innerHTML=`<div class="diff"><div class="diff-h"><b style="color:var(--fg)">${short(t.path)}</b><span class="tag">${esc(t.label||'HEAD ↔ área de trabalho')}</span><span style="color:var(--green)">+${s.add}</span><span style="color:var(--red)">−${s.del}</span><button class="mini" onclick="openPath('${t.path}')">Abrir ficheiro</button></div>${d.length?d.map(x=>`<div class="dl ${x[0]==='+'?'add':x[0]==='-'?'del':''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${hlLine(x[1],ext)||' '}</span></div>`).join(''):'<div class="sec-empty">Sem diferenças.</div>'}</div>`;};
-function openDiff(p,a,b,label){const fixed=a!==undefined;openTab({id:(fixed?'prop:':'diff:')+p,title:p.split('/').pop()+(fixed?' (proposta)':' (diff)'),kind:'diff',path:p,fixed,a,b,label});}
+/* diff: diffLines/diffStat/openDiff + corpo de VIEW.diff migrados p/ features/diff.ts; lidos por global, pane delega no shim abaixo */
+VIEW.diff=(t,host)=>window.renderDiffView(t,host);
 
 /* ───── actualização global ───── */
 let SIG='';
@@ -236,20 +221,9 @@ const XC={
 };
 
 /* ───── paleta de comandos / quick open ───── */
-let PAL=null,PIDX=0,PITEMS=[];
-function palette(pre,cfg){closeMenus();PAL=cfg||null;const inp=$('#pal-in');$('#pal').classList.add('show');inp.value=pre||'';inp.placeholder=cfg?cfg.ph:'Nome do ficheiro  ·  > comandos  ·  : linha';PIDX=0;palDraw();setTimeout(()=>inp.focus(),0);}
-function closePal(){$('#pal').classList.remove('show');PAL=null;}
-function fuzzy(q,s){q=q.toLowerCase();s=s.toLowerCase();let i=0;for(const c of s){if(c===q[i])i++;if(i===q.length)return true;}return!q.length;}
-function palDraw(){const q=$('#pal-in').value;
-  if(PAL){PITEMS=PAL.items?PAL.items.filter(i=>fuzzy(q,i.l)):[{l:`${PAL.verb||'Confirmar'}: ${q||'…'}`,run:()=>PAL_TEXT(q)}];}
-  else if(q.startsWith('>')){const f=q.slice(1).trim();PITEMS=CMD.filter(c=>fuzzy(f,c[0])).map(c=>({l:c[0],k:c[1],run:c[2]}));}
-  else if(q.startsWith(':')){const n=parseInt(q.slice(1))||1;PITEMS=[{l:'Ir para a linha '+n,run:()=>gotoLine(n)}];}
-  else PITEMS=Object.keys(FS).filter(p=>fuzzy(q,short(p))).sort((a,b)=>a.split('/').pop().localeCompare(b.split('/').pop())).map(p=>({l:p.split('/').pop(),d:short(p),ic:fIcon(p),run:()=>openPath(p)}));
-  PIDX=Math.min(PIDX,Math.max(0,PITEMS.length-1));
-  $('#pal-list').innerHTML=PITEMS.length?PITEMS.map((it,i)=>`<div class="pi${i===PIDX?' on':''}" data-i="${i}">${it.ic||''}<span>${esc(it.l)}</span>${it.d?`<span class="d">${esc(it.d)}</span>`:''}${it.k?`<span class="key">${it.k}</span>`:''}</div>`).join(''):'<div class="pal-empty">Sem resultados.</div>';
-  const on=$('#pal-list .on');if(on&&on.scrollIntoView)on.scrollIntoView({block:'nearest'});}
-let PAL_TEXT=()=>{};
-function palRun(i){const it=PITEMS[i];if(!it)return;if(PAL&&PAL.text)PAL_TEXT=PAL.text;closePal();it.run();}
+// PAL/PIDX/PITEMS/PAL_TEXT + palette/closePal/fuzzy/palDraw/palRun migraram para
+// src/features/palette.ts (window-backed). O resíduo (boot/keydown abaixo) lê o
+// estado e os handlers por window.PIDX/window.PITEMS/window.palDraw()/etc.
 
 /* ───── temas ───── */
 // THEMES/THEME/setTheme migrados para src/features/theme.ts (Fase 0 por feature);
@@ -330,8 +304,8 @@ function boot(){loadCfg();loadSeed();syncTree();
   $('#brand').innerHTML=svg('sparkle');buildMenus();buildMenubar();buildActivity();buildDocker();$('.act').classList.add('on');
   $$('.ptab').forEach(b=>b.onclick=()=>setPanelTab(b.dataset.pt));
   mkRz($('#rsz-side'),'--side-w',250,170,460);mkRz($('#rsz-agent'),'--agent-w',380,300,640,true);
-  const pi=$('#pal-in');pi.oninput=()=>{PIDX=0;palDraw();};pi.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();PIDX=Math.min(PITEMS.length-1,PIDX+1);palDraw();}else if(e.key==='ArrowUp'){e.preventDefault();PIDX=Math.max(0,PIDX-1);palDraw();}else if(e.key==='Enter'){e.preventDefault();palRun(PIDX);}};
-  $('#pal').onclick=e=>{const it=e.target.closest('.pi');if(it)palRun(+it.dataset.i);else if(!e.target.closest('.pal-box'))closePal();};
+  const pi=$('#pal-in');pi.oninput=()=>{window.PIDX=0;window.palDraw();};pi.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();window.PIDX=Math.min(window.PITEMS.length-1,window.PIDX+1);window.palDraw();}else if(e.key==='ArrowUp'){e.preventDefault();window.PIDX=Math.max(0,window.PIDX-1);window.palDraw();}else if(e.key==='Enter'){e.preventDefault();window.palRun(window.PIDX);}};
+  $('#pal').onclick=e=>{const it=e.target.closest('.pi');if(it)window.palRun(+it.dataset.i);else if(!e.target.closest('.pal-box'))window.closePal();};
   const ai=$('#ag-input');ai.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();agSend();}};
   $('#pc-terminal').onclick=()=>{if(!String(getSelection())){const c=$('#cmd');if(c)c.focus({preventScroll:true});}};
   $('#pc-output').innerHTML='';log('rust-analyzer','2 crates indexados');log('co-dev','pronto · '+connected().length+' provedores ligados');
@@ -343,7 +317,7 @@ function boot(){loadCfg();loadSeed();syncTree();
   hydrate();if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   let tries=0;(function live(){if(window.claude&&typeof window.claude.use==='function'){window.claude.use('sample').then(s=>{SAMPLE=s||null;updateAgentUI();const t=tabOf(cur);if(t&&t.kind==='settings')show(cur);if(RP[PANE])RP[PANE]();}).catch(()=>{});}else if(++tries<25)setTimeout(live,300);})();}
 document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey,go=f=>{e.preventDefault();f();};
-  if(e.key==='Escape'){if($('#pal').classList.contains('show'))closePal();closeMenus();$('#notes').classList.remove('show');return;}
+  if(e.key==='Escape'){if($('#pal').classList.contains('show'))window.closePal();closeMenus();$('#notes').classList.remove('show');return;}
   if(e.key==='F1'||(c&&e.shiftKey&&k==='p'))go(()=>palette('>'));else if(e.key==='F8')go(nextProblem);
   else if(c&&e.shiftKey){if(k==='e')go(()=>goPane('explorer'));else if(k==='f')go(cmd('Ver: Pesquisa'));else if(k==='g')go(()=>goPane('scm'));else if(k==='m')go(()=>setPanelTab('problems'));else if(k==='a')go(()=>goPane('codev'));}
   else if(c){if(k==='p')go(()=>palette(''));else if(k==='b')go(toggleSide);else if(k==='j')go(togglePanel);else if(k==='`')go(()=>setPanelTab('terminal'));else if(k===',')go(openSettings);else if(k==='l')go(()=>focusAgent());else if(k==='g')go(()=>palette(':'));else if(k==='s')go(()=>toast('Auto Save activo — já está guardado'));}
@@ -502,13 +476,13 @@ Object.assign(window, {
   OPEN, PANE, PROV, ROOT, RP, RUN, STOP, VIEW,
   XC,
   badges, blame, boot, boot3, boot4, buildActivity, buildExplorer, buildMenus,
-  checkpoint, closePal, closeTab, collapseAll,
-  diagnostics, diffLines, diffStat,
-  drawOutline, drawProblems, drawTabs, dsLint, edCmd, esc, fIcon, fuzzy, gfAsk, goPane, gotoLine,
-  hlLine, hydrate, loadCfg, loadSeed, log,
+  checkpoint, closeTab, collapseAll,
+  diagnostics,
+  drawOutline, drawProblems, drawTabs, dsLint, edCmd, esc, fIcon, gfAsk, goPane, gotoLine,
+  hydrate, loadCfg, loadSeed, log,
   markActive, mdFull, miniOff, newFile,
-  newFolder, newInput, nextProblem, openDiff, openFile,
-  openPath, openTab, paintEd, palDraw, palRun, palette,
+  newFolder, newInput, nextProblem, openFile,
+  openPath, openTab, paintEd,
   parkAgent, renderLevel,
   rerender, resetAll, restoreCkpt, runTask, runTests,
   save, selText, setActive, setPane, setPanelTab, show, stLang, stPos,
