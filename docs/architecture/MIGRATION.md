@@ -68,7 +68,9 @@ Registados em `src-tauri/src/lib.rs:2483` (`tauri::generate_handler!`).
 | `board.rs` | 2 | `board_load`, `board_save` |
 
 > A matriz detalhada (args, retorno, erro, evento, consumidor na UI, política)
-> é entregável da Etapa 1; esta lista é o índice de referência.
+> é entregável da Etapa 1 — ver **`docs/architecture/IPC-MATRIX.md`** (133
+> comandos, 1:1 com o `generate_handler!`, verificado por `scripts/arch-check.sh`).
+> Esta lista é o índice de referência.
 
 ## 3. Baseline `@ts-nocheck` — 21 ficheiros
 
@@ -141,7 +143,7 @@ referenciam `ui/` nem `ui-next/`.
 | Etapa | Entrega | Condição de avanço | Estado |
 |---|---|---|---|
 | **0 — Baseline** | Inventário, build baseline, registos permanentes (AGENTS/ADR/ARCHITECTURE/MIGRATION/README) | Evidência suficiente p/ distinguir regressões e localizar consumidores | **em curso** |
-| 1 — Build e contratos | `ui:build` na cadeia de `build`; docs coerentes; matriz IPC; 1ªs verificações de arquitectura | Build limpo + contratos de referência verificados | pendente |
+| 1 — Build e contratos | `ui:build` na cadeia de `build`; docs coerentes; matriz IPC; 1ªs verificações de arquitectura | Build limpo + contratos de referência verificados | **feito** (ver §9) |
 | 2 — Primeira fatia | 1 feature atravessa UI→adaptador→caso de uso→impl (ex. abrir workspace / board) | Testes do caso de uso + teste integrado | pendente |
 | 3 — Backend | Extrair responsabilidades de `lib.rs`; portas e erros tipados; composição | APIs/dados/CLI/TUI preservados | pendente |
 | 4 — UI | Estado por proprietário, bootstrap, serviços, fim de globais/substituições, tipagem | Mesmos fluxos, sem dependência da ordem HTML | pendente |
@@ -158,3 +160,37 @@ Cada etapa = uma sessão (`.claude/sessions/develop.md`).
   `tutor-track/src/sqlite.rs` + `tutor-board` na Etapa 3.
 - Selftest GUI headless tem limites conhecidos (uma corrida curta, janela real
   no desktop); PairCode/LLM ao vivo validam-se na máquina do utilizador.
+
+## 9. Etapa 1 — build na cadeia e contratos (feito)
+
+**Cadeia de build.** `src-tauri/tauri.conf.json` ganhou
+`build.beforeBuildCommand: "npm run ui:build"` (mantendo
+`frontendDist: "../ui-app/dist"`). O `npm run build` (= `tauri build`) passa a
+regenerar `ui-app/dist` **antes** de o Tauri o embutir. Sem recursão: o hook
+chama `ui:build` (tsc + vite), nunca `npm run build`.
+
+- **Prova (checkout sem dist):** `rm -rf ui-app/dist && npm run build` →
+  `beforeBuildCommand` regenera `ui-app/dist` (`vite ✓ 41 modules`) → o
+  `build.rs` re-embute → `cargo build --release` → **3 bundles** em
+  `target/release/bundle/` (`.deb` 5.74 MiB, `.rpm` 5.74 MiB, `.AppImage`
+  83.48 MiB), exit 0, sem erro de assets em falta.
+
+**Matriz IPC.** `docs/architecture/IPC-MATRIX.md` — args / retorno / erro /
+evento / consumidor-UI / política para os **133 comandos**, com legenda de
+políticas (R/W/X/G/N/K/S/E), 9 eventos distintos, e o facto arquitectural de
+que **28 comandos são consumidos pela `ui-app`** e 105 não (simulação de
+browser / via `exec` / `ui-next`). Fecha com a dívida mapeada p/ Etapas 2–5.
+
+**Verificações automáticas.** `scripts/arch-check.sh` (`npm run arch:check`) —
+porta estática barata que falha (exit 1) se a documentação divergir do código:
+
+- A1 `generate_handler!` regista exactamente 133 comandos.
+- A2 `#[tauri::command]` por ficheiro == baseline (95/14/10/8/4/2; soma 133).
+- A3 `IPC-MATRIX.md` cobre os 133 comandos **1:1** com o registo (sem lacunas
+  nem extras) — garante que a matriz não envelhece em silêncio.
+- A4 cadeia de build: `frontendDist == ../ui-app/dist`, `beforeBuildCommand`
+  corre `ui:build` e **não** é recursivo; `package.json` coerente.
+- A5 nenhuma config de build referencia `ui/` ou `ui-next/` (UI oficial única).
+- A6 baseline `@ts-nocheck` não cresce acima de 21.
+
+Estado na entrega: **todas verdes (exit 0)**.

@@ -69,3 +69,9 @@ instrução expressa do responsável.
   estado, contratos IPC e inicialização.
 - `docs/architecture/MIGRATION.md` — baseline, mapa origem→destino, etapas e
   critérios de saída.
+- `docs/architecture/IPC-MATRIX.md` — matriz detalhada dos 133 comandos IPC
+  (args/retorno/erro/evento/consumidor-UI/política).
+- `scripts/arch-check.sh` (`npm run arch:check`) — verificações estáticas que
+  garantem que estas docs não divergem do código (contagem/lista IPC, cadeia de
+  build, UI oficial única, baseline `@ts-nocheck`). Correr antes de fechar
+  trabalho de arquitectura.

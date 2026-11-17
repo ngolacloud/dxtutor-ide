@@ -4,6 +4,7 @@
   "version": "0.7.0",
   "identifier": "ao.ngolacloud.dxtutor-ide",
   "build": {
+    "beforeBuildCommand": "npm run ui:build",
     "frontendDist": "../ui-app/dist"
   },
   "app": {
