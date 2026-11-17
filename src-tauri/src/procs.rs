@@ -28,8 +28,15 @@ pub fn exec(
     timeout: Duration,
 ) -> Result<ExecOut, String> {
     let mut cmd = Command::new(program);
-    cmd.args(args).envs(env).stdout(Stdio::piped()).stderr(Stdio::piped());
-    cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
+    cmd.args(args)
+        .envs(env)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    cmd.stdin(if stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
     if let Some(d) = cwd {
         cmd.current_dir(d);
     }
@@ -55,7 +62,12 @@ pub fn exec(
             Err(e) => return Err(e.to_string()),
         }
     };
-    Ok(ExecOut { code, stdout: out.join().unwrap_or_default(), stderr: err.join().unwrap_or_default(), timed_out })
+    Ok(ExecOut {
+        code,
+        stdout: out.join().unwrap_or_default(),
+        stderr: err.join().unwrap_or_default(),
+        timed_out,
+    })
 }
 
 fn read_all<R: Read + Send + 'static>(r: Option<R>) -> thread::JoinHandle<String> {
@@ -112,7 +124,10 @@ where
     G: FnOnce(Exit) + Send + 'static,
 {
     let mut cmd = shell_command(line);
-    cmd.envs(env).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    cmd.envs(env)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
     // Own process group, so Stop also ends the children (docker compose, cargo…).
     #[cfg(unix)]
     {
@@ -125,14 +140,33 @@ where
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let on_line = Arc::new(on_line);
     let mut readers = Vec::new();
-    for (pipe, err) in [(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>), false), (child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>), true)] {
+    for (pipe, err) in [
+        (
+            child
+                .stdout
+                .take()
+                .map(|p| Box::new(p) as Box<dyn Read + Send>),
+            false,
+        ),
+        (
+            child
+                .stderr
+                .take()
+                .map(|p| Box::new(p) as Box<dyn Read + Send>),
+            true,
+        ),
+    ] {
         if let Some(p) = pipe {
             let cb = on_line.clone();
             let id = id.clone();
             readers.push(thread::spawn(move || {
                 for l in BufReader::new(p).lines() {
                     match l {
-                        Ok(line) => cb(Line { id: id.clone(), line, err }),
+                        Ok(line) => cb(Line {
+                            id: id.clone(),
+                            line,
+                            err,
+                        }),
                         Err(_) => break,
                     }
                 }
@@ -169,7 +203,12 @@ pub fn kill(procs: &Procs, id: &str) -> bool {
     #[cfg(unix)]
     {
         let pgid = format!("-{}", c.id());
-        if Command::new("kill").args(["-TERM", "--", &pgid]).status().map(|s| s.success()).unwrap_or(false) {
+        if Command::new("kill")
+            .args(["-TERM", "--", &pgid])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
             return true;
         }
     }
@@ -183,7 +222,15 @@ mod tests {
 
     #[test]
     fn exec_captures_output_and_exit_code() {
-        let o = exec("sh", &["-c".into(), "echo out; echo err >&2; exit 3".into()], None, &HashMap::new(), None, Duration::from_secs(5)).unwrap();
+        let o = exec(
+            "sh",
+            &["-c".into(), "echo out; echo err >&2; exit 3".into()],
+            None,
+            &HashMap::new(),
+            None,
+            Duration::from_secs(5),
+        )
+        .unwrap();
         assert_eq!(o.code, 3);
         assert_eq!(o.stdout.trim(), "out");
         assert_eq!(o.stderr.trim(), "err");
@@ -192,15 +239,39 @@ mod tests {
 
     #[test]
     fn exec_passes_arguments_without_a_shell() {
-        let o = exec("printf", &["%s".into(), "a b; rm -rf /".into()], None, &HashMap::new(), None, Duration::from_secs(5)).unwrap();
+        let o = exec(
+            "printf",
+            &["%s".into(), "a b; rm -rf /".into()],
+            None,
+            &HashMap::new(),
+            None,
+            Duration::from_secs(5),
+        )
+        .unwrap();
         assert_eq!(o.stdout, "a b; rm -rf /");
     }
 
     #[test]
     fn exec_feeds_stdin_and_times_out() {
-        let o = exec("cat", &[], None, &HashMap::new(), Some("hello"), Duration::from_secs(5)).unwrap();
+        let o = exec(
+            "cat",
+            &[],
+            None,
+            &HashMap::new(),
+            Some("hello"),
+            Duration::from_secs(5),
+        )
+        .unwrap();
         assert_eq!(o.stdout, "hello");
-        let t = exec("sleep", &["5".into()], None, &HashMap::new(), None, Duration::from_millis(200)).unwrap();
+        let t = exec(
+            "sleep",
+            &["5".into()],
+            None,
+            &HashMap::new(),
+            None,
+            Duration::from_millis(200),
+        )
+        .unwrap();
         assert!(t.timed_out);
     }
 
@@ -211,8 +282,19 @@ mod tests {
         let tx2 = tx.clone();
         let mut env = HashMap::new();
         env.insert("DX_TEST".into(), "42".into());
-        spawn_shell(&procs, "t1".into(), "echo one; echo $DX_TEST", None, &env, move |l| tx.send(l.line).unwrap(), move |e| tx2.send(format!("exit {}", e.code)).unwrap()).unwrap();
-        let got: Vec<String> = (0..3).map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap()).collect();
+        spawn_shell(
+            &procs,
+            "t1".into(),
+            "echo one; echo $DX_TEST",
+            None,
+            &env,
+            move |l| tx.send(l.line).unwrap(),
+            move |e| tx2.send(format!("exit {}", e.code)).unwrap(),
+        )
+        .unwrap();
+        let got: Vec<String> = (0..3)
+            .map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap())
+            .collect();
         assert_eq!(got, vec!["one", "42", "exit 0"]);
     }
 
@@ -220,7 +302,16 @@ mod tests {
     fn spawned_process_can_be_killed() {
         let procs = Procs::default();
         let (tx, rx) = mpsc::channel();
-        spawn_shell(&procs, "t2".into(), "sleep 30", None, &HashMap::new(), |_| {}, move |e| tx.send(e.code).unwrap()).unwrap();
+        spawn_shell(
+            &procs,
+            "t2".into(),
+            "sleep 30",
+            None,
+            &HashMap::new(),
+            |_| {},
+            move |e| tx.send(e.code).unwrap(),
+        )
+        .unwrap();
         thread::sleep(Duration::from_millis(100));
         assert!(kill(&procs, "t2"));
         assert_ne!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), 0);

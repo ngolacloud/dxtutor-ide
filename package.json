@@ -6,12 +6,11 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
-    "dev": "tauri dev",
+    "dev": "npm run ui:build && tauri dev",
+    "dev:seed": "VITE_SEED=1 npm run ui:build && tauri dev",
     "build": "tauri build",
     "test": "cargo test --workspace",
-    "ui:build": "tsc --noEmit -p ui-app/tsconfig.json && vite build --config ui-app/vite.config.ts",
-    "ui-next:dev": "vite --config ui-next/vite.config.ts",
-    "ui-next:build": "tsc --noEmit -p ui-next/tsconfig.json && vite build --config ui-next/vite.config.ts"
+    "ui:build": "tsc --noEmit -p ui-app/tsconfig.json && vite build --config ui-app/vite.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

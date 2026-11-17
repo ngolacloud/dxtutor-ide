@@ -59,10 +59,16 @@ impl Session {
         if let Some(d) = cwd {
             cmd.current_dir(d);
         }
-        let mut child = cmd.spawn().map_err(|e| format!("could not start gdb: {e}"))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("could not start gdb: {e}"))?;
         let stdin = child.stdin.take().ok_or("no gdb stdin")?;
         let reader = BufReader::new(child.stdout.take().ok_or("no gdb stdout")?);
-        let mut s = Session { child, stdin, reader };
+        let mut s = Session {
+            child,
+            stdin,
+            reader,
+        };
         // Drain the start-up banner up to the first `(gdb)` prompt. The banner carries no
         // result record, so we must NOT wait for one here (that would block forever).
         s.read_until_prompt()?;
@@ -83,7 +89,10 @@ impl Session {
         let mut out = Vec::new();
         loop {
             let mut line = String::new();
-            let n = self.reader.read_line(&mut line).map_err(|e| format!("gdb read: {e}"))?;
+            let n = self
+                .reader
+                .read_line(&mut line)
+                .map_err(|e| format!("gdb read: {e}"))?;
             if n == 0 {
                 return Err("gdb closed unexpectedly".into());
             }
@@ -104,7 +113,15 @@ impl Session {
             if terminal {
                 // `*stopped` is terminal for exec commands; `^done`/`^running` for others.
                 // After `^running` we keep reading until the matching `*stopped`.
-                if out.last().map(|l| l.starts_with("*stopped") || l.starts_with("^done") || l.starts_with("^connected")).unwrap_or(false) {
+                if out
+                    .last()
+                    .map(|l| {
+                        l.starts_with("*stopped")
+                            || l.starts_with("^done")
+                            || l.starts_with("^connected")
+                    })
+                    .unwrap_or(false)
+                {
                     return Ok(out);
                 }
             }
@@ -117,7 +134,10 @@ impl Session {
         let mut out = Vec::new();
         loop {
             let mut line = String::new();
-            let n = self.reader.read_line(&mut line).map_err(|e| format!("gdb read: {e}"))?;
+            let n = self
+                .reader
+                .read_line(&mut line)
+                .map_err(|e| format!("gdb read: {e}"))?;
             if n == 0 {
                 return Err("gdb closed during start-up".into());
             }
@@ -176,7 +196,12 @@ fn parse_stop(lines: &[String]) -> Stop {
             stopped: true,
             reason: reason.clone(),
             exited: true,
-            exit_code: mi_field(l, "exit-code").and_then(|c| c.trim_start_matches("0x").parse::<i32>().ok().or_else(|| i32::from_str_radix(c.trim_start_matches("0x"), 8).ok())),
+            exit_code: mi_field(l, "exit-code").and_then(|c| {
+                c.trim_start_matches("0x")
+                    .parse::<i32>()
+                    .ok()
+                    .or_else(|| i32::from_str_radix(c.trim_start_matches("0x"), 8).ok())
+            }),
             ..Default::default()
         };
     }
@@ -184,8 +209,12 @@ fn parse_stop(lines: &[String]) -> Stop {
         stopped: true,
         reason,
         func: mi_field(l, "func").unwrap_or_default(),
-        file: mi_field(l, "fullname").or_else(|| mi_field(l, "file")).unwrap_or_default(),
-        line: mi_field(l, "line").and_then(|n| n.parse().ok()).unwrap_or(0),
+        file: mi_field(l, "fullname")
+            .or_else(|| mi_field(l, "file"))
+            .unwrap_or_default(),
+        line: mi_field(l, "line")
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0),
         exited: false,
         exit_code: None,
     }
@@ -202,13 +231,21 @@ fn parse_name_value_list(l: &str) -> Vec<Var> {
     // Walk each {...} group; pull name= and value= from it.
     let mut rest = l;
     while let Some(open) = rest.find('{') {
-        let close = rest[open..].find('}').map(|c| open + c).unwrap_or(rest.len());
+        let close = rest[open..]
+            .find('}')
+            .map(|c| open + c)
+            .unwrap_or(rest.len());
         let group = &rest[open..close];
         if let Some(name) = mi_field(group, "name") {
-            out.push(Var { name, value: mi_field(group, "value").unwrap_or_default() });
+            out.push(Var {
+                name,
+                value: mi_field(group, "value").unwrap_or_default(),
+            });
         }
         rest = &rest[close.min(rest.len())..];
-        if rest.is_empty() { break; }
+        if rest.is_empty() {
+            break;
+        }
         rest = &rest[1.min(rest.len())..];
     }
     out
@@ -221,13 +258,22 @@ fn parse_stack(lines: &[String]) -> Vec<Frame> {
     let mut rest: &str = l;
     while let Some(open) = rest.find("frame={") {
         let from = open + "frame=".len();
-        let close = rest[from..].find('}').map(|c| from + c).unwrap_or(rest.len());
+        let close = rest[from..]
+            .find('}')
+            .map(|c| from + c)
+            .unwrap_or(rest.len());
         let g = &rest[from..close];
         out.push(Frame {
-            level: mi_field(g, "level").and_then(|n| n.parse().ok()).unwrap_or(0),
+            level: mi_field(g, "level")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(0),
             func: mi_field(g, "func").unwrap_or_default(),
-            file: mi_field(g, "fullname").or_else(|| mi_field(g, "file")).unwrap_or_default(),
-            line: mi_field(g, "line").and_then(|n| n.parse().ok()).unwrap_or(0),
+            file: mi_field(g, "fullname")
+                .or_else(|| mi_field(g, "file"))
+                .unwrap_or_default(),
+            line: mi_field(g, "line")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(0),
         });
         rest = &rest[close.min(rest.len())..];
     }
@@ -236,7 +282,9 @@ fn parse_stack(lines: &[String]) -> Vec<Frame> {
 
 fn gdb_path() -> Option<std::path::PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|d| d.join("gdb")).find(|p| p.is_file())
+    std::env::split_paths(&path)
+        .map(|d| d.join("gdb"))
+        .find(|p| p.is_file())
 }
 
 // ── Session registry (managed by Tauri) ─────────────────────────────────────────────
@@ -245,7 +293,11 @@ fn gdb_path() -> Option<std::path::PathBuf> {
 pub struct DebugSessions(Mutex<HashMap<String, Session>>);
 
 impl DebugSessions {
-    fn with<R>(&self, id: &str, f: impl FnOnce(&mut Session) -> Result<R, String>) -> Result<R, String> {
+    fn with<R>(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut Session) -> Result<R, String>,
+    ) -> Result<R, String> {
         let mut map = self.0.lock().map_err(|_| "debug lock poisoned")?;
         let s = map.get_mut(id).ok_or("no such debug session")?;
         f(s)
@@ -262,16 +314,30 @@ pub fn available() -> bool {
 pub mod driver {
     use super::*;
 
-    pub fn launch(sessions: &DebugSessions, id: String, program: String, cwd: Option<String>) -> Result<(), String> {
+    pub fn launch(
+        sessions: &DebugSessions,
+        id: String,
+        program: String,
+        cwd: Option<String>,
+    ) -> Result<(), String> {
         let s = Session::launch(&program, cwd.as_deref())?;
         sessions.0.lock().map_err(|_| "debug lock")?.insert(id, s);
         Ok(())
     }
 
-    pub fn set_break(sessions: &DebugSessions, id: &str, file: &str, line: u32) -> Result<u32, String> {
+    pub fn set_break(
+        sessions: &DebugSessions,
+        id: &str,
+        file: &str,
+        line: u32,
+    ) -> Result<u32, String> {
         sessions.with(id, |s| {
             let out = s.send(&format!("-break-insert {file}:{line}"))?;
-            let n = out.iter().find_map(|l| mi_field(l, "number")).and_then(|n| n.parse().ok()).unwrap_or(0);
+            let n = out
+                .iter()
+                .find_map(|l| mi_field(l, "number"))
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(0);
             Ok(n)
         })
     }
@@ -287,7 +353,11 @@ pub mod driver {
         sessions.with(id, |s| Ok(parse_stop(&s.send(cmd)?)))
     }
     pub fn locals(sessions: &DebugSessions, id: &str) -> Result<Vec<Var>, String> {
-        sessions.with(id, |s| Ok(parse_vars(&s.send("-stack-list-variables --simple-values")?)))
+        sessions.with(id, |s| {
+            Ok(parse_vars(
+                &s.send("-stack-list-variables --simple-values")?,
+            ))
+        })
     }
     pub fn stack(sessions: &DebugSessions, id: &str) -> Result<Vec<Frame>, String> {
         sessions.with(id, |s| Ok(parse_stack(&s.send("-stack-list-frames")?)))
@@ -315,7 +385,9 @@ mod tests {
 
     #[test]
     fn parses_vars_and_frames() {
-        let v = parse_name_value_list(r#"^done,variables=[{name="a",value="2"},{name="b",value="40"}]"#);
+        let v = parse_name_value_list(
+            r#"^done,variables=[{name="a",value="2"},{name="b",value="40"}]"#,
+        );
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].name, "a");
         assert_eq!(v[1].value, "40");
@@ -336,9 +408,19 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dxdbg-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let src = dir.join("t.c");
-        std::fs::write(&src, "int add(int a,int b){int s=a+b;return s;}\nint main(){return add(2,40);}\n").unwrap();
+        std::fs::write(
+            &src,
+            "int add(int a,int b){int s=a+b;return s;}\nint main(){return add(2,40);}\n",
+        )
+        .unwrap();
         let bin = dir.join("t");
-        let ok = Command::new("cc").args(["-g", "-O0", "-o"]).arg(&bin).arg(&src).status().map(|s| s.success()).unwrap_or(false);
+        let ok = Command::new("cc")
+            .args(["-g", "-O0", "-o"])
+            .arg(&bin)
+            .arg(&src)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
         assert!(ok, "cc must compile the test program");
 
         let sessions = DebugSessions::default();
@@ -346,20 +428,34 @@ mod tests {
         let bp = driver::set_break(&sessions, "t", &src.to_string_lossy(), 1).unwrap();
         assert!(bp >= 1, "breakpoint number");
         let stop = driver::run(&sessions, "t").unwrap();
-        assert!(stop.stopped && !stop.exited, "should stop at the breakpoint: {stop:?}");
+        assert!(
+            stop.stopped && !stop.exited,
+            "should stop at the breakpoint: {stop:?}"
+        );
         assert_eq!(stop.func, "add", "stopped in add");
         let vars = driver::locals(&sessions, "t").unwrap();
         // `a` and `b` are the parameters; gdb reports them with their real values.
-        assert!(vars.iter().any(|v| v.name == "a" && v.value == "2"), "a=2 among {vars:?}");
-        assert!(vars.iter().any(|v| v.name == "b" && v.value == "40"), "b=40 among {vars:?}");
+        assert!(
+            vars.iter().any(|v| v.name == "a" && v.value == "2"),
+            "a=2 among {vars:?}"
+        );
+        assert!(
+            vars.iter().any(|v| v.name == "b" && v.value == "40"),
+            "b=40 among {vars:?}"
+        );
         let frames = driver::stack(&sessions, "t").unwrap();
-        assert!(frames.iter().any(|f| f.func == "main"), "main in the backtrace: {frames:?}");
+        assert!(
+            frames.iter().any(|f| f.func == "main"),
+            "main in the backtrace: {frames:?}"
+        );
         driver::stop(&sessions, "t").unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn which(tool: &str) -> Option<std::path::PathBuf> {
         let path = std::env::var_os("PATH")?;
-        std::env::split_paths(&path).map(|d| d.join(tool)).find(|p| p.is_file())
+        std::env::split_paths(&path)
+            .map(|d| d.join(tool))
+            .find(|p| p.is_file())
     }
 }

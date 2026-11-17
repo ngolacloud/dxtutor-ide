@@ -1,4 +1,4 @@
-//! Compatibility bridge for the v7 desktop UI (`ui/bridge.js`).
+//! Compatibility bridge for the v7 desktop UI (`ui-app/src/bridge.ts`).
 //!
 //! The new single-file UI talks to the backend through 14 thin, generic commands
 //! (folders, autosave, a real shell, LLM providers, VSIX). They are ported verbatim
@@ -24,7 +24,8 @@ fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
 #[tauri::command]
 pub async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        workspace::load(std::path::Path::new(&root), 4000, 768 * 1024).map_err(|e| format!("{root}: {e}"))
+        workspace::load(std::path::Path::new(&root), 4000, 768 * 1024)
+            .map_err(|e| format!("{root}: {e}"))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -125,7 +126,11 @@ pub async fn llm_chat(
     let key = keys::resolve(&config_dir(&app)?, &req.provider);
     // Anthropic org-scoped keys carry a workspace id (from the legacy providers.json or
     // ANTHROPIC_WORKSPACE_ID); other providers ignore it.
-    let workspace_id = if llm::is_anthropic(&req.provider) { keys::anthropic_workspace_id() } else { None };
+    let workspace_id = if llm::is_anthropic(&req.provider) {
+        keys::anthropic_workspace_id()
+    } else {
+        None
+    };
     let mode = tutor_llm::policy::Mode::parse(mode.as_deref().unwrap_or("project"));
     llm::chat_governed(req, key, mode, workspace_id).await
 }
@@ -169,7 +174,10 @@ pub fn app_info(app: AppHandle) -> serde_json::Value {
 #[tauri::command]
 pub fn selftest_report(app: AppHandle, report: serde_json::Value) {
     if let Ok(path) = std::env::var("DXTUTOR_SELFTEST") {
-        let _ = std::fs::write(path, serde_json::to_string_pretty(&report).unwrap_or_default());
+        let _ = std::fs::write(
+            path,
+            serde_json::to_string_pretty(&report).unwrap_or_default(),
+        );
         app.exit(0);
     }
 }

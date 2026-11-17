@@ -8,8 +8,20 @@ use std::path::{Component, Path, PathBuf};
 
 /// Directories that are never loaded into the editor.
 pub const IGNORED_DIRS: &[&str] = &[
-    ".git", "node_modules", "target", "dist", "build", ".venv", "venv", "__pycache__",
-    ".idea", ".next", ".cache", ".gradle", ".terraform", "vendor",
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".idea",
+    ".next",
+    ".cache",
+    ".gradle",
+    ".terraform",
+    "vendor",
 ];
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
@@ -76,7 +88,10 @@ pub fn load(root: &Path, max_files: usize, max_bytes: u64) -> io::Result<Loaded>
                 Ok(bytes) => match String::from_utf8(bytes) {
                     Ok(content) if !content.contains('\0') => {
                         let rel = p.strip_prefix(&root).unwrap_or(&p);
-                        files.push(FileEntry { path: to_slash(rel), content });
+                        files.push(FileEntry {
+                            path: to_slash(rel),
+                            content,
+                        });
                     }
                     _ => skipped += 1,
                 },
@@ -89,7 +104,13 @@ pub fn load(root: &Path, max_files: usize, max_bytes: u64) -> io::Result<Loaded>
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "workspace".into());
-    Ok(Loaded { root: root.to_string_lossy().to_string(), name, files, skipped, truncated })
+    Ok(Loaded {
+        root: root.to_string_lossy().to_string(),
+        name,
+        files,
+        skipped,
+        truncated,
+    })
 }
 
 fn to_slash(p: &Path) -> String {
@@ -134,7 +155,9 @@ pub fn delete(root: &Path, rel: &str) -> Result<(), String> {
 /// Expands a leading `~` to the user's home folder.
 pub fn expand_home(p: &str) -> String {
     if let Some(rest) = p.strip_prefix('~') {
-        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_default();
         format!("{home}{rest}")
     } else {
         p.to_string()
@@ -192,7 +215,10 @@ mod tests {
     fn writes_nested_files_and_deletes_them() {
         let d = tmp("write");
         write(&d, "deep/dir/x.txt", "hello").unwrap();
-        assert_eq!(fs::read_to_string(d.join("deep/dir/x.txt")).unwrap(), "hello");
+        assert_eq!(
+            fs::read_to_string(d.join("deep/dir/x.txt")).unwrap(),
+            "hello"
+        );
         delete(&d, "deep/dir/x.txt").unwrap();
         assert!(!d.join("deep/dir/x.txt").exists());
         delete(&d, "deep/dir/x.txt").unwrap();

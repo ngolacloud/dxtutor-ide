@@ -74,9 +74,9 @@ O modelo e o endpoint de cada provedor editam-se nas Definições (por omissão:
 ## Estrutura
 
 O repositório é um workspace Cargo: o «cérebro» dxtutor (crates `tutor-*`) +
-a casca desktop Tauri. A UI que embarca continua a ser a v7 estática (`ui/`);
-o `ui-next/` é a reescrita TS modular (Vite + Monaco), construída em paralelo
-até atingir paridade — componentes reutilizáveis, zero demo.
+a casca desktop Tauri. A UI que embarca é o `ui-app/` — o protótipo v7
+componentizado em módulos TypeScript (Vite): `npm run ui:build` compila com
+`tsc` e empacota para `ui-app/dist`, que o Tauri embute (`frontendDist`).
 
 ```
 crates/
@@ -88,12 +88,12 @@ crates/
   tutor-board          Board kanban durável por workspace (SQLite)
   tutor-tui            editor TUI (ratatui)
   tutor-cli            prova ponta-a-ponta do cérebro (dxt demo)
-ui/index.html          interface que embarca (protótipo v7)
-ui/bridge.js           liga a interface ao backend (só actua dentro da aplicação)
-ui/pair.js             PairCode: sessão, sincronização, controlo, chamada
-ui/jszip.min.js        leitura de VSIX offline
-ui-next/               frontend TS modular (classe por superfície, src/<nome>.ts);
-                       npm run ui-next:build compila, npm run ui-next:dev serve (5190)
+ui-app/index.html      interface que embarca (protótipo v7 componentizado)
+ui-app/src/boot.ts     arranque: globais no window que o resto consome por nome
+ui-app/src/app.ts      corpo da aplicação (painéis, editor, comandos)
+ui-app/src/bridge.ts   liga a interface ao backend (só actua dentro da aplicação)
+ui-app/src/pair.ts     PairCode: sessão, sincronização, controlo, chamada
+ui-app/public/         estáticos servidos tal-e-qual (styles.css, jszip.min.js)
 src-tauri/src/
   main.rs              entrada fina; lib.rs regista os ~130 comandos
   lib.rs               comandos ricos do dxtutor (estudo, git, debug, LSP, agent,

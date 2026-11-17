@@ -70,8 +70,20 @@ struct Lang {
 }
 
 const LANGS: &[Lang] = &[
-    Lang { id: "rust", exts: &["rs"], markers: &["Cargo.toml"], server_label: "rust-analyzer", ready_signal: "cachepriming" },
-    Lang { id: "go", exts: &["go"], markers: &["go.work", "go.mod"], server_label: "gopls", ready_signal: "setting up workspace" },
+    Lang {
+        id: "rust",
+        exts: &["rs"],
+        markers: &["Cargo.toml"],
+        server_label: "rust-analyzer",
+        ready_signal: "cachepriming",
+    },
+    Lang {
+        id: "go",
+        exts: &["go"],
+        markers: &["go.work", "go.mod"],
+        server_label: "gopls",
+        ready_signal: "setting up workspace",
+    },
     Lang {
         id: "typescript",
         exts: &["ts", "tsx", "js", "jsx", "mjs", "cjs"],
@@ -82,7 +94,14 @@ const LANGS: &[Lang] = &[
     Lang {
         id: "python",
         exts: &["py", "pyi"],
-        markers: &["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", ".git"],
+        markers: &[
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "requirements.txt",
+            "Pipfile",
+            ".git",
+        ],
         server_label: "pyright",
         // Measured: pyright emits NO startup indexing progress (only transient per-request
         // tokens) and answers immediately. Empty signal ⇒ ready as soon as `initialized`.
@@ -107,7 +126,10 @@ fn ra_bin() -> String {
                 return p;
             }
         }
-        if let Ok(out) = Command::new("rustup").args(["which", "--toolchain", "stable", "rust-analyzer"]).output() {
+        if let Ok(out) = Command::new("rustup")
+            .args(["which", "--toolchain", "stable", "rust-analyzer"])
+            .output()
+        {
             if out.status.success() {
                 let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if std::path::Path::new(&p).is_file() {
@@ -116,7 +138,9 @@ fn ra_bin() -> String {
             }
         }
         if let Ok(home) = std::env::var("HOME") {
-            if let Ok(rd) = std::fs::read_dir(std::path::Path::new(&home).join(".rustup/toolchains")) {
+            if let Ok(rd) =
+                std::fs::read_dir(std::path::Path::new(&home).join(".rustup/toolchains"))
+            {
                 let mut fallback = None;
                 for e in rd.flatten() {
                     let b = e.path().join("bin/rust-analyzer");
@@ -155,7 +179,11 @@ fn gopls_bin() -> Result<String, String> {
                 return Some(p);
             }
         }
-        if let Ok(out) = Command::new("go").env("PATH", augmented_path()).args(["env", "GOPATH"]).output() {
+        if let Ok(out) = Command::new("go")
+            .env("PATH", augmented_path())
+            .args(["env", "GOPATH"])
+            .output()
+        {
             if out.status.success() {
                 let gp = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 let b = std::path::Path::new(&gp).join("bin/gopls");
@@ -167,26 +195,37 @@ fn gopls_bin() -> Result<String, String> {
         home_bin(&["go/bin/gopls"])
     })
     .clone()
-    .ok_or_else(|| "gopls não encontrado (instala com `go install golang.org/x/tools/gopls@latest`)".into())
+    .ok_or_else(|| {
+        "gopls não encontrado (instala com `go install golang.org/x/tools/gopls@latest`)".into()
+    })
 }
 
 /// A node-based stdio server (typescript-language-server, pyright-langserver): look in
 /// the active nvm node bin dir, then PATH.
 fn node_server(name: &'static str) -> Result<String, String> {
-    if let Some(p) = home_bin(&[&format!(".nvm/versions/node/v25.0.0/bin/{name}"), &format!(".local/bin/{name}")]) {
+    if let Some(p) = home_bin(&[
+        &format!(".nvm/versions/node/v25.0.0/bin/{name}"),
+        &format!(".local/bin/{name}"),
+    ]) {
         return Ok(p);
     }
     // nvm has many node versions — pick the newest that carries the binary.
     if let Ok(home) = std::env::var("HOME") {
         if let Ok(rd) = std::fs::read_dir(std::path::Path::new(&home).join(".nvm/versions/node")) {
-            let mut cands: Vec<_> = rd.flatten().map(|e| e.path().join("bin").join(name)).filter(|p| p.is_file()).collect();
+            let mut cands: Vec<_> = rd
+                .flatten()
+                .map(|e| e.path().join("bin").join(name))
+                .filter(|p| p.is_file())
+                .collect();
             cands.sort();
             if let Some(p) = cands.pop() {
                 return Ok(p.to_string_lossy().to_string());
             }
         }
     }
-    Err(format!("{name} não encontrado (instala com `npm i -g {name}`)"))
+    Err(format!(
+        "{name} não encontrado (instala com `npm i -g {name}`)"
+    ))
 }
 
 /// The newest nvm node's GLOBAL `node_modules`, for `NODE_PATH`. typescript-language-server
@@ -212,7 +251,10 @@ fn server_cmd(lang_id: &str) -> Result<(String, Vec<String>), String> {
     match lang_id {
         "rust" => Ok((ra_bin(), vec![])),
         "go" => Ok((gopls_bin()?, vec![])),
-        "typescript" => Ok((node_server("typescript-language-server")?, vec!["--stdio".into()])),
+        "typescript" => Ok((
+            node_server("typescript-language-server")?,
+            vec!["--stdio".into()],
+        )),
         "python" => Ok((node_server("pyright-langserver")?, vec!["--stdio".into()])),
         other => Err(format!("linguagem sem servidor LSP: {other}")),
     }
@@ -316,7 +358,10 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
         }
     } else if let Some(method) = msg.get("method").and_then(Value::as_str) {
         if method == "textDocument/publishDiagnostics" {
-            let _ = app.emit("lsp://diagnostics", msg.get("params").cloned().unwrap_or(Value::Null));
+            let _ = app.emit(
+                "lsp://diagnostics",
+                msg.get("params").cloned().unwrap_or(Value::Null),
+            );
         } else if method == "$/progress" {
             let token = msg["params"]["token"].as_str().unwrap_or("").to_string();
             let v = &msg["params"]["value"];
@@ -360,7 +405,11 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
     }
 }
 
-fn session_request(session: &Arc<Mutex<Session>>, method: &str, params: Value) -> Result<Value, String> {
+fn session_request(
+    session: &Arc<Mutex<Session>>,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
     let (tx, rx) = channel();
     {
         let mut g = session.lock().map_err(|_| "lsp lock")?;
@@ -375,7 +424,11 @@ fn session_request(session: &Arc<Mutex<Session>>, method: &str, params: Value) -
         .map_err(|_| format!("lsp timeout: {method}"))
 }
 
-fn session_notify(session: &Arc<Mutex<Session>>, method: &str, params: Value) -> Result<(), String> {
+fn session_notify(
+    session: &Arc<Mutex<Session>>,
+    method: &str,
+    params: Value,
+) -> Result<(), String> {
     let mut g = session.lock().map_err(|_| "lsp lock")?;
     let msg = json!({ "jsonrpc": "2.0", "method": method, "params": params });
     let si = g.stdin.as_mut().ok_or("lsp not started")?;
@@ -417,7 +470,15 @@ fn capabilities() -> Value {
 
 /// Get the session for `key` (languageId + root), starting and initializing the resolved
 /// server at `root` if needed. `program`/`args` come from `server_cmd`. Blocking.
-fn get_or_start(map: &SessionMap, app: &AppHandle, key: &str, root: &str, lang: &Lang, program: &str, args: &[String]) -> Result<Arc<Mutex<Session>>, String> {
+fn get_or_start(
+    map: &SessionMap,
+    app: &AppHandle,
+    key: &str,
+    root: &str,
+    lang: &Lang,
+    program: &str,
+    args: &[String],
+) -> Result<Arc<Mutex<Session>>, String> {
     {
         let m = map.lock().map_err(|_| "lsp map lock")?;
         if let Some(s) = m.get(key) {
@@ -497,7 +558,11 @@ fn get_or_start(map: &SessionMap, app: &AppHandle, key: &str, root: &str, lang: 
 /// (nearest marker), and the server for that language — starting it if needed. Blocking.
 /// `None` when the file's extension is unsupported, no project root is found, or the
 /// language's server is not installed (the UI then falls back to the intra-file heuristic).
-fn session_for(map: &SessionMap, app: &AppHandle, path: &str) -> Result<Option<Arc<Mutex<Session>>>, String> {
+fn session_for(
+    map: &SessionMap,
+    app: &AppHandle,
+    path: &str,
+) -> Result<Option<Arc<Mutex<Session>>>, String> {
     let Some(lang) = lang_for_path(path) else { return Ok(None); };
     let Some(root) = project_root_for(path, lang.markers) else { return Ok(None); };
     let (program, args) = match server_cmd(lang.id) {
@@ -505,7 +570,9 @@ fn session_for(map: &SessionMap, app: &AppHandle, path: &str) -> Result<Option<A
         Err(_) => return Ok(None), // server not installed → no session; frontend falls back
     };
     let key = format!("{}\u{0}{}", lang.id, root);
-    Ok(Some(get_or_start(map, app, &key, &root, lang, &program, &args)?))
+    Ok(Some(get_or_start(
+        map, app, &key, &root, lang, &program, &args,
+    )?))
 }
 
 fn pos(path: &str, line: u32, character: u32) -> Value {
@@ -528,13 +595,21 @@ fn semantic(session: &Arc<Mutex<Session>>, method: &str, params: Value) -> Resul
 // ── Commands — all async: the blocking work runs on spawn_blocking, off the UI thread. ──
 
 #[tauri::command]
-pub async fn lsp_start(app: AppHandle, state: State<'_, LspState>, root: String) -> Result<(), String> {
+pub async fn lsp_start(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    root: String,
+) -> Result<(), String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         // Warm up every language whose project marker sits AT the opened folder, so the
         // (possibly minutes-long) first index starts before the student navigates.
         for lang in LANGS {
-            if lang.markers.iter().any(|m| std::path::Path::new(&root).join(m).exists()) {
+            if lang
+                .markers
+                .iter()
+                .any(|m| std::path::Path::new(&root).join(m).exists())
+            {
                 if let Ok((program, args)) = server_cmd(lang.id) {
                     let key = format!("{}\u{0}{}", lang.id, root);
                     let _ = get_or_start(&map, &app, &key, &root, lang, &program, &args);
@@ -548,7 +623,13 @@ pub async fn lsp_start(app: AppHandle, state: State<'_, LspState>, root: String)
 }
 
 #[tauri::command]
-pub async fn lsp_did_open(app: AppHandle, state: State<'_, LspState>, path: String, text: String, language_id: String) -> Result<(), String> {
+pub async fn lsp_did_open(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    text: String,
+    language_id: String,
+) -> Result<(), String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let Some(session) = session_for(&map, &app, &path)? else { return Ok(()); };
@@ -570,7 +651,13 @@ pub async fn lsp_did_open(app: AppHandle, state: State<'_, LspState>, path: Stri
 }
 
 #[tauri::command]
-pub async fn lsp_did_change(app: AppHandle, state: State<'_, LspState>, path: String, text: String, version: i64) -> Result<(), String> {
+pub async fn lsp_did_change(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    text: String,
+    version: i64,
+) -> Result<(), String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let Some(session) = session_for(&map, &app, &path)? else { return Ok(()); };
@@ -586,18 +673,34 @@ pub async fn lsp_did_change(app: AppHandle, state: State<'_, LspState>, path: St
 }
 
 #[tauri::command]
-pub async fn lsp_definition(app: AppHandle, state: State<'_, LspState>, path: String, line: u32, character: u32) -> Result<Value, String> {
+pub async fn lsp_definition(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
         let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
-        semantic(&session, "textDocument/definition", pos(&path, line, character))
+        semantic(
+            &session,
+            "textDocument/definition",
+            pos(&path, line, character),
+        )
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn lsp_references(app: AppHandle, state: State<'_, LspState>, path: String, line: u32, character: u32) -> Result<Value, String> {
+pub async fn lsp_references(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
         let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
@@ -610,7 +713,13 @@ pub async fn lsp_references(app: AppHandle, state: State<'_, LspState>, path: St
 }
 
 #[tauri::command]
-pub async fn lsp_hover(app: AppHandle, state: State<'_, LspState>, path: String, line: u32, character: u32) -> Result<Value, String> {
+pub async fn lsp_hover(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
         let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
@@ -624,7 +733,14 @@ pub async fn lsp_hover(app: AppHandle, state: State<'_, LspState>, path: String,
 }
 
 #[tauri::command]
-pub async fn lsp_rename(app: AppHandle, state: State<'_, LspState>, path: String, line: u32, character: u32, new_name: String) -> Result<Value, String> {
+pub async fn lsp_rename(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+    new_name: String,
+) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
         let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
@@ -637,11 +753,21 @@ pub async fn lsp_rename(app: AppHandle, state: State<'_, LspState>, path: String
 }
 
 #[tauri::command]
-pub async fn lsp_prepare_rename(app: AppHandle, state: State<'_, LspState>, path: String, line: u32, character: u32) -> Result<Value, String> {
+pub async fn lsp_prepare_rename(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
         let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
-        session_request(&session, "textDocument/prepareRename", pos(&path, line, character))
+        session_request(
+            &session,
+            "textDocument/prepareRename",
+            pos(&path, line, character),
+        )
     })
     .await
     .map_err(|e| e.to_string())?

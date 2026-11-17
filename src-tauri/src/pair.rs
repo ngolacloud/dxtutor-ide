@@ -37,12 +37,20 @@ pub struct Token {
 }
 
 pub fn encode_token(t: &Token) -> String {
-    format!("dxp_{}", B64.encode(serde_json::to_vec(t).unwrap_or_default()))
+    format!(
+        "dxp_{}",
+        B64.encode(serde_json::to_vec(t).unwrap_or_default())
+    )
 }
 
 pub fn decode_token(s: &str) -> Result<Token, String> {
-    let body = s.trim().strip_prefix("dxp_").ok_or("this is not a PairCode token (it starts with dxp_)")?;
-    let bytes = B64.decode(body).map_err(|_| "the token is damaged — copy it again")?;
+    let body = s
+        .trim()
+        .strip_prefix("dxp_")
+        .ok_or("this is not a PairCode token (it starts with dxp_)")?;
+    let bytes = B64
+        .decode(body)
+        .map_err(|_| "the token is damaged — copy it again")?;
     serde_json::from_slice(&bytes).map_err(|_| "the token is damaged — copy it again".to_string())
 }
 
@@ -110,7 +118,9 @@ impl Pair {
     pub fn send(&self, msg: &str) -> Result<(), String> {
         let s = self.0.lock().unwrap();
         match (&s.out, &s.crypto) {
-            (Some((_, tx)), Some(c)) => tx.send(c.seal(msg.as_bytes())).map_err(|_| "the session has ended".into()),
+            (Some((_, tx)), Some(c)) => tx
+                .send(c.seal(msg.as_bytes()))
+                .map_err(|_| "the session has ended".into()),
             _ => Err("no one is connected".into()),
         }
     }
@@ -133,17 +143,35 @@ impl Pair {
         let want = port.unwrap_or(DEFAULT_PORT);
         let listener = match TcpListener::bind(("0.0.0.0", want)).await {
             Ok(l) => l,
-            Err(_) => TcpListener::bind(("0.0.0.0", 0)).await.map_err(|e| format!("cannot listen: {e}"))?,
+            Err(_) => TcpListener::bind(("0.0.0.0", 0))
+                .await
+                .map_err(|e| format!("cannot listen: {e}"))?,
         };
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-        let token = Token { v: 1, host: name.to_string(), addrs: local_addrs(), port, key: B64.encode(key) };
+        let token = Token {
+            v: 1,
+            host: name.to_string(),
+            addrs: local_addrs(),
+            port,
+            key: B64.encode(key),
+        };
         let (p, c, ev2) = (self.clone(), crypto.clone(), ev.clone());
         let task = tokio::spawn(async move {
             loop {
                 let Ok((tcp, addr)) = listener.accept().await else { break };
                 let _ = tcp.set_nodelay(true);
-                if let Ok(ws) = tokio_tungstenite::accept_async_with_config(tcp, Some(ws_config())).await {
-                    session(ws, false, addr.ip().to_string(), p.clone(), c.clone(), ev2.clone()).await;
+                if let Ok(ws) =
+                    tokio_tungstenite::accept_async_with_config(tcp, Some(ws_config())).await
+                {
+                    session(
+                        ws,
+                        false,
+                        addr.ip().to_string(),
+                        p.clone(),
+                        c.clone(),
+                        ev2.clone(),
+                    )
+                    .await;
                     (ev2.status)(json!({"state": "waiting", "role": "host"}));
                 }
             }
@@ -153,26 +181,51 @@ impl Pair {
             s.crypto = Some(crypto);
             s.task = Some(task);
         }
-        (ev.status)(json!({"state": "waiting", "role": "host", "port": port, "addrs": token.addrs}));
+        (ev.status)(
+            json!({"state": "waiting", "role": "host", "port": port, "addrs": token.addrs}),
+        );
         Ok(encode_token(&token))
     }
 
     /// Joins a host. `via` ("host:port") overrides the addresses in the token — for tunnels or VPNs.
-    pub async fn join(&self, token: &str, via: Option<String>, ev: Events) -> Result<String, String> {
+    pub async fn join(
+        &self,
+        token: &str,
+        via: Option<String>,
+        ev: Events,
+    ) -> Result<String, String> {
         self.stop();
         let t = decode_token(token)?;
-        let key = B64.decode(&t.key).map_err(|_| "the token is damaged — copy it again")?;
+        let key = B64
+            .decode(&t.key)
+            .map_err(|_| "the token is damaged — copy it again")?;
         let crypto = Arc::new(Crypto::new(&key)?);
         let targets: Vec<String> = match via.filter(|v| !v.trim().is_empty()) {
             Some(v) => vec![v.trim().to_string()],
-            None => t.addrs.iter().map(|a| if a.contains(':') { format!("[{a}]:{}", t.port) } else { format!("{a}:{}", t.port) }).collect(),
+            None => t
+                .addrs
+                .iter()
+                .map(|a| {
+                    if a.contains(':') {
+                        format!("[{a}]:{}", t.port)
+                    } else {
+                        format!("{a}:{}", t.port)
+                    }
+                })
+                .collect(),
         };
         let mut last = String::from("no address in the token");
         for target in &targets {
             let url = format!("ws://{target}/");
-            match tokio::time::timeout(Duration::from_secs(4), tokio_tungstenite::connect_async_with_config(url, Some(ws_config()), true)).await {
+            match tokio::time::timeout(
+                Duration::from_secs(4),
+                tokio_tungstenite::connect_async_with_config(url, Some(ws_config()), true),
+            )
+            .await
+            {
                 Ok(Ok((ws, _))) => {
-                    let (p, c, ev2, peer) = (self.clone(), crypto.clone(), ev.clone(), target.clone());
+                    let (p, c, ev2, peer) =
+                        (self.clone(), crypto.clone(), ev.clone(), target.clone());
                     let task = tokio::spawn(async move {
                         session(ws, true, peer, p, c, ev2.clone()).await;
                         (ev2.status)(json!({"state": "ended", "role": "guest"}));
@@ -197,25 +250,44 @@ fn ws_config() -> WebSocketConfig {
     c
 }
 
-async fn session<S>(ws: WebSocketStream<S>, guest: bool, peer: String, p: Pair, c: Arc<Crypto>, ev: Events)
-where
+async fn session<S>(
+    ws: WebSocketStream<S>,
+    guest: bool,
+    peer: String,
+    p: Pair,
+    c: Arc<Crypto>,
+    ev: Events,
+) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let role = if guest { "guest" } else { "host" };
     let (mut sink, mut stream) = ws.split();
-    if guest && sink.send(Message::Binary(c.seal(HELLO).into())).await.is_err() {
+    if guest
+        && sink
+            .send(Message::Binary(c.seal(HELLO).into()))
+            .await
+            .is_err()
+    {
         return;
     }
     let first = tokio::time::timeout(Duration::from_secs(10), stream.next()).await;
-    let ok = matches!(&first, Ok(Some(Ok(Message::Binary(b)))) if c.open(b).as_deref() == Some(HELLO));
+    let ok =
+        matches!(&first, Ok(Some(Ok(Message::Binary(b)))) if c.open(b).as_deref() == Some(HELLO));
     if !ok {
         let _ = sink.close().await;
         if guest {
-            (ev.status)(json!({"state": "error", "role": role, "error": "the host did not accept this token (it may be from an older session)"}));
+            (ev.status)(
+                json!({"state": "error", "role": role, "error": "the host did not accept this token (it may be from an older session)"}),
+            );
         }
         return;
     }
-    if !guest && sink.send(Message::Binary(c.seal(HELLO).into())).await.is_err() {
+    if !guest
+        && sink
+            .send(Message::Binary(c.seal(HELLO).into()))
+            .await
+            .is_err()
+    {
         return;
     }
     let (tx, mut rx) = unbounded_channel::<Vec<u8>>();
@@ -252,7 +324,12 @@ where
 /// Addresses another machine may reach: private LAN and VPN (100.64/10) first, loopback last.
 pub fn local_addrs() -> Vec<String> {
     let mut v: Vec<IpAddr> = local_ip_address::list_afinet_netifas()
-        .map(|l| l.into_iter().map(|(_, ip)| ip).filter(|ip| ip.is_ipv4() && !ip.is_loopback()).collect())
+        .map(|l| {
+            l.into_iter()
+                .map(|(_, ip)| ip)
+                .filter(|ip| ip.is_ipv4() && !ip.is_loopback())
+                .collect()
+        })
         .unwrap_or_default();
     let rank = |ip: &IpAddr| match ip {
         IpAddr::V4(a) if a.is_private() => 0,
@@ -277,7 +354,14 @@ mod tests {
         let mt = Mutex::new(mt);
         let st = Mutex::new(st);
         (
-            Events { status: Arc::new(move |v| { let _ = st.lock().unwrap().send(v); }), msg: Arc::new(move |m| { let _ = mt.lock().unwrap().send(m); }) },
+            Events {
+                status: Arc::new(move |v| {
+                    let _ = st.lock().unwrap().send(v);
+                }),
+                msg: Arc::new(move |m| {
+                    let _ = mt.lock().unwrap().send(m);
+                }),
+            },
             mr,
             sr,
         )
@@ -294,7 +378,13 @@ mod tests {
 
     #[test]
     fn token_round_trip_and_damage() {
-        let t = Token { v: 1, host: "walter".into(), addrs: vec!["10.0.0.2".into()], port: 47821, key: B64.encode([7u8; 32]) };
+        let t = Token {
+            v: 1,
+            host: "walter".into(),
+            addrs: vec!["10.0.0.2".into()],
+            port: 47821,
+            key: B64.encode([7u8; 32]),
+        };
         let s = encode_token(&t);
         assert!(s.starts_with("dxp_"));
         assert_eq!(decode_token(&format!("  {s}\n")).unwrap(), t);
@@ -328,20 +418,39 @@ mod tests {
         bad.key = B64.encode([9u8; 32]);
         let (bev, _bm, bst) = events();
         let intruder = Pair::default();
-        intruder.join(&encode_token(&bad), Some(format!("127.0.0.1:{}", t.port)), bev).await.unwrap();
+        intruder
+            .join(
+                &encode_token(&bad),
+                Some(format!("127.0.0.1:{}", t.port)),
+                bev,
+            )
+            .await
+            .unwrap();
         assert_eq!(wait_state(&bst, "error")["role"], "guest");
         assert!(!host.connected());
 
         let (gev, gmsg, gst) = events();
         let guest = Pair::default();
-        assert_eq!(guest.join(&token, Some(format!("127.0.0.1:{}", t.port)), gev).await.unwrap(), "host");
+        assert_eq!(
+            guest
+                .join(&token, Some(format!("127.0.0.1:{}", t.port)), gev)
+                .await
+                .unwrap(),
+            "host"
+        );
         wait_state(&gst, "connected");
         wait_state(&hst, "connected");
         guest.send(r#"{"t":"hello"}"#).unwrap();
-        assert_eq!(hmsg.recv_timeout(Duration::from_secs(5)).unwrap(), r#"{"t":"hello"}"#);
+        assert_eq!(
+            hmsg.recv_timeout(Duration::from_secs(5)).unwrap(),
+            r#"{"t":"hello"}"#
+        );
         let big = "x".repeat(3 << 20);
         host.send(&big).unwrap();
-        assert_eq!(gmsg.recv_timeout(Duration::from_secs(10)).unwrap().len(), big.len());
+        assert_eq!(
+            gmsg.recv_timeout(Duration::from_secs(10)).unwrap().len(),
+            big.len()
+        );
 
         guest.stop();
         wait_state(&hst, "disconnected");

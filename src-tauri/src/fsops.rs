@@ -422,8 +422,14 @@ fn run_file_container(file: &Path, ext: &str, args: &[String]) -> Result<RunResu
         }
         "rs" => {
             let image = image_for("rust").ok_or("no rust image configured")?;
-            let start = file.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
-            let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("main.rs");
+            let start = file
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf();
+            let name = file
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("main.rs");
             // `cargo run` ONLY for a crate's real bin entry; a loose file (example/snippet)
             // compiles standalone with rustc — so a multi-binary workspace never makes
             // `cargo run` ambiguous.
@@ -562,7 +568,12 @@ fn cargo_run_cmd(file: &Path, root: &Path) -> Option<Vec<String>> {
     }
     if file.starts_with(root.join("src/bin")) {
         if let Some(stem) = file.file_stem().and_then(|s| s.to_str()) {
-            return Some(vec!["cargo".into(), "run".into(), "--bin".into(), stem.into()]);
+            return Some(vec![
+                "cargo".into(),
+                "run".into(),
+                "--bin".into(),
+                stem.into(),
+            ]);
         }
     }
     None
@@ -741,7 +752,11 @@ fn walk_tree(dir: &Path, depth: u32, max_depth: u32, cap: u32, count: &mut u32, 
         }
         let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
         if is_dir && HIDDEN_DIRS.contains(&name.as_str()) {
-            out.push_str(&format!("{}{}/  (skipped)\n", "  ".repeat(depth as usize), name));
+            out.push_str(&format!(
+                "{}{}/  (skipped)\n",
+                "  ".repeat(depth as usize),
+                name
+            ));
             continue;
         }
         *count += 1;
@@ -810,7 +825,11 @@ mod tests {
 
     #[test]
     fn contained_path_accepts_inside_and_refuses_escape() {
-        let root = if cfg!(windows) { "C:\\ws" } else { "/home/u/ws" };
+        let root = if cfg!(windows) {
+            "C:\\ws"
+        } else {
+            "/home/u/ws"
+        };
         // inside
         assert!(contained_path(root, "examples/dxtutor").is_ok());
         assert_eq!(
@@ -822,7 +841,11 @@ mod tests {
         // escapes are refused
         assert!(contained_path(root, "../secrets").is_err());
         assert!(contained_path(root, "examples/../../etc/passwd").is_err());
-        let outside = if cfg!(windows) { "C:\\other" } else { "/etc/passwd" };
+        let outside = if cfg!(windows) {
+            "C:\\other"
+        } else {
+            "/etc/passwd"
+        };
         assert!(contained_path(root, outside).is_err());
     }
 
@@ -833,7 +856,9 @@ mod tests {
         assert!(!has_rust_main("pub fn run(){}")); // a lib file has no main
         assert!(has_go_main("package main\nfunc main() {}"));
         assert!(!has_go_main("package calc\nfunc main() {}")); // not an executable package
-        assert!(has_python_main("def go():\n    pass\nif __name__ == \"__main__\":\n    go()"));
+        assert!(has_python_main(
+            "def go():\n    pass\nif __name__ == \"__main__\":\n    go()"
+        ));
         assert!(has_python_main("if __name__ == '__main__':\n    pass"));
         assert!(has_python_main("def main():\n    pass"));
         assert!(!has_python_main("x = 1\nprint(x)"));
@@ -844,7 +869,11 @@ mod tests {
         // A Cargo project whose entry is NOT src/main.rs but a `fn main` living elsewhere.
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        fs::write(root.join("Cargo.toml"), "[package]\nname=\"x\"\nversion=\"0.1.0\"\n").unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname=\"x\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/lib.rs"), "pub fn run() {}\n").unwrap();
         fs::write(root.join("src/app.rs"), "fn main() { println!(\"hi\"); }\n").unwrap();
@@ -854,7 +883,11 @@ mod tests {
         // A Python project with no main.py but a guarded script elsewhere.
         let py = tempfile::tempdir().unwrap();
         fs::create_dir_all(py.path().join("pkg")).unwrap();
-        fs::write(py.path().join("pkg/cli.py"), "if __name__ == \"__main__\":\n    print(1)\n").unwrap();
+        fs::write(
+            py.path().join("pkg/cli.py"),
+            "if __name__ == \"__main__\":\n    print(1)\n",
+        )
+        .unwrap();
         let pentry = project_entrypoint(&py.path().to_string_lossy()).expect("py entry by content");
         assert!(pentry.ends_with("cli.py"), "found: {pentry}");
 
@@ -870,8 +903,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().to_string_lossy().to_string();
 
-        let made = workspace_action(root.clone(), "createDir".into(), "examples/dxtutor".into(), None)
-            .expect("createDir");
+        let made = workspace_action(
+            root.clone(),
+            "createDir".into(),
+            "examples/dxtutor".into(),
+            None,
+        )
+        .expect("createDir");
         assert!(PathBuf::from(&made).is_dir());
 
         let f = workspace_action(

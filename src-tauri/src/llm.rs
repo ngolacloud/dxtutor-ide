@@ -88,7 +88,11 @@ pub fn is_anthropic(provider: &str) -> bool {
 pub fn url_for(req: &ChatReq) -> String {
     let ep = req.endpoint.trim_end_matches('/');
     if is_anthropic(&req.provider) {
-        if ep.ends_with("/messages") { ep.to_string() } else { format!("{ep}/v1/messages") }
+        if ep.ends_with("/messages") {
+            ep.to_string()
+        } else {
+            format!("{ep}/v1/messages")
+        }
     } else if ep.ends_with("/chat/completions") {
         ep.to_string()
     } else if req.provider == "gemini" {
@@ -167,7 +171,10 @@ pub fn openai_body(req: &ChatReq) -> Value {
 }
 
 pub fn parse_anthropic(v: &Value) -> ChatResp {
-    let mut r = ChatResp { stop: v["stop_reason"].as_str().unwrap_or("").to_string(), ..Default::default() };
+    let mut r = ChatResp {
+        stop: v["stop_reason"].as_str().unwrap_or("").to_string(),
+        ..Default::default()
+    };
     for b in v["content"].as_array().into_iter().flatten() {
         match b["type"].as_str() {
             Some("text") => r.text.push_str(b["text"].as_str().unwrap_or("")),
@@ -200,7 +207,10 @@ pub fn parse_openai(v: &Value) -> ChatResp {
             _ => json!({}),
         };
         r.tool_calls.push(ToolCall {
-            id: t["id"].as_str().map(String::from).unwrap_or_else(|| format!("call_{i}")),
+            id: t["id"]
+                .as_str()
+                .map(String::from)
+                .unwrap_or_else(|| format!("call_{i}")),
             name: t["function"]["name"].as_str().unwrap_or("").into(),
             input,
         });
@@ -229,10 +239,18 @@ fn anthropic_ws_header(workspace_id: Option<&str>) -> Option<(&'static str, Stri
         .map(|w| ("anthropic-workspace-id", w.to_string()))
 }
 
-pub async fn chat(mut req: ChatReq, key: Option<String>, workspace_id: Option<String>) -> Result<ChatResp, String> {
+pub async fn chat(
+    mut req: ChatReq,
+    key: Option<String>,
+    workspace_id: Option<String>,
+) -> Result<ChatResp, String> {
     let anth = is_anthropic(&req.provider);
     if key.is_none() && env_key(&req.provider).is_some() {
-        return Err(format!("No API key for {}. Add it in Settings → Models and providers, or set {}.", req.provider, env_key(&req.provider).unwrap()));
+        return Err(format!(
+            "No API key for {}. Add it in Settings → Models and providers, or set {}.",
+            req.provider,
+            env_key(&req.provider).unwrap()
+        ));
     }
     if req.provider == "ollama" {
         let available = tutor_llm::chat::ollama_models();
@@ -240,9 +258,16 @@ pub async fn chat(mut req: ChatReq, key: Option<String>, workspace_id: Option<St
             req.model = resolve_ollama_model(&req.model, &available);
         }
     }
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(180)).build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .map_err(|e| e.to_string())?;
     let mut rb = client.post(url_for(&req));
-    let body = if anth { anthropic_body(&req) } else { openai_body(&req) };
+    let body = if anth {
+        anthropic_body(&req)
+    } else {
+        openai_body(&req)
+    };
     if anth {
         rb = rb.header("anthropic-version", "2023-06-01");
         if let Some(k) = &key {
@@ -256,15 +281,24 @@ pub async fn chat(mut req: ChatReq, key: Option<String>, workspace_id: Option<St
     } else if let Some(k) = &key {
         rb = rb.bearer_auth(k);
     }
-    let res = rb.json(&body).send().await.map_err(|e| format!("{}: {e}", req.provider))?;
+    let res = rb
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("{}: {e}", req.provider))?;
     let status = res.status();
     let text = res.text().await.map_err(|e| e.to_string())?;
     if !status.is_success() {
         let snippet: String = text.chars().take(400).collect();
         return Err(format!("{} returned {status}: {snippet}", req.provider));
     }
-    let v: Value = serde_json::from_str(&text).map_err(|e| format!("invalid JSON from {}: {e}", req.provider))?;
-    Ok(if anth { parse_anthropic(&v) } else { parse_openai(&v) })
+    let v: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("invalid JSON from {}: {e}", req.provider))?;
+    Ok(if anth {
+        parse_anthropic(&v)
+    } else {
+        parse_openai(&v)
+    })
 }
 
 /// Run a chat turn through the tutor brain. The governance in [`tutor_llm::policy`]
@@ -299,22 +333,63 @@ mod tests {
             model: "m".into(),
             system: Some("be brief".into()),
             messages: vec![
-                Msg { role: "user".into(), text: Some("read README".into()), tool_calls: None, tool_results: None },
-                Msg { role: "assistant".into(), text: Some("ok".into()), tool_calls: Some(vec![ToolCall { id: "t1".into(), name: "read_file".into(), input: json!({"path": "README.md"}) }]), tool_results: None },
-                Msg { role: "user".into(), text: None, tool_calls: None, tool_results: Some(vec![ToolResult { id: "t1".into(), content: "# hi".into() }]) },
+                Msg {
+                    role: "user".into(),
+                    text: Some("read README".into()),
+                    tool_calls: None,
+                    tool_results: None,
+                },
+                Msg {
+                    role: "assistant".into(),
+                    text: Some("ok".into()),
+                    tool_calls: Some(vec![ToolCall {
+                        id: "t1".into(),
+                        name: "read_file".into(),
+                        input: json!({"path": "README.md"}),
+                    }]),
+                    tool_results: None,
+                },
+                Msg {
+                    role: "user".into(),
+                    text: None,
+                    tool_calls: None,
+                    tool_results: Some(vec![ToolResult {
+                        id: "t1".into(),
+                        content: "# hi".into(),
+                    }]),
+                },
             ],
-            tools: vec![Tool { name: "read_file".into(), description: "Reads a file".into(), input_schema: json!({"type": "object"}) }],
+            tools: vec![Tool {
+                name: "read_file".into(),
+                description: "Reads a file".into(),
+                input_schema: json!({"type": "object"}),
+            }],
             max_tokens: Some(100),
         }
     }
 
     #[test]
     fn urls_per_provider() {
-        assert_eq!(url_for(&req("claude", "https://api.anthropic.com/")), "https://api.anthropic.com/v1/messages");
-        assert_eq!(url_for(&req("codex", "https://api.openai.com")), "https://api.openai.com/v1/chat/completions");
-        assert_eq!(url_for(&req("gemini", "https://generativelanguage.googleapis.com")), "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
-        assert_eq!(url_for(&req("ollama", "http://localhost:11434")), "http://localhost:11434/v1/chat/completions");
-        assert_eq!(url_for(&req("ollama", "http://h:1/v1/chat/completions")), "http://h:1/v1/chat/completions");
+        assert_eq!(
+            url_for(&req("claude", "https://api.anthropic.com/")),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            url_for(&req("codex", "https://api.openai.com")),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            url_for(&req("gemini", "https://generativelanguage.googleapis.com")),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        );
+        assert_eq!(
+            url_for(&req("ollama", "http://localhost:11434")),
+            "http://localhost:11434/v1/chat/completions"
+        );
+        assert_eq!(
+            url_for(&req("ollama", "http://h:1/v1/chat/completions")),
+            "http://h:1/v1/chat/completions"
+        );
     }
 
     #[test]
@@ -332,7 +407,10 @@ mod tests {
     fn openai_body_maps_tool_calls_and_tool_messages() {
         let b = openai_body(&req("codex", "x"));
         assert_eq!(b["messages"][0]["role"], "system");
-        assert_eq!(b["messages"][2]["tool_calls"][0]["function"]["arguments"], "{\"path\":\"README.md\"}");
+        assert_eq!(
+            b["messages"][2]["tool_calls"][0]["function"]["arguments"],
+            "{\"path\":\"README.md\"}"
+        );
         assert_eq!(b["messages"][3]["role"], "tool");
         assert_eq!(b["messages"][3]["tool_call_id"], "t1");
         assert_eq!(b["tools"][0]["type"], "function");
@@ -340,13 +418,26 @@ mod tests {
 
     #[test]
     fn ollama_falls_back_to_available_model_preferring_qwen() {
-        let available = vec!["llama3.2:latest".to_string(), "qwen3:8b".to_string(), "gemma3:27b".to_string()];
+        let available = vec![
+            "llama3.2:latest".to_string(),
+            "qwen3:8b".to_string(),
+            "gemma3:27b".to_string(),
+        ];
         // UI default not pulled ⇒ pick an available model, preferring Qwen.
-        assert_eq!(resolve_ollama_model("qwen2.5-coder:14b", &available), "qwen3:8b");
+        assert_eq!(
+            resolve_ollama_model("qwen2.5-coder:14b", &available),
+            "qwen3:8b"
+        );
         // Requested model present ⇒ kept as-is.
-        assert_eq!(resolve_ollama_model("llama3.2:latest", &available), "llama3.2:latest");
+        assert_eq!(
+            resolve_ollama_model("llama3.2:latest", &available),
+            "llama3.2:latest"
+        );
         // Nothing available ⇒ keep the request verbatim so the usual error surfaces.
-        assert_eq!(resolve_ollama_model("qwen2.5-coder:14b", &[]), "qwen2.5-coder:14b");
+        assert_eq!(
+            resolve_ollama_model("qwen2.5-coder:14b", &[]),
+            "qwen2.5-coder:14b"
+        );
     }
 
     #[test]
@@ -366,11 +457,15 @@ mod tests {
 
     #[test]
     fn parses_both_formats() {
-        let a = parse_anthropic(&json!({"content": [{"type": "text", "text": "Hi"}, {"type": "tool_use", "id": "x", "name": "run_tests", "input": {"package": "lexer"}}], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 5}}));
+        let a = parse_anthropic(
+            &json!({"content": [{"type": "text", "text": "Hi"}, {"type": "tool_use", "id": "x", "name": "run_tests", "input": {"package": "lexer"}}], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 5}}),
+        );
         assert_eq!(a.text, "Hi");
         assert_eq!(a.tool_calls[0].input["package"], "lexer");
         assert_eq!((a.input_tokens, a.output_tokens), (10, 5));
-        let o = parse_openai(&json!({"choices": [{"message": {"content": null, "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\":\"a\"}"}}]}, "finish_reason": "tool_calls"}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}));
+        let o = parse_openai(
+            &json!({"choices": [{"message": {"content": null, "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\":\"a\"}"}}]}, "finish_reason": "tool_calls"}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}),
+        );
         assert_eq!(o.text, "");
         assert_eq!(o.tool_calls[0].name, "read_file");
         assert_eq!(o.tool_calls[0].input["path"], "a");

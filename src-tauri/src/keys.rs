@@ -12,7 +12,10 @@ pub fn file(dir: &Path) -> PathBuf {
 }
 
 pub fn load(dir: &Path) -> HashMap<String, String> {
-    fs::read_to_string(file(dir)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    fs::read_to_string(file(dir))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 pub fn save(dir: &Path, provider: &str, key: &str) -> Result<(), String> {
@@ -70,7 +73,10 @@ pub fn anthropic_workspace_id() -> Option<String> {
     if !ws.is_empty() {
         return Some(ws.to_string());
     }
-    std::env::var("ANTHROPIC_WORKSPACE_ID").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+    std::env::var("ANTHROPIC_WORKSPACE_ID")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 #[cfg(test)]
@@ -82,7 +88,10 @@ mod tests {
         cfg.anthropic_key = "sk-ant-usr-xyz".into();
         cfg.openai_key = "  ".into(); // whitespace-only counts as absent
         cfg.gemini_key = "gm-123".into();
-        assert_eq!(legacy_key_from(&cfg, "claude").as_deref(), Some("sk-ant-usr-xyz"));
+        assert_eq!(
+            legacy_key_from(&cfg, "claude").as_deref(),
+            Some("sk-ant-usr-xyz")
+        );
         assert_eq!(legacy_key_from(&cfg, "codex"), None);
         assert_eq!(legacy_key_from(&cfg, "gemini").as_deref(), Some("gm-123"));
         // Ollama needs no key: never mapped.
@@ -108,11 +117,18 @@ mod tests {
     #[ignore = "requires the owner's populated ~/.config/dxtutor/providers.json"]
     fn legacy_providers_json_resolves_live() {
         std::env::remove_var("ANTHROPIC_API_KEY");
-        let empty_cfg_dir = std::env::temp_dir().join(format!("dxtutor-nokeys-{}", std::process::id()));
+        let empty_cfg_dir =
+            std::env::temp_dir().join(format!("dxtutor-nokeys-{}", std::process::id()));
         let _ = fs::remove_dir_all(&empty_cfg_dir); // ensure no keys.json here
         let got = resolve(&empty_cfg_dir, "claude");
-        assert!(got.is_some(), "claude key should come from the legacy providers.json");
-        assert!(got.as_deref().unwrap().starts_with("sk-ant"), "expected an Anthropic key shape");
+        assert!(
+            got.is_some(),
+            "claude key should come from the legacy providers.json"
+        );
+        assert!(
+            got.as_deref().unwrap().starts_with("sk-ant"),
+            "expected an Anthropic key shape"
+        );
     }
 
     #[test]
@@ -124,7 +140,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(file(&d)).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                fs::metadata(file(&d)).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
         save(&d, "codex", "").unwrap();
         assert!(load(&d).get("codex").is_none());

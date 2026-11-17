@@ -2486,7 +2486,7 @@ pub fn run() {
             pair_join,
             pair_send,
             pair_stop,
-            // ── v7 desktop UI bridge (ui/bridge.js) — 14 generic commands ──
+            // ── v7 desktop UI bridge (ui-app/src/bridge.ts) — 14 generic commands ──
             // pick_folder is provided by the existing fsops (non-blocking on Linux).
             fsops::pick_folder,
             bridge::load_workspace,
