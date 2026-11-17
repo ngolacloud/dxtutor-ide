@@ -63,6 +63,93 @@ declare global {
     doSearch: () => void;
     replaceAll: () => void;
     renderSearchPane: () => void;
+    /* feature `debug` (migrada de v6.ts): sessão de depuração simulada + lançadores.
+       O estado/motor (`DBG`, `debugConfigs`, `BPS`) continua dono de v6.ts; a feature
+       lê por fachada tipada e delega o pane (RP.debug → window.renderDebugPane). */
+    DBG: unknown;
+    debugConfigs: () => Array<{ id: string; l: string; d: string }>;
+    BPS: Set<string>;
+    renderDebugPane: () => void;
+    /* feature `scm` (migrada de app.ts): Source Control + grafo/gitflow resumidos.
+       Dados/helpers donos do monólito, lidos por fachada; estado primitivo (BRANCH,
+       COMMIT_MSG) é window-backed (nomes livres do monólito aliasam estas props). */
+    BRANCH: string;
+    COMMIT_MSG: string;
+    changes: () => string[];
+    STAGED: Set<string>;
+    graphLayout: () => { rows: Array<{ h: string; col: number; pl: number[] }>; idx: Record<string, number>; max: number };
+    short: (p: string) => string;
+    stOf: (p: string) => string;
+    GIT: any;
+    LANE: string[];
+    authorOf: (a: string) => { n: string; col: string };
+    rel: (t: number) => string;
+    gfGuide: () => string;
+    /* commit v4 git-aware (módulo-local do monólito), distinto de window.commit (v2):
+       o onkeydown Ctrl+Enter do pane scm chama esta fachada. */
+    commitGit: (msg?: string, author?: string) => unknown;
+    renderScmPane: () => void;
+    /* feature `tutor` (migrada de app.ts): pane «Learning Track» (v4). O curso e o
+       progresso (LTS) continuam donos do monólito; a feature lê por fachada. */
+    LTS: { lang: string | null; levels: string[]; done: Record<string, unknown>; open: Record<string, boolean>; cur: string | null };
+    course: () => { title: string; units: any[] };
+    ltUnits: () => any[];
+    ltDone: (id: string) => boolean;
+    ltSeq: () => any[];
+    ltPts: () => number;
+    LT_BADGE: Record<string, string>;
+    stars: (d: number, kind?: string) => string;
+    renderTutorPane: () => void;
+    /* feature `tasks` (migrada de v6.ts): pane «Tasks» (backlog/sprints). O backlog
+       (BL), filtro (TK), estágios (STAGES), agentes (AGENTS) e helpers (nfmt/STC/
+       ownerName) continuam donos do monólito/v6; a feature lê por fachada. */
+    BL: any;
+    AGENTS: Record<string, any>;
+    STAGES: Array<[string, string]>;
+    TK: { sprint: number; who: string; open: Record<string, boolean> };
+    nfmt: (n: number) => string;
+    STC: Record<string, string>;
+    ownerName: (i: any) => string;
+    renderTasksPane: () => void;
+    /* feature `ext` (motor migrado de v6.ts, @ts-nocheck): pane «Extensions» (Open VSX).
+       A feature é agora dona de todo o motor (catálogo EXT, estado instalado EXS,
+       instalar/remover/alternar, comandos, VSIX, formatador) e publica-o no window;
+       v6 retém só os shims (RP.ext/VIEW.extd) e lê o motor por fachada vsxOn/vsxFmt/
+       vsxCmds. Estas decls documentam a superfície window partilhada. */
+    EXS: any;
+    EXT: any[];
+    projectContext: () => Array<[string, string]>;
+    extAll: () => any[];
+    extRow: (x: any) => string;
+    renderExtPane: () => void;
+    /* feature `codev` (migrada de app.ts): pane «Co-Dev» (base v3 + decoração v4
+       Equipa/Backlog/Studio dobradas num só render). Missões, checkpoints, routing,
+       papéis e o desenho (SD, window-backed) continuam donos do monólito. */
+    MISSIONS: any[];
+    CKPT: any[];
+    ROUTE: Record<string, string>;
+    ROLE: Record<string, string>;
+    provFor: (r: string) => string;
+    SD: any;
+    renderCodevPane: () => void;
+    /* feature `infra` (migrada de v5.ts base + v6.ts decoração): pane «Infra» (runtime
+       de contentores, dev container, Kubernetes, environments). Base v5 + decoração v6
+       dobradas num só render; estado/helpers continuam donos das camadas (DEVC/K8S/
+       STACK são window-backed; ENVS/RTN/KCTX/k8sDocs de v5; ENVL/ENVX/envHealth/
+       envState/openObserve de v6). */
+    ENVS: any;
+    RTN: Record<string, string>;
+    KCTX: string[];
+    DEVC: any;
+    K8S: any;
+    STACK: any;
+    k8sDocs: () => any[];
+    ENVL: Record<string, string>;
+    ENVX: any;
+    envHealth: (e: string) => string;
+    envState: (e: string) => any;
+    openObserve: (env: string, n: string) => void;
+    renderInfraPane: () => void;
   }
 }
 

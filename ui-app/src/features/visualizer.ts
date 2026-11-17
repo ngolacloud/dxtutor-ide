@@ -1,18 +1,31 @@
 // @ts-nocheck
-/* ═════════ dxtutor IDE — v7: Visualize execution (módulo de camada) ═════════
-   Fase A da modularização (por camada temporal): a geração v7 do app.ts — um
-   modelo-subconjunto de Rust (lexer, parser, interpretador com modelo de memória,
-   narração a três níveis e o overlay de visualização) — extraída para módulo ESM
-   próprio. Carrega ENTRE boot.ts e app.ts: v7 só DEFINE (as vz… e boot7); boot7 só
-   corre no arranque `boot();…boot7()` que continua no fim do app.ts, altura em que
-   window.boot7 já existe. As dependências do núcleo (esc, $, FS, show, openTab,
-   MENUS, CMD, EACT, VIEW, svg, SAMPLE, PROV…) são referências livres resolvidas no
-   window em runtime (late-binding), e os nomes que o resto do IDE consome são
-   publicados no window no fim (como o app.ts faz). @ts-nocheck: tipar fica para a
-   fase posterior — esta só componentiza. */
+/* ═════════ dxtutor IDE — feature: Visualize execution (overlay) ═════════
+   Feature da reestruturação POR FUNCIONALIDADE. Ao contrário das features-folha
+   (que só detêm o render de um pane), esta feature é DONA de TODA a sua lógica:
+   o modelo-subconjunto de Rust (lexer `vzLex`, parser `vzParse`, interpretador
+   com modelo de memória `vzRun`, narração a três níveis `vzTell`) e o overlay de
+   visualização (`vizOpen`/`vzRender`/`vzArrows` + controlos). Migrada da camada
+   transitória `v7.ts` (por CAMADA temporal), agora ELIMINADA.
+
+   Do core importa-se o que já lá é tipado (`$`, `esc`, `svg`, `show`, `toast`).
+   O restante núcleo ainda dono do monólito/boot é resolvido por nome livre via
+   window em runtime — as funções que o tocam só correm DEPOIS do arranque
+   (cliques, e `boot7()` chamado por startup.ts): FS, cur, tabOf, short, hlLine,
+   SAMPLE, PROV, md, LOCALE, LS, MENUS, CMD, EACT, VIEW, buildMenubar, LTS, P.
+
+   Ordem: carrega entre as features e app.ts (ANTES de app.ts/v5/v6). No eval só
+   toca `window.P` (biblioteca de ícones de boot.ts, que carrega primeiro) e
+   publica no window os nomes que o arranque e os `onclick` inline consomem
+   (`boot7`, `vizOpen`, `vizClose`, `vizFromEditor`, `vzGo`/`vzPlay`/`vzAnswer`/
+   `vzAsk`, `VZ`, `VZS`). `boot7()` só é invocado por startup.ts, quando EACT/
+   MENUS/CMD/VIEW/buildMenubar já existem.
+
+   @ts-nocheck: o interior denso do interpretador (AST polimórfico + objectos-valor
+   `{t,v,ty}`) fica por tipar numa passagem futura dedicada; aqui o foco é a
+   EXTRACÇÃO para a feature-dona, eliminando a camada v7. */
+import { $, esc, svg, show, toast } from "../core";
 export {};
 
-/* ═════════ dxtutor IDE v7 — Visualize execution: a Rust-subset model of stack, heap, ownership and the machine ═════════ */
 P.film='<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M5 2.5v11M11 2.5v11M2 5.5h3M2 8h3M2 10.5h3M11 5.5h3M11 8h3M11 10.5h3"/>';
 
 /* ───── lexer + parser (teaching subset of Rust) ───── */
@@ -379,7 +392,11 @@ fn main() {
 `]};
 let VZ=null;
 function vizOpen(src,title,origin){let o=$('#viz');if(!o){document.body.insertAdjacentHTML('beforeend','<div id="viz"></div>');o=$('#viz');}VZSEEN.clear();clearInterval((VZ||{}).timer);
-  VZ={src,title,origin:origin||null,i:0,timer:null,speed:LS.get('vzspeed',5),depth:LS.get('vzdepth','memory'),predict:LS.get('vzpred',false),guess:null,ans:null,res:null,err:null,notes:{}};
+  /* window-backed: VZ é o único estado reatribuído (aqui); os onclick da barra correm
+     no scope global e lêem `VZ` → window.VZ. Atribuição em cadeia mantém o MESMO objecto
+     em ambos, por isso mutações (.i/.pending/.timer, via onclick OU via funções do módulo)
+     propagam. Corrige o desync pré-existente que partia os botões Step/depth/re-run/predict. */
+  VZ=window.VZ={src,title,origin:origin||null,i:0,timer:null,speed:LS.get('vzspeed',5),depth:LS.get('vzdepth','memory'),predict:LS.get('vzpred',false),guess:null,ans:null,res:null,err:null,notes:{}};
   try{VZ.res=vzRun(src);}catch(x){if(x.vz||x.vline){VZ.err=x;}else{VZ.err={message:'Internal error in the visualizer: '+x.message,vline:0};console.error(x);}}
   if(VZ.res){VZ.notes={};VZ.res.steps.forEach((s,k)=>{VZ.notes[k]=s.ev.map(e=>vzTell(e,'machine')).filter(Boolean);});}
   o.classList.add('show');vzRender();}
