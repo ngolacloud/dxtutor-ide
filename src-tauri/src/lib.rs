@@ -11,30 +11,82 @@
 //! the offline-safe provider when no API key is present.
 
 mod board;
+pub mod agent;
+pub mod assistant;
 mod bridge;
-mod debug;
+pub mod codeintel;
+pub mod codev;
+mod commands;
+pub mod debug;
+pub mod devcontainer;
 mod fsops;
+pub mod gitops;
 mod keys;
 mod llm;
 mod lsp;
-mod pair;
+pub mod missions;
+pub mod pair;
 mod procs;
 mod pty;
+pub mod review;
+pub mod sandbox;
+pub mod search;
+pub mod study;
+pub mod testexec;
 mod vsix;
-mod workspace;
+pub mod workspace;
+
+// Comandos extraídos para `commands/<feature>.rs` (Etapa 3). Importados por nome
+// para o registo de handlers abaixo continuar a referenciá-los sem prefixo de módulo.
+use commands::review::{list_review_analyzers, review_code, verify_review_fix};
+use commands::codeintel::{
+    diff_lines, file_outline, list_symbols, project_entrypoint, propose_entrypoint,
+    resolve_definition, resolve_hover, resolve_references, symbol_ranges, symbol_relations,
+};
+use commands::tests::{list_tests, run_all_tests, run_path, run_test, run_tests};
+use commands::git::{
+    git_branch, git_branches, git_changes, git_checkout, git_clone, git_commit, git_create_branch,
+    git_diff, git_log, git_show, git_stage, git_stage_all, git_unstage,
+};
+use commands::codev::{
+    codev_policy, codev_session_deliver, codev_session_discard, codev_session_list,
+    codev_session_start,
+};
+use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
+use commands::agent::{
+    agent_isolated_patch, agent_task_cancel, agent_task_status, agent_task_submit, arch_scaffold,
+    arch_scaffold_preview, arch_validate,
+};
+use commands::assistant::{
+    assistant_cancel, assistant_chat, assistant_chat_stream, assistant_models, get_diagnostics,
+    get_providers_config, list_providers, save_providers_config,
+};
+use commands::debug_cmds::{
+    debug_available, debug_break, debug_capabilities, debug_continue, debug_launch, debug_locals,
+    debug_run, debug_stack, debug_step, debug_stop,
+};
+use commands::devcontainer::{
+    devcontainer_exec, devcontainer_info, devcontainer_session_down, devcontainer_session_exec,
+    devcontainer_session_run, devcontainer_session_status, devcontainer_session_up,
+    devcontainer_up,
+};
+use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
+use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
+use commands::study::{
+    get_course, get_glossary, get_study_guide, list_courses, list_phases, request_fix,
+    request_hint, request_plan, study_policy, submit, submit_step,
+};
+use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 
 use serde::Serialize;
 use tutor_core::{Level, Phase, StepKind};
 use tutor_eval::{
-    Assessment, Confidence, Estimate, ExecutionTrace, MemSample, Pipeline, Severity, Telemetry,
-};
-use tutor_llm::{
-    default_fix_provider, default_plan_provider, default_provider, FixRequest, HintRequest,
-    PlanRequest,
+    Assessment, Confidence, Estimate, ExecutionTrace, MemSample, Pipeline, Telemetry,
 };
 
-/// The project the editor loads. Kept in one place so a future selector is easy.
-const PROJECT_ID: &str = "rust-word-frequency";
+// `PROJECT_ID` e as regras de estudo/missões migraram para os casos de uso Tauri-free
+// `crate::study` / `crate::missions` (Etapa 3, 13º grupo). `lib.rs` guarda só os DTOs
+// serializáveis (fronteira para o webview, partilhados entre grupos) e os seus mappers.
 
 // ── Serializable DTOs (camelCase to match the TypeScript frontend) ───────────
 
@@ -51,7 +103,7 @@ struct PhaseDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProjectDto {
+pub(crate) struct ProjectDto {
     project_id: String,
     project_title: String,
     language: String,
@@ -85,7 +137,7 @@ struct GabaritoDto {
 }
 
 #[derive(Serialize)]
-struct AssessmentDto {
+pub(crate) struct AssessmentDto {
     correctness: CorrectnessDto,
     complexity: Option<ComplexityDto>,
     expected: Option<String>,
@@ -96,26 +148,15 @@ struct AssessmentDto {
 }
 
 #[derive(Serialize)]
-struct HintDto {
-    text: String,
-    provider: String,
-    level: u8,
+pub(crate) struct HintDto {
+    pub(crate) text: String,
+    pub(crate) provider: String,
+    pub(crate) level: u8,
 }
 
 #[derive(Serialize)]
-struct DiagnosticDto {
-    line: u32,
-    col: u32,
-    severity: String,
-    message: String,
-    /// Internal, offline, rule-based fix suggestion (no AI). `None` when no rule
-    /// matched — the frontend may then fall back to the optional LLM provider.
-    suggestion: Option<String>,
-}
-
-#[derive(Serialize)]
-struct PlanDto {
-    steps: Vec<String>,
+pub(crate) struct PlanDto {
+    pub(crate) steps: Vec<String>,
 }
 
 // ── Guided-learning DTOs (camelCase) ─────────────────────────────────────────
@@ -195,13 +236,13 @@ struct GlossaryEntryDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GlossaryDto {
+pub(crate) struct GlossaryDto {
     entries: Vec<GlossaryEntryDto>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct StudyGuideDto {
+pub(crate) struct StudyGuideDto {
     title: String,
     /// Markdown body re-explaining the unit's concepts calmly.
     body: String,
@@ -209,7 +250,7 @@ struct StudyGuideDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CourseDto {
+pub(crate) struct CourseDto {
     id: String,
     language: String,
     title: String,
@@ -220,10 +261,20 @@ struct CourseDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RunDto {
-    ok: bool,
-    stdout: String,
-    stderr: String,
+pub(crate) struct CourseSummaryDto {
+    id: String,
+    language: String,
+    title: String,
+    level: String,
+    summary: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RunDto {
+    pub(crate) ok: bool,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
 }
 
 // ── Honest observability DTOs (measured run + compiler pipeline) ──────────────
@@ -258,9 +309,9 @@ struct TelemetryDto {
 /// A run plus its telemetry. `run` has the same shape as `run_drill`'s output.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MeasuredRunDto {
-    run: RunDto,
-    telemetry: TelemetryDto,
+pub(crate) struct MeasuredRunDto {
+    pub(crate) run: RunDto,
+    pub(crate) telemetry: TelemetryDto,
 }
 
 /// The compiler's intermediate representations for the student's code, produced
@@ -268,7 +319,7 @@ struct MeasuredRunDto {
 /// the honest reason in `notes`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PipelineDto {
+pub(crate) struct PipelineDto {
     mir: String,
     llvm_ir: String,
     asm: String,
@@ -309,7 +360,7 @@ struct TraceStepDto {
 /// in `notes`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ExecutionTraceDto {
+pub(crate) struct ExecutionTraceDto {
     supported: bool,
     notes: String,
     steps: Vec<TraceStepDto>,
@@ -370,6 +421,18 @@ fn phase_dto(p: &Phase) -> PhaseDto {
     }
 }
 
+/// Map the loaded project to the DTO the sidebar renders (`list_phases`). Shared with
+/// `commands::study`, which produces the `Project` via `study::load_project`.
+pub(crate) fn project_dto(project: &tutor_core::Project) -> ProjectDto {
+    ProjectDto {
+        project_id: project.id.clone(),
+        project_title: project.title.clone(),
+        language: project.language.clone(),
+        summary: project.summary.clone(),
+        phases: project.phases.iter().map(phase_dto).collect(),
+    }
+}
+
 fn step_kind_str(kind: StepKind) -> &'static str {
     match kind {
         StepKind::Concept => "concept",
@@ -403,7 +466,7 @@ fn step_dto(s: &tutor_core::Step) -> StepDto {
     }
 }
 
-fn course_dto(c: &tutor_core::Course) -> CourseDto {
+pub(crate) fn course_dto(c: &tutor_core::Course) -> CourseDto {
     CourseDto {
         id: c.id.clone(),
         language: c.language.clone(),
@@ -422,6 +485,42 @@ fn course_dto(c: &tutor_core::Course) -> CourseDto {
                 steps: u.steps.iter().map(step_dto).collect(),
             })
             .collect(),
+    }
+}
+
+/// Map a course to its summary row for the language picker (`list_courses`). Consumes the
+/// `Course` like the original command did.
+pub(crate) fn course_summary_dto(c: tutor_core::Course) -> CourseSummaryDto {
+    CourseSummaryDto {
+        id: c.id,
+        language: c.language,
+        title: c.title,
+        level: c.level,
+        summary: c.summary,
+    }
+}
+
+/// Map a loaded glossary to its DTO (`get_glossary`).
+pub(crate) fn glossary_dto(glossary: tutor_core::Glossary) -> GlossaryDto {
+    GlossaryDto {
+        entries: glossary
+            .entries
+            .into_iter()
+            .map(|e| GlossaryEntryDto {
+                keyword: e.keyword,
+                summary: e.summary,
+                when_to_use: e.when_to_use,
+                example: e.example,
+            })
+            .collect(),
+    }
+}
+
+/// Map a remediation study guide to its DTO (`get_study_guide`).
+pub(crate) fn study_guide_dto(guide: tutor_core::StudyGuide) -> StudyGuideDto {
+    StudyGuideDto {
+        title: guide.title,
+        body: guide.body,
     }
 }
 
@@ -445,7 +544,7 @@ fn reveal_gabarito(passed: bool, g: &tutor_core::Gabarito) -> Option<GabaritoDto
 
 /// Build the assessment DTO from an evaluation plus the phase that was graded
 /// (the gabarito travels with the phase). Shared by `submit` and `submit_step`.
-fn assessment_dto(a: &Assessment, phase: &Phase) -> AssessmentDto {
+pub(crate) fn assessment_dto(a: &Assessment, phase: &Phase) -> AssessmentDto {
     AssessmentDto {
         correctness: CorrectnessDto {
             passed: a.correctness.passed,
@@ -466,7 +565,7 @@ fn sample_dto(s: &MemSample) -> SampleDto {
     }
 }
 
-fn telemetry_dto(t: &Telemetry) -> TelemetryDto {
+pub(crate) fn telemetry_dto(t: &Telemetry) -> TelemetryDto {
     TelemetryDto {
         wall_ms: finite(t.wall_ms),
         cpu_user_ms: finite(t.cpu_user_ms),
@@ -479,7 +578,7 @@ fn telemetry_dto(t: &Telemetry) -> TelemetryDto {
     }
 }
 
-fn pipeline_dto(p: Pipeline) -> PipelineDto {
+pub(crate) fn pipeline_dto(p: Pipeline) -> PipelineDto {
     PipelineDto {
         mir: p.mir,
         llvm_ir: p.llvm_ir,
@@ -490,7 +589,7 @@ fn pipeline_dto(p: Pipeline) -> PipelineDto {
     }
 }
 
-fn execution_trace_dto(t: ExecutionTrace) -> ExecutionTraceDto {
+pub(crate) fn execution_trace_dto(t: ExecutionTrace) -> ExecutionTraceDto {
     ExecutionTraceDto {
         supported: t.supported,
         notes: t.notes,
@@ -518,1918 +617,120 @@ fn execution_trace_dto(t: ExecutionTrace) -> ExecutionTraceDto {
     }
 }
 
-// ── Brain commands ──────────────────────────────────────────────────────────────
-
-/// List the project title and its phases (shown in the sidebar as "files").
-#[tauri::command]
-fn list_phases() -> Result<ProjectDto, String> {
-    let project = tutor_core::load_project(PROJECT_ID)
-        .ok_or_else(|| format!("project `{PROJECT_ID}` not found"))?;
-    Ok(ProjectDto {
-        project_id: project.id.clone(),
-        project_title: project.title.clone(),
-        language: project.language.clone(),
-        summary: project.summary.clone(),
-        phases: project.phases.iter().map(phase_dto).collect(),
-    })
-}
-
-/// Evaluate the student's code for a phase: run the hidden tests (source of
-/// truth) and, on pass, measure complexity. Reveal the curated gabarito.
-#[tauri::command]
-async fn submit(phase_id: String, code: String) -> Result<AssessmentDto, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<AssessmentDto, String> {
-        let project = tutor_core::load_project(PROJECT_ID)
-            .ok_or_else(|| format!("project `{PROJECT_ID}` not found"))?;
-        let phase = project
-            .phase(&phase_id)
-            .ok_or_else(|| format!("phase `{phase_id}` not found"))?;
-
-        let assessment =
-            tutor_eval::assess(phase, &code).map_err(|e| format!("evaluation failed: {e}"))?;
-
-        Ok(assessment_dto(&assessment, phase))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Find a guided-course step by id across every built-in course; returns the
-/// course language alongside the step. The frontend addresses hints/diagnostics
-/// by step id (passed as `phaseId`/`stepId`).
-fn course_step(step_id: &str) -> Option<(String, tutor_core::Step)> {
-    for course in tutor_core::builtin_courses() {
-        if let Some(step) = course.step(step_id) {
-            return Some((course.language.clone(), step.clone()));
-        }
-    }
-    None
-}
-
-/// Language of the step's course (defaults to Rust when the id is unknown).
-fn step_language(step_id: &str) -> String {
-    course_step(step_id)
-        .map(|(lang, _)| lang)
-        .unwrap_or_else(|| "rust".to_string())
-}
-
-/// Produce a progressive hint (level 1..3) for a guided-course step. Offline-safe:
-/// without `ANTHROPIC_API_KEY` the OfflineProvider returns a useful generic message.
-#[tauri::command]
-fn request_hint(phase_id: String, code: String, level: u8) -> Result<HintDto, String> {
-    // Prefer a curated, offline progressive hint when the phase ships one (e.g. the
-    // "count characters" scenario). Deterministic and model-free — the essential path
-    // works with no provider. Falls through to the provider otherwise.
-    if let Some(phase) = tutor_core::find_phase(&phase_id) {
-        if let Some(hint) = phase.hint(level) {
-            return Ok(HintDto {
-                text: hint.to_string(),
-                provider: "curated".to_string(),
-                level: level.clamp(1, 3),
-            });
-        }
-    }
-
-    let (instructions, entry) = match course_step(&phase_id) {
-        Some((_, step)) => (step.instructions.clone(), step.entry.clone()),
-        None => (String::new(), String::new()),
-    };
-
-    let req = HintRequest {
-        instructions,
-        entry,
-        student_code: code,
-        test_output: None,
-        level,
-    };
-    let provider = default_provider();
-    let text = provider
-        .hint(&req)
-        .map_err(|e| format!("hint provider failed: {e}"))?;
-
-    Ok(HintDto {
-        text,
-        provider: provider.name().to_string(),
-        level: req.level(),
-    })
-}
-
-/// Load a phase (owned) by id, or a readable error.
-fn load_phase(phase_id: &str) -> Result<Phase, String> {
-    let project = tutor_core::load_project(PROJECT_ID)
-        .ok_or_else(|| format!("project `{PROJECT_ID}` not found"))?;
-    project
-        .phase(phase_id)
-        .cloned()
-        .ok_or_else(|| format!("phase `{phase_id}` not found"))
-}
-
-/// Compiler/syntax diagnostics for the current code — the raw material for the
-/// red underline. The runner is chosen by the phase's language (Rust via
-/// `cargo check`, JS via the embedded engine). Never judges the exercise.
-#[tauri::command]
-fn get_diagnostics(step_id: String, code: String) -> Result<Vec<DiagnosticDto>, String> {
-    let language = step_language(&step_id);
-    let diags = tutor_eval::diagnostics_for(&language, &code)
-        .map_err(|e| format!("diagnostics failed: {e}"))?;
-    Ok(diags
-        .into_iter()
-        .map(|d| DiagnosticDto {
-            line: d.line,
-            col: d.col,
-            severity: match d.severity {
-                Severity::Error => "error",
-                Severity::Warning => "warning",
-            }
-            .to_string(),
-            // Internal rule-based suggestion — works offline, no AI needed.
-            suggestion: tutor_eval::advise(&language, &d),
-            message: d.message,
-        })
-        .collect())
-}
-
-/// Turn a "what I want to solve" comment into a high-level PLAN (steps, no code)
-/// so the student types the solution themselves. Offline-safe.
-#[tauri::command]
-fn request_plan(phase_id: String, comment: String, code: String) -> Result<PlanDto, String> {
-    let phase = load_phase(&phase_id)?;
-    let req = PlanRequest {
-        language: phase.language.clone(),
-        comment,
-        context_code: code,
-    };
-    let plan = default_plan_provider()
-        .plan(&req)
-        .map_err(|e| format!("plan provider failed: {e}"))?;
-    Ok(PlanDto { steps: plan.steps })
-}
-
-/// Explain a single diagnostic and how to fix THAT line — never rewrites the
-/// whole function or solves the exercise. Offline-safe.
-#[tauri::command]
-fn request_fix(
-    phase_id: String,
-    code: String,
-    line: u32,
-    message: String,
-) -> Result<String, String> {
-    let phase = load_phase(&phase_id)?;
-    let req = FixRequest {
-        language: phase.language.clone(),
-        code,
-        line,
-        message,
-    };
-    default_fix_provider()
-        .fix_suggestion(&req)
-        .map_err(|e| format!("fix provider failed: {e}"))
-}
-
-// ── Guided-learning commands ─────────────────────────────────────────────────
-
-/// Load the guided course for a language (e.g. `"rust"`). Returns the course
-/// tree (units → steps) the beginner mode renders.
-#[tauri::command]
-fn get_course(language: String) -> Result<CourseDto, String> {
-    let course = tutor_core::builtin_courses()
-        .into_iter()
-        .find(|c| c.language.eq_ignore_ascii_case(language.trim()))
-        .ok_or_else(|| format!("no course for language `{language}`"))?;
-    Ok(course_dto(&course))
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CourseSummaryDto {
-    id: String,
-    language: String,
-    title: String,
-    level: String,
-    summary: String,
-}
-
-/// List every built-in course (one per language curriculum) so the onboarding can
-/// build its language picker dynamically, instead of hard-coding which languages
-/// are available. Adding a course (or a plugin language with a course) makes it
-/// appear without any frontend change.
-#[tauri::command]
-fn list_courses() -> Vec<CourseSummaryDto> {
-    tutor_core::builtin_courses()
-        .into_iter()
-        .map(|c| CourseSummaryDto {
-            id: c.id,
-            language: c.language,
-            title: c.title,
-            level: c.level,
-            summary: c.summary,
-        })
-        .collect()
-}
-
-/// Offline Code Review over a REAL project folder. Runs on a blocking worker (NOT
-/// the UI thread), so a multi-second analyzer never stalls the window. `scope` is
-/// "file" | "changes" | "project"; `path` names the file for "file" scope. `version`
-/// is echoed back untouched so the frontend can discard a result that is stale for
-/// the current buffer. Works with the network down and no model configured.
-#[tauri::command]
-async fn review_code(
-    root: String,
-    scope: String,
-    path: Option<String>,
-    version: Option<String>,
-) -> Result<tutor_eval::review::ReviewReport, String> {
-    use tutor_eval::review::{review, ReviewScope};
-    let scope = match scope.as_str() {
-        "file" => ReviewScope::File(path.ok_or_else(|| "file scope needs a path".to_string())?),
-        "changes" => ReviewScope::WorkingChanges,
-        _ => ReviewScope::Project,
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        review(std::path::Path::new(&root), &scope, version)
-    })
-    .await
-    .map_err(|e| format!("review task failed: {e}"))?
-    .map_err(|e| format!("review failed: {e}"))
-}
-
-/// The local analyzers installed on this host, so the review UI can advertise what
-/// it can really do and show which tools are missing.
-#[tauri::command]
-fn list_review_analyzers() -> Vec<tutor_eval::review::AnalyzerInfo> {
-    tutor_eval::review::detect_analyzers()
-}
-
-/// P0-3: verify a review fix is still safe to apply to the CURRENT buffer. `currentSource`
-/// is the live editor content; `analyzedVersion` is the file's `content_version` captured
-/// when the review ran (from `ReviewReport.fileVersions`). Refuses — preserving the
-/// developer's edits — if the buffer drifted or the target snippet no longer matches.
-#[tauri::command]
-fn verify_review_fix(
-    current_source: String,
-    analyzed_version: String,
-    fix: tutor_eval::review::SuggestedFix,
-) -> tutor_eval::review::FixVerification {
-    tutor_eval::review::verify_fix(&current_source, &analyzed_version, &fix)
-}
-
-/// Dev Assistant: the locally-available Ollama models (empty if none/offline).
-#[tauri::command]
-fn assistant_models() -> Vec<String> {
-    tutor_llm::chat::ollama_models()
-}
-
-/// Dev Assistant: send a chat turn to the local model (Ollama) and return the reply.
-/// Non-streaming for now; P4 adds streaming + a multi-provider picker. Runs off the
-/// UI thread because the HTTP call is blocking.
-#[tauri::command]
-async fn assistant_chat(
-    messages: Vec<tutor_llm::chat::ChatMsg>,
-    model: Option<String>,
-) -> Result<tutor_llm::chat::ChatReply, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_llm::chat::ollama_chat(&messages, model.as_deref())
-    })
-    .await
-    .map_err(|e| format!("assistant task failed: {e}"))?
-    .map_err(|e| format!("{e}"))
-}
-
-/// Cancellation flags for in-flight streaming LLM requests, keyed by request id.
-static LLM_CANCELS: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
-> = std::sync::OnceLock::new();
-fn llm_cancels(
-) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>
-{
-    LLM_CANCELS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
-/// Stream a Dev-Assistant chat turn. Emits `llm://token` {requestId, delta} per token
-/// chunk, then `llm://done` {requestId, model} or `llm://error` {requestId, error}.
-/// Returns immediately; the stream runs on a thread (the pty.rs pattern). Cancel it
-/// mid-flight with `assistant_cancel(requestId)` — the Stop button.
-/// The AI providers and what each can do right now (Ollama live; others gated).
-#[tauri::command]
-fn list_providers() -> Vec<tutor_llm::chat::ProviderInfo> {
-    tutor_llm::chat::list_providers()
-}
-
-/// The saved AI/provider settings (keys + Ollama config), for the settings form.
-#[tauri::command]
-fn get_providers_config() -> tutor_llm::chat::ProvidersConfig {
-    tutor_llm::chat::load_config()
-}
-
-/// Persist AI/provider settings to `~/.config/dxtutor/providers.json` (mode 0600).
-#[tauri::command]
-fn save_providers_config(config: tutor_llm::chat::ProvidersConfig) -> Result<(), String> {
-    tutor_llm::chat::save_config(&config).map_err(|e| format!("{e}"))
-}
-
-/// Is `step_id` an autonomous-application exercise (a challenge the student must
-/// implement), as opposed to a transcription drill or concept? Unknown ids are treated
-/// as autonomous (fail closed toward the stricter contract).
-fn step_is_autonomous(step_id: Option<&str>) -> bool {
-    match step_id {
-        Some(id) => course_step(id)
-            .map(|(_, s)| matches!(s.kind, StepKind::Challenge))
-            .unwrap_or(true),
-        None => true,
-    }
-}
-
-/// The active study policy for the given mode + step. The frontend uses it to hide
-/// solution/buffer-writing surfaces while an exercise is open (defence in depth); the
-/// backend commands enforce the same policy regardless of what the UI shows.
-#[tauri::command]
-fn study_policy(mode: String, step_id: Option<String>) -> tutor_llm::policy::StudyPolicy {
-    use tutor_llm::policy::{policy_for, Mode};
-    policy_for(Mode::parse(&mode), step_is_autonomous(step_id.as_deref()))
-}
-
-/// The active Co-Dev approval policy for the modebar mode (Manual/Assist/Auto). The
-/// frontend consults it so the modebar governs whether edits/commands auto-apply or must
-/// be approved. Destructive actions and push always ask, in every mode.
-#[tauri::command]
-fn codev_policy(mode: String) -> tutor_llm::policy::CoDevPolicy {
-    use tutor_llm::policy::{codev_policy, CoDevMode};
-    codev_policy(CoDevMode::parse(&mode))
-}
-
-#[tauri::command]
-fn assistant_chat_stream(
-    app: tauri::AppHandle,
-    messages: Vec<tutor_llm::chat::ChatMsg>,
-    provider: Option<String>,
-    model: Option<String>,
-    request_id: String,
-    mode: Option<String>,
-    step_id: Option<String>,
-) {
-    use std::sync::atomic::Ordering;
-    use tauri::Emitter;
-    use tutor_llm::chat::ChatMsg;
-    use tutor_llm::policy::{policy_for, tutor_directive, Mode};
-
-    // P0-2: the backend — not the webview — decides the policy from the active mode and
-    // step. In study mode the chat is tutor-constrained: prepend the authoritative tutor
-    // directive so every provider (local or remote) is steered away from handing over the
-    // solution. This is the soft layer; the hard layer is that no command writes the
-    // student's buffer and solution/edit surfaces are gated off in study mode.
-    let policy = policy_for(
-        Mode::parse(mode.as_deref().unwrap_or("study")),
-        step_is_autonomous(step_id.as_deref()),
-    );
-    let messages: Vec<ChatMsg> = if policy.chat_is_tutor {
-        let mut m = Vec::with_capacity(messages.len() + 1);
-        m.push(ChatMsg {
-            role: "system".into(),
-            content: tutor_directive().into(),
-        });
-        m.extend(messages);
-        m
-    } else {
-        messages
-    };
-
-    // ollama (local), claude, openai and gemini all have SSE streaming adapters. Any
-    // other id fails honestly rather than silently doing nothing.
-    let prov = provider.as_deref().unwrap_or("ollama").to_string();
-    if !matches!(prov.as_str(), "ollama" | "claude" | "openai" | "gemini") {
-        let _ = app.emit(
-            "llm://error",
-            serde_json::json!({
-                "requestId": request_id,
-                "error": format!("The “{prov}” provider has no streaming adapter yet. Use Ollama, Claude, OpenAI or Gemini."),
-            }),
-        );
-        return;
-    }
-
-    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    llm_cancels().lock().unwrap().insert(request_id.clone(), flag.clone());
-    std::thread::spawn(move || {
-        let emit_app = app.clone();
-        let rid = request_id.clone();
-        // One cancel-aware token sink shared by every provider branch.
-        let emit = |delta: &str| -> bool {
-            if flag.load(Ordering::Relaxed) {
-                return false; // cancelled via the Stop button
-            }
-            let _ = emit_app.emit("llm://token", serde_json::json!({ "requestId": rid, "delta": delta }));
-            true
-        };
-        let res = match prov.as_str() {
-            "claude" => tutor_llm::chat::claude_chat_stream_env(&messages, emit),
-            "openai" => tutor_llm::chat::openai_chat_stream_env(&messages, model.as_deref(), emit),
-            "gemini" => tutor_llm::chat::gemini_chat_stream_env(&messages, model.as_deref(), emit),
-            _ => tutor_llm::chat::ollama_chat_stream(&messages, model.as_deref(), emit),
-        };
-        llm_cancels().lock().unwrap().remove(&request_id);
-        match res {
-            Ok(reply) => {
-                let _ = app.emit(
-                    "llm://done",
-                    serde_json::json!({ "requestId": request_id, "model": reply.model }),
-                );
-            }
-            Err(e) => {
-                let _ = app.emit(
-                    "llm://error",
-                    serde_json::json!({ "requestId": request_id, "error": format!("{e}") }),
-                );
-            }
-        }
-    });
-}
-
-/// Cancel an in-flight streaming request (the Stop button / interrupt).
-#[tauri::command]
-fn assistant_cancel(request_id: String) {
-    use std::sync::atomic::Ordering;
-    if let Some(f) = llm_cancels().lock().unwrap().get(&request_id) {
-        f.store(true, Ordering::Relaxed);
-    }
-}
-
-/// CodeMap: the definitions, references and (inferred) callers of `symbol` across
-/// the project at `root`. Runs off the UI thread. This slice is Rust + syntactic
-/// (`resolution: "inferred"`); a rust-analyzer-backed resolved path lands later.
-#[tauri::command]
-async fn symbol_relations(
-    root: String,
-    symbol: String,
-) -> Result<tutor_eval::codemap::Relations, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::codemap::symbol_relations(std::path::Path::new(&root), &symbol)
-    })
-    .await
-    .map_err(|e| format!("codemap task failed: {e}"))?
-    .map_err(|e| format!("codemap failed: {e}"))
-}
-
-/// Add-entrypoint: propose the idiomatic `main` for `lang` given `code`, or `None` when one
-/// already exists. The UI appends the snippet as a reviewed localized edit. Pure.
-#[tauri::command]
-async fn propose_entrypoint(
-    lang: String,
-    code: String,
-) -> Result<Option<tutor_eval::entrypoint::EntrypointProposal>, String> {
-    tauri::async_runtime::spawn_blocking(move || tutor_eval::entrypoint::propose_entrypoint(&lang, &code))
-        .await
-        .map_err(|e| format!("propose_entrypoint task failed: {e}"))
-}
-
-/// Localized editing review: a line-level diff of the original block `old` vs the proposed
-/// `new`, each line tagged context/add/del — the basis for the "show what changes" highlight
-/// and "accept selected lines". Pure; runs off the UI thread.
-#[tauri::command]
-async fn diff_lines(old: String, new: String) -> Result<Vec<tutor_eval::textdiff::DiffLine>, String> {
-    tauri::async_runtime::spawn_blocking(move || tutor_eval::textdiff::line_diff(&old, &new))
-        .await
-        .map_err(|e| format!("diff_lines task failed: {e}"))
-}
-
-/// Localized editing: the line span(s) of the Rust function/method named `name` in
-/// `code` — the exact target range for a scoped edit, and the candidates to disambiguate
-/// homonyms. Pure/syntactic; runs off the UI thread.
-#[tauri::command]
-async fn symbol_ranges(
-    code: String,
-    name: String,
-) -> Result<Vec<tutor_eval::codemap::SymbolRange>, String> {
-    tauri::async_runtime::spawn_blocking(move || tutor_eval::codemap::symbol_ranges(&code, &name))
-        .await
-        .map_err(|e| format!("symbol_ranges task failed: {e}"))
-}
-
-/// The symbol outline of a file, for a precise Explain anchored to real lines. Prefers the
-/// real language server (textDocument/documentSymbol — rust-analyzer/pyright/gopls/tsserver,
-/// on host or in the container) when `root`+`file` are given and a server answers; otherwise
-/// the syntactic outline (Rust AST, or the Python/Go/JS/TS heuristic).
-#[tauri::command]
-async fn file_outline(
-    code: String,
-    lang: String,
-    root: Option<String>,
-    file: Option<String>,
-) -> Result<Vec<tutor_eval::codemap::SymbolRange>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        if let (Some(r), Some(f)) = (root.as_ref(), file.as_ref()) {
-            let via_lsp = tutor_eval::lsp::document_symbols(
-                std::path::Path::new(r),
-                std::path::Path::new(f),
-                &lang,
-                &code,
-            );
-            if !via_lsp.is_empty() {
-                return via_lsp;
-            }
-        }
-        tutor_eval::codemap::outline(&code, &lang)
-    })
-    .await
-    .map_err(|e| format!("file_outline task failed: {e}"))
-}
-
-/// Section 5 (daily work): every symbol definition across the project at `root` (Rust via
-/// `syn`; Go/Python syntactic), for a "go to symbol" palette. Runs off the UI thread.
-#[tauri::command]
-async fn list_symbols(
-    root: String,
-    max: Option<usize>,
-) -> Result<Vec<tutor_eval::codemap::SymbolRef>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::codemap::all_symbols(std::path::Path::new(&root), max.unwrap_or(5000))
-    })
-    .await
-    .map_err(|e| format!("list_symbols task failed: {e}"))
-}
-
-/// Section 5: discover the `#[test]` functions under `root` so the UI can list them and
-/// run one individually. Syntactic (`syn`); notes `#[ignore]`. Runs off the UI thread.
-#[tauri::command]
-async fn list_tests(root: String) -> Result<Vec<tutor_eval::testnav::TestItem>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::testnav::discover_tests(std::path::Path::new(&root))
-    })
-    .await
-    .map_err(|e| format!("test discovery task failed: {e}"))
-}
-
-/// Section 5: run one test by its `path` (from `list_tests`) in the project at `root`,
-/// dispatching by `lang`: Rust via `cargo test --exact`, Go via `go test -run`. Returns
-/// pass/fail + the captured output. Hardened + timed; runs off the UI thread.
-#[tauri::command]
-async fn run_test(
-    root: String,
-    path: String,
-    lang: Option<String>,
-) -> Result<tutor_eval::testnav::TestRun, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let root = std::path::Path::new(&root);
-        match lang.as_deref() {
-            Some("go") => tutor_eval::testnav::run_go_test(root, &path),
-            Some("python") => tutor_eval::testnav::run_python_test(root, &path),
-            _ => tutor_eval::testnav::run_test(root, &path),
-        }
-    })
-    .await
-    .map_err(|e| format!("run_test task failed: {e}"))
-}
-
-/// Section 5: run the WHOLE test suite in the project at `root` (the "Run all" button),
-/// returning the overall pass/fail + captured output. Hardened + timed; off the UI thread.
-#[tauri::command]
-async fn run_all_tests(root: String) -> Result<tutor_eval::testnav::TestRun, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::testnav::run_suite(std::path::Path::new(&root))
-    })
-    .await
-    .map_err(|e| format!("run_all_tests task failed: {e}"))
-}
-
-/// A rust-analyzer-resolved definition location (1-based line/col, absolute path).
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ResolvedDef {
-    file: String,
-    line: u32,
-    col: u32,
-}
-
-// ── Real debugging via gdb/MI (section 5). Thin Tauri wrappers over debug::driver. ──
-
-#[tauri::command]
-fn debug_available() -> bool {
-    debug::available()
-}
-#[tauri::command]
-fn debug_launch(sessions: tauri::State<'_, debug::DebugSessions>, id: String, program: String, cwd: Option<String>) -> Result<(), String> {
-    debug::driver::launch(&sessions, id, program, cwd)
-}
-#[tauri::command]
-fn debug_break(sessions: tauri::State<'_, debug::DebugSessions>, id: String, file: String, line: u32) -> Result<u32, String> {
-    debug::driver::set_break(&sessions, &id, &file, line)
-}
-#[tauri::command]
-fn debug_run(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<debug::Stop, String> {
-    debug::driver::run(&sessions, &id)
-}
-#[tauri::command]
-fn debug_continue(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<debug::Stop, String> {
-    debug::driver::cont(&sessions, &id)
-}
-#[tauri::command]
-fn debug_step(sessions: tauri::State<'_, debug::DebugSessions>, id: String, into: bool) -> Result<debug::Stop, String> {
-    debug::driver::step(&sessions, &id, into)
-}
-#[tauri::command]
-fn debug_locals(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<Vec<debug::Var>, String> {
-    debug::driver::locals(&sessions, &id)
-}
-#[tauri::command]
-fn debug_stack(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<Vec<debug::Frame>, String> {
-    debug::driver::stack(&sessions, &id)
-}
-#[tauri::command]
-fn debug_stop(sessions: tauri::State<'_, debug::DebugSessions>, id: String) -> Result<(), String> {
-    debug::driver::stop(&sessions, &id)
-}
-
-/// Section 5: resolve the definition of the symbol at (`line`, `col`) — both 1-based — in
-/// `file` via rust-analyzer (REAL semantic navigation, not name-based). Returns `None` when
-/// rust-analyzer is absent or can't resolve, so the UI falls back to the syntactic CodeMap.
-/// Runs off the UI thread (spawns + indexes with rust-analyzer).
-#[tauri::command]
-async fn resolve_definition(
-    root: String,
-    file: String,
-    line: u32,
-    col: u32,
-    text: Option<String>,
-) -> Result<Option<ResolvedDef>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let loc = tutor_eval::lsp::resolve_definition(
-            std::path::Path::new(&root),
-            std::path::Path::new(&file),
-            line.saturating_sub(1), // editor 1-based → LSP 0-based
-            col.saturating_sub(1),
-            text.as_deref(),
-        )?;
-        let path = tutor_eval::lsp::uri_to_path(&loc.uri);
-        Some(ResolvedDef { file: path, line: loc.line + 1, col: loc.character + 1 })
-    })
-    .await
-    .map_err(|e| format!("resolve_definition task failed: {e}"))
-}
-
-/// Section 5: hover info (type/docs markdown) for the symbol at (`line`, `col`) — both
-/// 1-based — via rust-analyzer. `None` when absent/unresolved. Runs off the UI thread.
-#[tauri::command]
-async fn resolve_hover(
-    root: String,
-    file: String,
-    line: u32,
-    col: u32,
-    text: Option<String>,
-) -> Result<Option<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::lsp::resolve_hover(
-            std::path::Path::new(&root),
-            std::path::Path::new(&file),
-            line.saturating_sub(1),
-            col.saturating_sub(1),
-            text.as_deref(),
-        )
-    })
-    .await
-    .map_err(|e| format!("resolve_hover task failed: {e}"))
-}
-
-/// Section 5: resolve ALL references to the symbol at (`line`, `col`) — both 1-based — via
-/// rust-analyzer. Empty when absent/unresolved. Runs off the UI thread.
-#[tauri::command]
-async fn resolve_references(
-    root: String,
-    file: String,
-    line: u32,
-    col: u32,
-    text: Option<String>,
-) -> Result<Vec<ResolvedDef>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::lsp::resolve_references(
-            std::path::Path::new(&root),
-            std::path::Path::new(&file),
-            line.saturating_sub(1),
-            col.saturating_sub(1),
-            text.as_deref(),
-        )
-        .into_iter()
-        .map(|loc| ResolvedDef {
-            file: tutor_eval::lsp::uri_to_path(&loc.uri),
-            line: loc.line + 1,
-            col: loc.character + 1,
-        })
-        .collect::<Vec<_>>()
-    })
-    .await
-    .map_err(|e| format!("resolve_references task failed: {e}"))
-}
-
-/// Section 5 (daily work): the working-tree changes in the git repo at `root` (read-only).
-#[tauri::command]
-async fn git_changes(root: String) -> Result<Vec<tutor_eval::git::GitChange>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::changed_files(std::path::Path::new(&root))
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))
-}
-
-/// SCM write ops (stage / unstage / stage-all / commit). Each runs off the UI thread and
-/// surfaces git's stderr on failure so the Git view can report it.
-#[tauri::command]
-async fn git_stage(root: String, path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::stage(std::path::Path::new(&root), &path)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn git_unstage(root: String, path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::unstage(std::path::Path::new(&root), &path)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn git_stage_all(root: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::stage_all(std::path::Path::new(&root))
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn git_commit(root: String, message: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::commit(std::path::Path::new(&root), &message)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn git_log(root: String, max: Option<usize>) -> Result<Vec<tutor_eval::git::GitCommit>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::log(std::path::Path::new(&root), max.unwrap_or(200))
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))
-}
-
-#[tauri::command]
-async fn git_show(root: String, hash: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::show(std::path::Path::new(&root), &hash)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TestRun {
-    command: String,
-    ok: bool,
-    stdout: String,
-    stderr: String,
-}
-
-/// Run the project's test suite and return the command + its outcome, so the Agent's
-/// verify step cites real evidence (RF-AG-02) instead of claiming success. Runs inside the
-/// container session when one is active (its toolchain), else on the host.
-#[tauri::command]
-async fn run_tests(root: String) -> Result<TestRun, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = std::path::Path::new(&root);
-        let cmd = tutor_eval::project_test_command(base)
-            .ok_or_else(|| "No known test command for this project.".to_string())?;
-        let name = tutor_eval::session_name(base);
-        if tutor_eval::session_running(&name) {
-            let out = tutor_eval::session_exec(&name, &format!("cd /work && {cmd}"))
-                .map_err(|e| e.to_string())?;
-            Ok(TestRun { command: cmd.into(), ok: out.ok, stdout: out.stdout, stderr: out.stderr })
-        } else {
-            let out = std::process::Command::new("sh")
-                .arg("-lc")
-                .arg(cmd)
-                .current_dir(base)
-                .output()
-                .map_err(|e| format!("could not start tests: {e}"))?;
-            Ok(TestRun {
-                command: cmd.into(),
-                ok: out.status.success(),
-                stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-            })
-        }
-    })
-    .await
-    .map_err(|e| format!("test task failed: {e}"))?
-}
-
-/// Validate a System Design (Architecture Studio): run the structural rules over the drawn
-/// components + connections and return the findings (errors first). Pure; no I/O.
-#[tauri::command]
-async fn arch_validate(
-    arch: tutor_eval::arch::Architecture,
-) -> Result<Vec<tutor_eval::arch::Finding>, String> {
-    Ok(arch.validate())
-}
-
-/// Generate a project scaffold from a VALID System Design: writes a folder per live component
-/// plus ARCHITECTURE.md under `root` (never overwriting existing files). Returns the relative
-/// paths written. Errors if the design is invalid.
-#[tauri::command]
-async fn arch_scaffold(
-    root: String,
-    arch: tutor_eval::arch::Architecture,
-) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let files = arch.scaffold();
-        if files.is_empty() {
-            return Err("design has errors — fix them before scaffolding".to_string());
-        }
-        let base = std::path::Path::new(&root);
-        let mut written = Vec::new();
-        for (rel, content) in files {
-            let p = base.join(&rel);
-            if p.exists() {
-                continue; // never overwrite an existing file
-            }
-            if let Some(parent) = p.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            std::fs::write(&p, content).map_err(|e| e.to_string())?;
-            written.push(rel);
-        }
-        Ok(written)
-    })
-    .await
-    .map_err(|e| format!("scaffold task failed: {e}"))?
-}
-
-/// Preview the scaffold of a design WITHOUT writing: returns the (relPath, content) pairs
-/// `arch_scaffold` would write. Feeds the isolated-task delegation (agent_task_submit), so a
-/// mission can be reviewed as a worktree patch before anything lands. Empty if the design is
-/// invalid (same rule as scaffold).
-#[tauri::command]
-fn arch_scaffold_preview(arch: tutor_eval::arch::Architecture) -> Vec<(String, String)> {
-    arch.scaffold()
-}
-
-/// Run a delegated task in an isolated git worktree of HEAD: apply `writes` ([relPath,
-/// content] pairs) there and return the unified diff, WITHOUT touching the working tree
-/// (RF-AG-01/05). The caller reviews the patch before anything lands.
-#[tauri::command]
-async fn agent_isolated_patch(
-    root: String,
-    writes: Vec<(String, String)>,
-) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::worktree_patch(std::path::Path::new(&root), &writes)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-// ── Cloud-shaped task API (RF-AG-01) ────────────────────────────────────────
-// A submit → status → collect lifecycle over the LOCAL isolated executor (worktree_patch).
-// Local today; the same API is what a real remote backend would expose, so the UI already
-// talks the cloud shape. Honestly local: no network, no credentials.
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AgentTask {
-    id: String,
-    status: String, // "running" | "done" | "error"
-    patch: String,
-    error: String,
-}
-
-static AGENT_TASKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, AgentTask>>> =
-    std::sync::OnceLock::new();
-fn agent_tasks() -> &'static std::sync::Mutex<std::collections::HashMap<String, AgentTask>> {
-    AGENT_TASKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-fn next_task_id() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static SEQ: AtomicU64 = AtomicU64::new(0);
-    format!("task-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed))
-}
-
-/// Submit a delegated task: runs the isolated executor and registers the result under a task
-/// id (submit → the task runs → collectable by id). Returns the id immediately.
-#[tauri::command]
-async fn agent_task_submit(root: String, writes: Vec<(String, String)>) -> Result<String, String> {
-    let id = next_task_id();
-    agent_tasks().lock().unwrap().insert(
-        id.clone(),
-        AgentTask { id: id.clone(), status: "running".into(), patch: String::new(), error: String::new() },
-    );
-    let id2 = id.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let rec = match tutor_eval::git::worktree_patch(std::path::Path::new(&root), &writes) {
-            Ok(patch) => AgentTask { id: id2.clone(), status: "done".into(), patch, error: String::new() },
-            Err(e) => AgentTask { id: id2.clone(), status: "error".into(), patch: String::new(), error: e },
-        };
-        agent_tasks().lock().unwrap().insert(id2, rec);
-    });
-    Ok(id)
-}
-
-/// Status + result of a submitted task (collect). `None` when the id is unknown.
-#[tauri::command]
-fn agent_task_status(id: String) -> Option<AgentTask> {
-    agent_tasks().lock().unwrap().get(&id).cloned()
-}
-
-/// Cancel/forget a task (removes its record). Returns whether it existed.
-#[tauri::command]
-fn agent_task_cancel(id: String) -> bool {
-    agent_tasks().lock().unwrap().remove(&id).is_some()
-}
-
-#[tauri::command]
-async fn git_branches(root: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::branches(std::path::Path::new(&root))
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))
-}
-
-#[tauri::command]
-async fn git_checkout(root: String, branch: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::checkout(std::path::Path::new(&root), &branch)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn git_create_branch(root: String, name: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::create_branch(std::path::Path::new(&root), &name)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-/// Co-Dev session (Claude-Code style): open an isolated git worktree on a `codev/<slug>`
-/// branch from HEAD, where the assistant works without touching the base tree.
-#[tauri::command]
-async fn codev_session_start(
-    root: String,
-    name: String,
-) -> Result<tutor_eval::git::SessionInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::session_start(std::path::Path::new(&root), &name)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-/// Deliver a Co-Dev session: commit its work, integrate (`merge --no-ff`) into the base branch
-/// and tear down the worktree.
-#[tauri::command]
-async fn codev_session_deliver(
-    root: String,
-    slug: String,
-    message: String,
-) -> Result<tutor_eval::git::DeliverInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::session_deliver(std::path::Path::new(&root), &slug, &message)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-/// Discard a Co-Dev session without integrating: drop the worktree and its branch.
-#[tauri::command]
-async fn codev_session_discard(root: String, slug: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::session_discard(std::path::Path::new(&root), &slug)
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-/// List the open Co-Dev sessions (worktrees on `codev/*` branches) for `root`.
-#[tauri::command]
-async fn codev_session_list(root: String) -> Result<Vec<tutor_eval::git::SessionInfo>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::sessions(std::path::Path::new(&root))
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))
-}
-
-/// Section 5 (daily work): the current git branch at `root` (or a short commit when
-/// detached), for the status bar. `None` → not a repo.
-#[tauri::command]
-async fn git_branch(root: String) -> Result<Option<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::current_branch(std::path::Path::new(&root))
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))
-}
-
-/// Section 5 (daily work): a unified diff of the working tree vs HEAD, optionally scoped to
-/// `file`. Read-only; empty when there is nothing to show or it is not a repo.
-#[tauri::command]
-async fn git_diff(
-    root: String,
-    file: Option<String>,
-    staged: Option<bool>,
-) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::diff(
-            std::path::Path::new(&root),
-            file.as_deref(),
-            staged.unwrap_or(false),
-        )
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))
-}
-
-/// Clone a git repository `url` into `parent_dir`, returning the new repo's path so the
-/// workspace can mount it. Runs off the UI thread; errors carry git's stderr.
-#[tauri::command]
-async fn git_clone(url: String, parent_dir: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::git::clone_repo(&url, std::path::Path::new(&parent_dir))
-            .map(|p| p.to_string_lossy().into_owned())
-    })
-    .await
-    .map_err(|e| format!("git task failed: {e}"))?
-}
-
-/// Section 5 (daily work): global literal search across the project at `root`. Returns up
-/// to `max` hits (file-relative). Offline, bounded; runs off the UI thread.
-#[tauri::command]
-async fn search_project(
-    root: String,
-    query: String,
-    max: Option<usize>,
-    ignore_case: Option<bool>,
-) -> Result<Vec<tutor_eval::search::SearchHit>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::search::search_project(
-            std::path::Path::new(&root),
-            &query,
-            max.unwrap_or(500),
-            ignore_case.unwrap_or(false),
-        )
-    })
-    .await
-    .map_err(|e| format!("search task failed: {e}"))
-}
-
-/// Section 5 (daily work): list the project's files (relative, sorted) for quick-open.
-/// Offline, bounded; runs off the UI thread.
-#[tauri::command]
-async fn list_files(root: String, max: Option<usize>) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        tutor_eval::search::list_files(std::path::Path::new(&root), max.unwrap_or(5000))
-    })
-    .await
-    .map_err(|e| format!("list_files task failed: {e}"))
-}
-
-/// Section 5 (DAP): what the host can really do for debugging. Honest — `available` is
-/// true only when a real DAP adapter is installed; otherwise the note points at the
-/// instrumentation tracer (Visualize) as the fallback. Detection only, starts nothing.
-#[tauri::command]
-fn debug_capabilities() -> tutor_eval::dap::DebugCapability {
-    tutor_eval::dap::detect_debug_adapter()
-}
-
-/// Compile and run a COMPLETE Rust program (a drill's target the student retyped)
-/// and return its output. Never judges an exercise — it just executes.
-#[tauri::command]
-async fn run_drill(code: String, language: String, dependencies: Vec<String>) -> Result<RunDto, String> {
-    // Compile + run a complete program in the drill's language. Go uses `go run`
-    // (with `go mod tidy` to fetch any imports); everything else uses the Rust path.
-    // `dependencies` are extra Cargo `[dependencies]` lines the drill needs (e.g.
-    // rusqlite for the database track); empty for std-only drills. Go resolves its
-    // imports via `go mod tidy`, so it ignores this list.
-    // async + spawn_blocking: compiling/running is long blocking work — keep it off the
-    // webview's main thread so the app never freezes while a drill runs.
-    tauri::async_runtime::spawn_blocking(move || -> Result<RunDto, String> {
-        let out = match language.trim().to_ascii_lowercase().as_str() {
-            "go" | "golang" => tutor_eval::run_go_program_with_deps(&code, &dependencies),
-            _ => tutor_eval::run_rust_snippet_with_deps(&code, &dependencies),
-        }
-        .map_err(|e| format!("run failed: {e}"))?;
-        Ok(RunDto {
-            ok: out.ok,
-            stdout: out.stdout,
-            stderr: out.stderr,
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Compile and run a COMPLETE Rust program and return its output PLUS real,
-/// kernel-measured telemetry (wall clock, user/sys CPU, peak RSS, I/O blocks).
-/// Honest observability: every number is measured from the student's own
-/// process via `wait4`/`rusage` — no fabricated GPU/NPU figures.
-#[tauri::command]
-async fn run_measured(code: String) -> Result<MeasuredRunDto, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<MeasuredRunDto, String> {
-        let (out, telemetry) = tutor_eval::run_rust_snippet_measured(&code)
-            .map_err(|e| format!("measured run failed: {e}"))?;
-        Ok(MeasuredRunDto {
-            run: RunDto {
-                ok: out.ok,
-                stdout: out.stdout,
-                stderr: out.stderr,
-            },
-            telemetry: telemetry_dto(&telemetry),
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Run the real compiler pipeline over the student's code: MIR, LLVM-IR, assembly,
-/// binary size, and (if `objdump` exists) a disassembly. Shows honestly what the
-/// toolchain actually produces; missing stages are reported in `notes`.
-#[tauri::command]
-async fn compile_pipeline(code: String) -> Result<PipelineDto, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<PipelineDto, String> {
-        let pipeline =
-            tutor_eval::compile_pipeline(&code).map_err(|e| format!("compile pipeline failed: {e}"))?;
-        Ok(pipeline_dto(pipeline))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Produce a step-through execution TRACE of the student's program (Python-Tutor
-/// style): run it under `sys.settrace` and return every executed line/call/return
-/// with the frame's locals, stack depth, and accumulated stdout length. Honest:
-/// the trace is the REAL execution; runtime errors land in `notes`, nothing is
-/// fabricated. Only Python is supported here; other languages come back with
-/// `supported = false` and an honest reason.
-#[tauri::command]
-async fn trace_execution(language: String, code: String) -> Result<ExecutionTraceDto, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<ExecutionTraceDto, String> {
-        let trace = tutor_eval::trace_execution(&language, &code)
-            .map_err(|e| format!("trace failed: {e}"))?;
-        Ok(execution_trace_dto(trace))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Grade a `challenge` step: find it across the courses' units, build a `Phase`
-/// from it and reuse the honest evaluator (`tutor_eval::assess`).
-#[tauri::command]
-async fn submit_step(step_id: String, code: String) -> Result<AssessmentDto, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<AssessmentDto, String> {
-        for course in tutor_core::builtin_courses() {
-            if let Some(step) = course.step(&step_id) {
-                let phase = step
-                    .as_phase(&course.language, Level::Basico)
-                    .ok_or_else(|| format!("step `{step_id}` is not a challenge"))?;
-                let assessment =
-                    tutor_eval::assess(&phase, &code).map_err(|e| format!("evaluation failed: {e}"))?;
-                return Ok(assessment_dto(&assessment, &phase));
-            }
-        }
-        Err(format!("step `{step_id}` not found"))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-// ── Scaffolding commands (glossary + study guide) ────────────────────────────
-
-/// Load the curated glossary for a language (e.g. `"rust"`). Each entry explains
-/// a reserved word or core item: what it does, when to use it, and an example.
-#[tauri::command]
-fn get_glossary(language: String) -> Result<GlossaryDto, String> {
-    let glossary = tutor_core::load_glossary(&language)
-        .ok_or_else(|| format!("no glossary for language `{language}`"))?;
-    Ok(GlossaryDto {
-        entries: glossary
-            .entries
-            .into_iter()
-            .map(|e| GlossaryEntryDto {
-                keyword: e.keyword,
-                summary: e.summary,
-                when_to_use: e.when_to_use,
-                example: e.example,
-            })
-            .collect(),
-    })
-}
-
-/// Load the remediation study guide for a unit (e.g. `"u1-hello"`) in a language.
-/// Shown to a struggling learner so they can re-read the unit's concepts calmly.
-#[tauri::command]
-fn get_study_guide(language: String, unit_id: String) -> Result<StudyGuideDto, String> {
-    let guide = tutor_core::load_study_guide(&language, &unit_id).ok_or_else(|| {
-        format!("no study guide for language `{language}` unit `{unit_id}`")
-    })?;
-    Ok(StudyGuideDto {
-        title: guide.title,
-        body: guide.body,
-    })
-}
+// ── Grupo `estudo`/`missões` (secção 3): o 13º e ÚLTIMO grupo extraído de `lib.rs` ──
+// Os onze comandos de estudo (`list_phases`, `submit`, `submit_step`, `request_hint`,
+// `request_plan`, `request_fix`, `get_course`, `list_courses`, `study_policy`, `get_glossary`,
+// `get_study_guide`) saíram para `commands::study` (adaptadores finos) sobre o caso de uso
+// Tauri-free `crate::study`: classificação de passos
+// (`course_step`/`step_language`/`step_is_autonomous`, partilhadas com `commands::assistant`),
+// política de estudo, carregamento de conteúdo com erro tipado `StudyError`, e avaliação
+// honesta (`grade_phase`/`grade_step`, que reusam `tutor_eval::assess`, a fonte de verdade).
+// Os provedores LLM de `request_hint`/`plan`/`fix` ficam no adaptador; a regra offline curada
+// (`study::curated_hint`) e o `PROJECT_ID` migraram para o caso de uso.
+//
+// Os quatro comandos de missões/execução (`run_drill`, `run_measured`, `compile_pipeline`,
+// `trace_execution`) saíram para `commands::missions` — passagens sobre `tutor_eval` (já
+// Tauri-free: runner, medição `wait4`/`rusage`, pipeline do toolchain, tracer); a única regra
+// isolada é o despacho Go-vs-Rust do drill (`missions::drill_language`, puro e testável).
+//
+// `lib.rs` guarda só os DTOs serializáveis (`ProjectDto`/`AssessmentDto`/`CourseDto`/
+// `CourseSummaryDto`/`GlossaryDto`/`StudyGuideDto`/`HintDto`/`PlanDto`/`RunDto`/
+// `MeasuredRunDto`/`PipelineDto`/`ExecutionTraceDto`) + os seus mappers `pub(crate)` — a
+// fronteira de serialização para o webview, partilhada entre grupos. Importados por nome
+// acima; registados sem prefixo no registo de handlers.
+
+// `get_diagnostics` migrou para `commands::assistant` (adaptador fino sobre a regra de
+// mapeamento `crate::assistant::diagnostics`), Etapa 3. Ver `use commands::assistant::…`.
+
+// ── review de código ──
+// Os comandos `review_code` / `list_review_analyzers` / `verify_review_fix` saíram
+// para `commands/review.rs` (adaptadores finos) sobre o caso de uso Tauri-free
+// `crate::review` (Etapa 3). Ver `use commands::review::…` no topo.
+
+// Grupo `assistant`/providers (`assistant_models`, `assistant_chat`, `list_providers`,
+// `get_providers_config`, `save_providers_config`, `assistant_chat_stream`,
+// `assistant_cancel`, `get_diagnostics`) extraído para `commands::assistant` (adaptadores
+// finos) sobre o caso de uso Tauri-free `crate::assistant` — Etapa 3. A política de estudo,
+// a validação de provider, o dispatch do stream e o registo de cancelamento vivem no caso
+// de uso; a emissão dos eventos `llm://token|done|error` fica no adaptador. Importados por
+// nome acima; registados sem prefixo.
+
+// `codev_policy` migrou para `commands::codev` (adaptador fino sobre a regra
+// `crate::codev::policy_for_mode`), Etapa 3. Ver `use commands::codev::…` no topo.
+
+// `assistant_chat_stream` e `assistant_cancel` migraram para `commands::assistant` (Etapa 3):
+// a preparação do stream (política + provider) e o dispatch SSE são `crate::assistant`; os
+// eventos `llm://*` e a thread ficam no adaptador. Ver `use commands::assistant::…`.
+
+// Grupo `testes`/execução (`list_tests`, `run_test`, `run_all_tests`, `run_tests`,
+// `run_path`) extraído para `commands::tests` (adaptadores finos) sobre o caso de uso
+// Tauri-free `crate::testexec` — Etapa 3. Importados por nome acima; registados sem prefixo.
+
+// Grupo `debug` (DAP, secção 5): os dez comandos `debug_*` — detecção
+// (`debug_capabilities`/`debug_available`) e o motor gdb/MI
+// (`debug_launch`/`break`/`run`/`continue`/`step`/`locals`/`stack`/`stop`) — foram
+// extraídos para `commands::debug_cmds` (adaptadores finos) sobre o caso de uso Tauri-free
+// `crate::debug`, que já encapsulava o driver gdb/MI e ganhou a fachada `capabilities()`.
+// É um grupo de passagens: nenhuma regra nova; os adaptadores só desembrulham o
+// `tauri::State<'_, DebugSessions>` para `&DebugSessions`. Importados por nome acima;
+// registados sem prefixo no registo de handlers. O registo da sessão (`DebugSessions`)
+// continua gerido pelo Tauri (`.manage(...)` abaixo).
+
+// Grupo `git` (SCM, secção 5): os treze comandos `git_*` — leituras
+// (`git_changes`/`git_log`/`git_show`/`git_branch`/`git_branches`/`git_diff`) e mutações
+// (`git_stage`/`git_unstage`/`git_stage_all`/`git_commit`/`git_checkout`/`git_create_branch`/
+// `git_clone`) — foram extraídos para `commands::git` (adaptadores finos) sobre o caso de uso
+// Tauri-free `crate::gitops` (erro tipado `GitError`, página por omissão do histórico,
+// default de diff). Importados por nome acima; registados sem prefixo no registo de handlers.
+
+// `run_tests` (suite do projecto, host-vs-sessão) extraído para `commands::tests` sobre o
+// caso de uso Tauri-free `testexec::run_project_suite` (erro tipado `TestError`, DTO
+// `SuiteRun`) — Etapa 3.
+
+// Grupo `agente`/`arquitectura` (secção 9): os sete comandos — arquitectura
+// (`arch_validate`/`arch_scaffold`/`arch_scaffold_preview`) e tarefa cloud-shaped
+// (`agent_isolated_patch` + `agent_task_submit`/`status`/`cancel`, RF-AG-01) — foram
+// extraídos para `commands::agent` (adaptadores finos) sobre o caso de uso Tauri-free
+// `crate::agent`: regra do scaffold com erro tipado `ScaffoldError`, registo de tarefas
+// como orquestração pura (`AgentTask`, transições `running → done|error`), e o executor
+// isolado `worktree_patch` re-exportado como fachada. Importados por nome acima; registados
+// sem prefixo no registo de handlers.
+
+// Os quatro `codev_session_*` migraram para `commands::codev` (adaptadores finos sobre o
+// mecanismo de worktrees `crate::codev::session_*`), Etapa 3. Ver `use commands::codev::…`.
+
+// Os quatro comandos de pesquisa/projecto (`search_project`, `list_files`,
+// `read_folder_sources`, `detect_projects`) migraram para `commands::search` (adaptadores
+// finos sobre o caso de uso Tauri-free `crate::search`), Etapa 3. Ver `use commands::search::…`.
 
 // ── IDE/Workspace runner command ─────────────────────────────────────────────
+// `run_path` (correr um ficheiro do Explorer) extraído para `commands::tests` sobre o caso
+// de uso Tauri-free `testexec::split_args` (+ `fsops::run_file`, intocado) — Etapa 3.
 
-/// Run a real file/project from the Explorer and return its captured output.
-/// Reuses `RunDto { ok, stdout, stderr }`. Runner selection and the wall-clock
-/// timeout + kill live in `fsops::run_file`.
-#[tauri::command]
-async fn run_path(path: String, args: Option<String>) -> Result<RunDto, String> {
-    // Optional program arguments (e.g. "add 2 3") are split on whitespace and forwarded to the
-    // program — so a CLI can actually be exercised, not just run with no args.
-    let argv: Vec<String> = args
-        .unwrap_or_default()
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
-    // MUST be async + spawn_blocking: `fsops::run_file` compiles/runs the file (and, under
-    // the Delonix/Docker sandbox, spins up a container) — long blocking work. On a SYNC
-    // command that runs on the webview's main thread and FREEZES the whole app until it
-    // returns. Off-loading it keeps the UI responsive (the spinner shows, the app stays live).
-    tauri::async_runtime::spawn_blocking(move || -> Result<RunDto, String> {
-        let r = fsops::run_file(&path, &argv)?;
-        Ok(RunDto {
-            ok: r.ok,
-            stdout: r.stdout,
-            stderr: r.stderr,
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
+// ── Stack services (F8) + selecção de motor de sandbox ──────────────────────────────────
+// Os três comandos sandbox/run (`compose_ps`, `get_sandbox_engine`, `set_sandbox_engine`)
+// + o DTO `ComposeService`, o parser puro `parse_compose_ps` e o erro tipado
+// `SandboxError` (motor desconhecido / falha do `docker compose ps`) migraram para
+// `commands::sandbox` (adaptadores finos) sobre o caso de uso Tauri-free `crate::sandbox`,
+// Etapa 3. Ver `use commands::sandbox::…` no topo. (A precedência runtime→env→host do motor
+// continua em `tutor_eval`; o arranque em `run()` chama `tutor_eval::set_engine` directo.)
 
-/// The project's runnable entry file under `root`, if one can be identified by its build
-/// manifest (Cargo/Go/Python), else `null`. The Explorer's Run button uses this so it runs
-/// the PROJECT entry point (e.g. `cargo run`) rather than whichever file is focused.
-#[tauri::command]
-fn project_entrypoint(root: String) -> Option<String> {
-    fsops::project_entrypoint(&root)
-}
+// `ProjectInfo`/`project_kind`/`detect_projects` + `FolderSource`/`read_folder_sources`
+// migraram para `commands::search` (adaptadores finos) sobre o caso de uso Tauri-free
+// `crate::search` (DTOs, walk de projectos e recolha de fontes), Etapa 3.
 
-// ── Stack services (F8): docker compose ps → lista estruturada para a vista Services ──────
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ComposeService {
-    name: String,
-    service: String,
-    state: String,
-    status: String,
-    image: String,
-    ports: Vec<String>,
-}
-
-/// Faz o parse de `docker compose ps --format json`. O Compose v2 emite NDJSON (um objecto
-/// por linha); algumas versões emitem um único array JSON. Tolerante a campos em falta (usa
-/// `serde_json::Value`), para que uma mudança de formato degrade para vazios em vez de falhar.
-/// Função PURA → testada.
-fn parse_compose_ps(stdout: &str) -> Vec<ComposeService> {
-    let s = stdout.trim();
-    if s.is_empty() {
-        return Vec::new();
-    }
-    let objs: Vec<serde_json::Value> = if s.starts_with('[') {
-        serde_json::from_str::<Vec<serde_json::Value>>(s).unwrap_or_default()
-    } else {
-        s.lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-            .collect()
-    };
-    let field = |v: &serde_json::Value, keys: &[&str]| -> String {
-        for k in keys {
-            if let Some(x) = v.get(*k).and_then(|x| x.as_str()) {
-                return x.to_string();
-            }
-        }
-        String::new()
-    };
-    objs.iter()
-        .map(|v| {
-            let ports = v
-                .get("Publishers")
-                .and_then(|p| p.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|pb| {
-                            let tgt = pb.get("TargetPort").and_then(|x| x.as_u64());
-                            let publ = pb.get("PublishedPort").and_then(|x| x.as_u64());
-                            match (publ, tgt) {
-                                (Some(p), Some(t)) if p != 0 => Some(format!("{p}->{t}")),
-                                (_, Some(t)) => Some(format!("{t}")),
-                                _ => None,
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            ComposeService {
-                name: field(v, &["Name"]),
-                service: field(v, &["Service"]),
-                state: field(v, &["State"]),
-                status: field(v, &["Status", "Health"]),
-                image: field(v, &["Image"]),
-                ports,
-            }
-        })
-        .collect()
-}
-
-/// Lista os serviços da stack em execução sob `root`, via `docker compose ps --format json`.
-/// Honesto: se docker/compose não existir, devolve o erro do spawn; se não há stack ou ficheiro
-/// compose, o compose sai com uma mensagem que é propagada. Nada é simulado.
-#[tauri::command]
-async fn compose_ps(root: String) -> Result<Vec<ComposeService>, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ComposeService>, String> {
-        let out = std::process::Command::new("docker")
-            .args(["compose", "ps", "--format", "json"])
-            .current_dir(&root)
-            .output()
-            .map_err(|e| format!("could not run docker: {e}"))?;
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr);
-            return Err(if err.trim().is_empty() {
-                "docker compose ps failed".to_string()
-            } else {
-                err.trim().to_string()
-            });
-        }
-        Ok(parse_compose_ps(&String::from_utf8_lossy(&out.stdout)))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-// ── Sandbox engine selection ──────────────────────────────────────────────────
-
-/// Current sandbox engine as a short string: `"host" | "delonix" | "docker" |
-/// "podman"`. Reflects the runtime override (set via `set_sandbox_engine`), else
-/// the `DXTUTOR_SANDBOX_ENGINE` env var, else `"host"`.
-#[tauri::command]
-fn get_sandbox_engine() -> String {
-    tutor_eval::engine_name(tutor_eval::current_engine()).to_string()
-}
-
-/// Switch the sandbox engine at runtime. Accepts `"delonix" | "docker" | "podman" |
-/// "host"` (case-insensitive). Everything that executes student/user code
-/// afterwards (drills, measured runs, traces, the Explorer runner) honors it.
-#[tauri::command]
-fn set_sandbox_engine(engine: String) -> Result<String, String> {
-    let parsed = tutor_eval::parse_engine(&engine)
-        .ok_or_else(|| format!("unknown engine `{engine}` (use host|delonix|docker|podman)"))?;
-    tutor_eval::set_engine(parsed);
-    Ok(tutor_eval::engine_name(parsed).to_string())
-}
-
-/// A project detected inside the open folder — a sub-directory (or the root itself) that
-/// carries a recognised build-manifest. Lets the Agent focus on one project when a
-/// workspace holds several.
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectInfo {
-    name: String,
-    path: String,
-    kind: String,
-}
-
-fn project_kind(dir: &std::path::Path) -> Option<&'static str> {
-    const MARKERS: &[(&str, &str)] = &[
-        ("Cargo.toml", "rust"),
-        ("go.mod", "go"),
-        ("package.json", "node"),
-        ("pyproject.toml", "python"),
-        ("requirements.txt", "python"),
-        ("pom.xml", "java"),
-        ("build.gradle", "java"),
-        ("composer.json", "php"),
-        ("Gemfile", "ruby"),
-    ];
-    MARKERS
-        .iter()
-        .find(|(file, _)| dir.join(file).is_file())
-        .map(|(_, kind)| *kind)
-}
-
-/// Detect projects at the root and one level down (skipping hidden / build dirs), so the
-/// Agent can pin its focus to a specific project in a multi-project workspace.
-#[tauri::command]
-async fn detect_projects(root: String) -> Result<Vec<ProjectInfo>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = std::path::Path::new(&root);
-        let mut out = Vec::new();
-        let mut push = |dir: &std::path::Path| {
-            if let Some(kind) = project_kind(dir) {
-                out.push(ProjectInfo {
-                    name: dir
-                        .file_name()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| dir.to_string_lossy().into_owned()),
-                    path: dir.to_string_lossy().into_owned(),
-                    kind: kind.to_string(),
-                });
-            }
-        };
-        push(base);
-        if let Ok(rd) = std::fs::read_dir(base) {
-            let mut subdirs: Vec<_> = rd
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| {
-                    p.is_dir()
-                        && !p
-                            .file_name()
-                            .map(|n| {
-                                let n = n.to_string_lossy();
-                                n.starts_with('.')
-                                    || matches!(
-                                        n.as_ref(),
-                                        "node_modules" | "target" | "dist" | "build" | "vendor"
-                                    )
-                            })
-                            .unwrap_or(false)
-                })
-                .collect();
-            subdirs.sort();
-            for d in subdirs {
-                push(&d);
-            }
-        }
-        out
-    })
-    .await
-    .map_err(|e| format!("detect_projects task failed: {e}"))
-}
-
-/// One source file gathered for a folder-level Explain.
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FolderSource {
-    path: String,
-    content: String,
-}
-
-/// Collect source files under `dir` (recursive, skipping hidden / build dirs), bounded by
-/// `max_files` and `max_bytes` total, for a module-level Explain. Honest truncation: stops
-/// adding once a cap is hit.
-#[tauri::command]
-async fn read_folder_sources(
-    dir: String,
-    max_files: Option<usize>,
-    max_bytes: Option<usize>,
-) -> Result<Vec<FolderSource>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        const EXTS: &[&str] = &[
-            "rs", "py", "js", "mjs", "ts", "tsx", "jsx", "go", "java", "rb", "php", "c", "h",
-            "cpp", "hpp", "cs", "swift", "kt",
-        ];
-        let max_files = max_files.unwrap_or(10);
-        let max_bytes = max_bytes.unwrap_or(48_000);
-        let base = std::path::Path::new(&dir);
-        let mut out: Vec<FolderSource> = Vec::new();
-        let mut total = 0usize;
-        let mut stack = vec![base.to_path_buf()];
-        while let Some(d) = stack.pop() {
-            let rd = match std::fs::read_dir(&d) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            let mut entries: Vec<_> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
-            entries.sort();
-            for p in entries {
-                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                if name.starts_with('.') {
-                    continue;
-                }
-                if p.is_dir() {
-                    if !matches!(name.as_str(), "node_modules" | "target" | "dist" | "build" | "vendor") {
-                        stack.push(p);
-                    }
-                    continue;
-                }
-                if out.len() >= max_files || total >= max_bytes {
-                    return out;
-                }
-                let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if !EXTS.contains(&ext) {
-                    continue;
-                }
-                if let Ok(content) = std::fs::read_to_string(&p) {
-                    total += content.len();
-                    out.push(FolderSource {
-                        path: p.to_string_lossy().into_owned(),
-                        content,
-                    });
-                }
-            }
-        }
-        out
-    })
-    .await
-    .map_err(|e| format!("read_folder_sources task failed: {e}"))
-}
-
-/// Dev Container presence + name for the Remote view. Looks for
-/// `.devcontainer/devcontainer.json` or a top-level `.devcontainer.json`.
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DevcontainerInfo {
-    present: bool,
-    name: Option<String>,
-    image: Option<String>,
-    path: Option<String>,
-}
-
-#[tauri::command]
-async fn devcontainer_info(root: String) -> Result<DevcontainerInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = std::path::Path::new(&root);
-        for rel in [".devcontainer/devcontainer.json", ".devcontainer.json"] {
-            let p = base.join(rel);
-            if p.is_file() {
-                // devcontainer.json is JSONC; strip // and /* */ comments before parsing so
-                // a commented template still yields its fields. Best-effort (None on failure).
-                let v = std::fs::read_to_string(&p).ok().and_then(|s| {
-                    serde_json::from_str::<serde_json::Value>(&strip_jsonc_comments(&s)).ok()
-                });
-                let field = |k: &str| {
-                    v.as_ref()
-                        .and_then(|v| v.get(k).and_then(|n| n.as_str().map(String::from)))
-                };
-                // Prefer the explicit image; fall back to a dockerfile reference for display.
-                let image = field("image").or_else(|| {
-                    v.as_ref()
-                        .and_then(|v| v.get("build"))
-                        .and_then(|b| b.get("dockerfile"))
-                        .and_then(|d| d.as_str().map(|s| format!("Dockerfile: {s}")))
-                });
-                return DevcontainerInfo {
-                    present: true,
-                    name: field("name"),
-                    image,
-                    path: Some(p.to_string_lossy().into_owned()),
-                };
-            }
-        }
-        DevcontainerInfo { present: false, name: None, image: None, path: None }
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DevcontainerUp {
-    ok: bool,
-    image: String,
-    built: bool,
-    ran: String,
-    stdout: String,
-    stderr: String,
-}
-
-/// Resolve the image to run for a devcontainer: an explicit `image`, or a built image from
-/// `build.dockerfile`. Returns `(image_ref, built)` — building when necessary. Build output
-/// is prefixed onto `log` so the caller can surface it.
-fn devcontainer_image(
-    base: &std::path::Path,
-    v: &serde_json::Value,
-    log: &mut String,
-) -> Result<(String, bool), String> {
-    if let Some(img) = v.get("image").and_then(|i| i.as_str()) {
-        return Ok((img.to_string(), false));
-    }
-    // build: { dockerfile, context } — dockerfile path is relative to the .devcontainer dir.
-    let build = v.get("build").ok_or_else(|| {
-        "devcontainer.json has neither `image` nor `build.dockerfile`.".to_string()
-    })?;
-    let dockerfile = build
-        .get("dockerfile")
-        .and_then(|d| d.as_str())
-        .ok_or_else(|| "build has no `dockerfile`.".to_string())?;
-    // The .devcontainer directory is the reference dir for build paths.
-    let dc_dir = base.join(".devcontainer");
-    let ref_dir = if dc_dir.is_dir() { dc_dir } else { base.to_path_buf() };
-    let dockerfile_path = ref_dir.join(dockerfile);
-    let context = build
-        .get("context")
-        .and_then(|c| c.as_str())
-        .map(|c| ref_dir.join(c))
-        .unwrap_or_else(|| ref_dir.clone());
-    let tag = format!(
-        "dxtutor-dc-{}",
-        base.file_name()
-            .map(|s| s.to_string_lossy().to_lowercase())
-            .unwrap_or_else(|| "project".into())
-    );
-    log.push_str(&format!("▸ building {tag} from {}\n", dockerfile_path.display()));
-    let out = tutor_eval::build_image(&context, &dockerfile_path, &tag).map_err(|e| e.to_string())?;
-    log.push_str(&out);
-    log.push('\n');
-    Ok((tag, true))
-}
-
-/// Bring the Dev Container up: resolve/build its image, then run `postCreateCommand` (or a
-/// readiness probe) inside it with the workspace bind-mounted, via the active engine. Now
-/// supports Dockerfile-based devcontainers (it builds first). One-shot per call.
-#[tauri::command]
-async fn devcontainer_up(root: String) -> Result<DevcontainerUp, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = std::path::Path::new(&root);
-        let file = [".devcontainer/devcontainer.json", ".devcontainer.json"]
-            .iter()
-            .map(|r| base.join(r))
-            .find(|p| p.is_file())
-            .ok_or_else(|| "No devcontainer.json in this folder.".to_string())?;
-        let text = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
-        let v: serde_json::Value = serde_json::from_str(&strip_jsonc_comments(&text))
-            .map_err(|e| format!("devcontainer.json is not valid JSON: {e}"))?;
-
-        let mut log = String::new();
-        let (image, built) = devcontainer_image(base, &v, &mut log)?;
-
-        // postCreateCommand: string, array (joined), else a readiness probe.
-        let post = match v.get("postCreateCommand") {
-            Some(serde_json::Value::String(s)) => s.clone(),
-            Some(serde_json::Value::Array(a)) => a
-                .iter()
-                .filter_map(|x| x.as_str())
-                .collect::<Vec<_>>()
-                .join(" "),
-            _ => "echo \"container ready: $(pwd)\"; uname -s; ls -a".to_string(),
-        };
-
-        let mut spec = tutor_eval::ContainerSpec::new(
-            image.clone(),
-            base.to_path_buf(),
-            vec!["sh".into(), "-lc".into(), post.clone()],
-        );
-        spec.network = true;
-        spec.timeout = std::time::Duration::from_secs(300);
-
-        let out = tutor_eval::run_in_container(spec).map_err(|e| e.to_string())?;
-        Ok(DevcontainerUp {
-            ok: out.ok,
-            image,
-            built,
-            ran: post,
-            stdout: format!("{log}{}", out.stdout),
-            stderr: out.stderr,
-        })
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))?
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionStatus {
-    running: bool,
-    name: String,
-}
-
-/// Start a PERSISTENT devcontainer session: resolve/build the image, then run a long-lived
-/// container with the workspace mounted. Unlike devcontainer_up (one-shot), state persists
-/// across exec calls — the real attached session. Returns the build log + container name.
-#[tauri::command]
-async fn devcontainer_session_up(root: String) -> Result<DevcontainerUp, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = std::path::Path::new(&root);
-        let file = [".devcontainer/devcontainer.json", ".devcontainer.json"]
-            .iter()
-            .map(|r| base.join(r))
-            .find(|p| p.is_file())
-            .ok_or_else(|| "No devcontainer.json in this folder.".to_string())?;
-        let v: serde_json::Value =
-            serde_json::from_str(&strip_jsonc_comments(&std::fs::read_to_string(&file).map_err(
-                |e| e.to_string(),
-            )?))
-            .map_err(|e| format!("devcontainer.json is not valid JSON: {e}"))?;
-        let mut log = String::new();
-        let (image, built) = devcontainer_image(base, &v, &mut log)?;
-        let name = tutor_eval::session_up(base, &image).map_err(|e| e.to_string())?;
-        log.push_str(&format!("▸ session started: {name}\n"));
-        Ok(DevcontainerUp {
-            ok: true,
-            image,
-            built,
-            ran: "session up".into(),
-            stdout: log,
-            stderr: String::new(),
-        })
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))?
-}
-
-/// Exec a command inside the RUNNING persistent session (state preserved between calls).
-#[tauri::command]
-async fn devcontainer_session_exec(root: String, cmd: String) -> Result<DevcontainerUp, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = std::path::Path::new(&root);
-        let name = tutor_eval::session_name(base);
-        if !tutor_eval::session_running(&name) {
-            return Err("No running session — press Reopen in Container first.".to_string());
-        }
-        let out = tutor_eval::session_exec(&name, &cmd).map_err(|e| e.to_string())?;
-        Ok(DevcontainerUp {
-            ok: out.ok,
-            image: name,
-            built: false,
-            ran: cmd,
-            stdout: out.stdout,
-            stderr: out.stderr,
-        })
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))?
-}
-
-/// Run the active file INSIDE the persistent session (the container's toolchain), picking
-/// the runner by extension and executing from /work. The project agent for execution.
-#[tauri::command]
-async fn devcontainer_session_run(root: String, file: String) -> Result<DevcontainerUp, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = std::path::Path::new(&root);
-        let name = tutor_eval::session_name(base);
-        if !tutor_eval::session_running(&name) {
-            return Err("No running session — press Reopen in Container first.".to_string());
-        }
-        let rel = std::path::Path::new(&file)
-            .strip_prefix(base)
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or(file.clone());
-        let has_cargo = base.join("Cargo.toml").is_file();
-        let runner = tutor_eval::run_file_command(&rel, has_cargo)
-            .ok_or_else(|| format!("No in-container runner for `{rel}`."))?;
-        let out = tutor_eval::session_exec(&name, &format!("cd /work && {runner}"))
-            .map_err(|e| e.to_string())?;
-        Ok(DevcontainerUp {
-            ok: out.ok,
-            image: name,
-            built: false,
-            ran: runner,
-            stdout: out.stdout,
-            stderr: out.stderr,
-        })
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn devcontainer_session_status(root: String) -> Result<SessionStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let name = tutor_eval::session_name(std::path::Path::new(&root));
-        SessionStatus {
-            running: tutor_eval::session_running(&name),
-            name,
-        }
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))
-}
-
-#[tauri::command]
-async fn devcontainer_session_down(root: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let name = tutor_eval::session_name(std::path::Path::new(&root));
-        tutor_eval::session_down(&name).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))?
-}
-
-/// Run an arbitrary command inside the devcontainer image with the workspace mounted — the
-/// practical "attach" affordance (exec a shell line in the project's container env).
-#[tauri::command]
-async fn devcontainer_exec(root: String, cmd: String) -> Result<DevcontainerUp, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = std::path::Path::new(&root);
-        let file = [".devcontainer/devcontainer.json", ".devcontainer.json"]
-            .iter()
-            .map(|r| base.join(r))
-            .find(|p| p.is_file())
-            .ok_or_else(|| "No devcontainer.json in this folder.".to_string())?;
-        let v: serde_json::Value =
-            serde_json::from_str(&strip_jsonc_comments(&std::fs::read_to_string(&file).map_err(
-                |e| e.to_string(),
-            )?))
-            .map_err(|e| format!("devcontainer.json is not valid JSON: {e}"))?;
-        let mut log = String::new();
-        let (image, built) = devcontainer_image(base, &v, &mut log)?;
-        let mut spec = tutor_eval::ContainerSpec::new(
-            image.clone(),
-            base.to_path_buf(),
-            vec!["sh".into(), "-lc".into(), cmd.clone()],
-        );
-        spec.network = true;
-        spec.timeout = std::time::Duration::from_secs(300);
-        let out = tutor_eval::run_in_container(spec).map_err(|e| e.to_string())?;
-        Ok(DevcontainerUp {
-            ok: out.ok,
-            image,
-            built,
-            ran: cmd,
-            stdout: format!("{log}{}", out.stdout),
-            stderr: out.stderr,
-        })
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))?
-}
-
-/// Strip `//` line and `/* */` block comments (JSONC) outside of string literals.
-fn strip_jsonc_comments(src: &str) -> String {
-    let b = src.as_bytes();
-    let mut out = String::with_capacity(src.len());
-    let (mut i, mut in_str, mut esc) = (0usize, false, false);
-    while i < b.len() {
-        let c = b[i] as char;
-        if in_str {
-            out.push(c);
-            if esc {
-                esc = false;
-            } else if c == '\\' {
-                esc = true;
-            } else if c == '"' {
-                in_str = false;
-            }
-            i += 1;
-            continue;
-        }
-        if c == '"' {
-            in_str = true;
-            out.push(c);
-            i += 1;
-        } else if c == '/' && i + 1 < b.len() && b[i + 1] == b'/' {
-            while i < b.len() && b[i] != b'\n' {
-                i += 1;
-            }
-        } else if c == '/' && i + 1 < b.len() && b[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
-                i += 1;
-            }
-            i += 2;
-        } else {
-            out.push(c);
-            i += 1;
-        }
-    }
-    out
-}
+// Os oito comandos `devcontainer_*` (+ DTOs `DevcontainerInfo`/`DevcontainerUp`/
+// `SessionStatus`, a resolução de imagem, o parsing JSONC `strip_jsonc_comments` e o erro
+// tipado `DevcontainerError`) migraram para `commands::devcontainer` (adaptadores finos)
+// sobre o caso de uso Tauri-free `crate::devcontainer`, Etapa 3. Ver `use
+// commands::devcontainer::…` no topo.
 
 // ── PairCode (exclusivo do dxtutor-ide): sessão par-a-par com WebRTC no webview ──
-
-fn pair_events(app: &tauri::AppHandle) -> pair::Events {
-    use tauri::Emitter;
-    let (a, b) = (app.clone(), app.clone());
-    pair::Events {
-        status: std::sync::Arc::new(move |v| {
-            let _ = a.emit("pair-status", v);
-        }),
-        msg: std::sync::Arc::new(move |m| {
-            let _ = b.emit("pair-msg", m);
-        }),
-    }
-}
-
-/// PairCode: start hosting and return the token for the other developer.
-#[tauri::command]
-async fn pair_host(app: tauri::AppHandle, state: tauri::State<'_, pair::Pair>, name: String, port: Option<u16>) -> Result<String, String> {
-    let p = state.inner().clone();
-    p.host(&name, port, pair_events(&app)).await
-}
-
-/// PairCode: join with a token; `via` ("host:port") overrides the addresses inside it.
-#[tauri::command]
-async fn pair_join(app: tauri::AppHandle, state: tauri::State<'_, pair::Pair>, token: String, via: Option<String>) -> Result<String, String> {
-    let p = state.inner().clone();
-    p.join(&token, via, pair_events(&app)).await
-}
-
-#[tauri::command]
-fn pair_send(state: tauri::State<'_, pair::Pair>, msg: String) -> Result<(), String> {
-    state.send(&msg)
-}
-
-#[tauri::command]
-fn pair_stop(app: tauri::AppHandle, state: tauri::State<'_, pair::Pair>) {
-    use tauri::Emitter;
-    state.stop();
-    let _ = app.emit("pair-status", serde_json::json!({"state": "idle"}));
-}
+// Os quatro comandos (`pair_host`, `pair_join`, `pair_send`, `pair_stop`) + o helper de
+// emissão `pair_events` migraram para `commands::pair` (adaptadores finos) sobre o caso de
+// uso Tauri-free `crate::pair` (mecanismo TCP + ChaCha20-Poly1305 + WebSocket, intocado),
+// Etapa 3. Ver `use commands::pair::…` no topo. O estado `pair::Pair` continua gerido pelo
+// Tauri (`.manage(...)` abaixo); `enable_media` (abaixo) é setup da App, não um comando.
 
 /// Camera and microphone for the PairCode call: WebKitGTK has them off by default.
 #[cfg(target_os = "linux")]
@@ -2650,35 +951,9 @@ mod tests {
         assert!(files.iter().any(|(p, _)| p == "services/api/Dockerfile"));
     }
 
-    /// F8 Services: NDJSON (um objecto por linha) do `docker compose ps` é parseado nos
-    /// campos que a vista mostra, incluindo as portas publicadas (published->target).
-    #[test]
-    fn parse_compose_ps_ndjson_extracts_fields_and_ports() {
-        let out = concat!(
-            r#"{"Name":"app-web-1","Service":"web","State":"running","Status":"Up 3s","Image":"nginx","Publishers":[{"PublishedPort":8080,"TargetPort":80}]}"#,
-            "\n",
-            r#"{"Name":"app-db-1","Service":"db","State":"running","Status":"Up 3s (healthy)","Image":"postgres:16-alpine","Publishers":[{"PublishedPort":0,"TargetPort":5432}]}"#,
-            "\n",
-        );
-        let svcs = parse_compose_ps(out);
-        assert_eq!(svcs.len(), 2);
-        assert_eq!(svcs[0].service, "web");
-        assert_eq!(svcs[0].ports, vec!["8080->80".to_string()]);
-        assert_eq!(svcs[1].service, "db");
-        assert_eq!(svcs[1].status, "Up 3s (healthy)");
-        assert_eq!(svcs[1].ports, vec!["5432".to_string()]); // não publicado → só a porta interna
-    }
-
-    #[test]
-    fn parse_compose_ps_handles_array_form_and_empty() {
-        assert!(parse_compose_ps("").is_empty());
-        assert!(parse_compose_ps("   \n ").is_empty());
-        let arr = r#"[{"Name":"x","Service":"x","State":"exited","Status":"Exited (0)","Image":"alpine"}]"#;
-        let svcs = parse_compose_ps(arr);
-        assert_eq!(svcs.len(), 1);
-        assert_eq!(svcs[0].state, "exited");
-        assert!(svcs[0].ports.is_empty());
-    }
+    // Os testes de `parse_compose_ps` (NDJSON/array/vazio) migraram para o caso de uso
+    // `crate::sandbox` (Etapa 3) — ver `src-tauri/src/sandbox.rs` e o teste integrado
+    // `src-tauri/tests/sandbox_group.rs`.
 
     /// P0-1 regression: a FAILED attempt must never carry the reference solution.
     /// Serialize the DTO (the exact payload the webview receives) and assert the

@@ -309,6 +309,14 @@ pub fn available() -> bool {
     gdb_path().is_some()
 }
 
+/// What the host can really do for debugging (DAP detection). Fachada Tauri-free da fatia:
+/// o grupo `debug` passa a atravessar `crate::debug` por inteiro — adaptador IPC e teste
+/// integrado alcançam a detecção sem ver `tutor_eval` directamente. Detecta, não arranca nada.
+pub use tutor_eval::dap::DebugCapability;
+pub fn capabilities() -> DebugCapability {
+    tutor_eval::dap::detect_debug_adapter()
+}
+
 /// Core driver API — thin wrappers the Tauri commands call. Pure enough to unit-test with a
 /// real gdb (the test compiles a tiny program and drives it).
 pub mod driver {
@@ -381,6 +389,35 @@ mod tests {
         assert_eq!(mi_field(l, "reason").as_deref(), Some("breakpoint-hit"));
         assert_eq!(mi_field(l, "func").as_deref(), Some("add"));
         assert_eq!(mi_field(l, "line").as_deref(), Some("3"));
+    }
+
+    #[test]
+    fn capabilities_are_honest_and_consistent_with_available() {
+        // Detecção determinística a partir do PATH; nunca entra em pânico e a nota nunca é vazia.
+        let cap = capabilities();
+        assert!(!cap.note.is_empty(), "a nota de capacidade explica sempre o estado");
+        // `available()` (gdb na PATH) e o motor detectado pela DAP coincidem: se há gdb, o
+        // detector vê um motor; a fatia inteira é alcançável sem driver nem tauri::State.
+        if available() {
+            assert!(
+                cap.engine.is_some(),
+                "com gdb na PATH o detector tem de reportar um motor: {cap:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_rejects_unknown_sessions_without_a_debugger() {
+        // Sem gdb/sessão lançada, o registo falha em alto e bom som nos comandos que exigem
+        // uma sessão — a mesma mensagem que o adaptador IPC aplanava para `String`.
+        let sessions = DebugSessions::default();
+        assert_eq!(
+            driver::set_break(&sessions, "ghost", "t.c", 1).unwrap_err(),
+            "no such debug session"
+        );
+        assert_eq!(driver::run(&sessions, "ghost").unwrap_err(), "no such debug session");
+        // `stop` numa sessão inexistente é benigno (remove None → Ok), como antes.
+        assert!(driver::stop(&sessions, "ghost").is_ok());
     }
 
     #[test]

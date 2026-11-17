@@ -22,7 +22,21 @@ bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=1; }
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
 EXPECT_TOTAL=133
 EXPECT_TSNOCHECK=21
-declare -A EXPECT_PER_FILE=( [lib.rs]=95 [bridge.rs]=14 [fsops.rs]=10 [lsp.rs]=8 [pty.rs]=4 [board.rs]=2 )
+# Etapa 3: o grupo `review` (3 cmd) saiu de lib.rs (95→92) para commands/review.rs;
+# depois o grupo `code-intel` (10 cmd) saiu de lib.rs (92→82) para commands/codeintel.rs;
+# depois o grupo `testes`/execução (5 cmd) saiu de lib.rs (82→77) para commands/tests.rs;
+# depois o grupo `git` (13 cmd) saiu de lib.rs (77→64) para commands/git.rs;
+# depois o grupo `co-dev` (5 cmd) saiu de lib.rs (64→59) para commands/codev.rs;
+# depois o grupo `pesquisa` (4 cmd) saiu de lib.rs (59→55) para commands/search.rs;
+# depois o grupo `agente`/`arquitectura` (7 cmd) saiu de lib.rs (55→48) para commands/agent.rs;
+# depois o grupo `assistant`/providers (8 cmd) saiu de lib.rs (48→40) para commands/assistant.rs;
+# depois o grupo `debug`/DAP (10 cmd) saiu de lib.rs (40→30) para commands/debug_cmds.rs;
+# depois o grupo `devcontainers` (8 cmd) saiu de lib.rs (30→22) para commands/devcontainer.rs;
+# depois o grupo `sandbox`/run (3 cmd) saiu de lib.rs (22→19) para commands/sandbox.rs;
+# depois o grupo `PairCode` (4 cmd) saiu de lib.rs (19→15) para commands/pair.rs;
+# depois o 13º e último grupo `estudo`/`missões` (15 cmd) saiu de lib.rs (15→0) para
+# commands/study.rs (11) + commands/missions.rs (4) — lib.rs fica sem #[tauri::command].
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/search.rs]=4 [commands/agent.rs]=7 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=14 [fsops.rs]=10 [lsp.rs]=8 [pty.rs]=4 [board.rs]=2 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -41,8 +55,12 @@ fi
 
 echo "== A2 · #[tauri::command] por ficheiro =="
 sum=0
-for f in lib.rs bridge.rs fsops.rs lsp.rs pty.rs board.rs; do
-  n=$(grep -c '#\[tauri::command\]' "$SRC/$f" 2>/dev/null || echo 0)
+for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/devcontainer.rs commands/sandbox.rs commands/pair.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs board.rs; do
+  # `grep -c` imprime 0 E sai com status 1 quando não há matches (ex. lib.rs após o 13º
+  # grupo sair), por isso NÃO encadeamos `|| echo 0` (duplicaria para "0\n0" e partia a
+  # aritmética); normalizamos o vazio para 0 à parte.
+  n=$(grep -c '#\[tauri::command\]' "$SRC/$f" 2>/dev/null)
+  n=${n:-0}
   sum=$((sum + n))
   if [ "$n" -eq "${EXPECT_PER_FILE[$f]}" ]; then
     pass "$f tem $n comandos (== ${EXPECT_PER_FILE[$f]})"

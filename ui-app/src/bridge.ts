@@ -11,13 +11,16 @@
 
 export {};
 
+import { loadWorkspace, type LoadedWorkspace } from "./platform/tauri/workspace";
+
 interface ExecResult { code: number; stdout: string; stderr: string; timedOut?: boolean }
 interface ProcHandler { line: (l: string, err?: boolean) => void; exit: (code: number) => void }
 interface AppInfo {
   version?: string; os?: string; home?: string; configDir?: string;
   openAtStart?: string; selftest?: string; pairtest?: string;
 }
-interface Workspace { root: string; name: string; files: { path: string; content: string }[]; skipped?: number; truncated?: boolean }
+/** Workspace carregado: contrato tipado do adaptador `platform/tauri/workspace`. */
+type Workspace = LoadedWorkspace;
 interface CommitNode { h: string; m: string; p: string[]; b: string | null; a: string; t: number; files: unknown[] }
 interface GitState {
   c: Record<string, CommitNode>; order: string[]; refs: Record<string, string>;
@@ -214,7 +217,7 @@ async function openFolder(path?: string): Promise<boolean> {
   if (!path) path = await inv("pick_folder");
   if (!path) return false;
   let L: Workspace;
-  try { L = await inv("load_workspace", { root: path }); } catch (e) { toast("Could not open " + path + ": " + e); return false; }
+  try { L = await loadWorkspace(path); } catch (e) { toast("Could not open " + path + ": " + e); return false; }
   R.root = L.root; R.name = L.name; R.cwd = L.root; R.disk = {};
   Object.keys(FS).forEach(k => { if (!k.startsWith(ROOT + "learn/")) delete FS[k]; });
   L.files.forEach(f => { FS[ROOT + f.path] = { content: f.content, orig: f.content }; R.disk[f.path] = f.content; });
@@ -238,7 +241,7 @@ async function openFolder(path?: string): Promise<boolean> {
 }
 async function reloadDisk(): Promise<void> {
   if (!R.root) return;
-  const L: Workspace = await inv("load_workspace", { root: R.root });
+  const L: Workspace = await loadWorkspace(R.root);
   const keep: Record<string, typeof FS[string]> = {};
   Object.keys(FS).forEach(k => { if (!isReal(k) || k.startsWith(ROOT + "learn/")) keep[k] = FS[k]; });
   Object.keys(FS).forEach(k => delete FS[k]);

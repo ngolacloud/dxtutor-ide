@@ -69,7 +69,7 @@ são hoje consumidos pela `ui-app`.
 
 ---
 
-## 1. PairCode — `lib.rs` (4)
+## 1. PairCode — `commands/pair.rs` (4)
 
 Exclusivo do dxtutor-ide. Sessão de colaboração; emite estado/mensagens.
 
@@ -79,6 +79,13 @@ Exclusivo do dxtutor-ide. Sessão de colaboração; emite estado/mensagens.
 | `pair_join` | `token: String`, `via: Option<String>` | `String` | String | `pair-status`, `pair-msg` | `pair.ts` | S · N · E |
 | `pair_send` | `msg: String` | `()` | String | `pair-msg` | `pair.ts` | S · E |
 | `pair_stop` | — | `()` | — | `pair-status` | `pair.ts` | S · E |
+
+> **Etapa 3:** extraídos de `lib.rs` para `commands/pair.rs` (adaptadores finos) sobre o
+> caso de uso Tauri-free `crate::pair` (mecanismo TCP + ChaCha20-Poly1305 + WebSocket, já
+> Tauri-free — grupo de passagens como `debug`). O adaptador desembrulha o
+> `tauri::State<pair::Pair>` e veste a emissão dos eventos `pair-status`/`pair-msg` (helper
+> `pair_events`, migrado de `lib.rs`). Nomes, args, contratos serde, eventos e mensagens
+> preservados (consumido por `pair.ts`).
 
 ## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (14)
 
@@ -102,17 +109,28 @@ Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 | `app_info` | — | `serde_json::Value` | — | — | `bridge.ts` | R · S |
 | `selftest_report` | `report: serde_json::Value` | `()` | — | — | `bridge.ts`, `pair.ts` | W · S |
 
-## 3. Estudo / missões — `lib.rs` (17)
+## 3. Estudo / missões — `commands/study.rs` (11) + `commands/missions.rs` (4)
 
 Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pela
 `ui-app`** hoje (origem do protótipo de estudo / consumido por `ui-next`).
+
+> **Etapa 3 (13º e último grupo):** extraídos de `lib.rs` — os 11 comandos de
+> estudo para `commands/study.rs` (adaptadores finos sobre o caso de uso
+> Tauri-free `crate::study`: classificação de passos, política, carregamento com
+> erro tipado `StudyError`, avaliação honesta `grade_phase`/`grade_step`), e os 4
+> de missões/execução para `commands/missions.rs` (passagens sobre `tutor_eval`;
+> única regra isolada = o despacho `missions::drill_language`). Nomes, args, serde
+> e mensagens de erro preservados; `lib.rs` fica sem `#[tauri::command]` e guarda
+> só os DTOs/mappers `pub(crate)`.
+>
+> `get_diagnostics` saiu desta secção para `commands/assistant.rs` (§5) — fica
+> documentado com o grupo `assistant`, com que partilha agora o ficheiro.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `list_phases` | — | `ProjectDto` | String | — | — | R |
 | `submit` | `phase_id: String`, `code: String` | `AssessmentDto` | String | — | — | R |
 | `submit_step` | `step_id: String`, `code: String` | `AssessmentDto` | String | — | — | R |
-| `get_diagnostics` | `step_id: String`, `code: String` | `Vec<DiagnosticDto>` | String | — | — | R |
 | `request_hint` | `phase_id: String`, `code: String`, `level: u8` | `HintDto` | String | — | — | R |
 | `request_plan` | `phase_id: String`, `comment: String`, `code: String` | `PlanDto` | String | — | — | R |
 | `request_fix` | `phase_id: String`, `code: String`, `line: u32`, `message: String` | `String` | String | — | — | R |
@@ -125,9 +143,13 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 | `compile_pipeline` | `code: String` | `PipelineDto` | String | — | — | **X** |
 | `trace_execution` | `language: String`, `code: String` | `ExecutionTraceDto` | String | — | — | **X** |
 | `study_policy` | `mode: String`, `step_id: Option<String>` | `StudyPolicy` | — | — | — | R |
-| `codev_policy` | `mode: String` | `CoDevPolicy` | — | — | — | R |
 
-## 4. Review de código — `lib.rs` (3)
+## 4. Review de código — `commands/review.rs` (3)
+
+> **Etapa 3:** extraídos de `lib.rs` para `commands/review.rs` (adaptadores finos)
+> sobre o caso de uso Tauri-free `review::run_review` (erro tipado `ReviewError`).
+> O erro de `review_code` continua a ser `String` na fronteira, com as mesmas
+> mensagens (`"file scope needs a path"`, `"review failed: …"`).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -135,22 +157,40 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 | `list_review_analyzers` | — | `Vec<review::AnalyzerInfo>` | — | — | — | R |
 | `verify_review_fix` | `current_source: String`, `analyzed_version: String`, `fix: review::SuggestedFix` | `review::FixVerification` | — | — | — | R |
 
-## 5. Assistant / provedores — `lib.rs` (7)
+## 5. Assistant / provedores — `commands/assistant.rs` (8)
+
+> **Etapa 3:** extraídos de `lib.rs` para `commands/assistant.rs` (adaptadores finos)
+> sobre o caso de uso Tauri-free `crate::assistant`. A *regra* (política de estudo +
+> validação de provider, erro tipado `StreamError` com a mensagem histórica), o dispatch
+> SSE e o registo de cancelamento vivem no caso de uso; a emissão dos eventos
+> `llm://token|done|error` e a thread ficam no adaptador. `get_diagnostics` junta-se aqui
+> (partilha o ficheiro) mapeando `tutor_eval::diagnostics_for` → DTO `assistant::Diagnostic`
+> (antes `DiagnosticDto` em `lib.rs`; mesmo serde). Nomes, args, contratos serde, eventos e
+> mensagens preservados.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `assistant_models` | — | `Vec<String>` | — | — | — | R |
-| `assistant_chat` | `messages: Vec<chat::ChatMsg>`, `model: Option<String>` | `chat::ChatReply` | String | — | — | **N** · K |
-| `assistant_chat_stream` | `messages: Vec<chat::ChatMsg>`, `provider: Option<String>`, `model: Option<String>`, `request_id: String`, `mode: Option<String>`, `step_id: Option<String>` | `()` (via eventos) | — | `llm://token` `{requestId,delta}`, `llm://done` `{requestId,model}`, `llm://error` `{requestId,error}` | `bridge.ts` | **N** · K · S · E |
+| `assistant_chat` | `messages: Vec<assistant::ChatMsg>`, `model: Option<String>` | `assistant::ChatReply` | String | — | — | **N** · K |
+| `assistant_chat_stream` | `messages: Vec<assistant::ChatMsg>`, `provider: Option<String>`, `model: Option<String>`, `request_id: String`, `mode: Option<String>`, `step_id: Option<String>` | `()` (via eventos) | — | `llm://token` `{requestId,delta}`, `llm://done` `{requestId,model}`, `llm://error` `{requestId,error}` | `bridge.ts` | **N** · K · S · E |
 | `assistant_cancel` | `request_id: String` | `()` | — | — | `bridge.ts` | S |
-| `list_providers` | — | `Vec<chat::ProviderInfo>` | — | — | `bridge.ts` | R |
-| `get_providers_config` | — | `chat::ProvidersConfig` | — | — | `bridge.ts` | K (lê config) |
-| `save_providers_config` | `config: chat::ProvidersConfig` | `()` | String | — | `bridge.ts` | **K** · W |
+| `list_providers` | — | `Vec<assistant::ProviderInfo>` | — | — | `bridge.ts` | R |
+| `get_providers_config` | — | `assistant::ProvidersConfig` | — | — | `bridge.ts` | K (lê config) |
+| `save_providers_config` | `config: assistant::ProvidersConfig` | `()` | String | — | `bridge.ts` | **K** · W |
+| `get_diagnostics` | `step_id: String`, `code: String` | `Vec<assistant::Diagnostic>` | String | — | — | R |
 
-## 6. Inteligência de código — `lib.rs` (10)
+## 6. Inteligência de código — `commands/codeintel.rs` (10)
 
 Análise estática + resolução (definições/referências/hover). Não consumidos
 pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
+
+> **Etapa 3:** extraídos de `lib.rs` para `commands/codeintel.rs` (adaptadores
+> finos) sobre o caso de uso Tauri-free `codeintel` (erro tipado `CodeIntelError`,
+> DTO `ResolvedDef`, tradução de coordenadas editor↔LSP e a coordenação
+> «servidor-de-língua primeiro, mapa sintáctico como recurso» do outline).
+> `symbol_ranges`/`list_symbols`/`diff_lines`/`propose_entrypoint`/
+> `project_entrypoint` são passagens directas (sem regra) e não têm camada nova.
+> O erro continua a ser `String` na fronteira, com as mesmas mensagens.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -165,22 +205,34 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 | `resolve_references` | `root: String`, `file: String`, `line: u32`, `col: u32`, `text: Option<String>` | `Vec<ResolvedDef>` | String | — | — | R |
 | `resolve_hover` | `root: String`, `file: String`, `line: u32`, `col: u32`, `text: Option<String>` | `Option<String>` | String | — | — | R |
 
-## 7. Testes — `lib.rs` (4)
+## 7. Testes e execução — `commands/tests.rs` (5)
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `list_tests` | `root: String` | `Vec<testnav::TestItem>` | String | — | — | R |
 | `run_test` | `root: String`, `path: String`, `lang: Option<String>` | `testnav::TestRun` | String | — | — | **X** |
 | `run_all_tests` | `root: String` | `testnav::TestRun` | String | — | — | **X** |
-| `run_tests` | `root: String` | `TestRun` | String | — | `bridge.ts`, `features/codev.ts` | **X** |
+| `run_tests` | `root: String` | `SuiteRun` | String | — | `bridge.ts`, `features/codev.ts` | **X** |
+| `run_path` | `path: String`, `args: Option<String>` | `RunDto` | String | — | — | **X** |
 
+> **Etapa 3:** extraídos de `lib.rs` para `commands/tests.rs` (adaptadores finos)
+> sobre o caso de uso Tauri-free `testexec` — despacho por língua de `run_test`
+> (`TestLang`/`run_one`), escolha sessão-vs-host de `run_tests` (erro tipado
+> `TestError`, DTO `SuiteRun`, antes `TestRun` em `lib.rs`) e split de argumentos de
+> `run_path` (`split_args`). `list_tests`/`run_all_tests` são passagens directas (sem
+> regra). O erro continua a ser `String` na fronteira, com as mesmas mensagens
+> (`"No known test command for this project."`). `run_path` reusa `RunDto` (partilhado
+> com `run_drill`/`run_measured`, que ficam em `lib.rs`).
+>
 > `run_tests` (o único consumido) coexiste com `run_test`/`run_all_tests`
 > (dedicados, não consumidos) — sobreposição a resolver na Etapa 3.
 
-## 8. Git — `lib.rs` (13)
+## 8. Git — `commands/git.rs` (13)
 
 Só `git_changes/git_log/git_show` são consumidos; os mutantes correm por
-`exec("git", …)` no `bridge.ts` (ver nota de arquitectura).
+`exec("git", …)` no `bridge.ts` (ver nota de arquitectura). **Etapa 3**:
+adaptadores finos sobre o caso de uso Tauri-free `gitops` (página por omissão do
+histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -198,7 +250,12 @@ Só `git_changes/git_log/git_show` são consumidos; os mutantes correm por
 | `git_checkout` | `root: String`, `branch: String` | `()` | String | — | — (via `exec`) | **G** |
 | `git_create_branch` | `root: String`, `name: String` | `()` | String | — | — (via `exec`) | **G** |
 
-## 9. Agente / arquitectura — `lib.rs` (7)
+## 9. Agente / arquitectura — `commands/agent.rs` (7)
+
+> **Etapa 3:** extraídos de `lib.rs` para `commands/agent.rs` (adaptadores finos)
+> sobre o caso de uso Tauri-free `agent` — regra do scaffold com erro tipado
+> `ScaffoldError`, registo de tarefa cloud-shaped (RF-AG-01) como orquestração pura,
+> executor isolado `worktree_patch` re-exportado. Nomes/args/serde/mensagens preservados.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -210,19 +267,31 @@ Só `git_changes/git_log/git_show` são consumidos; os mutantes correm por
 | `arch_scaffold` | `root: String`, `arch: arch::Architecture` | `Vec<String>` | String | — | — | **W** |
 | `arch_scaffold_preview` | `arch: arch::Architecture` | `Vec<(String,String)>` | — | — | — | R |
 
-## 10. Co-Dev (sessões git) — `lib.rs` (4)
+## 10. Co-Dev — `commands/codev.rs` (5)
+
+> **Etapa 3:** extraídos de `lib.rs` para `commands/codev.rs` (adaptadores finos)
+> sobre o caso de uso Tauri-free `crate::codev`: a regra `policy_for_mode` (parse da
+> modebar → `CoDevPolicy`) e a fachada do mecanismo de sessões (worktrees `codev/<slug>`
+> re-exportado de `tutor_eval::git`). Mesmos nomes/args/serde/mensagens — a modebar e
+> `features/codev.ts` governam-se por este contrato.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
+| `codev_policy` | `mode: String` | `CoDevPolicy` | — | — | — | R |
 | `codev_session_start` | `root: String`, `name: String` | `git::SessionInfo` | String | — | — | **G** |
 | `codev_session_deliver` | `root: String`, `slug: String`, `message: String` | `git::DeliverInfo` | String | — | — | **G** |
 | `codev_session_discard` | `root: String`, `slug: String` | `()` | String | — | — | **G** |
 | `codev_session_list` | `root: String` | `Vec<git::SessionInfo>` | String | — | — | R |
 
-## 11. Debug (DAP) — `lib.rs` (10)
+## 11. Debug (DAP) — `commands/debug_cmds.rs` (10)
 
-Motor de depuração; todos usam `State<DebugSessions>`. Não consumidos pela
-`ui-app` (painel Debug é simulado — ver `features/debug.ts`).
+> **Etapa 3:** extraídos de `lib.rs` para `commands/debug_cmds.rs` (adaptadores finos)
+> sobre o caso de uso Tauri-free `debug` — grupo de **passagens** (o motor gdb/MI já era
+> Tauri-free; a fatia ganhou a fachada `capabilities()`). Nomes/args/serde/mensagens
+> preservados; A1 mantém-se em 133.
+
+Motor de depuração; os que precisam de sessão usam `State<DebugSessions>`. Não consumidos
+pela `ui-app` (painel Debug usa o motor de instrumentação — ver `features/debug.ts`).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -237,7 +306,7 @@ Motor de depuração; todos usam `State<DebugSessions>`. Não consumidos pela
 | `debug_stack` | `id: String` | `Vec<debug::Frame>` | String | — | — | R · S |
 | `debug_stop` | `id: String` | `()` | String | — | — | S |
 
-## 12. Devcontainers — `lib.rs` (8)
+## 12. Devcontainers — `commands/devcontainer.rs` (8)
 
 Todos lançam processos de container (docker/podman). Não consumidos pela `ui-app`.
 
@@ -252,15 +321,18 @@ Todos lançam processos de container (docker/podman). Não consumidos pela `ui-a
 | `devcontainer_session_status` | `root: String` | `SessionStatus` | String | — | — | R |
 | `devcontainer_session_down` | `root: String` | `()` | String | — | — | **X** |
 
-## 13. Projecto / sandbox / run — `lib.rs` (8)
+## 13. Projecto / sandbox / run — `commands/sandbox.rs` (3)
+
+> Os três comandos de sandbox/run saíram na **Etapa 3** de `lib.rs` para
+> `commands/sandbox.rs` (adaptadores finos) sobre o caso de uso Tauri-free
+> `crate::sandbox` (shaping puro do `docker compose ps` + validação de motor com
+> erro tipado `SandboxError`). Antes, `run_path` (correr um ficheiro do Explorer)
+> saíra para `commands/tests.rs` (grupo testes/execução — ver §7) e os quatro
+> comandos de pesquisa/projecto (`search_project`, `list_files`,
+> `read_folder_sources`, `detect_projects`) para `commands/search.rs` (ver §18).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `search_project` | `root: String`, `query: String`, `max: Option<usize>`, `ignore_case: Option<bool>` | `Vec<search::SearchHit>` | String | — | — | R |
-| `list_files` | `root: String`, `max: Option<usize>` | `Vec<String>` | String | — | `bridge.ts`, `features/codev.ts` | R |
-| `read_folder_sources` | `dir: String`, `max_files: Option<usize>`, `max_bytes: Option<usize>` | `Vec<FolderSource>` | String | — | — | R |
-| `detect_projects` | `root: String` | `Vec<ProjectInfo>` | String | — | — | R |
-| `run_path` | `path: String`, `args: Option<String>` | `RunDto` | String | — | — | **X** |
 | `compose_ps` | `root: String` | `Vec<ComposeService>` | String | — | — | **X** |
 | `get_sandbox_engine` | — | `String` | — | — | — | R |
 | `set_sandbox_engine` | `engine: String` | `String` | String | — | — | W (config) |
@@ -321,6 +393,21 @@ Backlog persistido em SQLite (`tutor-board`). Não consumidos pela `ui-app`
 | `board_load` | `root: Option<String>` | `Option<Backlog>` | String | — | — | R · S |
 | `board_save` | `root: Option<String>`, `backlog: Backlog` | `()` | String | — | — | **W** · S |
 
+## 18. Pesquisa / projecto — `commands/search.rs` (4)
+
+Saíram de `lib.rs` (§13) na **Etapa 3** para adaptadores finos sobre o caso de uso
+Tauri-free `crate::search` (defaults de página como contrato + walk de projectos/fontes;
+grupo infalível, sem erro tipado). Não consumidos via `invoke` pela `ui-app` (as
+ocorrências de `list_files` em `bridge.ts`/`features/codev.ts` são o **nome de uma
+ferramenta LLM** local, não o comando IPC).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `search_project` | `root: String`, `query: String`, `max: Option<usize>`, `ignore_case: Option<bool>` | `Vec<search::SearchHit>` | String | — | — | R |
+| `list_files` | `root: String`, `max: Option<usize>` | `Vec<String>` | String | — | — | R |
+| `read_folder_sources` | `dir: String`, `max_files: Option<usize>`, `max_bytes: Option<usize>` | `Vec<FolderSource>` | String | — | — | R |
+| `detect_projects` | `root: String` | `Vec<ProjectInfo>` | String | — | — | R |
+
 ---
 
 ## Resumo quantitativo
@@ -328,7 +415,7 @@ Backlog persistido em SQLite (`tutor-board`). Não consumidos pela `ui-app`
 | Dimensão | Valor |
 |---|---|
 | Comandos registados | **133** |
-| Por ficheiro | `lib.rs` 95 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
 | Consumidos pela `ui-app` | **28** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição) |
 | Não consumidos pela `ui-app` | **105** |
 | Eventos distintos | **9** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg` |

@@ -113,6 +113,57 @@ pub fn load(root: &Path, max_files: usize, max_bytes: u64) -> io::Result<Loaded>
     })
 }
 
+/// Política do caso de uso «abrir workspace»: quantos ficheiros e de que tamanho máximo o
+/// editor carrega. É a *regra* (não o mecanismo) — vive no caso de uso, não no comando Tauri
+/// nem no walk de disco. O `Default` é o contrato público actual (4000 ficheiros, 768 KiB cada).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoadPolicy {
+    pub max_files: usize,
+    pub max_bytes: u64,
+}
+
+impl Default for LoadPolicy {
+    fn default() -> Self {
+        Self {
+            max_files: 4000,
+            max_bytes: 768 * 1024,
+        }
+    }
+}
+
+/// Erro tipado do caso de uso. A fronteira IPC (comando Tauri) ainda o mapeia para `String`,
+/// mas o caso de uso fala em variantes — base para erros tipados ponta-a-ponta (Etapa 3).
+#[derive(Debug)]
+pub enum OpenError {
+    /// A raiz existe mas não é uma pasta.
+    NotADirectory,
+    /// A raiz não existe / não é acessível (e outros erros de E/S do walk).
+    Io(io::Error),
+}
+
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            // Mantém a mensagem histórica do comando ("not a folder") estável na UI.
+            OpenError::NotADirectory => write!(f, "not a folder"),
+            OpenError::Io(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for OpenError {}
+
+/// Caso de uso «abrir workspace para o editor» — **independente de Tauri**: recebe a raiz e a
+/// política, delega o walk de disco a [`load`] (o mecanismo) e devolve um resultado tipado com
+/// erro tipado. O comando `bridge::load_workspace` é apenas o adaptador fino que o invoca e
+/// mapeia `OpenError` → `String` na fronteira IPC.
+pub fn open_workspace(root: &Path, policy: LoadPolicy) -> Result<Loaded, OpenError> {
+    load(root, policy.max_files, policy.max_bytes).map_err(|e| match e.kind() {
+        io::ErrorKind::InvalidInput => OpenError::NotADirectory,
+        _ => OpenError::Io(e),
+    })
+}
+
 fn to_slash(p: &Path) -> String {
     p.components()
         .map(|c| c.as_os_str().to_string_lossy().to_string())
@@ -222,5 +273,46 @@ mod tests {
         delete(&d, "deep/dir/x.txt").unwrap();
         assert!(!d.join("deep/dir/x.txt").exists());
         delete(&d, "deep/dir/x.txt").unwrap();
+    }
+
+    #[test]
+    fn default_policy_is_the_public_contract() {
+        let p = LoadPolicy::default();
+        assert_eq!(p.max_files, 4000);
+        assert_eq!(p.max_bytes, 768 * 1024);
+    }
+
+    #[test]
+    fn open_workspace_applies_the_policy_limits() {
+        let d = tmp("usecase-policy");
+        for i in 0..5 {
+            fs::write(d.join(format!("f{i}.txt")), "x").unwrap();
+        }
+        let policy = LoadPolicy {
+            max_files: 3,
+            max_bytes: 1024,
+        };
+        let l = open_workspace(&d, policy).unwrap();
+        assert_eq!(l.files.len(), 3, "a política do caso de uso é respeitada");
+        assert!(l.truncated);
+    }
+
+    #[test]
+    fn open_workspace_reports_not_a_directory_typed() {
+        let d = tmp("usecase-notdir");
+        let file = d.join("a.txt");
+        fs::write(&file, "x").unwrap();
+        let err = open_workspace(&file, LoadPolicy::default()).unwrap_err();
+        assert!(matches!(err, OpenError::NotADirectory));
+        // A mensagem na fronteira IPC mantém-se "not a folder".
+        assert_eq!(err.to_string(), "not a folder");
+    }
+
+    #[test]
+    fn open_workspace_reports_io_error_for_missing_root() {
+        let missing = std::env::temp_dir().join("dxtutor-does-not-exist-xyz-123");
+        let _ = fs::remove_dir_all(&missing);
+        let err = open_workspace(&missing, LoadPolicy::default()).unwrap_err();
+        assert!(matches!(err, OpenError::Io(_)));
     }
 }

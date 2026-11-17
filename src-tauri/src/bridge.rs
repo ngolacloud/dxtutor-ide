@@ -21,10 +21,14 @@ fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
 // signature (`AppHandle -> Option<String>`) and a non-blocking implementation that avoids
 // freezing the window on Linux. It is registered in the handler instead.
 
+// Adaptador IPC fino: delega ao caso de uso `workspace::open_workspace` (independente de Tauri,
+// dono da política de limites e do erro tipado) e só mapeia `OpenError` → `String` na fronteira.
+// A política e os limites deixam de viver aqui; o comando só traduz entre o mundo Tauri e o caso
+// de uso. O `spawn_blocking` mantém o walk de disco fora da thread de UI.
 #[tauri::command]
 pub async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        workspace::load(std::path::Path::new(&root), 4000, 768 * 1024)
+        workspace::open_workspace(std::path::Path::new(&root), workspace::LoadPolicy::default())
             .map_err(|e| format!("{root}: {e}"))
     })
     .await
