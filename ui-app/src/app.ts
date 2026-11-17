@@ -42,58 +42,15 @@ window.syncTree = function(){const mk=dp=>({dir:1,children:{},dpath:dp}),root=mk
   TREE.projects.children.dxtutor=root;}
 
 /* ───── explorer ───── */
-function renderLevel(obj,host,depth,path){Object.keys(obj).forEach(name=>{const node=obj[name],pad=8+depth*12,row=document.createElement('div');
-  let g=node.git||'';if(node.path)g=stOf(node.path).toLowerCase();else if(node.dpath)g=changes().some(p=>p.startsWith(node.dpath+'/'))?'m':'';
-  row.className='row'+(g?' git-'+g:'');row.style.paddingLeft=pad+'px';if(node.path)row.dataset.path=node.path;
-  const open=node.dpath?OPEN.has(node.dpath):!!node.open;
-  row.innerHTML=`<span class="chev${node.dir?'':' leaf'}">${svg('chev')}</span>${node.dir?`<span class="ic folder">${svg(open?'folderOpen':'folder')}</span>`:fIcon(name)}<span class="nm">${esc(name)}</span>${g?(node.dir?'<span class="dot"></span>':`<span class="deco">${g.toUpperCase()}</span>`):''}`;
-  host.appendChild(row);
-  if(node.dir){const kids=document.createElement('div');kids.className='children';const gd=document.createElement('span');gd.className='guide';gd.style.left=(pad+7)+'px';kids.appendChild(gd);host.appendChild(kids);let built=false;
-    const expand=o=>{row.classList.toggle('open',o);kids.style.display=o?'block':'none';row.querySelector('.ic').innerHTML=svg(o?'folderOpen':'folder');
-      if(node.dpath){o?OPEN.add(node.dpath):OPEN.delete(node.dpath);}else node.open=o;
-      if(o&&!built){built=true;if(node.children&&Object.keys(node.children).length)renderLevel(node.children,kids,depth+1,path.concat(name));
-        else kids.insertAdjacentHTML('beforeend',`<div class="sec-empty" style="padding:2px 0 2px ${pad+28}px">fora do workspace do protótipo</div>`);}};
-    kids.style.display='none';row.onclick=e=>{e.stopPropagation();sel(row);expand(!row.classList.contains('open'));};if(open)expand(true);
-  }else row.onclick=e=>{e.stopPropagation();if(node.path)openPath(node.path);};});}
-function buildExplorer(){const host=$('#exp-sections');host.innerHTML='';
-  const sec=(lbl,open,flex)=>{const s=document.createElement('div');s.className='section'+(flex?' flexible':'');const h=document.createElement('div');h.className='sec-hd'+(open?' open':'');h.innerHTML=`<span class="chev">${svg('chev')}</span><span class="lbl">${lbl}</span>`;
-    const b=document.createElement('div');b.className='sec-body'+(open?' show':'');h.onclick=()=>{h.classList.toggle('open');b.classList.toggle('show');SECOPEN[lbl]=b.classList.contains('show');};s.append(h,b);host.appendChild(s);return b;};
-  const tb=sec('projects',SECOPEN.projects!==false,1),tree=document.createElement('div');tree.className='tree';tb.appendChild(tree);renderLevel(TREE.projects.children,tree,0,['projects']);
-  sec('Outline',SECOPEN.Outline!==false).id='outline';sec('Timeline',!!SECOPEN.Timeline).id='timeline';drawOutline();drawTimeline();markActive();}
-function markActive(){$$('#exp-sections .row.sel').forEach(x=>x.classList.remove('sel'));const t=tabOf(cur);if(t&&t.path){const r=$(`#exp-sections .row[data-path="${t.path}"]`);if(r)r.classList.add('sel');}}
-function collapseAll(){OPEN.clear();Object.values(TREE.projects.children).forEach(n=>{n.open=false;});buildExplorer();}
-function symbols(p){const f=FS[p];if(!f)return[];const out=[];f.content.split('\n').forEach((l,i)=>{const m=l.match(/^\s*(?:pub\s+)?(?:async\s+)?(fn|struct|enum|trait|impl|function|CREATE TABLE|CREATE INDEX)\s+(?:.*?\bfor\s+)?([A-Za-z_]\w*)/)||l.match(/^(#{1,3})\s+(.+)/)||l.match(/^(export)\s+(?:async\s+)?(?:function|const)\s+(\w+)/);if(m)out.push({k:m[1].replace('CREATE ','').toLowerCase(),n:m[2],line:i+1});});return out;}
-function drawOutline(){const o=$('#outline');if(!o)return;const t=tabOf(cur),sy=t&&t.path?symbols(t.path):[];
-  o.innerHTML=sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:16px" onclick="gotoLine(${s.line})"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):'<div class="sec-empty">Abre um ficheiro para ver os símbolos.</div>';}
+/* 8 funções (renderLevel/buildExplorer/markActive/collapseAll/symbols/drawOutline/newFile/newFolder) migradas p/ features/explorer.ts; lidas por global (window.*) aqui (refresh/show), em boot.ts e v6.ts (symbols) */
 /* drawTimeline$dup0 morto removido (o drawTimeline vivo foi p/ features/scm.ts) */
-function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/) — ex.: desktop/src/novo.ts',verb:'Criar',text:q=>{q=q.trim();if(!q)return;const p=norm(q);if(FS[p]){toast('Já existe');openPath(p);return;}writeFile(p,'');openPath(p);}});}
-function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',verb:'Criar pasta',text:q=>{q=q.trim().replace(/\/$/,'');if(!q)return;writeFile(norm(q+'/.gitkeep'),'');OPEN.add('dxtutor/'+q);refresh(true,true);toast('Pasta criada: '+q);}});}
 
 /* ───── realce de sintaxe ───── */
 /* KW + hlLine (realce de uma linha) migrados p/ features/syntax.ts; lidos por global (window.hlLine) em paintEd/diff/cat/outline e em v5.ts/v6.ts */
 
 /* ───── diagnósticos, lint e testes (derivados do estado real dos ficheiros) ───── */
 const P_LX=ROOT+'crates/lexer/src/lib.rs',P_REPO=ROOT+'crates/store/src/conversations.rs',P_MIG=ROOT+'db/migrations/0002_conversations.sql',P_TEST=ROOT+'crates/store/tests/conversations_test.rs',P_HIST=ROOT+'desktop/src/history.ts',P_ADR=ROOT+'.dxtutor/arquitectura/ADR-003-historico.md',P_STORE=ROOT+'crates/store/src/lib.rs';
-const has=(p,re)=>!!FS[p]&&re.test(FS[p].content);
-const lexBug=()=>has(P_LX,/for c in chars \{/)&&has(P_LX,/chars\.peek\(\)/);
-function dsLint(){const out=[];Object.keys(FS).forEach(p=>{if(!/desktop\/src\/.*\.(ts|css)$/.test(p))return;FS[p].content.split('\n').forEach((l,i)=>{if(/^\s*--[\w-]+\s*:/.test(l))return;const m=l.match(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/);if(m)out.push({p,line:i+1,hex:m[0]});});});return out;}
-window.diagnostics = function(){const out=[],add=(p,re,sev,msg)=>{if(FS[p])FS[p].content.split('\n').forEach((l,i)=>{if(re.test(l))out.push({p,line:i+1,sev,msg});});};
-  if(lexBug())add(P_LX,/chars\.peek\(\)/,'e','E0382: use of moved value: `chars` (movido pelo `for` na linha 5)');
-  dsLint().forEach(v=>out.push({p:v.p,line:v.line,sev:'w',msg:`design-system: cor fixa ${v.hex} — usar um token (regras.md §4)`}));
-  add(ROOT+'desktop/src/workspace.ts',/\bany\b/,'w','evitar `any` — tipar explicitamente');
-  add(P_REPO,/WHERE workspace_id = \?1 LIMIT/,'w','listagem sem ORDER BY — ordem não determinística');
-  return out;}
-function runTests(pkg){const R=[];
-  if(!pkg||pkg==='lexer'){if(lexBug())return{ok:false,build:false,tests:[],err:'error[E0382]: use of moved value: `chars`\n  --> crates/lexer/src/lib.rs:10:8'};
-    R.push({n:'lexer::tokenize_digits',ok:true});R.push({n:'lexer::tokenize_emits_eof',ok:has(P_LX,/Token::Eof\)/)&&!has(P_LX,/chars\.clone\(\)/)});}
-  if(!pkg||pkg==='store'){R.push({n:'store::workspaces_roundtrip',ok:true});
-    if(FS[P_TEST]){R.push({n:'store::save_and_load_roundtrip',ok:!!FS[P_REPO]&&!!FS[P_MIG]&&has(P_STORE,/pub mod conversations/)});R.push({n:'store::list_recent_orders_by_newest',ok:has(P_REPO,/ORDER BY created_at DESC/)});R.push({n:'store::cascade_delete_messages',ok:has(P_MIG,/ON DELETE CASCADE/)});}}
-  return{ok:R.every(t=>t.ok),build:true,tests:R};}
-function drawProblems(){const d=diagnostics(),e=d.filter(x=>x.sev==='e').length,w=d.length-e;
-  $('#pc-problems').innerHTML=d.length?d.map(x=>`<div class="prob" onclick="openPath('${x.p}',${x.line})"><span class="pi ${x.sev}">${x.sev==='e'?'✖':'⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join(''):'<div class="sec-empty">Sem problemas no workspace.</div>';
-  $('#pb-prob').textContent=d.length;const s=$('#st-prob');s.innerHTML=`✖ ${e} ⚠ ${w}`;s.style.color=e?'var(--red)':w?'var(--yellow)':'var(--git-u)';
-  const t=runTests(),st=$('#st-tests');st.innerHTML=!t.build?'✖ build':`${t.ok?'✓':'✖'} ${t.tests.filter(x=>x.ok).length}/${t.tests.length} testes`;st.style.color=t.ok?'var(--git-u)':'var(--red)';}
-function nextProblem(){const d=diagnostics();if(!d.length){toast('Sem problemas');return;}NP=(NP+1)%d.length;openPath(d[NP].p,d[NP].line);}let NP=-1;
+/* motor has/lexBug/dsLint/diagnostics/runTests/drawProblems/nextProblem migrado p/ features/diagnostics.ts; lido por global (P_* ficam donas aqui) */
 
 /* ───── separadores e vistas ───── */
 let TB=[];window.cur=null;window.PANE='explorer';const VIEW={};
@@ -119,22 +76,8 @@ function closeTab(id){const i=TB.findIndex(t=>t.id===id);if(i<0)return;const t=T
   if(cur===id)show(TB.length?TB[Math.max(0,i-1)].id:null);else drawTabs();}
 function stepTab(d){if(!TB.length)return;const i=TB.findIndex(t=>t.id===cur);show(TB[(i+d+TB.length)%TB.length].id);}
 
-/* editor de ficheiros */
-VIEW.file=(t,host)=>{const f=FS[t.path];host.innerHTML=`<div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div>`;
-  const ta=$('#ed-ta');ta.value=f.content;paintEd(t.path);
-  ta.oninput=()=>{f.content=ta.value;paintEd(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
-  ta.onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();if(!document.execCommand('insertText',false,'    '))ta.setRangeText('    ',ta.selectionStart,ta.selectionEnd,'end');ta.oninput();}};
-  ta.onkeyup=ta.onclick=ta.onfocus=()=>stPos();};
-window.paintEd = function(p){const f=FS[p],lines=f.content.split('\n'),dg={},ext=extOf(p);diagnostics().forEach(d=>{if(d.p===p&&dg[d.line]!=='e')dg[d.line]=d.sev;});
-  $('#ed-gut').innerHTML=lines.map((_,i)=>`<div${dg[i+1]?` class="g-${dg[i+1]}"`:''}>${i+1}</div>`).join('');
-  $('#ed-hl').innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}">${hlLine(l,ext)||' '}</div>`).join('');
-  const mm=$('#minimap');mm.classList.remove('hidden');$('#ebody').classList.add('with-mm');
-  mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');}
-function gotoLine(n){const ta=$('#ed-ta');if(!ta)return;const ls=ta.value.split('\n');n=Math.max(1,Math.min(ls.length,n|0));let o=0;for(let i=0;i<n-1;i++)o+=ls[i].length+1;ta.focus({preventScroll:true});ta.setSelectionRange(o,o+ls[n-1].length);$('#ebody').scrollTop=Math.max(0,(n-1)*22-90);stPos();}
-function stPos(){const ta=$('#ed-ta'),el=$('#st-pos');if(!ta){el.textContent='';return;}const b=ta.value.slice(0,ta.selectionStart).split('\n');el.textContent=`Ln ${b.length}, Col ${b[b.length-1].length+1}`;}
-function stLang(){const t=tabOf(cur);$('#st-lang').textContent=t&&t.path?(LANG[extOf(t.path)]||'Texto'):'';stPos();}
-function edCmd(c){const ta=$('#ed-ta');if(!ta){toast('Abre um ficheiro primeiro');return;}ta.focus();if(c==='selectAll')ta.select();else if(c==='line'){const b=ta.value.slice(0,ta.selectionStart).split('\n').length;gotoLine(b);}else{document.execCommand(c);ta.oninput();}}
-function selText(){const ta=$('#ed-ta');return ta?ta.value.slice(ta.selectionStart,ta.selectionEnd):'';}
+/* editor: renderFileView/paintEd/gotoLine/stPos/stLang/edCmd/selText migrados p/ features/editor.ts; lidos por global, pane delega no shim abaixo */
+VIEW.file=(t,host)=>window.renderFileView(t,host);
 
 /* diff: diffLines/diffStat/openDiff + corpo de VIEW.diff migrados p/ features/diff.ts; lidos por global, pane delega no shim abaixo */
 VIEW.diff=(t,host)=>window.renderDiffView(t,host);
@@ -186,39 +129,10 @@ RP.codev=()=>window.renderCodevPane();/* base v3 + decoração v4 migradas p/ fe
 function log(src,msg){const o=$('#pc-output');o.insertAdjacentHTML('beforeend',`<div>[${hhmm()}] <span class="r">${esc(src)}</span> ${esc(msg)}</div>`);o.scrollTop=o.scrollHeight;}
 
 /* ───── terminal (comandos ligados ao estado real) ───── */
-window.promptHTML = function(){return `<span class="pr"><span>${USER}</span><span class="at">@</span><span>${HOST}</span><span class="at">:</span><span class="pth">${CWD.join('/')}</span><span class="br"> (${esc(BRANCH)})</span><span class="at">$</span></span> `;}
-function newInput(nofocus){const t=$('#term'),old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';t.appendChild(w);const c=$('#cmd');c.onkeydown=onKey;if(!nofocus)c.focus({preventScroll:true});scrollTerm();}
-function termRefreshPrompt(){const c=$('#cmd'),v=c?c.value:'';newInput(true);$('#cmd').value=v;}
-window.termExec = function(v){echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if(XC[cmd])r=XC[cmd](a,v);else echo('<span class="er">'+esc(cmd)+': comando não encontrado</span>');newInput(true);return r;}
-const XC={
-  help(){echo(`<span class="ac">ficheiros</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff | push\n<span class="ac">build</span>      <span class="ok">cargo</span> build | test [-p lexer|store] | run     <span class="ok">npm</span> run dev\n<span class="ac">co-dev</span>     <span class="ok">dx</span> lint | status | modo manual|assist|auto | missao a|b\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">neofetch</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
-  cat(a){if(!a[0]){echo('<span class="er">cat: falta o ficheiro</span>');return;}const rel=CWD.slice(4).concat(a[0].split('/')).join('/');const p=FS[rel]?rel:Object.keys(FS).find(k=>k.endsWith('/'+a[0].split('/').pop()));if(!p){echo('<span class="er">cat: '+esc(a[0])+': não encontrado</span>');return;}echo(FS[p].content.split('\n').map(l=>hlLine(l,extOf(p))).join('\n'));},
-  git(a,raw){const s=a[0],ch=changes();
-    if(s==='status'){if(!ch.length){echo(`No ramo <span class="ac">${esc(BRANCH)}</span>\nnada para commitar, área de trabalho limpa`);return{ok:true};}
-      echo(`No ramo <span class="ac">${esc(BRANCH)}</span>`+(STAGED.size?`\n<span class="dim">Staged:</span>\n`+[...STAGED].map(p=>`  <span class="ok">${stOf(p)==='U'?'new file:':'modified:'}   ${short(p)}</span>`).join('\n'):'')+`\n<span class="dim">Alterações:</span>\n`+ch.filter(p=>!STAGED.has(p)).map(p=>stOf(p)==='U'?`  <span class="er">untracked:  ${short(p)}</span>`:`  <span class="warn">modified:</span>   ${short(p)}`).join('\n'));}
-    else if(s==='add'){ch.forEach(p=>STAGED.add(p));refresh();echo(`<span class="dim">${ch.length} ficheiro(s) em stage</span>`);}
-    else if(s==='commit'){const m=(raw.match(/-m\s+(["'])(.*?)\1/)||raw.match(/-m\s+(.+)$/)||[]);const msg=(m[2]||m[1]||'').trim();if(!msg){echo('<span class="er">uso: git commit -m "mensagem"</span>');return;}const c=commitGit(msg);echo(c?`[${esc(BRANCH)} <span class="ac">${c.h}</span>] ${esc(msg)}\n <span class="dim">${c.n} ficheiro(s) alterado(s)</span>`:'<span class="dim">nada para commitar</span>');return{ok:!!c};}
-    else if(s==='log')echo(COMMITS.map(c=>`<span class="ac">${c.h}</span> ${esc(c.m)}`).join('\n'));
-    else if(s==='branch')echo(BRANCHES.map(b=>b===BRANCH?`<span class="ok">* ${b}</span>`:'  '+b).join('\n'));
-    else if(s==='checkout'){if(BRANCHES.includes(a[1])){BRANCH=a[1];$('#st-branch-l').textContent=BRANCH;refresh();echo(`Mudou para o ramo '${esc(BRANCH)}'`);}else echo('<span class="er">ramo desconhecido: '+esc(a[1]||'')+'</span>');}
-    else if(s==='diff')echo(ch.map(p=>{const d=diffStat(FS[p].orig,FS[p].content);return ` ${short(p)} | <span class="ok">+${d.add}</span> <span class="er">-${d.del}</span>`;}).join('\n')||'<span class="dim">sem diferenças</span>');
-    else if(s==='push'){echo(`<span class="dim">A enviar para origin/${esc(BRANCH)}…</span>\n<span class="ok">push simulado ✓</span> <span class="dim">(o protótipo não tem remoto)</span>`);return{ok:true};}
-    else echo('<span class="dim">git: status | add . | commit -m | log | branch | checkout | diff | push</span>');},
-  cargo(a){const s=a[0],pk=a[1]==='-p'?a[2]:null,r=runTests(pk);
-    if(s==='build'||s==='run'||s==='clippy'){if(!runTests().build){echo(`<span class="dim">   Compiling lexer v0.1.0</span>\n<span class="er">${esc(runTests().err)}</span>\n<span class="er">error: could not compile \`lexer\`</span>`);return{ok:false,sum:'build falhou (E0382)'};}
-      echo(`<span class="dim">   Compiling dxtutor v0.2.0</span>\n<span class="ok">    Finished</span> dev [unoptimized] in 0.81s`+(s==='run'?'\n<span class="dim">     Running</span> target/debug/dxtutor\ndxtutor a escutar em 127.0.0.1:1420':''));return{ok:true,sum:'build ok'};}
-    if(s==='test'){if(!r.build){echo(`<span class="dim">   Compiling lexer v0.1.0</span>\n<span class="er">${esc(r.err)}</span>\n<span class="er">error: could not compile \`lexer\`</span>`);return{ok:false,sum:'build falhou (E0382)'};}
-      const f=r.tests.filter(t=>!t.ok).length;echo(`<span class="dim">   Compiling … Finished test in 1.2s\nrunning ${r.tests.length} tests</span>\n`+r.tests.map(t=>`test ${t.n} ... ${t.ok?'<span class="ok">ok</span>':'<span class="er">FAILED</span>'}`).join('\n')+`\n\ntest result: ${f?'<span class="er">FAILED</span>':'<span class="ok">ok</span>'}. ${r.tests.length-f} passed; ${f} failed`);
-      return{ok:!f,sum:`${r.tests.length-f} passados · ${f} falhados`};}
-    echo('<span class="dim">cargo: build | test [-p pkg] | run</span>');},
-  npm(a){if(a[0]==='run'&&a[1]==='dev'){echo(`<span class="ok">VITE</span> pronto em 312 ms\n  ➜  Local: <span class="ac">http://localhost:1420/</span>`);return{ok:true,sum:'vite a correr'};}if(a[0]==='run'&&a[1]==='lint')return XC.dx(['lint']);echo('<span class="dim">npm: run dev | run lint</span>');},
-  dx(a){const s=a[0];
-    if(s==='lint'){const v=dsLint();echo(v.length?v.map(x=>`<span class="warn">aviso</span> ${short(x.p)}:${x.line}  cor fixa <span class="er">${x.hex}</span> — usar token`).join('\n')+`\n<span class="er">✖ ${v.length} violação(ões) do Design System</span>`:'<span class="ok">✓ Design System: 0 violações</span>');return{ok:!v.length,sum:v.length?v.length+' violação(ões)':'0 violações'};}
-    if(s==='status'){echo(`modo <span class="ac">${MODES[MODE].l}</span> · modelo <span class="ac">${PROV[ACTIVE].name}</span> · missões ${MISSIONS.length} · checkpoints ${CKPT.length}`);return;}
-    if(s==='modo'&&MODES[a[1]]){setMode(a[1]);echo('modo: '+MODES[a[1]].l);return;}
-    if(s==='missao'&&(a[1]==='a'||a[1]==='b')){demo(a[1]);echo('<span class="dim">missão entregue ao Co-Dev →</span>');return;}
-    echo('<span class="dim">dx: lint | status | modo manual|assist|auto | missao a|b</span>');},
-};
+// promptHTML/newInput/termRefreshPrompt/termExec + o registo BASE XC (help/cat/git/cargo/
+// npm/dx) migraram para src/features/terminal.ts (window-backed). A feature avalia ANTES
+// de app.ts e publica window.XC COMPLETO; os decoradores abaixo (XC.git/_dx/XC.docker/
+// XC.make/_dx4) e o de v5.ts resolvem `XC` como window.XC e sobrepõem/encadeiam o base.
 
 /* ───── paleta de comandos / quick open ───── */
 // PAL/PIDX/PITEMS/PAL_TEXT + palette/closePal/fuzzy/palDraw/palRun migraram para
@@ -399,7 +313,7 @@ function buildActivity(){const bar=$('#activity');bar.innerHTML='';ACTS.forEach(
   el.onclick=e=>{e.stopPropagation();a.overflow?openOverflow(el):a.run?a.run():setPane(a.pane,true);};bar.appendChild(el);});}
 function resetAll(){if(RUN.active){toast('Pára a execução primeiro');return;}loadSeed();MISSIONS.length=0;DECS.length=0;CKPT.length=0;CHAT.length=0;BL.issues.length=0;BL.seq=11;BL.mig=3;BL.adr=4;SD=JSON.parse(JSON.stringify(ST_SEED));saveSD();TB=[];newChat();refresh(false,true);openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'});toast('Protótipo reposto ao estado inicial');}
 const _refresh=refresh;refresh=function(a,b){_refresh(a,b);if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();};
-const _stLang=stLang;stLang=function(){_stLang();blame();};
+const _stLang=window.stLang;window.stLang=function(){_stLang();blame();};
 function blame(){const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x].files.includes(t.path)),c=h?GIT.c[h]:GIT.c['1a2b3c4'];el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 /* decoração v4 do pane Co-Dev (Equipa/Backlog/Studio) migrada e dobrada em features/codev.ts */
 const _dx=XC.dx;XC.dx=(a)=>{if(a[0]==='test'&&a[1]){const it=BL.issues.find(i=>i.id.toLowerCase()===a[1].toLowerCase());if(!it){echo('<span class="er">issue desconhecida</span>');return;}dropIssue(it.id,'test');return;}if(a[0]==='sprint'){runSprint((+a[1]||1)-1);return;}return _dx(a);};
@@ -473,28 +387,25 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
    script. As mutáveis partilhadas já são window-backed acima (fonte única). ── */
 Object.assign(window, {
   CMD, FS, LS,
-  OPEN, PANE, PROV, ROOT, RP, RUN, STOP, VIEW,
-  XC,
-  badges, blame, boot, boot3, boot4, buildActivity, buildExplorer, buildMenus,
-  checkpoint, closeTab, collapseAll,
-  diagnostics,
-  drawOutline, drawProblems, drawTabs, dsLint, edCmd, esc, fIcon, gfAsk, goPane, gotoLine,
+  OPEN, PANE, PROV, ROOT, RP, RUN, SECOPEN, STOP, VIEW,
+  badges, blame, boot, boot3, boot4, buildActivity, buildMenus,
+  checkpoint, closeTab,
+  drawTabs, esc, fIcon, gfAsk, goPane,
   hydrate, loadCfg, loadSeed, log,
-  markActive, mdFull, miniOff, newFile,
-  newFolder, newInput, nextProblem, openFile,
-  openPath, openTab, paintEd,
-  parkAgent, renderLevel,
-  rerender, resetAll, restoreCkpt, runTask, runTests,
-  save, selText, setActive, setPane, setPanelTab, show, stLang, stPos,
-  stepTab, symbols, tabIc, tabOf, termRefreshPrompt, togglePanel,
+  mdFull, miniOff,
+  openFile, openPath, openTab,
+  parkAgent,
+  rerender, resetAll, restoreCkpt, runTask,
+  save, setActive, setPane, setPanelTab, show,
+  stepTab, tabIc, tabOf, togglePanel,
   toggleSide, use,
   who, writeFile,
   // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
-  CHAT, SEED, SAFE, DANGER, connected, has, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
+  CHAT, SEED, SAFE, DANGER, connected, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
   // fachadas que as features migradas (features/*.ts) consomem por window:
   provFor, LF,
   // núcleo que as camadas v5 (src/v5.ts) e v6 (src/v6.ts) consomem como referências livres via window:
-  extOf, getVar, hd, hhmm, LANG, lexBug, P_HIST, P_LX, rel, setVar, short, USAGE
+  extOf, getVar, hd, hhmm, LANG, P_HIST, P_LX, rel, setVar, short, USAGE
 });
 /* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — o último módulo
    da cadeia, de modo a correr depois de as camadas v3–v7 publicarem os seus bootN. */
