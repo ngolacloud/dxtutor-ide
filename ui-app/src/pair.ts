@@ -15,7 +15,7 @@
 export {};
 
 interface FsEntry { content: string; orig: string | null }
-interface Tab { id: string; title?: string; kind?: string; path?: string }
+interface Tab { id: string; title?: string; kind?: string; path?: string; fixed?: boolean; a?: string; b?: string; label?: string }
 interface MenuItem { l: string; k?: string; act?: () => unknown }
 interface Menu { t: string; items?: MenuItem[] }
 type CmdEntry = [string, string, () => unknown];
@@ -109,6 +109,79 @@ declare global {
   const CMD: CmdEntry[];
   const $: (s: string) => HTMLElement | null;
   const tabOf: (id: string | null) => Tab | undefined;
+  // Helpers do monólito (app.ts) publicados no window, usados por nome livre pelas features-folha.
+  const short: (p: string) => string;
+  const extOf: (p: string) => string;
+  const hlLine: (s: string, ext: string) => string;
+  const fIcon: (p: string) => string;
+  var openTab: (t: Partial<Tab> & { id: string }, act?: boolean) => void;
+  var closeMenus: () => void;
+  var gotoLine: (n: number) => void;
+  var connected: () => string[];
+  // Constantes de caminho do protótipo (donas do monólito app.ts), lidas por nome livre.
+  const P_LX: string;
+  const P_REPO: string;
+  const P_MIG: string;
+  const P_TEST: string;
+  const P_STORE: string;
+  // Globais lexicais/helpers do monólito usados pelas features-folha tipadas (explorer/...).
+  const SECOPEN: Record<string, boolean>;
+  var AGENT: string;
+  const sel: (row: HTMLElement) => void;
+  const norm: (p: string) => string;
+  const drawTimeline: () => void;
+  const palette: (pre?: string, cfg?: any) => void;
+  const USER: string;
+  const HOST: string;
+  const BRANCHES: string[];
+  const MODES: Record<string, { l: string }>;
+  const MISSIONS: any[];
+  const CKPT: any[];
+  const commitGit: (msg?: string, author?: string) => { h: string; n: number } | null;
+  const diffStat: (a: string | null, b: string) => { add: number; del: number };
+  const runTests: (pkg?: string) => { build: boolean; err: string; ok: boolean; tests: Array<{ n: string; ok: boolean }> };
+  const dsLint: () => { p: string; line: number; hex: string }[];
+  const setMode: (m: string) => void;
+  const demo: (x: string) => void;
+  var onKey: (e: KeyboardEvent) => void;
+  const LANG: Record<string, string>;
+  const diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
+  // Globais do i18n (i18n.ts): LOCALE window-backed (var → também em window.LOCALE);
+  // __seen/__miss são instrumentação opcional de tradução (podem não existir).
+  var LOCALE: string;
+  var __seen: Set<string> | undefined;
+  var __miss: Set<string> | undefined;
+  // Globais do Studio (studio.ts, @ts-nocheck) lidos pelos geradores tipados; catálogos
+  // heterogéneos → Record<string, any>, e os helpers de nó com assinatura fina.
+  const TECH: Record<string, any>;
+  const KIND: Record<string, any>;
+  const sl: (n: any) => string;
+  const isApp: (n: any) => boolean;
+  const appDir: (n: any) => string;
+  // Estado do desenho do Studio (studio.ts), window-backed (var → também em window.X);
+  // o resíduo/onclicks inline e generators.ts escrevem/lêem por global.
+  var SD: { nodes: Array<{ id: string; tech: string; n: string; x: number; y: number; st: string }>; edges: string[][] };
+  var SSEL: string | null;
+  var SLINK: string | null;
+  var SCAT: string;
+  var drawStudio: () => void;
+  // Globais lidos pela feature Learning Track (learn.ts). mdFull/paintEd/miniOff/stPos/
+  // user/liveChat/agentPill/focusAgent/RP/LF/PANE vivem em app.ts (@ts-nocheck) e são
+  // publicados no window; ONB/LT_HOOD são donos de learn.ts (window-backed → var).
+  const mdFull: (s: string) => string;
+  const paintEd: (p: string) => void;
+  const miniOff: () => void;
+  const stPos: () => void;
+  const user: (msg: string) => void;
+  const liveChat: (msg: string) => void;
+  const agentPill: () => void;
+  const focusAgent: (x?: boolean) => void;
+  const RP: Record<string, () => void>;
+  var LF: (p: string) => string;
+  var PANE: string;
+  var ONB: { lang: string | null; levels: string[] };
+  var LT_HOOD: boolean;
+  const has: (p: string, re: RegExp) => boolean;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.
   var refresh: (fromEd?: boolean, force?: boolean) => unknown;
   var promptHTML: () => string;

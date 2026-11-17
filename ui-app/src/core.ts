@@ -15,6 +15,19 @@
    novas consomem este core. À medida que cada corpo migra para cá, a fachada vira dono e
    o `window.*` passa a ser só o espelho — até o residual sair e o shim cair. */
 
+/** Um commit na timeline «O que mudou e porquê» (feature `changelog`). Espelha o
+ *  DTO real `tutor_eval::git::GitCommit` do backend — a fonte simulada (GIT.c) é
+ *  mapeada para esta mesma forma, para a vista não distinguir real de simulado. */
+export interface ClCommit {
+  hash: string;
+  short: string;
+  parents: string[];
+  subject: string;
+  author: string;
+  date: string;
+  refs: string[];
+}
+
 declare global {
   interface Window {
     /* estado partilhado (fonte única; o monólito lê/escreve pelos nomes livres) */
@@ -89,6 +102,26 @@ declare global {
        o onkeydown Ctrl+Enter do pane scm chama esta fachada. */
     commitGit: (msg?: string, author?: string) => unknown;
     renderScmPane: () => void;
+    /* feature `diff`: corpo do renderer da tab `diff` (VIEW.diff → window.renderDiffView). */
+    renderDiffView: (t: unknown, host: HTMLElement) => void;
+    /* feature `router`: amostragem ao vivo disponível (router inicializa; bridge põe a true). */
+    LIVE_OK: boolean;
+    /* feature `diagnostics`: motor de diagnósticos/lint/testes derivado de FS; consumido por nome
+       livre por codev/board/test/ext/debug e pelo residual (drawProblems/nextProblem em refresh/boot). */
+    has: (p: string, re: RegExp) => boolean;
+    lexBug: () => boolean;
+    dsLint: () => { p: string; line: number; hex: string }[];
+    diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
+    drawProblems: () => void;
+    nextProblem: () => void;
+    /* feature `changelog` (harvest da ui-next): vista «O que mudou e porquê» = timeline
+       git. A fonte de dados é window-resolved para a bridge poder trocar o simulado
+       (GIT.c/COMMITS, dono = scm.ts) pelo real (git_log/git_show) em desktop. O residual
+       (menu Help + paleta) delega o render por nome (VIEW.analysis → renderChangelogPage). */
+    COMMITS: Array<{ h: string; m: string }>;
+    renderChangelogPage: (t: unknown, host: HTMLElement) => void;
+    clLog: () => Promise<ClCommit[]>;
+    clShow: (hash: string) => Promise<string>;
     /* feature `tutor` (migrada de app.ts): pane «Learning Track» (v4). O curso e o
        progresso (LTS) continuam donos do monólito; a feature lê por fachada. */
     LTS: { lang: string | null; levels: string[]; done: Record<string, unknown>; open: Record<string, boolean>; cur: string | null };

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* ═════════ dxtutor IDE — feature: Paleta de comandos / Quick Open ═════════
    Feature-folha da reestruturação POR FUNCIONALIDADE. Detém o overlay da paleta
    (Ctrl+P ficheiros · `>` comandos · `:` linha) e o prompt de texto reutilizável
@@ -14,7 +13,8 @@
    Do core importa-se o que já é tipado (`$`, `esc`). O restante núcleo dono do
    monólito resolve-se por nome livre via window em runtime — as funções da paleta
    só correm DEPOIS do arranque (cliques/teclas): CMD, FS, short, fIcon, gotoLine,
-   openPath, closeMenus. @ts-nocheck: estes globais dinâmicos vivem no monólito. */
+   openPath, closeMenus — globais dinâmicos do monólito, resolvidos por window em runtime
+   (declarados no contrato ambiente de pair.ts; ficheiro já tipado, sem supressão de tipos). */
 import { $, esc } from "../core";
 
 /* ───── estado (window-backed; o resíduo boot/keydown de app.ts lê por window.*) ───── */
@@ -23,18 +23,19 @@ window.PIDX = window.PIDX ?? 0;
 window.PITEMS = window.PITEMS ?? [];
 window.PAL_TEXT = window.PAL_TEXT ?? (() => {});
 
-function palette(pre, cfg){closeMenus();window.PAL=cfg||null;const inp=$('#pal-in');$('#pal').classList.add('show');inp.value=pre||'';inp.placeholder=cfg?cfg.ph:'Nome do ficheiro  ·  > comandos  ·  : linha';window.PIDX=0;palDraw();setTimeout(()=>inp.focus(),0);}
-function closePal(){$('#pal').classList.remove('show');window.PAL=null;}
-function fuzzy(q,s){q=q.toLowerCase();s=s.toLowerCase();let i=0;for(const c of s){if(c===q[i])i++;if(i===q.length)return true;}return!q.length;}
-function palDraw(){const q=$('#pal-in').value;
-  if(window.PAL){window.PITEMS=window.PAL.items?window.PAL.items.filter(i=>fuzzy(q,i.l)):[{l:`${window.PAL.verb||'Confirmar'}: ${q||'…'}`,run:()=>window.PAL_TEXT(q)}];}
+interface PalCfg { ph?: string; verb?: string; items?: { l: string }[]; text?: (q: string) => void }
+function palette(pre: string, cfg?: PalCfg){closeMenus();window.PAL=cfg||null;const inp=$('#pal-in') as HTMLInputElement|null;$('#pal')!.classList.add('show');if(inp){inp.value=pre||'';inp.placeholder=cfg?(cfg.ph||''):'Nome do ficheiro  ·  > comandos  ·  : linha';}window.PIDX=0;palDraw();setTimeout(()=>inp&&inp.focus(),0);}
+function closePal(){$('#pal')!.classList.remove('show');window.PAL=null;}
+function fuzzy(q: string,s: string){q=q.toLowerCase();s=s.toLowerCase();let i=0;for(const c of s){if(c===q[i])i++;if(i===q.length)return true;}return!q.length;}
+function palDraw(){const q=($('#pal-in') as HTMLInputElement|null)?.value||'';
+  if(window.PAL){window.PITEMS=window.PAL.items?window.PAL.items.filter((i: {l: string})=>fuzzy(q,i.l)):[{l:`${window.PAL.verb||'Confirmar'}: ${q||'…'}`,run:()=>window.PAL_TEXT(q)}];}
   else if(q.startsWith('>')){const f=q.slice(1).trim();window.PITEMS=CMD.filter(c=>fuzzy(f,c[0])).map(c=>({l:c[0],k:c[1],run:c[2]}));}
   else if(q.startsWith(':')){const n=parseInt(q.slice(1))||1;window.PITEMS=[{l:'Ir para a linha '+n,run:()=>gotoLine(n)}];}
-  else window.PITEMS=Object.keys(FS).filter(p=>fuzzy(q,short(p))).sort((a,b)=>a.split('/').pop().localeCompare(b.split('/').pop())).map(p=>({l:p.split('/').pop(),d:short(p),ic:fIcon(p),run:()=>openPath(p)}));
+  else window.PITEMS=Object.keys(FS).filter(p=>fuzzy(q,short(p))).sort((a,b)=>(a.split('/').pop()||'').localeCompare(b.split('/').pop()||'')).map(p=>({l:p.split('/').pop(),d:short(p),ic:fIcon(p),run:()=>openPath(p)}));
   window.PIDX=Math.min(window.PIDX,Math.max(0,window.PITEMS.length-1));
-  $('#pal-list').innerHTML=window.PITEMS.length?window.PITEMS.map((it,i)=>`<div class="pi${i===window.PIDX?' on':''}" data-i="${i}">${it.ic||''}<span>${esc(it.l)}</span>${it.d?`<span class="d">${esc(it.d)}</span>`:''}${it.k?`<span class="key">${it.k}</span>`:''}</div>`).join(''):'<div class="pal-empty">Sem resultados.</div>';
+  $('#pal-list')!.innerHTML=window.PITEMS.length?window.PITEMS.map((it,i)=>`<div class="pi${i===window.PIDX?' on':''}" data-i="${i}">${it.ic||''}<span>${esc(it.l)}</span>${it.d?`<span class="d">${esc(it.d)}</span>`:''}${it.k?`<span class="key">${it.k}</span>`:''}</div>`).join(''):'<div class="pal-empty">Sem resultados.</div>';
   const on=$('#pal-list .on');if(on&&on.scrollIntoView)on.scrollIntoView({block:'nearest'});}
-function palRun(i){const it=window.PITEMS[i];if(!it)return;if(window.PAL&&window.PAL.text)window.PAL_TEXT=window.PAL.text;closePal();it.run();}
+function palRun(i: number){const it=window.PITEMS[i];if(!it)return;if(window.PAL&&window.PAL.text)window.PAL_TEXT=window.PAL.text;closePal();it.run();}
 
 /* ── publicação no window ──
    palette/closePal/palDraw/palRun são chamados por nome livre de muitos pontos

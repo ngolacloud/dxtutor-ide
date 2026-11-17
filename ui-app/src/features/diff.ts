@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* ═════════ dxtutor IDE — feature: Diff (vista de diferenças + matemática do diff) ═════════
    Feature-folha da reestruturação por funcionalidade. Detém o subsistema DIFF que
    vivia no monólito `app.ts` (secção `/* diff *​/`): a matemática pura do diff
@@ -21,18 +20,18 @@
 import { esc } from "../core";
 
 /* ───── matemática do diff (puras) ───── */
-function diffLines(a,b){const A=a?a.split('\n'):[],B=b?b.split('\n'):[],n=A.length,m=B.length,L=Array.from({length:n+1},()=>new Uint16Array(m+1));
+function diffLines(a: string | null | undefined, b: string | null | undefined){const A=a?a.split('\n'):[],B=b?b.split('\n'):[],n=A.length,m=B.length,L=Array.from({length:n+1},()=>new Uint16Array(m+1));
   for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i][j]=A[i]===B[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
   const out=[];let i=0,j=0;while(i<n&&j<m){if(A[i]===B[j]){out.push([' ',A[i],i+1,j+1]);i++;j++;}else if(L[i+1][j]>=L[i][j+1]){out.push(['-',A[i],i+1,'']);i++;}else{out.push(['+',B[j],'',j+1]);j++;}}
   while(i<n){out.push(['-',A[i],i+1,'']);i++;}while(j<m){out.push(['+',B[j],'',j+1]);j++;}return out;}
-function diffStat(a,b){const d=diffLines(a,b);return{add:d.filter(x=>x[0]==='+').length,del:d.filter(x=>x[0]==='-').length};}
+function diffStat(a: string | null | undefined, b: string | null | undefined){const d=diffLines(a,b);return{add:d.filter(x=>x[0]==='+').length,del:d.filter(x=>x[0]==='-').length};}
 
 /* ───── corpo do renderer da tab `diff` (era VIEW.diff no monólito) ───── */
-function renderDiffView(t,host){const a=t.fixed?t.a:(FS[t.path]?FS[t.path].orig:''),b=t.fixed?t.b:(FS[t.path]?FS[t.path].content:''),d=diffLines(a,b),ext=extOf(t.path),s=diffStat(a,b);
-  host.innerHTML=`<div class="diff"><div class="diff-h"><b style="color:var(--fg)">${short(t.path)}</b><span class="tag">${esc(t.label||'HEAD ↔ área de trabalho')}</span><span style="color:var(--green)">+${s.add}</span><span style="color:var(--red)">−${s.del}</span><button class="mini" onclick="openPath('${t.path}')">Abrir ficheiro</button></div>${d.length?d.map(x=>`<div class="dl ${x[0]==='+'?'add':x[0]==='-'?'del':''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${hlLine(x[1],ext)||' '}</span></div>`).join(''):'<div class="sec-empty">Sem diferenças.</div>'}</div>`;}
+function renderDiffView(tab: unknown, host: HTMLElement){const t=tab as { fixed?: boolean; a?: string; b?: string; path: string; label?: string };const a=t.fixed?t.a:(FS[t.path]?FS[t.path].orig:''),b=t.fixed?t.b:(FS[t.path]?FS[t.path].content:''),d=diffLines(a,b),ext=extOf(t.path),s=diffStat(a,b);
+  host.innerHTML=`<div class="diff"><div class="diff-h"><b style="color:var(--fg)">${short(t.path)}</b><span class="tag">${esc(t.label||'HEAD ↔ área de trabalho')}</span><span style="color:var(--green)">+${s.add}</span><span style="color:var(--red)">−${s.del}</span><button class="mini" onclick="openPath('${t.path}')">Abrir ficheiro</button></div>${d.length?d.map(x=>`<div class="dl ${x[0]==='+'?'add':x[0]==='-'?'del':''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${hlLine(x[1] as string,ext)||' '}</span></div>`).join(''):'<div class="sec-empty">Sem diferenças.</div>'}</div>`;}
 
 /* ───── lançador de tab diff ───── */
-function openDiff(p,a,b,label){const fixed=a!==undefined;openTab({id:(fixed?'prop:':'diff:')+p,title:p.split('/').pop()+(fixed?' (proposta)':' (diff)'),kind:'diff',path:p,fixed,a,b,label});}
+function openDiff(p: string, a?: string, b?: string, label?: string){const fixed=a!==undefined;openTab({id:(fixed?'prop:':'diff:')+p,title:p.split('/').pop()+(fixed?' (proposta)':' (diff)'),kind:'diff',path:p,fixed,a,b,label});}
 
 /* ── publicação no window: nomes que o resíduo (app.ts terminal/v5.ts/codev.ts) e
    os onclick inline resolvem como globais. VIEW.diff (app.ts) delega em

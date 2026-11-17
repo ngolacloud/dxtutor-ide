@@ -23,7 +23,7 @@ interface GitState {
   c: Record<string, CommitNode>; order: string[]; refs: Record<string, string>;
   trees: Record<string, Record<string, string>>; base: Record<string, unknown>; tags: Record<string, string>;
 }
-interface Prov { name: string; model: string; ep?: string; on?: boolean; local?: boolean }
+interface Prov { name: string; model: string; ep?: string; on?: boolean; local?: boolean; col?: string }
 interface Envs { rt: string; rtOn: boolean; sock: Record<string, string>; kube: string; k8sOn: boolean; ctx: string; ns: string }
 interface Tool { name: string; description?: string; inputSchema?: Record<string, unknown>; execute: (input: any) => unknown }
 interface SampleOpts { tools?: Tool[]; signal?: AbortSignal | null; onText?: (x: { text: string }) => void; step?: string | null; cache?: boolean; modelTier?: string; modelHint?: string }
@@ -66,7 +66,7 @@ declare global {
   const AGENTS: Record<string, { n: string }>;
   const STOP: unknown;
   const MODE: string;
-  const ACTIVE: string;
+  var ACTIVE: string;
   const COMMIT_MSG: string;
   const isFlow: (b: string) => boolean;
   const changes: () => string[];
@@ -90,6 +90,7 @@ declare global {
   var syncTree: (...a: any[]) => void;
   var commit: (msg?: string, author?: string) => unknown;
   var checkout: (b: string, create?: boolean) => boolean;
+  var stage: (p: string) => void;
   var gitMerge: (src: string, author?: string) => CommitNode | null;
   var gfStart: (kind: string, name: string) => string;
   var gfFinish: (b?: string, author?: string) => unknown;
@@ -356,6 +357,11 @@ async function syncGit(): Promise<void> {
 R.flush = () => flushSave();
 R.reloadDisk = () => reloadDisk();
 R.syncGit = () => syncGit();
+/* feature `changelog` (harvest ui-next): troca a fonte simulada pela timeline git REAL
+   do repositório aberto. git_log dá os commits; git_show dá o patch tal-e-qual. Sem pasta
+   aberta → vazio honesto (a vista mostra o aviso). Os comandos existem no backend. */
+window.clLog = async () => (R.root ? inv("git_log", { root: R.root, max: 30 }) : []);
+window.clShow = async (hash: string) => (R.root ? inv("git_show", { root: R.root, hash }) : "");
 R.termLine = (t, e) => termLine(t, e);
 R.envFor = () => envFor();
 R.gitInit = () => enqueue(async () => { flushSave(); await gitOk("init", "-b", "main"); R.git = true; R.prefix = ""; await markChanged(); await syncGit(); toast("git repository created on main"); });
@@ -844,10 +850,12 @@ void (async () => {
 })();
 
 async function selftest(): Promise<void> {
-  const rep: { tauri: boolean; version?: string; os?: string; errors: string[]; steps: Record<string, unknown> } =
-    { tauri: true, version: R.info.version, os: R.info.os, errors: R.errors, steps: {} };
+  const rep: { tauri: boolean; version?: string; os?: string; errors: string[]; steps: Record<string, unknown>; stepErrors: Record<string, string[]> } =
+    { tauri: true, version: R.info.version, os: R.info.os, errors: R.errors, steps: {}, stepErrors: {} };
   const step = async (n: string, f: () => unknown) => {
+    const e0 = R.errors.length;
     try { rep.steps[n] = await f(); } catch (e) { rep.steps[n] = "FAIL: " + ((e as Error) && (e as Error).message || e); }
+    if (R.errors.length > e0) rep.stepErrors[n] = R.errors.slice(e0);
   };
   await step("ui", () => ({ files: Object.keys(FS).length, menus: MENUS.map(m => m.t), sample: typeof SAMPLE, provState: Object.keys(PROV).map(provState) }));
   await step("exec", async () => (await sh("sh", ["-c", "echo ok"], { cwd: R.info.home })).stdout.trim());
@@ -892,6 +900,43 @@ async function selftest(): Promise<void> {
       writeFile(ROOT + "notes/flow.txt", "x\n"); flushSave(); commit("feat: flow"); await Q;
       gfFinish(b); await Q; await Q;
       return { branch: (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim(), branches: (await git("branch", "--format=%(refname:short)")).stdout.trim().split("\n"), flowFile: !!FS[ROOT + "notes/flow.txt"] };
+    });
+    // feature `changelog` (harvest ui-next): observa o caminho desktop-REAL — clLog→git_log
+    // e clShow→git_show sobre o repo git do próprio selftest (acabou de ganhar commits acima).
+    await step("changelog", async () => {
+      const log = await window.clLog();
+      const first = log[0];
+      const diff = first ? await window.clShow(first.hash) : "";
+      return { commits: log.length, realGitLog: log.length > 0 && typeof first?.subject === "string",
+        firstSubject: first ? first.subject : "", diffLen: diff.length, diffIsGitShow: /^commit\s+[0-9a-f]/i.test(diff) };
+    });
+    // feature `scm` (Source Control): prova que o PANE opera sobre git REAL em desktop,
+    // paralelo ao passo `changelog`. Cria uma alteração e confirma que a lista do pane
+    // (changes()) E o comando dedicado git_changes a vêem; faz stage+commit pelo caminho
+    // do pane (stage()/commit() = wrapper real do bridge) e verifica com `git` e git_log;
+    // depois um checkout real (-b e de volta). No browser, features/scm.ts fica em simulação.
+    await step("scm", async () => {
+      const errBefore = R.errors.length;
+      const rel = "notes/scm-probe.txt", key = ROOT + rel, msg = "test: scm pane real git";
+      writeFile(key, "scm pane drives real git\n"); flushSave(); await Q;
+      const listedChange = changes().includes(key);
+      const seen = async () => (await inv("git_changes", { root: R.root }) as { path: string }[]).some(c => c.path === rel);
+      const backendSeesNew = await seen();
+      stage(key);
+      const staged = STAGED.has(key);
+      commit(msg); await Q; await Q;
+      const head = (await git("log", "-1", "--format=%s")).stdout.trim();
+      const logTop = (await inv("git_log", { root: R.root, max: 1 }) as { subject: string }[])[0];
+      const cleanAfter = !changes().includes(key), backendClean = !(await seen());
+      const before = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim();
+      checkout("feature/scm-probe", true); await Q;
+      const onNew = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim();
+      checkout(before); await Q;
+      const back = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim();
+      return { listedChange, backendSeesNew, staged, committed: head === msg,
+        backendLog: !!logTop && logTop.subject === msg, cleanAfter, backendClean,
+        checkoutCreated: onNew === "feature/scm-probe", checkedBack: back === before,
+        errBefore, errAfter: R.errors.length };
     });
     await step("terminal", async () => { const lines: string[] = []; const code = await stream("echo hello-from-term; echo $DX_SELF", { env: { DX_SELF: "env-ok" }, line: l => lines.push(l) }); return { code, lines }; });
     await step("terminalUI", async () => { await realTerm("echo ui-line"); await new Promise(r => setTimeout(r, 300)); return [...document.querySelectorAll("#term .line")].some(d => d.textContent === "ui-line"); });

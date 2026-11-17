@@ -1,8 +1,8 @@
-// @ts-nocheck
 /* ═════════ dxtutor IDE — feature: router de modelos (motor) ═════════
    Feature-folha (padrão de inversão Debug/SCM/ext): passa a DONA do motor «router
    de modelos» que vivia no monólito `app.ts`. Motor denso que cruza globais do
-   monólito, por isso assume `@ts-nocheck` como `visualizer.ts`/`scm.ts`/`debug.ts`.
+   monólito; já tipado (sem supressão de tipos): os globais consumidos resolvem-se por
+   window via o contrato ambiente (pair.ts/core.ts) e os perfis estão tipados como Record.
 
    Fronteira: a feature DETÉM os perfis (`CAPL` rótulos de capacidade, `CAP` matriz
    provedor×capacidade, `TASKP` pesos por tipo de tarefa), a cache (`ROUTE_CACHE`),
@@ -23,12 +23,12 @@
    `app.ts`. `window.LIVE_OK=false` inicializa-se aqui (router carrega antes de app.ts
    e de bridge.ts, que o põe a `true` quando a amostragem ao vivo fica disponível). */
 
-const CAPL={reason:'Raciocínio',code:'Código',speed:'Rapidez',cost:'Economia',priv:'Privacidade',ctx:'Contexto'};
-const CAP={claude:{reason:10,code:9,speed:6,cost:4,priv:3,ctx:9},gemini:{reason:8,code:8,speed:8,cost:7,priv:3,ctx:10},codex:{reason:8,code:10,speed:7,cost:6,priv:3,ctx:7},ollama:{reason:5,code:6,speed:5,cost:10,priv:10,ctx:4}};
-const TASKP={arch:{l:'Arquitectura e decomposição',w:{reason:5,ctx:3,code:1}},code:{l:'Implementação',w:{code:5,reason:2,speed:1}},db:{l:'Modelação de dados',w:{reason:4,code:3,ctx:1}},ui:{l:'Interface',w:{code:3,speed:3,cost:2}},test:{l:'Testes',w:{code:3,speed:3,cost:3}},ops:{l:'Infra e pipelines',w:{reason:3,code:3,cost:2}},teach:{l:'Explicação e tutoria',w:{reason:5,speed:2}},sens:{l:'Dados sensíveis',w:{priv:10,cost:1}}};
-window.LIVE_OK=false;const ROUTE_CACHE={};
-function rankModels(task){const w=TASKP[task].w;return connected().map(p=>({p,s:Object.entries(w).reduce((s,[c,x])=>s+CAP[p][c]*x,0)})).sort((a,b)=>b.s-a.s);}
-async function routeModel(agent,title){const a=AGENTS[agent],task=a.task,r=rankModels(task);if(!r.length)return{p:ACTIVE,why:'nenhum provedor ligado',by:'—'};
+const CAPL: Record<string, string>={reason:'Raciocínio',code:'Código',speed:'Rapidez',cost:'Economia',priv:'Privacidade',ctx:'Contexto'};
+const CAP: Record<string, Record<string, number>>={claude:{reason:10,code:9,speed:6,cost:4,priv:3,ctx:9},gemini:{reason:8,code:8,speed:8,cost:7,priv:3,ctx:10},codex:{reason:8,code:10,speed:7,cost:6,priv:3,ctx:7},ollama:{reason:5,code:6,speed:5,cost:10,priv:10,ctx:4}};
+const TASKP: Record<string, { l: string; w: Record<string, number> }>={arch:{l:'Arquitectura e decomposição',w:{reason:5,ctx:3,code:1}},code:{l:'Implementação',w:{code:5,reason:2,speed:1}},db:{l:'Modelação de dados',w:{reason:4,code:3,ctx:1}},ui:{l:'Interface',w:{code:3,speed:3,cost:2}},test:{l:'Testes',w:{code:3,speed:3,cost:3}},ops:{l:'Infra e pipelines',w:{reason:3,code:3,cost:2}},teach:{l:'Explicação e tutoria',w:{reason:5,speed:2}},sens:{l:'Dados sensíveis',w:{priv:10,cost:1}}};
+window.LIVE_OK=false;const ROUTE_CACHE: Record<string, { p: string; why: string; by: string }>={};
+function rankModels(task: string){const w=TASKP[task].w;return connected().map((p: string)=>({p,s:Object.entries(w).reduce((s: number,[c,x])=>s+CAP[p][c]*x,0)})).sort((a,b)=>b.s-a.s);}
+async function routeModel(agent: string,title: string){const a=AGENTS[agent] as { n: string; task: string; model: string },task=a.task,r=rankModels(task);if(!r.length)return{p:ACTIVE,why:'nenhum provedor ligado',by:'—'};
   if(a.model!=='auto'&&PROV[a.model].on)return{p:a.model,why:'fixado no harness do assistente',by:'harness'};
   const top=Object.entries(TASKP[task].w).sort((x,y)=>y[1]-x[1]).slice(0,2).map(x=>CAPL[x[0]].toLowerCase()).join(' e '),heur={p:r[0].p,why:`tarefa de ${TASKP[task].l.toLowerCase()}: pesa mais ${top}`,by:'perfil'};
   if(!SAMPLE||!LIVE_OK)return heur;if(ROUTE_CACHE[task])return ROUTE_CACHE[task];

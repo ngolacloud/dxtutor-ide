@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* ═════════ dxtutor IDE — feature: Team / harness (equipa de assistentes) ═════════
    Motor invertido de `app.ts` (3ª/4ª inversão, como scm/debug/ext). O mais entrelaçado:
    `AGENTS` é DECORADO por app.ts (Object.assign(AGENTS.be,…)) e LIDO por board.ts/codev.ts
@@ -17,7 +16,8 @@
 
 import { esc } from "../core";
 
-const AGENTS=(window.AGENTS={
+interface Agent { n: string; d: string; col: string; paths: string[]; cmds: string[]; task: string; model: string; max: number }
+const AGENTS: Record<string, Agent> = (window.AGENTS = {
   lead:{n:'Co-Dev',d:'Orquestrador: decompõe, delega e integra',col:'#e06c3b',paths:['**'],cmds:['*'],task:'arch',model:'auto',max:20},
   arq:{n:'Arquitecto',d:'Requisitos, arquitectura, ADRs e backlog',col:'#e08a5b',paths:['.dxtutor/**','docs/**'],cmds:[],task:'arch',model:'auto',max:4},
   be:{n:'Backend',d:'Crates Rust e comandos Tauri',col:'#dea584',paths:['crates/**'],cmds:['cargo build','cargo test','cargo clippy'],task:'code',model:'auto',max:6},
@@ -27,19 +27,19 @@ const AGENTS=(window.AGENTS={
   ops:{n:'Plataforma',d:'Infra, CI/CD e deploy',col:'#c678dd',paths:['deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','git push'],task:'ops',model:'auto',max:4},
   tutor:{n:'Tutor',d:'Explica e orienta; nunca escreve por ti',col:'#5fcad6',paths:[],cmds:[],task:'teach',model:'auto',max:0}});
 window.AGENT='lead';
-const globRe=g=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=>x.replace(/[.+^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*')+'$');
-const inScope=(a,p)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
-const canRun=(a,cmd)=>AGENTS[a].cmds.some(c=>c==='*'||cmd.startsWith(c));
-const ownerOf=p=>Object.keys(AGENTS).find(k=>k!=='lead'&&inScope(k,p))||'lead';
-function harnessCheck(p){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(`fora do escopo do assistente ${AGENTS[AGENT].n}. Pode escrever em: ${AGENTS[AGENT].paths.join(', ')||'nada'}. Este caminho pertence a: ${AGENTS[o].n}.`);}}
-function harnessCmd(c){if(!canRun(AGENT,c))throw new Error(`o assistente ${AGENTS[AGENT].n} não tem permissão para correr "${c}".`);}
+const globRe=(g:string)=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=>x.replace(/[.+^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*')+'$');
+const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
+const canRun=(a:string,cmd:string)=>AGENTS[a].cmds.some(c=>c==='*'||cmd.startsWith(c));
+const ownerOf=(p:string)=>Object.keys(AGENTS).find(k=>k!=='lead'&&inScope(k,p))||'lead';
+function harnessCheck(p:string){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(`fora do escopo do assistente ${AGENTS[AGENT].n}. Pode escrever em: ${AGENTS[AGENT].paths.join(', ')||'nada'}. Este caminho pertence a: ${AGENTS[o].n}.`);}}
+function harnessCmd(c:string){if(!canRun(AGENT,c))throw new Error(`o assistente ${AGENTS[AGENT].n} não tem permissão para correr "${c}".`);}
 const agentSys=()=>{const a=AGENTS[AGENT];return `\nÉs o assistente «${a.n}» (${a.d}). Harness: só podes escrever em [${a.paths.join(', ')||'nenhum caminho'}] e correr [${a.cmds.join(', ')||'nenhum comando'}]. Se a tarefa exigir sair deste escopo, não o faças: diz que assistente da equipa (${Object.values(AGENTS).map(x=>x.n).join(', ')}) deve tratar dessa parte.`+(AGENT==='tutor'?'\nComo Tutor: não dês a solução completa. Faz perguntas, explica o conceito, dá pistas graduais e pede ao aluno que tente.':'');};
 function saveTeam(){LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
-function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))AGENTS[k][f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
+function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
 function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
 function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
-function scopeProbe(v){const o=$('#probe-out');if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,norm(v)));o.innerHTML=who.length?'Pode escrever: '+who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', '):'Nenhum assistente especializado — só o orquestrador, com a tua aprovação.';}
-function renderTeamView(t,host){host.innerHTML=`<div class="page"><h1>Equipa de assistentes</h1><div class="sub">Cada assistente tem uma responsabilidade e um <b>harness</b>: os caminhos onde pode escrever, os comandos que pode correr e o limite de ficheiros por tarefa. O harness é aplicado em cada chamada de ferramenta — se um assistente tentar sair do escopo, a acção é bloqueada e delegada a quem é dono do caminho.</div>
+function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,norm(v)));o.innerHTML=who.length?'Pode escrever: '+who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', '):'Nenhum assistente especializado — só o orquestrador, com a tua aprovação.';}
+function renderTeamView(_t:unknown,host:HTMLElement){host.innerHTML=`<div class="page"><h1>Equipa de assistentes</h1><div class="sub">Cada assistente tem uma responsabilidade e um <b>harness</b>: os caminhos onde pode escrever, os comandos que pode correr e o limite de ficheiros por tarefa. O harness é aplicado em cada chamada de ferramenta — se um assistente tentar sair do escopo, a acção é bloqueada e delegada a quem é dono do caminho.</div>
   <h2>Testar o escopo</h2><div class="tbl-wrap"><div class="rowline"><input class="inp" style="margin:0;width:320px" placeholder="ex.: db/migrations/0005_x.sql" oninput="scopeProbe(this.value)"><span id="probe-out" style="color:var(--fg-dim)"></span></div></div>
   <h2>Assistentes</h2><div class="pgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${Object.entries(AGENTS).map(([k,a])=>`<div class="pcard"><div class="ph"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${AGENT===k?'<span class="tag acc">na conversa</span>':`<button class="mini" style="margin-left:auto" onclick="AGENT='${k}';agentPill();show(cur)">Falar</button>`}</div><div class="pd">${a.d}</div>
     <div><label>Pode escrever em (um padrão por linha)</label><textarea rows="2" onchange="AGENTS.${k}.paths=this.value.split('\\n').map(s=>s.trim()).filter(Boolean);saveTeam()">${esc(a.paths.join('\n'))}</textarea></div>
