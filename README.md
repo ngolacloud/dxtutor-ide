@@ -18,11 +18,14 @@ Opcional, para as funções de infra: `docker` (ou `podman`) com compose, `kubec
 ```bash
 npm install
 npm run dev        # abre a aplicação em modo de desenvolvimento
-npm run build      # gera o instalador em src-tauri/target/release/bundle/
+npm run build      # gera o instalador em target/release/bundle/
 npm test           # testes do backend Rust (cargo test)
 ```
 
-Para abrir logo uma pasta: `src-tauri/target/debug/dxtutor-ide /caminho/do/projecto`.
+Por ser um workspace Cargo, os artefactos saem em `<raiz>/target/` (um só
+`target/` para toda a app); ignora o `src-tauri/target/` órfão.
+
+Para abrir logo uma pasta: `target/debug/dxtutor-ide /caminho/do/projecto`.
 A última pasta aberta é reaberta no arranque seguinte.
 
 ## Chaves dos modelos
@@ -74,9 +77,15 @@ O modelo e o endpoint de cada provedor editam-se nas Definições (por omissão:
 ## Estrutura
 
 O repositório é um workspace Cargo: o «cérebro» dxtutor (crates `tutor-*`) +
-a casca desktop Tauri. A UI que embarca é o `ui-app/` — o protótipo v7
+a casca desktop Tauri. **A UI oficial e activa é o `ui-app/`** (ver
+`docs/architecture/ADR-0001-ui-app-oficial.md`) — o protótipo v7
 componentizado em módulos TypeScript (Vite): `npm run ui:build` compila com
 `tsc` e empacota para `ui-app/dist`, que o Tauri embute (`frontendDist`).
+
+As pastas `ui/` e `ui-next/` são referências históricas/experimentais, fora do
+grafo de build activo; não as alterar como se fossem a UI de produção. As
+regras de manutenção estão em `AGENTS.md` e a arquitectura em
+`docs/architecture/`.
 
 ```
 crates/
@@ -95,7 +104,7 @@ ui-app/src/bridge.ts   liga a interface ao backend (só actua dentro da aplicaç
 ui-app/src/pair.ts     PairCode: sessão, sincronização, controlo, chamada
 ui-app/public/         estáticos servidos tal-e-qual (styles.css, jszip.min.js)
 src-tauri/src/
-  main.rs              entrada fina; lib.rs regista os ~130 comandos
+  main.rs              entrada fina; lib.rs regista os 133 comandos IPC
   lib.rs               comandos ricos do dxtutor (estudo, git, debug, LSP, agent,
                        devcontainers, arch, board) + PairCode
   bridge.rs            comandos genéricos da v7 (workspace/exec/llm/keys/vsix)
