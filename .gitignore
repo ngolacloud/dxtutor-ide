@@ -2,3 +2,13 @@ node_modules/
 src-tauri/target/
 target/
 dist/
+
+# sessões e worktrees do harness Claude (bookkeeping local, não versionar)
+.claude/sessions/
+.claude/worktrees/
+
+# segredos (chaves de API dos provedores LLM) — nunca versionar
+providers.json
+**/providers.json
+.env
+*.env
