@@ -395,38 +395,12 @@ async function gfAsk(host,M){const b=BRANCH;if(!/^(feature|fix)\//.test(b))retur
   const go=MODE==='auto'?1:await ask(host,[{l:`Finalizar: merge de ${b} em develop`,v:1,pri:1,done:'✓ merge aprovado por ti'},{l:'Manter o ramo aberto',v:0,done:'ramo mantido'}]);
   if(go){const m=gfFinish(b);host.insertAdjacentHTML('beforeend',`<p>Gitflow: <code>${esc(b)}</code> → <code>develop</code> (merge <code>${m.h}</code>), ramo apagado. A release para <code>main</code> fica sempre contigo.</p>`);}}
 
-/* ───── equipa: vários assistentes, cada um com o seu harness ───── */
-const AGENTS={
-  lead:{n:'Co-Dev',d:'Orquestrador: decompõe, delega e integra',col:'#e06c3b',paths:['**'],cmds:['*'],task:'arch',model:'auto',max:20},
-  arq:{n:'Arquitecto',d:'Requisitos, arquitectura, ADRs e backlog',col:'#e08a5b',paths:['.dxtutor/**','docs/**'],cmds:[],task:'arch',model:'auto',max:4},
-  be:{n:'Backend',d:'Crates Rust e comandos Tauri',col:'#dea584',paths:['crates/**'],cmds:['cargo build','cargo test','cargo clippy'],task:'code',model:'auto',max:6},
-  db:{n:'Base de dados',d:'Esquema, migrações e índices',col:'#5cc9a7',paths:['db/migrations/**'],cmds:['cargo test -p store'],task:'db',model:'auto',max:3},
-  fe:{n:'Frontend',d:'Interface e Design System',col:'#6ea8ff',paths:['desktop/src/**'],cmds:['dx lint','npm run dev','npm run lint'],task:'ui',model:'auto',max:6},
-  qa:{n:'QA',d:'Testes automáticos',col:'#e0b64a',paths:['crates/*/tests/**','tests/**'],cmds:['cargo test','dx lint','dx test'],task:'test',model:'auto',max:6},
-  ops:{n:'Plataforma',d:'Infra, CI/CD e deploy',col:'#c678dd',paths:['deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','git push'],task:'ops',model:'auto',max:4},
-  tutor:{n:'Tutor',d:'Explica e orienta; nunca escreve por ti',col:'#5fcad6',paths:[],cmds:[],task:'teach',model:'auto',max:0}};
-window.AGENT='lead';
-const globRe=g=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=>x.replace(/[.+^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*')+'$');
-const inScope=(a,p)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
-const canRun=(a,cmd)=>AGENTS[a].cmds.some(c=>c==='*'||cmd.startsWith(c));
-const ownerOf=p=>Object.keys(AGENTS).find(k=>k!=='lead'&&inScope(k,p))||'lead';
-function harnessCheck(p){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(`fora do escopo do assistente ${AGENTS[AGENT].n}. Pode escrever em: ${AGENTS[AGENT].paths.join(', ')||'nada'}. Este caminho pertence a: ${AGENTS[o].n}.`);}}
-function harnessCmd(c){if(!canRun(AGENT,c))throw new Error(`o assistente ${AGENTS[AGENT].n} não tem permissão para correr "${c}".`);}
-const agentSys=()=>{const a=AGENTS[AGENT];return `\nÉs o assistente «${a.n}» (${a.d}). Harness: só podes escrever em [${a.paths.join(', ')||'nenhum caminho'}] e correr [${a.cmds.join(', ')||'nenhum comando'}]. Se a tarefa exigir sair deste escopo, não o faças: diz que assistente da equipa (${Object.values(AGENTS).map(x=>x.n).join(', ')}) deve tratar dessa parte.`+(AGENT==='tutor'?'\nComo Tutor: não dês a solução completa. Faz perguntas, explica o conceito, dá pistas graduais e pede ao aluno que tente.':'');};
-function saveTeam(){LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
-function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))AGENTS[k][f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
-function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
-function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
+/* ───── equipa: motor (AGENTS/globRe/inScope/canRun/ownerOf/harnessCheck/harnessCmd/agentSys/
+   saveTeam/loadTeam/pickAgent/agentPill/scopeProbe + VIEW.team) migrado p/ features/team.ts
+   (inversão @ts-nocheck, window-backed). Aqui ficam: openTeam (abrir tab — $dup0; versão viva
+   em v5.ts), a decoração Object.assign(AGENTS.*) abaixo, e o shim VIEW.team que v5/v6 decoram. ───── */
 function openTeam$dup0(){openTab({id:'team',title:'Equipa',kind:'team'});}
-function scopeProbe(v){const o=$('#probe-out');if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,norm(v)));o.innerHTML=who.length?'Pode escrever: '+who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', '):'Nenhum assistente especializado — só o orquestrador, com a tua aprovação.';}
-VIEW.team=(t,host)=>{host.innerHTML=`<div class="page"><h1>Equipa de assistentes</h1><div class="sub">Cada assistente tem uma responsabilidade e um <b>harness</b>: os caminhos onde pode escrever, os comandos que pode correr e o limite de ficheiros por tarefa. O harness é aplicado em cada chamada de ferramenta — se um assistente tentar sair do escopo, a acção é bloqueada e delegada a quem é dono do caminho.</div>
-  <h2>Testar o escopo</h2><div class="tbl-wrap"><div class="rowline"><input class="inp" style="margin:0;width:320px" placeholder="ex.: db/migrations/0005_x.sql" oninput="scopeProbe(this.value)"><span id="probe-out" style="color:var(--fg-dim)"></span></div></div>
-  <h2>Assistentes</h2><div class="pgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${Object.entries(AGENTS).map(([k,a])=>`<div class="pcard"><div class="ph"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${AGENT===k?'<span class="tag acc">na conversa</span>':`<button class="mini" style="margin-left:auto" onclick="AGENT='${k}';agentPill();show(cur)">Falar</button>`}</div><div class="pd">${a.d}</div>
-    <div><label>Pode escrever em (um padrão por linha)</label><textarea rows="2" onchange="AGENTS.${k}.paths=this.value.split('\\n').map(s=>s.trim()).filter(Boolean);saveTeam()">${esc(a.paths.join('\n'))}</textarea></div>
-    <div><label>Comandos permitidos</label><textarea rows="2" onchange="AGENTS.${k}.cmds=this.value.split('\\n').map(s=>s.trim()).filter(Boolean);saveTeam()">${esc(a.cmds.join('\n'))}</textarea></div>
-    <div style="display:grid;grid-template-columns:1fr 90px;gap:8px"><div><label>Modelo</label><select onchange="AGENTS.${k}.model=this.value;saveTeam()"><option value="auto"${a.model==='auto'?' selected':''}>Automático (router)</option>${Object.entries(PROV).map(([p,v])=>`<option value="${p}"${a.model===p?' selected':''}>${v.name}</option>`).join('')}</select></div><div><label>Máx. ficheiros</label><input type="number" min="0" max="50" value="${a.max}" onchange="AGENTS.${k}.max=+this.value;saveTeam()"></div></div></div>`).join('')}</div>
-  <h2>Router de modelos</h2><div class="sub">Com o modelo em «Automático», o assistente descreve a tarefa e pede o modelo mais adequado. Os perfis abaixo são valores de exemplo, editáveis na aplicação real.</div><div class="tbl-wrap"><table class="tbl"><tr><th>Provedor</th>${Object.keys(CAPL).map(c=>`<th>${CAPL[c]}</th>`).join('')}</tr>${Object.entries(PROV).map(([p,v])=>`<tr><td><span class="pdot${v.on?'':' off'}" style="background:${v.col}"></span> ${v.name}</td>${Object.keys(CAPL).map(c=>`<td class="c">${CAP[p][c]}</td>`).join('')}</tr>`).join('')}</table></div>
-  <div class="tbl-wrap" style="margin-top:10px">${Object.entries(TASKP).map(([k,p])=>{const r=rankModels(k);return `<div class="rowline"><b style="width:210px;flex:none">${p.l}</b><span style="color:var(--fg-muted)">${Object.entries(p.w).map(([c,w])=>CAPL[c]+' ×'+w).join(' · ')}</span><span class="sp"></span>${r.length?`<span class="pdot" style="background:${PROV[r[0].p].col}"></span>${PROV[r[0].p].name}`:'—'}</div>`;}).join('')}</div></div>`;};
+VIEW.team=(t,host)=>window.renderTeamView(t,host);
 
 /* ───── router: motor (CAPL/CAP/TASKP/ROUTE_CACHE/LIVE_OK/rankModels/routeModel) migrado p/ features/router.ts; aqui só consumidores (VIEW.team, genBacklog, runIssue) que lêem por global ───── */
 
@@ -439,47 +413,11 @@ VIEW.team=(t,host)=>{host.innerHTML=`<div class="page"><h1>Equipa de assistentes
    (eager; v5/v6 decoram-no) e os decoradores/consumidores que lêem por global. ───── */
 VIEW.board=(t,host)=>window.renderBoardView(t,host);
 
-/* ───── Tutor: percursos de aprendizagem sobre o código real ───── */
-const LF=p=>ROOT+'learn/'+p;/* usado pela secção morta LEARN (eager, abaixo) e por features/learn.ts (ltPath, lazy, via window.LF) */
-const LEARN=[
- {id:'rust',t:'Rust: ownership e iteradores',d:'Do erro E0382 à correcção idiomática.',ls:[
-  {id:'own',t:'Mover ou emprestar',x:'Em Rust cada valor tem um dono. Um <code>for x in v</code> <b>move</b> <code>v</code> para dentro do ciclo: depois dele, <code>v</code> já não te pertence. Para continuar a usá-lo, o ciclo tem de o <b>emprestar</b>.',file:LF('rust/01_ownership.rs'),seed:'// Exercício: faz compilar sem clonar `nomes`.\nfn main() {\n    let nomes = vec![String::from("ana"), String::from("rui")];\n    for n in nomes {\n        println!("{}", n);\n    }\n    println!("total: {}", nomes.len());\n}\n',chk:c=>/for \w+ in (&nomes|nomes\.iter\(\))/.test(c)&&!/clone/.test(c),h:['O que acontece a <code>nomes</code> quando entra no <code>for</code>?','O ciclo não precisa de ser dono do vector: basta-lhe uma referência.','Experimenta <code>for n in &nomes</code>.']},
-  {id:'byref',t:'Aplicar no projecto: o E0382 do lexer',x:'O mesmo erro existe em <code>crates/lexer/src/lib.rs</code>: o <code>for</code> move o iterador <code>chars</code> e a linha 10 volta a usá-lo. Um iterador empresta-se com <code>by_ref()</code>.',open:P_LX,line:5,chk:()=>!lexBug()&&runTests('lexer').ok,h:['Lê a mensagem em Problems: que valor foi movido e onde?','Não clones — isso deixaria o iterador original por consumir e o teste <code>tokenize_emits_eof</code> falharia.','<code>for c in chars.by_ref()</code>']}]},
- {id:'sql',t:'Base de dados: índices e integridade',d:'Listagens rápidas e dados coerentes.',ls:[
-  {id:'idx',t:'Um índice que cobre o filtro e a ordenação',x:'Uma listagem «por workspace, das mais recentes para as mais antigas» filtra por uma coluna e ordena por outra. Sem índice composto, a base de dados percorre a tabela toda.',file:LF('sql/01_indice.sql'),seed:'-- Exercício: cria o índice que serve esta query.\n-- SELECT * FROM notes WHERE workspace_id = ? ORDER BY created_at DESC;\nCREATE TABLE notes (\n  id           TEXT PRIMARY KEY,\n  workspace_id TEXT NOT NULL,\n  created_at   INTEGER NOT NULL\n);\n',chk:c=>/CREATE INDEX\s+\w+\s+ON\s+notes\s*\(\s*workspace_id\s*,\s*created_at/i.test(c),h:['Que colunas aparecem no <code>WHERE</code> e no <code>ORDER BY</code>?','A ordem das colunas no índice conta: primeiro a do filtro.','<code>CREATE INDEX idx_notes ON notes (workspace_id, created_at DESC);</code>']},
-  {id:'fk',t:'Quem apaga os filhos?',x:'Segundo <code>base-de-dados.md</code>, quando um registo filho não vive sem o pai, a chave estrangeira leva <code>ON DELETE CASCADE</code>.',quiz:{q:'Apagas um workspace. O que deve acontecer às conversas dele?',o:['Ficam órfãs, para auditoria','São apagadas em cascata pela chave estrangeira','A aplicação apaga-as uma a uma'],a:1}}]},
- {id:'pat',t:'Padrão Repository e camadas',d:'Porque é que a UI nunca vê SQL.',ls:[
-  {id:'layers',t:'Onde vive o SQL',x:'O <b>ADR-002</b> define as camadas: UI → comandos Tauri → domínio → <code>crates/store</code>.',quiz:{q:'A vista do histórico precisa da lista de conversas. Como a obtém?',o:['Faz o SELECT directamente','Chama um comando Tauri, que usa o Repository','Lê o ficheiro SQLite'],a:1}},
-  {id:'repo',t:'Escrever um Repository',x:'Um Repository é um <code>trait</code> com as operações de dados; a implementação concreta (SQLite) é um detalhe que pode mudar.',file:LF('padroes/01_repository.rs'),seed:'// Exercício: declara o trait `NoteRepo` com dois métodos:\n//   save(&self, note: &Note) e list(&self, workspace_id: &str)\npub struct Note {\n    pub id: String,\n    pub workspace_id: String,\n}\n\n',chk:c=>/pub trait NoteRepo/.test(c)&&/fn save\(&self/.test(c)&&/fn list\(&self/.test(c),h:['Um trait só declara assinaturas — não tem corpo.','Ambos os métodos recebem <code>&self</code>.','<code>pub trait NoteRepo { fn save(&self, note: &Note); fn list(&self, workspace_id: &str) -> Vec&lt;Note&gt;; }</code>']}]},
- {id:'gf',t:'Gitflow na prática',d:'Feito no git deste IDE, não em teoria.',ls:[
-  {id:'gf1',t:'Começar uma feature',x:'Nenhum trabalho se faz directamente em <code>develop</code>. Cria um ramo <code>feature/…</code> (Source Control → Iniciar feature, ou <code>git flow feature start nome</code> no terminal).',chk:()=>/^feature\//.test(BRANCH),h:['Abre o painel Source Control.','Na secção «Gitflow — próximo passo» há um botão.','No terminal: <code>git flow feature start aprender</code>']},
-  {id:'gf2',t:'Commit e finalizar',x:'Altera um ficheiro, faz commit no ramo e finaliza a feature: o merge em <code>develop</code> aparece no grafo de commits.',chk:()=>/^Merge feature\//.test(GIT.c[GIT.refs.develop].m)&&Date.now()-GIT.c[GIT.refs.develop].t<3600e3,h:['Precisas de pelo menos um commit no ramo.','Depois do commit, «Finalizar feature» faz o merge.','<code>git add .</code> → <code>git commit -m "..."</code> → <code>git flow feature finish</code>']}]}];
-const LP=LS.get('learn',{done:{},hints:{}});let LCUR=['rust','own'];
-const saveLP=()=>LS.set('learn',LP),lkey=(p,l)=>p+'.'+l,pathPct=p=>Math.round(p.ls.filter(l=>LP.done[lkey(p.id,l.id)]).length/p.ls.length*100);
-function openLesson$dup0(p,l){LCUR=[p,l];openTab({id:'learn',title:'Tutor',kind:'learn'});if(PANE==='tutor')RP.tutor();}
-function lessonOpen(){const P=LEARN.find(x=>x.id===LCUR[0]),L=P.ls.find(x=>x.id===LCUR[1]);if(L.file){if(!FS[L.file])writeFile(L.file,L.seed);openPath(L.file);}else if(L.open)openPath(L.open,L.line);}
-function lessonCheck(){const P=LEARN.find(x=>x.id===LCUR[0]),L=P.ls.find(x=>x.id===LCUR[1]),k=lkey(P.id,L.id),ok=L.file?(FS[L.file]?L.chk(FS[L.file].content):false):L.chk();
-  if(ok){LP.done[k]=1;saveLP();toast('✓ '+L.t);}LP.last={k,ok,msg:ok?'Certo. '+(LP.hints[k]?`Usaste ${LP.hints[k]} pista(s).`:'Sem pistas.'):L.file&&!FS[L.file]?'Abre primeiro o exercício.':'Ainda não. Relê o enunciado ou pede uma pista.'};rerender('learn');if(PANE==='tutor')RP.tutor();}
-function lessonHint(){const k=lkey(...LCUR);LP.hints[k]=Math.min(3,(LP.hints[k]||0)+1);saveLP();rerender('learn');}
-function lessonQuiz(i){const P=LEARN.find(x=>x.id===LCUR[0]),L=P.ls.find(x=>x.id===LCUR[1]),k=lkey(P.id,L.id),ok=i===L.quiz.a;if(ok){LP.done[k]=1;saveLP();}LP.last={k,ok,msg:ok?'Certo.':'Não é essa. Volta a ler a regra e tenta outra vez.',pick:i};rerender('learn');if(PANE==='tutor')RP.tutor();}
-function lessonAsk(){const P=LEARN.find(x=>x.id===LCUR[0]),L=P.ls.find(x=>x.id===LCUR[1]),k=lkey(P.id,L.id);AGENT='tutor';agentPill();focusAgent(true);
-  if(SAMPLE&&PROV.claude.on){ACTIVE='claude';updateAgentUI();const src=L.file&&FS[L.file]?`\nO meu código actual:\n${FS[L.file].content}`:'';liveChat(`Estou na lição «${L.t}» do percurso «${P.t}». Não percebo como avançar. Ajuda-me sem me dares a solução.${src}`);}
-  else{user(`Tutor, preciso de ajuda na lição «${L.t}».`);LP.hints[k]=Math.min(3,(LP.hints[k]||0)+1);saveLP();card('tutor',`<p>${L.h?L.h[LP.hints[k]-1]:'Relê a regra do projecto citada no enunciado e elimina as opções que a violam.'}</p><p style="color:var(--fg-dim)">Com o Claude ao vivo, respondo às tuas dúvidas sobre o teu código em vez de dar pistas fixas.</p>`);rerender('learn');}}
-function nextLesson$dup0(){for(const p of LEARN)for(const l of p.ls)if(!LP.done[lkey(p.id,l.id)])return[p.id,l.id];return null;}
-const DIAG2LESSON=[[/E0382/,'rust','byref'],[/design-system/,'pat','layers'],[/ORDER BY/,'sql','idx']];
-RP.tutor=()=>{const nx=nextLesson(),dg=diagnostics().map(d=>({d,m:DIAG2LESSON.find(x=>x[0].test(d.msg))})).filter(x=>x.m);
-  $('#pane-tutor').innerHTML=hd('Tutor')+`<div class="sections">${nx?`<div class="scm-grp">Continuar</div><div class="scm-row" onclick="openLesson('${nx[0]}','${nx[1]}')"><span class="ic" style="color:var(--accent-hover)">${svg('run')}</span><span class="nm" style="max-width:none">${esc(LEARN.find(p=>p.id===nx[0]).ls.find(l=>l.id===nx[1]).t)}</span></div>`:'<div class="sec-empty">Todos os percursos concluídos.</div>'}
-   ${dg.length?`<div class="scm-grp">A partir do teu código<span class="cnt">${dg.length}</span></div>`+dg.map(x=>`<div class="scm-row" onclick="openLesson('${x.m[1]}','${x.m[2]}')" title="${esc(x.d.msg)}"><span class="pi ${x.d.sev}" style="color:var(--${x.d.sev==='e'?'red':'yellow'})">${x.d.sev==='e'?'✖':'⚠'}</span><span class="nm" style="max-width:none">${esc(x.d.msg.split(':')[0])} → lição</span></div>`).join(''):''}
-   ${LEARN.map(p=>`<div class="scm-grp">${esc(p.t)}<span class="cnt">${pathPct(p)}%</span></div><div class="lp-bar"><i style="width:${pathPct(p)}%"></i></div>${p.ls.map(l=>`<div class="scm-row${LCUR[0]===p.id&&LCUR[1]===l.id?' cur':''}" onclick="openLesson('${p.id}','${l.id}')"><span style="width:14px;text-align:center;color:${LP.done[lkey(p.id,l.id)]?'var(--green)':'var(--fg-muted)'}">${LP.done[lkey(p.id,l.id)]?'✓':'○'}</span><span class="nm" style="max-width:none">${esc(l.t)}</span></div>`).join('')}`).join('')}</div>`;};
-VIEW.learn=(t,host)=>{const P=LEARN.find(x=>x.id===LCUR[0]),L=P.ls.find(x=>x.id===LCUR[1]),k=lkey(P.id,L.id),done=LP.done[k],hn=LP.hints[k]||0,last=LP.last&&LP.last.k===k?LP.last:null,i=P.ls.indexOf(L),nx=P.ls[i+1]||(LEARN[LEARN.indexOf(P)+1]||{}).ls&&LEARN[LEARN.indexOf(P)+1].ls[0],nxp=P.ls[i+1]?P.id:(LEARN[LEARN.indexOf(P)+1]||{}).id;
-  host.innerHTML=`<div class="page" style="max-width:760px"><div style="display:flex;gap:8px;align-items:center;color:var(--fg-muted);font-size:12px;margin-bottom:6px"><span class="tag acc">${esc(P.t)}</span>lição ${i+1} de ${P.ls.length}<span class="lp-bar" style="flex:1;margin:0"><i style="width:${pathPct(P)}%"></i></span>${pathPct(P)}%</div>
-   <h1>${esc(L.t)} ${done?'<span class="tag live" style="vertical-align:middle">concluída</span>':''}</h1><div class="lesson">${L.x}</div>
-   ${L.quiz?`<h2>Pergunta</h2><div class="lesson" style="margin-bottom:8px"><b>${L.quiz.q}</b></div>${L.quiz.o.map((o,j)=>`<button class="qopt${last&&last.pick===j?(last.ok?' pick':' wrong'):''}" onclick="lessonQuiz(${j})"><span class="ql">${o}</span></button>`).join('')}`
-    :`<h2>Exercício</h2><div class="tbl-wrap"><div class="rowline"><span>${fIcon(L.file||L.open)}</span><b>${esc(short(L.file||L.open))}</b><span style="color:var(--fg-muted)">${L.file?'ficheiro de treino, fora do git':'ficheiro real do projecto'}</span><span class="sp"></span><button class="mini" onclick="lessonOpen()">Abrir no editor</button><button class="mini pri" onclick="lessonCheck()">Verificar</button></div></div>`}
-   ${last?`<div class="fb ${last.ok?'ok':'no'}">${last.ok?'✓':'✗'} ${last.msg}</div>`:''}
-   <h2>Ajuda</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${L.h?`<button class="mini" onclick="lessonHint()"${hn>=3?' disabled':''}>Pedir pista (${hn}/3)</button>`:''}<button class="mini" onclick="lessonAsk()">Perguntar ao Tutor</button>${nx?`<button class="mini${done?' pri':''}" style="margin-left:auto" onclick="openLesson('${nxp}','${nx.id}')">Lição seguinte →</button>`:''}</div>
-   ${L.h?L.h.slice(0,hn).map((h,j)=>`<div class="hint"><b>Pista ${j+1}</b> ${h}</div>`).join(''):''}
-   <div class="sub" style="margin-top:22px">O Tutor não escreve por ti: o harness dele não tem nenhum caminho de escrita. Os exercícios são verificados sobre o que tu escreveste no editor.</div></div>`;};
+/* ───── Tutor (clássico): percursos LEARN/LP/lesson·/VIEW.learn/RP.tutor(v4) ELIMINADOS —
+   código morto substituído pelo Learning Track (features/learn.ts + features/tutor.ts).
+   Ficam só LF (fachada window.LF lida por learn.ts) e LCUR (fallback dos call-sites vivos). ───── */
+const LF=p=>ROOT+'learn/'+p;/* fachada viva: features/learn.ts lê window.LF (ltPath, lazy) */
+let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */
 
 /* ───── integração com o resto do IDE ───── */
 function tabIc$dup1(t){if(t.kind==='file')return fIcon(t.title);const m={agent:'sparkle',welcome:'sparkle',diff:'scm',settings:'settings',manager:'graph',analysis:'book',graph:'scm',team:'account',studio:'cube',board:'split',learn:'book'};return `<span class="ic acc">${svg(m[t.kind]||'file')}</span>`;}
@@ -530,20 +468,8 @@ const _approve=approveIssue;approveIssue=function(id){_approve(id);if(BL.issues.
 Object.assign(AGENTS.be,{paths:['crates/**','apps/*/src/**','apps/*/Cargo.toml','apps/*/go.mod','apps/*/package.json','apps/*/requirements.txt'],max:8});Object.assign(AGENTS.fe,{paths:['desktop/src/**','web/**']});Object.assign(AGENTS.ops,{paths:['docker-compose.yml','.env.example','Makefile','apps/*/Dockerfile','deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','docker compose','make','git push'],max:12});Object.assign(AGENTS.qa,{cmds:['cargo test','dx lint','dx test','sh tests/smoke.sh']});
 
 /* ───── RUN: one command for the whole stack ───── */
-window.STACK=null;
-function composeServices(){const c=FS[ROOT+'docker-compose.yml'];if(!c)return null;const out=[];let cur=null,on=false,dep=false;c.content.split('\n').forEach(l=>{if(/^services:/.test(l)){on=true;return;}if(/^\S/.test(l)&&!/^services:/.test(l))on=false;if(!on)return;let m;if(/^    \S/.test(l))dep=/^    depends_on:/.test(l);
-    if((m=l.match(/^  ([a-z0-9][\w-]*):\s*$/))){cur={name:m[1],deps:[]};out.push(cur);}else if(cur){if((m=l.match(/^    image:\s*(.+)/)))cur.image=m[1];if((m=l.match(/^    build:\s*\.\/(.+)/)))cur.build=m[1];if((m=l.match(/^      - "(\d+):\d+"/)))cur.port=m[1];if((m=l.match(/PathPrefix\(`([^`]+)`\)/)))cur.route=m[1];if(dep&&(m=l.match(/^      (?:- )?([a-z0-9][\w-]*):?\s*$/)))cur.deps.push(m[1]);if(/healthcheck:/.test(l))cur.hc=true;}});return out;}
-window.dxRun = function(term){if(term!==true){setPanelTab('terminal',true);echoCmd('docker compose up --build -d');}const sv=composeServices();
-  if(!sv){echo(`<span class="er">no configuration file provided: not found</span>\n<span class="dim">docker-compose.yml does not exist on ${esc(BRANCH)}. Generate the backlog from the Studio, run the sprints and validate the issues — the merge into develop brings the artefacts.</span>`);newInput(true);toast('Nothing to run yet — generate and validate the project first');return{ok:false,sum:'no compose file'};}
-  const miss=sv.filter(s=>s.build&&!FS[ROOT+s.build+'/Dockerfile']);if(miss.length){echo(miss.map(s=>`<span class="er">failed to solve: failed to read dockerfile: open ${s.build}/Dockerfile: no such file or directory</span>`).join('\n')+`\n<span class="dim">Validate the pending issues on the board so their branches are merged.</span>`);newInput(true);return{ok:false,sum:'missing Dockerfile'};}
-  const gw=sv.find(s=>/traefik/.test(s.image||'')),order=[];const visit=s=>{if(order.includes(s))return;s.deps.forEach(d=>{const x=sv.find(y=>y.name===d);if(x)visit(x);});order.push(s);};sv.forEach(visit);
-  echo(sv.filter(s=>s.build).map(s=>`<span class="dim">[+] Building</span> ${s.name} <span class="dim">(${s.build}/Dockerfile)</span> <span class="ok">FINISHED</span>`).join('\n')+'\n'+sv.filter(s=>s.image).map(s=>`<span class="dim">[+] Pulling</span> ${s.name} <span class="dim">${esc(s.image)}</span> <span class="ok">done</span>`).join('\n')+'\n'+order.map(s=>` <span class="ok">✔</span> Container ${s.name}  <span class="ok">${s.hc?'Healthy':'Started'}</span>`).join('\n'));
-  STACK=order.map(s=>({name:s.name,src:s.build?'build ./'+s.build:s.image,url:s.route&&gw?`http://localhost:8080${s.route}`:s.port?`http://localhost:${s.port}`:'internal',state:s.hc?'healthy':'running'}));
-  echo(`\n<span class="ac">${STACK.length} services up</span> <span class="dim">· simulated: a browser cannot start containers. In the desktop app this is the real</span> docker compose up --build`+STACK.filter(s=>s.url!=='internal').map(s=>`\n  ➜  ${s.name.padEnd(18)} <span class="ac">${s.url}</span>`).join(''));newInput(true);drawStack();setPanelTab('services');toast(`${STACK.length} services up`);return{ok:true,sum:STACK.length+' services up'};}
-window.dxStop = function(term){if(!STACK){toast('Nothing is running');if(term===true)echo('<span class="dim">no containers</span>');return;}if(term!==true)echoCmd('docker compose down');echo(STACK.slice().reverse().map(s=>` <span class="ok">✔</span> Container ${s.name}  <span class="dim">Removed</span>`).join('\n'));newInput(true);STACK=null;drawStack();}
-window.drawStack = function(){const el=$('#pc-services'),st=$('#st-stack');if(st){st.textContent=STACK?`▶ ${STACK.length} services`:'';st.style.display=STACK?'':'none';}if(!el)return;
-  el.innerHTML=STACK?`<div class="svc-h"><b>${STACK.length} services running</b><span class="tag warn">simulated</span><span class="sp"></span><button class="mini" onclick="dxStop()">■ Stop</button></div><table class="tbl">${STACK.map(s=>`<tr><td><span class="pdot" style="background:var(--green)"></span> <span class="notr">${esc(s.name)}</span></td><td class="c notr">${esc(s.src)}</td><td class="notr">${s.url==='internal'?'<span style="color:var(--fg-muted)">internal</span>':esc(s.url)}</td><td class="c">${s.state}</td></tr>`).join('')}</table>`
-    :`<div class="sec-empty">Nothing is running. <b>▶ RUN</b> builds every Dockerfile and starts the stack described by <code>docker-compose.yml</code>.</div><button class="mini pri" style="margin-left:16px" onclick="dxRun()">▶ RUN</button>`;}
+/* ───── RUN: motor (STACK/composeServices/dxRun/dxStop/drawStack) migrado p/ features/stack.ts (inversão @ts-nocheck, window-backed);
+   aqui ficam só os consumidores XC.docker/make/dx (terminal) e o wiring de arranque boot4, que lêem dxRun/dxStop/STACK/drawStack por global ───── */
 XC.docker=a=>{if(a[0]==='compose'&&a[1]==='up')return dxRun(true);if(a[0]==='compose'&&a[1]==='down'){dxStop(true);return;}if(a[0]==='compose'&&a[1]==='ps'){echo(STACK?STACK.map(s=>`${s.name.padEnd(20)} ${s.state.padEnd(9)} ${s.url}`).join('\n'):'<span class="dim">no containers</span>');return;}echo('<span class="dim">docker compose up | down | ps</span>');};
 XC.make=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}echo('<span class="dim">make run | stop</span>');};
 const _dx4=XC.dx;XC.dx=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}return _dx4(a);};
@@ -572,26 +498,25 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
    consomem; ao virar módulo, os let/const/function de topo deixaram de ser globais de
    script. As mutáveis partilhadas já são window-backed acima (fonte única). ── */
 Object.assign(window, {
-  AGENTS, CMD, FS, LS,
+  CMD, FS, LS,
   OPEN, PANE, PROV, ROOT, RP, RUN, STOP, VIEW,
-  XC, agentPill,
+  XC,
   badges, blame, boot, boot3, boot4, buildActivity, buildExplorer, buildMenus,
-  checkpoint, closePal, closeTab, collapseAll, composeServices,
+  checkpoint, closePal, closeTab, collapseAll,
   diagnostics, diffLines, diffStat,
-  drawOutline, drawProblems, drawTabs, dsLint, edCmd, esc, fIcon, fuzzy, gfAsk, goPane, gotoLine, harnessCheck, harnessCmd,
-  hlLine, hydrate, lessonAsk,
-  lessonCheck, lessonHint, lessonOpen, lessonQuiz, loadCfg, loadSeed, loadTeam, log,
+  drawOutline, drawProblems, drawTabs, dsLint, edCmd, esc, fIcon, fuzzy, gfAsk, goPane, gotoLine,
+  hlLine, hydrate, loadCfg, loadSeed, log,
   markActive, mdFull, miniOff, newFile,
   newFolder, newInput, nextProblem, openDiff, openFile,
   openPath, openTab, paintEd, palDraw, palRun, palette,
-  parkAgent, pickAgent, renderLevel,
+  parkAgent, renderLevel,
   rerender, resetAll, restoreCkpt, runTask, runTests,
-  save, saveTeam, scopeProbe, selText, setActive, setPane, setPanelTab, show, stLang, stPos,
+  save, selText, setActive, setPane, setPanelTab, show, stLang, stPos,
   stepTab, symbols, tabIc, tabOf, termRefreshPrompt, togglePanel,
   toggleSide, use,
   who, writeFile,
   // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
-  CHAT, SEED, SAFE, DANGER, connected, agentSys, has, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
+  CHAT, SEED, SAFE, DANGER, connected, has, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
   // fachadas que as features migradas (features/*.ts) consomem por window:
   provFor, LF,
   // núcleo que as camadas v5 (src/v5.ts) e v6 (src/v6.ts) consomem como referências livres via window:
