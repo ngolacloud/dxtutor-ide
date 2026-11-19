@@ -1,98 +1,59 @@
 // @ts-nocheck
-/* ═════════ dxtutor IDE — v5: Infra (socket + KUBECONFIG), dev container, K8s deploy, project harness, less noise (módulo de camada) ═════════
-   Fase A da modularização (por camada temporal): a geração v5 do app.ts — runtime de
-   contentores, dev container, deploy em Kubernetes, environments-base, o harness do
+/* ═════════ dxtutor IDE — v5: project harness decorations, less noise (módulo de camada) ═════════
+   Fase A da modularização (por camada temporal): a geração v5 do app.ts — o harness do
    projecto (templates/decision-rights/mode-ceiling), «less noise» e o boot5 — extraída
-   para módulo ESM próprio. Carrega ENTRE app.ts (núcleo v2–v4 + i18n) e v6.ts: a v5
-   DECORA funções do núcleo (padrão `const _x5=x; x=function…`), por isso tem de carregar
-   DEPOIS do app.ts; e DEFINE símbolos que a v6 consome (ENVS, HARN, isHuman, dxDeploy,
-   infraDraw, k8sDocs, appEnv, projectContext, applyTemplate, ctlLogs…), por isso carrega
-   ANTES do v6.ts. As dependências do núcleo ($, FS, RP, VIEW, XC, esc, svg, show, log,
+   para módulo ESM próprio. O motor de Infra/K8s/dev-container que nasceu aqui (ENVS/
+   RTN/KCTX, rtConnect/k8sConnect/needRt/projectContext/devcontainerJson/dcAttach/
+   dcDetach/drawRemote/infraDraw/appEnv/k8sInfra/k8sDocs/dxDeploy/k8sScale/k8sDown/
+   runTaskQuiet/ctlLogs) MIGROU para `features/infra.ts` (4ª inversão, mesmo padrão de
+   Debug/SCM/ext/tasks). O motor do harness de projecto (RIGHTS/RIGHT_RE/ALWAYS/MORD/HT/
+   HARN/isHuman/harnessToml/applyTemplate/toggleRight/authorship/reviewIssue) MIGROU para
+   `features/team.ts`, fundido com `renderTeamView` (a secção "Project harness" que aqui
+   se inseria por fora, via VIEW.team=_team5, passa a fazer parte do corpo único da
+   feature — por isso o wrapper de VIEW.team desapareceu deste ficheiro). Fica aqui só o
+   que tem mesmo de carregar DEPOIS do core, DECORANDO o resíduo com os globais que
+   features/team.ts publica: a decoração de dxRun/dxStop, a wiring do terminal
+   XC.kubectl/XC.devcontainer/XC.dx, os decorators de doTool/setMode/approveIssue/
+   VIEW.board (leem RIGHTS/RIGHT_RE/isHuman/HARN/reviewIssue por nome livre), boot5,
+   codeGuard e CMD.push (leem HT/MORD/HARN/applyTemplate/isHuman).
+
+   Carrega ENTRE app.ts (núcleo v2–v4 + i18n) e v6.ts: a v5 DECORA funções do núcleo
+   (padrão `const _x5=x; x=function…`), por isso tem de carregar DEPOIS do app.ts. As
+   dependências do núcleo e das features ($, FS, RP, VIEW, XC, esc, svg, show, log,
    toast, goPane, rerender, approveIssue, delegate, setMode, doTool, dxRun, dxStop,
-   KIND, MODES, DECS, RUN, TECH…) são referências livres resolvidas no window/escopo do
-   bundle em runtime (late-binding). As funções decoradas (dxRun, dxStop, setMode, doTool,
-   approveIssue, delegate, runMission, runSprint) foram window-backed no app.ts (`window.X=`)
-   para que a reatribuição `X=function` aqui actue sobre a MESMA referência. Os nomes que o
-   resto do IDE consome são publicados no window no fim (como o app.ts/v6.ts fazem); os
-   internos (HT, RIGHTS, RIGHT_RE, ALWAYS, MORD, AG0, P_DC, cli e os _x5 temporários) ficam
-   léxicos ao módulo. @ts-nocheck: tipar fica para a fase posterior — esta só componentiza. */
+   MODES, RUN, RIGHTS, RIGHT_RE, HT, HARN, isHuman, applyTemplate, toggleRight,
+   authorship, reviewIssue, harnessToml…) são referências livres resolvidas no
+   window/escopo do bundle em runtime (late-binding). As funções decoradas (dxRun,
+   dxStop, setMode, doTool, approveIssue, delegate, runMission, runSprint) foram
+   window-backed no app.ts (`window.X=`) para que a reatribuição `X=function` aqui
+   actue sobre a MESMA referência. Os nomes que o resto do IDE consome são publicados
+   no window no fim (como o app.ts/v6.ts fazem). @ts-nocheck: tipar fica para a fase
+   posterior — esta só componentiza. */
 export {};
 
-/* ═════════ dxtutor IDE v5 — Infra (socket + KUBECONFIG), dev container, K8s deploy, project harness, less noise ═════════ */
-const RTN={docker:'Docker',podman:'Podman',delonix:'Delonix'};
-const ENVS=Object.assign({rt:'docker',sock:{docker:'/var/run/docker.sock',podman:'/run/user/1000/podman/podman.sock',delonix:'/run/delonix/delonix.sock'},rtOn:false,kube:'~/.kube/config',ctx:'kind-dxtutor',ns:'dxtutor',k8sOn:false,ssh:[]},LS.get('env5',{}));
-const KCTX=['kind-dxtutor','minikube','k3d-local','docker-desktop'];
-window.DEVC=null;window.K8S=null;const saveEnv=()=>LS.set('env5',ENVS),cli=()=>ENVS.rt,P_DC=ROOT+'.devcontainer/devcontainer.json';
-const infraDraw=()=>{if(PANE==='infra')RP.infra();drawRemote();};
-function needRt(){if(ENVS.rtOn)return true;goPane('infra');toast('Point the container socket first');return false;}
-window.rtConnect = function(){ENVS.rtOn=!ENVS.rtOn;saveEnv();if(!ENVS.rtOn){STACK=null;DEVC=null;drawStack();}log('infra',ENVS.rtOn?`${RTN[ENVS.rt]} connected at ${ENVS.sock[ENVS.rt]} (simulated)`:'container runtime disconnected');infraDraw();}
-window.k8sConnect = function(){ENVS.k8sOn=!ENVS.k8sOn;saveEnv();if(!ENVS.k8sOn)K8S=null;log('infra',ENVS.k8sOn?`cluster ${ENVS.ctx} reachable via ${ENVS.kube} (simulated)`:'cluster disconnected');infraDraw();}
-function projectContext(){const k=Object.keys(FS),h=re=>k.some(p=>re.test(p)),c=[];if(h(/Cargo\.toml$/))c.push(['rust','Rust']);if(h(/\.tsx?$|package\.json$/))c.push(['node','TypeScript / Node']);if(h(/go\.mod$/))c.push(['go','Go']);if(h(/requirements\.txt$/))c.push(['python','Python']);if(h(/__manifest__\.py$/))c.push(['odoo','Odoo module']);
-  if(h(/db\/migrations\//))c.push(['sql','SQL migrations']);if(h(/docker-compose\.yml$/))c.push(['compose','Compose stack']);if(h(/deploy\/k8s\//))c.push(['k8s','Kubernetes manifests']);if(h(/\.devcontainer\//))c.push(['devc','Dev Container']);if(h(/\.dxtutor\/regras\.md$/))c.push(['rules','Project rules']);return c;}
-function devcontainerJson(){const c=projectContext().map(x=>x[0]),f={},F='ghcr.io/devcontainers/features/';if(c.includes('rust'))f[F+'rust:1']={};if(c.includes('node'))f[F+'node:1']={version:'22'};if(c.includes('go'))f[F+'go:1']={};if(c.includes('python'))f[F+'python:1']={};f[F+'docker-outside-of-docker:1']={};f[F+'kubectl-helm-minikube:1']={minikube:'none'};
-  const ports=(composeServices()||[]).filter(s=>s.port).map(s=>+s.port);
-  return JSON.stringify({name:'dxtutor',image:'mcr.microsoft.com/devcontainers/base:bookworm',features:f,mounts:[`source=${ENVS.sock[ENVS.rt]},target=/var/run/docker.sock,type=bind`,'source=${localEnv:HOME}/.kube,target=/home/vscode/.kube,type=bind,readonly'],forwardPorts:ports.length?ports:[1420],postCreateCommand:[c.includes('rust')?'cargo fetch':'',c.includes('node')?'npm --prefix desktop install':''].filter(Boolean).join(' && ')||'true',remoteUser:'vscode',customizations:{dxtutor:{harness:'.dxtutor/harness.toml'}}},null,2)+'\n';}
-function dcAttach(){if(!needRt())return;if(!FS[P_DC])writeFile(P_DC,devcontainerJson());setPanelTab('terminal',true);echoCmd('devcontainer up --workspace-folder .');
-  echo(`<span class="dim">[+] ${RTN[ENVS.rt]} via ${esc(ENVS.sock[ENVS.rt])}\n[+] Pulling</span> mcr.microsoft.com/devcontainers/base:bookworm <span class="ok">done</span>\n`+Object.keys(JSON.parse(FS[P_DC].content).features||{}).map(x=>`<span class="dim">[+] Feature</span> ${esc(x.split('/').pop())} <span class="ok">installed</span>`).join('\n')+`\n <span class="ok">✔</span> Container dxtutor-dev  <span class="ok">Started</span>\n<span class="ac">Workspace attached to dxtutor-dev</span> <span class="dim">· simulated in the browser</span>`);newInput(true);
-  DEVC={name:'dxtutor-dev',image:'devcontainers/base:bookworm'};log('infra','project attached to dev container dxtutor-dev');toast('Project attached to the dev container');infraDraw();}
-function dcDetach(){DEVC=null;toast('Detached from the dev container');infraDraw();}
-function drawRemote(){const b=$('.si.remote');if(!b)return;let s=b.querySelector('span.rl');if(!s){b.insertAdjacentHTML('beforeend','<span class="rl notr"></span>');s=b.querySelector('span.rl');}s.textContent=DEVC?' Dev Container: dxtutor':'';b.onclick=()=>goPane('infra');b.title='Infra: runtime, dev container, Kubernetes';}
-function appEnv(n,D){const env=[`PORT: "${TECH[n.tech].port}"`];D.edges.filter(e=>e[0]===n.id).map(e=>D.nodes.find(x=>x.id===e[1])).filter(d=>d&&TECH[d.tech].kind!=='gateway').forEach(d=>{const K=KIND[TECH[d.tech].kind];if(K&&K.wire)env.push(...K.wire(sl(d)));else if(isApp(d))env.push(`${sl(d).toUpperCase().replace(/-/g,'_')}_URL: http://${sl(d)}`);});return[...new Set(env)];}
-function k8sInfra(D){const out=['# Local stand-ins for managed services, secrets for every app and the ingress.','# For a real cloud, delete the stand-ins and point the secrets at the managed services.'];
-  D.nodes.filter(n=>!isApp(n)&&TECH[n.tech].kind!=='gateway').forEach(n=>{const T=TECH[n.tech],K=KIND[T.kind]||{},s=sl(n);out.push(`---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: ${s}\nspec:\n  replicas: 1\n  selector:\n    matchLabels: { app: ${s} }\n  template:\n    metadata:\n      labels: { app: ${s} }\n    spec:\n      containers:\n        - name: ${s}\n          image: ${T.img}${K.cmd?`\n          args: [${K.cmd.split(' ').map(a=>JSON.stringify(a.replace(/"/g,''))).join(', ')}]`:''}${K.env?'\n          env:\n'+K.env.map(e=>{const[k,...v]=e.split(': ');return `            - { name: ${k}, value: ${JSON.stringify(v.join(': ').replace(/^"|"$/g,''))} }`;}).join('\n'):''}\n          ports: [{ containerPort: ${T.port} }]\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: ${s}\nspec:\n  selector: { app: ${s} }\n  ports: [{ port: ${T.port}, targetPort: ${T.port} }]`);});
-  D.nodes.filter(isApp).forEach(n=>out.push(`---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: ${sl(n)}-env\nstringData:\n${appEnv(n,D).map(e=>'  '+e.replace(/: (?!")(.*)$/,(m,v)=>': '+JSON.stringify(v))).join('\n')}`));
-  const gw=D.nodes.find(n=>TECH[n.tech].kind==='gateway'),rt=gw?D.edges.filter(e=>e[0]===gw.id).map(e=>D.nodes.find(x=>x.id===e[1])).filter(isApp):[];
-  if(rt.length)out.push(`---\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: ${sl(gw)}\nspec:\n  rules:\n    - http:\n        paths:\n${rt.map(a=>`          - path: ${TECH[a.tech].kind==='web'?'/':'/'+sl(a)}\n            pathType: Prefix\n            backend: { service: { name: ${sl(a)}, port: { number: 80 } } }`).join('\n')}`);return out.join('\n')+'\n';}
-function k8sDocs(){const out=[];Object.keys(FS).filter(p=>/deploy\/k8s\/.*\.yaml$/.test(p)).sort().forEach(p=>FS[p].content.split(/^---$/m).forEach(d=>{const k=(d.match(/^kind:\s*(\w+)/m)||[])[1],n=(d.match(/^  name:\s*(\S+)/m)||[])[1];if(k&&n)out.push({k,n,file:p,rep:+((d.match(/replicas:\s*(\d+)/)||[])[1]||1),img:(d.match(/image:\s*(\S+)/)||[])[1],port:(d.match(/containerPort:\s*(\d+)/)||[])[1]});}));return out;}
-window.dxDeploy = function(){if(!needRt())return{ok:false};if(!ENVS.k8sOn){goPane('infra');toast('Point KUBECONFIG and connect the cluster first');return{ok:false};}setPanelTab('terminal',true);const docs=k8sDocs(),kc=`kubectl --context ${ENVS.ctx} -n ${ENVS.ns}`;echoCmd(`dx deploy --context ${ENVS.ctx}`);
-  if(!docs.length){echo(`<span class="er">error: the path "deploy/k8s" does not exist</span>\n<span class="dim">Generate the backlog from the Studio and validate the platform issue — the manifests arrive with the merge into develop.</span>`);newInput(true);return{ok:false};}
-  const deps=docs.filter(d=>d.k==='Deployment'),built=deps.filter(d=>/registry\.example\.com/.test(d.img||'')),miss=built.filter(d=>!Object.keys(FS).some(p=>p.endsWith('/'+d.n+'/Dockerfile')));
-  if(miss.length){echo(miss.map(d=>`<span class="er">unable to prepare context: no Dockerfile for ${d.n}</span>`).join('\n'));newInput(true);return{ok:false};}
-  echo(built.map(d=>`<span class="dim">$ ${cli()} build -t ${esc(d.img)}</span> ${d.n} <span class="ok">built</span>`).join('\n')+(/^kind-/.test(ENVS.ctx)?'\n'+built.map(d=>`<span class="dim">$ kind load docker-image ${esc(d.img)}</span> <span class="ok">loaded</span>`).join('\n'):'')+`\n<span class="dim">$ ${kc} apply -f deploy/k8s/</span>\n`+docs.map(d=>`${d.k.toLowerCase()}${d.k==='Deployment'?'.apps':d.k==='Ingress'?'.networking.k8s.io':''}/${d.n} <span class="ok">${K8S&&K8S.docs.some(x=>x.k===d.k&&x.n===d.n)?'configured':'created'}</span>`).join('\n')+'\n'+deps.map(d=>`deployment "${d.n}" <span class="ok">successfully rolled out</span>`).join('\n'));
-  K8S={docs,deps:deps.map(d=>({n:d.n,rep:d.rep,ready:d.rep,img:d.img,port:d.port}))};const ing=docs.find(d=>d.k==='Ingress');
-  echo(`\n<span class="ac">${deps.length} deployments ready in ${esc(ENVS.ctx)}/${esc(ENVS.ns)}</span> <span class="dim">· simulated: the browser has no cluster. The desktop app runs these exact commands.</span>${ing?`\n  ➜  ingress ${ing.n}  <span class="ac">http://localhost/</span>`:''}`);newInput(true);log('infra',`deployed ${deps.length} workloads to ${ENVS.ctx}/${ENVS.ns}`);toast(`Deployed to ${ENVS.ctx}`);goPane('infra');return{ok:true};}
-function k8sScale(n,d){const x=K8S.deps.find(y=>y.n===n);x.rep=Math.max(0,x.rep+d);x.ready=x.rep;runTaskQuiet(`kubectl -n ${ENVS.ns} scale deploy/${n} --replicas=${x.rep}`,`deployment.apps/${n} scaled`);infraDraw();}
-function k8sDown(){runTaskQuiet(`kubectl -n ${ENVS.ns} delete -f deploy/k8s/`,K8S.docs.map(d=>`${d.k.toLowerCase()}/${d.n} deleted`).join('\n'));K8S=null;infraDraw();}
-function runTaskQuiet(c,out){if(getVar('--panel-h')!=='0px')setPanelTab('terminal',true);echoCmd(c);echo(`<span class="dim">${esc(out)}</span>`);newInput(true);}
-function ctlLogs(n){setPanelTab('terminal',true);echoCmd(`${cli()} logs --tail 3 ${n}`);echo(`<span class="dim">${n}  | listening\n${n}  | GET /healthz 200\n${n}  | ready</span>`);newInput(true);}
-RP.infra=()=>window.renderInfraPane();/* base migrada p/ features/infra.ts; shim delega (lazy, no switch de pane) */
+/* ═════════ dxtutor IDE v5 — project harness, less noise ═════════ */
 const _dxRun5=dxRun;dxRun=function(term){if(!needRt()){if(term===true)echo('<span class="er">Cannot connect to the container runtime. Point the socket in Infra.</span>');return{ok:false,sum:'no runtime'};}const r=_dxRun5(term);infraDraw();return r;};
 const _dxStop5=dxStop;dxStop=function(t){_dxStop5(t);infraDraw();};
 XC.kubectl=a=>{if(!ENVS.k8sOn){echo('<span class="er">The connection to the server was refused — connect the cluster in Infra.</span>');return;}if(a[0]==='get'){echo(K8S?(/^po/.test(a[1]||'')?K8S.deps.flatMap(d=>Array.from({length:d.rep},(_,i)=>`${(d.n+'-'+(i+1)).padEnd(28)} 1/1   Running`)).join('\n'):K8S.deps.map(d=>`${d.n.padEnd(22)} ${d.ready}/${d.rep}   ${d.img}`).join('\n')):'<span class="dim">No resources found in '+esc(ENVS.ns)+' namespace.</span>');return;}echo('<span class="dim">kubectl get deploy | get pods</span>');};
 XC.devcontainer=a=>{if(a[0]==='up')dcAttach();else echo('<span class="dim">devcontainer up</span>');};
 const _dx5=XC.dx;XC.dx=a=>{if(a[0]==='deploy')return dxDeploy();return _dx5(a);};
 
-/* ───── project harness: templates, decision rights, mode ceiling ───── */
-const RIGHTS={code:'Writing code',arch:'Architecture decisions (ADRs)',schema:'Database schema changes',deps:'Adding dependencies',merge:'Merge into develop',release:'Release to main',deploy:'Deploy to Kubernetes',push:'Push to remote'};
-const RIGHT_RE={arch:/\.dxtutor\/arquitectura\//,schema:/db\/migrations\/|\/migrations\//,deps:/(Cargo\.toml|package\.json|go\.mod|requirements\.txt)$/};
-const ALWAYS=['merge','release','deploy','push'],MORD=['manual','assist','auto'];
-const HT={
-  study:{n:'Study',d:'You write every line. The assistants explain, hint and review — they never edit files.',ceiling:'manual',mode:'manual',thresh:85,human:['code','arch','schema','deps']},
-  pair:{n:'Pair programming',d:'The assistants propose and edit inside their scope; you decide architecture, schema and dependencies.',ceiling:'assist',mode:'assist',thresh:85,human:['arch','schema','deps']},
-  cloud:{n:'Cloud-native team',d:'Assistants run whole issues on feature branches. You approve the architecture, review every merge and trigger deploys.',ceiling:'auto',mode:'assist',thresh:85,human:['arch']},
-  critical:{n:'Critical systems',d:'For regulated or safety-relevant code. Every edit is approved one by one, the bar is higher and nothing runs unattended.',ceiling:'manual',mode:'manual',thresh:95,human:['arch','schema','deps']},
-  erp:{n:'ERP module (Odoo)',d:'One module at a time: models, views, security and migrations each have an owner; upgrades are yours to run.',ceiling:'assist',mode:'assist',thresh:90,human:['arch','schema','deps'],agents:{be:{paths:['addons/*/models/**','addons/*/controllers/**','addons/*/wizard/**'],cmds:['pytest']},fe:{paths:['addons/*/views/**','addons/*/static/**','addons/*/report/**']},db:{paths:['addons/*/migrations/**','addons/*/security/**','addons/*/data/**']},qa:{paths:['addons/*/tests/**'],cmds:['pytest']},ops:{paths:['docker-compose.yml','deploy/**','.devcontainer/**']}}}};
-const HARN=Object.assign({tpl:'pair',ceiling:'assist',human:['arch','schema','deps'],review:true},LS.get('harn5',{}));const AG0=JSON.parse(JSON.stringify(AGENTS));
-const isHuman=r=>ALWAYS.includes(r)||HARN.human.includes(r);
-function harnessToml(){const t=HT[HARN.tpl];return `# Project harness — the contract between this project's humans and its assistants.\n# Applied on every tool call. Edit here or in Team & harness.\ntemplate = "${HARN.tpl}"\nmode_ceiling = "${HARN.ceiling}"\nreview_before_merge = ${HARN.review}\nself_evaluation_threshold = ${THRESH}\n\n[human_only]\n${Object.keys(RIGHTS).map(r=>`${r} = ${isHuman(r)}`).join('\n')}\n\n${Object.entries(AGENTS).filter(([k])=>k!=='lead').map(([k,a])=>`[assistant.${k}]\nrole = "${a.d}"\nwrite = [${a.paths.map(p=>`"${p}"`).join(', ')}]\nrun = [${a.cmds.map(p=>`"${p}"`).join(', ')}]\nmax_files = ${a.max}\nmodel = "${a.model}"`).join('\n\n')}\n`;}
-window.applyTemplate = function(id){if(RUN.active){toast('Wait for the run to finish');return;}const t=HT[id];Object.keys(AGENTS).forEach(k=>Object.assign(AGENTS[k],JSON.parse(JSON.stringify(AG0[k]))));if(t.agents)Object.entries(t.agents).forEach(([k,o])=>Object.assign(AGENTS[k],o));
-  Object.assign(HARN,{tpl:id,ceiling:t.ceiling,human:t.human.slice(),review:true});THRESH=t.thresh;MODE=t.mode;LS.set('harn5',HARN);saveTeam();save();updateAgentUI();writeFile(ROOT+'.dxtutor/harness.toml',harnessToml());toast(`Harness applied: ${t.n}`);log('harness',`template ${id} applied · ceiling ${t.ceiling}`);rerender('team');}
-function toggleRight(r){if(ALWAYS.includes(r))return;const i=HARN.human.indexOf(r);i<0?HARN.human.push(r):HARN.human.splice(i,1);LS.set('harn5',HARN);if(FS[ROOT+'.dxtutor/harness.toml'])writeFile(ROOT+'.dxtutor/harness.toml',harnessToml());rerender('team');}
+/* ───── project harness: decoradores residuais (motor em features/team.ts) ─────
+   RIGHTS/RIGHT_RE/HT/MORD/HARN/isHuman/harnessToml/applyTemplate/toggleRight/
+   authorship/reviewIssue são agora definidos em features/team.ts e lidos aqui por
+   nome livre (publicados no window por essa feature). team.ts avalia ANTES de
+   app.ts (que define LS) por isso HARN nasce lá só com defaults; `hydrateHarn()`
+   lê o LS.get('harn5',…) persistido — chama-se aqui (v5.ts carrega DEPOIS de
+   app.ts, LS já existe) para repor a hidratação síncrona que o HARN original
+   tinha, ANTES de boot5/setMode/doTool lerem HARN.ceiling/human. */
+window.hydrateHarn();
 const _setMode5=setMode;setMode=function(m){if(MORD.indexOf(m)>MORD.indexOf(HARN.ceiling)){toast(`This project's harness caps autonomy at ${MODES[HARN.ceiling].l}`);return;}_setMode5(m);};
 const _doTool5=doTool;doTool=async function(t,host,role){if(t.t==='edit'){if(isHuman('code')&&!/\/learn\//.test(t.p)){tl(host,'harness',short(t.p)).querySelector('.tr').innerHTML='<span class="bad">✖ writing code is yours in this project</span>';log('harness','edit blocked: code is human-only');return false;}
     const r=Object.keys(RIGHT_RE).find(k=>isHuman(k)&&RIGHT_RE[k].test(t.p));if(r&&MODE!=='manual'){const d=tl(host,'your call',RIGHTS[r]+' · '+short(t.p));const v=await ask(d,[{l:'Approve',v:1,pri:1,done:'✓ approved by you'},{l:'Reject',v:0,done:'✗ rejected by you'}]);if(!v){log('humano','rejected '+short(t.p));return false;}}}
   return _doTool5(t,host,role);};
-function authorship(){let h=0,a=0;GIT.order.forEach(x=>{const c=GIT.c[x];if(!c.files.length)return;c.a==='w'?h++:a++;});const dh=DECS.filter(d=>d.by==='humano').length;return{h,a,dh,da:DECS.length-dh};}
-function reviewIssue(id){const it=BL.issues.find(i=>i.id===id);if(!it)return;it.reviewed=true;openTab({id:'review',title:'Review '+it.id,kind:'review',issue:id});rerender('board');}
 VIEW.review=(t,host)=>{const it=BL.issues.find(i=>i.id===t.issue),tr=it&&GIT.trees[it.branch],dv=GIT.trees.develop,files=tr?Object.keys(tr).filter(p=>tr[p]!==dv[p]):[];
   host.innerHTML=`<div class="diff"><div class="diff-h"><b style="color:var(--fg)" class="notr">${it?esc(it.id+' · '+it.title):''}</b><span class="tag notr">${it?esc(it.branch||''):''} → develop</span><span class="sp" style="flex:1"></span>${it&&it.stage==='func'?`<button class="mini pri" onclick="approveIssue('${it.id}');closeTab('review')">✓ Validate and merge</button><button class="mini" onclick="rejectIssue('${it.id}')">✗ Reject</button>`:''}</div>${files.length?files.map(p=>{const d=diffLines(dv[p]||'',tr[p]),ext=extOf(p);return `<div class="diff-h" style="padding-top:14px"><b style="color:var(--accent-hover)">${esc(short(p))}</b><span style="color:var(--green)">+${d.filter(x=>x[0]==='+').length}</span><span style="color:var(--red)">−${d.filter(x=>x[0]==='-').length}</span></div>`+d.map(x=>`<div class="dl ${x[0]==='+'?'add':x[0]==='-'?'del':''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${hlLine(x[1],ext)||' '}</span></div>`).join('');}).join(''):'<div class="sec-empty">Nothing to review: the branch was already merged or has no changes.</div>'}</div>`;};
 const _approve5=approveIssue;approveIssue=function(id){const it=BL.issues.find(i=>i.id===id);if(it&&it.stage==='func'&&HARN.review&&!it.reviewed){toast('Review the diff before validating');reviewIssue(id);return;}_approve5(id);};
-const _team5=VIEW.team;VIEW.team=(t,host)=>{_team5(t,host);const cx=projectContext(),rec=cx.some(c=>c[0]==='odoo')?'erp':cx.some(c=>c[0]==='k8s'||c[0]==='compose')?'cloud':'pair',au=authorship(),tot=Math.max(1,au.h+au.a);
-  host.querySelector('.sub').insertAdjacentHTML('afterend',`<h2>Project harness</h2><div class="sub">The harness is the project's contract: what the assistants may touch, how far they may go on their own, and which decisions stay with you. It is derived from the project context and saved as <code>.dxtutor/harness.toml</code>, so it is versioned with the code.</div>
-   <div class="rowline hx"><b>Detected context</b>${cx.map(c=>`<span class="tag">${c[1]}</span>`).join('')}<span class="sp"></span>${FS[ROOT+'.dxtutor/harness.toml']?`<button class="mini" onclick="openPath(ROOT+'.dxtutor/harness.toml')">Open harness.toml</button>`:''}</div>
-   <div class="pgrid" style="margin-top:10px">${Object.entries(HT).map(([k,h])=>`<div class="pcard${HARN.tpl===k?' sel':''}"><div class="ph">${h.n}${HARN.tpl===k?'<span class="tag acc">applied</span>':rec===k?'<span class="tag live">suggested</span>':''}</div><div class="pd">${h.d}</div><div class="hx-meta"><span>ceiling <b>${MODES[h.ceiling].l}</b></span><span>threshold <b>${h.thresh}</b></span></div><button class="mini${HARN.tpl===k?'':' pri'}" onclick="applyTemplate('${k}')">${HARN.tpl===k?'Re-apply':'Apply template'}</button></div>`).join('')}</div>
-   <h2>Who decides</h2><div class="sub">The assistants accelerate the work; these decisions are never theirs. Locked rows are human-only in every template.</div><div class="tbl-wrap">${Object.entries(RIGHTS).map(([r,l])=>`<div class="rowline"><span>${l}</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${isHuman(r)?'you decide':'assistant, inside its scope'}</span><button class="sw${isHuman(r)?' on':''}" ${ALWAYS.includes(r)?'disabled style="opacity:.5"':''} onclick="toggleRight('${r}')"></button></div>`).join('')}<div class="rowline"><span>Review the diff before validating a merge</span><span class="sp"></span><button class="sw${HARN.review?' on':''}" onclick="HARN.review=!HARN.review;LS.set('harn5',HARN);rerender('team')"></button></div></div>
-   <h2>Who did the work</h2><div class="tbl-wrap"><div class="rowline"><b style="width:120px;flex:none">Commits</b><span class="hx-bar"><i style="width:${au.h/tot*100}%"></i></span><span>you ${au.h} · assistants ${au.a}</span></div><div class="rowline"><b style="width:120px;flex:none">Decisions</b><span class="hx-bar"><i style="width:${au.dh/Math.max(1,au.dh+au.da)*100}%"></i></span><span>you ${au.dh} · assistants ${au.da}</span></div></div>`);};
 const _board5=VIEW.board;VIEW.board=(t,host)=>{_board5(t,host);if(!HARN.review)return;host.querySelectorAll('.kc-a').forEach(a=>{const m=(a.innerHTML.match(/approveIssue\('([^']+)'\)/)||[])[1],it=BL.issues.find(i=>i.id===m);if(it&&!it.reviewed)a.innerHTML=`<button class="mini pri" onclick="reviewIssue('${it.id}')">Review diff</button>`;});};
 
 /* ───── less noise ───── */
@@ -119,10 +80,10 @@ const _delegate5=delegate;delegate=function(id){if(codeGuard('Delegate '+id+'.')
 const _runSprint5=runSprint;runSprint=function(s){if(codeGuard('Run Sprint '+(s+1)+'.'))return;return _runSprint5(s);};
 
 /* ── publicação no window: os nomes que app.ts (núcleo/i18n) / v6.ts / startup.ts /
-   boot.ts / handlers inline consomem como referências livres. Internos ficam léxicos. ── */
-Object.assign(window, {
-  ENVS, HARN, KCTX, RTN, appEnv, applyTemplate, authorship, boot5, codeGuard, ctlLogs,
-  dcAttach, dcDetach, devcontainerJson, drawRemote, harnessToml, infraDraw, isHuman,
-  k8sDocs, k8sDown, k8sInfra, k8sScale, needRt, openTeam, projectContext, reviewIssue,
-  runTaskQuiet, saveEnv, tick, toggleRight
-});
+   boot.ts / handlers inline consomem como referências livres. Internos ficam léxicos.
+   ENVS/RTN/KCTX e o motor de Infra/K8s (appEnv/dcAttach/dcDetach/devcontainerJson/
+   drawRemote/infraDraw/k8sDocs/k8sDown/k8sInfra/k8sScale/needRt/projectContext/
+   runTaskQuiet/saveEnv/ctlLogs) migraram p/ features/infra.ts, e o motor do harness
+   (HARN/applyTemplate/authorship/harnessToml/isHuman/reviewIssue/toggleRight/RIGHTS/
+   RIGHT_RE/HT/MORD) migrou p/ features/team.ts — removidos daqui (GOTCHA C). ── */
+Object.assign(window, { boot5, codeGuard, openTeam, tick });

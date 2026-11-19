@@ -15,7 +15,7 @@
 export {};
 
 interface FsEntry { content: string; orig: string | null }
-interface Tab { id: string; title?: string; kind?: string; path?: string; fixed?: boolean; a?: string; b?: string; label?: string }
+interface Tab { id: string; title?: string; kind?: string; path?: string; fixed?: boolean; a?: string; b?: string; label?: string; issue?: string }
 interface MenuItem { l: string; k?: string; act?: () => unknown }
 interface Menu { t: string; items?: MenuItem[] }
 type CmdEntry = [string, string, () => unknown];
@@ -114,6 +114,7 @@ declare global {
   const extOf: (p: string) => string;
   const hlLine: (s: string, ext: string) => string;
   const fIcon: (p: string) => string;
+  const isHuman: (r: string) => boolean;
   var openTab: (t: Partial<Tab> & { id: string }, act?: boolean) => void;
   var closeMenus: () => void;
   var gotoLine: (n: number) => void;
@@ -123,6 +124,7 @@ declare global {
   const P_REPO: string;
   const P_MIG: string;
   const P_TEST: string;
+  const P_HIST: string;
   const P_STORE: string;
   // Globais lexicais/helpers do monólito usados pelas features-folha tipadas (explorer/...).
   const SECOPEN: Record<string, boolean>;
@@ -135,8 +137,14 @@ declare global {
   const HOST: string;
   const BRANCHES: string[];
   const MODES: Record<string, { l: string }>;
+  const RUN: { active: boolean };
   const MISSIONS: any[];
+  const DECS: any[];
   const CKPT: any[];
+  // `ask` (dono = features/codev.ts): porta de aprovação humana — lido por nome livre
+  // pela feature `checkpoint` (gfAsk) e por v5.ts/board.ts. `v`/`pri` são polimórficos
+  // (número 0/1 ou o próprio candidato escolhido), por isso ficam `any`.
+  const ask: (host: HTMLElement, btns: Array<{ l: string; v: any; pri?: any; done?: string }>) => Promise<any>;
   const commitGit: (msg?: string, author?: string) => { h: string; n: number } | null;
   const diffStat: (a: string | null, b: string) => { add: number; del: number };
   const runTests: (pkg?: string) => { build: boolean; err: string; ok: boolean; tests: Array<{ n: string; ok: boolean }> };

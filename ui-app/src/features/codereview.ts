@@ -1,0 +1,175 @@
+/* ═════════ dxtutor IDE — feature: Explain · Code review · Under the hood ═════════
+   Feature-folha da reestruturação por funcionalidade. Detém o cluster co-dev que
+   vivia em `v6.ts`: `explainCmd`, `reviewCmd`+`reviewFindings`, `hoodCmd`, e o corpo
+   das duas tabs que esses comandos abrem — `renderCreviewView` (VIEW.creview) e
+   `renderHoodView` (VIEW.hood) — mais os dados auxiliares `KNOW` (resumos por
+   ficheiro para Explain) e `SEVC` (cor por severidade no Code review).
+
+   Fronteira: fica em v6.ts a barra de acções do editor (EACT), o handler global de
+   keydown (chords Ctrl+K E/R/U, F5/F9/F10), `badges`, `boot6` e os menus — chamam
+   `explainCmd`/`reviewCmd`/`hoodCmd` por nome livre (continuam a resolver via
+   `window`, publicados por `Object.assign` no fim deste módulo). `dlg()` fica em
+   v6.ts (partilhado com debug.ts/infra.ts). `lexVariant`/`LXL` (helpers de lexer)
+   continuam donos de v6.ts — esta feature lê-os por fachada `window.lexVariant()`/
+   `window.LXL(...)`, como faz com o resto do que não é desta feature.
+
+   Mecânica (igual às migrações strict anteriores — diff/graph/tasks): a feature
+   avalia ANTES de app.ts (um <script type="module"> próprio no index.html) e publica
+   `window.renderCreviewView`/`window.renderHoodView` no eval; `VIEW.creview`/
+   `VIEW.hood` (v6.ts) ficam shim: `VIEW.creview=(t,host)=>window.renderCreviewView(t,host)`.
+   Nada é lido ansiosamente — `FS`/`P_LX`/`cur`/… só são tocados DENTRO das funções,
+   chamadas depois do arranque, e resolvem no escopo GLOBAL em runtime (contrato
+   ambiente em pair.ts/bridge.ts). O que é dono doutra feature já migrada lê-se por
+   fachada explícita `window.X(...)` (symbols/selText/updateAgentUI/composeServices/
+   lexVariant/LXL/dbgState/changes/lexBug) — sem isso, o resto (FS, P_LX, P_HIST,
+   ROOT, cur, tabOf, short, extOf, focusAgent, liveChat, user, card, SAMPLE, ACTIVE,
+   diagnostics, dsLint, openTab) é contrato ambiente do monólito, lido por nome livre. */
+
+import { esc, svg, S, prov } from "../core";
+
+/* ───── Explain ───── */
+
+function curFile(): string {
+  const t = tabOf(cur);
+  if (t && t.path && FS[t.path]) return t.path;
+  const c = window.changes();
+  if (c[0]) return c[0];
+  // P_LX (lexer-protótipo) só existe no projecto simulado; num projecto desktop real sem
+  // ele, cai para qualquer ficheiro aberto em FS em vez de devolver um caminho inexistente.
+  return FS[P_LX] ? P_LX : Object.keys(FS)[0] || P_LX;
+}
+
+/* GOTCHA: esta feature carrega ANTES de app.ts — um `[P_LX]`/`ROOT`/`P_HIST` ansioso
+   no eval do módulo seria ReferenceError e pararia o chunk inteiro (como hydrate() em
+   features/tasks.ts). KNOW só se constrói na primeira chamada a know(). */
+let _KNOW: Record<string, string> | null = null;
+function know(p: string): string | undefined {
+  if (!_KNOW) {
+    _KNOW = {
+      [P_LX]: `<b>What it does.</b> <code>tokenize</code> walks a string once and turns each ASCII digit into <code>Token::Num</code>, then appends <code>Token::Eof</code> when the input is exhausted.<br><b>How.</b> <code>chars()</code> yields characters; <code>.peekable()</code> adds a one-item look-ahead so the code can ask “is there anything left?” without consuming it.<br><b>The subtle part.</b> The Eof decision depends on <code>chars</code> being exhausted <i>after</i> the loop — so whatever the loop iterates over must be the same iterator, not a copy and not something it takes ownership of.`,
+      [ROOT + 'crates/store/src/conversations.rs']: `<b>What it does.</b> The Repository for conversations: a trait (<code>ConversationRepo</code>) that callers depend on, and a SQLite implementation behind it (ADR-002).<br><b>Why the trait.</b> The UI and the tests depend on the operations, not on SQLite — swapping storage or mocking it needs no UI change.<br><b>Watch.</b> <code>list_recent</code> promises “most recent first”, so its SQL needs <code>ORDER BY created_at DESC</code> and an index that covers it.`,
+      [P_HIST]: `<b>What it does.</b> Renders the “History” section: asks the backend (a Tauri command) for recent conversations and draws a button per conversation.<br><b>Layering.</b> No SQL here — it only talks to the command, as ADR-002 requires.<br><b>Watch.</b> Titles are user text inserted with <code>innerHTML</code>; they must be escaped or set with <code>textContent</code>.`,
+    };
+  }
+  return _KNOW[p];
+}
+
+function explainCmd(fromDebug?: boolean): void {
+  const p = curFile(), sel = fromDebug ? '' : window.selText(), f = FS[p];
+  focusAgent(true);
+  const _ds = window.dbgState();
+  const what = fromDebug && _ds ? `the debugging session I just ran (${_ds.end ? _ds.end.t : ''})` : sel ? `this excerpt from ${short(p)}` : short(p);
+  if (SAMPLE && prov().claude.on) {
+    ACTIVE = 'claude'; window.updateAgentUI();
+    liveChat(fromDebug && _ds ? `Explain in depth, as a senior engineer teaching me, what this debug session found and the underlying concept:\n${_ds.feed.map(x => x.h.replace(/<[^>]+>/g, '')).join('\n')}` : `Explain ${what}: what it does, how, and what a senior would watch out for. Be concrete.\n${sel || f.content.slice(0, 5000)}`);
+    return;
+  }
+  user(`Explain ${what}.`);
+  const sy = window.symbols(p), dg = diagnostics().filter(d => d.p === p), rv = reviewFindings(p).slice(0, 2);
+  const kn = know(p);
+  card('co-dev · explain', `${fromDebug && _ds && _ds.end ? `<p>${_ds.end.b}</p>` : kn ? `<p>${kn}</p>` : `<p><b>${esc(short(p))}</b> — ${f.content.split('\n').length} lines${sy.length ? `, defines ${sy.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${(f.content.match(/^\s*(\/\/|#|--)\s*(.+)$/m) || [])[2] ? `<p>${esc((f.content.match(/^\s*(\/\/|#|--)\s*(.+)$/m) || [])[2])}</p>` : ''}`}
+   ${dg.length ? `<p><b>Right now:</b> ${dg.map(d => esc(d.msg)).join('; ')}.</p>` : ''}${rv.length ? `<p><b>What I would watch:</b></p><ul>${rv.map(r => `<li>${r.t} (line ${r.l})</li>`).join('')}</ul>` : ''}<p style="color:var(--fg-dim)">With Claude live, Explain answers about the exact code or selection instead of this summary.</p>`);
+}
+
+/* ───── Code review ───── */
+
+interface Finding { l: number; sev: string; t: string; why: string; fix: string }
+
+function reviewFindings(p: string): Finding[] {
+  const f = FS[p];
+  if (!f) return [];
+  const ls = f.content.split('\n'), ext = extOf(p),
+    out: Finding[] = [],
+    add = (l: number, sev: string, t: string, why: string, fix: string) => out.push({ l, sev, t, why, fix }),
+    each = (re: RegExp, fn: (l: number, x: string) => void) => ls.forEach((x, i) => { if (re.test(x)) fn(i + 1, x); });
+  if (ext === 'rs') {
+    if (p === P_LX && window.lexBug()) add(window.LXL(/chars\.peek/), 'bug', 'Iterator used after being moved (E0382)', 'The <code>for</code> loop takes ownership of <code>chars</code>; the later <code>peek()</code> cannot use it.', 'Borrow it for the loop: <code>for c in chars.by_ref()</code>.');
+    each(/for \w+ in \w+\.clone\(\)/, l => add(l, 'bug', 'Loop iterates over a clone of the iterator', 'The original iterator never advances, so any check after the loop (like <code>peek()</code>) sees stale state.', 'Use <code>.by_ref()</code> to keep one cursor.'));
+    each(/\.unwrap\(\)/, l => { if (!/#\[test\]|tests\//.test(f.content.slice(0, 200)) && !/test/.test(p)) add(l, 'risk', 'unwrap() on a fallible value', 'Panics on bad input and takes the whole service down.', 'Return a typed error with <code>?</code> or map it.'); });
+    each(/SELECT .* LIMIT/, l => { if (!/ORDER BY/.test(ls[l - 1])) add(l, 'bug', 'LIMIT without ORDER BY', 'SQLite returns rows in whatever order is cheapest; “recent” lists become arbitrary.', 'Add <code>ORDER BY created_at DESC</code> and an index on (filter, order) columns.'); });
+  }
+  if (['ts', 'js', 'jsx'].includes(ext)) {
+    each(/innerHTML\s*=.*\$\{/, l => add(l, 'risk', 'User text interpolated into innerHTML', 'A title like <code>&lt;img src=x onerror=…&gt;</code> runs script in the app.', 'Escape the values or build nodes with <code>textContent</code>.'));
+    if (/await invoke/.test(f.content) && !/try\s*\{/.test(f.content)) add(ls.findIndex(x => /await invoke/.test(x)) + 1, 'risk', 'Backend call without error handling', 'If the command fails the section stays half-drawn and the promise rejection is unhandled.', 'Wrap in try/catch and render the error state the Design System requires.');
+    each(/:\s*any\b/, l => add(l, 'style', 'any disables type checking', 'Mistakes in this value will not be caught by tsc.', 'Give it a real type.'));
+  }
+  dsLint().filter(v => v.p === p).forEach(v => add(v.line, 'style', `Fixed colour ${v.hex}`, 'Breaks theming and the Design System rule §4.', 'Use a token, e.g. <code>var(--accent)</code>.'));
+  if (ext === 'sql') {
+    const idx = f.content.match(/CREATE INDEX[^;]*/g) || [];
+    each(/REFERENCES\s+(\w+)/, (l, x) => { const col = (x.match(/^\s*(\w+)/) || [])[1]; if (col && !idx.some(s => new RegExp('\\(\\s*' + col).test(s))) add(l, 'perf', `Foreign key ${col} has no index`, 'Cascade deletes and joins on this column scan the whole child table.', `<code>CREATE INDEX … ON …(${col})</code>.`); });
+  }
+  if (/Dockerfile$/.test(p)) {
+    if (!/^USER /m.test(f.content) && !/nonroot|unprivileged/.test(f.content)) add(1, 'risk', 'Container runs as root', "A compromise of the app is a compromise of the container's root.", 'Add a non-root <code>USER</code>.');
+    each(/^FROM \S+:latest/, l => add(l, 'risk', 'Unpinned base image', 'Builds change under you.', 'Pin a version or digest.'));
+    if (/COPY src/.test(f.content) && /cargo build/.test(f.content)) add(ls.findIndex(x => /COPY src/.test(x)) + 1, 'perf', 'Dependencies rebuild on every source change', 'Copying <code>src</code> before building invalidates the dependency layer.', 'Build dependencies with only <code>Cargo.toml</code>/<code>Cargo.lock</code> first, then copy <code>src</code>.');
+  }
+  if (/docker-compose\.yml$/.test(p)) each(/^      - [a-z][\w-]*$/, l => { if (/depends_on/.test(ls.slice(Math.max(0, l - 4), l).join(''))) add(l, 'risk', 'depends_on without a health condition', 'The app starts before its database accepts connections.', 'Use <code>condition: service_healthy</code>.'); });
+  if (/deploy\/k8s\/.*\.yaml$/.test(p)) {
+    if (/kind: Deployment/.test(f.content) && !/resources:/.test(f.content)) add(ls.findIndex(x => /kind: Deployment/.test(x)) + 1, 'risk', 'No resource requests or limits', 'The scheduler cannot place it well and one pod can starve the node.', 'Set <code>resources.requests</code> and <code>limits</code>.');
+    if (/stringData:/.test(f.content)) add(ls.findIndex(x => /stringData:/.test(x)) + 1, 'risk', 'Secret values in plain text in git', 'Anyone with repo access reads them.', 'Use SOPS, Sealed Secrets or an external secrets operator.');
+  }
+  const SEV_ORDER = ['bug', 'risk', 'perf', 'style'];
+  return out.sort((a, b) => SEV_ORDER.indexOf(a.sev) - SEV_ORDER.indexOf(b.sev));
+}
+
+function reviewCmd(): void {
+  const p = curFile();
+  openTab({ id: 'creview:' + p, title: 'Review · ' + p.split('/').pop(), kind: 'creview', path: p });
+}
+
+const SEVC: Record<string, string> = { bug: 'var(--red)', risk: 'var(--yellow)', perf: 'var(--blue)', style: 'var(--fg-muted)' };
+const SEV_PENALTY: Record<string, number> = { bug: 25, risk: 12, perf: 8, style: 3 };
+
+function renderCreviewView(tab: unknown, host: HTMLElement): void {
+  const t = tab as { path: string };
+  const fs = reviewFindings(t.path), score = Math.max(0, 100 - fs.reduce((a, f) => a + SEV_PENALTY[f.sev], 0));
+  host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" onclick="openPath('${t.path}')">Open file</button>${SAMPLE && prov().claude.on ? `<button class="mini pri" onclick="focusAgent(true);liveChat('Review this file as a senior engineer: bugs first, then risks, performance and style. Cite line numbers.\\n'+FS['${t.path}'].content.slice(0,6000))">Deeper review with Claude</button>` : ''}</div>
+   <div class="sub" style="margin-top:12px">Rule-based checks for correctness, security, performance and the project rules. They point at evidence; you decide what to change.</div>
+   ${fs.length ? fs.map(f => `<div class="rv"><div class="rv-h"><span class="tag" style="color:${SEVC[f.sev]};border-color:${SEVC[f.sev]}">${f.sev}</span><b>${f.t}</b><span class="sp"></span><button class="lnk" onclick="openPath('${t.path}',${f.l})">line ${f.l}</button></div><div class="rv-b"><p>${f.why}</p><p><b>Suggested:</b> ${f.fix}</p></div></div>`).join('') : '<div class="adv agent" style="margin-top:16px">' + svg('check') + '<div>No findings from the rule set. That is not proof of correctness — the tests are.</div></div>'}</div>`;
+}
+
+/* ───── Under the hood ───── */
+
+interface Svc { name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }
+
+function hoodCmd(): void {
+  const p = curFile();
+  openTab({ id: 'hood:' + p, title: 'Under the hood · ' + p.split('/').pop(), kind: 'hood', path: p });
+}
+
+function renderHoodView(tab: unknown, host: HTMLElement): void {
+  const t = tab as { path: string };
+  const p = t.path, f = FS[p], ext = extOf(p),
+    stg = (n: string, ok: boolean | null, d: string) => `<div class="hs ${ok === false ? 'bad' : ok === null ? 'skip' : 'ok'}"><span>${ok === false ? '✖' : ok === null ? '○' : '✓'}</span><div><b>${n}</b><small>${d}</small></div></div>`;
+  let h = '';
+  function qplan(fe: { content: string }): string {
+    const q = (fe.content.match(/SELECT[^"]*/) || [])[0], idx = Object.keys(FS).some(k => /migrations/.test(k) && /CREATE INDEX idx_conversations_ws_created/.test(FS[k].content));
+    return `<h2>Query plan</h2><div class="sub">What SQLite's planner does with the listing query, derived from the migrations in this workspace.</div><pre class="hood-q notr">${esc(q || 'SELECT … FROM conversations WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?')}</pre><div class="hood-p">${idx ? stg('SEARCH conversations USING INDEX idx_conversations_ws_created (workspace_id=?)', true, 'jumps to the workspace, rows already in created_at order — no sort') : stg('SCAN conversations', false, 'reads every row of every workspace') + stg('USE TEMP B-TREE FOR ORDER BY', false, 'sorts the matches in memory before applying LIMIT')}</div>`;
+  }
+  if (ext === 'rs') {
+    const bug = p === P_LX && window.lexBug(), v = p === P_LX ? window.lexVariant() : '';
+    h = `<h2>Compiler pipeline</h2><div class="hood-p">${stg('Lex & parse', true, 'source → tokens → syntax tree')}${stg('Name resolution & macros', true, 'paths, use statements, derive(Debug, PartialEq)')}${stg('Type check', true, 'every expression gets a type')}${stg('Borrow check', !bug, bug ? `<code>chars</code> moved into the loop at line ${window.LXL(/for c in/)}, used again at line ${window.LXL(/chars\.peek/)} (E0382)` : 'ownership and lifetimes verified')}${stg('MIR & optimisation', bug ? null : true, bug ? 'not reached' : 'mid-level IR, inlining of the iterator chain')}${stg('LLVM codegen', bug ? null : true, bug ? 'not reached' : 'machine code for x86-64 / aarch64')}</div>`;
+    if (p === P_LX) h += `<h2>Memory</h2><div class="tbl-wrap"><table class="tbl"><tr><th>Value</th><th>Where</th><th>Size</th><th>Why</th></tr><tr><td><code>Token</code></td><td class="c">—</td><td>4 bytes</td><td class="c"><code>Num(char)</code> and <code>Eof</code> fit in one <code>char</code>: Eof uses an invalid code point as its tag (niche optimisation).</td></tr><tr><td><code>tokens: Vec&lt;Token&gt;</code></td><td class="c">stack + heap</td><td>24 B + 4×cap</td><td class="c">pointer, capacity, length on the stack; the first push allocates capacity 4.</td></tr><tr><td><code>chars: Peekable&lt;Chars&gt;</code></td><td class="c">stack</td><td>≈24 bytes</td><td class="c">two pointers into the string plus the peeked slot; no heap allocation.</td></tr></table></div>
+      <h2>Ownership of <code>chars</code></h2><div class="hood-o">${[['line ' + window.LXL(/let mut chars/), 'created', 'owned by tokenize'], ['line ' + window.LXL(/for c in|while let/), v === 'bug' ? 'moved' : v === 'clone' ? 'copied' : 'borrowed (&mut)', v === 'bug' ? 'into_iter() takes it — gone after the loop' : v === 'clone' ? 'loop owns a second cursor; the original never moves' : 'loop advances the same cursor, then gives it back'], ['line ' + window.LXL(/chars\.peek/), v === 'bug' ? '✖ use after move' : 'used', v === 'bug' ? 'rejected by the borrow checker' : v === 'clone' ? "peek() sees '1' — Eof skipped" : 'peek() sees the end — Eof pushed']].map(x => `<div><b>${x[0]}</b><span class="tag ${/✖|copied/.test(x[1]) ? 'bad' : ''}">${x[1]}</span><small>${x[2]}</small></div>`).join('')}</div><div class="sub">Time O(n), one pass; memory O(n) for the tokens.</div>`;
+  }
+  if (ext === 'rs' && /SELECT/.test(f.content)) h += qplan(f);
+  else if (ext === 'sql') h = qplan(f);
+  if (ext === 'rs' || ext === 'sql') { /* já tratado acima */ }
+  else if (['ts', 'js', 'jsx'].includes(ext)) h = `<h2>Build & runtime</h2><div class="hood-p">${stg('tsc type check', !/:\s*any\b/.test(f.content) || null, 'types erased after checking')}${stg('esbuild / Vite transform', true, 'TS → JS, one module per file in dev')}${stg('Bundle', true, 'tree-shaken into the desktop app')}${/innerHTML/.test(f.content) ? stg('innerHTML write', false, 'the browser parses the string as HTML: costs a parse + style recalc, and runs any markup inside it') : ''}${/invoke</.test(f.content) ? stg('Tauri IPC', true, 'JSON-serialised call into the Rust backend, async') : ''}</div>`;
+  else if (/Dockerfile$/.test(p)) h = `<h2>Image layers</h2><div class="sub">Each instruction is a cached layer; a change invalidates it and every layer after it.</div><div class="hood-p">${f.content.split('\n').filter(l => /^(FROM|COPY|RUN|USER|ENV|EXPOSE|CMD|ENTRYPOINT|WORKDIR)/.test(l)).map(l => stg(esc(l), /^COPY src/.test(l) && /cargo build/.test(f.content) ? false : true, /^FROM/.test(l) ? 'base layer' : /^COPY src/.test(l) ? 'changes on every edit — everything below rebuilds' : /^RUN/.test(l) ? 'cached until a layer above changes' : 'metadata only')).join('')}</div>`;
+  else if (/docker-compose\.yml$/.test(p)) {
+    const sv: Svc[] = window.composeServices() || [], order: Svc[] = [];
+    const vis = (s: Svc): void => { if (order.includes(s)) return; s.deps.forEach(d => { const x = sv.find(y => y.name === d); if (x) vis(x); }); order.push(s); };
+    sv.forEach(vis);
+    h = `<h2>Start order</h2><div class="hood-p">${order.map((s, i) => stg(`${i + 1}. ${esc(s.name)}`, true, `${s.build ? 'build ./' + esc(s.build) : esc(s.image || '')}${s.deps.length ? ' · after ' + s.deps.map(esc).join(', ') : ''}${s.hc ? ' · healthcheck' : ''}`)).join('')}</div>`;
+  } else h = `<div class="sub">${f.content.split('\n').length} lines · ${f.content.length} bytes. No deeper view for this file type yet.</div>`;
+  host.innerHTML = `<div class="page" style="max-width:860px"><h1>Under the hood</h1><div class="sub notr">${esc(short(p))}</div>${h}<div class="sub" style="margin-top:20px">Derived from the code in this workspace. The desktop app adds measured CPU, memory and I/O from a real run.</div></div>`;
+}
+
+/* ── publicação no window: `renderCreviewView`/`renderHoodView` são o alvo directo
+   do shim VIEW.creview/VIEW.hood (v6.ts); o resto (curFile/explainCmd/reviewCmd/
+   hoodCmd/reviewFindings) é lido por nome livre pelo resíduo @ts-nocheck de v6.ts
+   (EACT, keydown, boot6/menus) e por debug.ts (onclick "explainCmd(true)"). ── */
+window.renderCreviewView = renderCreviewView;
+window.renderHoodView = renderHoodView;
+Object.assign(window, { curFile, explainCmd, hoodCmd, reviewCmd, reviewFindings });

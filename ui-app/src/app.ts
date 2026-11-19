@@ -148,14 +148,15 @@ function log(src,msg){const o=$('#pc-output');o.insertAdjacentHTML('beforeend',`
 // (Fase 1). O residual (app.ts/v6.ts) emite via window.note e o sino via window.toggleNotes.
 
 /* ═════════ dxtutor IDE v2 — Co-Dev ═════════ */
+// cores em var(--token) do tema (theme.ts) em vez de hex fixo — mudam ao trocar de tema
 const PROV={
-  claude:{name:'Claude',vendor:'Anthropic',model:'claude-opus-5-5',ep:'https://api.anthropic.com',on:true,col:'#e08a5b'},
-  gemini:{name:'Gemini',vendor:'Google',model:'gemini-pro',ep:'https://generativelanguage.googleapis.com',on:true,col:'#6ea8ff'},
-  codex:{name:'Codex',vendor:'OpenAI',model:'gpt-codex',ep:'https://api.openai.com',on:true,col:'#5cc9a7'},
-  ollama:{name:'Ollama',vendor:'local',model:'qwen2.5-coder:14b',ep:'http://localhost:11434',on:true,local:true,col:'#c678dd'},
+  claude:{name:'Claude',vendor:'Anthropic',model:'claude-opus-5-5',ep:'https://api.anthropic.com',on:true,col:'var(--accent-hover)'},
+  gemini:{name:'Gemini',vendor:'Google',model:'gemini-pro',ep:'https://generativelanguage.googleapis.com',on:true,col:'var(--blue)'},
+  codex:{name:'Codex',vendor:'OpenAI',model:'gpt-codex',ep:'https://api.openai.com',on:true,col:'var(--green)'},
+  ollama:{name:'Ollama',vendor:'local',model:'qwen2.5-coder:14b',ep:'http://localhost:11434',on:true,local:true,col:'var(--purple)'},
 };
 /* ROLE/ROLE_D/ROUTE/MODES/CRIT/MISSIONS/DECS/CKPT + SPEED/MID: motor Co-Dev migrado p/ features/codev.ts (window-backed); aqui lê-se por global. */
-let CID=0;window.MODE='assist';window.ACTIVE='claude';window.THRESH=85;window.CTX_ON=true;window.SAMPLE=null;
+window.MODE='assist';window.ACTIVE='claude';window.THRESH=85;window.CTX_ON=true;window.SAMPLE=null;
 const CHAT=[],USAGE={claude:{calls:0,tok:0},gemini:{calls:0,tok:0},codex:{calls:0,tok:0},ollama:{calls:0,tok:0}};
 const COMMITS0=COMMITS.slice();
 const RUN={active:false,paused:false,stop:false,pend:null,abort:null,label:'',t0:0};
@@ -245,7 +246,7 @@ const rel=t=>{const m=Math.round((Date.now()-t)/60000);return m<1?'agora':m<60?`
 const rid=()=>Math.random().toString(16).slice(2,9);
 function rerender(kind){const t=tabOf(cur);if(t&&t.kind===kind){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}
 
-/* ───── git: motor (GIT/LANE/gitInit + DAG/merge/gitflow/graphLayout) migrado p/ features/scm.ts; aqui só consumidores (loadSeed, VIEW.graph, XC.git, checkpoint, gfAsk) que lêem por global ───── */
+/* ───── git: motor (GIT/LANE/gitInit + DAG/merge/gitflow/graphLayout) migrado p/ features/scm.ts; checkpoint/restoreCkpt/gfAsk migrados p/ features/checkpoint.ts; aqui só consumidor (loadSeed) que lê por global ───── */
 function loadSeed(){Object.keys(FS).forEach(k=>delete FS[k]);STAGED.clear();
   if(SEED_ON){Object.entries(SEED.base).forEach(([p,c])=>{FS[ROOT+p]={content:c,orig:c};});
   const s=FS[ROOT+'desktop/src/styles.css'];s.orig=s.content.replace('  --accent-hover: #f08a4b;\n','');const a=FS[ROOT+'desktop/src/assistant.ts'];a.orig=a.content.replace(/\n\/\/ v2[\s\S]*$/,'\n');
@@ -255,33 +256,10 @@ function loadSeed(){Object.keys(FS).forEach(k=>delete FS[k]);STAGED.clear();
 /* checkout/gitMerge/isFlow/gfStart/gfFinish/gfPrompt/gfGuide/pickBranch/drawTimeline migrados p/ features/scm.ts; lidos por global */
 RP.scm=()=>window.renderScmPane();/* corpo v4 migrado p/ features/scm.ts; shim delega (lazy, no switch de pane) */
 /* graphLayout/openGraph migrados p/ features/scm.ts; VIEW.graph (abaixo) consome-os por global */
-VIEW.graph=(t,host)=>{const L=graphLayout(),W=18,H=32,X=c=>14+c*W,Y=i=>H/2+i*H,gw=28+L.max*W;let paths='',dots='';
-  L.rows.forEach((r,i)=>{const c=GIT.c[r.h];c.p.forEach((ph,k)=>{const j=L.idx[ph];if(j==null)return;const pr=L.rows[j],x0=X(r.col),y0=Y(i),xl=X(r.pl[k]),xp=X(pr.col),y1=Y(j),col=LANE[(k===0?r.col:r.pl[k])%LANE.length];
-      let d=`M${x0} ${y0}`;if(j===i+1)d+=x0===xp?`L${xp} ${y1}`:`C${x0} ${y0+H*.6} ${xp} ${y1-H*.6} ${xp} ${y1}`;
-      else{d+=xl===x0?`L${xl} ${y0+H}`:`C${x0} ${y0+H*.6} ${xl} ${y0+H*.4} ${xl} ${y0+H}`;d+=`L${xl} ${y1-H}`;d+=xp===xl?`L${xp} ${y1}`:`C${xl} ${y1-H*.4} ${xp} ${y1-H*.6} ${xp} ${y1}`;}
-      paths+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round"/>`;});
-    const col=LANE[r.col%LANE.length],mg=c.p.length>1;dots+=`<circle cx="${X(r.col)}" cy="${Y(i)}" r="${mg?4:5}" fill="${mg?'var(--bg-editor)':col}" stroke="${col}" stroke-width="2"/>`;});
-  const refsAt=h=>Object.keys(GIT.refs).filter(b=>GIT.refs[b]===h);
-  host.innerHTML=`<div class="gl"><div class="gl-bar"><button class="mini" onclick="pickBranch()">⎇ ${esc(BRANCH)} ▾</button>${BRANCH==='develop'?`<button class="mini" onclick="gfPrompt('feature')">+ feature</button><button class="mini" onclick="gfPrompt('fix')">+ fix</button><button class="mini" onclick="gfPrompt('release')">+ release</button>`:isFlow(BRANCH)?`<button class="mini pri" onclick="gfFinish()">Finalizar ${esc(BRANCH)}</button>`:`<button class="mini" onclick="checkout('develop');rerender('graph')">Ir para develop</button>`}<span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${GIT.order.length} commits · ${Object.keys(GIT.refs).length} ramos</span></div>
-   <div class="gl-body" style="--gw:${gw}px"><svg class="gl-svg" width="${gw}" height="${L.rows.length*H}">${paths}${dots}</svg>${L.rows.map((r,i)=>{const c=GIT.c[r.h],a=authorOf(c.a),col=LANE[r.col%LANE.length],sel=GSEL===r.h;
-     return `<div class="gl-row${sel?' sel':''}" onclick="GSEL=GSEL==='${r.h}'?null:'${r.h}';rerender('graph')"><span class="gl-refs">${refsAt(r.h).map(b=>`<span class="gl-ref${b===BRANCH?' head':''}" style="--c:${col}">${b===BRANCH?'● ':''}${esc(b)}</span>`).join('')}${GIT.tags[r.h]?`<span class="gl-ref tagr">${GIT.tags[r.h]}</span>`:''}</span><span class="gl-msg">${esc(c.m)}</span><span class="gl-au"><i style="background:${a.col}">${a.n.charAt(0)}</i>${esc(a.n)}</span><span class="gl-h">${r.h}</span><span class="gl-t">${rel(c.t)}</span></div>`+(sel?`<div class="gl-det">${c.files.length?c.files.map(p=>`<button class="mini" onclick="event.stopPropagation();FS['${p}']?openPath('${p}'):toast('O ficheiro não existe neste ramo')">${esc(short(p))}</button>`).join(''):'<span style="color:var(--fg-muted)">Commit anterior ao protótipo — sem lista de ficheiros.</span>'}${c.p.length>1?`<span class="tag">merge de ${c.p.length} pais</span>`:''}</div>`:'');}).join('')}</div></div>`;};
-XC.git=(a,raw)=>{const s=a[0],ch=changes();
-  if(s==='status'){echo(`No ramo <span class="ac">${esc(BRANCH)}</span>\n`+(ch.length?ch.map(p=>stOf(p)==='U'?`  <span class="er">untracked:  ${short(p)}</span>`:`  <span class="warn">modified:</span>   ${short(p)}`).join('\n'):'nada para commitar, área de trabalho limpa'));return{ok:true};}
-  if(s==='add'){ch.forEach(p=>STAGED.add(p));refresh();echo(`<span class="dim">${ch.length} ficheiro(s) em stage</span>`);return;}
-  if(s==='commit'){const m=raw.match(/-m\s+(["'])(.*?)\1/)||raw.match(/-m\s+(.+)$/)||[],msg=(m[2]||m[1]||'').trim();if(!msg){echo('<span class="er">uso: git commit -m "mensagem"</span>');return;}const c=commitGit(msg);echo(c?`[${esc(BRANCH)} <span class="ac">${c.h}</span>] ${esc(msg)}`:'<span class="dim">nada para commitar</span>');return{ok:!!c};}
-  if(s==='log'){const L=graphLayout();echo(L.rows.slice(0,14).map(r=>{const c=GIT.c[r.h],rf=Object.keys(GIT.refs).filter(b=>GIT.refs[b]===r.h);return `<span class="dim">${'│ '.repeat(r.col)}${c.p.length>1?'◆':'●'}</span> <span class="ac">${r.h}</span>${rf.length?` <span class="ok">(${rf.join(', ')})</span>`:''} ${esc(c.m)}`;}).join('\n'));return;}
-  if(s==='branch'){echo(Object.keys(GIT.refs).map(b=>b===BRANCH?`<span class="ok">* ${b}</span>`:'  '+b).join('\n'));return;}
-  if(s==='checkout'){const nb=a[1]==='-b',b=nb?a[2]:a[1];if(!b){echo('<span class="er">uso: git checkout [-b] &lt;ramo&gt;</span>');return;}echo(checkout(b,nb)?`Mudou para o ramo '${esc(b)}'`:'<span class="er">não foi possível mudar para '+esc(b)+'</span>');rerender('graph');return;}
-  if(s==='merge'){const m=a[1]&&gitMerge(a[1]);echo(m?`Merge feito: <span class="ac">${m.h}</span> ${esc(m.m)}`:'<span class="er">uso: git merge &lt;ramo&gt;</span>');rerender('graph');return{ok:!!m};}
-  if(s==='flow'){if(a[2]==='start'&&a[3]){gfStart(a[1],a[3]);echo(`Ramo <span class="ac">${esc(BRANCH)}</span> criado`);}else if(a[2]==='finish'){const m=gfFinish();echo(m?'Finalizado: '+esc(m.m):'<span class="er">não estás num ramo de gitflow</span>');}else echo('<span class="dim">git flow feature|fix|release|hotfix start &lt;nome&gt; · git flow x finish</span>');return;}
-  if(s==='diff'){echo(ch.map(p=>{const d=diffStat(FS[p].orig,FS[p].content);return ` ${short(p)} | <span class="ok">+${d.add}</span> <span class="er">-${d.del}</span>`;}).join('\n')||'<span class="dim">sem diferenças</span>');return;}
-  if(s==='push'){echo(`<span class="ok">push simulado ✓</span> <span class="dim">origin/${esc(BRANCH)} (o protótipo não tem remoto)</span>`);return{ok:true};}
-  echo('<span class="dim">git: status | add . | commit -m | log | branch | checkout [-b] | merge | flow | diff | push</span>');};
-function checkpoint(label){const c={id:++CID,label,t:hhmm(),fs:JSON.stringify(FS),git:JSON.stringify(GIT),br:BRANCH};CKPT.unshift(c);log('checkpoint',label);return c.id;}
-function restoreCkpt(id,silent){const c=CKPT.find(x=>x.id===id);if(!c)return;Object.keys(FS).forEach(k=>delete FS[k]);Object.assign(FS,JSON.parse(c.fs));Object.assign(GIT,JSON.parse(c.git));BRANCH=c.br;$('#st-branch-l').textContent=BRANCH;STAGED.clear();refresh(false,true);termRefreshPrompt();log('checkpoint','restaurado: '+c.label);if(!silent)toast('Restaurado: '+c.label);}
-async function gfAsk(host,M){const b=BRANCH;if(!/^(feature|fix)\//.test(b))return;if([...M.files].some(p=>stOf(p))){host.insertAdjacentHTML('beforeend',`<p>Gitflow: o ramo <code>${esc(b)}</code> fica aberto com alterações por commitar.</p>`);return;}
-  const go=MODE==='auto'?1:await ask(host,[{l:`Finalizar: merge de ${b} em develop`,v:1,pri:1,done:'✓ merge aprovado por ti'},{l:'Manter o ramo aberto',v:0,done:'ramo mantido'}]);
-  if(go){const m=gfFinish(b);host.insertAdjacentHTML('beforeend',`<p>Gitflow: <code>${esc(b)}</code> → <code>develop</code> (merge <code>${m.h}</code>), ramo apagado. A release para <code>main</code> fica sempre contigo.</p>`);}}
+VIEW.graph=(t,host)=>window.renderGraphView(t,host);/* corpo (DAG de commits) migrado p/ features/graph.ts; shim delega (registo de kinds de tab) */
+/* corpo (sub-comandos status/add/commit/log/branch/checkout/merge/flow/diff/push) migrado p/ features/termgit.ts; shim delega (registo XC de features/terminal.ts) */
+XC.git=(a,raw)=>window.gitCmd(a,raw);
+/* checkpoint/restoreCkpt/gfAsk migrados p/ features/checkpoint.ts (strict, window-backed); aqui lidos por global (CMD acima, codev.ts). */
 
 /* ───── equipa: motor (AGENTS/globRe/inScope/canRun/ownerOf/harnessCheck/harnessCmd/agentSys/
    saveTeam/loadTeam/pickAgent/agentPill/scopeProbe + VIEW.team) migrado p/ features/team.ts
@@ -389,13 +367,13 @@ Object.assign(window, {
   CMD, FS, LS,
   OPEN, PANE, PROV, ROOT, RP, RUN, SECOPEN, STOP, VIEW,
   badges, blame, boot, boot3, boot4, buildActivity, buildMenus,
-  checkpoint, closeTab,
-  drawTabs, esc, fIcon, gfAsk, goPane,
+  closeTab,
+  drawTabs, esc, fIcon, goPane,
   hydrate, loadCfg, loadSeed, log,
   mdFull, miniOff,
   openFile, openPath, openTab,
   parkAgent,
-  rerender, resetAll, restoreCkpt, runTask,
+  rerender, resetAll, runTask,
   save, setActive, setPane, setPanelTab, show,
   stepTab, tabIc, tabOf, togglePanel,
   toggleSide, use,

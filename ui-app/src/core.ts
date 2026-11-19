@@ -102,6 +102,15 @@ declare global {
        o onkeydown Ctrl+Enter do pane scm chama esta fachada. */
     commitGit: (msg?: string, author?: string) => unknown;
     renderScmPane: () => void;
+    /* feature `graph` (migrada de app.ts): corpo do renderer da tab `graph` (DAG de
+       commits). O motor git (graphLayout/GIT/LANE/BRANCH/authorOf/isFlow/GSEL/rel) é
+       lido por nome livre (ambiente, declarado em bridge.ts/pair.ts), como diff.ts lê
+       FS; aqui só a delegação do render (VIEW.graph → window.renderGraphView). */
+    renderGraphView: (t: unknown, host: HTMLElement) => void;
+    /* feature `termgit` (migrada de app.ts): handler `git` do terminal (XC.git). O motor
+       git é lido por nome livre, como graph.ts; `XC.git` (features/terminal.ts) fica SHIM:
+       `XC.git=(a,raw)=>window.gitCmd(a,raw)`. */
+    gitCmd: (a: string[], raw: string) => { ok: boolean } | undefined;
     /* feature `diff`: corpo do renderer da tab `diff` (VIEW.diff → window.renderDiffView). */
     renderDiffView: (t: unknown, host: HTMLElement) => void;
     /* feature `router`: amostragem ao vivo disponível (router inicializa; bridge põe a true). */
@@ -133,17 +142,37 @@ declare global {
     LT_BADGE: Record<string, string>;
     stars: (d: number, kind?: string) => string;
     renderTutorPane: () => void;
-    /* feature `tasks` (migrada de v6.ts): pane «Tasks» (backlog/sprints). O backlog
-       (BL), filtro (TK), estágios (STAGES), agentes (AGENTS) e helpers (nfmt/STC/
-       ownerName) continuam donos do monólito/v6; a feature lê por fachada. */
+    /* feature `tasks` (migrada de v6.ts): pane «Tasks» (backlog/sprints) + vista de
+       detalhe da issue (VIEW.issue). O backlog (BL), estágios (STAGES) e agentes
+       (AGENTS) continuam donos do monólito/board.ts/team.ts; nfmt idem (v6.ts). TK/
+       STC/ownerName/openIssue/advice/costAvg/usd são agora donos da própria feature
+       (publicados no window só para o residual @ts-nocheck de v6.ts ler por nome). */
     BL: any;
     AGENTS: Record<string, any>;
     STAGES: Array<[string, string]>;
-    TK: { sprint: number; who: string; open: Record<string, boolean> };
     nfmt: (n: number) => string;
-    STC: Record<string, string>;
-    ownerName: (i: any) => string;
     renderTasksPane: () => void;
+    /* feature `team` (motor do harness de projecto, migrado de v5.ts): `applyTemplate`
+       é reatribuído por inteiro por v6.ts (como dxRun/dxStop/setMode em app.ts), por
+       isso fica `window.applyTemplate=` directo em vez de `export`/`Object.assign`. */
+    applyTemplate: (id: string) => void;
+    /* feature `codereview` (migrada de v6.ts): Explain / Code review / Under the hood.
+       `renderCreviewView`/`renderHoodView` são donas destas duas tabs (VIEW.creview/
+       VIEW.hood ficam shim em v6.ts). As restantes peças (curFile/explainCmd/reviewCmd/
+       hoodCmd/reviewFindings) são publicadas por `Object.assign(window,…)` sem entrada
+       aqui — só o resíduo @ts-nocheck de v6.ts as chama por nome livre. As entradas
+       abaixo são fachadas que a feature CONSOME doutras features/do monólito: `symbols`
+       (explorer.ts), `selText` (editor.ts), `updateAgentUI` (codev.ts), `composeServices`
+       (stack.ts), `lexVariant`/`LXL` (continuam donas de v6.ts), `dbgState` (debug.ts). */
+    renderCreviewView: (t: unknown, host: HTMLElement) => void;
+    renderHoodView: (t: unknown, host: HTMLElement) => void;
+    symbols: (p: string) => Array<{ k: string; n: string; line: number }>;
+    selText: () => string;
+    updateAgentUI: () => void;
+    composeServices: () => Array<{ name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }> | null;
+    lexVariant: () => string;
+    LXL: (re: RegExp) => number;
+    dbgState: () => { end?: { t: string; b: string }; feed: Array<{ h: string }> } | null;
     /* feature `ext` (motor migrado de v6.ts, @ts-nocheck): pane «Extensions» (Open VSX).
        A feature é agora dona de todo o motor (catálogo EXT, estado instalado EXS,
        instalar/remover/alternar, comandos, VSIX, formatador) e publica-o no window;
@@ -167,9 +196,9 @@ declare global {
     renderCodevPane: () => void;
     /* feature `infra` (migrada de v5.ts base + v6.ts decoração): pane «Infra» (runtime
        de contentores, dev container, Kubernetes, environments). Base v5 + decoração v6
-       dobradas num só render; estado/helpers continuam donos das camadas (DEVC/K8S/
-       STACK são window-backed; ENVS/RTN/KCTX/k8sDocs de v5; ENVL/ENVX/envHealth/
-       envState/openObserve de v6). */
+       dobradas num só render; a feature é agora dona dos dois motores (DEVC/K8S/STACK
+       continuam window-backed por causa de bridge.ts/stack.ts; ENVS/RTN/KCTX/k8sDocs e
+       ENVL/ENVX/envHealth/envState/openObserve nascem e vivem em features/infra.ts). */
     ENVS: any;
     RTN: Record<string, string>;
     KCTX: string[];
@@ -177,6 +206,7 @@ declare global {
     K8S: any;
     STACK: any;
     k8sDocs: () => any[];
+    P_DC: string;
     ENVL: Record<string, string>;
     ENVX: any;
     envHealth: (e: string) => string;

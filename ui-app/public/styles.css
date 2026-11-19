@@ -24,6 +24,7 @@
   ::-webkit-scrollbar-thumb{background:rgba(130,130,140,.3);border:3px solid transparent;background-clip:padding-box;border-radius:6px}
   ::-webkit-scrollbar-thumb:hover{background:rgba(150,150,160,.45);background-clip:padding-box}
   button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  .mini:focus-visible,.btn:focus-visible,.act:focus-visible,.tb-ic:focus-visible,.scm-row:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--accent)}
   svg.ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.15;stroke-linecap:round;stroke-linejoin:round;flex:none;display:block}
   svg.ico.fill{fill:currentColor;stroke:none}
 

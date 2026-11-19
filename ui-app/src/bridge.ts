@@ -68,10 +68,17 @@ declare global {
   const KCTX: string[];
   const AGENTS: Record<string, { n: string }>;
   const STOP: unknown;
-  const MODE: string;
+  let MODE: string; // mutável — v5.ts já reatribui (MODE=HARN.ceiling) sob @ts-nocheck
   var ACTIVE: string;
   const COMMIT_MSG: string;
   const isFlow: (b: string) => boolean;
+  // Motor do grafo de commits (dono = features/scm.ts), lido por nome livre pela
+  // feature strict features/graph.ts (e pelos consumidores do monólito).
+  const graphLayout: () => { rows: { h: string; col: number; pl: number[] }[]; idx: Record<string, number>; max: number };
+  const LANE: string[];
+  const authorOf: (a: string) => { n: string; col: string };
+  const rel: (t: number) => string;
+  let GSEL: string | null;
   const changes: () => string[];
   const stOf: (p: string) => unknown;
   const use: (p: string, tok: number) => void;
@@ -96,7 +103,7 @@ declare global {
   var stage: (p: string) => void;
   var gitMerge: (src: string, author?: string) => CommitNode | null;
   var gfStart: (kind: string, name: string) => string;
-  var gfFinish: (b?: string, author?: string) => unknown;
+  var gfFinish: (b?: string, author?: string) => CommitNode | null;
   var updateAgentUI: (...a: any[]) => void;
   var testProv: (k: string, btn: HTMLElement) => unknown;
   var rtConnect: () => unknown;
@@ -107,11 +114,28 @@ declare global {
   var drawStack: (...a: any[]) => void;
   var k8sDocs: () => any[];
   var needRt: () => unknown;
+  var dcAttach: () => unknown;
+  var dcDetach: () => unknown;
+  var drawRemote: () => void;
+  var hydrateEnvs: () => void;
   var runMission: (S: any, text?: any) => unknown;
   var runSprint: (s: any) => unknown;
   var loadJSZip: () => Promise<unknown>;
   var termExec: (v: string) => unknown;
   var JSZip: unknown;
+  // Donas de features/checkpoint.ts, lidas por nome livre pelo selftest (passo `checkpoint`).
+  var checkpoint: (label: string) => number;
+  var restoreCkpt: (id: number, silent?: boolean) => void;
+  var gfAsk: (host: HTMLElement, M: { files: Set<string> }) => Promise<void>;
+  // Dona de features/graph.ts, lida pelo selftest (passo `graph`).
+  var renderGraphView: (tab: unknown, host: HTMLElement) => void;
+  // Dona de features/termgit.ts, lida pelo selftest (passo `termgit`).
+  var gitCmd: (a: string[], raw: string) => { ok: boolean } | undefined;
+  // Donas de features/codereview.ts, lidas pelo selftest (passo `codereview`).
+  var reviewFindings: (p: string) => { l: number; sev: string; t: string; why: string; fix: string }[];
+  var renderCreviewView: (tab: unknown, host: HTMLElement) => void;
+  var renderHoodView: (tab: unknown, host: HTMLElement) => void;
+  var explainCmd: (fromDebug?: boolean) => void;
 }
 
 (() => {
@@ -424,7 +448,7 @@ gfFinish = function (b?: string, author?: string) {
   if (!isFlow(bn) || !GIT.refs[bn]) return null;
   flushSave();
   const rel = /^(release|hotfix)\//.test(bn), tag = "v" + bn.split("/")[1], main = GIT.refs.main ? "main" : GIT.refs.master ? "master" : "main";
-  let res: unknown = null;
+  let res: CommitNode | null = null;
   if (rel) { checkout(main); res = gitMerge(bn, author); enqueue(() => gitOk("tag", "-a", tag, "-m", `Release ${tag}`)); checkout("develop"); gitMerge(bn, author); }
   else { checkout("develop"); res = gitMerge(bn, author); }
   enqueue(async () => { await gitOk("branch", "-d", bn); await syncGit(); say(`gitflow: finished ${bn}`); });
@@ -703,6 +727,7 @@ function envFor(): Record<string, string> {
 }
 const compose = () => rtBin() + " compose";
 rtConnect = async function () {
+  hydrateEnvs();
   if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); STACK = null; DEVC = null; drawStack(); say("container runtime disconnected"); infraDraw(); return; }
   R.sock = await inv("expand_path", { path: ENVS.sock[ENVS.rt] });
   const env = { DOCKER_HOST: "unix://" + R.sock, CONTAINER_HOST: "unix://" + R.sock };
@@ -712,6 +737,7 @@ rtConnect = async function () {
   infraDraw();
 };
 k8sConnect = async function () {
+  hydrateEnvs();
   if (ENVS.k8sOn) { ENVS.k8sOn = false; saveEnv(); K8S = null; say("cluster disconnected"); infraDraw(); return; }
   const kube: string = await inv("expand_path", { path: ENVS.kube });
   R.kube = kube;
@@ -904,6 +930,49 @@ async function selftest(): Promise<void> {
       gfFinish(b); await Q; await Q;
       return { branch: (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim(), branches: (await git("branch", "--format=%(refname:short)")).stdout.trim().split("\n"), flowFile: !!FS[ROOT + "notes/flow.txt"] };
     });
+    // feature `checkpoint` (migrada de app.ts para features/checkpoint.ts nesta sessão):
+    // checkpoint/restoreCkpt tiram e repõem uma fotografia de FS+GIT+BRANCH; gfAsk propõe
+    // (ou recusa propor) fechar um ramo gitflow dependendo de haver alterações por commitar.
+    // Testa os dois ramos de gfAsk via MODE="auto" (bypassa o diálogo interactivo ask()).
+    await step("checkpoint", async () => {
+      const errBefore = R.errors.length;
+      const key = ROOT + "notes/ckpt-probe.txt";
+      const filesBefore = Object.keys(FS).length, branchBefore = BRANCH;
+      const id = checkpoint("probe");
+      writeFile(key, "mutated after checkpoint\n"); flushSave(); await Q;
+      const mutated = !!FS[key];
+      restoreCkpt(id, true);
+      const restored = !FS[key] && Object.keys(FS).length === filesBefore && BRANCH === branchBefore;
+
+      gfStart("feature", "ckpt-ask-finish"); await Q;
+      // `commit` (v2, real-git-aware via bridge) — não `commitGit` (v4, só simula o DAG em
+      // memória): gfFinish faz merge/checkout REAIS, por isso o commit que o antecede tem
+      // de ser real também, senão o ramo "finalizado" nunca existiu de facto no git.
+      writeFile(ROOT + "notes/ckpt-ask-finish.txt", "y\n"); flushSave(); commit("feat: ckpt ask finish"); await Q; await Q;
+      const modeBefore = MODE; MODE = "auto";
+      const hostFinish = document.createElement("div");
+      await gfAsk(hostFinish, { files: new Set() });
+      await Q; await Q;
+      const finishedViaAsk = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim() === "develop" && /develop/.test(hostFinish.innerHTML);
+      MODE = modeBefore;
+
+      gfStart("feature", "ckpt-ask-open"); await Q;
+      writeFile(ROOT + "notes/ckpt-ask-open.txt", "z\n"); flushSave(); await Q;
+      const hostOpen = document.createElement("div");
+      await gfAsk(hostOpen, { files: new Set([ROOT + "notes/ckpt-ask-open.txt"]) });
+      const stayedOpen = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim() === "feature/ckpt-ask-open" && /fica aberto/.test(hostOpen.innerHTML);
+      checkout("develop"); await Q;
+
+      return { id, mutated, restored, finishedViaAsk, stayedOpen, errBefore, errAfter: R.errors.length };
+    });
+    // feature `graph` (migrada de app.ts para features/graph.ts nesta sessão): o renderer
+    // puro da tab `graph` (VIEW.graph) desenha um nó por commit do grafo real.
+    await step("graph", () => {
+      const host = document.createElement("div");
+      renderGraphView(null, host);
+      const rows = host.querySelectorAll(".gl-row").length;
+      return { rows, matchesCommits: rows === GIT.order.length, dots: host.querySelectorAll(".gl-svg circle").length, hasBranchBar: /gl-bar/.test(host.innerHTML) };
+    });
     // feature `changelog` (harvest ui-next): observa o caminho desktop-REAL — clLog→git_log
     // e clShow→git_show sobre o repo git do próprio selftest (acabou de ganhar commits acima).
     await step("changelog", async () => {
@@ -941,8 +1010,74 @@ async function selftest(): Promise<void> {
         checkoutCreated: onNew === "feature/scm-probe", checkedBack: back === before,
         errBefore, errAfter: R.errors.length };
     });
+    // feature `infra` (migrada de v5.ts nesta sessão para features/infra.ts): prova que
+    // o motor de runtime/K8s/dev-container ficou correctamente ligado depois da
+    // migração — rtConnect/k8sConnect (reais aqui, pela via REAL deste ficheiro) não
+    // rebentam sem docker/kubectl instalados, dcAttach/dcDetach escrevem e limpam o
+    // devcontainer simulado, dxDeploy respeita as guardas (sem runtime, sem cluster) e
+    // drawRemote liga o indicador na status bar. Estado é sempre restaurado (net-zero).
+    await step("infra", async () => {
+      const errBefore = R.errors.length;
+      const rtBefore = ENVS.rtOn, k8sBefore = ENVS.k8sOn;
+      await rtConnect();
+      const rtNoThrow = typeof ENVS.rtOn === "boolean";
+      if (ENVS.rtOn !== rtBefore) await rtConnect();
+      await k8sConnect();
+      const k8sNoThrow = typeof ENVS.k8sOn === "boolean";
+      if (ENVS.k8sOn !== k8sBefore) await k8sConnect();
+      ENVS.rtOn = true;
+      dcAttach();
+      const attached = !!FS[window.P_DC] && !!DEVC;
+      dcDetach();
+      const detached = DEVC === null;
+      ENVS.rtOn = false; ENVS.k8sOn = false;
+      const deployNoRt = dxDeploy();
+      ENVS.rtOn = true;
+      const deployNoK8s = dxDeploy();
+      ENVS.rtOn = rtBefore; ENVS.k8sOn = k8sBefore;
+      drawRemote();
+      const remoteBadgeWired = !!document.querySelector(".si.remote .rl");
+      return { rtNoThrow, k8sNoThrow, attached, detached, deployNoRt, deployNoK8s, remoteBadgeWired, errBefore, errAfter: R.errors.length };
+    });
     await step("terminal", async () => { const lines: string[] = []; const code = await stream("echo hello-from-term; echo $DX_SELF", { env: { DX_SELF: "env-ok" }, line: l => lines.push(l) }); return { code, lines }; });
     await step("terminalUI", async () => { await realTerm("echo ui-line"); await new Promise(r => setTimeout(r, 300)); return [...document.querySelectorAll("#term .line")].some(d => d.textContent === "ui-line"); });
+    // feature `termgit` (migrada de app.ts para features/termgit.ts nesta sessão): handler
+    // `git` do terminal (XC.git). Só os sub-comandos de leitura — status/log/branch/diff/push
+    // não mutam estado, por isso o passo fica net-zero sem checkpoint/restore.
+    await step("termgit", () => {
+      const before = document.querySelectorAll("#term .line").length;
+      gitCmd(["status"], "git status");
+      gitCmd(["log"], "git log");
+      gitCmd(["branch"], "git branch");
+      gitCmd(["diff"], "git diff");
+      const push = gitCmd(["push"], "git push");
+      const added = document.querySelectorAll("#term .line").length - before;
+      const lastLines = [...document.querySelectorAll("#term .line")].slice(-added).map(d => d.textContent || "");
+      return { linesAdded: added, branchShown: lastLines.some(t => t.includes(BRANCH)), pushOk: push && push.ok === true };
+    });
+    // feature `codereview` (migrada de app.ts para features/codereview.ts nesta sessão):
+    // Explain/Code review/Under the hood. explainCmd corre com o provider Claude desligado
+    // (restaurado no fim) para exercitar o caminho determinístico sem chamada real ao LLM.
+    await step("codereview", () => {
+      const errBefore = R.errors.length;
+      // P_LX (o lexer-protótipo) só existe no projecto SIMULADO; num projecto desktop real
+      // qualquer ficheiro aberto do disco serve — por isso escolhe-se um que esteja mesmo em FS.
+      const p = Object.keys(FS).find(k => k.startsWith(ROOT)) || P_LX;
+      const findings = reviewFindings(p);
+      const claudeBefore = PROV.claude.on; PROV.claude.on = false;
+      explainCmd();
+      PROV.claude.on = claudeBefore;
+      const hostR = document.createElement("div");
+      renderCreviewView({ path: p }, hostR);
+      const hostH = document.createElement("div");
+      renderHoodView({ path: p }, hostH);
+      return {
+        file: p, findingsIsArray: Array.isArray(findings), findingsCount: findings.length,
+        hasScore: /class="score/.test(hostR.innerHTML),
+        hasHood: /Under the hood/.test(hostH.innerHTML),
+        errBefore, errAfter: R.errors.length,
+      };
+    });
     await step("llmLoop", async () => {
       const seen: string[] = [];
       const r = await desktopSample([{ role: "user", content: "list the files" }], { tools: [{ name: "list_files", description: "Lists files", inputSchema: { type: "object", properties: {} }, execute: async () => { seen.push("list_files"); return Object.keys(R.disk); } }] });

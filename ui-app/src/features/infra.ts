@@ -1,40 +1,96 @@
 // @ts-nocheck
 /* ═════════ dxtutor IDE — feature: Infra (pane lateral + motor) ═════════
-   Feature da reestruturação por funcionalidade: detém o render do pane «Infra»
-   (runtime de contentores, dev container, Kubernetes, environments) E — desde a
-   inversão Debug/SCM/ext — o MOTOR de environments + drift + observabilidade que a
-   decoração v6 do pane consumia.
+   Feature da reestruturação por funcionalidade: detém o render do pane «Infra» E os
+   DOIS motores que o alimentam — runtime de contentores/dev container/Kubernetes
+   (migrado de v5.ts nesta sessão) e environments/drift/observabilidade (migrado de
+   v6.ts numa sessão anterior).
 
-   Render: no monólito o pane nascia DECORADO em DUAS camadas — a base v5 (`RP.infra`
-   em v5.ts — socket/dev-container/K8s/remote hosts) e a decoração v6 (environments/
-   observabilidade). Aqui as duas dobram-se num único `renderInfraPane()` (base
-   primeiro, depois a decoração sobre `.sections`) para um DOM idêntico.
+   Render: no monólito o pane nascia DECORADO em DUAS camadas — a base v5 (socket/
+   dev-container/K8s/remote hosts) e a decoração v6 (environments/observabilidade).
+   Aqui as duas dobram-se num único `renderInfraPane()` (base primeiro, depois a
+   decoração sobre `.sections`) para um DOM idêntico.
 
-   Motor (migrado de v6.ts): ENVL/ENVX (+ secrets, promoção aprovada por humano),
-   environments (envState/envHealth/envDeps), drift report (driftReport/DSTY) e
-   observabilidade (OBS/seeded/obsInit/obsLine/spark/openObserve) + os corpos de
-   VIEW.envs e VIEW.observe (`renderEnvsView`/`renderObserveView`). Tudo publicado no
-   window: as features avaliam ANTES de app.ts/v6.ts, por isso o estado é window-backed
-   e hidratado preguiçosamente (ENVX via `hydrateEnvx`, guard-once) — nada de `LS.get`
-   ansioso no eval. @ts-nocheck: o motor é denso (refs livres a SD/K8S/GIT/TECH… do
-   app.ts/v5), tipa-se depois, como debug/ext/scm.
+   Motor runtime/K8s (migrado de v5.ts): ENVS/RTN/KCTX + DEVC/K8S (window-backed —
+   bridge.ts troca rtConnect/k8sConnect/dxDeploy pelas versões reais do Tauri via
+   reatribuição bare, por isso continuam `window.X=`) + rtConnect/k8sConnect/needRt/
+   projectContext/devcontainerJson/dcAttach/dcDetach/drawRemote/infraDraw/appEnv/
+   k8sInfra/k8sDocs/dxDeploy/k8sScale/k8sDown/runTaskQuiet/ctlLogs. ENVS hidrata-se de
+   LS preguiçosamente (`hydrateEnvs`, guard-once — também computa P_DC, que precisa de
+   ROOT) pela mesma razão do motor de environments.
 
-   Em v6.ts ficam SÓ as decorações que decoram globais de camadas anteriores (dxDeploy
-   de v5; drawStudio/VIEW.studio de app.ts) e os shims de VIEW — carregam depois do
-   app.ts, por isso não podem ser top-level da feature. Lêem o motor por fachada-alias
-   sem o substring migrado: `window.envPrime()`=initSecrets, `window.envDrift()`=
-   driftReport, `window.envDriftStyle`=DSTY. Do core importa-se só o que é dono de lá
-   (`$`, `$$`, `hd`, `svg`, `esc`); os restantes nomes livres (SD/K8S/GIT/dlg/toast/…)
-   resolvem no window ao correr. */
+   Motor environments/drift/observabilidade (migrado de v6.ts): ENVL/ENVX (+ secrets,
+   promoção aprovada por humano), environments (envState/envHealth/envDeps), drift
+   report (driftReport/DSTY) e observabilidade (OBS/seeded/obsInit/obsLine/spark/
+   openObserve) + os corpos de VIEW.envs e VIEW.observe (`renderEnvsView`/
+   `renderObserveView`). Tudo publicado no window: as features avaliam ANTES de
+   app.ts/v5.ts/v6.ts, por isso o estado é window-backed e hidratado preguiçosamente
+   (ENVX via `hydrateEnvx`, guard-once) — nada de `LS.get`/`ROOT` ansioso no eval.
+   @ts-nocheck: os dois motores são densos (refs livres a SD/K8S/GIT/TECH/FS… do
+   app.ts), tipam-se depois, como debug/ext/scm.
+
+   Em v5.ts ficam só as decorações que têm mesmo de carregar depois do core — dxRun/
+   dxStop (precisam do dxRun do app.ts) e a wiring do terminal XC.kubectl/
+   XC.devcontainer/XC.dx (precisam do XC de features/terminal.ts), lendo needRt()/
+   infraDraw() já publicados no window. Em v6.ts ficam as decorações que decoram
+   globais de camadas anteriores (dxDeploy; drawStudio/VIEW.studio de app.ts) e os
+   shims de VIEW — carregam depois do app.ts. Lêem o motor de environments por
+   fachada-alias sem o substring migrado: `window.envPrime()`=initSecrets,
+   `window.envDrift()`=driftReport, `window.envDriftStyle`=DSTY. Do core importa-se só
+   o que é dono de lá (`$`, `$$`, `hd`, `svg`, `esc`); os restantes nomes livres
+   (SD/K8S/GIT/FS/ROOT/TECH/KIND/dlg/toast/…) resolvem no window ao correr. */
 
 import { $, $$, hd, svg, esc } from "../core";
+
+/* ═══════════ motor: runtime de contentores, dev container, Kubernetes (migrado de v5.ts) ═══════════ */
+const RTN = (window.RTN = { docker: 'Docker', podman: 'Podman', delonix: 'Delonix' });
+const ENVS = (window.ENVS = { rt: 'docker', sock: { docker: '/var/run/docker.sock', podman: '/run/user/1000/podman/podman.sock', delonix: '/run/delonix/delonix.sock' }, rtOn: false, kube: '~/.kube/config', ctx: 'kind-dxtutor', ns: 'dxtutor', k8sOn: false, ssh: [] });
+const KCTX = (window.KCTX = ['kind-dxtutor', 'minikube', 'k3d-local', 'docker-desktop']);
+window.DEVC = null; window.K8S = null;
+let _envsHyd = false;
+/** Hidrata ENVS de LS e computa P_DC (precisa de ROOT, de app.ts) — guard-once no 1º
+ *  uso real: a feature avalia ANTES de app.ts, logo LS/ROOT ansioso no eval quebraria
+ *  o chunk (mesmo padrão de `hydrateEnvx`). */
+function hydrateEnvs() { if (_envsHyd) return; _envsHyd = true; Object.assign(ENVS, LS.get('env5', {})); window.P_DC = ROOT + '.devcontainer/devcontainer.json'; }
+const saveEnv = () => LS.set('env5', ENVS);
+const cli = () => ENVS.rt;
+function needRt() { hydrateEnvs(); if (ENVS.rtOn) return true; goPane('infra'); toast('Point the container socket first'); return false; }
+window.rtConnect = function () { hydrateEnvs(); ENVS.rtOn = !ENVS.rtOn; saveEnv(); if (!ENVS.rtOn) { STACK = null; DEVC = null; drawStack(); } log('infra', ENVS.rtOn ? `${RTN[ENVS.rt]} connected at ${ENVS.sock[ENVS.rt]} (simulated)` : 'container runtime disconnected'); infraDraw(); };
+window.k8sConnect = function () { hydrateEnvs(); ENVS.k8sOn = !ENVS.k8sOn; saveEnv(); if (!ENVS.k8sOn) K8S = null; log('infra', ENVS.k8sOn ? `cluster ${ENVS.ctx} reachable via ${ENVS.kube} (simulated)` : 'cluster disconnected'); infraDraw(); };
+function projectContext() { const k = Object.keys(FS), h = re => k.some(p => re.test(p)), c = []; if (h(/Cargo\.toml$/)) c.push(['rust', 'Rust']); if (h(/\.tsx?$|package\.json$/)) c.push(['node', 'TypeScript / Node']); if (h(/go\.mod$/)) c.push(['go', 'Go']); if (h(/requirements\.txt$/)) c.push(['python', 'Python']); if (h(/__manifest__\.py$/)) c.push(['odoo', 'Odoo module']);
+  if (h(/db\/migrations\//)) c.push(['sql', 'SQL migrations']); if (h(/docker-compose\.yml$/)) c.push(['compose', 'Compose stack']); if (h(/deploy\/k8s\//)) c.push(['k8s', 'Kubernetes manifests']); if (h(/\.devcontainer\//)) c.push(['devc', 'Dev Container']); if (h(/\.dxtutor\/regras\.md$/)) c.push(['rules', 'Project rules']); return c; }
+function devcontainerJson() { const c = projectContext().map(x => x[0]), f = {}, F = 'ghcr.io/devcontainers/features/'; if (c.includes('rust')) f[F + 'rust:1'] = {}; if (c.includes('node')) f[F + 'node:1'] = { version: '22' }; if (c.includes('go')) f[F + 'go:1'] = {}; if (c.includes('python')) f[F + 'python:1'] = {}; f[F + 'docker-outside-of-docker:1'] = {}; f[F + 'kubectl-helm-minikube:1'] = { minikube: 'none' };
+  const ports = (composeServices() || []).filter(s => s.port).map(s => +s.port);
+  return JSON.stringify({ name: 'dxtutor', image: 'mcr.microsoft.com/devcontainers/base:bookworm', features: f, mounts: [`source=${ENVS.sock[ENVS.rt]},target=/var/run/docker.sock,type=bind`, 'source=${localEnv:HOME}/.kube,target=/home/vscode/.kube,type=bind,readonly'], forwardPorts: ports.length ? ports : [1420], postCreateCommand: [c.includes('rust') ? 'cargo fetch' : '', c.includes('node') ? 'npm --prefix desktop install' : ''].filter(Boolean).join(' && ') || 'true', remoteUser: 'vscode', customizations: { dxtutor: { harness: '.dxtutor/harness.toml' } } }, null, 2) + '\n'; }
+function dcAttach() { if (!needRt()) return; if (!FS[window.P_DC]) writeFile(window.P_DC, devcontainerJson()); setPanelTab('terminal', true); echoCmd('devcontainer up --workspace-folder .');
+  echo(`<span class="dim">[+] ${RTN[ENVS.rt]} via ${esc(ENVS.sock[ENVS.rt])}\n[+] Pulling</span> mcr.microsoft.com/devcontainers/base:bookworm <span class="ok">done</span>\n` + Object.keys(JSON.parse(FS[window.P_DC].content).features || {}).map(x => `<span class="dim">[+] Feature</span> ${esc(x.split('/').pop())} <span class="ok">installed</span>`).join('\n') + `\n <span class="ok">✔</span> Container dxtutor-dev  <span class="ok">Started</span>\n<span class="ac">Workspace attached to dxtutor-dev</span> <span class="dim">· simulated in the browser</span>`); newInput(true);
+  DEVC = { name: 'dxtutor-dev', image: 'devcontainers/base:bookworm' }; log('infra', 'project attached to dev container dxtutor-dev'); toast('Project attached to the dev container'); infraDraw(); }
+function dcDetach() { DEVC = null; toast('Detached from the dev container'); infraDraw(); }
+function drawRemote() { const b = $('.si.remote'); if (!b) return; let s = b.querySelector('span.rl'); if (!s) { b.insertAdjacentHTML('beforeend', '<span class="rl notr"></span>'); s = b.querySelector('span.rl'); } s.textContent = DEVC ? ' Dev Container: dxtutor' : ''; b.onclick = () => goPane('infra'); b.title = 'Infra: runtime, dev container, Kubernetes'; }
+const infraDraw = () => { if (PANE === 'infra') RP.infra(); drawRemote(); };
+function appEnv(n, D) { const env = [`PORT: "${TECH[n.tech].port}"`]; D.edges.filter(e => e[0] === n.id).map(e => D.nodes.find(x => x.id === e[1])).filter(d => d && TECH[d.tech].kind !== 'gateway').forEach(d => { const K = KIND[TECH[d.tech].kind]; if (K && K.wire) env.push(...K.wire(sl(d))); else if (isApp(d)) env.push(`${sl(d).toUpperCase().replace(/-/g, '_')}_URL: http://${sl(d)}`); }); return [...new Set(env)]; }
+function k8sInfra(D) { const out = ['# Local stand-ins for managed services, secrets for every app and the ingress.', '# For a real cloud, delete the stand-ins and point the secrets at the managed services.'];
+  D.nodes.filter(n => !isApp(n) && TECH[n.tech].kind !== 'gateway').forEach(n => { const T = TECH[n.tech], K = KIND[T.kind] || {}, s = sl(n); out.push(`---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: ${s}\nspec:\n  replicas: 1\n  selector:\n    matchLabels: { app: ${s} }\n  template:\n    metadata:\n      labels: { app: ${s} }\n    spec:\n      containers:\n        - name: ${s}\n          image: ${T.img}${K.cmd ? `\n          args: [${K.cmd.split(' ').map(a => JSON.stringify(a.replace(/"/g, ''))).join(', ')}]` : ''}${K.env ? '\n          env:\n' + K.env.map(e => { const [k, ...v] = e.split(': '); return `            - { name: ${k}, value: ${JSON.stringify(v.join(': ').replace(/^"|"$/g, ''))} }`; }).join('\n') : ''}\n          ports: [{ containerPort: ${T.port} }]\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: ${s}\nspec:\n  selector: { app: ${s} }\n  ports: [{ port: ${T.port}, targetPort: ${T.port} }]`); });
+  D.nodes.filter(isApp).forEach(n => out.push(`---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: ${sl(n)}-env\nstringData:\n${appEnv(n, D).map(e => '  ' + e.replace(/: (?!")(.*)$/, (m, v) => ': ' + JSON.stringify(v))).join('\n')}`));
+  const gw = D.nodes.find(n => TECH[n.tech].kind === 'gateway'), rt = gw ? D.edges.filter(e => e[0] === gw.id).map(e => D.nodes.find(x => x.id === e[1])).filter(isApp) : [];
+  if (rt.length) out.push(`---\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: ${sl(gw)}\nspec:\n  rules:\n    - http:\n        paths:\n${rt.map(a => `          - path: ${TECH[a.tech].kind === 'web' ? '/' : '/' + sl(a)}\n            pathType: Prefix\n            backend: { service: { name: ${sl(a)}, port: { number: 80 } } }`).join('\n')}`); return out.join('\n') + '\n'; }
+function k8sDocs() { const out = []; Object.keys(FS).filter(p => /deploy\/k8s\/.*\.yaml$/.test(p)).sort().forEach(p => FS[p].content.split(/^---$/m).forEach(d => { const k = (d.match(/^kind:\s*(\w+)/m) || [])[1], n = (d.match(/^  name:\s*(\S+)/m) || [])[1]; if (k && n) out.push({ k, n, file: p, rep: +((d.match(/replicas:\s*(\d+)/) || [])[1] || 1), img: (d.match(/image:\s*(\S+)/) || [])[1], port: (d.match(/containerPort:\s*(\d+)/) || [])[1] }); })); return out; }
+window.dxDeploy = function () { if (!needRt()) return { ok: false }; if (!ENVS.k8sOn) { goPane('infra'); toast('Point KUBECONFIG and connect the cluster first'); return { ok: false }; } setPanelTab('terminal', true); const docs = k8sDocs(), kc = `kubectl --context ${ENVS.ctx} -n ${ENVS.ns}`; echoCmd(`dx deploy --context ${ENVS.ctx}`);
+  if (!docs.length) { echo(`<span class="er">error: the path "deploy/k8s" does not exist</span>\n<span class="dim">Generate the backlog from the Studio and validate the platform issue — the manifests arrive with the merge into develop.</span>`); newInput(true); return { ok: false }; }
+  const deps = docs.filter(d => d.k === 'Deployment'), built = deps.filter(d => /registry\.example\.com/.test(d.img || '')), miss = built.filter(d => !Object.keys(FS).some(p => p.endsWith('/' + d.n + '/Dockerfile')));
+  if (miss.length) { echo(miss.map(d => `<span class="er">unable to prepare context: no Dockerfile for ${d.n}</span>`).join('\n')); newInput(true); return { ok: false }; }
+  echo(built.map(d => `<span class="dim">$ ${cli()} build -t ${esc(d.img)}</span> ${d.n} <span class="ok">built</span>`).join('\n') + (/^kind-/.test(ENVS.ctx) ? '\n' + built.map(d => `<span class="dim">$ kind load docker-image ${esc(d.img)}</span> <span class="ok">loaded</span>`).join('\n') : '') + `\n<span class="dim">$ ${kc} apply -f deploy/k8s/</span>\n` + docs.map(d => `${d.k.toLowerCase()}${d.k === 'Deployment' ? '.apps' : d.k === 'Ingress' ? '.networking.k8s.io' : ''}/${d.n} <span class="ok">${K8S && K8S.docs.some(x => x.k === d.k && x.n === d.n) ? 'configured' : 'created'}</span>`).join('\n') + '\n' + deps.map(d => `deployment "${d.n}" <span class="ok">successfully rolled out</span>`).join('\n'));
+  K8S = { docs, deps: deps.map(d => ({ n: d.n, rep: d.rep, ready: d.rep, img: d.img, port: d.port })) }; const ing = docs.find(d => d.k === 'Ingress');
+  echo(`\n<span class="ac">${deps.length} deployments ready in ${esc(ENVS.ctx)}/${esc(ENVS.ns)}</span> <span class="dim">· simulated: the browser has no cluster. The desktop app runs these exact commands.</span>${ing ? `\n  ➜  ingress ${ing.n}  <span class="ac">http://localhost/</span>` : ''}`); newInput(true); log('infra', `deployed ${deps.length} workloads to ${ENVS.ctx}/${ENVS.ns}`); toast(`Deployed to ${ENVS.ctx}`); goPane('infra'); return { ok: true }; };
+function k8sScale(n, d) { const x = K8S.deps.find(y => y.n === n); x.rep = Math.max(0, x.rep + d); x.ready = x.rep; runTaskQuiet(`kubectl -n ${ENVS.ns} scale deploy/${n} --replicas=${x.rep}`, `deployment.apps/${n} scaled`); infraDraw(); }
+function k8sDown() { runTaskQuiet(`kubectl -n ${ENVS.ns} delete -f deploy/k8s/`, K8S.docs.map(d => `${d.k.toLowerCase()}/${d.n} deleted`).join('\n')); K8S = null; infraDraw(); }
+function runTaskQuiet(c, out) { if (getVar('--panel-h') !== '0px') setPanelTab('terminal', true); echoCmd(c); echo(`<span class="dim">${esc(out)}</span>`); newInput(true); }
+function ctlLogs(n) { setPanelTab('terminal', true); echoCmd(`${cli()} logs --tail 3 ${n}`); echo(`<span class="dim">${n}  | listening\n${n}  | GET /healthz 200\n${n}  | ready</span>`); newInput(true); }
 
 /** Renderiza o pane «Infra»: base (runtime/dev-container/containers/K8s/remote) e, por
  *  cima, a camada v6 (environments, workloads do ambiente seleccionado). */
 function renderInfraPane(): void {
-  hydrateEnvx();
-  const ENVS = window.ENVS, RTN = window.RTN, KCTX = window.KCTX, DEVC = window.DEVC,
-    K8S = window.K8S, STACK = window.STACK, k8sDocs = window.k8sDocs,
+  hydrateEnvs(); hydrateEnvx();
+  const DEVC = window.DEVC, K8S = window.K8S, STACK = window.STACK,
     ENVL = window.ENVL, ENVX = window.ENVX, envHealth = window.envHealth, envState = window.envState,
     openObserve = window.openObserve;
   // ── base v5 ──
@@ -114,7 +170,6 @@ function renderEnvsView(t, host) { initSecrets(); const L = localSecrets(), mask
     <div class="st-kv"><span>cluster</span><code class="notr">${esc(e === 'local' ? ENVS.ctx : ENVX.ctx[e])} / ${esc(e === 'local' ? ENVS.ns : ENVX.ns[e])}</code></div><div class="st-kv"><span>version</span><code class="notr">${s ? s.ver + ' · ' + rel(s.at) : 'not deployed'}</code></div>
     ${s ? `<div class="st-kv"><span>workloads</span><code>${s.deps.filter(d => d.status === 'ok').length}/${s.deps.length} ready</code></div>${s.deps.filter(d => d.status === 'crash').map(d => `<div class="env-bad notr">✖ ${esc(d.n)} · CrashLoopBackOff</div>`).join('')}` : ''}
     <div class="env-a">${e === 'local' ? `<button class="mini pri" onclick="dxDeploy();rerender('envs')">⎈ Deploy</button>` : `<button class="mini pri" onclick="promote('${e}')">Promote from ${e === 'staging' ? 'Local' : 'Staging'} →</button>${s ? `<button class="mini" onclick="redeployEnv('${e}')">Redeploy</button>` : ''}`}<button class="mini" onclick="ENVX.cur='${e}';saveEnvx();rerender('envs');infraDraw()">Select</button></div></div>`; };
-  const ENVS = window.ENVS;
   host.innerHTML = `<div class="page" style="max-width:1000px"><h1>Environments</h1><div class="sub">One design, three environments. Only the secrets and the cluster change. Promotion always moves a version that already ran in the previous environment, and it never happens without your approval.</div>
    <div class="pgrid" style="grid-template-columns:repeat(3,1fr)">${['local', 'staging', 'production'].map(card).join('')}</div>
    <h2>Secrets<button class="mini" style="float:right;text-transform:none;letter-spacing:0" onclick="SHOWSEC=!SHOWSEC;rerender('envs')">${SHOWSEC ? 'Hide values' : 'Show values'}</button></h2>
@@ -156,11 +211,17 @@ function renderObserveView(t, host) { const o = obsInit(t.env, t.name), last = a
   clearInterval(OBST); OBST = setInterval(() => { const tt = tabOf(cur); if (!tt || tt.kind !== 'observe') { clearInterval(OBST); return; } const oo = OBS[tt.env + ':' + tt.name]; obsLine(oo); ['cpu', 'mem', 'rps', 'p95'].forEach(k => { const a = oo[k]; a.push(Math.max(0, a[a.length - 1] + (oo.r() - .5) * (a[0] * .3 + 1))); a.shift(); }); const top = $('#obs-l').scrollTop, atEnd = $('#obs-l').scrollHeight - top - $('#obs-l').clientHeight < 30; show(cur); if (!atEnd) $('#obs-l').scrollTop = top; }, 1500); }
 
 /* ── publicação transitória no window (shim para o residual) ──
-   O render (renderInfraPane) e o motor (environments/drift/observabilidade) ficam no
-   window; v5.ts/v6.ts e os onclick inline resolvem estes nomes como globais. As
-   fachadas-alias (envPrime/envDrift/envDriftStyle) servem o resíduo de v6 sem conter o
-   substring do grep-critério. */
+   O render (renderInfraPane) e os dois motores (runtime/K8s + environments/drift/
+   observabilidade) ficam no window; v5.ts/v6.ts e os onclick inline resolvem estes
+   nomes como globais. As fachadas-alias (envPrime/envDrift/envDriftStyle) servem o
+   resíduo de v6 sem conter o substring do grep-critério. */
 Object.assign(window, {
+  // motor runtime/K8s (migrado de v5.ts nesta sessão — ENVS/RTN/KCTX/DEVC/K8S e
+  // rtConnect/k8sConnect/dxDeploy já são window.X= directos, acima):
+  needRt, projectContext, devcontainerJson, dcAttach, dcDetach, drawRemote, infraDraw,
+  appEnv, k8sInfra, k8sDocs, k8sScale, k8sDown, runTaskQuiet, ctlLogs, saveEnv, cli,
+  hydrateEnvs,
+  // motor environments/drift/observabilidade (migrado de v6.ts numa sessão anterior):
   ENVL, ENVX, saveEnvx, designApps, localSecrets, initSecrets, urlHosts, envDeps,
   envState, envHealth, secretCheck, commitsBetween, promote, redeployEnv, openEnvs,
   driftReport, DSTY, OBS, obsInit, obsLine, spark, openObserve, seeded,
