@@ -94,10 +94,11 @@ export async function driveToCompletion(p: Promise<unknown>, rounds = 80): Promi
     if (done) break;
     // só os botões de `ask()` — criados via `.onclick=fn` (propriedade JS, sem
     // atributo HTML) — são um gate real a bloquear a promessa. Os cartões de
-    // entrega também têm uma `.gate` decorativa com `onclick="goPane(...)"` em
-    // HTML (atalhos, não aprovação); clicar nesses não desbloqueia nada e, fora
-    // do nosso harness (sem `window.goPane` nesse escopo de atributo), rebenta.
-    const btn = document.querySelector("#ag-msgs .gate .gb:not([onclick])") as HTMLButtonElement | null;
+    // entrega também têm uma `.gate` decorativa (atalhos, não aprovação): dantes
+    // com `onclick="goPane(...)"`, desde a Fase 4 com `data-action` servido pelo
+    // listener delegado. Clicar nesses não desbloqueia nada e dispararia a
+    // navegação, por isso excluem-se por AMBOS os atributos.
+    const btn = document.querySelector("#ag-msgs .gate .gb:not([onclick]):not([data-action])") as HTMLButtonElement | null;
     if (btn) btn.click();
   }
   await p;
@@ -112,10 +113,11 @@ export async function driveUntilRunEnds(w: any, rounds = 80): Promise<void> {
     if (!w.RUN.active) break;
     // só os botões de `ask()` — criados via `.onclick=fn` (propriedade JS, sem
     // atributo HTML) — são um gate real a bloquear a promessa. Os cartões de
-    // entrega também têm uma `.gate` decorativa com `onclick="goPane(...)"` em
-    // HTML (atalhos, não aprovação); clicar nesses não desbloqueia nada e, fora
-    // do nosso harness (sem `window.goPane` nesse escopo de atributo), rebenta.
-    const btn = document.querySelector("#ag-msgs .gate .gb:not([onclick])") as HTMLButtonElement | null;
+    // entrega também têm uma `.gate` decorativa (atalhos, não aprovação): dantes
+    // com `onclick="goPane(...)"`, desde a Fase 4 com `data-action` servido pelo
+    // listener delegado. Clicar nesses não desbloqueia nada e dispararia a
+    // navegação, por isso excluem-se por AMBOS os atributos.
+    const btn = document.querySelector("#ag-msgs .gate .gb:not([onclick]):not([data-action])") as HTMLButtonElement | null;
     if (btn) btn.click();
   }
 }

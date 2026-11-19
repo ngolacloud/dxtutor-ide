@@ -149,6 +149,7 @@ export const connected = (): string[] => G.connected();
 export const speakerLabel = (role: string): string => G.who(role);
 export const trackUsage = (providerKey: string, tok: number): void => G.use(providerKey, tok);
 export const save = (): void => window.save();
+export const setTheme = (n: string): void => window.setTheme(n);
 export const provFor = (role: string): string => window.provFor(role);
 export const setPanelTab = (...args: [pt: string, nofocus?: boolean]): void => G.setPanelTab(...args);
 export const goToPane = (p: string): void => G.goPane(p);

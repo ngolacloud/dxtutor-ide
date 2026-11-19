@@ -22,6 +22,7 @@
 
 import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
+import { bindActions, type ActionTable } from "./codev/ui/actions";
 import { RUBRIC } from "./codev/domain/scoring";
 import { buildScenarios } from "./codev/domain/scenarios";
 import type { Scenario, ScenarioEnv } from "./codev/domain/types";
@@ -64,7 +65,7 @@ window.updateAgentUI = function () {
   $('#ag-model-l')!.textContent = p.name + ' · ' + p.model;
   ($('#ag-model .live') as HTMLElement).style.background = p.on ? 'var(--green)' : 'var(--fg-muted)';
   $('#st-model-l')!.textContent = p.name; $('#st-mode')!.textContent = 'Co-Dev: ' + MODES[bridge.monolith.mode].l;
-  $('#modebar')!.innerHTML = `<div class="seg">${Object.entries(MODES).map(([k, m]) => `<button class="${k === bridge.monolith.mode ? 'on' : ''}" onclick="setMode('${k}')">${m.l}</button>`).join('')}</div><div class="mode-d">${MODES[bridge.monolith.mode].d}</div>`;
+  $('#modebar')!.innerHTML = `<div class="seg">${Object.entries(MODES).map(([k, m]) => `<button class="${k === bridge.monolith.mode ? 'on' : ''}" data-action="set-mode" data-on="${esc(k)}">${m.l}</button>`).join('')}</div><div class="mode-d">${MODES[bridge.monolith.mode].d}</div>`;
   const n = $('#live-note'); if (n) n.innerHTML = bridge.sample() ? '<span class="tag live">Claude ao vivo</span> perguntas livres são respondidas pelo Claude real, com acesso aos ficheiros deste workspace. Gemini, Codex e Ollama são simulados.' : '<span class="tag">simulado</span> nesta vista as missões são guionadas; a ligação ao vivo ao Claude activa-se quando o artefacto é aberto em claude.ai.';
   ctxPill();
 };
@@ -76,9 +77,9 @@ function newChat() {
   if (bridge.run().active) { bridge.toast('Pára a missão primeiro'); return; }
   bridge.chat().length = 0;
   $('#ag-msgs')!.innerHTML = `<div class="intro" id="ag-intro"><div class="i-t">Co-Dev</div><div class="i-s">Entendo requisitos, proponho arquitectura, escrevo, testo, avalio o meu próprio trabalho e corrijo-o — contigo a orientar.</div>
-  <button class="chip" onclick="demo('b')"><b>Histórico de conversas persistente</b><small>Requisitos → BD → Repository → UI → testes. Inclui uma auto-correcção.</small></button>
-  <button class="chip" onclick="demo('a')"><b>Corrigir o E0382 em lib.rs</b><small>Três provedores propõem; o juiz escolhe a melhor.</small></button>
-  <button class="chip" onclick="handlePrompt('Explica o ficheiro activo e aponta riscos de arquitectura.')"><b>Explica o ficheiro activo</b><small>Pergunta livre — respondida pelo Claude ao vivo.</small></button>
+  <button class="chip" data-action="demo" data-on="b"><b>Histórico de conversas persistente</b><small>Requisitos → BD → Repository → UI → testes. Inclui uma auto-correcção.</small></button>
+  <button class="chip" data-action="demo" data-on="a"><b>Corrigir o E0382 em lib.rs</b><small>Três provedores propõem; o juiz escolhe a melhor.</small></button>
+  <button class="chip" data-action="handle-prompt" data-on="Explica o ficheiro activo e aponta riscos de arquitectura."><b>Explica o ficheiro activo</b><small>Pergunta livre — respondida pelo Claude ao vivo.</small></button>
   <div class="i-n" id="live-note"></div></div>`; window.updateAgentUI();
 }
 
@@ -132,7 +133,7 @@ function handlePrompt(q: string) {
 function agSend() { const i = $('#ag-input') as HTMLInputElement, q = i.value.trim(); if (!q) return; i.value = ''; handlePrompt(q); }
 
 /* ───── posicionamento do painel ───── */
-window.renderAgentView = (_t, host) => { host.innerHTML = `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Co-Dev</div><button class="ac-dock" onclick="assistantDock()">${svg('dock-right')} Fixar à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`; $('#agent-slot')!.appendChild($('#ag-body')!); bridge.setVar('--agent-w', '0px'); $('#tgl-agent')!.classList.remove('on'); scrollMsgs(); };
+window.renderAgentView = (_t, host) => { host.innerHTML = `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Co-Dev</div><button class="ac-dock" data-action="assistant-dock">${svg('dock-right')} Fixar à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`; $('#agent-slot')!.appendChild($('#ag-body')!); bridge.setVar('--agent-w', '0px'); $('#tgl-agent')!.classList.remove('on'); scrollMsgs(); };
 function assistantCenter() { bridge.openTab({ id: 'agent', title: 'Co-Dev', kind: 'agent' }); }
 function assistantDock() { bridge.closeTab('agent'); }
 function toggleAgent() { if (bridge.tabOf('agent')) { bridge.closeTab('agent'); return; } const show = bridge.getVar('--agent-w') === '0px'; bridge.setVar('--agent-w', show ? '380px' : '0px'); $('#tgl-agent')!.classList.toggle('on', show); }
@@ -143,11 +144,11 @@ Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, as
 
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
 window.renderWelcomePage = (_t, host) => {
-  const w = (ic: string, a: string, b: string, act: string) => `<button class="wbtn" onclick="${act}"><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
+  const w = (ic: string, a: string, b: string, action: string, on = '') => `<button class="wbtn" data-action="${action}"${on ? ` data-on="${esc(on)}"` : ''}><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
   host.innerHTML = `<div class="page"><div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><h1 style="font-weight:300;font-size:26px;margin:0">dxtutor <b style="font-weight:600">IDE</b></h1></div>
   <div class="sub">Um IDE com um Co-Dev multi-modelo. Tudo aqui é navegável: os ficheiros editam-se, a pesquisa procura, o git faz commit, os testes reagem ao código — e o Co-Dev trabalha sobre esses mesmos ficheiros.</div>
-  <h2>Ver o Co-Dev a trabalhar</h2><div class="wgrid">${w('sparkle', 'Histórico de conversas', 'Missão completa, com auto-correcção', "demo('b')")}${w('debug', 'Corrigir o E0382', 'Conselho de 3 modelos + juiz', "demo('a')")}${w('graph', 'Gestor de missões', 'Decisões, checkpoints e uso', 'openManager()')}${w('settings', 'Modelos e autonomia', 'Provedores, routing, modos', 'openSettings()')}</div>
-  <h2>Navegar</h2><div class="wgrid">${w('search', 'Ir para ficheiro', 'Ctrl+P', "palette('')")}${w('run', 'Todos os comandos', 'Ctrl+Shift+P', "palette('>')")}${w('book', 'O que mudou e porquê', 'Análise face a VS Code, Antigravity e Claude Desktop', 'openAnalysis()')}${w('explorer', 'Conhecimento do projecto', 'Regras, ADRs, Design System, BD', "goPane('codev')")}</div></div>`;
+  <h2>Ver o Co-Dev a trabalhar</h2><div class="wgrid">${w('sparkle', 'Histórico de conversas', 'Missão completa, com auto-correcção', 'demo', 'b')}${w('debug', 'Corrigir o E0382', 'Conselho de 3 modelos + juiz', 'demo', 'a')}${w('graph', 'Gestor de missões', 'Decisões, checkpoints e uso', 'open-manager')}${w('settings', 'Modelos e autonomia', 'Provedores, routing, modos', 'open-settings')}</div>
+  <h2>Navegar</h2><div class="wgrid">${w('search', 'Ir para ficheiro', 'Ctrl+P', 'palette', '')}${w('run', 'Todos os comandos', 'Ctrl+Shift+P', 'palette', '>')}${w('book', 'O que mudou e porquê', 'Análise face a VS Code, Antigravity e Claude Desktop', 'open-analysis')}${w('explorer', 'Conhecimento do projecto', 'Regras, ADRs, Design System, BD', 'go-pane', 'codev')}</div></div>`;
 };
 function openSettings() { bridge.openTab({ id: 'settings', title: 'Definições', kind: 'settings' }); }
 function openManager() { bridge.openTab({ id: 'manager', title: 'Gestor de missões', kind: 'manager' }); }
@@ -157,23 +158,23 @@ const POLICY = [['Responder a perguntas de clarificação', 'tu', 'Co-Dev se con
 window.renderSettingsPage = (_t, host) => {
   const mi = Object.keys(MODES).indexOf(bridge.monolith.mode); const PROV = bridge.providers();
   host.innerHTML = `<div class="page"><h1>Definições</h1><div class="sub">Guardadas neste browser. Chaves e endpoints reais ficam no keychain da aplicação — aqui servem para mostrar o contrato.</div>
-  <h2>Modelos e provedores</h2><div class="pgrid">${Object.entries(PROV).map(([k, p]: [string, any]) => `<div class="pcard"><div class="ph"><span class="pdot${p.on ? '' : ' off'}" style="background:${p.col}"></span>${p.name}<span class="tag ${k === 'claude' && bridge.sample() ? 'live' : ''}">${bridge.provState(k)}</span><button class="sw${p.on ? ' on' : ''}" title="Ligar / desligar" onclick="toggleProv('${k}')"></button></div>
-    <div><label>Modelo</label><input value="${esc(p.model)}" onchange="PROV.${k}.model=this.value;save();updateAgentUI()"></div><div><label>Endpoint</label><input value="${esc(p.ep)}" onchange="PROV.${k}.ep=this.value"></div>
-    <div><label>${p.local ? 'Chave (não é necessária)' : 'Chave de API'}</label><input type="password" placeholder="${p.local ? '—' : 'guardada no keychain'}" ${p.local ? 'disabled' : ''}></div><button class="mini" onclick="testProv('${k}',this)">Testar ligação</button><div class="pd"></div></div>`).join('')}</div>
-  <h2>Routing por papel</h2><div class="tbl-wrap">${Object.keys(ROUTE).map(r => `<div class="rowline"><span class="pdot" style="background:${PROV[bridge.provFor(r)].col}"></span><b>${ROLE[r]}</b><span style="color:var(--fg-muted)">${ROLE_D[r]}</span><span class="sp"></span><select style="width:150px" onchange="ROUTE.${r}=this.value;save();show(cur)">${Object.entries(PROV).map(([k, p]: [string, any]) => `<option value="${k}"${ROUTE[r] === k ? ' selected' : ''}>${p.name}${p.on ? '' : ' (desligado)'}</option>`).join('')}</select></div>`).join('')}</div><div class="sub" style="margin-top:8px">Se o provedor de um papel estiver desligado, o Co-Dev recorre ao primeiro que estiver ligado.</div>
-  <h2>Autonomia</h2><div class="pgrid">${Object.entries(MODES).map(([k, m]) => `<button class="pcard${k === bridge.monolith.mode ? ' sel' : ''}" onclick="setMode('${k}')"><div class="ph">${m.l}${k === bridge.monolith.mode ? '<span class="tag acc">activo</span>' : ''}</div><div class="pd">${m.d}</div></button>`).join('')}</div>
+  <h2>Modelos e provedores</h2><div class="pgrid">${Object.entries(PROV).map(([k, p]: [string, any]) => `<div class="pcard"><div class="ph"><span class="pdot${p.on ? '' : ' off'}" style="background:${p.col}"></span>${p.name}<span class="tag ${k === 'claude' && bridge.sample() ? 'live' : ''}">${bridge.provState(k)}</span><button class="sw${p.on ? ' on' : ''}" title="Ligar / desligar" data-action="toggle-prov" data-on="${esc(k)}"></button></div>
+    <div><label>Modelo</label><input value="${esc(p.model)}" data-action="set-prov-model" data-on="${esc(k)}"></div><div><label>Endpoint</label><input value="${esc(p.ep)}" data-action="set-prov-ep" data-on="${esc(k)}"></div>
+    <div><label>${p.local ? 'Chave (não é necessária)' : 'Chave de API'}</label><input type="password" placeholder="${p.local ? '—' : 'guardada no keychain'}" ${p.local ? 'disabled' : ''}></div><button class="mini" data-action="test-prov" data-on="${esc(k)}">Testar ligação</button><div class="pd"></div></div>`).join('')}</div>
+  <h2>Routing por papel</h2><div class="tbl-wrap">${Object.keys(ROUTE).map(r => `<div class="rowline"><span class="pdot" style="background:${PROV[bridge.provFor(r)].col}"></span><b>${ROLE[r]}</b><span style="color:var(--fg-muted)">${ROLE_D[r]}</span><span class="sp"></span><select style="width:150px" data-action="set-route" data-on="${esc(r)}">${Object.entries(PROV).map(([k, p]: [string, any]) => `<option value="${k}"${ROUTE[r] === k ? ' selected' : ''}>${p.name}${p.on ? '' : ' (desligado)'}</option>`).join('')}</select></div>`).join('')}</div><div class="sub" style="margin-top:8px">Se o provedor de um papel estiver desligado, o Co-Dev recorre ao primeiro que estiver ligado.</div>
+  <h2>Autonomia</h2><div class="pgrid">${Object.entries(MODES).map(([k, m]) => `<button class="pcard${k === bridge.monolith.mode ? ' sel' : ''}" data-action="set-mode" data-on="${esc(k)}"><div class="ph">${m.l}${k === bridge.monolith.mode ? '<span class="tag acc">activo</span>' : ''}</div><div class="pd">${m.d}</div></button>`).join('')}</div>
   <div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><tr><th>Acção</th><th>Manual</th><th>Assistido</th><th>Auto</th></tr>${POLICY.map(r => `<tr><td>${r[0]}</td>${[1, 2, 3].map(i => `<td class="${i - 1 === mi ? 'on' : 'c'}">${r[i]}</td>`).join('')}</tr>`).join('')}</table></div>
-  <h2>Auto-avaliação</h2><div class="tbl-wrap"><div class="rowline"><b>Limiar para entregar</b><span style="color:var(--fg-muted)">abaixo disto o Co-Dev corrige em vez de entregar</span><span class="sp"></span><input type="range" min="50" max="100" step="5" value="${bridge.monolith.threshold}" style="width:140px" oninput="THRESH=+this.value;this.nextElementSibling.textContent=THRESH;save()"><b style="width:28px;text-align:right">${bridge.monolith.threshold}</b></div><div class="rowline"><b>Tentativas de correcção</b><span class="sp"></span><span>2, depois pede orientação</span></div><div class="rowline"><b>Rubrica do juiz</b><span class="sp"></span><span>${CRIT.map(k => k.l + ' ' + k.w).join(' · ')}</span></div></div>
-  <h2>Aparência</h2><div class="pgrid">${Object.keys(bridge.themes()).map(n => `<button class="pcard${n === bridge.monolith.theme ? ' sel' : ''}" onclick="setTheme('${n}')"><div class="ph">${n}${n === bridge.monolith.theme ? '<span class="tag acc">activo</span>' : ''}</div></button>`).join('')}</div>
+  <h2>Auto-avaliação</h2><div class="tbl-wrap"><div class="rowline"><b>Limiar para entregar</b><span style="color:var(--fg-muted)">abaixo disto o Co-Dev corrige em vez de entregar</span><span class="sp"></span><input type="range" min="50" max="100" step="5" value="${bridge.monolith.threshold}" style="width:140px" data-action="set-threshold"><b style="width:28px;text-align:right">${bridge.monolith.threshold}</b></div><div class="rowline"><b>Tentativas de correcção</b><span class="sp"></span><span>2, depois pede orientação</span></div><div class="rowline"><b>Rubrica do juiz</b><span class="sp"></span><span>${CRIT.map(k => k.l + ' ' + k.w).join(' · ')}</span></div></div>
+  <h2>Aparência</h2><div class="pgrid">${Object.keys(bridge.themes()).map(n => `<button class="pcard${n === bridge.monolith.theme ? ' sel' : ''}" data-action="set-theme" data-on="${esc(n)}"><div class="ph">${n}${n === bridge.monolith.theme ? '<span class="tag acc">activo</span>' : ''}</div></button>`).join('')}</div>
   <h2>Atalhos de teclado</h2><div class="tbl-wrap">${bridge.commands().filter(c => c[1]).map(c => `<div class="rowline"><span>${c[0]}</span><span class="sp"></span><kbd>${c[1]}</kbd></div>`).join('')}</div></div>`;
 };
 window.renderManagerPage = (_t, host) => {
   const st: Record<string, string> = { 'concluída': 'live', 'em curso': 'acc', 'bloqueada': 'bad', 'parada': 'warn', 'erro': 'bad' };
   const PROV = bridge.providers(); const usage = bridge.usage();
   host.innerHTML = `<div class="page"><h1>Gestor de missões</h1><div class="sub">Tudo o que o Co-Dev fez, decidiu e pode desfazer.</div>
-  <h2>Missões</h2><div class="tbl-wrap">${MISSIONS.map((m: any) => `<div class="rowline"><span class="tag ${st[m.state] || ''}">${m.state}</span><b>${esc(m.title)}</b><span style="color:var(--fg-muted)">modo ${MODES[m.mode].l} · ${m.decs.length} decisões${m.retries ? ' · ' + m.retries + ' correcção(ões)' : ''}${m.dur != null ? ' · ' + m.dur + 's' : ''}</span><span class="sp"></span>${m.score != null ? `<b style="color:${m.score >= bridge.monolith.threshold ? 'var(--green)' : 'var(--red)'}">${m.score}/100</b>` : ''}</div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">Ainda sem missões.<span class="sp"></span><button class="mini" onclick="demo(\'b\')">Correr a demonstração</button></div>'}</div>
+  <h2>Missões</h2><div class="tbl-wrap">${MISSIONS.map((m: any) => `<div class="rowline"><span class="tag ${st[m.state] || ''}">${m.state}</span><b>${esc(m.title)}</b><span style="color:var(--fg-muted)">modo ${MODES[m.mode].l} · ${m.decs.length} decisões${m.retries ? ' · ' + m.retries + ' correcção(ões)' : ''}${m.dur != null ? ' · ' + m.dur + 's' : ''}</span><span class="sp"></span>${m.score != null ? `<b style="color:${m.score >= bridge.monolith.threshold ? 'var(--green)' : 'var(--red)'}">${m.score}/100</b>` : ''}</div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">Ainda sem missões.<span class="sp"></span><button class="mini" data-action="demo" data-on="b">Correr a demonstração</button></div>'}</div>
   <h2>Registo de decisões</h2><div class="tbl-wrap"><table class="tbl"><tr><th>#</th><th>Fase</th><th>Decisão</th><th>Escolha</th><th>Quem</th><th>Confiança</th><th>Estado</th></tr>${DECS.map((d: any) => `<tr><td class="c">${d.id}</td><td class="c">${d.phase}</td><td>${esc(d.q)}<div style="color:var(--fg-muted);font-size:11px">${esc(d.basis || '')}</div></td><td>${esc(d.choice)}</td><td>${d.by}</td><td class="c">${d.conf ? Math.round(d.conf * 100) + '%' : '—'}</td><td><span class="tag ${d.status === 'ok' ? 'live' : d.status === 'corrigida' ? 'bad' : 'warn'}">${d.status === 'ok' ? 'válida' : d.status === 'corrigida' ? 'corrigida depois' : 'pressuposto'}</span></td></tr>`).join('') || '<tr><td colspan="7" class="c">Sem decisões registadas.</td></tr>'}</table></div>
-  <h2>Checkpoints</h2><div class="tbl-wrap">${CKPT.map((c: any) => `<div class="rowline"><span style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">${c.t}</span><span>${esc(c.label)}</span><span class="sp"></span><button class="mini" onclick="restoreCkpt(${c.id})">Restaurar ficheiros</button></div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">Criados antes de cada missão e de cada correcção.</div>'}</div>
+  <h2>Checkpoints</h2><div class="tbl-wrap">${CKPT.map((c: any) => `<div class="rowline"><span style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">${c.t}</span><span>${esc(c.label)}</span><span class="sp"></span><button class="mini" data-action="restore-ckpt" data-on="${c.id}">Restaurar ficheiros</button></div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">Criados antes de cada missão e de cada correcção.</div>'}</div>
   <h2>Uso por provedor <span style="text-transform:none;letter-spacing:0;font-weight:400">(estimativa)</span></h2><div class="tbl-wrap">${Object.entries(PROV).map(([k, p]: [string, any]) => `<div class="rowline"><span class="pdot${p.on ? '' : ' off'}" style="background:${p.col}"></span><b>${p.name}</b><span style="color:var(--fg-muted)">${Object.keys(ROUTE).filter(r => ROUTE[r] === k).map(r => ROLE[r]).join(', ') || 'sem papel'}</span><span class="sp"></span><span>${usage[k].calls} chamadas · ${(usage[k].tok / 1000).toFixed(1)}k tokens</span></div>`).join('')}</div></div>`;
 };
 window.GAPS = [['Paleta de comandos, quick open, atalhos', 'VS Code', 'Menus só mostravam um aviso', 'Feito: Ctrl+P, Ctrl+Shift+P, todos os menus ligados a acções'], ['Editor de código', 'VS Code', 'Texto fixo, só de leitura', 'Feito: editável, realce, diagnósticos na margem, Ln/Col, outline'], ['Pesquisa e substituição', 'VS Code', 'Resultados desenhados à mão', 'Feito: procura real em todos os ficheiros, substituir tudo'], ['Git', 'VS Code', 'Lista estática de 3 ficheiros', 'Feito: estado real, diff, stage, descartar, commit, ramos'], ['Testes e problemas', 'VS Code', 'Contagens fixas', 'Feito: derivados do conteúdo dos ficheiros; clicar leva à linha'], ['Gestor de missões', 'Antigravity (Agent Manager)', 'Não existia', 'Feito: missões, estado, pontuação, duração'], ['Artefactos de confiança', 'Antigravity', 'Só um plano decorativo', 'Feito: requisitos, plano, diffs por edição, avaliação, entrega'], ['Política de autonomia', 'Antigravity + Claude', 'Não existia', 'Feito: Manual / Assistido / Auto com matriz por tipo de acção'], ['Ferramentas visíveis e aprováveis', 'Claude Desktop', 'Resposta «sem backend»', 'Feito: cada leitura, edição e comando aparece e pode ser aprovado'], ['Checkpoints e reversão', 'Claude Code', 'Não existia', 'Feito: automáticos, restauráveis'], ['Conhecimento do projecto', 'CLAUDE.md / Knowledge', 'Não existia', 'Feito: .dxtutor/ com regras, requisitos, ADRs, Design System, padrões, BD'], ['Vários provedores com routing por papel', '—', 'Um modelo fixo', 'Feito: Claude ao vivo; Gemini, Codex e Ollama com o mesmo contrato, simulados'], ['Conselho de modelos com juiz', '—', 'Não existia', 'Feito: propostas concorrentes, rubrica ponderada, decisão registada'], ['Auto-avaliação e auto-correcção', '—', 'Não existia', 'Feito: pontuação por critérios, limiar, reflexão, 2 tentativas, depois escala']];
@@ -193,16 +194,68 @@ function renderCodevPane(): void {
   const kn = Object.keys(fs).filter(p => p.includes("/.dxtutor/")).sort();
   const el = $("#pane-codev");
   if (!el) return;
-  el.innerHTML = hd("Co-Dev", `<button title="Gestor de missões" onclick="openManager()">${svg("graph")}</button><button title="Definições" onclick="openSettings()">${svg("settings")}</button>`) + `<div class="sections">
-   <div class="scm-grp">Missões<span class="cnt">${MISSIONS.length}</span></div>${MISSIONS.slice(0, 5).map((m: any) => `<div class="scm-row" onclick="openManager()"><span class="ic" style="color:var(--accent-hover)">${svg("sparkle")}</span><span class="nm">${esc(m.title)}</span><span class="pth">${m.state}${m.score != null ? " · " + m.score : ""}</span></div>`).join("") || '<div class="sec-empty">Ainda sem missões. Experimenta uma das demonstrações no painel do Co-Dev.</div>'}
-   <div class="scm-grp">Conhecimento do projecto<span class="cnt">${kn.length}</span></div>${kn.map(p => `<div class="scm-row" onclick="openPath('${p}')">${bridge.fIcon(p)}<span class="nm" style="max-width:none">${esc((p.split("/").pop() as string).replace(".md", ""))}</span></div>`).join("")}
-   <div class="scm-grp">Checkpoints<span class="cnt">${CKPT.length}</span></div>${CKPT.slice(0, 6).map((c: any) => `<div class="scm-row" style="cursor:default"><span class="ic">${svg("history")}</span><span class="nm">${esc(c.label)}</span><span class="ra" style="display:flex"><button title="Restaurar" onclick="restoreCkpt(${c.id})">↶</button></span></div>`).join("") || '<div class="sec-empty">Criados automaticamente antes de cada missão e de cada correcção.</div>'}
+  el.innerHTML = hd("Co-Dev", `<button title="Gestor de missões" data-action="open-manager">${svg("graph")}</button><button title="Definições" data-action="open-settings">${svg("settings")}</button>`) + `<div class="sections">
+   <div class="scm-grp">Missões<span class="cnt">${MISSIONS.length}</span></div>${MISSIONS.slice(0, 5).map((m: any) => `<div class="scm-row" data-action="open-manager"><span class="ic" style="color:var(--accent-hover)">${svg("sparkle")}</span><span class="nm">${esc(m.title)}</span><span class="pth">${m.state}${m.score != null ? " · " + m.score : ""}</span></div>`).join("") || '<div class="sec-empty">Ainda sem missões. Experimenta uma das demonstrações no painel do Co-Dev.</div>'}
+   <div class="scm-grp">Conhecimento do projecto<span class="cnt">${kn.length}</span></div>${kn.map(p => `<div class="scm-row" data-action="open-path" data-on="${esc(p)}">${bridge.fIcon(p)}<span class="nm" style="max-width:none">${esc((p.split("/").pop() as string).replace(".md", ""))}</span></div>`).join("")}
+   <div class="scm-grp">Checkpoints<span class="cnt">${CKPT.length}</span></div>${CKPT.slice(0, 6).map((c: any) => `<div class="scm-row" style="cursor:default"><span class="ic">${svg("history")}</span><span class="nm">${esc(c.label)}</span><span class="ra" style="display:flex"><button title="Restaurar" data-action="restore-ckpt" data-on="${c.id}">↶</button></span></div>`).join("") || '<div class="sec-empty">Criados automaticamente antes de cada missão e de cada correcção.</div>'}
    <div class="scm-grp">Routing</div>${Object.keys(ROUTE).map(r => `<div class="kv"><span class="pdot" style="background:${PROV[bridge.provFor(r)].col}"></span>${ROLE[r]}<span class="v">${PROV[bridge.provFor(r)].name}</span></div>`).join("")}</div>`;
   // ── decoração v4 (Equipa / Backlog / Studio) ──
   const sec = $("#pane-codev .sections");
-  if (sec) sec.insertAdjacentHTML("afterbegin", `<div class="scm-grp">Equipa<span class="cnt">${Object.keys(agents).length}</span></div>${Object.entries(agents).map(([, a]: [string, any]) => `<div class="scm-row" onclick="openTeam()" title="${esc(a.d)}"><span class="pdot" style="background:${a.col}"></span><span class="nm">${a.n}</span><span class="pth">${esc(a.paths.join(", ") || "só leitura")}</span></div>`).join("")}<div class="scm-grp">Backlog<span class="cnt">${backlog.issues.length}</span></div><div class="scm-row" onclick="openBoard()"><span class="ic">${svg("split")}</span><span class="nm">Quadro</span><span class="pth">${stages.map(s => backlog.issues.filter((i: any) => i.stage === s[0]).length).join(" · ")}</span></div><div class="scm-row" onclick="openStudio()"><span class="ic">${svg("cube")}</span><span class="nm">Studio</span><span class="pth">${studio.nodes.filter((n: any) => n.st === "plan").length} planeados</span></div>`);
+  if (sec) sec.insertAdjacentHTML("afterbegin", `<div class="scm-grp">Equipa<span class="cnt">${Object.keys(agents).length}</span></div>${Object.entries(agents).map(([, a]: [string, any]) => `<div class="scm-row" data-action="open-team" title="${esc(a.d)}"><span class="pdot" style="background:${a.col}"></span><span class="nm">${a.n}</span><span class="pth">${esc(a.paths.join(", ") || "só leitura")}</span></div>`).join("")}<div class="scm-grp">Backlog<span class="cnt">${backlog.issues.length}</span></div><div class="scm-row" data-action="open-board"><span class="ic">${svg("split")}</span><span class="nm">Quadro</span><span class="pth">${stages.map(s => backlog.issues.filter((i: any) => i.stage === s[0]).length).join(" · ")}</span></div><div class="scm-row" data-action="open-studio"><span class="ic">${svg("cube")}</span><span class="nm">Studio</span><span class="pth">${studio.nodes.filter((n: any) => n.st === "plan").length} planeados</span></div>`);
 }
 
 /* ── publicação transitória no window (shim para o residual) ──
    RP.codev (app.ts) delega em renderCodevPane. */
 window.renderCodevPane = renderCodevPane;
+
+/* ───── tabela de acções (ADR-0002, Fase 4) ─────
+   O único sítio que liga o nome de acção (emitido como `data-action` pelos
+   componentes) ao efeito. É aqui porque só este ficheiro tem à mão tanto as
+   funções locais do Co-Dev (demo/toggleProv/…) como o bridge para os nomes que
+   vivem noutras features (restoreCkpt/openPath/goPane/openTeam/openBoard/
+   openStudio/palette/setTheme). `on` é o `data-on` já descodificado pelo
+   browser; `el`/`value` servem os handlers que liam `this`/`this.value`.
+   Cada entrada declara o evento DOM a que responde — `change` para os selects/
+   inputs de texto (como era `onchange`) e `input` para o cursor do limiar (como
+   era `oninput`), para o listener único não disparar um no evento do outro. */
+const ACTIONS: ActionTable = {
+  /* click */
+  "set-mode": { on: "click", run: (e) => window.setMode(e.on) },
+  demo: { on: "click", run: (e) => demo(e.on) },
+  "handle-prompt": { on: "click", run: (e) => handlePrompt(e.on) },
+  "toggle-prov": { on: "click", run: (e) => toggleProv(e.on) },
+  "test-prov": { on: "click", run: (e) => window.testProv(e.on, e.el) },
+  "set-theme": { on: "click", run: (e) => bridge.setTheme(e.on) },
+  "restore-ckpt": { on: "click", run: (e) => bridge.restoreCkpt(+e.on) },
+  "open-path": { on: "click", run: (e) => bridge.openPath(e.on) },
+  "go-pane": { on: "click", run: (e) => bridge.goToPane(e.on) },
+  palette: { on: "click", run: (e) => bridge.palette(e.on) },
+  "open-manager": { on: "click", run: () => openManager() },
+  "open-settings": { on: "click", run: () => openSettings() },
+  "open-analysis": { on: "click", run: () => openAnalysis() },
+  "assistant-dock": { on: "click", run: () => assistantDock() },
+  "open-team": { on: "click", run: () => bridge.openTeam() },
+  "open-board": { on: "click", run: () => bridge.openBoard() },
+  "open-studio": { on: "click", run: () => bridge.openStudio() },
+  /* change — espelha os antigos onchange */
+  "set-prov-model": {
+    on: "change",
+    run: (e) => { bridge.providers()[e.on].model = e.value; bridge.save(); window.updateAgentUI(); },
+  },
+  "set-prov-ep": { on: "change", run: (e) => { bridge.providers()[e.on].ep = e.value; } },
+  "set-route": {
+    on: "change",
+    run: (e) => { ROUTE[e.on] = e.value; bridge.save(); bridge.show(bridge.monolith.currentTabId as string); },
+  },
+  /* input — espelha o antigo oninput do limiar */
+  "set-threshold": {
+    on: "input",
+    run: (e) => {
+      const v = +e.value;
+      bridge.monolith.threshold = v;
+      (e.el.nextElementSibling as HTMLElement).textContent = String(v);
+      bridge.save();
+    },
+  },
+};
+bindActions(ACTIONS);

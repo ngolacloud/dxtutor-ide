@@ -223,7 +223,7 @@ export function ctxPill(): void {
 }
 
 /* ───── demo chips reused across the live-chat system cards ───── */
-const demoChips = `<div class="chips"><button class="chip" onclick="demo('b')"><b>Missão: histórico de conversas persistente</b></button><button class="chip" onclick="demo('a')"><b>Missão: corrigir o E0382 em lib.rs</b></button></div>`;
+const demoChips = `<div class="chips"><button class="chip" data-action="demo" data-on="b"><b>Missão: histórico de conversas persistente</b></button><button class="chip" data-action="demo" data-on="a"><b>Missão: corrigir o E0382 em lib.rs</b></button></div>`;
 
 /* ═══════════ MissionPresenter + ApprovalGate implementation ═══════════ */
 
@@ -457,7 +457,7 @@ export const presenter: MissionPresenter = {
         o.assumptions.length
           ? `<p><span class="tag warn">pressuposto a rever</span> ${o.assumptions.map((a) => a.q + " → <b>" + a.choice + "</b>").join("; ")}</p>`
           : ""
-      }<p style="color:var(--fg-dim)">${o.decCount} decisões registadas · ${o.fileCount} ficheiro(s) alterado(s).</p><div class="gate"><button class="gb" onclick="goPane('scm')">Ver alterações</button><button class="gb" onclick="openManager()">Registo de decisões</button></div>`,
+      }<p style="color:var(--fg-dim)">${o.decCount} decisões registadas · ${o.fileCount} ficheiro(s) alterado(s).</p><div class="gate"><button class="gb" data-action="go-pane" data-on="scm">Ver alterações</button><button class="gb" data-action="open-manager">Registo de decisões</button></div>`,
     );
   },
   commitConfirm(ref: CardRef, hash: string, mode: Mode, commitMsg: string) {
