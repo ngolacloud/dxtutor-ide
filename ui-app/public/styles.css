@@ -27,6 +27,7 @@
   .mini:focus-visible,.btn:focus-visible,.act:focus-visible,.tb-ic:focus-visible,.scm-row:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--accent)}
   svg.ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.15;stroke-linecap:round;stroke-linejoin:round;flex:none;display:block}
   svg.ico.fill{fill:currentColor;stroke:none}
+  .ic-hole{fill:var(--bg-side)}
 
   .app{height:100vh;display:grid;grid-template-rows:34px 1fr 24px}
 
@@ -54,6 +55,7 @@
   .mi:hover .key{color:rgba(255,255,255,.75)}
   .mi .chev{margin-left:auto;color:var(--fg-muted);font-size:10px}.mi:hover .chev{color:#fff}
   .mi.has-key .chev{margin-left:8px}
+  .ov-title{color:var(--fg-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;pointer-events:none}
   .mi-sep{height:1px;background:var(--border);margin:5px 7px}
   .mi-check{width:13px;text-align:center;color:var(--accent-hover);font-size:11px}
 
@@ -98,6 +100,7 @@
 
   /* tree */
   .tree{padding:2px 0 6px}
+  .tree-flat .row{padding-left:10px}
   .row{display:flex;align-items:center;gap:6px;height:22px;padding-right:10px;color:var(--fg);font-size:13px;white-space:nowrap;position:relative}
   .row:hover{background:var(--bg-hover)}
   .row.sel{background:var(--bg-sel)}
@@ -114,7 +117,8 @@
   .row.git-m .deco{color:var(--git-m)} .row.git-u .deco{color:var(--git-u)} .row.git-d .deco{color:var(--git-d)}
   .row .dot{margin-left:auto;width:7px;height:7px;border-radius:50%;flex:none}
   .row.git-m .dot{background:var(--git-m)} .row.git-u .dot{background:var(--git-u)}
-  .children{position:relative}
+  .children{position:relative;display:none}
+  .children.show{display:block}
   .children>.children::before,.tree .children .children-wrap{}
   .guide{position:absolute;top:0;bottom:0;width:1px;background:var(--guide)}
 
@@ -146,6 +150,7 @@
   .breadcrumbs{display:flex;align-items:center;gap:5px;padding:0 14px;font-size:11.5px;color:var(--fg-muted);border-bottom:1px solid var(--seam);background:var(--bg-editor)}
   .breadcrumbs .sep{opacity:.5}
   .breadcrumbs .crumb:hover{color:var(--fg)}
+  .breadcrumbs .crumb.cur{color:var(--fg)}
   .ebody{overflow:hidden;position:relative}
   .doc{display:none;min-height:100%}.doc.show{display:block}
   .code{font-family:var(--font-mono);font-size:13px;line-height:1.7;padding:14px 0}
@@ -156,6 +161,10 @@
   .cm{color:var(--fg-muted);font-style:italic}.mac{color:var(--accent-hover)}.num{color:var(--accent-hover)}
   .err{background:rgba(241,112,122,.08);box-shadow:inset 2px 0 0 var(--red)}
   .ct-dot{width:9px;height:9px;border:1.3px solid var(--red);border-radius:2px;flex:none}
+  .dk-row{padding-left:8px}.dk-row.sub{padding-left:30px}
+  .dk-ic{color:var(--fg-dim)}
+  .dk-fixed{flex:none}
+  .dk-path{margin-left:8px;overflow:hidden;text-overflow:ellipsis}
   /* minimap */
   .minimap{position:absolute;top:0;right:0;bottom:0;width:66px;background:rgba(0,0,0,.14);border-left:1px solid var(--seam);padding:8px 7px;display:flex;flex-direction:column;gap:2px;pointer-events:none}
   .mm-line{height:2px;border-radius:1px;background:var(--fg-muted);opacity:.45}
@@ -368,6 +377,20 @@
   .wbtn{display:flex;align-items:center;gap:12px;text-align:left;background:var(--bg-elevated);border:1px solid var(--border);border-radius:11px;padding:12px 14px}
   .wbtn:hover{border-color:var(--accent)}
   .wbtn .wi{color:var(--accent-hover)}.wbtn b{display:block;font-size:13px;font-weight:500}.wbtn small{color:var(--fg-muted);font-size:11.5px}
+
+  /* boot.ts: cartão de boas-vindas (chat-tab) */
+  .wlc{max-width:620px;margin:50px auto;padding:0 24px}
+  .wlc-head{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+  .wlc-logo{width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:var(--fg-bright);box-shadow:var(--sh-acc)}
+  .wlc-title{font-size:26px;font-weight:300;letter-spacing:.4px}
+  .wlc-title b{font-weight:600}
+  .wlc-sub{color:var(--fg-dim);font-size:13.5px;line-height:1.7;margin-bottom:26px}
+  .wlc-actions{display:grid;gap:9px}
+  .wlc-btn{display:flex;align-items:center;gap:13px;text-align:left;background:var(--bg-elevated);border:1px solid var(--border);border-radius:11px;padding:13px 15px;width:100%}
+  .wlc-btn .ic{color:var(--accent-hover)}
+  .wlc-btn .t{display:block;color:var(--fg);font-size:13.5px;font-weight:500}
+  .wlc-btn .s{color:var(--fg-muted);font-size:12px}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
   /* paleta */
   #pal{position:fixed;inset:0;z-index:400;display:none;background:rgba(0,0,0,.25)}

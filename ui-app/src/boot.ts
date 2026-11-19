@@ -48,7 +48,7 @@ window.P={
   folder:'<path class="fill" d="M1.6 4.3c0-.6.4-1 1-1h3.1a1 1 0 0 1 .7.3l.9.9a1 1 0 0 0 .7.3h5.4c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1h-13c-.6 0-1-.4-1-1z"/>',
   folderOpen:'<path class="fill" d="M1.6 4.3c0-.6.4-1 1-1h3.1a1 1 0 0 1 .7.3l.9.9a1 1 0 0 0 .7.3h5.4c.6 0 1 .4 1 1v.9H4.4a1 1 0 0 0-.95.68L1.6 12.5z"/>',
   file:'<path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"/><path d="M9 2.4V5.5h2.9"/>',
-  rust:'<path class="fill" d="M8 2.2 9 3.9l1.9-.5-.3 2 1.8.9-1.3 1.5 1 1.7-2 .2-.6 1.9-1.6-1.2-1.6 1.2-.6-1.9-2-.2 1-1.7L2 7.3l1.8-.9-.3-2 1.9.5z"/><circle cx="8" cy="8" r="1.5" style="fill:var(--bg-side)"/>',
+  rust:'<path class="fill" d="M8 2.2 9 3.9l1.9-.5-.3 2 1.8.9-1.3 1.5 1 1.7-2 .2-.6 1.9-1.6-1.2-1.6 1.2-.6-1.9-2-.2 1-1.7L2 7.3l1.8-.9-.3-2 1.9.5z"/><circle cx="8" cy="8" r="1.5" class="ic-hole"/>',
   'new-file':'<path d="M4 2.3h4.6L11 4.7v4.1"/><path d="M8.5 2.4V5h2.4"/><path d="M4 2.3A.6.6 0 0 0 3.4 2.9v10.2a.6.6 0 0 0 .6.6h3"/><path d="M11 10.5v4M9 12.5h4"/>',
   'new-folder':'<path d="M1.6 4.3c0-.6.4-1 1-1h2.9a1 1 0 0 1 .7.3l.9.9a1 1 0 0 0 .7.3h5.1"/><path d="M1.6 4.3v7.9c0 .6.4 1 1 1h5.4"/><path d="M12 9.5v4M10 11.5h4"/>',
   refresh:'<path d="M12.5 7a4.6 4.6 0 1 0-.7 3.4"/><path d="M12.6 3.2v2.9H9.7"/>',
@@ -83,7 +83,7 @@ window.svg = function(name,cls){return `<svg class="ico${cls?' '+cls:''}" viewBo
 window.hydrate = function(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.innerHTML=svg(el.dataset.ic);el.dataset.done=1;});}
 
 /* ═════════ TOAST / CLOCK ═════════ */
-window.toast = function(m){const t=$('#toast');t.textContent=m;t.style.opacity='1';t.style.transform='translateX(-50%) translateY(0)';clearTimeout(toTimer);toTimer=setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(-50%) translateY(20px)';},1600);}
+window.toast = function(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toTimer);toTimer=setTimeout(()=>{t.classList.remove('show');},1600);}
 window.tick = function(){const d=new Date(),p=n=>String(n).padStart(2,'0');const m=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d.getMonth()];$('#clock').textContent=`${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}-${m}`;}
 
 /* ═════════ ACTIVITY BAR ═════════ */
@@ -114,7 +114,7 @@ window.buildActivity = function(){
     el.onclick=e=>{e.stopPropagation();if(a.overflow)openOverflow(el);else if(a.pane)setPane(a.pane,el);else toast(a.title);};bar.appendChild(el);});
 }
 window.openOverflow = function(btn){closeMenus();const r=btn.getBoundingClientRect();const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
-  const title=document.createElement('div');title.className='mi';title.style.cssText='color:var(--fg-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;pointer-events:none';title.textContent='Additional Views';pop.appendChild(title);
+  const title=document.createElement('div');title.className='mi ov-title';title.textContent='Additional Views';pop.appendChild(title);
   OVERFLOW.forEach(it=>{if(it.sep){const s=document.createElement('div');s.className='mi-sep';pop.appendChild(s);return;}
     const mi=document.createElement('div');mi.className='mi';mi.innerHTML=`<span>${it.l}</span>`+(it.pane?'':'<span class="key">plugin</span>');
     mi.onclick=e=>{e.stopPropagation();closeMenus();if(it.pane)setPane(it.pane);else toast(it.l+' — requer o plugin instalado');};pop.appendChild(mi);});
@@ -192,7 +192,7 @@ window.buildExplorer = function(){
     const sec=document.createElement('div');sec.className='section';
     const h=document.createElement('div');h.className='sec-hd'+(i===2?' open':'');h.innerHTML=`<span class="chev">${svg('chev')}</span><span class="lbl">${lbl}</span>`;
     const b=document.createElement('div');b.className='sec-body'+(i===2?' show':'');
-    if(i===2){b.innerHTML=`<div class="tree">${['adler2 2.0.1','aead 0.5.2','aes 0.9.1','aes-gcm 0.11.0','sha2 0.10.8'].map(d=>`<div class="row" style="padding-left:10px"><span class="chev">${svg('chev')}</span><span class="ic folder">${svg('folder','folder-ic')}</span><span class="nm">${d}</span></div>`).join('')}</div>`;}
+    if(i===2){b.innerHTML=`<div class="tree tree-flat">${['adler2 2.0.1','aead 0.5.2','aes 0.9.1','aes-gcm 0.11.0','sha2 0.10.8'].map(d=>`<div class="row"><span class="chev">${svg('chev')}</span><span class="ic folder">${svg('folder','folder-ic')}</span><span class="nm">${d}</span></div>`).join('')}</div>`;}
     else b.innerHTML=`<div class="sec-empty">${txt}</div>`;
     h.onclick=()=>{h.classList.toggle('open');b.classList.toggle('show');};
     sec.appendChild(h);sec.appendChild(b);host.appendChild(sec);
@@ -201,7 +201,7 @@ window.buildExplorer = function(){
 window.renderLevel = function(obj,host,depth,path){
   Object.keys(obj).forEach(name=>{
     const node=obj[name];const pad=8+depth*12;
-    const row=document.createElement('div');row.className='row'+(node.git?' git-'+node.git:'');row.style.paddingLeft=pad+'px';
+    const row=document.createElement('div');row.className='row'+(node.git?' git-'+node.git:'');row.style.paddingLeft=pad+'px'; // profundidade ilimitada — não cabe em classe estática
     const gi=node.git?(node.dir?`<span class="dot"></span>`:`<span class="deco">${node.git.toUpperCase()}</span>`):'';
     row.innerHTML=`<span class="chev${node.dir?'':' leaf'}">${svg('chev')}</span><span class="ic ${iconClass(node)}">${iconFor(node,node.open)}</span><span class="nm">${name}</span>${gi}`;
     host.appendChild(row);
@@ -209,10 +209,9 @@ window.renderLevel = function(obj,host,depth,path){
       const kids=document.createElement('div');kids.className='children';
       if(depth>=0){const g=document.createElement('span');g.className='guide';g.style.left=(pad+7)+'px';kids.appendChild(g);}
       host.appendChild(kids);let built=false;
-      const expand=open=>{row.classList.toggle('open',open);kids.style.display=open?'block':'none';
+      const expand=open=>{row.classList.toggle('open',open);kids.classList.toggle('show',open);
         row.querySelector('.ic').innerHTML=iconFor(node,open);
         if(open&&!built&&node.children){renderLevel(node.children,kids,depth+1,path.concat(name));built=true;}};
-      kids.style.display='none';
       row.onclick=e=>{e.stopPropagation();sel(row);expand(!row.classList.contains('open'));};
       if(node.open){expand(true);}
     }else{
@@ -221,7 +220,7 @@ window.renderLevel = function(obj,host,depth,path){
   });
 }
 window.sel = function(r){$$('.row.sel').forEach(x=>x.classList.remove('sel'));r.classList.add('sel');}
-window.collapseAll = function(){$$('#exp-sections .tree .row.open').forEach(r=>{r.classList.remove('open');const k=r.nextElementSibling;if(k&&k.classList.contains('children'))k.style.display='none';r.querySelector('.ic').innerHTML=svg('folder','folder-ic');});}
+window.collapseAll = function(){$$('#exp-sections .tree .row.open').forEach(r=>{r.classList.remove('open');const k=r.nextElementSibling;if(k&&k.classList.contains('children'))k.classList.remove('show');r.querySelector('.ic').innerHTML=svg('folder','folder-ic');});}
 
 /* ═════════ TABS / EDITOR ═════════ */
 window.openFile = function(name,t){let x=TABS.find(o=>o.name===name);if(!x){x={name,t:t||'file'};TABS.push(x);}setActive(name);}
@@ -247,31 +246,31 @@ window.assistantCenter = function(){document.body.style.setProperty('--agent-w',
 window.assistantDock = function(){closeTab('Assistant');}
 window.cid = function(s){return s.replace(/[^a-z0-9]/gi,'_');}
 window.setActive = function(name){activeTab=name;renderTabs();renderDocs();$$('.doc').forEach(d=>d.classList.remove('show'));const d=$('#doc-'+cid(name));if(d)d.classList.add('show');
-  const t=TABS.find(o=>o.name===name);$('#breadcrumbs').innerHTML=t?`<span class="crumb">dxtutor</span><span class="sep">›</span><span class="crumb">desktop</span><span class="sep">›</span><span class="crumb">src</span><span class="sep">›</span><span class="crumb" style="color:var(--fg)">${name}</span>`:'';
+  const t=TABS.find(o=>o.name===name);$('#breadcrumbs').innerHTML=t?`<span class="crumb">dxtutor</span><span class="sep">›</span><span class="crumb">desktop</span><span class="sep">›</span><span class="crumb">src</span><span class="sep">›</span><span class="crumb cur">${name}</span>`:'';
   renderMinimap(name);}
 window.renderMinimap = function(name){const mm=$('#minimap'),scroll=$('#ebody'),t=TABS.find(o=>o.name===name);
   if(!t||t.t==='chat'||!DOCS[name]){mm.classList.add('hidden');scroll.classList.remove('with-mm');return;}
   mm.classList.remove('hidden');scroll.classList.add('with-mm');
-  mm.innerHTML='<div class="mm-view"></div>'+DOCS[name].map(l=>{const len=(l[1]||'').replace(/<[^>]+>/g,'').length,w=Math.max(7,Math.min(52,len*1.05));return `<div class="mm-line${l[0]==='err'?' err':''}" style="width:${w}px"></div>`;}).join('');}
+  mm.innerHTML='<div class="mm-view"></div>'+DOCS[name].map(l=>{const len=(l[1]||'').replace(/<[^>]+>/g,'').length,w=Math.max(7,Math.min(52,len*1.05));return `<div class="mm-line${l[0]==='err'?' err':''}" style="width:${w}px"></div>`;}).join('');} // largura derivada do conteúdo — visualização de dados, não cabe em classe
 window.wireSections = function(scope){scope.querySelectorAll('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
 window.buildDocker = function(){const pane=$('#pane-containers');pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
   const cts=[['kaeso-odoo','Exited (130) · 21 horas'],['ecm_val_364','Exited (1) · 2 dias'],['kaeso-odoo-ecm','Exited (255) · 39 min'],['lab-ao-odoo','Exited (0) · 5 dias']];
-  $('#dk-containers').innerHTML=`<div class="row open" style="padding-left:8px"><span class="chev">${svg('chev')}</span><span class="ic" style="color:var(--fg-dim)">${svg('container')}</span><span class="nm">kaeso</span></div>`+
-    cts.map(c=>`<div class="row" style="padding-left:30px"><span class="ct-dot"></span><span class="nm" style="flex:none">kaeso-odoo:16</span><span class="pth" style="margin-left:8px;overflow:hidden;text-overflow:ellipsis">${c[0]} · ${c[1]}</span></div>`).join('');
-  $('#dk-images').innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row" style="padding-left:8px"><span class="chev">${svg('chev')}</span><span class="ic" style="color:var(--fg-dim)">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
+  $('#dk-containers').innerHTML=`<div class="row open dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('container')}</span><span class="nm">kaeso</span></div>`+
+    cts.map(c=>`<div class="row dk-row sub"><span class="ct-dot"></span><span class="nm dk-fixed">kaeso-odoo:16</span><span class="pth dk-path">${c[0]} · ${c[1]}</span></div>`).join('');
+  $('#dk-images').innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
   wireSections(pane);hydrate();}
 window.closeTab = function(name){const i=TABS.findIndex(t=>t.name===name);if(i<0)return;
   if(name==='Assistant'){placeAgentDock();document.body.style.setProperty('--agent-w','380px');$('#tgl-agent').classList.add('on');}
   const d=$('#doc-'+cid(name));if(d)d.remove();TABS.splice(i,1);if(activeTab===name)activeTab=TABS.length?TABS[Math.max(0,i-1)].name:null;renderTabs();if(activeTab)setActive(activeTab);else $('#breadcrumbs').innerHTML='';}
-window.welcome = function(){return `<div style="max-width:620px;margin:50px auto;padding:0 24px">
-  <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><div style="font-size:26px;font-weight:300;letter-spacing:.4px">dxtutor <b style="font-weight:600">IDE</b></div></div>
-  <div style="color:var(--fg-dim);font-size:13.5px;line-height:1.7;margin-bottom:26px">Protótipo navegável · organização do Antigravity · ícones SVG codicon. Clica à vontade: menus, Explorer (com secções), activity bar, tabs e o terminal em baixo.</div>
-  <div style="display:grid;gap:9px">
+window.welcome = function(){return `<div class="wlc">
+  <div class="wlc-head"><div class="wlc-logo">${svg('sparkle')}</div><div class="wlc-title">dxtutor <b>IDE</b></div></div>
+  <div class="wlc-sub">Protótipo navegável · organização do Antigravity · ícones SVG codicon. Clica à vontade: menus, Explorer (com secções), activity bar, tabs e o terminal em baixo.</div>
+  <div class="wlc-actions">
     ${wbtn('explorer','Explorar ficheiros','Árvore, guias de indentação e secções',"setPane('explorer')")}
     ${wbtn('run','Experimentar o terminal','Escreve help · ls · git status',"setPanelTab('terminal');setTimeout(()=>{var c=document.getElementById('cmd');if(c)c.focus()},50)")}
     ${wbtn('sparkle','Falar com o Assistant','Painel à direita, com budget',"toggleAgentOn()")}
   </div></div>`;}
-window.wbtn = function(ic,t,s,act){return `<button onclick="${act}" style="display:flex;align-items:center;gap:13px;text-align:left;background:var(--bg-elevated);border:1px solid var(--border);border-radius:11px;padding:13px 15px;width:100%"><span style="color:var(--accent-hover)">${svg(ic)}</span><span><span style="display:block;color:var(--fg);font-size:13.5px;font-weight:500">${t}</span><span style="color:var(--fg-muted);font-size:12px">${s}</span></span></button>`;}
+window.wbtn = function(ic,t,s,act){return `<button class="wlc-btn" onclick="${act}"><span class="ic">${svg(ic)}</span><span><span class="t">${t}</span><span class="s">${s}</span></span></button>`;}
 
 /* ═════════ BOTTOM PANEL ═════════ */
 window.setPanelTab = function(pt){if(getComputedStyle(document.body).getPropertyValue('--panel-h').trim()==='0px')togglePanel();
@@ -312,7 +311,7 @@ window.run = function(raw){echoCmd(raw);const v=raw.trim();if(!v){newInput();ret
     history(){HIST.forEach((h,i)=>echo('<span class="dim">'+String(i+1).padStart(4)+'</span>  '+h.replace(/</g,'&lt;')));},
     clear(){termClear();return 'skip';},
     neofetch(){echo(`<span class="ac">    ✦✦✦✦✦    </span>  <span class="ok">${USER}@${HOST}</span>\n<span class="ac">  ✦✦ </span><span class="dim">delonix</span><span class="ac"> ✦✦  </span>  <span class="ac">OS</span>    Delonix Linux 7.0\n<span class="ac">  ✦✦✦✦✦✦✦✦✦  </span>  <span class="ac">Shell</span> dsh 2.1 (emulado)\n<span class="ac">    ✦✦✦✦✦    </span>  <span class="ac">IDE</span>   dxtutor IDE · grafite\n                 <span class="ac">CPU</span>   16 cores · <span class="ok">extrema velocidade</span>`);},
-    git(){const s=a[0];if(s==='status')echo(`No ramo <span style="color:var(--accent-hover)">main</span>\n<span class="dim">Changes not staged:</span>\n  <span class="warn">modified:</span>   desktop/src/styles.css\n  <span class="warn">modified:</span>   desktop/src/assistant.ts\n<span class="dim">Untracked:</span>\n  <span class="er">desktop/src/theme.css</span>`);else if(s==='branch')echo(`<span class="ok">* main</span>\n  develop\n  feat/learning-paths`);else if(s==='log')echo(`<span class="ac">c638e07</span> feat(arch): persist the Studio design\n<span class="ac">a5b0d39</span> feat(arch): double-click a node to delete it\n<span class="ac">64943bc</span> feat(arch): interactive canvas`);else echo('<span class="dim">git: status|branch|log</span>');},
+    git(){const s=a[0];if(s==='status')echo(`No ramo <span class="ac">main</span>\n<span class="dim">Changes not staged:</span>\n  <span class="warn">modified:</span>   desktop/src/styles.css\n  <span class="warn">modified:</span>   desktop/src/assistant.ts\n<span class="dim">Untracked:</span>\n  <span class="er">desktop/src/theme.css</span>`);else if(s==='branch')echo(`<span class="ok">* main</span>\n  develop\n  feat/learning-paths`);else if(s==='log')echo(`<span class="ac">c638e07</span> feat(arch): persist the Studio design\n<span class="ac">a5b0d39</span> feat(arch): double-click a node to delete it\n<span class="ac">64943bc</span> feat(arch): interactive canvas`);else echo('<span class="dim">git: status|branch|log</span>');},
     cargo(){const s=a[0];if(s==='build'){echo('<span class="dim">   Compiling dxtutor v0.1.0</span>');setTimeout(()=>{echo('<span class="ok">    Finished</span> dev in 0.81s');newInput();},140);return 'async';}if(s==='test'){echo('<span class="dim">   Running tests…</span>');setTimeout(()=>{echo('<span class="ok">test result: ok. 261 passed; 0 failed</span>');newInput();},160);return 'async';}echo('<span class="dim">cargo: build|test</span>');},
   };
   let r;if(XC[cmd])r=XC[cmd](a,v);else if(C[cmd])r=C[cmd]();else echo('<span class="er">'+cmd+': comando não encontrado</span> <span class="dim">(help)</span>');if(r!=='skip'&&r!=='async')newInput();}
