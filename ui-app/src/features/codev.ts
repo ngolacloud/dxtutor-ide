@@ -26,6 +26,10 @@
 
 import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
+import { approvalFor, type CommandRules } from "./codev/domain/policy";
+import { RUBRIC, candidateTotal, scoreChecks, passesThreshold, RETRY_LIMIT } from "./codev/domain/scoring";
+import { buildScenarios } from "./codev/domain/scenarios";
+import type { Mode, Scenario, ScenarioEnv } from "./codev/domain/types";
 
 /* ═══════════ MOTOR DE AGENTE / Co-Dev (invertido do monólito app.ts) ═══════════
    Esta feature é DONA de todo o runtime de agente/chat/missões/execução do Co-Dev,
@@ -46,7 +50,7 @@ const MODES: Record<string, { l: string; d: string }> = window.MODES = {
   assist: { l: 'Assistido', d: 'O Co-Dev decide o que é seguro e reversível; pergunta-te quando a confiança é baixa.' },
   auto: { l: 'Auto', d: 'Autónomo de ponta a ponta, com auto-avaliação e correcção. Só pára para push e acções destrutivas.' },
 };
-const CRIT = window.CRIT = [{ k: 'c', s: 'Corr.', l: 'Correcção', w: 30 }, { k: 'a', s: 'Arq.', l: 'Arquitectura', w: 25 }, { k: 't', s: 'Testes', l: 'Testes', w: 20 }, { k: 'r', s: 'Risco', l: 'Risco', w: 15 }, { k: 'k', s: 'Custo', l: 'Custo', w: 10 }];
+const CRIT = window.CRIT = RUBRIC;
 const MISSIONS: any[] = window.MISSIONS = [], DECS: any[] = window.DECS = [], CKPT: any[] = window.CKPT = [];
 let SPEED = 1, MID = 0;
 
@@ -109,7 +113,12 @@ function ask(host: Element, btns: Array<{ l: string; v: any; pri?: any; done?: s
 function tl(host: Element, name: string, arg: unknown) { const d = document.createElement('div'); d.className = 'tool'; d.innerHTML = `<span class="tn">${name}</span><span class="ta">${esc(arg)}</span><span class="tr"></span>`; host.appendChild(d); scrollMsgs(); return d; }
 
 /* ───── ferramentas do agente (com política de aprovação por modo) ───── */
+/* A regra de aprovação vive SÓ em `approvalFor` (domain/policy.ts); aqui só se
+   constrói a classificação de comandos a partir dos regexes SAFE/DANGER do
+   monólito e se pergunta à política se o modo actual exige aprovação. */
+const commandRules: CommandRules = { isSafe: (c) => bridge.safe().test(c), isDestructive: (c) => bridge.danger().test(c) };
 window.doTool = async function (t, host, role) {
+  const mode = bridge.monolith.mode as Mode;
   if (t.t === 'read') { const d = tl(host, 'read_file', bridge.shortPath(t.p)); await beat(240); d.querySelector('.tr')!.innerHTML = '<span class="okc">✓</span>'; return true; }
   if (t.t === 'edit') {
     const fs = bridge.files(); const old = fs[t.p] ? fs[t.p].content : null, nw = t.make ? t.make(old || '') : t.content;
@@ -117,14 +126,14 @@ window.doTool = async function (t, host, role) {
     const s = bridge.fileDiffStat(old, nw), d = tl(host, old == null ? 'create_file' : 'edit_file', bridge.shortPath(t.p));
     d.querySelector('.tr')!.innerHTML = `<span class="pls">+${s.add}</span><span class="mns">−${s.del}</span><button class="lnk">ver diff</button>`;
     (d.querySelector('.lnk') as HTMLElement).onclick = () => bridge.openDiff(t.p, old || '', nw, 'proposta do Co-Dev');
-    if (bridge.monolith.mode === 'manual') { const v = await ask(d, [{ l: 'Aprovar edição', v: 1, pri: 1, done: '✓ aprovada por ti' }, { l: 'Rejeitar', v: 0, done: '✗ rejeitada por ti' }]); if (!v) { bridge.log('humano', 'rejeitou a edição de ' + bridge.shortPath(t.p)); return false; } }
+    if (approvalFor(mode, { kind: 'edit' }, commandRules) === 'ask') { const v = await ask(d, [{ l: 'Aprovar edição', v: 1, pri: 1, done: '✓ aprovada por ti' }, { l: 'Rejeitar', v: 0, done: '✗ rejeitada por ti' }]); if (!v) { bridge.log('humano', 'rejeitou a edição de ' + bridge.shortPath(t.p)); return false; } }
     bridge.writeFile(t.p, nw); const RUN = bridge.run(); if (RUN.M) RUN.M.files.add(t.p);
     bridge.openTab({ id: t.p, title: t.p.split('/').pop(), kind: 'file', path: t.p }, false);
     bridge.trackUsage(bridge.provFor(role || 'code'), 900 + s.add * 40);
     bridge.log(bridge.speakerLabel(role || 'code'), (old == null ? 'criou ' : 'editou ') + bridge.shortPath(t.p) + ` (+${s.add} −${s.del})`); await beat(360); return true;
   }
   if (t.t === 'run') {
-    const d = tl(host, '$', t.cmd), need = bridge.monolith.mode === 'manual' || (bridge.monolith.mode === 'assist' && !bridge.safe().test(t.cmd)) || bridge.danger().test(t.cmd);
+    const d = tl(host, '$', t.cmd), need = approvalFor(mode, { kind: 'run', cmd: t.cmd }, commandRules) === 'ask';
     if (need) { const v = await ask(d, [{ l: 'Executar', v: 1, pri: 1, done: '✓ autorizado por ti' }, { l: 'Saltar', v: 0, done: '✗ não executado' }]); if (!v) return null; }
     await beat(280); if (bridge.getVar('--panel-h') !== '0px') bridge.setPanelTab('terminal', true);
     const r = bridge.termExec(t.cmd) || { ok: true, sum: 'ok' };
@@ -135,66 +144,28 @@ window.doTool = async function (t, host, role) {
 /* publica no window os `function …` do motor (os `window.X=` acima já se publicam) p/ o resíduo app.ts, os onclick inline e as outras features resolverem por global */
 Object.assign(window, { ctxPill, cycleMode, pickModel, toggleProv, scrollMsgs, newChat, user, card, phase, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
 
-/* ───── cenários de demonstração (lazy: SEED/ROOT/P_* são donos de app.ts e avaliam depois deste módulo) ───── */
-let _SCN: any = null;
-function SCN_() {
+/* ───── cenários de demonstração (domain/scenarios/, dados puros) ─────
+   O domínio não toca no `window`: o que os cenários precisam da workspace a
+   correr (ficheiros, testes, caminhos, seed) chega por este `ScenarioEnv`,
+   construído aqui a partir do bridge. Lazy: SEED/ROOT/P_* são donos de app.ts
+   e só existem depois deste módulo avaliar. */
+let _SCN: Scenario[] | null = null;
+function SCN_(): Scenario[] {
   if (_SCN) return _SCN;
-  const SEED = bridge.seed(), ROOT = bridge.root(), P_LX = bridge.pathLexer(), P_REPO = bridge.pathRepo(), P_MIG = bridge.pathMigration(), P_TEST = bridge.pathTest(), P_HIST = bridge.pathHistory(), P_ADR = bridge.pathAdr(), P_STORE = bridge.pathStore();
-  const G = SEED.gen, lxStep = (l: string, fn: (s: string) => string) => [{ l: 'Ler lib.rs e o erro do compilador', tools: [{ t: 'read', p: P_LX }] }, { l, tools: [{ t: 'edit', p: P_LX, make: fn }] }];
-  _SCN = [
-    { id: 'a', title: 'Corrigir E0382 no lexer', prompt: 'Corrige o erro E0382 (use of moved value) em crates/lexer/src/lib.rs.', match: /e0382|moved value|lexer|tokeniz/i, pkg: 'lexer',
-      ready: () => bridge.lexBug() ? null : 'O E0382 já não existe em <code>lib.rs</code> — não há nada para corrigir. Usa a paleta (<kbd>Ctrl+Shift+P</kbd> → «Repor protótipo») para recomeçar.',
-      reads: [ROOT + '.dxtutor/regras.md', P_LX],
-      understand: 'O <code>for</code> move o iterador <code>chars</code>; a linha 10 volta a usá-lo. O objectivo é compilar sem mudar o comportamento.',
-      reqs: [{ t: 'O crate lexer compila', ac: ['<code>cargo build</code> sem E0382'] }, { t: 'O comportamento mantém-se', ac: ['<code>tokenize_emits_eof</code> continua a passar', 'a assinatura pública de <code>tokenize</code> não muda'] }],
-      questions: [{ q: 'Posso alterar a assinatura pública de tokenize()?', opts: [{ l: 'Não — manter a API', why: 'a correcção é interna à função' }, { l: 'Sim — devolver um iterador', why: 'mais idiomático, mas quebra quem usa o crate' }], best: 0, conf: .97, basis: 'regras.md §2' }],
-      cands: [
-        { prov: 'claude', title: 'Emprestar o iterador com by_ref()', sum: 'Uma linha alterada: o ciclo consome o iterador por referência e ele continua válido para o peek() final.', sc: { c: 10, a: 9, t: 9, r: 9, k: 10 }, steps: lxStep('Aplicar by_ref() no ciclo', o => o.replace('for c in chars {', 'for c in chars.by_ref() {')) },
-        { prov: 'codex', title: 'Reescrever com while let', sum: 'Ciclo explícito com chars.next(). Correcto, mas menos directo de rever.', sc: { c: 10, a: 8, t: 9, r: 8, k: 8 }, steps: lxStep('Reescrever o ciclo com while let', o => o.replace('for c in chars {', 'while let Some(c) = chars.next() {')) },
-        { prov: 'ollama', title: 'Clonar o iterador', sum: 'Compila, mas o original fica por consumir: o peek() final deixa de detectar o fim da entrada.', sc: { c: 4, a: 5, t: 3, r: 4, k: 9 }, steps: lxStep('Clonar o iterador no ciclo', o => o.replace('for c in chars {', 'for c in chars.clone() {')) }],
-      best: 0, verify: ['cargo test -p lexer'], fix: { strategy: 'switch' },
-      checks: [
-        { id: 'build', l: 'O crate compila sem E0382', w: 40, fn: () => bridge.runTests('lexer').build, cause: 'o iterador continua a ser movido pelo ciclo.', fixd: 'emprestar o iterador em vez de o mover.' },
-        { id: 'tests', l: 'Testes do lexer passam (incl. tokenize_emits_eof)', w: 40, fn: () => bridge.runTests('lexer').ok, cause: 'ao clonar, o iterador original nunca é consumido e o <code>peek()</code> final nunca vê o fim.', fixd: 'consumir o próprio iterador por referência com <code>by_ref()</code>.' },
-        { id: 'min', l: 'Alteração mínima e API pública intacta', w: 20, fn: () => { const fs = bridge.files(); return fs[P_LX] && bridge.fileDiffStat(SEED.base['crates/lexer/src/lib.rs'], fs[P_LX].content).add <= 2 && bridge.has(P_LX, /pub fn tokenize\(src: &str\) -> Vec<Token>/); }, cause: 'a alteração tocou em mais do que o necessário.', fixd: 'limitar a alteração à linha do ciclo.' }],
-      done: ['<code>lib.rs</code>: o ciclo passa a emprestar o iterador', '<code>cargo test -p lexer</code>: 2 passados'], commit: 'fix(lexer): borrow the iterator in the loop (E0382)' },
-    { id: 'b', title: 'Histórico de conversas persistente', prompt: 'Quero que as conversas do Co-Dev fiquem guardadas por workspace e apareçam numa lista, das mais recentes para as mais antigas.', match: /hist[óo]rico|conversas?/i, pkg: 'store',
-      ready: () => { const fs = bridge.files(); return fs[P_REPO] && _SCN[1].checks.every((k: any) => k.fn()) ? 'O histórico de conversas já está implementado e a passar em todos os critérios. Usa «Repor protótipo» na paleta para voltar ao início.' : null; },
-      reads: [ROOT + '.dxtutor/regras.md', ROOT + '.dxtutor/requisitos.md', ROOT + '.dxtutor/arquitectura/ADR-001-local-first.md', ROOT + '.dxtutor/arquitectura/ADR-002-camadas.md', ROOT + '.dxtutor/design-system.md', ROOT + '.dxtutor/base-de-dados.md', ROOT + 'db/migrations/0001_init.sql'],
-      understand: 'O pedido corresponde ao <b>RF-03</b> do backlog. Traduzi-o em critérios de aceitação verificáveis antes de escrever código:',
-      reqs: [{ t: 'RF-03 · Histórico de conversas por workspace', ac: ['CA1 — as conversas sobrevivem ao fecho da aplicação', 'CA2 — a lista mostra primeiro as mais recentes', 'CA3 — apagar um workspace apaga as suas conversas'] }, { t: 'Restrições do projecto', ac: ['ADR-001: dados locais em SQLite', 'ADR-002: só o crate <code>store</code> contém SQL', 'Design System: sem cores fixas; listas no painel lateral'] }],
-      questions: [
-        { q: 'Onde guardar as conversas?', opts: [{ l: 'SQLite local, no crate store', why: 'segue o ADR-001 e reutiliza a ligação existente' }, { l: 'Ficheiro JSON por workspace', why: 'simples, mas sem integridade referencial' }, { l: 'Postgres remoto', why: 'permite sincronizar, mas viola local-first' }], best: 0, conf: .94, basis: 'ADR-001 · base-de-dados.md' },
-        { q: 'Como mostrar o histórico na interface?', opts: [{ l: 'Secção no painel lateral do Co-Dev', why: 'é o padrão do Design System para listas' }, { l: 'Janela modal', why: 'interrompe o trabalho' }, { l: 'Página nova no editor', why: 'ocupa o espaço do código' }], best: 0, conf: .88, basis: 'design-system.md · Componentes' },
-        { q: 'Durante quanto tempo guardar as conversas?', opts: [{ l: '90 dias, configurável', why: 'reversível: basta mudar a definição' }, { l: 'Para sempre', why: 'a base de dados cresce sem limite' }, { l: '30 dias', why: 'pode apagar contexto ainda útil' }], best: 0, conf: .55, basis: 'sem regra no projecto — decisão de produto' }],
-      cands: [
-        { prov: 'claude', title: 'SQLite + Repository (trait ConversationRepo)', sum: 'Migração nova, trait no crate store, UI atrás de um comando Tauri. Respeita ADR-001 e ADR-002.', sc: { c: 9, a: 9, t: 9, r: 8, k: 7 } },
-        { prov: 'codex', title: 'SQL directo a partir da UI', sum: 'Menos código e mais rápido de escrever, mas põe queries em history.ts — viola o ADR-002.', sc: { c: 8, a: 4, t: 6, r: 6, k: 9 } },
-        { prov: 'gemini', title: 'Postgres gerido com sincronização', sum: 'Histórico em todos os dispositivos, mas torna um serviço remoto obrigatório — viola o ADR-001.', sc: { c: 8, a: 6, t: 7, r: 4, k: 3 } },
-        { prov: 'ollama', title: 'Ficheiro JSON por workspace', sum: 'Sem migração nem dependências, mas sem cascata nem ordenação indexada.', sc: { c: 6, a: 5, t: 5, r: 6, k: 10 } }],
-      best: 0, verify: ['cargo test -p store', 'dx lint'],
-      steps: [
-        { l: 'Migração 0002: conversations e messages', tools: [{ t: 'edit', p: P_MIG, content: G['0002_conversations.sql'] }] },
-        { l: 'Repository no crate store', tools: [{ t: 'edit', p: P_REPO, content: G['conversations.rs'] }, { t: 'edit', p: P_STORE, make: (o: string) => o.includes('pub mod conversations') ? o : o.replace('pub mod workspaces;', 'pub mod conversations;\npub mod workspaces;') }] },
-        { l: 'Secção «Histórico» na interface', tools: [{ t: 'read', p: ROOT + 'desktop/src/styles.css' }, { t: 'edit', p: P_HIST, content: G['history.ts'] }] },
-        { l: 'Testes de integração', tools: [{ t: 'edit', p: P_TEST, content: G['conversations_test.rs'] }] },
-        { l: 'Registar a decisão no ADR-003', tools: [{ t: 'edit', p: P_ADR, content: G['ADR-003-historico.md'] }] }],
-      fix: { strategy: 'inc', steps: [
-        { for: 'tests', l: 'Ordenar a listagem por mais recente', tools: [{ t: 'edit', p: P_REPO, make: (o: string) => o.replace('WHERE workspace_id = ?1 LIMIT ?2', 'WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT ?2') }] },
-        { for: 'ds', l: 'Trocar a cor fixa pelo token --accent', tools: [{ t: 'edit', p: P_HIST, make: (o: string) => o.replace('"2px solid #ff6600"', '"2px solid var(--accent)"') }] },
-        { for: 'idx', l: 'Criar índice (workspace_id, created_at)', tools: [{ t: 'edit', p: P_MIG, make: (o: string) => /CREATE INDEX/.test(o) ? o : o.replace(/\n*$/, '\n\nCREATE INDEX idx_conversations_ws_created\n  ON conversations (workspace_id, created_at DESC);\n') }] }] },
-      checks: [
-        { id: 'tests', l: 'Testes do store passam', w: 20, fn: () => { const r = bridge.runTests('store'); return r.ok && r.tests.length >= 4; }, cause: '<code>list_recent</code> não tem <code>ORDER BY</code>; o SQLite devolve por ordem de inserção.', fixd: 'acrescentar <code>ORDER BY created_at DESC</code> à query.' },
-        { id: 'reqs', l: 'RF-03: CA1, CA2 e CA3 cobertos', w: 10, fn: () => { const fs = bridge.files(); return !!fs[P_MIG] && !!fs[P_HIST] && bridge.has(P_REPO, /ORDER BY created_at DESC/) && bridge.has(P_MIG, /ON DELETE CASCADE/); }, cause: 'o CA2 (mais recentes primeiro) depende da ordenação em falta.', fixd: 'fica coberto pela correcção da query.' },
-        { id: 'arch', l: 'ADR-002: a interface não contém SQL', w: 20, fn: () => { const fs = bridge.files(); return !!fs[P_HIST] && !bridge.has(P_HIST, /SELECT |INSERT /); }, cause: 'há SQL fora do crate store.', fixd: 'mover o acesso a dados para o Repository.' },
-        { id: 'repo', l: 'Padrão Repository: trait + implementação', w: 15, fn: () => bridge.has(P_REPO, /pub trait ConversationRepo/) && bridge.has(P_REPO, /impl ConversationRepo for/), cause: 'falta o trait ou a implementação.', fixd: 'repor o Repository.' },
-        { id: 'fk', l: 'BD: integridade referencial com cascata', w: 10, fn: () => bridge.has(P_MIG, /ON DELETE CASCADE/), cause: 'faltam as chaves estrangeiras.', fixd: 'acrescentar <code>ON DELETE CASCADE</code>.' },
-        { id: 'ds', l: 'Design System: zero cores fixas', w: 15, fn: () => { const fs = bridge.files(); return !!fs[P_HIST] && !bridge.dsLint().length; }, cause: 'usei <code>#ff6600</code> em <code>history.ts</code> em vez de um token.', fixd: 'trocar por <code>var(--accent)</code>.' },
-        { id: 'idx', l: 'BD: índice cobre o filtro e a ordenação', w: 10, fn: () => bridge.has(P_MIG, /CREATE INDEX/), cause: 'a listagem ordenada faria um varrimento completo da tabela.', fixd: 'criar o índice <code>(workspace_id, created_at DESC)</code>.' }],
-      done: ['Migração <code>0002_conversations.sql</code> com cascata e índice', '<code>ConversationRepo</code> (padrão Repository) no crate <code>store</code>', 'Secção «Histórico» em <code>history.ts</code>, só com tokens do Design System', '3 testes de integração novos a passar', 'Decisão registada em <code>ADR-003</code>'], commit: 'feat(store): persistent chat history (RF-03, ADR-003)' }];
+  const env: ScenarioEnv = {
+    paths: { root: bridge.root(), lx: bridge.pathLexer(), repo: bridge.pathRepo(), mig: bridge.pathMigration(), test: bridge.pathTest(), hist: bridge.pathHistory(), adr: bridge.pathAdr(), store: bridge.pathStore() },
+    seed: bridge.seed(),
+    files: () => bridge.files(),
+    has: (p, re) => bridge.has(p, re),
+    fileDiffStat: (a, b) => bridge.fileDiffStat(a, b),
+    runTests: (pkg) => bridge.runTests(pkg),
+    dsLint: () => bridge.dsLint(),
+    lexBug: () => bridge.lexBug(),
+  };
+  _SCN = buildScenarios(env);
   return _SCN;
 }
-function demo(id: string) { const S = SCN_().find((s: any) => s.id === id); focusAgent(true); window.runMission(S, S.prompt); }
+function demo(id: string) { const S = SCN_().find((s) => s.id === id)!; focusAgent(true); window.runMission(S, S.prompt); }
 window.demo = demo;
 
 /* ───── motor de missões ───── */
@@ -209,10 +180,9 @@ async function decideQ(q: any, M: any) {
   draw(pick, false); c.bd.querySelector('.qfoot')!.innerHTML = `<span class="tag ${by === 'agente' ? 'acc' : 'live'}">${by === 'agente' ? 'decidido pelo Co-Dev' : 'decidido por ti'}</span>${status === 'pressuposto' ? '<span class="tag warn">pressuposto reversível</span>' : ''}<span>base: ${q.basis}</span>`;
   dec(M, { phase: 'Clarificação', q: q.q, choice: q.opts[pick].l, by, conf: q.conf, basis: q.basis, status }); bridge.trackUsage(bridge.provFor('plan'), 600); await beat(250);
 }
-const total = (sc: Record<string, number>) => CRIT.reduce((s, k) => s + sc[k.k] * k.w, 0) / 10;
 async function council(S: any, M: any) {
   phase(3, 'Conselho de modelos'); const on = bridge.connected();
-  const cs = S.cands.map((c: any, i: number) => ({ ...c, i })).filter((c: any) => c.i === S.best || on.includes(c.prov)).map((c: any, n: number) => ({ ...c, L: 'ABCD'[n], prov: on.includes(c.prov) ? c.prov : on[0], tot: total(c.sc) }));
+  const cs = S.cands.map((c: any, i: number) => ({ ...c, i })).filter((c: any) => c.i === S.best || on.includes(c.prov)).map((c: any, n: number) => ({ ...c, L: 'ABCD'[n], prov: on.includes(c.prov) ? c.prov : on[0], tot: candidateTotal(c.sc) }));
   const PROV = bridge.providers();
   const c = card(bridge.speakerLabel('judge'), `<p>${cs.length > 1 ? `Pedi uma proposta a cada provedor ligado (${cs.length}) e avalio-as às cegas com a mesma rubrica.` : 'Só há um provedor ligado, por isso não há propostas concorrentes — sigo com esta.'}</p><div class="cl"></div><div class="qfoot"></div>`), cl = c.bd.querySelector('.cl')!;
   for (const x of cs) { const el = document.createElement('div'); el.className = 'cand'; el.innerHTML = `<div class="ch"><span class="pdot" style="background:${PROV[x.prov].col}"></span>Proposta ${x.L} · ${PROV[x.prov].name}<span class="tot"><span class="spin"></span></span></div><div class="ct">${x.title}</div><div class="cs">${x.sum}</div><div class="crit"></div>`; cl.appendChild(el); x.el = el; bridge.trackUsage(x.prov, 1800); bridge.log('conselho', `${PROV[x.prov].name} propôs: ${x.title}`); scrollMsgs(); await beat(480); }
@@ -237,7 +207,7 @@ async function evaluate(S: any, M: any, again?: boolean) {
   phase(6, again ? 'Verificar de novo' : 'Verificar e auto-avaliar');
   const c = card(bridge.speakerLabel('review'), `<p>${again ? 'Volto a correr tudo depois da correcção.' : 'Corro os testes e o lint e pontuo o resultado contra os critérios — quem revê não é quem escreveu.'}</p>`);
   for (const cmd of S.verify) await window.doTool({ t: 'run', cmd }, c.tools, 'review'); await beat(450);
-  const res = S.checks.map((k: any) => ({ ...k, ok: !!k.fn() })), score = res.reduce((s: number, k: any) => s + (k.ok ? k.w : 0), 0), ok = score >= bridge.monolith.threshold; bridge.trackUsage(bridge.provFor('review'), 1500);
+  const res = S.checks.map((k: any) => ({ ...k, ok: !!k.fn() })), score = scoreChecks(res), ok = passesThreshold(score, bridge.monolith.threshold); bridge.trackUsage(bridge.provFor('review'), 1500);
   c.bd.insertAdjacentHTML('beforeend', `<div class="evalbox"><div class="score ${ok ? 'ok' : 'bad'}">${score}<small>/100</small></div><div style="flex:1;min-width:0">${res.map((k: any) => `<div class="chk ${k.ok ? 'ok' : 'no'}"><span class="g">${k.ok ? '✓' : '✗'}</span><span>${k.l}</span><span class="w">${k.w}</span></div>`).join('')}</div></div><div class="qfoot"><span class="tag ${ok ? 'live' : 'bad'}">${ok ? 'acima' : 'abaixo'} do limiar ${bridge.monolith.threshold}</span></div>`);
   M.score = score; bridge.log('auto-avaliação', `${score}/100 — ${ok ? 'aprovado' : 'reprovado: ' + res.filter((k: any) => !k.ok).map((k: any) => k.id).join(', ')}`); scrollMsgs(); await beat(350); return { score, ok, fails: res.filter((k: any) => !k.ok) };
 }
@@ -258,14 +228,18 @@ window.runMission = async function (S, text) {
   const rd = S.ready(); if (rd) { card('co-dev', rd); return; }
   const M: any = { id: ++MID, title: S.title, mode: bridge.monolith.mode, state: 'em curso', score: null, t0: Date.now(), decs: [], retries: 0, files: new Set() }; MISSIONS.unshift(M); runState(true, 'A começar'); bridge.run().M = M;
   try {
-    bridge.gfStart(S.id === 'a' ? 'fix' : 'feature', S.id === 'a' ? 'e0382-lexer' : 'historico-conversas'); bridge.monolith.author = 'lead'; M.ck0 = bridge.checkpoint('Antes de «' + S.title + '»');
+    /* o ramo git-flow é agora um campo do cenário (`flow`); o fallback reproduz
+       exactamente o antigo `S.id==='a'?…:…` para cenários sem o campo (ex. o
+       cenário sintético dos testes de caracterização). */
+    const flow = S.flow ?? (S.id === 'a' ? { kind: 'fix', branch: 'e0382-lexer' } : { kind: 'feature', branch: 'historico-conversas' });
+    bridge.gfStart(flow.kind, flow.branch); bridge.monolith.author = 'lead'; M.ck0 = bridge.checkpoint('Antes de «' + S.title + '»');
     phase(1, 'Entender requisitos'); const c = card(bridge.speakerLabel('plan'), '<p><span class="spin"></span> A ler as regras do projecto, os ADRs e o código relevante…</p>'); for (const p of S.reads) await window.doTool({ t: 'read', p }, c.tools); bridge.trackUsage(bridge.provFor('plan'), 4200);
     c.bd.innerHTML = `<p>${S.understand}</p>${S.reqs.map((r: any) => `<div class="req"><b>${r.t}</b>${r.ac.map((a: string) => `<div class="ac">${a}</div>`).join('')}</div>`).join('')}`; scrollMsgs(); await beat(500);
     phase(2, 'Clarificar'); for (const q of S.questions) await decideQ(q, M);
     const pick = await council(S, M);
     phase(4, 'Planear e executar'); await execSteps(pick.steps || S.steps, 'Plano · ' + pick.title, true);
     let ev = await evaluate(S, M, false);
-    while (!ev.ok && M.retries < 2) { M.retries++; await reflect(S, M, ev); ev = await evaluate(S, M, true); }
+    while (!ev.ok && M.retries < RETRY_LIMIT) { M.retries++; await reflect(S, M, ev); ev = await evaluate(S, M, true); }
     if (!ev.ok) { phase(8, 'Pedir orientação'); card(bridge.speakerLabel('plan'), `<p>Depois de 2 tentativas a avaliação continua em <b>${ev.score}/100</b>. Em vez de insistir, paro aqui.</p>${ev.fails.map((k: any) => `<div class="fixl"><b>✗ ${k.l}</b><span>${k.cause}</span></div>`).join('')}<p style="margin-top:8px">Diz-me como queres avançar, ou restaura o checkpoint inicial no Gestor de missões.</p>`); M.state = 'bloqueada'; bridge.note('Missão bloqueada: ' + S.title); }
     else {
       phase(8, 'Entregar'); bridge.checkpoint('Entrega · ' + S.title); const ass = M.decs.filter((d: any) => d.status === 'pressuposto');
