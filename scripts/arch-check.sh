@@ -19,9 +19,35 @@ fail=0
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=1; }
 
+# strip_comments <file> — remove comentários JS/TS (bloco /* */ e linha //),
+# preservando as linhas (número), para distinguir `window`/imports de CÓDIGO do
+# mesmo texto em prosa/JSDoc. Naïve quanto a strings (não há `window`/paths
+# dentro de literais nos ficheiros da feature Co-Dev), mas suficiente e sem
+# dependências — no estilo estático do resto deste script (A1 já usa awk).
+strip_comments() {
+  awk '
+    BEGIN { inblk=0 }
+    {
+      line=$0; out=""; i=1; n=length(line)
+      while (i<=n) {
+        c=substr(line,i,1); d=substr(line,i,2)
+        if (inblk)      { if (d=="*/"){inblk=0;i+=2} else i++; continue }
+        if (d=="/*")    { inblk=1; i+=2; continue }
+        if (d=="//")    { break }
+        out=out c; i++
+      }
+      print out
+    }' "$1"
+}
+
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
 EXPECT_TOTAL=133
-EXPECT_TSNOCHECK=21
+# @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
+# a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
+# ficheiros que só a mencionam em prosa/JSDoc). Baseline = 11 ficheiros com a
+# directiva de facto (app.ts, boot.ts, startup.ts, v5.ts, v6.ts + features
+# board/debug/ext/infra/scm/visualizer). Não pode crescer; baixar é bom.
+EXPECT_TSNOCHECK=11
 # Etapa 3: o grupo `review` (3 cmd) saiu de lib.rs (95→92) para commands/review.rs;
 # depois o grupo `code-intel` (10 cmd) saiu de lib.rs (92→82) para commands/codeintel.rs;
 # depois o grupo `testes`/execução (5 cmd) saiu de lib.rs (82→77) para commands/tests.rs;
@@ -129,11 +155,75 @@ else
 fi
 
 echo "== A6 · baseline @ts-nocheck (não pode crescer) =="
-tsn=$(grep -rl '@ts-nocheck' ui-app/src | grep -c .)
+# A DIRECTIVA é uma linha-comentário `// @ts-nocheck` (só tem efeito assim); a
+# palavra em prosa/JSDoc NÃO desliga o typecheck. Contamos a directiva, não a
+# string, senão o baseline vigia ruído de documentação (A6 antigo: 24 vs 11 reais).
+tsn=$(grep -rlE '^[[:space:]]*//[[:space:]]*@ts-nocheck' ui-app/src | grep -c .)
 if [ "$tsn" -le "$EXPECT_TSNOCHECK" ]; then
-  pass "@ts-nocheck em $tsn ficheiros (<= baseline $EXPECT_TSNOCHECK)"
+  pass "@ts-nocheck (directiva) em $tsn ficheiros (<= baseline $EXPECT_TSNOCHECK)"
 else
-  bad "@ts-nocheck cresceu para $tsn ficheiros (baseline $EXPECT_TSNOCHECK)"
+  bad "@ts-nocheck (directiva) cresceu para $tsn ficheiros (baseline $EXPECT_TSNOCHECK)"
+  grep -rlE '^[[:space:]]*//[[:space:]]*@ts-nocheck' ui-app/src | sed 's/^/       /'
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fronteiras da Clean Architecture da feature Co-Dev (ADR-0002, Fase 5).
+# A feature extraída vive em ui-app/src/features/codev/ com camadas:
+#   domain/          — puro (tipos, policy, scoring, scenarios); sem DOM/window/Tauri
+#   application/     — casos de uso (ports + motores); deps injectadas, sem HTML
+#   ui/              — markup/handlers (chat-view, actions)
+#   infrastructure/  — legacy-bridge.ts: ÚNICO ponto que toca `window.*`
+#   index.ts         — raiz de composição (liga adapters↔ui↔casos de uso)
+# O resíduo `features/codev.ts` (strangler, publica os shims window.*) está FORA
+# desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
+CODEV=ui-app/src/features/codev
+BRIDGE="$CODEV/infrastructure/legacy-bridge.ts"
+
+echo "== A7 · domínio Co-Dev não importa application/ui/infrastructure =="
+# A regra do fluxo de dependências: domain/ é o centro e não conhece as camadas
+# de fora. Extraímos os especificadores de import/export-from/import() (pós-strip
+# de comentários, p/ não apanhar imports comentados) e reprovamos qualquer um cujo
+# caminho tenha um segmento application|ui|infrastructure.
+a7bad=""
+if [ -d "$CODEV/domain" ]; then
+  while IFS= read -r f; do
+    specs=$(strip_comments "$f" \
+      | grep -oE "(import|export|from|import\()[^\"']*[\"'][^\"']+[\"']" \
+      | grep -oE "[\"'][^\"']+[\"']" | tr -d "\"'")
+    while IFS= read -r s; do
+      [ -z "$s" ] && continue
+      if printf '%s\n' "$s" | grep -qE '(^|/)(application|ui|infrastructure)(/|$)'; then
+        a7bad="$a7bad$f -> $s"$'\n'
+      fi
+    done <<< "$specs"
+  done < <(find "$CODEV/domain" -name '*.ts')
+fi
+if [ -z "$a7bad" ]; then
+  pass "domain/ não importa application/ui/infrastructure"
+else
+  bad "domain/ importa uma camada de fora (viola o fluxo de dependências):"
+  printf '%s' "$a7bad" | sed 's/^/       /'
+fi
+
+echo "== A8 · window restrito a infrastructure/legacy-bridge.ts =="
+# Só o bridge pode tocar no global `window`. Varremos a subárvore da feature
+# (domain/application/ui/index.ts) menos o bridge e reprovamos qualquer `window`
+# que SOBREVIVA ao strip de comentários (= referência de código, não prosa).
+a8bad=""
+if [ -d "$CODEV" ]; then
+  while IFS= read -r f; do
+    [ "$f" = "$BRIDGE" ] && continue
+    hits=$(strip_comments "$f" | grep -nE '\bwindow\b')
+    if [ -n "$hits" ]; then
+      a8bad="$a8bad$f:"$'\n'"$(printf '%s' "$hits" | sed 's/^/         /')"$'\n'
+    fi
+  done < <(find "$CODEV" -name '*.ts')
+fi
+if [ -z "$a8bad" ]; then
+  pass "window só aparece (como código) em $BRIDGE"
+else
+  bad "window usado fora do bridge (deve passar por legacy-bridge.ts):"
+  printf '%s' "$a8bad" | sed 's/^/       /'
 fi
 
 echo
