@@ -6,42 +6,45 @@
    Checkpoints/Routing) e uma decoração v4 (`const _codev=RP.codev;RP.codev=()=>{…}`)
    que injectava Equipa/Backlog/Studio no topo das `.sections`. Aqui as duas dobram-se
    num único `renderCodevPane()` — base primeiro, depois o `insertAdjacentHTML` — para
-   que o resultado DOM seja idêntico. Dados/helpers (FS, MISSIONS, CKPT, ROUTE, ROLE,
-   PROV, provFor, fIcon, AGENTS, BL, STAGES, SD) continuam donos do monólito e são
-   lidos por fachada tipada (SD é window-backed). Do core importa-se só o que é dono de
-   lá (`$`, `hd`, `svg`, `esc`). Os `onclick="…"` inline resolvem os nomes livres
-   (openManager/openSettings/openPath/restoreCkpt/openTeam/openBoard/openStudio) no
-   `window` ao clicar.
+   que o resultado DOM seja idêntico.
 
-   Shim transitório: publica `renderCodevPane`; `app.ts` delega
-   `RP.codev=()=>window.renderCodevPane()` (lazy, no switch de pane); a decoração v4 foi
-   removida (está dobrada aqui, senão duplicaria).
-
-   ADR-0002, Phase 1: every read that used to be a free global now goes through
-   `./codev/infrastructure/legacy-bridge` — the only file in this feature allowed to
-   touch `window.*`. The functions this file still PUBLISHES to `window` (its own public
-   API — `setMode`, `demo`, `runMission`, the page/pane renderers, …) stay direct
-   `window.x = …` assignments, same as every other migrated feature in this codebase:
-   that is this module's own surface, not a read of the rest of the monolith. */
+   ADR-0002, Phase 1: toda a leitura de globais passa pelo
+   `./codev/infrastructure/legacy-bridge` (único ficheiro autorizado a tocar `window.*`).
+   Phase 2: o domínio puro (types/policy/scoring/scenarios) vive em `./codev/domain/`.
+   Phase 3: o MOTOR (runMission/decideQ/council/execSteps/evaluate/reflect/doTool/
+   liveChat) mudou-se para `./codev/application/` como casos de uso sem HTML, com
+   dependências por argumento e `AbortSignal`; o DOM/HTML do transcript vive em
+   `./codev/ui/chat-view.ts`; `./codev/index.ts` é a raiz de composição. Este ficheiro
+   deixa de conter o motor: importa-o já ligado e publica o `window.*` que o resíduo
+   `app.ts`, os `onclick` inline e `features/board.ts` ainda resolvem por global. O que
+   fica aqui é a cola da UI do agente (modos/providers), as páginas e o pane — alvo da
+   Phase 4. */
 
 import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
-import { approvalFor, type CommandRules } from "./codev/domain/policy";
-import { RUBRIC, candidateTotal, scoreChecks, passesThreshold, RETRY_LIMIT } from "./codev/domain/scoring";
+import { RUBRIC } from "./codev/domain/scoring";
 import { buildScenarios } from "./codev/domain/scenarios";
-import type { Mode, Scenario, ScenarioEnv } from "./codev/domain/types";
+import type { Scenario, ScenarioEnv } from "./codev/domain/types";
+import {
+  codevEngine,
+  missions as MISSIONS_ARR,
+  decisions as DECS_ARR,
+  ctxPill,
+  scrollMsgs,
+  user,
+  card,
+  phase,
+  md,
+  beat,
+  runState,
+  runLabel,
+  agCtl,
+  waiting,
+  ask,
+  tl,
+} from "./codev/index";
 
-/* ═══════════ MOTOR DE AGENTE / Co-Dev (invertido do monólito app.ts) ═══════════
-   Esta feature é DONA de todo o runtime de agente/chat/missões/execução do Co-Dev,
-   além do render do pane. Lê pelo bridge o núcleo partilhado que fica dono do
-   monólito: FS/SEED/ROOT/P_* (ficheiros), PROV/provFor/who/connected/use/save/
-   loadCfg (provedores), tabs/VIEW/CMD/THEMES (UI), checkpoint/restoreCkpt (snapshot
-   git-aware, app.ts), scm (STAGED/stOf/commitGit/gfStart/gfAsk/AUTHOR), team (AGENTS/
-   AGENT/agentSys/harness*), e helpers (log/toast/note/refresh/openTab/openDiff/
-   writeFile/diffStat/short/norm/has/runTests/runTask/termExec/dsLint/lexBug/…).
-   Os onclick="…" inline resolvem os nomes livres no window ao clicar. */
-
-/* ── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ── */
+/* ───── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ───── */
 const ROLE: Record<string, string> = window.ROLE = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
 const ROLE_D: Record<string, string> = window.ROLE_D = { plan: 'requisitos, arquitectura, plano', code: 'escreve e edita código', review: 'testes, lint, auto-avaliação', judge: 'escolhe entre propostas', local: 'autocomplete e dados sensíveis' };
 const ROUTE: Record<string, string> = window.ROUTE = { plan: 'claude', code: 'codex', review: 'gemini', judge: 'claude', local: 'ollama' };
@@ -51,8 +54,9 @@ const MODES: Record<string, { l: string; d: string }> = window.MODES = {
   auto: { l: 'Auto', d: 'Autónomo de ponta a ponta, com auto-avaliação e correcção. Só pára para push e acções destrutivas.' },
 };
 const CRIT = window.CRIT = RUBRIC;
-const MISSIONS: any[] = window.MISSIONS = [], DECS: any[] = window.DECS = [], CKPT: any[] = window.CKPT = [];
-let SPEED = 1, MID = 0;
+const MISSIONS: any[] = window.MISSIONS = MISSIONS_ARR;
+const DECS: any[] = window.DECS = DECS_ARR;
+const CKPT: any[] = window.CKPT = [];
 
 /* ───── interface do agente ───── */
 window.updateAgentUI = function () {
@@ -64,18 +68,10 @@ window.updateAgentUI = function () {
   const n = $('#live-note'); if (n) n.innerHTML = bridge.sample() ? '<span class="tag live">Claude ao vivo</span> perguntas livres são respondidas pelo Claude real, com acesso aos ficheiros deste workspace. Gemini, Codex e Ollama são simulados.' : '<span class="tag">simulado</span> nesta vista as missões são guionadas; a ligação ao vivo ao Claude activa-se quando o artefacto é aberto em claude.ai.';
   ctxPill();
 };
-function ctxPill() {
-  const t = bridge.tabOf(bridge.monolith.currentTabId), el = $('#pill-ctx'); if (!el) return;
-  el.textContent = '@ ' + (t && t.path ? t.title : 'sem ficheiro'); el.classList.toggle('on', bridge.monolith.contextEnabled && !!(t && t.path));
-  const fs = bridge.files();
-  const u = Math.min(99, Math.round((bridge.chat().reduce((s, m) => s + m.content.length, 0) + (t && t.path && fs[t.path] ? fs[t.path].content.length : 0)) / 4 / 2000));
-  $('#st-ctx')!.textContent = 'ctx ' + u + '%';
-}
 window.setMode = function (m) { bridge.monolith.mode = m; bridge.save(); window.updateAgentUI(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
 function cycleMode() { const k = Object.keys(MODES); window.setMode(k[(k.indexOf(bridge.monolith.mode) + 1) % k.length]); }
 function pickModel() { bridge.palette('', { ph: 'Modelo para a conversa…', items: Object.entries(bridge.providers()).map(([k, p]: [string, any]) => ({ l: `${p.name} — ${p.model}`, d: p.on ? bridge.provState(k) : 'desligado', run: () => { if (!p.on) { bridge.toast(p.name + ' está desligado — liga-o nas Definições'); return; } bridge.monolith.activeProvider = k; bridge.save(); window.updateAgentUI(); } })) }); }
 function toggleProv(k: string) { const p = bridge.providers(); p[k].on = !p[k].on; bridge.save(); window.updateAgentUI(); const panes = bridge.panes(); if (panes[bridge.monolith.pane]) panes[bridge.monolith.pane](); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); }
-function scrollMsgs() { const m = $('#ag-msgs')!; m.scrollTop = $('#ag-intro') ? 0 : m.scrollHeight; }
 function newChat() {
   if (bridge.run().active) { bridge.toast('Pára a missão primeiro'); return; }
   bridge.chat().length = 0;
@@ -85,63 +81,9 @@ function newChat() {
   <button class="chip" onclick="handlePrompt('Explica o ficheiro activo e aponta riscos de arquitectura.')"><b>Explica o ficheiro activo</b><small>Pergunta livre — respondida pelo Claude ao vivo.</small></button>
   <div class="i-n" id="live-note"></div></div>`; window.updateAgentUI();
 }
-function user(t: string) { const i = $('#ag-intro'); if (i) i.remove(); $('#ag-msgs')!.insertAdjacentHTML('beforeend', `<div class="m user"><div class="bub"><div class="bh"><span class="br2">tu</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${esc(t)}</div></div></div>`); scrollMsgs(); }
-function card(w: string, html: string) { const i = $('#ag-intro'); if (i) i.remove(); const d = document.createElement('div'); d.className = 'm ai'; d.innerHTML = `<div class="bub"><div class="bh"><span class="br2">${esc(w || 'co-dev')}</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${html}</div><div class="tools"></div></div>`; $('#ag-msgs')!.appendChild(d); scrollMsgs(); return { el: d, bd: d.querySelector('.bd')!, tools: d.querySelector('.tools')! }; }
-function phase(n: number, l: string) { $('#ag-msgs')!.insertAdjacentHTML('beforeend', `<div class="phase"><i>${n}</i>${l}</div>`); bridge.run().label = l; runLabel(); bridge.log('co-dev', 'fase ' + n + ' — ' + l); scrollMsgs(); }
-function md(t: unknown) { const parts = String(t).split(/```/); return parts.map((p, i) => i % 2 ? `<pre>${esc(p.replace(/^[a-z]*\n/, ''))}</pre>` : esc(p).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^#{1,4}\s+(.+)$/gm, '<b>$1</b>').replace(/^\s*[-*]\s+(.+)$/gm, '• $1').replace(/\n/g, '<br>')).join(''); }
-const demoChips = `<div class="chips"><button class="chip" onclick="demo('b')"><b>Missão: histórico de conversas persistente</b></button><button class="chip" onclick="demo('a')"><b>Missão: corrigir o E0382 em lib.rs</b></button></div>`;
 
-/* ───── controlo de execução ───── */
-const sleep = (ms: number) => new Promise(r => setTimeout(r, Math.max(0, ms * SPEED)));
-async function beat(ms: number) { await sleep(ms); const RUN = bridge.run(); while (RUN.paused && !RUN.stop) await new Promise(r => setTimeout(r, 120)); if (RUN.stop) throw bridge.stopSignal(); }
-function runState(on: boolean, label?: string) { const RUN = bridge.run(); RUN.active = on; RUN.paused = false; RUN.stop = false; RUN.pend = null; if (on) { RUN.t0 = Date.now(); RUN.label = label || ''; } if (!on) { RUN.abort = null; RUN.M = null; } $('#ag-runctl')!.classList.toggle('hidden', !on); $('#rc-pause')!.innerHTML = '<kbd>p</kbd> pausar'; runLabel(); bridge.badges(); }
-function runLabel() { const RUN = bridge.run(); if (!RUN.active) return; $('#rc-lbl')!.textContent = (RUN.paused ? 'em pausa · ' : '') + RUN.label; const s = Math.round((Date.now() - RUN.t0) / 1000); $('#rc-el')!.textContent = s < 60 ? s + 's' : Math.floor(s / 60) + 'm' + String(s % 60).padStart(2, '0') + 's'; }
-function agCtl(a: string) {
-  const RUN = bridge.run(); if (!RUN.active) return;
-  if (a === 'pause') { RUN.paused = !RUN.paused; $('#rc-pause')!.innerHTML = RUN.paused ? '<kbd>p</kbd> retomar' : '<kbd>p</kbd> pausar'; runLabel(); }
-  else if (a === 'stop') { RUN.stop = true; RUN.paused = false; if (RUN.abort) RUN.abort.abort(); if (RUN.pend) RUN.pend(); }
-  else if (a === 'details') { bridge.setPanelTab('output'); }
-}
-function waiting() { const RUN = bridge.run(); RUN.label = 'à espera da tua decisão'; runLabel(); bridge.note('O Co-Dev precisa da tua decisão'); }
-function ask(host: Element, btns: Array<{ l: string; v: any; pri?: any; done?: string }>): Promise<any> {
-  return new Promise((res, rej) => {
-    const bar = document.createElement('div'); bar.className = 'gate';
-    btns.forEach(b => { const x = document.createElement('button'); x.className = 'gb' + (b.pri ? ' pri' : ''); x.innerHTML = b.l; x.onclick = () => { bar.innerHTML = `<span class="gdone">${b.done || b.l}</span>`; bridge.run().pend = null; res(b.v); }; bar.appendChild(x); });
-    host.appendChild(bar); scrollMsgs(); bridge.run().pend = () => { bar.remove(); rej(bridge.stopSignal()); }; waiting();
-  });
-}
-function tl(host: Element, name: string, arg: unknown) { const d = document.createElement('div'); d.className = 'tool'; d.innerHTML = `<span class="tn">${name}</span><span class="ta">${esc(arg)}</span><span class="tr"></span>`; host.appendChild(d); scrollMsgs(); return d; }
-
-/* ───── ferramentas do agente (com política de aprovação por modo) ───── */
-/* A regra de aprovação vive SÓ em `approvalFor` (domain/policy.ts); aqui só se
-   constrói a classificação de comandos a partir dos regexes SAFE/DANGER do
-   monólito e se pergunta à política se o modo actual exige aprovação. */
-const commandRules: CommandRules = { isSafe: (c) => bridge.safe().test(c), isDestructive: (c) => bridge.danger().test(c) };
-window.doTool = async function (t, host, role) {
-  const mode = bridge.monolith.mode as Mode;
-  if (t.t === 'read') { const d = tl(host, 'read_file', bridge.shortPath(t.p)); await beat(240); d.querySelector('.tr')!.innerHTML = '<span class="okc">✓</span>'; return true; }
-  if (t.t === 'edit') {
-    const fs = bridge.files(); const old = fs[t.p] ? fs[t.p].content : null, nw = t.make ? t.make(old || '') : t.content;
-    if (nw === old) { tl(host, 'edit_file', bridge.shortPath(t.p)).querySelector('.tr')!.textContent = 'sem alterações'; return true; }
-    const s = bridge.fileDiffStat(old, nw), d = tl(host, old == null ? 'create_file' : 'edit_file', bridge.shortPath(t.p));
-    d.querySelector('.tr')!.innerHTML = `<span class="pls">+${s.add}</span><span class="mns">−${s.del}</span><button class="lnk">ver diff</button>`;
-    (d.querySelector('.lnk') as HTMLElement).onclick = () => bridge.openDiff(t.p, old || '', nw, 'proposta do Co-Dev');
-    if (approvalFor(mode, { kind: 'edit' }, commandRules) === 'ask') { const v = await ask(d, [{ l: 'Aprovar edição', v: 1, pri: 1, done: '✓ aprovada por ti' }, { l: 'Rejeitar', v: 0, done: '✗ rejeitada por ti' }]); if (!v) { bridge.log('humano', 'rejeitou a edição de ' + bridge.shortPath(t.p)); return false; } }
-    bridge.writeFile(t.p, nw); const RUN = bridge.run(); if (RUN.M) RUN.M.files.add(t.p);
-    bridge.openTab({ id: t.p, title: t.p.split('/').pop(), kind: 'file', path: t.p }, false);
-    bridge.trackUsage(bridge.provFor(role || 'code'), 900 + s.add * 40);
-    bridge.log(bridge.speakerLabel(role || 'code'), (old == null ? 'criou ' : 'editou ') + bridge.shortPath(t.p) + ` (+${s.add} −${s.del})`); await beat(360); return true;
-  }
-  if (t.t === 'run') {
-    const d = tl(host, '$', t.cmd), need = approvalFor(mode, { kind: 'run', cmd: t.cmd }, commandRules) === 'ask';
-    if (need) { const v = await ask(d, [{ l: 'Executar', v: 1, pri: 1, done: '✓ autorizado por ti' }, { l: 'Saltar', v: 0, done: '✗ não executado' }]); if (!v) return null; }
-    await beat(280); if (bridge.getVar('--panel-h') !== '0px') bridge.setPanelTab('terminal', true);
-    const r = bridge.termExec(t.cmd) || { ok: true, sum: 'ok' };
-    d.querySelector('.tr')!.innerHTML = `<span class="${r.ok ? 'okc' : 'bad'}">${r.ok ? '✓' : '✖'} ${esc(r.sum || '')}</span>`;
-    bridge.log('terminal', t.cmd + ' → ' + (r.sum || 'ok')); await beat(420); return r;
-  }
-};
-/* publica no window os `function …` do motor (os `window.X=` acima já se publicam) p/ o resíduo app.ts, os onclick inline e as outras features resolverem por global */
+/* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
+   de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
 Object.assign(window, { ctxPill, cycleMode, pickModel, toggleProv, scrollMsgs, newChat, user, card, phase, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
 
 /* ───── cenários de demonstração (domain/scenarios/, dados puros) ─────
@@ -166,133 +108,28 @@ function SCN_(): Scenario[] {
   return _SCN;
 }
 function demo(id: string) { const S = SCN_().find((s) => s.id === id)!; focusAgent(true); window.runMission(S, S.prompt); }
-window.demo = demo;
 
-/* ───── motor de missões ───── */
-function dec(M: any, d: any) { d.id = DECS.length + 1; d.mission = M.title; M.decs.push(d); DECS.unshift(d); bridge.log('decisão', `${d.q} → ${d.choice} (${d.by}${d.conf ? ', ' + Math.round(d.conf * 100) + '%' : ''})`); }
-async function decideQ(q: any, M: any) {
-  const auto = bridge.monolith.mode === 'auto' || (bridge.monolith.mode === 'assist' && q.conf >= .8), pct = Math.round(q.conf * 100);
-  const c = card(bridge.speakerLabel('plan'), `<p><b>${q.q}</b></p>${!auto && bridge.monolith.mode === 'assist' ? `<p style="color:var(--fg-dim)">Confiança baixa (${pct}%) e nenhuma regra do projecto cobre isto — prefiro perguntar-te.</p>` : ''}<div class="qo"></div><div class="qfoot"></div>`), qo = c.bd.querySelector('.qo')!;
-  const draw = (pick: number | null, click: boolean) => { qo.innerHTML = q.opts.map((o: any, i: number) => `<${click ? 'button' : 'div'} class="qopt${pick === i ? ' pick' : pick != null ? ' dim' : ''}" data-i="${i}"><span class="ql">${o.l}<small>${o.why}</small></span>${i === q.best ? `<span class="tag acc">recomendada · ${pct}%</span>` : ''}</${click ? 'button' : 'div'}>`).join(''); scrollMsgs(); };
-  let pick: number, by: string, status = 'ok';
-  if (auto) { draw(null, false); await beat(850); pick = q.best; by = 'agente'; if (q.conf < .8) status = 'pressuposto'; }
-  else { draw(null, true); pick = await new Promise((res, rej) => { qo.querySelectorAll('button').forEach(b => (b as HTMLElement).onclick = () => { bridge.run().pend = null; res(+(b as HTMLElement).dataset.i!); }); bridge.run().pend = () => rej(bridge.stopSignal()); waiting(); }); by = 'humano'; bridge.run().label = 'Clarificar'; }
-  draw(pick, false); c.bd.querySelector('.qfoot')!.innerHTML = `<span class="tag ${by === 'agente' ? 'acc' : 'live'}">${by === 'agente' ? 'decidido pelo Co-Dev' : 'decidido por ti'}</span>${status === 'pressuposto' ? '<span class="tag warn">pressuposto reversível</span>' : ''}<span>base: ${q.basis}</span>`;
-  dec(M, { phase: 'Clarificação', q: q.q, choice: q.opts[pick].l, by, conf: q.conf, basis: q.basis, status }); bridge.trackUsage(bridge.provFor('plan'), 600); await beat(250);
-}
-async function council(S: any, M: any) {
-  phase(3, 'Conselho de modelos'); const on = bridge.connected();
-  const cs = S.cands.map((c: any, i: number) => ({ ...c, i })).filter((c: any) => c.i === S.best || on.includes(c.prov)).map((c: any, n: number) => ({ ...c, L: 'ABCD'[n], prov: on.includes(c.prov) ? c.prov : on[0], tot: candidateTotal(c.sc) }));
-  const PROV = bridge.providers();
-  const c = card(bridge.speakerLabel('judge'), `<p>${cs.length > 1 ? `Pedi uma proposta a cada provedor ligado (${cs.length}) e avalio-as às cegas com a mesma rubrica.` : 'Só há um provedor ligado, por isso não há propostas concorrentes — sigo com esta.'}</p><div class="cl"></div><div class="qfoot"></div>`), cl = c.bd.querySelector('.cl')!;
-  for (const x of cs) { const el = document.createElement('div'); el.className = 'cand'; el.innerHTML = `<div class="ch"><span class="pdot" style="background:${PROV[x.prov].col}"></span>Proposta ${x.L} · ${PROV[x.prov].name}<span class="tot"><span class="spin"></span></span></div><div class="ct">${x.title}</div><div class="cs">${x.sum}</div><div class="crit"></div>`; cl.appendChild(el); x.el = el; bridge.trackUsage(x.prov, 1800); bridge.log('conselho', `${PROV[x.prov].name} propôs: ${x.title}`); scrollMsgs(); await beat(480); }
-  bridge.run().label = 'Juiz a avaliar as propostas'; runLabel(); await beat(700);
-  cs.forEach((x: any) => { x.el.querySelector('.tot').textContent = x.tot.toFixed(1); x.el.querySelector('.crit').innerHTML = CRIT.map(k => `<span>${k.s}<i><b style="width:${x.sc[k.k] * 10}%"></b></i></span>`).join(''); }); bridge.trackUsage(bridge.provFor('judge'), 1200);
-  const best = cs.reduce((a: any, b: any) => b.tot > a.tot ? b : a); let pick = best, by = 'juiz';
-  if (bridge.monolith.mode === 'manual') { const sel = cs.filter((x: any) => x.steps || x === best); pick = await ask(c.bd, sel.map((x: any) => ({ l: (x === best ? '★ ' : '') + 'Escolher a proposta ' + x.L, v: x, pri: x === best, done: '✓ escolhida por ti: proposta ' + x.L }))); by = 'humano'; bridge.run().label = 'Conselho de modelos'; }
-  pick.el.classList.add('best'); c.bd.querySelector('.qfoot')!.innerHTML = `<span class="tag ${by === 'juiz' ? 'acc' : 'live'}">${by === 'juiz' ? 'decidido pelo juiz' : 'decidido por ti'}</span><span>rubrica: ${CRIT.map(k => k.l + ' ' + k.w).join(' · ')}</span>`;
-  dec(M, { phase: 'Conselho', q: 'Que abordagem seguir?', choice: `${pick.L} — ${pick.title}`, by, conf: pick.tot / 100, basis: 'rubrica do juiz', status: 'ok' }); M.councilDec = M.decs[M.decs.length - 1]; await beat(300); return pick;
-}
-async function execSteps(steps: any[], title: string, approve?: boolean) {
-  const n = steps.length, c = card(bridge.speakerLabel('code'), `<div class="plan" style="margin:0"><div class="plan-h"><span class="plan-t">${title}</span><span class="plan-c">0/${n}</span></div><div class="bar"><span style="width:0"></span></div>${steps.map(s => `<div class="stp todo"><span class="g">·</span><span class="l">${s.l}</span><span class="d"></span></div>`).join('')}</div>`), rows = c.bd.querySelectorAll('.stp');
-  if (approve && bridge.monolith.mode === 'manual') { const v = await ask(c.bd, [{ l: 'Aprovar plano', v: 1, pri: 1, done: '✓ plano aprovado por ti' }, { l: 'Parar', v: 0 }]); if (!v) throw bridge.stopSignal(); }
-  for (let i = 0; i < n; i++) {
-    const s = steps[i], r = rows[i], t0 = Date.now(); r.className = 'stp run'; r.querySelector('.g')!.textContent = '◐'; bridge.run().label = s.l; runLabel(); await beat(300);
-    let ok = true; for (const t of s.tools) { if (await window.doTool(t, c.tools) === false) ok = false; }
-    r.className = 'stp done'; r.querySelector('.g')!.textContent = ok ? '✓' : '✗'; if (!ok) (r.querySelector('.g') as HTMLElement).style.color = 'var(--red)'; r.querySelector('.d')!.textContent = ((Date.now() - t0) / 1000).toFixed(1) + 's';
-    c.bd.querySelector('.plan-c')!.textContent = `${i + 1}/${n}`; (c.bd.querySelector('.bar span') as HTMLElement).style.width = ((i + 1) / n * 100) + '%';
-  }
-}
-async function evaluate(S: any, M: any, again?: boolean) {
-  phase(6, again ? 'Verificar de novo' : 'Verificar e auto-avaliar');
-  const c = card(bridge.speakerLabel('review'), `<p>${again ? 'Volto a correr tudo depois da correcção.' : 'Corro os testes e o lint e pontuo o resultado contra os critérios — quem revê não é quem escreveu.'}</p>`);
-  for (const cmd of S.verify) await window.doTool({ t: 'run', cmd }, c.tools, 'review'); await beat(450);
-  const res = S.checks.map((k: any) => ({ ...k, ok: !!k.fn() })), score = scoreChecks(res), ok = passesThreshold(score, bridge.monolith.threshold); bridge.trackUsage(bridge.provFor('review'), 1500);
-  c.bd.insertAdjacentHTML('beforeend', `<div class="evalbox"><div class="score ${ok ? 'ok' : 'bad'}">${score}<small>/100</small></div><div style="flex:1;min-width:0">${res.map((k: any) => `<div class="chk ${k.ok ? 'ok' : 'no'}"><span class="g">${k.ok ? '✓' : '✗'}</span><span>${k.l}</span><span class="w">${k.w}</span></div>`).join('')}</div></div><div class="qfoot"><span class="tag ${ok ? 'live' : 'bad'}">${ok ? 'acima' : 'abaixo'} do limiar ${bridge.monolith.threshold}</span></div>`);
-  M.score = score; bridge.log('auto-avaliação', `${score}/100 — ${ok ? 'aprovado' : 'reprovado: ' + res.filter((k: any) => !k.ok).map((k: any) => k.id).join(', ')}`); scrollMsgs(); await beat(350); return { score, ok, fails: res.filter((k: any) => !k.ok) };
-}
-async function reflect(S: any, M: any, ev: any) {
-  phase(7, `Reflectir e corrigir · tentativa ${M.retries}/2`); const sw = M.retries > 1 || S.fix.strategy === 'switch';
-  const c = card(bridge.speakerLabel('plan'), `<p>A entrega não passou na minha própria avaliação (<b>${ev.score}</b> &lt; ${bridge.monolith.threshold}). Não entrego assim.</p>${ev.fails.map((k: any) => `<div class="fixl"><b>✗ ${k.l}</b><span>Causa: ${k.cause}</span><span>Correcção: ${k.fixd}</span></div>`).join('')}<p style="margin-top:8px"><b>Estratégia:</b> ${sw ? 'reverter ao checkpoint inicial e refazer com a abordagem mais bem classificada — a decisão anterior estava errada.' : 'corrigir incrementalmente — a abordagem está certa, os defeitos são locais.'}</p>`);
-  if (bridge.monolith.mode === 'manual') { const v = await ask(c.bd, [{ l: 'Aprovar correcção', v: 1, pri: 1, done: '✓ correcção aprovada por ti' }, { l: 'Parar', v: 0 }]); if (!v) throw bridge.stopSignal(); }
-  if (sw && M.councilDec) M.councilDec.status = 'corrigida';
-  dec(M, { phase: 'Auto-correcção', q: `Avaliação ${ev.score}/100 — como corrigir?`, choice: sw ? 'Reverter e trocar de abordagem' : 'Correcção incremental', by: bridge.monolith.mode === 'manual' ? 'humano' : 'agente', conf: .9, basis: 'critérios falhados: ' + ev.fails.map((k: any) => k.id).join(', '), status: 'ok' });
-  bridge.checkpoint(`Antes da correcção ${M.retries} · ${S.title}`); let steps;
-  if (sw) { bridge.restoreCkpt(M.ck0, true); steps = (S.cands[S.best].steps || S.steps).concat((S.fix.steps || [])); } else steps = S.fix.steps.filter((s: any) => ev.fails.some((k: any) => k.id === s.for));
-  if (!steps.length) { steps = (S.cands[S.best].steps || S.steps).concat(S.fix.steps || []); }
-  await execSteps(steps, sw ? 'Refazer com a melhor abordagem' : 'Correcções');
-}
-window.runMission = async function (S, text) {
-  if (bridge.run().active) { bridge.toast('Já há uma missão em curso'); return; } user(text);
-  if (!bridge.connected().length) { card('sistema', 'Não há nenhum provedor ligado. Liga pelo menos um em <b>Definições → Modelos e provedores</b>.'); return; }
-  const rd = S.ready(); if (rd) { card('co-dev', rd); return; }
-  const M: any = { id: ++MID, title: S.title, mode: bridge.monolith.mode, state: 'em curso', score: null, t0: Date.now(), decs: [], retries: 0, files: new Set() }; MISSIONS.unshift(M); runState(true, 'A começar'); bridge.run().M = M;
-  try {
-    /* o ramo git-flow é agora um campo do cenário (`flow`); o fallback reproduz
-       exactamente o antigo `S.id==='a'?…:…` para cenários sem o campo (ex. o
-       cenário sintético dos testes de caracterização). */
-    const flow = S.flow ?? (S.id === 'a' ? { kind: 'fix', branch: 'e0382-lexer' } : { kind: 'feature', branch: 'historico-conversas' });
-    bridge.gfStart(flow.kind, flow.branch); bridge.monolith.author = 'lead'; M.ck0 = bridge.checkpoint('Antes de «' + S.title + '»');
-    phase(1, 'Entender requisitos'); const c = card(bridge.speakerLabel('plan'), '<p><span class="spin"></span> A ler as regras do projecto, os ADRs e o código relevante…</p>'); for (const p of S.reads) await window.doTool({ t: 'read', p }, c.tools); bridge.trackUsage(bridge.provFor('plan'), 4200);
-    c.bd.innerHTML = `<p>${S.understand}</p>${S.reqs.map((r: any) => `<div class="req"><b>${r.t}</b>${r.ac.map((a: string) => `<div class="ac">${a}</div>`).join('')}</div>`).join('')}`; scrollMsgs(); await beat(500);
-    phase(2, 'Clarificar'); for (const q of S.questions) await decideQ(q, M);
-    const pick = await council(S, M);
-    phase(4, 'Planear e executar'); await execSteps(pick.steps || S.steps, 'Plano · ' + pick.title, true);
-    let ev = await evaluate(S, M, false);
-    while (!ev.ok && M.retries < RETRY_LIMIT) { M.retries++; await reflect(S, M, ev); ev = await evaluate(S, M, true); }
-    if (!ev.ok) { phase(8, 'Pedir orientação'); card(bridge.speakerLabel('plan'), `<p>Depois de 2 tentativas a avaliação continua em <b>${ev.score}/100</b>. Em vez de insistir, paro aqui.</p>${ev.fails.map((k: any) => `<div class="fixl"><b>✗ ${k.l}</b><span>${k.cause}</span></div>`).join('')}<p style="margin-top:8px">Diz-me como queres avançar, ou restaura o checkpoint inicial no Gestor de missões.</p>`); M.state = 'bloqueada'; bridge.note('Missão bloqueada: ' + S.title); }
-    else {
-      phase(8, 'Entregar'); bridge.checkpoint('Entrega · ' + S.title); const ass = M.decs.filter((d: any) => d.status === 'pressuposto');
-      const d = card(bridge.speakerLabel('plan'), `<p><b>${S.title}</b> — concluído com auto-avaliação <b style="color:var(--green)">${ev.score}/100</b>${M.retries ? `, depois de ${M.retries} correcção(ões) feita(s) por mim` : ''}.</p><ul>${S.done.map((x: string) => `<li>${x}</li>`).join('')}</ul>${ass.length ? `<p><span class="tag warn">pressuposto a rever</span> ${ass.map((a: any) => a.q + ' → <b>' + a.choice + '</b>').join('; ')}</p>` : ''}<p style="color:var(--fg-dim)">${M.decs.length} decisões registadas · ${M.files.size} ficheiro(s) alterado(s).</p><div class="gate"><button class="gb" onclick="goPane('scm')">Ver alterações</button><button class="gb" onclick="openManager()">Registo de decisões</button></div>`);
-      const doC = bridge.monolith.mode === 'auto' ? 1 : await ask(d.bd, [{ l: 'Fazer commit', v: 1, pri: 1, done: '✓ commit aprovado por ti' }, { l: 'Deixar por commitar', v: 0, done: 'fica por commitar' }]);
-      if (doC) { const staged = bridge.staged(); staged.clear(); M.files.forEach((p: string) => { if (bridge.stOf(p)) staged.add(p); }); const k = bridge.commitGit(S.commit); if (k) d.bd.insertAdjacentHTML('beforeend', `<p>Commit <code>${k.h}</code> ${bridge.monolith.mode === 'auto' ? 'feito automaticamente' : 'feito'}: <code>${esc(S.commit)}</code>. O <code>git push</code> fica contigo — exige sempre aprovação humana.</p>`); }
-      await bridge.gfAsk(d.bd, M); M.state = 'concluída'; bridge.note('Missão concluída: ' + S.title + ' (' + ev.score + '/100)');
-    }
-  } catch (e: any) { if (e !== bridge.stopSignal()) { console.error(e); card('sistema', 'Erro inesperado: ' + esc(e.message || e)); } else card('co-dev', 'Execução parada a teu pedido. O que já foi alterado continua nos ficheiros; podes restaurar o checkpoint inicial no Gestor de missões.'); M.state = e === bridge.stopSignal() ? 'parada' : 'erro'; }
-  finally { bridge.monolith.author = 'w'; M.dur = Math.round((Date.now() - M.t0) / 1000); runState(false); bridge.refresh(); scrollMsgs(); }
-};
-/* publica os `function …` do motor de missões (runMission é window.* acima) */
-Object.assign(window, { dec, decideQ, council, execSteps, evaluate, reflect });
+/* publica o motor Co-Dev (já ligado em ./codev/index.ts) no window; os onclick inline,
+   o resíduo app.ts e features/board.ts resolvem-nos por global */
+Object.assign(window, {
+  doTool: codevEngine.doTool,
+  runMission: codevEngine.runMission,
+  dec: codevEngine.dec,
+  decideQ: codevEngine.decideQ,
+  council: codevEngine.council,
+  execSteps: codevEngine.execSteps,
+  evaluate: codevEngine.evaluate,
+  reflect: codevEngine.reflect,
+  demo,
+});
 
-/* ───── conversa livre: Claude ao vivo com ferramentas sobre o workspace ───── */
+/* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
 function handlePrompt(q: string) {
   if (bridge.run().active) { bridge.toast('Há uma execução em curso — pára-a ou espera'); return; } focusAgent(true);
   if (q === '/test' || q === '/lint') { user(q); const r = bridge.runTask(q === '/test' ? 'cargo test' : 'dx lint'); card('co-dev', `<code>${q === '/test' ? 'cargo test' : 'dx lint'}</code> → ${r && r.ok ? '✓' : '✖'} ${esc(r ? r.sum : '')}`); return; }
-  const S = SCN_().find((s: any) => s.match.test(q)); if (S) window.runMission(S, q); else liveChat(q);
+  const S = SCN_().find((s: any) => s.match.test(q)); if (S) window.runMission(S, q); else codevEngine.liveChat(q);
 }
 function agSend() { const i = $('#ag-input') as HTMLInputElement, q = i.value.trim(); if (!q) return; i.value = ''; handlePrompt(q); }
-async function liveChat(q: string) {
-  user(q); const PROV = bridge.providers(); const P = PROV[bridge.monolith.activeProvider];
-  if (!P.on) { card('sistema', `<b>${P.name}</b> está desligado. Liga-o nas Definições ou escolhe outro modelo.`); return; }
-  if (bridge.monolith.activeProvider !== 'claude' && !bridge.isDesktop()) { card('sistema', `<b>${P.name}</b> está <b>simulado</b> neste protótipo: a página não pode chamar ${esc(P.ep)}. Para uma resposta real muda para Claude, ou corre uma missão guionada:${demoChips}`); return; }
-  const sampleFn = bridge.sample();
-  if (!sampleFn) { card('sistema', `A ligação ao vivo ao Claude não está disponível nesta vista. As missões guionadas funcionam na mesma:${demoChips}`); return; }
-  const t = bridge.tabOf(bridge.monolith.currentTabId), fs = bridge.files(), af = bridge.monolith.contextEnabled && t && t.path && fs[t.path] ? t.path : null;
-  const sys = `És o Co-Dev do dxtutor IDE: um co-programador sénior que entende requisitos, arquitectura, design system, padrões de projecto e base de dados. Trabalhas orientado por um programador humano.
-Modo de autonomia actual: ${MODES[bridge.monolith.mode].l}. Em modo Manual as tuas edições e comandos podem ser rejeitados pelo humano.
-Tens ferramentas para listar, ler e escrever ficheiros do workspace, correr os testes e o lint do Design System. Lê antes de editar. write_file recebe o conteúdo COMPLETO do ficheiro. Depois de editar, corre run_tests e design_lint, avalia o teu próprio resultado e corrige se falhar (no máximo 2 tentativas).
-Responde em português (ortografia pré-AO90), de forma curta e concreta. Usa markdown simples.
-
-Regras do projecto:
-${fs[bridge.root() + '.dxtutor/regras.md'] ? fs[bridge.root() + '.dxtutor/regras.md'].content : ''}
-Ficheiros do workspace:
-${Object.keys(fs).map(bridge.shortPath).join('\n')}
-${af ? `\nFicheiro activo (${bridge.shortPath(af)}):\n${fs[af].content.slice(0, 6000)}` : ''}`;
-  const chat = bridge.chat(); chat.push({ role: 'user', content: q }); const sysA = sys + bridge.agentSys(); const msgs = chat.slice(-9).map(m => ({ ...m })); while (msgs.length && msgs[0].role !== 'user') msgs.shift(); msgs[0].content = sysA + '\n\n———\n\n' + msgs[0].content;
-  const agents = bridge.agents(); const c = card(agents[bridge.monolith.activeAgent].n.toLowerCase() + ' · claude ao vivo', '<span class="spin"></span> a pensar…'); runState(true, 'Claude ao vivo'); bridge.run().abort = new AbortController();
-  const tools = [
-    { name: 'list_files', description: 'Lista os caminhos de todos os ficheiros do workspace.', inputSchema: { type: 'object', properties: {} }, execute: async () => { tl(c.tools, 'list_files', ''); return Object.keys(bridge.files()).map(bridge.shortPath); } },
-    { name: 'read_file', description: 'Lê o conteúdo de um ficheiro do workspace.', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }, execute: async ({ path }: { path: string }) => { const p = bridge.normalizePath(path); const f = bridge.files(); if (!f[p]) throw new Error('ficheiro não existe: ' + path); tl(c.tools, 'read_file', bridge.shortPath(p)).querySelector('.tr')!.innerHTML = '<span class="okc">✓</span>'; return f[p].content; } },
-    { name: 'write_file', description: 'Cria ou substitui um ficheiro com o conteúdo completo indicado. Pode exigir aprovação humana.', inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] }, execute: async ({ path, content }: { path: string; content: string }) => { bridge.harnessCheck(bridge.normalizePath(path)); const ok = await window.doTool({ t: 'edit', p: bridge.normalizePath(path), content: String(content) }, c.tools, 'plan'); if (!ok) throw new Error('edição rejeitada pelo humano'); return 'ok'; } },
-    { name: 'run_tests', description: 'Corre cargo test. Parâmetro opcional package: "lexer" ou "store".', inputSchema: { type: 'object', properties: { package: { type: 'string' } } }, execute: async (i: { package?: string }) => { bridge.harnessCmd('cargo test'); const r = await window.doTool({ t: 'run', cmd: 'cargo test' + (i && i.package ? ' -p ' + i.package : '') }, c.tools) as { ok: boolean; sum?: string } | null; return r ? r.sum : 'o humano não autorizou o comando'; } },
-    { name: 'design_lint', description: 'Corre o lint do Design System (cores fixas fora dos tokens).', inputSchema: { type: 'object', properties: {} }, execute: async () => { bridge.harnessCmd('dx lint'); const r = await window.doTool({ t: 'run', cmd: 'dx lint' }, c.tools) as { ok: boolean; sum?: string } | null; return r ? r.sum : 'o humano não autorizou o comando'; } },
-    { name: 'delegate_task', description: 'Delega um conjunto de alterações de ficheiros a um executor isolado (git worktree de HEAD) e devolve o diff para revisão, SEM tocar na árvore de trabalho. Usa quando queres propor várias edições de uma vez para o humano rever como patch. input: writes = lista de [caminho, conteúdo].', inputSchema: { type: 'object', properties: { writes: { type: 'array' } }, required: ['writes'] }, execute: async ({ writes }: { writes: any[] }) => { const delegate = bridge.delegateIsolated(); if (!delegate) return 'delegação isolada indisponível nesta vista (precisa do app desktop com pasta aberta)'; const w: [string, string][] = (writes || []).map((x: any) => Array.isArray(x) ? [String(x[0]), String(x[1])] : [String(x.path), String(x.content)]); const st = await delegate(w); tl(c.tools, 'delegate_task', st.status); return st.status === 'done' ? ('patch isolado (worktree de HEAD):\n' + st.patch) : ('falhou: ' + (st.error || st.status)); } }];
-  try {
-    const r = await sampleFn(msgs, { tools, signal: bridge.run().abort!.signal, cache: false, onText: ({ text }) => { c.bd.innerHTML = md(text); scrollMsgs(); } });
-    c.bd.innerHTML = md(r.text || '(sem texto)'); chat.push({ role: 'assistant', content: r.text || '' }); bridge.monolith.liveOk = true; bridge.trackUsage('claude', Math.round((sys.length + q.length + (r.text || '').length) / 4));
-  } catch (e: any) { chat.pop(); const code = e && e.code; c.bd.innerHTML = bridge.run().stop || e === bridge.stopSignal() ? 'Resposta interrompida.' : code === 'not_granted' ? 'O acesso ao Claude não foi autorizado nesta página. As missões guionadas continuam disponíveis.' : code === 'rate_limited' ? 'Limite de pedidos atingido — tenta daqui a pouco.' : 'Não consegui obter resposta do Claude (' + esc((e && e.message) || code || 'erro') + ').'; }
-  finally { runState(false); bridge.refresh(); ctxPill(); scrollMsgs(); }
-}
 
 /* ───── posicionamento do painel ───── */
 window.renderAgentView = (_t, host) => { host.innerHTML = `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Co-Dev</div><button class="ac-dock" onclick="assistantDock()">${svg('dock-right')} Fixar à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`; $('#agent-slot')!.appendChild($('#ag-body')!); bridge.setVar('--agent-w', '0px'); $('#tgl-agent')!.classList.remove('on'); scrollMsgs(); };
@@ -301,8 +138,8 @@ function assistantDock() { bridge.closeTab('agent'); }
 function toggleAgent() { if (bridge.tabOf('agent')) { bridge.closeTab('agent'); return; } const show = bridge.getVar('--agent-w') === '0px'; bridge.setVar('--agent-w', show ? '380px' : '0px'); $('#tgl-agent')!.classList.toggle('on', show); }
 function toggleAgentOn() { focusAgent(); }
 function focusAgent(nofocus?: boolean) { if (bridge.tabOf('agent')) { if (bridge.monolith.currentTabId !== 'agent') bridge.show('agent'); } else if (bridge.getVar('--agent-w') === '0px') toggleAgent(); if (!nofocus) ($('#ag-input') as HTMLElement)!.focus(); }
-/* publica o motor de conversa livre + posicionamento; VIEW.agent fica como shim em app.ts (VIEW nasce depois) */
-Object.assign(window, { handlePrompt, agSend, liveChat, assistantCenter, assistantDock, toggleAgent, toggleAgentOn, focusAgent });
+/* publica o ponto de entrada de conversa livre + posicionamento; VIEW.agent fica como shim em app.ts (VIEW nasce depois) */
+Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, assistantCenter, assistantDock, toggleAgent, toggleAgentOn, focusAgent });
 
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
 window.renderWelcomePage = (_t, host) => {

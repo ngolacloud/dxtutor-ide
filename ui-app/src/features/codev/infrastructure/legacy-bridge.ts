@@ -69,6 +69,7 @@ export const backlog = (): { issues: any[] } => window.BL;
 export const stages = (): Array<[string, string]> => window.STAGES;
 export const studioDesign = (): { nodes: Array<{ st: string }> } => window.SD;
 export const themes = (): Record<string, Record<string, string>> => window.THEMES;
+export const modes = (): Record<string, { l: string; d: string }> => G.MODES;
 export const commands = (): Array<[string, string, () => unknown]> => G.CMD;
 export const usage = (): Record<string, { calls: number; tok: number }> => G.USAGE;
 export const panes = (): Record<string, () => void> => G.RP;

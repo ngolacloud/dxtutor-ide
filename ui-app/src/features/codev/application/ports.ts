@@ -1,0 +1,304 @@
+/* ═══════════ Co-Dev — application ports (ADR-0002, Phase 3) ═══════════
+   The use cases in this folder (`run-mission`, `tool-executor`, `live-chat`)
+   depend ONLY on `domain/` and on the interfaces declared here. They never
+   touch the DOM, `window`, Tauri or the legacy bridge — those are supplied, at
+   composition time (`../index.ts`), by adapters over `infrastructure/
+   legacy-bridge.ts` (for workspace/terminal/scm/…) and over `ui/chat-view.ts`
+   (for the presenter and the approval gate).
+
+   This is what makes the engine testable with fakes: give a fake `Workspace`,
+   a fake `MissionPresenter` and a fake `ApprovalGate` and the mission runs with
+   no browser. The dependency rule points inward: ports import `domain/`, never
+   the other way round.
+
+   `throw STOP` becomes `AbortSignal`: every long-running use case receives a
+   `signal`; `beat()` and the live sampler observe `signal.aborted`. (The gate
+   cancellation and the thrown STOP sentinel stay as they are because the same
+   low-level helpers — `window.doTool`/`ask`/`beat`/`runState` — are shared with
+   `features/board.ts`, a separate feature not covered by this ADR; see
+   `../index.ts`.) */
+
+import type {
+  Mode,
+  Decision,
+  CheckResult,
+  Question,
+  Candidate,
+  Step,
+  Requirement,
+  FileEntry,
+} from "../domain/types";
+
+/* ───────── infrastructure-shaped values the use cases pass around ───────── */
+
+/** A provider card as the council/live-chat read it (colour, name, on-state). */
+export interface ProviderInfo {
+  name: string;
+  model: string;
+  on: boolean;
+  col: string;
+  ep: string;
+  local?: boolean;
+}
+
+/** One running tool call, as the agent constructs it (richer than the domain's
+ *  `ToolCall`, which only carries what the policy needs). */
+export interface RuntimeTool {
+  t: "read" | "edit" | "run";
+  p?: string;
+  cmd?: string;
+  make?: (old: string) => string;
+  content?: string;
+}
+
+/** A mission's mutable runtime record. The engine pushes decisions, files and
+ *  state transitions onto it; the manager page reads it back. Kept loose (`any`
+ *  fields) because its shape is the monolith's, not something this ADR fixes. */
+export interface Mission {
+  id: number;
+  title: string;
+  mode: Mode;
+  state: string;
+  score: number | null;
+  t0: number;
+  decs: Decision[];
+  retries: number;
+  files: Set<string>;
+  ck0?: number;
+  councilDec?: Decision;
+  dur?: number;
+}
+
+/* ───────── opaque DOM handles (tokens the use cases pass back to the view) ─────────
+   The use cases never read or build markup off these; they only hold them and
+   hand them back to presenter methods. Concretely they are elements, but the
+   application layer treats them as opaque. */
+export type ToolHost = unknown;
+export type ToolRef = unknown;
+export type CardRef = { readonly tools: ToolHost; readonly body: ToolHost };
+
+export interface ClarifyHandle {
+  draw(pick: number | null, clickable: boolean): void;
+  awaitPick(): Promise<number>;
+  foot(by: string, status: string, basis: string): void;
+}
+
+export interface PlanHandle {
+  readonly card: CardRef;
+  stepStart(i: number, label: string): void;
+  stepDone(i: number, ok: boolean, secs: number): void;
+  progress(i: number, n: number): void;
+}
+
+export interface CouncilHandle {
+  readonly card: CardRef;
+  candidate(c: { L: string; prov: string; title: string; sum: string }, info: ProviderInfo): ToolRef;
+  score(candEl: ToolRef, tot: number, sc: Record<string, number>): void;
+  markBest(candEl: ToolRef): void;
+  foot(by: string): void;
+}
+
+/* ───────── workspace / terminal / providers / scm / checkpoints ───────── */
+
+export interface Workspace {
+  files(): Record<string, FileEntry>;
+  write(path: string, content: string): void;
+  diffStat(old: string | null, nw: string): { add: number; del: number };
+  shortPath(p: string): string;
+  normalizePath(p: string): string;
+  openDiff(p: string, a: string, b: string, label: string): void;
+  openTab(tab: { id: string; title?: string; kind?: string; path?: string }, activate?: boolean): void;
+  root(): string;
+}
+
+export interface Terminal {
+  exec(cmd: string): { ok: boolean; sum?: string } | undefined;
+}
+
+export interface ProviderGateway {
+  providers(): Record<string, ProviderInfo>;
+  connected(): string[];
+  activeProvider(): string;
+  provFor(role: string): string;
+  trackUsage(key: string, tok: number): void;
+  speakerLabel(role: string): string;
+  agentSys(): string;
+  activeAgentName(): string;
+  isDesktop(): boolean;
+  sample(): Sampler | null;
+}
+
+export interface Scm {
+  gfStart(kind: string, name: string): string;
+  gfAsk(host: ToolHost, m: Mission): Promise<void>;
+  commit(msg: string): { h: string; n: number } | null;
+  staged(): Set<string>;
+  isTracked(p: string): boolean;
+  setAuthor(a: string): void;
+}
+
+export interface Checkpoints {
+  create(label: string): number;
+  restore(id: number, silent?: boolean): void;
+}
+
+/** The passage of time, as the engine sees it: `now()` for durations and
+ *  `beat(ms, signal)` for the paced waits between tool calls. `beat` observes
+ *  `signal.aborted` (the AbortSignal path) and the shared `RUN.stop`/pause
+ *  state; it throws the STOP sentinel to unwind a stopped run. */
+export interface Clock {
+  now(): number;
+  beat(ms: number, signal: AbortSignal): Promise<void>;
+}
+
+/** Everything a live-chat tool needs to delegate edits to an isolated worktree. */
+export interface Harness {
+  check(path: string): void;
+  cmd(cmd: string): void;
+  delegate(): ((writes: [string, string][]) => Promise<{ status: string; patch?: string; error?: string }>) | undefined;
+}
+
+export interface Notifier {
+  log(tag: string, msg: string): void;
+  note(msg: string): void;
+  toast(msg: string): void;
+}
+
+/* ───────── live sampler (Claude ao vivo) ───────── */
+export interface SampleMsg {
+  role: string;
+  content?: unknown;
+}
+export interface SampleOpts {
+  tools?: unknown[];
+  signal?: AbortSignal | null;
+  onText?: (x: { text: string }) => void;
+  cache?: boolean;
+}
+export interface SampleResult {
+  text?: string;
+  [k: string]: unknown;
+}
+export type Sampler = (input: string | SampleMsg[], o?: SampleOpts) => Promise<SampleResult>;
+
+/* ───────── chat / live-chat state ───────── */
+export interface ChatStore {
+  messages(): { role: string; content: string }[];
+  activeTabPath(): string | null;
+}
+
+/* ═══════════ presentation ports ═══════════
+   The view owns every byte of HTML and all DOM/run-control side-effects. Each
+   method mirrors a chunk that was inline in the old engine; the use cases call
+   them with plain data and hold the returned handles. */
+
+export interface MissionPresenter {
+  /* general transcript + run control */
+  scrollMsgs(): void;
+  userMessage(text: string): void;
+  isRunning(): boolean;
+  beginRun(label: string): void;
+  endRun(): void;
+  setMissionContext(m: Mission | null): void;
+  startAbort(): AbortSignal;
+  setLabel(label: string): void;
+  trackFile(path: string): void;
+  phase(n: number, label: string): void;
+  revealTerminal(): void;
+  /** The shared stop sentinel (`window.STOP`); thrown to unwind a mission the
+   *  human stopped, and compared against in `runMission`'s catch. Shared with
+   *  `features/board.ts`, so it stays a value rather than an `AbortError`. */
+  stopValue(): unknown;
+
+  /* tool lines */
+  toolLine(host: ToolHost, name: string, arg: unknown): ToolRef;
+  toolOk(ref: ToolRef): void;
+  toolNoChange(host: ToolHost, shortPath: string): void;
+  toolEdit(host: ToolHost, o: { create: boolean; shortPath: string; add: number; del: number; onDiff: () => void }): ToolRef;
+  toolRun(host: ToolHost, cmd: string): ToolRef;
+  toolRunResult(ref: ToolRef, ok: boolean, sum: string): void;
+
+  /* mission cards */
+  systemNoProvider(): void;
+  scenarioReady(msg: string): void;
+  understandStart(speaker: string): CardRef;
+  understandDone(ref: CardRef, understand: string, reqs: Requirement[]): void;
+  clarify(speaker: string, q: Question, showLowConf: boolean, pct: number): ClarifyHandle;
+  councilCard(speaker: string, count: number): CouncilHandle;
+  plan(speaker: string, title: string, steps: Step[]): PlanHandle;
+  evalCard(speaker: string, again: boolean): CardRef;
+  evalResult(ref: CardRef, o: { score: number; ok: boolean; res: CheckResult[]; threshold: number }): void;
+  reflectCard(speaker: string, o: { score: number; threshold: number; fails: CheckResult[]; sw: boolean }): CardRef;
+  blocked(speaker: string, score: number, threshold: number, fails: CheckResult[]): void;
+  deliver(speaker: string, o: DeliverView): CardRef;
+  commitConfirm(ref: CardRef, hash: string, mode: Mode, commitMsg: string): void;
+  missionError(msg: string): void;
+  missionStopped(): void;
+
+  /* live chat */
+  providerOff(name: string): void;
+  providerSimulated(name: string, ep: string): void;
+  liveUnavailable(): void;
+  thinking(speaker: string): CardRef;
+  assistantText(ref: CardRef, text: string): void;
+  liveError(ref: CardRef, aborted: boolean, code: string | undefined, msg: string): void;
+  refreshCtx(): void;
+}
+
+export interface DeliverView {
+  title: string;
+  score: number;
+  retries: number;
+  done: string[];
+  assumptions: { q: string; choice: string }[];
+  decCount: number;
+  fileCount: number;
+}
+
+/** The approval gate: the human say-so on edits, commands, plans and council
+ *  picks. Backed by `window.ask` (shared with board.ts), so its cancellation
+ *  stays on the legacy `RUN.pend` path rather than taking a signal. */
+export interface ApprovalGate {
+  ask<T>(host: ToolHost, btns: Array<{ l: string; v: T; pri?: unknown; done?: string }>): Promise<T>;
+}
+
+/* ───────── composed dependency bundles handed to the use cases ───────── */
+
+export interface ToolDeps {
+  workspace: Workspace;
+  terminal: Terminal;
+  providers: ProviderGateway;
+  notifier: Notifier;
+  presenter: MissionPresenter;
+  gate: ApprovalGate;
+  clock: Clock;
+  rules: import("../domain/policy").CommandRules;
+  mode(): Mode;
+}
+
+export interface MissionDeps extends ToolDeps {
+  scm: Scm;
+  checkpoints: Checkpoints;
+  missions: Mission[];
+  decisions: Decision[];
+  nextId(): number;
+  threshold(): number;
+  refresh(): void;
+  tool(t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal): Promise<unknown>;
+}
+
+export interface LiveDeps {
+  workspace: Workspace;
+  providers: ProviderGateway;
+  notifier: Notifier;
+  presenter: MissionPresenter;
+  harness: Harness;
+  chat: ChatStore;
+  modeLabel(): string;
+  projectRules(): string;
+  setLiveOk(): void;
+  refresh(): void;
+  tool: (t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal) => Promise<unknown>;
+}
+
+export type { Candidate };
