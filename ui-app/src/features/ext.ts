@@ -29,10 +29,9 @@
        `window.vsxFmt()` (=formatDoc), `window.vsxCmds()` (=extCmds). */
 
 import { $, hd, svg, esc } from "../core";
+import { type ExtItem, type ExsState, type ExtCmd, type VsixManifest } from "./ext/domain/types";
+import { sectionsFor } from "./ext/domain/policy";
 import {
-  type ExtItem,
-  type ExsState,
-  type ExtCmd,
   initExs,
   lsGet,
   lsSet,
@@ -102,21 +101,6 @@ function extRow(x: ExtItem){ const i=EXS.inst[x.id],col=`hsl(${[...x.id].reduce(
 /* ── VSIX: carregamento preguiçoso da lib de unzip + import do pacote. O corpo do
    carregador (document/window.JSZip) vive no bridge; aqui invoca-se o corrente. ── */
 publishJSZipLoader();
-/** Manifesto `package.json` de um VSIX (os campos que lemos; o resto ignora-se). */
-interface VsixManifest {
-  publisher: string;
-  name: string;
-  displayName?: string;
-  description?: string;
-  version?: string;
-  engines?: { vscode?: string };
-  activationEvents?: string[];
-  contributes?: {
-    keybindings?: Array<{ command?: string; key?: string }>;
-    commands?: Array<{ category?: string; title: string; command?: string }>;
-    configuration?: { properties?: Record<string, unknown> };
-  };
-}
 async function loadVsix(file: File){ hydrateExs(); try{const Z=await callLoadJSZip(),zip=await Z.loadAsync(file),pj=zip.file('extension/package.json');if(!pj)throw new Error('extension/package.json not found — is this a VSIX?');const m=JSON.parse(await pj.async('string')) as VsixManifest,id=`${m.publisher}.${m.name}`.toLowerCase(),kb=(m.contributes&&m.contributes.keybindings)||[];
   const x: ExtItem={id,n:m.displayName||m.name,pub:m.publisher||'unknown',d:m.description||'',ctx:[],vsix:1,ver:m.version,engines:(m.engines||{}).vscode,cmds:((m.contributes&&m.contributes.commands)||[]).map((c): ExtCmd=>[(c.category?c.category+': ':'')+c.title,(kb.find(k=>k.command===c.command)||{}).key||'']),cfg:Object.keys(((m.contributes||{}).configuration||{}).properties||{}).slice(0,20),act:(m.activationEvents||[]).slice(0,8)};
   EXS.vsix=EXS.vsix.filter(v=>v.id!==id);EXS.vsix.push(x);EXS.inst[id]={on:1};saveExt();rerExt();toast(`Installed ${x.n} ${x.ver||''} from VSIX`);openTab({id:'extd:'+id,title:x.n,kind:'extd',ext:id});}catch(e){toast('VSIX: '+(e as Error).message);} }
@@ -135,7 +119,8 @@ function formatDoc(){const t=tabOf(cur());if(!t||t.kind!=='file'||!t.path){toast
 /** Renderiza o pane «Extensions»: pesquisa, instaladas, recomendadas e catálogo. */
 function renderExtPane(){
   hydrateExs();
-  const el = $("#pane-ext"), cx = projectContext().map(c => c[0]), q = EXQ.toLowerCase(), f = (x: ExtItem) => !q || (x.n + x.id + x.d).toLowerCase().includes(q), inst = extAll().filter(x => EXS.inst[x.id] && f(x)), rec = EXT.filter(x => !EXS.inst[x.id] && f(x) && x.ctx.some(c => c === "all" || cx.includes(c))), rest = EXT.filter(x => !EXS.inst[x.id] && f(x) && !rec.includes(x));
+  const el = $("#pane-ext"), cx = projectContext().map(c => c[0]), q = EXQ.toLowerCase();
+  const { inst, rec, rest } = sectionsFor(extAll(), EXT, id => !!EXS.inst[id], cx, q);
   if (!el) return;
   el.innerHTML = hd("Extensions", `<button title="Install from VSIX…" onclick="$('#vsix-in').click()">${svg("plus")}</button>`) + `<div class="sections"><input class="inp" id="ex-q" placeholder="Search extensions in Open VSX" value="${esc(EXQ)}"><input type="file" id="vsix-in" accept=".vsix" style="display:none">
    <div class="scm-grp">Installed<span class="cnt">${inst.length}</span></div>${inst.map(extRow).join("") || '<div class="sec-empty">None.</div>'}

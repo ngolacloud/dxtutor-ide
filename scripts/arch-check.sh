@@ -167,25 +167,28 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fronteiras da Clean Architecture da feature Co-Dev (ADR-0002, Fase 5).
-# A feature extraída vive em ui-app/src/features/codev/ com camadas:
+# Fronteiras da Clean Architecture das features extraídas (ADR-0002).
+# Cada feature vive em ui-app/src/features/<f>/ com camadas:
 #   domain/          — puro (tipos, policy, scoring, scenarios); sem DOM/window/Tauri
 #   application/     — casos de uso (ports + motores); deps injectadas, sem HTML
 #   ui/              — markup/handlers (chat-view, actions)
 #   infrastructure/  — legacy-bridge.ts: ÚNICO ponto que toca `window.*`
 #   index.ts         — raiz de composição (liga adapters↔ui↔casos de uso)
-# O resíduo `features/codev.ts` (strangler, publica os shims window.*) está FORA
+# O resíduo strangler `features/<f>.ts` (publica os shims window.*) está FORA
 # desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
-CODEV=ui-app/src/features/codev
-BRIDGE="$CODEV/infrastructure/legacy-bridge.ts"
+# A7/A8 cobrem CADA feature nesta lista (codev + ext; a próxima acrescenta-se aqui).
+FEATURES="codev ext"
+FEAT_ROOT=ui-app/src/features
 
-echo "== A7 · domínio Co-Dev não importa application/ui/infrastructure =="
+echo "== A7 · domínio não importa application/ui/infrastructure =="
 # A regra do fluxo de dependências: domain/ é o centro e não conhece as camadas
 # de fora. Extraímos os especificadores de import/export-from/import() (pós-strip
 # de comentários, p/ não apanhar imports comentados) e reprovamos qualquer um cujo
 # caminho tenha um segmento application|ui|infrastructure.
 a7bad=""
-if [ -d "$CODEV/domain" ]; then
+for feat in $FEATURES; do
+  dom="$FEAT_ROOT/$feat/domain"
+  [ -d "$dom" ] || continue
   while IFS= read -r f; do
     specs=$(strip_comments "$f" \
       | grep -oE "(import|export|from|import\()[^\"']*[\"'][^\"']+[\"']" \
@@ -196,31 +199,34 @@ if [ -d "$CODEV/domain" ]; then
         a7bad="$a7bad$f -> $s"$'\n'
       fi
     done <<< "$specs"
-  done < <(find "$CODEV/domain" -name '*.ts')
-fi
+  done < <(find "$dom" -name '*.ts')
+done
 if [ -z "$a7bad" ]; then
-  pass "domain/ não importa application/ui/infrastructure"
+  pass "domain/ não importa application/ui/infrastructure ($FEATURES)"
 else
   bad "domain/ importa uma camada de fora (viola o fluxo de dependências):"
   printf '%s' "$a7bad" | sed 's/^/       /'
 fi
 
 echo "== A8 · window restrito a infrastructure/legacy-bridge.ts =="
-# Só o bridge pode tocar no global `window`. Varremos a subárvore da feature
-# (domain/application/ui/index.ts) menos o bridge e reprovamos qualquer `window`
-# que SOBREVIVA ao strip de comentários (= referência de código, não prosa).
+# Só o bridge pode tocar no global `window`. Varremos a subárvore de cada feature
+# (domain/application/ui/index.ts) menos o seu bridge e reprovamos qualquer
+# `window` que SOBREVIVA ao strip de comentários (= referência de código, não prosa).
 a8bad=""
-if [ -d "$CODEV" ]; then
+for feat in $FEATURES; do
+  base="$FEAT_ROOT/$feat"
+  bridge="$base/infrastructure/legacy-bridge.ts"
+  [ -d "$base" ] || continue
   while IFS= read -r f; do
-    [ "$f" = "$BRIDGE" ] && continue
+    [ "$f" = "$bridge" ] && continue
     hits=$(strip_comments "$f" | grep -nE '\bwindow\b')
     if [ -n "$hits" ]; then
       a8bad="$a8bad$f:"$'\n'"$(printf '%s' "$hits" | sed 's/^/         /')"$'\n'
     fi
-  done < <(find "$CODEV" -name '*.ts')
-fi
+  done < <(find "$base" -name '*.ts')
+done
 if [ -z "$a8bad" ]; then
-  pass "window só aparece (como código) em $BRIDGE"
+  pass "window só aparece (como código) em infrastructure/legacy-bridge.ts ($FEATURES)"
 else
   bad "window usado fora do bridge (deve passar por legacy-bridge.ts):"
   printf '%s' "$a8bad" | sed 's/^/       /'

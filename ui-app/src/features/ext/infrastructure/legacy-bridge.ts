@@ -17,38 +17,14 @@
    do bridge»). */
 
 import { toast, rerender } from "../../../core";
+import type { ExsState } from "../domain/types";
 export { toast, rerender };
 
 const G = window as unknown as Record<string, any>;
 
-/* ───── tipos do motor de extensões (donos da feature; cruzam a fronteira `window`) ───── */
-/** Uma entrada de comando: rótulo, atalho e (opcional) acção. Os comandos do catálogo
- *  com efeito trazem a acção; os do VSIX trazem só rótulo+atalho. */
-export type ExtCmd = [string, string, (() => void)?];
-
-/** Um item do catálogo (`EXT`) ou instalado por VSIX (`EXS.vsix`). */
-export interface ExtItem {
-  id: string;
-  n: string;
-  pub: string;
-  d: string;
-  ctx: string[];
-  bundled?: number;
-  eff?: string;
-  cmds?: ExtCmd[];
-  vsix?: number;
-  ver?: string;
-  engines?: string;
-  cfg?: string[];
-  act?: string[];
-}
-
-/** Estado instalado, window-backed (`window.EXS`): mapa id→{on} + lista de VSIX. */
-export interface ExsState {
-  inst: Record<string, { on: number | boolean }>;
-  vsix: ExtItem[];
-}
-
+/* ───── estado instalado, window-backed (`window.EXS`) ─────
+   As formas puras (`ExtItem`/`ExsState`/`ExtCmd`) vivem agora em `../domain/types`
+   (Fase 2); aqui só se toca no `window` que as transporta. */
 /** Estabelece (uma vez, no eval de `ext.ts`) e devolve `window.EXS` com os defaults,
  *  preservando o já existente. Eager de propósito: a rede de segurança lê `w.EXS`
  *  logo após o boot, sem render; a hidratação de `LS` é que fica preguiçosa em `ext.ts`. */
