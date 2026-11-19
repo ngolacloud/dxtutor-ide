@@ -1,26 +1,26 @@
-/* ═════════ dxtutor IDE — feature: Extensions + motor Open VSX (pane + engine) ═════════
-   Feature-folha que é DONA de todo o motor de extensões (padrão das sessões Debug e
-   SCM: inversão de direcção — o par render+motor, antes em `v6.ts`, mudou-se inteiro
-   para cá). Fase 1 da extracção (ADR-0002): o `@ts-nocheck` saiu e todo o acesso a
-   `window.*` passou para `ext/infrastructure/legacy-bridge.ts` — este ficheiro tipa-se
-   em estrito e já não nomeia `window`.
+/* ═════════ dxtutor IDE — feature `ext` (Open VSX): resíduo + raiz de composição ═════════
+   O resíduo strangler da feature `ext` (FORA de `features/ext/`, logo não governado
+   por A7/A8). Faz três coisas: (1) é a raiz de COMPOSIÇÃO que liga o bridge (infra) ao
+   motor (application) — constrói os adaptadores das portas e injecta-os em
+   `makeExtEngine`; (2) é DONO do DOM — `renderExtPane`, `renderExtd` (VIEW.extd),
+   `extRow` e o re-render `rerExt`; (3) publica a superfície pública no `window`.
 
-   Donos aqui: o catálogo `EXT`, o estado instalado `EXS`, `saveExt/extOn/extAll/
-   extCmds/extInstall/extRemove/extToggle/rerExt/extRow/loadVsix`, o formatador
-   `formatDoc`, o render do pane `renderExtPane` e o corpo do tab de detalhe
-   `renderExtd` (VIEW.extd). Do core importam-se só os helpers puros (`$`, `hd`, `svg`,
-   `esc`). Tudo o que é do monólito (CMD/RP/PANE/LS/FS/tabOf/cur/openTab/toast/refresh/
-   rerender/paintEd/extOf/projectContext/dxRun/dxStop/dxDeploy/runTask/openGraph/goPane/
-   doSearch/JSZip) resolve-se em runtime através do bridge (app.ts/v5/v6 avaliam DEPOIS
-   desta feature).
+   Fase 3 (ADR-0002): os casos de uso do motor — `extAll/extOn/extCmds/saveExt/
+   extInstall/extRemove/extToggle/loadVsix/formatDoc` — saíram daqui para
+   `ext/application/ext-engine.ts`, puros e com deps injectadas por porta
+   (`ext/application/ports.ts`). Este ficheiro deixou de os conter: só os COMPÕE (com
+   os adaptadores do bridge) e os RE-PUBLICA. Do core importam-se só os helpers puros
+   (`$`, `hd`, `svg`, `esc`). Tudo o que é do monólito resolve-se em runtime através do
+   bridge (app.ts/v5/v6 avaliam DEPOIS desta feature).
 
    Chaves do padrão (iguais a Debug/BPS):
    (1) estado mutável é window-backed — `EXS` vem de `bridge.initExs()` que estabelece
        `window.EXS` — porque os `onclick="…extToggle(…)/extInstall(…)/extRemove(…)/
-       loadVsix(…)"` inline resolvem no escopo GLOBAL ao clicar;
+       loadVsix(…)"` inline resolvem no escopo GLOBAL ao clicar; o motor muta esse
+       mesmo objecto através da porta `InstalledState` (`state.read()`);
    (2) nada de leitura global ANSIOSA no eval: `EXS` nasce com os defaults e hidrata de
-       `LS` PREGUIÇOSAMENTE (`hydrateExs`, guard-once nas entradas) — obrigatório porque
-       este módulo avalia antes de `app.ts` publicar `LS`;
+       `LS` PREGUIÇOSAMENTE (`hydrateExs`, guard-once dentro da porta `state.read()`) —
+       obrigatório porque este módulo avalia antes de `app.ts` publicar `LS`;
    (3) o corpo de `VIEW.extd` evalua-se tarde (VIEW só existe depois de app.ts), por
        isso fica como `renderExtd` publicado no window e v6 mantém o shim
        `VIEW.extd=(t,host)=>window.renderExtd(t,host)` (par de `RP.ext`);
@@ -29,8 +29,9 @@
        `window.vsxFmt()` (=formatDoc), `window.vsxCmds()` (=extCmds). */
 
 import { $, hd, svg, esc } from "../core";
-import { type ExtItem, type ExsState, type ExtCmd, type VsixManifest } from "./ext/domain/types";
+import { type ExtItem, type ExsState } from "./ext/domain/types";
 import { sectionsFor } from "./ext/domain/policy";
+import { makeExtEngine } from "./ext/application/ext-engine";
 import {
   initExs,
   lsGet,
@@ -82,28 +83,41 @@ const EXT: ExtItem[] = [
 const EXS: ExsState = initExs();
 let _exsHydrated = false;
 /** Funde o estado persistido de `LS` sobre `EXS` uma única vez. Preguiçoso porque
- *  este módulo avalia antes de app.ts publicar `LS`; chamado nas entradas públicas. */
+ *  este módulo avalia antes de app.ts publicar `LS`; chamado pela porta `state.read()`
+ *  (o motor só vê o `EXS` já hidratado). */
 function hydrateExs(){ if(_exsHydrated) return; _exsHydrated = true; try{ Object.assign(EXS, lsGet('ext6', {})); }catch{} }
-const saveExt = () => { lsSet('ext6', EXS); extCmds(); };
-const extOn = (id: string) => { hydrateExs(); return EXS.inst[id] && EXS.inst[id].on; };
 
 /** Filtro de pesquisa do pane «Extensions» — estado-folha, dono desta feature. */
 let EXQ = "";
 
-function extAll(): ExtItem[] { hydrateExs(); return EXT.concat(EXS.vsix); }
-function extCmds(){ hydrateExs(); const CMD=commands(); for(let i=CMD.length-1;i>=0;i--)if(CMD[i][3]==='ext')CMD.splice(i,1);extAll().filter(x=>extOn(x.id)).forEach(x=>(x.cmds||[]).forEach(c=>CMD.push([c[0],c[1],c[2]||(x.vsix?()=>toast(`${c[0]} runs in the desktop app's extension host`):x.eff==='prettier'?formatDoc:()=>{}),'ext']))); }
-function extInstall(id: string){ hydrateExs(); EXS.inst[id]={on:1};saveExt();toast('Installed '+(extAll().find(x=>x.id===id)||{n:id}).n);rerExt(); }
-function extRemove(id: string){ hydrateExs(); const x=extAll().find(e=>e.id===id);if(x&&x.bundled)return;delete EXS.inst[id];if(x&&x.vsix)EXS.vsix=EXS.vsix.filter(v=>v.id!==id);saveExt();rerExt(); }
-function extToggle(id: string){ hydrateExs(); EXS.inst[id].on=!EXS.inst[id].on;saveExt();rerExt(); }
+/* ── VSIX: o corpo do carregador (document/window.JSZip) vive no bridge; aqui só se
+   publica o CDN por omissão (desktop sobrepõe-no depois). ── */
+publishJSZipLoader();
+
+/* ── raiz de composição: liga os adaptadores do bridge (infra) às portas do motor
+   (application). O motor fica puro; o `window`/DOM ficam deste lado. ── */
+const engine = makeExtEngine({
+  catalogue: EXT,
+  state: { read: () => { hydrateExs(); return EXS; } },
+  storage: { save: s => lsSet("ext6", s) },
+  palette: { entries: () => commands() },
+  editor: {
+    files: () => files(),
+    current: () => cur(),
+    tabOf: id => tabOf(id),
+    extOf: p => extOf(p),
+    refresh: (...a: [boolean?, boolean?]) => refresh(...a),
+  },
+  tabs: { open: tab => openTab(tab) },
+  vsix: { load: () => callLoadJSZip() },
+  notifier: { toast: m => toast(m) },
+  rerender: () => rerExt(),
+});
+const { extAll, extOn, extCmds, saveExt, extInstall, extRemove, extToggle, loadVsix, formatDoc } = engine;
+
+/* ── re-render da UI de extensões (dono do DOM): injectado no motor como `rerender`. ── */
 function rerExt(){ if(pane()==='ext')panes().ext();rerender('extd');refresh(true);const t=tabOf(cur());if(t&&t.kind==='file'&&t.path)paintEd(t.path); }
 function extRow(x: ExtItem){ const i=EXS.inst[x.id],col=`hsl(${[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%360} 45% 45%)`;return `<div class="ex-row" onclick="openTab({id:'extd:${x.id}',title:'${esc(x.n)}',kind:'extd',ext:'${x.id}'})"><span class="ex-ic" style="background:${col}">${esc(x.n.charAt(0))}</span><div class="ex-t"><b class="notr">${esc(x.n)}</b><small class="notr">${esc(x.d)}</small><span class="notr">${esc(x.pub)}${x.vsix?' · VSIX':''}${x.bundled?' · bundled':''}</span></div>${i?(x.bundled?'':`<button class="mini" onclick="event.stopPropagation();extToggle('${x.id}')">${i.on?'Disable':'Enable'}</button>`):`<button class="mini pri" onclick="event.stopPropagation();extInstall('${x.id}')">Install</button>`}</div>`; }
-
-/* ── VSIX: carregamento preguiçoso da lib de unzip + import do pacote. O corpo do
-   carregador (document/window.JSZip) vive no bridge; aqui invoca-se o corrente. ── */
-publishJSZipLoader();
-async function loadVsix(file: File){ hydrateExs(); try{const Z=await callLoadJSZip(),zip=await Z.loadAsync(file),pj=zip.file('extension/package.json');if(!pj)throw new Error('extension/package.json not found — is this a VSIX?');const m=JSON.parse(await pj.async('string')) as VsixManifest,id=`${m.publisher}.${m.name}`.toLowerCase(),kb=(m.contributes&&m.contributes.keybindings)||[];
-  const x: ExtItem={id,n:m.displayName||m.name,pub:m.publisher||'unknown',d:m.description||'',ctx:[],vsix:1,ver:m.version,engines:(m.engines||{}).vscode,cmds:((m.contributes&&m.contributes.commands)||[]).map((c): ExtCmd=>[(c.category?c.category+': ':'')+c.title,(kb.find(k=>k.command===c.command)||{}).key||'']),cfg:Object.keys(((m.contributes||{}).configuration||{}).properties||{}).slice(0,20),act:(m.activationEvents||[]).slice(0,8)};
-  EXS.vsix=EXS.vsix.filter(v=>v.id!==id);EXS.vsix.push(x);EXS.inst[id]={on:1};saveExt();rerExt();toast(`Installed ${x.n} ${x.ver||''} from VSIX`);openTab({id:'extd:'+id,title:x.n,kind:'extd',ext:id});}catch(e){toast('VSIX: '+(e as Error).message);} }
 
 /* ── corpo do tab de detalhe (VIEW.extd) — publicado; v6 mantém o shim. ── */
 function renderExtd(t: { ext?: string }, host: HTMLElement){ hydrateExs(); const x=extAll().find(e=>e.id===t.ext);if(!x){host.innerHTML='<div class="empty">Extension removed.</div>';return;}const i=EXS.inst[x.id],live=({errorlens:'Diagnostics appear at the end of each line in the editor.',prettier:'Prettier: Format Document (Shift+Alt+F) trims trailing spaces, normalises indentation and the final newline.',yaml:'YAML files are validated: tabs, missing kind, and Deployments without resource requests show in Problems.'} as Record<string, string | undefined>)[x.eff??''];
@@ -112,9 +126,6 @@ function renderExtd(t: { ext?: string }, host: HTMLElement){ hydrateExs(); const
    <h2>In this prototype</h2><div class="adv ${live?'agent':'mix'}">${svg(live?'check':'bulb')}<div>${live||'Runs in the desktop app\'s VS Code–compatible extension host. Here its commands are listed in the palette but do not run.'}</div></div>
    ${x.cmds&&x.cmds.length?`<h2>Commands</h2><div class="tbl-wrap">${x.cmds.map(c=>`<div class="rowline"><span class="notr">${esc(c[0])}</span><span class="sp"></span>${c[1]?`<kbd>${esc(c[1])}</kbd>`:''}</div>`).join('')}</div>`:''}
    ${x.cfg&&x.cfg.length?`<h2>Settings</h2><div class="tbl-wrap">${x.cfg.map(c=>`<div class="rowline"><code class="notr">${esc(c)}</code></div>`).join('')}</div>`:''}${x.engines?`<div class="sub" style="margin-top:12px">Requires VS Code API <code>${esc(x.engines)}</code>.</div>`:''}</div>`; }
-
-/* ── formatador do «Prettier» (eff:'prettier' nos cmds + Shift+Alt+F no keydown de v6). ── */
-function formatDoc(){const t=tabOf(cur());if(!t||t.kind!=='file'||!t.path){toast('Open a file first');return;}const f=files()[t.path],ext=extOf(t.path),keepTabs=ext==='go'||/Makefile$/.test(t.path);let c=f.content.split('\n').map(l=>l.replace(/\s+$/,'')).map(l=>keepTabs?l:l.replace(/^\t+/,m=>'    '.repeat(m.length))).join('\n').replace(/\n*$/,'\n');if(c===f.content){toast('Already formatted');return;}f.content=c;refresh();toast('Formatted with Prettier');}
 
 /** Renderiza o pane «Extensions»: pesquisa, instaladas, recomendadas e catálogo. */
 function renderExtPane(){
