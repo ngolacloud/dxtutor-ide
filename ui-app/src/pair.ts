@@ -767,27 +767,27 @@ function toggleCam(): void {
 document.head.insertAdjacentHTML("beforeend", `<style>
 #pair-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;place-items:center;z-index:900}
 #pair-modal.on{display:grid}
-#pair-modal .pm{width:min(560px,92vw);background:var(--bg-2,#1e1f24);border:1px solid var(--line,#2b2d33);border-radius:12px;padding:18px 20px;box-shadow:0 18px 60px rgba(0,0,0,.5);color:var(--fg,#ddd)}
-#pair-modal h3{margin:0 0 4px;font-size:16px}#pair-modal .dim{color:var(--fg-muted,#8a8f9c);font-size:12px}
-#pair-modal textarea,#pair-modal input{width:100%;box-sizing:border-box;background:var(--bg,#16171b);color:inherit;border:1px solid var(--line,#2b2d33);border-radius:8px;padding:8px;font:12px var(--mono,monospace)}
+#pair-modal .pm{width:min(560px,92vw);background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:18px 20px;box-shadow:var(--sh-pop);color:var(--fg)}
+#pair-modal h3{margin:0 0 4px;font-size:16px}#pair-modal .dim{color:var(--fg-muted);font-size:12px}
+#pair-modal textarea,#pair-modal input{width:100%;box-sizing:border-box;background:var(--bg-input);color:inherit;border:1px solid var(--border);border-radius:8px;padding:8px;font:12px var(--font-mono)}
 #pair-modal textarea{height:74px;resize:none;word-break:break-all}
 #pair-modal .row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
 #pair-modal .tabs{display:flex;gap:6px;margin:12px 0}
-#pair-dock{position:fixed;right:16px;bottom:34px;width:272px;transition:left .15s,top .15s;background:var(--bg-2,#1e1f24);border:1px solid var(--line,#2b2d33);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.45);z-index:800;overflow:hidden;font-size:12px;color:var(--fg,#ddd)}
-#pair-dock .ph{display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:move;user-select:none;border-bottom:1px solid var(--line,#2b2d33)}
+#pair-dock{position:fixed;right:16px;bottom:34px;width:272px;transition:left .15s,top .15s;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;box-shadow:var(--sh-pop);z-index:800;overflow:hidden;font-size:12px;color:var(--fg)}
+#pair-dock .ph{display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:move;user-select:none;border-bottom:1px solid var(--border)}
 #pair-dock .ph b{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #pair-dock .vid{position:relative;height:190px;background:#0c0d10}
 #pair-dock video{width:100%;height:100%;object-fit:cover;display:block}
 #pair-dock #pair-self{position:absolute;right:6px;bottom:6px;width:76px;height:57px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:#000;object-fit:cover}
 #pair-dock .vl{position:absolute;left:6px;bottom:6px;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:5px}
-#pair-dock .nov{position:absolute;inset:0;display:grid;place-items:center;color:#8a8f9c;text-align:center;padding:10px}
+#pair-dock .nov{position:absolute;inset:0;display:grid;place-items:center;color:var(--fg-muted);text-align:center;padding:10px}
 #pair-dock .ctl{display:flex;gap:4px;padding:6px;flex-wrap:wrap}#pair-dock .ctl .mini{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#pair-dock .ask{padding:8px;background:rgba(224,138,91,.14);border-top:1px solid var(--line,#2b2d33)}
+#pair-dock .ask{padding:8px;background:var(--accent-soft);border-top:1px solid var(--border)}
 #pair-dock.min .vid,#pair-dock.min .ctl{display:none}
-.pair-badge{padding:1px 6px;border-radius:9px;font-size:10.5px;background:rgba(92,201,167,.18);color:#5cc9a7}
-.pair-badge.nav{background:rgba(110,168,255,.16);color:#6ea8ff}
-.pair-caret{position:absolute;left:0;right:0;border-left:2px solid #e08a5b;background:rgba(224,138,91,.08);pointer-events:none;z-index:3}
-.pair-caret span{position:absolute;right:6px;top:-1px;font-size:10px;background:#e08a5b;color:#fff;padding:0 5px;border-radius:0 0 4px 4px}
+.pair-badge{padding:1px 6px;border-radius:9px;font-size:10.5px;background:rgba(92,201,167,.18);color:var(--green)}
+.pair-badge.nav{background:rgba(110,168,255,.16);color:var(--blue)}
+.pair-caret{position:absolute;left:0;right:0;border-left:2px solid var(--accent-hover);background:var(--accent-soft);pointer-events:none;z-index:3}
+.pair-caret span{position:absolute;right:6px;top:-1px;font-size:10px;background:var(--accent-hover);color:var(--fg-bright);padding:0 5px;border-radius:0 0 4px 4px}
 .ed-ta.pair-ro{cursor:default}
 #st-pair{display:none}
 </style>`);
