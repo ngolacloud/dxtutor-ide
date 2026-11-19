@@ -11,6 +11,7 @@
     "build": "tauri build",
     "test": "cargo test --workspace",
     "ui:build": "tsc --noEmit -p ui-app/tsconfig.json && vite build --config ui-app/vite.config.ts",
+    "ui:test": "vitest run --config ui-app/vitest.config.ts",
     "arch:check": "bash scripts/arch-check.sh"
   },
   "dependencies": {
@@ -21,7 +22,9 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "jsdom": "^29.1.1",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^4.1.12"
   }
 }
