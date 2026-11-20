@@ -26,6 +26,9 @@
    diagnostics, dsLint, openTab) é contrato ambiente do monólito, lido por nome livre. */
 
 import { esc, svg, S, prov } from "../core";
+import type { Finding } from "./codereview/domain/types";
+import { reviewFindings as reviewRules } from "./codereview/domain/review";
+import { scoreFor } from "./codereview/domain/scoring";
 
 /* ───── Explain ───── */
 
@@ -73,43 +76,19 @@ function explainCmd(fromDebug?: boolean): void {
 
 /* ───── Code review ───── */
 
-interface Finding { l: number; sev: string; t: string; why: string; fix: string }
-
+/* Resíduo: colhe do mundo (FS/extOf/window.lexBug/LXL/dsLint) o que a regra pura
+   precisa e delega em `reviewRules` (domain). `lexer` só vai não-nulo para o
+   lexer-protótipo (P_LX); o `dsLint` já chega filtrado para este ficheiro. */
 function reviewFindings(p: string): Finding[] {
   const f = FS[p];
   if (!f) return [];
-  const ls = f.content.split('\n'), ext = extOf(p),
-    out: Finding[] = [],
-    add = (l: number, sev: string, t: string, why: string, fix: string) => out.push({ l, sev, t, why, fix }),
-    each = (re: RegExp, fn: (l: number, x: string) => void) => ls.forEach((x, i) => { if (re.test(x)) fn(i + 1, x); });
-  if (ext === 'rs') {
-    if (p === P_LX && window.lexBug()) add(window.LXL(/chars\.peek/), 'bug', 'Iterator used after being moved (E0382)', 'The <code>for</code> loop takes ownership of <code>chars</code>; the later <code>peek()</code> cannot use it.', 'Borrow it for the loop: <code>for c in chars.by_ref()</code>.');
-    each(/for \w+ in \w+\.clone\(\)/, l => add(l, 'bug', 'Loop iterates over a clone of the iterator', 'The original iterator never advances, so any check after the loop (like <code>peek()</code>) sees stale state.', 'Use <code>.by_ref()</code> to keep one cursor.'));
-    each(/\.unwrap\(\)/, l => { if (!/#\[test\]|tests\//.test(f.content.slice(0, 200)) && !/test/.test(p)) add(l, 'risk', 'unwrap() on a fallible value', 'Panics on bad input and takes the whole service down.', 'Return a typed error with <code>?</code> or map it.'); });
-    each(/SELECT .* LIMIT/, l => { if (!/ORDER BY/.test(ls[l - 1])) add(l, 'bug', 'LIMIT without ORDER BY', 'SQLite returns rows in whatever order is cheapest; “recent” lists become arbitrary.', 'Add <code>ORDER BY created_at DESC</code> and an index on (filter, order) columns.'); });
-  }
-  if (['ts', 'js', 'jsx'].includes(ext)) {
-    each(/innerHTML\s*=.*\$\{/, l => add(l, 'risk', 'User text interpolated into innerHTML', 'A title like <code>&lt;img src=x onerror=…&gt;</code> runs script in the app.', 'Escape the values or build nodes with <code>textContent</code>.'));
-    if (/await invoke/.test(f.content) && !/try\s*\{/.test(f.content)) add(ls.findIndex(x => /await invoke/.test(x)) + 1, 'risk', 'Backend call without error handling', 'If the command fails the section stays half-drawn and the promise rejection is unhandled.', 'Wrap in try/catch and render the error state the Design System requires.');
-    each(/:\s*any\b/, l => add(l, 'style', 'any disables type checking', 'Mistakes in this value will not be caught by tsc.', 'Give it a real type.'));
-  }
-  dsLint().filter(v => v.p === p).forEach(v => add(v.line, 'style', `Fixed colour ${v.hex}`, 'Breaks theming and the Design System rule §4.', 'Use a token, e.g. <code>var(--accent)</code>.'));
-  if (ext === 'sql') {
-    const idx = f.content.match(/CREATE INDEX[^;]*/g) || [];
-    each(/REFERENCES\s+(\w+)/, (l, x) => { const col = (x.match(/^\s*(\w+)/) || [])[1]; if (col && !idx.some(s => new RegExp('\\(\\s*' + col).test(s))) add(l, 'perf', `Foreign key ${col} has no index`, 'Cascade deletes and joins on this column scan the whole child table.', `<code>CREATE INDEX … ON …(${col})</code>.`); });
-  }
-  if (/Dockerfile$/.test(p)) {
-    if (!/^USER /m.test(f.content) && !/nonroot|unprivileged/.test(f.content)) add(1, 'risk', 'Container runs as root', "A compromise of the app is a compromise of the container's root.", 'Add a non-root <code>USER</code>.');
-    each(/^FROM \S+:latest/, l => add(l, 'risk', 'Unpinned base image', 'Builds change under you.', 'Pin a version or digest.'));
-    if (/COPY src/.test(f.content) && /cargo build/.test(f.content)) add(ls.findIndex(x => /COPY src/.test(x)) + 1, 'perf', 'Dependencies rebuild on every source change', 'Copying <code>src</code> before building invalidates the dependency layer.', 'Build dependencies with only <code>Cargo.toml</code>/<code>Cargo.lock</code> first, then copy <code>src</code>.');
-  }
-  if (/docker-compose\.yml$/.test(p)) each(/^      - [a-z][\w-]*$/, l => { if (/depends_on/.test(ls.slice(Math.max(0, l - 4), l).join(''))) add(l, 'risk', 'depends_on without a health condition', 'The app starts before its database accepts connections.', 'Use <code>condition: service_healthy</code>.'); });
-  if (/deploy\/k8s\/.*\.yaml$/.test(p)) {
-    if (/kind: Deployment/.test(f.content) && !/resources:/.test(f.content)) add(ls.findIndex(x => /kind: Deployment/.test(x)) + 1, 'risk', 'No resource requests or limits', 'The scheduler cannot place it well and one pod can starve the node.', 'Set <code>resources.requests</code> and <code>limits</code>.');
-    if (/stringData:/.test(f.content)) add(ls.findIndex(x => /stringData:/.test(x)) + 1, 'risk', 'Secret values in plain text in git', 'Anyone with repo access reads them.', 'Use SOPS, Sealed Secrets or an external secrets operator.');
-  }
-  const SEV_ORDER = ['bug', 'risk', 'perf', 'style'];
-  return out.sort((a, b) => SEV_ORDER.indexOf(a.sev) - SEV_ORDER.indexOf(b.sev));
+  return reviewRules({
+    path: p,
+    content: f.content,
+    ext: extOf(p),
+    lexer: p === P_LX ? { bug: window.lexBug(), peekLine: window.LXL(/chars\.peek/) } : null,
+    dsLint: dsLint().filter(v => v.p === p).map(v => ({ line: v.line, hex: v.hex })),
+  });
 }
 
 function reviewCmd(): void {
@@ -118,11 +97,10 @@ function reviewCmd(): void {
 }
 
 const SEVC: Record<string, string> = { bug: 'var(--red)', risk: 'var(--yellow)', perf: 'var(--blue)', style: 'var(--fg-muted)' };
-const SEV_PENALTY: Record<string, number> = { bug: 25, risk: 12, perf: 8, style: 3 };
 
 function renderCreviewView(tab: unknown, host: HTMLElement): void {
   const t = tab as { path: string };
-  const fs = reviewFindings(t.path), score = Math.max(0, 100 - fs.reduce((a, f) => a + SEV_PENALTY[f.sev], 0));
+  const fs = reviewFindings(t.path), score = scoreFor(fs);
   host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" onclick="openPath('${t.path}')">Open file</button>${SAMPLE && prov().claude.on ? `<button class="mini pri" onclick="focusAgent(true);liveChat('Review this file as a senior engineer: bugs first, then risks, performance and style. Cite line numbers.\\n'+FS['${t.path}'].content.slice(0,6000))">Deeper review with Claude</button>` : ''}</div>
    <div class="sub" style="margin-top:12px">Rule-based checks for correctness, security, performance and the project rules. They point at evidence; you decide what to change.</div>
    ${fs.length ? fs.map(f => `<div class="rv"><div class="rv-h"><span class="tag" style="color:${SEVC[f.sev]};border-color:${SEVC[f.sev]}">${f.sev}</span><b>${f.t}</b><span class="sp"></span><button class="lnk" onclick="openPath('${t.path}',${f.l})">line ${f.l}</button></div><div class="rv-b"><p>${f.why}</p><p><b>Suggested:</b> ${f.fix}</p></div></div>`).join('') : '<div class="adv agent" style="margin-top:16px">' + svg('check') + '<div>No findings from the rule set. That is not proof of correctness — the tests are.</div></div>'}</div>`;
