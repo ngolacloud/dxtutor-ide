@@ -30,6 +30,10 @@
 
 import { $, hd, svg, esc } from "../core";
 import type { Commit, GitState, Status, GraphLayout, Author, FlowKind } from "./scm/domain/types";
+import { computeGraphLayout } from "./scm/domain/graph";
+import { statusOf, listChanges } from "./scm/domain/status";
+import { resolveAuthor } from "./scm/domain/author";
+import { isFlow, slug } from "./scm/domain/gitflow";
 import {
   toast, log, rerender,
   files, agents, fIcon, short, rel,
@@ -51,17 +55,13 @@ const COMMITS: Array<{ h: string; m: string; n?: number }> = [
 ];
 publish({ GIT, LANE, STAGED, BRANCHES, COMMITS, BRANCH: "main", COMMIT_MSG: "", GSEL: null, AUTHOR: "w" });
 
-/* helpers locais (gémeos puros dos homónimos do monólito; ficam isolados na feature) */
-const slug = (s: string): string =>
-  String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+/* helper local (gémeo do monólito; isolado na feature) */
 const rid = (): string => Math.random().toString(16).slice(2, 9);
 
-/* ───── árvore de trabalho: estado por ficheiro e lista de alterações ───── */
-const stOf = (p: string): Status => {
-  const f = files()[p];
-  return !f || /\/learn\//.test(p) ? "" : f.orig == null ? "U" : f.content !== f.orig ? "M" : "";
-};
-const changes = (): string[] => Object.keys(files()).filter((p) => stOf(p)).sort();
+/* ───── árvore de trabalho: wrappers finos sobre o domínio puro, injectando o `FS`
+   (mantêm as assinaturas window que o golden e o monólito chamam) ───── */
+const stOf = (p: string): Status => statusOf(files()[p], p);
+const changes = (): string[] => listChanges(files());
 
 /* ───── git: DAG de commits, árvores por ramo, merge ───── */
 function gitInit(): void {
@@ -82,8 +82,7 @@ function gitInit(): void {
   setBranch("develop"); const l = $("#st-branch-l"); if (l) l.textContent = branch();
   COMMITS.length = 0; GIT.order.slice(0, 6).forEach((h) => COMMITS.push({ h, m: GIT.c[h].m }));
 }
-const authorOf = (a: string): Author =>
-  agents()[a] ? { n: agents()[a].n, col: agents()[a].col } : { n: a && a !== "w" ? a : "You", col: "#8a8f9c" };
+const authorOf = (a: string): Author => resolveAuthor(a, agents());
 
 /* commit v4 git-aware (actualiza o DAG, as árvores e as refs; aceita autor) */
 function commit(msg?: string, author?: string): { h: string; m: string; n: number } | null {
@@ -111,7 +110,6 @@ function gitMerge(src: string, author?: string): Commit | null {
   Object.keys(ts).forEach((p) => { if (ts[p] !== td[p] && ts[p] !== base[p]) { td[p] = ts[p]; mfiles.push(p); if (FS[p] && stOf(p)) FS[p].orig = ts[p]; else FS[p] = { content: ts[p], orig: ts[p] }; } });
   const h = rid(); GIT.c[h] = { h, m: `Merge ${src} em ${dst}`, p: [GIT.refs[dst], GIT.refs[src]], b: dst, a: author || "w", t: Date.now(), files: mfiles }; GIT.order.unshift(h); GIT.refs[dst] = h; GIT.base[src + ">" + dst] = { ...ts }; COMMITS.unshift({ h, m: GIT.c[h].m }); refresh(false, true); return GIT.c[h];
 }
-const isFlow = (b: string): boolean => /^(feature|fix|hotfix|release)\//.test(b);
 function gfStart(kind: FlowKind, name: string): string {
   if (branch() !== "develop" && kind !== "hotfix") checkout("develop"); if (kind === "hotfix" && branch() !== "main") checkout("main");
   const b = kind + "/" + slug(name); GIT.refs[b] ? checkout(b) : checkout(b, true); log("gitflow", `início de ${b} a partir de ${kind === "hotfix" ? "main" : "develop"}`); return b;
@@ -138,16 +136,7 @@ function drawTimeline(): void {
   const o = $("#timeline"); if (!o) return;
   o.innerHTML = GIT.order.slice(0, 6).map((h) => `<div class="s-hit" style="padding-left:16px" onclick="openGraph('${h}')"><span style="color:var(--accent-hover)">${h}</span><span>${esc(GIT.c[h].m)}</span></div>`).join("");
 }
-function graphLayout(): GraphLayout {
-  const lanes: (string | null)[] = [], rows: GraphLayout["rows"] = [], idx: Record<string, number> = {}; let max = 1;
-  GIT.order.forEach((h, i) => {
-    const c = GIT.c[h]; let col = lanes.indexOf(h); if (col < 0) { col = lanes.indexOf(null); if (col < 0) col = lanes.length; }
-    lanes.forEach((x, k) => { if (x === h) lanes[k] = null; }); lanes[col] = null; const pl: number[] = [];
-    c.p.forEach((ph, k) => { let l: number; if (k === 0) { l = col; lanes[col] = ph; } else { l = lanes.indexOf(ph); if (l < 0) { l = lanes.indexOf(null); if (l < 0) l = lanes.length; lanes[l] = ph; } } pl.push(l); });
-    idx[h] = i; rows.push({ h, col, pl }); max = Math.max(max, lanes.length, col + 1);
-  });
-  return { rows, idx, max };
-}
+const graphLayout = (): GraphLayout => computeGraphLayout(GIT);
 function openGraph(sel?: string): void { if (sel) setGraphSel(sel); openTab({ id: "graph", title: "Grafo de commits", kind: "graph" }); }
 
 /* ───── acções do pane Source Control ───── */
