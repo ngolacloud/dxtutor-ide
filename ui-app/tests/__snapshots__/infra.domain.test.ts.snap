@@ -1,0 +1,121 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`devcontainerJson > features + mounts + ports + postCreate derivados do contexto 1`] = `
+"{
+  "name": "dxtutor",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "minikube": "none"
+    }
+  },
+  "mounts": [
+    "source=/run/x.sock,target=/var/run/docker.sock,type=bind",
+    "source=\${localEnv:HOME}/.kube,target=/home/vscode/.kube,type=bind,readonly"
+  ],
+  "forwardPorts": [
+    8080,
+    5432
+  ],
+  "postCreateCommand": "cargo fetch && npm --prefix desktop install",
+  "remoteUser": "vscode",
+  "customizations": {
+    "dxtutor": {
+      "harness": ".dxtutor/harness.toml"
+    }
+  }
+}
+"
+`;
+
+exports[`k8sInfra / k8sDocs > manifestos do design (Deployment/Service para serviços, Secret p/ apps, Ingress) 1`] = `
+"# Local stand-ins for managed services, secrets for every app and the ingress.
+# For a real cloud, delete the stand-ins and point the secrets at the managed services.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: orders-db }
+  template:
+    metadata:
+      labels: { app: orders-db }
+    spec:
+      containers:
+        - name: orders-db
+          image: postgres:16
+          ports: [{ containerPort: 5432 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-db
+spec:
+  selector: { app: orders-db }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: cache }
+  template:
+    metadata:
+      labels: { app: cache }
+    spec:
+      containers:
+        - name: cache
+          image: redis:7
+          ports: [{ containerPort: 6379 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cache
+spec:
+  selector: { app: cache }
+  ports: [{ port: 6379, targetPort: 6379 }]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: web-env
+stringData:
+  PORT: "8080"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orders-api-env
+stringData:
+  PORT: "8080"
+  DATABASE_URL: "postgres://app:app@orders-db:5432/app"
+  REDIS_URL: "redis://cache:6379"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: web, port: { number: 80 } } }
+          - path: /orders-api
+            pathType: Prefix
+            backend: { service: { name: orders-api, port: { number: 80 } } }
+"
+`;

@@ -1,0 +1,214 @@
+import { describe, expect, it } from "vitest";
+import { projectContext, devcontainerJson, appEnv, k8sInfra, k8sDocs } from "../src/features/infra/domain/kubernetes";
+import { urlHosts, designApps, dbSlugs, localSecrets, deriveSecrets, secretCheck } from "../src/features/infra/domain/secrets";
+import { envDeps, envStateOf, envHealthOf, driftReport, commitsBetween } from "../src/features/infra/domain/environments";
+import { seeded, spark, buildObs, obsLine } from "../src/features/infra/domain/observability";
+import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "../src/features/infra/domain/constants";
+import type { Catalog, Design, DesignNode, Files, K8sState } from "../src/features/infra/domain/types";
+
+/* Testes unitários do domínio PURO da feature Infra (ADR-0002, Fase 2). Exercitam
+ * cada gerador/selector com uma fixture sintética de design + catálogo (sem DOM,
+ * sem window) — complementam o golden de caracterização (infra.golden.test.ts), que
+ * pina os mesmos contra o catálogo REAL do seed na cadeia integrada. */
+
+/* ───── fixture sintética: gateway → {web, api}; api → db(sql); cache ───── */
+const D: Design = {
+  nodes: [
+    { id: "gw", tech: "alb", n: "Gateway", x: 0, y: 0, st: "plan" },
+    { id: "web", tech: "react", n: "Web", x: 0, y: 0, st: "plan" },
+    { id: "api", tech: "axum", n: "Orders API", x: 0, y: 0, st: "plan" },
+    { id: "db", tech: "pg", n: "Orders DB", x: 0, y: 0, st: "plan" },
+    { id: "cache", tech: "redis", n: "Cache", x: 0, y: 0, st: "plan" },
+  ],
+  edges: [["gw", "web"], ["gw", "api"], ["api", "db"], ["api", "cache"]],
+};
+const slug = (n: DesignNode): string => n.n.toLowerCase().replace(/ /g, "-");
+const cat: Catalog = {
+  tech: {
+    alb: { kind: "gateway", port: 80, img: "alb:1" },
+    react: { kind: "web", port: 8080, img: "web:1" },
+    axum: { kind: "app", port: 8080, img: "api:1" },
+    pg: { kind: "sql", port: 5432, img: "postgres:16" },
+    redis: { kind: "cache", port: 6379, img: "redis:7" },
+  },
+  kind: {
+    gateway: {},
+    web: {},
+    app: {},
+    sql: { wire: (s) => [`DATABASE_URL: "postgres://app:app@${s}:5432/app"`], hc: true },
+    cache: { wire: (s) => [`REDIS_URL: "redis://${s}:6379"`] },
+  },
+  isApp: (n) => ["app", "web"].includes(cat.tech[n.tech].kind),
+  slug,
+};
+const node = (id: string): DesignNode => D.nodes.find((n) => n.id === id)!;
+
+describe("projectContext", () => {
+  it("detecta tecnologias pelos caminhos do FS", () => {
+    const files: Files = { "p/Cargo.toml": { content: "" }, "p/app.ts": { content: "" }, "p/db/migrations/1.sql": { content: "" }, "p/.dxtutor/regras.md": { content: "" } };
+    expect(projectContext(files)).toEqual([["rust", "Rust"], ["node", "TypeScript / Node"], ["sql", "SQL migrations"], ["rules", "Project rules"]]);
+  });
+  it("FS vazio → sem tecnologias", () => {
+    expect(projectContext({})).toEqual([]);
+  });
+});
+
+describe("devcontainerJson", () => {
+  it("features + mounts + ports + postCreate derivados do contexto", () => {
+    expect(devcontainerJson(["rust", "node"], [8080, 5432], "/run/x.sock")).toMatchSnapshot();
+  });
+  it("sem portas → forwardPorts 1420; sem rust/node → postCreate 'true'", () => {
+    const j = JSON.parse(devcontainerJson(["go"], [], "/s"));
+    expect(j.forwardPorts).toEqual([1420]);
+    expect(j.postCreateCommand).toBe("true");
+    expect(Object.keys(j.features)).toContain("ghcr.io/devcontainers/features/go:1");
+  });
+});
+
+describe("appEnv", () => {
+  it("PORT + wiring das arestas (sql/cache), dedup", () => {
+    expect(appEnv(node("api"), D, cat)).toEqual([
+      'PORT: "8080"',
+      'DATABASE_URL: "postgres://app:app@orders-db:5432/app"',
+      "REDIS_URL: \"redis://cache:6379\"",
+    ]);
+  });
+  it("app sem dependências não-gateway → só PORT", () => {
+    expect(appEnv(node("web"), D, cat)).toEqual(['PORT: "8080"']);
+  });
+});
+
+describe("k8sInfra / k8sDocs", () => {
+  it("manifestos do design (Deployment/Service para serviços, Secret p/ apps, Ingress)", () => {
+    expect(k8sInfra(D, cat)).toMatchSnapshot();
+  });
+  it("k8sDocs parseia o que k8sInfra gerou", () => {
+    const files: Files = { "p/deploy/k8s/all.yaml": { content: k8sInfra(D, cat) } };
+    const docs = k8sDocs(files);
+    expect(docs.filter((d) => d.k === "Deployment").map((d) => d.n).sort()).toEqual(["cache", "orders-db"]);
+    expect(docs.some((d) => d.k === "Ingress")).toBe(true);
+    expect(docs.some((d) => d.k === "Secret")).toBe(true);
+  });
+});
+
+describe("urlHosts", () => {
+  it("extrai o host de várias formas", () => {
+    expect(urlHosts("postgres://app:app@orders-db:5432/app")).toBe("orders-db");
+    expect(urlHosts("redis://cache:6379")).toBe("cache");
+    expect(urlHosts("http://orders-api")).toBe("orders-api");
+    expect(urlHosts("host:9324")).toBe("host");
+    expect(urlHosts("8080")).toBe(null);
+    expect(urlHosts("")).toBe(null);
+  });
+});
+
+describe("secrets (designApps / dbSlugs / localSecrets / deriveSecrets / secretCheck)", () => {
+  it("designApps = web + app; dbSlugs = sql/mssql", () => {
+    expect(designApps(D, cat.isApp).map(slug)).toEqual(["web", "orders-api"]);
+    expect(dbSlugs(D, cat)).toEqual(["orders-db"]);
+  });
+  it("localSecrets por app a partir das arestas", () => {
+    expect(localSecrets(D, cat)).toEqual({
+      web: { PORT: "8080" },
+      "orders-api": { PORT: "8080", DATABASE_URL: "postgres://app:app@orders-db:5432/app", REDIS_URL: "redis://cache:6379" },
+    });
+  });
+  it("deriveSecrets: staging torce credenciais/host; production esvazia (excepto PORT)", () => {
+    const L = localSecrets(D, cat), sec = deriveSecrets(L, dbSlugs(D, cat));
+    expect(sec.staging["orders-api"].DATABASE_URL).toBe("postgres://app:st4g1ng@orders-db:5432/app");
+    expect(sec.production["orders-api"].DATABASE_URL).toBe("");
+    expect(sec.production["orders-api"].PORT).toBe("8080");
+  });
+  it("secretCheck: chaves em falta e vazias", () => {
+    const L = localSecrets(D, cat);
+    const S = { web: { PORT: "8080" }, "orders-api": { PORT: "", DATABASE_URL: "x" } };
+    expect(secretCheck(L, S)).toEqual({ miss: ["orders-api.REDIS_URL"], empty: ["orders-api.PORT"] });
+  });
+});
+
+describe("environments (envDeps / envStateOf / envHealthOf / driftReport)", () => {
+  const k8s: K8sState = {
+    docs: [
+      { k: "Deployment", n: "orders-db", file: "f", rep: 1, img: "postgres:16" },
+      { k: "Deployment", n: "cache", file: "f", rep: 1, img: "redis:7" },
+      { k: "Ingress", n: "gateway", file: "f", rep: 1 },
+    ],
+    deps: [{ n: "orders-db", rep: 1, ready: 1 }, { n: "cache", rep: 1, ready: 1 }],
+    ver: "dev1", at: 0,
+  };
+  it("envDeps local: todos ok quando os segredos resolvem", () => {
+    const deps = envDeps("local", k8s, {}, D, slug);
+    expect(deps.every((d) => d.status === "ok")).toBe(true);
+    expect(deps.map((d) => d.n)).toEqual(["orders-db", "cache"]);
+  });
+  it("envDeps: segredo vazio → crash 'is required'; host inexistente → crash de DNS", () => {
+    const sec = { "orders-db": { DATABASE_URL: "" }, cache: { REDIS_URL: "redis://nowhere:6379" } };
+    const deps = envDeps("staging", k8s, sec, D, slug);
+    expect(deps.find((d) => d.n === "orders-db")!.err).toBe("DATABASE_URL is required");
+    expect(deps.find((d) => d.n === "cache")!.err).toMatch(/Name or service not known \(nowhere\)/);
+  });
+  it("envStateOf local lê o cluster; envHealthOf reflecte o crash", () => {
+    const deps = envDeps("local", k8s, {}, D, slug);
+    const s = envStateOf("local", k8s, {}, deps);
+    expect(s!.ver).toBe("dev1");
+    expect(s!.ingress).toBe(true);
+    expect(envHealthOf(s)).toBe("ok");
+    expect(envHealthOf(null)).toBe("off");
+    expect(envHealthOf({ deps: [{ n: "x", rep: 1, ready: 0, status: "crash", err: "e", restarts: 6 }], ingress: true })).toBe("bad");
+  });
+  it("driftReport: sync/behind/drift/missing conforme versão e réplicas", () => {
+    const deps = envDeps("local", k8s, {}, D, slug);
+    const s = envStateOf("local", k8s, {}, deps);
+    const sync = driftReport(s, k8s.docs, D, cat, "dev1");
+    expect(sync.out.db.st).toBe("sync");
+    expect(sync.out.gw.st).toBe("sync"); // ingress presente
+    expect(sync.out.api.st).toBe("missing"); // app → só Secret, sem Deployment
+    const behind = driftReport(s, k8s.docs, D, cat, "dev2");
+    expect(behind.out.db.st).toBe("behind");
+    const s2 = envStateOf("local", { ...k8s, deps: [{ n: "orders-db", rep: 3, ready: 3 }, { n: "cache", rep: 1, ready: 1 }] }, {}, envDeps("local", { ...k8s, deps: [{ n: "orders-db", rep: 3, ready: 3 }, { n: "cache", rep: 1, ready: 1 }] }, {}, D, slug));
+    expect(driftReport(s2, k8s.docs, D, cat, "dev1").out.db.st).toBe("drift");
+    expect(driftReport(null, k8s.docs, D, cat, "dev1").out.db.st).toBe("off");
+  });
+});
+
+describe("commitsBetween", () => {
+  const commits = { c3: { h: "c3", m: "três", p: ["c2"] }, c2: { h: "c2", m: "dois", p: ["c1"] }, c1: { h: "c1", m: "um", p: [] } };
+  it("BFS de to até from (exclusivo)", () => {
+    expect(commitsBetween("c1", "c3", commits).map((c) => c.h)).toEqual(["c3", "c2"]);
+    expect(commitsBetween(null, "c3", commits).map((c) => c.h)).toEqual(["c3", "c2", "c1"]);
+  });
+});
+
+describe("observability (seeded / spark / buildObs / obsLine)", () => {
+  it("seeded determinista", () => {
+    const a = seeded("k"), b = seeded("k");
+    expect(Array.from({ length: 5 }, () => a())).toEqual(Array.from({ length: 5 }, () => b()));
+  });
+  it("spark produz um SVG com a série", () => {
+    expect(spark([1, 2, 3], "var(--green)")).toContain("<svg");
+    expect(spark([1, 2, 3], "var(--green)")).toContain("stroke=\"var(--green)\"");
+  });
+  it("buildObs: 60 pontos por série + 14 logs iniciais (relógio injectado)", () => {
+    const o = buildObs("local", "orders-api", { crash: false, err: null, kind: "app", appLike: true }, "local:orders-api", () => "00:00:00.000");
+    expect(o.cpu.length).toBe(60);
+    expect(o.logs.length).toBe(14);
+    expect(o.logs.every((l) => l.ts === "00:00:00.000")).toBe(true);
+  });
+  it("obsLine em crash cicla starting/config/ERROR/back-off", () => {
+    const o = buildObs("staging", "w", { crash: true, err: "boom", kind: "app", appLike: true }, "staging:w", () => "t");
+    const levels = o.logs.slice(0, 4).map((l) => l.lv);
+    expect(levels).toEqual(["INFO", "INFO", "ERROR", "WARN"]);
+    expect(o.logs[2].m).toBe("boom");
+  });
+});
+
+describe("constantes", () => {
+  it("RTN/KCTX/ENVL/DSTY + fábricas do estado inicial", () => {
+    expect(Object.keys(RTN)).toEqual(["docker", "podman", "delonix"]);
+    expect(KCTX[0]).toBe("kind-dxtutor");
+    expect(ENVL.production).toBe("Production");
+    expect(DSTY.sync).toEqual(["var(--green)", "in sync"]);
+    expect(defaultEnvs().rtOn).toBe(false);
+    expect(defaultEnvx().cur).toBe("local");
+  });
+});
