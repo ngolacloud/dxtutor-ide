@@ -26,6 +26,7 @@ import type { Finding } from "./codereview/domain/types";
 import { scoreFor } from "./codereview/domain/scoring";
 import { makeReviewEngine } from "./codereview/application/review-engine";
 import type { ExplainCard } from "./codereview/application/ports";
+import { bindActions, type ActionTable } from "./codereview/ui/actions";
 import {
   files,
   currentTabId,
@@ -34,6 +35,7 @@ import {
   extOf,
   changes,
   openTab,
+  openPath,
   pathLexer,
   root,
   pathHistory,
@@ -117,9 +119,9 @@ const SEVC: Record<string, string> = { bug: 'var(--red)', risk: 'var(--yellow)',
 function renderCreviewView(tab: unknown, host: HTMLElement): void {
   const t = tab as { path: string };
   const fs: Finding[] = reviewFindings(t.path), score = scoreFor(fs);
-  host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" onclick="openPath('${t.path}')">Open file</button>${sample() && prov().claude.on ? `<button class="mini pri" onclick="focusAgent(true);liveChat('Review this file as a senior engineer: bugs first, then risks, performance and style. Cite line numbers.\\n'+FS['${t.path}'].content.slice(0,6000))">Deeper review with Claude</button>` : ''}</div>
+  host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" data-action="open-file" data-on="${esc(t.path)}">Open file</button>${sample() && prov().claude.on ? `<button class="mini pri" data-action="deeper-review" data-on="${esc(t.path)}">Deeper review with Claude</button>` : ''}</div>
    <div class="sub" style="margin-top:12px">Rule-based checks for correctness, security, performance and the project rules. They point at evidence; you decide what to change.</div>
-   ${fs.length ? fs.map(f => `<div class="rv"><div class="rv-h"><span class="tag" style="color:${SEVC[f.sev]};border-color:${SEVC[f.sev]}">${f.sev}</span><b>${f.t}</b><span class="sp"></span><button class="lnk" onclick="openPath('${t.path}',${f.l})">line ${f.l}</button></div><div class="rv-b"><p>${f.why}</p><p><b>Suggested:</b> ${f.fix}</p></div></div>`).join('') : '<div class="adv agent" style="margin-top:16px">' + svg('check') + '<div>No findings from the rule set. That is not proof of correctness — the tests are.</div></div>'}</div>`;
+   ${fs.length ? fs.map(f => `<div class="rv"><div class="rv-h"><span class="tag" style="color:${SEVC[f.sev]};border-color:${SEVC[f.sev]}">${f.sev}</span><b>${f.t}</b><span class="sp"></span><button class="lnk" data-action="open-line" data-on="${f.l}:${esc(t.path)}">line ${f.l}</button></div><div class="rv-b"><p>${f.why}</p><p><b>Suggested:</b> ${f.fix}</p></div></div>`).join('') : '<div class="adv agent" style="margin-top:16px">' + svg('check') + '<div>No findings from the rule set. That is not proof of correctness — the tests are.</div></div>'}</div>`;
 }
 
 /* ───── Under the hood — markup da tab (dono da view) ───── */
@@ -159,3 +161,36 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
    resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus) e por debug.ts (onclick
    "explainCmd(true)"). ── */
 publish({ renderCreviewView, renderHoodView, curFile, explainCmd, hoodCmd, reviewCmd, reviewFindings });
+
+/* ───── tabela de acções (ADR-0002, Fase 4) ─────
+   Liga o nome de acção (emitido como `data-action` pelo markup de
+   `renderCreviewView`) ao efeito. Fica aqui — no resíduo de composição, não na
+   subárvore `features/codereview/` governada por A7/A8 — porque só este ficheiro tem
+   à mão o bridge (`openPath`/`focusAgent`/`liveChat`/`files`). Os três handlers
+   substituem os `onclick` inline, todos `click`:
+     • open-file     — `openPath(p)`         (botão «Open file»)
+     • open-line     — `openPath(p, linha)`  (botão «line N» de cada achado)
+     • deeper-review — lê o ficheiro NO CLIQUE e pede revisão ao Claude ao vivo
+   O payload viaja SÓ em `data-on` (o golden strippa data-action/data-on; um `data-*`
+   à medida vazava). `open-line` carrega `linha:caminho` — linha primeiro (inteiro
+   puro, sem `:`), por isso parte-se no PRIMEIRO `:` e o resto é o caminho intacto.
+   O caminho é escapado com `esc` à saída (era interpolado cru num literal JS dentro
+   do `onclick` — o vector de injecção que o ADR apontou); nos caminhos semeados/de
+   teste (`crates/lexer/src/lib.rs`, `svc/load.rs`, …) `esc` é no-op, logo a saída
+   visível não muda. `deeper-review` reproduz o antigo `focusAgent(true);liveChat(…)`
+   que compunha o prompt a partir de `FS[path].content.slice(0,6000)` no momento do
+   clique — aqui `files()[e.on].content`, idêntico. */
+const DEEPER_PROMPT =
+  "Review this file as a senior engineer: bugs first, then risks, performance and style. Cite line numbers.\n";
+const ACTIONS: ActionTable = {
+  "open-file": { on: "click", run: (e) => openPath(e.on) },
+  "open-line": {
+    on: "click",
+    run: (e) => { const i = e.on.indexOf(":"); openPath(e.on.slice(i + 1), +e.on.slice(0, i)); },
+  },
+  "deeper-review": {
+    on: "click",
+    run: (e) => { focusAgent(true); liveChat(DEEPER_PROMPT + files()[e.on].content.slice(0, 6000)); },
+  },
+};
+bindActions(ACTIONS);

@@ -34,6 +34,10 @@ export const changes = (): string[] => window.changes();
 /* Rest-tuple: `openTab(t)` tem de chegar ao monólito como UM argumento, não
    `openTab(t, undefined)` (a caracterização da Fase 0 fixa a aridade exacta). */
 export const openTab = (...args: [t: ReviewTab & { id: string }, act?: boolean]): void => G.openTab(...args);
+/* Abre um ficheiro (opcionalmente numa linha). Rest-tuple pela mesma razão do
+   `openTab`: `openPath(p)` tem de chegar ao monólito como UM argumento, não
+   `openPath(p, undefined)`. Consumido pela tabela de acções da Fase 4. */
+export const openPath = (...args: [p: string, line?: number]): void => G.openPath(...args);
 
 /* ───── caminhos do workspace-protótipo (donos de `app.ts`; só existem após o boot) ───── */
 export const pathLexer = (): string => G.P_LX;
