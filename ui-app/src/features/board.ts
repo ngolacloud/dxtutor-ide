@@ -30,7 +30,10 @@
    `renderBoardView`, shim brace-less em app.ts (`VIEW.board=(t,host)=>window.renderBoardView(t,host)`). */
 
 import { esc } from "../core";
-import type { Backlog, Stage, Issue, IssueFile, Design, DesignNode, TechSpec } from "./board/domain/types";
+import type { Backlog, Issue, IssueFile, Design, DesignNode, TechSpec } from "./board/domain/types";
+import { slug } from "./board/domain/slug";
+import { STAGES, makeIssue } from "./board/domain/issue";
+import { inView, points, nodeStatus, autoSprint, sprintCounts } from "./board/domain/kanban";
 import {
   files, agents, provs, taskProfiles,
   run, setAuthor, branch, setAgent, pane, mode, panes, root, stopSignal,
@@ -46,28 +49,22 @@ import {
   decoratedRunIssue, decoratedApproveIssue, publish,
 } from "./board/infrastructure/legacy-bridge";
 
-/* `slug` é léxico em app.ts (NÃO publicado) e studio.ts tem a sua própria cópia local;
-   o motor aqui (runIssue/genBacklogIssues) também precisa dele → cópia local idêntica. */
-const slug = (s: string): string => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-
 /* estado — window-backed (publicado via bridge; onclick inline `BL.view=…` resolve em
-   window.BL no escopo global). BL é sessão em memória, não vem de LS. */
+   window.BL no escopo global). BL é sessão em memória, não vem de LS. STAGES vem do
+   domínio puro (features/board/domain/issue.ts) e publica-se para o monólito/v6. */
 const BL: Backlog = { issues: [], seq: 11, mig: 3, adr: 4, view: -1 };
-const STAGES: Stage[] = [["backlog", "Backlog"], ["todo", "A fazer"], ["dev", "Em desenvolvimento"], ["test", "Teste automático"], ["func", "Validação funcional"], ["done", "Concluído"]];
 publish({ BL, STAGES });
 
 const exists = (p: string) => () => !!files()[p];
-function mkIssue(o: Partial<Issue>): Issue {
-  const it = Object.assign({ id: "DX-" + (BL.seq++), type: "feature", pts: 3, stage: "backlog", attempts: 0, tests: [], res: null, note: "", model: null, branch: null }, o) as Issue;
-  BL.issues.push(it); return it;
-}
+/** Adiciona ao backlog uma issue construída pela fábrica pura do domínio. */
+function mkIssue(o: Partial<Issue>): Issue { const it = makeIssue(BL.seq++, o); BL.issues.push(it); return it; }
 
 /* CRUD + runner (motor) — runIssue/delegate/runSprint/approveIssue chamam a versão
    DECORADA por window nas arestas internas (ver GOTCHA-decoração no cabeçalho) */
 function openBoard(): void { openTab({ id: "board", title: "Quadro", kind: "board" }); }
 function setStage(it: Issue, st: string): void {
   it.stage = st;
-  if (it.node) { const n = design().nodes.find((x) => x.id === it.node), all = BL.issues.filter((i) => i.node === it.node); if (n) { n.st = all.every((i) => i.stage === "done") ? "ok" : "wip"; saveDesign(); } }
+  if (it.node) { const n = design().nodes.find((x) => x.id === it.node); if (n) { n.st = nodeStatus(BL.issues, it.node); saveDesign(); } }
   rerender("board"); if (pane() === "codev" && panes().codev) panes().codev();
 }
 async function autoTest(it: Issue, host: HTMLElement | null): Promise<boolean> {
@@ -107,7 +104,7 @@ async function runSprint(s: number): Promise<void> {
   if (run().active) { toast("Há uma execução em curso"); return; } BL.issues.forEach((i) => { if (i.sprint === s && i.stage === "backlog") i.stage = "todo"; }); rerender("board"); const todo = (): Issue | undefined => BL.issues.find((i) => i.sprint === s && i.stage === "todo" && !i.custom);
   if (!todo()) { toast("Não há issues por fazer no Sprint " + (s + 1)); return; } focusAgent(true); user(`Executa o Sprint ${s + 1}.`); runState(true, "Sprint " + (s + 1)); let n = 0;
   try { let it: Issue | undefined; while ((it = todo())) { if (mode() === "manual") { const c = card("co-dev", `<p>Próxima issue: <code>${it.id}</code> ${esc(it.title)} → <b>${agents()[it.agent].n}</b></p>`); const v = await ask(c.bd, [{ l: "Delegar", v: 1, pri: 1, done: "✓ delegada por ti" }, { l: "Parar o sprint", v: 0 }]); if (!v) throw stopSignal(); } await decoratedRunIssue(it); n++; }
-    const f = BL.issues.filter((i) => i.sprint === s && i.stage === "func").length, b = BL.issues.filter((i) => i.sprint === s && i.stage === "dev").length; card("co-dev", `<p><b>Sprint ${s + 1}</b>: ${n} issues trabalhadas. <b>${f}</b> passaram nos testes automáticos e esperam a tua validação funcional${b ? `; <b>${b}</b> ficaram bloqueadas em desenvolvimento` : ""}.</p><p style="color:var(--fg-dim)">Cada issue está no seu ramo <code>feature/…</code>; o merge em <code>develop</code> acontece quando validares.</p><div class="gate"><button class="gb pri" onclick="openBoard()">Validar no quadro</button><button class="gb" onclick="openGraph()">Ver o grafo</button></div>`); note(`Sprint ${s + 1}: ${f} issues à espera de validação funcional`);
+    const { func: f, dev: b } = sprintCounts(BL.issues, s); card("co-dev", `<p><b>Sprint ${s + 1}</b>: ${n} issues trabalhadas. <b>${f}</b> passaram nos testes automáticos e esperam a tua validação funcional${b ? `; <b>${b}</b> ficaram bloqueadas em desenvolvimento` : ""}.</p><p style="color:var(--fg-dim)">Cada issue está no seu ramo <code>feature/…</code>; o merge em <code>develop</code> acontece quando validares.</p><div class="gate"><button class="gb pri" onclick="openBoard()">Validar no quadro</button><button class="gb" onclick="openGraph()">Ver o grafo</button></div>`); note(`Sprint ${s + 1}: ${f} issues à espera de validação funcional`);
   } catch (e: any) { if (e === stopSignal()) card("co-dev", "Sprint parado a teu pedido."); else { console.error(e); card("sistema", "Erro: " + esc(e.message || e)); } } finally { if (branch() !== "develop") checkout("develop"); setAuthor("w"); runState(false); refresh(); rerender("board"); scrollMsgs(); }
 }
 function approveIssue(id: string): void {
@@ -128,11 +125,11 @@ function newIssue(): void {
 
 /* corpo da vista — era `VIEW.board=(t,host)=>{…}` eager; aqui como função + shim em app.ts */
 function renderBoardView(_t: unknown, host: HTMLElement): void {
-  const v = BL.view, list = BL.issues.filter((i) => v < 0 || i.sprint === v), pts = list.reduce((a, i) => a + i.pts, 0), done = list.filter((i) => i.stage === "done").reduce((a, i) => a + i.pts, 0);
+  const v = BL.view, list = inView(BL.issues, v), { total: pts, done } = points(list);
   const cardH = (i: Issue): string => { const a = agents()[i.agent], tr = i.res ? `<span class="${i.res.every((r) => r.ok) ? "okc" : "bad"}">${i.res.every((r) => r.ok) ? "✓" : "✖"} ${i.res.filter((r) => r.ok).length}/${i.res.length} testes</span>` : "";
     return `<div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${i.id}')"><div class="kc-h"><span class="kc-id">${i.id}</span><span class="tag ${i.type === "fix" ? "bad" : ""}">${i.type}</span><span class="kc-p">${i.pts}</span></div><div class="kc-t">${esc(i.title)}</div><div class="kc-m"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${i.model ? ` · ${provs()[i.model].name}` : ""}<span class="tag" style="margin-left:auto">S${i.sprint + 1}</span></div>${i.branch && i.stage !== "done" ? `<div class="kc-b">⎇ ${esc(i.branch)}</div>` : ""}${i.merged ? `<div class="kc-b">merge ${i.merged} em develop</div>` : ""}${tr || i.note ? `<div class="kc-n">${tr}${i.note ? `<span>${esc(i.note)}</span>` : ""}</div>` : ""}
      ${i.stage === "backlog" || i.stage === "todo" ? `<button class="mini" onclick="delegate('${i.id}')">▶ Delegar a ${a.n}</button>` : i.stage === "dev" && !run().active ? `<button class="mini" onclick="delegate('${i.id}')">▶ Retomar</button>` : i.stage === "func" ? `<div class="kc-a"><button class="mini pri" onclick="approveIssue('${i.id}')">✓ Validar</button><button class="mini" onclick="rejectIssue('${i.id}')">✗ Rejeitar</button></div>` : ""}</div>`; };
-  host.innerHTML = `<div class="kb"><div class="kb-bar"><b style="font-size:15px">Quadro</b>${[-1, 0, 1].map((s) => `<button class="mini${v === s ? " pri" : ""}" onclick="BL.view=${s};rerender('board')">${s < 0 ? "Tudo" : "Sprint " + (s + 1)}</button>`).join("")}<span class="kb-prog"><i style="width:${pts ? done / pts * 100 : 0}%"></i></span><span style="color:var(--fg-muted);font-size:11.5px">${done}/${pts} pts</span><span class="sp"></span><button class="mini" onclick="newIssue()">+ Issue</button><button class="mini" onclick="openStudio()">Studio</button><button class="mini pri" onclick="runSprint(${v < 0 ? (BL.issues.some((i) => i.sprint === 0 && ["todo", "backlog"].includes(i.stage)) ? 0 : 1) : v})">▶ Executar sprint</button></div>
+  host.innerHTML = `<div class="kb"><div class="kb-bar"><b style="font-size:15px">Quadro</b>${[-1, 0, 1].map((s) => `<button class="mini${v === s ? " pri" : ""}" onclick="BL.view=${s};rerender('board')">${s < 0 ? "Tudo" : "Sprint " + (s + 1)}</button>`).join("")}<span class="kb-prog"><i style="width:${pts ? done / pts * 100 : 0}%"></i></span><span style="color:var(--fg-muted);font-size:11.5px">${done}/${pts} pts</span><span class="sp"></span><button class="mini" onclick="newIssue()">+ Issue</button><button class="mini" onclick="openStudio()">Studio</button><button class="mini pri" onclick="runSprint(${v < 0 ? autoSprint(BL.issues) : v})">▶ Executar sprint</button></div>
    ${BL.issues.length ? `<div class="kb-cols">${STAGES.map(([k, l]) => { const xs = list.filter((i) => i.stage === k); return `<div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'${k}')"><div class="kcol-h">${l}<span class="cnt">${xs.length}</span></div>${k === "test" ? '<div class="kcol-d">Ao entrar aqui os testes correm sozinhos. Falha → volta a desenvolvimento.</div>' : k === "func" ? '<div class="kcol-d">Só chega aqui o que passou nos testes. A validação é tua.</div>' : ""}${xs.map(cardH).join("")}</div>`; }).join("")}</div>`
    : `<div class="empty" style="height:60%"><div><b style="color:var(--fg-dim);font-size:14px">Backlog vazio</b><br>Desenha a arquitectura no Studio e gera o backlog a partir dos componentes planeados.<br><button class="mini pri" style="margin-top:10px" onclick="openStudio()">Abrir o Studio</button> <button class="mini" onclick="genBacklog()">Gerar a partir do desenho actual</button></div></div>`}</div>`;
 }
