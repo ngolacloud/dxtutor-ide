@@ -36,7 +36,9 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug` e `board`); cada nova extracção acrescenta-se lá.
+  `codereview`, `scm`, `debug`, `board` e `visualizer`); cada nova extracção
+  acrescenta-se lá. Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
+  o único `@ts-nocheck` dentro de uma subárvore — ver abaixo).
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
@@ -202,6 +204,44 @@ genBacklogIssues/mkIssue, 3 testes de dispatch delegado) e `tests/board.domain.t
 (domínio puro). **BUG pré-existente reportado (não corrigido no refactor): `autoTest`
 chama `sleep(380)` como global, mas `sleep` nunca é publicado no `window` (é `const` local
 em `codev/ui/chat-view.ts`) → o runner lança ao entrar em Teste. Preservado tal e qual.**
+
+## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
+
+Sexta aplicação do procedimento `extract-feature` (ADR-0002, Fases 0–4 concluídas).
+Um pipeline de compilador de um subconjunto de Rust + um overlay de execução
+passo-a-passo. Mesmas camadas e regra de dependências:
+
+```
+features/visualizer/
+  domain/          lexer.ts (vzLex+vzErr), parser.ts (vzParse→AST {fns}), hints.ts
+                   (vzHints), narrate.ts (vzTell+VZSEEN, importa esc do core),
+                   samples.ts (VZS), constants.ts (VZSZ/VZR/hex), types.ts. PURO.
+                   interpreter.ts (vzRun + modelo de memória) — ÚNICO @ts-nocheck da
+                   subárvore (decisão do dono: AST polimórfico + objectos-valor densos;
+                   tipagem fica p/ passagem futura). É PURO à mesma (A7/A8 verdes).
+  application/     ports.ts (VisualizePorts {run,narrate,resetSeen}) + visualize.ts
+                   (buildVisualization: resetSeen→run→constrói notas; deps injectadas).
+  ui/              actions.ts (bindActions: 1 listener delegado; guard no document, não
+                   window; chave própria __vizActionHandler__).
+  infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
+features/visualizer.ts  RESÍDUO strangler (@ts-nocheck, FORA da subárvore) + raiz de
+                   composição: DONO do overlay (vizOpen/vzRender/vzArrows/vzGo/vzPlay/…)
+                   e do boot7 (decora VIEW.lt/VIEW.hood, EACT/MENUS/CMD); importa o motor
+                   do domínio e o caso de uso, constrói a TABELA de acções (data-action)
+                   e re-publica os shims window.* (boot7/VZ/VZS/viz*/vz* — startup.ts,
+                   i18n e onclick inline resolvem por global).
+```
+
+Governada pelas mesmas A7/A8 (está em `FEATURES`). Como scm/debug/board, o overlay/markup
+vive no resíduo e `ui/` só tem `actions.ts`. Particularidades: (1) o motor é PURO e
+auto-suficiente → `application/` não tem porta de infraestrutura (só injecta funções do
+domínio); (2) o overlay injecta o seu próprio `#viz` no `document.body` e decora
+`VIEW.lt`/`VIEW.hood` (definidas no v6.ts) só em `boot7` (não corre no harness) — por
+isso o golden caracteriza o overlay via `vizOpen` com fonte explícita, sem fixtures;
+(3) `interpreter.ts` usa os bytes de controlo `U+0000`/`U+0001` como sentinelas no `fmt`
+(não mexer). Rede de segurança em `tests/visualizer.golden.test.ts`: 14 snapshots (motor
+puro vzLex/vzParse/vzHints/vzRun/vzTell + overlay `#viz`) + 6 testes de dispatch delegado
+(o golden strippa data-action → não prova o wiring).
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
