@@ -1,0 +1,209 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`caracterização do motor — produtor Studio→backlog (a extrair) > genBacklogIssues: decomposição do design-semente em issues/sprints > genBacklogIssues-seed 1`] = `
+[
+  {
+    "agent": "arq",
+    "custom": false,
+    "genPaths": [
+      "dxtutor/.dxtutor/arquitectura/ADR-004-gateway-web-orders-api.md",
+    ],
+    "id": "DX-11",
+    "infra": false,
+    "node": null,
+    "pts": 2,
+    "sprint": 0,
+    "stage": "backlog",
+    "tests": [
+      "adr::lists_decision_and_dependencies",
+    ],
+    "title": "ADR: Gateway, Web, Orders API +5",
+    "type": "feature",
+  },
+  {
+    "agent": "fe",
+    "custom": false,
+    "genPaths": [
+      "dxtutor/web/web/package.json",
+      "dxtutor/web/web/index.html",
+      "dxtutor/web/web/src/main.jsx",
+      "dxtutor/web/web/Dockerfile",
+    ],
+    "id": "DX-12",
+    "infra": false,
+    "node": "web",
+    "pts": 3,
+    "sprint": 1,
+    "stage": "backlog",
+    "tests": [
+      "web::builds_static_bundle",
+      "web::uses_design_tokens",
+    ],
+    "title": "Web: web app (React · Vite)",
+    "type": "feature",
+  },
+  {
+    "agent": "be",
+    "custom": false,
+    "genPaths": [
+      "dxtutor/apps/orders-api/Cargo.toml",
+      "dxtutor/apps/orders-api/src/main.rs",
+      "dxtutor/apps/orders-api/Dockerfile",
+    ],
+    "id": "DX-13",
+    "infra": false,
+    "node": "api",
+    "pts": 5,
+    "sprint": 0,
+    "stage": "backlog",
+    "tests": [
+      "orders_api::exposes_healthz",
+      "orders_api::reads_port_from_env",
+    ],
+    "title": "Orders API: service skeleton (Rust · Axum)",
+    "type": "feature",
+  },
+  {
+    "agent": "db",
+    "custom": false,
+    "genPaths": [
+      "dxtutor/db/migrations/0003_orders_db.sql",
+    ],
+    "id": "DX-14",
+    "infra": false,
+    "node": "pg",
+    "pts": 3,
+    "sprint": 0,
+    "stage": "backlog",
+    "tests": [
+      "db::orders_db_has_index",
+    ],
+    "title": "Orders DB: schema and first migration",
+    "type": "feature",
+  },
+  {
+    "agent": "be",
+    "custom": false,
+    "genPaths": [
+      "dxtutor/apps/billing-worker/go.mod",
+      "dxtutor/apps/billing-worker/src/main.go",
+      "dxtutor/apps/billing-worker/Dockerfile",
+    ],
+    "id": "DX-15",
+    "infra": false,
+    "node": "worker",
+    "pts": 5,
+    "sprint": 0,
+    "stage": "backlog",
+    "tests": [
+      "billing_worker::exposes_healthz",
+      "billing_worker::reads_port_from_env",
+    ],
+    "title": "Billing Worker: service skeleton (Go · net/http)",
+    "type": "feature",
+  },
+  {
+    "agent": "ops",
+    "custom": false,
+    "genPaths": [
+      "dxtutor/docker-compose.yml",
+      "dxtutor/.env.example",
+      "dxtutor/Makefile",
+      "dxtutor/deploy/cloud-mapping.md",
+      "dxtutor/deploy/k8s/web.yaml",
+      "dxtutor/deploy/k8s/orders-api.yaml",
+      "dxtutor/deploy/k8s/billing-worker.yaml",
+      "dxtutor/deploy/k8s/00-infra.yaml",
+    ],
+    "id": "DX-16",
+    "infra": true,
+    "node": null,
+    "pts": 5,
+    "sprint": 1,
+    "stage": "backlog",
+    "tests": [
+      "compose::one_service_per_component",
+      "compose::waits_for_healthy_dependencies",
+      "k8s::one_manifest_per_app",
+      "make::run_target",
+    ],
+    "title": "Cloud-native artefacts: compose, env, Makefile, Kubernetes",
+    "type": "feature",
+  },
+  {
+    "agent": "qa",
+    "custom": false,
+    "genPaths": [
+      "dxtutor/tests/smoke.sh",
+    ],
+    "id": "DX-17",
+    "infra": false,
+    "node": null,
+    "pts": 2,
+    "sprint": 1,
+    "stage": "backlog",
+    "tests": [
+      "smoke::checks_every_app",
+    ],
+    "title": "Smoke test for the running stack",
+    "type": "feature",
+  },
+]
+`;
+
+exports[`caracterização do motor — produtor Studio→backlog (a extrair) > mkIssue: ids sequenciais (DX-seq) e defaults da fábrica > mkIssue-default 1`] = `
+{
+  "agent": "be",
+  "custom": false,
+  "genPaths": null,
+  "id": "DX-11",
+  "infra": false,
+  "node": null,
+  "pts": 3,
+  "sprint": undefined,
+  "stage": "backlog",
+  "tests": [],
+  "title": "primeira",
+  "type": "feature",
+}
+`;
+
+exports[`caracterização do motor — produtor Studio→backlog (a extrair) > mkIssue: ids sequenciais (DX-seq) e defaults da fábrica > mkIssue-override 1`] = `
+{
+  "agent": "fe",
+  "custom": false,
+  "genPaths": null,
+  "id": "DX-12",
+  "infra": false,
+  "node": null,
+  "pts": 8,
+  "sprint": undefined,
+  "stage": "todo",
+  "tests": [],
+  "title": "segunda",
+  "type": "fix",
+}
+`;
+
+exports[`golden de DOM — Quadro (renderBoardView) > backlog povoado (view=Tudo): um cartão por ramo de cardH > board-all 1`] = `
+"<div class="kb"><div class="kb-bar"><b style="font-size:15px">Quadro</b><button class="mini pri">Tudo</button><button class="mini">Sprint 1</button><button class="mini">Sprint 2</button><span class="kb-prog"><i style="width:20%"></i></span><span style="color:var(--fg-muted);font-size:11.5px">3/15 pts</span><span class="sp"></span><button class="mini">+ Issue</button><button class="mini">Studio</button><button class="mini pri">▶ Executar sprint</button></div>
+   <div class="kb-cols"><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'backlog')"><div class="kcol-h">Backlog<span class="cnt">1</span></div><div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','DX-1')"><div class="kc-h"><span class="kc-id">DX-1</span><span class="tag ">feature</span><span class="kc-p">3</span></div><div class="kc-t"></div><div class="kc-m"><span class="av" style="background:#dea584">B</span>Backend<span class="tag" style="margin-left:auto">S1</span></div>
+     <button class="mini">▶ Delegar a Backend</button></div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'todo')"><div class="kcol-h">A fazer<span class="cnt">0</span></div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'dev')"><div class="kcol-h">Em desenvolvimento<span class="cnt">1</span></div><div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','DX-2')"><div class="kc-h"><span class="kc-id">DX-2</span><span class="tag bad">fix</span><span class="kc-p">2</span></div><div class="kc-t"></div><div class="kc-m"><span class="av" style="background:var(--blue)">F</span>Frontend · Claude<span class="tag" style="margin-left:auto">S1</span></div><div class="kc-b">⎇ fix/dx-2-corrige</div><div class="kc-n"><span class="bad">✖ 0/1 testes</span><span>reprovado em teste: a::x</span></div>
+     <button class="mini">▶ Retomar</button></div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'test')"><div class="kcol-h">Teste automático<span class="cnt">1</span></div><div class="kcol-d">Ao entrar aqui os testes correm sozinhos. Falha → volta a desenvolvimento.</div><div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','DX-3')"><div class="kc-h"><span class="kc-id">DX-3</span><span class="tag ">feature</span><span class="kc-p">5</span></div><div class="kc-t"></div><div class="kc-m"><span class="av" style="background:#dea584">B</span>Backend · Gemini<span class="tag" style="margin-left:auto">S2</span></div><div class="kc-b">⎇ feature/dx-3-skeleton</div>
+     </div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'func')"><div class="kcol-h">Validação funcional<span class="cnt">1</span></div><div class="kcol-d">Só chega aqui o que passou nos testes. A validação é tua.</div><div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','DX-4')"><div class="kc-h"><span class="kc-id">DX-4</span><span class="tag ">feature</span><span class="kc-p">2</span></div><div class="kc-t"></div><div class="kc-m"><span class="av" style="background:var(--blue)">F</span>Frontend · Codex<span class="tag" style="margin-left:auto">S2</span></div><div class="kc-b">⎇ feature/dx-4-web</div><div class="kc-n"><span class="okc">✓ 2/2 testes</span><span>passou à 1.ª tentativa</span></div>
+     <div class="kc-a"><button class="mini pri">✓ Validar</button><button class="mini">✗ Rejeitar</button></div></div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'done')"><div class="kcol-h">Concluído<span class="cnt">1</span></div><div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','DX-5')"><div class="kc-h"><span class="kc-id">DX-5</span><span class="tag ">feature</span><span class="kc-p">3</span></div><div class="kc-t"></div><div class="kc-m"><span class="av" style="background:var(--green)">B</span>Base de dados · Claude<span class="tag" style="margin-left:auto">S1</span></div><div class="kc-b">merge a1b2c3d em develop</div><div class="kc-n"><span class="okc">✓ 1/1 testes</span></div>
+     </div></div></div></div>"
+`;
+
+exports[`golden de DOM — Quadro (renderBoardView) > backlog povoado filtrado por Sprint 1 (view=0) > board-sprint0 1`] = `
+"<div class="kb"><div class="kb-bar"><b style="font-size:15px">Quadro</b><button class="mini">Tudo</button><button class="mini pri">Sprint 1</button><button class="mini">Sprint 2</button><span class="kb-prog"><i style="width:37.5%"></i></span><span style="color:var(--fg-muted);font-size:11.5px">3/8 pts</span><span class="sp"></span><button class="mini">+ Issue</button><button class="mini">Studio</button><button class="mini pri">▶ Executar sprint</button></div>
+   <div class="kb-cols"><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'backlog')"><div class="kcol-h">Backlog<span class="cnt">1</span></div><div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','DX-1')"><div class="kc-h"><span class="kc-id">DX-1</span><span class="tag ">feature</span><span class="kc-p">3</span></div><div class="kc-t"></div><div class="kc-m"><span class="av" style="background:#dea584">B</span>Backend<span class="tag" style="margin-left:auto">S1</span></div>
+     <button class="mini">▶ Delegar a Backend</button></div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'todo')"><div class="kcol-h">A fazer<span class="cnt">0</span></div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'dev')"><div class="kcol-h">Em desenvolvimento<span class="cnt">1</span></div><div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','DX-2')"><div class="kc-h"><span class="kc-id">DX-2</span><span class="tag bad">fix</span><span class="kc-p">2</span></div><div class="kc-t"></div><div class="kc-m"><span class="av" style="background:var(--blue)">F</span>Frontend · Claude<span class="tag" style="margin-left:auto">S1</span></div><div class="kc-b">⎇ fix/dx-2-corrige</div><div class="kc-n"><span class="bad">✖ 0/1 testes</span><span>reprovado em teste: a::x</span></div>
+     <button class="mini">▶ Retomar</button></div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'test')"><div class="kcol-h">Teste automático<span class="cnt">0</span></div><div class="kcol-d">Ao entrar aqui os testes correm sozinhos. Falha → volta a desenvolvimento.</div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'func')"><div class="kcol-h">Validação funcional<span class="cnt">0</span></div><div class="kcol-d">Só chega aqui o que passou nos testes. A validação é tua.</div></div><div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'done')"><div class="kcol-h">Concluído<span class="cnt">1</span></div><div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','DX-5')"><div class="kc-h"><span class="kc-id">DX-5</span><span class="tag ">feature</span><span class="kc-p">3</span></div><div class="kc-t"></div><div class="kc-m"><span class="av" style="background:var(--green)">B</span>Base de dados · Claude<span class="tag" style="margin-left:auto">S1</span></div><div class="kc-b">merge a1b2c3d em develop</div><div class="kc-n"><span class="okc">✓ 1/1 testes</span></div>
+     </div></div></div></div>"
+`;
+
+exports[`golden de DOM — Quadro (renderBoardView) > backlog vazio: empty state (desenhar no Studio / gerar) > board-empty 1`] = `
+"<div class="kb"><div class="kb-bar"><b style="font-size:15px">Quadro</b><button class="mini pri">Tudo</button><button class="mini">Sprint 1</button><button class="mini">Sprint 2</button><span class="kb-prog"><i style="width:0%"></i></span><span style="color:var(--fg-muted);font-size:11.5px">0/0 pts</span><span class="sp"></span><button class="mini">+ Issue</button><button class="mini">Studio</button><button class="mini pri">▶ Executar sprint</button></div>
+   <div class="empty" style="height:60%"><div><b style="color:var(--fg-dim);font-size:14px">Backlog vazio</b><br>Desenha a arquitectura no Studio e gera o backlog a partir dos componentes planeados.<br><button class="mini pri" style="margin-top:10px">Abrir o Studio</button> <button class="mini">Gerar a partir do desenho actual</button></div></div></div>"
+`;

@@ -1,0 +1,114 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootApp, golden } from "./harness";
+
+/* Rede de segurança (Fase 0 da extracção da feature backlog/sprints/kanban) para
+ * `ui-app/src/features/board.ts`, via o harness que carrega a cadeia real de
+ * módulos. Goldens do markup de `renderBoardView` em dois estados — backlog vazio
+ * (empty state) e backlog povoado (um cartão por ramo de `cardH`: cada stage, tipo
+ * fix/feature, com/sem resultados de teste, nota, ramo, merge e modelo) — e
+ * caracterização do MOTOR a extrair: o PRODUTOR `genBacklogIssues` (decompõe o
+ * design do Studio em issues/sprints) e a fábrica `mkIssue` (ids/defaults).
+ * ANTES de mover qualquer um destes para `features/board/{domain,application}/`.
+ *
+ * A partir daqui, diff de golden = regressão (corrige o código, nunca o snapshot
+ * — ver skill ui-golden-check). A caracterização do produtor fixa a decomposição
+ * EXACTA (que issues, que agente/pts/sprint/testes/caminhos por tipo de componente)
+ * para que a extracção do domínio/aplicação se prove byte-a-byte idêntica.
+ *
+ * Determinismo: o relógio é FIXADO (`setSystemTime`) antes de `bootApp` (padrão do
+ * scm/debug.golden); embora o markup do board não interpole tempo, `loadSeed()→
+ * gitInit()` carimba `Date.now()` no DAG. Timers falsos só para neutralizar o
+ * polling de arranque. Tudo o que `board.ts` precisa (BL/STAGES/AGENTS/PROV/RUN,
+ * o design-semente `SD`, o catálogo `TECH` e os geradores) vive na cadeia do
+ * harness — ao contrário do debug, não são precisos fixtures de v6/boot. */
+
+let w: any;
+
+/** Projecção serializável de uma issue: os campos que a LÓGICA DO BOARD decide
+ *  (agente/pts/sprint/stage/testes) + os caminhos que `gen()` constrói. O CONTEÚDO
+ *  dos ficheiros é dos geradores do monólito (fora do âmbito) — pinamos só os
+ *  caminhos, que são lógica do produtor. As `tests[].fn` são predicados (corridos
+ *  no autoTest), não os invocamos — guardamos só os nomes. */
+function projectIssue(it: any): any {
+  let genPaths: unknown;
+  try { genPaths = it.gen ? it.gen().map((f: any) => f.p) : null; }
+  catch (e: any) { genPaths = "ERR:" + e.message; }
+  return {
+    id: it.id, agent: it.agent, type: it.type, pts: it.pts, stage: it.stage,
+    sprint: it.sprint, node: it.node ?? null, infra: !!it.infra, custom: !!it.custom,
+    title: it.title, tests: (it.tests || []).map((t: any) => t.n), genPaths,
+  };
+}
+
+/** Constrói, por campos explícitos (sem passar por mkIssue, para controlar ids e
+ *  cobrir todos os ramos), um backlog que exercita cada caminho de `cardH`. */
+function seedRichBoard(): void {
+  w.BL.issues = [
+    { id: "DX-1", type: "feature", pts: 3, stage: "backlog", attempts: 0, tests: [], res: null, note: "", model: null, branch: null, agent: "be", sprint: 0 },
+    { id: "DX-2", type: "fix", pts: 2, stage: "dev", attempts: 1, tests: [], res: [{ n: "a::x", ok: false }], note: "reprovado em teste: a::x", model: "claude", branch: "fix/dx-2-corrige", agent: "fe", sprint: 0 },
+    { id: "DX-3", type: "feature", pts: 5, stage: "test", attempts: 0, tests: [], res: null, note: "", model: "gemini", branch: "feature/dx-3-skeleton", agent: "be", sprint: 1 },
+    { id: "DX-4", type: "feature", pts: 2, stage: "func", attempts: 0, tests: [], res: [{ n: "t::a", ok: true }, { n: "t::b", ok: true }], note: "passou à 1.ª tentativa", model: "codex", branch: "feature/dx-4-web", agent: "fe", sprint: 1 },
+    { id: "DX-5", type: "feature", pts: 3, stage: "done", attempts: 0, tests: [], res: [{ n: "t::ok", ok: true }], note: "", model: "claude", branch: "feature/dx-5", merged: "a1b2c3d", agent: "db", sprint: 0 },
+  ];
+}
+
+beforeEach(async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  // O `window` persiste entre testes no jsdom; `board.ts` reutiliza o `window.BL`
+  // ao reavaliar. O boot reimporta a cadeia (board.ts re-cria `BL` fresco), mas
+  // repomos por segurança para cada teste arrancar com um backlog vazio.
+  (window as any).BL = undefined;
+  w = await bootApp();
+  w.RUN.active = false;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe("golden de DOM — Quadro (renderBoardView)", () => {
+  it("backlog vazio: empty state (desenhar no Studio / gerar)", () => {
+    expect(w.BL.issues).toEqual([]);
+    const host = document.createElement("div");
+    w.renderBoardView(null, host);
+    expect(golden(host)).toMatchSnapshot("board-empty");
+  });
+
+  it("backlog povoado (view=Tudo): um cartão por ramo de cardH", () => {
+    seedRichBoard();
+    w.BL.view = -1;
+    const host = document.createElement("div");
+    w.renderBoardView(null, host);
+    expect(golden(host)).toMatchSnapshot("board-all");
+  });
+
+  it("backlog povoado filtrado por Sprint 1 (view=0)", () => {
+    seedRichBoard();
+    w.BL.view = 0;
+    const host = document.createElement("div");
+    w.renderBoardView(null, host);
+    expect(golden(host)).toMatchSnapshot("board-sprint0");
+  });
+});
+
+describe("caracterização do motor — produtor Studio→backlog (a extrair)", () => {
+  it("genBacklogIssues: decomposição do design-semente em issues/sprints", () => {
+    // O seed deixa os 8 componentes do design em estado `plan`. Decompomos todos.
+    const plan = w.SD.nodes.filter((n: any) => n.st === "plan");
+    expect(plan.length).toBe(8);
+    const made = w.genBacklogIssues(plan);
+    expect(made.map(projectIssue)).toMatchSnapshot("genBacklogIssues-seed");
+  });
+
+  it("mkIssue: ids sequenciais (DX-seq) e defaults da fábrica", () => {
+    const a = w.mkIssue({ title: "primeira", agent: "be" });
+    const b = w.mkIssue({ title: "segunda", agent: "fe", type: "fix", pts: 8, stage: "todo" });
+    expect(projectIssue(a)).toMatchSnapshot("mkIssue-default");
+    expect(projectIssue(b)).toMatchSnapshot("mkIssue-override");
+    expect(a.id).toBe("DX-11");
+    expect(b.id).toBe("DX-12");
+    expect(w.BL.issues.length).toBe(2);
+  });
+});
