@@ -98,3 +98,41 @@ export interface CrashTrace {
   steps: OpsStep[];
   end: DbgEnd;
 }
+
+/* ───── formas de dados dos ambientes (vêm do infra via bridge; o domínio recebe-as
+   como dados, nunca vai ao `window`/ENVX buscá-las) ───── */
+
+/** Uma dependência de um ambiente: serviço, estado (ok/crash/…) e, no crash, nº de
+ *  reinícios e a linha de erro. */
+export interface EnvDep {
+  n: string;
+  status: string;
+  restarts?: number;
+  err?: string;
+}
+
+/** O estado de um ambiente: as suas dependências. */
+export interface EnvState {
+  deps: EnvDep[];
+}
+
+/** O lançador de um ambiente para `buildLaunchConfigs`: o id do ambiente e o seu
+ *  estado (ou `null` se ainda não hidratado). */
+export interface LaunchEnv {
+  env: string;
+  state: EnvState | null;
+}
+
+/** Tudo o que `buildCrashTrace` precisa, como dados puros: o ambiente/serviço, as
+ *  dependências, os segredos do ambiente e locais, o namespace, a etiqueta e a
+ *  função (pura) de extracção de host de uma URL. */
+export interface CrashInput {
+  env: string;
+  n: string;
+  deps: EnvDep[];
+  sec: Record<string, Record<string, string>>;
+  local: Record<string, Record<string, string>>;
+  ns: string;
+  label: string;
+  urlHosts: (v: string) => string | null;
+}
