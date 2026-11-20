@@ -145,6 +145,54 @@ describe("caracterização do motor — geradores de traço (a extrair p/ domain
   });
 });
 
+describe("dispatch delegado (data-action) — Fase 4", () => {
+  // O golden strippa onclick E data-action/data-on, logo NÃO prova que o listener
+  // delegado dispara. Estes testes disparam eventos reais e observam o efeito, fechando
+  // essa lacuna (equivalente ao «confirmado por clique» do scm/codev).
+  const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+  it("start: clicar «Start debugging (F5)» abre uma sessão", () => {
+    w.renderDebugPane();
+    const btn = document.querySelector('#pane-debug .btn[data-action="start"]')!;
+    expect(btn).toBeTruthy();
+    click(btn);
+    expect(w.dbgState()).not.toBe(null);
+    expect(w.dbgState().kind).toBe("pre"); // seed = variante «bug»
+  });
+
+  it("step: numa sessão code, clicar «Step over» avança o índice e o feed", () => {
+    w.FS[w.P_LX].content = w.FS[w.P_LX].content.replace("for c in chars {", "for c in chars.clone() {");
+    w.startDebug("lexer");
+    w.renderDebugPane();
+    const before = w.dbgState().i;
+    const step = document.querySelector('#pane-debug .dbg-ctl [data-action="step"]')!;
+    expect(step).toBeTruthy();
+    click(step);
+    expect(w.dbgState().i).toBeGreaterThan(before);
+  });
+
+  it("bp-del: clicar «×» de um breakpoint remove-o do Set (closest vence a linha)", () => {
+    w.toggleBp(w.P_LX, 7);
+    expect(w.dbgBreaks.has(w.P_LX + ":7")).toBe(true);
+    w.renderDebugPane();
+    const del = document.querySelector('#pane-debug [data-action="bp-del"]')!;
+    expect(del).toBeTruthy();
+    click(del);
+    expect(w.dbgBreaks.has(w.P_LX + ":7")).toBe(false);
+  });
+
+  it("watch-add: o onchange do input (evento change) acrescenta a expressão", () => {
+    w.FS[w.P_LX].content = w.FS[w.P_LX].content.replace("for c in chars {", "for c in chars.clone() {");
+    w.startDebug("lexer");
+    w.renderDebugPane();
+    const input = document.querySelector('#pane-debug input[data-action="watch-add"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    input.value = "tokens.capacity()";
+    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+    expect(w.dbgState().watch).toContain("tokens.capacity()");
+  });
+});
+
 describe("caracterização do motor — breakpoints (toggleBp/BPS)", () => {
   // Nota: o `localStorage` do jsdom é inoperante neste harness ("--localstorage-file
   // without a valid path"), por isso a PERSISTÊNCIA de `saveBps`/`LS` (porta de infra)

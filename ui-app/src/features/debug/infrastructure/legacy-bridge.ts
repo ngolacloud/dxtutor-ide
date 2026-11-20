@@ -15,7 +15,8 @@
    `window.x` não tipa. Cada acessor exportado tem mesmo assim uma assinatura concreta
    e não-`any`. */
 
-import type { DbgSession, FileEntry } from "../domain/types";
+import type { DbgSession, EnvDep, EnvState, FileEntry } from "../domain/types";
+export type { EnvDep, EnvState };
 
 const G = window as unknown as Record<string, any>;
 
@@ -56,9 +57,8 @@ export const panes = (): Record<string, () => void> => G.RP;
 export const lexVariant = (): string => G.lexVariant();
 export const lexLine = (re: RegExp): number => G.LXL(re);
 
-/* ───── ambientes/segredos (infra; para os lançadores crash e `crashTrace`) ───── */
-export interface EnvDep { n: string; status: string; restarts?: number; err?: string }
-export interface EnvState { deps: EnvDep[] }
+/* ───── ambientes/segredos (infra; para os lançadores crash e `crashTrace`) ─────
+   `EnvDep`/`EnvState` são formas do domínio (re-exportadas acima). */
 export interface Envx {
   ns: Record<string, string>;
   sec: Record<string, Record<string, Record<string, string>>> | null;
@@ -69,6 +69,11 @@ export const envx = (): Envx => G.ENVX;
 export const envLabels = (): Record<string, string> => G.ENVL;
 export const localSecrets = (): Record<string, Record<string, string>> => G.localSecrets();
 export const urlHosts = (v: string): string | null => G.urlHosts(v);
+
+/* ───── acções que saltam para outras features do monólito (a partir das probes do
+   feed): «explicar em profundidade» e «abrir os segredos de staging» ───── */
+export const explainDeep = (): void => G.explainCmd(true);
+export const openStagingSecrets = (): void => { G.openEnvs(); G.SHOWSEC = true; G.rerender("envs"); };
 
 /* ───── humanos no comando / checkpoints / diálogo ───── */
 export const isHuman = (what: string): boolean => G.isHuman(what);
