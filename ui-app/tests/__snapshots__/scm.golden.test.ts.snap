@@ -1,0 +1,152 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`caracterização do motor — graphLayout (atribuição de lanes a extrair) > layout do DAG semeado: rows/col/pl/idx/max fixos 1`] = `
+{
+  "idx": {
+    "1a2b3c4": 11,
+    "d1e5f60": 10,
+    "d2a7c91": 9,
+    "d3b8d22": 7,
+    "d4e1a55": 3,
+    "d5f2b66": 0,
+    "l1c9e33": 6,
+    "l2d0f44": 5,
+    "m2f0e11": 8,
+    "s164943": 4,
+    "s2a5b0d": 2,
+    "s3c638e": 1,
+  },
+  "max": 3,
+  "rows": [
+    {
+      "col": 0,
+      "h": "d5f2b66",
+      "pl": [
+        0,
+        1,
+      ],
+    },
+    {
+      "col": 1,
+      "h": "s3c638e",
+      "pl": [
+        1,
+      ],
+    },
+    {
+      "col": 1,
+      "h": "s2a5b0d",
+      "pl": [
+        1,
+      ],
+    },
+    {
+      "col": 0,
+      "h": "d4e1a55",
+      "pl": [
+        0,
+        2,
+      ],
+    },
+    {
+      "col": 1,
+      "h": "s164943",
+      "pl": [
+        1,
+      ],
+    },
+    {
+      "col": 2,
+      "h": "l2d0f44",
+      "pl": [
+        2,
+      ],
+    },
+    {
+      "col": 2,
+      "h": "l1c9e33",
+      "pl": [
+        2,
+      ],
+    },
+    {
+      "col": 0,
+      "h": "d3b8d22",
+      "pl": [
+        0,
+      ],
+    },
+    {
+      "col": 1,
+      "h": "m2f0e11",
+      "pl": [
+        1,
+        0,
+      ],
+    },
+    {
+      "col": 0,
+      "h": "d2a7c91",
+      "pl": [
+        0,
+      ],
+    },
+    {
+      "col": 0,
+      "h": "d1e5f60",
+      "pl": [
+        0,
+      ],
+    },
+    {
+      "col": 0,
+      "h": "1a2b3c4",
+      "pl": [],
+    },
+  ],
+}
+`;
+
+exports[`caracterização do motor — árvore de trabalho (changes/stOf) > changes() do workspace semeado: lista ordenada e estável 1`] = `
+[
+  "dxtutor/desktop/src/assistant.ts",
+  "dxtutor/desktop/src/styles.css",
+  "dxtutor/desktop/src/theme.css",
+]
+`;
+
+exports[`golden de DOM — Source Control (renderScmPane) > com ficheiro em stage (grupo Staged + botão «staged») 1`] = `
+"<div class="side-hd"><span class="t">Source Control</span><span class="acts"><button title="Grafo de commits"><svg class="ico" viewBox="0 0 16 16"><circle cx="4" cy="4" r="1.6"></circle><circle cx="4" cy="12" r="1.6"></circle><circle cx="12" cy="8" r="1.6"></circle><path d="M4 5.6v4.8M5.4 4.8l5.2 2.5M5.4 11.2l5.2-2.5"></path></svg></button><button title="Actualizar"><svg class="ico" viewBox="0 0 16 16"><path d="M12.5 7a4.6 4.6 0 1 0-.7 3.4"></path><path d="M12.6 3.2v2.9H9.7"></path></svg></button></span></div><div class="sections"><div class="scm-grp">dxtutor · develop<span class="cnt">3</span></div>
+    <input class="inp" id="scm-msg" placeholder="Mensagem de commit" value=""><button class="btn">✓ Commit (staged) em develop</button>
+    <div class="scm-grp">Staged<span class="cnt">1</span></div><div class="scm-row"><span class="ic x-ts"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">assistant.ts</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Retirar do stage">−</button></span><span class="g M">M</span></div><div class="scm-grp">Alterações<span class="cnt">2</span></div><div class="scm-row"><span class="ic x-css"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">styles.css</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g M">M</span></div><div class="scm-row"><span class="ic x-css"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">theme.css</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g U">U</span></div>
+    <div class="scm-grp">Gitflow — próximo passo</div><div class="sec-empty">Em <b>develop</b>: cada tarefa começa num ramo próprio.</div><button class="btn ghost">Iniciar feature…</button><button class="btn ghost">Iniciar fix…</button><button class="btn ghost">Iniciar release…</button>
+    <div class="scm-grp">Ramos<span class="cnt">2</span></div><div class="scm-row"><span class="pdot" style="background:#6ea8ff"></span><span class="nm" style="max-width:none">main</span></div><div class="scm-row"><span class="pdot" style="background:#e08a5b"></span><span class="nm" style="max-width:none;font-weight:600">develop</span><span class="tag acc" style="margin-left:auto">HEAD</span></div>
+    <div class="scm-grp">Commits</div><div class="s-hit" style="padding-left:12px" title="You · há 1 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">d5f2b66</span><span>Merge feature/studio-canvas em develop</span></div><div class="s-hit" style="padding-left:12px" title="You · há 3 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s3c638e</span><span>feat(arch): persist the Studio design</span></div><div class="s-hit" style="padding-left:12px" title="You · há 4 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s2a5b0d</span><span>feat(arch): double-click a node to delete it</span></div><div class="s-hit" style="padding-left:12px" title="You · há 5 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">d4e1a55</span><span>Merge feature/learning-paths em develop</span></div><div class="s-hit" style="padding-left:12px" title="You · há 6 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s164943</span><span>feat(arch): interactive canvas</span></div><div class="s-hit" style="padding-left:12px" title="You · há 6 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">l2d0f44</span><span>feat(tutor): progresso por percurso</span></div><div class="s-hit" style="padding-left:12px" title="You · há 7 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">l1c9e33</span><span>feat(tutor): percursos de aprendizagem</span></div><button class="btn ghost">Abrir grafo de commits</button></div>"
+`;
+
+exports[`golden de DOM — Source Control (renderScmPane) > develop semeado (gitflow em develop, ficheiros sujos do seed) 1`] = `
+"<div class="side-hd"><span class="t">Source Control</span><span class="acts"><button title="Grafo de commits"><svg class="ico" viewBox="0 0 16 16"><circle cx="4" cy="4" r="1.6"></circle><circle cx="4" cy="12" r="1.6"></circle><circle cx="12" cy="8" r="1.6"></circle><path d="M4 5.6v4.8M5.4 4.8l5.2 2.5M5.4 11.2l5.2-2.5"></path></svg></button><button title="Actualizar"><svg class="ico" viewBox="0 0 16 16"><path d="M12.5 7a4.6 4.6 0 1 0-.7 3.4"></path><path d="M12.6 3.2v2.9H9.7"></path></svg></button></span></div><div class="sections"><div class="scm-grp">dxtutor · develop<span class="cnt">3</span></div>
+    <input class="inp" id="scm-msg" placeholder="Mensagem de commit" value=""><button class="btn">✓ Commit em develop</button>
+    <div class="scm-grp">Alterações<span class="cnt">3</span></div><div class="scm-row"><span class="ic x-ts"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">assistant.ts</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g M">M</span></div><div class="scm-row"><span class="ic x-css"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">styles.css</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g M">M</span></div><div class="scm-row"><span class="ic x-css"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">theme.css</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g U">U</span></div>
+    <div class="scm-grp">Gitflow — próximo passo</div><div class="sec-empty">Em <b>develop</b>: cada tarefa começa num ramo próprio.</div><button class="btn ghost">Iniciar feature…</button><button class="btn ghost">Iniciar fix…</button><button class="btn ghost">Iniciar release…</button>
+    <div class="scm-grp">Ramos<span class="cnt">2</span></div><div class="scm-row"><span class="pdot" style="background:#6ea8ff"></span><span class="nm" style="max-width:none">main</span></div><div class="scm-row"><span class="pdot" style="background:#e08a5b"></span><span class="nm" style="max-width:none;font-weight:600">develop</span><span class="tag acc" style="margin-left:auto">HEAD</span></div>
+    <div class="scm-grp">Commits</div><div class="s-hit" style="padding-left:12px" title="You · há 1 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">d5f2b66</span><span>Merge feature/studio-canvas em develop</span></div><div class="s-hit" style="padding-left:12px" title="You · há 3 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s3c638e</span><span>feat(arch): persist the Studio design</span></div><div class="s-hit" style="padding-left:12px" title="You · há 4 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s2a5b0d</span><span>feat(arch): double-click a node to delete it</span></div><div class="s-hit" style="padding-left:12px" title="You · há 5 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">d4e1a55</span><span>Merge feature/learning-paths em develop</span></div><div class="s-hit" style="padding-left:12px" title="You · há 6 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s164943</span><span>feat(arch): interactive canvas</span></div><div class="s-hit" style="padding-left:12px" title="You · há 6 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">l2d0f44</span><span>feat(tutor): progresso por percurso</span></div><div class="s-hit" style="padding-left:12px" title="You · há 7 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">l1c9e33</span><span>feat(tutor): percursos de aprendizagem</span></div><button class="btn ghost">Abrir grafo de commits</button></div>"
+`;
+
+exports[`golden de DOM — Source Control (renderScmPane) > ramo feature/ (próximo passo gitflow = finalizar feature) 1`] = `
+"<div class="side-hd"><span class="t">Source Control</span><span class="acts"><button title="Grafo de commits"><svg class="ico" viewBox="0 0 16 16"><circle cx="4" cy="4" r="1.6"></circle><circle cx="4" cy="12" r="1.6"></circle><circle cx="12" cy="8" r="1.6"></circle><path d="M4 5.6v4.8M5.4 4.8l5.2 2.5M5.4 11.2l5.2-2.5"></path></svg></button><button title="Actualizar"><svg class="ico" viewBox="0 0 16 16"><path d="M12.5 7a4.6 4.6 0 1 0-.7 3.4"></path><path d="M12.6 3.2v2.9H9.7"></path></svg></button></span></div><div class="sections"><div class="scm-grp">dxtutor · feature/demo<span class="cnt">3</span></div>
+    <input class="inp" id="scm-msg" placeholder="Mensagem de commit" value=""><button class="btn">✓ Commit em feature/demo</button>
+    <div class="scm-grp">Alterações<span class="cnt">3</span></div><div class="scm-row"><span class="ic x-ts"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">assistant.ts</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g M">M</span></div><div class="scm-row"><span class="ic x-css"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">styles.css</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g M">M</span></div><div class="scm-row"><span class="ic x-css"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">theme.css</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g U">U</span></div>
+    <div class="scm-grp">Gitflow — próximo passo</div><div class="gf-s ok"><span>✓</span><div>Ramo <b>feature/demo</b> criado a partir de develop</div></div><div class="gf-s"><span>○</span><div>Faz o primeiro commit neste ramo</div></div><div class="gf-s"><span>○</span><div>Finalizar: merge em develop e apagar o ramo</div></div><button class="btn">Finalizar feature</button>
+    <div class="scm-grp">Ramos<span class="cnt">3</span></div><div class="scm-row"><span class="pdot" style="background:#6ea8ff"></span><span class="nm" style="max-width:none">main</span></div><div class="scm-row"><span class="pdot" style="background:#e08a5b"></span><span class="nm" style="max-width:none">develop</span></div><div class="scm-row"><span class="pdot" style="background:#e08a5b"></span><span class="nm" style="max-width:none;font-weight:600">feature/demo</span><span class="tag acc" style="margin-left:auto">HEAD</span></div>
+    <div class="scm-grp">Commits</div><div class="s-hit" style="padding-left:12px" title="You · há 1 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">d5f2b66</span><span>Merge feature/studio-canvas em develop</span></div><div class="s-hit" style="padding-left:12px" title="You · há 3 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s3c638e</span><span>feat(arch): persist the Studio design</span></div><div class="s-hit" style="padding-left:12px" title="You · há 4 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s2a5b0d</span><span>feat(arch): double-click a node to delete it</span></div><div class="s-hit" style="padding-left:12px" title="You · há 5 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">d4e1a55</span><span>Merge feature/learning-paths em develop</span></div><div class="s-hit" style="padding-left:12px" title="You · há 6 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s164943</span><span>feat(arch): interactive canvas</span></div><div class="s-hit" style="padding-left:12px" title="You · há 6 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">l2d0f44</span><span>feat(tutor): progresso por percurso</span></div><div class="s-hit" style="padding-left:12px" title="You · há 7 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">l1c9e33</span><span>feat(tutor): percursos de aprendizagem</span></div><button class="btn ghost">Abrir grafo de commits</button></div>"
+`;
+
+exports[`golden de DOM — Source Control (renderScmPane) > ramo main (próximo passo gitflow = só releases/hotfixes) 1`] = `
+"<div class="side-hd"><span class="t">Source Control</span><span class="acts"><button title="Grafo de commits"><svg class="ico" viewBox="0 0 16 16"><circle cx="4" cy="4" r="1.6"></circle><circle cx="4" cy="12" r="1.6"></circle><circle cx="12" cy="8" r="1.6"></circle><path d="M4 5.6v4.8M5.4 4.8l5.2 2.5M5.4 11.2l5.2-2.5"></path></svg></button><button title="Actualizar"><svg class="ico" viewBox="0 0 16 16"><path d="M12.5 7a4.6 4.6 0 1 0-.7 3.4"></path><path d="M12.6 3.2v2.9H9.7"></path></svg></button></span></div><div class="sections"><div class="scm-grp">dxtutor · main<span class="cnt">3</span></div>
+    <input class="inp" id="scm-msg" placeholder="Mensagem de commit" value=""><button class="btn">✓ Commit em main</button>
+    <div class="scm-grp">Alterações<span class="cnt">3</span></div><div class="scm-row"><span class="ic x-ts"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">assistant.ts</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g M">M</span></div><div class="scm-row"><span class="ic x-css"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">styles.css</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g M">M</span></div><div class="scm-row"><span class="ic x-css"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg></span><span class="nm">theme.css</span><span class="pth">desktop/src</span><span class="ra"><button title="Abrir ficheiro">↗</button><button title="Descartar">↶</button><button title="Stage">+</button></span><span class="g U">U</span></div>
+    <div class="scm-grp">Gitflow — próximo passo</div><div class="sec-empty"><b>main</b> só recebe releases e hotfixes.</div><button class="btn ghost">Ir para develop</button><button class="btn ghost">Iniciar hotfix…</button>
+    <div class="scm-grp">Ramos<span class="cnt">2</span></div><div class="scm-row"><span class="pdot" style="background:#6ea8ff"></span><span class="nm" style="max-width:none;font-weight:600">main</span><span class="tag acc" style="margin-left:auto">HEAD</span></div><div class="scm-row"><span class="pdot" style="background:#e08a5b"></span><span class="nm" style="max-width:none">develop</span></div>
+    <div class="scm-grp">Commits</div><div class="s-hit" style="padding-left:12px" title="You · há 1 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">d5f2b66</span><span>Merge feature/studio-canvas em develop</span></div><div class="s-hit" style="padding-left:12px" title="You · há 3 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s3c638e</span><span>feat(arch): persist the Studio design</span></div><div class="s-hit" style="padding-left:12px" title="You · há 4 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s2a5b0d</span><span>feat(arch): double-click a node to delete it</span></div><div class="s-hit" style="padding-left:12px" title="You · há 5 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">d4e1a55</span><span>Merge feature/learning-paths em develop</span></div><div class="s-hit" style="padding-left:12px" title="You · há 6 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">s164943</span><span>feat(arch): interactive canvas</span></div><div class="s-hit" style="padding-left:12px" title="You · há 6 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">l2d0f44</span><span>feat(tutor): progresso por percurso</span></div><div class="s-hit" style="padding-left:12px" title="You · há 7 d"><span class="pdot" style="background:#8a8f9c"></span><span style="color:var(--accent-hover)">l1c9e33</span><span>feat(tutor): percursos de aprendizagem</span></div><button class="btn ghost">Abrir grafo de commits</button></div>"
+`;
