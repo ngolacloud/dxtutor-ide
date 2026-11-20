@@ -2,8 +2,9 @@
 
 Desktop IDE (Tauri 2 + Rust) para o protótipo Co-Dev. Este ficheiro é o harness
 de arquitectura: o mapa das camadas, a regra de dependências, os invariantes que
-não podem regredir, e os comandos para os verificar. Lê isto antes de tocar na
-feature Co-Dev (`ui-app/src/features/codev/`) ou de extrair uma feature nova.
+não podem regredir, e os comandos para os verificar. Lê isto antes de tocar nas
+features em Clean Architecture (`ui-app/src/features/codev/`,
+`ui-app/src/features/codereview/`) ou de extrair uma feature nova.
 
 ## Comandos (correr da raiz)
 
@@ -33,7 +34,9 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   para `ui-next`.
 - **A6** — baseline de `@ts-nocheck` (**directiva** `// @ts-nocheck`, não a palavra
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
-- **A7–A8** — fronteiras da Clean Architecture da feature Co-Dev (abaixo).
+- **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
+  A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev` e
+  `codereview`); cada nova extracção acrescenta-se lá.
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
@@ -76,10 +79,32 @@ features/codev.ts  RESÍDUO strangler (fora da subárvore): publica os shims win
   os consumidores (app.ts/board.ts) migrarem (passo 6 do ADR: trocar `window.FS`
   por comandos Tauri).
 
+## Segunda feature extraída: Explain · Code review · Under the hood (`ui-app/src/features/codereview/`)
+
+Primeira aplicação do procedimento da skill `extract-feature` a uma segunda
+feature (ADR-0002, Fases 0–4 concluídas). Mesmas camadas e mesma regra de
+dependências do Co-Dev, em menor escala:
+
+```
+features/codereview/
+  domain/          types.ts, review.ts (reviewFindings), scoring.ts (severidade/score). PURO.
+  application/     ports.ts + review-engine.ts (orquestração Explain/Code-Review/Hood, deps injectadas).
+  ui/              actions.ts (1 listener delegado no document: data-action + data-on).
+  infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
+features/codereview.ts  RESÍDUO strangler + raiz de composição: compõe o motor com os
+                   adaptadores do bridge, é dono do DOM/markup (renderCreviewView/renderHoodView)
+                   e re-publica os shims window.* (v6.ts/debug.ts ainda resolvem por global).
+```
+
+Governada pelas mesmas A7/A8 (está em `FEATURES`). Nota: ao contrário do Co-Dev,
+o markup (`renderCreviewView`/`renderHoodView`) vive no resíduo de composição
+`features/codereview.ts`, não num `ui/*-view.ts` — por isso `ui/` só tem
+`actions.ts`. A tabela de acções fica no resíduo (único sítio com o bridge à mão).
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
-`ui-app/tests/codev.golden.test.ts` compara o markup renderizado contra snapshots
-(`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
+`ui-app/tests/codev.golden.test.ts` e `codereview.golden.test.ts` comparam o
+markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
 `onclick`/`onchange`/`oninput`/`data-action`/`data-on` antes de comparar — logo
 todo o payload de uma acção viaja em `data-on` (um `data-*` à medida vazaria para o
 snapshot e partia-o). Um diff de golden = **o código mudou de comportamento visual**:

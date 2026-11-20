@@ -302,6 +302,20 @@ deste trabalho.
   extracções — candidatas directas: `debug`, `ext`, `infra`, `scm`,
   `visualizer`, `board` (os `@ts-nocheck` restantes), e por fim o núcleo do
   monólito (`app.ts`/`boot.ts`/`v5.ts`/`v6.ts`).
+- **Primeira aplicação do precedente — `codereview` (Explain · Code review ·
+  Under the hood), CONCLUÍDA:** o procedimento foi aplicado a uma segunda
+  feature, em `ui-app/src/features/codereview/`, com as mesmas camadas e a mesma
+  regra de dependências, através das Fases 0–4. Commits em `develop`:
+  Fase 0 (golden+caracterização, `18140fe`), Fase 1 (bridge tipado, `448894a`),
+  Fase 2 (domínio puro `reviewFindings`/severidade/score, `41da4a4`),
+  Fase 3 (motor em `application/review-engine.ts` com portas injectadas +
+  `codereview.ts` como raiz de composição, `f3c7f1b`), Fase 4 (`onclick` inline →
+  `data-action`+`data-on` servidos por um listener delegado em `ui/actions.ts`,
+  `337c4ab`). Governada por A7/A8 (está na var `FEATURES` do `arch-check.sh`). A
+  Fase 5 não se repetiu por feature: o harness (CLAUDE.md, A7/A8, skills, agentes)
+  é partilhado e só se estendeu `FEATURES` + o `CLAUDE.md`. Diferença face ao
+  Co-Dev: o markup (`renderCreviewView`/`renderHoodView`) ficou no resíduo de
+  composição `features/codereview.ts`, logo `ui/` contém só `actions.ts`.
 - **Enforcement:** a regra «`domain/` não importa `application/`/`ui/`/
   `infrastructure/`; só `legacy-bridge.ts` toca em `window`» passou a ser
   verificável por lint, não só por convenção de comentário (como hoje em
