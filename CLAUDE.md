@@ -131,10 +131,43 @@ auto-commits do monólito usam o v4 git-aware (`window.commitGit`). Rede de segu
 em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor) e
 `tests/scm.domain.test.ts` (domínio puro).
 
+## Quarta feature extraída: Run and Debug (`ui-app/src/features/debug/`)
+
+Quarta aplicação do procedimento `extract-feature` (ADR-0002, Fases 0–4 concluídas).
+Mesmas camadas e regra de dependências:
+
+```
+features/debug/
+  domain/          types.ts, lexer-trace.ts (buildLexTrace — passos da sessão code),
+                   crash-trace.ts (buildCrashTrace — sondas da sessão ops; importa `esc`
+                   puro de core), launch.ts (buildLaunchConfigs), breakpoints.ts
+                   (bpKey/bpLine/bpPath). PURO (geradores recebem o mundo por argumento).
+  application/     ports.ts + debug-engine.ts (makeDebugEngine: startDebug/dbgFeed/
+                   dbgApplyClone/dbgStep/dbgContinue/dbgFinish/dbgStop/dbgFix/toggleBp,
+                   deps injectadas; store/workspace/lexer/scenarios/editor/shell/view/…).
+  ui/              actions.ts (1 listener delegado: data-action + data-on; chave própria).
+  infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
+features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (DBG/BPS,
+                   window-backed) e do DOM (DBGK/drawDbg/refreshDbg/renderDebugPane);
+                   compõe o motor com os adaptadores do bridge + as funções de desenho
+                   (porta view), tem a tabela ACTIONS, e re-publica os shims window.*
+                   (onclick/keydown/menus de v6 + fachadas dbgState/dbgBreaks/dbgLaunch).
+```
+
+Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
+resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. Particularidades: a sessão
+`DBG` é polimórfica (`pre`/`code`/`ops`) — tipada por união + casts por `kind`; os
+helpers de lexer (`lexVariant`/`LXL`) e os containers `#pane-debug`/`#pc-dbg` vivem em
+`v6.ts`/`boot6` (fora da cadeia do harness) e são reproduzidos como fixtures no golden.
+Rede de segurança em `tests/debug.golden.test.ts` (goldens de #pane-debug/#pc-dbg nos
+estados sem-sessão/pre/code, caracterização dos geradores, e 4 testes de dispatch
+delegado que disparam eventos reais — o golden strippa data-action, não prova o wiring)
+e `tests/debug.domain.test.ts` (domínio puro).
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
-`ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts` e
-`scm.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
+`ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,
+`scm.golden.test.ts` e `debug.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
 `onclick`/`onchange`/`oninput`/`data-action`/`data-on` antes de comparar — logo
 todo o payload de uma acção viaja em `data-on` (um `data-*` à medida vazaria para o
 snapshot e partia-o). Um diff de golden = **o código mudou de comportamento visual**:
