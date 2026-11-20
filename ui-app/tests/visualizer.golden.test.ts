@@ -148,3 +148,61 @@ describe("visualizer · overlay #viz (golden)", () => {
     expect(vizGolden()).toMatchSnapshot();
   });
 });
+
+/* ───────────── dispatch delegado: data-action → listener (ui/actions.ts) ─────────────
+   O golden strippa data-action/data-on/onclick/onchange/oninput — logo NÃO prova que os
+   botões do overlay ainda disparam o efeito certo depois da migração da Fase 4. Estes
+   testes disparam eventos REAIS (click/change) sobre o markup renderizado e verificam o
+   efeito observável (estado VZ, classe .show), cobrindo os dois tipos de evento. */
+describe("visualizer · dispatch delegado (Fase 4)", () => {
+  const q = (sel: string): HTMLElement => document.querySelector(sel) as HTMLElement;
+
+  it("data-action=vz-step (click) avança um passo; vz-back recua", () => {
+    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    expect(w.VZ.i).toBe(0);
+    q('[data-action="vz-step"]').click();
+    expect(w.VZ.i).toBe(1);
+    q('[data-action="vz-back"]').click();
+    expect(w.VZ.i).toBe(0);
+  });
+
+  it("data-action=vz-depth (click) com data-on troca a profundidade", () => {
+    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    expect(w.VZ.depth).toBe("memory");
+    q('[data-action="vz-depth"][data-on="machine"]').click();
+    expect(w.VZ.depth).toBe("machine");
+  });
+
+  it("data-action=vz-close (click) fecha o overlay (remove .show)", () => {
+    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    expect(document.getElementById("viz")!.classList.contains("show")).toBe(true);
+    q('[data-action="vz-close"]').click();
+    expect(document.getElementById("viz")!.classList.contains("show")).toBe(false);
+  });
+
+  it("data-action=vz-predict (change) alterna o modo prever (lê .checked)", () => {
+    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    expect(w.VZ.predict).toBe(false);
+    const cb = q('[data-action="vz-predict"]') as HTMLInputElement;
+    cb.checked = true;
+    cb.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(w.VZ.predict).toBe(true);
+  });
+
+  it("data-action=vz-pick (change) abre o exemplo escolhido (lê .value)", () => {
+    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    const sel = q('[data-action="vz-pick"]') as HTMLSelectElement;
+    sel.value = "grow";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(w.VZ.src).toBe(w.VZS.grow[1]);
+  });
+
+  it("data-action=vz-play (click) arranca o temporizador (toggle)", () => {
+    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    expect(w.VZ.timer).toBeNull();
+    q('[data-action="vz-play"]').click();
+    expect(w.VZ.timer).not.toBeNull();
+    q('[data-action="vz-play"]').click();
+    expect(w.VZ.timer).toBeNull();
+  });
+});
