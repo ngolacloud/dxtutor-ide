@@ -36,7 +36,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview` e `scm`); cada nova extracção acrescenta-se lá.
+  `codereview`, `scm`, `debug` e `board`); cada nova extracção acrescenta-se lá.
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
@@ -164,10 +164,49 @@ estados sem-sessão/pre/code, caracterização dos geradores, e 4 testes de disp
 delegado que disparam eventos reais — o golden strippa data-action, não prova o wiring)
 e `tests/debug.domain.test.ts` (domínio puro).
 
+## Quinta feature extraída: backlog, sprints e kanban (`ui-app/src/features/board/`)
+
+Quinta aplicação do procedimento `extract-feature` (ADR-0002, Fases 0–4 concluídas).
+Mesmas camadas e regra de dependências:
+
+```
+features/board/
+  domain/          slug.ts (slug), issue.ts (STAGES + fábrica makeIssue),
+                   kanban.ts (selectores inView/points/nodeStatus/autoSprint/
+                   sprintCounts), types.ts. PURO.
+  application/     ports.ts + board-engine.ts (makeBoardEngine: mkIssue/setStage/
+                   autoTest/runIssue/delegate/runSprint/approveIssue/rejectIssue/
+                   dropIssue/newIssue/openBoard/genBacklog/genBacklogIssues; deps
+                   injectadas por 15 portas; handles opacos → toolResult/cardAppend/
+                   cardSet — o motor NÃO toca window nem DOM).
+  ui/              actions.ts (1 listener delegado: data-action + data-on; chave
+                   própria __boardActionHandler__).
+  infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
+features/board.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BL/STAGES,
+                   window-backed) e do DOM (renderBoardView); compõe o motor com os
+                   adaptadores do bridge, tem a tabela ACTIONS, e re-publica os shims
+                   window.* (onclick/VIEW.board de v5/v6 + o catálogo/geradores do
+                   monólito que FICAM: composeYaml/appFiles/k8s*/cloudMap + TECH/KIND/
+                   CLOUD/isApp/sl/appDir, lidos por global — decisão do dono).
+```
+
+Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm/debug, o markup vive no
+resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`/`runSprint`/
+`approveIssue` são DECORADAS em runtime pelo monólito (app.ts/v5/v6) — as arestas internas
+e os handlers data-action resolvem a versão DECORADA por `window` no acto
+(`decorated*` do bridge), nunca a função local base. Os handlers de ARRASTAR
+(`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
+`STRIPPED_ATTRS`, migrá-los partia o golden. Rede de segurança em
+`tests/board.golden.test.ts` (goldens do pane vazio/povoado, caracterização de
+genBacklogIssues/mkIssue, 3 testes de dispatch delegado) e `tests/board.domain.test.ts`
+(domínio puro). **BUG pré-existente reportado (não corrigido no refactor): `autoTest`
+chama `sleep(380)` como global, mas `sleep` nunca é publicado no `window` (é `const` local
+em `codev/ui/chat-view.ts`) → o runner lança ao entrar em Teste. Preservado tal e qual.**
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,
-`scm.golden.test.ts` e `debug.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
+`scm.golden.test.ts`, `debug.golden.test.ts` e `board.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
 `onclick`/`onchange`/`oninput`/`data-action`/`data-on` antes de comparar — logo
 todo o payload de uma acção viaja em `data-on` (um `data-*` à medida vazaria para o
 snapshot e partia-o). Um diff de golden = **o código mudou de comportamento visual**:

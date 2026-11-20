@@ -332,6 +332,23 @@ deste trabalho.
   `XC.git`/`checkpoint`), por isso o motor muta-o no sítio através da porta `ScmStore`;
   e o GOTCHA-commit (botão v2 `window.commit` vs v4 git-aware `window.commitGit`)
   manteve-se intacto.
+- **Quinta aplicação do precedente — `board` (backlog, sprints e kanban),
+  CONCLUÍDA:** o procedimento foi aplicado a `ui-app/src/features/board/`, com as
+  mesmas camadas e a mesma regra de dependências. Fase 0 (golden do pane +
+  caracterização de `genBacklogIssues`/`mkIssue`, `0570dfe`), Fase 1 (bridge tipado +
+  `board.ts` sem `@ts-nocheck`, `db30b4d`), Fase 2 (domínio puro `slug`/`issue`/`kanban`
+  + 12 testes, `70ce738`), Fase 3 (motor em `application/board-engine.ts` com 15 portas
+  injectadas; handles opacos → `toolResult`/`cardAppend`/`cardSet` para o motor não tocar
+  DOM; `37ef751`), Fase 4 (`onclick` inline → `data-action`+`data-on` + `board` em
+  `FEATURES` + 3 testes de dispatch, `df68e9e`). Como o scm/debug, o markup vive no
+  resíduo `features/board.ts` e `ui/` contém só `actions.ts`. GOTCHA-decoração:
+  `runIssue`/`delegate`/`runSprint`/`approveIssue` são decoradas pelo monólito, logo as
+  arestas internas e os handlers `data-action` resolvem a versão decorada por `window`
+  (`decorated*` do bridge). Os geradores de projecto e o catálogo do Studio FICAM donos
+  do monólito (decisão do dono), lidos por global via bridge; os handlers de arrastar
+  ficam inline (fora de `STRIPPED_ATTRS`). **Bug pré-existente reportado (não corrigido):
+  `autoTest` usa `sleep` como global, nunca publicado no `window` → o runner lança ao
+  entrar em Teste; preservado tal e qual.**
 - **Enforcement:** a regra «`domain/` não importa `application/`/`ui/`/
   `infrastructure/`; só `legacy-bridge.ts` toca em `window`» passou a ser
   verificável por lint, não só por convenção de comentário (como hoje em
