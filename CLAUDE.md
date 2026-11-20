@@ -35,8 +35,8 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
 - **A6** — baseline de `@ts-nocheck` (**directiva** `// @ts-nocheck`, não a palavra
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
-  A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev` e
-  `codereview`); cada nova extracção acrescenta-se lá.
+  A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
+  `codereview` e `scm`); cada nova extracção acrescenta-se lá.
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
@@ -101,10 +101,40 @@ o markup (`renderCreviewView`/`renderHoodView`) vive no resíduo de composição
 `features/codereview.ts`, não num `ui/*-view.ts` — por isso `ui/` só tem
 `actions.ts`. A tabela de acções fica no resíduo (único sítio com o bridge à mão).
 
+## Terceira feature extraída: Source Control + motor git (`ui-app/src/features/scm/`)
+
+Terceira aplicação do procedimento `extract-feature` (ADR-0002, Fases 0–4
+concluídas). Mesmas camadas e regra de dependências:
+
+```
+features/scm/
+  domain/          types.ts, graph.ts (computeGraphLayout — lanes do DAG),
+                   status.ts (statusOf/listChanges), gitflow.ts (isFlow/slug),
+                   author.ts (resolveAuthor). PURO.
+  application/     ports.ts + scm-engine.ts (makeScmEngine: gitInit/commit[v4]/
+                   commitV2/checkout/gitMerge/gfStart/gfFinish/stage/discard, deps
+                   injectadas; Date.now/Math.random como clock/ids).
+  ui/              actions.ts (1 listener delegado: data-action + data-on).
+  infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
+features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GIT/LANE/
+                   STAGED/BRANCH/COMMIT_MSG/COMMITS/BRANCHES/AUTHOR/GSEL) e do DOM
+                   (renderScmPane/gfGuide/gfPrompt/pickBranch/drawTimeline/openGraph);
+                   compõe o motor com os adaptadores do bridge e re-publica os shims
+                   window.* (app.ts/v5/v6/bridge/pair + VIEW.graph/XC.git/checkpoint
+                   ainda resolvem o motor por global).
+```
+
+Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o codereview, o markup vive
+no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. GOTCHA-commit:
+o botão «Commit» usa o commit v2 (`window.commit`, só FS+COMMITS); o Ctrl+Enter e os
+auto-commits do monólito usam o v4 git-aware (`window.commitGit`). Rede de segurança
+em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor) e
+`tests/scm.domain.test.ts` (domínio puro).
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
-`ui-app/tests/codev.golden.test.ts` e `codereview.golden.test.ts` comparam o
-markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
+`ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts` e
+`scm.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
 `onclick`/`onchange`/`oninput`/`data-action`/`data-on` antes de comparar — logo
 todo o payload de uma acção viaja em `data-on` (um `data-*` à medida vazaria para o
 snapshot e partia-o). Um diff de golden = **o código mudou de comportamento visual**:

@@ -316,6 +316,22 @@ deste trabalho.
   é partilhado e só se estendeu `FEATURES` + o `CLAUDE.md`. Diferença face ao
   Co-Dev: o markup (`renderCreviewView`/`renderHoodView`) ficou no resíduo de
   composição `features/codereview.ts`, logo `ui/` contém só `actions.ts`.
+- **Segunda aplicação do precedente — `scm` (Source Control + motor git),
+  CONCLUÍDA:** o procedimento foi aplicado a `ui-app/src/features/scm/`, com as
+  mesmas camadas e regra de dependências, através das Fases 0–4. Commits em
+  `develop`: Fase 0 (golden do pane + caracterização do motor, `ac9a662`), Fase 1
+  (bridge tipado + `scm.ts` sem `@ts-nocheck`, `7e669fc`), Fase 2 (domínio puro
+  `computeGraphLayout`/`statusOf`/`isFlow`/`resolveAuthor` + 15 testes unitários,
+  `1f212b9`), Fase 3 (motor em `application/scm-engine.ts` com portas injectadas +
+  `scm.ts` raiz de composição, `84be108`), Fase 4 (`onclick` inline →
+  `data-action`+`data-on` servidos por um listener delegado em `ui/actions.ts` +
+  `scm` em `FEATURES`, `f07dbc1`). Como o codereview, o markup vive no resíduo de
+  composição `features/scm.ts` e `ui/` contém só `actions.ts`; a Fase 5 não se
+  repetiu (só se estendeu `FEATURES` + o `CLAUDE.md`). Nota particular: o estado
+  git é window-backed e partilhado com consumidores do monólito (`VIEW.graph`/
+  `XC.git`/`checkpoint`), por isso o motor muta-o no sítio através da porta `ScmStore`;
+  e o GOTCHA-commit (botão v2 `window.commit` vs v4 git-aware `window.commitGit`)
+  manteve-se intacto.
 - **Enforcement:** a regra «`domain/` não importa `application/`/`ui/`/
   `infrastructure/`; só `legacy-bridge.ts` toca em `window`» passou a ser
   verificável por lint, não só por convenção de comentário (como hoje em
