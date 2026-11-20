@@ -1,18 +1,18 @@
 /* ═════════ dxtutor IDE — feature: Run and Debug (resíduo + composição) ═════════
    Feature DONA de toda a sua lógica: o motor de depuração simulado (sessão `DBG`,
-   lançadores `debugConfigs`, breakpoints `BPS`, os traços `lexTrace`/`crashTrace` e os
-   controlos `dbg*`) MAIS o render do pane «Run and Debug» (`renderDebugPane`) e do
-   assistente (`drawDbg`, #pc-dbg).
+   lançadores, breakpoints `BPS`, os traços e os controlos `dbg*`) MAIS o render do pane
+   «Run and Debug» (`renderDebugPane`) e do assistente (`drawDbg`, #pc-dbg).
 
    ADR-0002 (Clean Architecture). Estado actual:
    - Fase 1 — `window.*` confinado a `features/debug/infrastructure/legacy-bridge.ts`;
-     este ficheiro deixou de ser `@ts-nocheck` (importa do bridge e de `../core`, e os
-     tipos de `features/debug/domain/types.ts`).
-   - Fase 2 — os geradores PUROS saíram para `features/debug/domain/`: `lexer-trace.ts`
-     (buildLexTrace), `crash-trace.ts` (buildCrashTrace), `launch.ts`
-     (buildLaunchConfigs) e `breakpoints.ts` (bpKey/bpLine/bpPath). Aqui ficam
-     wrappers finos que injectam o mundo (lexLine/deps/segredos). A fase seguinte move
-     o motor da sessão (`startDebug`/`dbg*`) para `features/debug/application/`.
+     este ficheiro deixou de ser `@ts-nocheck`.
+   - Fase 2 — geradores PUROS em `features/debug/domain/` (lexer-trace/crash-trace/
+     launch/breakpoints); aqui ficaram wrappers finos que injectam o mundo.
+   - Fase 3 — o motor da sessão (startDebug/dbgFeed/dbgApplyClone/dbgStep/dbgContinue/
+     dbgFinish/dbgStop/dbgFix/toggleBp) saiu para `features/debug/application/debug-engine.ts`,
+     com deps injectadas por porta (`application/ports.ts`). Este ficheiro COMPÕE o motor
+     com os adaptadores do bridge, é DONO do estado (DBG/BPS) e do DOM (DBGK/drawDbg/
+     refreshDbg/renderDebugPane) e RE-PUBLICA a superfície no `window`.
 
    Fronteira: a feature DETÉM o estado (DBG/BPS, window-backed). Os CONSUMIDORES do
    motor ficam no monólito/v6 e lêem por global: os `onclick` inline do pane, o keydown
@@ -21,16 +21,17 @@
    paintEd/badges.
 
    Mecânica: avalia ANTES de `app.ts`/`v6.ts` (ordem do index.html). Nada é lido
-   ansiosamente no eval — o estado `BPS` nasce Set vazio e hidrata de `LS`
-   PREGUIÇOSAMENTE (`hydrateBps`, guard-once) na primeira entrada; `DBG` espelha
-   `window.DBG` via `writeSession`. */
+   ansiosamente no eval — `BPS` nasce Set vazio e hidrata de `LS` PREGUIÇOSAMENTE
+   (`hydrateBps`, guard-once) na primeira entrada; `DBG` espelha `window.DBG` via
+   `writeSession`. */
 
 import { $, hd, svg, esc, hhmm, toast, log, writeFile } from "../core";
 import type { CodeStep, CodeTrace, CrashTrace, DbgSession, LaunchConfig, OpsStep } from "./debug/domain/types";
 import { buildLexTrace } from "./debug/domain/lexer-trace";
 import { buildCrashTrace } from "./debug/domain/crash-trace";
 import { buildLaunchConfigs } from "./debug/domain/launch";
-import { bpKey, bpLine, bpPath } from "./debug/domain/breakpoints";
+import { bpLine, bpPath } from "./debug/domain/breakpoints";
+import { makeDebugEngine } from "./debug/application/debug-engine";
 import {
   readSession, writeSession, breakpoints,
   pLx, files, currentTab, pane, goPane, openPath, paintEd, setPanelTab, togglePanel, getVar, setVar, panes,
@@ -51,63 +52,18 @@ let _bpsHydrated = false;
 function hydrateBps(): void { if (_bpsHydrated) return; _bpsHydrated = true; try { (lsGet<string[]>("bps6", []) || []).forEach((b) => BPS.add(b)); } catch (e) { /* LS ainda não pronto */ } }
 const saveBps = (): void => lsSet("bps6", [...BPS]);
 
-/* ───── traços simulados: wrappers finos sobre os geradores PUROS do domínio,
-   injectando o mundo (número de linha do lexer; deps/segredos/host dos ambientes) ───── */
+/* ───── geradores de traço: wrappers finos sobre o domínio PURO, injectando o mundo
+   (número de linha do lexer; deps/segredos/host dos ambientes) ───── */
 function lexTrace(v: string): CodeTrace { return buildLexTrace(v, lexLine); }
 function crashTrace(env: string, n: string): CrashTrace {
   return buildCrashTrace({ env, n, deps: (envState(env) as EnvState).deps, sec: (envx().sec ?? {})[env] ?? {}, local: localSecrets(), ns: envx().ns[env], label: envLabels()[env], urlHosts });
 }
-
-/* ───── lançadores + motor de sessão ───── */
 function debugConfigs(): LaunchConfig[] {
   return buildLaunchConfigs([{ env: "staging", state: envx().st.staging }, { env: "production", state: envx().st.production }]);
 }
-function startDebug(id?: string): void {
-  hydrateBps(); const ct = currentTab();
-  id = id || (ct && ct.path === pLx() ? "lexer" : (debugConfigs().find((c) => c.id.startsWith("crash")) || { id: "lexer" }).id);
-  goPane("debug"); if (getVar("--panel-h") === "0px") togglePanel(); setVar("--panel-h", "300px");
-  if (id === "lexer") {
-    const v = lexVariant();
-    if (v === "bug") {
-      const s: DbgSession = { id, kind: "pre", i: -1, steps: [], feed: [], h: {} }; DBG = s; writeSession(s);
-      dbgFeed("look", "Building <code>lexer</code> in debug mode…");
-      dbgFeed("evidence", `<pre>error[E0382]: use of moved value: \`chars\`\n --> crates/lexer/src/lib.rs:${lexLine(/chars\.peek\(\)/)}:8\n  |\n${lexLine(/for c in/)} |     for c in chars {\n  |              ----- \`chars\` moved due to this implicit call to \`.into_iter()\`\n  |\nhelp: you can \`clone\` the value and consume it, but this might not be your desired behavior\n  |\n  |     for c in chars.clone() {\n  |                   ++++++++</pre>`);
-      dbgFeed("think", `I cannot start a session: there is no binary until the borrow checker is satisfied. <code>rustc</code> offers <code>.clone()</code> — and even warns it “might not be your desired behavior”. That warning is the interesting part. Rather than guess, let's apply the suggestion and <b>watch what it does at runtime</b>; the test will tell us if it is right.`);
-      s.offer = true; setPanelTab("dbg"); panes().debug(); drawDbg(); return;
-    }
-    if (v === "other") { const s: DbgSession = { id, kind: "pre", i: -1, steps: [], feed: [], h: {} }; DBG = s; writeSession(s); dbgFeed("think", "This edit is not one the prototype can step through. The desktop app runs the real test under <code>lldb</code> / <code>codelldb</code>, with the same assistant reading the frames."); setPanelTab("dbg"); panes().debug(); drawDbg(); return; }
-    const tr = lexTrace(v); const s: DbgSession = { id, kind: "code", i: -1, steps: tr.steps, end: tr.end, feed: [], h: {}, hk: { eof: "Eof is never pushed", dig: "Digits are tokenized wrong", test: "The test expects the wrong thing" }, watch: ["chars.peek()", "tokens.len()"] }; DBG = s; writeSession(s);
-    if (![...BPS].some((b) => b.startsWith(pLx() + ":"))) BPS.add(bpKey(pLx(), lexLine(/chars\.peek\(\)/))); openPath(pLx()); dbgFeed("look", `Debugging <code>tokenize_emits_eof</code> on <code>lib.rs</code> as it is now (<code>${v === "clone" ? "for c in chars.clone()" : v === "byref" ? "for c in chars.by_ref()" : "while let"}</code>). Breakpoints: ${[...BPS].filter((b) => b.startsWith(pLx())).map((b) => "line " + bpLine(b)).join(", ")}.`); dbgStep();
-  } else {
-    const [, e, n] = id.split(":"), tr = crashTrace(e, n); const s: DbgSession = { id, kind: "ops", i: -1, steps: tr.steps, end: tr.end, hk: tr.hk, feed: [], h: {} }; DBG = s; writeSession(s); dbgFeed("look", `Attaching to <code>${esc(n)}</code> in ${envLabels()[e].toLowerCase()}. A crash-looping pod cannot be stepped like code, so I investigate the way you would: status, logs, a healthy peer, the configuration diff, then confirm. Press <kbd>F10</kbd> to run each probe.`); dbgStep();
-  }
-  setPanelTab("dbg"); panes().debug();
-}
-function dbgFeed(k: string, h: string): void { if (!DBG) return; DBG.feed.push({ k, h, t: hhmm() }); }
-function dbgApplyClone(): void {
-  if (isHuman("code")) { toast("Code is yours in this project — make the change yourself"); dbgFeed("think", `Make the change yourself on line ${lexLine(/for c in/)}: <code>for c in chars.clone() {</code>, then press <kbd>F5</kbd>.`); openPath(pLx(), lexLine(/for c in/)); drawDbg(); return; }
-  checkpoint("Before trying rustc's .clone() suggestion"); writeFile(pLx(), files()[pLx()].content.replace("for c in chars {", "for c in chars.clone() {")); log("debug", "applied rustc's .clone() suggestion to observe it"); startDebug("lexer");
-}
-function dbgStep(): void {
-  if (!DBG || DBG.kind === "pre") return; const d = DBG; if (d.i >= d.steps.length - 1) { dbgFinish(); return; } d.i++; const s = d.steps[d.i]; if (s.h) d.h = s.h;
-  if (d.kind === "ops") { dbgFeed("cmd", `<pre class="notr">$ ${esc((s as OpsStep).cmd)}\n${esc((s as OpsStep).out)}</pre>`); dbgFeed(d.i === d.steps.length - 1 ? "evidence" : "think", s.n); } else dbgFeed((s as CodeStep).ev ? "evidence" : "think", `<span class="dbg-ln">line ${(s as CodeStep).l}</span> ${s.n}`);
-  d.focus = s.focus; if (d.i >= d.steps.length - 1) dbgFinish(); refreshDbg();
-}
-function dbgContinue(): void {
-  if (!DBG) { startDebug(); return; } if (DBG.kind !== "code") { dbgStep(); return; } const d = DBG, steps = d.steps as CodeStep[]; const from = d.i;
-  do {
-    d.i++; if (d.i >= steps.length) { d.i = steps.length - 1; dbgFinish(); refreshDbg(); return; } const s = steps[d.i]; if (s.h) d.h = s.h;
-    if (s.focus === "how the loop consumes chars" && !BPS.has(bpKey(pLx(), s.l))) dbgFeed("think", `<span class="dbg-ln">line ${s.l} · passed</span> ${s.n}`);
-    if (BPS.has(bpKey(pLx(), s.l)) || d.i === steps.length - 1) { const skipped = d.i - from - 1; if (skipped > 0) dbgFeed("look", `Ran ${skipped} step(s) to the next breakpoint.`); dbgFeed(s.ev ? "evidence" : "think", `<span class="dbg-ln">line ${s.l}</span> ${s.n}`); d.focus = s.focus; if (d.i >= steps.length - 1) dbgFinish(); break; }
-  } while (true);
-  refreshDbg();
-}
-function dbgFinish(): void { if (!DBG || DBG.done) return; const d = DBG; d.done = true; const end = d.end; if (!end) return; dbgFeed(end.ok ? "ok" : "root", `<b>${end.t}.</b> ${end.b}`); log("debug", end.t); }
-function dbgStop(): void { DBG = null; writeSession(null); setVar("--panel-h", "230px"); refreshDbg(); }
-function dbgFix(): void {
-  if (!DBG || !DBG.end || !DBG.end.fix) return; const fix = DBG.end.fix; if (isHuman("code")) { toast("Code is yours in this project — apply the fix yourself"); openPath(pLx(), lexLine(/for c in/)); return; }
-  const old = files()[pLx()].content, nw = fix(old); dlg({ title: "Apply the fix?", body: `<p>The Debug assistant proposes one line on <code>crates/lexer/src/lib.rs</code>:</p><pre class="notr">- ${esc(old.split("\n").find((l) => /for c in/.test(l))!.trim())}\n+ ${esc(nw.split("\n").find((l) => /for c in/.test(l))!.trim())}</pre><p>Then it re-runs the test under the debugger to confirm.</p>`, ok: "Apply and re-run", onOk: () => { checkpoint("Before the Debug assistant fix"); writeFile(pLx(), nw); startDebug("lexer"); } });
-}
+
+/* ───── DOM: desenho do assistente (#pc-dbg) e do pane (#pane-debug) — donos do resíduo;
+   lêem o estado DBG/BPS e entram no motor pela porta `view`. ───── */
 const DBGK: Record<string, [string, string]> = { look: ["Looking at", "var(--blue)"], think: ["Analysing", "var(--accent-hover)"], evidence: ["Evidence", "var(--yellow)"], cmd: ["Probe", "var(--fg-muted)"], root: ["Root cause", "var(--red)"], ok: ["Verdict", "var(--green)"] };
 function drawDbg(): void {
   hydrateBps(); const el = $("#pc-dbg"); if (!el) return; const d = DBG;
@@ -122,8 +78,6 @@ function refreshDbg(): void {
   drawDbg(); if (pane() === "debug") panes().debug(); const t = currentTab();
   if (t && t.path === pLx() && t.kind === "file") { paintEd(pLx()); const s = DBG && DBG.kind === "code" ? (DBG.steps[DBG.i] as CodeStep) : null; if (s) { const eb = $("#ebody"); if (eb) eb.scrollTop = Math.max(0, (s.l - 1) * 22 - 140); } }
 }
-function toggleBp(p: string, l: number): void { hydrateBps(); const k = bpKey(p, l); BPS.has(k) ? BPS.delete(k) : BPS.add(k); saveBps(); refreshDbg(); const t = currentTab(); if (t && t.path === p) paintEd(p); }
-document.addEventListener("click", (e) => { const g = (e.target as HTMLElement | null)?.closest("#ed-gut div"); if (!g) return; const t = currentTab(); if (!t || !t.path || t.kind !== "file") return; toggleBp(t.path, [...g.parentElement!.children].indexOf(g) + 1); });
 
 /** Renderiza o pane «Run and Debug»: controlo da sessão, lançadores, variáveis,
  *  watch, call stack, probes e breakpoints. Render puro sobre `DBG`/`BPS`. */
@@ -140,6 +94,29 @@ function renderDebugPane(): void {
    <div class="scm-grp">Breakpoints<span class="cnt">${BPS.size}</span></div>${[...BPS].map((b) => { const l = bpLine(b), p = bpPath(b); return `<div class="scm-row" onclick="openPath('${p}',${l})"><span class="bpd"></span><span class="nm notr">${esc(p.split("/").pop())}</span><span class="pth">line ${l}</span><span class="ra" style="display:flex"><button onclick="event.stopPropagation();BPS.delete('${b}');saveBps();refreshDbg()">×</button></span></div>`; }).join("") || '<div class="sec-empty">Click the gutter or press <kbd>F9</kbd> to add one.</div>'}
    <div class="sec-empty">Sessions are simulated in the browser. The desktop app drives lldb / delve / debugpy through the Debug Adapter Protocol; the assistant reads the same frames.</div></div>`;
 }
+
+/* ───── raiz de composição: liga os adaptadores do bridge (infra) + as funções de
+   desenho (resíduo) às portas do motor (application). O motor fica puro; o `window`/DOM
+   ficam deste lado. O estado DBG/BPS é a MESMA referência que `publish` expõe. ───── */
+const engine = makeDebugEngine({
+  store: { session: () => DBG, setSession: (s) => { DBG = s; writeSession(s); }, breakpoints: () => BPS, hydrate: () => hydrateBps(), save: () => saveBps() },
+  workspace: { lexPath: () => pLx(), fileContent: (p) => files()[p].content, writeFile: (p, c) => writeFile(p, c) },
+  lexer: { variant: () => lexVariant(), line: (re) => lexLine(re) },
+  scenarios: { code: (v) => lexTrace(v), ops: (e, n) => crashTrace(e, n), launch: () => debugConfigs() },
+  env: { label: (e) => envLabels()[e] },
+  editor: { currentTab: () => currentTab(), openPath: (p, l) => openPath(p, l), paintEd: (p) => paintEd(p) },
+  shell: { goPane: (p) => goPane(p), getVar: (k) => getVar(k), setVar: (k, v) => setVar(k, v), togglePanel: () => togglePanel(), setPanelTab: (pt, nf) => setPanelTab(pt, nf) },
+  view: { draw: () => drawDbg(), refresh: () => refreshDbg(), renderPane: () => panes().debug() },
+  notifier: { toast: (m) => toast(m), dlg: (o) => dlg(o) },
+  logger: { log: (s, m) => log(s, m) },
+  human: { owns: (w) => isHuman(w) },
+  checkpoint: { snapshot: (l) => checkpoint(l) },
+  clock: { time: () => hhmm() },
+});
+const { startDebug, dbgFeed, dbgApplyClone, dbgStep, dbgContinue, dbgFinish, dbgStop, dbgFix, toggleBp } = engine;
+
+/* clique no gutter do editor alterna o breakpoint da linha (índice do div na coluna) */
+document.addEventListener("click", (e) => { const g = (e.target as HTMLElement | null)?.closest("#ed-gut div"); if (!g) return; const t = currentTab(); if (!t || !t.path || t.kind !== "file") return; toggleBp(t.path, [...g.parentElement!.children].indexOf(g) + 1); });
 
 /* ── publicação no window (via bridge) ──
    • `renderDebugPane` — RP.debug (v6) delega (lazy, no switch de pane).
