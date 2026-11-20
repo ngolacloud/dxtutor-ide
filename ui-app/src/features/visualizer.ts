@@ -24,6 +24,7 @@
    `{t,v,ty}`) fica por tipar numa passagem futura dedicada; aqui o foco é a
    EXTRACÇÃO para a feature-dona, eliminando a camada v7. */
 import { $, esc, svg, show, toast } from "../core";
+import { publish } from "./visualizer/infrastructure/legacy-bridge";
 export {};
 
 P.film='<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M5 2.5v11M11 2.5v11M2 5.5h3M2 8h3M2 10.5h3M11 5.5h3M11 8h3M11 10.5h3"/>';
@@ -463,7 +464,7 @@ function boot7(){EACT.splice(4,0,['film','Visualize','Ctrl+K V','vizFromEditor()
 
 /* ── publicação no window: os nomes que boot.ts / handlers inline / app.ts (arranque)
    / i18n consomem. Internos (hex, VZR, VZSEEN, VZSZ) ficam léxicos ao módulo. ── */
-Object.assign(window, {
+publish({
   VZ, VZS, boot7,
   vizClose, vizFromEditor, vizOpen,
   vzAnswer, vzArrows, vzAsk, vzErr, vzGo, vzHints, vzLex, vzParse,
