@@ -1,31 +1,31 @@
 /* ═════════ dxtutor IDE — feature: Explain · Code review · Under the hood ═════════
-   Feature-folha da reestruturação por funcionalidade. Detém o cluster co-dev que
-   vivia em `v6.ts`: `explainCmd`, `reviewCmd`+`reviewFindings`, `hoodCmd`, e o corpo
-   das duas tabs que esses comandos abrem — `renderCreviewView` (VIEW.creview) e
-   `renderHoodView` (VIEW.hood) — mais os dados auxiliares `KNOW` (resumos por
-   ficheiro para Explain) e `SEVC` (cor por severidade no Code review).
+   Resíduo strangler + raiz de COMPOSIÇÃO da feature (FORA de `features/codereview/`,
+   logo não governado por A7/A8). Faz três coisas: (1) liga os adaptadores do bridge
+   (infra) às portas do motor (application) — constrói-os e injecta-os em
+   `makeReviewEngine`; (2) é DONO do DOM/markup — `renderCreviewView` (VIEW.creview),
+   `renderHoodView` (VIEW.hood), o presenter `explainCard` e o conteúdo `KNOW`/`SEVC`;
+   (3) re-publica a superfície pública no `window`.
+
+   ADR-0002, Fase 3: a orquestração — `curFile`/`reviewFindings`/`reviewCmd`/`hoodCmd`/
+   `explainCmd` — saiu daqui para `codereview/application/review-engine.ts`, pura e com
+   deps injectadas por porta (`codereview/application/ports.ts`). Este ficheiro deixou
+   de a conter: só a COMPÕE (com os adaptadores do bridge) e a RE-PUBLICA. O motor não
+   monta markup — o Explain colhe os factos e entrega-os à porta `view.explainCard`,
+   implementada aqui (a view é dona do cartão e do mapa `KNOW`).
 
    Fronteira: fica em v6.ts a barra de acções do editor (EACT), o handler global de
    keydown (chords Ctrl+K E/R/U, F5/F9/F10), `badges`, `boot6` e os menus — chamam
-   `explainCmd`/`reviewCmd`/`hoodCmd` por nome livre (continuam a resolver via
-   `window`, publicados por `bridge.publish(...)` no fim deste módulo). `dlg()` fica em
-   v6.ts (partilhado com debug.ts/infra.ts). `lexVariant`/`LXL` (helpers de lexer)
-   continuam donos de v6.ts — esta feature lê-os por fachada do bridge.
-
-   ADR-0002, Fase 1: TODA a leitura/escrita de globais passa por
-   `./codereview/infrastructure/legacy-bridge` — o ÚNICO ficheiro da feature autorizado
-   a tocar `window.*`. Este resíduo deixa de usar nomes globais livres e tipa-se em
-   estrito. O bridge lê `window`/`G` no ACTO da chamada (esta feature avalia ANTES de
-   app.ts/v6.ts publicarem os seus globais), por isso nada é capturado ansiosamente:
-   `FS`/`P_LX`/`cur`/… só são tocados DENTRO das funções, chamadas depois do arranque.
-   Mecânica (igual às migrações strict anteriores — diff/graph/tasks): publica-se
-   `renderCreviewView`/`renderHoodView` no eval e `VIEW.creview`/`VIEW.hood` (v6.ts)
-   ficam shim: `VIEW.creview=(t,host)=>window.renderCreviewView(t,host)`. */
+   `explainCmd`/`reviewCmd`/`hoodCmd` por nome livre (resolvem via `window`, publicados
+   por `publish(...)` no fim deste módulo). `dlg()` fica em v6.ts (partilhado com
+   debug.ts/infra.ts). `lexVariant`/`LXL` (helpers de lexer) continuam donos de v6.ts —
+   lidos por fachada do bridge. Mecânica (igual às migrações strict anteriores): publica-se
+   `renderCreviewView`/`renderHoodView` e `VIEW.creview`/`VIEW.hood` (v6.ts) ficam shim. */
 
 import { esc, svg, S, prov } from "../core";
 import type { Finding } from "./codereview/domain/types";
-import { reviewFindings as reviewRules } from "./codereview/domain/review";
 import { scoreFor } from "./codereview/domain/scoring";
+import { makeReviewEngine } from "./codereview/application/review-engine";
+import type { ExplainCard } from "./codereview/application/ports";
 import {
   files,
   currentTabId,
@@ -57,19 +57,8 @@ import {
   type Svc,
 } from "./codereview/infrastructure/legacy-bridge";
 
-/* ───── Explain ───── */
-
-function curFile(): string {
-  const t = tabOf(currentTabId());
-  if (t && t.path && files()[t.path]) return t.path;
-  const c = changes();
-  if (c[0]) return c[0];
-  // P_LX (lexer-protótipo) só existe no projecto simulado; num projecto desktop real sem
-  // ele, cai para qualquer ficheiro aberto em FS em vez de devolver um caminho inexistente.
-  return files()[pathLexer()] ? pathLexer() : Object.keys(files())[0] || pathLexer();
-}
-
-/* GOTCHA: esta feature carrega ANTES de app.ts — um `[P_LX]`/`ROOT`/`P_HIST` ansioso
+/* ───── Explain — conteúdo e cartão (dono da view) ─────
+   GOTCHA: esta feature carrega ANTES de app.ts — um `[P_LX]`/`ROOT`/`P_HIST` ansioso
    no eval do módulo seria ReferenceError e pararia o chunk inteiro (como hydrate() em
    features/tasks.ts). KNOW só se constrói na primeira chamada a know(). */
 let _KNOW: Record<string, string> | null = null;
@@ -84,61 +73,56 @@ function know(p: string): string | undefined {
   return _KNOW[p];
 }
 
-function explainCmd(fromDebug?: boolean): void {
-  const p = curFile(), sel = fromDebug ? '' : selText(), f = files()[p];
-  focusAgent(true);
-  const _ds = dbgState();
-  const what = fromDebug && _ds ? `the debugging session I just ran (${_ds.end ? _ds.end.t : ''})` : sel ? `this excerpt from ${short(p)}` : short(p);
-  if (sample() && prov().claude.on) {
-    setActiveProvider('claude'); updateAgentUI();
-    liveChat(fromDebug && _ds ? `Explain in depth, as a senior engineer teaching me, what this debug session found and the underlying concept:\n${_ds.feed.map(x => x.h.replace(/<[^>]+>/g, '')).join('\n')}` : `Explain ${what}: what it does, how, and what a senior would watch out for. Be concrete.\n${sel || f.content.slice(0, 5000)}`);
-    return;
-  }
-  user(`Explain ${what}.`);
-  const sy = symbols(p), dg = diagnostics().filter(d => d.p === p), rv = reviewFindings(p).slice(0, 2);
-  const kn = know(p);
-  card('co-dev · explain', `${fromDebug && _ds && _ds.end ? `<p>${_ds.end.b}</p>` : kn ? `<p>${kn}</p>` : `<p><b>${esc(short(p))}</b> — ${f.content.split('\n').length} lines${sy.length ? `, defines ${sy.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${(f.content.match(/^\s*(\/\/|#|--)\s*(.+)$/m) || [])[2] ? `<p>${esc((f.content.match(/^\s*(\/\/|#|--)\s*(.+)$/m) || [])[2])}</p>` : ''}`}
-   ${dg.length ? `<p><b>Right now:</b> ${dg.map(d => esc(d.msg)).join('; ')}.</p>` : ''}${rv.length ? `<p><b>What I would watch:</b></p><ul>${rv.map(r => `<li>${r.t} (line ${r.l})</li>`).join('')}</ul>` : ''}<p style="color:var(--fg-dim)">With Claude live, Explain answers about the exact code or selection instead of this summary.</p>`);
+/* Presenter do cartão de Explain: a porta `view.explainCard` que o motor chama com
+   dados simples. A view é dona do markup e resolve o conteúdo `KNOW` por caminho. */
+function explainCard(c: ExplainCard): void {
+  const kn = know(c.path);
+  card('co-dev · explain', `${c.dbgEnd ? `<p>${c.dbgEnd}</p>` : kn ? `<p>${kn}</p>` : `<p><b>${esc(short(c.path))}</b> — ${c.lineCount} lines${c.symbols.length ? `, defines ${c.symbols.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${c.firstComment ? `<p>${esc(c.firstComment)}</p>` : ''}`}
+   ${c.diagnostics.length ? `<p><b>Right now:</b> ${c.diagnostics.map(m => esc(m)).join('; ')}.</p>` : ''}${c.findings.length ? `<p><b>What I would watch:</b></p><ul>${c.findings.map(r => `<li>${r.t} (line ${r.l})</li>`).join('')}</ul>` : ''}<p style="color:var(--fg-dim)">With Claude live, Explain answers about the exact code or selection instead of this summary.</p>`);
 }
 
-/* ───── Code review ───── */
+/* ───── raiz de composição: adaptadores do bridge (infra) → portas do motor (application).
+   O motor fica puro (sem window/DOM/HTML); os adaptadores lêem o mundo pelo bridge. ───── */
+const engine = makeReviewEngine({
+  workspace: {
+    files: () => files(),
+    currentTabId: () => currentTabId(),
+    tabOf: id => tabOf(id),
+    short: p => short(p),
+    extOf: p => extOf(p),
+    changes: () => changes(),
+    open: tab => openTab(tab),
+  },
+  paths: { lexer: () => pathLexer() },
+  agent: {
+    focus: nofocus => focusAgent(nofocus),
+    user: msg => user(msg),
+    liveChat: q => liveChat(q),
+    updateUI: () => updateAgentUI(),
+    setActiveProvider: v => setActiveProvider(v),
+    sample: () => sample(),
+    claudeOn: () => prov().claude.on,
+  },
+  diagnostics: { all: () => diagnostics(), dsLint: () => dsLint() },
+  lexer: { bug: () => lexBug(), line: re => LXL(re) },
+  code: { symbols: p => symbols(p), selText: () => selText(), dbgState: () => dbgState() },
+  view: { explainCard },
+});
+const { curFile, reviewFindings, reviewCmd, hoodCmd, explainCmd } = engine;
 
-/* Resíduo: colhe do mundo (FS/extOf/window.lexBug/LXL/dsLint) o que a regra pura
-   precisa e delega em `reviewRules` (domain). `lexer` só vai não-nulo para o
-   lexer-protótipo (P_LX); o `dsLint` já chega filtrado para este ficheiro. */
-function reviewFindings(p: string): Finding[] {
-  const f = files()[p];
-  if (!f) return [];
-  return reviewRules({
-    path: p,
-    content: f.content,
-    ext: extOf(p),
-    lexer: p === pathLexer() ? { bug: lexBug(), peekLine: LXL(/chars\.peek/) } : null,
-    dsLint: dsLint().filter(v => v.p === p).map(v => ({ line: v.line, hex: v.hex })),
-  });
-}
-
-function reviewCmd(): void {
-  const p = curFile();
-  openTab({ id: 'creview:' + p, title: 'Review · ' + p.split('/').pop(), kind: 'creview', path: p });
-}
+/* ───── Code review — markup da tab (dono da view) ───── */
 
 const SEVC: Record<string, string> = { bug: 'var(--red)', risk: 'var(--yellow)', perf: 'var(--blue)', style: 'var(--fg-muted)' };
 
 function renderCreviewView(tab: unknown, host: HTMLElement): void {
   const t = tab as { path: string };
-  const fs = reviewFindings(t.path), score = scoreFor(fs);
+  const fs: Finding[] = reviewFindings(t.path), score = scoreFor(fs);
   host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" onclick="openPath('${t.path}')">Open file</button>${sample() && prov().claude.on ? `<button class="mini pri" onclick="focusAgent(true);liveChat('Review this file as a senior engineer: bugs first, then risks, performance and style. Cite line numbers.\\n'+FS['${t.path}'].content.slice(0,6000))">Deeper review with Claude</button>` : ''}</div>
    <div class="sub" style="margin-top:12px">Rule-based checks for correctness, security, performance and the project rules. They point at evidence; you decide what to change.</div>
    ${fs.length ? fs.map(f => `<div class="rv"><div class="rv-h"><span class="tag" style="color:${SEVC[f.sev]};border-color:${SEVC[f.sev]}">${f.sev}</span><b>${f.t}</b><span class="sp"></span><button class="lnk" onclick="openPath('${t.path}',${f.l})">line ${f.l}</button></div><div class="rv-b"><p>${f.why}</p><p><b>Suggested:</b> ${f.fix}</p></div></div>`).join('') : '<div class="adv agent" style="margin-top:16px">' + svg('check') + '<div>No findings from the rule set. That is not proof of correctness — the tests are.</div></div>'}</div>`;
 }
 
-/* ───── Under the hood ───── */
-
-function hoodCmd(): void {
-  const p = curFile();
-  openTab({ id: 'hood:' + p, title: 'Under the hood · ' + p.split('/').pop(), kind: 'hood', path: p });
-}
+/* ───── Under the hood — markup da tab (dono da view) ───── */
 
 function renderHoodView(tab: unknown, host: HTMLElement): void {
   const t = tab as { path: string };
