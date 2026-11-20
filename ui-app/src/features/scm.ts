@@ -35,12 +35,13 @@ import { statusOf, listChanges } from "./scm/domain/status";
 import { resolveAuthor } from "./scm/domain/author";
 import { isFlow } from "./scm/domain/gitflow";
 import { makeScmEngine } from "./scm/application/scm-engine";
+import { bindActions, type ActionTable } from "./scm/ui/actions";
 import {
   toast, log, rerender,
   files, agents, fIcon, short, rel,
   goPane, openTab, palette, refresh, termRefreshPrompt, panes,
   branch, setBranch, commitMsg, setCommitMsg, setGraphSel, author,
-  publish,
+  openDiff, openPath, publish,
 } from "./scm/infrastructure/legacy-bridge";
 
 /* ───── estado git/scm (window-backed via publish; o resíduo do monólito e as
@@ -66,7 +67,7 @@ const graphLayout = (): GraphLayout => computeGraphLayout(GIT);
 /* mini-timeline (DOM): dono do resíduo; injectada no motor como `view.drawTimeline` */
 function drawTimeline(): void {
   const o = $("#timeline"); if (!o) return;
-  o.innerHTML = GIT.order.slice(0, 6).map((h) => `<div class="s-hit" style="padding-left:16px" onclick="openGraph('${h}')"><span style="color:var(--accent-hover)">${h}</span><span>${esc(GIT.c[h].m)}</span></div>`).join("");
+  o.innerHTML = GIT.order.slice(0, 6).map((h) => `<div class="s-hit" style="padding-left:16px" data-action="open-graph-sel" data-on="${esc(h)}"><span style="color:var(--accent-hover)">${h}</span><span>${esc(GIT.c[h].m)}</span></div>`).join("");
 }
 
 /* ───── raiz de composição: liga os adaptadores do bridge (infra) às portas do motor
@@ -107,10 +108,10 @@ function pickBranch(): void {
 }
 function gfGuide(): string {
   const b = branch(), n = changes().length, step = (ok: number | boolean, t: string): string => `<div class="gf-s${ok ? " ok" : ""}"><span>${ok ? "✓" : "○"}</span><div>${t}</div></div>`;
-  if (/^(feature|fix)\//.test(b)) { const ahead = GIT.c[GIT.refs[b]].b === b; return step(1, `Ramo <b>${esc(b)}</b> criado a partir de develop`) + step(ahead && !n, ahead ? (n ? `${n} alteração(ões) por commitar` : "Trabalho commitado no ramo") : "Faz o primeiro commit neste ramo") + step(0, "Finalizar: merge em develop e apagar o ramo") + `<button class="btn" onclick="gfFinish()&&toast('Merge em develop feito')">Finalizar ${esc(b.split("/")[0])}</button>`; }
-  if (/^(release|hotfix)\//.test(b)) return step(1, `Ramo <b>${esc(b)}</b>`) + step(0, "Finalizar: merge em main com tag e de volta a develop") + `<button class="btn" onclick="gfFinish()&&toast('Release publicada em main')">Finalizar ${esc(b.split("/")[0])}</button>`;
-  if (b === "develop") return `<div class="sec-empty">Em <b>develop</b>: cada tarefa começa num ramo próprio.</div><button class="btn ghost" onclick="gfPrompt('feature')">Iniciar feature…</button><button class="btn ghost" onclick="gfPrompt('fix')">Iniciar fix…</button><button class="btn ghost" onclick="gfPrompt('release')">Iniciar release…</button>`;
-  return `<div class="sec-empty"><b>main</b> só recebe releases e hotfixes.</div><button class="btn ghost" onclick="checkout('develop')">Ir para develop</button><button class="btn ghost" onclick="gfPrompt('hotfix')">Iniciar hotfix…</button>`;
+  if (/^(feature|fix)\//.test(b)) { const ahead = GIT.c[GIT.refs[b]].b === b; return step(1, `Ramo <b>${esc(b)}</b> criado a partir de develop`) + step(ahead && !n, ahead ? (n ? `${n} alteração(ões) por commitar` : "Trabalho commitado no ramo") : "Faz o primeiro commit neste ramo") + step(0, "Finalizar: merge em develop e apagar o ramo") + `<button class="btn" data-action="gf-finish-feature">Finalizar ${esc(b.split("/")[0])}</button>`; }
+  if (/^(release|hotfix)\//.test(b)) return step(1, `Ramo <b>${esc(b)}</b>`) + step(0, "Finalizar: merge em main com tag e de volta a develop") + `<button class="btn" data-action="gf-finish-release">Finalizar ${esc(b.split("/")[0])}</button>`;
+  if (b === "develop") return `<div class="sec-empty">Em <b>develop</b>: cada tarefa começa num ramo próprio.</div><button class="btn ghost" data-action="gf-prompt" data-on="feature">Iniciar feature…</button><button class="btn ghost" data-action="gf-prompt" data-on="fix">Iniciar fix…</button><button class="btn ghost" data-action="gf-prompt" data-on="release">Iniciar release…</button>`;
+  return `<div class="sec-empty"><b>main</b> só recebe releases e hotfixes.</div><button class="btn ghost" data-action="checkout" data-on="develop">Ir para develop</button><button class="btn ghost" data-action="gf-prompt" data-on="hotfix">Iniciar hotfix…</button>`;
 }
 function openGraph(sel?: string): void { if (sel) setGraphSel(sel); openTab({ id: "graph", title: "Grafo de commits", kind: "graph" }); }
 
@@ -120,21 +121,54 @@ function renderScmPane(): void {
   const el = $("#pane-scm"), ch = changes(), st = ch.filter((p) => STAGED.has(p)), un = ch.filter((p) => !STAGED.has(p)), lay = graphLayout();
   if (!el) return;
   const b = branch();
-  const row = (p: string, s: number): string => `<div class="scm-row" onclick="openDiff('${p}')">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="Abrir ficheiro" onclick="event.stopPropagation();openPath('${p}')">↗</button><button title="Descartar" onclick="event.stopPropagation();discard('${p}')">↶</button><button title="${s ? "Retirar do stage" : "Stage"}" onclick="event.stopPropagation();stage('${p}')">${s ? "−" : "+"}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
-  el.innerHTML = hd("Source Control", `<button title="Grafo de commits" onclick="openGraph()">${svg("graph")}</button><button title="Actualizar" onclick="refresh()">${svg("refresh")}</button>`) + `<div class="sections"><div class="scm-grp">dxtutor · ${esc(b)}<span class="cnt">${ch.length}</span></div>
-    <input class="inp" id="scm-msg" placeholder="Mensagem de commit" value="${esc(commitMsg())}"><button class="btn" onclick="commit()">✓ Commit${st.length ? " (staged)" : ""} em ${esc(b)}</button>
+  const row = (p: string, s: number): string => `<div class="scm-row" data-action="open-diff" data-on="${esc(p)}">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="Abrir ficheiro" data-action="open-path" data-on="${esc(p)}">↗</button><button title="Descartar" data-action="discard" data-on="${esc(p)}">↶</button><button title="${s ? "Retirar do stage" : "Stage"}" data-action="stage" data-on="${esc(p)}">${s ? "−" : "+"}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
+  el.innerHTML = hd("Source Control", `<button title="Grafo de commits" data-action="open-graph">${svg("graph")}</button><button title="Actualizar" data-action="refresh">${svg("refresh")}</button>`) + `<div class="sections"><div class="scm-grp">dxtutor · ${esc(b)}<span class="cnt">${ch.length}</span></div>
+    <input class="inp" id="scm-msg" placeholder="Mensagem de commit" value="${esc(commitMsg())}"><button class="btn" data-action="commit">✓ Commit${st.length ? " (staged)" : ""} em ${esc(b)}</button>
     ${st.length ? `<div class="scm-grp">Staged<span class="cnt">${st.length}</span></div>` + st.map((p) => row(p, 1)).join("") : ""}<div class="scm-grp">Alterações<span class="cnt">${un.length}</span></div>${un.map((p) => row(p, 0)).join("") || '<div class="sec-empty">Área de trabalho limpa.</div>'}
     <div class="scm-grp">Gitflow — próximo passo</div>${gfGuide()}
-    <div class="scm-grp">Ramos<span class="cnt">${Object.keys(GIT.refs).length}</span></div>${Object.keys(GIT.refs).map((rb) => { const r = lay.rows.find((x) => x.h === GIT.refs[rb]); return `<div class="scm-row" onclick="checkout('${rb}')"><span class="pdot" style="background:${LANE[(r ? r.col : 0) % LANE.length]}"></span><span class="nm" style="max-width:none${rb === b ? ";font-weight:600" : ""}">${esc(rb)}</span>${rb === b ? '<span class="tag acc" style="margin-left:auto">HEAD</span>' : ""}</div>`; }).join("")}
-    <div class="scm-grp">Commits</div>${GIT.order.slice(0, 7).map((h) => { const c = GIT.c[h], a = authorOf(c.a); return `<div class="s-hit" style="padding-left:12px" onclick="openGraph('${h}')" title="${esc(a.n)} · ${rel(c.t)}"><span class="pdot" style="background:${a.col}"></span><span style="color:var(--accent-hover)">${h}</span><span>${esc(c.m)}</span></div>`; }).join("")}<button class="btn ghost" onclick="openGraph()">Abrir grafo de commits</button></div>`;
+    <div class="scm-grp">Ramos<span class="cnt">${Object.keys(GIT.refs).length}</span></div>${Object.keys(GIT.refs).map((rb) => { const r = lay.rows.find((x) => x.h === GIT.refs[rb]); return `<div class="scm-row" data-action="checkout" data-on="${esc(rb)}"><span class="pdot" style="background:${LANE[(r ? r.col : 0) % LANE.length]}"></span><span class="nm" style="max-width:none${rb === b ? ";font-weight:600" : ""}">${esc(rb)}</span>${rb === b ? '<span class="tag acc" style="margin-left:auto">HEAD</span>' : ""}</div>`; }).join("")}
+    <div class="scm-grp">Commits</div>${GIT.order.slice(0, 7).map((h) => { const c = GIT.c[h], a = authorOf(c.a); return `<div class="s-hit" style="padding-left:12px" data-action="open-graph-sel" data-on="${esc(h)}" title="${esc(a.n)} · ${rel(c.t)}"><span class="pdot" style="background:${a.col}"></span><span style="color:var(--accent-hover)">${h}</span><span>${esc(c.m)}</span></div>`; }).join("")}<button class="btn ghost" data-action="open-graph">Abrir grafo de commits</button></div>`;
   const i = $("#scm-msg") as HTMLInputElement | null;
   if (i) { i.oninput = () => { setCommitMsg(i.value); }; i.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) commit(); }; }
 }
 
+/* ───── tabela de acções (ADR-0002, Fase 4) ─────
+   Liga o nome de acção (emitido como `data-action` pelo markup de renderScmPane/
+   gfGuide/drawTimeline) ao efeito. Fica aqui — no resíduo de composição, fora da
+   subárvore governada por A7/A8 — porque só este ficheiro tem à mão o motor e o
+   bridge. Todos os handlers são `click`. O payload viaja SÓ em `data-on` (o golden
+   strippa data-action/data-on; um `data-*` à medida vazava). Os caminhos/ramos/hashes
+   escapam-se com `esc` à saída (eram interpolados crus em literais JS dentro do
+   `onclick` — o vector de injecção que o ADR apontou); nos dados actuais (caminhos de
+   ficheiro, ramos gitflow, hashes hex) `esc` é no-op, logo a saída visível não muda.
+     • open-graph / open-graph-sel — abre o grafo (sel = hash no data-on)
+     • refresh / commit            — actualizar / commit v2 (window.commit)
+     • open-diff/open-path/discard/stage — acções por ficheiro (data-on = caminho)
+     • checkout                    — mudar de ramo (data-on = ramo)
+     • gf-prompt                   — prompt gitflow (data-on = feature|fix|release|hotfix)
+     • gf-finish-feature/-release  — finalizar o ramo e dar o toast respectivo
+   `gf-finish-*` reproduz `gfFinish()&&toast(…)`: só dá o toast se o merge devolveu
+   um commit (não-null), como o `&&` original. */
+const ACTIONS: ActionTable = {
+  "open-graph": { on: "click", run: () => openGraph() },
+  "open-graph-sel": { on: "click", run: (e) => openGraph(e.on) },
+  refresh: { on: "click", run: () => refresh() },
+  commit: { on: "click", run: () => commitV2() },
+  "open-diff": { on: "click", run: (e) => openDiff(e.on) },
+  "open-path": { on: "click", run: (e) => openPath(e.on) },
+  discard: { on: "click", run: (e) => discard(e.on) },
+  stage: { on: "click", run: (e) => stage(e.on) },
+  checkout: { on: "click", run: (e) => checkout(e.on) },
+  "gf-prompt": { on: "click", run: (e) => gfPrompt(e.on as FlowKind) },
+  "gf-finish-feature": { on: "click", run: () => { if (gfFinish()) toast("Merge em develop feito"); } },
+  "gf-finish-release": { on: "click", run: () => { if (gfFinish()) toast("Release publicada em main"); } },
+};
+bindActions(ACTIONS);
+
 /* ── publicação no window (via bridge): nomes que o resíduo (app.ts/v5/v6/bridge/
-   pair), os onclick inline e os consumidores VIEW.graph/XC.git/checkpoint resolvem
-   como globais. RP.scm (app.ts) delega em renderScmPane (lazy, no switch de pane).
-   `commit` v2 (botão) e `commitGit` v4 git-aware ficam distintos (GOTCHA-commit). ── */
+   pair) e os consumidores VIEW.graph/XC.git/checkpoint resolvem como globais. RP.scm
+   (app.ts) delega em renderScmPane (lazy, no switch de pane). `commit` v2 (botão) e
+   `commitGit` v4 git-aware ficam distintos (GOTCHA-commit). ── */
 publish({
   commitGit: commit, commit: commitV2, checkout, gitMerge, gfFinish,
   gitInit, authorOf, stOf, changes, isFlow, gfStart, gfPrompt, gfGuide,
