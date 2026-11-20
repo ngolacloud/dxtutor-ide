@@ -1,0 +1,1057 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`caracterização do motor — drift (design vs realidade) > DSTY: tabela de estilos/estados de drift (constante) > DSTY 1`] = `
+{
+  "bad": [
+    "var(--red)",
+    "failing",
+  ],
+  "behind": [
+    "var(--blue)",
+    "behind",
+  ],
+  "drift": [
+    "var(--yellow)",
+    "drift",
+  ],
+  "missing": [
+    "var(--red)",
+    "missing",
+  ],
+  "off": [
+    "var(--fg-muted)",
+    "not deployed",
+  ],
+  "sync": [
+    "var(--green)",
+    "in sync",
+  ],
+}
+`;
+
+exports[`caracterização do motor — drift (design vs realidade) > driftReport(local): sincronizado quando a versão bate certo com develop > drift-sync 1`] = `
+{
+  "extra": [],
+  "out": {
+    "api": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+    "cache": {
+      "st": "sync",
+      "why": "matches the design",
+    },
+    "gw": {
+      "st": "sync",
+      "why": "ingress present",
+    },
+    "pg": {
+      "st": "sync",
+      "why": "matches the design",
+    },
+    "q": {
+      "st": "sync",
+      "why": "matches the design",
+    },
+    "s3": {
+      "st": "sync",
+      "why": "matches the design",
+    },
+    "web": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+    "worker": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+  },
+  "s": {
+    "at": 1767225600000,
+    "deps": [
+      {
+        "err": null,
+        "img": "softwaremill/elasticmq-native",
+        "n": "order-events",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "postgres:16-alpine",
+        "n": "orders-db",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "redis:7-alpine",
+        "n": "session-cache",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "minio/minio",
+        "n": "invoices-bucket",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+    ],
+    "ingress": true,
+    "ver": "d5f2b66",
+  },
+}
+`;
+
+exports[`caracterização do motor — drift (design vs realidade) > driftReport(local): «behind» quando a versão deployada é anterior a develop > drift-behind 1`] = `
+{
+  "extra": [],
+  "out": {
+    "api": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+    "cache": {
+      "st": "behind",
+      "why": "runs c0ffee0, develop is at d5f2b66",
+    },
+    "gw": {
+      "st": "sync",
+      "why": "ingress present",
+    },
+    "pg": {
+      "st": "behind",
+      "why": "runs c0ffee0, develop is at d5f2b66",
+    },
+    "q": {
+      "st": "behind",
+      "why": "runs c0ffee0, develop is at d5f2b66",
+    },
+    "s3": {
+      "st": "behind",
+      "why": "runs c0ffee0, develop is at d5f2b66",
+    },
+    "web": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+    "worker": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+  },
+  "s": {
+    "at": 1767225600000,
+    "deps": [
+      {
+        "err": null,
+        "img": "softwaremill/elasticmq-native",
+        "n": "order-events",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "postgres:16-alpine",
+        "n": "orders-db",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "redis:7-alpine",
+        "n": "session-cache",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "minio/minio",
+        "n": "invoices-bucket",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+    ],
+    "ingress": true,
+    "ver": "c0ffee0",
+  },
+}
+`;
+
+exports[`caracterização do motor — drift (design vs realidade) > driftReport(local): «drift» quando as réplicas a correr divergem do manifesto > drift-replicas 1`] = `
+{
+  "extra": [],
+  "out": {
+    "api": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+    "cache": {
+      "st": "sync",
+      "why": "matches the design",
+    },
+    "gw": {
+      "st": "sync",
+      "why": "ingress present",
+    },
+    "pg": {
+      "st": "drift",
+      "why": "3 replicas running, manifest says 1",
+    },
+    "q": {
+      "st": "sync",
+      "why": "matches the design",
+    },
+    "s3": {
+      "st": "sync",
+      "why": "matches the design",
+    },
+    "web": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+    "worker": {
+      "st": "missing",
+      "why": "in the design, not in the cluster",
+    },
+  },
+  "s": {
+    "at": 1767225600000,
+    "deps": [
+      {
+        "err": null,
+        "img": "softwaremill/elasticmq-native",
+        "n": "order-events",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "postgres:16-alpine",
+        "n": "orders-db",
+        "ready": 3,
+        "rep": 3,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "redis:7-alpine",
+        "n": "session-cache",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "minio/minio",
+        "n": "invoices-bucket",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+    ],
+    "ingress": true,
+    "ver": "d5f2b66",
+  },
+}
+`;
+
+exports[`caracterização do motor — drift (design vs realidade) > envDeps/envState/envHealth: cluster local deployado na versão de develop > env-local-deployed 1`] = `
+{
+  "deps": [
+    {
+      "err": null,
+      "img": "softwaremill/elasticmq-native",
+      "n": "order-events",
+      "ready": 1,
+      "rep": 1,
+      "restarts": 0,
+      "status": "ok",
+    },
+    {
+      "err": null,
+      "img": "postgres:16-alpine",
+      "n": "orders-db",
+      "ready": 1,
+      "rep": 1,
+      "restarts": 0,
+      "status": "ok",
+    },
+    {
+      "err": null,
+      "img": "redis:7-alpine",
+      "n": "session-cache",
+      "ready": 1,
+      "rep": 1,
+      "restarts": 0,
+      "status": "ok",
+    },
+    {
+      "err": null,
+      "img": "minio/minio",
+      "n": "invoices-bucket",
+      "ready": 1,
+      "rep": 1,
+      "restarts": 0,
+      "status": "ok",
+    },
+  ],
+  "health": "ok",
+  "state": {
+    "at": 1767225600000,
+    "deps": [
+      {
+        "err": null,
+        "img": "softwaremill/elasticmq-native",
+        "n": "order-events",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "postgres:16-alpine",
+        "n": "orders-db",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "redis:7-alpine",
+        "n": "session-cache",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+      {
+        "err": null,
+        "img": "minio/minio",
+        "n": "invoices-bucket",
+        "ready": 1,
+        "rep": 1,
+        "restarts": 0,
+        "status": "ok",
+      },
+    ],
+    "ingress": true,
+    "ver": "d5f2b66",
+  },
+}
+`;
+
+exports[`caracterização do motor — drift (design vs realidade) > envDeps: workload em crash quando um segredo aponta para um host inexistente > envDeps-crash 1`] = `
+[
+  {
+    "err": null,
+    "img": "softwaremill/elasticmq-native",
+    "n": "order-events",
+    "ready": 1,
+    "rep": 1,
+    "restarts": 0,
+    "status": "ok",
+  },
+  {
+    "err": null,
+    "img": "postgres:16-alpine",
+    "n": "orders-db",
+    "ready": 1,
+    "rep": 1,
+    "restarts": 0,
+    "status": "ok",
+  },
+  {
+    "err": null,
+    "img": "redis:7-alpine",
+    "n": "session-cache",
+    "ready": 1,
+    "rep": 1,
+    "restarts": 0,
+    "status": "ok",
+  },
+  {
+    "err": null,
+    "img": "minio/minio",
+    "n": "invoices-bucket",
+    "ready": 1,
+    "rep": 1,
+    "restarts": 0,
+    "status": "ok",
+  },
+]
+`;
+
+exports[`caracterização do motor — observabilidade (determinista por seed) > obsInit: séries + logs seedados para um workload (local/orders-api) > obsInit 1`] = `
+{
+  "cpu": [
+    4.031,
+    6.039,
+    2.01,
+    3.62,
+    9.457,
+    9.724,
+    2.283,
+    4.777,
+    7.068,
+    8.752,
+    5.87,
+    3.25,
+    7.158,
+    4.545,
+    9.917,
+    8.106,
+    7.953,
+    3.544,
+    2.247,
+    3.084,
+    7.611,
+    5.288,
+    3.358,
+    3.219,
+    5.913,
+    6.258,
+    7.044,
+    5.296,
+    2.371,
+    3.808,
+    3.085,
+    8.119,
+    5.541,
+    6.329,
+    2.927,
+    7.875,
+    4.543,
+    4.288,
+    7.006,
+    3.743,
+    2.609,
+    4.139,
+    6.572,
+    8.03,
+    2.256,
+    7.149,
+    6.249,
+    5.649,
+    3.905,
+    9.927,
+    9.072,
+    3.629,
+    7.106,
+    7.854,
+    4.195,
+    5.654,
+    2.619,
+    5.394,
+    3.305,
+    9.119,
+  ],
+  "crash": false,
+  "env": "local",
+  "kind": "app",
+  "logs": [
+    {
+      "lv": "INFO",
+      "m": "GET /healthz 200 0.8ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "GET /orders 200 30ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "POST /orders 201 16ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "GET /healthz 200 0.1ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "POST /orders 201 28ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "POST /orders 201 7ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "GET /orders 200 17ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "GET /orders 200 21ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "POST /orders 201 32ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "POST /orders 201 20ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "GET /healthz 200 0.8ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "GET /healthz 200 0.1ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "POST /orders 201 33ms",
+      "ts": "00:00:00.000",
+    },
+    {
+      "lv": "INFO",
+      "m": "POST /orders 201 4ms",
+      "ts": "00:00:00.000",
+    },
+  ],
+  "n": "orders-api",
+}
+`;
+
+exports[`caracterização do motor — observabilidade (determinista por seed) > seeded: PRNG determinista (mesma seed → mesma sequência) > seeded-seq 1`] = `
+[
+  0.771679,
+  0.92192,
+  0.09781,
+  0.708782,
+  0.991135,
+  0.704631,
+  0.663737,
+  0.643839,
+]
+`;
+
+exports[`caracterização do motor — observabilidade (determinista por seed) > spark: sparkline SVG a partir de uma série fixa (função pura) > spark 1`] = `"<svg viewBox="0 0 220 46" preserveAspectRatio="none"><path d="M0 46 L0.0 46.0 L31.4 35.5 L62.9 25.0 L94.3 14.5 L125.7 25.0 L157.1 35.5 L188.6 4.0 L220.0 14.5 L220 46Z" fill="var(--green)" opacity=".15"/><path d="M0.0 46.0 L31.4 35.5 L62.9 25.0 L94.3 14.5 L125.7 25.0 L157.1 35.5 L188.6 4.0 L220.0 14.5" fill="none" stroke="var(--green)" stroke-width="1.6"/></svg>"`;
+
+exports[`caracterização do motor — runtime / dev-container / Kubernetes (a extrair p/ domain) > appEnv: variáveis de ambiente de uma app (orders-api) a partir das arestas > appEnv-api 1`] = `
+[
+  "PORT: "8080"",
+  "DATABASE_URL: postgres://app:app@orders-db:5432/app",
+  "REDIS_URL: redis://session-cache:6379",
+  "SQS_ENDPOINT: http://order-events:9324",
+  "AWS_REGION: us-east-1",
+]
+`;
+
+exports[`caracterização do motor — runtime / dev-container / Kubernetes (a extrair p/ domain) > devcontainerJson: devcontainer.json derivado do contexto do projecto > devcontainerJson 1`] = `
+"{
+  "name": "dxtutor",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "minikube": "none"
+    }
+  },
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=\${localEnv:HOME}/.kube,target=/home/vscode/.kube,type=bind,readonly"
+  ],
+  "forwardPorts": [
+    1420
+  ],
+  "postCreateCommand": "cargo fetch && npm --prefix desktop install",
+  "remoteUser": "vscode",
+  "customizations": {
+    "dxtutor": {
+      "harness": ".dxtutor/harness.toml"
+    }
+  }
+}
+"
+`;
+
+exports[`caracterização do motor — runtime / dev-container / Kubernetes (a extrair p/ domain) > k8sDocs: parse dos manifestos escritos em deploy/k8s > k8sDocs 1`] = `
+[
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": "softwaremill/elasticmq-native",
+    "k": "Deployment",
+    "n": "order-events",
+    "port": "9324",
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": undefined,
+    "k": "Service",
+    "n": "order-events",
+    "port": undefined,
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": "postgres:16-alpine",
+    "k": "Deployment",
+    "n": "orders-db",
+    "port": "5432",
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": undefined,
+    "k": "Service",
+    "n": "orders-db",
+    "port": undefined,
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": "redis:7-alpine",
+    "k": "Deployment",
+    "n": "session-cache",
+    "port": "6379",
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": undefined,
+    "k": "Service",
+    "n": "session-cache",
+    "port": undefined,
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": "minio/minio",
+    "k": "Deployment",
+    "n": "invoices-bucket",
+    "port": "9000",
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": undefined,
+    "k": "Service",
+    "n": "invoices-bucket",
+    "port": undefined,
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": undefined,
+    "k": "Secret",
+    "n": "web-env",
+    "port": undefined,
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": undefined,
+    "k": "Secret",
+    "n": "orders-api-env",
+    "port": undefined,
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": undefined,
+    "k": "Secret",
+    "n": "billing-worker-env",
+    "port": undefined,
+    "rep": 1,
+  },
+  {
+    "file": "dxtutor/deploy/k8s/all.yaml",
+    "img": undefined,
+    "k": "Ingress",
+    "n": "gateway",
+    "port": undefined,
+    "rep": 1,
+  },
+]
+`;
+
+exports[`caracterização do motor — runtime / dev-container / Kubernetes (a extrair p/ domain) > k8sInfra: manifestos (Deployment/Service/Secret/Ingress) a partir do design > k8sInfra 1`] = `
+"# Local stand-ins for managed services, secrets for every app and the ingress.
+# For a real cloud, delete the stand-ins and point the secrets at the managed services.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-events
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: order-events }
+  template:
+    metadata:
+      labels: { app: order-events }
+    spec:
+      containers:
+        - name: order-events
+          image: softwaremill/elasticmq-native
+          ports: [{ containerPort: 9324 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-events
+spec:
+  selector: { app: order-events }
+  ports: [{ port: 9324, targetPort: 9324 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: orders-db }
+  template:
+    metadata:
+      labels: { app: orders-db }
+    spec:
+      containers:
+        - name: orders-db
+          image: postgres:16-alpine
+          env:
+            - { name: POSTGRES_USER, value: "app" }
+            - { name: POSTGRES_PASSWORD, value: "app" }
+            - { name: POSTGRES_DB, value: "app" }
+          ports: [{ containerPort: 5432 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-db
+spec:
+  selector: { app: orders-db }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: session-cache }
+  template:
+    metadata:
+      labels: { app: session-cache }
+    spec:
+      containers:
+        - name: session-cache
+          image: redis:7-alpine
+          ports: [{ containerPort: 6379 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: session-cache
+spec:
+  selector: { app: session-cache }
+  ports: [{ port: 6379, targetPort: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: invoices-bucket
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: invoices-bucket }
+  template:
+    metadata:
+      labels: { app: invoices-bucket }
+    spec:
+      containers:
+        - name: invoices-bucket
+          image: minio/minio
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - { name: MINIO_ROOT_USER, value: "minio" }
+            - { name: MINIO_ROOT_PASSWORD, value: "minio12345" }
+          ports: [{ containerPort: 9000 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: invoices-bucket
+spec:
+  selector: { app: invoices-bucket }
+  ports: [{ port: 9000, targetPort: 9000 }]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: web-env
+stringData:
+  PORT: "8080"
+  ORDERS_API_URL: "http://orders-api"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orders-api-env
+stringData:
+  PORT: "8080"
+  DATABASE_URL: "postgres://app:app@orders-db:5432/app"
+  REDIS_URL: "redis://session-cache:6379"
+  SQS_ENDPOINT: "http://order-events:9324"
+  AWS_REGION: "us-east-1"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: billing-worker-env
+stringData:
+  PORT: "8080"
+  SQS_ENDPOINT: "http://order-events:9324"
+  AWS_REGION: "us-east-1"
+  DATABASE_URL: "postgres://app:app@orders-db:5432/app"
+  S3_ENDPOINT: "http://invoices-bucket:9000"
+  AWS_ACCESS_KEY_ID: "minio"
+  AWS_SECRET_ACCESS_KEY: "minio12345"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: web, port: { number: 80 } } }
+          - path: /orders-api
+            pathType: Prefix
+            backend: { service: { name: orders-api, port: { number: 80 } } }
+"
+`;
+
+exports[`caracterização do motor — runtime / dev-container / Kubernetes (a extrair p/ domain) > projectContext: detecção de tecnologias a partir do FS do seed > projectContext 1`] = `
+[
+  [
+    "rust",
+    "Rust",
+  ],
+  [
+    "node",
+    "TypeScript / Node",
+  ],
+  [
+    "sql",
+    "SQL migrations",
+  ],
+  [
+    "rules",
+    "Project rules",
+  ],
+]
+`;
+
+exports[`caracterização do motor — runtime / dev-container / Kubernetes (a extrair p/ domain) > urlHosts: extracção do host de várias formas de URL (função pura) > urlHosts 1`] = `
+[
+  [
+    "postgres://app:app@orders-db:5432/app",
+    "orders-db",
+  ],
+  [
+    "redis://session-cache:6379",
+    "session-cache",
+  ],
+  [
+    "http://orders-api",
+    "orders-api",
+  ],
+  [
+    "order-events:9324",
+    "order-events",
+  ],
+  [
+    "8080",
+    null,
+  ],
+  [
+    "",
+    null,
+  ],
+]
+`;
+
+exports[`caracterização do motor — secrets (promoção aprovada por humano) > initSecrets: deriva staging (valores mascarados) e production (vazios) > initSecrets-sec 1`] = `
+{
+  "production": {
+    "billing-worker": {
+      "AWS_ACCESS_KEY_ID": "",
+      "AWS_REGION": "",
+      "AWS_SECRET_ACCESS_KEY": "",
+      "DATABASE_URL": "",
+      "PORT": "8080",
+      "S3_ENDPOINT": "",
+      "SQS_ENDPOINT": "",
+    },
+    "orders-api": {
+      "AWS_REGION": "",
+      "DATABASE_URL": "",
+      "PORT": "8080",
+      "REDIS_URL": "",
+      "SQS_ENDPOINT": "",
+    },
+    "web": {
+      "ORDERS_API_URL": "",
+      "PORT": "8080",
+    },
+  },
+  "staging": {
+    "billing-worker": {
+      "AWS_ACCESS_KEY_ID": "minio",
+      "AWS_REGION": "us-east-1",
+      "AWS_SECRET_ACCESS_KEY": "st4g1ng-minio",
+      "DATABASE_URL": "postgres://app:st4g1ng@orders-db.staging:5432/app",
+      "PORT": "8080",
+      "S3_ENDPOINT": "http://invoices-bucket:9000",
+      "SQS_ENDPOINT": "http://order-events:9324",
+    },
+    "orders-api": {
+      "AWS_REGION": "us-east-1",
+      "DATABASE_URL": "postgres://app:st4g1ng@orders-db:5432/app",
+      "PORT": "8080",
+      "REDIS_URL": "redis://session-cache:6379",
+      "SQS_ENDPOINT": "http://order-events:9324",
+    },
+    "web": {
+      "ORDERS_API_URL": "http://orders-api",
+      "PORT": "8080",
+    },
+  },
+}
+`;
+
+exports[`caracterização do motor — secrets (promoção aprovada por humano) > localSecrets: segredos do ambiente local a partir do design/compose > localSecrets 1`] = `
+{
+  "billing-worker": {
+    "AWS_ACCESS_KEY_ID": "minio",
+    "AWS_REGION": "us-east-1",
+    "AWS_SECRET_ACCESS_KEY": "minio12345",
+    "DATABASE_URL": "postgres://app:app@orders-db:5432/app",
+    "PORT": "8080",
+    "S3_ENDPOINT": "http://invoices-bucket:9000",
+    "SQS_ENDPOINT": "http://order-events:9324",
+  },
+  "orders-api": {
+    "AWS_REGION": "us-east-1",
+    "DATABASE_URL": "postgres://app:app@orders-db:5432/app",
+    "PORT": "8080",
+    "REDIS_URL": "redis://session-cache:6379",
+    "SQS_ENDPOINT": "http://order-events:9324",
+  },
+  "web": {
+    "ORDERS_API_URL": "http://orders-api",
+    "PORT": "8080",
+  },
+}
+`;
+
+exports[`caracterização do motor — secrets (promoção aprovada por humano) > secretCheck: chaves em falta/vazias por ambiente (staging vs production) > secretCheck 1`] = `
+{
+  "production": {
+    "empty": [
+      "web.ORDERS_API_URL",
+      "orders-api.DATABASE_URL",
+      "orders-api.REDIS_URL",
+      "orders-api.SQS_ENDPOINT",
+      "orders-api.AWS_REGION",
+      "billing-worker.SQS_ENDPOINT",
+      "billing-worker.AWS_REGION",
+      "billing-worker.DATABASE_URL",
+      "billing-worker.S3_ENDPOINT",
+      "billing-worker.AWS_ACCESS_KEY_ID",
+      "billing-worker.AWS_SECRET_ACCESS_KEY",
+    ],
+    "miss": [],
+  },
+  "staging": {
+    "empty": [],
+    "miss": [],
+  },
+}
+`;
+
+exports[`golden de DOM — pane Infra (renderInfraPane) > desligado: runtime/cluster off, sem dev container nem containers (seed) > pane-disconnected 1`] = `
+"<div class="side-hd"><span class="t">Infra</span><span class="acts"><button title="RUN the stack"><svg class="ico" viewBox="0 0 16 16"><path d="M5 3.4v9.2l7-4.6z"></path></svg></button><button title="Deploy to Kubernetes"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2c2.2 1.3 3.3 3.5 3.3 6.5L8 11 4.7 8.5C4.7 5.5 5.8 3.3 8 2z"></path><circle cx="8" cy="6.3" r="1.1"></circle><path d="M5.5 10c-1 .4-1.6 1.4-1.6 2.8 1.4 0 2.4-.6 2.8-1.6M10.5 10c1 .4 1.6 1.4 1.6 2.8-1.4 0-2.4-.6-2.8-1.6"></path></svg></button></span></div><div class="sections"><div class="scm-grp">Environments</div><div class="env-chips"><button class="on"><span class="pdot off" style="background:var(--green)"></span>Local</button><button class=""><span class="pdot off" style="background:var(--green)"></span>Staging</button><button class=""><span class="pdot off" style="background:var(--green)"></span>Production</button></div><button class="btn ghost">Environments and secrets</button>
+   <div class="scm-grp">Container runtime<span class="pdot off" style="background:var(--green)"></span></div><div class="seg" style="margin:4px 10px"><button class="on">Docker</button><button class="">Podman</button><button class="">Delonix</button></div>
+   <input class="inp notr" value="/var/run/docker.sock" title="Socket path"><button class="btn">Connect socket</button>
+   <div class="scm-grp">Dev Container<span class="pdot off" style="background:var(--green)"></span></div><div class="sec-empty">Attach this project to a container built from its own context: languages, ports, the runtime socket and your kubeconfig.</div><button class="btn">Attach project to a container</button>
+   <div class="scm-grp">Containers<span class="cnt">0</span></div><div class="sec-empty">Connect the socket to list containers.</div>
+   <div class="scm-grp">Kubernetes<span class="pdot off" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option><option>minikube</option><option>k3d-local</option><option>docker-desktop</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
+   <button class="btn">Connect cluster</button>
+   
+   <div class="scm-grp">Remote hosts<span class="cnt">0</span></div><input class="inp notr" placeholder="user@host">
+   <div class="sec-empty">Everything here is simulated in the browser. In the desktop app the same two settings — socket and KUBECONFIG — drive the real runtime and cluster.</div></div>"
+`;
+
+exports[`golden de DOM — pane Infra (renderInfraPane) > ligado: runtime + dev container + stack a correr + cluster deployado > pane-connected-deployed 1`] = `
+"<div class="side-hd"><span class="t">Infra</span><span class="acts"><button title="RUN the stack"><svg class="ico" viewBox="0 0 16 16"><path d="M5 3.4v9.2l7-4.6z"></path></svg></button><button title="Deploy to Kubernetes"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2c2.2 1.3 3.3 3.5 3.3 6.5L8 11 4.7 8.5C4.7 5.5 5.8 3.3 8 2z"></path><circle cx="8" cy="6.3" r="1.1"></circle><path d="M5.5 10c-1 .4-1.6 1.4-1.6 2.8 1.4 0 2.4-.6 2.8-1.6M10.5 10c1 .4 1.6 1.4 1.6 2.8-1.4 0-2.4-.6-2.8-1.6"></path></svg></button></span></div><div class="sections"><div class="scm-grp">Environments</div><div class="env-chips"><button class="on"><span class="pdot" style="background:var(--green)"></span>Local</button><button class=""><span class="pdot off" style="background:var(--green)"></span>Staging</button><button class=""><span class="pdot off" style="background:var(--green)"></span>Production</button></div><button class="btn ghost">Environments and secrets</button>
+   <div class="scm-grp">Container runtime<span class="pdot" style="background:var(--green)"></span></div><div class="seg" style="margin:4px 10px"><button class="on">Docker</button><button class="">Podman</button><button class="">Delonix</button></div>
+   <input class="inp notr" value="/var/run/docker.sock" title="Socket path"><button class="btn ghost">Disconnect</button>
+   <div class="scm-grp">Dev Container<span class="pdot" style="background:var(--green)"></span></div><div class="scm-row"><span class="ic"><svg class="ico" viewBox="0 0 16 16"><rect x="2.2" y="5" width="4.4" height="4.4" rx=".4"></rect><rect x="6.8" y="5" width="4.4" height="4.4" rx=".4"></rect><path d="M11.4 5h2.4v4.4h-2.4M2.2 9.4h11.6v1.4c0 .6-.4 1-1 1H3.2c-.6 0-1-.4-1-1z"></path></svg></span><span class="nm notr">dxtutor-dev</span><span class="pth notr">devcontainers/base:bookworm</span></div><button class="btn ghost">Detach</button>
+   <div class="scm-grp">Containers<span class="cnt">3</span></div><div class="scm-row" title="Show logs"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-api</span><span class="pth notr">http://localhost:8080</span></div><div class="scm-row" title="Show logs"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-db</span><span class="pth notr">postgres:16</span></div><button class="btn ghost">■ Stop the stack</button>
+   <div class="scm-grp">Kubernetes<span class="pdot" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option><option>minikube</option><option>k3d-local</option><option>docker-desktop</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
+   <button class="btn ghost">Disconnect</button>
+   <div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">order-events</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-db</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">session-cache</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">invoices-bucket</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><button class="btn">⎈ Redeploy</button><button class="btn ghost">Delete from cluster</button>
+   <div class="scm-grp">Remote hosts<span class="cnt">1</span></div><div class="scm-row"><span class="ic"><svg class="ico" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="8" rx="1.2"></rect><path d="M6 13.6h4M8 11v2.6"></path></svg></span><span class="nm notr">dev@edge-01</span><span class="ra" style="display:flex"><button title="Remove">×</button></span></div><input class="inp notr" placeholder="user@host">
+   <div class="sec-empty">Everything here is simulated in the browser. In the desktop app the same two settings — socket and KUBECONFIG — drive the real runtime and cluster.</div></div>"
+`;
+
+exports[`golden de DOM — pane Infra (renderInfraPane) > staging seleccionado: chips de ambiente + deps promovidos (crash + ok) > pane-staging-selected 1`] = `
+"<div class="side-hd"><span class="t">Infra</span><span class="acts"><button title="RUN the stack"><svg class="ico" viewBox="0 0 16 16"><path d="M5 3.4v9.2l7-4.6z"></path></svg></button><button title="Deploy to Kubernetes"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2c2.2 1.3 3.3 3.5 3.3 6.5L8 11 4.7 8.5C4.7 5.5 5.8 3.3 8 2z"></path><circle cx="8" cy="6.3" r="1.1"></circle><path d="M5.5 10c-1 .4-1.6 1.4-1.6 2.8 1.4 0 2.4-.6 2.8-1.6M10.5 10c1 .4 1.6 1.4 1.6 2.8-1.4 0-2.4-.6-2.8-1.6"></path></svg></button></span></div><div class="sections"><div class="scm-grp">Environments</div><div class="env-chips"><button class=""><span class="pdot off" style="background:var(--green)"></span>Local</button><button class="on"><span class="pdot" style="background:var(--red)"></span>Staging</button><button class=""><span class="pdot off" style="background:var(--green)"></span>Production</button></div><div class="scm-row" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-api</span><span class="pth">1/1</span></div><div class="scm-row" title="Logs and metrics"><span class="pdot" style="background:var(--red)"></span><span class="nm notr">billing-worker</span><span class="pth">0/1 · crash loop</span></div><button class="btn ghost">Environments and secrets</button>
+   <div class="scm-grp">Container runtime<span class="pdot off" style="background:var(--green)"></span></div><div class="seg" style="margin:4px 10px"><button class="on">Docker</button><button class="">Podman</button><button class="">Delonix</button></div>
+   <input class="inp notr" value="/var/run/docker.sock" title="Socket path"><button class="btn">Connect socket</button>
+   <div class="scm-grp">Dev Container<span class="pdot off" style="background:var(--green)"></span></div><div class="sec-empty">Attach this project to a container built from its own context: languages, ports, the runtime socket and your kubeconfig.</div><button class="btn">Attach project to a container</button>
+   <div class="scm-grp">Containers<span class="cnt">0</span></div><div class="sec-empty">Connect the socket to list containers.</div>
+   <div class="scm-grp">Kubernetes<span class="pdot off" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option><option>minikube</option><option>k3d-local</option><option>docker-desktop</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
+   <button class="btn">Connect cluster</button>
+   
+   <div class="scm-grp">Remote hosts<span class="cnt">0</span></div><input class="inp notr" placeholder="user@host">
+   <div class="sec-empty">Everything here is simulated in the browser. In the desktop app the same two settings — socket and KUBECONFIG — drive the real runtime and cluster.</div></div>"
+`;
