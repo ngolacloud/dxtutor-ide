@@ -93,6 +93,45 @@ describe("golden de DOM — Quadro (renderBoardView)", () => {
   });
 });
 
+describe("dispatch delegado (data-action) — Fase 4", () => {
+  // O golden strippa onclick E data-action/data-on, logo NÃO prova que o listener
+  // delegado dispara. Estes testes disparam cliques reais (via document, onde o
+  // listener vive) e observam o efeito. Evitam o caminho que chama autoTest, porque
+  // `sleep` nunca é publicado no window (BUG pré-existente — ver handoff): só o runner
+  // completo lhe toca; delegate-custom/approve/view/reject não.
+  const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  function renderInto(): HTMLElement {
+    const host = document.createElement("div"); host.id = "board-host"; document.body.appendChild(host);
+    w.renderBoardView(null, host); return host;
+  }
+
+  it("view: clicar «Sprint 1» muda BL.view e re-renderiza", () => {
+    seedRichBoard(); w.BL.view = -1; const host = renderInto();
+    const btn = host.querySelector('[data-action="view"][data-on="0"]')!;
+    expect(btn).toBeTruthy();
+    click(btn);
+    expect(w.BL.view).toBe(0);
+  });
+
+  it("delegate (issue custom): clicar «Delegar» leva a issue a dev (sem runIssue)", () => {
+    const it = w.mkIssue({ title: "custom", agent: "lead", sprint: 0, stage: "todo", custom: true });
+    w.BL.view = -1; const host = renderInto();
+    const btn = host.querySelector(`[data-action="delegate"][data-on="${it.id}"]`)!;
+    expect(btn).toBeTruthy();
+    click(btn);
+    expect(it.stage).toBe("dev"); // caminho it.custom → setStage('dev'), sem o runner
+  });
+
+  it("approve: clicar «Validar» numa issue func → done (gfFinish + setStage)", () => {
+    const it = w.mkIssue({ title: "val", agent: "be", sprint: 0, stage: "func", res: [{ n: "t", ok: true }] });
+    w.BL.view = -1; const host = renderInto();
+    const btn = host.querySelector(`[data-action="approve"][data-on="${it.id}"]`)!;
+    expect(btn).toBeTruthy();
+    click(btn);
+    expect(it.stage).toBe("done");
+  });
+});
+
 describe("caracterização do motor — produtor Studio→backlog (a extrair)", () => {
   it("genBacklogIssues: decomposição do design-semente em issues/sprints", () => {
     // O seed deixa os 8 componentes do design em estado `plan`. Decompomos todos.

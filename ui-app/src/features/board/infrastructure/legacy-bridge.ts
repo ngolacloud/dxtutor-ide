@@ -139,9 +139,16 @@ export const openStudio = (): void => G.openStudio();
 export const palette = (pre: string, cfg?: PalCfg): void => G.palette(pre, cfg);
 export const refresh = (): void => G.refresh();
 
-/* ───── GOTCHA-decoração: as arestas internas resolvem a versão DECORADA por window ───── */
+/* ───── GOTCHA-decoração: resolvem a versão DECORADA por window no ACTO ─────
+   As arestas internas do motor (delegate/runSprint→runIssue, dropIssue→approveIssue) e os
+   handlers de acção do pane (data-action delegate/run-sprint/approve) têm de acertar na
+   versão que o monólito (app.ts/v5/v6) decorou, não na função local base — tal como os
+   `onclick` inline antigos resolviam `window.X` ao clicar. `delegate`/`runSprint` são
+   async; descartamos a promessa (fire-and-forget, como o onclick fazia). */
 export const decoratedRunIssue = (it: Issue): Promise<void> => G.runIssue(it);
-export const decoratedApproveIssue = (id: string): void => G.approveIssue(id);
+export const decoratedApproveIssue = (id: string): void => { G.approveIssue(id); };
+export const decoratedDelegate = (id: string): void => { G.delegate(id); };
+export const decoratedRunSprint = (s: number): void => { G.runSprint(s); };
 
 /* ───── publicação da superfície pública no `window` ─────
    Os nomes reais resolvem os `onclick` inline (escopo global), os decoradores de

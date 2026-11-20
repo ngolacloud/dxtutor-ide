@@ -34,6 +34,7 @@ import type { Backlog } from "./board/domain/types";
 import { STAGES } from "./board/domain/issue";
 import { inView, points, autoSprint } from "./board/domain/kanban";
 import { makeBoardEngine } from "./board/application/board-engine";
+import { bindActions, type ActionTable } from "./board/ui/actions";
 import {
   backlog, design, saveDesign, files, agents, provs, taskProfiles,
   run, setAuthor, branch, setAgent, pane, mode, panes, root, stopSignal,
@@ -44,9 +45,9 @@ import {
   routeModel, use,
   echo, echoCmd, newInput, setPanelTab, getVar, runTests, dsLint, doTool,
   inScope, ownerOf, short,
-  openTab, palette, refresh,
+  openTab, openStudio, palette, refresh,
   toast, log, rerender,
-  decoratedRunIssue, decoratedApproveIssue, publish,
+  decoratedRunIssue, decoratedApproveIssue, decoratedDelegate, decoratedRunSprint, publish,
 } from "./board/infrastructure/legacy-bridge";
 
 /* estado — window-backed (publicado via bridge; onclick inline `BL.view=…` resolve em
@@ -92,11 +93,33 @@ function renderBoardView(_t: unknown, host: HTMLElement): void {
   const v = BL.view, list = inView(BL.issues, v), { total: pts, done } = points(list);
   const cardH = (i: typeof BL.issues[number]): string => { const a = agents()[i.agent], tr = i.res ? `<span class="${i.res.every((r) => r.ok) ? "okc" : "bad"}">${i.res.every((r) => r.ok) ? "✓" : "✖"} ${i.res.filter((r) => r.ok).length}/${i.res.length} testes</span>` : "";
     return `<div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${i.id}')"><div class="kc-h"><span class="kc-id">${i.id}</span><span class="tag ${i.type === "fix" ? "bad" : ""}">${i.type}</span><span class="kc-p">${i.pts}</span></div><div class="kc-t">${esc(i.title)}</div><div class="kc-m"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${i.model ? ` · ${provs()[i.model].name}` : ""}<span class="tag" style="margin-left:auto">S${i.sprint + 1}</span></div>${i.branch && i.stage !== "done" ? `<div class="kc-b">⎇ ${esc(i.branch)}</div>` : ""}${i.merged ? `<div class="kc-b">merge ${i.merged} em develop</div>` : ""}${tr || i.note ? `<div class="kc-n">${tr}${i.note ? `<span>${esc(i.note)}</span>` : ""}</div>` : ""}
-     ${i.stage === "backlog" || i.stage === "todo" ? `<button class="mini" onclick="delegate('${i.id}')">▶ Delegar a ${a.n}</button>` : i.stage === "dev" && !run().active ? `<button class="mini" onclick="delegate('${i.id}')">▶ Retomar</button>` : i.stage === "func" ? `<div class="kc-a"><button class="mini pri" onclick="approveIssue('${i.id}')">✓ Validar</button><button class="mini" onclick="rejectIssue('${i.id}')">✗ Rejeitar</button></div>` : ""}</div>`; };
-  host.innerHTML = `<div class="kb"><div class="kb-bar"><b style="font-size:15px">Quadro</b>${[-1, 0, 1].map((s) => `<button class="mini${v === s ? " pri" : ""}" onclick="BL.view=${s};rerender('board')">${s < 0 ? "Tudo" : "Sprint " + (s + 1)}</button>`).join("")}<span class="kb-prog"><i style="width:${pts ? done / pts * 100 : 0}%"></i></span><span style="color:var(--fg-muted);font-size:11.5px">${done}/${pts} pts</span><span class="sp"></span><button class="mini" onclick="newIssue()">+ Issue</button><button class="mini" onclick="openStudio()">Studio</button><button class="mini pri" onclick="runSprint(${v < 0 ? autoSprint(BL.issues) : v})">▶ Executar sprint</button></div>
+     ${i.stage === "backlog" || i.stage === "todo" ? `<button class="mini" data-action="delegate" data-on="${esc(i.id)}">▶ Delegar a ${a.n}</button>` : i.stage === "dev" && !run().active ? `<button class="mini" data-action="delegate" data-on="${esc(i.id)}">▶ Retomar</button>` : i.stage === "func" ? `<div class="kc-a"><button class="mini pri" data-action="approve" data-on="${esc(i.id)}">✓ Validar</button><button class="mini" data-action="reject" data-on="${esc(i.id)}">✗ Rejeitar</button></div>` : ""}</div>`; };
+  host.innerHTML = `<div class="kb"><div class="kb-bar"><b style="font-size:15px">Quadro</b>${[-1, 0, 1].map((s) => `<button class="mini${v === s ? " pri" : ""}" data-action="view" data-on="${s}">${s < 0 ? "Tudo" : "Sprint " + (s + 1)}</button>`).join("")}<span class="kb-prog"><i style="width:${pts ? done / pts * 100 : 0}%"></i></span><span style="color:var(--fg-muted);font-size:11.5px">${done}/${pts} pts</span><span class="sp"></span><button class="mini" data-action="new-issue">+ Issue</button><button class="mini" data-action="open-studio">Studio</button><button class="mini pri" data-action="run-sprint" data-on="${v < 0 ? autoSprint(BL.issues) : v}">▶ Executar sprint</button></div>
    ${BL.issues.length ? `<div class="kb-cols">${STAGES.map(([k, l]) => { const xs = list.filter((i) => i.stage === k); return `<div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),'${k}')"><div class="kcol-h">${l}<span class="cnt">${xs.length}</span></div>${k === "test" ? '<div class="kcol-d">Ao entrar aqui os testes correm sozinhos. Falha → volta a desenvolvimento.</div>' : k === "func" ? '<div class="kcol-d">Só chega aqui o que passou nos testes. A validação é tua.</div>' : ""}${xs.map(cardH).join("")}</div>`; }).join("")}</div>`
-   : `<div class="empty" style="height:60%"><div><b style="color:var(--fg-dim);font-size:14px">Backlog vazio</b><br>Desenha a arquitectura no Studio e gera o backlog a partir dos componentes planeados.<br><button class="mini pri" style="margin-top:10px" onclick="openStudio()">Abrir o Studio</button> <button class="mini" onclick="genBacklog()">Gerar a partir do desenho actual</button></div></div>`}</div>`;
+   : `<div class="empty" style="height:60%"><div><b style="color:var(--fg-dim);font-size:14px">Backlog vazio</b><br>Desenha a arquitectura no Studio e gera o backlog a partir dos componentes planeados.<br><button class="mini pri" style="margin-top:10px" data-action="open-studio">Abrir o Studio</button> <button class="mini" data-action="gen-backlog">Gerar a partir do desenho actual</button></div></div>`}</div>`;
 }
+
+/* ───── tabela de acções (ADR-0002, Fase 4) ─────
+   Liga o nome de acção (emitido como `data-action` por renderBoardView) ao efeito,
+   servido pelo listener delegado de `ui/actions.ts`. Fica aqui — no resíduo, fora da
+   subárvore governada por A7/A8 — porque só este ficheiro tem à mão o motor e o bridge.
+   Todos os handlers são `click`. O payload viaja SÓ em `data-on` (o golden strippa
+   data-action/data-on; um `data-*` à medida vazava); os ids escapam-se com `esc` à saída
+   (eram crus em literais JS dentro do `onclick`) — nos dados actuais (DX-N) `esc` é no-op.
+   GOTCHA-decoração: delegate/run-sprint/approve chamam a versão DECORADA por window
+   (decoratedDelegate/decoratedRunSprint/decoratedApproveIssue), como os onclick antigos
+   resolviam `window.X` ao clicar; reject/new-issue/gen-backlog/view não são decoradas. */
+const ACTIONS: ActionTable = {
+  view: { on: "click", run: (e) => { BL.view = +e.on; rerender("board"); } },
+  delegate: { on: "click", run: (e) => decoratedDelegate(e.on) },
+  approve: { on: "click", run: (e) => decoratedApproveIssue(e.on) },
+  reject: { on: "click", run: (e) => rejectIssue(e.on) },
+  "new-issue": { on: "click", run: () => newIssue() },
+  "open-studio": { on: "click", run: () => openStudio() },
+  "run-sprint": { on: "click", run: (e) => decoratedRunSprint(+e.on) },
+  "gen-backlog": { on: "click", run: () => genBacklog() },
+};
+bindActions(ACTIONS);
 
 /* ── publicação no window (via bridge): estado + funções que o resíduo (app.ts/v5/v6/
    bridge/pair), os onclick inline e os consumidores (studio/router/codev/tasks) resolvem
