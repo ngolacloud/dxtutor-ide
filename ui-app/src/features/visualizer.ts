@@ -33,6 +33,7 @@ import { vzRun } from "./visualizer/domain/interpreter";
 import { vzTell, VZSEEN } from "./visualizer/domain/narrate";
 import { VZS } from "./visualizer/domain/samples";
 import { hex } from "./visualizer/domain/constants";
+import { buildVisualization } from "./visualizer/application/visualize";
 export {};
 
 P.film='<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M5 2.5v11M11 2.5v11M2 5.5h3M2 8h3M2 10.5h3M11 5.5h3M11 8h3M11 10.5h3"/>';
@@ -42,14 +43,17 @@ P.film='<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M5 2.5v11M
    window abaixo para os consumidores que o resolvem por global (i18n, paleta). O
    interpretador (`vzRun`) é o único @ts-nocheck da subárvore. Aqui fica só o overlay. ── */
 let VZ=null;
-function vizOpen(src,title,origin){let o=$('#viz');if(!o){document.body.insertAdjacentHTML('beforeend','<div id="viz"></div>');o=$('#viz');}VZSEEN.clear();clearInterval((VZ||{}).timer);
+function vizOpen(src,title,origin){let o=$('#viz');if(!o){document.body.insertAdjacentHTML('beforeend','<div id="viz"></div>');o=$('#viz');}clearInterval((VZ||{}).timer);
   /* window-backed: VZ é o único estado reatribuído (aqui); os onclick da barra correm
      no scope global e lêem `VZ` → window.VZ. Atribuição em cadeia mantém o MESMO objecto
      em ambos, por isso mutações (.i/.pending/.timer, via onclick OU via funções do módulo)
      propagam. Corrige o desync pré-existente que partia os botões Step/depth/re-run/predict. */
   VZ=window.VZ={src,title,origin:origin||null,i:0,timer:null,speed:LS.get('vzspeed',5),depth:LS.get('vzdepth','memory'),predict:LS.get('vzpred',false),guess:null,ans:null,res:null,err:null,notes:{}};
-  try{VZ.res=vzRun(src);}catch(x){if(x.vz||x.vline){VZ.err=x;}else{VZ.err={message:'Internal error in the visualizer: '+x.message,vline:0};console.error(x);}}
-  if(VZ.res){VZ.notes={};VZ.res.steps.forEach((s,k)=>{VZ.notes[k]=s.ev.map(e=>vzTell(e,'machine')).filter(Boolean);});}
+  /* a orquestração (correr + construir notas, incl. tratamento de erro) vive no caso
+     de uso `buildVisualization` (application/); aqui só injectamos as portas do domínio
+     e copiamos o resultado para o estado window-backed antes de pintar. */
+  const c=buildVisualization(src,{run:vzRun,narrate:vzTell,resetSeen:()=>VZSEEN.clear()});
+  VZ.res=c.res;VZ.err=c.err;VZ.notes=c.notes;
   o.classList.add('show');vzRender();}
 function vizClose(){const o=$('#viz');if(o)o.classList.remove('show');if(VZ)clearInterval(VZ.timer);}
 function vizFromEditor(){const t=tabOf(cur);let p=t&&t.path&&FS[t.path]?t.path:null;if(t&&t.kind==='lt')p=t.path;
