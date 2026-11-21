@@ -23,35 +23,16 @@
 import { toast, log, rerender, writeFile, svg, esc, show } from "../../../core";
 import type {
   Design, Files, Envs, EnvX, K8sState, Commit, TechSpec, KindSpec, DesignNode,
+  Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg,
 } from "../domain/types";
 
 export { toast, log, rerender, writeFile, svg, esc, show };
 export type {
   Design, Files, Envs, EnvX, K8sState, Commit, TechSpec, KindSpec, DesignNode,
+  Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg,
 };
 
 const G = window as unknown as Record<string, any>;
-
-/* ───── formas do monólito/stack que a Infra lê (tipos locais do bridge) ───── */
-/** Um dev container anexado (`window.DEVC`). */
-export interface Devc { name: string; image: string }
-/** Um serviço do stack a correr (`window.STACK[i]`, produzido por stack.ts/bridge.ts). */
-export interface StackItem { name: string; src: string; url: string; state: string }
-/** Um serviço do compose (só o campo que a Infra lê para as portas do devcontainer). */
-export interface ComposeSvc { port?: number | string }
-/** Configuração de um diálogo modal (`dlg`), nos campos que a promoção usa. */
-export interface DlgCfg {
-  title: string;
-  body: string;
-  block?: boolean | number;
-  input?: string | null;
-  rows?: number;
-  ok: string;
-  validate?: (v: string) => string;
-  onOk: () => void;
-}
-/** Argumento de abertura de separador. */
-export interface OpenTabArg { id: string; title?: string; kind?: string; [k: string]: unknown }
 
 /* ───── estado window-backed (o resíduo é dono; aqui só os acessores) ───── */
 export const envs = (): Envs => G.ENVS;

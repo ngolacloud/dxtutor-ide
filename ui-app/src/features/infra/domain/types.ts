@@ -190,6 +190,30 @@ export interface Commit {
   p: string[];
 }
 
+/* ───── formas de dados da borda (runtime/stack/compose/diálogo/separador) que a
+   aplicação consome e o bridge serve — declaradas aqui (o centro) para as setas de
+   dependência apontarem todas para dentro (ports/bridge importam daqui). ───── */
+
+/** Um dev container anexado (`window.DEVC`). */
+export interface Devc { name: string; image: string }
+/** Um serviço do stack a correr (`window.STACK[i]`, produzido por stack.ts/bridge.ts). */
+export interface StackItem { name: string; src: string; url: string; state: string }
+/** Um serviço do compose (só o campo que a Infra lê para as portas do devcontainer). */
+export interface ComposeSvc { port?: number | string }
+/** Configuração de um diálogo modal (`dlg`), nos campos que a promoção usa. */
+export interface DlgCfg {
+  title: string;
+  body: string;
+  block?: boolean | number;
+  input?: string | null;
+  rows?: number;
+  ok: string;
+  validate?: (v: string) => string;
+  onOk: () => void;
+}
+/** Argumento de abertura de separador. */
+export interface OpenTabArg { id: string; title?: string; kind?: string; [k: string]: unknown }
+
 /* ───── observabilidade (séries + logs seedados) ───── */
 
 /** Uma linha de log de um workload. */

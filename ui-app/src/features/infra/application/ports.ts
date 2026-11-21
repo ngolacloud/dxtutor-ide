@@ -15,8 +15,8 @@
 import type {
   Design, DesignNode, Envs, EnvX, Files, K8sState, KindSpec, TechSpec, Commit,
   EnvDep, EnvState, SecretCheck, DriftReport, Secrets,
+  Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg,
 } from "../domain/types";
-import type { Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg } from "../infrastructure/legacy-bridge";
 
 /* ───── estado window-backed (o resíduo é dono; o motor lê/escreve por aqui) ───── */
 export interface State {
