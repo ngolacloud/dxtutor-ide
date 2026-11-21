@@ -39,10 +39,11 @@ import {
 } from "./infra/infrastructure/legacy-bridge";
 
 /* ═══════════ estado window-backed (o resíduo é dono) ═══════════
-   RTN/KCTX/ENVL/DSTY são constantes do domínio, publicadas (onclick inline + v5/v6
-   resolvem-nas por global). ENVS/ENVX hidratam-se preguiçosamente no motor. DEVC/K8S
+   RTN/KCTX/ENVL são constantes do domínio, publicadas (onclick inline + v5/v6
+   resolvem-nas por global). DSTY já não é publicada: v6 importa-a por porta tipada
+   (ADR-0002 passo 6). ENVS/ENVX hidratam-se preguiçosamente no motor. DEVC/K8S
    continuam window-backed porque bridge.ts/stack.ts os reatribuem; STACK é de stack.ts. */
-window.RTN = RTN; window.KCTX = KCTX; window.ENVL = ENVL; window.DSTY = DSTY;
+window.RTN = RTN; window.KCTX = KCTX; window.ENVL = ENVL;
 const ENVS = (window.ENVS = defaultEnvs());
 const ENVX = (window.ENVX = defaultEnvx());
 window.DEVC = null; window.K8S = null; window.SHOWSEC = false; window.DRIFT = null;
@@ -199,8 +200,8 @@ publish({
   rtConnect, k8sConnect, dxDeploy, needRt, projectContext, devcontainerJson, dcAttach, dcDetach,
   drawRemote, infraDraw, appEnv, k8sInfra, k8sDocs, k8sScale, k8sDown, runTaskQuiet, ctlLogs,
   saveEnv, cli, hydrateEnvs,
-  ENVL, ENVX, saveEnvx, designApps, localSecrets, initSecrets, urlHosts, envDeps, envState,
-  envHealth, secretCheck, commitsBetween, promote, redeployEnv, openEnvs, driftReport, DSTY,
+  ENVL, ENVX, saveEnvx, designApps, localSecrets, urlHosts, envDeps, envState,
+  envHealth, secretCheck, commitsBetween, promote, redeployEnv, openEnvs,
   OBS, obsInit, obsLine, spark, openObserve, seeded, renderInfraPane,
 });
 

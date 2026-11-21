@@ -31,6 +31,11 @@ import { bootApp, golden } from "./harness";
  * (reassigna `window.X`); mesmo assim, cada teste fixa explicitamente o que muta. */
 
 let w: any;
+/* initSecrets/driftReport/DSTY já não são publicadas em window (ADR-0002 passo 6):
+   o resíduo expõe-nas só pela porta tipada (como v6 as consome). Como `bootApp`
+   faz `vi.resetModules()`, um import estático ficaria obsoleto — por isso lemos o
+   módulo FRESCO (a mesma instância que a cadeia reavaliou) depois de cada bootApp. */
+let infra: any;
 
 /** Reproduz as peças que v5.ts/boot5 e v6.ts dão em runtime e o harness exclui. */
 function provideFixtures(): void {
@@ -56,6 +61,7 @@ beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
   w = await bootApp();
+  infra = await import("../src/features/infra");
   provideFixtures();
   // Defensivo (o window persiste no jsdom; a reavaliação de infra.ts reassigna mas
   // garantimos o ponto de partida de cada teste): ambiente local, sem observáveis.
@@ -149,19 +155,19 @@ describe("caracterização do motor — secrets (promoção aprovada por humano)
   });
 
   it("initSecrets: deriva staging (valores mascarados) e production (vazios)", () => {
-    w.initSecrets();
+    infra.initSecrets();
     expect(w.ENVX.sec).toMatchSnapshot("initSecrets-sec");
   });
 
   it("secretCheck: chaves em falta/vazias por ambiente (staging vs production)", () => {
-    w.initSecrets();
+    infra.initSecrets();
     expect({ staging: w.secretCheck("staging"), production: w.secretCheck("production") }).toMatchSnapshot("secretCheck");
   });
 });
 
 describe("caracterização do motor — drift (design vs realidade)", () => {
   it("DSTY: tabela de estilos/estados de drift (constante)", () => {
-    expect(w.DSTY).toMatchSnapshot("DSTY");
+    expect(infra.DSTY).toMatchSnapshot("DSTY");
   });
 
   it("envDeps/envState/envHealth: cluster local deployado na versão de develop", () => {
@@ -171,12 +177,12 @@ describe("caracterização do motor — drift (design vs realidade)", () => {
 
   it("driftReport(local): sincronizado quando a versão bate certo com develop", () => {
     deployLocal(w.GIT.refs.develop);
-    expect(w.driftReport("local")).toMatchSnapshot("drift-sync");
+    expect(infra.driftReport("local")).toMatchSnapshot("drift-sync");
   });
 
   it("driftReport(local): «behind» quando a versão deployada é anterior a develop", () => {
     deployLocal("c0ffee0");
-    expect(w.driftReport("local")).toMatchSnapshot("drift-behind");
+    expect(infra.driftReport("local")).toMatchSnapshot("drift-behind");
   });
 
   it("driftReport(local): «drift» quando as réplicas a correr divergem do manifesto", () => {
@@ -186,13 +192,13 @@ describe("caracterização do motor — drift (design vs realidade)", () => {
     const d = w.K8S.deps.find((x: any) => x.n === "orders-db");
     expect(d).toBeTruthy();
     d.rep = 3; d.ready = 3;
-    expect(w.driftReport("local")).toMatchSnapshot("drift-replicas");
+    expect(infra.driftReport("local")).toMatchSnapshot("drift-replicas");
   });
 
   it("envDeps: workload em crash quando um segredo aponta para um host inexistente", () => {
     deployLocal(w.GIT.refs.develop);
     w.ENVX.cur = "staging";
-    w.initSecrets();
+    infra.initSecrets();
     // aponta o DATABASE_URL de staging para um host que não é um serviço do design
     const apiKey = Object.keys(w.ENVX.sec.staging).find((a) => w.ENVX.sec.staging[a].DATABASE_URL);
     if (apiKey) w.ENVX.sec.staging[apiKey].DATABASE_URL = "postgres://app:app@db.nowhere:5432/app";
