@@ -19,9 +19,10 @@
    Mecânica strangler: avalia ANTES de app.ts/v5.ts/v6.ts (ordem do index.html). O estado
    é window-backed e hidratado PREGUIÇOSAMENTE pelo motor (LS/ROOT só se tocam dentro das
    funções, nunca no eval). Os nomes livres do monólito (SD/TECH/KIND/FS/GIT/goPane/dlg/…)
-   resolvem no window ao correr, através do bridge. Fachadas-alias p/ o resíduo de v6
-   (envPrime/envDrift/envDriftStyle); rtConnect/k8sConnect/dxDeploy são reatribuídos por
-   bridge.ts (versões reais do Tauri). Este resíduo @ts-nocheck está FORA da subárvore
+   resolvem no window ao correr, através do bridge. As decorações de v6 (dxDeploy/drawStudio)
+   importam initSecrets/driftReport/DSTY por porta tipada (ADR-0002 passo 6); rtConnect/
+   k8sConnect/dxDeploy são reatribuídos por bridge.ts (versões reais do Tauri). Este
+   resíduo @ts-nocheck está FORA da subárvore
    features/infra/ (não governado por A7/A8). */
 import { $, $$, hd, svg, esc } from "../core";
 import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "./infra/domain/constants";
@@ -69,6 +70,9 @@ const {
   initSecrets, envDeps, envState, envHealth, secretCheck, commitsBetween, promote,
   redeployEnv, openEnvs, driftReport, openObserve,
 } = engine;
+/* ADR-0002 passo 6: nomes reais consumidos por v6.ts via import ES (porta tipada),
+   substituindo as antigas fachadas-alias resolvidas por global. */
+export { initSecrets, driftReport, DSTY };
 
 /* ═══════════ DOM (resíduo dono): remote + redesenho do pane ═══════════ */
 function drawRemote() { const b = $('.si.remote'); if (!b) return; let s = b.querySelector('span.rl'); if (!s) { b.insertAdjacentHTML('beforeend', '<span class="rl notr"></span>'); s = b.querySelector('span.rl'); } s.textContent = DEVC ? ' Dev Container: dxtutor' : ''; b.onclick = () => goPane('infra'); b.title = 'Infra: runtime, dev container, Kubernetes'; }
@@ -111,8 +115,8 @@ function renderInfraPane(): void {
   }
 }
 
-/** Corpo de VIEW.envs — publicado; o shim em v6.ts delega. */
-function renderEnvsView(t, host) { initSecrets(); const L = localSecrets(), mask = v => v === '' ? '<span class="sec-empty-v">empty</span>' : SHOWSEC ? esc(v) : '••••••' + esc(String(v).slice(-4));
+/** Corpo de VIEW.envs — exportado; v6.ts importa e delega (porta tipada, ADR passo 6). */
+export function renderEnvsView(t, host) { initSecrets(); const L = localSecrets(), mask = v => v === '' ? '<span class="sec-empty-v">empty</span>' : SHOWSEC ? esc(v) : '••••••' + esc(String(v).slice(-4));
   const card = e => { const s = envState(e), h = envHealth(e); return `<div class="pcard env-c"><div class="ph"><span class="pdot${h === 'off' ? ' off' : ''}" style="background:${h === 'bad' ? 'var(--red)' : 'var(--green)'}"></span>${ENVL[e]}${ENVX.cur === e ? '<span class="tag acc">selected</span>' : ''}</div>
     <div class="st-kv"><span>cluster</span><code class="notr">${esc(e === 'local' ? ENVS.ctx : ENVX.ctx[e])} / ${esc(e === 'local' ? ENVS.ns : ENVX.ns[e])}</code></div><div class="st-kv"><span>version</span><code class="notr">${s ? s.ver + ' · ' + rel(s.at) : 'not deployed'}</code></div>
     ${s ? `<div class="st-kv"><span>workloads</span><code>${s.deps.filter(d => d.status === 'ok').length}/${s.deps.length} ready</code></div>${s.deps.filter(d => d.status === 'crash').map(d => `<div class="env-bad notr">✖ ${esc(d.n)} · CrashLoopBackOff</div>`).join('')}` : ''}
@@ -136,8 +140,8 @@ function obsInit(env, n) {
 }
 function obsLine(o) { domObsLine(o, isoTime); }
 
-/** Corpo de VIEW.observe — publicado; o shim em v6.ts delega. */
-function renderObserveView(t, host) { const o = obsInit(t.env, t.name), last = a => a[a.length - 1];
+/** Corpo de VIEW.observe — exportado; v6.ts importa e delega (porta tipada, ADR passo 6). */
+export function renderObserveView(t, host) { const o = obsInit(t.env, t.name), last = a => a[a.length - 1];
   host.innerHTML = `<div class="obs"><div class="gl-bar"><b class="notr">${esc(t.name)}</b><span class="tag">${ENVL[t.env]}</span>${o.crash ? '<span class="tag bad">CrashLoopBackOff</span>' : '<span class="tag live">running</span>'}<span class="tag warn">simulated</span><span class="sp"></span>${o.crash ? `<button class="mini pri" data-action="dbg-crash" data-on="${esc(t.env)}:${esc(t.name)}">${svg('bug')} Debug this</button>` : ''}<button class="mini" data-action="obs-clear" data-on="${esc(t.env)}:${esc(t.name)}">Clear</button></div>
    <div class="obs-m">${[['CPU', '%', o.cpu, 'var(--accent)', 100], ['Memory', 'MiB', o.mem, 'var(--blue)'], ['Requests', '/s', o.rps, 'var(--green)'], ['p95 latency', 'ms', o.p95, 'var(--purple)']].map(([l, u, a, c, mx]) => `<div class="obs-c"><div class="obs-h"><span>${l}</span><b>${last(a).toFixed(u === '%' || u === '/s' ? 0 : 0)} ${u}</b></div>${spark(a, c, mx)}</div>`).join('')}</div>
    <div class="obs-l" id="obs-l">${o.logs.map(x => `<div class="ll ${x.lv}"><span class="ts">${x.ts}</span><span class="lv">${x.lv}</span><span class="notr">${esc(x.m)}</span></div>`).join('')}</div></div>`; const lg = $('#obs-l'); lg.scrollTop = lg.scrollHeight;
@@ -189,15 +193,14 @@ bindActions(ACTIONS);
 
 /* ── publicação transitória no window (shim para o residual) ──
    O render e os dois motores ficam no window; v5.ts/v6.ts e os onclick inline resolvem
-   estes nomes como globais. As fachadas-alias (envPrime/envDrift/envDriftStyle) servem o
-   resíduo de v6 sem o substring do grep-critério. */
+   estes nomes como globais. (As decorações de v6 — dxDeploy/drawStudio — já não lêem
+   initSecrets/driftReport/DSTY por global: importam-nos por porta tipada; ADR-0002 passo 6.) */
 publish({
   rtConnect, k8sConnect, dxDeploy, needRt, projectContext, devcontainerJson, dcAttach, dcDetach,
   drawRemote, infraDraw, appEnv, k8sInfra, k8sDocs, k8sScale, k8sDown, runTaskQuiet, ctlLogs,
   saveEnv, cli, hydrateEnvs,
   ENVL, ENVX, saveEnvx, designApps, localSecrets, initSecrets, urlHosts, envDeps, envState,
   envHealth, secretCheck, commitsBetween, promote, redeployEnv, openEnvs, driftReport, DSTY,
-  OBS, obsInit, obsLine, spark, openObserve, seeded, renderEnvsView, renderObserveView, renderInfraPane,
-  envPrime: initSecrets, envDrift: driftReport, envDriftStyle: DSTY,
+  OBS, obsInit, obsLine, spark, openObserve, seeded, renderInfraPane,
 });
 

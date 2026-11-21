@@ -2,7 +2,7 @@
    Tabelas estáticas dos dois motores (runtime/K8s + environments) e as fábricas
    do estado inicial. Sem DOM, sem `window`. O resíduo importa daqui e publica no
    `window` (os onclick inline e as camadas v5/v6 resolvem RTN/KCTX/ENVL/DSTY como
-   globais; `envDriftStyle` é a fachada-alias de DSTY). */
+   globais; v6.ts importa DSTY por porta tipada — ADR-0002 passo 6). */
 
 import type { Envs, EnvX } from "./types";
 
