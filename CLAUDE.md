@@ -36,9 +36,10 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board` e `visualizer`); cada nova extracção
+  `codereview`, `scm`, `debug`, `board`, `visualizer` e `infra`); cada nova extracção
   acrescenta-se lá. Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
-  o único `@ts-nocheck` dentro de uma subárvore — ver abaixo).
+  o único `@ts-nocheck` dentro de uma subárvore — ver abaixo). A `infra` nasceu com a
+  subárvore inteiramente TIPADA (decisão do dono): nenhum `@ts-nocheck` novo, A6 fica 8.
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
@@ -243,10 +244,55 @@ isso o golden caracteriza o overlay via `vizOpen` com fonte explícita, sem fixt
 puro vzLex/vzParse/vzHints/vzRun/vzTell + overlay `#viz`) + 6 testes de dispatch delegado
 (o golden strippa data-action → não prova o wiring).
 
+## Sétima feature extraída: Infra (`ui-app/src/features/infra/`)
+
+Sétima aplicação do procedimento `extract-feature` (ADR-0002, Fases 0–4 concluídas) e
+o ÚLTIMO resíduo @ts-nocheck de feature. Dois motores num só pane: runtime de
+contentores / dev-container / Kubernetes + environments / drift / observabilidade.
+Decisão do dono: a subárvore nasce INTEIRAMENTE TIPADA (nenhum `@ts-nocheck` novo; A6
+fica 8). Mesmas camadas e regra de dependências:
+
+```
+features/infra/
+  domain/          types.ts, constants.ts (RTN/KCTX/ENVL/DSTY + defaultEnvs/Envx),
+                   kubernetes.ts (projectContext/devcontainerJson/appEnv/k8sInfra/k8sDocs),
+                   secrets.ts (urlHosts/designApps/dbSlugs/localSecrets/deriveSecrets/
+                   secretCheck), environments.ts (envDeps/envStateOf/envHealthOf/
+                   driftReport/commitsBetween), observability.ts (seeded/spark/obsLine/
+                   buildObs — relógio injectado). PURO e TIPADO; recebe o mundo por arg.
+  application/     ports.ts (State/CatalogPort/Workspace/Scm/Persist/Terminal/Nav/
+                   Notifier/View/Clock) + infra-engine.ts (makeInfraEngine: orquestração
+                   rtConnect/k8sConnect/dcAttach/dxDeploy/k8sScale/k8sDown/promote/
+                   redeployEnv/initSecrets/envState/driftReport/… + wrappers dos
+                   geradores; deps injectadas; hidratação de LS preguiçosa em closure).
+  ui/              actions.ts (1 listener delegado: data-action + data-on; chave própria
+                   __infraActionHandler__).
+  infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
+features/infra.ts  RESÍDUO strangler (@ts-nocheck, FORA da subárvore) + raiz de composição:
+                   DONO do estado (ENVS/ENVX/K8S/DEVC/OBS window-backed) e do DOM
+                   (renderInfraPane base v5+decoração v6 dobradas, renderEnvsView,
+                   renderObserveView, drawRemote/infraDraw, cache OBS/polling); compõe o
+                   motor com os adaptadores do bridge, tem a tabela ACTIONS, e re-publica
+                   os shims window.* (envPrime/envDrift/envDriftStyle; rtConnect/k8sConnect/
+                   dxDeploy são reatribuídos por bridge.ts/v5/v6 — ACTIONS chama window.X).
+```
+
+Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
+TODO tipado — interfaces locais (Design/TechSpec/KindSpec/K8sState/Secrets/…) no centro,
+os `any`/casts das formas opacas do monólito confinam-se ao bridge; (2) o harness exclui
+v5.ts (`#pane-infra` de `boot5`) e v6.ts (`RP.infra`) → `infra.golden.test.ts` reproduz
+estas fixtures em `provideFixtures()`; (3) o estado window-backed PERSISTE entre testes no
+jsdom mas a reavaliação de `infra.ts` reassigna `window.ENVS/ENVX/K8S/…` por `bootApp`;
+LS é inoperante em headless (persistência é porta de infra, não se caracteriza). Rede de
+segurança em `tests/infra.golden.test.ts` (3 goldens de #pane-infra + caracterização do
+motor runtime/K8s/secrets/drift/obs + 6 testes de dispatch delegado) e
+`tests/infra.domain.test.ts` (domínio puro, fixture sintética de design+catálogo).
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,
-`scm.golden.test.ts`, `debug.golden.test.ts` e `board.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
+`scm.golden.test.ts`, `debug.golden.test.ts`, `board.golden.test.ts`,
+`visualizer.golden.test.ts` e `infra.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
 `onclick`/`onchange`/`oninput`/`data-action`/`data-on` antes de comparar — logo
 todo o payload de uma acção viaja em `data-on` (um `data-*` à medida vazaria para o
 snapshot e partia-o). Um diff de golden = **o código mudou de comportamento visual**:
