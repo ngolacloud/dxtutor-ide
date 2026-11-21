@@ -220,3 +220,58 @@ describe("caracterização do motor — observabilidade (determinista por seed)"
     }).toMatchSnapshot("obsInit");
   });
 });
+
+describe("dispatch delegado (data-action) — Fase 4", () => {
+  // O golden strippa onclick E data-action/data-on, logo NÃO prova que o listener
+  // delegado dispara. Estes testes disparam eventos reais e observam o efeito (como os 6
+  // de dispatch da visualizer): fecham a lacuna do golden. Escolhidos para evitar o
+  // terminal/diálogo (só mutações de estado observáveis).
+  const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  const change = (el: Element) => el.dispatchEvent(new window.Event("change", { bubbles: true }));
+  const q = (sel: string) => document.querySelector("#pane-infra " + sel)!;
+
+  it("rt-connect: clicar «Connect socket» liga o runtime", () => {
+    w.renderInfraPane();
+    expect(w.ENVS.rtOn).toBe(false);
+    click(q('[data-action="rt-connect"]'));
+    expect(w.ENVS.rtOn).toBe(true);
+  });
+
+  it("rt-set: clicar «Podman» troca o runtime e desliga a ligação", () => {
+    w.ENVS.rtOn = true;
+    w.renderInfraPane();
+    click(q('[data-action="rt-set"][data-on="podman"]'));
+    expect(w.ENVS.rt).toBe("podman");
+    expect(w.ENVS.rtOn).toBe(false);
+  });
+
+  it("rt-sock: o onchange do input (evento change) actualiza o socket", () => {
+    w.renderInfraPane();
+    const inp = q('input[data-action="rt-sock"]') as HTMLInputElement;
+    inp.value = "/custom/docker.sock";
+    change(inp);
+    expect(w.ENVS.sock[w.ENVS.rt]).toBe("/custom/docker.sock");
+  });
+
+  it("kube-ns: o onchange do namespace (evento change) actualiza ENVS.ns", () => {
+    w.renderInfraPane();
+    const inp = q('input[data-action="kube-ns"]') as HTMLInputElement;
+    inp.value = "prod-ns";
+    change(inp);
+    expect(w.ENVS.ns).toBe("prod-ns");
+  });
+
+  it("env-chip: clicar o chip «Staging» selecciona o ambiente", () => {
+    w.renderInfraPane();
+    click(q('[data-action="env-chip"][data-on="staging"]'));
+    expect(w.ENVX.cur).toBe("staging");
+  });
+
+  it("ssh-add: o onchange do input acrescenta um remote host", () => {
+    w.renderInfraPane();
+    const inp = q('input[data-action="ssh-add"]') as HTMLInputElement;
+    inp.value = "dev@edge-02";
+    change(inp);
+    expect(w.ENVS.ssh).toContain("dev@edge-02");
+  });
+});

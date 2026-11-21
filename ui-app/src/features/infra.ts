@@ -28,6 +28,7 @@ import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "./infra/domain/
 import { seeded, spark, buildObs, obsLine as domObsLine } from "./infra/domain/observability";
 import { urlHosts } from "./infra/domain/secrets";
 import { makeInfraEngine } from "./infra/application/infra-engine";
+import { bindActions } from "./infra/ui/actions";
 import {
   envs, envx, k8s, setK8s, stack, setStack, devc, setDevc, pDc, setPDc,
   design, files, root, tech, kind, isApp, nodeSlug, composeServices,
@@ -83,30 +84,30 @@ function renderInfraPane(): void {
   // ── base v5 ──
   const el = $("#pane-infra"), on = (x: unknown) => `<span class="pdot${x ? "" : " off"}" style="background:var(--green)"></span>`, docs = k8sDocs().length;
   if (!el) return;
-  el.innerHTML = hd("Infra", `<button title="RUN the stack" onclick="dxRun()">${svg("run")}</button><button title="Deploy to Kubernetes" onclick="dxDeploy()">${svg("rocket")}</button>`) + `<div class="sections">
-   <div class="scm-grp">Container runtime${on(ENVS.rtOn)}</div><div class="seg" style="margin:4px 10px">${Object.keys(RTN).map(r => `<button class="${ENVS.rt === r ? "on" : ""}" onclick="ENVS.rt='${r}';ENVS.rtOn=false;saveEnv();infraDraw()">${RTN[r]}</button>`).join("")}</div>
-   <input class="inp notr" value="${esc(ENVS.sock[ENVS.rt])}" title="Socket path" onchange="ENVS.sock[ENVS.rt]=this.value;ENVS.rtOn=false;saveEnv();infraDraw()"><button class="btn${ENVS.rtOn ? " ghost" : ""}" onclick="rtConnect()">${ENVS.rtOn ? "Disconnect" : "Connect socket"}</button>
-   <div class="scm-grp">Dev Container${on(!!DEVC)}</div>${DEVC ? `<div class="scm-row" onclick="openPath(P_DC)"><span class="ic">${svg("container")}</span><span class="nm notr">${DEVC.name}</span><span class="pth notr">${DEVC.image}</span></div><button class="btn ghost" onclick="dcDetach()">Detach</button>` : `<div class="sec-empty">Attach this project to a container built from its own context: languages, ports, the runtime socket and your kubeconfig.</div><button class="btn" onclick="dcAttach()">Attach project to a container</button>`}
-   <div class="scm-grp">Containers<span class="cnt">${(STACK ? STACK.length : 0) + (DEVC ? 1 : 0)}</span></div>${!ENVS.rtOn ? '<div class="sec-empty">Connect the socket to list containers.</div>' : (STACK || []).map((s: any) => `<div class="scm-row" onclick="ctlLogs('${s.name}')" title="Show logs"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">${esc(s.name)}</span><span class="pth notr">${esc(s.url === "internal" ? s.src : s.url)}</span></div>`).join("") + (STACK ? `<button class="btn ghost" onclick="dxStop()">■ Stop the stack</button>` : `<button class="btn ghost" onclick="dxRun()">▶ RUN the stack</button>`)}
-   <div class="scm-grp">Kubernetes${on(ENVS.k8sOn)}</div><input class="inp notr" value="${esc(ENVS.kube)}" title="KUBECONFIG" onchange="ENVS.kube=this.value;ENVS.k8sOn=false;saveEnv();infraDraw()"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context" onchange="ENVS.ctx=this.value;K8S=null;saveEnv();infraDraw()">${KCTX.map(c => `<option${c === ENVS.ctx ? " selected" : ""}>${c}</option>`).join("")}</select><input class="inp notr" style="margin:0;width:100%" value="${esc(ENVS.ns)}" title="Namespace" onchange="ENVS.ns=this.value;saveEnv()"></div>
-   <button class="btn${ENVS.k8sOn ? " ghost" : ""}" onclick="k8sConnect()">${ENVS.k8sOn ? "Disconnect" : "Connect cluster"}</button>
-   ${ENVS.k8sOn ? (K8S ? K8S.deps.map((d: any) => `<div class="scm-row" style="cursor:default"><span class="pdot" style="background:${d.ready ? "var(--green)" : "var(--fg-muted)"}"></span><span class="nm notr">${esc(d.n)}</span><span class="pth">${d.ready}/${d.rep}</span><span class="ra" style="display:flex"><button title="Scale down" onclick="k8sScale('${d.n}',-1)">−</button><button title="Scale up" onclick="k8sScale('${d.n}',1)">+</button></span></div>`).join("") + `<button class="btn" onclick="dxDeploy()">⎈ Redeploy</button><button class="btn ghost" onclick="k8sDown()">Delete from cluster</button>` : `<div class="sec-empty">${docs ? `${docs} resources ready in <code>deploy/k8s</code>.` : "No manifests yet — the platform issue from the Studio creates them."}</div><button class="btn" onclick="dxDeploy()">⎈ Deploy to ${esc(ENVS.ctx)}</button>`) : ""}
-   <div class="scm-grp">Remote hosts<span class="cnt">${ENVS.ssh.length}</span></div>${ENVS.ssh.map((h: string, i: number) => `<div class="scm-row" onclick="toast('SSH sessions need the desktop app')"><span class="ic">${svg("remote")}</span><span class="nm notr">${esc(h)}</span><span class="ra" style="display:flex"><button title="Remove" onclick="event.stopPropagation();ENVS.ssh.splice(${i},1);saveEnv();infraDraw()">×</button></span></div>`).join("")}<input class="inp notr" placeholder="user@host" onchange="if(this.value.trim()){ENVS.ssh.push(this.value.trim());saveEnv();infraDraw()}">
+  el.innerHTML = hd("Infra", `<button title="RUN the stack" data-action="dx-run">${svg("run")}</button><button title="Deploy to Kubernetes" data-action="dx-deploy">${svg("rocket")}</button>`) + `<div class="sections">
+   <div class="scm-grp">Container runtime${on(ENVS.rtOn)}</div><div class="seg" style="margin:4px 10px">${Object.keys(RTN).map(r => `<button class="${ENVS.rt === r ? "on" : ""}" data-action="rt-set" data-on="${r}">${RTN[r]}</button>`).join("")}</div>
+   <input class="inp notr" value="${esc(ENVS.sock[ENVS.rt])}" title="Socket path" data-action="rt-sock"><button class="btn${ENVS.rtOn ? " ghost" : ""}" data-action="rt-connect">${ENVS.rtOn ? "Disconnect" : "Connect socket"}</button>
+   <div class="scm-grp">Dev Container${on(!!DEVC)}</div>${DEVC ? `<div class="scm-row" data-action="open-pdc"><span class="ic">${svg("container")}</span><span class="nm notr">${DEVC.name}</span><span class="pth notr">${DEVC.image}</span></div><button class="btn ghost" data-action="dc-detach">Detach</button>` : `<div class="sec-empty">Attach this project to a container built from its own context: languages, ports, the runtime socket and your kubeconfig.</div><button class="btn" data-action="dc-attach">Attach project to a container</button>`}
+   <div class="scm-grp">Containers<span class="cnt">${(STACK ? STACK.length : 0) + (DEVC ? 1 : 0)}</span></div>${!ENVS.rtOn ? '<div class="sec-empty">Connect the socket to list containers.</div>' : (STACK || []).map((s: any) => `<div class="scm-row" data-action="ctl-logs" data-on="${esc(s.name)}" title="Show logs"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">${esc(s.name)}</span><span class="pth notr">${esc(s.url === "internal" ? s.src : s.url)}</span></div>`).join("") + (STACK ? `<button class="btn ghost" data-action="dx-stop">■ Stop the stack</button>` : `<button class="btn ghost" data-action="dx-run">▶ RUN the stack</button>`)}
+   <div class="scm-grp">Kubernetes${on(ENVS.k8sOn)}</div><input class="inp notr" value="${esc(ENVS.kube)}" title="KUBECONFIG" data-action="kube-conf"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context" data-action="kube-ctx">${KCTX.map(c => `<option${c === ENVS.ctx ? " selected" : ""}>${c}</option>`).join("")}</select><input class="inp notr" style="margin:0;width:100%" value="${esc(ENVS.ns)}" title="Namespace" data-action="kube-ns"></div>
+   <button class="btn${ENVS.k8sOn ? " ghost" : ""}" data-action="k8s-connect">${ENVS.k8sOn ? "Disconnect" : "Connect cluster"}</button>
+   ${ENVS.k8sOn ? (K8S ? K8S.deps.map((d: any) => `<div class="scm-row" style="cursor:default"><span class="pdot" style="background:${d.ready ? "var(--green)" : "var(--fg-muted)"}"></span><span class="nm notr">${esc(d.n)}</span><span class="pth">${d.ready}/${d.rep}</span><span class="ra" style="display:flex"><button title="Scale down" data-action="k8s-scale" data-on="${esc(d.n)}|-1">−</button><button title="Scale up" data-action="k8s-scale" data-on="${esc(d.n)}|1">+</button></span></div>`).join("") + `<button class="btn" data-action="dx-deploy">⎈ Redeploy</button><button class="btn ghost" data-action="k8s-down">Delete from cluster</button>` : `<div class="sec-empty">${docs ? `${docs} resources ready in <code>deploy/k8s</code>.` : "No manifests yet — the platform issue from the Studio creates them."}</div><button class="btn" data-action="dx-deploy">⎈ Deploy to ${esc(ENVS.ctx)}</button>`) : ""}
+   <div class="scm-grp">Remote hosts<span class="cnt">${ENVS.ssh.length}</span></div>${ENVS.ssh.map((h: string, i: number) => `<div class="scm-row" data-action="ssh-toast"><span class="ic">${svg("remote")}</span><span class="nm notr">${esc(h)}</span><span class="ra" style="display:flex"><button title="Remove" data-action="ssh-del" data-on="${i}">×</button></span></div>`).join("")}<input class="inp notr" placeholder="user@host" data-action="ssh-add">
    <div class="sec-empty">Everything here is simulated in the browser. In the desktop app the same two settings — socket and KUBECONFIG — drive the real runtime and cluster.</div></div>`;
   // ── decoração v6 (environments / observabilidade) ──
   const sec = $("#pane-infra .sections");
   if (!sec) return;
-  sec.insertAdjacentHTML("afterbegin", `<div class="scm-grp">Environments</div><div class="env-chips">${Object.entries(ENVL).map(([k, l]) => { const h = envHealth(k); return `<button class="${ENVX.cur === k ? "on" : ""}" onclick="ENVX.cur='${k}';saveEnvx();infraDraw()"><span class="pdot${h === "off" ? " off" : ""}" style="background:${h === "bad" ? "var(--red)" : "var(--green)"}"></span>${l}</button>`; }).join("")}</div><button class="btn ghost" onclick="openEnvs()">Environments and secrets</button>`);
+  sec.insertAdjacentHTML("afterbegin", `<div class="scm-grp">Environments</div><div class="env-chips">${Object.entries(ENVL).map(([k, l]) => { const h = envHealth(k); return `<button class="${ENVX.cur === k ? "on" : ""}" data-action="env-chip" data-on="${k}"><span class="pdot${h === "off" ? " off" : ""}" style="background:${h === "bad" ? "var(--red)" : "var(--green)"}"></span>${l}</button>`; }).join("")}</div><button class="btn ghost" data-action="open-envs">Environments and secrets</button>`);
   $$("#pane-infra .scm-row").forEach(row => {
-    const b = row.querySelector('[onclick*="k8sScale"]');
+    const b = row.querySelector('[data-action="k8s-scale"]');
     if (!b) return;
-    const n = ((b.getAttribute("onclick") || "").match(/k8sScale\('([^']+)'/) || [])[1];
+    const n = (b.getAttribute("data-on") || "").split("|")[0];
     row.style.cursor = "pointer"; row.title = "Logs and metrics";
     row.onclick = e => { if ((e.target as Element | null)?.closest("button")) return; openObserve("local", n as string); };
   });
   if (ENVX.cur !== "local") {
     const s = envState(ENVX.cur);
-    (sec.querySelector(".env-chips"))?.insertAdjacentHTML("afterend", s ? s.deps.map((d: any) => `<div class="scm-row" onclick="openObserve('${ENVX.cur}','${d.n}')" title="Logs and metrics"><span class="pdot" style="background:${d.status === "crash" ? "var(--red)" : "var(--green)"}"></span><span class="nm notr">${esc(d.n)}</span><span class="pth">${d.ready}/${d.rep}${d.status === "crash" ? " · crash loop" : ""}</span></div>`).join("") : `<div class="sec-empty">${ENVL[ENVX.cur]} has nothing deployed. Promote from ${ENVX.cur === "staging" ? "Local" : "Staging"}.</div><button class="btn" onclick="promote('${ENVX.cur}')">Promote to ${ENVL[ENVX.cur]}…</button>`);
+    (sec.querySelector(".env-chips"))?.insertAdjacentHTML("afterend", s ? s.deps.map((d: any) => `<div class="scm-row" data-action="observe" data-on="${ENVX.cur}|${esc(d.n)}" title="Logs and metrics"><span class="pdot" style="background:${d.status === "crash" ? "var(--red)" : "var(--green)"}"></span><span class="nm notr">${esc(d.n)}</span><span class="pth">${d.ready}/${d.rep}${d.status === "crash" ? " · crash loop" : ""}</span></div>`).join("") : `<div class="sec-empty">${ENVL[ENVX.cur]} has nothing deployed. Promote from ${ENVX.cur === "staging" ? "Local" : "Staging"}.</div><button class="btn" data-action="promote" data-on="${ENVX.cur}">Promote to ${ENVL[ENVX.cur]}…</button>`);
   }
 }
 
@@ -115,12 +116,12 @@ function renderEnvsView(t, host) { initSecrets(); const L = localSecrets(), mask
   const card = e => { const s = envState(e), h = envHealth(e); return `<div class="pcard env-c"><div class="ph"><span class="pdot${h === 'off' ? ' off' : ''}" style="background:${h === 'bad' ? 'var(--red)' : 'var(--green)'}"></span>${ENVL[e]}${ENVX.cur === e ? '<span class="tag acc">selected</span>' : ''}</div>
     <div class="st-kv"><span>cluster</span><code class="notr">${esc(e === 'local' ? ENVS.ctx : ENVX.ctx[e])} / ${esc(e === 'local' ? ENVS.ns : ENVX.ns[e])}</code></div><div class="st-kv"><span>version</span><code class="notr">${s ? s.ver + ' · ' + rel(s.at) : 'not deployed'}</code></div>
     ${s ? `<div class="st-kv"><span>workloads</span><code>${s.deps.filter(d => d.status === 'ok').length}/${s.deps.length} ready</code></div>${s.deps.filter(d => d.status === 'crash').map(d => `<div class="env-bad notr">✖ ${esc(d.n)} · CrashLoopBackOff</div>`).join('')}` : ''}
-    <div class="env-a">${e === 'local' ? `<button class="mini pri" onclick="dxDeploy();rerender('envs')">⎈ Deploy</button>` : `<button class="mini pri" onclick="promote('${e}')">Promote from ${e === 'staging' ? 'Local' : 'Staging'} →</button>${s ? `<button class="mini" onclick="redeployEnv('${e}')">Redeploy</button>` : ''}`}<button class="mini" onclick="ENVX.cur='${e}';saveEnvx();rerender('envs');infraDraw()">Select</button></div></div>`; };
+    <div class="env-a">${e === 'local' ? `<button class="mini pri" data-action="deploy-envs">⎈ Deploy</button>` : `<button class="mini pri" data-action="promote" data-on="${e}">Promote from ${e === 'staging' ? 'Local' : 'Staging'} →</button>${s ? `<button class="mini" data-action="redeploy" data-on="${e}">Redeploy</button>` : ''}`}<button class="mini" data-action="env-select" data-on="${e}">Select</button></div></div>`; };
   host.innerHTML = `<div class="page" style="max-width:1000px"><h1>Environments</h1><div class="sub">One design, three environments. Only the secrets and the cluster change. Promotion always moves a version that already ran in the previous environment, and it never happens without your approval.</div>
    <div class="pgrid" style="grid-template-columns:repeat(3,1fr)">${['local', 'staging', 'production'].map(card).join('')}</div>
-   <h2>Secrets<button class="mini" style="float:right;text-transform:none;letter-spacing:0" onclick="SHOWSEC=!SHOWSEC;rerender('envs')">${SHOWSEC ? 'Hide values' : 'Show values'}</button></h2>
+   <h2>Secrets<button class="mini" style="float:right;text-transform:none;letter-spacing:0" data-action="toggle-sec">${SHOWSEC ? 'Hide values' : 'Show values'}</button></h2>
    <div class="sub">Local values come from the compose wiring. Staging and production values live in the cluster or your vault — the desktop app writes them there and never commits them.</div>
-   ${Object.keys(L).length ? `<div class="tbl-wrap"><table class="tbl sec-t"><tr><th>Workload · key</th><th>Local</th><th>Staging</th><th>Production</th></tr>${Object.entries(L).map(([a, kv]) => Object.keys(kv).map(k => `<tr><td class="notr"><b>${esc(a)}</b><br><code>${esc(k)}</code></td><td class="c notr">${mask(kv[k])}</td>${['staging', 'production'].map(e => { const v = (ENVX.sec[e][a] || {})[k]; return `<td class="notr">${SHOWSEC ? `<input value="${esc(v || '')}" onchange="ENVX.sec['${e}']['${a}']=ENVX.sec['${e}']['${a}']||{};ENVX.sec['${e}']['${a}']['${k}']=this.value;saveEnvx()">` : mask(v == null ? '' : v)}</td>`; }).join('')}</tr>`).join('')).join('')}</table></div>` : '<div class="sub">The design has no applications yet.</div>'}
+   ${Object.keys(L).length ? `<div class="tbl-wrap"><table class="tbl sec-t"><tr><th>Workload · key</th><th>Local</th><th>Staging</th><th>Production</th></tr>${Object.entries(L).map(([a, kv]) => Object.keys(kv).map(k => `<tr><td class="notr"><b>${esc(a)}</b><br><code>${esc(k)}</code></td><td class="c notr">${mask(kv[k])}</td>${['staging', 'production'].map(e => { const v = (ENVX.sec[e][a] || {})[k]; return `<td class="notr">${SHOWSEC ? `<input value="${esc(v || '')}" data-action="sec-edit" data-on="${e}|${esc(a)}|${esc(k)}">` : mask(v == null ? '' : v)}</td>`; }).join('')}</tr>`).join('')).join('')}</table></div>` : '<div class="sub">The design has no applications yet.</div>'}
    <h2>Promotion history</h2><div class="tbl-wrap">${ENVX.hist.map(h => `<div class="rowline"><span>${ENVL[h.from]} → <b>${ENVL[h.to]}</b></span><code class="notr">${h.ver}</code><span class="sp"></span><span style="color:var(--fg-muted)">approved by you · ${rel(h.at)}</span></div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">No promotions yet.</div>'}</div></div>`; }
 
 /* ── observabilidade: cache OBS + polling (DOM/relógio ficam no resíduo; o núcleo
@@ -137,10 +138,54 @@ function obsLine(o) { domObsLine(o, isoTime); }
 
 /** Corpo de VIEW.observe — publicado; o shim em v6.ts delega. */
 function renderObserveView(t, host) { const o = obsInit(t.env, t.name), last = a => a[a.length - 1];
-  host.innerHTML = `<div class="obs"><div class="gl-bar"><b class="notr">${esc(t.name)}</b><span class="tag">${ENVL[t.env]}</span>${o.crash ? '<span class="tag bad">CrashLoopBackOff</span>' : '<span class="tag live">running</span>'}<span class="tag warn">simulated</span><span class="sp"></span>${o.crash ? `<button class="mini pri" onclick="startDebug('crash:${t.env}:${t.name}')">${svg('bug')} Debug this</button>` : ''}<button class="mini" onclick="OBS['${t.env}:${t.name}'].logs=[];show(cur)">Clear</button></div>
+  host.innerHTML = `<div class="obs"><div class="gl-bar"><b class="notr">${esc(t.name)}</b><span class="tag">${ENVL[t.env]}</span>${o.crash ? '<span class="tag bad">CrashLoopBackOff</span>' : '<span class="tag live">running</span>'}<span class="tag warn">simulated</span><span class="sp"></span>${o.crash ? `<button class="mini pri" data-action="dbg-crash" data-on="${esc(t.env)}:${esc(t.name)}">${svg('bug')} Debug this</button>` : ''}<button class="mini" data-action="obs-clear" data-on="${esc(t.env)}:${esc(t.name)}">Clear</button></div>
    <div class="obs-m">${[['CPU', '%', o.cpu, 'var(--accent)', 100], ['Memory', 'MiB', o.mem, 'var(--blue)'], ['Requests', '/s', o.rps, 'var(--green)'], ['p95 latency', 'ms', o.p95, 'var(--purple)']].map(([l, u, a, c, mx]) => `<div class="obs-c"><div class="obs-h"><span>${l}</span><b>${last(a).toFixed(u === '%' || u === '/s' ? 0 : 0)} ${u}</b></div>${spark(a, c, mx)}</div>`).join('')}</div>
    <div class="obs-l" id="obs-l">${o.logs.map(x => `<div class="ll ${x.lv}"><span class="ts">${x.ts}</span><span class="lv">${x.lv}</span><span class="notr">${esc(x.m)}</span></div>`).join('')}</div></div>`; const lg = $('#obs-l'); lg.scrollTop = lg.scrollHeight;
   clearInterval(OBST); OBST = setInterval(() => { const tt = tabOf(cur); if (!tt || tt.kind !== 'observe') { clearInterval(OBST); return; } const oo = OBS[tt.env + ':' + tt.name]; obsLine(oo); ['cpu', 'mem', 'rps', 'p95'].forEach(k => { const a = oo[k]; a.push(Math.max(0, a[a.length - 1] + (oo.r() - .5) * (a[0] * .3 + 1))); a.shift(); }); const top = $('#obs-l').scrollTop, atEnd = $('#obs-l').scrollHeight - top - $('#obs-l').clientHeight < 30; show(cur); if (!atEnd) $('#obs-l').scrollTop = top; }, 1500); }
+
+/* ═══════════ tabela de acções (ADR-0002, Fase 4) ═══════════
+   Liga o nome de acção (emitido como data-action por renderInfraPane/renderEnvsView/
+   renderObserveView) ao efeito, servido pelo listener delegado de ui/actions.ts. Fica
+   aqui — no resíduo, fora da subárvore governada por A7/A8 — porque só este ficheiro tem
+   à mão o motor e o bridge. O payload viaja SÓ em data-on (o golden strippa data-action/
+   data-on; um data-* à medida vazava); os valores interpolados escapam-se com `esc` à
+   saída. Como os onclick antigos resolviam window.X ao clicar, os comandos chamam a versão
+   window (late-binding): rtConnect/k8sConnect/dxRun/dxStop/dxDeploy/ctlLogs são
+   reatribuídos/decorados por bridge.ts (real) e v5/v6. As mutações de estado usam ENVS/
+   ENVX (a MESMA referência que window.ENVS/ENVX). */
+const ACTIONS = {
+  "dx-run": { on: "click", run: () => window.dxRun() },
+  "dx-stop": { on: "click", run: () => window.dxStop() },
+  "dx-deploy": { on: "click", run: () => window.dxDeploy() },
+  "rt-set": { on: "click", run: e => { ENVS.rt = e.on; ENVS.rtOn = false; window.saveEnv(); window.infraDraw(); } },
+  "rt-sock": { on: "change", run: e => { ENVS.sock[ENVS.rt] = e.value; ENVS.rtOn = false; window.saveEnv(); window.infraDraw(); } },
+  "rt-connect": { on: "click", run: () => window.rtConnect() },
+  "open-pdc": { on: "click", run: () => window.openPath(window.P_DC) },
+  "dc-detach": { on: "click", run: () => window.dcDetach() },
+  "dc-attach": { on: "click", run: () => window.dcAttach() },
+  "ctl-logs": { on: "click", run: e => window.ctlLogs(e.on) },
+  "kube-conf": { on: "change", run: e => { ENVS.kube = e.value; ENVS.k8sOn = false; window.saveEnv(); window.infraDraw(); } },
+  "kube-ctx": { on: "change", run: e => { ENVS.ctx = e.value; window.K8S = null; window.saveEnv(); window.infraDraw(); } },
+  "kube-ns": { on: "change", run: e => { ENVS.ns = e.value; window.saveEnv(); } },
+  "k8s-connect": { on: "click", run: () => window.k8sConnect() },
+  "k8s-scale": { on: "click", run: e => { const [n, d] = e.on.split("|"); window.k8sScale(n, +d); } },
+  "k8s-down": { on: "click", run: () => window.k8sDown() },
+  "ssh-toast": { on: "click", run: () => window.toast("SSH sessions need the desktop app") },
+  "ssh-del": { on: "click", run: e => { ENVS.ssh.splice(+e.on, 1); window.saveEnv(); window.infraDraw(); } },
+  "ssh-add": { on: "change", run: e => { if (e.value.trim()) { ENVS.ssh.push(e.value.trim()); window.saveEnv(); window.infraDraw(); } } },
+  "env-chip": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); window.infraDraw(); } },
+  "open-envs": { on: "click", run: () => window.openEnvs() },
+  "observe": { on: "click", run: e => { const [env, n] = e.on.split("|"); window.openObserve(env, n); } },
+  "promote": { on: "click", run: e => window.promote(e.on) },
+  "deploy-envs": { on: "click", run: () => { window.dxDeploy(); window.rerender("envs"); } },
+  "redeploy": { on: "click", run: e => window.redeployEnv(e.on) },
+  "env-select": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); window.rerender("envs"); window.infraDraw(); } },
+  "toggle-sec": { on: "click", run: () => { window.SHOWSEC = !window.SHOWSEC; window.rerender("envs"); } },
+  "sec-edit": { on: "change", run: e => { const [env, a, k] = e.on.split("|"); const S = ENVX.sec[env]; S[a] = S[a] || {}; S[a][k] = e.value; window.saveEnvx(); } },
+  "dbg-crash": { on: "click", run: e => window.startDebug("crash:" + e.on) },
+  "obs-clear": { on: "click", run: e => { window.OBS[e.on].logs = []; window.show(window.cur); } },
+};
+bindActions(ACTIONS);
 
 /* ── publicação transitória no window (shim para o residual) ──
    O render e os dois motores ficam no window; v5.ts/v6.ts e os onclick inline resolvem
