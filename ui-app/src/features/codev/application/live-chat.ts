@@ -10,8 +10,10 @@ import type { LiveDeps, RuntimeTool, ToolHost } from "./ports";
 export function makeLiveChat(deps: LiveDeps) {
   const { workspace, providers, presenter, harness, chat, tool } = deps;
 
-  return async function liveChat(q: string): Promise<void> {
-    presenter.userMessage(q);
+  /** `echoed`: a mensagem já está desenhada na conversa (o agente v2 recuou para aqui
+   *  porque o modelo não tem tool calling) — não se desenha outra vez. */
+  return async function liveChat(q: string, opts: { echoed?: boolean } = {}): Promise<void> {
+    if (!opts.echoed) presenter.userMessage(q);
     const PROV = providers.providers();
     const P = PROV[providers.activeProvider()];
     if (!P.on) {

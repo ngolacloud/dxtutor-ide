@@ -208,8 +208,9 @@ const agentChat = makeAgentChat({
  *  Gemini/Ollama), senão o harness antigo (protótipo, a flag `dx2.codevLegacy`, ou um modelo
  *  sem tool calling nativo — descoberto no 1.º pedido, a mensagem é reenviada por aqui). */
 const chat = async (q: string): Promise<void> => {
-  if (agentChat.available() && (await agentChat.send(q))) return;
-  return liveChat(q);
+  if (!agentChat.available()) return liveChat(q);
+  if (await agentChat.send(q)) return;
+  return liveChat(q, { echoed: true }); // o agente já mostrou a mensagem
 };
 
 /* ───── the wired engine (codev.ts publishes these onto window) ───── */
