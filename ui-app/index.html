@@ -118,53 +118,7 @@
 <div id="notes"></div>
 <div id="toast" style="position:fixed;bottom:40px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-menu);border:1px solid var(--border-strong);box-shadow:var(--sh-pop);border-radius:9px;padding:9px 16px;font-size:12.5px;opacity:0;transition:.2s;pointer-events:none;z-index:500"></div>
 
-<!-- Fase 5: boot.js virou src/boot.ts — toda a cadeia é agora de módulos ESM
-     (deferred, por ordem de documento): boot→app→bridge→pair. boot corre PRIMEIRO
-     e publica no window as globais que os seguintes consomem por nome; app corre a
-     seguir e, onde redefine funções do boot, o seu Object.assign (posterior) ganha. -->
-<script type="module" src="/src/boot.ts"></script>
-<!-- features por funcionalidade (reestruturação): consomem src/core.ts e publicam o
-     seu shim no window ANTES do app.ts, que ainda lê THEMES/THEME eagerly (palette CMD). -->
-<script type="module" src="/src/features/theme.ts"></script>
-<script type="module" src="/src/features/notifications.ts"></script>
-<script type="module" src="/src/features/remote.ts"></script>
-<script type="module" src="/src/features/account.ts"></script>
-<script type="module" src="/src/features/run.ts"></script>
-<script type="module" src="/src/features/stack.ts"></script>
-<script type="module" src="/src/features/test.ts"></script>
-<script type="module" src="/src/features/search.ts"></script>
-<script type="module" src="/src/features/debug.ts"></script>
-<script type="module" src="/src/features/codereview.ts"></script>
-<script type="module" src="/src/features/scm.ts"></script>
-<script type="module" src="/src/features/changelog.ts"></script>
-<script type="module" src="/src/features/tutor.ts"></script>
-<script type="module" src="/src/features/tasks.ts"></script>
-<script type="module" src="/src/features/ext.ts"></script>
-<script type="module" src="/src/features/codev.ts"></script>
-<script type="module" src="/src/features/checkpoint.ts"></script>
-<script type="module" src="/src/features/infra.ts"></script>
-<script type="module" src="/src/features/visualizer.ts"></script>
-<script type="module" src="/src/features/router.ts"></script>
-<script type="module" src="/src/features/team.ts"></script>
-<script type="module" src="/src/features/studio.ts"></script>
-<script type="module" src="/src/features/learn.ts"></script>
-<script type="module" src="/src/features/generators.ts"></script>
-<script type="module" src="/src/features/board.ts"></script>
-<script type="module" src="/src/features/i18n.ts"></script>
-<script type="module" src="/src/features/syntax.ts"></script>
-<script type="module" src="/src/features/diff.ts"></script>
-<script type="module" src="/src/features/graph.ts"></script>
-<script type="module" src="/src/features/termgit.ts"></script>
-<script type="module" src="/src/features/palette.ts"></script>
-<script type="module" src="/src/features/editor.ts"></script>
-<script type="module" src="/src/features/explorer.ts"></script>
-<script type="module" src="/src/features/diagnostics.ts"></script>
-<script type="module" src="/src/features/terminal.ts"></script>
-<script type="module" src="/src/app.ts"></script>
-<script type="module" src="/src/v5.ts"></script>
-<script type="module" src="/src/v6.ts"></script>
-<script type="module" src="/src/startup.ts"></script>
-<script type="module" src="/src/bridge.ts"></script>
-<script type="module" src="/src/pair.ts"></script>
-<script type="module" src="/src/features/panel/index.ts"></script>
+<!-- Um só ponto de entrada (ADR-0004, U1): src/main.ts importa os módulos pela ordem
+     de arranque (boot → features → app → v5/v6 → startup → bridge → pair → panel). -->
+<script type="module" src="/src/main.ts"></script>
 </body></html>

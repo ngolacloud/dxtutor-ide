@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0 em curso
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U1 feitas
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -122,3 +122,12 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   foram corrigidos para estas definições exactas (a primeira medição usou um `grep` com
   filtro de ficheiros ignorados que escondia o `interpreter.ts`). A feature `panel`, que
   bloqueava a U1/U2/U4 (decisão §9.1), foi commitada em `3ea370d`.
+
+- **U1 (2026-11-23).** `ui-app/src/main.ts` importa os 43 módulos pela ordem exacta das
+  antigas tags e o `index.html` fica com uma só (`<script type="module" src="/src/main.ts">`).
+  A avaliação de módulos ES é em profundidade e pela ordem dos imports, por isso a
+  semântica de arranque é a mesma; a única diferença — uma excepção no topo de um módulo
+  passa a interromper os seguintes — está coberta pelo teste de arranque. O harness dos
+  goldens lê a ordem do `main.ts` (deixou de ter uma cópia da lista). Verificado: 320
+  testes (goldens sem diff), arranque no browser 3/3, e a app desktop real no Xvfb (bridge
+  Tauri, explorador real, painel com o terminal do SO). Métrica: tags 43 → 1.

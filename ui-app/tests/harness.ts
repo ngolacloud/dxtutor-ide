@@ -2,49 +2,17 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { vi } from "vitest";
 
-// Ordem EXACTA dos <script type="module"> em index.html, até app.ts inclusive.
-// v5/v6/startup/bridge/pair ficam de fora: nada no Co-Dev (features/codev.ts)
+// A ordem de arranque vem do src/main.ts (o ponto de entrada único — ADR-0004, U1),
+// até app.ts inclusive: uma só fonte de verdade, em vez de uma cópia da lista aqui.
+// v5/v6/startup/bridge/pair/panel ficam de fora: nada no que os goldens caracterizam
 // depende deles, e trazê-los juntaria a cadeia de arranque completa (temporizadores,
 // ponte Tauri) sem necessidade para caracterizar o comportamento actual.
-const MODULE_CHAIN = [
-  "../src/boot.ts",
-  "../src/features/theme.ts",
-  "../src/features/notifications.ts",
-  "../src/features/remote.ts",
-  "../src/features/account.ts",
-  "../src/features/run.ts",
-  "../src/features/stack.ts",
-  "../src/features/test.ts",
-  "../src/features/search.ts",
-  "../src/features/debug.ts",
-  "../src/features/codereview.ts",
-  "../src/features/scm.ts",
-  "../src/features/changelog.ts",
-  "../src/features/tutor.ts",
-  "../src/features/tasks.ts",
-  "../src/features/ext.ts",
-  "../src/features/codev.ts",
-  "../src/features/checkpoint.ts",
-  "../src/features/infra.ts",
-  "../src/features/visualizer.ts",
-  "../src/features/router.ts",
-  "../src/features/team.ts",
-  "../src/features/studio.ts",
-  "../src/features/learn.ts",
-  "../src/features/generators.ts",
-  "../src/features/board.ts",
-  "../src/features/i18n.ts",
-  "../src/features/syntax.ts",
-  "../src/features/diff.ts",
-  "../src/features/graph.ts",
-  "../src/features/termgit.ts",
-  "../src/features/palette.ts",
-  "../src/features/editor.ts",
-  "../src/features/explorer.ts",
-  "../src/features/diagnostics.ts",
-  "../src/features/terminal.ts",
-  "../src/app.ts",
-] as const;
+const MAIN_TS = readFileSync(resolve(__dirname, "../src/main.ts"), "utf-8");
+const ALL_MODULES = [...MAIN_TS.matchAll(/^import "\.\/([^"]+)";$/gm)].map((m) => `../src/${m[1]}.ts`);
+const MODULE_CHAIN = ALL_MODULES.slice(0, ALL_MODULES.indexOf("../src/app.ts") + 1);
+if (MODULE_CHAIN.length < 30 || MODULE_CHAIN[0] !== "../src/boot.ts" || MODULE_CHAIN.at(-1) !== "../src/app.ts") {
+  throw new Error(`harness: a ordem lida do main.ts não é a esperada (${MODULE_CHAIN.length} módulos)`);
+}
 
 const INDEX_HTML = readFileSync(resolve(__dirname, "../index.html"), "utf-8");
 const BODY = INDEX_HTML.match(/<body>([\s\S]*)<\/body>/)?.[1] ?? "";

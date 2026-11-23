@@ -19,7 +19,7 @@ metric() { ROWS+=("$1|$2|$3|$4"); }
 
 count() { wc -l | tr -d ' '; }
 
-metric "tags <script> no index.html (U1)" 43 1 \
+metric "tags <script> no index.html (U1)" 1 1 \
   "$(grep -c '<script' "$UI/index.html")"
 metric "ficheiros com // @ts-nocheck (U4)" 8 0 \
   "$(grep -rlE '^// @ts-nocheck' "$SRC" | count)"
