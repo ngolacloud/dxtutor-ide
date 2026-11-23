@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (150 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (155 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 150 comandos, **46 são consumidos pela `ui-app`** e **104 não o são**: a UI
+Dos 155 comandos, **54 são consumidos pela `ui-app`** e **101 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -425,17 +425,33 @@ Todos usam `State<LspState>` + `AppHandle`. Não consumidos pela `ui-app`
 | `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | — | R · S |
 | `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | — | R · S |
 
-## 16. PTY — `pty.rs` (4)
+## 16. PTY — `pty.rs` (7)
 
-Terminal real; `State<PtyState>` + `AppHandle`. Não consumidos pela `ui-app`
-(terminal usa `run_shell`/`exec` + xterm); alvo da Etapa 2.
+Terminais reais (várias instâncias por `id`); `State<PtyState>` (mapa id → sessão) +
+`AppHandle`. Consumidos pelo painel inferior (`features/panel/infrastructure/tauri.ts`,
+xterm.js). `pty://data` = `{ id, data }` (só caracteres UTF-8 completos); `pty://exit` =
+`{ id, code }` (código de saída real). Shells bash/zsh arrancam com integração de shell
+(`shell_integration.rs`: OSC 7 cwd + OSC 633 comando/código).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `pty_spawn` | `rows: u16`, `cols: u16` | `()` | String | `pty://data`, `pty://exit` | — | **X** · S · E |
-| `pty_spawn_in_session` | `rows: u16`, `cols: u16`, `root: String` | `()` | String | `pty://data`, `pty://exit` | — | **X** · S · E |
-| `pty_write` | `data: String` | `()` | String | — | — | X · S |
-| `pty_resize` | `rows: u16`, `cols: u16` | `()` | String | — | — | S |
+| `pty_spawn` | `id: String`, `rows: u16`, `cols: u16`, `cwd: Option<String>`, `shell: Option<String>`, `command: Option<String>`, `env: Option<HashMap<String,String>>` | `()` | String | `pty://data`, `pty://exit` | `features/panel` | **X** · S · E |
+| `pty_spawn_in_session` | `id: String`, `rows: u16`, `cols: u16`, `root: String` | `()` | String | `pty://data`, `pty://exit` | — | **X** · S · E |
+| `pty_write` | `id: String`, `data: String` | `()` | String | — | `features/panel` | X · S |
+| `pty_resize` | `id: String`, `rows: u16`, `cols: u16` | `()` | String | — | `features/panel` | S |
+| `pty_kill` | `id: String` | `bool` | — | `pty://exit` | `features/panel` | X · S |
+| `pty_shells` | — | `Vec<ShellProfile>` | — | — | `features/panel` | R |
+| `pty_info` | `id: String` | `PtyInfo` (shell, processo em 1.º plano, cwd) | String | — | `features/panel` | R · S |
+
+## 16b. Painel inferior — `commands/panel.rs` (2)
+
+Adaptadores finos sobre `problems.rs` (checkers do projecto com saída estruturada, no
+ambiente da shell de login resolvido por `shellenv.rs`) e `ports.rs` (portas TCP em escuta).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `problems_scan` | `root: String` | `problems::ScanResult` | String | `problems://check` | `features/panel` | **X** · R |
+| `ports_list` | `root: Option<String>` | `Vec<ports::PortInfo>` | String | — | `features/panel` | R |
 
 ## 17. Board (SQLite) — `board.rs` (2)
 
@@ -468,11 +484,11 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **150** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **46** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1) |
-| Não consumidos pela `ui-app` | **104** |
-| Eventos distintos | **12** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error` |
+| Comandos registados | **155** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
+| Consumidos pela `ui-app` | **54** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `features/panel` 8) |
+| Não consumidos pela `ui-app` | **101** |
+| Eventos distintos | **15** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |
 | Mutam git (**G**) | `git_stage/unstage/stage_all/commit/checkout/create_branch`, `git_clone`, `codev_session_*` |

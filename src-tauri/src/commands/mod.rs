@@ -5,7 +5,7 @@
 //! Tauri-free (ex. `commands::review` → `crate::review`), deixando `lib.rs` a
 //! compor/registar. Grupos extraídos: `review`, `codeintel`, `tests`, `git`, `codev`,
 //! `codev_agent`, `dictation`, `search`, `agent`, `assistant`, `debug_cmds`, `devcontainer`, `sandbox`, `pair`,
-//! `study`, `missions`.
+//! `study`, `missions`, `panel`.
 
 pub mod agent;
 pub mod assistant;
@@ -18,6 +18,7 @@ pub mod dictation;
 pub mod git;
 pub mod missions;
 pub mod pair;
+pub mod panel;
 pub mod review;
 pub mod sandbox;
 pub mod search;

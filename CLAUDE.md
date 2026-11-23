@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 133 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 155 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -36,7 +36,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer` e `infra`); cada nova extracção
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra` e `panel`); cada nova extracção
   acrescenta-se lá. Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
   o único `@ts-nocheck` dentro de uma subárvore — ver abaixo). A `infra` nasceu com a
   subárvore inteiramente TIPADA (decisão do dono): nenhum `@ts-nocheck` novo, A6 fica 8.
@@ -287,6 +287,40 @@ LS é inoperante em headless (persistência é porta de infra, não se caracteri
 segurança em `tests/infra.golden.test.ts` (3 goldens de #pane-infra + caracterização do
 motor runtime/K8s/secrets/drift/obs + 6 testes de dispatch delegado) e
 `tests/infra.domain.test.ts` (domínio puro, fixture sintética de design+catálogo).
+
+## Oitava feature: painel inferior real (`ui-app/src/features/panel/`)
+
+Não é uma extracção do monólito: é a feature NOVA que, **só na app desktop**, substitui a
+demo do painel inferior por dados reais do workspace (sessão `develop-painel-inferior`).
+Nasceu tipada e em camadas (governada por A7/A8):
+
+```
+features/panel/
+  domain/          types.ts, shell-integration.ts (OSC 633/OSC 7), links.ts (ficheiro:linha,
+                   URLs), problems.ts (agrupar/filtrar/juntar LSP), naming.ts. PURO.
+  application/     ports.ts + terminals.ts (instâncias, grupos de divisão, tarefas com código
+                   de saída real, histórico de comandos), problems-service.ts (scan em voo
+                   único + debounce), output.ts (canais).
+  ui/              terminal-view.ts (xterm.js), problems/output/services/assistant-view.ts,
+                   actions.ts (chave __panelActionHandler__).
+  infrastructure/  tauri.ts (pty_*, problems_scan, ports_list, eventos) + legacy-bridge.ts
+                   (ÚNICO com window: DXR/FS/openPath; publica DXR.term, termOwnsKey,
+                   diagnostics/drawProblems/drawStack reais).
+  index.ts         raiz de composição; só arranca com `isDesktop()`.
+```
+
+Backend: `pty.rs` (várias sessões por id, UTF-8 inteiro entre leituras, código de saída),
+`shell_integration.rs` (bash `--init-file` com marcador `PS0`; zsh `ZDOTDIR`), `shellenv.rs`
+(ambiente da shell de login, para os checkers verem o node do nvm/cargo do rustup),
+`problems.rs` (cargo check/tsc/go vet/ruff/eslint → Problem; eslint segue o script `lint`
+do `package.json`), `ports.rs` (`/proc/net/tcp`), `commands/panel.rs`.
+Particularidades: (1) não entra no harness de goldens — o caminho do browser/testes continua
+a demo e os goldens ficam intactos; a rede é `tests/panel.{domain,application}.test.ts` +
+o passo `panel` do selftest do `bridge.ts` (PTY real, /dev/pts, integração de shell, scan);
+(2) `runInTerm` do bridge delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
+linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`v6.ts` chamam
+`termOwnsKey(e)` nos atalhos globais — com o foco no xterm, as teclas são da shell excepto
+a lista curta de `isAppKey` (estilo `commandsToSkipShell` do VS Code).
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 

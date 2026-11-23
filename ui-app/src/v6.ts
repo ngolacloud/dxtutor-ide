@@ -125,6 +125,7 @@ const EACT=[['bulb','Explain','Ctrl+K E','explainCmd()'],['review','Code review'
 const _show6=show;show=function(id){_show6(id);const t=tabOf(cur),b=$('#breadcrumbs');if(!b||!t||!['file','diff'].includes(t.kind))return;b.insertAdjacentHTML('beforeend',`<span class="ed-acts">${EACT.map(a=>`<button title="${a[1]} (${a[2]})" onclick="${a[3]}">${svg(a[0])}<span>${a[1]}</span></button>`).join('')}</span>`);};
 let CHORD=0;
 document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey,go=f=>{e.preventDefault();e.stopPropagation();f();};
+  if(window.termOwnsKey&&window.termOwnsKey(e))return;/* foco num terminal real (features/panel): a tecla é da shell */
   if(CHORD&&Date.now()-CHORD<1600){CHORD=0;$('#st-chord').textContent='';if(k==='e')return go(()=>explainCmd());if(k==='r')return go(reviewCmd);if(k==='u')return go(hoodCmd);if(k==='d')return go(()=>startDebug());if(k==='v')return go(()=>vizFromEditor());}
   if(c&&!e.shiftKey&&!e.altKey&&k==='k'){go(()=>{CHORD=Date.now();$('#st-chord').textContent='(Ctrl+K) waiting for second key…';});return;}
   if(e.key==='F5'&&c)return go(dxRun);if(e.key==='F5'&&e.shiftKey)return go(dbgStop);if(e.key==='F5')return go(()=>window.dbgState()?dbgContinue():startDebug());if(e.key==='F10'||e.key==='F11')return go(dbgStep);

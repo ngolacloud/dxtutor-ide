@@ -57,6 +57,18 @@ interface Desktop {
   exec?: (cmd: string) => Promise<VerifyOutcome>;
   projectCmd?: (kind: VerifyKind) => VerifyCommand | null;
   delegateReview?: (title: string, writes: [string, string][]) => Promise<void>;
+  readStack?: () => Promise<void>;
+  /** Terminais reais (features/panel): tarefas num PTY + canais do Output. Só no desktop. */
+  term?: {
+    runTask: (line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string }) => Promise<number>;
+    log: (channel: string, text: string, err?: boolean) => void;
+    inspect: () => {
+      terminals: { id: string; kind: string; label: string | null; shell: string; process: string | null; cwd: string | null; exited: number | null }[];
+      failures: { command: string; exitCode: number; output: string }[];
+      problems: number; scanning: boolean; scanned: boolean;
+      create: (cwd?: string) => string; write: (id: string, data: string) => void; kill: (id: string) => void; text: (id: string) => string;
+    };
+  };
 }
 /** Resultado de uma delegação isolada (agent_task_* → git worktree de HEAD). */
 interface DelegateResult { id: string; status: string; patch: string; error: string }
@@ -198,7 +210,14 @@ function termLine(text: string, err?: boolean): void {
   while (t.childElementCount > 6000) t.removeChild(t.firstChild!);
   scrollTerm();
 }
+/* Com os terminais reais montados (features/panel), uma tarefa corre num PTY próprio —
+   cores, barras de progresso e código de saída reais, como as tasks do VS Code. O terminal
+   de linha (#term) fica para o terminal partilhado do PairCode e para o browser. */
 async function runInTerm(line: string, o: { echo?: boolean; env?: Record<string, string>; cwd?: string; errRed?: boolean } = {}): Promise<number> {
+  if (R.term) return R.term.runTask(line, { env: o.env, cwd: o.cwd });
+  return runInLineTerm(line, o);
+}
+async function runInLineTerm(line: string, o: { echo?: boolean; env?: Record<string, string>; cwd?: string; errRed?: boolean } = {}): Promise<number> {
   setPanelTab("terminal", true);
   if (R.proc) { toast("A command is still running — Ctrl+C stops it"); return -1; }
   if (o.echo !== false) echoCmd(line);
@@ -229,11 +248,16 @@ async function realTerm(raw: string): Promise<void> {
     newInput();
     return;
   }
-  await runInTerm(v);
+  await runInLineTerm(v);
   if (/^git\s/.test(v) && R.git) { await reloadDisk(); await syncGit(); }
 }
 window.run = function (raw?: string) { return R.root ? realTerm(raw ?? "") : _run(raw); };
-termExec = function (v: string) { if (R.root) { void realTerm(v); return null; } return _termExec(v); };
+termExec = function (v: string) {
+  if (!R.root) return _termExec(v);
+  if (R.term) void runInTerm(v).then(async () => { if (/^git\s/.test(v.trim()) && R.git) { await reloadDisk(); await syncGit(); } });
+  else void realTerm(v);
+  return null;
+};
 document.addEventListener("keydown", e => {
   if (R.proc && e.ctrlKey && (e.key === "c" || e.key === "C") && !String(getSelection()).length && document.activeElement && document.activeElement.closest && document.activeElement.closest("#pc-terminal")) {
     e.preventDefault();
@@ -266,6 +290,7 @@ async function openFolder(path?: string): Promise<boolean> {
   try { termBanner(); } catch { /* sem terminal */ }
   say(`opened ${R.root} · ${L.files.length} files${L.skipped ? ` · ${L.skipped} skipped (binary, large or ignored)` : ""}${L.truncated ? " · file limit reached" : ""}`);
   toast(`${R.name}: ${L.files.length} files${R.git ? " · git " + BRANCH : " · not a git repository"}`);
+  document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
   if (!R.git) { try { card("desktop", `<b>${escH(R.name)}</b> is not a git repository. The graph, gitflow and commits need one.<div style="margin-top:8px"><button class="mini pri" onclick="DXR.gitInit()">git init</button></div>`); } catch { /* sem chat */ } }
   return true;
 }
@@ -321,7 +346,11 @@ function flushSave(): void {
   Object.keys(R.disk).forEach(r => { if (!seen.has(r)) { d.push(r); delete R.disk[r]; } });
   if (!w.length && !d.length) return;
   const root = R.root;
-  enqueue(async () => { for (const [rel, content] of w) await inv("write_file", { root, rel, content }); for (const rel of d) await inv("delete_file", { root, rel }); });
+  enqueue(async () => {
+    for (const [rel, content] of w) await inv("write_file", { root, rel, content });
+    for (const rel of d) await inv("delete_file", { root, rel });
+    document.dispatchEvent(new CustomEvent("dx:saved", { detail: { root, files: w.map(x => x[0]).concat(d) } }));
+  });
 }
 const _refresh = refresh;
 refresh = function (this: unknown, ...args: Parameters<typeof refresh>) {
@@ -396,6 +425,7 @@ R.syncGit = () => syncGit();
 window.clLog = async () => (R.root ? inv("git_log", { root: R.root, max: 30 }) : []);
 window.clShow = async (hash: string) => (R.root ? inv("git_show", { root: R.root, hash }) : "");
 R.termLine = (t, e) => termLine(t, e);
+const termLineDom = (t: string, e?: boolean) => termLine(t, e);
 R.envFor = () => envFor();
 R.gitInit = () => enqueue(async () => { flushSave(); await gitOk("init", "-b", "main"); R.git = true; R.prefix = ""; await markChanged(); await syncGit(); toast("git repository created on main"); });
 const _commit = commit, _checkout = checkout, _gitMerge = gitMerge, _gfFinish = gfFinish;
@@ -503,6 +533,8 @@ function askApproval(cmd: string): Promise<boolean> {
 R.exec = async (cmd: string): Promise<VerifyOutcome> => {
   flushSave();
   await Q;
+  /* com o painel real, o eco vai para o canal «Co-Dev» do Output (o terminal é do humano) */
+  const termLine = (t: string, e?: boolean) => (R.term ? R.term.log("Co-Dev", t, e) : termLineDom(t, e));
   termLine("$ " + cmd);
   const o = { timeout: 600000, env: envFor() };
   const r = R.info.os === "windows" ? await sh("cmd", ["/C", cmd], o) : await sh("sh", ["-c", cmd], o);
@@ -790,6 +822,7 @@ async function readK8s(): Promise<void> {
   } catch { /* resposta inválida */ }
 }
 const _dxRun = dxRun, _dxStop = dxStop, _dxDeploy = dxDeploy, _drawStack = drawStack;
+R.readStack = () => readStack();
 async function readStack(): Promise<void> {
   const r = await sh(rtBin(), ["compose", "ps", "--format", "json"], { env: envFor(), timeout: 30000 });
   if (r.code !== 0) return;
@@ -914,6 +947,29 @@ async function selftest(): Promise<void> {
   };
   await step("ui", () => ({ files: Object.keys(FS).length, menus: MENUS.map(m => m.t), sample: typeof SAMPLE, provState: Object.keys(PROV).map(provState) }));
   await step("exec", async () => (await sh("sh", ["-c", "echo ok"], { cwd: R.info.home })).stdout.trim());
+  // Painel inferior real (features/panel): tarefa num PTY com código de saída e UTF-8,
+  // shell interactiva num pseudo-terminal (/dev/pts), integração de shell (cwd + comando
+  // falhado) e o scan do Problems sobre a pasta aberta.
+  if (R.term) await step("panel", async () => {
+    const I = () => R.term!.inspect();
+    const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+    const taskExit = await R.term!.runTask("printf 'pty-ok \\303\\247\\303\\251\\n'; exit 3", { label: "selftest-task" });
+    const task = I().terminals.find(t => t.label === "selftest-task");
+    // o xterm processa as escritas de forma assíncrona: espera que o texto chegue ao buffer
+    if (task) await wait(() => I().text(task.id).includes("finished"), 5000);
+    const taskText = task ? I().text(task.id) : "";
+    const id = I().create(R.info.home);
+    const prompt = await wait(() => /[$#%>] ?$/m.test(I().text(id)), 10000);
+    I().write(id, "cd /tmp && false\r");
+    const failure = await wait(() => I().failures.some(f => f.command.includes("false")), 10000);
+    const cwd = await wait(() => I().terminals.find(t => t.id === id)?.cwd === "/tmp", 5000);
+    I().write(id, "printf 'tty:%s\\n' \"$(tty)\"\r");
+    const pts = await wait(() => /tty:\/dev\/pts\//.test(I().text(id)), 10000);
+    const meta = I().terminals.find(t => t.id === id);
+    I().kill(id);
+    const scanned = R.root ? await wait(() => I().scanned && !I().scanning, 240000) : false;
+    return { taskExit, taskUtf8: taskText.includes("pty-ok çé"), taskText: taskText.split("\n").slice(0, 4), prompt, ttyIsPts: pts, failureRecorded: failure, cwdTracked: cwd, shell: meta?.shell, scanned, problems: I().problems, diagnostics: diagnostics().map(d => `${d.sev} ${d.p}:${d.line} ${d.msg}`).slice(0, 6) };
+  });
   // Caminho de streaming real (sem ferramentas): confirma entrega incremental de tokens via
   // assistant_chat_stream. Sem pasta aberta corre em mode="study" (exercita a política de tutor).
   await step("llmStream", async () => {
