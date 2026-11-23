@@ -155,7 +155,21 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
        upserts, CTEs e CTEs recursivas, window functions, JSON, datas, triggers, optimização,
        hierarquias, gaps & islands, pivoting, limpeza de dados, analytics). `dxt plugin test` dá
        170/170 duas vezes. Embutido só no backend.
-   - **Faltam:** Java, Kotlin, Swift e C#. A receita é a mesma das anteriores: um
+   - **Java (feito):**
+     - Descritor sobre o *source launcher* do JDK 21 (`java File.java`), sem Maven nem Gradle.
+       O `test_cmd` monta um `Run.java`: imports juntos no topo, o
+       harness (cuja primeira classe tem o `main`), os testes dentro de `define()`, e as
+       classes do aluno. Diagnósticos do `javac` com a linha.
+     - Curso `courses/java/`: 34 unidades e 170 passos. O bloco de bases de dados dá lugar a
+       **Java para produção** (Optional, java.time, NIO, regex, equals/hashCode/Comparator,
+       imutabilidade), porque o JDK não traz driver SQLite e o curso usa só o JDK.
+       `dxt plugin test` dá 170/170 duas vezes. Embutido só no backend.
+   - **Kotlin (descritor feito):** `kotlinc` + `java`. O harness tem os métodos como membros
+     de uma classe e os testes correm numa extensão dela, para não chocar com os nomes do
+     aluno nem fazer sombra ao `check`/`require` da stdlib. O `kotlinx-coroutines-core-jvm.jar`
+     que vem com o compilador entra no classpath. `-J-XX:TieredStopAtLevel=1` corta cerca de
+     metade do tempo de compilação, que é uma JVM nova de cada vez.
+   - **Faltam:** Kotlin (curso), Swift e C#. A receita é a mesma das anteriores: um
      descritor (ou um runner nativo, se o descritor não chegar), um curso escrito por grupos
      e verificado com `dxt plugin test`, e a entrada em `builtin_courses`. Java, Kotlin, Swift
      e .NET não estão instalados nesta máquina, e é preciso o toolchain para verificar o curso.

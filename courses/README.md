@@ -12,8 +12,9 @@ The source of the official dxtutor course plugins. Each folder is a complete plu
 | `cpp/` | `dxtutor-courses/cpp` | `dxt plugin install cpp` |
 | `typescript/` | `dxtutor-courses/typescript` | `dxt plugin install typescript` |
 | `sql/` | `dxtutor-courses/sql` | `dxt plugin install sql` |
+| `java/` | `dxtutor-courses/java` | `dxt plugin install java` |
 
-These TOML files are also the **built-in** courses of the app (Python, C++, TypeScript and SQL: backend only — the browser prototype embeds just Rust and Go, to keep its bundle small):
+These TOML files are also the **built-in** courses of the app (Python, C++, TypeScript, SQL and Java: backend only — the browser prototype embeds just Rust and Go, to keep its bundle small):
 - the backend embeds them (`crates/tutor-core/src/course.rs`, `include_str!`);
 - the browser prototype embeds a JSON projection of them (`ui-app/src/content/courses/*.json`).
 

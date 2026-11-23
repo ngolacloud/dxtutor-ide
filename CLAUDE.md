@@ -304,8 +304,8 @@ cpp, sql.
   divergirem.
 - A avaliação procura o passo por **(linguagem, id)** (`submit_step` com `language`), porque Rust e
   Go repetem ids de passo. Um plugin com o mesmo id de curso de um embutido substitui-o.
-- **Python**, **C++**, **TypeScript** e **SQL** (`courses/<id>/`) estão embutidos só no backend: o browser não traz o JSON. São avaliados
-  pelos descritores embutidos em `crates/tutor-eval/src/plugin.rs` (Python com `unittest`; C++ com um mini-framework `TEST`/`CHECK`; TypeScript no Node com `dxt.test`; SQL no SQLite do Python com `query`/`script`). As linguagens novas
+- **Python**, **C++**, **TypeScript**, **SQL** e **Java** (`courses/<id>/`) estão embutidos só no backend: o browser não traz o JSON. São avaliados
+  pelos descritores embutidos em `crates/tutor-eval/src/plugin.rs` (Python com `unittest`; C++ com um mini-framework `TEST`/`CHECK`; TypeScript no Node com `dxt.test`; SQL no SQLite do Python com `query`/`script`; Java no source launcher do JDK 21 com `test(...)`). As linguagens novas
   seguem a mesma receita: um descritor ou runner, um curso, e `dxt plugin test courses/<id>`
   com 0 falhas antes de commitar.
 - `crates/tutor-plugins` — manifesto, validação, origem, instalação e registo. É partilhado

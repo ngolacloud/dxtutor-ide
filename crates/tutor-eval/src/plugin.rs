@@ -831,6 +831,250 @@ for n, line in enumerate(src.splitlines(True), 1):
 timeout_secs = 30
 "##;
 
+/// The built-in **Java** descriptor (the official Java course, Java 21). Uses the single-file
+/// *source launcher* (`java File.java` compiles in memory), so no build tool is involved.
+///
+/// - **Run** (drills): `Main.java` is a complete program; `java Main.java` runs its first class.
+/// - **Tests** (challenges): the hidden tests are the body of `define()` in a test class, written
+///   with a tiny harness:
+///
+///   ```java
+///   test("adds small numbers", () -> equal(Calc.add(2, 3), 5));
+///   test("rejects negatives", () -> assertThrows(IllegalArgumentException.class, () -> Calc.sqrt(-1)));
+///   ```
+///
+///   `test_cmd` assembles one `Run.java`: every `import` line of the tests and of the student file,
+///   hoisted and de-duplicated; the harness (whose first class holds `main`, as the launcher
+///   requires); the tests; the closing braces; then the student's classes. Student code therefore
+///   has no `main`-holding first class requirement and no `package` line. `check`/`equal` record a
+///   failure and continue; an exception escaping a test fails it; no tests ⇒ failure.
+/// - **Diagnostics**: `javac` on the student file, its `File.java:LINE: error: msg` lines reshaped
+///   to the `file:line:col: sev: msg` form the parser reads (column 0 = unknown).
+const BUILTIN_JAVA_TOML: &str = r##"
+id = "java"
+aliases = ["jdk"]
+display_name = "Java"
+monaco_id = "java"
+extensions = ["java"]
+image = "eclipse-temurin:21-jdk"
+host_bin = "java"
+host_path_hints = ["/usr/lib/jvm/*/bin", "~/.sdkman/candidates/java/current/bin", "/opt/homebrew/opt/openjdk/bin"]
+network = false
+
+code_file = "Main.java"
+test_file = "DxtTests.java"
+test_prelude = '''
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+public class DxtMain {
+    public static void main(String[] args) {
+        DxtTests suite = new DxtTests();
+        suite.define();
+        for (DxtBase.Case c : suite.cases) {
+            suite.current = c.name();
+            try {
+                c.body().run();
+            } catch (Throwable e) {
+                suite.fail("threw " + e);
+            }
+        }
+        System.out.println(suite.cases.size() + " tests, " + suite.failures + " failures");
+        System.exit(suite.failures > 0 || suite.cases.isEmpty() ? 1 : 0);
+    }
+}
+
+abstract class DxtBase {
+    interface Body {
+        void run() throws Exception;
+    }
+
+    record Case(String name, Body body) {}
+
+    final List<Case> cases = new ArrayList<>();
+    String current = "";
+    int failures = 0;
+
+    void fail(String msg) {
+        failures++;
+        System.err.println("FAILED " + current + ": " + msg);
+    }
+
+    void test(String name, Body body) {
+        cases.add(new Case(name, body));
+    }
+
+    void check(boolean cond) {
+        check(cond, "check failed");
+    }
+
+    void check(boolean cond, String msg) {
+        if (!cond) fail(msg);
+    }
+
+    void equal(Object actual, Object expected) {
+        if (!Objects.deepEquals(actual, expected)) {
+            fail("expected " + show(expected) + ", got " + show(actual));
+        }
+    }
+
+    void near(double actual, double expected, double epsilon) {
+        if (Math.abs(actual - expected) > epsilon) fail("expected " + expected + " ± " + epsilon + ", got " + actual);
+    }
+
+    void assertThrows(Class<? extends Throwable> type, Body body) {
+        try {
+            body.run();
+        } catch (Throwable e) {
+            if (!type.isInstance(e)) fail("expected " + type.getSimpleName() + ", got " + e);
+            return;
+        }
+        fail("expected " + type.getSimpleName() + " to be thrown");
+    }
+
+    static String show(Object o) {
+        if (o instanceof Object[] a) return java.util.Arrays.deepToString(a);
+        if (o instanceof int[] a) return java.util.Arrays.toString(a);
+        if (o instanceof long[] a) return java.util.Arrays.toString(a);
+        if (o instanceof double[] a) return java.util.Arrays.toString(a);
+        if (o instanceof char[] a) return java.util.Arrays.toString(a);
+        if (o instanceof boolean[] a) return java.util.Arrays.toString(a);
+        if (o instanceof String s) return '"' + s + '"';
+        return String.valueOf(o);
+    }
+}
+
+class DxtTests extends DxtBase {
+    void define() {
+'''
+
+run_cmd  = "java -Xss16m {file}"
+test_cmd = "{ grep -h '^import ' {test_file} {file} | sort -u; grep -v '^import ' {test_file}; printf '\\n    }\\n}\\n\\n'; grep -v '^import ' {file}; } > Run.java && java -Xss16m Run.java"
+diag_cmd = "javac -Xlint:none -d .dxt-out {file} 2>&1 | sed -nE 's/^([^:]+[.]java):([0-9]+): (error|warning): (.*)$/\\1:\\2:0: \\3: \\4/p'"
+
+timeout_secs = 60
+"##;
+
+/// The built-in **Kotlin** descriptor (the official Kotlin course, Kotlin 2.x on the JVM).
+/// `kotlinc … -include-runtime -d x.jar && java -jar x.jar` — no Gradle.
+///
+/// - **Run** (drills): `Main.kt` is a complete program with `fun main()`.
+/// - **Tests** (challenges): written as the body of an extension function on a harness class, so
+///   `test("name") { equal(actual, expected) }`, `expect(cond)`, `near(a, b)` and
+///   `assertThrows<IllegalArgumentException> { … }` resolve to **members** and can never clash
+///   with the student's top-level functions nor shadow the stdlib `check`/`require`. `test_cmd`
+///   assembles one `Run.kt`: all `import` lines hoisted and de-duplicated, the student's code, the
+///   harness (with its own `main`), the tests, and the closing brace. Student code therefore has
+///   no `main` and no `package` line.
+/// - **Diagnostics**: `kotlinc` already prints `File.kt:LINE:COL: error: msg`.
+///
+/// `kotlinc` is found on the PATH, in `/snap/bin` (the snap) or in SDKMAN. A cold compile takes a
+/// few seconds (a fresh compiler JVM each time); the C1-only JIT (`-XX:TieredStopAtLevel=1`)
+/// roughly halves that for such short-lived JVMs. Hence also the longer timeout.
+const BUILTIN_KOTLIN_TOML: &str = r##"
+id = "kotlin"
+aliases = ["kt"]
+display_name = "Kotlin"
+monaco_id = "kotlin"
+extensions = ["kt", "kts"]
+image = "zenika/kotlin:latest"
+host_bin = "kotlinc"
+host_path_hints = ["/snap/bin", "~/.sdkman/candidates/kotlin/current/bin", "/opt/homebrew/bin", "/usr/lib/jvm/*/bin"]
+network = false
+
+code_file = "Main.kt"
+test_file = "DxtTests.kt"
+test_prelude = '''
+import kotlin.system.exitProcess
+
+class DxtSuite {
+    private val cases = mutableListOf<Pair<String, () -> Unit>>()
+    private var current = ""
+    var failures = 0
+
+    fun fail(msg: String) {
+        failures++
+        System.err.println("FAILED $current: $msg")
+    }
+
+    fun test(name: String, body: () -> Unit) {
+        cases += name to body
+    }
+
+    fun expect(cond: Boolean, msg: String = "expectation failed") {
+        if (!cond) fail(msg)
+    }
+
+    fun equal(actual: Any?, expected: Any?) {
+        if (!deepEq(actual, expected)) fail("expected ${show(expected)}, got ${show(actual)}")
+    }
+
+    fun near(actual: Double, expected: Double, epsilon: Double = 1e-9) {
+        if (kotlin.math.abs(actual - expected) > epsilon) fail("expected $expected ± $epsilon, got $actual")
+    }
+
+    inline fun <reified T : Throwable> assertThrows(body: () -> Unit) {
+        try {
+            body()
+        } catch (e: Throwable) {
+            if (e !is T) fail("expected ${T::class.simpleName}, got $e")
+            return
+        }
+        fail("expected ${T::class.simpleName} to be thrown")
+    }
+
+    private fun deepEq(a: Any?, b: Any?): Boolean = when {
+        a is Array<*> && b is Array<*> -> a.contentDeepEquals(b)
+        a is IntArray && b is IntArray -> a.contentEquals(b)
+        a is LongArray && b is LongArray -> a.contentEquals(b)
+        a is DoubleArray && b is DoubleArray -> a.contentEquals(b)
+        a is CharArray && b is CharArray -> a.contentEquals(b)
+        a is BooleanArray && b is BooleanArray -> a.contentEquals(b)
+        else -> a == b
+    }
+
+    private fun show(v: Any?): String = when (v) {
+        is Array<*> -> v.contentDeepToString()
+        is IntArray -> v.contentToString()
+        is LongArray -> v.contentToString()
+        is DoubleArray -> v.contentToString()
+        is CharArray -> v.contentToString()
+        is BooleanArray -> v.contentToString()
+        is String -> "\"$v\""
+        else -> v.toString()
+    }
+
+    fun run(): Int {
+        for ((name, body) in cases) {
+            current = name
+            try {
+                body()
+            } catch (e: Throwable) {
+                fail("threw $e")
+            }
+        }
+        println("${cases.size} tests, $failures failures")
+        return if (failures > 0 || cases.isEmpty()) 1 else 0
+    }
+}
+
+fun main() {
+    val suite = DxtSuite()
+    suite.dxtDefine()
+    exitProcess(suite.run())
+}
+
+fun DxtSuite.dxtDefine() {
+'''
+
+run_cmd  = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} {file} -include-runtime -d prog.jar 2>&1 && java -Xss16m -cp "prog.jar${CO:+:$CO}" MainKt'''
+test_cmd = '''{ grep -h '^import ' {test_file} {file} | sort -u; grep -v '^import ' {file}; grep -v '^import ' {test_file}; printf '\n}\n'; } > Run.kt && CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} Run.kt -include-runtime -d run.jar 2>&1 && java -Xss16m -cp "run.jar${CO:+:$CO}" RunKt'''
+diag_cmd = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} {file} -d .dxt-out 2>&1'''
+
+timeout_secs = 120
+"##;
+
 /// Parse and return the built-in descriptors. Panics only on a programmer error (a malformed
 /// embedded TOML), which a unit test guards against.
 pub fn builtin_plugins() -> Vec<LanguagePlugin> {
@@ -841,6 +1085,8 @@ pub fn builtin_plugins() -> Vec<LanguagePlugin> {
         ("C++", BUILTIN_CPP_TOML),
         ("TypeScript", BUILTIN_TS_TOML),
         ("SQL", BUILTIN_SQL_TOML),
+        ("Java", BUILTIN_JAVA_TOML),
+        ("Kotlin", BUILTIN_KOTLIN_TOML),
     ] {
         match toml::from_str::<LanguagePlugin>(raw) {
             Ok(p) => out.push(p),
@@ -988,8 +1234,8 @@ mod tests {
         let plugins = builtin_plugins();
         assert_eq!(
             plugins.len(),
-            5,
-            "the C, Python, C++, TypeScript and SQL built-ins"
+            7,
+            "the C, Python, C++, TypeScript, SQL, Java and Kotlin built-ins"
         );
         let c = &plugins[0];
         assert_eq!(c.id, "c");
@@ -1204,6 +1450,127 @@ mod tests {
         assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
     }
 
+    /// Real end-to-end on the host's JDK (skipped where `java` is missing): imports from both files
+    /// are hoisted, a public student class works, failures/throws/"no tests" fail, a program runs,
+    /// and a compile error is reported at its line.
+    #[test]
+    fn java_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let java = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "java")
+            .unwrap();
+        assert!(java.matches("Java") && java.matches("java"));
+        if !java.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(java);
+        let mut phase = c_add_phase();
+        phase.language = "java".into();
+        phase.tests = "import java.util.Map;\ntest(\"adds\", () -> equal(Calc.add(2, 3), 5));\ntest(\"lists\", () -> equal(Calc.pair(1), List.of(1, 1)));\ntest(\"map\", () -> equal(Map.of(\"k\", 1).get(\"k\"), 1));\n".into();
+        let good = "import java.util.List;\n\npublic class Calc {\n    static int add(int a, int b) { return a + b; }\n    static List<Integer> pair(int x) { return List.of(x, x); }\n}\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("3 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(&phase, &good.replace("a + b", "a - b"))
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(
+                &phase,
+                &good.replace(
+                    "return a + b;",
+                    "throw new UnsupportedOperationException(\"todo\");",
+                ),
+            )
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("todo"),
+            "{}",
+            throws.raw
+        );
+        phase.tests = String::new();
+        assert!(
+            !runner.check_correctness(&phase, good).unwrap().passed,
+            "no tests must not pass"
+        );
+        let out = run_program(
+            "java",
+            "public class Main {\n    public static void main(String[] args) {\n        System.out.println(6 * 7);\n    }\n}\n",
+            &[],
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner
+            .diagnostics("class A {\n    int f() {\n        return x;\n    }\n}\n")
+            .unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(3), "{d:?}");
+    }
+
+    /// Real end-to-end with `kotlinc` (found on the PATH or in /snap/bin, SDKMAN; skipped where it
+    /// is missing): members-based harness, hoisted imports, failure/throw/"no tests", a program
+    /// runs, and a compile error is reported at its line.
+    #[test]
+    fn kotlin_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let kt = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "kotlin")
+            .unwrap();
+        assert!(kt.matches("kt") && kt.matches("Kotlin"));
+        if !kt.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(kt);
+        let mut phase = c_add_phase();
+        phase.language = "kotlin".into();
+        // A student top-level `test` function must not clash with the harness's `test`.
+        phase.tests = "import kotlin.math.max\ntest(\"adds\") { equal(add(2, 3), 5) }\ntest(\"data\") { equal(listOf(Point(1, 2)), listOf(Point(1, 2))); expect(max(1, 2) == 2) }\ntest(\"throws\") { assertThrows<IllegalArgumentException> { require(false) } }\n".into();
+        let good = "import kotlin.math.abs\n\ndata class Point(val x: Int, val y: Int)\n\nfun add(a: Int, b: Int): Int = abs(a) + b\n\nfun test(): String = \"student helper\"\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("3 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(&phase, &good.replace("abs(a) + b", "a - b"))
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(
+                &phase,
+                &good.replace("abs(a) + b", "TODO(\"not implemented\")"),
+            )
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("not implemented"),
+            "{}",
+            throws.raw
+        );
+        let out = run_program(
+            "kotlin",
+            "import kotlinx.coroutines.*\n\nfun main() = runBlocking {\n    val a = async { delay(5); 6 }\n    println(a.await() * 7)\n}\n",
+            &[],
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner
+            .diagnostics("fun f(): Int {\n    return 1\n}\nfun g(): Int = missing\n")
+            .unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(4), "{d:?}");
+    }
+
     #[test]
     fn expand_hint_picks_the_newest_version() {
         let dir = tempfile::tempdir().unwrap();
@@ -1219,7 +1586,7 @@ mod tests {
         for l in ["rust", "Go", "javascript", "python", "py", "c"] {
             assert!(crate::language_supported(l), "{l}");
         }
-        for l in ["kotlin", "swift", ""] {
+        for l in ["swift", "cobol", ""] {
             assert!(!crate::language_supported(l), "{l}");
         }
     }
