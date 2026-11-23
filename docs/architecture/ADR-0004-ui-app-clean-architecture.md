@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -199,3 +199,23 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   browser, auto-teste desktop (o passo `autosave` passa pelo novo subscritor do bridge;
   as diferenças nos passos `llm*`/`providers` vêm do ambiente — passou a haver uma chave
   da Anthropic guardada, sem créditos).
+
+- **U4 — plano das fatias (2026-11-23).** Por dono, do menor risco para o maior, um commit
+  cada: U4a arranque tipado + código morto provado; U4b editor/separadores (com o `TB`);
+  U4c explorador; U4d «shell» (barra de actividade, menus, painel, barra de estado,
+  `badges`); U4e terminal emulado; U4f workspace/configuração (`writeFile`, `loadSeed`,
+  `save`/`loadCfg`, `USAGE`); U4g as camadas `v5`/`v6`; U4h a parte desktop de cada feature
+  (fora do `bridge.ts`); U4i tipar `infra`/`visualizer`/`interpreter` (0 `@ts-nocheck`).
+
+- **U4a (2026-11-23) — arranque tipado e código morto.** `startup.ts` tipado (a mesma
+  sequência `boot → … → i18nBoot`, na mesma posição da cadeia — corre antes do
+  bridge/pair/painel, e imports estáticos não permitem intercalar chamadas no main.ts; um
+  passo em falta passa a ser um erro claro). Código morto removido, com prova: 9 funções do
+  `boot.ts` que o `app.ts` republica antes de alguém as usar (`buildActivity`, `closeTab`,
+  `hydrate`, `openFile`, `setActive`, `setPane`, `setPanelTab`, `togglePanel`,
+  `toggleSide` — sem capturas `const _x = x`, sem referências por valor, sem chamadas no
+  topo de módulos antes do app.ts) e 5 duplicados `$dup` do `app.ts` (só a própria
+  definição). Remoção por AST e por linhas inteiras (uma primeira tentativa por intervalos
+  do AST partiu linhas partilhadas — apanhado pelo typecheck/goldens). `@ts-nocheck` 8 → 7;
+  lint 299 → 292 avisos. Verificado: 342 testes (goldens sem diff), arranque no browser
+  4/4 e auto-teste desktop idêntico.

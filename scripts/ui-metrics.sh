@@ -21,7 +21,7 @@ count() { wc -l | tr -d ' '; }
 
 metric "tags <script> no index.html (U1)" 1 1 \
   "$(grep -c '<script' "$UI/index.html")"
-metric "ficheiros com // @ts-nocheck (U4)" 8 0 \
+metric "ficheiros com // @ts-nocheck (U4)" 7 0 \
   "$(grep -rlE '^// @ts-nocheck' "$SRC" | count)"
 metric "atribuições window.X = (U3/U7)" 194 0 \
   "$(grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count)"

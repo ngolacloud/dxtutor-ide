@@ -27,10 +27,6 @@ function hydrate(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.ins
 /* ───── sistema de ficheiros virtual ───── */
 const ROOT='dxtutor/',FS={},OPEN=new Set(['dxtutor','dxtutor/crates','dxtutor/crates/lexer','dxtutor/crates/lexer/src','dxtutor/desktop','dxtutor/desktop/src']),SECOPEN={};
 /* estado git/scm (STAGED/BRANCH/COMMIT_MSG/BRANCHES/COMMITS/AUTHOR/GSEL) migrado p/ features/scm.ts; lido aqui por global */
-function loadSeed$dup0(){Object.keys(FS).forEach(k=>delete FS[k]);Object.entries(SEED.base).forEach(([p,c])=>{FS[ROOT+p]={content:c,orig:c};});
-  const s=FS[ROOT+'desktop/src/styles.css'];s.orig=s.content.replace('  --accent-hover: #f08a4b;\n','');
-  const a=FS[ROOT+'desktop/src/assistant.ts'];a.orig=a.content.replace(/\n\/\/ v2[\s\S]*$/,'\n');
-  FS[ROOT+'desktop/src/theme.css'].orig=null;STAGED.clear();}
 const extOf=p=>(p.includes('.')?p.split('.').pop():'').toLowerCase();
 const LANG={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
 function fIcon(p){const e=extOf(p);return `<span class="ic x-${e}">${svg(e==='rs'?'rust':e==='md'?'book':e==='sql'?'volume':'file')}</span>`;}
@@ -61,7 +57,6 @@ function openTab(t,act){let x=tabOf(t.id);if(x)Object.assign(x,t);else TB.push(t
 function openPath(p,line){if(!FS[p]){toast('Ficheiro não existe: '+short(p));return;}openTab({id:p,title:p.split('/').pop(),kind:'file',path:p});if(line)gotoLine(line);}
 function openFile(name){const p=Object.keys(FS).find(k=>k.endsWith('/'+name));if(p)openPath(p);}
 function setActive(id){if(tabOf(id))show(id);}
-function tabIc$dup0(t){if(t.kind==='file')return fIcon(t.title);const m={agent:'sparkle',welcome:'sparkle',diff:'scm',settings:'settings',manager:'graph',analysis:'book'};return `<span class="ic acc">${svg(m[t.kind]||'file')}</span>`;}
 function drawTabs(){const host=$('#tabs');host.innerHTML='';TB.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.id===cur?' active':'');el.title=t.path?short(t.path):t.title;
   const dup=t.path&&TB.some(o=>o!==t&&o.kind==='file'&&o.title===t.title);el.innerHTML=`${tabIc(t)}<span class="nm">${esc(t.title)}${dup?` <span style="color:var(--fg-muted)">${esc(t.path.split('/').slice(-3,-2)[0]||'')}</span>`:''}</span><button class="x">${svg('close')}</button>`;
   el.onclick=e=>{if(e.target.closest('.x')){e.stopPropagation();closeTab(t.id);return;}show(t.id);};el.onauxclick=e=>{if(e.button===1)closeTab(t.id);};host.appendChild(el);});
@@ -99,8 +94,6 @@ window.badges = function(){const set=(p,v)=>{const b=$(`.act[data-pane="${p}"] .
 
 /* ───── activity bar e painéis laterais ───── */
 const RP={};
-function buildActivity$dup0(){const bar=$('#activity');bar.innerHTML='';ACTS.forEach(a=>{const el=document.createElement('button');el.className='act'+(a.spacer?' spacer':'');el.title=a.title;el.dataset.pane=a.pane||'';el.innerHTML=svg(a.ic)+`<span class="badge${a.acc?' acc':''}" style="display:none"></span>`;
-  el.onclick=e=>{e.stopPropagation();a.overflow?openOverflow(el):setPane(a.pane,true);};bar.appendChild(el);});}
 const sideOpen=()=>getVar('--side-w')!=='0px';
 function setPane(p,tgl){if(p==='settings'){openSettings();return;}if(tgl===true&&PANE===p&&sideOpen()){toggleSide();return;}if(!sideOpen())toggleSide();PANE=p;
   $$('.act').forEach(a=>a.classList.toggle('on',a.dataset.pane===p));$$('.pane').forEach(x=>x.classList.remove('show'));const pe=$('#pane-'+p);if(pe)pe.classList.add('show');if(RP[p])RP[p]();hydrate();}
@@ -271,7 +264,6 @@ XC.git=(a,raw)=>window.gitCmd(a,raw);
    saveTeam/loadTeam/pickAgent/agentPill/scopeProbe + VIEW.team) migrado p/ features/team.ts
    (inversão @ts-nocheck, window-backed). Aqui ficam: openTeam (abrir tab — $dup0; versão viva
    em v5.ts), a decoração Object.assign(AGENTS.*) abaixo, e o shim VIEW.team que v5/v6 decoram. ───── */
-function openTeam$dup0(){openTab({id:'team',title:'Equipa',kind:'team'});}
 VIEW.team=(t,host)=>window.renderTeamView(t,host);
 
 /* ───── router: motor (CAPL/CAP/TASKP/ROUTE_CACHE/LIVE_OK/rankModels/routeModel) migrado p/ features/router.ts; aqui só consumidores (VIEW.team, genBacklog, runIssue) que lêem por global ───── */
@@ -292,7 +284,6 @@ const LF=p=>ROOT+'learn/'+p;/* fachada viva: features/learn.ts lê window.LF (lt
 let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */
 
 /* ───── integração com o resto do IDE ───── */
-function tabIc$dup1(t){if(t.kind==='file')return fIcon(t.title);const m={agent:'sparkle',welcome:'sparkle',diff:'scm',settings:'settings',manager:'graph',analysis:'book',graph:'scm',team:'account',studio:'cube',board:'split',learn:'book'};return `<span class="ic acc">${svg(m[t.kind]||'file')}</span>`;}
 function buildActivity(){const bar=$('#activity');bar.innerHTML='';ACTS.forEach(a=>{const el=document.createElement('button');el.className='act'+(a.spacer?' spacer':'')+(a.sep?' sep':'');el.title=a.title;el.dataset.pane=a.pane||'';el.innerHTML=svg(a.ic)+`<span class="badge${a.acc?' acc':''}" style="display:none"></span>`;
   el.onclick=e=>{e.stopPropagation();a.overflow?openOverflow(el):a.run?a.run():setPane(a.pane,true);};bar.appendChild(el);});}
 function resetAll(){if(RUN.active){toast('Pára a execução primeiro');return;}loadSeed();MISSIONS.length=0;DECS.length=0;CKPT.length=0;CHAT.length=0;BL.issues.length=0;BL.seq=11;BL.mig=3;BL.adr=4;SD=JSON.parse(JSON.stringify(ST_SEED));saveSD();TB=[];newChat();refresh(false,true);openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'});toast('Protótipo reposto ao estado inicial');}

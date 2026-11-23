@@ -81,7 +81,6 @@ window.P={
   'dock-right':'<rect x="2" y="2.5" width="12" height="11" rx="1.2"/><path d="M9.5 2.5v11"/>',
 };
 window.svg = function(name,cls){return `<svg class="ico${cls?' '+cls:''}" viewBox="0 0 16 16">${P[name]||P.file}</svg>`;}
-window.hydrate = function(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.innerHTML=svg(el.dataset.ic);el.dataset.done=1;});}
 
 /* ═════════ TOAST / CLOCK ═════════ */
 window.toast = function(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toTimer);toTimer=setTimeout(()=>{t.classList.remove('show');},1600);}
@@ -108,23 +107,12 @@ window.OVERFLOW=[
   {sep:1},
   {l:'Colab'},{l:'Cloud Code'},{l:'Google Cloud Data Agent Kit'},{l:'Firebase SQL Connect'},{l:'Kubernetes'},{l:'Makefile'},{l:'Prisma'},{l:'Ansible'},{l:'SonarQube Setup'},{l:'Trunk'},
 ];
-window.buildActivity = function(){
-  const bar=$('#activity');
-  ACTS.forEach((a,i)=>{const el=document.createElement('button');el.className='act'+(i===0?' on':'')+(a.spacer?' spacer':'');
-    el.title=a.title;el.innerHTML=svg(a.ic)+(a.badge?`<span class="badge${a.accBadge?' acc':''}">${a.badge}</span>`:'');
-    el.onclick=e=>{e.stopPropagation();if(a.overflow)openOverflow(el);else if(a.pane)setPane(a.pane,el);else toast(a.title);};bar.appendChild(el);});
-}
 window.openOverflow = function(btn){closeMenus();const r=btn.getBoundingClientRect();const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
   const title=document.createElement('div');title.className='mi ov-title';title.textContent='Additional Views';pop.appendChild(title);
   OVERFLOW.forEach(it=>{if(it.sep){const s=document.createElement('div');s.className='mi-sep';pop.appendChild(s);return;}
     const mi=document.createElement('div');mi.className='mi';mi.innerHTML=`<span>${it.l}</span>`+(it.pane?'':'<span class="key">plugin</span>');
     mi.onclick=e=>{e.stopPropagation();closeMenus();if(it.pane)setPane(it.pane);else toast(it.l+' — requer o plugin instalado');};pop.appendChild(mi);});
   let x=r.right+4,y=r.top;const h=pop.offsetHeight;if(y+h>innerHeight)y=innerHeight-h-6;pop.style.left=x+'px';pop.style.top=y+'px';}
-window.setPane = function(p,el){
-  $$('.act').forEach(a=>a.classList.remove('on'));
-  if(el)el.classList.add('on');else{const idx=ACTS.findIndex(a=>a.pane===p);if(idx>=0)$$('.act')[idx].classList.add('on');}
-  $$('.pane').forEach(x=>x.classList.remove('show'));const pe=$('#pane-'+p);if(pe)pe.classList.add('show');
-}
 
 /* ═════════ MENUS ═════════ */
 window.MENUS=[
@@ -224,7 +212,6 @@ window.sel = function(r){$$('.row.sel').forEach(x=>x.classList.remove('sel'));r.
 window.collapseAll = function(){$$('#exp-sections .tree .row.open').forEach(r=>{r.classList.remove('open');const k=r.nextElementSibling;if(k&&k.classList.contains('children'))k.classList.remove('show');r.querySelector('.ic').innerHTML=svg('folder','folder-ic');});}
 
 /* ═════════ TABS / EDITOR ═════════ */
-window.openFile = function(name,t){let x=TABS.find(o=>o.name===name);if(!x){x={name,t:t||'file'};TABS.push(x);}setActive(name);}
 window.tabIcon = function(t){if(t==='chat'||t==='agent')return svg('sparkle','chat');if(t==='rust')return svg('rust','rs');if(t==='css')return svg('file','css');return svg('file');}
 window.renderTabs = function(){const host=$('#tabs');host.innerHTML='';TABS.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.name===activeTab?' active':'');
   el.innerHTML=`<span class="ic ${t.t==='rust'?'rs':t.t==='css'?'css':t.t==='chat'||t.t==='agent'?'chat':''}">${tabIcon(t.t)}</span><span class="nm">${esc(t.name)}</span><button class="x" data-ic="close"></button>`;
@@ -246,9 +233,6 @@ document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test(e.target.t
 window.assistantCenter = function(){document.body.style.setProperty('--agent-w','0px');$('#tgl-agent').classList.remove('on');let x=TABS.find(o=>o.name==='Assistant');if(!x){x={name:'Assistant',t:'agent'};TABS.push(x);}setActive('Assistant');}
 window.assistantDock = function(){closeTab('Assistant');}
 window.cid = function(s){return s.replace(/[^a-z0-9]/gi,'_');}
-window.setActive = function(name){activeTab=name;renderTabs();renderDocs();$$('.doc').forEach(d=>d.classList.remove('show'));const d=$('#doc-'+cid(name));if(d)d.classList.add('show');
-  const t=TABS.find(o=>o.name===name);$('#breadcrumbs').innerHTML=t?`<span class="crumb">dxtutor</span><span class="sep">›</span><span class="crumb">desktop</span><span class="sep">›</span><span class="crumb">src</span><span class="sep">›</span><span class="crumb cur">${esc(name)}</span>`:'';
-  renderMinimap(name);}
 window.renderMinimap = function(name){const mm=$('#minimap'),scroll=$('#ebody'),t=TABS.find(o=>o.name===name);
   if(!t||t.t==='chat'||!DOCS[name]){mm.classList.add('hidden');scroll.classList.remove('with-mm');return;}
   mm.classList.remove('hidden');scroll.classList.add('with-mm');
@@ -260,9 +244,6 @@ window.buildDocker = function(){const pane=$('#pane-containers');pane.innerHTML=
     cts.map(c=>`<div class="row dk-row sub"><span class="ct-dot"></span><span class="nm dk-fixed">kaeso-odoo:16</span><span class="pth dk-path">${c[0]} · ${c[1]}</span></div>`).join('');
   $('#dk-images').innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
   wireSections(pane);hydrate();}
-window.closeTab = function(name){const i=TABS.findIndex(t=>t.name===name);if(i<0)return;
-  if(name==='Assistant'){placeAgentDock();document.body.style.setProperty('--agent-w','380px');$('#tgl-agent').classList.add('on');}
-  const d=$('#doc-'+cid(name));if(d)d.remove();TABS.splice(i,1);if(activeTab===name)activeTab=TABS.length?TABS[Math.max(0,i-1)].name:null;renderTabs();if(activeTab)setActive(activeTab);else $('#breadcrumbs').innerHTML='';}
 window.welcome = function(){return `<div class="wlc">
   <div class="wlc-head"><div class="wlc-logo">${svg('sparkle')}</div><div class="wlc-title">dxtutor <b>IDE</b></div></div>
   <div class="wlc-sub">Protótipo navegável · organização do Antigravity · ícones SVG codicon. Clica à vontade: menus, Explorer (com secções), activity bar, tabs e o terminal em baixo.</div>
@@ -274,11 +255,6 @@ window.welcome = function(){return `<div class="wlc">
 window.wbtn = function(ic,t,s,act){return `<button class="wlc-btn" onclick="${act}"><span class="ic">${svg(ic)}</span><span><span class="t">${t}</span><span class="s">${s}</span></span></button>`;}
 
 /* ═════════ BOTTOM PANEL ═════════ */
-window.setPanelTab = function(pt){if(getComputedStyle(document.body).getPropertyValue('--panel-h').trim()==='0px')togglePanel();
-  $$('.ptab').forEach(b=>b.classList.toggle('on',b.dataset.pt===pt));$$('.pcontent').forEach(c=>c.classList.remove('show'));const el=$('#pc-'+pt);if(el)el.classList.add('show');
-  if(pt==='terminal'){const c=$('#cmd');if(c)c.focus();}}
-window.togglePanel = function(){const c=getComputedStyle(document.body).getPropertyValue('--panel-h').trim();document.body.style.setProperty('--panel-h',c==='0px'?'230px':'0px');$('#tgl-panel').classList.toggle('on',c==='0px');}
-window.toggleSide = function(){const c=getComputedStyle(document.body).getPropertyValue('--side-w').trim();document.body.style.setProperty('--side-w',c==='0px'?'250px':'0px');$('#tgl-side').classList.toggle('on',c!=='0px');}
 
 /* ═════════ AGENT ═════════ */
 window.toggleAgent = function(){if(TABS.find(o=>o.name==='Assistant')){assistantDock();return;}const c=getComputedStyle(document.body).getPropertyValue('--agent-w').trim();const show=c==='0px';document.body.style.setProperty('--agent-w',show?'380px':'0px');$('#tgl-agent').classList.toggle('on',show);}
