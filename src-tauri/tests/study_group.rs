@@ -61,7 +61,11 @@ fn grading_an_unknown_target_errors_before_compiling() {
 /// o gabarito do 1.º desafio passa, o starter falha. Salta a linguagem cujo toolchain falte.
 #[test]
 fn new_language_challenges_are_graded_for_real() {
-    for (language, tool) in [("python", "python3"), ("cpp", "g++")] {
+    for (language, tool) in [
+        ("python", "python3"),
+        ("cpp", "g++"),
+        ("typescript", "node"),
+    ] {
         if std::process::Command::new(tool)
             .arg("--version")
             .output()

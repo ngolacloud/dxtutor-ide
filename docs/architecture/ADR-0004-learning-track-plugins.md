@@ -133,18 +133,22 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
      - Curso `courses/cpp/`: 34 unidades e 170 passos, com RAII, smart pointers, move
        semantics, a API C do SQLite embrulhada em RAII, templates, concepts, threads, atomics
        e futures. `dxt plugin test` dá 170/170 duas vezes seguidas. Embutido só no backend.
-   - **TypeScript (descritor feito, curso em curso):**
+   - **TypeScript (feito):**
      - Corre no Node ≥ 22.18 retirando os tipos (`--experimental-transform-types`), sem `tsc`.
        O ficheiro do aluno é concatenado com um harness (`dxt.test/equal/check/throws`) e os
        testes. Os diagnósticos usam o `tsc` só se estiver instalado.
      - O descritor ganhou `host_path_hints` (`~/.nvm/versions/node/*/bin`, Volta, fnm,
        Homebrew), porque o `node` instalado pelo utilizador fica fora do PATH endurecido do
        avaliador e do PATH de uma app aberta pelo menu do sistema.
-   - **Faltam:** TypeScript (curso), Java, Kotlin, Swift, C# e SQL. A receita é a mesma do Python:
-     um descritor (ou um runner nativo, se o descritor não chegar), um curso escrito por
-     grupos e verificado com `dxt plugin test`, e a entrada em `builtin_courses`. Nesta
-     máquina há `g++`/`clang++` (C++) e `node` (TypeScript via `tsc`/`tsx`, a instalar).
-     Java, Kotlin, Swift e .NET não estão instalados.
+     - Curso `courses/typescript/`: 34 unidades e 170 passos (unions e narrowing, generics,
+       utility types, async, `node:sqlite`, conditional/mapped types, event loop, estruturas
+       de dados). `dxt plugin test` dá 170/170 duas vezes seguidas, e `tsc --strict` passa nos
+       136 ficheiros (drills, e solução + harness + testes) com `@types/node`. Embutido só no
+       backend.
+   - **Faltam:** Java, Kotlin, Swift, C# e SQL. A receita é a mesma das anteriores: um
+     descritor (ou um runner nativo, se o descritor não chegar), um curso escrito por grupos
+     e verificado com `dxt plugin test`, e a entrada em `builtin_courses`. Java, Kotlin, Swift
+     e .NET não estão instalados nesta máquina, e é preciso o toolchain para verificar o curso.
    - **Melhoria futura:** o manifesto do plugin de curso poder trazer o seu próprio descritor de
      avaliador (hoje um descritor da comunidade vai para `~/.config/dxtutor/plugins/`).
 4. **Extensões VS Code.** Contribuições declarativas: temas → tokens CSS, gramáticas TextMate

@@ -264,6 +264,8 @@ const GO_BASICS: &str = include_str!("../../../courses/go/courses/go.toml");
 const PYTHON_BASICS: &str = include_str!("../../../courses/python/courses/python.toml");
 /// C++: também só no backend; avaliado pelo descritor C++ (g++ C++20 + mini-harness TEST/CHECK).
 const CPP_BASICS: &str = include_str!("../../../courses/cpp/courses/cpp.toml");
+/// TypeScript: também só no backend; avaliado pelo descritor TypeScript (Node com type stripping).
+const TYPESCRIPT_BASICS: &str = include_str!("../../../courses/typescript/courses/typescript.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -272,6 +274,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("go-basics", GO_BASICS),
         parse("python-basics", PYTHON_BASICS),
         parse("cpp-basics", CPP_BASICS),
+        parse("typescript-basics", TYPESCRIPT_BASICS),
     ]
 }
 
@@ -809,6 +812,11 @@ mod python_tests {
     #[test]
     fn python_basics_tem_a_forma_do_curso_oficial() {
         forma_oficial("python-basics", "python");
+    }
+
+    #[test]
+    fn typescript_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("typescript-basics", "typescript");
     }
 
     #[test]

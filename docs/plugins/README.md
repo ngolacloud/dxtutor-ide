@@ -278,6 +278,7 @@ evaluator, which must support the course language:
 | Go | native | `func TestXxx(t *testing.T)` (`go test`) | `go` |
 | Python | descriptor | `unittest.TestCase` classes. The test file starts with `import unittest` and `from student import *`, so don't import them yourself | `python3` |
 | C++ | descriptor | `TEST(name) { CHECK(…); CHECK_EQ(a, b); }` from a built-in mini framework. The test file `#include`s the student file, so student code has no `main` | `g++` (C++20), `libsqlite3-dev` for SQLite |
+| TypeScript | descriptor | `dxt.test("name", () => { dxt.equal(actual, expected); })` (deep equality; tests may be `async`). The student file and tests run as one ES module, so never import the student file | `node` 22.18+ (found on PATH or via nvm/Volta/fnm) |
 | C | descriptor | a `main` that `assert`s (the test file `#include`s the student file) | `cc` |
 
 A language without a native runner uses a **descriptor**: a small TOML file that says how
