@@ -4,8 +4,8 @@
    modo, enviar/parar) e os popovers de cada botão. Enquanto o agente trabalha, Enter
    põe a mensagem na fila e o botão de enviar passa a parar. É o mesmo para todos os
    provedores: trocar de provedor muda só os modelos listados (os desse provedor) e o
-   que ele suporta (o esforço é só do Claude). O microfone usa o reconhecimento de voz
-   do motor web.
+   que ele suporta (o esforço é só do Claude). O microfone usa o whisper.cpp local no
+   desktop (porta `DictationPort`) e o reconhecimento de voz do motor web no browser.
 
    Não toca no `window` (regra A8): o mundo chega pelo `ComposerHost`, montado no resíduo
    `features/codev.ts`, que tem o bridge à mão. Os cliques passam pela tabela de acções
@@ -33,6 +33,7 @@ import {
   type Effort,
   type SlashAction,
 } from "../domain/composer";
+import type { DictationPort } from "../application/ports";
 
 /* ───── o que o compositor precisa do resto da app ───── */
 
@@ -85,6 +86,10 @@ export interface ComposerHost {
   openModelSettings(): void;
   /** Trocar de provedor (a lista de modelos só mostra os do provedor activo). */
   switchProvider(): void;
+  /** Ditado local com whisper.cpp (`null` = sem backend). */
+  dictation(): DictationPort | null;
+  /** A língua do ditado (`pt`, `en`, … ou `auto`). */
+  dictationLang(): string;
   /** Os modelos instalados no Ollama local. */
   localModels(): Promise<string[]>;
 }
@@ -97,6 +102,7 @@ const P: Record<string, string> = {
   mic: '<rect x="6" y="2" width="4" height="7.5" rx="2"/><path d="M3.8 7.8a4.2 4.2 0 0 0 8.4 0M8 12v2"/>',
   up: '<path d="M8 13V3M4 7l4-4 4 4"/>',
   stop: '<rect x="4.5" y="4.5" width="7" height="7" rx="1.2" fill="currentColor" stroke="none"/>',
+  spin: '<path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5"/>',
   upload: '<path d="M8 11V3M5 6l3-3 3 3M3 11v2h10v-2"/>',
   at: '<circle cx="8" cy="8" r="2.4"/><path d="M10.4 8v1a1.8 1.8 0 0 0 3.6 0V8A6 6 0 1 0 11 13.2"/>',
   file: '<path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/>',
@@ -127,8 +133,8 @@ let attachments: Attachment[] = [];
 let queue: string[] = [];
 let planNext = false;
 let open: "" | "plus" | "slash" | "model" | "mode" | "agents" = "";
-/** Microfone: parado ou a gravar (motor web). */
-let mic: "idle" | "rec" = "idle";
+/** Microfone: parado, a gravar (whisper ou motor web) ou a transcrever. */
+let mic: "idle" | "rec" | "busy" = "idle";
 /** Os modelos do Ollama (carregados ao abrir a lista com o Ollama activo). */
 let ollamaList: string[] | null = null;
 let slashFilter = "";
@@ -193,7 +199,9 @@ export function refreshComposer(): void {
   const micBtn = el("cc-mic");
   if (micBtn) {
     micBtn.classList.toggle("rec", mic === "rec");
-    micBtn.title = "Ditar (voz)";
+    micBtn.classList.toggle("busy", mic === "busy");
+    micBtn.innerHTML = icon(mic === "busy" ? "spin" : "mic");
+    micBtn.title = mic === "rec" ? "Parar e transcrever" : mic === "busy" ? "A transcrever…" : "Ditar (voz)";
   }
   const ag = el("cc-agents");
   if (ag) {
@@ -216,7 +224,9 @@ export function refreshComposer(): void {
     i.placeholder =
       mic === "rec"
         ? "A ouvir… clica no microfone para terminar"
-        : running
+        : mic === "busy"
+          ? "A transcrever…"
+          : running
             ? "Põe outra mensagem na fila…"
             : planNext
               ? "O que queres planear?"
@@ -457,15 +467,71 @@ function readFiles(list: FileList | null): void {
 
 /* ───── microfone ───── */
 
-/** Esc durante o ditado: pára. */
+/** Põe o texto ditado no cursor (com espaço a separar do que já lá estava). */
+function insertText(text: string): void {
+  const i = input();
+  if (!i || !text) return;
+  const at = i.selectionStart ?? i.value.length;
+  const before = i.value.slice(0, at);
+  const after = i.value.slice(i.selectionEnd ?? at);
+  const sep = before && !/\s$/.test(before) ? " " : "";
+  i.value = before + sep + text + after;
+  const pos = (before + sep + text).length;
+  i.setSelectionRange(pos, pos);
+  autosize();
+}
+
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** whisper.cpp no backend: 1.º clique grava, 2.º pára e transcreve. */
+async function toggleWhisper(d: DictationPort): Promise<void> {
+  if (!host || mic === "busy") return;
+  const h = host;
+  if (mic === "rec") {
+    mic = "busy";
+    refreshComposer();
+    try {
+      const text = await d.stop(h.dictationLang());
+      if (text) insertText(text);
+      else h.toast("Não percebi nada — tenta outra vez, mais perto do microfone");
+    } catch (e) {
+      h.toast(errText(e));
+    } finally {
+      mic = "idle";
+      refreshComposer();
+      input()?.focus();
+    }
+    return;
+  }
+  const st = await d.status().catch(() => null);
+  if (!st) {
+    h.toast("Ditado indisponível");
+    return;
+  }
+  if (!st.ready) {
+    h.toast("Ditado local por configurar — falta " + st.missing.join("; "));
+    return;
+  }
+  try {
+    await d.start();
+    mic = "rec";
+  } catch (e) {
+    h.toast(errText(e));
+  }
+  refreshComposer();
+}
+
+/** Esc durante o ditado: pára sem transcrever. */
 function cancelMic(): void {
   if (mic !== "rec") return;
-  recog?.stop();
+  const d = host?.dictation();
+  if (d && d.available()) void d.cancel();
+  else recog?.stop();
   mic = "idle";
   refreshComposer();
 }
 
-/** O reconhecimento de voz do motor web (Chromium/Safari). */
+/** O reconhecimento de voz do motor web (Chromium/Safari), quando não há backend. */
 function toggleWebSpeech(): void {
   if (!host) return;
   if (recog) {
@@ -506,7 +572,9 @@ function toggleWebSpeech(): void {
 }
 
 function toggleMic(): void {
-  toggleWebSpeech();
+  const d = host?.dictation();
+  if (d && d.available()) void toggleWhisper(d);
+  else toggleWebSpeech();
 }
 
 /* ───── acções (entram na tabela delegada da feature) ───── */

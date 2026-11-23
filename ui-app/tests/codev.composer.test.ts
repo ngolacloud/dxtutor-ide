@@ -15,6 +15,7 @@ import {
   type Effort,
 } from "../src/features/codev/domain/composer";
 import { bindActions } from "../src/features/codev/ui/actions";
+import type { DictationPort } from "../src/features/codev/application/ports";
 import {
   _composerState,
   composerActions,
@@ -83,6 +84,24 @@ function setup() {
   document.body.innerHTML = '<div id="ag-compose"><textarea id="ag-input"></textarea></div>';
   const sent: string[] = [];
   const toasts: string[] = [];
+  const dict = { ready: true, recording: false, text: "olá mundo", calls: [] as string[] };
+  const dictation: DictationPort = {
+    available: () => true,
+    status: async () => ({ ready: dict.ready, binary: "/b/whisper-cli", model: "/m/ggml-small.bin", recorder: "pw-record", missing: dict.ready ? [] : ["whisper.cpp (whisper-cli) — corre scripts/setup-whisper.sh"], recording: dict.recording }),
+    start: async () => {
+      dict.calls.push("start");
+      dict.recording = true;
+    },
+    stop: async (lang) => {
+      dict.calls.push("stop:" + lang);
+      dict.recording = false;
+      return dict.text;
+    },
+    cancel: async () => {
+      dict.calls.push("cancel");
+      dict.recording = false;
+    },
+  };
   const state = { running: false, mode: "assist", provider: "claude", model: "claude-opus-5-5", effort: "high" as Effort, ctx: true };
   const host: ComposerHost = {
     send: (q) => sent.push(q),
@@ -115,6 +134,8 @@ function setup() {
     refreshPersona: () => undefined,
     openModelSettings: () => sent.push("<settings>"),
     switchProvider: () => sent.push("<providers>"),
+    dictation: () => dictation,
+    dictationLang: () => "pt",
     localModels: async () => ["llama3.1:8b", "qwen2.5-coder:14b"],
   };
   resetComposer();
@@ -129,7 +150,7 @@ function setup() {
   const enter = (shiftKey = false) =>
     $("#ag-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey, bubbles: true }));
   const click = (s: string) => $(s).dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  return { host, state, sent, toasts, $, type, enter, click };
+  return { host, state, sent, toasts, dict, $, type, enter, click };
 }
 
 beforeEach(() => {
@@ -257,8 +278,6 @@ test("sub-agentes: o chip conta os que correm e o mapa lista-os; microfone sem m
   // clicar fora fecha
   document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
   expect(t.$("#cc-pop").hidden).toBe(true);
-  t.click("#cc-mic");
-  expect(t.toasts.at(-1)).toContain("Ditado indisponível");
   resetComposer();
   expect(t.$("#cc-agents .cc-agl").textContent).toBe("0 agentes");
 });
@@ -300,4 +319,41 @@ test("Ollama: a lista são os modelos instalados no servidor local", async () =>
   expect(pop).toContain("Instalado no Ollama");
   t.click('[data-action="cc-model"][data-on="ollama|llama3.1:8b"]');
   expect(t.state.model).toBe("llama3.1:8b");
+});
+
+test("microfone (whisper.cpp): grava, pára, transcreve para o cursor; Esc cancela; por configurar avisa", async () => {
+  const t = setup();
+  t.type("explica");
+  t.click("#cc-mic");
+  await flush();
+  expect(t.dict.calls).toEqual(["start"]);
+  expect(t.$("#cc-mic").classList.contains("rec")).toBe(true);
+  expect(t.$<HTMLTextAreaElement>("#ag-input").placeholder).toBe("A ouvir… clica no microfone para terminar");
+  t.click("#cc-mic");
+  await flush();
+  await flush();
+  expect(t.dict.calls).toEqual(["start", "stop:pt"]);
+  expect(t.$<HTMLTextAreaElement>("#ag-input").value).toBe("explica olá mundo");
+  expect(t.$("#cc-mic").classList.contains("rec")).toBe(false);
+  // Esc durante a gravação deita fora
+  t.click("#cc-mic");
+  await flush();
+  t.$("#ag-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  expect(t.dict.calls.at(-1)).toBe("cancel");
+  expect(t.$("#cc-mic").classList.contains("rec")).toBe(false);
+  // transcrição vazia → aviso
+  t.dict.text = "";
+  t.click("#cc-mic");
+  await flush();
+  t.click("#cc-mic");
+  await flush();
+  await flush();
+  expect(t.toasts.at(-1)).toContain("Não percebi nada");
+  // sem whisper/modelo: diz o que falta e não grava
+  t.dict.ready = false;
+  const n = t.dict.calls.length;
+  t.click("#cc-mic");
+  await flush();
+  expect(t.toasts.at(-1)).toContain("setup-whisper.sh");
+  expect(t.dict.calls.length).toBe(n);
 });

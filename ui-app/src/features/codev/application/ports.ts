@@ -400,3 +400,23 @@ export interface LiveDeps {
 }
 
 export type { Candidate };
+
+/* ───────── ditado local (whisper.cpp no backend) ───────── */
+export interface DictationStatus {
+  ready: boolean;
+  binary: string | null;
+  model: string | null;
+  recorder: string | null;
+  missing: string[];
+  recording: boolean;
+}
+
+/** Microfone → texto sem sair da máquina. `available()` é falso fora do desktop. */
+export interface DictationPort {
+  available(): boolean;
+  status(): Promise<DictationStatus>;
+  start(): Promise<void>;
+  /** Pára e transcreve (`lang`: `pt`, `en`, … ou `auto`). */
+  stop(lang: string): Promise<string>;
+  cancel(): Promise<void>;
+}

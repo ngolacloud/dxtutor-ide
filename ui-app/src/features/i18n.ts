@@ -154,6 +154,10 @@ PAIRS.push(
  ["Mudar de modo…", "Change mode…"],
  ["Assistente da conversa…", "Conversation assistant…"],
  ["A ouvir… clica no microfone para terminar", "Listening… click the microphone to finish"],
+ ["A transcrever…", "Transcribing…"],
+ ["Parar e transcrever", "Stop and transcribe"],
+ ["Não percebi nada — tenta outra vez, mais perto do microfone", "I didn't catch anything — try again, closer to the microphone"],
+ ["Ditado indisponível", "Dictation unavailable"],
  ["Instalado no Ollama", "Installed in Ollama"],
  ["Sem modelos instalados no Ollama (ex.:", "No models installed in Ollama (e.g."],
  [").", ")."],
@@ -163,6 +167,7 @@ RULES.push(
  [/^(.+) · desligado$/, '$1 · off'],
  [/^(.+): o agente ainda só recebe ficheiros de texto$/, '$1: the agent only takes text files for now'],
  [/^Modelos (.+)$/, '$1 models'],
+ [/^Ditado local por configurar — falta (.+)$/, 'Local dictation not set up — missing $1'],
 );
 const PT2EN=new Map(),EN2PT=new Map();PAIRS.forEach(([p,e])=>{PT2EN.set(p,e);EN2PT.set(e,p);});
 const TR_SKIP='.notr,#pc-output,.s-hit,#dk-containers,#dk-images,.kc-id,.gl-h,.tmux,#term .cmd,#term .pr,.ag-model,.ed,.diff,script,style,pre,code,#st-svg,.gl-msg,.gl-ref,.kc-t,.kc-b,.lt-file,.crumb';

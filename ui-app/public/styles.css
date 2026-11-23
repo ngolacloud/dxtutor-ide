@@ -881,3 +881,6 @@
   .cc-tree{margin:4px 0 2px 14px;padding-left:10px;border-left:1px solid var(--border-strong)}
   .cc-sep{height:1px;background:var(--border);margin:5px 4px}
   .cc-send.stop{background:#d9534f;color:#fff}
+  .cc-mic.busy{color:var(--accent-hover)}
+  .cc-mic.busy .cc-ico{animation:cc-spin .9s linear infinite}
+  @keyframes cc-spin{to{transform:rotate(360deg)}}

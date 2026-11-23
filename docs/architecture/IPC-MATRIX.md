@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (146 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (150 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 146 comandos, **42 são consumidos pela `ui-app`** e **104 não o são**: a UI
+Dos 150 comandos, **46 são consumidos pela `ui-app`** e **104 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -321,6 +321,22 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `codev_agent_cancel` | `session_id: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
 | `codev_agent_close` | `session_id: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
 
+## 10c. Ditado local (whisper.cpp) — `commands/dictation.rs` (4)
+
+> Microfone do compositor do Co-Dev no desktop (o WebKitGTK não tem reconhecimento de voz).
+> Caso de uso `crate::dictation` (Tauri-free): um gravador do sistema (`pw-record`,
+> `parecord`, `arecord` ou `ffmpeg`) grava WAV 16 kHz mono num temporário; ao parar, o
+> `whisper-cli` transcreve-o com um modelo `ggml-*.bin` local (`scripts/setup-whisper.sh`
+> instala ambos em `~/.local/share/dxtutor/whisper`). O áudio não sai da máquina e o WAV
+> é apagado depois da transcrição. Uma gravação de cada vez (estado global no caso de uso).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `dictation_status` | — | `dictation::Status` (`ready`, `binary`, `model`, `recorder`, `missing`, `recording`) | — | — | `platform/tauri/dictation.ts` | R |
+| `dictation_start` | — | `()` | String | — | `platform/tauri/dictation.ts` | **X** · S |
+| `dictation_stop` | `lang: Option<String>` | `String` (texto) | String | — | `platform/tauri/dictation.ts` | **X** · S (async: whisper numa thread de bloqueio) |
+| `dictation_cancel` | — | `()` | — | — | `platform/tauri/dictation.ts` | S |
+
 ## 11. Debug (DAP) — `commands/debug_cmds.rs` (10)
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/debug_cmds.rs` (adaptadores finos)
@@ -452,12 +468,12 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **146** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **42** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/assistant.ts` 1) |
+| Comandos registados | **150** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
+| Consumidos pela `ui-app` | **46** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1) |
 | Não consumidos pela `ui-app` | **104** |
 | Eventos distintos | **12** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error` |
-| Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty) |
+| Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |
 | Mutam git (**G**) | `git_stage/unstage/stage_all/commit/checkout/create_branch`, `git_clone`, `codev_session_*` |
 

@@ -91,12 +91,12 @@ apresentar árvore e grafo sem ciclos. Não se cria uma crate por tipo/ficheiro.
 
 ## 4. Contratos IPC
 
-- **146 comandos** registados em `generate_handler!` (`lib.rs:2483`):
+- **150 comandos** registados em `generate_handler!` (`lib.rs:2483`):
   95 em `lib.rs` + 14 `bridge` + 10 `fsops` + 8 `lsp` + 4 `pty` + 2 `board`.
 - Convenções a preservar na migração: nomes públicos, camelCase, opcionais,
   nulabilidade, identificadores e eventos. O inventário completo está em
   `MIGRATION.md §2`; a **matriz detalhada** (args/retorno/erro/evento/
-  consumidor-UI/política dos 146 comandos) em `IPC-MATRIX.md`, verificada por
+  consumidor-UI/política dos 150 comandos) em `IPC-MATRIX.md`, verificada por
   `scripts/arch-check.sh`.
 - **Destino:** cliente IPC tipado em `ui-app/src/platform/tauri/`; as views
   consomem operações (`workspace.open`, `board.save`, `terminal.start`) em vez

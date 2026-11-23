@@ -169,6 +169,14 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
   provedor muda só os modelos listados no chip do modelo (os desse provedor; no Ollama, os
   instalados no servidor local) e o que ele suporta (o esforço é só do Claude). «Outros
   provedores…» troca de provedor; «Definições de modelos» abre as chaves e endpoints.
+- **Ditado local (microfone) com whisper.cpp.** O áudio não sai da máquina: grava com o
+  gravador do sistema (`pw-record`, `parecord`, `arecord` ou `ffmpeg`) e transcreve com o
+  `whisper-cli`. Instala uma vez com `scripts/setup-whisper.sh` (compila o whisper.cpp e
+  descarrega o modelo `small` para `~/.local/share/dxtutor/whisper`; `scripts/setup-whisper.sh
+  base` para um mais rápido, `large-v3-turbo-q5_0` para melhor qualidade). No compositor:
+  clica no microfone para gravar, outra vez para transcrever; Esc cancela. A língua é
+  detectada automaticamente (`localStorage["dx2.dictationLang"] = "pt"` fixa-a).
+  `DXTUTOR_WHISPER_BIN` e `DXTUTOR_WHISPER_MODEL` apontam para outro binário/modelo.
 - **Co-Dev com outros provedores.** O agente (ferramentas reais, permissões, checkpoints,
   `/plano`, `/reverter`, `/retomar`, hooks, MCP, skills) funciona com Claude, Codex/OpenAI,
   Gemini e Ollama — escolhe no seletor de modelo da conversa. Só o Claude tem raciocínio

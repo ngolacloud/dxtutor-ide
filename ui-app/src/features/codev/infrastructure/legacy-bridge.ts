@@ -112,6 +112,15 @@ export const setEffort = (v: string): void => {
 export const pickPersona = (): void => G.pickAgent?.();
 export const refreshPersona = (): void => G.agentPill?.();
 
+/** A língua do ditado (`dx2.dictationLang`: `pt`, `en`, …); por omissão o whisper detecta-a. */
+export const dictationLang = (): string => {
+  try {
+    return localStorage.getItem("dx2.dictationLang") || "auto";
+  } catch {
+    return "auto";
+  }
+};
+
 /** O reconhecimento de voz do motor web (Chromium/Safari; o WebKitGTK não o tem). */
 export const speechRecognition = (): unknown => {
   const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };

@@ -20,6 +20,7 @@ pub mod codev_agent;
 mod commands;
 pub mod debug;
 pub mod devcontainer;
+pub mod dictation;
 mod fsops;
 pub mod gitops;
 mod keys;
@@ -70,6 +71,7 @@ use commands::devcontainer::{
     devcontainer_session_run, devcontainer_session_status, devcontainer_session_up,
     devcontainer_up,
 };
+use commands::dictation::{dictation_cancel, dictation_start, dictation_status, dictation_stop};
 use commands::git::{
     git_branch, git_branches, git_changes, git_checkout, git_clone, git_commit, git_create_branch,
     git_diff, git_log, git_show, git_stage, git_stage_all, git_unstage,
@@ -874,6 +876,10 @@ pub fn run() {
             codev_agent_rewind,
             codev_agent_extensions,
             codev_agent_trust,
+            dictation_status,
+            dictation_start,
+            dictation_stop,
+            dictation_cancel,
             debug_capabilities,
             assistant_models,
             assistant_chat,
