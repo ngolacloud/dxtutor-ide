@@ -29,7 +29,7 @@ import type {
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
-import type { AgentEvent, ApprovalRequest, Checkpoint, HistoryItem, SessionSummary, Todo } from "../domain/agent-events";
+import type { AgentEvent, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, SessionSummary, Todo } from "../domain/agent-events";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -342,6 +342,8 @@ export interface AgentGateway {
   setPlan(session: string, on: boolean): Promise<void>;
   checkpoints(session: string): Promise<Checkpoint[]>;
   rewind(session: string, checkpoint: number): Promise<string>;
+  extensions(root: string): Promise<ExtensionsStatus>;
+  trust(root: string, kind: "hooks" | "mcp"): Promise<void>;
   send(session: string, text: string | null): Promise<void>;
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
   cancel(session: string): Promise<boolean>;

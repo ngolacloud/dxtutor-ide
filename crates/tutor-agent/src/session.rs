@@ -39,6 +39,10 @@ pub struct SessionMeta {
     /// ([`crate::tools::TOOLSET_VERSION`]); ficheiros anteriores à F6 não a têm → 1.
     #[serde(default = "toolset_v1")]
     pub toolset: u32,
+    /// As definições das ferramentas MCP anunciadas no início (a retoma reenvia estas, mesmo
+    /// que o servidor tenha mudado entretanto).
+    #[serde(default)]
+    pub mcp_tools: Vec<crate::mcp::McpToolDef>,
 }
 
 fn toolset_v1() -> u32 {
@@ -293,6 +297,7 @@ mod tests {
             compaction: true,
             created: 100,
             toolset: 2,
+            mcp_tools: vec![],
         }
     }
 

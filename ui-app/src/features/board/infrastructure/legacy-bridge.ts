@@ -50,6 +50,11 @@ export interface OpenTabArg { id: string; title?: string; kind?: string }
    os onclick inline (`BL.view=…`) e as camadas v5/v6 aliasam estes nomes como globais,
    por isso o motor e o resíduo partilham a MESMA referência através destes getters. ───── */
 export const backlog = (): Backlog => G.BL;
+/** Opção 2 (ADR-0003): o agente Co-Dev v2 está disponível (desktop + pasta real + Claude)? */
+export const agentAvailable = (): boolean => typeof G.codevAgentAvailable === "function" && !!G.codevAgentAvailable();
+/** Lança o agente Co-Dev, em modo plano, com o pedido de uma issue. `false` se não está disponível. */
+export const agentStory = (s: { id: string; title: string; type: string; pts: number; note?: string }): boolean =>
+  typeof G.codevAgentStory === "function" && G.codevAgentStory(s) !== null;
 export const stages = (): Stage[] => G.STAGES;
 
 /* ───── sistema de ficheiros virtual + catálogo de agentes/provedores/tarefas ───── */

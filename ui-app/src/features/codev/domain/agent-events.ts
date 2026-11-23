@@ -242,3 +242,47 @@ export function callDiff(name: string, input: Record<string, unknown>): { path: 
   if (name === "write") return { path: s("path"), before: "", after: s("content") };
   return null;
 }
+
+/** O que o projecto define para o agente (espelho de `codev_agent::ExtensionsStatus`). */
+export interface ExtensionsStatus {
+  commands: Array<{ name: string; description: string }>;
+  skills: Array<{ name: string; description: string }>;
+  hooks: { present: boolean; trusted: boolean };
+  mcp: { present: boolean; trusted: boolean };
+  mcpServers: string[];
+}
+
+export function parseExtensions(v: unknown): ExtensionsStatus {
+  const o = isObj(v) ? v : {};
+  const list = (a: unknown) =>
+    Array.isArray(a)
+      ? a.filter((x) => isObj(x) && str(x.name)).map((x) => ({ name: (x as Record<string, unknown>).name as string, description: str((x as Record<string, unknown>).description) ? ((x as Record<string, unknown>).description as string) : "" }))
+      : [];
+  const ft = (x: unknown) => ({ present: isObj(x) && x.present === true, trusted: isObj(x) && x.trusted === true });
+  return {
+    commands: list(o.commands),
+    skills: list(o.skills),
+    hooks: ft(o.hooks),
+    mcp: ft(o.mcp),
+    mcpServers: Array.isArray(o.mcpServers) ? (o.mcpServers.filter(str) as string[]) : [],
+  };
+}
+
+/** Uma issue do Board, na forma mínima que o agente precisa. */
+export interface BoardStory {
+  id: string;
+  title: string;
+  type: string;
+  pts: number;
+  note?: string;
+}
+
+/** O pedido ao agente para implementar uma issue do Board (começa em modo plano). */
+export function storyPrompt(s: BoardStory): string {
+  const note = s.note && s.note.trim() ? `\nNota da issue: ${s.note.trim()}` : "";
+  return (
+    `Implementa a issue ${s.id} do Board: «${s.title}» (${s.type === "fix" ? "correcção" : "funcionalidade"}, ${s.pts} pontos).${note}\n` +
+    "Começa por investigar o código e propõe o plano com exit_plan. Depois de aprovado, implementa, " +
+    "regista os passos com todo_write, verifica com os testes e resume o que mudou."
+  )
+}

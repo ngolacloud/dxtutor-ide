@@ -65,3 +65,10 @@ export const listAgentCheckpoints = (sessionId: string): Promise<unknown> => inv
 /** Repõe os ficheiros como estavam no checkpoint; devolve o resumo. */
 export const rewindAgent = (sessionId: string, checkpoint: number): Promise<string> =>
   invoke<string>("codev_agent_rewind", { sessionId, checkpoint });
+
+/** O que o projecto define para o agente (comandos, skills, hooks, MCP) — `ExtensionsStatus`. */
+export const agentExtensions = (root: string): Promise<unknown> => invoke<unknown>("codev_agent_extensions", { root });
+
+/** Confia nos hooks (`"hooks"`) ou nos servidores MCP (`"mcp"`) do projecto, tal como estão. */
+export const trustAgentFile = (root: string, kind: "hooks" | "mcp"): Promise<void> =>
+  invoke<void>("codev_agent_trust", { root, kind });

@@ -358,6 +358,7 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
         }
     } else if let Some(method) = msg.get("method").and_then(Value::as_str) {
         if method == "textDocument/publishDiagnostics" {
+            cache_diagnostics(msg.get("params").unwrap_or(&Value::Null));
             let _ = app.emit(
                 "lsp://diagnostics",
                 msg.get("params").cloned().unwrap_or(Value::Null),
@@ -479,6 +480,10 @@ fn get_or_start(
     program: &str,
     args: &[String],
 ) -> Result<Arc<Mutex<Session>>, String> {
+    active_roots()
+        .lock()
+        .unwrap()
+        .insert(format!("{} ({})", root, lang.id));
     {
         let m = map.lock().map_err(|_| "lsp map lock")?;
         if let Some(s) = m.get(key) {
@@ -563,8 +568,12 @@ fn session_for(
     app: &AppHandle,
     path: &str,
 ) -> Result<Option<Arc<Mutex<Session>>>, String> {
-    let Some(lang) = lang_for_path(path) else { return Ok(None); };
-    let Some(root) = project_root_for(path, lang.markers) else { return Ok(None); };
+    let Some(lang) = lang_for_path(path) else {
+        return Ok(None);
+    };
+    let Some(root) = project_root_for(path, lang.markers) else {
+        return Ok(None);
+    };
     let (program, args) = match server_cmd(lang.id) {
         Ok(c) => c,
         Err(_) => return Ok(None), // server not installed → no session; frontend falls back
@@ -682,7 +691,9 @@ pub async fn lsp_definition(
 ) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
-        let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
         semantic(
             &session,
             "textDocument/definition",
@@ -703,7 +714,9 @@ pub async fn lsp_references(
 ) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
-        let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
         let mut p = pos(&path, line, character);
         p["context"] = json!({ "includeDeclaration": true });
         semantic(&session, "textDocument/references", p)
@@ -722,7 +735,9 @@ pub async fn lsp_hover(
 ) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
-        let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
         // Hover fires continuously — NEVER block on readiness: always ask the server and let
         // it answer (it returns null fast while still indexing). Gating on `ready` here was a
         // bug: a server whose end-of-index signal we don't yet recognise would never hover.
@@ -743,7 +758,9 @@ pub async fn lsp_rename(
 ) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
-        let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
         let mut p = pos(&path, line, character);
         p["newName"] = json!(new_name);
         semantic(&session, "textDocument/rename", p)
@@ -762,7 +779,9 @@ pub async fn lsp_prepare_rename(
 ) -> Result<Value, String> {
     let map = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
-        let Some(session) = session_for(&map, &app, &path)? else { return Ok(Value::Null); };
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
         session_request(
             &session,
             "textDocument/prepareRename",
@@ -771,4 +790,150 @@ pub async fn lsp_prepare_rename(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ── Diagnósticos em cache, para o agente (ferramenta `lsp_diagnostics`, ADR-0003 F7) ──
+//
+// O servidor publica diagnósticos por ficheiro (`textDocument/publishDiagnostics`); além de
+// os enviar à UI, guardamos a última publicação de cada ficheiro. O agente lê esta cache —
+// não arranca nem controla sessões LSP (isso continua com a UI).
+
+fn diag_cache() -> &'static Mutex<HashMap<String, Value>> {
+    static C: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn active_roots() -> &'static Mutex<HashSet<String>> {
+    static A: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    A.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn cache_diagnostics(params: &Value) {
+    if let Some(uri) = params["uri"].as_str() {
+        let diags = params["diagnostics"].clone();
+        let mut c = diag_cache().lock().unwrap();
+        if diags.as_array().is_some_and(|a| a.is_empty()) {
+            c.remove(uri);
+        } else {
+            c.insert(uri.to_string(), diags);
+        }
+    }
+}
+
+/// Uma linha por diagnóstico: `caminho:linha:coluna gravidade: mensagem`.
+fn format_diagnostics(
+    root: &std::path::Path,
+    only: Option<&std::path::Path>,
+    cache: &HashMap<String, Value>,
+) -> Vec<String> {
+    let mut out = vec![];
+    let mut uris: Vec<&String> = cache.keys().collect();
+    uris.sort();
+    for uri in uris {
+        let path = std::path::PathBuf::from(uri.strip_prefix("file://").unwrap_or(uri));
+        if !path.starts_with(root) || only.is_some_and(|o| o != path) {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        for d in cache[uri].as_array().into_iter().flatten() {
+            let sev = match d["severity"].as_u64() {
+                Some(1) => "erro",
+                Some(2) => "aviso",
+                Some(3) => "info",
+                _ => "nota",
+            };
+            let line = d["range"]["start"]["line"].as_u64().unwrap_or(0) + 1;
+            let col = d["range"]["start"]["character"].as_u64().unwrap_or(0) + 1;
+            let msg = d["message"]
+                .as_str()
+                .unwrap_or("")
+                .lines()
+                .next()
+                .unwrap_or("");
+            out.push(format!("{rel}:{line}:{col} {sev}: {msg}"));
+        }
+    }
+    out
+}
+
+/// `lsp_diagnostics`: os erros e avisos que o servidor de linguagem já publicou.
+pub struct LspDiagnosticsTool;
+
+impl tutor_agent::Tool for LspDiagnosticsTool {
+    fn name(&self) -> &str {
+        "lsp_diagnostics"
+    }
+    fn description(&self) -> &str {
+        "Erros e avisos do servidor de linguagem (rust-analyzer, gopls, tsserver…) para o \
+         projecto ou um ficheiro (`path`). Só tem o que o servidor já publicou (ficheiros \
+         abertos/indexados); se não houver servidor activo, usa `lint`/`run_tests`."
+    }
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn run(&self, input: &Value, ctx: &tutor_agent::ToolCtx) -> tutor_agent::ToolOutput {
+        let root = std::fs::canonicalize(&ctx.root).unwrap_or_else(|_| ctx.root.clone());
+        let only = match input["path"].as_str().filter(|p| !p.trim().is_empty()) {
+            Some(p) => match tutor_agent::sandbox::resolve(&ctx.root, p) {
+                Ok(abs) => Some(abs),
+                Err(e) => return tutor_agent::ToolOutput::err(e),
+            },
+            None => None,
+        };
+        let active: Vec<String> = active_roots()
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.starts_with(&root.display().to_string()))
+            .cloned()
+            .collect();
+        if active.is_empty() {
+            return tutor_agent::ToolOutput::ok(
+                "não há servidor de linguagem activo para este projecto (a UI arranca-o ao abrir \
+                 ficheiros) — usa `lint` ou `run_tests` para verificar",
+            );
+        }
+        let lines = format_diagnostics(&root, only.as_deref(), &diag_cache().lock().unwrap());
+        tutor_agent::ToolOutput::ok(if lines.is_empty() {
+            "sem erros nem avisos publicados pelo servidor de linguagem".to_string()
+        } else {
+            lines.join("\n")
+        })
+    }
+}
+
+#[cfg(test)]
+mod diag_tests {
+    use super::*;
+
+    #[test]
+    fn formats_cached_diagnostics_under_the_root() {
+        let mut c = HashMap::new();
+        c.insert(
+            "file:///p/src/a.rs".to_string(),
+            json!([{"severity": 1, "range": {"start": {"line": 4, "character": 2}}, "message": "mismatched types\nexpected i32"},
+                   {"severity": 2, "range": {"start": {"line": 9, "character": 0}}, "message": "unused variable"}]),
+        );
+        c.insert("file:///outro/b.rs".to_string(), json!([{"severity": 1, "range": {"start": {"line": 0, "character": 0}}, "message": "x"}]));
+        let root = std::path::Path::new("/p");
+        assert_eq!(
+            format_diagnostics(root, None, &c),
+            vec![
+                "src/a.rs:5:3 erro: mismatched types",
+                "src/a.rs:10:1 aviso: unused variable"
+            ]
+        );
+        assert!(format_diagnostics(root, Some(std::path::Path::new("/p/src/z.rs")), &c).is_empty());
+    }
 }

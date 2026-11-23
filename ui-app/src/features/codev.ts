@@ -134,6 +134,11 @@ function handlePrompt(q: string) {
     if (!codevEngine.agentPlan(pedido)) { user(q); card('co-dev', 'O modo plano precisa do app desktop, com uma pasta aberta e o Claude seleccionado.'); }
     return;
   }
+  if (q === '/comandos') {
+    user(q);
+    if (!codevEngine.agentCommands()) card('co-dev', 'Os comandos do projecto precisam do app desktop, com uma pasta aberta e o Claude seleccionado.');
+    return;
+  }
   if (q === '/reverter') {
     user(q);
     if (!codevEngine.agentRewind()) card('co-dev', 'Voltar atrás precisa do app desktop, com uma pasta aberta e o Claude seleccionado.');
@@ -172,6 +177,8 @@ function toggleAgentOn() { focusAgent(); }
 function focusAgent(nofocus?: boolean) { if (bridge.tabOf('agent')) { if (bridge.monolith.currentTabId !== 'agent') bridge.show('agent'); } else if (bridge.getVar('--agent-w') === '0px') toggleAgent(); if (!nofocus) ($('#ag-input') as HTMLElement)!.focus(); }
 /* publica o ponto de entrada de conversa livre + posicionamento; VIEW.agent fica como shim em app.ts (VIEW nasce depois) */
 Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, assistantCenter, assistantDock, toggleAgent, toggleAgentOn, focusAgent });
+/* Board (opção 2 do ADR-0003): o Board pede ao Co-Dev pelo seu legacy-bridge, sem importar a feature */
+Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvailable: codevEngine.agentAvailable });
 
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
 window.renderWelcomePage = (_t, host) => {

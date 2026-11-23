@@ -91,10 +91,25 @@ fn kill_group(pid: u32) {
     }
 }
 
-/// Corre `cmd` em `root` com timeout e cancelamento, capturando stdout/stderr.
-pub fn run_process(mut cmd: Command, root: &Path, timeout: Duration, ctx: &ToolCtx) -> ExecOutcome {
+/// Corre `cmd` em `root` com timeout e cancelamento, capturando stdout/stderr. O stdin
+/// fica vazio (o agente não tem teclado).
+pub fn run_process(cmd: Command, root: &Path, timeout: Duration, ctx: &ToolCtx) -> ExecOutcome {
+    run_process_io(cmd, root, timeout, ctx, None)
+}
+
+/// Como [`run_process`], com um ficheiro como stdin (os hooks recebem o evento em JSON).
+pub fn run_process_io(
+    mut cmd: Command,
+    root: &Path,
+    timeout: Duration,
+    ctx: &ToolCtx,
+    stdin: Option<std::fs::File>,
+) -> ExecOutcome {
+    match stdin {
+        Some(f) => cmd.stdin(f),
+        None => cmd.stdin(Stdio::null()),
+    };
     cmd.current_dir(root)
-        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         // nada interactivo nem paginado: o agente não tem teclado

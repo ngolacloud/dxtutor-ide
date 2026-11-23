@@ -4,7 +4,7 @@ import { test, expect, vi } from "vitest";
 import { makeAgentChat } from "../src/features/codev/application/agent-chat";
 import type { AgentChatDeps, AgentGateway } from "../src/features/codev/application/ports";
 import type { AgentEvent, ApprovalRequest, HistoryItem, SessionSummary } from "../src/features/codev/domain/agent-events";
-import { parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago } from "../src/features/codev/domain/agent-events";
+import { parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago, parseExtensions, storyPrompt } from "../src/features/codev/domain/agent-events";
 import { costUSD, formatUsage } from "../src/features/codev/domain/pricing";
 
 type H = Parameters<AgentGateway["subscribe"]>[0];
@@ -29,6 +29,14 @@ function setup(choice: unknown = "allow") {
     setPlan: vi.fn(async () => undefined),
     checkpoints: vi.fn(async () => [] as Array<{ id: number; label: string; created: number }>),
     rewind: vi.fn(async () => "ficheiros repostos para o checkpoint 1 («x»): 2 reposto(s), 1 apagado(s)"),
+    extensions: vi.fn(async () => ({
+      commands: [{ name: "rever", description: "Revê um ficheiro" }],
+      skills: [{ name: "migracoes", description: "Migrações SQL" }],
+      hooks: { present: true, trusted: false },
+      mcp: { present: false, trusted: false },
+      mcpServers: ["github"],
+    })),
+    trust: vi.fn(async () => undefined),
     subscribe: vi.fn(async (handlers: H) => {
       h = handlers;
       return () => undefined;
@@ -354,4 +362,42 @@ test("F6: /reverter sem sessão ou sem checkpoints explica porquê", async () =>
   await t.chat.rewindMenu();
   expect(t.calls.some((c) => c.startsWith("text Ainda não há checkpoints"))).toBe(true);
   expect(t.gateway.rewind).not.toHaveBeenCalled();
+});
+
+test("F7: /comandos lista comandos, skills, hooks e MCP; confiar nos hooks fecha a sessão para a próxima os ligar", async () => {
+  const t = setup("hooks");
+  t.setScript(() => t.emit(done()));
+  await t.chat.send("olá"); // abre a sessão S1
+  await t.chat.commandsMenu();
+  const listing = t.calls.find((c) => c.startsWith("text **Comandos do projecto**"))!;
+  expect(listing).toContain("`/rever` — Revê um ficheiro");
+  expect(listing).toContain("- migracoes — Migrações SQL");
+  expect(listing).toContain("**Hooks** (`.dxtutor/hooks.json`): **por confiar**");
+  expect(listing).toContain("**Servidores MCP**: github");
+  // só oferece confiar no que existe e não está confiado
+  expect(t.gateButtons.at(-1)).toEqual(["Confiar nos hooks do projecto", "Agora não"]);
+  expect(t.gateway.trust).toHaveBeenCalledWith("/proj", "hooks");
+  expect(t.gateway.close).toHaveBeenCalledWith("S1");
+  expect(t.calls.some((c) => c.startsWith("note trusted Hooks confiados"))).toBe(true);
+});
+
+test("F7: Board opção 2 — a issue vai ao agente em modo plano com o pedido dela", async () => {
+  const t = setup();
+  t.setScript(() => t.emit(done()));
+  await t.chat.story({ id: "DX-12", title: "Paginação na API", type: "feature", pts: 3, note: "usar cursor" });
+  expect(t.gateway.setPlan).toHaveBeenCalledWith("S1", true);
+  const sent = (t.gateway.send as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+  expect(sent).toContain("Implementa a issue DX-12 do Board: «Paginação na API» (funcionalidade, 3 pontos).");
+  expect(sent).toContain("Nota da issue: usar cursor");
+  expect(sent).toContain("exit_plan");
+});
+
+test("F7: parse do estado das extensões e pedido de uma correcção", () => {
+  const x = parseExtensions({ commands: [{ name: "a" }, { nope: 1 }], hooks: { present: true }, mcpServers: ["s", 3] });
+  expect(x.commands).toEqual([{ name: "a", description: "" }]);
+  expect(x.hooks).toEqual({ present: true, trusted: false });
+  expect(x.mcp).toEqual({ present: false, trusted: false });
+  expect(x.mcpServers).toEqual(["s"]);
+  expect(parseExtensions(null).commands).toEqual([]);
+  expect(storyPrompt({ id: "DX-1", title: "t", type: "fix", pts: 1 })).toContain("(correcção, 1 pontos)");
 });

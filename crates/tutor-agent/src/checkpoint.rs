@@ -81,11 +81,7 @@ impl Checkpoints {
 
     /// Escreve a árvore de trabalho actual como um tree object, sem tocar no index real.
     fn worktree_tree(&self) -> Result<String, String> {
-        let tmp = std::env::temp_dir().join(format!(
-            "dxtutor-cp-{}-{}.index",
-            std::process::id(),
-            crate::session::now()
-        ));
+        let tmp = crate::tools::unique_temp("dxtutor-cp", "index");
         // parte do index real (só re-hasheia o que mudou) — se não houver, começa vazio
         if let Ok(real) = git(&self.root, &["rev-parse", "--git-path", "index"], None) {
             let real = if Path::new(&real).is_absolute() {
@@ -159,11 +155,7 @@ impl Checkpoints {
             let _ = std::fs::remove_file(abs);
         }
         if !restore.is_empty() {
-            let tmp = std::env::temp_dir().join(format!(
-                "dxtutor-rs-{}-{}.index",
-                std::process::id(),
-                crate::session::now()
-            ));
+            let tmp = crate::tools::unique_temp("dxtutor-rs", "index");
             let mut args = vec!["checkout-index", "-f", "--"];
             args.extend(restore.iter().map(String::as_str));
             let r = git(&self.root, &["read-tree", &target], Some(&tmp))

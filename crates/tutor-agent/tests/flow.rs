@@ -91,8 +91,15 @@ fn toolset_versions_keep_old_sessions_byte_compatible() {
         1,
         &fs,
         Some(spec.clone()),
+        vec![],
     ));
-    let v2 = names(&agent_tools(&ToolsetOptions::default(), 2, &fs, Some(spec)));
+    let v2 = names(&agent_tools(
+        &ToolsetOptions::default(),
+        2,
+        &fs,
+        Some(spec),
+        vec![],
+    ));
     assert_eq!(
         v1,
         [
@@ -108,13 +115,21 @@ fn toolset_versions_keep_old_sessions_byte_compatible() {
     );
     assert_eq!(&v2[..8], &v1[..]);
     assert_eq!(&v2[8..], ["todo_write", "exit_plan", "task"]);
+    let v3 = names(&agent_tools(
+        &ToolsetOptions::default(),
+        3,
+        &fs,
+        None,
+        vec![],
+    ));
+    assert_eq!(&v3[8..], ["todo_write", "exit_plan", "skill"]);
 }
 
 #[test]
 fn todo_write_replaces_the_list_and_exit_plan_needs_plan_mode() {
     let d = tempfile::tempdir().unwrap();
     let fs = FlowState::default();
-    let tools = agent_tools(&ToolsetOptions::default(), 2, &fs, None);
+    let tools = agent_tools(&ToolsetOptions::default(), 2, &fs, None, vec![]);
     let get = |n: &str| tools.iter().find(|t| t.name() == n).unwrap().clone();
 
     let todo = get("todo_write");
@@ -175,6 +190,7 @@ fn task_runs_a_read_only_subagent_and_returns_its_report() {
         2,
         &FlowState::default(),
         Some(spec),
+        vec![],
     );
     let task = tools.iter().find(|t| t.name() == "task").unwrap();
     assert!(task.read_only(), "só leitura: vários correm em paralelo");
@@ -250,7 +266,13 @@ fn the_loop_checkpoints_once_per_turn_before_the_first_change() {
         ),
         step(StopReason::EndTurn, vec![text("feito")]),
     ]);
-    let tools = agent_tools(&ToolsetOptions::default(), 2, &FlowState::default(), None);
+    let tools = agent_tools(
+        &ToolsetOptions::default(),
+        2,
+        &FlowState::default(),
+        None,
+        vec![],
+    );
     let mut agent = Agent::new(provider, tools, AgentConfig::new("m"), ctx(root));
     agent.checkpoints = Checkpoints::new(root, "sess").map(Arc::new);
     let mut t = Transcript::new();
@@ -297,4 +319,66 @@ fn sessions_written_before_f6_read_as_toolset_1() {
     std::fs::write(d.path().join("old.jsonl"), format!("{line}\n")).unwrap();
     let (meta, _, _) = tutor_agent::session::SessionLog::open(d.path(), "old").unwrap();
     assert_eq!(meta.toolset, 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn project_hooks_block_give_feedback_and_run_at_stop() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    std::fs::create_dir_all(root.join(".dxtutor")).unwrap();
+    std::fs::write(
+        root.join(".dxtutor/hooks.json"),
+        r#"{"pre_tool":[{"match":"bash","command":"echo 'bash proibido neste projecto' >&2; exit 2"}],
+            "post_tool":[{"match":"write","command":"echo \"lembra-te de formatar $DXTUTOR_FILE\" >&2; exit 2"}],
+            "stop":[{"command":"echo fim-do-turno"}]}"#,
+    )
+    .unwrap();
+    let provider = scripted(vec![
+        step(
+            StopReason::ToolUse,
+            vec![
+                tool("b", "bash", json!({"command": "touch nao.txt"})),
+                tool("w", "write", json!({"path": "sim.txt", "content": "ok"})),
+            ],
+        ),
+        step(StopReason::EndTurn, vec![text("feito")]),
+    ]);
+    let tools = agent_tools(
+        &ToolsetOptions::default(),
+        3,
+        &FlowState::default(),
+        None,
+        vec![],
+    );
+    let mut agent = Agent::new(provider.clone(), tools, AgentConfig::new("m"), ctx(root));
+    agent.hooks = tutor_agent::hooks::Hooks::load(root).unwrap().map(Arc::new);
+    let mut t = Transcript::new();
+    let mut evs = vec![];
+    agent
+        .run_turn(
+            &mut t,
+            Some(Message::user_text("vai")),
+            &mut |e| evs.push(e),
+            &mut |_| Decision::Allow,
+        )
+        .unwrap();
+    assert!(
+        !root.join("nao.txt").exists(),
+        "o hook pre_tool bloqueou o bash"
+    );
+    assert!(root.join("sim.txt").exists());
+    let results = &provider.seen.lock().unwrap()[1].messages[2].content;
+    assert_eq!(results[0]["is_error"], true);
+    assert!(results[0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("bloqueado por um hook do projecto: bash proibido"));
+    assert!(results[1]["content"]
+        .as_str()
+        .unwrap()
+        .ends_with("[hook do projecto] lembra-te de formatar sim.txt"));
+    assert!(evs
+        .iter()
+        .any(|e| matches!(e, AgentEvent::Notice { text } if text == "hook stop: fim-do-turno")));
 }

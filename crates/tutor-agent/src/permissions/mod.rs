@@ -274,6 +274,10 @@ impl Policy {
             (Some(a), Mode::Assist) if a.risk == Risk::Unknown => {
                 Self::ask(a.reason.clone(), suggested)
             }
+            // ferramentas de servidores MCP: código externo, o Assistido pergunta
+            (None, Mode::Assist) if call.name.starts_with("mcp__") => {
+                Self::ask("ferramenta de um servidor MCP externo", suggested)
+            }
             _ => Verdict::Allow,
         }
     }
@@ -432,6 +436,33 @@ mod tests {
         p.plan.store(false, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(kind(&p.decide(&edit("src/a.rs"))), "allow");
         assert_eq!(kind(&p.decide(&plan)), "ask");
+    }
+
+    #[test]
+    fn mcp_tools_ask_in_assist_and_can_be_always_allowed() {
+        let mcp = call(
+            "mcp__github__create_issue",
+            false,
+            json!({"title": "x"}),
+            None,
+        );
+        assert_eq!(
+            kind(&pol(Mode::Assist, Rules::default()).decide(&mcp)),
+            "ask"
+        );
+        assert_eq!(
+            kind(&pol(Mode::Auto, Rules::default()).decide(&mcp)),
+            "allow"
+        );
+        assert_eq!(
+            kind(&pol(Mode::Manual, Rules::default()).decide(&mcp)),
+            "ask"
+        );
+        let rules = Rules {
+            allow: vec!["mcp__github__create_issue".into()],
+            deny: vec![],
+        };
+        assert_eq!(kind(&pol(Mode::Assist, rules).decide(&mcp)), "allow");
     }
 
     #[test]

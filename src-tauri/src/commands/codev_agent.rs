@@ -17,9 +17,10 @@ use crate::keys;
 
 /// Abre uma sessão do agente no projecto `root`, com os comandos de verificação que a UI
 /// detectou (`test_cmd`/`lint_cmd`, opcionais), ou retoma uma gravada (`resume`: o id).
-/// Devolve o id da sessão.
+/// Liga os servidores MCP (pode demorar): corre fora da thread da janela. Devolve o id.
 #[tauri::command]
-pub fn codev_agent_start(
+#[allow(clippy::too_many_arguments)]
+pub async fn codev_agent_start(
     app: tauri::AppHandle,
     root: String,
     model: Option<String>,
@@ -31,20 +32,24 @@ pub fn codev_agent_start(
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let key = keys::resolve(&dir, "claude");
-    codev_agent::start(
-        StartSpec {
-            root,
-            model,
-            effort,
-            test_cmd,
-            lint_cmd,
-            mode,
-            resume,
-            sessions_base: None,
-        },
-        key,
-        keys::anthropic_workspace_id(),
-    )
+    let spec = StartSpec {
+        root,
+        model,
+        effort,
+        test_cmd,
+        lint_cmd,
+        mode,
+        resume,
+        host_tools: vec![std::sync::Arc::new(crate::lsp::LspDiagnosticsTool)],
+        trust_store: tutor_agent::trust::default_store(),
+        user_mcp: tutor_agent::mcp::user_config(),
+        ..Default::default()
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        codev_agent::start(spec, key, keys::anthropic_workspace_id())
+    })
+    .await
+    .map_err(|e| format!("agent start task failed: {e}"))?
 }
 
 /// Envia uma mensagem (ou, com `text: null`, repete a partir do histórico). Devolve logo;
@@ -148,4 +153,22 @@ pub async fn codev_agent_rewind(session_id: String, checkpoint: u32) -> Result<S
     tauri::async_runtime::spawn_blocking(move || codev_agent::rewind(&session_id, checkpoint))
         .await
         .map_err(|e| format!("rewind task failed: {e}"))?
+}
+
+/// O que o projecto define para o agente: comandos, skills, hooks e servidores MCP (com o
+/// estado de confiança dos que fazem correr comandos).
+#[tauri::command]
+pub fn codev_agent_extensions(root: String) -> codev_agent::ExtensionsStatus {
+    codev_agent::extensions_status(
+        &root,
+        tutor_agent::trust::default_store().as_deref(),
+        tutor_agent::mcp::user_config().as_deref(),
+    )
+}
+
+/// Confia nos hooks (`kind: "hooks"`) ou nos servidores MCP (`"mcp"`) do projecto, tal como
+/// estão agora (deixa de valer se o ficheiro mudar). Vale para as sessões novas.
+#[tauri::command]
+pub fn codev_agent_trust(root: String, kind: String) -> Result<(), String> {
+    codev_agent::trust_project_file(&root, &kind, tutor_agent::trust::default_store().as_deref())
 }

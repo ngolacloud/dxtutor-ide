@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use crate::tool::Tool;
 
-pub use exec::{run_process, ExecOutcome};
+pub use exec::{run_process, run_process_io, ExecOutcome};
 
 /// Impressão digital do conteúdo de cada ficheiro tal como o agente o viu pela última vez.
 #[derive(Default)]
@@ -95,8 +95,9 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 
 /// Versão do conjunto de ferramentas gravada com cada sessão: retomar uma sessão usa o
 /// conjunto com que ela começou (mudar as ferramentas muda o prefixo do pedido, e o
-/// *preserved thinking* recusa-o). 1 = F2–F5; 2 = + todo_write/exit_plan/task (F6).
-pub const TOOLSET_VERSION: u32 = 2;
+/// *preserved thinking* recusa-o). 1 = F2–F5; 2 = + todo_write/exit_plan/task (F6);
+/// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7).
+pub const TOOLSET_VERSION: u32 = 3;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -112,6 +113,7 @@ pub fn agent_tools(
     version: u32,
     flow_state: &FlowState,
     subagent: Option<flow::SubagentSpec>,
+    extras: Vec<Arc<dyn Tool>>,
 ) -> Vec<Arc<dyn Tool>> {
     let mut v = coding_tools(opts);
     if version >= 2 {
@@ -125,7 +127,23 @@ pub fn agent_tools(
             v.push(Arc::new(flow::Task { spec }));
         }
     }
+    if version >= 3 {
+        v.push(Arc::new(crate::extensions::SkillTool));
+        v.extend(extras); // pela ordem que o anfitrião der (determinística por sessão)
+    }
     v
+}
+
+/// Um caminho temporário único por chamada (pid + contador + nanossegundos): ficheiros
+/// usados por operações em paralelo nunca colidem.
+pub fn unique_temp(prefix: &str, ext: &str) -> std::path::PathBuf {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("{prefix}-{}-{n}-{ns}.{ext}", std::process::id()))
 }
 
 /// Corta texto longo mantendo início e fim, com um aviso do que se omitiu.

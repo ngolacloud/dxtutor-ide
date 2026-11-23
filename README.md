@@ -143,5 +143,19 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
   propõe um plano para aprovares antes de mexer em ficheiros; `/reverter` — repõe os
   ficheiros como estavam antes de um pedido (só em repositórios git; a conversa fica);
   `/retomar` — continua uma conversa anterior.
+- **Estender o Co-Dev por projecto** (`/comandos` mostra o que existe):
+  - `.dxtutor/commands/<nome>.md` — um comando `/nome`; o texto é o pedido, `$ARGUMENTS`
+    recebe o resto da linha;
+  - `.dxtutor/skills/<nome>/SKILL.md` — instruções especializadas (cabeçalho `name:` e
+    `description:`), lidas pelo agente quando se aplicam;
+  - `.dxtutor/memory/*.md` — memória do projecto, lida no início de cada conversa;
+  - `.dxtutor/hooks.json` — comandos antes/depois das ferramentas e no fim do turno;
+  - `.dxtutor/mcp.json` (e `~/.config/dxtutor/mcp.json`) — servidores MCP
+    (`{"mcpServers": {"nome": {"command": "...", "args": [...]}}}`).
+  Hooks e servidores MCP do projecto correm comandos definidos pelo repositório: só
+  arrancam depois de confiares neles em `/comandos`, e voltam a pedir confiança se o
+  ficheiro mudar.
+- **Board → agente.** Num cartão do Board, «⚡ Agente» entrega a issue ao Co-Dev: investiga,
+  propõe um plano para aprovares e implementa.
 - **Voltar ao harness antigo do Co-Dev.** Na consola da página:
   `localStorage.setItem("dx2.codevLegacy", "true")` (e `removeItem` para voltar).

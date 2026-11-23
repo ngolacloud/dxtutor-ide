@@ -19,17 +19,21 @@ use std::time::Duration;
 
 use tutor_agent::anthropic::{self, Anthropic, Config};
 use tutor_agent::checkpoint::{Checkpoint, Checkpoints};
+use tutor_agent::extensions::{self, Command as ProjectCommand, Skill};
+use tutor_agent::hooks::{Hooks, HOOKS_FILE};
+use tutor_agent::mcp::{self, McpTool};
 use tutor_agent::permissions::{Mode, Policy, Rules, Verdict};
 use tutor_agent::session::{self, HistoryItem, SessionLog, SessionMeta, SessionSummary};
 use tutor_agent::tools::flow::SubagentSpec;
 use tutor_agent::tools::{agent_tools, FlowState, ToolsetOptions, TOOLSET_VERSION};
+use tutor_agent::{trust, Tool};
 use tutor_agent::{
     Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall,
     SystemBlock, ToolCtx, Transcript, TurnOutcome,
 };
 
 /// Com que configuração abrir uma sessão (args do `codev_agent_start`).
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct StartSpec {
     pub root: String,
     pub model: Option<String>,
@@ -44,6 +48,48 @@ pub struct StartSpec {
     pub resume: Option<String>,
     /// Pasta das sessões (por omissão `~/.config/dxtutor/sessions`) — os testes usam outra.
     pub sessions_base: Option<PathBuf>,
+    /// Ferramentas do anfitrião (ex.: `lsp_diagnostics`, que vive no Tauri). Entram no
+    /// conjunto versão ≥ 3, sempre pela mesma ordem.
+    pub host_tools: Vec<Arc<dyn Tool>>,
+    /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
+    /// passa `~/.config/dxtutor/trusted.json`).
+    pub trust_store: Option<PathBuf>,
+    /// Configuração MCP do utilizador (o adaptador passa `~/.config/dxtutor/mcp.json`).
+    pub user_mcp: Option<PathBuf>,
+}
+
+/// Os servidores MCP desta sessão: os do utilizador e os do projecto, se confiado.
+fn mcp_servers(
+    root: &Path,
+    spec: &StartSpec,
+    notes: &mut Vec<String>,
+) -> std::collections::BTreeMap<String, mcp::ServerConfig> {
+    let mut servers = std::collections::BTreeMap::new();
+    let user = spec.user_mcp.clone();
+    if let Some(u) = user {
+        match mcp::load_config(&u) {
+            Ok(m) => servers.extend(m),
+            Err(e) => notes.push(e),
+        }
+    }
+    if root.join(mcp::PROJECT_FILE).exists() {
+        let store = spec.trust_store.clone();
+        if store
+            .as_deref()
+            .is_some_and(|st| trust::is_trusted(st, root, mcp::PROJECT_FILE))
+        {
+            match mcp::load_config(&root.join(mcp::PROJECT_FILE)) {
+                Ok(m) => servers.extend(m),
+                Err(e) => notes.push(e),
+            }
+        } else {
+            notes.push(format!(
+                "o projecto define servidores MCP ({}) que ainda não confiaste — vê /comandos",
+                mcp::PROJECT_FILE
+            ));
+        }
+    }
+    servers
 }
 
 /// O que a UI recebe quando uma chamada precisa de decisão humana.
@@ -75,6 +121,8 @@ struct Session {
     /// Avisos para o modelo na próxima mensagem (rewind, modo plano) — a conversa nunca é
     /// editada, por isso o que muda entre turnos vai como mensagem `system`.
     notes: Mutex<Vec<String>>,
+    /// Avisos do arranque para o humano (MCP que falhou, hooks por confiar…).
+    startup_notices: Vec<String>,
 }
 
 /// O texto que anuncia o modo ao modelo (vai como mensagem `system` a meio da conversa,
@@ -171,6 +219,7 @@ pub fn start(
                 root: root_s.clone(),
                 model: spec
                     .model
+                    .clone()
                     .filter(|m| !m.trim().is_empty())
                     .unwrap_or_else(|| anthropic::DEFAULT_MODEL.to_string()),
                 effort: parse_effort(spec.effort.as_deref()).as_str().to_string(),
@@ -178,16 +227,50 @@ pub fn start(
                     .into_iter()
                     .map(|b| (b.text, b.cache))
                     .collect(),
-                test_cmd: spec.test_cmd.filter(|c| !c.trim().is_empty()),
-                lint_cmd: spec.lint_cmd.filter(|c| !c.trim().is_empty()),
+                test_cmd: spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
+                lint_cmd: spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
                 compaction: true,
                 created: session::now(),
                 toolset: TOOLSET_VERSION,
+                mcp_tools: vec![], // preenchido abaixo, depois de ligar os servidores
             };
-            // sem registo em disco a sessão funciona na mesma (só não se retoma)
-            let log = dir.as_ref().and_then(|d| SessionLog::create(d, &meta).ok());
-            (meta, Transcript::new(), log)
+            (meta, Transcript::new(), None)
         }
+    };
+
+    // servidores MCP: ligam-se sempre; numa sessão nova as definições anunciadas ficam
+    // gravadas, numa retoma usam-se as gravadas (o prefixo do pedido não pode mudar)
+    let mut notes = vec![];
+    let mut meta = meta;
+    let new_session = log.is_none();
+    let connected = if meta.toolset >= 3 {
+        let (tools, mut n) = mcp::connect_all(&mcp_servers(&root, &spec, &mut notes), &root);
+        notes.append(&mut n);
+        tools
+    } else {
+        vec![]
+    };
+    if new_session && meta.toolset >= 3 {
+        meta.mcp_tools = connected.iter().map(|(d, _)| d.clone()).collect();
+    }
+    let mcp_tools: Vec<Arc<dyn Tool>> = meta
+        .mcp_tools
+        .iter()
+        .map(|d| {
+            let client = connected
+                .iter()
+                .find(|(c, _)| c.server == d.server && c.tool == d.tool)
+                .map(|(_, cl)| cl.clone());
+            Arc::new(McpTool {
+                def: d.clone(),
+                client,
+            }) as Arc<dyn Tool>
+        })
+        .collect();
+    // sem registo em disco a sessão funciona na mesma (só não se retoma)
+    let log = match log {
+        Some(l) => Some(l),
+        None => dir.as_ref().and_then(|d| SessionLog::create(d, &meta).ok()),
     };
 
     let mut acfg = AgentConfig::new(meta.model.clone());
@@ -228,9 +311,28 @@ pub fn start(
         meta.toolset,
         &flow,
         Some(subagent),
+        spec.host_tools.iter().cloned().chain(mcp_tools).collect(),
     );
     let mut agent = Agent::new(provider, tools, acfg, ctx);
     agent.checkpoints = checkpoints;
+    // hooks do projecto: só se o humano confiou neste ficheiro, tal como está
+    let root_ref = agent.ctx.root.clone();
+    if root_ref.join(HOOKS_FILE).exists() {
+        let store = spec.trust_store.clone();
+        if store
+            .as_deref()
+            .is_some_and(|st| trust::is_trusted(st, &root_ref, HOOKS_FILE))
+        {
+            match Hooks::load(&root_ref) {
+                Ok(h) => agent.hooks = h.map(Arc::new),
+                Err(e) => notes.push(e),
+            }
+        } else {
+            notes.push(format!(
+                "o projecto define hooks ({HOOKS_FILE}) que ainda não confiaste — vê /comandos"
+            ));
+        }
+    }
 
     let id = meta.id.clone();
     let s = Session {
@@ -243,6 +345,7 @@ pub fn start(
         announced: Mutex::new(None),
         flow,
         notes: Mutex::new(vec![]),
+        startup_notices: notes,
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -303,6 +406,16 @@ pub fn send(
     let mut t = s.transcript.lock().unwrap();
     let r = match text {
         Some(q) => {
+            // slash commands do projecto (.dxtutor/commands): o modelo recebe o prompt expandido
+            let q = match extensions::expand(&s.agent.ctx.root, &q) {
+                Some((_, prompt)) => prompt,
+                None => q,
+            };
+            if t.is_empty() {
+                for text in &s.startup_notices {
+                    on_event(AgentEvent::Notice { text: text.clone() });
+                }
+            }
             t.push(Message::user_text(q));
             // anuncia o modo no primeiro turno e quando muda (mensagem system a meio)
             let mode = s.policy.lock().unwrap().mode;
@@ -426,6 +539,70 @@ pub fn rewind(id: &str, cp: u32) -> Result<String, String> {
          já não está no disco — volta a ler os ficheiros antes de continuar."
     ));
     Ok(msg)
+}
+
+/// Um ficheiro que faz a IDE correr comandos: existe? é confiado (com o conteúdo actual)?
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct FileTrust {
+    pub present: bool,
+    pub trusted: bool,
+}
+
+/// O que o projecto (e o utilizador) definem para o agente, para `/comandos`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionsStatus {
+    pub commands: Vec<ProjectCommand>,
+    pub skills: Vec<Skill>,
+    pub hooks: FileTrust,
+    pub mcp: FileTrust,
+    /// Nomes dos servidores MCP configurados (utilizador + projecto).
+    pub mcp_servers: Vec<String>,
+}
+
+pub fn extensions_status(
+    root: &str,
+    store: Option<&Path>,
+    user_mcp: Option<&Path>,
+) -> ExtensionsStatus {
+    let root = PathBuf::from(root.trim());
+    let store = store.map(Path::to_path_buf);
+    let file = |rel: &str| FileTrust {
+        present: root.join(rel).exists(),
+        trusted: store
+            .as_deref()
+            .is_some_and(|st| trust::is_trusted(st, &root, rel)),
+    };
+    let mut servers: Vec<String> = vec![];
+    if let Some(u) = user_mcp {
+        servers.extend(mcp::load_config(&u).unwrap_or_default().into_keys());
+    }
+    servers.extend(
+        mcp::load_config(&root.join(mcp::PROJECT_FILE))
+            .unwrap_or_default()
+            .into_keys(),
+    );
+    servers.sort();
+    servers.dedup();
+    ExtensionsStatus {
+        commands: extensions::commands(&root),
+        skills: extensions::skills(&root),
+        hooks: file(HOOKS_FILE),
+        mcp: file(mcp::PROJECT_FILE),
+        mcp_servers: servers,
+    }
+}
+
+/// Confia nos hooks (`kind = "hooks"`) ou nos servidores MCP (`"mcp"`) do projecto, tal como
+/// estão agora. Vale para as sessões novas.
+pub fn trust_project_file(root: &str, kind: &str, store: Option<&Path>) -> Result<(), String> {
+    let rel = match kind {
+        "hooks" => HOOKS_FILE,
+        "mcp" => mcp::PROJECT_FILE,
+        other => return Err(format!("tipo desconhecido: {other}")),
+    };
+    let store = store.ok_or("sem HOME para guardar a confiança")?;
+    trust::trust(store, Path::new(root.trim()), rel)
 }
 
 /// As sessões gravadas do projecto `root`, das mais recentes para as mais antigas.
@@ -668,6 +845,53 @@ mod tests {
         // fora de um repositório git: sem checkpoints, rewind explica porquê
         assert!(checkpoints(&id).unwrap().is_empty());
         assert!(rewind(&id, 1).unwrap_err().contains("git"));
+        close(&id);
+    }
+
+    #[test]
+    fn extensions_status_trust_and_slash_commands() {
+        let proj = tempfile::tempdir().unwrap();
+        let cfg = tempfile::tempdir().unwrap();
+        let store = cfg.path().join("trusted.json");
+        let root = proj.path();
+        std::fs::create_dir_all(root.join(".dxtutor/commands")).unwrap();
+        std::fs::write(root.join(".dxtutor/commands/rever.md"), "Revê $ARGUMENTS.").unwrap();
+        std::fs::write(root.join(".dxtutor/hooks.json"), r#"{"stop":[]}"#).unwrap();
+        std::fs::write(
+            root.join(".dxtutor/mcp.json"),
+            r#"{"mcpServers":{"local":{"command":"/nao/existe"}}}"#,
+        )
+        .unwrap();
+        let r = root.display().to_string();
+
+        let st = extensions_status(&r, Some(&store), None);
+        assert_eq!(st.commands.len(), 1);
+        assert_eq!(
+            st.hooks,
+            FileTrust {
+                present: true,
+                trusted: false
+            }
+        );
+        assert_eq!(st.mcp_servers, vec!["local"]);
+        trust_project_file(&r, "hooks", Some(&store)).unwrap();
+        assert!(extensions_status(&r, Some(&store), None).hooks.trusted);
+        assert!(trust_project_file(&r, "outra", Some(&store)).is_err());
+
+        // hooks confiados ficam ligados; o MCP do projecto, por confiar, não arranca e avisa
+        let spec = StartSpec {
+            root: r.clone(),
+            sessions_base: Some(cfg.path().join("s")),
+            trust_store: Some(store.clone()),
+            ..Default::default()
+        };
+        let id = start(spec, Some("sk".into()), None).unwrap();
+        let s = get(&id).unwrap();
+        assert!(s.agent.hooks.is_some());
+        assert!(s
+            .startup_notices
+            .iter()
+            .any(|n| n.contains("servidores MCP")));
         close(&id);
     }
 

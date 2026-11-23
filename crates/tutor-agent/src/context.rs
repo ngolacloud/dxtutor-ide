@@ -120,6 +120,12 @@ pub fn system_prompt(root: &Path) -> Vec<SystemBlock> {
             cache: false,
         });
     }
+    if let Some(sk) = crate::extensions::skills_index(root) {
+        v.push(SystemBlock {
+            text: sk,
+            cache: false,
+        });
+    }
     if let Some(last) = v.last_mut() {
         last.cache = true;
     }

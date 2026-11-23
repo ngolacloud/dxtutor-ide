@@ -26,6 +26,9 @@ pub mod agent;
 pub mod anthropic;
 pub mod checkpoint;
 pub mod context;
+pub mod extensions;
+pub mod hooks;
+pub mod mcp;
 pub mod permissions;
 pub mod provider;
 pub mod retry;
@@ -34,6 +37,7 @@ pub mod schema;
 pub mod session;
 pub mod tool;
 pub mod tools;
+pub mod trust;
 pub mod types;
 
 pub use agent::{Agent, AgentConfig, AgentError, AgentEvent, Decision, PendingCall, TurnOutcome};

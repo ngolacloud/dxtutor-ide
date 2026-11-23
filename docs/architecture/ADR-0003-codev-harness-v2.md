@@ -1,6 +1,6 @@
 # ADR-0003 — Harness v2 do Co-Dev: loop de agente em Rust com tool use nativo
 
-- **Estado:** aceite (recomendações do §11 aceites); F0–F6 feitas (F4–F6 por validar à mão no desktop)
+- **Estado:** aceite (recomendações do §11 aceites); F0–F7 feitas (F4–F7 por validar à mão no desktop)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto (angolardevops)
 - **Relacionado:** `ADR-0002` (camadas da feature Co-Dev na UI, que a F4 reutiliza);
@@ -131,7 +131,7 @@ Todas correm na raiz do projecto e passam pelo `ensure_within` do hotfix (symlin
 | `write` | Ficheiros novos, ou sobrescrita de um ficheiro já lido | por modo |
 | `bash` | Grupo de processos próprio, timeout, saída limitada (início + fim), sempre na raiz do projecto | classificador (§7) |
 | `run_tests` / `lint` | Comandos detectados (`domain/project-commands.ts`, passados na configuração da sessão) | como no passo 2 |
-| `lsp_diagnostics` | **Adiado (F5 → F7).** O LSP real (`lsp.rs`) está acoplado ao Tauri e às sessões que a UI arranca, e o `tutor_eval::diagnostics_for` compila um excerto de exercício, não um projecto. Até lá os diagnósticos chegam ao modelo por `run_tests`/`lint` | livre |
+| `lsp_diagnostics` | **Feito em F7** (cache dos diagnósticos do `lsp.rs`). Histórico: O LSP real (`lsp.rs`) está acoplado ao Tauri e às sessões que a UI arranca, e o `tutor_eval::diagnostics_for` compila um excerto de exercício, não um projecto. Até lá os diagnósticos chegam ao modelo por `run_tests`/`lint` | livre |
 | `git_status` / `git_diff` | Só leitura | livre |
 | `todo_write` | Lista de tarefas da sessão, sincronizada com o Board (`tutor-board`) | livre |
 | `exit_plan` | Sai do plan mode e apresenta o plano para aprovação | — |
@@ -210,7 +210,7 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
 | **F4 UI v2** ✅ | O caso de uso `live-chat` (ADR-0002) passa a cliente fino do agente Rust através de uma porta `AgentGateway`; cartões de ferramenta, aprovação, thinking e custo; **remove o protocolo de fences e o prefill** | Fluxo real com uma pasta aberta, validado à mão por ti; typecheck/lint/testes |
 | **F5 Contexto e sessão** ✅ | System prompt cacheado, AGENTS.md/CLAUDE.md, sessões JSONL e retoma, compactação, custo | Cache hit a partir do 2.º turno (medido); retoma após reinício |
 | **F6 Plano → entrega** ✅ | Plan mode, todos↔Board, checkpoints e rewind, revisão de diffs, sub-agentes | Cenário guiado ponta-a-ponta num repositório de teste |
-| **F7 Ecossistema** | Cliente MCP (stdio/http), hooks (antes/depois de ferramenta, fim de turno), slash commands e skills em `.dxtutor/` | Servidor MCP de exemplo ligado; hook que bloqueia uma ferramenta |
+| **F7 Ecossistema** ✅ | Cliente MCP (stdio/http), hooks (antes/depois de ferramenta, fim de turno), slash commands e skills em `.dxtutor/` | Servidor MCP de exemplo ligado; hook que bloqueia uma ferramenta |
 | **F8 Outros provedores** | Adaptador OpenAI-compatível (Codex, Gemini, Ollama) com tool calls; o protocolo de fences fica só como fallback para modelos sem tools | Testes com fixtures por provedor; matriz de funcionalidades na UI |
 
 **F0 a F4 são o núcleo** e já substituem o harness actual. F5 a F8 levam-no à paridade.
@@ -283,3 +283,17 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
   **Pendente de decisão:** ligar as tarefas ao Board — o Board guarda *user stories* (papel,
   critérios de aceitação, pontos, sprint), não passos de execução; a correspondência é
   uma decisão de produto. **`lsp_diagnostics`** continua adiado (F7).
+
+- **F7 (2026-11-23).** Board, opção 2 (decisão do humano): cada issue em backlog/todo/dev
+  tem «⚡ Agente», que lança o agente em modo plano com o pedido da issue e a move para
+  «dev». Comandos do projecto (`.dxtutor/commands/<nome>.md`, `$ARGUMENTS`), expandidos no
+  backend; skills (`.dxtutor/skills/<nome>/SKILL.md`): índice no system prompt, conteúdo
+  pela ferramenta `skill`. Hooks (`.dxtutor/hooks.json`: `pre_tool` — exit 2 bloqueia;
+  `post_tool` — exit 2 dá feedback ao modelo; `stop`) e cliente MCP sobre stdio
+  (`~/.config/dxtutor/mcp.json` e `.dxtutor/mcp.json`; ferramentas `mcp__<servidor>__<nome>`;
+  o Assistido pergunta). **Confiança:** hooks e MCP do projecto só correm depois de o
+  humano confiar no ficheiro (`/comandos`), e a confiança deixa de valer se o ficheiro mudar
+  (impressão digital FNV-1a, `~/.config/dxtutor/trusted.json`). As definições MCP ficam
+  gravadas com a sessão (a retoma reenvia-as). `lsp_diagnostics` lê a cache dos diagnósticos
+  que o `lsp.rs` já publica (não controla sessões LSP). `codev_agent_start` passou a
+  assíncrono. Conjunto de ferramentas versão 3 (+ `skill` e as injectadas pelo anfitrião).

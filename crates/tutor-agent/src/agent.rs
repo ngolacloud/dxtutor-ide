@@ -199,6 +199,8 @@ pub struct Agent {
     sleep: Sleeper,
     /// Checkpoints dos ficheiros (só em repositórios git).
     pub checkpoints: Option<Arc<crate::checkpoint::Checkpoints>>,
+    /// Hooks do projecto (só se o humano confiou neles).
+    pub hooks: Option<Arc<crate::hooks::Hooks>>,
 }
 
 fn add_usage(t: &mut Usage, u: &Usage) {
@@ -236,6 +238,7 @@ impl Agent {
             ctx,
             sleep: Arc::new(std::thread::sleep),
             checkpoints: None,
+            hooks: None,
         }
     }
 
@@ -410,6 +413,11 @@ impl Agent {
     }
 
     fn finish(&self, outcome: TurnOutcome, events: &mut dyn FnMut(AgentEvent)) -> TurnOutcome {
+        if let (Some(h), TurnOutcome::Done { .. }) = (&self.hooks, &outcome) {
+            for text in h.stop() {
+                events(AgentEvent::Notice { text });
+            }
+        }
         events(AgentEvent::Done {
             outcome: outcome.clone(),
         });
@@ -430,6 +438,7 @@ impl Agent {
         // 1) validação + aprovação (sequencial: a UI pergunta uma de cada vez)
         let mut out: Vec<Option<ToolOutput>> = vec![None; calls.len()];
         let mut runnable: Vec<(usize, Arc<dyn Tool>)> = vec![];
+        let mut ran = vec![false; calls.len()];
         for (i, c) in calls.iter().enumerate() {
             if self.cancelled() {
                 out[i] = Some(ToolOutput::err("cancelado pelo utilizador antes de correr"));
@@ -458,7 +467,30 @@ impl Agent {
                 command: tool.command_preview(&c.input),
             };
             match approve(&pending) {
-                Decision::Allow => runnable.push((i, Arc::clone(tool))),
+                Decision::Allow => {
+                    // hooks pre_tool do projecto: podem bloquear (exit 2)
+                    let blocked = match &self.hooks {
+                        Some(h) => {
+                            let (outcome, notes) = h.pre_tool(&c.name, &c.input);
+                            for text in notes {
+                                events(AgentEvent::Notice { text });
+                            }
+                            match outcome {
+                                crate::hooks::PreOutcome::Block(why) => Some(why),
+                                crate::hooks::PreOutcome::Allow => None,
+                            }
+                        }
+                        None => None,
+                    };
+                    match blocked {
+                        Some(why) => {
+                            out[i] = Some(ToolOutput::err(format!(
+                                "bloqueado por um hook do projecto: {why}"
+                            )));
+                        }
+                        None => runnable.push((i, Arc::clone(tool))),
+                    }
+                }
                 Decision::Deny(why) => {
                     out[i] = Some(ToolOutput::err(format!(
                         "o humano não autorizou esta chamada: {why}"
@@ -530,6 +562,7 @@ impl Agent {
             };
             for ((i, _), r) in group.iter().zip(results) {
                 out[*i] = Some(r);
+                ran[*i] = true;
             }
             k = end;
         }
@@ -537,8 +570,19 @@ impl Agent {
         calls
             .iter()
             .zip(out)
-            .map(|(c, o)| {
-                let o = o.unwrap_or_else(|| ToolOutput::err("não executada"));
+            .zip(ran)
+            .map(|((c, o), ran)| {
+                let mut o = o.unwrap_or_else(|| ToolOutput::err("não executada"));
+                // hooks post_tool do projecto: feedback (exit 2) vai junto do resultado
+                if let (true, Some(h)) = (ran, &self.hooks) {
+                    let (feedback, notes) = h.post_tool(&c.name, &c.input, &o.content, o.is_error);
+                    for text in notes {
+                        events(AgentEvent::Notice { text });
+                    }
+                    if let Some(fb) = feedback {
+                        o.content.push_str(&format!("\n\n[hook do projecto] {fb}"));
+                    }
+                }
                 let content = clip(o.content);
                 events(AgentEvent::ToolResult {
                     id: c.id.clone(),

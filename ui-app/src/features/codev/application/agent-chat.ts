@@ -7,7 +7,8 @@
 
 import type { AgentChatDeps, CardRef, ToolRef } from "./ports";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
-import { ago, callDiff, describeCall, describeSession, outcomeNotice, parseTodos, summarizeResult } from "../domain/agent-events";
+import { ago, callDiff, describeCall, describeSession, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
+import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 
 /** O turno em curso: cartão, segmentos de texto (um por pedido ao modelo), ferramentas. */
@@ -262,21 +263,65 @@ export function makeAgentChat(deps: AgentChatDeps) {
     }
   }
 
+  /** `/comandos`: o que o projecto define para o agente, e confiança nos hooks/MCP. */
+  async function commandsMenu(): Promise<void> {
+    const card = presenter.thinking(deps.speaker());
+    try {
+      const root = deps.workspace.root();
+      const x = await gateway.extensions(root);
+      const lines: string[] = [];
+      lines.push(
+        x.commands.length
+          ? "**Comandos do projecto** (`.dxtutor/commands/`):\n" + x.commands.map((c) => `- \`/${c.name}\` — ${c.description}`).join("\n")
+          : "Sem comandos do projecto — cria `.dxtutor/commands/<nome>.md` (o texto é o pedido; `$ARGUMENTS` recebe o resto da linha).",
+      );
+      if (x.skills.length) lines.push("**Skills** (`.dxtutor/skills/`):\n" + x.skills.map((k) => `- ${k.name} — ${k.description}`).join("\n"));
+      const state = (f: { present: boolean; trusted: boolean }) => (!f.present ? "não definidos" : f.trusted ? "confiados ✓" : "**por confiar**");
+      lines.push(`**Hooks** (\`.dxtutor/hooks.json\`): ${state(x.hooks)}`);
+      lines.push(`**Servidores MCP**: ${x.mcpServers.length ? x.mcpServers.join(", ") : "nenhum"} — os do projecto (\`.dxtutor/mcp.json\`) ${state(x.mcp)}`);
+      lines.push("`/plano <pedido>` · `/reverter` · `/retomar` · `/comandos`");
+      presenter.assistantText(card, lines.join("\n\n"));
+      const pending: Array<{ l: string; v: "hooks" | "mcp" | "" }> = [];
+      if (x.hooks.present && !x.hooks.trusted) pending.push({ l: "Confiar nos hooks do projecto", v: "hooks" });
+      if (x.mcp.present && !x.mcp.trusted) pending.push({ l: "Confiar nos servidores MCP do projecto", v: "mcp" });
+      if (!pending.length) return;
+      presenter.agentNote?.(card, "trust", "Hooks e servidores MCP correm comandos definidos pelo repositório: confia só se conheces o projecto. A confiança deixa de valer se o ficheiro mudar.");
+      const pick = await gate.ask<"hooks" | "mcp" | "">(card.tools, [...pending, { l: "Agora não", v: "" }]).catch(() => "" as const);
+      if (!pick) return;
+      await gateway.trust(root, pick);
+      reset(); // a próxima mensagem abre uma sessão nova, já com eles ligados
+      presenter.agentNote?.(card, "trusted", `${pick === "hooks" ? "Hooks" : "Servidores MCP"} confiados. Valem a partir da próxima mensagem (sessão nova).`);
+    } catch (e: unknown) {
+      presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
+    } finally {
+      presenter.scrollMsgs();
+    }
+  }
+
+  /** Opção 2 do Board: abrir uma issue lança o agente, em modo plano, com o pedido dela. */
+  function story(s: BoardStory): Promise<void> {
+    return plan(storyPrompt(s));
+  }
+
+  function reset(): void {
+    if (session) void gateway.close(session);
+    session = null;
+  }
+
   return {
     available: (): boolean => gateway.available(),
     send,
     resumeMenu,
     plan,
     rewindMenu,
+    commandsMenu,
+    story,
     /** A modebar mudou: vale a partir da próxima decisão da sessão em curso. */
     modeChanged(mode: string): void {
       if (session) void gateway.setMode(session, mode);
     },
     /** Nova conversa: fecha a sessão (o histórico vive no backend). */
-    reset(): void {
-      if (session) void gateway.close(session);
-      session = null;
-    },
+    reset,
   };
 }
 

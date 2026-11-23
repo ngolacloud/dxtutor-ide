@@ -225,6 +225,11 @@ export const codevEngine = {
   /** `/plano <pedido>` e `/reverter` (agente v2). */
   agentPlan: (q: string): Promise<void> | null => (agentChat.available() ? agentChat.plan(q) : null),
   agentRewind: (): Promise<void> | null => (agentChat.available() ? agentChat.rewindMenu() : null),
+  agentCommands: (): Promise<void> | null => (agentChat.available() ? agentChat.commandsMenu() : null),
+  /** Board (opção 2): a issue vai ao agente em modo plano. `null` se o agente v2 não está disponível. */
+  agentStory: (s: { id: string; title: string; type: string; pts: number; note?: string }): Promise<void> | null =>
+    agentChat.available() ? agentChat.story(s) : null,
+  agentAvailable: (): boolean => agentChat.available(),
 };
 
 /* ───── low-level transcript/run-control helpers, shared with board.ts ───── */
