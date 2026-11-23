@@ -160,7 +160,7 @@ referenciam `ui/` nem `ui-next/`.
 | 1 — Build e contratos | `ui:build` na cadeia de `build`; docs coerentes; matriz IPC; 1ªs verificações de arquitectura | Build limpo + contratos de referência verificados | **feito** (ver §9) |
 | 2 — Primeira fatia | 1 feature atravessa UI→adaptador→caso de uso→impl (ex. abrir workspace / board) | Testes do caso de uso + teste integrado | **feito** (ver §10) |
 | 3 — Backend | Extrair responsabilidades de `lib.rs`; portas e erros tipados; composição | APIs/dados/CLI/TUI preservados | **feito** — 1º grupo (`review`) §11; 2º (`code-intel`) §12; 3º (`testes`/execução) §13; 4º (`git`) §14; 5º (`co-dev`) §15; 6º (`pesquisa`) §16; 7º (`agente`) §17; 8º (`assistant`) §18; 9º (`debug`) §19; 10º (`devcontainers`) §20; 11º (`sandbox`/run) §21; 12º (`PairCode`) §22; **13º e último (`estudo`/`missões`) §23 — `lib.rs` fica sem `#[tauri::command]`** |
-| 4 — UI | Estado por proprietário, bootstrap, serviços, fim de globais/substituições, tipagem | Mesmos fluxos, sem dependência da ordem HTML | pendente |
+| 4 — UI | Estado por proprietário, bootstrap, serviços, fim de globais/substituições, tipagem | Mesmos fluxos, sem dependência da ordem HTML | **em curso** — plano em `ADR-0004` (fases U0–U7); U0 (rede de segurança: arranque em browser real + métricas que só descem) feita |
 | 5 — Learning e fronteiras | Conteúdo separado, progresso preservado, políticas e CSP verificadas | Testes específicos + compatibilidade de dados | pendente |
 | 6 — Consolidação | Remoção de shims, CI PR/main, docs finais, revisão do grafo | Critérios de aceitação ou pendências claras | pendente |
 

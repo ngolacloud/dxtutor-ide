@@ -12,3 +12,7 @@ providers.json
 **/providers.json
 .env
 *.env
+
+# Playwright (ui-app/e2e — ADR-0004 U0)
+/test-results/
+/playwright-report/

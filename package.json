@@ -15,7 +15,8 @@
     "lint": "eslint ui-app/src",
     "format": "prettier --write ui-app/src/features/diff/domain ui-app/src/features/router/domain ui-app/src/features/codev/domain/project-commands.ts eslint.config.js",
     "format:check": "prettier --check ui-app/src/features/diff/domain ui-app/src/features/router/domain ui-app/src/features/codev/domain/project-commands.ts eslint.config.js",
-    "arch:check": "bash scripts/arch-check.sh"
+    "arch:check": "bash scripts/arch-check.sh && bash scripts/ui-metrics.sh",
+    "ui:e2e": "playwright test --config ui-app/e2e/playwright.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.62.0",
     "@tauri-apps/cli": "^2",
     "eslint": "^10.15.0",
     "globals": "^16.5.0",

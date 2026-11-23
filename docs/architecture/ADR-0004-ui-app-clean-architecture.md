@@ -22,11 +22,11 @@ golden, os mesmos fluxos, sem dependência da ordem das tags no HTML.
 |---|---|
 | Tags `<script type="module">` no `index.html` | **43**, por ordem de dependência implícita |
 | Monólito restante | `bridge.ts` 78 KB · `app.ts` 64 KB · `pair.ts` 58 KB · `boot.ts` 40 KB · `v6.ts` 22 KB · `v5.ts` 13 KB |
-| `@ts-nocheck` | **7** (`app`, `boot`, `v5`, `v6`, `startup`, `features/infra.ts`, `features/visualizer.ts`) |
-| Globais | 174 nomes atribuídos a `window.X`; 40 `Object.assign(window, …)`; ~210 leituras `window.*` no monólito |
+| `@ts-nocheck` | **8** (`app`, `boot`, `v5`, `v6`, `startup`, `features/infra.ts`, `features/visualizer.ts`, `visualizer/domain/interpreter.ts`) |
+| Globais | 199 atribuições `window.X =`; 40 `Object.assign(window, …)`; ~210 leituras `window.*` no monólito |
 | Substituições em runtime | 31 decorações `const _x = x; x = …` (11 no `bridge.ts`), mais o `bootN`/`v5`/`v6` |
-| Handlers inline | 219 `on*=` no HTML gerado (+25 no `index.html`) contra 164 `data-action` |
-| IPC | 21 comandos ainda por `inv("…")` cru no `bridge.ts`; 19 já por `platform/tauri/` tipado |
+| Handlers inline | 165 atributos ` on*="…"` (HTML gerado + `index.html`) contra 164 `data-action` |
+| IPC | 44 chamadas `inv("…")` cruas (`bridge.ts`/`pair.ts`); 19 comandos já por `platform/tauri/` tipado |
 | CSP | `script-src 'self' 'unsafe-inline'` (precisa dos handlers inline) |
 | Estilos / i18n | `styles.css` monolítico (954 linhas); i18n por correspondência de texto (≈940 pares) |
 | Features já em camadas | `codev`, `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `ext` (+ `panel`, em curso noutra sessão) |
@@ -51,25 +51,26 @@ golden, os mesmos fluxos, sem dependência da ordem das tags no HTML.
 |---|---|---|
 | **U0 — Rede de segurança** | Teste de arranque com Playwright sobre o `dist` (sem erros de página; explorer, editor, Co-Dev, painel, SCM desenhados; screenshots de referência) e o mesmo no CI; métricas novas no `arch-check` (baseline actual, só podem descer) | CI verde com as métricas registadas |
 | **U1 — Um grafo de imports** | `src/main.ts` importa os 43 módulos **pela mesma ordem** (a avaliação de ES modules é em profundidade e pela ordem dos imports — semântica idêntica); `index.html` fica com uma só tag; o harness dos goldens importa o `main.ts` | 1 tag; goldens sem diff; arranque igual |
-| **U2 — Adaptador desktop tipado** | Os 21 `inv("…")` passam a clientes `platform/tauri/*`; o objecto `DXR` e as 11 substituições do `bridge.ts` passam a um `platform/desktop/` com portas injectadas pelo `main.ts` (o modo browser injecta a simulação) | `bridge.ts` sem `inv` cru nem substituições; tipado |
+| **U2 — Adaptador desktop tipado** | As 44 chamadas `inv("…")` passam a clientes `platform/tauri/*`; o objecto `DXR` e as 11 substituições do `bridge.ts` passam a um `platform/desktop/` com portas injectadas pelo `main.ts` (o modo browser injecta a simulação) | `bridge.ts` sem `inv` cru nem substituições; tipado |
 | **U3 — Estado por proprietário + event bus** | `app/store/` com proprietários tipados — workspace (FS, árvore, raiz), editor (tabs, activa), agente (modo, provedor, chat), git, terminal, aprendizagem, colaboração — e um bus de eventos tipado (`files:changed`, `tab:activated`, `mode:changed`…) que substitui os `refresh()`/`badges()` globais | Os 17 globais de estado com dono; consumidores migrados por feature |
 | **U4 — Absorver o monólito** | `boot`/`app`/`v5`/`v6`/`startup` dissolvem-se nas features donas (menus, actividade, painéis, atalhos); as 31 decorações viram composição explícita no `main.ts`; `infra`/`visualizer` tipados | **0 `@ts-nocheck`**; nenhuma decoração em runtime |
-| **U5 — Handlers e CSP** | Os 244 `on*=` inline passam a `data-action` com listener delegado por feature; depois tira-se o `'unsafe-inline'` do `script-src` | 0 `on*=`; CSP sem `unsafe-inline` nos scripts |
+| **U5 — Handlers e CSP** | Os 165 `on*=` inline passam a `data-action` com listener delegado por feature; depois tira-se o `'unsafe-inline'` do `script-src` | 0 `on*=`; CSP sem `unsafe-inline` nos scripts |
 | **U6 — i18n por chaves e CSS por feature** | Textos com chave (`t("codev.composer.placeholder")`) e catálogos `pt-AO`/`en`, com o motor de correspondência como recurso durante a transição; `styles.css` partido em `features/*/styles.css` importados pela feature (tokens globais num `theme.css`) | Sem pares de texto novos; CSS da feature junto da feature |
 | **U7 — Consolidação** | Fim das fachadas window-backed e dos shims `Object.assign(window, …)` restantes; regras finais no `arch-check`; `MIGRATION.md`/`ARCHITECTURE.md` actualizados | Métricas no alvo; docs coerentes |
 
 Ordem e paralelismo: U0 → U1 → (U2 ∥ U3) → U4 → U5 → U6 → U7. U6 (i18n/CSS) não depende
 das outras e pode adiantar-se se for útil.
 
-## 5. Métricas-alvo (arch-check)
+## 5. Métricas-alvo (`scripts/ui-metrics.sh`, corre no `npm run arch:check`)
 
 | Métrica | Hoje | Alvo |
 |---|---|---|
 | `<script>` no `index.html` | 43 | 1 |
-| `@ts-nocheck` | 7 | 0 |
-| `window.X =` fora de adaptadores | 174 | 0 |
-| `on*=` inline | 244 | 0 |
-| `inv("…")` cru | 21 | 0 |
+| `@ts-nocheck` | 8 | 0 |
+| `window.X =` | 199 | 0 (fora de adaptadores) |
+| `Object.assign(window, …)` | 40 | 0 |
+| atributos ` on*="…"` inline | 165 | 0 |
+| `inv("…")` cru | 44 | 0 |
 | `script-src 'unsafe-inline'` | sim | não |
 
 ## 6. Testes
@@ -106,3 +107,18 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
    motor de texto como recurso até ao fim)* ou manter a correspondência de texto.
 3. **CSP (U5):** tirar o `'unsafe-inline'` também do `style-src` *(recomendado: não nesta
    migração — há `style="…"` gerado em muitos sítios; fica para depois)*.
+
+## 10. Notas de execução
+
+- **U0 (2026-11-23).** Teste de arranque em browser real: `ui-app/e2e/boot.e2e.ts`
+  (Playwright 1.62.0, fixado; `npm run ui:e2e` sobre o `dist` servido pelo `vite preview`)
+  — a app arranca sem erros de página nem `console.error`, os globais de que o resto depende
+  existem, cada painel da barra de actividade abre, o painel inferior, a paleta e os
+  popovers do compositor do Co-Dev respondem; screenshot do arranque guardado. No CI corre
+  no job `ui` (relatório e traces como artefacto quando falha). Métricas da migração em
+  `scripts/ui-metrics.sh` (também no `npm run arch:check`), com baseline medido no HEAD
+  `3ea370d` e que só pode descer: 43 tags · 8 `@ts-nocheck` · 199 `window.X =` · 40
+  `Object.assign(window, …)` · 165 handlers inline · 44 `inv("…")` crus. Os números do §2
+  foram corrigidos para estas definições exactas (a primeira medição usou um `grep` com
+  filtro de ficheiros ignorados que escondia o `interpreter.ts`). A feature `panel`, que
+  bloqueava a U1/U2/U4 (decisão §9.1), foi commitada em `3ea370d`.
