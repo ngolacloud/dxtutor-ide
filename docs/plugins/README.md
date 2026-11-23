@@ -277,6 +277,7 @@ evaluator, which must support the course language:
 | Rust | native | `#[test]` functions (`cargo test`) | `cargo` |
 | Go | native | `func TestXxx(t *testing.T)` (`go test`) | `go` |
 | Python | descriptor | `unittest.TestCase` classes. The test file starts with `import unittest` and `from student import *`, so don't import them yourself | `python3` |
+| C++ | descriptor | `TEST(name) { CHECK(…); CHECK_EQ(a, b); }` from a built-in mini framework. The test file `#include`s the student file, so student code has no `main` | `g++` (C++20), `libsqlite3-dev` for SQLite |
 | C | descriptor | a `main` that `assert`s (the test file `#include`s the student file) | `cc` |
 
 A language without a native runner uses a **descriptor**: a small TOML file that says how

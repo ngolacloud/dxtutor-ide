@@ -125,7 +125,22 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
      - `dxt plugin test` dá 170/170 em 3 execuções seguidas.
      - Embutido só no backend (`tutor-core`), sem JSON na UI: no browser fica «Coming soon»,
        no desktop está disponível.
-   - **Faltam:** TypeScript, Java, Kotlin, Swift, C#, C++ e SQL. A receita é a mesma do Python:
+   - **C++ (feito):**
+     - Descritor embutido com um mini-framework de testes no prelúdio (`TEST(nome)`,
+       `CHECK`, `CHECK_EQ`, auto-registo e `main` próprio; nenhuma dependência a instalar).
+       Compila com g++ C++20 e `-pthread`; o `-lsqlite3` só entra quando o código inclui
+       `sqlite3.h`, porque a imagem `gcc:13` do motor de contentores não traz o SQLite.
+     - Curso `courses/cpp/`: 34 unidades e 170 passos, com RAII, smart pointers, move
+       semantics, a API C do SQLite embrulhada em RAII, templates, concepts, threads, atomics
+       e futures. `dxt plugin test` dá 170/170 duas vezes seguidas. Embutido só no backend.
+   - **TypeScript (descritor feito, curso em curso):**
+     - Corre no Node ≥ 22.18 retirando os tipos (`--experimental-transform-types`), sem `tsc`.
+       O ficheiro do aluno é concatenado com um harness (`dxt.test/equal/check/throws`) e os
+       testes. Os diagnósticos usam o `tsc` só se estiver instalado.
+     - O descritor ganhou `host_path_hints` (`~/.nvm/versions/node/*/bin`, Volta, fnm,
+       Homebrew), porque o `node` instalado pelo utilizador fica fora do PATH endurecido do
+       avaliador e do PATH de uma app aberta pelo menu do sistema.
+   - **Faltam:** TypeScript (curso), Java, Kotlin, Swift, C# e SQL. A receita é a mesma do Python:
      um descritor (ou um runner nativo, se o descritor não chegar), um curso escrito por
      grupos e verificado com `dxt plugin test`, e a entrada em `builtin_courses`. Nesta
      máquina há `g++`/`clang++` (C++) e `node` (TypeScript via `tsc`/`tsx`, a instalar).

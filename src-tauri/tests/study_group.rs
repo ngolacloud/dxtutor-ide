@@ -57,29 +57,38 @@ fn grading_an_unknown_target_errors_before_compiling() {
     );
 }
 
-/// O curso Python embutido é avaliado de verdade pelo descritor Python (python3 no host):
-/// o gabarito do 1.º desafio passa, o starter falha. Salta onde não há `python3`.
+/// Os cursos embutidos das linguagens novas são avaliados de verdade pelos seus descritores:
+/// o gabarito do 1.º desafio passa, o starter falha. Salta a linguagem cujo toolchain falte.
 #[test]
-fn python_challenges_are_graded_for_real() {
-    if std::process::Command::new("python3")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
-        return;
+fn new_language_challenges_are_graded_for_real() {
+    for (language, tool) in [("python", "python3"), ("cpp", "g++")] {
+        if std::process::Command::new(tool)
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            continue;
+        }
+        let course = study::course(language).expect("curso embutido");
+        let step = course
+            .units
+            .iter()
+            .flat_map(|u| u.steps.iter())
+            .find(|s| s.gabarito.is_some())
+            .expect("um desafio");
+        let solution = &step.gabarito.as_ref().unwrap().solution;
+        let (good, _) = study::grade_step_in(&step.id, Some(language), solution).unwrap();
+        assert!(
+            good.correctness.passed,
+            "{language}: {}",
+            good.correctness.raw
+        );
+        let (bad, _) = study::grade_step_in(&step.id, Some(language), &step.starter).unwrap();
+        assert!(
+            !bad.correctness.passed,
+            "{language}: o starter não pode passar"
+        );
     }
-    let course = study::course("python").expect("curso Python embutido");
-    let step = course
-        .units
-        .iter()
-        .flat_map(|u| u.steps.iter())
-        .find(|s| s.gabarito.is_some())
-        .expect("um desafio");
-    let solution = &step.gabarito.as_ref().unwrap().solution;
-    let (good, _) = study::grade_step_in(&step.id, Some("python"), solution).unwrap();
-    assert!(good.correctness.passed, "{}", good.correctness.raw);
-    let (bad, _) = study::grade_step_in(&step.id, Some("python"), &step.starter).unwrap();
-    assert!(!bad.correctness.passed);
 }
 
 #[test]

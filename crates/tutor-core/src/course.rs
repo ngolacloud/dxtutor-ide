@@ -262,6 +262,8 @@ const GO_BASICS: &str = include_str!("../../../courses/go/courses/go.toml");
 /// Python: embutido só no BACKEND (o protótipo de browser não traz o JSON, para manter o
 /// bundle pequeno) — no desktop aparece pelo `get_course`, avaliado pelo descritor Python.
 const PYTHON_BASICS: &str = include_str!("../../../courses/python/courses/python.toml");
+/// C++: também só no backend; avaliado pelo descritor C++ (g++ C++20 + mini-harness TEST/CHECK).
+const CPP_BASICS: &str = include_str!("../../../courses/cpp/courses/cpp.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -269,6 +271,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("rust-beginner", RUST_BEGINNER),
         parse("go-basics", GO_BASICS),
         parse("python-basics", PYTHON_BASICS),
+        parse("cpp-basics", CPP_BASICS),
     ]
 }
 
@@ -805,8 +808,20 @@ mod python_tests {
 
     #[test]
     fn python_basics_tem_a_forma_do_curso_oficial() {
-        let c = load_course("python-basics").expect("curso python-basics");
-        assert_eq!(c.language, "python");
+        forma_oficial("python-basics", "python");
+    }
+
+    #[test]
+    fn cpp_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("cpp-basics", "cpp");
+    }
+
+    /// A forma comum dos cursos oficiais escritos na Fase 3: 34 unidades (6 básicas, 15
+    /// intermédias incl. 6 de bases de dados, 13 avançadas), cada uma conceito + 3 drills +
+    /// desafio, com texto de conceitos e gabarito.
+    fn forma_oficial(id: &str, language: &str) {
+        let c = load_course(id).unwrap_or_else(|| panic!("curso {id}"));
+        assert_eq!(c.language, language);
         assert!(c.overview.len() > 500, "overview");
         assert_eq!(c.units.len(), 34);
         for (n, u) in c.units.iter().enumerate() {

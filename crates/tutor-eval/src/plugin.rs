@@ -123,6 +123,10 @@ pub struct LanguagePlugin {
     /// Host binary probed for availability on the host path (e.g. `"cc"`). Optional.
     #[serde(default)]
     pub host_bin: Option<String>,
+    /// Extra directories where `host_bin` may live outside the system `PATH` (`~/` and a `*`
+    /// version segment are expanded, e.g. `"~/.nvm/versions/node/*/bin"`). Optional.
+    #[serde(default)]
+    pub host_path_hints: Vec<String>,
     /// Give the container network access (needed for package managers). Default `false`.
     #[serde(default)]
     pub network: bool,
@@ -189,13 +193,72 @@ impl LanguagePlugin {
     }
 
     /// `true` if this plugin can run on the host right now — i.e. `host_bin` is resolvable on the
-    /// `PATH` (or no `host_bin` was declared). Used by gated tests.
+    /// `PATH` or in one of the `host_path_hints` (or no `host_bin` was declared).
     pub fn host_available(&self) -> bool {
         match &self.host_bin {
             None => true,
-            Some(bin) => bin_on_path(bin),
+            Some(bin) => bin_on_path(bin) || self.hint_dirs().iter().any(|d| d.join(bin).is_file()),
         }
     }
+
+    /// The `host_path_hints` expanded: `~/` → home, and a `*` path segment → the directory with
+    /// the highest version-like name (so `~/.nvm/versions/node/*/bin` picks the newest Node).
+    fn hint_dirs(&self) -> Vec<PathBuf> {
+        self.host_path_hints
+            .iter()
+            .filter_map(|h| expand_hint(h))
+            .filter(|d| d.is_dir())
+            .collect()
+    }
+
+    /// The `PATH` for a host run: the hardened base, plus the hint directories, plus the directory
+    /// where `host_bin` was found on the caller's `PATH` (a toolchain installed in a user location
+    /// — nvm, Volta, Homebrew — must still be reachable after `env_clear`).
+    fn host_path(&self) -> String {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        if let Some(bin) = &self.host_bin {
+            if let Some(found) = find_on_path(bin) {
+                if let Some(parent) = found.parent() {
+                    dirs.push(parent.to_path_buf());
+                }
+            }
+        }
+        dirs.extend(self.hint_dirs());
+        let mut parts: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
+        parts.push("/usr/local/bin:/usr/bin:/bin".to_string());
+        parts.join(":")
+    }
+}
+
+/// Expand one `host_path_hints` entry (see [`LanguagePlugin::hint_dirs`]).
+fn expand_hint(hint: &str) -> Option<PathBuf> {
+    let path = match hint.strip_prefix("~/") {
+        Some(rest) => PathBuf::from(std::env::var_os("HOME")?).join(rest),
+        None => PathBuf::from(hint),
+    };
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        if comp.as_os_str() == "*" {
+            let mut names: Vec<String> = std::fs::read_dir(&out)
+                .ok()?
+                .flatten()
+                .filter(|e| e.path().is_dir())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort_by_key(|n| version_key(n));
+            out.push(names.pop()?);
+        } else {
+            out.push(comp);
+        }
+    }
+    Some(out)
+}
+
+/// `v24.14.1` → `[24, 14, 1]`, so versions compare numerically (`v10` > `v9`).
+fn version_key(name: &str) -> Vec<u64> {
+    name.split(|c: char| !c.is_ascii_digit())
+        .filter_map(|p| p.parse().ok())
+        .collect()
 }
 
 /// Lightweight, UI-facing view of a registered language (for a future language picker).
@@ -274,7 +337,7 @@ impl PluginRunner {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(script).current_dir(dir);
         cmd.env_clear();
-        cmd.env("PATH", "/usr/local/bin:/usr/bin:/bin");
+        cmd.env("PATH", self.plugin.host_path());
         cmd.env("HOME", dir);
         cmd.env("LANG", "C");
         let timeout = self.plugin.host_timeout();
@@ -472,11 +535,212 @@ except SyntaxError as e:
 timeout_secs = 30
 "##;
 
+/// The built-in **C++** descriptor (the official C++ course). There is no test framework to
+/// install: the test prelude ships a tiny one. Hidden tests are written as
+///
+/// ```cpp
+/// TEST(adds_small_numbers) { CHECK_EQ(add(2, 3), 5); CHECK(add(-1, 1) == 0); }
+/// ```
+///
+/// Each `TEST` registers itself at static-initialisation time, and the prelude's `main` runs them
+/// all (an uncaught exception fails that test), prints a summary and exits non-zero on any failure
+/// — or when no test ran. The student file is `#include`d, so challenge code must not define
+/// `main`. Links `-pthread` (threads units), and `-lsqlite3` only when the code includes
+/// `sqlite3.h` (database units: needs the SQLite development files — on the host, or in a
+/// container image that has them; the stock `gcc:13` image does not).
+const BUILTIN_CPP_TOML: &str = r##"
+id = "cpp"
+aliases = ["c++", "cxx"]
+display_name = "C++"
+monaco_id = "cpp"
+extensions = ["cpp", "cc", "cxx", "hpp"]
+image = "gcc:13"
+host_bin = "g++"
+network = false
+
+code_file = "student.cpp"
+test_file = "student_test.cpp"
+test_prelude = '''
+#include "student.cpp"
+#include <exception>
+#include <iostream>
+#include <utility>
+#include <vector>
+namespace dxt {
+inline int failures = 0;
+inline const char* current = "";
+using TestFn = void (*)();
+inline std::vector<std::pair<const char*, TestFn>>& registry() {
+    static std::vector<std::pair<const char*, TestFn>> tests;
+    return tests;
+}
+struct Register {
+    Register(const char* name, TestFn fn) { registry().emplace_back(name, fn); }
+};
+}  // namespace dxt
+#define TEST(name)                                               \
+    static void dxt_test_##name();                               \
+    static dxt::Register dxt_register_##name(#name, dxt_test_##name); \
+    static void dxt_test_##name()
+#define CHECK(cond)                                                                  \
+    do {                                                                             \
+        if (!(cond)) {                                                               \
+            std::cerr << "FAILED " << dxt::current << ": " #cond " (line " << __LINE__ \
+                      << ")\n";                                                      \
+            ++dxt::failures;                                                         \
+        }                                                                            \
+    } while (0)
+#define CHECK_EQ(a, b)                                                                     \
+    do {                                                                                   \
+        const auto& dxt_a = (a);                                                           \
+        const auto& dxt_b = (b);                                                           \
+        if (!(dxt_a == dxt_b)) {                                                           \
+            std::cerr << "FAILED " << dxt::current << ": " #a " == " #b " (line " << __LINE__ \
+                      << ")\n";                                                            \
+            ++dxt::failures;                                                               \
+        }                                                                                  \
+    } while (0)
+int main() {
+    for (auto& [name, fn] : dxt::registry()) {
+        dxt::current = name;
+        try {
+            fn();
+        } catch (const std::exception& e) {
+            std::cerr << "FAILED " << name << ": threw " << e.what() << "\n";
+            ++dxt::failures;
+        } catch (...) {
+            std::cerr << "FAILED " << name << ": threw an exception\n";
+            ++dxt::failures;
+        }
+    }
+    std::cout << dxt::registry().size() << " tests, " << dxt::failures << " failures\n";
+    return (dxt::failures || dxt::registry().empty()) ? 1 : 0;
+}
+'''
+
+run_cmd  = "g++ -std=c++20 -O2 -pthread {file} -o prog $(grep -qs sqlite3.h {file} && echo -lsqlite3) && ./prog"
+test_cmd = "g++ -std=c++20 -O2 -pthread {test_file} -o testbin $(grep -qs sqlite3.h {file} {test_file} && echo -lsqlite3) && ./testbin"
+diag_cmd = "g++ -std=c++20 -fsyntax-only {file}"
+
+timeout_secs = 60
+"##;
+
+/// The built-in **TypeScript** descriptor (the official TypeScript course). Runs on Node.js ≥ 22.18
+/// with its built-in type stripping (`--experimental-transform-types` also covers `enum` and
+/// `namespace`), so grading needs no `tsc`. The student file and the tests are concatenated into
+/// one ES module, after a tiny harness: hidden tests are written as
+///
+/// ```ts
+/// dxt.test("adds small numbers", () => { dxt.equal(add(2, 3), 5); dxt.check(add(-1, 1) === 0); });
+/// ```
+///
+/// (`dxt.equal` is a deep equality that understands arrays, objects, `Map` and `Set`; tests may be
+/// `async`; `dxt.throws(fn)` expects an exception.) Diagnostics use `tsc` only when it is
+/// installed, ignoring the errors that come solely from missing Node type definitions.
+const BUILTIN_TS_TOML: &str = r##"
+id = "typescript"
+aliases = ["ts"]
+display_name = "TypeScript"
+monaco_id = "typescript"
+extensions = ["ts", "mts"]
+image = "node:22-alpine"
+host_bin = "node"
+host_path_hints = ["~/.nvm/versions/node/*/bin", "~/.volta/bin", "~/.local/share/fnm/aliases/default/bin", "/opt/homebrew/bin"]
+network = false
+
+code_file = "student.ts"
+test_file = "student.test.ts"
+test_prelude = '''
+
+// ── dxtutor test harness ───────────────────────────────────────────────────────────────
+const dxt = (() => {
+  type Fn = () => void | Promise<void>;
+  const tests: Array<[string, Fn]> = [];
+  let failures = 0;
+  let current = "";
+  const show = (v: unknown): string => {
+    try {
+      return JSON.stringify(v, (_k, x) => (x instanceof Map ? [...x] : x instanceof Set ? [...x] : x)) ?? String(v);
+    } catch {
+      return String(v);
+    }
+  };
+  const deepEqual = (a: unknown, b: unknown): boolean => {
+    if (Object.is(a, b)) return true;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    if (a instanceof Map && b instanceof Map) {
+      if (a.size !== b.size) return false;
+      for (const [k, v] of a) if (!b.has(k) || !deepEqual(v, b.get(k))) return false;
+      return true;
+    }
+    if (a instanceof Set && b instanceof Set) {
+      if (a.size !== b.size) return false;
+      for (const v of a) if (!b.has(v)) return false;
+      return true;
+    }
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    const ka = Object.keys(a as object);
+    const kb = Object.keys(b as object);
+    if (ka.length !== kb.length) return false;
+    return ka.every((k) => deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+  };
+  const fail = (msg: string) => {
+    failures++;
+    console.error(`FAILED ${current}: ${msg}`);
+  };
+  setTimeout(async () => {
+    for (const [name, fn] of tests) {
+      current = name;
+      try {
+        await fn();
+      } catch (e) {
+        fail(`threw ${e instanceof Error ? e.message : show(e)}`);
+      }
+    }
+    console.log(`${tests.length} tests, ${failures} failures`);
+    (globalThis as unknown as { process: { exitCode: number } }).process.exitCode =
+      failures || tests.length === 0 ? 1 : 0;
+  }, 0);
+  return {
+    test(name: string, fn: Fn) {
+      tests.push([name, fn]);
+    },
+    check(cond: unknown, msg = "check failed") {
+      if (!cond) fail(msg);
+    },
+    equal(actual: unknown, expected: unknown) {
+      if (!deepEqual(actual, expected)) fail(`expected ${show(expected)}, got ${show(actual)}`);
+    },
+    throws(fn: () => unknown, msg = "expected an exception") {
+      try {
+        fn();
+      } catch {
+        return;
+      }
+      fail(msg);
+    },
+  };
+})();
+// ── end of harness ─────────────────────────────────────────────────────────────────────
+'''
+
+run_cmd  = "printf '{\"type\":\"module\"}' > package.json && node --experimental-transform-types --no-warnings {file}"
+test_cmd = "printf '{\"type\":\"module\"}' > package.json && cat {file} {test_file} > run.ts && node --experimental-transform-types --no-warnings run.ts"
+diag_cmd = '''if command -v tsc >/dev/null 2>&1; then tsc --noEmit --pretty false --strict --target es2022 --module nodenext --allowImportingTsExtensions --skipLibCheck {file} | grep -v -e TS2307 -e TS2580 -e TS2591 | sed -E 's/^([^(]+)\(([0-9]+),([0-9]+)\): error (TS[0-9]+): (.*)$/\1:\2:\3: error: \5 (\4)/'; fi'''
+
+timeout_secs = 30
+"##;
+
 /// Parse and return the built-in descriptors. Panics only on a programmer error (a malformed
 /// embedded TOML), which a unit test guards against.
 pub fn builtin_plugins() -> Vec<LanguagePlugin> {
     let mut out = Vec::new();
-    for (name, raw) in [("C", BUILTIN_C_TOML), ("Python", BUILTIN_PYTHON_TOML)] {
+    for (name, raw) in [
+        ("C", BUILTIN_C_TOML),
+        ("Python", BUILTIN_PYTHON_TOML),
+        ("C++", BUILTIN_CPP_TOML),
+        ("TypeScript", BUILTIN_TS_TOML),
+    ] {
         match toml::from_str::<LanguagePlugin>(raw) {
             Ok(p) => out.push(p),
             // Never crash the evaluator over a built-in; a test catches this in CI.
@@ -574,18 +838,19 @@ pub fn available_languages() -> Vec<LanguageInfo> {
 
 /// `true` if `bin` resolves on the `PATH` (absolute path tested directly).
 fn bin_on_path(bin: &str) -> bool {
+    find_on_path(bin).is_some()
+}
+
+/// Where `bin` resolves on the caller's `PATH` (or itself, if absolute and present).
+fn find_on_path(bin: &str) -> Option<PathBuf> {
     let p = Path::new(bin);
     if p.is_absolute() {
-        return p.is_file();
+        return p.is_file().then(|| p.to_path_buf());
     }
-    if let Some(paths) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&paths) {
-            if dir.join(bin).is_file() {
-                return true;
-            }
-        }
-    }
-    false
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths)
+        .map(|dir| dir.join(bin))
+        .find(|f| f.is_file())
 }
 
 #[cfg(test)]
@@ -620,7 +885,11 @@ mod tests {
     #[test]
     fn builtin_c_plugin_parses() {
         let plugins = builtin_plugins();
-        assert_eq!(plugins.len(), 2, "the C and Python built-ins");
+        assert_eq!(
+            plugins.len(),
+            4,
+            "the C, Python, C++ and TypeScript built-ins"
+        );
         let c = &plugins[0];
         assert_eq!(c.id, "c");
         assert!(c.matches("C"));
@@ -675,6 +944,124 @@ mod tests {
         assert!(out.ok && out.stdout.trim() == "hi 42", "{out:?}");
         let d = runner.diagnostics("x = 1\ndef f(:\n    pass\n").unwrap();
         assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    /// Real end-to-end on the host's `g++` (skipped where it is missing): the mini test harness
+    /// passes a correct solution, fails a wrong one, fails a throwing one, fails "no tests", and a
+    /// compile error is reported at its line.
+    #[test]
+    fn cpp_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let cpp = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "cpp")
+            .unwrap();
+        assert!(cpp.matches("c++") && cpp.matches("cpp"));
+        if !cpp.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(cpp);
+        let mut phase = c_add_phase();
+        phase.language = "cpp".into();
+        phase.tests = "TEST(adds) { CHECK_EQ(add(2, 3), 5); CHECK(add(-1, 1) == 0); }\n".into();
+        let ok = runner
+            .check_correctness(&phase, "int add(int a, int b) { return a + b; }\n")
+            .unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+        assert!(ok.raw.contains("1 tests, 0 failures"), "{}", ok.raw);
+        let bad = runner
+            .check_correctness(&phase, "int add(int a, int b) { return a - b; }\n")
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(
+                &phase,
+                "#include <stdexcept>\nint add(int, int) { throw std::logic_error(\"todo\"); }\n",
+            )
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("threw todo"),
+            "{}",
+            throws.raw
+        );
+        phase.tests = String::new();
+        let none = runner
+            .check_correctness(&phase, "int add(int a, int b) { return a + b; }\n")
+            .unwrap();
+        assert!(!none.passed, "no tests must not pass");
+        let out = run_program(
+            "c++",
+            "#include <iostream>\nint main() { std::cout << 6 * 7 << \"\\n\"; }\n",
+            &[],
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner.diagnostics("int f() {\n  return x;\n}\n").unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    /// Real end-to-end on Node.js (found on the PATH or through the nvm/Volta hints; skipped where
+    /// it is missing): async tests, deep equality, `enum`, failure, throw and "no tests".
+    #[test]
+    fn typescript_plugin_grades_and_runs_on_the_host() {
+        let ts = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "typescript")
+            .unwrap();
+        assert!(ts.matches("ts") && !ts.matches("javascript"));
+        if !ts.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(ts);
+        let mut phase = c_add_phase();
+        phase.language = "typescript".into();
+        phase.tests = "dxt.test(\"adds\", async () => {\n  dxt.equal(add(2, 3), 5);\n  dxt.equal(new Map([[\"k\", [1]]]), new Map([[\"k\", [1]]]));\n});\n".into();
+        let good = "enum Op { Plus }\nexport function add(a: number, b: number): number {\n  return Op.Plus === 0 ? a + b : 0;\n}\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("1 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(
+                &phase,
+                "export function add(a: number, b: number): number { return a - b; }\n",
+            )
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(&phase, "export function add(a: number, b: number): number { throw new Error(\"todo\"); }\n")
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("threw todo"),
+            "{}",
+            throws.raw
+        );
+        phase.tests = String::new();
+        assert!(
+            !runner.check_correctness(&phase, good).unwrap().passed,
+            "no tests must not pass"
+        );
+        let out = run_program("ts", "const n: number = 6 * 7;\nconsole.log(n);\n", &[]).unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+    }
+
+    #[test]
+    fn expand_hint_picks_the_newest_version() {
+        let dir = tempfile::tempdir().unwrap();
+        for v in ["v9.1.0", "v10.0.0", "v24.14.1"] {
+            std::fs::create_dir_all(dir.path().join(v).join("bin")).unwrap();
+        }
+        let got = expand_hint(&format!("{}/*/bin", dir.path().display())).unwrap();
+        assert!(got.ends_with("v24.14.1/bin"), "{got:?}");
     }
 
     #[test]
