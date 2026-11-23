@@ -66,9 +66,17 @@ fn plugin_courses() -> Vec<Course> {
 
 /// Todos os cursos: os embutidos primeiro, depois os dos plugins. A instalação recusa ids de
 /// curso/passo repetidos, por isso um plugin nunca faz sombra a um curso embutido.
+///
+/// Um curso de plugin com o MESMO id de um embutido substitui-o: é assim que um plugin oficial
+/// (`dxtutor-courses/rust`) entrega conteúdo mais recente do que o que veio com a app.
 pub fn all_courses() -> Vec<Course> {
-    let mut all = builtin().to_vec();
-    all.extend(plugin_courses());
+    let plugins = plugin_courses();
+    let mut all: Vec<Course> = builtin()
+        .iter()
+        .filter(|b| !plugins.iter().any(|p| p.id == b.id))
+        .cloned()
+        .collect();
+    all.extend(plugins);
     all
 }
 
@@ -220,7 +228,25 @@ pub fn grade_phase(phase_id: &str, code: &str) -> Result<(Assessment, Phase), St
 /// Avalia um passo `challenge`: localiza-o em todas as unidades dos cursos, constrói um
 /// `Phase` a partir dele e reusa o avaliador honesto (`tutor_eval::assess`).
 pub fn grade_step(step_id: &str, code: &str) -> Result<(Assessment, Phase), StudyError> {
+    grade_step_in(step_id, None, code)
+}
+
+/// [`grade_step`] restrito aos cursos de uma linguagem. Rust e Go repetem ids de passo
+/// (`ch1-greet`, `ch3-sign`, …): sem a linguagem, um desafio Go com um desses ids era
+/// avaliado contra o passo Rust (o primeiro curso encontrado).
+pub fn grade_step_in(
+    step_id: &str,
+    language: Option<&str>,
+    code: &str,
+) -> Result<(Assessment, Phase), StudyError> {
+    let wanted = language.map(|l| l.trim().to_ascii_lowercase());
     for course in all_courses() {
+        if wanted
+            .as_deref()
+            .is_some_and(|l| !course.language.eq_ignore_ascii_case(l))
+        {
+            continue;
+        }
         if let Some(step) = course.step(step_id) {
             let phase = step
                 .as_phase(&course.language, Level::Basico)

@@ -58,6 +58,21 @@ fn grading_an_unknown_target_errors_before_compiling() {
 }
 
 #[test]
+fn grading_with_a_language_only_looks_at_that_languages_courses() {
+    // `ch1-greet` existe em Rust E em Go (ids repetidos entre linguagens). Com a linguagem,
+    // a procura fica restrita: numa linguagem sem esse passo, não é encontrado.
+    assert_eq!(
+        study::grade_step_in("ch1-greet", Some("klingon"), "").unwrap_err(),
+        StudyError::StepNotFound("ch1-greet".to_string())
+    );
+    // Um passo conceito do curso Go resolve-se no curso Go (e não é avaliável), sem compilar.
+    assert_eq!(
+        study::grade_step_in("c1-what-is-a-program", Some("go"), "").unwrap_err(),
+        StudyError::NotAChallenge("c1-what-is-a-program".to_string())
+    );
+}
+
+#[test]
 fn step_classification_and_policy_hold_the_contract() {
     // Id desconhecido → autónomo (falha fechada) e linguagem por omissão "rust".
     assert!(study::step_is_autonomous(Some("no-such-step")));

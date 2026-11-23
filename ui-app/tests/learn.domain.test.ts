@@ -114,8 +114,18 @@ describe("casos de uso", () => {
     expect(gw.installed).toEqual(["dxtutor-courses/kotlin@v1"]);
   });
 
-  test("gradeStep delega no backend e não simula no browser", async () => {
-    expect((await gradeStep(fakeGateway(), "k-x1", "code")).passed).toBe(true);
-    await expect(gradeStep(fakeGateway({ available: () => false }), "k-x1", "code")).rejects.toThrow(/desktop/);
+  test("loadCatalog: um plugin da linguagem substitui o curso embutido", async () => {
+    const rustPlugin: PluginRow = { ...kotlinPlugin, id: "rust", language: { id: "rust", name: "Rust", icon: "🦀", extension: "rs", indent: "    " } };
+    const embedded = { rust: { ...course("rust"), origin: "embedded" as const } };
+    const st = await loadCatalog(fakeGateway({ listPlugins: async () => [rustPlugin] }), embedded);
+    expect(st.courses.rust.origin).toBe("backend");
+  });
+
+  test("gradeStep delega no backend com a linguagem e não simula no browser", async () => {
+    const seen: string[] = [];
+    const gw = fakeGateway({ submitStep: async (id, _c, lang) => { seen.push(`${lang}:${id}`); return { passed: true, summary: "", raw: "", gabarito: null }; } });
+    expect((await gradeStep(gw, "ch1-greet", "code", "go")).passed).toBe(true);
+    expect(seen).toEqual(["go:ch1-greet"]);
+    await expect(gradeStep(fakeGateway({ available: () => false }), "k-x1", "code", "kotlin")).rejects.toThrow(/desktop/);
   });
 });

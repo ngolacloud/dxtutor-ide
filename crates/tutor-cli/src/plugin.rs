@@ -63,6 +63,9 @@ fn install(args: &[String]) -> Result<()> {
     let out = store
         .install(&source, HOST_VERSION, &tutor_core::builtin_courses())
         .map_err(|e| anyhow!(e))?;
+    for n in &out.notes {
+        println!("  note: {n}");
+    }
     for w in &out.warnings {
         println!("  warning: {w}");
     }
@@ -120,7 +123,10 @@ fn validate(args: &[String]) -> Result<()> {
     // Só os cursos embutidos ocupam ids aqui: o registo local de quem valida não interessa
     // ao CI de um repositório de cursos.
     let builtin = tutor_core::builtin_courses();
-    let report = validate_dir(Path::new(dir), HOST_VERSION, &Taken::from_courses(&builtin));
+    let report = validate_dir(Path::new(dir), HOST_VERSION, &Taken::builtin(&builtin));
+    for n in &report.notes {
+        println!("note:    {n}");
+    }
     for w in &report.warnings {
         println!("warning: {w}");
     }

@@ -153,11 +153,18 @@ pub fn study_policy(mode: String, step_id: Option<String>) -> StudyPolicy {
 }
 
 /// Grade a `challenge` step: find it across the courses' units, build a `Phase`
-/// from it and reuse the honest evaluator (`tutor_eval::assess`).
+/// from it and reuse the honest evaluator (`tutor_eval::assess`). `language` (optional,
+/// backwards compatible) narrows the search to that language's courses: step ids repeat
+/// across languages.
 #[tauri::command]
-pub async fn submit_step(step_id: String, code: String) -> Result<AssessmentDto, String> {
+pub async fn submit_step(
+    step_id: String,
+    code: String,
+    language: Option<String>,
+) -> Result<AssessmentDto, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<AssessmentDto, String> {
-        let (assessment, phase) = study::grade_step(&step_id, &code).map_err(|e| e.to_string())?;
+        let (assessment, phase) = study::grade_step_in(&step_id, language.as_deref(), &code)
+            .map_err(|e| e.to_string())?;
         Ok(assessment_dto(&assessment, &phase))
     })
     .await

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "go",
+  "name": "Go",
+  "version": "1.0.0",
+  "description": "Go: From Zero to Backend — from your first line of code to interfaces, errors, databases, concurrency and data structures.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/dxtutor-courses/go",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "language": {
+    "id": "go",
+    "name": "Go",
+    "icon": "💪",
+    "extension": "go",
+    "indent": "tab",
+    "testCommand": "go test"
+  },
+  "courses": ["courses/go.toml"]
+}

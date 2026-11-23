@@ -130,7 +130,7 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 |---|---|---|---|---|---|---|
 | `list_phases` | — | `ProjectDto` | String | — | — | R |
 | `submit` | `phase_id: String`, `code: String` | `AssessmentDto` | String | — | — | R |
-| `submit_step` | `step_id: String`, `code: String` | `AssessmentDto` | String | — | `platform/tauri/learn.ts` | R |
+| `submit_step` | `step_id: String`, `code: String`, `language: Option<String>` (procura só nos cursos dessa linguagem: Rust e Go repetem ids de passo) | `AssessmentDto` | String | — | `platform/tauri/learn.ts` | R |
 | `request_hint` | `phase_id: String`, `code: String`, `level: u8` | `HintDto` | String | — | — | R |
 | `request_plan` | `phase_id: String`, `comment: String`, `code: String` | `PlanDto` | String | — | — | R |
 | `request_fix` | `phase_id: String`, `code: String`, `line: u32`, `message: String` | `String` | String | — | — | R |

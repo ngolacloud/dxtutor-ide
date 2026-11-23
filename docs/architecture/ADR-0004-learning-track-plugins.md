@@ -1,6 +1,6 @@
 # ADR-0004 — Learning Track em plugins de curso (10 linguagens, texto de conceitos, VS Code)
 
-- **Estado:** aceite; Fase 1 implementada (branch `feat/learning-plugins`)
+- **Estado:** aceite; Fases 1 e 2 implementadas (branch `feat/learning-plugins`)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0002` (Clean Architecture das features), `IPC-MATRIX.md` §10d,
@@ -88,9 +88,23 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
 
 1. **Formato + loader + CLI + docs.** Feito: tutor-core, tutor-plugins, `dxt plugin`, 3
    comandos Tauri, UI, guia de autoria, template.
-2. **Rust/Go como plugins oficiais.** Publicar `dxtutor-courses/rust` e `dxtutor-courses/go` a
-   partir dos TOML do tutor-core, escrever o `concepts` de cada unidade e o `overview` de cada
-   curso. Os embutidos ficam como fallback do browser.
+2. **Rust/Go como plugins oficiais.** Feito (falta publicar nos repositórios):
+   - A fonte única passa a ser `courses/<id>/` (plugin completo). O `tutor-core` embute esse TOML
+     (`include_str!`). O JSON da UI é gerado por `scripts/sync-ui-courses.py`, e o teste
+     `tutor-core/tests/ui_json.rs` falha se divergirem. Os TOML antigos em
+     `crates/tutor-core/content/` saíram.
+   - Há `concepts` em todas as 58 unidades (cerca de 30 mil palavras) e `overview` nos dois
+     cursos. Os exemplos foram compilados (Rust com `rustc`, Go com `go vet`/`gofmt`).
+   - Um plugin com o MESMO id de curso de um embutido substitui-o (`study::all_courses`; a UI
+     prefere o backend quando um plugin traz a linguagem). A validação regista-o como *nota*,
+     que não reprova o `--strict`.
+   - Bug que já existia, corrigido: Rust e Go repetem 21 ids de passo (`ch1-greet`, `ch3-sign`,
+     …), e `grade_step` avaliava um desafio Go contra o passo Rust. Agora `submit_step` aceita
+     `language` (opcional) e procura só nos cursos dessa linguagem. A unicidade de ids de passo
+     na validação passou a ser por linguagem. **Não corrigido:** `request_hint`/`study_policy`
+     resolvem o passo só pelo id (`course_step`) e têm a mesma ambiguidade.
+   - Publicação: `scripts/publish-course.sh <id>` faz `git subtree split` de `courses/<id>` e
+     push para `dxtutor-courses/<id>` com a tag `v<versão>`.
 3. **As 8 linguagens novas**, como cursos completos (paridade com Rust/Go), uma por sessão. Cada
    linguagem precisa do seu avaliador em `tutor_eval` (compilar/correr os testes ocultos) e do
    toolchain disponível, de preferência num dev-container.

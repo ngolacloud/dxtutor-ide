@@ -297,6 +297,13 @@ ADR-0004. Os cursos de linguagem são **plugins** (dados, não código): um repo
 (`learn/domain/catalog.ts`): rust, go, python, typescript, java, kotlin, swift, csharp,
 cpp, sql.
 
+- **Fonte única dos cursos Rust/Go: `courses/<id>/`** (plugin oficial completo, publicado em
+  `dxtutor-courses/<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
+  da UI (`ui-app/src/content/courses/*.json`) é **gerado**: editar só o TOML e correr
+  `python3 scripts/sync-ui-courses.py`. O teste `crates/tutor-core/tests/ui_json.rs` falha se
+  divergirem.
+- A avaliação procura o passo por **(linguagem, id)** (`submit_step` com `language`), porque Rust e
+  Go repetem ids de passo. Um plugin com o mesmo id de curso de um embutido substitui-o.
 - `crates/tutor-plugins` — manifesto, validação, origem, instalação e registo. É partilhado
   pelos comandos Tauri `plugin_*` (`commands/plugins.rs`) e pelo `dxt plugin …` (tutor-cli).
 - `src-tauri/src/study.rs::all_courses()` — fonte única de cursos (embutidos + plugins, em

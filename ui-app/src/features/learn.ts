@@ -178,7 +178,7 @@ function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:an
   else if(s.kind==='drill'&&!ltDone(s.id)){const d=drillState(s);toast(`${d.n} of ${d.T.length} lines match — keep typing`);ltRes();return;}
   else if(s.kind==='challenge'&&!ltDone(s.id)&&course().origin==='backend'){if(LT_GRADING)return;const code=FS[ltPath(s)].content;
     LT_GRADING=true;LT_SUB=null;LT_GRADE=null;ltRes();
-    gradeStep(tauriCourseGateway,s.id,code).then(g=>{LT_GRADE={...g,step:s.id};if(g.passed){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}})
+    gradeStep(tauriCourseGateway,s.id,code,LTS.lang!).then(g=>{LT_GRADE={...g,step:s.id};if(g.passed){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}})
       .catch(e=>{LT_SUB={ok:false,why:esc(msg(e))};}).finally(()=>{LT_GRADING=false;ltRes();});return;}
   else if(s.kind==='challenge'&&!ltDone(s.id)){const c=FS[ltPath(s)].content,same=c.trim()===s.starter.trim(),todo=/todo!\(|unimplemented!\(|panic\("(TODO|todo|not implemented)|\/\/\s*TODO/.test(c),has=!s.entry||c.includes(s.entry);
     LT_SUB={ok:!same&&!todo&&has,why:same?'The file still equals the starter. Write your implementation first.':todo?'The implementation still has a TODO placeholder.':`The function <code>${esc(s.entry||'')}</code> is missing.`};if(LT_SUB.ok){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}ltRes();return;}

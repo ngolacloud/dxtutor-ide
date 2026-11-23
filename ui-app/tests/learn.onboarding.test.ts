@@ -46,23 +46,45 @@ describe("selector de linguagens", () => {
   });
 });
 
-describe("leitura dos conceitos do tópico", () => {
-  it("abre sozinha no 1.º passo da unidade e fecha/abre pelo botão", () => {
+describe("leitura: apresentação do curso e conceitos do tópico", () => {
+  function openStep(id: string, title: string): HTMLElement {
+    w.ltOpen(id);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    w.renderLtView({ id: "lt", title, path: w.ltPath(w.ltFind(id).s) }, host);
+    return host;
+  }
+  const card = (key: string) => document.querySelector<HTMLButtonElement>(`#lt-res [data-action="lt-read"][data-on="${key}"]`)?.closest(".lt-read") ?? null;
+
+  it("todas as unidades embutidas (Rust e Go) trazem texto de conceitos, e cada curso a sua apresentação", () => {
+    for (const lang of ["rust", "go"]) {
+      w.LTS.lang = lang;
+      expect(w.course().overview.length, `${lang}.overview`).toBeGreaterThan(500);
+      for (const u of w.course().units) expect(u.concepts.length, `${lang}:${u.id}`).toBeGreaterThan(1000);
+    }
+  });
+
+  it("no 1.º passo do curso abrem a apresentação e os conceitos; o botão fecha/abre", () => {
     w.LTS.lang = "rust";
     w.LTS.levels = ["basic"];
     const unit = w.course().units[0];
-    const first = unit.steps[0];
-    unit.concepts = "## Variables\n\nA variable names a value.";
-    w.ltOpen(first.id);
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    w.renderLtView({ id: "lt", title: `${first.id}.rs`, path: w.ltPath(first) }, host);
-    const read = () => document.querySelector("#lt-res .lt-read");
-    expect(read()!.textContent).toMatch(/Concepts: /);
-    expect(read()!.querySelector(".lt-read-b")!.innerHTML).toMatch(/A variable names a value/);
-    document.querySelector<HTMLButtonElement>('#lt-res [data-action="lt-read"]')!.click();
-    expect(read()!.querySelector(".lt-read-b")).toBeNull();
+    const host = openStep(unit.steps[0].id, `${unit.steps[0].id}.rs`);
+    expect(card("__overview")!.textContent).toMatch(/About Rust/);
+    expect(card(unit.id)!.textContent).toMatch(/Concepts: /);
+    expect(card(unit.id)!.querySelector(".lt-read-b")).not.toBeNull();
+    card(unit.id)!.querySelector<HTMLButtonElement>("[data-action]")!.click();
+    expect(card(unit.id)!.querySelector(".lt-read-b")).toBeNull();
     host.remove();
-    unit.concepts = "";
+  });
+
+  it("num passo seguinte a apresentação já não aparece e os conceitos ficam fechados", () => {
+    w.LTS.lang = "rust";
+    w.LTS.levels = ["basic"];
+    const unit = w.course().units[0];
+    w.LTS.done[`rust:${unit.steps[0].id}`] = 1;
+    const host = openStep(unit.steps[1].id, `${unit.steps[1].id}.rs`);
+    expect(card("__overview")).toBeNull();
+    expect(card(unit.id)!.querySelector(".lt-read-b")).toBeNull();
+    host.remove();
   });
 });

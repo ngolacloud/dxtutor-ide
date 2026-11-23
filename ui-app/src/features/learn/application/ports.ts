@@ -30,6 +30,6 @@ export interface CourseGateway {
   /** Linguagens com curso no backend (embutidas no binário + plugins). */
   courseLanguages(): Promise<string[]>;
   getCourse(language: string): Promise<Course>;
-  /** Avaliação honesta de um desafio pelos testes ocultos (backend). */
-  submitStep(stepId: string, code: string): Promise<Grade>;
+  /** Avaliação honesta de um desafio pelos testes ocultos (backend), nos cursos de `language`. */
+  submitStep(stepId: string, code: string, language: string): Promise<Grade>;
 }

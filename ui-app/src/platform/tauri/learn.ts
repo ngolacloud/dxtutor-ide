@@ -52,6 +52,8 @@ export interface InstallOutcome {
   courseIds: string[];
   replaced: string | null;
   warnings: string[];
+  /** Informação, não defeitos (ex.: o plugin substitui o curso embutido com o mesmo id). */
+  notes: string[];
 }
 
 export interface CourseSummaryDto {
@@ -115,4 +117,4 @@ export const pluginInstall = (source: string): Promise<InstallOutcome> => invoke
 export const pluginRemove = (id: string): Promise<string> => invoke<string>("plugin_remove", { id });
 export const listCourses = (): Promise<CourseSummaryDto[]> => invoke<CourseSummaryDto[]>("list_courses");
 export const getCourse = (language: string): Promise<CourseDto> => invoke<CourseDto>("get_course", { language });
-export const submitStep = (stepId: string, code: string): Promise<StepAssessment> => invoke<StepAssessment>("submit_step", { stepId, code });
+export const submitStep = (stepId: string, code: string, language: string): Promise<StepAssessment> => invoke<StepAssessment>("submit_step", { stepId, code, language });

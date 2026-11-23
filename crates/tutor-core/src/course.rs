@@ -255,8 +255,10 @@ fn default_placeholder_policy() -> String {
     "shown".to_string()
 }
 
-const RUST_BEGINNER: &str = include_str!("../content/rust-beginner.toml");
-const GO_BASICS: &str = include_str!("../content/go-basics.toml");
+// Os cursos embutidos são os plugins oficiais (courses/<id>/), a mesma fonte publicada em
+// github.com/dxtutor-courses/<id> — ver courses/README.md.
+const RUST_BEGINNER: &str = include_str!("../../../courses/rust/courses/rust.toml");
+const GO_BASICS: &str = include_str!("../../../courses/go/courses/go.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {

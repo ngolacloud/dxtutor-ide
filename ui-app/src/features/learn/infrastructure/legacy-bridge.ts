@@ -16,8 +16,8 @@ export const tauriCourseGateway: CourseGateway = {
   remove: async (id) => { await ipc.pluginRemove(id); },
   courseLanguages: async () => [...new Set((await ipc.listCourses()).map(c => c.language))],
   getCourse: async (language) => fromCourseDto(await ipc.getCourse(language)),
-  submitStep: async (stepId, code) => {
-    const a = await ipc.submitStep(stepId, code);
+  submitStep: async (stepId, code, language) => {
+    const a = await ipc.submitStep(stepId, code, language);
     return { passed: a.correctness.passed, summary: a.correctness.summary, raw: a.correctness.raw, gabarito: a.gabarito };
   },
 };

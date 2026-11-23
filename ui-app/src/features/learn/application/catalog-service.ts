@@ -12,9 +12,10 @@ export interface CatalogState {
 }
 
 /**
- * Junta os cursos embutidos aos do backend. Os embutidos ganham quando há os dois para a
- * mesma linguagem: é o comportamento actual de Rust/Go (o protótipo traz os testes e simula
- * a avaliação), e não muda nesta fase.
+ * Junta os cursos embutidos aos do backend. Para uma linguagem com os dois, o embutido ganha
+ * (o comportamento de sempre de Rust/Go: o protótipo traz os testes e simula a avaliação),
+ * EXCEPTO quando um plugin instalado traz essa linguagem: aí o plugin é conteúdo mais recente
+ * (ex. `dxtutor-courses/rust` substitui o curso Rust embutido) e o backend serve-o.
  */
 export async function loadCatalog(gw: CourseGateway, embedded: Readonly<Record<string, Course>>): Promise<CatalogState> {
   const courses: Record<string, Course> = { ...embedded };
@@ -24,8 +25,9 @@ export async function loadCatalog(gw: CourseGateway, embedded: Readonly<Record<s
     gw.listPlugins().catch((e: unknown) => { problems.push(`plugins: ${msg(e)}`); return [] as PluginRow[]; }),
     gw.courseLanguages().catch((e: unknown) => { problems.push(`courses: ${msg(e)}`); return [] as string[]; }),
   ]);
+  const fromPlugin = new Set(plugins.flatMap(p => (p.language && !p.error ? [p.language.id] : [])));
   for (const lang of langs) {
-    if (courses[lang]) continue;
+    if (courses[lang] && !fromPlugin.has(lang)) continue;
     try {
       courses[lang] = await gw.getCourse(lang);
     } catch (e) {
@@ -48,9 +50,9 @@ export async function removePlugin(gw: CourseGateway, id: string): Promise<void>
   await gw.remove(id);
 }
 
-export async function gradeStep(gw: CourseGateway, stepId: string, code: string): Promise<Grade> {
+export async function gradeStep(gw: CourseGateway, stepId: string, code: string, language: string): Promise<Grade> {
   if (!gw.available()) throw new Error("Grading runs in the desktop app.");
-  return gw.submitStep(stepId, code);
+  return gw.submitStep(stepId, code, language);
 }
 
 export function msg(e: unknown): string {

@@ -68,6 +68,8 @@ pub struct Outcome {
     /// Versão anterior, quando a instalação substituiu um plugin com o mesmo id.
     pub replaced: Option<String>,
     pub warnings: Vec<String>,
+    /// Informação (ex.: «substitui o curso embutido»), não defeitos de conteúdo.
+    pub notes: Vec<String>,
 }
 
 pub struct Store {
@@ -242,7 +244,7 @@ impl Store {
             .filter(|(m, _)| Some(&m.id) != incoming_id.as_ref())
             .map(|(_, c)| c)
             .collect();
-        let taken = Taken::from_courses(builtin.iter().chain(others.iter()));
+        let taken = Taken::new(builtin, &others);
 
         let report = validate_dir(staging, host_version, &taken);
         if !report.ok() {
@@ -297,6 +299,7 @@ impl Store {
             course_ids: report.courses.iter().map(|c| c.id.clone()).collect(),
             replaced,
             warnings: report.warnings,
+            notes: report.notes,
         })
     }
 }
@@ -559,12 +562,14 @@ body = "Hi"
     fn recusa_plugin_invalido_e_ids_repetidos_sem_deixar_lixo() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::at(tmp.path().join("plugins"));
-        let builtin = Course::parse(COURSE, CourseFormat::Toml).unwrap();
+        // Outro curso embutido da MESMA linguagem com um passo de id igual: recusado.
+        let other = COURSE.replace("id = \"py-basics\"", "id = \"py-other\"");
+        let builtin = Course::parse(&other, CourseFormat::Toml).unwrap();
         let src = plugin_dir(tmp.path(), "0.1.0");
         let err = store
             .install(&Source::LocalDir(src.clone()), "0.7.0", &[builtin])
             .unwrap_err();
-        assert!(err.contains("already used"), "{err}");
+        assert!(err.contains("step ids already used"), "{err}");
         let err = store
             .install(&Source::LocalDir(src), "0.0.1", &[])
             .unwrap_err();
@@ -575,6 +580,44 @@ body = "Hi"
             .map(|e| e.file_name())
             .collect();
         assert!(leftovers.is_empty(), "sobrou {leftovers:?}");
+    }
+
+    #[test]
+    fn substitui_o_embutido_com_o_mesmo_id_e_aceita_ids_de_outra_linguagem() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::at(tmp.path().join("plugins"));
+        let same = Course::parse(COURSE, CourseFormat::Toml).unwrap();
+        let go = Course::parse(
+            &COURSE
+                .replace("id = \"py-basics\"", "id = \"go-basics\"")
+                .replace("language = \"python\"", "language = \"go\""),
+            CourseFormat::Toml,
+        )
+        .unwrap();
+        let src = plugin_dir(tmp.path(), "1.0.0");
+        let out = store
+            .install(&Source::LocalDir(src), "0.7.0", &[same, go])
+            .unwrap();
+        assert!(
+            out.notes
+                .iter()
+                .any(|w| w.contains("replaces the built-in")),
+            "{:?}",
+            out.warnings
+        );
+        // Outro plugin não pode reutilizar o id de curso de um plugin instalado.
+        let dup = tmp.path().join("dup");
+        std::fs::create_dir_all(dup.join("courses")).unwrap();
+        std::fs::write(
+            dup.join(MANIFEST_FILE),
+            manifest("1.0.0").replace("\"id\":\"python\"", "\"id\":\"python-fork\""),
+        )
+        .unwrap();
+        std::fs::write(dup.join("courses/python.toml"), COURSE).unwrap();
+        let err = store
+            .install(&Source::LocalDir(dup), "0.7.0", &[])
+            .unwrap_err();
+        assert!(err.contains("another installed plugin"), "{err}");
     }
 
     #[test]

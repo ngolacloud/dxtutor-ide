@@ -20,6 +20,9 @@ pub struct Report {
     pub courses: Vec<Course>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
+    /// Informação que não é defeito (ex.: o plugin substitui um curso embutido). Não reprova
+    /// o `--strict`.
+    pub notes: Vec<String>,
 }
 
 impl Report {
@@ -28,27 +31,98 @@ impl Report {
     }
 }
 
-/// Ids já ocupados por cursos que não pertencem a este plugin (os embutidos e os de
-/// outros plugins instalados). Um passo com o mesmo id tornaria a avaliação ambígua,
-/// porque o backend procura o passo pelo id.
+/// Um curso que já existe fora deste plugin, resumido ao que a validação compara.
+#[derive(Debug, Clone)]
+pub struct Existing {
+    pub id: String,
+    pub language: String,
+    pub step_ids: HashSet<String>,
+    /// Embutido na app (pode ser SUBSTITUÍDO por um plugin com o mesmo id de curso) ou de
+    /// outro plugin instalado (nunca).
+    pub builtin: bool,
+}
+
+/// Os cursos que já existem fora do plugin a validar.
+///
+/// Regras: (1) um curso de plugin com o id de um curso EMBUTIDO substitui-o (é como um plugin
+/// oficial actualiza o conteúdo que veio com a app), desde que seja da mesma linguagem;
+/// (2) o id de um curso de OUTRO plugin não pode ser reutilizado; (3) os ids de passo têm de
+/// ser únicos entre cursos da MESMA linguagem, porque a avaliação procura o passo por
+/// (linguagem, id). Linguagens diferentes podem repetir ids (Rust e Go já o fazem).
 #[derive(Debug, Clone, Default)]
 pub struct Taken {
-    pub course_ids: HashSet<String>,
-    pub step_ids: HashSet<String>,
+    pub courses: Vec<Existing>,
 }
 
 impl Taken {
-    pub fn from_courses<'a>(courses: impl IntoIterator<Item = &'a Course>) -> Taken {
-        let mut t = Taken::default();
-        for c in courses {
-            t.course_ids.insert(c.id.clone());
-            for u in &c.units {
-                for s in &u.steps {
-                    t.step_ids.insert(s.id.clone());
-                }
+    pub fn new<'a>(
+        builtin: impl IntoIterator<Item = &'a Course>,
+        others: impl IntoIterator<Item = &'a Course>,
+    ) -> Taken {
+        let summary = |c: &Course, builtin: bool| Existing {
+            id: c.id.clone(),
+            language: c.language.clone(),
+            step_ids: c
+                .units
+                .iter()
+                .flat_map(|u| u.steps.iter().map(|s| s.id.clone()))
+                .collect(),
+            builtin,
+        };
+        let mut courses: Vec<Existing> = builtin.into_iter().map(|c| summary(c, true)).collect();
+        courses.extend(others.into_iter().map(|c| summary(c, false)));
+        Taken { courses }
+    }
+
+    /// Só cursos embutidos (o caso do `dxt plugin validate` num repositório de cursos).
+    pub fn builtin<'a>(courses: impl IntoIterator<Item = &'a Course>) -> Taken {
+        Taken::new(courses, [])
+    }
+}
+
+/// Aplica as regras de [`Taken`] aos cursos do plugin.
+fn check_taken(courses: &[Course], taken: &Taken, r: &mut Report) {
+    let mine: HashSet<&str> = courses.iter().map(|c| c.id.as_str()).collect();
+    for c in courses {
+        for ex in taken.courses.iter().filter(|ex| ex.id == c.id) {
+            if !ex.builtin {
+                r.errors.push(format!(
+                    "course `{}`: id is already used by another installed plugin",
+                    c.id
+                ));
+            } else if ex.language != c.language {
+                r.errors.push(format!(
+                    "course `{}`: a built-in course with this id teaches `{}`, not `{}`",
+                    c.id, ex.language, c.language
+                ));
+            } else {
+                r.notes.push(format!(
+                    "course `{}` replaces the built-in course with the same id",
+                    c.id
+                ));
             }
         }
-        t
+        let steps = c.units.iter().flat_map(|u| &u.steps);
+        for ex in taken
+            .courses
+            .iter()
+            .filter(|ex| ex.language == c.language && !mine.contains(ex.id.as_str()))
+        {
+            let clash: Vec<&str> = steps
+                .clone()
+                .filter(|s| ex.step_ids.contains(&s.id))
+                .map(|s| s.id.as_str())
+                .collect();
+            if !clash.is_empty() {
+                r.errors.push(format!(
+                    "course `{}`: step ids already used by the installed {} course `{}`: {}",
+                    c.id,
+                    c.language,
+                    ex.id,
+                    clash.join(", ")
+                ));
+            }
+        }
     }
 }
 
@@ -100,13 +174,15 @@ pub fn validate_dir(dir: &Path, host_version: &str, taken: &Taken) -> Report {
             rel,
             &course,
             &manifest,
-            taken,
             &mut course_ids,
             &mut step_ids,
             &mut r,
         );
         r.courses.push(course);
     }
+    let courses = std::mem::take(&mut r.courses);
+    check_taken(&courses, taken, &mut r);
+    r.courses = courses;
     r.manifest = Some(manifest);
     r
 }
@@ -115,7 +191,6 @@ fn check_course(
     rel: &str,
     c: &Course,
     m: &Manifest,
-    taken: &Taken,
     course_ids: &mut HashSet<String>,
     step_ids: &mut HashSet<String>,
     r: &mut Report,
@@ -136,15 +211,6 @@ fn check_course(
         e(
             r,
             format!("course id `{}` is repeated in this plugin", c.id),
-        );
-    }
-    if taken.course_ids.contains(&c.id) {
-        e(
-            r,
-            format!(
-                "course id `{}` is already used by another installed course",
-                c.id
-            ),
         );
     }
     if c.title.trim().is_empty() {
@@ -183,12 +249,6 @@ fn check_course(
             let at = format!("step `{}`", s.id);
             if !step_ids.insert(s.id.clone()) {
                 e(r, format!("{at}: id is repeated in this plugin"));
-            }
-            if taken.step_ids.contains(&s.id) {
-                e(
-                    r,
-                    format!("{at}: id is already used by another installed course"),
-                );
             }
             if s.title.trim().is_empty() {
                 e(r, format!("{at}: title is empty"));
