@@ -51,6 +51,7 @@ export const monolith = {
   get activeProvider(): string { return window.ACTIVE; },
   set activeProvider(v: string) { window.ACTIVE = v; },
   get contextEnabled(): boolean { return window.CTX_ON; },
+  set contextEnabled(v: boolean) { window.CTX_ON = v; },
   get theme(): string { return window.THEME; },
   get activeAgent(): string { return window.AGENT; },
   set author(v: string) { window.AUTHOR = v; },
@@ -91,6 +92,28 @@ export const reloadDisk = (): Promise<void> =>
   G.DXR && typeof G.DXR.reloadDisk === "function" ? G.DXR.reloadDisk() : Promise.resolve();
 /** Harness v2 do Co-Dev (agente Rust). O antigo fica atrás desta flag até a v2 ser
  *  validada: `localStorage["dx2.codevLegacy"] = "true"` volta ao harness antigo. */
+/** O esforço escolhido no compositor (por omissão `high`); só vai ao Claude. */
+export const effort = (): string => {
+  try {
+    return localStorage.getItem("dx2.effort") ?? "high";
+  } catch {
+    return "high";
+  }
+};
+export const setEffort = (v: string): void => {
+  try {
+    localStorage.setItem("dx2.effort", v);
+  } catch {
+    /* armazenamento indisponível: vale só nesta execução do compositor */
+  }
+};
+
+/** O reconhecimento de voz do motor web (Chromium/Safari; o WebKitGTK não o tem). */
+export const speechRecognition = (): unknown => {
+  const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+};
+
 export const agentV2Enabled = (): boolean => {
   try {
     return localStorage.getItem("dx2.codevLegacy") !== "true";

@@ -219,6 +219,8 @@ export interface MissionPresenter {
   scrollMsgs(): void;
   userMessage(text: string): void;
   isRunning(): boolean;
+  /** Um sub-agente (`task`) arrancou ou terminou — o chip «agentes» do compositor. */
+  subagent?(id: string, label: string, state: "running" | "done" | "error"): void;
   beginRun(label: string): void;
   endRun(): void;
   setMissionContext(m: Mission | null): void;
@@ -370,6 +372,8 @@ export interface AgentChatDeps {
   reloadFromDisk(): Promise<void>;
   /** O provedor activo (o seletor de modelo da conversa). */
   provider(): string;
+  /** O esforço escolhido no compositor (só o Claude o usa). Por omissão `high`. */
+  effort?(): string;
   model(): string;
   mode(): string;
   speaker(): string;

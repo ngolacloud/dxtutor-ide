@@ -222,7 +222,7 @@ function boot(){loadCfg();loadSeed();syncTree();
   mkRz($('#rsz-side'),'--side-w',250,170,460);mkRz($('#rsz-agent'),'--agent-w',380,300,640,true);
   const pi=$('#pal-in');pi.oninput=()=>{window.PIDX=0;window.palDraw();};pi.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();window.PIDX=Math.min(window.PITEMS.length-1,window.PIDX+1);window.palDraw();}else if(e.key==='ArrowUp'){e.preventDefault();window.PIDX=Math.max(0,window.PIDX-1);window.palDraw();}else if(e.key==='Enter'){e.preventDefault();window.palRun(window.PIDX);}};
   $('#pal').onclick=e=>{const it=e.target.closest('.pi');if(it)window.palRun(+it.dataset.i);else if(!e.target.closest('.pal-box'))window.closePal();};
-  const ai=$('#ag-input');ai.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();agSend();}};
+  /* teclado do #ag-input: dono agora o compositor (features/codev/ui/composer.ts) */
   $('#pc-terminal').onclick=()=>{if(!String(getSelection())){const c=$('#cmd');if(c)c.focus({preventScroll:true});}};
   $('#pc-output').innerHTML='';log('rust-analyzer','2 crates indexados');log('co-dev','pronto · '+connected().length+' provedores ligados');
   termClear();tick();setInterval(()=>{tick();runLabel();},1000);

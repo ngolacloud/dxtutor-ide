@@ -70,6 +70,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
       case "tool_start":
         if (e.name === "todo_write") presenter.agentTodos?.(t.card, parseTodos(e.input));
         else toolRef(t, e.id, e.name, describeCall(e.name, e.input));
+        if (e.name === "task") presenter.subagent?.(e.id, typeof e.input.description === "string" ? e.input.description : "", "running");
         break;
       case "checkpoint":
         presenter.agentNote?.(t.card, "checkpoint", `Checkpoint ${e.id} guardado antes das alterações — /reverter para voltar atrás.`);
@@ -78,6 +79,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         presenter.agentNote?.(t.card, "notice", e.text);
         break;
       case "tool_result":
+        if (e.name === "task") presenter.subagent?.(e.id, "", e.is_error ? "error" : "done");
         if (e.name !== "todo_write") presenter.toolRunResult(toolRef(t, e.id, e.name, ""), !e.is_error, summarizeResult(e.content));
         break;
       case "usage":
@@ -164,7 +166,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         root: deps.workspace.root(),
         provider: deps.provider(),
         model: deps.model(),
-        effort: "high",
+        effort: deps.effort?.() ?? "high",
         testCmd: deps.verify.command("test")?.cmd ?? null,
         lintCmd: deps.verify.command("lint")?.cmd ?? null,
         mode: deps.mode(),
@@ -236,7 +238,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         root: deps.workspace.root(),
         provider: deps.provider(),
         model: deps.model(),
-        effort: "high",
+        effort: deps.effort?.() ?? "high",
         testCmd: null,
         lintCmd: null,
         mode: deps.mode(),

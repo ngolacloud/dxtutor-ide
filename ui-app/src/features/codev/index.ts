@@ -193,6 +193,7 @@ const agentChat = makeAgentChat({
   workspace: { root: () => bridge.diskRoot() ?? "" },
   reloadFromDisk: () => bridge.reloadDisk(),
   provider: () => bridge.monolith.activeProvider,
+  effort: () => bridge.effort(),
   model: () => {
     const p = bridge.providers() as unknown as Record<string, { model?: string }>;
     const active = p[bridge.monolith.activeProvider];

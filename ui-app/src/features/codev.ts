@@ -23,6 +23,8 @@
 import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
+import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
+import { exportMarkdown, parseEffort } from "./codev/domain/composer";
 import { RUBRIC } from "./codev/domain/scoring";
 import { buildScenarios } from "./codev/domain/scenarios";
 import type { Scenario, ScenarioEnv } from "./codev/domain/types";
@@ -68,6 +70,7 @@ window.updateAgentUI = function () {
   $('#modebar')!.innerHTML = `<div class="seg">${Object.entries(MODES).map(([k, m]) => `<button class="${k === bridge.monolith.mode ? 'on' : ''}" data-action="set-mode" data-on="${esc(k)}">${m.l}</button>`).join('')}</div><div class="mode-d">${MODES[bridge.monolith.mode].d}</div>`;
   const n = $('#live-note'); if (n) n.innerHTML = bridge.sample() ? '<span class="tag live">Claude ao vivo</span> perguntas livres são respondidas pelo Claude real, com acesso aos ficheiros deste workspace. Gemini, Codex e Ollama são simulados.' : '<span class="tag">simulado</span> nesta vista as missões são guionadas; a ligação ao vivo ao Claude activa-se quando o artefacto é aberto em claude.ai.';
   ctxPill();
+  refreshComposer();
 };
 window.setMode = function (m) { bridge.monolith.mode = m; codevEngine.agentModeChanged(m); bridge.save(); window.updateAgentUI(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
 function cycleMode() { const k = Object.keys(MODES); window.setMode(k[(k.indexOf(bridge.monolith.mode) + 1) % k.length]); }
@@ -77,6 +80,7 @@ function newChat() {
   if (bridge.run().active) { bridge.toast('Pára a missão primeiro'); return; }
   bridge.chat().length = 0;
   codevEngine.agentReset();
+  resetComposer();
   $('#ag-msgs')!.innerHTML = `<div class="intro" id="ag-intro"><div class="i-t">Co-Dev</div><div class="i-s">Entendo requisitos, proponho arquitectura, escrevo, testo, avalio o meu próprio trabalho e corrijo-o — contigo a orientar.</div>
   <button class="chip" data-action="demo" data-on="b"><b>Histórico de conversas persistente</b><small>Requisitos → BD → Repository → UI → testes. Inclui uma auto-correcção.</small></button>
   <button class="chip" data-action="demo" data-on="a"><b>Corrigir o E0382 em lib.rs</b><small>Três provedores propõem; o juiz escolhe a melhor.</small></button>
@@ -166,7 +170,8 @@ function handlePrompt(q: string) {
   }
   const S = SCN_().find((s: any) => s.match.test(q)); if (S) window.runMission(S, q); else void codevEngine.chat(q);
 }
-function agSend() { const i = $('#ag-input') as HTMLInputElement, q = i.value.trim(); if (!q) return; i.value = ''; handlePrompt(q); }
+/* Enter/enviar: o compositor junta anexos, modo Plano e fila, e chama handlePrompt */
+function agSend() { submit(); }
 
 /* ───── posicionamento do painel ───── */
 window.renderAgentView = (_t, host) => { host.innerHTML = `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Co-Dev</div><button class="ac-dock" data-action="assistant-dock">${svg('dock-right')} Fixar à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`; $('#agent-slot')!.appendChild($('#ag-body')!); bridge.setVar('--agent-w', '0px'); $('#tgl-agent')!.classList.remove('on'); scrollMsgs(); };
@@ -296,4 +301,43 @@ const ACTIONS: ActionTable = {
     },
   },
 };
-bindActions(ACTIONS);
+bindActions({ ...ACTIONS, ...composerActions() });
+
+/* ───── o compositor da conversa (ui/composer.ts): o mundo chega por este host ───── */
+function exportConversation() {
+  const turns = Array.from(document.querySelectorAll('#ag-msgs .m')).map((m) => ({
+    who: m.querySelector('.br2')?.textContent || '',
+    text: (m.querySelector('.bd') as HTMLElement | null)?.innerText ?? m.querySelector('.bd')?.textContent ?? '',
+  })).filter((t) => t.text.trim());
+  if (!turns.length) { bridge.toast('A conversa está vazia'); return; }
+  const when = new Date().toLocaleString('pt-PT');
+  const blob = new Blob([exportMarkdown('Conversa Co-Dev', turns, when)], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `co-dev-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const composerHost: ComposerHost = {
+  send: (q) => handlePrompt(q),
+  stop: () => agCtl('stop'),
+  // o compositor monta antes de o app.ts criar RUN/PROV: tolera-os ainda por definir
+  running: () => !!bridge.run()?.active,
+  mode: () => bridge.monolith.mode,
+  setMode: (m) => window.setMode(m),
+  provider: () => bridge.monolith.activeProvider,
+  model: () => bridge.providers()?.[bridge.monolith.activeProvider]?.model ?? '',
+  providers: () => Object.entries(bridge.providers() ?? {}).map(([key, p]) => ({ key, name: p.name, model: p.model, on: !!p.on })),
+  selectModel: (p, m) => { const all = bridge.providers(); all[p].model = m; bridge.monolith.activeProvider = p; bridge.save(); window.updateAgentUI(); },
+  effort: () => parseEffort(bridge.effort()),
+  setEffort: (e) => { bridge.setEffort(e); refreshComposer(); },
+  ctxOn: () => bridge.monolith.contextEnabled,
+  toggleCtx: () => { bridge.monolith.contextEnabled = !bridge.monolith.contextEnabled; ctxPill(); },
+  projectFiles: () => Object.keys(bridge.files() ?? {}).map((p) => bridge.shortPath(p)),
+  palette: (ph, items) => bridge.palette('', { ph, items }),
+  newChat: () => newChat(),
+  exportConversation,
+  toast: (m) => bridge.toast(m),
+  speech: () => bridge.speechRecognition() as (new () => SpeechLike) | null,
+};
+mountComposer(composerHost);

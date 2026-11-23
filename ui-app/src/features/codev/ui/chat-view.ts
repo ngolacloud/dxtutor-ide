@@ -19,6 +19,7 @@
 
 import { $, esc } from "../../../core";
 import * as bridge from "../infrastructure/legacy-bridge";
+import { composerContext, composerRunChanged, trackSubagent } from "./composer";
 import { RUBRIC } from "../domain/scoring";
 import type {
   ApprovalGate,
@@ -137,6 +138,7 @@ export function runState(on: boolean, label?: string): void {
   $("#rc-pause")!.innerHTML = "<kbd>p</kbd> pausar";
   runLabel();
   bridge.badges();
+  composerRunChanged(on);
 }
 
 export function runLabel(): void {
@@ -216,6 +218,7 @@ export function ctxPill(): void {
   if (!pill) return;
   pill.textContent = "@ " + (t && t.path ? t.title : "sem ficheiro");
   pill.classList.toggle("on", bridge.monolith.contextEnabled && !!(t && t.path));
+  composerContext(t && t.path ? (t.title ?? t.path) : null);
   const fs = bridge.files();
   const u = Math.min(
     99,
@@ -243,6 +246,7 @@ export const presenter: MissionPresenter = {
   userMessage: user,
   isRunning: () => bridge.run().active,
   beginRun: (label: string) => runState(true, label),
+  subagent: (id: string, label: string, state: "running" | "done" | "error") => trackSubagent(id, label, state),
   endRun: () => runState(false),
   setMissionContext(m: Mission | null) {
     bridge.run().M = m as unknown as { files: Set<string> } | null;

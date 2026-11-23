@@ -90,10 +90,7 @@
           <div class="rc-top"><span class="spin"></span><span class="rc-lbl" id="rc-lbl"></span><span class="rc-el" id="rc-el"></span></div>
           <div class="rc-cmds"><button class="rc" id="rc-pause" onclick="agCtl('pause')"><kbd>p</kbd> pausar</button><button class="rc" onclick="agCtl('stop')"><kbd>x</kbd> parar</button><button class="rc" onclick="agCtl('details')"><kbd>d</kbd> registo</button></div>
         </div>
-        <div class="ag-compose" id="ag-compose"><div class="composer">
-          <textarea id="ag-input" rows="2" placeholder="Descreve o que queres construir, corrigir ou rever…"></textarea>
-          <div class="comp-bar"><button class="pill" id="pill-ctx" title="Incluir o ficheiro activo como contexto" onclick="CTX_ON=!CTX_ON;ctxPill()"></button><button class="pill" title="Correr os testes" onclick="handlePrompt('/test')">/test</button><button class="pill" title="Lint do Design System" onclick="handlePrompt('/lint')">/lint</button><button class="send" data-ic="arrow-up" title="Enviar" onclick="agSend()"></button></div>
-        </div></div>
+        <div class="ag-compose" id="ag-compose"><textarea id="ag-input" rows="1" placeholder="Pede ao Co-Dev…"></textarea></div>
       </div>
     </div>
 

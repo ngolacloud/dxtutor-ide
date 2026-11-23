@@ -155,6 +155,17 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
   Hooks e servidores MCP do projecto correm comandos definidos pelo repositório: só
   arrancam depois de confiares neles em `/comandos`, e voltam a pedir confiança se o
   ficheiro mudar.
+- **Compositor do Co-Dev** (como o chat do Claude): **＋** anexa ficheiros de texto do
+  computador ou menciona ficheiros do projecto (vão como chips por cima da caixa, com o
+  ficheiro activo); **/** (ou `/` numa caixa vazia) abre as acções — limpar, reverter,
+  retomar, exportar a conversa em Markdown, modelo e esforço, `/plano`, `/comandos`,
+  testes, lint; o chip do modelo escolhe modelo e esforço (o esforço vale para novas
+  conversas e só o Claude o usa); o botão do modo escolhe Manual, Assistido, Plano
+  (a próxima mensagem vai como `/plano`) ou Auto — **Shift+Tab** percorre-os; o chip
+  «agentes» mostra os sub-agentes da conversa. Enquanto o agente trabalha, Enter põe a
+  mensagem na fila (sai quando o turno acaba) e o botão de enviar passa a parar. O
+  microfone usa o reconhecimento de voz do motor web, que o WebKitGTK (Linux) não tem:
+  aí avisa que o ditado está indisponível.
 - **Co-Dev com outros provedores.** O agente (ferramentas reais, permissões, checkpoints,
   `/plano`, `/reverter`, `/retomar`, hooks, MCP, skills) funciona com Claude, Codex/OpenAI,
   Gemini e Ollama — escolhe no seletor de modelo da conversa. Só o Claude tem raciocínio
