@@ -136,10 +136,10 @@ const CMD=[
   ['Git: Commit…','',()=>{goPane('scm');$('#scm-msg').focus();}],['Git: Mudar de ramo…','',pickBranch],
   ['Tarefa: cargo test','',()=>runTask('cargo test')],['Tarefa: cargo build','',()=>runTask('cargo build')],['Tarefa: dx lint','',()=>runTask('dx lint')],
   ['Preferências: Definições','Ctrl+,',()=>openSettings()],...Object.keys(THEMES).map(n=>['Preferências: Tema — '+n,'',()=>setTheme(n)]),
-  ['Ajuda: Bem-vindo','',()=>openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'})],['Ajuda: O que mudou e porquê','',()=>openAnalysis()],['Repor protótipo (estado inicial)','',resetAll]];
+  ['Ajuda: Bem-vindo','',()=>openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'})],['Ajuda: O que mudou e porquê','',()=>openAnalysis()]];
 const cmd=l=>()=>CMD.find(c=>c[0]===l)[2]();
 function buildMenus(){MENUS.length=0;MENUS.push(
-  {t:'File',get items(){return[{l:'Novo ficheiro…',act:newFile},{l:'Nova pasta…',act:newFolder},{sep:1},{l:'Abrir ficheiro…',k:'Ctrl+P',act:()=>palette('')},{l:'Abrir recente',sub:Object.keys(FS).filter(p=>/\.(rs|ts|sql)$/.test(p)).slice(0,6).map(p=>({l:short(p),act:()=>openPath(p)}))},{sep:1},{l:'Guardar',k:'Ctrl+S',act:()=>toast('Auto Save activo — já está guardado')},{sep:1},{l:'Preferências',sub:[{l:'Definições',k:'Ctrl+,',act:openSettings},{l:'Tema',sub:Object.keys(THEMES).map(n=>({l:n,on:n===THEME,act:()=>setTheme(n)}))}]},{sep:1},{l:'Fechar separador',act:()=>cur&&closeTab(cur)},{l:'Repor protótipo',act:resetAll}];}},
+  {t:'File',get items(){return[{l:'Novo ficheiro…',act:newFile},{l:'Nova pasta…',act:newFolder},{sep:1},{l:'Abrir ficheiro…',k:'Ctrl+P',act:()=>palette('')},{l:'Abrir recente',sub:Object.keys(FS).filter(p=>/\.(rs|ts|sql)$/.test(p)).slice(0,6).map(p=>({l:short(p),act:()=>openPath(p)}))},{sep:1},{l:'Guardar',k:'Ctrl+S',act:()=>toast('Auto Save activo — já está guardado')},{sep:1},{l:'Preferências',sub:[{l:'Definições',k:'Ctrl+,',act:openSettings},{l:'Tema',sub:Object.keys(THEMES).map(n=>({l:n,on:n===THEME,act:()=>setTheme(n)}))}]},{sep:1},{l:'Fechar separador',act:()=>cur&&closeTab(cur)}];}},
   {t:'Edit',items:[{l:'Anular',k:'Ctrl+Z',act:()=>edCmd('undo')},{l:'Refazer',k:'Ctrl+Y',act:()=>edCmd('redo')},{sep:1},{l:'Procurar nos ficheiros',k:'Ctrl+Shift+F',act:cmd('Ver: Pesquisa')},{l:'Substituir nos ficheiros',act:()=>{goPane('search');$('#s-r').focus();}}]},
   {t:'Selection',items:[{l:'Seleccionar tudo',k:'Ctrl+A',act:()=>edCmd('selectAll')},{l:'Seleccionar linha',act:()=>edCmd('line')},{sep:1},{l:'Enviar selecção ao Co-Dev',act:()=>{const s=selText();if(!s){toast('Selecciona texto no editor primeiro');return;}focusAgent();const i=$('#ag-input');i.value='Sobre este excerto:\n'+s+'\n\n';i.focus();}}]},
   {t:'View',get items(){return[{l:'Paleta de comandos…',k:'Ctrl+Shift+P',act:()=>palette('>')},{sep:1},{l:'Explorer',k:'Ctrl+Shift+E',act:()=>goPane('explorer')},{l:'Pesquisa',k:'Ctrl+Shift+F',act:cmd('Ver: Pesquisa')},{l:'Source Control',k:'Ctrl+Shift+G',act:()=>goPane('scm')},{l:'Testing',act:()=>goPane('test')},{l:'Co-Dev',k:'Ctrl+Shift+A',act:()=>goPane('codev')},{sep:1},{l:'Barra lateral',k:'Ctrl+B',on:sideOpen(),act:toggleSide},{l:'Painel inferior',k:'Ctrl+J',on:getVar('--panel-h')!=='0px',act:togglePanel},{l:'Painel do Co-Dev',on:getVar('--agent-w')!=='0px'||!!tabOf('agent'),act:toggleAgent},{sep:1},{l:'Terminal',k:'Ctrl+`',act:()=>setPanelTab('terminal')},{l:'Problemas',k:'Ctrl+Shift+M',act:()=>setPanelTab('problems')},{l:'Output do Co-Dev',act:()=>setPanelTab('output')}];}},
@@ -211,7 +211,7 @@ XC.git=(a,raw)=>window.gitCmd(a,raw);
 let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */
 
 /* ───── integração com o resto do IDE ───── */
-function resetAll(){if(RUN.active){toast('Pára a execução primeiro');return;}loadSeed();MISSIONS.length=0;DECS.length=0;CKPT.length=0;CHAT.length=0;BL.issues.length=0;BL.seq=11;BL.mig=3;BL.adr=4;SD=JSON.parse(JSON.stringify(ST_SEED));saveSD();TB=[];newChat();refresh(false,true);openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'});toast('Protótipo reposto ao estado inicial');}
+/* resetAll («Repor protótipo») removido (ADR-0005, R0): esvaziava o FS e o autosave do desktop apagava a pasta aberta no disco. */
 bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();});
 const _stLang=window.stLang;window.stLang=function(){_stLang();blame();};
 function blame(){const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path)),c=h?GIT.c[h]:GIT.c['1a2b3c4'];if(!c){/* desktop: syncGit reconstrói GIT.c com hashes reais e files:[], logo '1a2b3c4' (semente do protótipo) não existe — sem crash, só o estado local */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
@@ -235,7 +235,7 @@ function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray
 /* ───── Learning Track: COURSES + motor (LTS, course, ltUnits, drillState, ltRes, ltGo, ltAsk, onboarding) + corpo da vista migrados p/ features/learn.ts; aqui so os shims RP.tutor e VIEW.lt que delegam ───── */
 /* RP.tutor/VIEW.lt: registados pelas features tutor/learn (ADR-0004, U4j2). */
 
-/* ───── Studio: catálogo cloud (CLOUD/TECH/KIND/mkT/isApp/sl/appDir) + validateDesign + corpo da vista migrados p/ features/studio.ts; aqui só consumidores (geradores, genBacklog, resetAll, boot) que lêem por global ───── */
+/* ───── Studio: catálogo cloud (CLOUD/TECH/KIND/mkT/isApp/sl/appDir) + validateDesign + corpo da vista migrados p/ features/studio.ts; aqui só consumidores (geradores, genBacklog, boot) que lêem por global ───── */
 
 /* ───── generators: migrados p/ features/generators.ts (inversão @ts-nocheck, window-backed);
    composeYaml/dockerfile/appFiles/k8sYaml/cloudMap lidos por global por features/board.ts ───── */
@@ -299,7 +299,6 @@ function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX'
 Object.assign(window, {
   CMD, PANE, PROV, RUN, STOP,
   blame, boot, boot3, boot4, boot5, boot6, buildMenus,
-  resetAll,
   who, // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
   CHAT, SAFE, DANGER,
   // fachadas que as features migradas (features/*.ts) consomem por window:
