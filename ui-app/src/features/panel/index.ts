@@ -6,7 +6,7 @@
      • Problems — os checkers do projecto (cargo/tsc/go vet/ruff/eslint) + LSP;
      • Output — canais reais (dxtutor, Tasks, Problems, Co-Dev, Language Server, …);
      • Services — portas TCP em escuta e o compose do workspace, lidos a sério;
-     • Debug assistant — comandos que falharam e erros reais, prontos para o Co-Dev.
+     • Debug assistant — comandos que falharam e erros reais, enviados ao Co-Dev num clique.
    No browser (sem Tauri) e no harness de testes este módulo não faz nada: o caminho de
    demonstração e os goldens ficam intactos. Liga as portas (Tauri + legado) aos casos de
    uso e às vistas; o `window` só é tocado através do `legacy-bridge`. */

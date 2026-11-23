@@ -2,7 +2,7 @@
    Com uma pasta aberta, o assistente mostra o que REALMENTE falhou no workspace: os
    comandos do terminal que terminaram com código ≠ 0 (com a cauda da saída, lida do
    buffer pela integração de shell) e os erros dos checkers. Cada um segue para o Co-Dev
-   com o contexto todo, pré-preenchido no compositor para o humano rever antes de enviar. */
+   com o contexto todo, enviado logo (como se o humano o escrevesse e carregasse Enter). */
 
 import type { CommandRecord, Problem } from "../domain/types";
 

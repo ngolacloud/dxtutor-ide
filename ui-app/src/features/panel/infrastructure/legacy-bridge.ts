@@ -75,19 +75,21 @@ export const panelHidden = (): boolean =>
   getComputedStyle(document.body).getPropertyValue("--panel-h").trim() === "0px" ||
   getComputedStyle(document.documentElement).getPropertyValue("--panel-h").trim() === "0px";
 
-/** Coloca `text` no compositor do Co-Dev (sem enviar: o humano revê e carrega Enter). */
+/** Envia `text` ao Co-Dev como se o humano o tivesse escrito e carregado Enter: passa
+ *  pelo compositor (`agSend` → submit), que respeita a fila quando já há uma execução. */
 export function askCodev(text: string): void {
   try {
-    G.focusAgent();
+    G.focusAgent(true);
   } catch {
     /* sem Co-Dev */
   }
   const ta = document.getElementById("ag-input") as HTMLTextAreaElement | null;
-  if (!ta) return;
-  ta.value = text;
-  ta.dispatchEvent(new Event("input", { bubbles: true }));
-  ta.focus();
-  ta.setSelectionRange(ta.value.length, ta.value.length);
+  if (ta && typeof G.agSend === "function") {
+    ta.value = text;
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    G.agSend();
+  } else if (typeof G.handlePrompt === "function") G.handlePrompt(text);
+  else toast("Co-Dev is not available");
 }
 
 /* ───── compose (o estado STACK é do resíduo features/stack.ts, decorado pelo bridge) ───── */
