@@ -8,9 +8,11 @@ import { vi } from "vitest";
 // depende deles, e trazê-los juntaria a cadeia de arranque completa (temporizadores,
 // ponte Tauri) sem necessidade para caracterizar o comportamento actual.
 const MAIN_TS = readFileSync(resolve(__dirname, "../src/main.ts"), "utf-8");
-const ALL_MODULES = [...MAIN_TS.matchAll(/^import "\.\/([^"]+)";$/gm)].map((m) => `../src/${m[1]}.ts`);
+const ALL_MODULES = [...MAIN_TS.matchAll(/^import "\.\/([^"]+)";$/gm)].map((m) =>
+  m[1] === "app/store" ? "../src/app/store/index.ts" : `../src/${m[1]}.ts`,
+);
 const MODULE_CHAIN = ALL_MODULES.slice(0, ALL_MODULES.indexOf("../src/app.ts") + 1);
-if (MODULE_CHAIN.length < 30 || MODULE_CHAIN[0] !== "../src/boot.ts" || MODULE_CHAIN.at(-1) !== "../src/app.ts") {
+if (MODULE_CHAIN.length < 30 || MODULE_CHAIN[0] !== "../src/app/store/index.ts" || MODULE_CHAIN[1] !== "../src/boot.ts" || MODULE_CHAIN.at(-1) !== "../src/app.ts") {
   throw new Error(`harness: a ordem lida do main.ts não é a esperada (${MODULE_CHAIN.length} módulos)`);
 }
 

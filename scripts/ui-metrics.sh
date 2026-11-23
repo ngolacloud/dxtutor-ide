@@ -23,7 +23,7 @@ metric "tags <script> no index.html (U1)" 1 1 \
   "$(grep -c '<script' "$UI/index.html")"
 metric "ficheiros com // @ts-nocheck (U4)" 8 0 \
   "$(grep -rlE '^// @ts-nocheck' "$SRC" | count)"
-metric "atribuições window.X = (U3/U7)" 199 0 \
+metric "atribuições window.X = (U3/U7)" 194 0 \
   "$(grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count)"
 metric "Object.assign(window, …) (U7)" 40 0 \
   "$(grep -rho 'Object\.assign(window' "$SRC" --include=*.ts | count)"
@@ -31,6 +31,12 @@ metric "handlers inline on*=\"…\" (U5)" 165 0 \
   "$(grep -rhoE '[[:space:]]on(click|dblclick|change|input|keydown|keyup|submit|mousedown|mouseup|contextmenu|blur|focus|dragstart|dragover|dragleave|drop|load|error)=' "$SRC" "$UI/index.html" | count)"
 metric "invoke cru inv(\"…\") fora de platform/ (U2)" 0 0 \
   "$(grep -rhoE '\binv\("' "$SRC" --include=*.ts --exclude-dir=platform | count)"
+
+# informativas (não falham): crescem durante a U3 e vão a 0 na U7
+declare -a INFO
+info() { INFO+=("$1|$2|$3"); }
+info "shims de estado no window (ownedGlobal, U3→U7)" 0 \
+  "$(grep -rhoE '= ownedGlobal<' "$SRC" --include=*.ts | count)"
 
 printf '\n== Métricas da migração da ui-app (ADR-0004) ==\n'
 printf '  %-46s %8s %8s %6s\n' "métrica" "actual" "baseline" "alvo"
@@ -44,6 +50,11 @@ for r in "${ROWS[@]}"; do
   else
     printf '  %-46s %8s %8s %6s\n' "$name" "$now" "$base" "$target"
   fi
+done
+
+for r in "${INFO[@]}"; do
+  IFS='|' read -r name target now <<<"$r"
+  printf '  %-46s %8s %8s %6s  (informativa)\n' "$name" "$now" "—" "$target"
 done
 
 if [ "$fail" -ne 0 ]; then

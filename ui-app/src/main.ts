@@ -13,8 +13,12 @@
    resolver: boot publica as globais base; as features publicam os seus shims antes do
    app.ts (que lê THEMES/THEME eagerly); app/v5/v6 decoram; startup arranca; bridge
    substitui a simulação pelo desktop real (só com Tauri); pair e panel no fim.
-   As fases seguintes do ADR-0004 trocam estas dependências implícitas por imports. */
+   As fases seguintes do ADR-0004 trocam estas dependências implícitas por imports.
 
+   U3: os proprietários de estado (`app/store`) vêm PRIMEIRO — publicam as globais de
+   estado como acessores antes de o monólito as escrever, e cada mudança sai no bus. */
+
+import "./app/store";
 import "./boot";
 import "./features/theme";
 import "./features/notifications";

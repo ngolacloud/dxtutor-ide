@@ -154,3 +154,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   features donas saírem do monólito — por isso a U2 fecha com a U2a e a parte desktop de
   cada feature passa para a U4 (adaptador `platform/desktop/<feature>` injectado quando a
   feature absorve as suas funções). Segue-se a U3.
+
+- **U3a (2026-11-23) — bus e proprietários de estado.** `app/bus.ts`: bus de eventos
+  tipado (`AppEvents`), síncrono, por ordem de subscrição, com isolamento de erros (um
+  handler que lança não pára os outros). `app/store/`: os primeiros donos — `agentStore`
+  (modo, limiar, provedor activo, contexto do editor, assistente), `layoutStore` (painel,
+  tema, língua) e `editorStore` (separador activo). Cada dono guarda o valor e publica a
+  global no window como **acessor** (`ownedGlobal`): as escritas do monólito
+  (`window.MODE = …`, `cur = id`) passam pelo dono e emitem `agent:mode`, `editor:tab`,
+  `layout:pane`… — os 30+ ficheiros que usam este estado passam a gerar eventos sem
+  mudarem. O `main.ts` importa `app/store` primeiro; o `S` do `core.ts` e o legacy-bridge
+  do Co-Dev delegam nos donos (`window.X =`: 199 → 194). Os acessores são shims de
+  transição, contados como métrica informativa (9; alvo 0 na U7). Verificado: 328 testes
+  (goldens sem diff), arranque no browser, e o auto-teste desktop idêntico (23 passos).
+  **A seguir (U3b):** consumidores a subscrever o bus em vez de se chamarem por globais
+  (`updateAgentUI`, `refresh`, `badges`), e os donos das colecções (`FS`, `TABS`, `CHAT`,
+  `RUN`, `PROV`).

@@ -18,6 +18,8 @@
 /** Um commit na timeline «O que mudou e porquê» (feature `changelog`). Espelha o
  *  DTO real `tutor_eval::git::GitCommit` do backend — a fonte simulada (GIT.c) é
  *  mapeada para esta mesma forma, para a vista não distinguir real de simulado. */
+import { agentStore, editorStore, layoutStore } from "./app/store";
+
 export interface ClCommit {
   hash: string;
   short: string;
@@ -278,29 +280,31 @@ export interface SharedState {
 /** Estado partilhado tipado. Acessores sobre `window` → alia com os nomes livres do
  *  monólito (MODE/THRESH/cur/PANE). Converter `export let` soltos não aliasaria. */
 export const S: SharedState = {
+  /* U3 (ADR-0004): os donos destes valores são os stores de app/store — o S fica como
+     fachada de compatibilidade para os legacy-bridges das features. */
   get MODE() {
-    return window.MODE;
+    return agentStore.mode;
   },
   set MODE(v) {
-    window.MODE = v;
+    agentStore.mode = v;
   },
   get THRESH() {
-    return window.THRESH;
+    return agentStore.threshold;
   },
   set THRESH(v) {
-    window.THRESH = v;
+    agentStore.threshold = v;
   },
   get cur() {
-    return window.cur;
+    return editorStore.currentTabId;
   },
   set cur(v) {
-    window.cur = v;
+    editorStore.currentTabId = v;
   },
   get PANE() {
-    return window.PANE;
+    return layoutStore.pane;
   },
   set PANE(v) {
-    window.PANE = v;
+    layoutStore.pane = v;
   },
 };
 
