@@ -199,6 +199,7 @@ const agentChat = makeAgentChat({
   mode: () => bridge.monolith.mode,
   speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
   nowSecs: () => Math.floor(Date.now() / 1000),
+  openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
 });
 
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude), senão o
@@ -221,6 +222,9 @@ export const codevEngine = {
   agentReset: (): void => agentChat.reset(),
   /** `/retomar`: lista e retoma uma conversa anterior do agente v2 (se disponível). */
   agentResume: (): Promise<void> | null => (agentChat.available() ? agentChat.resumeMenu() : null),
+  /** `/plano <pedido>` e `/reverter` (agente v2). */
+  agentPlan: (q: string): Promise<void> | null => (agentChat.available() ? agentChat.plan(q) : null),
+  agentRewind: (): Promise<void> | null => (agentChat.available() ? agentChat.rewindMenu() : null),
 };
 
 /* ───── low-level transcript/run-control helpers, shared with board.ts ───── */

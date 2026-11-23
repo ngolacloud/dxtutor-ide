@@ -7,7 +7,7 @@
 
 import type { AgentChatDeps, CardRef, ToolRef } from "./ports";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
-import { describeCall, describeSession, outcomeNotice, summarizeResult } from "../domain/agent-events";
+import { ago, callDiff, describeCall, describeSession, outcomeNotice, parseTodos, summarizeResult } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 
 /** O turno em curso: cartão, segmentos de texto (um por pedido ao modelo), ferramentas. */
@@ -60,10 +60,17 @@ export function makeAgentChat(deps: AgentChatDeps) {
         presenter.agentNote?.(t.card, "retry", `A repetir o pedido (${e.reason})…`);
         break;
       case "tool_start":
-        toolRef(t, e.id, e.name, describeCall(e.name, e.input));
+        if (e.name === "todo_write") presenter.agentTodos?.(t.card, parseTodos(e.input));
+        else toolRef(t, e.id, e.name, describeCall(e.name, e.input));
+        break;
+      case "checkpoint":
+        presenter.agentNote?.(t.card, "checkpoint", `Checkpoint ${e.id} guardado antes das alterações — /reverter para voltar atrás.`);
+        break;
+      case "notice":
+        presenter.agentNote?.(t.card, "notice", e.text);
         break;
       case "tool_result":
-        presenter.toolRunResult(toolRef(t, e.id, e.name, ""), !e.is_error, summarizeResult(e.content));
+        if (e.name !== "todo_write") presenter.toolRunResult(toolRef(t, e.id, e.name, ""), !e.is_error, summarizeResult(e.content));
         break;
       case "usage":
         presenter.agentNote?.(t.card, "usage", formatUsage(deps.model(), e.turn));
@@ -84,8 +91,25 @@ export function makeAgentChat(deps: AgentChatDeps) {
   async function onApproval(s: string, r: ApprovalRequest): Promise<void> {
     const t = turn;
     if (!t || s !== session) return;
-    const ref = toolRef(t, r.call.id, r.call.name, describeCall(r.call.name, r.call.input, r.call.command));
+    const isPlan = r.call.name === "exit_plan";
+    const label = isPlan ? "plano proposto" : describeCall(r.call.name, r.call.input, r.call.command);
+    const ref = toolRef(t, r.call.id, r.call.name, label);
+    if (isPlan) {
+      presenter.agentPlan?.(ref, typeof r.call.input.plan === "string" ? r.call.input.plan : "");
+      const ok = await gate
+        .ask<boolean>(ref, [
+          { l: "Aprovar plano", v: true, pri: true, done: "✓ plano aprovado — a executar" },
+          { l: "Continuar a planear", v: false, done: "↺ continuar a planear" },
+        ])
+        .catch(() => false);
+      await gateway.approve(s, r.call.id, ok, ok ? undefined : "o humano quer continuar a planear: ajusta o plano");
+      return;
+    }
     presenter.toolReason?.(ref, r.reason, r.dangerous);
+    const diff = callDiff(r.call.name, r.call.input);
+    if (diff && diff.path) {
+      presenter.toolDiffLink?.(ref, () => deps.openDiff(diff.path, diff.before, diff.after, "proposta do agente"));
+    }
     type Choice = "allow" | "always" | "deny";
     const btns: Array<{ l: string; v: Choice; pri?: boolean; done: string }> = [
       { l: "Permitir", v: "allow", pri: true, done: "✓ autorizado por ti" },
@@ -201,10 +225,49 @@ export function makeAgentChat(deps: AgentChatDeps) {
     }
   }
 
+  /** `/plano <pedido>`: liga o modo plano (só leitura até o plano ser aprovado) e envia. */
+  async function plan(q: string): Promise<void> {
+    try {
+      const id = await ensureSession();
+      await gateway.setPlan(id, true);
+    } catch (e: unknown) {
+      const c = presenter.thinking(deps.speaker());
+      presenter.liveError(c, false, undefined, e instanceof Error ? e.message : String(e));
+      return;
+    }
+    await send(q);
+  }
+
+  /** `/reverter`: lista os checkpoints da sessão e repõe os ficheiros do escolhido. */
+  async function rewindMenu(): Promise<void> {
+    const card = presenter.thinking(deps.speaker());
+    try {
+      const list = session ? await gateway.checkpoints(session) : [];
+      if (!list.length) {
+        presenter.assistantText(card, "Ainda não há checkpoints nesta conversa (só existem em repositórios git, a partir do primeiro turno que altera ficheiros).");
+        return;
+      }
+      presenter.assistantText(card, "Voltar os ficheiros para antes de qual pedido? (a conversa fica; o agente é avisado)");
+      const now = deps.nowSecs();
+      const btns = [...list].reverse().slice(0, 8).map((c) => ({ l: `#${c.id} · ${c.label} · ${ago(c.created, now)}`, v: c.id }));
+      const pick = await gate.ask<number>(card.tools, [...btns, { l: "Cancelar", v: 0 }]).catch(() => 0);
+      if (!pick || !session) return;
+      const msg = await gateway.rewind(session, pick);
+      await deps.reloadFromDisk().catch(() => undefined);
+      presenter.agentNote?.(card, "rewind", msg.charAt(0).toUpperCase() + msg.slice(1) + ".");
+    } catch (e: unknown) {
+      presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
+    } finally {
+      presenter.scrollMsgs();
+    }
+  }
+
   return {
     available: (): boolean => gateway.available(),
     send,
     resumeMenu,
+    plan,
+    rewindMenu,
     /** A modebar mudou: vale a partir da próxima decisão da sessão em curso. */
     modeChanged(mode: string): void {
       if (session) void gateway.setMode(session, mode);

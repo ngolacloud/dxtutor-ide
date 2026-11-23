@@ -136,6 +136,15 @@ pub enum AgentEvent {
     ServedBy {
         model: String,
     },
+    /// Checkpoint dos ficheiros tirado antes da primeira alteração deste turno.
+    Checkpoint {
+        id: u32,
+        label: String,
+    },
+    /// Aviso para o humano (ex.: não foi possível tirar o checkpoint).
+    Notice {
+        text: String,
+    },
     Done {
         outcome: TurnOutcome,
     },
@@ -174,12 +183,22 @@ impl std::error::Error for AgentError {}
 
 type Sleeper = Arc<dyn Fn(Duration) + Send + Sync>;
 
+/// Estado de um turno partilhado entre os pedidos ao modelo desse turno.
+struct TurnState {
+    /// O pedido do utilizador que abriu o turno (rótulo do checkpoint).
+    label: String,
+    /// Já se tirou o checkpoint deste turno?
+    checkpointed: bool,
+}
+
 pub struct Agent {
     provider: Arc<dyn Provider>,
     tools: Vec<Arc<dyn Tool>>,
     pub cfg: AgentConfig,
     pub ctx: ToolCtx,
     sleep: Sleeper,
+    /// Checkpoints dos ficheiros (só em repositórios git).
+    pub checkpoints: Option<Arc<crate::checkpoint::Checkpoints>>,
 }
 
 fn add_usage(t: &mut Usage, u: &Usage) {
@@ -216,6 +235,7 @@ impl Agent {
             cfg,
             ctx,
             sleep: Arc::new(std::thread::sleep),
+            checkpoints: None,
         }
     }
 
@@ -299,6 +319,18 @@ impl Agent {
         let mut turn = Usage::default();
         let mut resume_paused = false;
         let mut max_tokens = self.cfg.max_tokens;
+        // checkpoint: no máximo um por turno, antes da primeira alteração de ficheiros
+        let label = transcript
+            .messages()
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User && !m.text().trim().is_empty())
+            .map(|m| m.text())
+            .unwrap_or_default();
+        let mut turn_state = TurnState {
+            label,
+            checkpointed: false,
+        };
 
         for _ in 0..self.cfg.max_iterations {
             if self.cancelled() {
@@ -357,7 +389,14 @@ impl Agent {
                     let msg = Message::assistant(resp.content);
                     let calls = msg.tool_uses();
                     transcript.push(msg);
-                    let results = self.run_tools(&calls, &invalid, &by_name, events, approve);
+                    let results = self.run_tools(
+                        &calls,
+                        &invalid,
+                        &by_name,
+                        events,
+                        approve,
+                        &mut turn_state,
+                    );
                     transcript.push(Message::tool_results(&results));
                     if self.cancelled() {
                         return Ok(self.finish(TurnOutcome::Cancelled, events));
@@ -386,6 +425,7 @@ impl Agent {
         by_name: &HashMap<&str, &Arc<dyn Tool>>,
         events: &mut dyn FnMut(AgentEvent),
         approve: &mut dyn FnMut(&PendingCall) -> Decision,
+        turn: &mut TurnState,
     ) -> Vec<ToolResult> {
         // 1) validação + aprovação (sequencial: a UI pergunta uma de cada vez)
         let mut out: Vec<Option<ToolOutput>> = vec![None; calls.len()];
@@ -446,6 +486,20 @@ impl Agent {
             } else {
                 k + 1
             };
+            if !turn.checkpointed && runnable[k..end].iter().any(|(_, t)| t.mutates_files()) {
+                turn.checkpointed = true;
+                if let Some(cps) = &self.checkpoints {
+                    match cps.snapshot(&turn.label) {
+                        Ok(cp) => events(AgentEvent::Checkpoint {
+                            id: cp.id,
+                            label: cp.label,
+                        }),
+                        Err(e) => events(AgentEvent::Notice {
+                            text: format!("não foi possível criar o checkpoint: {e}"),
+                        }),
+                    }
+                }
+            }
             for (i, t) in &runnable[k..end] {
                 events(AgentEvent::ToolStart {
                     id: calls[*i].id.clone(),

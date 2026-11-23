@@ -105,7 +105,8 @@ pub fn is_protected(path: &str) -> bool {
     let first = segs.first().copied().unwrap_or("");
     let file = segs.last().copied().unwrap_or("");
     first == ".git"
-        || first == ".dxtutor"
+        // .dxtutor/ é protegido (permissões, regras), excepto a memória do projecto
+        || (first == ".dxtutor" && segs.get(1) != Some(&"memory"))
         || segs.contains(&".ssh")
         || p.starts_with(".github/workflows/")
         || file == ".env"
@@ -128,6 +129,8 @@ pub struct Policy {
     pub mode: Mode,
     pub rules: Rules,
     pub root: PathBuf,
+    /// Modo plano (partilhado com a ferramenta `exit_plan`): só leitura até o plano ser aprovado.
+    pub plan: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Policy {
@@ -136,6 +139,7 @@ impl Policy {
             mode,
             rules,
             root: root.into(),
+            plan: Default::default(),
         }
     }
 
@@ -213,6 +217,21 @@ impl Policy {
         }
         if call.read_only {
             return Verdict::Allow;
+        }
+        // o plano proposto é sempre aprovado pelo humano
+        if call.name == "exit_plan" {
+            return Verdict::Ask {
+                reason: "aprovar o plano proposto".into(),
+                dangerous: false,
+                suggested_rule: None,
+            };
+        }
+        if self.plan.load(std::sync::atomic::Ordering::SeqCst) {
+            return Verdict::Deny {
+                reason: "modo plano: só investigação (leitura). Propõe o plano com exit_plan \
+                         antes de alterar alguma coisa"
+                    .into(),
+            };
         }
         let manual = approval_for(self.mode, Action::Edit) == Approval::Ask;
         // edições: piso dos ficheiros protegidos, depois regras e modo
@@ -401,6 +420,21 @@ mod tests {
     }
 
     #[test]
+    fn plan_mode_allows_reads_denies_changes_and_asks_for_the_plan() {
+        let p = pol(Mode::Auto, Rules::default());
+        p.plan.store(true, std::sync::atomic::Ordering::SeqCst);
+        let read = call("read", true, json!({"path": "a"}), None);
+        let plan = call("exit_plan", false, json!({"plan": "x"}), None);
+        assert_eq!(kind(&p.decide(&read)), "allow");
+        assert_eq!(kind(&p.decide(&edit("src/a.rs"))), "deny");
+        assert_eq!(kind(&p.decide(&bash("cargo test"))), "deny");
+        assert_eq!(kind(&p.decide(&plan)), "ask");
+        p.plan.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(kind(&p.decide(&edit("src/a.rs"))), "allow");
+        assert_eq!(kind(&p.decide(&plan)), "ask");
+    }
+
+    #[test]
     fn protected_paths() {
         for p in [
             ".git/config",
@@ -414,6 +448,7 @@ mod tests {
         }
         for p in [
             "src/env.rs",
+            ".dxtutor/memory/decisoes.md",
             ".gitignore",
             "docs/.envrc.md",
             ".github/CODEOWNERS",

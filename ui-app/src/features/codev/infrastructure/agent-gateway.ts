@@ -7,7 +7,7 @@
 import * as ipc from "../../../platform/tauri/codev-agent";
 import { isDesktop } from "../../../platform/tauri/core";
 import type { AgentGateway } from "../application/ports";
-import { parseAgentError, parseAgentEvent, parseApproval, parseHistory, parseSessions } from "../domain/agent-events";
+import { parseAgentError, parseAgentEvent, parseApproval, parseCheckpoints, parseHistory, parseSessions } from "../domain/agent-events";
 import * as bridge from "./legacy-bridge";
 
 export const agentGateway: AgentGateway = {
@@ -25,6 +25,9 @@ export const agentGateway: AgentGateway = {
     }),
   sessions: async (root) => parseSessions(await ipc.listAgentSessions(root)),
   history: async (s) => parseHistory(await ipc.agentHistory(s)),
+  setPlan: (s, on) => ipc.setAgentPlan(s, on),
+  checkpoints: async (s) => parseCheckpoints(await ipc.listAgentCheckpoints(s)),
+  rewind: (s, id) => ipc.rewindAgent(s, id),
   send: (s, text) => ipc.sendAgent(s, text),
   approve: (s, id, allow, reason, remember) => ipc.approveAgent(s, id, allow, reason, remember),
   cancel: (s) => ipc.cancelAgent(s),

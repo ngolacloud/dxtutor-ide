@@ -55,3 +55,13 @@ export const onAgentEvent = (h: (payload: unknown) => void): Promise<() => void>
 export const onAgentApproval = (h: (payload: unknown) => void): Promise<() => void> => listen("codev-agent://approval", h);
 /** `codev-agent://error` `{session, error}` — o turno falhou. */
 export const onAgentError = (h: (payload: unknown) => void): Promise<() => void> => listen("codev-agent://error", h);
+
+/** Liga/desliga o modo plano (só leitura até o plano ser aprovado). */
+export const setAgentPlan = (sessionId: string, on: boolean): Promise<void> => invoke<void>("codev_agent_set_plan", { sessionId, on });
+
+/** Os checkpoints de ficheiros da sessão — `Vec<Checkpoint>`. */
+export const listAgentCheckpoints = (sessionId: string): Promise<unknown> => invoke<unknown>("codev_agent_checkpoints", { sessionId });
+
+/** Repõe os ficheiros como estavam no checkpoint; devolve o resumo. */
+export const rewindAgent = (sessionId: string, checkpoint: number): Promise<string> =>
+  invoke<string>("codev_agent_rewind", { sessionId, checkpoint });

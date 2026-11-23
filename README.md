@@ -139,5 +139,9 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
 - **Retomar uma conversa do Co-Dev.** Com uma pasta aberta e o Claude seleccionado,
   escreve `/retomar` no painel do Co-Dev para escolher uma conversa anterior do projecto.
   As conversas ficam em `~/.config/dxtutor/sessions/` (fora do repositório).
+- **Comandos do Co-Dev (agente v2).** `/plano <pedido>` — investiga só com leitura e
+  propõe um plano para aprovares antes de mexer em ficheiros; `/reverter` — repõe os
+  ficheiros como estavam antes de um pedido (só em repositórios git; a conversa fica);
+  `/retomar` — continua uma conversa anterior.
 - **Voltar ao harness antigo do Co-Dev.** Na consola da página:
   `localStorage.setItem("dx2.codevLegacy", "true")` (e `removeItem` para voltar).

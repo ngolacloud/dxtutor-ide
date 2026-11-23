@@ -128,6 +128,17 @@ Object.assign(window, {
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
 function handlePrompt(q: string) {
   if (bridge.run().active) { bridge.toast('Há uma execução em curso — pára-a ou espera'); return; } focusAgent(true);
+  if (/^\/plano(\s|$)/.test(q)) {
+    const pedido = q.replace(/^\/plano\s*/, '');
+    if (!pedido) { user(q); card('co-dev', 'Escreve o pedido a seguir: <code>/plano acrescenta paginação à API</code>. O agente investiga só com leitura e propõe o plano para aprovares.'); return; }
+    if (!codevEngine.agentPlan(pedido)) { user(q); card('co-dev', 'O modo plano precisa do app desktop, com uma pasta aberta e o Claude seleccionado.'); }
+    return;
+  }
+  if (q === '/reverter') {
+    user(q);
+    if (!codevEngine.agentRewind()) card('co-dev', 'Voltar atrás precisa do app desktop, com uma pasta aberta e o Claude seleccionado.');
+    return;
+  }
   if (q === '/retomar' || q === '/sessoes' || q === '/sessões') {
     user(q);
     if (!codevEngine.agentResume()) card('co-dev', 'Retomar conversas precisa do app desktop, com uma pasta aberta e o Claude seleccionado.');

@@ -1,6 +1,6 @@
 # ADR-0003 — Harness v2 do Co-Dev: loop de agente em Rust com tool use nativo
 
-- **Estado:** aceite (recomendações do §11 aceites); F0–F5 feitas (F4/F5 por validar à mão no desktop)
+- **Estado:** aceite (recomendações do §11 aceites); F0–F6 feitas (F4–F6 por validar à mão no desktop)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto (angolardevops)
 - **Relacionado:** `ADR-0002` (camadas da feature Co-Dev na UI, que a F4 reutiliza);
@@ -209,7 +209,7 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
 | **F3 Permissões** ✅ | Classificador, regras, modos, aprovação ida-e-volta; `policy.rs` ligado | Tabela de ≥60 comandos (incluindo os contornos da regex actual) com a classificação esperada |
 | **F4 UI v2** ✅ | O caso de uso `live-chat` (ADR-0002) passa a cliente fino do agente Rust através de uma porta `AgentGateway`; cartões de ferramenta, aprovação, thinking e custo; **remove o protocolo de fences e o prefill** | Fluxo real com uma pasta aberta, validado à mão por ti; typecheck/lint/testes |
 | **F5 Contexto e sessão** ✅ | System prompt cacheado, AGENTS.md/CLAUDE.md, sessões JSONL e retoma, compactação, custo | Cache hit a partir do 2.º turno (medido); retoma após reinício |
-| **F6 Plano → entrega** | Plan mode, todos↔Board, checkpoints e rewind, revisão de diffs, sub-agentes | Cenário guiado ponta-a-ponta num repositório de teste |
+| **F6 Plano → entrega** ✅ | Plan mode, todos↔Board, checkpoints e rewind, revisão de diffs, sub-agentes | Cenário guiado ponta-a-ponta num repositório de teste |
 | **F7 Ecossistema** | Cliente MCP (stdio/http), hooks (antes/depois de ferramenta, fim de turno), slash commands e skills em `.dxtutor/` | Servidor MCP de exemplo ligado; hook que bloqueia uma ferramenta |
 | **F8 Outros provedores** | Adaptador OpenAI-compatível (Codex, Gemini, Ollama) com tool calls; o protocolo de fences fica só como fallback para modelos sem tools | Testes com fixtures por provedor; matriz de funcionalidades na UI |
 
@@ -266,3 +266,20 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
   (só se dispara acima de ~150k tokens). **Memória** (`.dxtutor/memory/`) e
   **`lsp_diagnostics`** ficam para F6/F7: a memória precisa da ferramenta de escrita (F6) e
   o LSP depende de sessões arrancadas pela UI no `lsp.rs`, acopladas ao Tauri.
+
+- **F6 (2026-11-23).** Modo plano (`/plano <pedido>`): a política recusa alterações até o
+  plano ser aprovado; o modelo termina com `exit_plan` e o humano aprova ou pede para
+  continuar a planear — o conjunto de ferramentas não muda (mudá-lo invalidaria a cache).
+  `todo_write` mostra a lista de tarefas como checklist na conversa. Checkpoints: antes da
+  primeira alteração de ficheiros de cada turno, um commit git em ref oculta
+  (`refs/dxtutor/cp/<sessão>/<n>`, com index temporário — sem tocar no index nem nos ramos);
+  `/reverter` repõe só os ficheiros que mudaram e apaga os criados depois; o modelo é
+  avisado por mensagem `system` (a conversa continua append-only). Os pedidos de aprovação
+  de `edit`/`write` têm «ver diff». Sub-agentes (`task`): investigação só de leitura com
+  contexto próprio, no mesmo modelo (decisão §11.3), em paralelo quando há vários. Memória
+  do projecto em `.dxtutor/memory/*.md` (lida no arranque; a pasta deixa de ser protegida,
+  o resto de `.dxtutor/` continua). As sessões gravam a versão do conjunto de ferramentas
+  (`toolset`), para as anteriores à F6 retomarem com o conjunto com que começaram.
+  **Pendente de decisão:** ligar as tarefas ao Board — o Board guarda *user stories* (papel,
+  critérios de aceitação, pontos, sprint), não passos de execução; a correspondência é
+  uma decisão de produto. **`lsp_diagnostics`** continua adiado (F7).

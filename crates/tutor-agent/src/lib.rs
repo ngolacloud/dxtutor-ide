@@ -24,6 +24,7 @@
 
 pub mod agent;
 pub mod anthropic;
+pub mod checkpoint;
 pub mod context;
 pub mod permissions;
 pub mod provider;

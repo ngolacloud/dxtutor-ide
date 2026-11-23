@@ -35,6 +35,14 @@ pub struct SessionMeta {
     pub compaction: bool,
     /// Segundos desde a época.
     pub created: u64,
+    /// Versão do conjunto de ferramentas com que a sessão começou
+    /// ([`crate::tools::TOOLSET_VERSION`]); ficheiros anteriores à F6 não a têm → 1.
+    #[serde(default = "toolset_v1")]
+    pub toolset: u32,
+}
+
+fn toolset_v1() -> u32 {
+    1
 }
 
 /// Uma linha do ficheiro.
@@ -284,6 +292,7 @@ mod tests {
             lint_cmd: None,
             compaction: true,
             created: 100,
+            toolset: 2,
         }
     }
 

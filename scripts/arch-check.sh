@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=141
+EXPECT_TOTAL=144
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 11 (ceiling); actual
@@ -63,7 +63,7 @@ EXPECT_TSNOCHECK=11
 # depois o grupo `PairCode` (4 cmd) saiu de lib.rs (19→15) para commands/pair.rs;
 # depois o 13º e último grupo `estudo`/`missões` (15 cmd) saiu de lib.rs (15→0) para
 # commands/study.rs (11) + commands/missions.rs (4) — lib.rs fica sem #[tauri::command].
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/codev_agent.rs]=8 [commands/search.rs]=4 [commands/agent.rs]=7 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=14 [fsops.rs]=10 [lsp.rs]=8 [pty.rs]=4 [board.rs]=2 )
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/codev_agent.rs]=11 [commands/search.rs]=4 [commands/agent.rs]=7 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=14 [fsops.rs]=10 [lsp.rs]=8 [pty.rs]=4 [board.rs]=2 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores

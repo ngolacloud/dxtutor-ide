@@ -18,9 +18,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use tutor_agent::anthropic::{self, Anthropic, Config};
+use tutor_agent::checkpoint::{Checkpoint, Checkpoints};
 use tutor_agent::permissions::{Mode, Policy, Rules, Verdict};
 use tutor_agent::session::{self, HistoryItem, SessionLog, SessionMeta, SessionSummary};
-use tutor_agent::tools::{coding_tools, ToolsetOptions};
+use tutor_agent::tools::flow::SubagentSpec;
+use tutor_agent::tools::{agent_tools, FlowState, ToolsetOptions, TOOLSET_VERSION};
 use tutor_agent::{
     Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall,
     SystemBlock, ToolCtx, Transcript, TurnOutcome,
@@ -68,6 +70,11 @@ struct Session {
     log: Mutex<Option<SessionLog>>,
     /// O último modo anunciado ao modelo (mensagem `system` a meio da conversa).
     announced: Mutex<Option<Mode>>,
+    /// Modo plano e lista de tarefas (partilhados com as ferramentas e a política).
+    flow: FlowState,
+    /// Avisos para o modelo na próxima mensagem (rewind, modo plano) — a conversa nunca é
+    /// editada, por isso o que muda entre turnos vai como mensagem `system`.
+    notes: Mutex<Vec<String>>,
 }
 
 /// O texto que anuncia o modo ao modelo (vai como mensagem `system` a meio da conversa,
@@ -175,6 +182,7 @@ pub fn start(
                 lint_cmd: spec.lint_cmd.filter(|c| !c.trim().is_empty()),
                 compaction: true,
                 created: session::now(),
+                toolset: TOOLSET_VERSION,
             };
             // sem registo em disco a sessão funciona na mesma (só não se retoma)
             let log = dir.as_ref().and_then(|d| SessionLog::create(d, &meta).ok());
@@ -193,22 +201,36 @@ pub fn start(
             cache: *cache,
         })
         .collect();
+    let flow = FlowState::default();
     let mode = Mode::parse(spec.mode.as_deref().unwrap_or("manual"));
-    let policy = Policy::new(
+    let mut policy = Policy::new(
         mode,
         Rules::load(&root, Rules::user_file().as_deref()),
         root.clone(),
     );
+    policy.plan = flow.plan_mode.clone();
+    let checkpoints = Checkpoints::new(&root, &meta.id).map(Arc::new);
     let ctx = ToolCtx {
         root,
         cancel: Arc::new(AtomicBool::new(false)),
     };
-    let tools = coding_tools(&ToolsetOptions {
-        test_cmd: meta.test_cmd.clone(),
-        lint_cmd: meta.lint_cmd.clone(),
-        ..Default::default()
-    });
-    let agent = Agent::new(provider, tools, acfg, ctx);
+    let subagent = SubagentSpec {
+        provider: provider.clone(),
+        model: meta.model.clone(),
+        effort: acfg.effort,
+    };
+    let tools = agent_tools(
+        &ToolsetOptions {
+            test_cmd: meta.test_cmd.clone(),
+            lint_cmd: meta.lint_cmd.clone(),
+            ..Default::default()
+        },
+        meta.toolset,
+        &flow,
+        Some(subagent),
+    );
+    let mut agent = Agent::new(provider, tools, acfg, ctx);
+    agent.checkpoints = checkpoints;
 
     let id = meta.id.clone();
     let s = Session {
@@ -219,6 +241,8 @@ pub fn start(
         pending: Mutex::new(HashMap::new()),
         log: Mutex::new(log),
         announced: Mutex::new(None),
+        flow,
+        notes: Mutex::new(vec![]),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -288,6 +312,9 @@ pub fn send(
                 t.push(Message::system(mode_note(mode)));
             }
             drop(announced);
+            for n in std::mem::take(&mut *s.notes.lock().unwrap()) {
+                t.push(Message::system(n));
+            }
             s.agent.run_turn(&mut t, None, on_event, &mut approve)
         }
         // «tentar de novo»: continua do histórico, sem nota nova
@@ -353,6 +380,52 @@ pub fn set_mode(id: &str, mode: &str) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Liga/desliga o modo plano. O modelo é avisado na próxima mensagem.
+pub fn set_plan(id: &str, on: bool) -> Result<(), String> {
+    let s = get(id)?;
+    let was = s.flow.plan_mode.swap(on, Ordering::SeqCst);
+    if was != on {
+        s.notes.lock().unwrap().push(if on {
+            "Modo plano activo: investiga só com leitura e propõe o plano com exit_plan antes \
+             de alterar alguma coisa (as alterações são recusadas até o plano ser aprovado)."
+                .into()
+        } else {
+            "Modo plano desligado pelo humano: podes executar.".into()
+        });
+    }
+    Ok(())
+}
+
+/// Os checkpoints da sessão (vazio fora de repositórios git).
+pub fn checkpoints(id: &str) -> Result<Vec<Checkpoint>, String> {
+    let s = get(id)?;
+    Ok(s.agent
+        .checkpoints
+        .as_ref()
+        .map(|c| c.list())
+        .unwrap_or_default())
+}
+
+/// Repõe os ficheiros como estavam no checkpoint `cp` (antes do turno que o criou). A
+/// conversa não é editada: o modelo é avisado na próxima mensagem.
+pub fn rewind(id: &str, cp: u32) -> Result<String, String> {
+    let s = get(id)?;
+    if s.busy.load(Ordering::SeqCst) {
+        return Err("espera que o turno em curso termine (ou pára-o) antes de voltar atrás".into());
+    }
+    let cps = s
+        .agent
+        .checkpoints
+        .as_ref()
+        .ok_or("checkpoints só existem em repositórios git")?;
+    let msg = cps.restore(cp)?;
+    s.notes.lock().unwrap().push(format!(
+        "O humano reverteu os ficheiros do projecto: {msg}. O que fizeste depois desse ponto \
+         já não está no disco — volta a ler os ficheiros antes de continuar."
+    ));
+    Ok(msg)
 }
 
 /// As sessões gravadas do projecto `root`, das mais recentes para as mais antigas.
@@ -562,6 +635,40 @@ mod tests {
         bad.root = other.path().display().to_string();
         assert!(start(bad, Some("sk".into()), None).is_err());
         assert!(start(spec(Some("../fora".into()), "x"), Some("sk".into()), None).is_err());
+    }
+
+    #[test]
+    fn plan_mode_is_shared_with_the_policy_and_announced_once() {
+        let proj = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: proj.path().display().to_string(),
+            mode: Some("auto".into()),
+            sessions_base: Some(proj.path().join(".s")),
+            ..Default::default()
+        };
+        let id = start(spec, Some("sk".into()), None).unwrap();
+        let s = get(&id).unwrap();
+        let edit = PendingCall {
+            id: "e".into(),
+            name: "edit".into(),
+            input: serde_json::json!({"path": "a.rs"}),
+            read_only: false,
+            command: None,
+        };
+        assert_eq!(s.policy.lock().unwrap().decide(&edit), Verdict::Allow);
+        set_plan(&id, true).unwrap();
+        set_plan(&id, true).unwrap(); // repetir não duplica o aviso
+        assert!(matches!(
+            s.policy.lock().unwrap().decide(&edit),
+            Verdict::Deny { .. }
+        ));
+        assert_eq!(s.notes.lock().unwrap().len(), 1);
+        set_plan(&id, false).unwrap();
+        assert_eq!(s.policy.lock().unwrap().decide(&edit), Verdict::Allow);
+        // fora de um repositório git: sem checkpoints, rewind explica porquê
+        assert!(checkpoints(&id).unwrap().is_empty());
+        assert!(rewind(&id, 1).unwrap_err().contains("git"));
+        close(&id);
     }
 
     #[test]

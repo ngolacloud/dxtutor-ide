@@ -29,7 +29,7 @@ import type {
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
-import type { AgentEvent, ApprovalRequest, HistoryItem, SessionSummary } from "../domain/agent-events";
+import type { AgentEvent, ApprovalRequest, Checkpoint, HistoryItem, SessionSummary, Todo } from "../domain/agent-events";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -272,6 +272,12 @@ export interface MissionPresenter {
   agentNote?(ref: CardRef, key: string, text: string): void;
   /** Porque é que uma chamada pede aprovação (`dangerous`: piso de segurança). */
   toolReason?(ref: ToolRef, reason: string, dangerous: boolean): void;
+  /** A lista de tarefas do agente (substitui a anterior no cartão). */
+  agentTodos?(ref: CardRef, todos: Todo[]): void;
+  /** O plano proposto (markdown), dentro do pedido de aprovação. */
+  agentPlan?(ref: ToolRef, markdown: string): void;
+  /** Botão «ver diff» numa linha de ferramenta. */
+  toolDiffLink?(ref: ToolRef, onDiff: () => void): void;
 }
 
 export interface DeliverView {
@@ -333,6 +339,9 @@ export interface AgentGateway {
   sessions(root: string): Promise<SessionSummary[]>;
   /** O histórico simplificado de uma sessão aberta. */
   history(session: string): Promise<HistoryItem[]>;
+  setPlan(session: string, on: boolean): Promise<void>;
+  checkpoints(session: string): Promise<Checkpoint[]>;
+  rewind(session: string, checkpoint: number): Promise<string>;
   send(session: string, text: string | null): Promise<void>;
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
   cancel(session: string): Promise<boolean>;
@@ -359,6 +368,8 @@ export interface AgentChatDeps {
   speaker(): string;
   /** Segundos desde a época (relógio injectado para os testes). */
   nowSecs(): number;
+  /** Abre um diff (antes/depois) numa tab do editor. */
+  openDiff(path: string, before: string, after: string, label: string): void;
 }
 
 export interface LiveDeps {

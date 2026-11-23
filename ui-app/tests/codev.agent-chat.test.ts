@@ -9,7 +9,7 @@ import { costUSD, formatUsage } from "../src/features/codev/domain/pricing";
 
 type H = Parameters<AgentGateway["subscribe"]>[0];
 
-function setup(choice: string = "allow") {
+function setup(choice: unknown = "allow") {
   let h!: H;
   const calls: string[] = [];
   const log = (s: string) => calls.push(s);
@@ -26,6 +26,9 @@ function setup(choice: string = "allow") {
     close: vi.fn(async () => true),
     sessions: vi.fn(async () => [] as SessionSummary[]),
     history: vi.fn(async () => [] as HistoryItem[]),
+    setPlan: vi.fn(async () => undefined),
+    checkpoints: vi.fn(async () => [] as Array<{ id: number; label: string; created: number }>),
+    rewind: vi.fn(async () => "ficheiros repostos para o checkpoint 1 («x»): 2 reposto(s), 1 apagado(s)"),
     subscribe: vi.fn(async (handlers: H) => {
       h = handlers;
       return () => undefined;
@@ -45,11 +48,19 @@ function setup(choice: string = "allow") {
       toolReason: (_r: unknown, why: string, d: boolean) => log(`reason ${d} ${why}`),
       agentNote: (_c: unknown, k: string, t: string) => log(`note ${k} ${t}`),
       agentReasoning: (_c: unknown, t: string) => log(`reasoning ${t}`),
+      agentTodos: (_c: unknown, todos: Array<{ content: string; status: string }>) =>
+        log(`todos ${todos.map((x) => `${x.status}:${x.content}`).join("|")}`),
+      agentPlan: (_r: unknown, m: string) => log(`plan ${m}`),
+      toolDiffLink: (_r: unknown, onDiff: () => void) => {
+        log("difflink");
+        diffClicks.push(onDiff);
+      },
       liveError: (_c: unknown, _a: boolean, _code: unknown, m: string) => log(`error ${m}`),
     },
     { get: (t: Record<string, unknown>, k: string) => t[k] ?? (() => undefined) },
   );
   const gateButtons: string[][] = [];
+  const diffClicks: Array<() => void> = [];
   const deps: AgentChatDeps = {
     gateway,
     presenter: presenter as unknown as AgentChatDeps["presenter"],
@@ -67,10 +78,11 @@ function setup(choice: string = "allow") {
     mode: () => "assist",
     speaker: () => "co-dev · agente",
     nowSecs: () => 10_000,
+    openDiff: vi.fn(),
   };
   const chat = makeAgentChat(deps);
   const emit = (e: AgentEvent, s = "S1") => h.event(s, e);
-  return { chat, gateway, deps, calls, gateButtons, abort, emit, h: () => h, setScript: (f: (s: string) => void) => (script = f) };
+  return { chat, gateway, deps, calls, gateButtons, diffClicks, abort, emit, h: () => h, setScript: (f: (s: string) => void) => (script = f) };
 }
 
 const stream = (event: unknown): AgentEvent => ({ kind: "stream", event }) as AgentEvent;
@@ -267,4 +279,79 @@ test("parse e rótulos das sessões", () => {
   expect(ago(0, 600)).toBe("há 10 min");
   expect(ago(0, 86_400)).toBe("há 1 dia");
   expect(describeSession({ id: "a", title: "x".repeat(80), messages: 3, model: "m", created: 0, updated: 0 }, 0)).toMatch(/^x{59}… · agora · 3 mensagens$/);
+});
+
+test("F6: checklist de tarefas, aviso de checkpoint e diff no pedido de aprovação de uma edição", async () => {
+  const t = setup("allow");
+  t.setScript(() => {
+    t.emit({ kind: "tool_start", id: "td", name: "todo_write", input: { todos: [
+      { content: "ler", status: "completed" }, { content: "corrigir", status: "in_progress" }, { content: 3 },
+    ] } });
+    t.emit({ kind: "tool_result", id: "td", name: "todo_write", is_error: false, content: "[x] ler" });
+    t.h().approval("S1", {
+      call: { id: "e1", name: "edit", input: { path: "src/a.rs", old_string: "a", new_string: "b" }, read_only: false, command: null },
+      reason: "modo Manual", dangerous: false, suggestedRule: "edit",
+    });
+    setTimeout(() => {
+      t.emit({ kind: "checkpoint", id: 1, label: "corrige" });
+      t.emit({ kind: "notice", text: "aviso qualquer" });
+      t.emit(done());
+    }, 5);
+  });
+  await t.chat.send("corrige");
+  expect(t.calls).toContain("todos completed:ler|in_progress:corrigir");
+  expect(t.calls.some((c) => c.startsWith("toolLine todo_write"))).toBe(false);
+  expect(t.calls.some((c) => c.startsWith("result") && c.includes("[x] ler"))).toBe(false);
+  expect(t.calls).toContain("difflink");
+  t.diffClicks[0]();
+  expect(t.deps.openDiff).toHaveBeenCalledWith("src/a.rs", "a", "b", "proposta do agente");
+  expect(t.calls).toContain("note checkpoint Checkpoint 1 guardado antes das alterações — /reverter para voltar atrás.");
+  expect(t.calls).toContain("note notice aviso qualquer");
+});
+
+test("F6: o plano aparece no pedido de aprovação; aprovar ou continuar a planear vai ao backend", async () => {
+  for (const [choice, allow] of [[true, true], [false, false]] as const) {
+    const t = setup(choice);
+    t.setScript(() => {
+      t.h().approval("S1", {
+        call: { id: "p1", name: "exit_plan", input: { plan: "1. ler\n2. corrigir" }, read_only: false, command: null },
+        reason: "aprovar o plano proposto", dangerous: false, suggestedRule: null,
+      });
+      setTimeout(() => t.emit(done()), 5);
+    });
+    await t.chat.send("planeia");
+    expect(t.calls).toContain("plan 1. ler\n2. corrigir");
+    expect(t.calls).toContain("toolLine exit_plan plano proposto");
+    expect(t.gateButtons[0]).toEqual(["Aprovar plano", "Continuar a planear"]);
+    expect(t.gateway.approve).toHaveBeenCalledWith("S1", "p1", allow, allow ? undefined : "o humano quer continuar a planear: ajusta o plano");
+  }
+});
+
+test("F6: /plano liga o modo plano antes de enviar; /reverter repõe e relê o disco", async () => {
+  const t = setup(2);
+  t.setScript(() => t.emit(done()));
+  await t.chat.plan("acrescenta paginação");
+  expect(t.gateway.setPlan).toHaveBeenCalledWith("S1", true);
+  expect(t.gateway.send).toHaveBeenCalledWith("S1", "acrescenta paginação");
+  expect((t.gateway.setPlan as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]).toBeLessThan(
+    (t.gateway.send as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+  );
+
+  (t.gateway.checkpoints as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+    { id: 1, label: "primeiro pedido", created: 10_000 - 120 },
+    { id: 2, label: "segundo pedido", created: 10_000 - 30 },
+  ]);
+  (t.deps.reloadFromDisk as ReturnType<typeof vi.fn>).mockClear();
+  await t.chat.rewindMenu();
+  expect(t.gateButtons.at(-1)).toEqual(["#2 · segundo pedido · agora", "#1 · primeiro pedido · há 2 min", "Cancelar"]);
+  expect(t.gateway.rewind).toHaveBeenCalledWith("S1", 2);
+  expect(t.deps.reloadFromDisk).toHaveBeenCalled();
+  expect(t.calls.some((c) => c.startsWith("note rewind Ficheiros repostos para o checkpoint 1"))).toBe(true);
+});
+
+test("F6: /reverter sem sessão ou sem checkpoints explica porquê", async () => {
+  const t = setup();
+  await t.chat.rewindMenu();
+  expect(t.calls.some((c) => c.startsWith("text Ainda não há checkpoints"))).toBe(true);
+  expect(t.gateway.rewind).not.toHaveBeenCalled();
 });

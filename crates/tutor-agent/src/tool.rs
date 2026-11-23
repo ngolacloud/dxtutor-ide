@@ -53,6 +53,11 @@ pub trait Tool: Send + Sync {
     fn description(&self) -> &str;
     fn input_schema(&self) -> Value;
     fn read_only(&self) -> bool;
+    /// Pode alterar ficheiros do projecto? (antes da primeira destas num turno, o loop cria
+    /// um checkpoint). Por omissão: tudo o que não é só leitura.
+    fn mutates_files(&self) -> bool {
+        !self.read_only()
+    }
     /// Entradas grandes (conteúdo de ficheiros): liga `eager_input_streaming`.
     fn eager_input(&self) -> bool {
         false

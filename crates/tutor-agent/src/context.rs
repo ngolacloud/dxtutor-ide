@@ -12,6 +12,8 @@ use std::path::Path;
 use crate::provider::SystemBlock;
 
 /// Ficheiros de instruções do projecto, por ordem (os mais gerais primeiro).
+/// Pasta da memória do projecto (todos os `.md`, por ordem alfabética).
+pub const MEMORY_DIR: &str = ".dxtutor/memory";
 pub const INSTRUCTION_FILES: &[&str] = &["AGENTS.md", "CLAUDE.md", ".dxtutor/regras.md"];
 /// Tamanho máximo de cada ficheiro de instruções incluído.
 const MAX_FILE_BYTES: usize = 40 * 1024;
@@ -33,7 +35,11 @@ pub fn core_prompt() -> String {
      - Se a verificação falhar, lê o erro real, corrige e volta a verificar.\n\
      - Pergunta quando o pedido for ambíguo ou a decisão for do humano; não inventes requisitos.\n\
      - Algumas acções pedem aprovação ao humano; se ele recusar, respeita e propõe alternativa.\n\
-     - Nunca faças push, apagues dados ou mexas fora do projecto sem o humano pedir."
+     - Nunca faças push, apagues dados ou mexas fora do projecto sem o humano pedir.\n\
+     - Em tarefas grandes, podes começar por propor um plano; em trabalho com vários passos, \
+     regista-os com `todo_write`.\n\
+     - Memória do projecto: guarda em `.dxtutor/memory/` (markdown) decisões e factos \
+     duradouros que valha a pena lembrar noutra conversa; é lida no início de cada sessão."
         .to_string()
 }
 
@@ -62,6 +68,36 @@ pub fn project_instructions(root: &Path) -> Option<String> {
             "\n\n<instructions file=\"{name}\">\n{}\n</instructions>",
             body.trim_end()
         ));
+    }
+    // memória do projecto: .dxtutor/memory/*.md
+    if let Ok(rd) = std::fs::read_dir(root.join(MEMORY_DIR)) {
+        let mut files: Vec<_> = rd
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "md"))
+            .collect();
+        files.sort();
+        for p in files {
+            let Ok(text) = std::fs::read_to_string(&p) else {
+                continue;
+            };
+            if text.trim().is_empty() {
+                continue;
+            }
+            let name = format!(
+                "{MEMORY_DIR}/{}",
+                p.file_name().unwrap_or_default().to_string_lossy()
+            );
+            let body: String = text.chars().take(MAX_FILE_BYTES).collect();
+            if out.len() + body.len() > MAX_TOTAL_BYTES {
+                out.push_str(&format!("\n\n(memória {name} omitida: limite de tamanho)"));
+                continue;
+            }
+            out.push_str(&format!(
+                "\n\n<memory file=\"{name}\">\n{}\n</memory>",
+                body.trim_end()
+            ));
+        }
     }
     (!out.is_empty()).then(|| {
         format!(
@@ -120,6 +156,18 @@ mod tests {
         );
         assert!(a < c, "AGENTS.md antes de CLAUDE.md");
         assert!(p.contains("[ficheiro cortado]"));
+    }
+
+    #[test]
+    fn project_memory_is_read_in_order() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join(".dxtutor/memory")).unwrap();
+        std::fs::write(d.path().join(".dxtutor/memory/b.md"), "Usamos sqlx.").unwrap();
+        std::fs::write(d.path().join(".dxtutor/memory/a.md"), "API em axum.").unwrap();
+        std::fs::write(d.path().join(".dxtutor/memory/x.txt"), "ignorado").unwrap();
+        let p = &system_prompt(d.path())[1].text;
+        assert!(p.find("memory/a.md").unwrap() < p.find("memory/b.md").unwrap());
+        assert!(!p.contains("ignorado"));
     }
 
     #[test]

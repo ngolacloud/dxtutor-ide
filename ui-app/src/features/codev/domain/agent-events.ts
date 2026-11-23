@@ -34,6 +34,8 @@ export type AgentEvent =
   | { kind: "tool_result"; id: string; name: string; is_error: boolean; content: string }
   | { kind: "usage"; request: Usage; turn: Usage }
   | { kind: "served_by"; model: string }
+  | { kind: "checkpoint"; id: number; label: string }
+  | { kind: "notice"; text: string }
   | { kind: "done"; outcome: TurnOutcome };
 
 export interface PendingCall {
@@ -60,7 +62,7 @@ const str = (v: unknown): v is string => typeof v === "string";
 export function parseAgentEvent(payload: unknown): { session: string; event: AgentEvent } | null {
   if (!isObj(payload) || !str(payload.session) || !isObj(payload.event)) return null;
   const e = payload.event;
-  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "done"];
+  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "done"];
   if (!str(e.kind) || !known.includes(e.kind)) return null;
   if (e.kind === "stream" && !(isObj(e.event) && str(e.event.type))) return null;
   if ((e.kind === "tool_start" || e.kind === "tool_result") && !(str(e.id) && str(e.name))) return null;
@@ -200,4 +202,43 @@ export function ago(thenSecs: number, nowSecs: number): string {
 export function describeSession(s: SessionSummary, nowSecs: number): string {
   const t = s.title.length > 60 ? s.title.slice(0, 59) + "…" : s.title;
   return `${t} · ${ago(s.updated, nowSecs)} · ${s.messages} mensagens`;
+}
+
+/** Uma tarefa da lista do agente (`todo_write`). */
+export interface Todo {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+/** A lista de tarefas a partir do input de um `todo_write` (entradas inválidas ignoradas). */
+export function parseTodos(input: Record<string, unknown>): Todo[] {
+  const a = input.todos;
+  if (!Array.isArray(a)) return [];
+  return a
+    .filter((t) => isObj(t) && str(t.content))
+    .map((t) => {
+      const o = t as Record<string, unknown>;
+      const st = o.status === "completed" || o.status === "in_progress" ? o.status : "pending";
+      return { content: o.content as string, status: st };
+    });
+}
+
+/** Um checkpoint de ficheiros (espelho de `tutor_agent::checkpoint::Checkpoint`). */
+export interface Checkpoint {
+  id: number;
+  label: string;
+  created: number;
+}
+
+export function parseCheckpoints(v: unknown): Checkpoint[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((c): c is Checkpoint => isObj(c) && typeof c.id === "number" && str(c.label) && typeof c.created === "number");
+}
+
+/** O diff a mostrar num pedido de aprovação de edit/write (`null` para as outras ferramentas). */
+export function callDiff(name: string, input: Record<string, unknown>): { path: string; before: string; after: string } | null {
+  const s = (k: string): string => (str(input[k]) ? (input[k] as string) : "");
+  if (name === "edit") return { path: s("path"), before: s("old_string"), after: s("new_string") };
+  if (name === "write") return { path: s("path"), before: "", after: s("content") };
+  return null;
 }

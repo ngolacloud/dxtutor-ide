@@ -6,6 +6,7 @@
 //! não mudou desde então.
 
 mod exec;
+pub mod flow;
 mod fs;
 mod git;
 mod search;
@@ -88,6 +89,41 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
     }
     if let Some(c) = opts.lint_cmd.as_ref().filter(|c| !c.trim().is_empty()) {
         v.push(Arc::new(exec::Verify::lint(c.trim())));
+    }
+    v
+}
+
+/// Versão do conjunto de ferramentas gravada com cada sessão: retomar uma sessão usa o
+/// conjunto com que ela começou (mudar as ferramentas muda o prefixo do pedido, e o
+/// *preserved thinking* recusa-o). 1 = F2–F5; 2 = + todo_write/exit_plan/task (F6).
+pub const TOOLSET_VERSION: u32 = 2;
+
+/// O estado partilhado entre as ferramentas de fluxo e a sessão.
+#[derive(Clone, Default)]
+pub struct FlowState {
+    /// Modo plano: a política recusa alterações; `exit_plan` desliga-o quando aprovado.
+    pub plan_mode: Arc<std::sync::atomic::AtomicBool>,
+    pub todos: Arc<Mutex<Vec<flow::Todo>>>,
+}
+
+/// O conjunto de ferramentas de uma sessão, na versão `version`, por ordem fixa.
+pub fn agent_tools(
+    opts: &ToolsetOptions,
+    version: u32,
+    flow_state: &FlowState,
+    subagent: Option<flow::SubagentSpec>,
+) -> Vec<Arc<dyn Tool>> {
+    let mut v = coding_tools(opts);
+    if version >= 2 {
+        v.push(Arc::new(flow::TodoWrite {
+            todos: flow_state.todos.clone(),
+        }));
+        v.push(Arc::new(flow::ExitPlan {
+            plan_mode: flow_state.plan_mode.clone(),
+        }));
+        if let Some(spec) = subagent {
+            v.push(Arc::new(flow::Task { spec }));
+        }
     }
     v
 }

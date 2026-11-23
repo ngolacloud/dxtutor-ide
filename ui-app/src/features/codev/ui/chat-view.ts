@@ -541,6 +541,39 @@ export const presenter: MissionPresenter = {
     n.textContent = text;
     scrollMsgs();
   },
+  agentTodos(ref: CardRef, todos: Array<{ content: string; status: string }>) {
+    const c = asCard(ref);
+    let box = c.el.querySelector(".agent-todos") as HTMLElement | null;
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "agent-todos";
+      c.tools.before(box);
+    }
+    const done = todos.filter((t) => t.status === "completed").length;
+    box.innerHTML =
+      `<div class="at-h">Tarefas · ${done}/${todos.length}</div>` +
+      todos
+        .map((t) => {
+          const mark = t.status === "completed" ? "☑" : t.status === "in_progress" ? "◐" : "☐";
+          return `<div class="at-i ${esc(t.status)}"><span class="at-m">${mark}</span>${esc(t.content)}</div>`;
+        })
+        .join("");
+    scrollMsgs();
+  },
+  agentPlan(ref: ToolRef, markdown: string) {
+    const box = document.createElement("div");
+    box.className = "agent-plan";
+    box.innerHTML = md(markdown || "(plano vazio)");
+    el(ref).appendChild(box);
+    scrollMsgs();
+  },
+  toolDiffLink(ref: ToolRef, onDiff: () => void) {
+    const b = document.createElement("button");
+    b.className = "lnk";
+    b.textContent = "ver diff";
+    b.onclick = onDiff;
+    el(ref).querySelector(".tr")!.appendChild(b);
+  },
   toolReason(ref: ToolRef, reason: string, dangerous: boolean) {
     const t = el(ref);
     const w = document.createElement("span");

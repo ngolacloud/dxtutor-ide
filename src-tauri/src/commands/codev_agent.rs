@@ -127,3 +127,25 @@ pub fn codev_agent_history(
 ) -> Result<Vec<tutor_agent::session::HistoryItem>, String> {
     codev_agent::history(&session_id)
 }
+
+/// Liga/desliga o modo plano da sessão (só leitura até o plano ser aprovado).
+#[tauri::command]
+pub fn codev_agent_set_plan(session_id: String, on: bool) -> Result<(), String> {
+    codev_agent::set_plan(&session_id, on)
+}
+
+/// Os checkpoints de ficheiros da sessão (um por turno que alterou ficheiros).
+#[tauri::command]
+pub fn codev_agent_checkpoints(
+    session_id: String,
+) -> Result<Vec<tutor_agent::checkpoint::Checkpoint>, String> {
+    codev_agent::checkpoints(&session_id)
+}
+
+/// Repõe os ficheiros como estavam no checkpoint (antes do turno que o criou).
+#[tauri::command]
+pub async fn codev_agent_rewind(session_id: String, checkpoint: u32) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || codev_agent::rewind(&session_id, checkpoint))
+        .await
+        .map_err(|e| format!("rewind task failed: {e}"))?
+}
