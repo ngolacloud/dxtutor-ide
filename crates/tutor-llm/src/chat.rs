@@ -427,13 +427,19 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// with a real `ANTHROPIC_API_KEY` (there is none in CI, so this path is unproven here).
 pub fn claude_chat_stream_env(
     messages: &[ChatMsg],
+    model: Option<&str>,
     on_delta: impl FnMut(&str) -> bool,
 ) -> Result<ChatReply> {
     let cfg = load_config();
     let api_key = cfg_or_env(&cfg.anthropic_key, &["ANTHROPIC_API_KEY"])
         .ok_or_else(|| anyhow::anyhow!("No Anthropic key — set it in AI settings or ANTHROPIC_API_KEY"))?;
-    let model = cfg_or_env(&cfg.assistant_model, &["DXTUTOR_ASSISTANT_MODEL"])
-        .unwrap_or_else(|| "claude-haiku-4-5".to_string());
+    // O modelo escolhido na UI manda (antes era ignorado e caía sempre no haiku-4-5).
+    let model = model
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(String::from)
+        .or_else(|| cfg_or_env(&cfg.assistant_model, &["DXTUTOR_ASSISTANT_MODEL"]))
+        .unwrap_or_else(|| "claude-opus-5-5".to_string());
     // Org-scoped keys need the workspace id in a header.
     let workspace = cfg_or_env(
         &cfg.anthropic_workspace_id,
@@ -463,91 +469,74 @@ pub fn claude_chat_stream(
         .filter(|m| m.role != "system")
         .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
         .collect();
-    // AUTO-CONTINUATION. Claude caps a response at `max_tokens`; a long file rewrite hits the
-    // cap and comes back TRUNCATED. When a round ends with stop_reason "max_tokens" we re-send
-    // the partial as an assistant PREFILL (the documented Anthropic way to continue a turn) so
-    // the model carries on exactly where it stopped — repeating until it finishes (end_turn).
-    // This makes ANY file length complete, independent of the per-round cap.
+    // Um só pedido em streaming com espaço de sobra. A antiga continuação por *assistant
+    // prefill* (reenviar o parcial como última mensagem do assistente) dá 400 nos modelos
+    // actuais (Opus 5.5 e família 4.6+) — foi removida (ADR-0003, F4).
     let mut full = String::new();
-    let mut cancelled = false;
-    for _round in 0..10 {
-        // base messages + (on continuation) the partial so far as an assistant prefill.
-        let mut round_msgs = msgs.clone();
-        if !full.trim_end().is_empty() {
-            // Anthropic rejects an assistant prefill that ends with whitespace — trim the tail
-            // for the prefill only (the accumulated `full` keeps every character).
-            round_msgs.push(serde_json::json!({ "role": "assistant", "content": full.trim_end() }));
-        }
-        let mut body = serde_json::json!({
-            "model": model,
-            "max_tokens": 8192,
-            "stream": true,
-            "messages": round_msgs,
-        });
-        // Anthropic rejects an empty `system`; only include it when there is one.
-        if !system.trim().is_empty() {
-            body["system"] = serde_json::Value::String(system.clone());
-        }
+    let mut body = serde_json::json!({
+        "model": model,
+        "max_tokens": 64000,
+        "stream": true,
+        "messages": msgs,
+    });
+    // Anthropic rejects an empty `system`; only include it when there is one.
+    if !system.trim().is_empty() {
+        body["system"] = serde_json::Value::String(system.clone());
+    }
 
-        let mut req = ureq::post(ANTHROPIC_ENDPOINT)
-            .set("x-api-key", api_key)
-            .set("anthropic-version", ANTHROPIC_VERSION)
-            .set("content-type", "application/json")
-            .timeout(Duration::from_secs(300));
-        if let Some(ws) = workspace_id.filter(|w| !w.is_empty()) {
-            req = req.set("anthropic-workspace-id", ws); // required for org-scoped keys
+    let mut req = ureq::post(ANTHROPIC_ENDPOINT)
+        .set("x-api-key", api_key)
+        .set("anthropic-version", ANTHROPIC_VERSION)
+        .set("content-type", "application/json")
+        .timeout(Duration::from_secs(600));
+    if let Some(ws) = workspace_id.filter(|w| !w.is_empty()) {
+        req = req.set("anthropic-workspace-id", ws); // required for org-scoped keys
+    }
+    let resp = match req.send_json(body) {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, r)) => {
+            let detail = r.into_string().unwrap_or_default();
+            anyhow::bail!("Anthropic returned {code}: {detail}");
         }
-        let resp = match req.send_json(body) {
-            Ok(r) => r,
-            Err(ureq::Error::Status(code, r)) => {
-                let detail = r.into_string().unwrap_or_default();
-                anyhow::bail!("Anthropic returned {code}: {detail}");
-            }
-            Err(ureq::Error::Transport(t)) => anyhow::bail!("Could not reach Anthropic: {t}"),
+        Err(ureq::Error::Transport(t)) => anyhow::bail!("Could not reach Anthropic: {t}"),
+    };
+
+    let reader = BufReader::new(resp.into_reader());
+    for line in reader.lines() {
+        let line = line.context("reading Anthropic SSE")?;
+        let data = match line.strip_prefix("data: ") {
+            Some(d) => d.trim(),
+            None => continue, // `event:` lines and blanks are ignored
         };
-
-        let reader = BufReader::new(resp.into_reader());
-        let mut stop_reason = String::new();
-        let mut round_len = 0usize;
-        for line in reader.lines() {
-            let line = line.context("reading Anthropic SSE")?;
-            let data = match line.strip_prefix("data: ") {
-                Some(d) => d.trim(),
-                None => continue, // `event:` lines and blanks are ignored
-            };
-            if data == "[DONE]" {
-                break;
-            }
-            let v: serde_json::Value = match serde_json::from_str(data) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            match v.get("type").and_then(|t| t.as_str()) {
-                Some("content_block_delta") => {
-                    if let Some(text) = v.get("delta").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
-                        if !text.is_empty() {
-                            full.push_str(text);
-                            round_len += text.len();
-                            if !on_delta(text) {
-                                cancelled = true;
-                                break;
-                            }
+        if data == "[DONE]" {
+            break;
+        }
+        let v: serde_json::Value = match serde_json::from_str(data) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("content_block_delta") => {
+                if let Some(text) = v.get("delta").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                    if !text.is_empty() {
+                        full.push_str(text);
+                        if !on_delta(text) {
+                            break; // cancelled
                         }
                     }
                 }
-                // `message_delta` carries the turn's stop_reason ("end_turn" | "max_tokens" | …).
-                Some("message_delta") => {
-                    if let Some(sr) = v.get("delta").and_then(|d| d.get("stop_reason")).and_then(|s| s.as_str()) {
-                        stop_reason = sr.to_string();
-                    }
-                }
-                Some("message_stop") => break,
-                _ => {}
             }
-        }
-        // Finished unless the model was cut off by the cap (and this round produced new text).
-        if cancelled || stop_reason != "max_tokens" || round_len == 0 {
-            break;
+            // Erro a meio do stream (overloaded, rate limit…): é um erro, não um fim de turno.
+            Some("error") => {
+                let e = &v["error"];
+                anyhow::bail!(
+                    "Anthropic stream error ({}): {}",
+                    e["type"].as_str().unwrap_or("error"),
+                    e["message"].as_str().unwrap_or("")
+                );
+            }
+            Some("message_stop") => break,
+            _ => {}
         }
     }
 
@@ -879,6 +868,7 @@ mod tests {
                 role: "user".into(),
                 content: "Reply with exactly the word: hi".into(),
             }],
+            None,
             |_delta| {
                 chunks += 1;
                 true
@@ -909,6 +899,7 @@ mod tests {
                 role: "user".into(),
                 content: "Reply with exactly the word: hi".into(),
             }],
+            None,
             |_delta| {
                 chunks += 1;
                 true

@@ -178,7 +178,7 @@ pub fn run_stream(
     on_delta: impl FnMut(&str) -> bool,
 ) -> Result<ChatReply, String> {
     let res = match provider {
-        "claude" => tutor_llm::chat::claude_chat_stream_env(messages, on_delta),
+        "claude" => tutor_llm::chat::claude_chat_stream_env(messages, model, on_delta),
         "openai" => tutor_llm::chat::openai_chat_stream_env(messages, model, on_delta),
         "gemini" => tutor_llm::chat::gemini_chat_stream_env(messages, model, on_delta),
         _ => tutor_llm::chat::ollama_chat_stream(messages, model, on_delta),

@@ -15,6 +15,8 @@ import { presenter, gate, beat } from "./ui/chat-view";
 import { makeDoTool } from "./application/tool-executor";
 import { makeMissionEngine } from "./application/run-mission";
 import { makeLiveChat } from "./application/live-chat";
+import { makeAgentChat } from "./application/agent-chat";
+import { agentGateway } from "./infrastructure/agent-gateway";
 import type {
   Workspace,
   Terminal,
@@ -182,6 +184,26 @@ const liveChat = makeLiveChat({
   tool: doTool,
 });
 
+/* ───── agente v2 (ADR-0003, F4): o loop corre no backend Rust ───── */
+const agentChat = makeAgentChat({
+  gateway: agentGateway,
+  presenter,
+  gate,
+  verify,
+  workspace: { root: () => bridge.diskRoot() ?? "" },
+  reloadFromDisk: () => bridge.reloadDisk(),
+  model: () => {
+    const p = bridge.providers() as unknown as Record<string, { model?: string }>;
+    return (p.claude && p.claude.model) || "claude-opus-5-5";
+  },
+  mode: () => bridge.monolith.mode,
+  speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
+});
+
+/** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude), senão o
+ *  harness antigo (protótipo, outros provedores até à F8, ou a flag `dx2.codevLegacy`). */
+const chat = (q: string): Promise<void> => (agentChat.available() ? agentChat.send(q) : liveChat(q));
+
 /* ───── the wired engine (codev.ts publishes these onto window) ───── */
 export const codevEngine = {
   doTool: doTool as (t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal) => Promise<unknown>,
@@ -193,6 +215,9 @@ export const codevEngine = {
   reflect: engine.reflect,
   runMission: engine.runMission,
   liveChat,
+  chat,
+  agentModeChanged: (mode: string): void => agentChat.modeChanged(mode),
+  agentReset: (): void => agentChat.reset(),
 };
 
 /* ───── low-level transcript/run-control helpers, shared with board.ts ───── */

@@ -29,6 +29,7 @@ import type {
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
+import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -264,6 +265,13 @@ export interface MissionPresenter {
   assistantText(ref: CardRef, text: string): void;
   liveError(ref: CardRef, aborted: boolean, code: string | undefined, msg: string): void;
   refreshCtx(): void;
+  /* agente v2 (ADR-0003, F4) — opcionais para os fakes dos testes antigos */
+  /** Resumo do raciocínio do modelo (thinking `summarized`), discreto, no cartão. */
+  agentReasoning?(ref: CardRef, text: string): void;
+  /** Nota no rodapé do cartão: uso/custo, fallback, repetição, fim anormal. */
+  agentNote?(ref: CardRef, key: string, text: string): void;
+  /** Porque é que uma chamada pede aprovação (`dangerous`: piso de segurança). */
+  toolReason?(ref: ToolRef, reason: string, dangerous: boolean): void;
 }
 
 export interface DeliverView {
@@ -306,6 +314,44 @@ export interface MissionDeps extends ToolDeps {
   threshold(): number;
   refresh(): void;
   tool(t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal): Promise<unknown>;
+}
+
+/** O agente v2 em Rust (comandos `codev_agent_*` e os seus eventos). */
+export interface AgentGateway {
+  /** Desktop, pasta real aberta e harness v2 ligado (o antigo fica atrás de uma flag). */
+  available(): boolean;
+  start(o: {
+    root: string;
+    model: string;
+    effort: string;
+    testCmd: string | null;
+    lintCmd: string | null;
+    mode: string;
+  }): Promise<string>;
+  send(session: string, text: string | null): Promise<void>;
+  approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
+  cancel(session: string): Promise<boolean>;
+  setMode(session: string, mode: string): Promise<boolean>;
+  close(session: string): Promise<boolean>;
+  /** Liga os três eventos do agente; devolve a função que os desliga. */
+  subscribe(h: {
+    event(session: string, e: AgentEvent): void;
+    approval(session: string, r: ApprovalRequest): void;
+    error(session: string, message: string): void;
+  }): Promise<() => void>;
+}
+
+export interface AgentChatDeps {
+  gateway: AgentGateway;
+  presenter: MissionPresenter;
+  gate: ApprovalGate;
+  verify: Verify;
+  workspace: Pick<Workspace, "root">;
+  /** O agente escreve no disco: depois de cada turno a árvore do editor relê-o. */
+  reloadFromDisk(): Promise<void>;
+  model(): string;
+  mode(): string;
+  speaker(): string;
 }
 
 export interface LiveDeps {

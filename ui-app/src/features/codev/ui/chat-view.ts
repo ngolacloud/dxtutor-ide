@@ -507,4 +507,41 @@ export const presenter: MissionPresenter = {
             : "Não consegui obter resposta do Claude (" + esc(msg) + ").";
   },
   refreshCtx: ctxPill,
+
+  /* agente v2 (ADR-0003, F4) */
+  agentReasoning(ref: CardRef, text: string) {
+    const c = asCard(ref);
+    let box = c.el.querySelector(".agent-reason") as HTMLElement | null;
+    if (!box) {
+      box = document.createElement("details");
+      box.className = "agent-reason";
+      box.innerHTML = `<summary>raciocínio</summary><div class="ar-b"></div>`;
+      c.bd.before(box);
+    }
+    (box.querySelector(".ar-b") as HTMLElement).innerHTML = md(text);
+  },
+  agentNote(ref: CardRef, key: string, text: string) {
+    const c = asCard(ref);
+    let notes = c.el.querySelector(".agent-notes") as HTMLElement | null;
+    if (!notes) {
+      notes = document.createElement("div");
+      notes.className = "agent-notes";
+      c.el.querySelector(".bub")!.appendChild(notes);
+    }
+    let n = notes.querySelector(`[data-k="${CSS.escape(key)}"]`) as HTMLElement | null;
+    if (!n) {
+      n = document.createElement("div");
+      n.dataset.k = key;
+      notes.appendChild(n);
+    }
+    n.textContent = text;
+    scrollMsgs();
+  },
+  toolReason(ref: ToolRef, reason: string, dangerous: boolean) {
+    const t = el(ref);
+    const w = document.createElement("span");
+    w.className = "why" + (dangerous ? " bad" : "");
+    w.textContent = (dangerous ? "⚠ " : "") + reason;
+    t.appendChild(w);
+  },
 };

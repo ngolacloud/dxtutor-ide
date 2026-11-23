@@ -84,6 +84,20 @@ export const stopSignal = (): unknown => G.STOP;
 /** Prototype workspace seed (demo scenario data + root path); read once per scenario build. */
 export const seed = (): { base: Record<string, string>; gen: Record<string, string> } => G.SEED;
 export const root = (): string => G.ROOT;
+/** Caminho absoluto da pasta real aberta no desktop (`null` no protótipo). */
+export const diskRoot = (): string | null => (G.DXR && typeof G.DXR.root === "string" ? G.DXR.root : null);
+/** Relê o disco para o editor (o agente v2 escreve ficheiros directamente). */
+export const reloadDisk = (): Promise<void> =>
+  G.DXR && typeof G.DXR.reloadDisk === "function" ? G.DXR.reloadDisk() : Promise.resolve();
+/** Harness v2 do Co-Dev (agente Rust). O antigo fica atrás desta flag até a v2 ser
+ *  validada: `localStorage["dx2.codevLegacy"] = "true"` volta ao harness antigo. */
+export const agentV2Enabled = (): boolean => {
+  try {
+    return localStorage.getItem("dx2.codevLegacy") !== "true";
+  } catch {
+    return true;
+  }
+};
 export const pathLexer = (): string => G.P_LX;
 export const pathRepo = (): string => G.P_REPO;
 export const pathMigration = (): string => G.P_MIG;

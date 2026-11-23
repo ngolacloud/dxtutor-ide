@@ -1,6 +1,6 @@
 # ADR-0003 — Harness v2 do Co-Dev: loop de agente em Rust com tool use nativo
 
-- **Estado:** aceite (recomendações do §11 aceites); F0–F3 feitas (ainda sem UI: a ligação é a F4)
+- **Estado:** aceite (recomendações do §11 aceites); F0–F4 feitas (F4 por validar à mão no desktop)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto (angolardevops)
 - **Relacionado:** `ADR-0002` (camadas da feature Co-Dev na UI, que a F4 reutiliza);
@@ -207,7 +207,7 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
 | **F1 Loop** ✅ | Loop por `stop_reason`, ferramentas em paralelo/série, cancelamento, eventos; comandos Tauri `codev_agent_*` (+ IPC-MATRIX) | Testes com provider falso guionado: tool_use → result → end_turn; recusa; max_tokens a meio de tool_use; tool_results agrupados; cancelamento |
 | **F2 Ferramentas** ✅ | read/glob/grep/edit/write/bash/run_tests/lint/git (`lsp_diagnostics` adiado para F5); `sandbox` única partilhada com o `src-tauri` | Testes em tempdir: staleness do edit, unicidade do old_string, symlinks, truncagem, timeout com kill do grupo |
 | **F3 Permissões** ✅ | Classificador, regras, modos, aprovação ida-e-volta; `policy.rs` ligado | Tabela de ≥60 comandos (incluindo os contornos da regex actual) com a classificação esperada |
-| **F4 UI v2** | O caso de uso `live-chat` (ADR-0002) passa a cliente fino do agente Rust através de uma porta `AgentGateway`; cartões de ferramenta, aprovação, thinking e custo; **remove o protocolo de fences e o prefill** | Fluxo real com uma pasta aberta, validado à mão por ti; typecheck/lint/testes |
+| **F4 UI v2** ✅ | O caso de uso `live-chat` (ADR-0002) passa a cliente fino do agente Rust através de uma porta `AgentGateway`; cartões de ferramenta, aprovação, thinking e custo; **remove o protocolo de fences e o prefill** | Fluxo real com uma pasta aberta, validado à mão por ti; typecheck/lint/testes |
 | **F5 Contexto e sessão** | System prompt cacheado, AGENTS.md/CLAUDE.md, sessões JSONL e retoma, compactação, custo | Cache hit a partir do 2.º turno (medido); retoma após reinício |
 | **F6 Plano → entrega** | Plan mode, todos↔Board, checkpoints e rewind, revisão de diffs, sub-agentes | Cenário guiado ponta-a-ponta num repositório de teste |
 | **F7 Ecossistema** | Cliente MCP (stdio/http), hooks (antes/depois de ferramenta, fim de turno), slash commands e skills em `.dxtutor/` | Servidor MCP de exemplo ligado; hook que bloqueia uma ferramenta |
@@ -241,3 +241,14 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
 | Custo descontrolado num loop longo | Limite de iterações, `task_budget` opcional, custo visível em tempo real |
 | Regressão na UI durante a migração | F4 mantém o harness antigo atrás de uma flag até a v2 ser validada |
 | Funcionalidades em beta (compactação, fallbacks) mudarem | Isoladas no provider, ligadas por configuração |
+
+## 14. Notas de execução
+
+- **F4 (2026-11-23).** Com pasta real no desktop e o Claude activo, a conversa livre do
+  Co-Dev usa o agente v2 (`application/agent-chat.ts` → porta `AgentGateway` →
+  `infrastructure/agent-gateway.ts` → `platform/tauri/codev-agent.ts`). O harness antigo
+  fica atrás da flag `localStorage["dx2.codevLegacy"] = "true"` até a v2 ser validada, e
+  continua a servir o protótipo (sem desktop). **O protocolo de fences (` ```dxaction `)
+  não foi removido**: pela decisão §11.1, Codex, Gemini e Ollama continuam no harness
+  antigo até à F8. O que saiu foi o *prefill* do caminho Claude antigo (dava 400 no
+  Opus 5.5), que agora também respeita o modelo escolhido e trata erros a meio do stream.

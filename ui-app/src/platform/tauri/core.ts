@@ -28,3 +28,14 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
   }
   return tauri.core.invoke(cmd, args || {}) as Promise<T>;
 }
+
+/**
+ * Subscreve um evento Tauri. Devolve a função que cancela a subscrição. O `payload` chega
+ * como `unknown`: quem subscreve valida/estreita-o para o contrato do evento.
+ */
+export async function listen(event: string, handler: (payload: unknown) => void): Promise<() => void> {
+  const tauri = window.__TAURI__;
+  if (!tauri || !tauri.event) throw new Error(`IPC indisponível: evento "${event}" fora do desktop`);
+  const off = await tauri.event.listen(event, (e) => handler(e.payload));
+  return typeof off === "function" ? (off as () => void) : () => {};
+}

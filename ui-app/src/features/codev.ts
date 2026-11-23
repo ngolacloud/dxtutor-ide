@@ -69,13 +69,14 @@ window.updateAgentUI = function () {
   const n = $('#live-note'); if (n) n.innerHTML = bridge.sample() ? '<span class="tag live">Claude ao vivo</span> perguntas livres são respondidas pelo Claude real, com acesso aos ficheiros deste workspace. Gemini, Codex e Ollama são simulados.' : '<span class="tag">simulado</span> nesta vista as missões são guionadas; a ligação ao vivo ao Claude activa-se quando o artefacto é aberto em claude.ai.';
   ctxPill();
 };
-window.setMode = function (m) { bridge.monolith.mode = m; bridge.save(); window.updateAgentUI(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
+window.setMode = function (m) { bridge.monolith.mode = m; codevEngine.agentModeChanged(m); bridge.save(); window.updateAgentUI(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
 function cycleMode() { const k = Object.keys(MODES); window.setMode(k[(k.indexOf(bridge.monolith.mode) + 1) % k.length]); }
 function pickModel() { bridge.palette('', { ph: 'Modelo para a conversa…', items: Object.entries(bridge.providers()).map(([k, p]: [string, any]) => ({ l: `${p.name} — ${p.model}`, d: p.on ? bridge.provState(k) : 'desligado', run: () => { if (!p.on) { bridge.toast(p.name + ' está desligado — liga-o nas Definições'); return; } bridge.monolith.activeProvider = k; bridge.save(); window.updateAgentUI(); } })) }); }
 function toggleProv(k: string) { const p = bridge.providers(); p[k].on = !p[k].on; bridge.save(); window.updateAgentUI(); const panes = bridge.panes(); if (panes[bridge.monolith.pane]) panes[bridge.monolith.pane](); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); }
 function newChat() {
   if (bridge.run().active) { bridge.toast('Pára a missão primeiro'); return; }
   bridge.chat().length = 0;
+  codevEngine.agentReset();
   $('#ag-msgs')!.innerHTML = `<div class="intro" id="ag-intro"><div class="i-t">Co-Dev</div><div class="i-s">Entendo requisitos, proponho arquitectura, escrevo, testo, avalio o meu próprio trabalho e corrijo-o — contigo a orientar.</div>
   <button class="chip" data-action="demo" data-on="b"><b>Histórico de conversas persistente</b><small>Requisitos → BD → Repository → UI → testes. Inclui uma auto-correcção.</small></button>
   <button class="chip" data-action="demo" data-on="a"><b>Corrigir o E0382 em lib.rs</b><small>Três provedores propõem; o juiz escolhe a melhor.</small></button>
@@ -142,7 +143,7 @@ function handlePrompt(q: string) {
     card('co-dev', `<code>${cmd}</code> → ${r && r.ok ? '✓' : '✖'} ${esc(r ? r.sum : '')}`);
     return;
   }
-  const S = SCN_().find((s: any) => s.match.test(q)); if (S) window.runMission(S, q); else codevEngine.liveChat(q);
+  const S = SCN_().find((s: any) => s.match.test(q)); if (S) window.runMission(S, q); else void codevEngine.chat(q);
 }
 function agSend() { const i = $('#ag-input') as HTMLInputElement, q = i.value.trim(); if (!q) return; i.value = ''; handlePrompt(q); }
 
