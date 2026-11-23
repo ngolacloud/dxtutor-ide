@@ -214,8 +214,12 @@ impl LanguagePlugin {
     /// The `PATH` for a host run: the hardened base, plus the hint directories, plus the directory
     /// where `host_bin` was found on the caller's `PATH` (a toolchain installed in a user location
     /// — nvm, Volta, Homebrew — must still be reachable after `env_clear`).
+    ///
+    /// The hint directories come FIRST: some installers put a *proxy* on the PATH that needs the
+    /// real `$HOME` (swiftly's `swift` reads `~/.local/share/swiftly/config.json`), while the
+    /// evaluator runs with `HOME` set to the work dir — so the real toolchain dir must win.
     fn host_path(&self) -> String {
-        let mut dirs: Vec<PathBuf> = Vec::new();
+        let mut dirs: Vec<PathBuf> = self.hint_dirs();
         if let Some(bin) = &self.host_bin {
             if let Some(found) = find_on_path(bin) {
                 if let Some(parent) = found.parent() {
@@ -223,7 +227,6 @@ impl LanguagePlugin {
                 }
             }
         }
-        dirs.extend(self.hint_dirs());
         let mut parts: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
         parts.push("/usr/local/bin:/usr/bin:/bin".to_string());
         parts.join(":")
@@ -1075,6 +1078,232 @@ diag_cmd = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "
 timeout_secs = 120
 "##;
 
+/// The built-in **C#** descriptor (the official C# course, C# 12 on .NET 8). Compiles with the
+/// Roslyn compiler that ships inside the SDK (`dotnet <sdk>/Roslyn/bincore/csc.dll`) against the
+/// `Microsoft.NETCore.App.Ref` reference assemblies, then runs with `dotnet prog.dll` — no MSBuild,
+/// no project, no NuGet, about a second per compile. A generated `GlobalUsings.cs` mirrors the SDK's
+/// implicit usings (System, Collections.Generic, IO, Linq, Threading, Threading.Tasks).
+///
+/// - **Run** (drills): `Program.cs` is a complete program (top-level statements are fine).
+/// - **Tests** (challenges): the student's `Program.cs` holds only types (no top-level statements,
+///   no `Main`); the hidden tests are the body of `Define()` in a partial harness class compiled as
+///   a second file, so `Test("name", () => Equal(actual, expected))`, `Check`, `Near` and
+///   `Throws<T>(() => …)` are members and never clash with the student's names. `async` test
+///   lambdas bind to a `Func<Task>` overload and are awaited. Any `using` lines the tests start with
+///   are hoisted to the top of the test file.
+/// - **Diagnostics**: `csc` errors `File.cs(L,C): error CSxxxx: msg`, reshaped to
+///   `file:line:col: error: msg (CSxxxx)`; "no entry point" (CS5001) is ignored.
+const BUILTIN_CSHARP_TOML: &str = r##"
+id = "csharp"
+aliases = ["c#", "cs", "dotnet"]
+display_name = "C#"
+monaco_id = "csharp"
+extensions = ["cs"]
+image = "mcr.microsoft.com/dotnet/sdk:8.0"
+host_bin = "dotnet"
+host_path_hints = ["/usr/lib/dotnet", "/usr/share/dotnet", "~/.dotnet", "/usr/local/share/dotnet"]
+network = false
+
+code_file = "Program.cs"
+test_file = "DxtTests.cs"
+test_prelude = '''
+public static class DxtProgram
+{
+    public static int Main()
+    {
+        var suite = new DxtSuite();
+        suite.Define();
+        return suite.RunAll();
+    }
+}
+
+public partial class DxtSuite
+{
+    private readonly List<(string Name, Func<Task> Body)> _cases = new();
+    private string _current = "";
+    private int _failures;
+
+    public void Fail(string msg)
+    {
+        _failures++;
+        Console.Error.WriteLine($"FAILED {_current}: {msg}");
+    }
+
+    public void Test(string name, Action body) => _cases.Add((name, () => { body(); return Task.CompletedTask; }));
+    public void Test(string name, Func<Task> body) => _cases.Add((name, body));
+
+    public void Check(bool cond, string msg = "check failed")
+    {
+        if (!cond) Fail(msg);
+    }
+
+    public void Equal(object? actual, object? expected)
+    {
+        if (!DeepEqual(actual, expected)) Fail($"expected {Show(expected)}, got {Show(actual)}");
+    }
+
+    public void Near(double actual, double expected, double epsilon = 1e-9)
+    {
+        if (Math.Abs(actual - expected) > epsilon) Fail($"expected {expected} ± {epsilon}, got {actual}");
+    }
+
+    public void Throws<T>(Action body) where T : Exception
+    {
+        try { body(); }
+        catch (Exception e)
+        {
+            if (e is not T) Fail($"expected {typeof(T).Name}, got {e.GetType().Name}: {e.Message}");
+            return;
+        }
+        Fail($"expected {typeof(T).Name} to be thrown");
+    }
+
+    private static bool DeepEqual(object? a, object? b)
+    {
+        if (Equals(a, b)) return true;
+        if (a is null || b is null || a is string || b is string) return false;
+        if (a is System.Collections.IDictionary da && b is System.Collections.IDictionary db)
+        {
+            if (da.Count != db.Count) return false;
+            foreach (System.Collections.DictionaryEntry e in da)
+                if (!db.Contains(e.Key) || !DeepEqual(e.Value, db[e.Key])) return false;
+            return true;
+        }
+        var setEquals = a.GetType().GetMethod("SetEquals");
+        if (setEquals is not null && b.GetType().GetMethod("SetEquals") is not null)
+            return (bool)setEquals.Invoke(a, new[] { b })!;
+        if (a is System.Collections.IEnumerable ea && b is System.Collections.IEnumerable eb)
+        {
+            var la = ea.Cast<object?>().ToList();
+            var lb = eb.Cast<object?>().ToList();
+            return la.Count == lb.Count && la.Zip(lb).All(p => DeepEqual(p.First, p.Second));
+        }
+        return false;
+    }
+
+    private static string Show(object? v) => v switch
+    {
+        null => "null",
+        string s => $"\"{s}\"",
+        System.Collections.IDictionary d => "{" + string.Join(", ", d.Cast<System.Collections.DictionaryEntry>().Select(e => $"{Show(e.Key)}: {Show(e.Value)}")) + "}",
+        System.Collections.IEnumerable e => "[" + string.Join(", ", e.Cast<object?>().Select(Show)) + "]",
+        _ => v.ToString() ?? "",
+    };
+
+    public int RunAll()
+    {
+        foreach (var (name, body) in _cases)
+        {
+            _current = name;
+            try { body().GetAwaiter().GetResult(); }
+            catch (Exception e) { Fail($"threw {e.GetType().Name}: {e.Message}"); }
+        }
+        Console.WriteLine($"{_cases.Count} tests, {_failures} failures");
+        return _failures > 0 || _cases.Count == 0 ? 1 : 0;
+    }
+}
+
+public partial class DxtSuite
+{
+    public void Define()
+    {
+'''
+
+run_cmd  = '''ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); FW=$(ls "$ROOT"/shared/Microsoft.NETCore.App | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; printf '{"runtimeOptions":{"tfm":"net8.0","framework":{"name":"Microsoft.NETCore.App","version":"%s"}}}' "$FW" > prog.runtimeconfig.json; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -optimize+ -nowarn:CS8321 -out:prog.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} && dotnet prog.dll'''
+test_cmd = '''{ grep -h '^using ' {test_file}; grep -v '^using ' {test_file}; printf '\n    }\n}\n'; } > Tests.cs && ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); FW=$(ls "$ROOT"/shared/Microsoft.NETCore.App | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; printf '{"runtimeOptions":{"tfm":"net8.0","framework":{"name":"Microsoft.NETCore.App","version":"%s"}}}' "$FW" > run.runtimeconfig.json; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -optimize+ -nowarn:CS8321 -main:DxtProgram -out:run.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} Tests.cs && dotnet run.dll'''
+diag_cmd = '''ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -out:diag.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} 2>&1 | grep -v CS5001 | sed -nE 's/^([^(]+)[(]([0-9]+),([0-9]+)[)]: (error|warning) (CS[0-9]+): (.*)$/\1:\2:\3: \4: \6 (\5)/p' '''
+
+timeout_secs = 60
+"##;
+
+/// The built-in **Swift** descriptor (the official Swift course, Swift 6 language mode with strict
+/// concurrency checking). `swiftc -O -swift-version 6`, no SwiftPM package.
+///
+/// - **Run** (drills): `main.swift` is a complete program (top-level code).
+/// - **Tests** (challenges): the student's code is renamed to `Student.swift`, which in Swift may
+///   hold only declarations (no top-level statements); a new `main.swift` holds the harness — a
+///   `@MainActor` class whose `test`/`equal`/`expect`/`near`/`assertThrows` are members — the
+///   top-level code that runs it (with `await`, so tests may be `async`), and the hidden tests
+///   inside `extension DxtSuite { func define() { … } }`. Members win over the student's global
+///   functions, so names never clash. A runtime trap (`fatalError`, out-of-bounds, a `!` on nil)
+///   ends the process non-zero, which fails the run — the starter uses `fatalError`.
+/// - **Diagnostics**: `swiftc -typecheck` already prints `file:line:col: error: msg`.
+///
+/// `swiftc` is found on the PATH or in swiftly's real toolchain folder: swiftly's own `swift` on
+/// the PATH is a proxy that needs the real `$HOME`, which the evaluator replaces.
+const BUILTIN_SWIFT_TOML: &str = r##"
+id = "swift"
+aliases = ["swiftlang"]
+display_name = "Swift"
+monaco_id = "swift"
+extensions = ["swift"]
+image = "swift:6.0"
+host_bin = "swiftc"
+host_path_hints = ["~/.local/share/swiftly/toolchains/*/usr/bin", "/opt/swift/usr/bin", "/usr/share/swift/usr/bin"]
+network = false
+
+code_file = "main.swift"
+test_file = "DxtTests.swift"
+test_prelude = '''
+import Foundation
+
+@MainActor
+final class DxtSuite {
+    private var cases: [(String, @MainActor () async throws -> Void)] = []
+    private var current = ""
+    var failures = 0
+
+    func fail(_ msg: String) {
+        failures += 1
+        FileHandle.standardError.write("FAILED \(current): \(msg)\n".data(using: .utf8)!)
+    }
+
+    func test(_ name: String, _ body: @escaping @MainActor () async throws -> Void) {
+        cases.append((name, body))
+    }
+
+    func equal<T: Equatable>(_ actual: T, _ expected: T) {
+        if actual != expected { fail("expected \(expected), got \(actual)") }
+    }
+
+    func expect(_ cond: Bool, _ msg: String = "expectation failed") {
+        if !cond { fail(msg) }
+    }
+
+    func near(_ actual: Double, _ expected: Double, _ epsilon: Double = 1e-9) {
+        if abs(actual - expected) > epsilon { fail("expected \(expected) ± \(epsilon), got \(actual)") }
+    }
+
+    func assertThrows(_ body: () throws -> Void) {
+        do { try body() } catch { return }
+        fail("expected an error to be thrown")
+    }
+
+    func run() async -> Int32 {
+        for (name, body) in cases {
+            current = name
+            do { try await body() } catch { fail("threw \(error)") }
+        }
+        print("\(cases.count) tests, \(failures) failures")
+        return failures > 0 || cases.isEmpty ? 1 : 0
+    }
+}
+
+let dxtSuite = DxtSuite()
+dxtSuite.define()
+exit(await dxtSuite.run())
+
+extension DxtSuite {
+    func define() {
+'''
+
+run_cmd  = "swiftc -O -swift-version 6 {file} -o prog 2>&1 && ./prog"
+test_cmd = "mv {file} Student.swift && { cat {test_file}; printf '\\n    }\\n}\\n'; } > main.swift && swiftc -O -swift-version 6 Student.swift main.swift -o testbin 2>&1 && ./testbin"
+diag_cmd = "swiftc -swift-version 6 -typecheck {file} 2>&1"
+
+timeout_secs = 120
+"##;
+
 /// Parse and return the built-in descriptors. Panics only on a programmer error (a malformed
 /// embedded TOML), which a unit test guards against.
 pub fn builtin_plugins() -> Vec<LanguagePlugin> {
@@ -1087,6 +1316,8 @@ pub fn builtin_plugins() -> Vec<LanguagePlugin> {
         ("SQL", BUILTIN_SQL_TOML),
         ("Java", BUILTIN_JAVA_TOML),
         ("Kotlin", BUILTIN_KOTLIN_TOML),
+        ("C#", BUILTIN_CSHARP_TOML),
+        ("Swift", BUILTIN_SWIFT_TOML),
     ] {
         match toml::from_str::<LanguagePlugin>(raw) {
             Ok(p) => out.push(p),
@@ -1234,8 +1465,8 @@ mod tests {
         let plugins = builtin_plugins();
         assert_eq!(
             plugins.len(),
-            7,
-            "the C, Python, C++, TypeScript, SQL, Java and Kotlin built-ins"
+            9,
+            "the C, Python, C++, TypeScript, SQL, Java, Kotlin, C# and Swift built-ins"
         );
         let c = &plugins[0];
         assert_eq!(c.id, "c");
@@ -1571,6 +1802,117 @@ mod tests {
         assert_eq!(d.first().map(|d| d.line), Some(4), "{d:?}");
     }
 
+    /// Real end-to-end on the host's .NET SDK (skipped where `dotnet` is missing): Roslyn compile,
+    /// member-based harness (a student `Test` method must not clash), async tests, deep equality of
+    /// lists/dictionaries/sets/records, hoisted `using`, failure/throw/"no tests", a top-level
+    /// program runs, and a compile error is reported at its line.
+    #[test]
+    fn csharp_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let cs = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "csharp")
+            .unwrap();
+        assert!(cs.matches("c#") && cs.matches("cs") && cs.matches("CSharp"));
+        if !cs.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(cs);
+        let mut phase = c_add_phase();
+        phase.language = "csharp".into();
+        phase.tests = "using System.Text;\nTest(\"adds\", () => Equal(Calc.Add(2, 3), 5));\nTest(\"collections\", () => {\n    Equal(Calc.Words(\"b a\"), new List<string> { \"a\", \"b\" });\n    Equal(new Dictionary<string, int> { [\"k\"] = 1 }, new Dictionary<string, int> { [\"k\"] = 1 });\n    Equal(new HashSet<int> { 2, 1 }, new HashSet<int> { 1, 2 });\n    Equal(new Point(1, 2), new Point(1, 2));\n    Check(new StringBuilder(\"x\").Length == 1);\n});\nTest(\"async\", async () => Equal(await Calc.LaterAsync(7), 7));\nTest(\"throws\", () => Throws<ArgumentException>(() => Calc.Sqrt(-1)));\n".into();
+        let good = "public record Point(int X, int Y);\n\npublic static class Calc\n{\n    public static int Add(int a, int b) => a + b;\n    public static List<string> Words(string s) => s.Split(' ').OrderBy(w => w).ToList();\n    public static async Task<int> LaterAsync(int v) { await Task.Delay(5); return v; }\n    public static double Sqrt(double x) => x < 0 ? throw new ArgumentException(\"negative\") : Math.Sqrt(x);\n    public static string Test() => \"student helper\";\n}\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("4 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(&phase, &good.replace("=> a + b", "=> a - b"))
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(
+                &phase,
+                &good.replace(
+                    "=> a + b;",
+                    "=> throw new NotImplementedException(\"todo\");",
+                ),
+            )
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("todo"),
+            "{}",
+            throws.raw
+        );
+        phase.tests = String::new();
+        assert!(
+            !runner.check_correctness(&phase, good).unwrap().passed,
+            "no tests must not pass"
+        );
+        let out = run_program("c#", "var n = 6 * 7;\nConsole.WriteLine(n);\n", &[]).unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner
+            .diagnostics("public static class A\n{\n    public static int F() => missing;\n}\n")
+            .unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(3), "{d:?}");
+    }
+
+    /// Real end-to-end with swiftc (found on the PATH or in swiftly's toolchain folder; skipped where
+    /// it is missing): Swift 6 strict concurrency, member harness (a student global `test()` must
+    /// not clash), async tests with an actor, failure, a `fatalError` starter, "no tests", a program
+    /// runs, and a compile error is reported at its line.
+    #[test]
+    fn swift_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let sw = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "swift")
+            .unwrap();
+        assert!(sw.matches("Swift"));
+        if !sw.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(sw);
+        let mut phase = c_add_phase();
+        phase.language = "swift".into();
+        phase.tests = "test(\"adds\") { self.equal(add(2, 3), 5) }\ntest(\"async\") {\n    let c = Counter()\n    await withTaskGroup(of: Void.self) { group in\n        for _ in 0..<50 { group.addTask { await c.increment() } }\n    }\n    self.equal(await c.value(), 50)\n}\n".into();
+        let good = "func add(_ a: Int, _ b: Int) -> Int { a + b }\n\nactor Counter {\n    private var n = 0\n    func increment() { n += 1 }\n    func value() -> Int { n }\n}\n\nfunc test() -> String { \"student helper\" }\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("2 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(&phase, &good.replace("{ a + b }", "{ a - b }"))
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let starter = runner
+            .check_correctness(
+                &phase,
+                &good.replace("{ a + b }", "{ fatalError(\"not implemented\") }"),
+            )
+            .unwrap();
+        assert!(!starter.passed, "{}", starter.raw);
+        phase.tests = String::new();
+        assert!(
+            !runner.check_correctness(&phase, good).unwrap().passed,
+            "no tests must not pass"
+        );
+        let out = run_program("swift", "let n = 6 * 7\nprint(n)\n", &[]).unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner.diagnostics("let a = 1\nlet b = missing\n").unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
     #[test]
     fn expand_hint_picks_the_newest_version() {
         let dir = tempfile::tempdir().unwrap();
@@ -1586,7 +1928,7 @@ mod tests {
         for l in ["rust", "Go", "javascript", "python", "py", "c"] {
             assert!(crate::language_supported(l), "{l}");
         }
-        for l in ["swift", "cobol", ""] {
+        for l in ["cobol", "fortran", ""] {
             assert!(!crate::language_supported(l), "{l}");
         }
     }

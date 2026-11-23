@@ -270,6 +270,8 @@ const TYPESCRIPT_BASICS: &str = include_str!("../../../courses/typescript/course
 const SQL_BASICS: &str = include_str!("../../../courses/sql/courses/sql.toml");
 /// Java: também só no backend; avaliado pelo descritor Java (source launcher do JDK 21).
 const JAVA_BASICS: &str = include_str!("../../../courses/java/courses/java.toml");
+/// Kotlin: também só no backend; avaliado pelo descritor Kotlin (kotlinc + java, coroutines).
+const KOTLIN_BASICS: &str = include_str!("../../../courses/kotlin/courses/kotlin.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -281,6 +283,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("typescript-basics", TYPESCRIPT_BASICS),
         parse("sql-basics", SQL_BASICS),
         parse("java-basics", JAVA_BASICS),
+        parse("kotlin-basics", KOTLIN_BASICS),
     ]
 }
 
@@ -833,6 +836,11 @@ mod python_tests {
     #[test]
     fn java_basics_tem_a_forma_do_curso_oficial() {
         forma_oficial("java-basics", "java");
+    }
+
+    #[test]
+    fn kotlin_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("kotlin-basics", "kotlin");
     }
 
     #[test]

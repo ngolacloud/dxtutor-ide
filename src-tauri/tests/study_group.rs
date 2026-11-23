@@ -67,6 +67,7 @@ fn new_language_challenges_are_graded_for_real() {
         ("typescript", "node"),
         ("sql", "python3"),
         ("java", "java"),
+        ("kotlin", "kotlinc"),
     ] {
         if std::process::Command::new(tool)
             .arg("--version")

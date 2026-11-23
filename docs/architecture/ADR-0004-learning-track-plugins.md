@@ -164,15 +164,25 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
        **Java para produção** (Optional, java.time, NIO, regex, equals/hashCode/Comparator,
        imutabilidade), porque o JDK não traz driver SQLite e o curso usa só o JDK.
        `dxt plugin test` dá 170/170 duas vezes. Embutido só no backend.
-   - **Kotlin (descritor feito):** `kotlinc` + `java`. O harness tem os métodos como membros
-     de uma classe e os testes correm numa extensão dela, para não chocar com os nomes do
-     aluno nem fazer sombra ao `check`/`require` da stdlib. O `kotlinx-coroutines-core-jvm.jar`
-     que vem com o compilador entra no classpath. `-J-XX:TieredStopAtLevel=1` corta cerca de
-     metade do tempo de compilação, que é uma JVM nova de cada vez.
-   - **Faltam:** Kotlin (curso), Swift e C#. A receita é a mesma das anteriores: um
-     descritor (ou um runner nativo, se o descritor não chegar), um curso escrito por grupos
-     e verificado com `dxt plugin test`, e a entrada em `builtin_courses`. Java, Kotlin, Swift
-     e .NET não estão instalados nesta máquina, e é preciso o toolchain para verificar o curso.
+   - **Kotlin (feito):**
+     - Descritor: `kotlinc` + `java`. O harness tem os métodos como membros de uma classe e os
+       testes correm numa extensão dela, para não chocar com os nomes do aluno nem fazer
+       sombra ao `check`/`require` da stdlib. O `kotlinx-coroutines-core-jvm.jar` que vem com o
+       compilador entra no classpath. `-J-XX:TieredStopAtLevel=1` corta cerca de metade do
+       tempo de compilação, que é uma JVM nova de cada vez.
+     - Curso `courses/kotlin/`: 34 unidades e 170 passos, com um bloco de Kotlin para produção
+       no lugar das bases de dados, e coroutines, Flow, channels, DSLs e value classes.
+       `dxt plugin test` dá 170/170. Embutido só no backend.
+   - **C# (descritor feito):** compila com o Roslyn do SDK (`csc.dll`) contra as assemblies de
+     referência do .NET 8, sem MSBuild nem NuGet, em cerca de 1 s. O código do aluno e os
+     testes são dois ficheiros do mesmo programa, e o harness tem os métodos como membros de
+     uma classe parcial.
+   - **Swift (descritor feito):** `swiftc -O -swift-version 6`. O aluno escreve só declarações
+     (`Student.swift`), e os testes vão para um `main.swift` com um harness `@MainActor`
+     (testes `async`). Procura a toolchain real do swiftly, porque o proxy do swiftly no PATH
+     precisa do `$HOME` verdadeiro. Por isso as pastas de `host_path_hints` passaram a vir
+     antes do binário encontrado no PATH.
+   - **Faltam:** os cursos de C# e Swift, com a mesma receita.
    - **Melhoria futura:** o manifesto do plugin de curso poder trazer o seu próprio descritor de
      avaliador (hoje um descritor da comunidade vai para `~/.config/dxtutor/plugins/`).
 4. **Extensões VS Code.** Contribuições declarativas: temas → tokens CSS, gramáticas TextMate
