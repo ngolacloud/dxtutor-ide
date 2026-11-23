@@ -55,6 +55,7 @@ import "./features/editor";
 import "./features/tabs";
 import "./features/shell";
 import "./features/menus";
+import "./features/workspace";
 import "./features/explorer";
 import "./features/diagnostics";
 import "./features/terminal";

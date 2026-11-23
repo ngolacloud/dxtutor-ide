@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4e)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -195,7 +195,7 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `chat-view` deixou de o chamar) e o Co-Dev `agent:providers` (o `toggleProv`, o seletor
   de modelo e o campo das Definições deixaram de chamar `updateAgentUI`). Ficam para a U4,
   com o app.ts: `TB` (os separadores — um `let` reatribuído, não adoptável por referência)
-  e `USAGE` (não publicado). Shims de estado: 15. Verificado: 335 testes, arranque no
+  e `USAGE` (*correcção na U4f: estava publicado — a nota estava errada*). Shims de estado: 15. Verificado: 335 testes, arranque no
   browser, auto-teste desktop (o passo `autosave` passa pelo novo subscritor do bridge;
   as diferenças nos passos `llm*`/`providers` vêm do ambiente — passou a haver uma chave
   da Anthropic guardada, sem créditos).
@@ -291,3 +291,16 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   sessões correm `ui:build` no mesmo `ui-app/dist` que o teste de arranque serve — uma
   reconstrução a meio troca os ficheiros por baixo do servidor (uma falha isolada nesta
   fatia, 3/3 verdes a seguir).
+
+- **U4f (2026-11-23) — workspace e configuração.** Saíram do app.ts, tipados:
+  `features/workspace.ts` (`writeFile`, `loadSeed`) com a semente em
+  `features/workspace/seed.ts` (os 12 KB de `SEED`, copiados tal e qual); e em `app/store/`
+  o armazenamento local `LS` (`storage.ts`), a configuração persistida `save`/`loadCfg`
+  (`config.ts` — os valores com dono passam pelos stores e emitem os seus eventos) e, no
+  `agentStore`, o uso por provedor `USAGE` (agora com dono) com `use`/`connected`. Os
+  goldens — que partem todos do workspace semeado — ficaram sem diff. Globais publicadas
+  423 → 422; lint 287 → 283. Nota da métrica: a contagem de nomes num `Object.assign`
+  conta o que vem depois de cada vírgula — funções em linha com parâmetros inflacionam-na;
+  publica-se sempre com nomes curtos (`{ use, connected }`). Verificado: 365 testes
+  (goldens sem diff; 5 novos), arranque no browser 4/4 (incluindo o restauro do
+  `loadCfg`) e auto-teste desktop idêntico.

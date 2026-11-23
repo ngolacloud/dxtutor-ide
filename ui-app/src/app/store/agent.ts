@@ -35,6 +35,14 @@ export interface RunState {
 const providers = ownedGlobal<Record<string, Provider>>("PROV", {});
 const chat = ownedGlobal<ChatMessage[]>("CHAT", []);
 const run = ownedGlobal<RunState>("RUN", { active: false, paused: false, stop: false, label: "", t0: 0 });
+/** Chamadas e tokens por provedor nesta sessão (o painel de custos, o custo por issue). */
+export type Usage = Record<string, { calls: number; tok: number }>;
+const usage = ownedGlobal<Usage>("USAGE", {
+  claude: { calls: 0, tok: 0 },
+  gemini: { calls: 0, tok: 0 },
+  codex: { calls: 0, tok: 0 },
+  ollama: { calls: 0, tok: 0 },
+});
 
 export const agentStore = {
   get mode(): string {
@@ -81,4 +89,27 @@ export const agentStore = {
   get run(): RunState {
     return run.get();
   },
+  get usage(): Usage {
+    return usage.get();
+  },
+  /** Conta uma chamada (e os seus tokens) ao provedor `p`. Era o `use` do app.ts. */
+  recordUsage(p: string, tok: number): void {
+    const u = usage.get();
+    u[p].calls++;
+    u[p].tok += tok;
+  },
+  /** Os provedores ligados. Era o `connected` do app.ts. */
+  connectedProviders(): string[] {
+    const PROV = providers.get();
+    return Object.keys(PROV).filter((k) => PROV[k].on);
+  },
 };
+
+/* publicação transitória (o monólito e as features chamam use/connected por nome) */
+function use(p: string, tok: number): void {
+  agentStore.recordUsage(p, tok);
+}
+function connected(): string[] {
+  return agentStore.connectedProviders();
+}
+Object.assign(window, { use, connected });

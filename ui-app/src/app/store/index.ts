@@ -5,4 +5,6 @@ export { agentStore } from "./agent";
 export { layoutStore } from "./layout";
 export { editorStore } from "./editor";
 export { workspaceStore } from "./workspace";
+export { LS } from "./storage";
+export { save, loadCfg } from "./config";
 export { bus } from "../bus";
