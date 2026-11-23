@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U1 feitas, U2 em curso (U2a feita)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U2 feitas, U3 em curso
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -51,14 +51,14 @@ golden, os mesmos fluxos, sem dependência da ordem das tags no HTML.
 |---|---|---|
 | **U0 — Rede de segurança** | Teste de arranque com Playwright sobre o `dist` (sem erros de página; explorer, editor, Co-Dev, painel, SCM desenhados; screenshots de referência) e o mesmo no CI; métricas novas no `arch-check` (baseline actual, só podem descer) | CI verde com as métricas registadas |
 | **U1 — Um grafo de imports** | `src/main.ts` importa os 43 módulos **pela mesma ordem** (a avaliação de ES modules é em profundidade e pela ordem dos imports — semântica idêntica); `index.html` fica com uma só tag; o harness dos goldens importa o `main.ts` | 1 tag; goldens sem diff; arranque igual |
-| **U2 — Adaptador desktop tipado** | As 44 chamadas `inv("…")` passam a clientes `platform/tauri/*`; o objecto `DXR` e as 11 substituições do `bridge.ts` passam a um `platform/desktop/` com portas injectadas pelo `main.ts` (o modo browser injecta a simulação) | `bridge.ts` sem `inv` cru nem substituições; tipado |
+| **U2 — Clientes IPC tipados** | As chamadas `inv("…")` cruas passam a clientes `platform/tauri/*` sobre um `Invoker` injectável | 0 `inv` cru fora de `platform/` *(feito — ver §10, U2a; a parte desktop das features passou para a U4, decisão de 2026-11-23)* |
 | **U3 — Estado por proprietário + event bus** | `app/store/` com proprietários tipados — workspace (FS, árvore, raiz), editor (tabs, activa), agente (modo, provedor, chat), git, terminal, aprendizagem, colaboração — e um bus de eventos tipado (`files:changed`, `tab:activated`, `mode:changed`…) que substitui os `refresh()`/`badges()` globais | Os 17 globais de estado com dono; consumidores migrados por feature |
-| **U4 — Absorver o monólito** | `boot`/`app`/`v5`/`v6`/`startup` dissolvem-se nas features donas (menus, actividade, painéis, atalhos); as 31 decorações viram composição explícita no `main.ts`; `infra`/`visualizer` tipados | **0 `@ts-nocheck`**; nenhuma decoração em runtime |
+| **U4 — Absorver o monólito** | `boot`/`app`/`v5`/`v6`/`startup` dissolvem-se nas features donas (menus, actividade, painéis, atalhos); as decorações em runtime viram composição explícita no `main.ts`; **a parte desktop de cada feature** (as ~30 funções que o `bridge.ts` substitui — `commit`/`checkout`/`gitMerge`, `termExec`/`run`, `refresh`/`syncTree`, `dxRun`/`rtConnect`/`k8sConnect`, `updateAgentUI`, as vistas Settings/Observe/Welcome… — e o objecto `DXR`) passa a um adaptador `platform/desktop/<feature>` injectado na feature quando ela absorve as suas funções; `infra`/`visualizer` tipados | **0 `@ts-nocheck`**; nenhuma decoração em runtime; `bridge.ts` reduzido à composição desktop |
 | **U5 — Handlers e CSP** | Os 165 `on*=` inline passam a `data-action` com listener delegado por feature; depois tira-se o `'unsafe-inline'` do `script-src` | 0 `on*=`; CSP sem `unsafe-inline` nos scripts |
 | **U6 — i18n por chaves e CSS por feature** | Textos com chave (`t("codev.composer.placeholder")`) e catálogos `pt-AO`/`en`, com o motor de correspondência como recurso durante a transição; `styles.css` partido em `features/*/styles.css` importados pela feature (tokens globais num `theme.css`) | Sem pares de texto novos; CSS da feature junto da feature |
 | **U7 — Consolidação** | Fim das fachadas window-backed e dos shims `Object.assign(window, …)` restantes; regras finais no `arch-check`; `MIGRATION.md`/`ARCHITECTURE.md` actualizados | Métricas no alvo; docs coerentes |
 
-Ordem e paralelismo: U0 → U1 → (U2 ∥ U3) → U4 → U5 → U6 → U7. U6 (i18n/CSS) não depende
+Ordem e paralelismo: U0 → U1 → U2 → U3 → U4 → U5 → U6 → U7. U6 (i18n/CSS) não depende
 das outras e pode adiantar-se se for útil.
 
 ## 5. Métricas-alvo (`scripts/ui-metrics.sh`, corre no `npm run arch:check`)
@@ -147,3 +147,10 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   IPC-MATRIX: o consumidor destes 25 comandos passa a ser o cliente tipado. **Falta (U2b):**
   o objecto `DXR` e as 11 substituições do `bridge.ts` para um `platform/desktop/` com portas
   injectadas pelo `main.ts`.
+
+- **Replaneamento da U2 (2026-11-23, decisão do dono).** Ao mapear o `bridge.ts` para a
+  U2b, as «11 substituições» são na verdade ~30 funções do monólito substituídas em runtime
+  (mais as vistas Settings/Observe/Welcome). Só podem virar portas injectadas quando as
+  features donas saírem do monólito — por isso a U2 fecha com a U2a e a parte desktop de
+  cada feature passa para a U4 (adaptador `platform/desktop/<feature>` injectado quando a
+  feature absorve as suas funções). Segue-se a U3.
