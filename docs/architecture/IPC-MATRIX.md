@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 146 comandos, **41 são consumidos pela `ui-app`** e **105 não o são**: a UI
+Dos 146 comandos, **42 são consumidos pela `ui-app`** e **104 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -170,7 +170,7 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `assistant_models` | — | `Vec<String>` | — | — | — | R |
+| `assistant_models` | — | `Vec<String>` | — | — | `platform/tauri/assistant.ts` (lista de modelos do Ollama no compositor do Co-Dev) | R |
 | `assistant_chat` | `messages: Vec<assistant::ChatMsg>`, `model: Option<String>` | `assistant::ChatReply` | String | — | — | **N** · K |
 | `assistant_chat_stream` | `messages: Vec<assistant::ChatMsg>`, `provider: Option<String>`, `model: Option<String>`, `request_id: String`, `mode: Option<String>`, `step_id: Option<String>` | `()` (via eventos) | — | `llm://token` `{requestId,delta}`, `llm://done` `{requestId,model}`, `llm://error` `{requestId,error}` | `bridge.ts` | **N** · K · S · E |
 | `assistant_cancel` | `request_id: String` | `()` | — | — | `bridge.ts` | S |
@@ -454,8 +454,8 @@ ferramenta LLM** local, não o comando IPC).
 |---|---|
 | Comandos registados | **146** |
 | Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **41** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13) |
-| Não consumidos pela `ui-app` | **105** |
+| Consumidos pela `ui-app` | **42** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/assistant.ts` 1) |
+| Não consumidos pela `ui-app` | **104** |
 | Eventos distintos | **12** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |

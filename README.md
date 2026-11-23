@@ -164,15 +164,11 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
   (a próxima mensagem vai como `/plano`) ou Auto — **Shift+Tab** percorre-os; o chip
   «agentes» mostra os sub-agentes da conversa. Enquanto o agente trabalha, Enter põe a
   mensagem na fila (sai quando o turno acaba) e o botão de enviar passa a parar. O
-  microfone usa o reconhecimento de voz do motor web, que o WebKitGTK (Linux) não tem:
-  aí avisa que o ditado está indisponível.
-- **O compositor segue o provedor.** Cada provedor traz a experiência do seu harness, com
-  o mesmo agente por baixo: **Claude** como o Claude Code (o descrito acima); **Gemini**
-  como o Antigravity (a pasta do projecto em cima, «＋ Adicionar contexto» com Ficheiros,
-  Pasta, Menções e Acções, uma lista única de modelos de todos os provedores, enviar
-  redondo); **Codex** como a extensão Codex (modelo e modo junto ao ＋ — Pedir sempre,
-  Agente, Chat, Agente com acesso total); **Ollama** como o Claude Code, sem esforço nem
-  sub-agentes. Trocar de provedor muda a barra sem perder o que estava escrito.
+  microfone usa o whisper.cpp local (ver abaixo).
+- **O mesmo chat para todos os provedores.** O compositor do Claude é o padrão: trocar de
+  provedor muda só os modelos listados no chip do modelo (os desse provedor; no Ollama, os
+  instalados no servidor local) e o que ele suporta (o esforço é só do Claude). «Outros
+  provedores…» troca de provedor; «Definições de modelos» abre as chaves e endpoints.
 - **Co-Dev com outros provedores.** O agente (ferramentas reais, permissões, checkpoints,
   `/plano`, `/reverter`, `/retomar`, hooks, MCP, skills) funciona com Claude, Codex/OpenAI,
   Gemini e Ollama — escolhe no seletor de modelo da conversa. Só o Claude tem raciocínio

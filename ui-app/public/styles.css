@@ -810,7 +810,7 @@
   .cc-mic.rec{color:var(--red);background:rgba(241,112,122,.12);animation:cc-pulse 1.2s ease-in-out infinite}
   @keyframes cc-pulse{50%{box-shadow:0 0 0 4px rgba(241,112,122,.15)}}
   .cc-chips{display:inline-flex;gap:4px;margin:0;flex-wrap:nowrap;min-width:0}
-  .cc-chips:empty,.cc-chips[hidden]{display:none}
+  .cc-chips:empty{display:none}
   .cc-chips .pill{border-radius:13px;background:var(--bg-hover);border-color:transparent;padding:4px 10px;max-width:110px;height:28px}
   .cc-attl{display:contents}
   .cc-ctx{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted);padding:4px 9px;cursor:pointer}
@@ -879,41 +879,5 @@
   .cc-ag span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cc-main{border:1px solid var(--border-strong)}
   .cc-tree{margin:4px 0 2px 14px;padding-left:10px;border-left:1px solid var(--border-strong)}
-  /* ── perfis do compositor: cada provedor com a experiência do seu harness ── */
-  .cc-card{display:flex;flex-direction:column;min-width:0}
-  .cc-caret{width:13px;height:13px;color:var(--fg-muted);margin-left:2px}
-  .cc-ml{display:inline-flex;gap:5px;align-items:baseline;white-space:nowrap}
   .cc-sep{height:1px;background:var(--border);margin:5px 4px}
-  .cc-tag{display:inline-block;font-size:11px;color:var(--fg-dim);background:var(--bg-hover);border-radius:6px;padding:1px 7px;margin-left:4px;vertical-align:1px}
-  .cc-inl .cc-it-t>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .cc-send.circle{border-radius:50%}
-  /* Gemini — Antigravity: moldura com a pasta, cartão interior, enviar redondo cinzento */
-  .cc[data-profile="gemini"]{background:var(--bg-hover);border-color:var(--border);border-radius:18px}
-  .cc[data-profile="gemini"]:focus-within{border-color:var(--border-strong);box-shadow:none}
-  .cc[data-profile="gemini"] .cc-card{background:var(--bg-input);border:1px solid var(--border);border-radius:16px;margin:0 -1px -1px}
-  .cc[data-profile="gemini"] .cc-card:focus-within{border-color:rgba(74,158,255,.55)}
-  .cc[data-profile="gemini"] .cc-bar{border-top:0;padding-top:2px}
-  .cc[data-profile="gemini"] .cc-in{padding:14px 14px 8px 16px}
-  .cc-folder{display:flex;align-items:center;gap:7px;padding:9px 14px 8px;color:var(--fg-dim);font-size:13px;border-radius:18px 18px 0 0;width:100%;text-align:left}
-  .cc-folder:hover,.cc-folder.on{color:var(--fg)}
-  .cc-folder .cc-ico{width:15px;height:15px}
-  .cc[data-profile="gemini"] .cc-model{background:none;color:var(--fg-dim);padding:0 6px}
-  .cc[data-profile="gemini"] .cc-model:hover,.cc[data-profile="gemini"] .cc-model.on{background:var(--bg-hover);color:var(--fg)}
-  .cc[data-profile="gemini"] .cc-plusb{border-radius:50%}
-  .cc[data-profile="gemini"] .cc-send,.cc[data-profile="codex"] .cc-send{background:var(--bg-hover);color:var(--fg-muted)}
-  .cc[data-profile="gemini"] .cc-send.ready{background:var(--bg-sel);color:var(--fg)}
-  .cc[data-profile="gemini"] .cc-it.sel,.cc[data-profile="codex"] .cc-it.sel{background:var(--bg-hover)}
-  .cc-pop[data-kind="folder"]{right:auto;width:min(300px,100%)}
-  .cc[data-profile="gemini"] .cc-pop[data-kind="model"]{right:auto;width:min(440px,100%)}
-  /* Codex: neutro, modelo e modo junto ao ＋, enviar redondo que acende com texto */
-  .cc[data-profile="codex"]:focus-within{border-color:var(--fg-muted);box-shadow:0 0 0 3px rgba(255,255,255,.05)}
-  .cc[data-profile="codex"] .cc-model,.cc[data-profile="codex"] .cc-mode{background:none;color:var(--fg-dim);height:28px;padding:0 7px;border-radius:7px}
-  .cc[data-profile="codex"] .cc-model:hover,.cc[data-profile="codex"] .cc-mode:hover,.cc[data-profile="codex"] .cc-mode.on,.cc[data-profile="codex"] .cc-model.on{background:var(--bg-hover);color:var(--fg)}
-  .cc[data-profile="codex"] .cc-send.ready{background:var(--fg);color:var(--bg-base)}
-  .cc[data-profile="codex"] .cc-pop[data-kind="mode"],.cc[data-profile="codex"] .cc-pop[data-kind="model"]{left:0;right:auto;width:min(380px,100%)}
-  .cc-send.stop,.cc[data-profile] .cc-send.stop{background:#d9534f;color:#fff}
-  /* Ollama: como o Claude Code, com o acento roxo do provedor local */
-  .cc[data-profile="ollama"]:focus-within{border-color:var(--purple);box-shadow:0 0 0 3px rgba(198,120,221,.12)}
-  .cc[data-profile="ollama"] .cc-send:not(.stop){background:var(--purple)}
-  /* ecrã inicial por perfil (o do Claude não muda) */
-  #ag-intro[data-profile="gemini"] .i-t,#ag-intro[data-profile="codex"] .i-t{font-size:20px;font-weight:500;letter-spacing:-.01em}
+  .cc-send.stop{background:#d9534f;color:#fff}

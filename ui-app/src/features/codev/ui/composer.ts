@@ -1,8 +1,11 @@
-/* ═══════════ Co-Dev — ui: o compositor da conversa (estilo chat do Claude) ═══════════
+/* ═══════════ Co-Dev — ui: o compositor da conversa (o padrão: o chat do Claude) ═══════════
    Dono do DOM de `#ag-compose`: anexos em chips, caixa de texto com microfone, barra
    inferior (＋ anexar, / acções, assistente, contexto, sub-agentes, modelo+esforço,
    modo, enviar/parar) e os popovers de cada botão. Enquanto o agente trabalha, Enter
-   põe a mensagem na fila e o botão de enviar passa a parar.
+   põe a mensagem na fila e o botão de enviar passa a parar. É o mesmo para todos os
+   provedores: trocar de provedor muda só os modelos listados (os desse provedor) e o
+   que ele suporta (o esforço é só do Claude). O microfone usa o reconhecimento de voz
+   do motor web.
 
    Não toca no `window` (regra A8): o mundo chega pelo `ComposerHost`, montado no resíduo
    `features/codev.ts`, que tem o bridge à mão. Os cliques passam pela tabela de acções
@@ -30,7 +33,6 @@ import {
   type Effort,
   type SlashAction,
 } from "../domain/composer";
-import { foldersOf, plusEntries, profileFor, type ComposerProfile, type PlusItem } from "../domain/composer-profiles";
 
 /* ───── o que o compositor precisa do resto da app ───── */
 
@@ -76,18 +78,15 @@ export interface ComposerHost {
   toast(m: string): void;
   /** O reconhecimento de voz do motor web, se existir (o WebKitGTK não o tem). */
   speech(): (new () => SpeechLike) | null;
-  /** A pasta do projecto e as recentes (`null` sem app desktop). */
-  folder(): { name: string; recent: string[] } | null;
-  openFolder(path?: string): void;
   /** O assistente da conversa (Co-Dev/Tutor/…): escolher e redesenhar o chip. */
   pickPersona(): void;
   refreshPersona(): void;
   /** Definições dos modelos e provedores. */
   openModelSettings(): void;
-  /** Trocar de provedor (os perfis «cards» só listam os modelos do provedor activo). */
+  /** Trocar de provedor (a lista de modelos só mostra os do provedor activo). */
   switchProvider(): void;
-  /** O perfil mudou (outro provedor): o ecrã inicial da conversa acompanha. */
-  profileChanged(p: ComposerProfile): void;
+  /** Os modelos instalados no Ollama local. */
+  localModels(): Promise<string[]>;
 }
 
 /* ───── ícones próprios do compositor (16×16, traço, como os do `svg()` do core) ───── */
@@ -107,10 +106,6 @@ const P: Record<string, string> = {
   shield: '<path d="M8 2 3 4v3.5C3 10.8 5.2 13 8 14c2.8-1 5-3.2 5-6.5V4z"/>',
   plan: '<path d="M4 2.5h6l2.5 2.5v8.5H4z"/><path d="M6 7h4.5M6 9.5h4.5M6 12h2.5"/>',
   bolt: '<path d="M9 1.8 3.5 9H8l-1 5.2L12.5 7H8z"/>',
-  right: '<path d="M3 8h10M9 4l4 4-4 4"/>',
-  folder: '<path d="M2 4.5h4l1.5 1.5H14v6.5H2z"/>',
-  clip: '<path d="M10.5 4.5 5.8 9.2a1.4 1.4 0 0 0 2 2l5-5a2.8 2.8 0 0 0-4-4l-5.2 5.2a4.2 4.2 0 0 0 6 6L13 9"/>',
-  chev: '<path d="m4.5 6.5 3.5 3.5 3.5-3.5"/>',
   chevr: '<path d="m6.5 4.5 3.5 3.5-3.5 3.5"/>',
   gear: '<circle cx="8" cy="8" r="2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"/>',
   agents: '<circle cx="8" cy="4" r="1.8"/><circle cx="3.5" cy="12" r="1.8"/><circle cx="12.5" cy="12" r="1.8"/><path d="M8 5.8v2.4M8 8.2 4.4 10.5M8 8.2l3.6 2.3"/>',
@@ -131,9 +126,11 @@ let host: ComposerHost | null = null;
 let attachments: Attachment[] = [];
 let queue: string[] = [];
 let planNext = false;
-let open: "" | "plus" | "slash" | "model" | "mode" | "agents" | "folder" = "";
-/** O perfil com que o esqueleto foi montado (muda com o provedor). */
-let profile: ComposerProfile = profileFor("claude");
+let open: "" | "plus" | "slash" | "model" | "mode" | "agents" = "";
+/** Microfone: parado ou a gravar (motor web). */
+let mic: "idle" | "rec" = "idle";
+/** Os modelos do Ollama (carregados ao abrir a lista com o Ollama activo). */
+let ollamaList: string[] | null = null;
 let slashFilter = "";
 let slashSel = 0;
 let subagents: Subagent[] = [];
@@ -145,32 +142,26 @@ const input = (): HTMLTextAreaElement | null => el<HTMLTextAreaElement>("ag-inpu
 
 /* ───── markup ───── */
 
-/** A estrutura do compositor (substitui o conteúdo de `#ag-compose`), segundo o perfil do
- *  provedor. Mantém os ids que o resto da app usa: `#ag-input`, `.comp-bar` (com o
- *  `#pill-agent`) e `#pill-ctx`. */
-function skeleton(p: ComposerProfile): string {
-  const model = `<button class="cc-chip cc-model" id="cc-model" title="Modelo" data-action="cc-open" data-on="model"></button>`;
-  const mode = p.modeButton ? `<button class="cc-mode" id="cc-mode" title="Modo (Shift+Tab muda)" data-action="cc-open" data-on="mode"></button>` : "";
-  return `<div class="composer cc" id="cc" data-profile="${p.id}">
+/** A estrutura do compositor (substitui o conteúdo de `#ag-compose`). Mantém os ids que o
+ *  resto da app usa: `#ag-input`, `.comp-bar` (com o `#pill-agent`) e `#pill-ctx`. */
+function skeleton(): string {
+  return `<div class="composer cc" id="cc">
   <div class="cc-pop" id="cc-pop" hidden></div>
-  ${p.folderRow ? `<button class="cc-folder" id="cc-folder" title="Pasta do projecto" data-action="cc-open" data-on="folder"></button>` : ""}
-  <div class="cc-card">
   <div class="cc-atts" id="cc-atts" hidden><button class="cc-att cc-ctx" id="pill-ctx" hidden title="Ficheiro activo como contexto (clica para ligar/desligar)" data-action="cc-ctx"></button><span class="cc-attl" id="cc-attl"></span></div>
   <div class="cc-in">
-    <textarea id="ag-input" rows="1" placeholder="${esc(p.placeholder)}"></textarea>
+    <textarea id="ag-input" rows="1" placeholder="Pede ao Co-Dev…"></textarea>
     <button class="cc-ib cc-mic" id="cc-mic" title="Ditar (voz)" data-action="cc-mic">${icon("mic")}</button>
   </div>
   <div class="cc-bar">
-    <button class="cc-ib cc-plusb" id="cc-plus" title="${esc(p.plusTitle || "Anexar e contexto")}" data-action="cc-open" data-on="plus">${icon("plus")}</button>
-    ${p.slashButton ? `<button class="cc-ib" id="cc-slash" title="Acções ( / )" data-action="cc-open" data-on="slash">${icon("slash")}</button>` : ""}
-    ${p.modelPosition === "left" ? model + mode : ""}
-    <span class="comp-bar cc-chips"${p.personaChip ? "" : " hidden"}><button class="pill" id="pill-agent" title="Assistente da conversa" data-action="cc-persona"></button></span>
-    ${p.agentsChip ? `<button class="cc-chip" id="cc-agents" title="Sub-agentes desta conversa" data-action="cc-open" data-on="agents"></button>` : ""}
+    <button class="cc-ib" id="cc-plus" title="Anexar e contexto" data-action="cc-open" data-on="plus">${icon("plus")}</button>
+    <button class="cc-ib" id="cc-slash" title="Acções ( / )" data-action="cc-open" data-on="slash">${icon("slash")}</button>
+    <span class="comp-bar cc-chips"><button class="pill" id="pill-agent" title="Assistente da conversa" data-action="cc-persona"></button></span>
+    <button class="cc-chip" id="cc-agents" title="Sub-agentes desta conversa" data-action="cc-open" data-on="agents"></button>
     <span class="cc-q" id="cc-queue" hidden></span>
     <span class="cc-sp"></span>
-    ${p.modelPosition === "right" ? model + mode : ""}
-    <button class="cc-send ${p.send.shape}" id="cc-send" title="Enviar (Enter)" data-action="cc-send">${icon(p.send.icon)}</button>
-  </div>
+    <button class="cc-chip cc-model" id="cc-model" title="Modelo" data-action="cc-open" data-on="model"></button>
+    <button class="cc-mode" id="cc-mode" title="Modo (Shift+Tab muda)" data-action="cc-open" data-on="mode"></button>
+    <button class="cc-send" id="cc-send" title="Enviar (Enter)" data-action="cc-send">${icon("up")}</button>
   </div>
   <input type="file" id="cc-file" multiple hidden data-action="cc-file">
 </div>`;
@@ -185,30 +176,24 @@ function currentMode(): ComposerMode {
 /** Redesenha a barra (chips de modelo/modo/agentes/fila, botão enviar/parar, placeholder). */
 export function refreshComposer(): void {
   if (!host) return;
-  const prov = host.provider();
-  if (profileFor(prov).id !== profile.id && el("cc")) {
-    remount(profileFor(prov));
-    return;
-  }
   const running = host.running();
-  const caret = profile.id === "claude" ? "" : icon("chev", "cc-caret");
+  const prov = host.provider();
   const model = el("cc-model");
   if (model) {
     const eff = supportsEffort(prov) ? ` <span class="cc-dim">${EFFORT_LABEL[host.effort()]}</span>` : "";
-    model.innerHTML = `<span class="cc-ml">${esc(modelLabel(prov, effectiveModel(host.model())))}${eff}</span>${caret}`;
+    model.innerHTML = `${esc(modelLabel(prov, effectiveModel(host.model())))}${eff}`;
   }
   const mode = el("cc-mode");
   if (mode) {
     const m = currentMode();
-    const label = profile.modes[m].label;
-    mode.innerHTML = profile.id === "codex" ? `<span>${esc(label)}</span>${caret}` : `${icon(MODE_ICON[m])}<span>${esc(label)}</span>`;
+    const o = MODE_OPTIONS.find((x) => x.id === m)!;
+    mode.innerHTML = `${icon(MODE_ICON[m])}<span>${o.label}</span>`;
     mode.classList.toggle("on", open === "mode");
   }
-  const folder = el("cc-folder");
-  if (folder) {
-    const f = host.folder();
-    folder.innerHTML = `${icon("folder")}<span>${esc(f ? f.name : "sem pasta")}</span>${icon("chev", "cc-caret")}`;
-    folder.classList.toggle("on", open === "folder");
+  const micBtn = el("cc-mic");
+  if (micBtn) {
+    micBtn.classList.toggle("rec", mic === "rec");
+    micBtn.title = "Ditar (voz)";
   }
   const ag = el("cc-agents");
   if (ag) {
@@ -222,13 +207,20 @@ export function refreshComposer(): void {
   }
   const send = el("cc-send");
   if (send) {
-    send.innerHTML = icon(running ? "stop" : profile.send.icon);
-    send.classList.toggle("ready", !!input()?.value.trim());
+    send.innerHTML = icon(running ? "stop" : "up");
     send.classList.toggle("stop", running);
     send.title = running ? "Parar" : "Enviar (Enter)";
   }
   const i = input();
-  if (i) i.placeholder = running ? profile.runningPlaceholder : planNext ? "O que queres planear?" : profile.placeholder;
+  if (i)
+    i.placeholder =
+      mic === "rec"
+        ? "A ouvir… clica no microfone para terminar"
+        : running
+            ? "Põe outra mensagem na fila…"
+            : planNext
+              ? "O que queres planear?"
+              : "Pede ao Co-Dev…";
   for (const k of ["plus", "slash", "model", "agents"]) el("cc-" + k)?.classList.toggle("on", open === k);
 }
 
@@ -274,16 +266,17 @@ function effortRow(): string {
   return `<div class="cc-row${ok ? "" : " off"}"><span>Esforço <span class="cc-dim">(${ok ? EFFORT_LABEL[cur] : "só Claude"})</span></span><span class="cc-eff">${dots}</span></div>`;
 }
 
-const PLUS_ACTION: Record<Exclude<PlusItem, "activeFile">, string> = { upload: "attach", mention: "mention", folder: "folder", actions: "actions" };
-
 function catalogOf(p: ProviderChoice): Array<{ id: string; label: string; desc: string; recommended?: boolean }> {
-  const cat = MODEL_CATALOG[p.key] ?? [];
+  const cat =
+    p.key === "ollama" && ollamaList?.length
+      ? ollamaList.map((id) => ({ id, label: id, desc: "Instalado no Ollama" }))
+      : (MODEL_CATALOG[p.key] ?? []);
   const m = effectiveModel(p.model);
   return cat.some((x) => x.id === m) || !m ? cat : [{ id: m, label: modelLabel(p.key, m), desc: "Configurado nas Definições" }, ...cat];
 }
 
-/** Claude Code / Codex: só os modelos do provedor activo, com descrição; trocar de
- *  provedor é uma entrada à parte. */
+/** Só os modelos do provedor activo, com descrição; trocar de provedor e as definições
+ *  são entradas à parte. */
 function modelCards(): string {
   if (!host) return "";
   const prov = host.provider();
@@ -295,68 +288,28 @@ function modelCards(): string {
       )
     : [];
   const effort = supportsEffort(prov) ? `${effortRow()}<div class="cc-foot">O esforço vale para novas conversas.</div>` : "";
-  return `<div class="cc-menu"><div class="cc-gh cc-title">${esc(profile.modelTitle)}</div><div class="cc-list">${rows.join("")}</div>${effort}<div class="cc-sep"></div>${popItem(
+  const title = me ? `Modelos ${me.name}` : "Escolhe um modelo";
+  const empty = !rows.length ? `<div class="cc-empty">${prov === "ollama" ? "Sem modelos instalados no Ollama (ex.: <code>ollama pull qwen2.5-coder</code>)." : "Sem modelos."}</div>` : "";
+  return `<div class="cc-menu"><div class="cc-gh cc-title">${esc(title)}</div><div class="cc-list">${rows.join("")}${empty}</div>${effort}<div class="cc-sep"></div>${popItem(
     "cc-do",
     "providers",
     "Outros provedores…",
     "",
     { ic: "chevr" },
-  )}</div>`;
-}
-
-/** Antigravity: uma lista única com os modelos de todos os provedores, nome e nível numa
- *  linha, «Recomendado»/«Indisponível» como etiquetas. */
-function modelInline(): string {
-  if (!host) return "";
-  const prov = host.provider();
-  const cur = effectiveModel(host.model());
-  const rows: string[] = [];
-  const all = host.providers();
-  const order = [...all.filter((x) => x.key === prov), ...all.filter((x) => x.key !== prov && x.on), ...all.filter((x) => x.key !== prov && !x.on)];
-  for (const p of order) {
-    for (const m of catalogOf(p)) {
-      const sel = p.key === prov && m.id === cur;
-      const name = p.key === "claude" ? `Claude ${m.label}` : m.label;
-      const level = supportsEffort(p.key) ? `<span class="cc-dim">${EFFORT_LABEL[host.effort()]}</span>` : "";
-      const tag = !p.on ? '<span class="cc-tag">Indisponível</span>' : m.recommended ? '<span class="cc-tag">Recomendado</span>' : "";
-      rows.push(
-        `<button class="cc-it cc-inl${sel ? " sel" : ""}${p.on ? "" : " off"}" data-action="cc-model" data-on="${esc(`${p.key}|${m.id}`)}"><span class="cc-it-t"><span>${esc(name)} ${level} ${tag}</span></span>${
-          sel ? icon("check", "cc-ok") : ""
-        }</button>`,
-      );
-    }
-  }
-  return `<div class="cc-menu"><div class="cc-gh cc-title">${esc(profile.modelTitle)}</div><div class="cc-list">${rows.join("")}</div><div class="cc-sep"></div>${popItem(
-    "cc-do",
-    "settings",
-    "Definições de modelos",
-    "",
-    { ic: "gear" },
-  )}</div>`;
+  )}${popItem("cc-do", "settings", "Definições de modelos", "", { ic: "gear" })}</div>`;
 }
 
 function popMarkup(): string {
   if (!host) return "";
   switch (open) {
-    case "plus": {
-      const items = plusEntries(profile)
-        .map((e) =>
-          e.id === "activeFile"
-            ? popItem("cc-ctx", "", e.label, e.desc, { ic: e.icon, check: host!.ctxOn() })
-            : popItem("cc-do", PLUS_ACTION[e.id], e.label, e.desc, { ic: e.icon }),
-        )
-        .join("");
-      const title = profile.plusTitle ? `<div class="cc-gh cc-title">${esc(profile.plusTitle)}</div>` : "";
-      return `<div class="cc-menu cc-small">${title}${items}</div>`;
-    }
-    case "folder": {
-      const f = host.folder();
-      if (!f) return `<div class="cc-menu cc-small"><div class="cc-empty">As pastas abrem-se no app desktop.</div></div>`;
-      const rec = f.recent.filter((p) => p.split("/").pop() !== f.name).slice(0, 6);
-      return `<div class="cc-menu cc-small"><div class="cc-gh cc-title">Pasta do projecto</div>${popItem("cc-folder", "", f.name, "actual", { ic: "folder", check: true })}${rec
-        .map((p) => popItem("cc-folder", p, p.split("/").pop() || p, p, { ic: "folder" }))
-        .join("")}${popItem("cc-folder", "*", "Abrir pasta…", "", { ic: "plus" })}</div>`;
-    }
+    case "plus":
+      return `<div class="cc-menu cc-small">${popItem("cc-do", "attach", "Carregar do computador", "Ficheiros de texto ou código", { ic: "upload" })}${popItem(
+        "cc-do",
+        "mention",
+        "Mencionar ficheiro do projecto",
+        "O agente lê-o antes de responder",
+        { ic: "at" },
+      )}${popItem("cc-ctx", "", "Incluir o ficheiro activo", "Contexto do editor", { ic: "file", check: host.ctxOn() })}</div>`;
     case "slash": {
       const list = filterActions(SLASH_ACTIONS, slashFilter);
       slashSel = Math.min(slashSel, Math.max(0, list.length - 1));
@@ -374,11 +327,11 @@ function popMarkup(): string {
       }</div></div>`;
     }
     case "model":
-      return profile.modelMenu === "inline" ? modelInline() : modelCards();
+      return modelCards();
     case "mode": {
       const cur = currentMode();
       return `<div class="cc-menu cc-modes"><div class="cc-gh cc-title">Modos<span class="cc-keys"><kbd>⇧</kbd>+<kbd>tab</kbd> muda</span></div>${MODE_OPTIONS.map((m) =>
-        popItem("cc-mode", m.id, profile.modes[m.id].label, profile.modes[m.id].desc, { ic: MODE_ICON[m.id], check: m.id === cur, sel: m.id === cur }),
+        popItem("cc-mode", m.id, m.label, m.desc, { ic: MODE_ICON[m.id], check: m.id === cur, sel: m.id === cur }),
       ).join("")}${supportsEffort(host.provider()) ? effortRow() : ""}</div>`;
     }
     case "agents": {
@@ -416,6 +369,16 @@ function toggle(kind: typeof open): void {
   open = open === kind ? "" : kind;
   if (open === "slash") slashSel = 0;
   renderPop();
+  // Ollama: a lista são os modelos instalados no servidor local
+  if (open === "model" && host?.provider() === "ollama") {
+    void host
+      .localModels()
+      .then((list) => {
+        ollamaList = list;
+        if (open === "model") renderPop();
+      })
+      .catch(() => undefined);
+  }
 }
 
 function close(): void {
@@ -494,9 +457,17 @@ function readFiles(list: FileList | null): void {
 
 /* ───── microfone ───── */
 
-function toggleMic(): void {
+/** Esc durante o ditado: pára. */
+function cancelMic(): void {
+  if (mic !== "rec") return;
+  recog?.stop();
+  mic = "idle";
+  refreshComposer();
+}
+
+/** O reconhecimento de voz do motor web (Chromium/Safari). */
+function toggleWebSpeech(): void {
   if (!host) return;
-  const btn = el("cc-mic");
   if (recog) {
     recog.stop();
     return;
@@ -525,11 +496,17 @@ function toggleMic(): void {
   };
   r.onend = () => {
     recog = null;
-    btn?.classList.remove("rec");
+    mic = "idle";
+    refreshComposer();
   };
   recog = r;
-  btn?.classList.add("rec");
+  mic = "rec";
+  refreshComposer();
   r.start();
+}
+
+function toggleMic(): void {
+  toggleWebSpeech();
 }
 
 /* ───── acções (entram na tabela delegada da feature) ───── */
@@ -564,10 +541,6 @@ function doAction(id: string): void {
     case "mode":
       toggle("mode");
       return;
-    case "actions":
-      slashFilter = "";
-      toggle("slash");
-      return;
     case "persona":
       h.pickPersona();
       return;
@@ -577,15 +550,6 @@ function doAction(id: string): void {
     case "settings":
       h.openModelSettings();
       return;
-    case "folder": {
-      const dirs = foldersOf(h.projectFiles());
-      if (!dirs.length) {
-        h.toast("Abre uma pasta para mencionar ficheiros");
-        return;
-      }
-      h.palette("Mencionar pasta…", dirs.map((d) => ({ l: d.split("/").pop() + "/", d, run: () => addMention(d + "/") })));
-      return;
-    }
     case "plan":
       planNext = true;
       refreshComposer();
@@ -674,14 +638,6 @@ export function composerActions(): ActionTable {
     },
     "cc-mic": { on: "click", run: () => toggleMic() },
     "cc-persona": { on: "click", run: () => host?.pickPersona() },
-    "cc-folder": {
-      on: "click",
-      run: (e) => {
-        close();
-        if (!host || !e.on) return;
-        host.openFolder(e.on === "*" ? undefined : e.on);
-      },
-    },
   };
 }
 
@@ -693,7 +649,12 @@ function onKey(ev: KeyboardEvent): void {
   if (ev.key === "Tab" && ev.shiftKey) {
     ev.preventDefault();
     setComposerMode(nextMode(currentMode()));
-    host.toast(profile.modes[currentMode()].label);
+    host.toast("Modo " + MODE_OPTIONS.find((m) => m.id === currentMode())!.label);
+    return;
+  }
+  if (ev.key === "Escape" && mic === "rec") {
+    ev.preventDefault();
+    cancelMic();
     return;
   }
   if (ev.key === "Escape" && open) {
@@ -759,7 +720,7 @@ const BOUND_KEY = "__codevComposerOutside__";
 /** Monta o compositor dentro de `#ag-compose`. Idempotente (o harness reavalia a feature). */
 export function mountComposer(h: ComposerHost): void {
   host = h;
-  remount(profileFor(safe(() => h.provider(), "claude")));
+  remount();
 }
 
 const safe = <T>(f: () => T, dflt: T): T => {
@@ -770,8 +731,8 @@ const safe = <T>(f: () => T, dflt: T): T => {
   }
 };
 
-/** (Re)monta o esqueleto com o perfil dado, mantendo o texto escrito e os anexos. */
-function remount(p: ComposerProfile): void {
+/** Monta o esqueleto, mantendo o texto escrito, os anexos e o chip do ficheiro activo. */
+function remount(): void {
   const h = host;
   const root = el("ag-compose");
   if (!h || !root) return;
@@ -779,9 +740,8 @@ function remount(p: ComposerProfile): void {
   const ctxShown = !(el("pill-ctx")?.hidden ?? true);
   const ctxText = el("pill-ctx")?.textContent ?? "";
   const ctxOnCls = el("pill-ctx")?.classList.contains("on") ?? false;
-  profile = p;
   open = "";
-  root.innerHTML = skeleton(p);
+  root.innerHTML = skeleton();
   const chip = el("pill-ctx");
   if (chip) {
     chip.hidden = !ctxShown;
@@ -805,11 +765,9 @@ function remount(p: ComposerProfile): void {
   };
   doc[BOUND_KEY] = outside;
   document.addEventListener("mousedown", outside);
-  i.addEventListener("input", () => el("cc-send")?.classList.toggle("ready", !!i.value.trim()));
   renderAttachments();
   refreshComposer();
   safe(() => h.refreshPersona(), undefined);
-  safe(() => h.profileChanged(p), undefined);
 }
 
 /* ───── sub-agentes (a ferramenta `task` do agente v2) ───── */
@@ -831,9 +789,6 @@ export function resetComposer(): void {
   planNext = false;
   refreshComposer();
 }
-
-/** O perfil com que o compositor está montado (o ecrã inicial da conversa segue-o). */
-export const composerProfile = (): ComposerProfile => profile;
 
 /** Só para os testes: o estado interno. */
 export const _composerState = () => ({ attachments, queue, planNext, open, subagents });

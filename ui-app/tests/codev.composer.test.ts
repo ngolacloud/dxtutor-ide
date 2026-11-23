@@ -20,6 +20,7 @@ import {
   composerActions,
   composerContext,
   composerRunChanged,
+  refreshComposer,
   mountComposer,
   resetComposer,
   trackSubagent,
@@ -82,7 +83,6 @@ function setup() {
   document.body.innerHTML = '<div id="ag-compose"><textarea id="ag-input"></textarea></div>';
   const sent: string[] = [];
   const toasts: string[] = [];
-  const profiles: string[] = [];
   const state = { running: false, mode: "assist", provider: "claude", model: "claude-opus-5-5", effort: "high" as Effort, ctx: true };
   const host: ComposerHost = {
     send: (q) => sent.push(q),
@@ -93,8 +93,9 @@ function setup() {
     provider: () => state.provider,
     model: () => state.model,
     providers: () => [
-      { key: "claude", name: "Claude", model: state.model, on: true },
-      { key: "ollama", name: "Ollama", model: "qwen2.5-coder:14b", on: false },
+      { key: "claude", name: "Claude", model: state.provider === "claude" ? state.model : "claude-opus-5-5", on: true },
+      { key: "gemini", name: "Gemini", model: "gemini-pro", on: true },
+      { key: "ollama", name: "Ollama", model: state.provider === "ollama" ? state.model : "qwen2.5-coder:14b", on: true },
     ],
     selectModel: (p, m) => {
       state.provider = p;
@@ -110,13 +111,11 @@ function setup() {
     exportConversation: () => sent.push("<export>"),
     toast: (m) => toasts.push(m),
     speech: () => null,
-    folder: () => ({ name: "dxtutor-ide", recent: ["/w/dxtutor-ide", "/w/seiva"] }),
-    openFolder: (p) => sent.push(`<folder ${p ?? "*"}>`),
     pickPersona: () => sent.push("<persona>"),
     refreshPersona: () => undefined,
     openModelSettings: () => sent.push("<settings>"),
     switchProvider: () => sent.push("<providers>"),
-    profileChanged: (p) => profiles.push(p.id),
+    localModels: async () => ["llama3.1:8b", "qwen2.5-coder:14b"],
   };
   resetComposer();
   mountComposer(host);
@@ -130,7 +129,7 @@ function setup() {
   const enter = (shiftKey = false) =>
     $("#ag-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey, bubbles: true }));
   const click = (s: string) => $(s).dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  return { host, state, sent, toasts, profiles, $, type, enter, click };
+  return { host, state, sent, toasts, $, type, enter, click };
 }
 
 beforeEach(() => {
@@ -201,7 +200,7 @@ test("modos: o menu muda o modo de aprovação; Plano envia a próxima mensagem 
 test("modelo e esforço: escolher no popover; provedor desligado não muda", () => {
   const t = setup();
   t.click("#cc-model");
-  expect(t.$("#cc-pop").textContent).toContain("Escolhe um modelo");
+  expect(t.$("#cc-pop").textContent).toContain("Modelos Claude");
   t.click('[data-action="cc-effort"][data-on="max"]');
   expect(t.state.effort).toBe("max");
   expect(t.$("#cc-model").textContent).toBe("Opus 5.5 Máximo");
@@ -264,82 +263,41 @@ test("sub-agentes: o chip conta os que correm e o mapa lista-os; microfone sem m
   expect(t.$("#cc-agents .cc-agl").textContent).toBe("0 agentes");
 });
 
-/* ───── o compositor adapta-se ao harness do provedor ───── */
 
-import { PROFILES, foldersOf, introFor, plusEntries, profileFor } from "../src/features/codev/domain/composer-profiles";
-import { refreshComposer } from "../src/features/codev/ui/composer";
+/* ───── o chat do Claude é o padrão para todos os provedores ───── */
 
-test("perfis: cada provedor tem o seu harness de referência", () => {
-  expect(profileFor("claude").harness).toBe("Claude Code");
-  expect(profileFor("gemini").harness).toBe("Antigravity");
-  expect(profileFor("codex").harness).toBe("Codex");
-  expect(profileFor("mistral").id).toBe("claude");
-  expect(plusEntries(PROFILES.gemini).map((e) => e.label)).toEqual(["Ficheiros", "Pasta", "Menções", "Acções", "Ficheiro activo"]);
-  expect(plusEntries(PROFILES.claude).map((e) => e.id)).toEqual(["upload", "mention", "activeFile"]);
-  expect(introFor(PROFILES.claude)).toBeNull();
-  expect(introFor(PROFILES.gemini)!.title).toBe("O que vamos construir hoje?");
-  expect(PROFILES.codex.modes.plan.label).toBe("Chat");
-  expect(foldersOf(["src/a/x.rs", "src/b.rs", "README.md"])).toEqual(["src", "src/a"]);
-});
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
-test("Gemini (Antigravity): pasta em cima, ＋ e modelo à esquerda, enviar redondo; o texto sobrevive à troca", () => {
+test("trocar de provedor mantém a disposição; a lista só tem os modelos desse provedor", () => {
   const t = setup();
   t.type("rever o lexer");
   t.state.provider = "gemini";
-  t.state.model = "gemini-2.5-flash";
+  t.state.model = "gemini-pro"; // nome de exemplo do protótipo → o modelo por omissão
   refreshComposer();
-  expect(t.$("#cc").dataset.profile).toBe("gemini");
-  expect(t.profiles.at(-1)).toBe("gemini");
   expect(t.$<HTMLTextAreaElement>("#ag-input").value).toBe("rever o lexer");
-  expect(t.$<HTMLTextAreaElement>("#ag-input").placeholder).toBe("Pergunta o que quiseres, @ para mencionar, / para acções");
-  expect(t.$("#cc-folder").textContent).toBe("dxtutor-ide");
-  expect(document.querySelector("#cc-slash")).toBeNull();
-  expect(document.querySelector("#cc-agents")).toBeNull();
-  expect(document.querySelector("#cc-mode")).toBeNull();
-  expect(t.$(".cc-chips").hidden).toBe(true);
-  expect(t.$("#cc-send").classList.contains("circle")).toBe(true);
-  // ＋ → «Adicionar contexto»
-  t.click("#cc-plus");
-  expect(t.$("#cc-pop").textContent).toContain("Adicionar contexto");
-  t.click('[data-action="cc-do"][data-on="folder"]');
-  expect(t.$("#cc-atts").textContent).toContain("src/");
-  // modelo: lista única de vários provedores, Claude com nível, desligado = indisponível
+  for (const id of ["#cc-plus", "#cc-slash", "#cc-agents", "#cc-mode", "#pill-agent"]) expect(t.$(id)).not.toBeNull();
+  expect(t.$("#cc-model").textContent).toBe("Gemini 2.5 Flash"); // sem esforço: só o Claude o usa
   t.click("#cc-model");
   const pop = t.$("#cc-pop").textContent!;
-  expect(pop).toContain("Claude Opus 5.5");
-  expect(pop).toContain("Indisponível");
+  expect(pop).toContain("Modelos Gemini");
+  expect(pop).toContain("Gemini 2.5 Pro");
+  expect(pop).not.toContain("Opus");
+  expect(pop).not.toContain("GPT-4.1");
+  expect(pop).not.toContain("Esforço");
   t.click('[data-action="cc-do"][data-on="settings"]');
   expect(t.sent).toContain("<settings>");
-  // pasta: recentes e abrir outra
-  t.click("#cc-folder");
-  t.click('[data-action="cc-folder"][data-on="/w/seiva"]');
-  expect(t.sent).toContain("<folder /w/seiva>");
-  // sem botão de modo: o modo muda pelo «/» (Acções)
-  t.click("#cc-plus");
-  t.click('[data-action="cc-do"][data-on="actions"]');
-  t.click('[data-action="cc-do"][data-on="mode"]');
-  t.click('[data-action="cc-mode"][data-on="auto"]');
-  expect(t.state.mode).toBe("auto");
 });
 
-test("Codex: modelo e modo junto ao ＋ com os nomes do Codex", () => {
+test("Ollama: a lista são os modelos instalados no servidor local", async () => {
   const t = setup();
-  t.state.provider = "codex";
-  t.state.model = "gpt-4.1";
+  t.state.provider = "ollama";
+  t.state.model = "qwen2.5-coder:14b";
   refreshComposer();
-  expect(t.$("#cc").dataset.profile).toBe("codex");
-  expect(t.$("#cc-model").textContent).toBe("GPT-4.1");
-  expect(t.$("#cc-mode").textContent).toBe("Agente");
-  const bar = Array.from(t.$(".cc-bar").children).map((c) => c.id).filter(Boolean);
-  expect(bar.indexOf("cc-model")).toBeLessThan(bar.indexOf("cc-send"));
-  expect(bar.indexOf("cc-model")).toBe(bar.indexOf("cc-plus") + 1);
-  t.click("#cc-mode");
-  expect(t.$("#cc-pop").textContent).toContain("Agente (acesso total)");
-  expect(t.$("#cc-pop").textContent).not.toContain("Esforço"); // o esforço é só do Claude
-  // de volta ao Claude: o esqueleto do Claude Code regressa
-  t.state.provider = "claude";
-  t.state.model = "claude-opus-5-5";
-  refreshComposer();
-  expect(t.$("#cc-slash")).not.toBeNull();
-  expect(t.$("#cc-mode").textContent).toBe("Assistido");
+  t.click("#cc-model");
+  await flush();
+  const pop = t.$("#cc-pop").textContent!;
+  expect(pop).toContain("llama3.1:8b");
+  expect(pop).toContain("Instalado no Ollama");
+  t.click('[data-action="cc-model"][data-on="ollama|llama3.1:8b"]');
+  expect(t.state.model).toBe("llama3.1:8b");
 });
