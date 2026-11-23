@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R0, R1b e R1a feitas, R1c/R1d e R2–R6 por fazer
+- **Estado:** aceite (2026-11-23); R0, R1b, R1a e R1c1 feitas, R1c2/R1d e R2–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -55,7 +55,7 @@ Inventário de 2026-11-23 (o que um utilizador desktop vê e não é real):
 | Fase | Entrega | Critério de saída |
 |---|---|---|
 | **R0 — Perda de dados** | Sai o «Repor protótipo» (`resetAll`); o autosave recusa apagar a pasta quando o FS em memória ficou vazio por inteiro e relê o disco | feito |
-| **R1 — Arranque limpo** | Em quatro passos: **R1b** missões guionadas do Co-Dev; **R1a** semente e árvore fixa do explorador; **R1c** diagnósticos/testes/debug simulados e os caminhos `P_*`; **R1d** git simulado. Estados vazios honestos | nenhum caminho `dxtutor/…` fixo no código; goldens demo retirados com registo |
+| **R1 — Arranque limpo** | Em quatro passos: **R1b** missões guionadas do Co-Dev; **R1a** semente e árvore fixa do explorador; **R1c1** diagnósticos/testes simulados e o terminal emulado; **R1c2** debug simulado e os caminhos `P_*`; **R1d** git simulado. Estados vazios honestos | nenhum caminho `dxtutor/…` fixo no código; goldens demo retirados com registo |
 | **R2 — Editor e testes reais** | Testing + `#st-tests` por `list_tests`/`run_test`/`run_all_tests`; Run por `detect_projects`; Search por `search_project`; Outline por `file_outline`; `ctx` pelo uso real da sessão; Account com o utilizador real; Code review por `review_code` | testes com IPC falso |
 | **R3 — Board/Tasks/Team** | Backlog por workspace (`board_load`/`board_save`); «Delegar» só pelo agente real; auto-teste por `run_tests`; equipa e escopos lidos do projecto | sem `genBacklog` guionado |
 | **R4 — Debug** | Run and Debug sobre DAP (`debug_launch`/`break`/`step`/`stack`/`locals`) | sessão real num projecto Rust e num Node |
@@ -116,3 +116,31 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   Testes novos: estado vazio do explorador (browser e desktop); o do `loadSeed` passa a provar
   que o `resetWorkspace` não traz ficheiros. Métricas: globais no window 422 → 390, handlers
   inline 161 → 159.
+
+- **R1c1 (2026-11-24) — diagnósticos, testes e terminal emulado.** Sai o motor simulado de
+  `features/diagnostics.ts`: `runTests()` (testes derivados de caminhos fixos do projecto de
+  demonstração), `dsLint()` (cores fixas só em `desktop/src/`) e as regras de `diagnostics()`
+  (E0382 do lexer, `any` em `workspace.ts`, LIMIT sem ORDER BY no repositório de demonstração).
+  `diagnostics()` devolve vazio no browser (no desktop o painel continua a pôr os problemas
+  reais) e a barra de estado deixa de mostrar «✖ 2/3 testes». O arranque deixa de abrir um
+  separador `lib.rs` do projecto de demonstração e de escrever «rust-analyzer · 2 crates
+  indexados» no Output. **Testing:** mostra o comando de testes detectado no projecto aberto e
+  corre-o a sério (sem pasta: «abre uma pasta»; sem comando: aponta `.dxtutor/commands.json`).
+  **Board:** o auto-teste de uma issue sem testes próprios corre os comandos de testes/lint
+  detectados (`DXR.exec`, código de saída real); sem nenhum, a issue não passa e o Output diz
+  porquê. **Code review:** sai a regra do E0382 e o texto fixo `KNOW` dos ficheiros de
+  demonstração; a regra das cores fixas passa a ser pura e genérica (`fixedColours`, qualquer
+  CSS/SCSS/TS/JS/Vue/Svelte, sem contar definições `--token:`); «Under the hood» deixa de dar as
+  fases do rustc por verificadas (nada compilou o ficheiro), perde a tabela de memória/posse do
+  lexer de demonstração, e o plano de consulta passa a derivar-se do código (tabela e coluna do
+  WHERE, CREATE INDEX do workspace — antes inventava uma query e o índice
+  `idx_conversations_ws_created` quando o ficheiro não tinha SELECT); o rodapé deixa de prometer
+  «CPU, memória e I/O medidos» que nada media. **Terminal emulado** (só browser; antecipa a
+  R1c3): identidade neutra `user@browser` (era `walter@delonix`), sem `neofetch` inventado, sem
+  `cargo`/`npm`/`dx lint`/`git push` simulados; um comando desconhecido aponta o terminal real da
+  app desktop; `ls`/`cd`/`cat`/`git` sobre o workspace ficam (o git simulado sai na R1d).
+  **Goldens (decisão deste ADR):** `codereview.golden` perde o review e o hood do lexer de
+  demonstração e o hood de SQL com query inventada; ganha o hood de Rust honesto, o hood de SQL
+  com SEARCH derivado de um CREATE INDEX e um teste do SCAN/«sem plano inventado»; o hood de TS
+  muda só no rodapé. Teste novo da regra genérica das cores. Métricas: globais 390 → 388,
+  handlers inline 159 → 156.

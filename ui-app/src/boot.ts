@@ -49,7 +49,7 @@ declare global {
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
    Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
    livre em modo estrito (módulo). ── */
-Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'] });
+Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','dxtutor','workspace','projects'] });
 
 window.$=s=>document.querySelector<HTMLElement>(s);window.$$=s=>[...document.querySelectorAll<HTMLElement>(s)];
 

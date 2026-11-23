@@ -39,11 +39,6 @@ export const openTab = (...args: [t: ReviewTab & { id: string }, act?: boolean])
    `openPath(p, undefined)`. Consumido pela tabela de acções da Fase 4. */
 export const openPath = (...args: [p: string, line?: number]): void => G.openPath(...args);
 
-/* ───── caminhos do workspace-protótipo (donos de `app.ts`; só existem após o boot) ───── */
-export const pathLexer = (): string => G.P_LX;
-export const root = (): string => G.ROOT;
-export const pathHistory = (): string => G.P_HIST;
-
 /* ───── agente / conversa (publicados por `features/codev.ts`; resolvidos por `G`) ───── */
 export const focusAgent = (nofocus?: boolean): void => G.focusAgent(nofocus);
 export const user = (msg: string): void => G.user(msg);
@@ -55,12 +50,8 @@ export const setActiveProvider = (v: string): void => { G.ACTIVE = v; };
 /** Amostrador do Claude ao vivo; `null` quando não há backend ligado nesta vista. */
 export const sample = (): unknown => G.SAMPLE ?? null;
 
-/* ───── diagnósticos / lint / lexer-protótipo (tipados em `core.ts`) ───── */
+/* ───── diagnósticos (os reais do painel Problems no desktop; tipados em `core.ts`) ───── */
 export const diagnostics = (): { p: string; line: number; sev: string; msg: string }[] => window.diagnostics();
-export const dsLint = (): { p: string; line: number; hex: string }[] => window.dsLint();
-export const lexBug = (): boolean => window.lexBug();
-export const LXL = (re: RegExp): number => window.LXL(re);
-export const lexVariant = (): string => window.lexVariant();
 
 /* ───── símbolos do ficheiro / selecção do editor / sessão de debug (tipados em `core.ts`) ───── */
 export const symbols = (p: string): Array<{ k: string; n: string; line: number }> => window.symbols(p);

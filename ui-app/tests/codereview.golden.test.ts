@@ -16,8 +16,8 @@ import { bootApp, golden } from "./harness";
  *
  * Determinismo: nem `reviewFindings` nem os dois render usam Math.random/Date.
  * O workspace é a fixture `sample-workspace` (aplicada pelo harness), por
- * isso `FS[P_LX]` (crates/lexer/src/lib.rs) existe e tem o bug do iterador movido
- * (`for c in chars {` + `chars.peek()`), logo `lexBug()` é true — estado estável.
+ * isso `FS[P_LX]` (crates/lexer/src/lib.rs) existe — já sem regras próprias (a do
+ * E0382 do lexer de demonstração saiu: ADR-0005, R1c1).
  * `window.SAMPLE` nasce `null` no arranque e o harness não corre o backend Tauri
  * (`window.claude` ausente), por isso o ramo «Deeper review with Claude» de
  * `renderCreviewView` fica OFF — baseline determinista. Timers falsos só para
@@ -105,23 +105,6 @@ function put(path: string, content: string): void {
 beforeEach(async () => {
   vi.useFakeTimers();
   w = await bootApp();
-  // `LXL`/`lexVariant` são donos de `v6.ts`, que o harness exclui (como os goldens
-  // de ext/codev). São helpers puros sobre `FS[P_LX]`: replicam-se aqui FIELMENTE
-  // (cópia exacta do corpo em v6.ts) como fixture estável, para caracterizar o ramo
-  // P_LX de `reviewFindings`/`renderHoodView`. `lexBug` já vem de diagnostics.ts na
-  // cadeia. Baseline e re-corrida pós-extracção usam a mesma fixture → prova sólida.
-  (window as any).LXL = (re: RegExp) => {
-    const ls = (w.FS[P_LX] ? w.FS[P_LX].content : "").split("\n");
-    return ls.findIndex((l: string) => re.test(l)) + 1;
-  };
-  (window as any).lexVariant = () => {
-    const c = w.FS[P_LX] ? w.FS[P_LX].content : "";
-    if (w.lexBug()) return "bug";
-    if (/for c in chars\.clone\(\)/.test(c)) return "clone";
-    if (/for c in chars\.by_ref\(\)/.test(c)) return "byref";
-    if (/while let Some\(c\) = chars\.next\(\)/.test(c)) return "whilelet";
-    return "other";
-  };
 });
 
 afterEach(() => {
@@ -130,12 +113,6 @@ afterEach(() => {
 });
 
 describe("goldens de DOM — Code review (VIEW.creview)", () => {
-  it("creview do lexer semeado (bug E0382, score baixo)", () => {
-    const host = document.createElement("div");
-    w.renderCreviewView({ path: P_LX }, host);
-    expect(golden(host)).toMatchSnapshot();
-  });
-
   it("creview de ficheiro Rust com múltiplos achados (clone/unwrap/LIMIT)", () => {
     put("svc/load.rs", RS_MULTI);
     const host = document.createElement("div");
@@ -159,17 +136,30 @@ describe("goldens de DOM — Code review (VIEW.creview)", () => {
 });
 
 describe("goldens de DOM — Under the hood (VIEW.hood)", () => {
-  it("hood do lexer semeado (pipeline do compilador + memória + posse, variante bug)", () => {
+  it("hood de Rust: as fases do compilador explicadas, sem as dar por verificadas", () => {
+    put("src/main.rs", "fn main() {}\n");
     const host = document.createElement("div");
-    w.renderHoodView({ path: P_LX }, host);
+    w.renderHoodView({ path: "src/main.rs" }, host);
     expect(golden(host)).toMatchSnapshot();
   });
 
-  it("hood de SQL (plano de consulta)", () => {
-    put("db/schema.sql", SQL_FK);
+  it("hood de SQL: plano derivado do WHERE e dos CREATE INDEX do workspace (SEARCH)", () => {
+    put("db/migrations/0001_notes.sql", "CREATE TABLE notes (id INTEGER PRIMARY KEY, owner_id INTEGER);\nCREATE INDEX idx_notes_owner ON notes(owner_id);\n");
+    put("db/queries.sql", "SELECT id FROM notes WHERE owner_id = ? LIMIT 10;\n");
     const host = document.createElement("div");
-    w.renderHoodView({ path: "db/schema.sql" }, host);
+    w.renderHoodView({ path: "db/queries.sql" }, host);
     expect(golden(host)).toMatchSnapshot();
+  });
+
+  it("hood de SQL sem índice na coluna do WHERE: SCAN; sem SELECT: nenhum plano inventado", () => {
+    put("db/queries.sql", "SELECT id FROM tags WHERE label = ?;\n");
+    const host = document.createElement("div");
+    w.renderHoodView({ path: "db/queries.sql" }, host);
+    expect(host.textContent).toContain("SCAN tags");
+    expect(host.textContent).toContain("no index on tags(label)");
+    put("db/schema.sql", SQL_FK);
+    w.renderHoodView({ path: "db/schema.sql" }, host);
+    expect(host.textContent).not.toContain("Query plan");
   });
 
   it("hood de TS (build & runtime)", () => {
@@ -181,12 +171,12 @@ describe("goldens de DOM — Under the hood (VIEW.hood)", () => {
 });
 
 describe("caracterização do motor — reviewFindings (regra pura a extrair)", () => {
-  it("lexer semeado: um único achado, o bug E0382 na linha do peek", () => {
-    const fs = w.reviewFindings(P_LX);
-    expect(fs.length).toBe(1);
-    expect(fs[0].sev).toBe("bug");
-    expect(fs[0].t).toBe("Iterator used after being moved (E0382)");
-    expect(fs[0].l).toBe(10); // linha de `chars.peek()` no lexer semeado
+  it("cores fixas: qualquer CSS/TS do projecto, menos as definições de tokens", () => {
+    put("web/app.css", ":root {\n  --accent: #e06c3b;\n}\n.btn { color: #fff; }\n");
+    const fs = w.reviewFindings("web/app.css");
+    expect(fs.map((f: any) => [f.l, f.sev, f.t])).toEqual([[4, "style", "Fixed colour #fff"]]);
+    // a regra do E0382 do lexer de demonstração saiu (ADR-0005, R1c1)
+    expect(w.reviewFindings(P_LX).some((f: any) => /E0382/.test(f.t))).toBe(false);
   });
 
   it("Rust múltiplo: clone(bug) + LIMIT(bug) + unwrap(risk), bugs primeiro", () => {

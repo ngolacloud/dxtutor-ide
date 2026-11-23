@@ -126,8 +126,9 @@ export interface Terminal {
   newInput(nofocus?: boolean): void;
   setPanelTab(tab: string, nofocus?: boolean): void;
   getVar(k: string): string;
-  runTests(): { ok: boolean };
-  dsLint(): unknown[];
+  /** Os comandos de testes/lint detectados no projecto aberto, corridos a sério (desktop);
+   *  `[]` sem pasta ou sem comandos detectados. */
+  projectTests(): Promise<Array<{ n: string; ok: boolean }>>;
   doTool(t: { t: string; p: string; content: string }, host: Host): Promise<void>;
 }
 

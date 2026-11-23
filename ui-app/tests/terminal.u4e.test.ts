@@ -14,19 +14,19 @@ const key = (k: string) => document.querySelector("#cmd")!.dispatchEvent(new Key
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
   w.syncTree(); // a árvore sai do FS (a fixture), como no arranque da app — já não há árvore fixa (ADR-0005, R1a)
-  w.CWD = ["~", "workspaces", "NgolaCloud", "projects"];
+  w.CWD = ["~", "dxtutor", "workspace", "projects"];
   w.termClear();
 });
 
 it("termClear desenha o cabeçalho e um prompt com o utilizador e a máquina", () => {
-  expect(term()).toContain("delonix shell");
-  expect(document.querySelector("#inputwrap .pr")!.textContent).toContain("walter@delonix:");
+  expect(term()).toContain("terminal emulado");
+  expect(document.querySelector("#inputwrap .pr")!.textContent).toContain("user@browser:");
 });
 
 it("cd/pwd/ls navegam na árvore; comando desconhecido avisa", () => {
   enter("cd dxtutor");
   enter("pwd");
-  expect(term()).toContain("/home/walter/workspaces/NgolaCloud/projects/dxtutor");
+  expect(term()).toContain("/home/user/dxtutor/workspace/projects/dxtutor");
   enter("ls");
   expect(term()).toMatch(/crates\//);
   enter("cd nao-existe");

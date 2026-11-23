@@ -38,9 +38,6 @@ import {
   changes,
   openTab,
   openPath,
-  pathLexer,
-  root,
-  pathHistory,
   focusAgent,
   user,
   card,
@@ -49,10 +46,6 @@ import {
   setActiveProvider,
   sample,
   diagnostics,
-  dsLint,
-  lexBug,
-  LXL,
-  lexVariant,
   symbols,
   selText,
   dbgState,
@@ -61,27 +54,11 @@ import {
   type Svc,
 } from "./codereview/infrastructure/legacy-bridge";
 
-/* ───── Explain — conteúdo e cartão (dono da view) ─────
-   GOTCHA: esta feature carrega ANTES de app.ts — um `[P_LX]`/`ROOT`/`P_HIST` ansioso
-   no eval do módulo seria ReferenceError e pararia o chunk inteiro (como hydrate() em
-   features/tasks.ts). KNOW só se constrói na primeira chamada a know(). */
-let _KNOW: Record<string, string> | null = null;
-function know(p: string): string | undefined {
-  if (!_KNOW) {
-    _KNOW = {
-      [pathLexer()]: `<b>What it does.</b> <code>tokenize</code> walks a string once and turns each ASCII digit into <code>Token::Num</code>, then appends <code>Token::Eof</code> when the input is exhausted.<br><b>How.</b> <code>chars()</code> yields characters; <code>.peekable()</code> adds a one-item look-ahead so the code can ask “is there anything left?” without consuming it.<br><b>The subtle part.</b> The Eof decision depends on <code>chars</code> being exhausted <i>after</i> the loop — so whatever the loop iterates over must be the same iterator, not a copy and not something it takes ownership of.`,
-      [root() + 'crates/store/src/conversations.rs']: `<b>What it does.</b> The Repository for conversations: a trait (<code>ConversationRepo</code>) that callers depend on, and a SQLite implementation behind it (ADR-002).<br><b>Why the trait.</b> The UI and the tests depend on the operations, not on SQLite — swapping storage or mocking it needs no UI change.<br><b>Watch.</b> <code>list_recent</code> promises “most recent first”, so its SQL needs <code>ORDER BY created_at DESC</code> and an index that covers it.`,
-      [pathHistory()]: `<b>What it does.</b> Renders the “History” section: asks the backend (a Tauri command) for recent conversations and draws a button per conversation.<br><b>Layering.</b> No SQL here — it only talks to the command, as ADR-002 requires.<br><b>Watch.</b> Titles are user text inserted with <code>innerHTML</code>; they must be escaped or set with <code>textContent</code>.`,
-    };
-  }
-  return _KNOW[p];
-}
-
 /* Presenter do cartão de Explain: a porta `view.explainCard` que o motor chama com
-   dados simples. A view é dona do markup e resolve o conteúdo `KNOW` por caminho. */
+   dados simples. A view é dona do markup (o texto fixo `KNOW` dos ficheiros de demonstração
+   saiu — ADR-0005, R1c1). */
 function explainCard(c: ExplainCard): void {
-  const kn = know(c.path);
-  card('co-dev · explain', `${c.dbgEnd ? `<p>${c.dbgEnd}</p>` : kn ? `<p>${kn}</p>` : `<p><b>${esc(short(c.path))}</b> — ${c.lineCount} lines${c.symbols.length ? `, defines ${c.symbols.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${c.firstComment ? `<p>${esc(c.firstComment)}</p>` : ''}`}
+  card('co-dev · explain', `${c.dbgEnd ? `<p>${c.dbgEnd}</p>` : `<p><b>${esc(short(c.path))}</b> — ${c.lineCount} lines${c.symbols.length ? `, defines ${c.symbols.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${c.firstComment ? `<p>${esc(c.firstComment)}</p>` : ''}`}
    ${c.diagnostics.length ? `<p><b>Right now:</b> ${c.diagnostics.map(m => esc(m)).join('; ')}.</p>` : ''}${c.findings.length ? `<p><b>What I would watch:</b></p><ul>${c.findings.map(r => `<li>${r.t} (line ${r.l})</li>`).join('')}</ul>` : ''}<p style="color:var(--fg-dim)">With Claude live, Explain answers about the exact code or selection instead of this summary.</p>`);
 }
 
@@ -97,7 +74,6 @@ const engine = makeReviewEngine({
     changes: () => changes(),
     open: tab => openTab(tab),
   },
-  paths: { lexer: () => pathLexer() },
   agent: {
     focus: nofocus => focusAgent(nofocus),
     user: msg => user(msg),
@@ -107,8 +83,7 @@ const engine = makeReviewEngine({
     sample: () => sample(),
     claudeOn: () => prov().claude.on,
   },
-  diagnostics: { all: () => diagnostics(), dsLint: () => dsLint() },
-  lexer: { bug: () => lexBug(), line: re => LXL(re) },
+  diagnostics: { all: () => diagnostics() },
   code: { symbols: p => symbols(p), selText: () => selText(), dbgState: () => dbgState() },
   view: { explainCard },
 });
@@ -133,15 +108,18 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
   const p = t.path, f = files()[p], ext = extOf(p),
     stg = (n: string, ok: boolean | null, d: string) => `<div class="hs ${ok === false ? 'bad' : ok === null ? 'skip' : 'ok'}"><span>${ok === false ? '✖' : ok === null ? '○' : '✓'}</span><div><b>${n}</b><small>${d}</small></div></div>`;
   let h = '';
+  /* O plano deriva do código: a tabela e a coluna do WHERE e os CREATE INDEX das
+     migrações deste workspace (ADR-0005, R1c1 — antes o nome do índice era o do demo). */
   function qplan(fe: { content: string }): string {
-    const q = (fe.content.match(/SELECT[^"]*/) || [])[0], idx = Object.keys(files()).some(k => /migrations/.test(k) && /CREATE INDEX idx_conversations_ws_created/.test(files()[k].content));
-    return `<h2>Query plan</h2><div class="sub">What SQLite's planner does with the listing query, derived from the migrations in this workspace.</div><pre class="hood-q notr">${esc(q || 'SELECT … FROM conversations WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?')}</pre><div class="hood-p">${idx ? stg('SEARCH conversations USING INDEX idx_conversations_ws_created (workspace_id=?)', true, 'jumps to the workspace, rows already in created_at order — no sort') : stg('SCAN conversations', false, 'reads every row of every workspace') + stg('USE TEMP B-TREE FOR ORDER BY', false, 'sorts the matches in memory before applying LIMIT')}</div>`;
+    const q = (fe.content.match(/SELECT[^"]*/) || [])[0];
+    if (!q) return '';
+    const table = (q.match(/\bFROM\s+(\w+)/i) || [])[1], col = (q.match(/\bWHERE\s+(\w+)\s*=/i) || [])[1];
+    const idx = table && col ? Object.keys(files()).map(k => files()[k].content.match(new RegExp(`CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+(?:IF NOT EXISTS\\s+)?(\\w+)\\s+ON\\s+${table}\\s*\\(\\s*${col}\\b`, 'i'))).find(Boolean) : null;
+    return `<h2>Query plan</h2><div class="sub">What the planner can do with this query, derived from the CREATE INDEX statements in this workspace. Run <code>EXPLAIN QUERY PLAN</code> against the database to confirm.</div><pre class="hood-q notr">${esc(q)}</pre><div class="hood-p">${!table || !col ? stg('No WHERE on a column', null, 'nothing to look up by index') : idx ? stg(`SEARCH ${esc(table)} USING INDEX ${esc(idx[1])} (${esc(col)}=?)`, true, 'jumps straight to the matching rows') : stg(`SCAN ${esc(table)}`, false, `no index on ${esc(table)}(${esc(col)}) in this workspace — every row is read`)}</div>`;
   }
   if (ext === 'rs') {
-    const bug = p === pathLexer() && lexBug(), v = p === pathLexer() ? lexVariant() : '';
-    h = `<h2>Compiler pipeline</h2><div class="hood-p">${stg('Lex & parse', true, 'source → tokens → syntax tree')}${stg('Name resolution & macros', true, 'paths, use statements, derive(Debug, PartialEq)')}${stg('Type check', true, 'every expression gets a type')}${stg('Borrow check', !bug, bug ? `<code>chars</code> moved into the loop at line ${LXL(/for c in/)}, used again at line ${LXL(/chars\.peek/)} (E0382)` : 'ownership and lifetimes verified')}${stg('MIR & optimisation', bug ? null : true, bug ? 'not reached' : 'mid-level IR, inlining of the iterator chain')}${stg('LLVM codegen', bug ? null : true, bug ? 'not reached' : 'machine code for x86-64 / aarch64')}</div>`;
-    if (p === pathLexer()) h += `<h2>Memory</h2><div class="tbl-wrap"><table class="tbl"><tr><th>Value</th><th>Where</th><th>Size</th><th>Why</th></tr><tr><td><code>Token</code></td><td class="c">—</td><td>4 bytes</td><td class="c"><code>Num(char)</code> and <code>Eof</code> fit in one <code>char</code>: Eof uses an invalid code point as its tag (niche optimisation).</td></tr><tr><td><code>tokens: Vec&lt;Token&gt;</code></td><td class="c">stack + heap</td><td>24 B + 4×cap</td><td class="c">pointer, capacity, length on the stack; the first push allocates capacity 4.</td></tr><tr><td><code>chars: Peekable&lt;Chars&gt;</code></td><td class="c">stack</td><td>≈24 bytes</td><td class="c">two pointers into the string plus the peeked slot; no heap allocation.</td></tr></table></div>
-      <h2>Ownership of <code>chars</code></h2><div class="hood-o">${[['line ' + LXL(/let mut chars/), 'created', 'owned by tokenize'], ['line ' + LXL(/for c in|while let/), v === 'bug' ? 'moved' : v === 'clone' ? 'copied' : 'borrowed (&mut)', v === 'bug' ? 'into_iter() takes it — gone after the loop' : v === 'clone' ? 'loop owns a second cursor; the original never moves' : 'loop advances the same cursor, then gives it back'], ['line ' + LXL(/chars\.peek/), v === 'bug' ? '✖ use after move' : 'used', v === 'bug' ? 'rejected by the borrow checker' : v === 'clone' ? "peek() sees '1' — Eof skipped" : 'peek() sees the end — Eof pushed']].map(x => `<div><b>${x[0]}</b><span class="tag ${/✖|copied/.test(x[1]) ? 'bad' : ''}">${x[1]}</span><small>${x[2]}</small></div>`).join('')}</div><div class="sub">Time O(n), one pass; memory O(n) for the tokens.</div>`;
+    /* as fases do compilador explicadas, sem as dar por verificadas: nada aqui compilou o ficheiro */
+    h = `<h2>Compiler pipeline</h2><div class="sub">What rustc does with this file. Build it (or open the Problems panel) to see where it actually stops.</div><div class="hood-p">${stg('Lex & parse', null, 'source → tokens → syntax tree')}${stg('Name resolution & macros', null, 'paths, use statements, derives and macro expansion')}${stg('Type check', null, 'every expression gets a type')}${stg('Borrow check', null, 'ownership and lifetimes')}${stg('MIR & optimisation', null, 'mid-level IR, inlining')}${stg('LLVM codegen', null, 'machine code for the target')}</div>`;
   }
   if (ext === 'rs' && /SELECT/.test(f.content)) h += qplan(f);
   else if (ext === 'sql') h = qplan(f);
@@ -154,7 +132,7 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
     sv.forEach(vis);
     h = `<h2>Start order</h2><div class="hood-p">${order.map((s, i) => stg(`${i + 1}. ${esc(s.name)}`, true, `${s.build ? 'build ./' + esc(s.build) : esc(s.image || '')}${s.deps.length ? ' · after ' + s.deps.map(esc).join(', ') : ''}${s.hc ? ' · healthcheck' : ''}`)).join('')}</div>`;
   } else h = `<div class="sub">${f.content.split('\n').length} lines · ${f.content.length} bytes. No deeper view for this file type yet.</div>`;
-  host.innerHTML = `<div class="page" style="max-width:860px"><h1>Under the hood</h1><div class="sub notr">${esc(short(p))}</div>${h}<div class="sub" style="margin-top:20px">Derived from the code in this workspace. The desktop app adds measured CPU, memory and I/O from a real run.</div></div>`;
+  host.innerHTML = `<div class="page" style="max-width:860px"><h1>Under the hood</h1><div class="sub notr">${esc(short(p))}</div>${h}<div class="sub" style="margin-top:20px">Derived from the code in this workspace.</div></div>`;
 }
 
 /* ── publicação no window (confinada ao bridge via `publish`): `renderCreviewView`/

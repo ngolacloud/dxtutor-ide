@@ -6,8 +6,8 @@
    `infrastructure/legacy-bridge.ts`.
 
    É isto que torna o motor testável e livre de `window`: dá-se-lhe acesso ao
-   sistema de ficheiros, aos separadores, ao agente/conversa, aos diagnósticos e aos
-   factos do lexer-protótipo, e os comandos (Explain/Review/Under-the-hood) correm
+   sistema de ficheiros, aos separadores, ao agente/conversa e aos diagnósticos, e os
+   comandos (Explain/Review/Under-the-hood) correm
    sem browser. A regra de dependências aponta para dentro: as portas importam
    `domain/`, nunca o contrário. (Verificado por A7/A8 do `arch-check`.)
 
@@ -38,13 +38,6 @@ export interface Workspace {
   open(tab: ReviewTab & { id: string }): void;
 }
 
-/** Caminhos do workspace-protótipo donos de `app.ts` (só existem após o boot).
- *  O motor só precisa do lexer-protótipo (`P_LX`); `ROOT`/`P_HIST` são conteúdo
- *  da view (mapa `KNOW`), por isso ficam fora desta porta. */
-export interface Paths {
-  lexer(): string;
-}
-
 /** Agente / conversa / provedor LLM activo. `sample()` é o amostrador do Claude ao
  *  vivo (`null` sem backend ligado); `claudeOn()` é o estado do cartão Claude. */
 export interface Agent {
@@ -57,17 +50,9 @@ export interface Agent {
   claudeOn(): boolean;
 }
 
-/** Diagnósticos do editor e lint de cores fixas (Design System). */
+/** Diagnósticos do editor (os reais do painel Problems, no desktop). */
 export interface Diagnostics {
   all(): { p: string; line: number; sev: string; msg: string }[];
-  dsLint(): { p: string; line: number; hex: string }[];
-}
-
-/** Factos do lexer-protótipo resolvidos pelo monólito (v6.ts: `lexBug`/`LXL`).
- *  `line(re)` é a 1ª linha (1-based) que casa `re` em `FS[P_LX]` (0 se nenhuma). */
-export interface Lexer {
-  bug(): boolean;
-  line(re: RegExp): number;
 }
 
 /** Símbolos do ficheiro, selecção do editor e sessão de debug (para o Explain). */
@@ -104,10 +89,8 @@ export interface ExplainView {
 
 export interface ReviewDeps {
   workspace: Workspace;
-  paths: Paths;
   agent: Agent;
   diagnostics: Diagnostics;
-  lexer: Lexer;
   code: Code;
   view: ExplainView;
 }

@@ -153,8 +153,6 @@ declare global {
   const ask: (host: HTMLElement, btns: Array<{ l: string; v: any; pri?: any; done?: string }>) => Promise<any>;
   const commitGit: (msg?: string, author?: string) => { h: string; n: number } | null;
   const diffStat: (a: string | null, b: string) => { add: number; del: number };
-  const runTests: (pkg?: string) => { build: boolean; err: string; ok: boolean; tests: Array<{ n: string; ok: boolean }> };
-  const dsLint: () => { p: string; line: number; hex: string }[];
   const setMode: (m: string) => void;
   var onKey: (e: KeyboardEvent) => void;
   const LANG: Record<string, string>;

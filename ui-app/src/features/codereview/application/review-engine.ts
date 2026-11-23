@@ -28,22 +28,20 @@ export interface ReviewEngine {
 }
 
 export function makeReviewEngine(deps: ReviewDeps): ReviewEngine {
-  const { workspace, paths, agent, diagnostics, lexer, code, view } = deps;
+  const { workspace, agent, diagnostics, code, view } = deps;
 
   /** O ficheiro a que os comandos se aplicam: o separador activo se for um ficheiro
-   *  de `FS`, senão a 1ª alteração não-commitada, senão o lexer-protótipo se existir,
-   *  senão qualquer ficheiro aberto (`P_LX` só existe no projecto simulado). */
+   *  de `FS`, senão a 1ª alteração não-commitada, senão o primeiro ficheiro do
+   *  workspace; `""` sem ficheiros (os comandos não fazem nada). */
   function curFile(): string {
     const t = workspace.tabOf(workspace.currentTabId());
     if (t && t.path && workspace.files()[t.path]) return t.path;
     const c = workspace.changes();
     if (c[0]) return c[0];
-    return workspace.files()[paths.lexer()] ? paths.lexer() : Object.keys(workspace.files())[0] || paths.lexer();
+    return Object.keys(workspace.files())[0] || "";
   }
 
-  /** Colhe do mundo (`FS`/`extOf`/`lexBug`/`LXL`/`dsLint`) o que a regra pura precisa
-   *  e delega em `reviewRules` (domain). `lexer` só vai não-nulo para o
-   *  lexer-protótipo (`P_LX`); o `dsLint` já chega filtrado para este ficheiro. */
+  /** Colhe do `FS` o conteúdo e a extensão e delega em `reviewRules` (domain). */
   function reviewFindings(p: string): Finding[] {
     const f = workspace.files()[p];
     if (!f) return [];
@@ -51,23 +49,24 @@ export function makeReviewEngine(deps: ReviewDeps): ReviewEngine {
       path: p,
       content: f.content,
       ext: workspace.extOf(p),
-      lexer: p === paths.lexer() ? { bug: lexer.bug(), peekLine: lexer.line(/chars\.peek/) } : null,
-      dsLint: diagnostics.dsLint().filter(v => v.p === p).map(v => ({ line: v.line, hex: v.hex })),
     });
   }
 
   function reviewCmd(): void {
     const p = curFile();
+    if (!p) return;
     workspace.open({ id: "creview:" + p, title: "Review · " + p.split("/").pop(), kind: "creview", path: p });
   }
 
   function hoodCmd(): void {
     const p = curFile();
+    if (!p) return;
     workspace.open({ id: "hood:" + p, title: "Under the hood · " + p.split("/").pop(), kind: "hood", path: p });
   }
 
   function explainCmd(fromDebug?: boolean): void {
     const p = curFile(), sel = fromDebug ? "" : code.selText(), f = workspace.files()[p];
+    if (!f) return;
     agent.focus(true);
     const ds = code.dbgState();
     const what = fromDebug && ds ? `the debugging session I just ran (${ds.end ? ds.end.t : ""})` : sel ? `this excerpt from ${workspace.short(p)}` : workspace.short(p);

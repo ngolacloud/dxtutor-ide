@@ -1,6 +1,6 @@
 /* ═════════ dxtutor IDE — feature: terminal (prompt + input loop glue + registo XC) ═════════
    Feature-folha que passou a DONA do terminal: prompt, ciclo de input e o registo BASE
-   de comandos `XC` (help/cat/git/cargo/npm/dx). Padrão strangler-fig (como scm.ts/ext.ts):
+   de comandos `XC` (help/cat/git/dx). Padrão strangler-fig (como scm.ts/ext.ts):
    a feature avalia ANTES de app.ts e publica `window.XC` COMPLETO, para que os decoradores
    que ficam em app.ts (`XC.git=…`, `const _dx=XC.dx;XC.dx=…`, `XC.docker=…`, `XC.make=…`,
    `const _dx4=…`) e em v5.ts (`const _dx5=XC.dx;…`) resolvam `XC` como `window.XC` e
@@ -8,8 +8,8 @@
 
    Primitivos do ciclo de input (echo/echoCmd/onKey/scrollTerm/termClear) vivem em boot.ts
    e publicam-se no window — ficam lá. Estado/fachadas do monólito (CWD/USER/HOST/BRANCH/
-   esc/changes/STAGED/stOf/short/commitGit/COMMITS/BRANCHES/runTests/dsLint/diffStat/FS/
-   extOf/hlLine/MODES/MODE/PROV/ACTIVE/MISSIONS/CKPT/setMode/$) resolvem por window
+   esc/changes/STAGED/stOf/short/commitGit/COMMITS/BRANCHES/diffStat/FS/
+   extOf/hlLine/MODES/MODE/PROV/ACTIVE/CKPT/setMode/$) resolvem por window
    em tempo de chamada (pós-startup). @ts-nocheck como as outras features-motor densas. */
 
 import { esc } from "../core";
@@ -24,10 +24,10 @@ function promptBase(): string {return `<span class="pr"><span>${USER}</span><spa
 window.promptHTML = function(){const d=desktopPorts.terminal;return d?d.promptHTML(promptBase):promptBase();};
 function newInput(nofocus?:boolean){const t=$('#term'),old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';if(!t)return;t.appendChild(w);const c=$('#cmd');if(c){c.onkeydown=onKey;if(!nofocus)c.focus({preventScroll:true});}scrollTerm();}
 function termRefreshPrompt(){const c=$('#cmd') as HTMLInputElement|null,v=c?c.value:'';newInput(true);const n=$('#cmd') as HTMLInputElement|null;if(n)n.value=v;}
-function termExecBase(v: string): unknown {echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if((XC as any)[cmd])r=(XC as any)[cmd](a,v);else echo('<span class="er">'+esc(cmd)+': comando não encontrado</span>');newInput(true);return r;}
+function termExecBase(v: string): unknown {echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if((XC as any)[cmd])r=(XC as any)[cmd](a,v);else echo('<span class="er">'+esc(cmd)+': comando não encontrado</span> <span class="dim">— este terminal emulado só navega nos ficheiros e no git; o terminal real está na app desktop</span>');newInput(true);return r;}
 window.termExec = function(v){const d=desktopPorts.terminal;return d?d.termExec(v,termExecBase):termExecBase(v);};
 const XC={
-  help(){echo(`<span class="ac">ficheiros</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff | push\n<span class="ac">build</span>      <span class="ok">cargo</span> build | test [-p lexer|store] | run     <span class="ok">npm</span> run dev\n<span class="ac">co-dev</span>     <span class="ok">dx</span> lint | status | modo manual|assist|auto | missao a|b\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">neofetch</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
+  help(){echo(`<span class="ac">ficheiros</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff\n<span class="ac">co-dev</span>     <span class="ok">dx</span> status | modo manual|assist|auto\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
   cat(a:string[]){if(!a[0]){echo('<span class="er">cat: falta o ficheiro</span>');return;}const rel=CWD.slice(4).concat(a[0].split('/')).join('/');const p=FS[rel]?rel:Object.keys(FS).find(k=>k.endsWith('/'+a[0].split('/').pop()));if(!p){echo('<span class="er">cat: '+esc(a[0])+': não encontrado</span>');return;}echo(FS[p].content.split('\n').map(l=>hlLine(l,extOf(p))).join('\n'));},
   git(a:string[],raw:string){const s=a[0],ch=changes();
     if(s==='status'){if(!ch.length){echo(`No ramo <span class="ac">${esc(BRANCH)}</span>\nnada para commitar, área de trabalho limpa`);return{ok:true};}
@@ -38,21 +38,11 @@ const XC={
     else if(s==='branch')echo(BRANCHES.map(b=>b===BRANCH?`<span class="ok">* ${b}</span>`:'  '+b).join('\n'));
     else if(s==='checkout'){if(BRANCHES.includes(a[1])){BRANCH=a[1];const bl=$('#st-branch-l');if(bl)bl.textContent=BRANCH;refresh();echo(`Mudou para o ramo '${esc(BRANCH)}'`);}else echo('<span class="er">ramo desconhecido: '+esc(a[1]||'')+'</span>');}
     else if(s==='diff')echo(ch.map(p=>{const d=diffStat(FS[p].orig,FS[p].content);return ` ${short(p)} | <span class="ok">+${d.add}</span> <span class="er">-${d.del}</span>`;}).join('\n')||'<span class="dim">sem diferenças</span>');
-    else if(s==='push'){echo(`<span class="dim">A enviar para origin/${esc(BRANCH)}…</span>\n<span class="ok">push simulado ✓</span> <span class="dim">(o protótipo não tem remoto)</span>`);return{ok:true};}
-    else echo('<span class="dim">git: status | add . | commit -m | log | branch | checkout | diff | push</span>');},
-  cargo(a:string[]){const s=a[0],pk=a[1]==='-p'?a[2]:undefined,r=runTests(pk);
-    if(s==='build'||s==='run'||s==='clippy'){if(!runTests().build){echo(`<span class="dim">   Compiling lexer v0.1.0</span>\n<span class="er">${esc(runTests().err)}</span>\n<span class="er">error: could not compile \`lexer\`</span>`);return{ok:false,sum:'build falhou (E0382)'};}
-      echo(`<span class="dim">   Compiling dxtutor v0.2.0</span>\n<span class="ok">    Finished</span> dev [unoptimized] in 0.81s`+(s==='run'?'\n<span class="dim">     Running</span> target/debug/dxtutor\ndxtutor a escutar em 127.0.0.1:1420':''));return{ok:true,sum:'build ok'};}
-    if(s==='test'){if(!r.build){echo(`<span class="dim">   Compiling lexer v0.1.0</span>\n<span class="er">${esc(r.err)}</span>\n<span class="er">error: could not compile \`lexer\`</span>`);return{ok:false,sum:'build falhou (E0382)'};}
-      const f=r.tests.filter(t=>!t.ok).length;echo(`<span class="dim">   Compiling … Finished test in 1.2s\nrunning ${r.tests.length} tests</span>\n`+r.tests.map(t=>`test ${t.n} ... ${t.ok?'<span class="ok">ok</span>':'<span class="er">FAILED</span>'}`).join('\n')+`\n\ntest result: ${f?'<span class="er">FAILED</span>':'<span class="ok">ok</span>'}. ${r.tests.length-f} passed; ${f} failed`);
-      return{ok:!f,sum:`${r.tests.length-f} passados · ${f} falhados`};}
-    echo('<span class="dim">cargo: build | test [-p pkg] | run</span>');},
-  npm(a:string[]){if(a[0]==='run'&&a[1]==='dev'){echo(`<span class="ok">VITE</span> pronto em 312 ms\n  ➜  Local: <span class="ac">http://localhost:1420/</span>`);return{ok:true,sum:'vite a correr'};}if(a[0]==='run'&&a[1]==='lint')return XC.dx(['lint']);echo('<span class="dim">npm: run dev | run lint</span>');},
+    else echo('<span class="dim">git: status | add . | commit -m | log | branch | checkout | diff</span>');},
   dx(a:string[]){const s=a[0];
-    if(s==='lint'){const v=dsLint();echo(v.length?v.map(x=>`<span class="warn">aviso</span> ${short(x.p)}:${x.line}  cor fixa <span class="er">${x.hex}</span> — usar token`).join('\n')+`\n<span class="er">✖ ${v.length} violação(ões) do Design System</span>`:'<span class="ok">✓ Design System: 0 violações</span>');return{ok:!v.length,sum:v.length?v.length+' violação(ões)':'0 violações'};}
-    if(s==='status'){echo(`modo <span class="ac">${MODES[MODE].l}</span> · modelo <span class="ac">${PROV[ACTIVE].name}</span> · missões ${MISSIONS.length} · checkpoints ${CKPT.length}`);return;}
+    if(s==='status'){echo(`modo <span class="ac">${MODES[MODE].l}</span> · modelo <span class="ac">${PROV[ACTIVE].name}</span> · checkpoints ${CKPT.length}`);return;}
     if(s==='modo'&&MODES[a[1]]){setMode(a[1]);echo('modo: '+MODES[a[1]].l);return;}
-    echo('<span class="dim">dx: lint | status | modo manual|assist|auto</span>');},
+    echo('<span class="dim">dx: status | modo manual|assist|auto</span>');},
 };
 
 Object.assign(window, { XC, newInput, termRefreshPrompt });
@@ -60,7 +50,7 @@ Object.assign(window, { XC, newInput, termRefreshPrompt });
 /* ═════════ U4e (ADR-0004): o terminal emulado de base (era do boot.ts) ═════════
    Os primitivos do ciclo de input (`echo`/`echoCmd`/`scrollTerm`/`termClear`/`termNew`/
    `onKey`/`complete`), a navegação na árvore (`dirAt`/`curDir`) e o interpretador de base
-   `run` (com os comandos `ls`/`cd`/`pwd`/`cat`/`tree`/`git`/`cargo`/… e o registo `XC`
+   `run` (com os comandos `ls`/`cd`/`pwd`/`cat`/`tree`/… e o registo `XC`
    acima por cima). O histórico (`HIST`/`hidx`) passou a estado deste módulo.
    O `run` e o `promptHTML` publicados consultam a porta desktop (U4h3) e são decorados depois
    pelo pair.ts (PairCode): por isso o Enter chama `G.run` e o prompt `G.promptHTML` em
@@ -84,8 +74,10 @@ interface TerminalGlobals {
 }
 const TG = window as unknown as TerminalGlobals;
 
-TG.USER = "walter";
-TG.HOST = "delonix";
+/* identidade neutra do terminal emulado do browser; no desktop o bridge põe o utilizador e a
+   máquina reais (ADR-0005, R1c1 — era «walter@delonix») */
+TG.USER = "user";
+TG.HOST = "browser";
 
 /** O histórico de comandos do terminal emulado (↑/↓). */
 const HIST: string[] = [];
@@ -98,7 +90,7 @@ function termNew(): void {
 function termClear(): void {
   const t = $("#term") as HTMLElement;
   t.innerHTML = "";
-  echo(`<span class="ac">delonix shell</span> <span class="dim">· emulado · </span><span class="ok">help</span><span class="dim"> para começar</span>`);
+  echo(`<span class="ac">terminal emulado</span> <span class="dim">· só os ficheiros e o git deste workspace · o terminal real está na app desktop · </span><span class="ok">help</span>`);
   newInput();
 }
 
@@ -194,7 +186,7 @@ function run(raw: string): void {
   const [cmd, ...a] = v.split(/\s+/);
   const C: Record<string, () => unknown> = {
     help() {
-      echo(`<span class="ac">comandos:</span>\n<span class="ok">ls</span> [dir]   <span class="ok">cd</span> &lt;dir&gt;   <span class="ok">pwd</span>   <span class="ok">cat</span> &lt;f&gt;   <span class="ok">tree</span>\n<span class="ok">git</span> status|branch|log   <span class="ok">cargo</span> build|test\n<span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">neofetch</span> <span class="ok">history</span> <span class="ok">clear</span>`);
+      echo(`<span class="ac">comandos:</span>\n<span class="ok">ls</span> [dir]   <span class="ok">cd</span> &lt;dir&gt;   <span class="ok">pwd</span>   <span class="ok">cat</span> &lt;f&gt;   <span class="ok">tree</span>\n<span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">history</span> <span class="ok">clear</span>`);
     },
     ls() {
       const d = a[0] ? dirAt(TG.CWD.slice(4).concat(a[0].split("/").filter(Boolean))) : curDir();
@@ -215,7 +207,7 @@ function run(raw: string): void {
     cd() {
       const x = a[0] || "~";
       if (x === "~" || x === "/") {
-        TG.CWD = ["~", "workspaces", "NgolaCloud", "projects"];
+        TG.CWD = ["~", "dxtutor", "workspace", "projects"];
         return;
       }
       if (x === "..") {
@@ -261,38 +253,6 @@ function run(raw: string): void {
     clear() {
       termClear();
       return "skip";
-    },
-    neofetch() {
-      echo(`<span class="ac">    ✦✦✦✦✦    </span>  <span class="ok">${TG.USER}@${TG.HOST}</span>\n<span class="ac">  ✦✦ </span><span class="dim">delonix</span><span class="ac"> ✦✦  </span>  <span class="ac">OS</span>    Delonix Linux 7.0\n<span class="ac">  ✦✦✦✦✦✦✦✦✦  </span>  <span class="ac">Shell</span> dsh 2.1 (emulado)\n<span class="ac">    ✦✦✦✦✦    </span>  <span class="ac">IDE</span>   dxtutor IDE · grafite\n                 <span class="ac">CPU</span>   16 cores · <span class="ok">extrema velocidade</span>`);
-    },
-    git() {
-      const s = a[0];
-      if (s === "status")
-        echo(`No ramo <span class="ac">main</span>\n<span class="dim">Changes not staged:</span>\n  <span class="warn">modified:</span>   desktop/src/styles.css\n  <span class="warn">modified:</span>   desktop/src/assistant.ts\n<span class="dim">Untracked:</span>\n  <span class="er">desktop/src/theme.css</span>`);
-      else if (s === "branch") echo(`<span class="ok">* main</span>\n  develop\n  feat/learning-paths`);
-      else if (s === "log")
-        echo(`<span class="ac">c638e07</span> feat(arch): persist the Studio design\n<span class="ac">a5b0d39</span> feat(arch): double-click a node to delete it\n<span class="ac">64943bc</span> feat(arch): interactive canvas`);
-      else echo('<span class="dim">git: status|branch|log</span>');
-    },
-    cargo() {
-      const s = a[0];
-      if (s === "build") {
-        echo('<span class="dim">   Compiling dxtutor v0.1.0</span>');
-        setTimeout(() => {
-          echo('<span class="ok">    Finished</span> dev in 0.81s');
-          newInput();
-        }, 140);
-        return "async";
-      }
-      if (s === "test") {
-        echo('<span class="dim">   Running tests…</span>');
-        setTimeout(() => {
-          echo('<span class="ok">test result: ok. 261 passed; 0 failed</span>');
-          newInput();
-        }, 160);
-        return "async";
-      }
-      echo('<span class="dim">cargo: build|test</span>');
     },
   };
   let r: unknown;

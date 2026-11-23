@@ -57,13 +57,7 @@ declare global {
     renderRemotePane: () => void;
     /* feature `run`: o residual delega o render do pane por nome (RP.run → window.renderRunPane) */
     renderRunPane: () => void;
-    /* feature `test`: motor de testes simulado (dono = monólito) + delegação do pane (RP.test → window.renderTestPane) */
-    runTests: (pkg?: string) => {
-      build: boolean;
-      err: string;
-      ok: boolean;
-      tests: Array<{ n: string; ok: boolean }>;
-    };
+    /* feature `test`: delegação do pane (RP.test → window.renderTestPane) */
     renderTestPane: () => void;
     /* feature `account`: mapa vivo de provedores + estado por provedor (dono = monólito) + delegação do pane */
     PROV: Record<string, Prov>;
@@ -121,7 +115,6 @@ declare global {
        livre por codev/board/test/ext/debug e pelo residual (drawProblems/nextProblem em refresh/boot). */
     has: (p: string, re: RegExp) => boolean;
     lexBug: () => boolean;
-    dsLint: () => { p: string; line: number; hex: string }[];
     diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
     drawProblems: () => void;
     nextProblem: () => void;

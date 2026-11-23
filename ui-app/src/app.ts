@@ -32,7 +32,7 @@ import { openArch } from "./features/arch/index";
 /* KW + hlLine (realce de uma linha) migrados p/ features/syntax.ts; lidos por global (window.hlLine) em paintEd/diff/cat/outline e em v5.ts/v6.ts */
 
 /* ───── diagnósticos, lint e testes (derivados do estado real dos ficheiros) ───── */
-/* motor has/lexBug/dsLint/diagnostics/runTests/drawProblems/nextProblem migrado p/ features/diagnostics.ts; lido por global (P_* ficam donas aqui) */
+/* diagnostics/drawProblems/nextProblem (+has/lexBug do debug simulado) em features/diagnostics.ts; o motor simulado saiu (ADR-0005, R1c1); os P_* são do features/workspace.ts (U4j3) */
 
 /* ───── separadores e vistas ───── */
 window.cur=null;window.PANE='explorer';/* VIEW com dono em app/store/registry.ts (ADR-0004, U4g1) */
@@ -156,10 +156,10 @@ function boot(){loadCfg();resetWorkspace();syncTree();
   $('#pal').onclick=e=>{const it=e.target.closest('.pi');if(it)window.palRun(+it.dataset.i);else if(!e.target.closest('.pal-box'))window.closePal();};
   /* teclado do #ag-input: dono agora o compositor (features/codev/ui/composer.ts) */
   $('#pc-terminal').onclick=()=>{if(!String(getSelection())){const c=$('#cmd');if(c)c.focus({preventScroll:true});}};
-  $('#pc-output').innerHTML='';log('rust-analyzer','2 crates indexados');log('co-dev','pronto · '+connected().length+' provedores ligados');
+  $('#pc-output').innerHTML='';log('co-dev','pronto · '+connected().length+' provedores ligados');
   termClear();setInterval(()=>{runLabel();},1000);
   newChat();setTheme(THEME);
-  TB=[{id:'welcome',title:'Bem-vindo',kind:'welcome'},{id:P_LX,title:'lib.rs',kind:'file',path:P_LX}];refresh(false,true);show('welcome');
+  TB=[{id:'welcome',title:'Bem-vindo',kind:'welcome'}];refresh(false,true);show('welcome');
   if(innerWidth<1000){setVar('--side-w','0px');}else $('#tgl-side').classList.add('on');$('#tgl-panel').classList.add('on');
   if(innerWidth<860){setVar('--panel-h','0px');$('#tgl-panel').classList.remove('on');assistantCenter();}
   hydrate();if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();

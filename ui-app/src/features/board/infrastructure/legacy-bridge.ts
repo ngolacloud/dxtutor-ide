@@ -128,8 +128,18 @@ export const echoCmd = (cmd: string): void => G.echoCmd(cmd);
 export const newInput = (nofocus?: boolean): void => G.newInput(nofocus);
 export const setPanelTab = (tab: string, nofocus?: boolean): void => G.setPanelTab(tab, nofocus);
 export const getVar = (k: string): string => G.getVar(k);
-export const runTests = (): { ok: boolean } => G.runTests();
-export const dsLint = (): unknown[] => G.dsLint();
+/** Testes e lint do projecto aberto pelos comandos detectados (`DXR.projectCmd`), corridos a sério
+ *  (`DXR.exec`, código de saída real). Sem desktop ou sem pasta, não há testes: `[]`. */
+export const projectTests = async (): Promise<Array<{ n: string; ok: boolean }>> => {
+  const dxr = G.DXR;
+  if (!dxr || !dxr.root || typeof dxr.exec !== "function" || typeof dxr.projectCmd !== "function") return [];
+  const out: Array<{ n: string; ok: boolean }> = [];
+  for (const kind of ["test", "lint"]) {
+    const c = dxr.projectCmd(kind) as { cmd: string } | null;
+    if (c) out.push({ n: c.cmd, ok: !!(await dxr.exec(c.cmd)).ok });
+  }
+  return out;
+};
 export const doTool = (t: ToolSpec, host: HTMLElement): Promise<void> => G.doTool(t, host);
 
 /* ───── escopo/autores (team) + caminho curto ───── */
