@@ -304,6 +304,10 @@ cpp, sql.
   divergirem.
 - A avaliação procura o passo por **(linguagem, id)** (`submit_step` com `language`), porque Rust e
   Go repetem ids de passo. Um plugin com o mesmo id de curso de um embutido substitui-o.
+- **Python** (`courses/python/`) está embutido só no backend: o browser não traz o JSON. É avaliado
+  pelo descritor embutido em `crates/tutor-eval/src/plugin.rs` (`unittest`). As linguagens novas
+  seguem a mesma receita: um descritor ou runner, um curso, e `dxt plugin test courses/<id>`
+  com 0 falhas antes de commitar.
 - `crates/tutor-plugins` — manifesto, validação, origem, instalação e registo. É partilhado
   pelos comandos Tauri `plugin_*` (`commands/plugins.rs`) e pelo `dxt plugin …` (tutor-cli).
 - `src-tauri/src/study.rs::all_courses()` — fonte única de cursos (embutidos + plugins, em

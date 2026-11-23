@@ -138,7 +138,7 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 | `list_courses` | — | `Vec<CourseSummaryDto>` (embutidos + plugins) | — | — | `platform/tauri/learn.ts` | R |
 | `get_glossary` | `language: String` | `GlossaryDto` | String | — | — | R |
 | `get_study_guide` | `language: String`, `unit_id: String` | `StudyGuideDto` | String | — | — | R |
-| `run_drill` | `code: String`, `language: String`, `dependencies: Vec<String>` | `RunDto` | String | — | — | **X** |
+| `run_drill` | `code: String`, `language: String`, `dependencies: Vec<String>` | `RunDto` (Rust/Go nativos; Python/C/drop-ins pelo descritor de `tutor_eval::plugin`) | String | — | — | **X** |
 | `run_measured` | `code: String` | `MeasuredRunDto` | String | — | — | **X** |
 | `compile_pipeline` | `code: String` | `PipelineDto` | String | — | — | **X** |
 | `trace_execution` | `language: String`, `code: String` | `ExecutionTraceDto` | String | — | — | **X** |

@@ -259,12 +259,16 @@ fn default_placeholder_policy() -> String {
 // github.com/dxtutor-courses/<id> — ver courses/README.md.
 const RUST_BEGINNER: &str = include_str!("../../../courses/rust/courses/rust.toml");
 const GO_BASICS: &str = include_str!("../../../courses/go/courses/go.toml");
+/// Python: embutido só no BACKEND (o protótipo de browser não traz o JSON, para manter o
+/// bundle pequeno) — no desktop aparece pelo `get_course`, avaliado pelo descritor Python.
+const PYTHON_BASICS: &str = include_str!("../../../courses/python/courses/python.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
     vec![
         parse("rust-beginner", RUST_BEGINNER),
         parse("go-basics", GO_BASICS),
+        parse("python-basics", PYTHON_BASICS),
     ]
 }
 
@@ -792,6 +796,47 @@ mod tests {
         .expect("step mínimo");
         assert!(probe.install_commands.is_empty());
         assert!(probe.run_command.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod python_tests {
+    use super::*;
+
+    #[test]
+    fn python_basics_tem_a_forma_do_curso_oficial() {
+        let c = load_course("python-basics").expect("curso python-basics");
+        assert_eq!(c.language, "python");
+        assert!(c.overview.len() > 500, "overview");
+        assert_eq!(c.units.len(), 34);
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            let kinds: Vec<StepKind> = u.steps.iter().map(|s| s.kind).collect();
+            assert_eq!(
+                kinds,
+                [
+                    StepKind::Concept,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Challenge
+                ],
+                "{}",
+                u.id
+            );
+            let ch = u.steps.last().unwrap();
+            let phase = ch
+                .as_phase("python", Level::Basico)
+                .expect("desafio com gabarito");
+            assert!(phase.starter.contains(&phase.entry), "{}", ch.id);
+        }
+        // Níveis por blocos: 6 básicas, depois intermédias (incl. as 6 de bases de dados),
+        // depois avançadas.
+        let levels: Vec<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        assert!(levels[..6].iter().all(|l| *l == "basic"));
+        assert!(levels[6..21].iter().all(|l| *l == "intermediate"));
+        assert!(levels[21..].iter().all(|l| *l == "advanced"));
     }
 }
 

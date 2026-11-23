@@ -162,8 +162,10 @@ function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-g
     const g=LT_GRADE&&LT_GRADE.step===s.id?LT_GRADE:null;
     h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.instructions)}</div></div>`;
     if(LT_SUB&&!LT_SUB.ok)h+=`<div class="lt-card bad"><h3>✗ Could not grade</h3><p class="notr">${LT_SUB.why}</p></div>`;
-    if(g&&!g.passed)h+=`<div class="lt-card bad"><h3>✗ ${esc(g.summary||'Not yet')}</h3><pre class="notr">${esc(g.raw.slice(0,4000))}</pre></div>`;
-    if(done){h+=`<div class="lt-card ok"><h3>✓ Passed</h3><p class="notr">${esc(g?g.summary:'The hidden tests passed.')}</p></div>`;
+    /* O resumo do avaliador vem em português (`testes falharam`, de todos os runners); a UI do
+       Learning Track é em inglês, por isso o título é nosso e a saída crua mostra o detalhe. */
+    if(g&&!g.passed)h+=`<div class="lt-card bad"><h3>✗ Not yet — the hidden tests did not pass</h3><pre class="notr">${esc(g.raw.slice(0,4000))}</pre></div>`;
+    if(done){h+=`<div class="lt-card ok"><h3>✓ Passed</h3><p>The hidden tests passed.</p></div>`;
       if(g&&g.gabarito)h+=`<div class="lt-card"><h3>Reference solution</h3><div class="lt-cx"><span>time <b>${esc(g.gabarito.time)}</b></span><span>space <b>${esc(g.gabarito.space)}</b></span></div><pre class="notr">${esc(g.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(g.gabarito.justification)}</div></div>`;}
     go.textContent=done?'Continue →':LT_GRADING?'Grading…':'Submit ▷';}
   else{const tests=[...s.tests.matchAll(LTS.lang==='go'?/func (Test\w+)/g:/fn (\w+)\s*\(\)/g)].map(m=>m[1]);

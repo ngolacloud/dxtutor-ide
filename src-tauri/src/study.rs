@@ -251,6 +251,14 @@ pub fn grade_step_in(
             let phase = step
                 .as_phase(&course.language, Level::Basico)
                 .ok_or_else(|| StudyError::NotAChallenge(step_id.to_string()))?;
+            // Sem avaliador para a linguagem, o `tutor_eval` cairia no Rust e compilaria o
+            // desafio como Rust: melhor um erro honesto e claro.
+            if !tutor_eval::language_supported(&course.language) {
+                return Err(StudyError::Eval(format!(
+                    "grading for {} is not available yet",
+                    course.language
+                )));
+            }
             let assessment =
                 tutor_eval::assess(&phase, code).map_err(|e| StudyError::Eval(e.to_string()))?;
             return Ok((assessment, phase));

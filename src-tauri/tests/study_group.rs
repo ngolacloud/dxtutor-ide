@@ -57,6 +57,41 @@ fn grading_an_unknown_target_errors_before_compiling() {
     );
 }
 
+/// O curso Python embutido é avaliado de verdade pelo descritor Python (python3 no host):
+/// o gabarito do 1.º desafio passa, o starter falha. Salta onde não há `python3`.
+#[test]
+fn python_challenges_are_graded_for_real() {
+    if std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    let course = study::course("python").expect("curso Python embutido");
+    let step = course
+        .units
+        .iter()
+        .flat_map(|u| u.steps.iter())
+        .find(|s| s.gabarito.is_some())
+        .expect("um desafio");
+    let solution = &step.gabarito.as_ref().unwrap().solution;
+    let (good, _) = study::grade_step_in(&step.id, Some("python"), solution).unwrap();
+    assert!(good.correctness.passed, "{}", good.correctness.raw);
+    let (bad, _) = study::grade_step_in(&step.id, Some("python"), &step.starter).unwrap();
+    assert!(!bad.correctness.passed);
+}
+
+#[test]
+fn grading_an_unsupported_language_is_an_honest_error() {
+    // Nenhum curso embutido é de uma linguagem sem avaliador; a regra prova-se pela fachada:
+    // passos desconhecidos continuam StepNotFound (não compila nada como Rust).
+    assert!(matches!(
+        study::grade_step_in("py-u01-x1-nope", Some("kotlin"), ""),
+        Err(StudyError::StepNotFound(_))
+    ));
+}
+
 #[test]
 fn grading_with_a_language_only_looks_at_that_languages_courses() {
     // `ch1-greet` existe em Rust E em Go (ids repetidos entre linguagens). Com a linguagem,

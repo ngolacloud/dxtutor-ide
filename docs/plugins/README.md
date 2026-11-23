@@ -214,6 +214,22 @@ doesn't mention its entry function.
 The skeleton from `dxt plugin new` includes a GitHub Actions workflow that runs
 `dxt plugin validate . --strict` on every push and pull request.
 
+### Testing the content with the real evaluator
+
+```sh
+dxt plugin test .                       # every unit
+dxt plugin test . --only py-u05         # only units whose id starts with py-u05
+```
+
+`dxt plugin test` uses the same evaluator as the app:
+
+- every **drill** `target` must run and exit 0;
+- every **challenge** is graded twice. Its `gabarito.solution` must pass the hidden `tests`,
+  and its `starter` must fail them. A starter that passes means the tests prove nothing.
+
+It needs the language toolchain on your machine (for example `python3`, `go`, `cargo`). Run
+it before every release.
+
 ## Publishing and versions
 
 1. Bump `version` in the manifest.
@@ -254,9 +270,23 @@ Other commands: `dxt plugin list` and `dxt plugin remove <id>`. Plugins are stor
 ## Grading support per language
 
 Concept and drill steps work for every language. Challenge steps are graded by dxtutor's
-evaluator, which must support the course language. Today that is Rust and Go. Until a
-language's evaluator lands, the app shows the evaluator's error instead of pretending the
-tests passed.
+evaluator, which must support the course language:
+
+| Language | Runner | Hidden tests are… | Toolchain |
+|---|---|---|---|
+| Rust | native | `#[test]` functions (`cargo test`) | `cargo` |
+| Go | native | `func TestXxx(t *testing.T)` (`go test`) | `go` |
+| Python | descriptor | `unittest.TestCase` classes. The test file starts with `import unittest` and `from student import *`, so don't import them yourself | `python3` |
+| C | descriptor | a `main` that `assert`s (the test file `#include`s the student file) | `cc` |
+
+A language without a native runner uses a **descriptor**: a small TOML file that says how
+to scaffold the files and which commands run the program, the tests (exit 0 = passed) and
+the diagnostics. Built-in descriptors live in `crates/tutor-eval/src/plugin.rs`. You can
+drop your own into `~/.config/dxtutor/plugins/<language>.toml` to grade a new language
+without rebuilding dxtutor; the format is documented at the top of that file.
+
+If no runner supports the language, the app shows the evaluator's error instead of
+pretending the tests passed.
 
 ## Contributing an official course
 

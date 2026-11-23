@@ -8,8 +8,9 @@ The source of the official dxtutor course plugins. Each folder is a complete plu
 |---|---|---|
 | `rust/` | `dxtutor-courses/rust` | `dxt plugin install rust` |
 | `go/` | `dxtutor-courses/go` | `dxt plugin install go` |
+| `python/` | `dxtutor-courses/python` | `dxt plugin install python` |
 
-These TOML files are also the **built-in** courses of the app:
+These TOML files are also the **built-in** courses of the app (Python: backend only — the browser prototype embeds just Rust and Go, to keep its bundle small):
 - the backend embeds them (`crates/tutor-core/src/course.rs`, `include_str!`);
 - the browser prototype embeds a JSON projection of them (`ui-app/src/content/courses/*.json`).
 

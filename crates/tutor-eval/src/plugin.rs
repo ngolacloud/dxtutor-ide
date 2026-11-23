@@ -443,18 +443,61 @@ diag_cmd = "cc -std=c11 -fsyntax-only {file}"
 timeout_secs = 30
 "##;
 
+/// The built-in **Python** descriptor (the official Python course, ADR-0004 Phase 3). Hidden tests
+/// are standard-library `unittest` cases — no pytest dependency — run with `python3 -m unittest`,
+/// which exits non-zero on any failure or error (and on "no tests ran"). Diagnostics compile the
+/// student file and print a `SyntaxError` in the `file:line:col: error: msg` shape the parser reads.
+const BUILTIN_PYTHON_TOML: &str = r##"
+id = "python"
+aliases = ["py", "python3"]
+display_name = "Python"
+monaco_id = "python"
+extensions = ["py"]
+image = "python:3.12-alpine"
+host_bin = "python3"
+network = false
+
+code_file = "student.py"
+test_file = "test_student.py"
+test_prelude = "import unittest\nfrom student import *\n\n"
+
+run_cmd  = "python3 -B {file}"
+test_cmd = "python3 -B -m unittest -q test_student"
+diag_cmd = '''python3 -B -c 'import sys
+try:
+    compile(open("student.py").read(), "student.py", "exec")
+except SyntaxError as e:
+    print("student.py:%d:%d: error: %s" % (e.lineno or 0, e.offset or 0, e.msg))' '''
+
+timeout_secs = 30
+"##;
+
 /// Parse and return the built-in descriptors. Panics only on a programmer error (a malformed
 /// embedded TOML), which a unit test guards against.
 pub fn builtin_plugins() -> Vec<LanguagePlugin> {
     let mut out = Vec::new();
-    match toml::from_str::<LanguagePlugin>(BUILTIN_C_TOML) {
-        Ok(p) => out.push(p),
-        Err(e) => {
+    for (name, raw) in [("C", BUILTIN_C_TOML), ("Python", BUILTIN_PYTHON_TOML)] {
+        match toml::from_str::<LanguagePlugin>(raw) {
+            Ok(p) => out.push(p),
             // Never crash the evaluator over a built-in; a test catches this in CI.
-            eprintln!("[dxtutor] built-in C plugin failed to parse: {e}");
+            Err(e) => eprintln!("[dxtutor] built-in {name} plugin failed to parse: {e}"),
         }
     }
     out
+}
+
+/// Run a **complete** program in any supported language — the drill path. Native runners for Rust
+/// and Go (with their extra dependency lines), a registered declarative plugin for everything else
+/// (Python, C, user drop-ins), and Rust as the historical fallback.
+pub fn run_program(language: &str, code: &str, deps: &[String]) -> Result<RunOutput> {
+    match language.trim().to_ascii_lowercase().as_str() {
+        "go" | "golang" => crate::go_runner::run_go_program_with_deps(code, deps),
+        "rust" | "rs" => crate::runner::run_rust_snippet_with_deps(code, deps),
+        other => match find_plugin(other) {
+            Some(p) => PluginRunner::new(p).run_program(code),
+            None => crate::runner::run_rust_snippet_with_deps(code, deps),
+        },
+    }
 }
 
 /// The user plugin directory: `$XDG_CONFIG_HOME/dxtutor/plugins/` if set, else
@@ -577,7 +620,7 @@ mod tests {
     #[test]
     fn builtin_c_plugin_parses() {
         let plugins = builtin_plugins();
-        assert_eq!(plugins.len(), 1, "exactly the C built-in");
+        assert_eq!(plugins.len(), 2, "the C and Python built-ins");
         let c = &plugins[0];
         assert_eq!(c.id, "c");
         assert!(c.matches("C"));
@@ -585,6 +628,63 @@ mod tests {
         assert!(c.matches("h"), "extension should match");
         assert_eq!(c.test_file.as_deref(), Some("student_test.c"));
         assert!(c.run_cmd.contains("{file}"));
+    }
+
+    #[test]
+    fn builtin_python_plugin_parses() {
+        let py = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "python")
+            .expect("python");
+        assert!(py.matches("py") && py.matches("python3"));
+        assert_eq!(py.code_file, "student.py");
+        assert!(py.test_prelude.contains("from student import *"));
+        assert!(py.diag_cmd.as_deref().unwrap_or("").contains("SyntaxError"));
+    }
+
+    /// Real end-to-end on the host's `python3` (skipped where it is missing): the reference solution
+    /// passes the hidden unittest cases, a wrong one fails, a program runs, and a syntax error is
+    /// reported at its line.
+    #[test]
+    fn python_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let py = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "python")
+            .unwrap();
+        if !py.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(py);
+        let mut phase = c_add_phase();
+        phase.language = "python".into();
+        phase.entry = "add".into();
+        phase.tests = "class T(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(2, 3), 5)\n".into();
+        let ok = runner
+            .check_correctness(&phase, "def add(a, b):\n    return a + b\n")
+            .unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+        let bad = runner
+            .check_correctness(&phase, "def add(a, b):\n    return a - b\n")
+            .unwrap();
+        assert!(!bad.passed);
+        let starter = runner
+            .check_correctness(&phase, "def add(a, b):\n    raise NotImplementedError\n")
+            .unwrap();
+        assert!(!starter.passed);
+        let out = run_program("python", "print('hi', 6 * 7)\n", &[]).unwrap();
+        assert!(out.ok && out.stdout.trim() == "hi 42", "{out:?}");
+        let d = runner.diagnostics("x = 1\ndef f(:\n    pass\n").unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    #[test]
+    fn language_supported_knows_native_and_descriptor_languages_only() {
+        for l in ["rust", "Go", "javascript", "python", "py", "c"] {
+            assert!(crate::language_supported(l), "{l}");
+        }
+        for l in ["kotlin", "swift", ""] {
+            assert!(!crate::language_supported(l), "{l}");
+        }
     }
 
     #[test]

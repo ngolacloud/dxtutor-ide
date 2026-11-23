@@ -108,6 +108,30 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
 3. **As 8 linguagens novas**, como cursos completos (paridade com Rust/Go), uma por sessão. Cada
    linguagem precisa do seu avaliador em `tutor_eval` (compilar/correr os testes ocultos) e do
    toolchain disponível, de preferência num dev-container.
+   - **Ferramentas (feito):**
+     - `dxt plugin test`: corre cada drill e avalia cada desafio com o avaliador real; o
+       gabarito tem de passar e o starter tem de falhar.
+     - `tutor_eval::run_program`: os drills de qualquer linguagem com descritor deixam de cair
+       no `rustc`.
+     - `tutor_eval::language_supported`: o `grade_step` dá um erro claro em vez de compilar
+       como Rust uma linguagem sem avaliador. O fallback histórico do `runner_for` continua
+       lá, para os outros consumidores.
+   - **Python (feito):**
+     - Avaliador por descritor embutido (`unittest` da stdlib, `python3 -m unittest`;
+       diagnósticos de `SyntaxError` com linha e coluna).
+     - Curso `courses/python/`: 34 unidades e 170 passos. 6 unidades básicas; 15 intermédias,
+       incluindo 6 de bases de dados com `sqlite3`; 13 avançadas (decorators, functools,
+       protocols, threads, filas, asyncio, multiprocessing e estruturas de dados/algoritmos).
+     - `dxt plugin test` dá 170/170 em 3 execuções seguidas.
+     - Embutido só no backend (`tutor-core`), sem JSON na UI: no browser fica «Coming soon»,
+       no desktop está disponível.
+   - **Faltam:** TypeScript, Java, Kotlin, Swift, C#, C++ e SQL. A receita é a mesma do Python:
+     um descritor (ou um runner nativo, se o descritor não chegar), um curso escrito por
+     grupos e verificado com `dxt plugin test`, e a entrada em `builtin_courses`. Nesta
+     máquina há `g++`/`clang++` (C++) e `node` (TypeScript via `tsc`/`tsx`, a instalar).
+     Java, Kotlin, Swift e .NET não estão instalados.
+   - **Melhoria futura:** o manifesto do plugin de curso poder trazer o seu próprio descritor de
+     avaliador (hoje um descritor da comunidade vai para `~/.config/dxtutor/plugins/`).
 4. **Extensões VS Code.** Contribuições declarativas: temas → tokens CSS, gramáticas TextMate
    (`vscode-textmate` + `vscode-oniguruma`), snippets, language-configuration. Mais as
    extensões que só arrancam um servidor LSP: uma tabela de servidores conhecidos ligada ao

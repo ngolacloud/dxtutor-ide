@@ -20,6 +20,9 @@ dxt plugin — course plugins
                                   check a plugin folder (--strict: warnings fail too)
   dxt plugin new <id> <Name> <ext> [dir]
                                   create a new course plugin skeleton
+  dxt plugin test [dir] [--only <unit-id-prefix>]
+                                  run every drill, and grade every challenge with its
+                                  reference solution (must pass) and starter (must fail)
 
 Sources:
   python                          official course (github.com/dxtutor-courses/python)
@@ -39,6 +42,7 @@ pub fn run(args: &[String]) -> Result<()> {
         "remove" | "rm" | "uninstall" => remove(rest),
         "validate" | "check" => validate(rest),
         "new" | "init" => new(rest),
+        "test" => test(rest),
         "-h" | "--help" | "help" => {
             println!("{HELP}");
             Ok(())
@@ -178,4 +182,112 @@ fn new(args: &[String]) -> Result<()> {
     }
     println!("\nNext: edit courses/{id}.toml, then `dxt plugin validate {dir}`.");
     Ok(())
+}
+
+/// `dxt plugin test`: prova o conteúdo com o avaliador REAL (o mesmo do `submit_step`).
+/// Cada drill tem de correr (saída 0); cada desafio tem de passar com o gabarito e falhar com
+/// o starter (senão os testes ocultos não provam nada). É o que o CI de um curso deve correr.
+fn test(args: &[String]) -> Result<()> {
+    let mut dir = ".";
+    let mut only: Option<&str> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--only" => only = it.next().map(String::as_str),
+            s if !s.starts_with("--") => dir = s,
+            _ => {}
+        }
+    }
+    let builtin = tutor_core::builtin_courses();
+    let report = validate_dir(Path::new(dir), HOST_VERSION, &Taken::builtin(&builtin));
+    if !report.ok() {
+        for e in &report.errors {
+            println!("error:   {e}");
+        }
+        bail!("the plugin is not valid; fix it first (dxt plugin validate)");
+    }
+    let (mut passed, mut failed) = (0usize, Vec::<String>::new());
+    for course in &report.courses {
+        for unit in &course.units {
+            if only.is_some_and(|p| !unit.id.starts_with(p)) {
+                continue;
+            }
+            println!("{}", unit.id);
+            for step in &unit.steps {
+                let verdict = check_step(&course.language, step);
+                match &verdict {
+                    Ok(what) => {
+                        passed += 1;
+                        println!("  ✓ {:<9} {} {what}", kind_name(step.kind), step.id);
+                    }
+                    Err(why) => {
+                        println!("  ✗ {:<9} {} — {why}", kind_name(step.kind), step.id);
+                        failed.push(format!("{}: {why}", step.id));
+                    }
+                }
+            }
+        }
+    }
+    println!("\n{passed} ok, {} failed", failed.len());
+    if !failed.is_empty() {
+        bail!("{} step(s) failed", failed.len());
+    }
+    Ok(())
+}
+
+fn kind_name(k: tutor_core::StepKind) -> &'static str {
+    match k {
+        tutor_core::StepKind::Concept => "concept",
+        tutor_core::StepKind::Drill => "drill",
+        tutor_core::StepKind::Challenge => "challenge",
+    }
+}
+
+/// Primeiras linhas de uma saída, para o relatório não afogar o terminal.
+fn head(s: &str) -> String {
+    let lines: Vec<&str> = s.lines().filter(|l| !l.trim().is_empty()).take(6).collect();
+    lines.join(" | ")
+}
+
+fn check_step(language: &str, step: &tutor_core::Step) -> std::result::Result<String, String> {
+    use tutor_core::StepKind;
+    if step.kind != StepKind::Concept && !tutor_eval::language_supported(language) {
+        return Err(format!(
+            "no evaluator for `{language}` (add a descriptor, see docs/plugins/README.md)"
+        ));
+    }
+    match step.kind {
+        StepKind::Concept => Ok(String::new()),
+        StepKind::Drill => {
+            let out = tutor_eval::run_program(language, &step.target, &step.dependencies)
+                .map_err(|e| format!("could not run: {e}"))?;
+            if out.ok {
+                Ok(String::new())
+            } else {
+                Err(format!(
+                    "target program failed: {}",
+                    head(&format!("{}{}", out.stdout, out.stderr))
+                ))
+            }
+        }
+        StepKind::Challenge => {
+            let phase = step
+                .as_phase(language, tutor_core::Level::Basico)
+                .ok_or("challenge without gabarito")?;
+            let good = tutor_eval::assess(&phase, &phase.gabarito.solution)
+                .map_err(|e| format!("evaluator error: {e}"))?;
+            if !good.correctness.passed {
+                return Err(format!(
+                    "reference solution fails the tests: {}",
+                    head(&good.correctness.raw)
+                ));
+            }
+            let starter = tutor_eval::assess(&phase, &phase.starter)
+                .map_err(|e| format!("evaluator error: {e}"))?;
+            if starter.correctness.passed {
+                return Err("the starter already passes the tests (they prove nothing)".into());
+            }
+            Ok(String::new())
+        }
+    }
 }

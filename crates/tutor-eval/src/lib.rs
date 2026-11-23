@@ -48,11 +48,13 @@ pub use container::{
     set_engine, ContainerSpec, SandboxEngine,
 };
 pub use go_runner::{run_go_program, run_go_program_with_deps};
-pub use lang::{assess, diagnostics, diagnostics_for, Diagnostic, LanguageRunner, Severity};
+pub use lang::{
+    assess, diagnostics, diagnostics_for, language_supported, Diagnostic, LanguageRunner, Severity,
+};
 pub use measured::{compile_pipeline, run_rust_snippet_measured, MemSample, Pipeline, Telemetry};
 pub use plugin::{
-    available_languages, builtin_plugins, find_plugin, registry, LanguageInfo, LanguagePlugin,
-    PluginRunner,
+    available_languages, builtin_plugins, find_plugin, registry, run_program, LanguageInfo,
+    LanguagePlugin, PluginRunner,
 };
 pub use runner::{
     run_rust_snippet, run_rust_snippet_with_deps, Assessment, Correctness, RunOutput,

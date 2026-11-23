@@ -38,7 +38,7 @@ if [ -n "$(git status --porcelain -- "$dir")" ]; then
   echo "$dir tem alterações por commitar" >&2; exit 1
 fi
 
-if git ls-remote --tags "$remote" "refs/tags/$tag" | grep -q .; then
+if git ls-remote --tags "$remote" "refs/tags/$tag" 2>/dev/null | grep -q .; then
   echo "a tag $tag já existe em $remote — sobe a versão no manifesto" >&2; exit 1
 fi
 

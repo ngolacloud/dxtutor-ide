@@ -127,6 +127,17 @@ pub fn diagnostics_for(language: &str, student_code: &str) -> Result<Vec<Diagnos
     runner_for(language).diagnostics(student_code)
 }
 
+/// Há um avaliador real para `language`? (Um runner nativo — Rust/Go/JS — ou um descritor
+/// declarativo registado.) [`runner_for`] cai no avaliador Rust para qualquer outra coisa (o
+/// comportamento histórico); quem avalia conteúdo de plugins deve perguntar isto antes, para
+/// não compilar um desafio Kotlin como se fosse Rust.
+pub fn language_supported(language: &str) -> bool {
+    matches!(
+        language.trim().to_ascii_lowercase().as_str(),
+        "js" | "javascript" | "go" | "golang" | "rust" | "rs"
+    ) || crate::plugin::find_plugin(language).is_some()
+}
+
 /// Escolhe o [`LanguageRunner`] para uma linguagem. A precedência é:
 ///
 /// 1. Os **runners nativos** hand-escritos (`rust`/`go`/`js`), inalterados — têm
