@@ -1,0 +1,18 @@
+[package]
+name = "tutor-agent"
+description = "Harness v2 do Co-Dev: loop de agente com tool use nativo (ver docs/design/harness-v2.md)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+# Síncrono de propósito (como o tutor-llm): a TUI e a CLI reutilizam o agente, e no
+# Tauri cada sessão corre numa thread dedicada (padrão do pty.rs).
+ureq = { version = "2.12", features = ["json"] }
+
+[dev-dependencies]
+# só para o exemplo `stream` ler a chave guardada nas Definições
+tutor-llm = { path = "../tutor-llm" }

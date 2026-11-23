@@ -4902,6 +4902,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tutor-agent"
+version = "0.7.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tutor-llm",
+ "ureq",
+]
+
+[[package]]
 name = "tutor-board"
 version = "0.7.0"
 dependencies = [

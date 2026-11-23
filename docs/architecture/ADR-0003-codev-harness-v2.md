@@ -92,7 +92,7 @@ numa leitura bloqueante.
 - **Recusas:** verifica-se `stop_reason: "refusal"` antes de ler o conteúdo, e nesse
   turno nenhuma ferramenta corre. Proponho ligar os **fallbacks do servidor por omissão**
   (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`), com um selo na UI
-  quando outro modelo respondeu. É uma decisão tua (§11, aceite).
+  quando outro modelo respondeu. Decisão aceite (§11).
 - **Erros e retry:** 429/529/5xx e erros de ligação com backoff exponencial + jitter,
   respeitando `retry-after` e `x-should-retry`, até 4 tentativas, **antes do primeiro byte**.
   Um evento SSE `error` a meio da resposta aparece como erro e não como fim de turno.
