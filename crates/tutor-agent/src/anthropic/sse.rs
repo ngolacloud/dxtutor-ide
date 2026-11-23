@@ -151,7 +151,9 @@ impl Accumulator {
                         id: cb["id"].as_str().unwrap_or_default().to_string(),
                         name: cb["name"].as_str().unwrap_or_default().to_string(),
                     },
-                    other => BlockKind::Other(other.to_string()),
+                    other => BlockKind::Other {
+                        name: other.to_string(),
+                    },
                 };
                 let b = if has_streamed_input(&kind_s) {
                     Builder::Tool {

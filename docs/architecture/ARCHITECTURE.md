@@ -75,6 +75,7 @@ apresentar árvore e grafo sem ciclos. Não se cria uma crate por tipo/ficheiro.
 | `tutor-track` | 2 | 349 | Registo de tentativas (SQLite) |
 | `tutor-board` | 1 | 294 | Board kanban (SQLite) |
 | `tutor-cli` | 1 | 200 | Prova ponta-a-ponta |
+| `tutor-agent` | 7 | — | Harness v2 do Co-Dev: loop de agente com tool use nativo (ADR-0003). Depende só de `serde`/`serde_json`/`ureq`; consumido por `src-tauri` via `codev_agent` |
 
 ### UI (`ui-app/src/`)
 
@@ -90,12 +91,12 @@ apresentar árvore e grafo sem ciclos. Não se cria uma crate por tipo/ficheiro.
 
 ## 4. Contratos IPC
 
-- **133 comandos** registados em `generate_handler!` (`lib.rs:2483`):
+- **138 comandos** registados em `generate_handler!` (`lib.rs:2483`):
   95 em `lib.rs` + 14 `bridge` + 10 `fsops` + 8 `lsp` + 4 `pty` + 2 `board`.
 - Convenções a preservar na migração: nomes públicos, camelCase, opcionais,
   nulabilidade, identificadores e eventos. O inventário completo está em
   `MIGRATION.md §2`; a **matriz detalhada** (args/retorno/erro/evento/
-  consumidor-UI/política dos 133 comandos) em `IPC-MATRIX.md`, verificada por
+  consumidor-UI/política dos 138 comandos) em `IPC-MATRIX.md`, verificada por
   `scripts/arch-check.sh`.
 - **Destino:** cliente IPC tipado em `ui-app/src/platform/tauri/`; as views
   consomem operações (`workspace.open`, `board.save`, `terminal.start`) em vez

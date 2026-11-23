@@ -36,7 +36,7 @@ pub fn body(req: &Request) -> Result<Value, ProviderError> {
             "a primeira mensagem tem de ser do utilizador".into(),
         ));
     }
-    if req.messages.last().map(|m| m.role) == Some(Role::Assistant) {
+    if !req.resume_paused && req.messages.last().map(|m| m.role) == Some(Role::Assistant) {
         return Err(ProviderError::InvalidRequest(
             "a última mensagem é do assistente (prefill): os modelos actuais respondem 400".into(),
         ));

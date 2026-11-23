@@ -72,6 +72,10 @@ pub struct Request {
     pub thinking: ThinkingDisplay,
     /// Fallbacks do servidor em caso de recusa (decisão §11: ligados por omissão).
     pub fallbacks: bool,
+    /// Só para retomar um `pause_turn`: a última mensagem é o turno pausado do assistente
+    /// e é reenviada tal como veio. Fora disso, uma última mensagem do assistente é
+    /// prefill e o pedido é recusado.
+    pub resume_paused: bool,
 }
 
 impl Request {
@@ -86,6 +90,7 @@ impl Request {
             effort: Effort::High,
             thinking: ThinkingDisplay::Summarized,
             fallbacks: true,
+            resume_paused: false,
         }
     }
 }
@@ -143,16 +148,18 @@ pub struct Response {
 }
 
 /// Tipo de bloco que começou no stream.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum BlockKind {
     Text,
     Thinking,
     ToolUse { id: String, name: String },
-    Other(String),
+    Other { name: String },
 }
 
 /// Eventos em tempo real, para a UI. O callback devolve `false` para cancelar.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEvent {
     MessageStart {
         model: String,

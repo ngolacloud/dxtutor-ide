@@ -964,6 +964,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+ "tutor-agent",
  "tutor-board",
  "tutor-core",
  "tutor-eval",

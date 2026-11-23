@@ -41,6 +41,7 @@ local-ip-address = "0.6"
 tutor-core = { path = "../crates/tutor-core" }
 tutor-eval = { path = "../crates/tutor-eval" }
 tutor-llm = { path = "../crates/tutor-llm" }
+tutor-agent = { path = "../crates/tutor-agent" }
 tutor-board = { path = "../crates/tutor-board" }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -16,6 +16,7 @@ pub mod assistant;
 mod bridge;
 pub mod codeintel;
 pub mod codev;
+pub mod codev_agent;
 mod commands;
 pub mod debug;
 pub mod devcontainer;
@@ -51,6 +52,10 @@ use commands::git::{
 use commands::codev::{
     codev_policy, codev_session_deliver, codev_session_discard, codev_session_list,
     codev_session_start,
+};
+use commands::codev_agent::{
+    codev_agent_approve, codev_agent_cancel, codev_agent_close, codev_agent_send,
+    codev_agent_start,
 };
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::agent::{
@@ -853,6 +858,12 @@ pub fn run() {
             codev_session_deliver,
             codev_session_discard,
             codev_session_list,
+            // agente Co-Dev v2 (ADR-0003) — commands/codev_agent.rs
+            codev_agent_start,
+            codev_agent_send,
+            codev_agent_approve,
+            codev_agent_cancel,
+            codev_agent_close,
             debug_capabilities,
             assistant_models,
             assistant_chat,
