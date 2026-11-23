@@ -145,7 +145,17 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
        de dados). `dxt plugin test` dá 170/170 duas vezes seguidas, e `tsc --strict` passa nos
        136 ficheiros (drills, e solução + harness + testes) com `@types/node`. Embutido só no
        backend.
-   - **Faltam:** Java, Kotlin, Swift, C# e SQL. A receita é a mesma das anteriores: um
+   - **SQL (feito):**
+     - Descritor que usa o SQLite do Python (`sqlite3` da stdlib, 3.45 nesta máquina), por isso
+       basta o `python3`. Os drills correm instrução a instrução e imprimem como o CLI
+       (`col|col`). Os testes são `unittest` com os ajudantes `query/script/connect`. Os
+       diagnósticos dão o primeiro erro SQLite na linha da instrução.
+     - Curso `courses/sql/`: 34 unidades e 170 passos (joins, subqueries, constraints,
+       normalização, lógica de NULL, transacções, índices e planos, N+1, paginação, views,
+       upserts, CTEs e CTEs recursivas, window functions, JSON, datas, triggers, optimização,
+       hierarquias, gaps & islands, pivoting, limpeza de dados, analytics). `dxt plugin test` dá
+       170/170 duas vezes. Embutido só no backend.
+   - **Faltam:** Java, Kotlin, Swift e C#. A receita é a mesma das anteriores: um
      descritor (ou um runner nativo, se o descritor não chegar), um curso escrito por grupos
      e verificado com `dxt plugin test`, e a entrada em `builtin_courses`. Java, Kotlin, Swift
      e .NET não estão instalados nesta máquina, e é preciso o toolchain para verificar o curso.

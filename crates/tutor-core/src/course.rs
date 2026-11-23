@@ -266,6 +266,8 @@ const PYTHON_BASICS: &str = include_str!("../../../courses/python/courses/python
 const CPP_BASICS: &str = include_str!("../../../courses/cpp/courses/cpp.toml");
 /// TypeScript: também só no backend; avaliado pelo descritor TypeScript (Node com type stripping).
 const TYPESCRIPT_BASICS: &str = include_str!("../../../courses/typescript/courses/typescript.toml");
+/// SQL: também só no backend; avaliado pelo descritor SQL (o SQLite do Python + unittest).
+const SQL_BASICS: &str = include_str!("../../../courses/sql/courses/sql.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -275,6 +277,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("python-basics", PYTHON_BASICS),
         parse("cpp-basics", CPP_BASICS),
         parse("typescript-basics", TYPESCRIPT_BASICS),
+        parse("sql-basics", SQL_BASICS),
     ]
 }
 
@@ -817,6 +820,11 @@ mod python_tests {
     #[test]
     fn typescript_basics_tem_a_forma_do_curso_oficial() {
         forma_oficial("typescript-basics", "typescript");
+    }
+
+    #[test]
+    fn sql_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("sql-basics", "sql");
     }
 
     #[test]

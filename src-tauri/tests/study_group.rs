@@ -65,6 +65,7 @@ fn new_language_challenges_are_graded_for_real() {
         ("python", "python3"),
         ("cpp", "g++"),
         ("typescript", "node"),
+        ("sql", "python3"),
     ] {
         if std::process::Command::new(tool)
             .arg("--version")

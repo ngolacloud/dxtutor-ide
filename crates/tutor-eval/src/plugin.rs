@@ -731,6 +731,106 @@ diag_cmd = '''if command -v tsc >/dev/null 2>&1; then tsc --noEmit --pretty fals
 timeout_secs = 30
 "##;
 
+/// The built-in **SQL** descriptor (the official SQL course, SQLite dialect). The engine is the
+/// SQLite inside Python's standard library (`sqlite3`), so it needs only `python3`, not the
+/// `sqlite3` CLI.
+///
+/// - **Run** (drills): the `.sql` script runs statement by statement on a fresh in-memory database
+///   in autocommit mode (explicit `BEGIN`/`COMMIT` work), printing each result set like the
+///   `sqlite3` CLI with headers: `col1|col2`, then one `a|b` line per row, `NULL` for nulls. The
+///   first error stops the run with its line number.
+/// - **Tests** (challenges): standard-library `unittest`, after a prelude that reads the student's
+///   SQL into `STUDENT_SQL` and offers `connect(setup)`, `query(setup)` → `(columns, rows)` for a
+///   single statement, and `script(setup)` → the open connection after the whole script ran.
+/// - **Diagnostics**: the first SQLite error, at the line of the statement that raised it.
+const BUILTIN_SQL_TOML: &str = r##"
+id = "sql"
+aliases = ["sqlite"]
+display_name = "SQL"
+monaco_id = "sql"
+extensions = ["sql"]
+image = "python:3.12-alpine"
+host_bin = "python3"
+network = false
+
+code_file = "student.sql"
+test_file = "test_student.py"
+test_prelude = '''
+import sqlite3
+import unittest
+
+STUDENT_SQL = open("student.sql", encoding="utf-8").read()
+
+
+def connect(setup=""):
+    """A fresh in-memory database (autocommit mode) with the `setup` script already run."""
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.executescript(setup)
+    return conn
+
+
+def query(setup="", sql=None):
+    """Run ONE statement (the student's SQL by default) after `setup`.
+    Returns (column_names, rows) with rows as tuples."""
+    conn = connect(setup)
+    cur = conn.execute(STUDENT_SQL if sql is None else sql)
+    cols = [d[0] for d in cur.description or []]
+    rows = [tuple(r) for r in cur.fetchall()]
+    conn.close()
+    return cols, rows
+
+
+def script(setup="", sql=None):
+    """Run the whole script (the student's SQL by default) after `setup`; return the open
+    connection so the test can inspect the resulting tables."""
+    conn = connect(setup)
+    conn.executescript(STUDENT_SQL if sql is None else sql)
+    return conn
+
+
+'''
+
+run_cmd = '''python3 -B -c 'import sqlite3, sys
+src = open("student.sql", encoding="utf-8").read()
+conn = sqlite3.connect(":memory:", isolation_level=None)
+buf, start = "", 1
+for n, line in enumerate(src.splitlines(True), 1):
+    if not buf.strip():
+        start = n
+    buf += line
+    if sqlite3.complete_statement(buf):
+        stmt, buf = buf.strip(), ""
+        try:
+            cur = conn.execute(stmt)
+        except sqlite3.Error as e:
+            sys.exit("Error on line %d: %s" % (start, e))
+        if cur.description:
+            print("|".join(d[0] for d in cur.description))
+            for row in cur.fetchall():
+                print("|".join("NULL" if v is None else str(v) for v in row))
+rest = "\n".join(l for l in buf.splitlines() if not l.strip().startswith("--")).strip()
+if rest:
+    sys.exit("Error: incomplete statement (missing ;?): " + rest[:80])' '''
+test_cmd = "python3 -B -m unittest -q test_student"
+diag_cmd = '''python3 -B -c 'import sqlite3
+src = open("student.sql", encoding="utf-8").read()
+conn = sqlite3.connect(":memory:", isolation_level=None)
+buf, start = "", 1
+for n, line in enumerate(src.splitlines(True), 1):
+    if not buf.strip():
+        start = n
+    buf += line
+    if sqlite3.complete_statement(buf):
+        stmt, buf = buf.strip(), ""
+        try:
+            conn.execute(stmt).fetchall()
+        except sqlite3.Error as e:
+            print("student.sql:%d:1: error: %s" % (start, e))
+            break' '''
+
+timeout_secs = 30
+"##;
+
 /// Parse and return the built-in descriptors. Panics only on a programmer error (a malformed
 /// embedded TOML), which a unit test guards against.
 pub fn builtin_plugins() -> Vec<LanguagePlugin> {
@@ -740,6 +840,7 @@ pub fn builtin_plugins() -> Vec<LanguagePlugin> {
         ("Python", BUILTIN_PYTHON_TOML),
         ("C++", BUILTIN_CPP_TOML),
         ("TypeScript", BUILTIN_TS_TOML),
+        ("SQL", BUILTIN_SQL_TOML),
     ] {
         match toml::from_str::<LanguagePlugin>(raw) {
             Ok(p) => out.push(p),
@@ -887,8 +988,8 @@ mod tests {
         let plugins = builtin_plugins();
         assert_eq!(
             plugins.len(),
-            4,
-            "the C, Python, C++ and TypeScript built-ins"
+            5,
+            "the C, Python, C++, TypeScript and SQL built-ins"
         );
         let c = &plugins[0];
         assert_eq!(c.id, "c");
@@ -1052,6 +1153,55 @@ mod tests {
         );
         let out = run_program("ts", "const n: number = 6 * 7;\nconsole.log(n);\n", &[]).unwrap();
         assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+    }
+
+    /// Real end-to-end with python3's SQLite (skipped where python3 is missing): a script runs and
+    /// prints CLI-style results, a query challenge passes/fails, a script challenge is inspected,
+    /// and an error is reported at its statement's line.
+    #[test]
+    fn sql_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let sql = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "sql")
+            .unwrap();
+        assert!(sql.matches("sqlite") && sql.matches("SQL"));
+        if !sql.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let out = run_program(
+            "sql",
+            "-- a comment\nCREATE TABLE t(x INTEGER, y TEXT);\nINSERT INTO t VALUES (1, 'a'), (2, NULL);\nBEGIN;\nUPDATE t SET x = x * 10;\nCOMMIT;\nSELECT x, y\nFROM t ORDER BY x;\n",
+            &[],
+        )
+        .unwrap();
+        assert!(out.ok, "{out:?}");
+        assert_eq!(out.stdout, "x|y\n10|a\n20|NULL\n");
+        let err = run_program("sql", "SELECT 1;\n\nSELECT * FROM missing;\n", &[]).unwrap();
+        assert!(!err.ok && err.stderr.contains("line 3"), "{err:?}");
+
+        let runner = PluginRunner::new(sql);
+        let mut phase = c_add_phase();
+        phase.language = "sql".into();
+        phase.tests = "SETUP = \"CREATE TABLE t(x); INSERT INTO t VALUES (3), (1), (2);\"\n\nclass T(unittest.TestCase):\n    def test_sorted(self):\n        cols, rows = query(SETUP)\n        self.assertEqual(cols, [\"x\"])\n        self.assertEqual(rows, [(1,), (2,), (3,)])\n".into();
+        let ok = runner
+            .check_correctness(&phase, "SELECT x FROM t ORDER BY x;\n")
+            .unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+        let bad = runner
+            .check_correctness(&phase, "SELECT x FROM t;\n")
+            .unwrap();
+        assert!(!bad.passed);
+        let starter = runner
+            .check_correctness(&phase, "-- write your query here\n")
+            .unwrap();
+        assert!(!starter.passed);
+        phase.tests = "class T(unittest.TestCase):\n    def test_table(self):\n        conn = script()\n        self.assertEqual(conn.execute(\"SELECT count(*) FROM p\").fetchone()[0], 2)\n".into();
+        let ok = runner
+            .check_correctness(&phase, "CREATE TABLE p(id INTEGER PRIMARY KEY);\nINSERT INTO p DEFAULT VALUES;\nINSERT INTO p DEFAULT VALUES;\n")
+            .unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+        let d = runner.diagnostics("SELECT 1;\nSELEC 2;\n").unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
     }
 
     #[test]
