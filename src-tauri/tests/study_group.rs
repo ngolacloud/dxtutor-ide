@@ -68,6 +68,7 @@ fn new_language_challenges_are_graded_for_real() {
         ("sql", "python3"),
         ("java", "java"),
         ("kotlin", "kotlinc"),
+        ("csharp", "dotnet"),
     ] {
         if std::process::Command::new(tool)
             .arg("--version")

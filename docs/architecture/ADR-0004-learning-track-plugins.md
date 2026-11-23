@@ -173,16 +173,23 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
      - Curso `courses/kotlin/`: 34 unidades e 170 passos, com um bloco de Kotlin para produção
        no lugar das bases de dados, e coroutines, Flow, channels, DSLs e value classes.
        `dxt plugin test` dá 170/170. Embutido só no backend.
-   - **C# (descritor feito):** compila com o Roslyn do SDK (`csc.dll`) contra as assemblies de
-     referência do .NET 8, sem MSBuild nem NuGet, em cerca de 1 s. O código do aluno e os
-     testes são dois ficheiros do mesmo programa, e o harness tem os métodos como membros de
-     uma classe parcial.
+   - **C# (feito):**
+     - Descritor: compila com o Roslyn do SDK (`csc.dll`) contra as assemblies de referência
+       do .NET 8, sem MSBuild nem NuGet, em cerca de 1 s. O código do aluno e os testes são
+       dois ficheiros do mesmo programa, e o harness tem os métodos como membros de uma classe
+       parcial.
+     - Curso `courses/csharp/`: 34 unidades e 170 passos, com um bloco de C# para produção no
+       lugar das bases de dados (o SQLite precisa de NuGet), pattern matching, async/await,
+       channels e spans. `dxt plugin test` dá 170/170 duas vezes. Embutido só no backend.
+     - Corrigido pelo caminho: o `Show()` do harness rebentava com `InvalidCastException` ao
+       mostrar um `Dictionary<K,V>` num `Equal` falhado. Agora usa o enumerador de
+       `IDictionary`; há um teste de regressão.
    - **Swift (descritor feito):** `swiftc -O -swift-version 6`. O aluno escreve só declarações
      (`Student.swift`), e os testes vão para um `main.swift` com um harness `@MainActor`
      (testes `async`). Procura a toolchain real do swiftly, porque o proxy do swiftly no PATH
      precisa do `$HOME` verdadeiro. Por isso as pastas de `host_path_hints` passaram a vir
      antes do binário encontrado no PATH.
-   - **Faltam:** os cursos de C# e Swift, com a mesma receita.
+   - **Falta:** o curso de Swift, com a mesma receita.
    - **Melhoria futura:** o manifesto do plugin de curso poder trazer o seu próprio descritor de
      avaliador (hoje um descritor da comunidade vai para `~/.config/dxtutor/plugins/`).
 4. **Extensões VS Code.** Contribuições declarativas: temas → tokens CSS, gramáticas TextMate

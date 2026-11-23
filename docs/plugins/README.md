@@ -282,6 +282,8 @@ evaluator, which must support the course language:
 | SQL (SQLite) | descriptor | Python `unittest` cases using the prelude helpers `query(setup)` → `(columns, rows)`, `script(setup)` → connection, `connect(setup)` | `python3` (its built-in SQLite) |
 | Java | descriptor | the body of a method using `test("name", () -> equal(actual, expected))`, plus `check`, `near` and `assertThrows`. Imports go one per line at the start. The learner's classes are compiled with the tests, so they have no `main` and no `package` | JDK 21 (`java`) |
 | Kotlin | descriptor | the body of an extension on the harness: `test("name") { equal(actual, expected) }`, plus `expect`, `near` and `assertThrows<T> { }`. `kotlinx.coroutines` is on the classpath. The learner's code has no `main` and no `package` | `kotlinc` 2.x and a JDK |
+| C# | descriptor | the body of a method using `Test("name", () => Equal(actual, expected))`, plus `Check`, `Near` and `Throws<T>`; async lambdas are awaited. The learner's file has only types (no top-level statements) | .NET 8 SDK (`dotnet`) |
+| Swift | descriptor | `test("name") { self.equal(actual, expected) }`, plus `expect`, `near` and `assertThrows`; tests may be `async`. The learner's file has only declarations; Swift 6 language mode | Swift 6 toolchain (`swiftc`, also via swiftly) |
 | C | descriptor | a `main` that `assert`s (the test file `#include`s the student file) | `cc` |
 
 A language without a native runner uses a **descriptor**: a small TOML file that says how

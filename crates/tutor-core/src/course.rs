@@ -272,6 +272,8 @@ const SQL_BASICS: &str = include_str!("../../../courses/sql/courses/sql.toml");
 const JAVA_BASICS: &str = include_str!("../../../courses/java/courses/java.toml");
 /// Kotlin: também só no backend; avaliado pelo descritor Kotlin (kotlinc + java, coroutines).
 const KOTLIN_BASICS: &str = include_str!("../../../courses/kotlin/courses/kotlin.toml");
+/// C#: também só no backend; avaliado pelo descritor C# (Roslyn do SDK do .NET 8).
+const CSHARP_BASICS: &str = include_str!("../../../courses/csharp/courses/csharp.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -284,6 +286,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("sql-basics", SQL_BASICS),
         parse("java-basics", JAVA_BASICS),
         parse("kotlin-basics", KOTLIN_BASICS),
+        parse("csharp-basics", CSHARP_BASICS),
     ]
 }
 
@@ -841,6 +844,11 @@ mod python_tests {
     #[test]
     fn kotlin_basics_tem_a_forma_do_curso_oficial() {
         forma_oficial("kotlin-basics", "kotlin");
+    }
+
+    #[test]
+    fn csharp_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("csharp-basics", "csharp");
     }
 
     #[test]

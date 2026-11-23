@@ -1185,10 +1185,18 @@ public partial class DxtSuite
     {
         null => "null",
         string s => $"\"{s}\"",
-        System.Collections.IDictionary d => "{" + string.Join(", ", d.Cast<System.Collections.DictionaryEntry>().Select(e => $"{Show(e.Key)}: {Show(e.Value)}")) + "}",
+        System.Collections.IDictionary d => "{" + string.Join(", ", Entries(d).Select(e => $"{Show(e.Key)}: {Show(e.Value)}")) + "}",
         System.Collections.IEnumerable e => "[" + string.Join(", ", e.Cast<object?>().Select(Show)) + "]",
         _ => v.ToString() ?? "",
     };
+
+    // The non-generic IDictionary enumerator yields DictionaryEntry; Cast<DictionaryEntry>() would
+    // use IEnumerable instead, which for Dictionary<K,V> yields KeyValuePair and throws.
+    private static IEnumerable<System.Collections.DictionaryEntry> Entries(System.Collections.IDictionary d)
+    {
+        var it = d.GetEnumerator();
+        while (it.MoveNext()) yield return it.Entry;
+    }
 
     public int RunAll()
     {
@@ -1834,6 +1842,18 @@ mod tests {
             !bad.passed && bad.raw.contains("FAILED adds"),
             "{}",
             bad.raw
+        );
+        // A failing dictionary comparison shows both dictionaries, not an InvalidCastException
+        // from the message formatter (regression: Cast<DictionaryEntry> on Dictionary<K,V>).
+        let mut dict_phase = phase.clone();
+        dict_phase.tests = "Test(\"dict\", () => Equal(new Dictionary<string, int> { [\"a\"] = 1 }, new Dictionary<string, int> { [\"a\"] = 2 }));\n".into();
+        let dict = runner.check_correctness(&dict_phase, good).unwrap();
+        assert!(
+            !dict.passed
+                && dict.raw.contains("expected {\"a\": 2}, got {\"a\": 1}")
+                && !dict.raw.contains("InvalidCastException"),
+            "{}",
+            dict.raw
         );
         let throws = runner
             .check_correctness(
