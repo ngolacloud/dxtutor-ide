@@ -355,6 +355,64 @@ pub fn cancel() {
     }
 }
 
+/// Texto inicial dado ao whisper (`--prompt`) para cada língua: orienta a ortografia, a
+/// pontuação e o vocabulário de programação (sem ele, «commit»/«branch»/«lexer» saem
+/// estropiados e o português às vezes sai em espanhol).
+pub fn initial_prompt(lang: &str) -> Option<&'static str> {
+    match lang {
+        "pt" => Some(
+            "Olá. Vamos rever o código do projecto: corrige o erro, faz commit na branch e corre os testes.",
+        ),
+        "en" => Some("Hi. Let's review the project code: fix the bug, commit to the branch and run the tests."),
+        _ => None,
+    }
+}
+
+/// A duração de um WAV PCM em segundos, pelo cabeçalho (`None` se não for WAV legível).
+pub fn wav_seconds(wav: &Path) -> Option<f64> {
+    let bytes = std::fs::read(wav).ok()?;
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let u32le = |i: usize| {
+        bytes
+            .get(i..i + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    let mut byte_rate = None;
+    let mut i = 12;
+    while i + 8 <= bytes.len() {
+        let size = u32le(i + 4)? as usize;
+        match &bytes[i..i + 4] {
+            b"fmt " => byte_rate = u32le(i + 16),
+            b"data" => {
+                // gravadores parados a meio deixam o tamanho a 0/«infinito»: conta o que existe
+                let avail = bytes.len() - (i + 8);
+                let data = if size == 0 || size > avail {
+                    avail
+                } else {
+                    size
+                };
+                return byte_rate.filter(|r| *r > 0).map(|r| data as f64 / r as f64);
+            }
+            _ => {}
+        }
+        i += 8 + size + (size & 1);
+    }
+    None
+}
+
+/// O contexto de áudio do whisper (`-ac`) para um clip: o whisper codifica sempre uma
+/// janela de 30 s (1500 frames); para um ditado curto, limitá-la à duração (50 frames/s
+/// e uma margem) corta o tempo do codificador para um terço sem perder qualidade.
+/// `0` = janela inteira (clips longos ou duração desconhecida).
+pub fn audio_ctx(seconds: Option<f64>) -> u32 {
+    match seconds {
+        Some(s) if s > 0.0 && s < 28.0 => ((s * 50.0).ceil() as u32 + 128).min(1500),
+        _ => 0,
+    }
+}
+
 /// Corre o `whisper-cli` sobre um WAV e devolve o texto.
 pub fn transcribe(binary: &Path, model: &Path, wav: &Path, lang: &str) -> Result<String, String> {
     let lang = match lang.trim() {
@@ -365,12 +423,22 @@ pub fn transcribe(binary: &Path, model: &Path, wav: &Path, lang: &str) -> Result
     let threads = std::thread::available_parallelism()
         .map(|n| n.get().clamp(1, 8))
         .unwrap_or(4);
-    let out = Command::new(binary)
-        .arg("-m")
-        .arg(model)
-        .arg("-f")
-        .arg(wav)
-        .args(["-l", lang, "-t", &threads.to_string(), "-nt", "-np"])
+    let mut cmd = Command::new(binary);
+    cmd.arg("-m").arg(model).arg("-f").arg(wav).args([
+        "-l",
+        lang,
+        "-t",
+        &threads.to_string(),
+        "-nt",
+        "-np",
+    ]);
+    // NB: não usar `-mc 0` — também desliga o `--prompt`, e sem ele o whisper entra em ciclos
+    // de repetição (medido: 72% de erro). Os ciclos que escapem saem no `clean_transcript`.
+    cmd.args(["-ac", &audio_ctx(wav_seconds(wav)).to_string()]);
+    if let Some(p) = initial_prompt(lang) {
+        cmd.args(["--prompt", p]);
+    }
+    let out = cmd
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("não consegui correr o whisper.cpp: {e}"))?;
@@ -387,8 +455,22 @@ pub fn transcribe(binary: &Path, model: &Path, wav: &Path, lang: &str) -> Result
     Ok(clean_transcript(&String::from_utf8_lossy(&out.stdout)))
 }
 
-/// Junta as linhas da transcrição e tira as marcas de silêncio/ruído do whisper.
+/// Junta as linhas da transcrição, tira as marcas de silêncio/ruído do whisper e as frases
+/// repetidas em seguida (o whisper às vezes entra em ciclo e repete a mesma frase).
 pub fn clean_transcript(stdout: &str) -> String {
+    let joined = clean_lines(stdout);
+    let mut out: Vec<&str> = vec![];
+    for sentence in joined.split_inclusive(['.', '?', '!']) {
+        let t = sentence.trim();
+        if t.is_empty() || out.last().is_some_and(|p| p.eq_ignore_ascii_case(t)) {
+            continue;
+        }
+        out.push(t);
+    }
+    out.join(" ")
+}
+
+fn clean_lines(stdout: &str) -> String {
     let marker = |w: &str| {
         let w = w.trim();
         (w.starts_with('[') && w.ends_with(']'))
@@ -509,6 +591,36 @@ mod tests {
             "Olá, isto é um teste. e mais uma frase"
         );
         assert_eq!(clean_transcript("[BLANK_AUDIO]\n"), "");
+        assert_eq!(
+            clean_transcript("Revê o lexer. Revê o lexer. Revê o lexer. E corre os testes?"),
+            "Revê o lexer. E corre os testes?"
+        );
+    }
+
+    #[test]
+    fn audio_context_from_wav_duration() {
+        let d = tempfile::tempdir().unwrap();
+        let wav = d.path().join("a.wav");
+        // cabeçalho WAV 16 kHz mono s16 (byte rate 32000) + 2 s de silêncio
+        let data = vec![0u8; 64_000];
+        let mut h = b"RIFF".to_vec();
+        h.extend((36 + data.len() as u32).to_le_bytes());
+        h.extend(b"WAVEfmt ");
+        h.extend(16u32.to_le_bytes());
+        h.extend([1, 0, 1, 0]);
+        h.extend(16_000u32.to_le_bytes());
+        h.extend(32_000u32.to_le_bytes());
+        h.extend([2, 0, 16, 0]);
+        h.extend(b"data");
+        h.extend((data.len() as u32).to_le_bytes());
+        h.extend(&data);
+        std::fs::write(&wav, &h).unwrap();
+        assert_eq!(wav_seconds(&wav), Some(2.0));
+        assert_eq!(audio_ctx(Some(2.0)), 228);
+        assert_eq!(audio_ctx(Some(29.0)), 0, "clips longos: janela inteira");
+        assert_eq!(audio_ctx(None), 0);
+        std::fs::write(&wav, b"not a wav").unwrap();
+        assert_eq!(wav_seconds(&wav), None);
     }
 
     /// Um só teste para o estado global (uma gravação de cada vez).

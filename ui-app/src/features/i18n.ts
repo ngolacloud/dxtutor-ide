@@ -161,12 +161,16 @@ PAIRS.push(
  ["Instalado no Ollama", "Installed in Ollama"],
  ["Sem modelos instalados no Ollama (ex.:", "No models installed in Ollama (e.g."],
  [").", ")."],
- ["Sem modelos.", "No models."]
+ ["Sem modelos.", "No models."],
+ ["Língua do ditado…", "Dictation language…"],
+ ["Automática", "Automatic"],
+ ["o whisper detecta-a (pior em frases curtas)", "whisper detects it (worse on short phrases)"]
 );
 RULES.push(
  [/^(.+) · desligado$/, '$1 · off'],
  [/^(.+): o agente ainda só recebe ficheiros de texto$/, '$1: the agent only takes text files for now'],
  [/^Modelos (.+)$/, '$1 models'],
+ [/^Ditar \(voz\) — (.+)$/, (_m, a) => 'Dictate (voice) — ' + (a === 'Automática' ? 'Automatic' : a)],
  [/^Ditado local por configurar — falta (.+)$/, 'Local dictation not set up — missing $1'],
 );
 const PT2EN=new Map(),EN2PT=new Map();PAIRS.forEach(([p,e])=>{PT2EN.set(p,e);EN2PT.set(e,p);});

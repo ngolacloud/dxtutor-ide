@@ -4,15 +4,20 @@
 #
 #   scripts/setup-whisper.sh [modelo]
 #
-# modelo: small (por omissão — bom em português), base (mais rápido), medium,
-#         large-v3-turbo-q5_0 (melhor qualidade, ~550 MB), tiny, …
+# modelo: large-v3-turbo-q5_0 (por omissão, ~550 MB — o melhor em português: ~9% de erro
+#         contra ~16% do small nas medições do Co-Dev), small (3x mais rápido em CPU),
+#         base, medium, tiny, …
+#
+# GPU: com os cabeçalhos Vulkan e o glslc instalados (Ubuntu/Debian:
+# `sudo apt install libvulkan-dev glslc`), compila com Vulkan — NVIDIA, AMD e Intel; o
+# ditado passa de segundos para menos de um. Sem eles, compila para CPU.
 # Variáveis: WHISPER_TAG (versão do whisper.cpp), DXTUTOR_WHISPER_DIR (pasta de destino).
 #
 # Nada é instalado no sistema: o binário fica na pasta acima; se não houver cmake, vem do
 # pip para um venv dentro da mesma pasta. O áudio do ditado nunca sai da máquina.
 set -euo pipefail
 
-MODEL="${1:-small}"
+MODEL="${1:-large-v3-turbo-q5_0}"
 TAG="${WHISPER_TAG:-v1.9.5}"
 DIR="${DXTUTOR_WHISPER_DIR:-$HOME/.local/share/dxtutor/whisper}"
 SRC="$DIR/whisper.cpp"
@@ -46,9 +51,16 @@ else
   say "whisper.cpp já obtido em $SRC ($(git -C "$SRC" describe --tags 2>/dev/null || echo '?'))"
 fi
 
+GPU=OFF
+if command -v glslc >/dev/null 2>&1 && { [ -f /usr/include/vulkan/vulkan.h ] || [ -n "${VULKAN_SDK:-}" ]; }; then
+  GPU=ON
+  say "Vulkan encontrado: a compilar com GPU"
+else
+  say "sem Vulkan (libvulkan-dev + glslc): a compilar para CPU — para GPU: sudo apt install libvulkan-dev glslc"
+fi
 say "a compilar o whisper-cli (Release, estático)"
 "$CMAKE" -S "$SRC" -B "$SRC/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-  -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF >/dev/null
+  -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DGGML_VULKAN="$GPU" >/dev/null
 "$CMAKE" --build "$SRC/build" --config Release -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" --target whisper-cli >/dev/null
 BIN="$SRC/build/bin/whisper-cli"
 [ -x "$BIN" ] || { echo "a compilação não produziu $BIN" >&2; exit 1; }

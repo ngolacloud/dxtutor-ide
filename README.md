@@ -172,11 +172,16 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
 - **Ditado local (microfone) com whisper.cpp.** O áudio não sai da máquina: grava com o
   gravador do sistema (`pw-record`, `parecord`, `arecord` ou `ffmpeg`) e transcreve com o
   `whisper-cli`. Instala uma vez com `scripts/setup-whisper.sh` (compila o whisper.cpp e
-  descarrega o modelo `small` para `~/.local/share/dxtutor/whisper`; `scripts/setup-whisper.sh
-  base` para um mais rápido, `large-v3-turbo-q5_0` para melhor qualidade). No compositor:
-  clica no microfone para gravar, outra vez para transcrever; Esc cancela. A língua é
-  detectada automaticamente (`localStorage["dx2.dictationLang"] = "pt"` fixa-a).
-  `DXTUTOR_WHISPER_BIN` e `DXTUTOR_WHISPER_MODEL` apontam para outro binário/modelo.
+  descarrega o modelo `large-v3-turbo-q5_0` para `~/.local/share/dxtutor/whisper`;
+  `scripts/setup-whisper.sh small` para um 3× mais rápido em CPU mas com mais erros). No
+  compositor: clica no microfone para gravar, outra vez para transcrever; Esc cancela.
+  - **Língua:** português por omissão; muda em «/ → Língua do ditado» (Português, English,
+    Automática). Evita a automática: em frases curtas o whisper troca o português por
+    lixo («ande, ande, ande…»).
+  - **Velocidade:** em CPU, ~5–9 s por frase com o modelo turbo. Com GPU fica abaixo de 1 s:
+    `sudo apt install libvulkan-dev glslc` e volta a correr `scripts/setup-whisper.sh`
+    (compila com Vulkan — NVIDIA, AMD e Intel).
+  - `DXTUTOR_WHISPER_BIN` e `DXTUTOR_WHISPER_MODEL` apontam para outro binário/modelo.
 - **Co-Dev com outros provedores.** O agente (ferramentas reais, permissões, checkpoints,
   `/plano`, `/reverter`, `/retomar`, hooks, MCP, skills) funciona com Claude, Codex/OpenAI,
   Gemini e Ollama — escolhe no seletor de modelo da conversa. Só o Claude tem raciocínio

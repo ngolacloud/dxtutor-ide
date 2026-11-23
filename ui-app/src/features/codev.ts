@@ -24,7 +24,7 @@ import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
 import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
-import { exportMarkdown, parseEffort } from "./codev/domain/composer";
+import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/composer";
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
 import { isDesktop } from "../platform/tauri/core";
@@ -347,7 +347,8 @@ const composerHost: ComposerHost = {
   openModelSettings: () => openSettings(),
   switchProvider: () => pickModel(),
   dictation: () => dictationGateway,
-  dictationLang: () => bridge.dictationLang(),
+  dictationLang: () => parseDictationLang(bridge.dictationLang()),
+  setDictationLang: (l) => bridge.setDictationLang(l),
   localModels: () => (isDesktop() ? ollamaModels() : Promise.resolve([])),
 };
 mountComposer(composerHost);

@@ -112,12 +112,19 @@ export const setEffort = (v: string): void => {
 export const pickPersona = (): void => G.pickAgent?.();
 export const refreshPersona = (): void => G.agentPill?.();
 
-/** A língua do ditado (`dx2.dictationLang`: `pt`, `en`, …); por omissão o whisper detecta-a. */
-export const dictationLang = (): string => {
+/** A língua do ditado guardada (`dx2.dictationLang`); `null` = por escolher. */
+export const dictationLang = (): string | null => {
   try {
-    return localStorage.getItem("dx2.dictationLang") || "auto";
+    return localStorage.getItem("dx2.dictationLang");
   } catch {
-    return "auto";
+    return null;
+  }
+};
+export const setDictationLang = (v: string): void => {
+  try {
+    localStorage.setItem("dx2.dictationLang", v);
+  } catch {
+    /* armazenamento indisponível: vale só nesta execução */
   }
 };
 
