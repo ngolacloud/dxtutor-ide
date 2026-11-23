@@ -9,8 +9,7 @@ export function installDemos(ctx: DesktopContext): void {
 const { R } = ctx;
 /* ───── scripted demo flows stay on the sample workspace ───── */
 const sampleOnly = (what: string) => { toast(`${what} are scripted demos — they run on the sample workspace (File → Close Folder)`); };
-/* as guardas entram pelas portas do Co-Dev e do board (ADR-0004, U4h5): o codev.ts e o board.ts
-   consultam-nas no runMission/runSprint que publicam — antes eram reatribuídos no `window`. */
-(desktopPorts.codev ??= {}).runMission = function (S, text, _runMission) { if (R.root) { sampleOnly("Missions"); return; } return _runMission(S, text); };
+/* as guardas entram pelas portas do Co-Dev e do board (ADR-0004, U4h5): o board.ts consulta-a
+   no runSprint que publica (as missões guionadas saíram — ADR-0005, R1b) — antes eram reatribuídos no `window`. */
 (desktopPorts.board ??= {}).runSprint = function (s, _runSprint) { if (R.root) { sampleOnly("Sprint runs"); return; } return _runSprint(s); };
 }

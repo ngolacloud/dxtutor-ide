@@ -68,7 +68,6 @@ export const sample = (): ((input: string | SampleMsg[], o?: SampleOpts) => Prom
 /* ───── read-only containers owned by other modules (fresh getter, never aliased at import time) ───── */
 export const providers = (): Record<string, Prov> => prov();
 export const chat = (): { role: string; content: string }[] => G.CHAT;
-export const staged = (): Set<string> => window.STAGED;
 export const agents = (): Record<string, { n: string; d: string; col: string; paths: string[] }> => window.AGENTS;
 export const backlog = (): { issues: any[] } => window.BL;
 export const stages = (): Array<[string, string]> => window.STAGES;
@@ -83,8 +82,6 @@ export const danger = (): RegExp => window.DANGER;
 export const safe = (): RegExp => window.SAFE;
 export const stopSignal = (): unknown => G.STOP;
 
-/** Prototype workspace seed (demo scenario data + root path); read once per scenario build. */
-export const seed = (): { base: Record<string, string>; gen: Record<string, string> } => G.SEED;
 export const root = (): string => G.ROOT;
 /** Caminho absoluto da pasta real aberta no desktop (`null` no protótipo). */
 export const diskRoot = (): string | null => (G.DXR && typeof G.DXR.root === "string" ? G.DXR.root : null);
@@ -142,13 +139,6 @@ export const agentV2Enabled = (): boolean => {
     return true;
   }
 };
-export const pathLexer = (): string => G.P_LX;
-export const pathRepo = (): string => G.P_REPO;
-export const pathMigration = (): string => G.P_MIG;
-export const pathTest = (): string => G.P_TEST;
-export const pathHistory = (): string => G.P_HIST;
-export const pathAdr = (): string => G.P_ADR;
-export const pathStore = (): string => G.P_STORE;
 
 /* ───── run control (mutable object owned by codev.ts's own engine today, but published
    by app.ts; mutated in place through properties, never reassigned here) ───── */
@@ -178,12 +168,8 @@ export const openPath = (...args: [p: string, line?: number]): void => G.openPat
 /* ───── workspace / diagnostics / tests ───── */
 export const shortPath = (p: string): string => window.short(p);
 export const normalizePath = (p: string): string => G.norm(p);
-export const has = (p: string, re: RegExp): boolean => window.has(p, re);
 export const fIcon = (p: string): string => window.fIcon(p);
 export const fileDiffStat = (a: string | null, b: string): { add: number; del: number } => G.diffStat(a, b);
-export const runTests = (...args: [pkg?: string]): { build: boolean; err: string; ok: boolean; tests: Array<{ n: string; ok: boolean }> } =>
-  window.runTests(...args);
-export const runTask = (cmd: string): { ok: boolean; sum?: string } | undefined => G.runTask(cmd);
 export const termExec = (v: string): { ok: boolean; sum?: string } | undefined => G.termExec(v);
 /** Desktop com pasta real: corre o comando a sério (bridge `DXR.exec`) — o `ok` vem do
  *  exit code. `null` no protótipo/sem pasta, onde vale o terminal simulado. */
@@ -192,17 +178,9 @@ export const realExec = (): ((cmd: string) => Promise<RealRun>) | null =>
 /** O comando de testes/lint detectado do projecto aberto (`null` sem pasta real). */
 export const projectCommand = (kind: VerifyKind): VerifyCommand | null =>
   G.DXR && G.DXR.root && typeof G.DXR.projectCmd === "function" ? G.DXR.projectCmd(kind) : null;
-export const dsLint = (): { p: string; line: number; hex: string }[] => window.dsLint();
-export const lexBug = (): boolean => window.lexBug();
 
 /* ───── SCM / checkpoints ───── */
-export const checkpoint = (label: string): number => G.checkpoint(label);
 export const restoreCkpt = (...args: [id: number, silent?: boolean]): void => G.restoreCkpt(...args);
-export const gfStart = (kind: string, name: string): string => G.gfStart(kind, name);
-export const gfAsk = (host: Element, M: { files: Set<string> }): Promise<void> => G.gfAsk(host, M);
-export const commitGit = (...args: [msg?: string, author?: string]): { h: string; n: number } | null =>
-  window.commitGit(...args) as { h: string; n: number } | null;
-export const stOf = (p: string): unknown => window.stOf(p);
 
 /* ───── team / harness ───── */
 export const harnessCheck = (p: string): void => G.harnessCheck(p);

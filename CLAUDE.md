@@ -49,9 +49,10 @@ Piloto de Clean Architecture (ADR-0002). A feature está extraída do monólito
 
 ```
 features/codev/
-  domain/          tipos, policy (approvalFor), scoring, scenarios/.
+  domain/          tipos, policy (approvalFor), composer, project-commands, agent-events,
+                   provider-errors, pricing.
                    PURO: sem DOM, sem window, sem Tauri, sem importar de fora.
-  application/     casos de uso: ports.ts + run-mission / live-chat / tool-executor.
+  application/     casos de uso: ports.ts + live-chat / agent-chat / tool-executor.
                    Deps injectadas por argumento; sem HTML. Cancelamento por AbortSignal.
   ui/              chat-view.ts (dono do DOM/markup) + actions.ts (1 listener
                    delegado no document: data-action + data-on, sem onclick inline).

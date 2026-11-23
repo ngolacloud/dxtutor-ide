@@ -7,13 +7,12 @@
 
    `features/codev.ts` imports the wired engine from here and publishes the
    `window.*` surface the rest of the app (and `features/board.ts`) still calls.
-   The mission/decision/checkpoint arrays are owned here (one source of truth)
-   and re-published onto `window` by `codev.ts`. */
+   The decision log is owned here (one source of truth) and re-published onto
+   `window` by `codev.ts`. */
 
 import * as bridge from "./infrastructure/legacy-bridge";
 import { presenter, gate, beat } from "./ui/chat-view";
 import { makeDoTool } from "./application/tool-executor";
-import { makeMissionEngine } from "./application/run-mission";
 import { makeLiveChat } from "./application/live-chat";
 import { makeAgentChat } from "./application/agent-chat";
 import { agentGateway } from "./infrastructure/agent-gateway";
@@ -22,15 +21,12 @@ import type {
   Terminal,
   Verify,
   ProviderGateway,
-  Scm,
-  Checkpoints,
   Notifier,
   Harness,
   Clock,
   ChatStore,
   ProviderInfo,
   Sampler,
-  Mission,
   ToolHost,
   RuntimeTool,
 } from "./application/ports";
@@ -38,9 +34,9 @@ import type { CommandRules } from "./domain/policy";
 import type { Decision, Mode } from "./domain/types";
 
 /* ───── state owned by the composition root (published by codev.ts) ───── */
-export const missions: Mission[] = [];
+/** O registo de decisões que a página Team lê (`window.DECS`); sem missões guionadas
+ *  (ADR-0005, R1b) fica vazio até a R3 o ligar às decisões reais do agente. */
 export const decisions: Decision[] = [];
-let mid = 0;
 
 /* ───── adapters over the legacy bridge ───── */
 /* Comandos de verificação detectados da tabela fixa do ecossistema (ex.: `cargo test`)
@@ -91,22 +87,6 @@ const providers: ProviderGateway = {
   sample: () => bridge.sample() as unknown as Sampler | null,
 };
 
-const scm: Scm = {
-  gfStart: (kind, name) => bridge.gfStart(kind, name),
-  gfAsk: (host, m) => bridge.gfAsk(host as Element, m as unknown as { files: Set<string> }),
-  commit: (msg) => bridge.commitGit(msg),
-  staged: () => bridge.staged(),
-  isTracked: (p) => !!bridge.stOf(p),
-  setAuthor: (a) => {
-    bridge.monolith.author = a;
-  },
-};
-
-const checkpoints: Checkpoints = {
-  create: (label) => bridge.checkpoint(label),
-  restore: (id, silent) => bridge.restoreCkpt(id, silent),
-};
-
 const notifier: Notifier = {
   log: (tag, msg) => bridge.log(tag, msg),
   note: (msg) => bridge.note(msg),
@@ -134,32 +114,8 @@ const clock: Clock = {
 };
 
 const mode = (): Mode => bridge.monolith.mode as Mode;
-const threshold = (): number => bridge.monolith.threshold;
-
 /* ───── wire the use cases ───── */
 const doTool = makeDoTool({ workspace, terminal, providers, notifier, presenter, gate, clock, rules, mode });
-
-const engine = makeMissionEngine({
-  workspace,
-  terminal,
-  providers,
-  notifier,
-  presenter,
-  gate,
-  clock,
-  rules,
-  mode,
-  scm,
-  checkpoints,
-  missions,
-  decisions,
-  nextId: () => ++mid,
-  threshold,
-  refresh: () => {
-    bridge.refresh();
-  },
-  tool: doTool,
-});
 
 const liveChat = makeLiveChat({
   workspace,
@@ -217,13 +173,6 @@ const chat = async (q: string): Promise<void> => {
 /* ───── the wired engine (codev.ts publishes these onto window) ───── */
 export const codevEngine = {
   doTool: doTool as (t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal) => Promise<unknown>,
-  dec: engine.dec,
-  decideQ: engine.decideQ,
-  council: engine.council,
-  execSteps: engine.execSteps,
-  evaluate: engine.evaluate,
-  reflect: engine.reflect,
-  runMission: engine.runMission,
   liveChat,
   chat,
   agentModeChanged: (mode: string): void => agentChat.modeChanged(mode),

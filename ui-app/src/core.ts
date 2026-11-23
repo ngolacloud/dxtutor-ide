@@ -190,24 +190,19 @@ declare global {
     MISSIONS: any[];
     DECS: any[];
     CKPT: any[];
-    GAPS: Array<[string, string, string, string]>;
     badges: () => void;
     ROUTE: Record<string, string>;
     ROLE: Record<string, string>;
     ROLE_D: Record<string, string>;
     MODES: Record<string, { l: string; d: string }>;
-    CRIT: Array<{ k: string; s: string; l: string; w: number }>;
     provFor: (r: string) => string;
     SD: any;
     renderCodevPane: () => void;
-    renderWelcomePage: (t: unknown, host: HTMLElement) => void;
     renderSettingsPage: (t: unknown, host: HTMLElement) => void;
     renderManagerPage: (t: unknown, host: HTMLElement) => void;
     renderAgentView: (t: unknown, host: HTMLElement) => void;
     testProv: (k: string, btn: HTMLElement) => void;
     doTool: (t: { t: string; [k: string]: any }, host: Element, role?: string) => Promise<unknown>;
-    runMission: (S: any, text?: any) => unknown;
-    demo: (x: string) => void;
     setMode: (m: string) => void;
     /* feature `infra` (migrada de v5.ts base + v6.ts decoração): pane «Infra» (runtime
        de contentores, dev container, Kubernetes, environments). Base v5 + decoração v6

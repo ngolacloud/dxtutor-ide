@@ -21,7 +21,7 @@ export function makeLiveChat(deps: LiveDeps) {
       return;
     }
     if (providers.activeProvider() !== "claude" && !providers.isDesktop()) {
-      presenter.providerSimulated(P.name, P.ep);
+      presenter.providerNeedsDesktop(P.name, P.ep);
       return;
     }
     const sampleFn = providers.sample();

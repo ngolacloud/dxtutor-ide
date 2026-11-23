@@ -19,8 +19,8 @@
    (DOM insertAdjacentHTML sobre o resultado de VIEW.team) passa a fazer parte do corpo único
    de renderTeamView — o wrapper `_team5`/`VIEW.team=` em v5.ts desapareceu. As políticas que
    o v5/v6 aplicavam com estes dados vivem agora nos donos das funções (U4g3/U4g4): o board.ts
-   (revisão/explicação/codeGuard no runner) e o codev.ts (tecto do setMode, direitos no doTool,
-   codeGuard no runMission); o `codeGuard` e o arranque do `explain` vivem aqui. O
+   (revisão/explicação/codeGuard no runner) e o codev.ts (tecto do setMode, direitos no doTool;
+   o codeGuard no runMission saiu com o motor de missões, ADR-0005 R1b); o `codeGuard` e o arranque do `explain` vivem aqui. O
    `applyTemplate` publica-se como `window.applyTemplate=` (base + o acerto do `explain`, que
    era a decoração do v6). ALWAYS/AG0 ficam léxicos (só usados
    aqui dentro). `RUN`/`DECS` não tinham contrato ambiente em pair.ts — acrescentados; `BL`

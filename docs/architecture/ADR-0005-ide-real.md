@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R0 feita, R1–R6 por fazer
+- **Estado:** aceite (2026-11-23); R0 e R1b feitas, R1a/R1c/R1d e R2–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -55,7 +55,7 @@ Inventário de 2026-11-23 (o que um utilizador desktop vê e não é real):
 | Fase | Entrega | Critério de saída |
 |---|---|---|
 | **R0 — Perda de dados** | Sai o «Repor protótipo» (`resetAll`); o autosave recusa apagar a pasta quando o FS em memória ficou vazio por inteiro e relê o disco | feito |
-| **R1 — Arranque limpo** | Sem semente, sem árvore fixa, sem cenários (chips, menu, paleta, Welcome, terminal), sem git simulado, sem diagnósticos/testes simulados, sem `P_*`; estados vazios | nenhum caminho `dxtutor/…` fixo no código; goldens demo retirados com registo |
+| **R1 — Arranque limpo** | Em quatro passos: **R1b** missões guionadas do Co-Dev; **R1a** semente e árvore fixa do explorador; **R1c** diagnósticos/testes/debug simulados e os caminhos `P_*`; **R1d** git simulado. Estados vazios honestos | nenhum caminho `dxtutor/…` fixo no código; goldens demo retirados com registo |
 | **R2 — Editor e testes reais** | Testing + `#st-tests` por `list_tests`/`run_test`/`run_all_tests`; Run por `detect_projects`; Search por `search_project`; Outline por `file_outline`; `ctx` pelo uso real da sessão; Account com o utilizador real; Code review por `review_code` | testes com IPC falso |
 | **R3 — Board/Tasks/Team** | Backlog por workspace (`board_load`/`board_save`); «Delegar» só pelo agente real; auto-teste por `run_tests`; equipa e escopos lidos do projecto | sem `genBacklog` guionado |
 | **R4 — Debug** | Run and Debug sobre DAP (`debug_launch`/`break`/`step`/`stack`/`locals`) | sessão real num projecto Rust e num Node |
@@ -78,3 +78,22 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   ficheiro do disco sobreviveu no `FS` e havia mais de um, não se apaga nada: relê-se a pasta. O
   mesmo padrão de «esvaziar o FS» existe no `checkout` simulado, no `restoreCkpt` e no PairCode;
   a rede apanha-os todos.
+
+- **R1b (2026-11-23) — missões guionadas do Co-Dev.** Sai o motor de missões
+  (`application/run-mission.ts`: clarificação, conselho de modelos, plano, auto-avaliação,
+  correcção, entrega), os cenários `a`/`b` (`domain/scenarios/`), a rubrica (`domain/scoring.ts`)
+  e os tipos que só eles usavam; o presenter perde os 18 métodos de missão e passa a chamar-se
+  `ChatPresenter`. Saem todos os pontos de entrada: chips do chat, menu Co-Dev («Missões de
+  demonstração»), paleta, cartão do Welcome (`v5.ts`), `dx missao` no terminal emulado, o
+  decorador `codeGuard` do `v5.ts` e o `sampleOnly` do `bridge.ts` para missões. Texto livre vai
+  sempre ao modelo (`codevEngine.chat`). Nas Definições sai a secção «Auto-avaliação» (limiar e
+  rubrica: só as missões os usavam; o `THRESH` fica no store porque o template de harness da
+  Team o escreve — revê-se na R3); no Gestor saem «Missões» e «Registo de decisões»; no pane sai
+  «Missões». Os cartões «provedor simulado»/«ligação indisponível» do browser deixam de oferecer
+  missões e mandam para a app desktop. Código morto removido de caminho: os três renderers do
+  Welcome que o `v5.ts` sobrepunha (`app.ts` ×2, `codev.ts`), o `GAPS`, 19 acessores do
+  `legacy-bridge` do Co-Dev. **Goldens (decisão deste ADR):** `codev.golden` perde o transcript
+  da missão `a` e o Welcome morto; regenerados o chat após `newChat`, Definições e Gestor (diffs
+  vistos: só as remoções acima); `#pane-codev` com título novo. Testes de caracterização das
+  secções 3 (execSteps), 4–8 e 11 e os de domínio de scoring/cenários apagados com o código.
+  Handlers inline 163 → 161.

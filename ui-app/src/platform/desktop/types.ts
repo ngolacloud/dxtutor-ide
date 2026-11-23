@@ -120,7 +120,6 @@ declare global {
   var dcDetach: () => unknown;
   var drawRemote: () => void;
   var hydrateEnvs: () => void;
-  var runMission: (S: any, text?: any) => unknown;
   var runSprint: (s: any) => unknown;
   var loadJSZip: () => Promise<unknown>;
   var termExec: (v: string) => unknown;

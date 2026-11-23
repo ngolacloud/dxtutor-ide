@@ -9,7 +9,7 @@
    Primitivos do ciclo de input (echo/echoCmd/onKey/scrollTerm/termClear) vivem em boot.ts
    e publicam-se no window — ficam lá. Estado/fachadas do monólito (CWD/USER/HOST/BRANCH/
    esc/changes/STAGED/stOf/short/commitGit/COMMITS/BRANCHES/runTests/dsLint/diffStat/FS/
-   extOf/hlLine/MODES/MODE/PROV/ACTIVE/MISSIONS/CKPT/setMode/demo/$) resolvem por window
+   extOf/hlLine/MODES/MODE/PROV/ACTIVE/MISSIONS/CKPT/setMode/$) resolvem por window
    em tempo de chamada (pós-startup). @ts-nocheck como as outras features-motor densas. */
 
 import { esc } from "../core";
@@ -52,8 +52,7 @@ const XC={
     if(s==='lint'){const v=dsLint();echo(v.length?v.map(x=>`<span class="warn">aviso</span> ${short(x.p)}:${x.line}  cor fixa <span class="er">${x.hex}</span> — usar token`).join('\n')+`\n<span class="er">✖ ${v.length} violação(ões) do Design System</span>`:'<span class="ok">✓ Design System: 0 violações</span>');return{ok:!v.length,sum:v.length?v.length+' violação(ões)':'0 violações'};}
     if(s==='status'){echo(`modo <span class="ac">${MODES[MODE].l}</span> · modelo <span class="ac">${PROV[ACTIVE].name}</span> · missões ${MISSIONS.length} · checkpoints ${CKPT.length}`);return;}
     if(s==='modo'&&MODES[a[1]]){setMode(a[1]);echo('modo: '+MODES[a[1]].l);return;}
-    if(s==='missao'&&(a[1]==='a'||a[1]==='b')){demo(a[1]);echo('<span class="dim">missão entregue ao Co-Dev →</span>');return;}
-    echo('<span class="dim">dx: lint | status | modo manual|assist|auto | missao a|b</span>');},
+    echo('<span class="dim">dx: lint | status | modo manual|assist|auto</span>');},
 };
 
 Object.assign(window, { XC, newInput, termRefreshPrompt });

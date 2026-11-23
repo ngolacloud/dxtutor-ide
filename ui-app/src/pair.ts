@@ -156,7 +156,6 @@ declare global {
   const runTests: (pkg?: string) => { build: boolean; err: string; ok: boolean; tests: Array<{ n: string; ok: boolean }> };
   const dsLint: () => { p: string; line: number; hex: string }[];
   const setMode: (m: string) => void;
-  const demo: (x: string) => void;
   var onKey: (e: KeyboardEvent) => void;
   const LANG: Record<string, string>;
   const diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
