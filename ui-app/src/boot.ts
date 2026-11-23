@@ -107,12 +107,6 @@ window.OVERFLOW=[
   {sep:1},
   {l:'Colab'},{l:'Cloud Code'},{l:'Google Cloud Data Agent Kit'},{l:'Firebase SQL Connect'},{l:'Kubernetes'},{l:'Makefile'},{l:'Prisma'},{l:'Ansible'},{l:'SonarQube Setup'},{l:'Trunk'},
 ];
-window.openOverflow = function(btn){closeMenus();const r=btn.getBoundingClientRect();const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
-  const title=document.createElement('div');title.className='mi ov-title';title.textContent='Additional Views';pop.appendChild(title);
-  OVERFLOW.forEach(it=>{if(it.sep){const s=document.createElement('div');s.className='mi-sep';pop.appendChild(s);return;}
-    const mi=document.createElement('div');mi.className='mi';mi.innerHTML=`<span>${it.l}</span>`+(it.pane?'':'<span class="key">plugin</span>');
-    mi.onclick=e=>{e.stopPropagation();closeMenus();if(it.pane)setPane(it.pane);else toast(it.l+' — requer o plugin instalado');};pop.appendChild(mi);});
-  let x=r.right+4,y=r.top;const h=pop.offsetHeight;if(y+h>innerHeight)y=innerHeight-h-6;pop.style.left=x+'px';pop.style.top=y+'px';}
 
 /* ═════════ MENUS ═════════ */
 window.MENUS=[
@@ -248,5 +242,4 @@ window.run = function(raw){echoCmd(raw);const v=raw.trim();if(!v){newInput();ret
 window.buildProblems = function(){$('#pc-problems').innerHTML=[['e','E0382: use of moved value: `chars`','desktop/src/lib.rs:5'],['w','variável `peek` nunca usada','desktop/src/parser.rs:22'],['w','preferir `while let` a `loop`+`match`','desktop/src/main.rs:88'],['w','import não usado: `std::fmt`','desktop/src/i18n.ts:3']].map(d=>`<div class="prob"><span class="pi ${d[0]}">${d[0]==='e'?'✖':'⚠'}</span><span><span>${d[1]}</span> <span class="ploc">${d[2]}</span></span></div>`).join('');}
 
 /* ═════════ RESIZE ═════════ */
-window.mkRz = function(el,v,base,min,max,inv){el.onmousedown=e=>{e.preventDefault();el.classList.add('drag');const sx=e.clientX,start=parseInt(getComputedStyle(document.body).getPropertyValue(v))||base;const mv=ev=>{let d=ev.clientX-sx;if(inv)d=-d;document.body.style.setProperty(v,Math.min(max,Math.max(min,start+d))+'px');};const up=()=>{el.classList.remove('drag');removeEventListener('mousemove',mv);removeEventListener('mouseup',up);};addEventListener('mousemove',mv);addEventListener('mouseup',up);};}
 

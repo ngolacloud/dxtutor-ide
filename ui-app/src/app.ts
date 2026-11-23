@@ -67,17 +67,9 @@ window.refresh = function(fromEd,force){const sig=Object.keys(FS).map(p=>p+stOf(
   /* U3c (ADR-0004): o fim do refresh é o sinal «o workspace mudou» — quem reagia
      decorando o refresh (grafo/board, autosave do desktop, sync do PairCode) subscreve */
   bus.emit('workspace:changed',{fromEditor:!!fromEd,force:!!force});}
-window.badges = function(){const set=(p,v)=>{const b=$(`.act[data-pane="${p}"] .badge`);if(b){b.textContent=v;b.style.display=v?'grid':'none';}};set('scm',changes().length||'');set('codev',typeof RUN!=='undefined'&&RUN.active?'●':'');}
+/* shell (badges/RP/sideOpen/setPane/goPane/toggleSide/togglePanel/hd/setPanelTab/buildActivity) migrada p/ features/shell.ts (ADR-0004, U4d1). */
 
 /* ───── activity bar e painéis laterais ───── */
-const RP={};
-const sideOpen=()=>getVar('--side-w')!=='0px';
-function setPane(p,tgl){if(p==='settings'){openSettings();return;}if(tgl===true&&PANE===p&&sideOpen()){toggleSide();return;}if(!sideOpen())toggleSide();PANE=p;
-  $$('.act').forEach(a=>a.classList.toggle('on',a.dataset.pane===p));$$('.pane').forEach(x=>x.classList.remove('show'));const pe=$('#pane-'+p);if(pe)pe.classList.add('show');if(RP[p])RP[p]();hydrate();}
-const goPane=p=>setPane(p);
-function toggleSide(){const o=sideOpen();setVar('--side-w',o?'0px':'250px');$('#tgl-side').classList.toggle('on',!o);}
-function togglePanel(){const o=getVar('--panel-h')!=='0px';setVar('--panel-h',o?'0px':'230px');$('#tgl-panel').classList.toggle('on',!o);}
-const hd=(t,acts)=>`<div class="side-hd"><span class="t">${t}</span><span class="acts">${acts||''}</span></div>`;
 
 RP.search=()=>window.renderSearchPane();/* corpo + leaves doSearch/replaceAll migrados p/ features/search.ts; shim delega (lazy, no switch de pane) */
 
@@ -147,7 +139,6 @@ function loadCfg(){const c=LS.get('cfg',null);if(!c)return;if(MODES[c.MODE])MODE
 /* checkpoints: checkpoint$dup0/restoreCkpt$dup0/resetAll$dup0 (duplicados mortos) removidos; o checkpoint git-aware vivo está na secção git (~629). */
 
 /* interface do agente + controlo de execução + ferramentas do agente: motor migrado p/ features/codev.ts (window-backed). Fica aqui só setPanelTab (infra do painel inferior, partilhado por boot/debug/infra/pair). */
-function setPanelTab(pt,nofocus){if(getVar('--panel-h')==='0px')togglePanel();$$('.ptab').forEach(b=>b.classList.toggle('on',b.dataset.pt===pt));$$('.pcontent').forEach(c=>c.classList.remove('show'));const el=$('#pc-'+pt);if(el)el.classList.add('show');if(pt==='terminal'){scrollTerm();if(!nofocus){const c=$('#cmd');if(c)c.focus({preventScroll:true});}}}
 
 /* cenários de demonstração (G/lxStep/SCN/demo): migrados p/ features/codev.ts (SCN lazy, window.demo). */
 
@@ -261,8 +252,6 @@ const LF=p=>ROOT+'learn/'+p;/* fachada viva: features/learn.ts lê window.LF (lt
 let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */
 
 /* ───── integração com o resto do IDE ───── */
-function buildActivity(){const bar=$('#activity');bar.innerHTML='';ACTS.forEach(a=>{const el=document.createElement('button');el.className='act'+(a.spacer?' spacer':'')+(a.sep?' sep':'');el.title=a.title;el.dataset.pane=a.pane||'';el.innerHTML=svg(a.ic)+`<span class="badge${a.acc?' acc':''}" style="display:none"></span>`;
-  el.onclick=e=>{e.stopPropagation();a.overflow?openOverflow(el):a.run?a.run():setPane(a.pane,true);};bar.appendChild(el);});}
 function resetAll(){if(RUN.active){toast('Pára a execução primeiro');return;}loadSeed();MISSIONS.length=0;DECS.length=0;CKPT.length=0;CHAT.length=0;BL.issues.length=0;BL.seq=11;BL.mig=3;BL.adr=4;SD=JSON.parse(JSON.stringify(ST_SEED));saveSD();TB=[];newChat();refresh(false,true);openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'});toast('Protótipo reposto ao estado inicial');}
 bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();});
 const _stLang=window.stLang;window.stLang=function(){_stLang();blame();};
@@ -339,20 +328,18 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
    script. As mutáveis partilhadas já são window-backed acima (fonte única). ── */
 Object.assign(window, {
   CMD, FS, LS,
-  OPEN, PANE, PROV, ROOT, RP, RUN, SECOPEN, STOP, VIEW,
-  badges, blame, boot, boot3, boot4, buildActivity, buildMenus,
-  esc, goPane,
-  hydrate, loadCfg, loadSeed, log,
+  OPEN, PANE, PROV, ROOT, RUN, SECOPEN, STOP, VIEW,
+  blame, boot, boot3, boot4, buildMenus,
+  esc, hydrate, loadCfg, loadSeed, log,
   mdFull, rerender, resetAll, runTask,
-  save, setPane, setPanelTab, togglePanel,
-  toggleSide, use,
+  save, use,
   who, writeFile,
   // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
   CHAT, SEED, SAFE, DANGER, connected, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
   // fachadas que as features migradas (features/*.ts) consomem por window:
   provFor, LF,
   // núcleo que as camadas v5 (src/v5.ts) e v6 (src/v6.ts) consomem como referências livres via window:
-  extOf, getVar, hd, hhmm, LANG, P_HIST, P_LX, rel, setVar, short, USAGE
+  extOf, getVar, hhmm, LANG, P_HIST, P_LX, rel, setVar, short, USAGE
 });
 /* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — o último módulo
    da cadeia, de modo a correr depois de as camadas v3–v7 publicarem os seus bootN. */

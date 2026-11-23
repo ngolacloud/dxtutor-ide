@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4c)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4d1)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -250,3 +250,15 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   golden que arranca a app inteira passava os 5 s — o HEAD sem a U4c falhava igual.
   Verificado: 349 testes (goldens sem diff; 3 novos), arranque no browser 4/4 e
   auto-teste desktop idêntico.
+
+- **U4d1 (2026-11-23) — a «shell» da janela.** `features/shell.ts` (tipado) é dono do
+  layout: a barra de actividade (`buildActivity`, o menu de vistas extra `openOverflow`,
+  os contadores `badges`), os painéis laterais (`setPane`/`goPane` e o registo de
+  renderers `RP`, que o app.ts e o v6 continuam a preencher por nome ao carregar), a barra
+  lateral e o painel inferior (`toggleSide`, `togglePanel`, `setPanelTab`, `sideOpen`) e
+  os separadores arrastáveis (`mkRz`). Saíram do app.ts (9 funções + `RP` + a cópia de
+  `hd`, que passa a ser a do core) e do boot.ts (`openOverflow`, `mkRz`); o painel activo
+  passa pelo dono (`layoutStore.pane`) e o contador do Co-Dev lê `agentStore.run`.
+  Globais publicadas: 430 (as mesmas — mudaram de dono). Lint 291 → 289. Verificado: 353
+  testes (goldens sem diff; 4 novos), arranque no browser 4/4 e auto-teste desktop
+  idêntico. A seguir, U4d2: menus.
