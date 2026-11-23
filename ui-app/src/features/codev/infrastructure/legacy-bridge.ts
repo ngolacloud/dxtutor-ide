@@ -108,6 +108,25 @@ export const setEffort = (v: string): void => {
   }
 };
 
+/** A pasta aberta no desktop e as recentes (`null` no protótipo sem Tauri). */
+export const desktopFolder = (): { name: string; recent: string[] } | null => {
+  const R = G.DXR;
+  if (!R || !R.root) return null;
+  let recent: string[];
+  try {
+    recent = (G.LS?.get("dx-recent", []) as string[]) ?? [];
+  } catch {
+    recent = [];
+  }
+  return { name: R.name || String(R.root).split("/").filter(Boolean).pop() || String(R.root), recent };
+};
+/** O assistente da conversa (features/team.ts): escolher e redesenhar o `#pill-agent`. */
+export const pickPersona = (): void => G.pickAgent?.();
+export const refreshPersona = (): void => G.agentPill?.();
+export const openFolder = (path?: string): void => {
+  if (G.DXR && typeof G.DXR.open === "function") void G.DXR.open(path);
+};
+
 /** O reconhecimento de voz do motor web (Chromium/Safari; o WebKitGTK não o tem). */
 export const speechRecognition = (): unknown => {
   const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };

@@ -308,7 +308,8 @@ CMD.push(['Projecto: Studio de arquitectura','',openStudio],['Projecto: Quadro (
 function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray(sd.nodes)&&Array.isArray(sd.edges))SD=sd;
   const i=ACTS.findIndex(a=>a.pane==='codev');ACTS.splice(i+1,0,{ic:'book',pane:'tutor',title:'Tutor'},{ic:'cube',run:openStudio,title:'Studio de arquitectura'},{ic:'split',run:openBoard,title:'Quadro'});ACTS[i].sep=1;buildActivity();$('.act').classList.add('on');
   $('.side').insertAdjacentHTML('beforeend','<div class="pane" id="pane-tutor"></div>');
-  $('.comp-bar').insertAdjacentHTML('afterbegin','<button class="pill" id="pill-agent" title="Assistente da conversa" onclick="pickAgent()"></button>');agentPill();
+  /* o #pill-agent nasce no compositor (features/codev/ui/composer.ts); só se cria aqui se faltar */
+  if(!$('#pill-agent'))$('.comp-bar').insertAdjacentHTML('afterbegin','<button class="pill" id="pill-agent" title="Assistente da conversa" onclick="pickAgent()"></button>');agentPill();
   $('#st-lang').insertAdjacentHTML('beforebegin','<button class="si opt" id="st-blame" title="Último commit que tocou neste ficheiro"></button>');
   MENUS.splice(7,0,{t:'Projecto',items:[{l:'Studio de arquitectura',act:openStudio},{l:'Quadro (kanban)',act:openBoard},{l:'Gerar backlog a partir do Studio',act:genBacklog},{sep:1},{l:'Equipa e harness',act:()=>openTeam()},{l:'Grafo de commits',act:()=>openGraph()},{l:'Gitflow',sub:[{l:'Iniciar feature…',act:()=>gfPrompt('feature')},{l:'Iniciar fix…',act:()=>gfPrompt('fix')},{l:'Iniciar release…',act:()=>gfPrompt('release')},{l:'Finalizar ramo actual',act:()=>gfFinish()}]},{sep:1},{l:'Tutor',act:()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}}]});$('#menubar').innerHTML='';buildMenubar();
   refresh(false,true);show(cur);badges();}

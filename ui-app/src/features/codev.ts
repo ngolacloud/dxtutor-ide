@@ -23,8 +23,9 @@
 import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
-import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
+import { composerActions, composerProfile, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
 import { exportMarkdown, parseEffort } from "./codev/domain/composer";
+import { introFor } from "./codev/domain/composer-profiles";
 import { RUBRIC } from "./codev/domain/scoring";
 import { buildScenarios } from "./codev/domain/scenarios";
 import type { Scenario, ScenarioEnv } from "./codev/domain/types";
@@ -85,7 +86,7 @@ function newChat() {
   <button class="chip" data-action="demo" data-on="b"><b>Histórico de conversas persistente</b><small>Requisitos → BD → Repository → UI → testes. Inclui uma auto-correcção.</small></button>
   <button class="chip" data-action="demo" data-on="a"><b>Corrigir o E0382 em lib.rs</b><small>Três provedores propõem; o juiz escolhe a melhor.</small></button>
   <button class="chip" data-action="handle-prompt" data-on="Explica o ficheiro activo e aponta riscos de arquitectura."><b>Explica o ficheiro activo</b><small>Pergunta livre — respondida pelo Claude ao vivo.</small></button>
-  <div class="i-n" id="live-note"></div></div>`; window.updateAgentUI();
+  <div class="i-n" id="live-note"></div></div>`; window.updateAgentUI(); composerHost.profileChanged(composerProfile());
 }
 
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
@@ -339,5 +340,22 @@ const composerHost: ComposerHost = {
   exportConversation,
   toast: (m) => bridge.toast(m),
   speech: () => bridge.speechRecognition() as (new () => SpeechLike) | null,
+  folder: () => bridge.desktopFolder(),
+  openFolder: (p) => bridge.openFolder(p),
+  pickPersona: () => bridge.pickPersona(),
+  refreshPersona: () => bridge.refreshPersona(),
+  openModelSettings: () => openSettings(),
+  switchProvider: () => pickModel(),
+  profileChanged: (p) => {
+    // o ecrã inicial acompanha o harness do provedor (o do Claude fica como está)
+    const intro = $('#ag-intro');
+    if (!intro) return;
+    const t = introFor(p), title = intro.querySelector('.i-t'), sub = intro.querySelector('.i-s');
+    // Claude: o ecrã do Co-Dev tal como está (o golden de newChat() cobre-o)
+    if (!t) { if (intro.dataset.profile) { delete intro.dataset.profile; if (title) title.textContent = 'Co-Dev'; if (sub) sub.textContent = 'Entendo requisitos, proponho arquitectura, escrevo, testo, avalio o meu próprio trabalho e corrijo-o — contigo a orientar.'; } return; }
+    intro.dataset.profile = p.id;
+    if (title) title.textContent = t.title;
+    if (sub) sub.textContent = t.sub;
+  },
 };
 mountComposer(composerHost);

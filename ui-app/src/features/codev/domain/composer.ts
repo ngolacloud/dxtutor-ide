@@ -56,6 +56,11 @@ export function modelLabel(provider: string, model: string): string {
   return model || provider;
 }
 
+/** Os nomes de exemplo do protótipo que nenhuma API aceita → o modelo por omissão do
+ *  provedor (o mesmo que `codev_agent::resolve_model` usa no backend). */
+const PLACEHOLDER: Record<string, string> = { "gpt-codex": "gpt-4.1", "gemini-pro": "gemini-2.5-flash" };
+export const effectiveModel = (model: string): string => PLACEHOLDER[model] ?? model;
+
 /** O esforço só vai ao Claude (matriz da F8). */
 export const supportsEffort = (provider: string): boolean => provider === "claude";
 
@@ -100,7 +105,9 @@ export const SLASH_ACTIONS: SlashAction[] = [
   { id: "export", group: "Contexto", label: "Exportar conversa" },
   { id: "model", group: "Modelo", label: "Mudar de modelo…" },
   { id: "effort", group: "Modelo", label: "Esforço" },
+  { id: "mode", group: "Agente", label: "Mudar de modo…", hint: "⇧Tab" },
   { id: "plan", group: "Agente", label: "Planear antes de editar", hint: "/plano" },
+  { id: "persona", group: "Agente", label: "Assistente da conversa…" },
   { id: "commands", group: "Agente", label: "Comandos e extensões do projecto", hint: "/comandos" },
   { id: "test", group: "Agente", label: "Correr os testes", hint: "/test" },
   { id: "lint", group: "Agente", label: "Correr o lint", hint: "/lint" },
