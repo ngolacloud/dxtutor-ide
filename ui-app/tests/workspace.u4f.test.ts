@@ -1,4 +1,4 @@
-// U4f (ADR-0004): workspace (writeFile/loadSeed/SEED), LS, save/loadCfg e use/connected.
+// U4f (ADR-0004): workspace (writeFile/resetWorkspace — sem semente, ADR-0005 R1a), LS, save/loadCfg e use/connected.
 import { beforeEach, expect, it } from "vitest";
 import { bootApp } from "./harness";
 
@@ -8,16 +8,14 @@ beforeEach(async () => {
   localStorage.clear();
 });
 
-it("loadSeed repõe a semente: 21 ficheiros base, com as diferenças de demonstração", () => {
+it("resetWorkspace esvazia o workspace e o stage: a app não traz ficheiros de demonstração", () => {
   w.writeFile(w.ROOT + "extra.md", "x");
-  w.loadSeed();
-  const files = Object.keys(w.FS);
-  expect(files.length).toBe(Object.keys(w.SEED.base).length);
-  expect(files).not.toContain(w.ROOT + "extra.md");
-  const css = w.FS[w.ROOT + "desktop/src/styles.css"];
-  expect(css.orig).not.toContain("--accent-hover: #f08a4b;");
-  expect(css.content).toContain("--accent-hover: #f08a4b;");
-  expect(w.FS[w.ROOT + "desktop/src/theme.css"].orig).toBe(null);
+  w.STAGED.add(w.ROOT + "extra.md");
+  w.resetWorkspace();
+  expect(Object.keys(w.FS)).toEqual([]);
+  expect(w.STAGED.size).toBe(0);
+  expect(w.SEED).toBeUndefined();
+  expect(w.loadSeed).toBeUndefined();
 });
 
 it("writeFile cria o ficheiro, abre as pastas até ele e emite workspace:changed", async () => {

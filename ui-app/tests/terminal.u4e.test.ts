@@ -13,6 +13,7 @@ const key = (k: string) => document.querySelector("#cmd")!.dispatchEvent(new Key
 
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
+  w.syncTree(); // a árvore sai do FS (a fixture), como no arranque da app — já não há árvore fixa (ADR-0005, R1a)
   w.CWD = ["~", "workspaces", "NgolaCloud", "projects"];
   w.termClear();
 });

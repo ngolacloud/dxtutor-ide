@@ -14,10 +14,7 @@ import { bus } from "./app/bus";
 import { desktopPorts } from "./app/desktop";
 import { openArch } from "./features/arch/index";
 
-/* O seed de demonstração (SEED.base) só é carregado quando a build foi feita com
-   VITE_SEED=1 — i.e. `npm run dev:seed`. O `npm run dev` arranca com o workspace
-   vazio. Ponto único de decisão: lido aqui e respeitado por loadSeed(). */
-/* SEED/SEED_ON, LS, writeFile, loadSeed, save/loadCfg e use/connected migrados (ADR-0004, U4f): features/workspace.ts, app/store/{storage,config,agent}.ts. */
+/* LS, writeFile, resetWorkspace (ex-loadSeed; a semente saiu — ADR-0005, R1a), save/loadCfg e use/connected migrados (ADR-0004, U4f): features/workspace.ts, app/store/{storage,config,agent}.ts. */
 
 /* COURSES (conteúdo dos cursos) migrado p/ features/learn.ts */
 /* ═════════ dxtutor IDE v2 — núcleo do IDE ═════════ */
@@ -149,7 +146,7 @@ function buildMenus(){MENUS.length=0;MENUS.push(
   {t:'Help',items:[{l:'Bem-vindo',act:cmd('Ajuda: Bem-vindo')},{l:'O que mudou e porquê',act:openAnalysis},{l:'Atalhos de teclado',act:openSettings},{sep:1},{l:'Sobre',act:()=>toast('dxtutor IDE · protótipo v2')}]});}
 
 /* ───── arranque ───── */
-function boot(){loadCfg();loadSeed();syncTree();
+function boot(){loadCfg();resetWorkspace();syncTree();
   ACTS.length=0;ACTS.push({ic:'explorer',pane:'explorer',title:'Explorer'},{ic:'search',pane:'search',title:'Pesquisa'},{ic:'scm',pane:'scm',title:'Source Control'},{ic:'run',pane:'run',title:'Run and Debug'},{ic:'test',pane:'test',title:'Testing'},{ic:'ext',pane:'ext',title:'Extensions'},{ic:'sparkle',pane:'codev',title:'Co-Dev',acc:1},{ic:'dots',overflow:1,title:'Mais vistas…',spacer:1},{ic:'account',pane:'account',title:'Conta'},{ic:'settings',pane:'settings',title:'Definições'});
   OVERFLOW.length=0;OVERFLOW.push({l:'Remote Explorer',pane:'remote'},{l:'Containers',pane:'containers'});
   $('#brand').innerHTML=svg('sparkle');buildMenus();buildMenubar();buildActivity();buildDocker();$('.act').classList.add('on');

@@ -15,7 +15,7 @@ import { bootApp, golden } from "./harness";
  * do domínio se prove byte-a-byte idêntica.
  *
  * Determinismo: nem `reviewFindings` nem os dois render usam Math.random/Date.
- * O workspace é semeado (VITE_SEED=1 fixo em vitest.config.ts → `SEED.base`), por
+ * O workspace é a fixture `sample-workspace` (aplicada pelo harness), por
  * isso `FS[P_LX]` (crates/lexer/src/lib.rs) existe e tem o bug do iterador movido
  * (`for c in chars {` + `chars.peek()`), logo `lexBug()` é true — estado estável.
  * `window.SAMPLE` nasce `null` no arranque e o harness não corre o backend Tauri
@@ -23,7 +23,7 @@ import { bootApp, golden } from "./harness";
  * `renderCreviewView` fica OFF — baseline determinista. Timers falsos só para
  * neutralizar o polling de arranque (não há relógio a caracterizar).
  *
- * Ficheiros sintéticos: `SEED.base` só traz o lexer com bug e ficheiros limpos;
+ * Ficheiros sintéticos: a fixture só traz o lexer com bug e ficheiros limpos;
  * as outras regras (innerHTML/invoke/any em TS, clone/unwrap/LIMIT em Rust, FK em
  * SQL, Dockerfile, compose, k8s) exercitam-se injectando ficheiros deterministas
  * em `FS`, tal como o golden do `ext` injecta `scratch.ts` para o formatador.

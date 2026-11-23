@@ -32,14 +32,19 @@ function renderLevel(obj:Record<string,any>,host:HTMLElement,depth:number,path:s
     const expand=(o:boolean)=>{row.classList.toggle('open',o);kids.style.display=o?'block':'none';(row.querySelector('.ic') as HTMLElement).innerHTML=svg(o?'folderOpen':'folder');
       if(node.dpath){o?OPEN.add(node.dpath):OPEN.delete(node.dpath);}else node.open=o;
       if(o&&!built){built=true;if(node.children&&Object.keys(node.children).length)renderLevel(node.children,kids,depth+1,path.concat(name));
-        else kids.insertAdjacentHTML('beforeend',`<div class="sec-empty" style="padding:2px 0 2px ${pad+28}px">fora do workspace do protótipo</div>`);}};
+        else kids.insertAdjacentHTML('beforeend',`<div class="sec-empty" style="padding:2px 0 2px ${pad+28}px">pasta vazia</div>`);}};
     kids.style.display='none';row.onclick=e=>{e.stopPropagation();sel(row);expand(!row.classList.contains('open'));};if(open)expand(true);
   }else row.onclick=e=>{e.stopPropagation();if(node.path)openPath(node.path);};});}
 function buildExplorer(){const host=$('#exp-sections');if(!host)return;host.innerHTML='';
   const sec=(lbl:string,open:boolean,flex?:number)=>{const s=document.createElement('div');s.className='section'+(flex?' flexible':'');const h=document.createElement('div');h.className='sec-hd'+(open?' open':'');h.innerHTML=`<span class="chev">${svg('chev')}</span><span class="lbl">${lbl}</span>`;
     const b=document.createElement('div');b.className='sec-body'+(open?' show':'');h.onclick=()=>{h.classList.toggle('open');b.classList.toggle('show');SECOPEN[lbl]=b.classList.contains('show');};s.append(h,b);host.appendChild(s);return b;};
   const tb=sec('projects',SECOPEN.projects!==false,1),tree=document.createElement('div');tree.className='tree';tb.appendChild(tree);renderLevel(TREE.projects.children,tree,0,['projects']);
+  if(!Object.keys(TREE.projects.children).length)noFolder(tree);
   sec('Outline',SECOPEN.Outline!==false).id='outline';sec('Timeline',!!SECOPEN.Timeline).id='timeline';drawOutline();drawTimeline();markActive();}
+/** Sem pasta aberta: o estado vazio (como o VS Code), com «Abrir pasta…» quando há desktop (`DXR`). */
+function noFolder(host:HTMLElement){const d=document.createElement('div');d.className='sec-empty';d.textContent='Nenhuma pasta aberta.';host.appendChild(d);
+  const dxr=(window as unknown as {DXR?:{open?:()=>void}}).DXR;if(!dxr||!dxr.open)return;
+  const b=document.createElement('button');b.className='mini pri';b.style.margin='4px 0 0 12px';b.textContent='Abrir pasta…';b.addEventListener('click',()=>dxr.open!());host.appendChild(b);}
 function markActive(){$$('#exp-sections .row.sel').forEach(x=>x.classList.remove('sel'));const t=tabOf(cur);if(t&&t.path){const r=$(`#exp-sections .row[data-path="${esc(t.path)}"]`);if(r)r.classList.add('sel');}}
 function collapseAll(){OPEN.clear();Object.values(TREE.projects.children).forEach(n=>{(n as any).open=false;});buildExplorer();}
 function symbols(p:string){const f=FS[p];if(!f)return[];const out:{k:string;n:string;line:number}[]=[];f.content.split('\n').forEach((l,i)=>{const m=l.match(/^\s*(?:pub\s+)?(?:async\s+)?(fn|struct|enum|trait|impl|function|CREATE TABLE|CREATE INDEX)\s+(?:.*?\bfor\s+)?([A-Za-z_]\w*)/)||l.match(/^(#{1,3})\s+(.+)/)||l.match(/^(export)\s+(?:async\s+)?(?:function|const)\s+(\w+)/);if(m)out.push({k:m[1].replace('CREATE ','').toLowerCase(),n:m[2],line:i+1});});return out;}
@@ -69,7 +74,13 @@ interface TreeNode {
 /** Reconstrói a árvore do projecto a partir dos caminhos do FS (pastas primeiro, por nome). */
 function syncTree(): void {
   const mk = (dp: string): TreeNode => ({ dir: 1, children: {}, dpath: dp }),
-    root = mk("dxtutor");
+    root = mk("dxtutor"),
+    tree = (TREE as { projects: { children: Record<string, unknown> } }).projects;
+  /* sem ficheiros não há projecto a mostrar (o bridge do desktop repõe a raiz de uma pasta vazia) */
+  if (!Object.keys(FS).length) {
+    tree.children = {};
+    return;
+  }
   Object.keys(FS).forEach((p) => {
     const parts = p.split("/").slice(1);
     let n = root,
@@ -94,7 +105,7 @@ function syncTree(): void {
     n.children = o;
   };
   sort(root);
-  (TREE as { projects: { children: Record<string, unknown> } }).projects.children.dxtutor = root;
+  tree.children = { dxtutor: root };
 }
 
 /** O ícone de um ficheiro pela extensão (Rust, Markdown, SQL; o resto genérico). */

@@ -10,7 +10,7 @@ import { bootApp, golden } from "./harness";
  *
  * Determinismo: o render do `ext` não usa Math.random nem Date (a cor das
  * linhas sai de charCodeAt → estável; o estado inicial é fixo). `projectContext`
- * deriva só de Object.keys(FS) semeado (VITE_SEED=1), logo a secção
+ * deriva só de Object.keys(FS) (a fixture sample-workspace do harness), logo a secção
  * «Recommended» é estável. Timers falsos só para neutralizar o setTimeout do
  * toast e o polling de arranque — não há relógio a caracterizar.
  *

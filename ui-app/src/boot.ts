@@ -18,7 +18,7 @@
    ADR-0004, U4j1: tipado (era @ts-nocheck) e sem o código morto do primeiro protótipo
    (separadores/documentos/minimapa/boas-vindas antigos, nunca referenciados, e as versões
    do agente que o features/codev.ts redefine antes de alguém as ler). O que resta são as
-   globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE/DOCS), o
+   globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE), o
    painel de contentores de demonstração e dois listeners. */
 export {};
 
@@ -31,7 +31,6 @@ declare global {
     OVERFLOW: unknown[];
     MENUS: unknown[];
     TREE: unknown;
-    DOCS: Record<string, Array<[string, string]>>;
     wireSections: (scope: ParentNode) => void;
     buildDocker: () => void;
   }
@@ -160,37 +159,20 @@ window.MENUS=[
 document.addEventListener('click',()=>closeMenus());
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
-window.TREE={projects:{dir:1,open:1,children:{
-  '.claude':{dir:1},'.worktrees':{dir:1},'audits':{dir:1},
-  'delonix-console':{dir:1,git:'u'},'delonix-deploy':{dir:1},'delonix-desktop':{dir:1,git:'m'},
-  'delonix-mail':{dir:1,git:'m'},'delonix-runtime':{dir:1,git:'m'},'DORM':{dir:1},'dx':{dir:1},'dxjs':{dir:1},
-  'dxtutor':{dir:1,git:'m',open:1,children:{
-    'desktop':{dir:1,open:1,children:{
-      'src':{dir:1,open:1,children:{
-        'main.ts':{t:'rust'},'assistant.ts':{t:'rust',git:'m'},'workspace.ts':{t:'rust'},
-        'styles.css':{t:'css',git:'m'},'theme.css':{t:'css',git:'u'},'i18n.ts':{t:'rust'},
-      }},
-      'package.json':{t:'json'},'index.html':{t:'file'},
-    }},
-    'crates':{dir:1},'Cargo.toml':{t:'toml'},'README.md':{t:'md'},
-  }},
-  'ngolacloud-control-plane':{dir:1,git:'m'},'ngolacloud-control-plane_bkp':{dir:1},'seiva':{dir:1},'still-js':{dir:1},
-}}};
-window.DOCS={
-  'lib.rs':[['cm','// Tokeniza uma expressão aritmética.'],['','<span class="kw">pub fn</span> <span class="fn">tokenize</span>(src: <span class="ty">&str</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">Token</span>&gt; {'],['','    <span class="kw">let mut</span> tokens = <span class="ty">Vec</span>::<span class="fn">new</span>();'],['','    <span class="kw">let mut</span> chars = src.<span class="fn">chars</span>().<span class="fn">peekable</span>();'],['err','    <span class="kw">for</span> c <span class="kw">in</span> chars {  <span class="cm">// ← E0382: use of moved value</span>'],['','        <span class="kw">if</span> c.<span class="fn">is_ascii_digit</span>() {'],['','            tokens.<span class="fn">push</span>(<span class="ty">Token</span>::<span class="ty">Num</span>(c));'],['','        }'],['','    }'],['','    <span class="mac">println!</span>(<span class="str">"{} tokens"</span>, tokens.<span class="fn">len</span>());'],['','    tokens'],['','}']],
-  'assistant.ts':[['cm','// Painel Assistant — render das mensagens.'],['','<span class="kw">export function</span> <span class="fn">renderMessages</span>(): <span class="ty">void</span> {'],['','  <span class="kw">const</span> host = <span class="fn">$</span>(<span class="str">"#ag-msgs"</span>);'],['','  host.innerHTML = state.messages.<span class="fn">map</span>(<span class="fn">bubble</span>).<span class="fn">join</span>(<span class="str">""</span>);'],['','}']],
-  'styles.css':[['cm','/* dxtutor — tema Grafite + laranja */'],['',':root {'],['','  --bg-base: <span class="num">#0f0f11</span>;'],['','  --accent: <span class="num">#e06c3b</span>;'],['','  --accent-hover: <span class="num">#f08a4b</span>;'],['','}']],
-};
+/* a árvore nasce vazia: o syncTree (features/explorer.ts) preenche-a com a pasta aberta (ADR-0005, R1a) */
+window.TREE={projects:{dir:1,open:1,children:{}}};
+
+/* o editor de demonstração v1 (DOCS, renderTabs/renderDocs/renderMinimap, agentShell, welcome) saiu: as
+   features tabs/editor/codev são as donas (ADR-0005, R1a). Fica o atalho de teclado dos controlos de execução. */
 document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target as HTMLElement).tagName))return;
   const open=getComputedStyle(document.body).getPropertyValue('--agent-w').trim()!=='0px'||(activeTab==='Assistant');if(!open)return;
   const rc=$('#ag-runctl');if(e.key==='Escape'){agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
   const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
 window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
 window.buildDocker = function(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
-  const cts=[['kaeso-odoo','Exited (130) · 21 horas'],['ecm_val_364','Exited (1) · 2 dias'],['kaeso-odoo-ecm','Exited (255) · 39 min'],['lab-ao-odoo','Exited (0) · 5 dias']];
-  $('#dk-containers')!.innerHTML=`<div class="row open dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('container')}</span><span class="nm">kaeso</span></div>`+
-    cts.map(c=>`<div class="row dk-row sub"><span class="ct-dot"></span><span class="nm dk-fixed">kaeso-odoo:16</span><span class="pth dk-path">${c[0]} · ${c[1]}</span></div>`).join('');
-  $('#dk-images')!.innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
+  /* sem dados inventados (ADR-0005, R1a): os contentores e as imagens reais chegam com a R5 (runtime ligado em Infra) */
+  $('#dk-containers')!.innerHTML='<div class="sec-empty">Sem runtime de contentores ligado. Liga o socket do Docker ou do Podman em Infra.</div>';
+  $('#dk-images')!.innerHTML='';
   wireSections(pane);hydrate();}
 
 /* ═════════ RESIZE ═════════ */

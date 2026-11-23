@@ -119,7 +119,7 @@ window.addEventListener("beforeunload", () => flushSave());
 /* a raiz do explorador com o nome da pasta: porta `desktopPorts.explorer` (U4h5b; antes reatribuía o syncTree) */
 desktopPorts.explorer = { syncTree(_syncTree) {
   _syncTree();
-  if (R.root || R.remote) { const r = TREE.projects.children.dxtutor; TREE.projects.children = {}; TREE.projects.children[R.name!] = r; }
+  if (R.root || R.remote) { const r = TREE.projects.children.dxtutor || { dir: 1, children: {}, dpath: "dxtutor" }; TREE.projects.children = {}; TREE.projects.children[R.name!] = r; }
 } };
 /* o prompt real (utilizador/host/cwd/ramo) passou para a porta do terminal (platform/desktop/terminal.ts, U4h3) */
 function termBanner(): void {

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { vi } from "vitest";
+import { applySampleWorkspace } from "./fixtures/sample-workspace";
 
 // A ordem de arranque vem do src/main.ts (o ponto de entrada único — ADR-0004, U1),
 // até app.ts inclusive: uma só fonte de verdade, em vez de uma cópia da lista aqui.
@@ -30,7 +31,10 @@ export async function bootApp(): Promise<typeof window> {
   for (const mod of MODULE_CHAIN) {
     await import(/* @vite-ignore */ mod);
   }
-  (window as any).loadSeed();
+  const w = window as any;
+  w.resetWorkspace();
+  applySampleWorkspace(w); // o projecto-exemplo é dado de teste (ADR-0005, R1a)
+  w.gitInit(); // o git simulado tira a árvore do FS: depois da fixture, como fazia o loadSeed
   return window;
 }
 

@@ -16,8 +16,8 @@ import { bootApp, golden } from "./harness";
  * para que a extracção do domínio/aplicação se prove byte-a-byte idêntica.
  *
  * Determinismo: o relógio é FIXADO (`setSystemTime`) antes de `bootApp` (padrão do
- * scm/debug.golden); embora o markup do board não interpole tempo, `loadSeed()→
- * gitInit()` carimba `Date.now()` no DAG. Timers falsos só para neutralizar o
+ * scm/debug.golden); embora o markup do board não interpole tempo, o `gitInit()`
+ * do harness carimba `Date.now()` no DAG. Timers falsos só para neutralizar o
  * polling de arranque. Tudo o que `board.ts` precisa (BL/STAGES/AGENTS/PROV/RUN,
  * o design-semente `SD`, o catálogo `TECH` e os geradores) vive na cadeia do
  * harness — ao contrário do debug, não são precisos fixtures de v6/boot. */

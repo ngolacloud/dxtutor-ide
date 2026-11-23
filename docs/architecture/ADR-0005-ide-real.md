@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R0 e R1b feitas, R1a/R1c/R1d e R2–R6 por fazer
+- **Estado:** aceite (2026-11-23); R0, R1b e R1a feitas, R1c/R1d e R2–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -97,3 +97,22 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   vistos: só as remoções acima); `#pane-codev` com título novo. Testes de caracterização das
   secções 3 (execSteps), 4–8 e 11 e os de domínio de scoring/cenários apagados com o código.
   Handlers inline 163 → 161.
+
+- **R1a (2026-11-24) — semente e árvore fixa.** A semente (`features/workspace/seed.ts`,
+  `VITE_SEED`, `npm run dev:seed`) sai da app e passa a fixture de teste
+  (`tests/fixtures/sample-workspace.ts`, só os 21 ficheiros base — o `gen` era das missões); o
+  harness aplica-a entre o `resetWorkspace()` (ex-`loadSeed`: esvazia o FS e o stage) e o
+  `gitInit()`, reproduzindo o estado de antes — **todos os goldens passam sem diff**. A árvore
+  do explorador nasce vazia (saem as 14 pastas escritas à mão em `boot.ts`, com estados git
+  inventados); o `syncTree` deixa a árvore vazia sem ficheiros e o explorador mostra «Nenhuma
+  pasta aberta.» com «Abrir pasta…» quando há desktop (`DXR.open`); uma pasta sem ficheiros diz
+  «pasta vazia» (era «fora do workspace do protótipo»), e o `syncTree` do `bridge.ts` aguenta uma
+  pasta real vazia. Sai do `boot.ts` o editor de demonstração v1 que já não corria (`DOCS`,
+  `renderTabs`/`renderDocs`/`renderMinimap`, `agentShell` «opus-4.8», `welcome`/`wbtn`, `agSend`
+  com respostas inventadas, `buildProblems` com o E0382 falso; os vivos são redefinidos pelas
+  features) e o `cat` do terminal emulado que lia o `DOCS` (o `XC.cat` lê o FS); o pane
+  Containers deixa de listar contentores e imagens inventados (estado vazio até à R5). Fica para a
+  R1c: o terminal emulado do browser (identidade `walter@delonix`, `cargo`/`dx` simulados).
+  Testes novos: estado vazio do explorador (browser e desktop); o do `loadSeed` passa a provar
+  que o `resetWorkspace` não traz ficheiros. Métricas: globais no window 422 → 390, handlers
+  inline 161 → 159.

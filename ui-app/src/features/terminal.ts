@@ -76,7 +76,6 @@ interface TerminalGlobals {
   USER: string;
   HOST: string;
   TREE: { projects: TreeEntry };
-  DOCS: Record<string, Array<[string, string]>>;
   XC: Record<string, (a: string[], v: string) => unknown>;
   run: (raw: string) => void;
   promptHTML: () => string;
@@ -237,16 +236,6 @@ function run(raw: string): void {
         t.push(p);
       }
       TG.CWD = t;
-    },
-    cat() {
-      const f = a[0];
-      if (!f) {
-        echo('<span class="er">cat: falta o ficheiro</span>');
-        return;
-      }
-      const b = f.split("/").pop() as string;
-      if (TG.DOCS[b]) TG.DOCS[b].forEach((l) => echo('<span class="' + (l[0] === "err" ? "" : l[0]) + '">' + l[1] + "</span>"));
-      else echo('<span class="dim">// ' + b + " — conteúdo não disponível no protótipo</span>");
     },
     tree() {
       echo('<span class="dir">' + TG.CWD[TG.CWD.length - 1] + "/</span>");
