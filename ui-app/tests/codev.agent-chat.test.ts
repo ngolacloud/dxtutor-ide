@@ -4,12 +4,13 @@ import { test, expect, vi } from "vitest";
 import { makeAgentChat } from "../src/features/codev/application/agent-chat";
 import type { AgentChatDeps, AgentGateway } from "../src/features/codev/application/ports";
 import type { AgentEvent, ApprovalRequest, HistoryItem, SessionSummary } from "../src/features/codev/domain/agent-events";
-import { parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago, parseExtensions, storyPrompt } from "../src/features/codev/domain/agent-events";
+import { isAgentProvider, isNoToolsError, parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago, parseExtensions, storyPrompt } from "../src/features/codev/domain/agent-events";
 import { costUSD, formatUsage } from "../src/features/codev/domain/pricing";
 
 type H = Parameters<AgentGateway["subscribe"]>[0];
 
 function setup(choice: unknown = "allow") {
+  const prov = { id: "claude", model: "claude-opus-5-5" };
   let h!: H;
   const calls: string[] = [];
   const log = (s: string) => calls.push(s);
@@ -82,7 +83,8 @@ function setup(choice: unknown = "allow") {
     verify: { real: () => true, command: (k) => (k === "test" ? { cmd: "cargo test", from: "Cargo.toml", trusted: true } : null) },
     workspace: { root: () => "/proj" },
     reloadFromDisk: vi.fn(async () => undefined),
-    model: () => "claude-opus-5-5",
+    provider: () => prov.id,
+    model: () => prov.model,
     mode: () => "assist",
     speaker: () => "co-dev · agente",
     nowSecs: () => 10_000,
@@ -90,7 +92,7 @@ function setup(choice: unknown = "allow") {
   };
   const chat = makeAgentChat(deps);
   const emit = (e: AgentEvent, s = "S1") => h.event(s, e);
-  return { chat, gateway, deps, calls, gateButtons, diffClicks, abort, emit, h: () => h, setScript: (f: (s: string) => void) => (script = f) };
+  return { chat, gateway, deps, prov, calls, gateButtons, diffClicks, abort, emit, h: () => h, setScript: (f: (s: string) => void) => (script = f) };
 }
 
 const stream = (event: unknown): AgentEvent => ({ kind: "stream", event }) as AgentEvent;
@@ -108,7 +110,7 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
   });
   await t.chat.send("olá");
   expect(t.gateway.start).toHaveBeenCalledWith({
-    root: "/proj", model: "claude-opus-5-5", effort: "high", testCmd: "cargo test", lintCmd: null, mode: "assist",
+    root: "/proj", provider: "claude", model: "claude-opus-5-5", effort: "high", testCmd: "cargo test", lintCmd: null, mode: "assist",
   });
   expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá");
   expect(t.calls).toContain("reasoning vou ver");
@@ -400,4 +402,45 @@ test("F7: parse do estado das extensões e pedido de uma correcção", () => {
   expect(x.mcpServers).toEqual(["s"]);
   expect(parseExtensions(null).commands).toEqual([]);
   expect(storyPrompt({ id: "DX-1", title: "t", type: "fix", pts: 1 })).toContain("(correcção, 1 pontos)");
+});
+
+test("F8: o provedor activo vai ao backend e mudar de modelo abre outra sessão", async () => {
+  const t = setup();
+  t.prov.id = "gemini";
+  t.prov.model = "gemini-2.5-pro";
+  t.setScript(() => t.emit(done()));
+  await t.chat.send("olá");
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "gemini", model: "gemini-2.5-pro" }));
+  await t.chat.send("de novo");
+  expect(t.gateway.start).toHaveBeenCalledTimes(1);
+  // o utilizador escolhe o Ollama no seletor: a sessão Gemini fecha, abre-se outra
+  t.prov.id = "ollama";
+  t.prov.model = "qwen2.5-coder:14b";
+  (t.gateway.start as ReturnType<typeof vi.fn>).mockResolvedValueOnce("S2");
+  t.setScript((s) => t.emit(done(), s));
+  await t.chat.send("e agora?");
+  expect(t.gateway.close).toHaveBeenCalledWith("S1");
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "ollama", model: "qwen2.5-coder:14b" }));
+  expect(isAgentProvider("codex") && isAgentProvider("ollama") && !isAgentProvider("mistral")).toBe(true);
+});
+
+test("F8: modelo sem tool calling nativo → send devolve false e esse modelo passa ao modo de texto", async () => {
+  const t = setup();
+  t.prov.id = "ollama";
+  t.prov.model = "gemma2:2b";
+  t.setScript(() => t.h().error("S1", "[sem-ferramentas] HTTP 400: gemma2:2b does not support tools"));
+  expect(t.chat.available()).toBe(true);
+  expect(await t.chat.send("olá")).toBe(false);
+  expect(t.calls.some((c) => c.startsWith("text O modelo gemma2:2b não suporta ferramentas nativas"))).toBe(true);
+  expect(t.calls.some((c) => c.startsWith("error"))).toBe(false);
+  expect(t.gateway.close).toHaveBeenCalledWith("S1");
+  expect(t.chat.available()).toBe(false);
+  // outro modelo do mesmo provedor continua no agente
+  t.prov.model = "qwen2.5-coder:14b";
+  expect(t.chat.available()).toBe(true);
+  // um erro normal continua a ser erro (e send devolve true: não há reenvio)
+  t.setScript(() => t.h().error("S1", "HTTP 401: chave inválida"));
+  expect(await t.chat.send("x")).toBe(true);
+  expect(t.calls).toContain("error HTTP 401: chave inválida");
+  expect(isNoToolsError("[sem-ferramentas] x") && !isNoToolsError("HTTP 400")).toBe(true);
 });

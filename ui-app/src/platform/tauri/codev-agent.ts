@@ -8,6 +8,8 @@ import { invoke, listen } from "./core";
 
 export interface StartAgentArgs {
   root: string;
+  /** `claude`/`codex`/`gemini`/`ollama` (F8). */
+  provider?: string | null;
   model?: string | null;
   effort?: string | null;
   testCmd?: string | null;
@@ -17,7 +19,7 @@ export interface StartAgentArgs {
   resume?: string | null;
 }
 
-/** Abre uma sessão; devolve o id. Falha se não houver chave da Anthropic ou a pasta não existir. */
+/** Abre uma sessão; devolve o id. Falha se faltar a chave do provedor ou a pasta não existir. */
 export const startAgent = (a: StartAgentArgs): Promise<string> =>
   invoke<string>("codev_agent_start", {
     root: a.root,
@@ -27,6 +29,7 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     lintCmd: a.lintCmd ?? null,
     mode: a.mode ?? null,
     resume: a.resume ?? null,
+    provider: a.provider ?? null,
   });
 
 /** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */

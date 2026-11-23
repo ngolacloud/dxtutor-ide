@@ -295,7 +295,11 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 > (commits git em refs ocultas `refs/dxtutor/cp/<sessão>/<n>`, sem tocar no index nem nos
 > ramos) e rewind. F7: `codev_agent_start` passa a assíncrono (liga servidores MCP) e
 > o `send` pode correr hooks do projecto (só se confiados — `codev_agent_trust`); a
-> sessão inclui `lsp_diagnostics` (cache dos diagnósticos que o `lsp.rs` já publica). F2: o turno usa as ferramentas reais
+> sessão inclui `lsp_diagnostics` (cache dos diagnósticos que o `lsp.rs` já publica). F8:
+> `codev_agent_start` aceita `provider` (`claude`/`codex`/`gemini`/`ollama`; a chave é a desse
+> provedor, e numa retoma vale o gravado na sessão); os não-Claude usam o adaptador
+> OpenAI-compatível de `tutor_agent::openai`. Um modelo sem tool calling devolve no
+> `codev-agent://error` um erro com o prefixo `[sem-ferramentas] ` (a UI recua para o harness antigo). F2: o turno usa as ferramentas reais
 > (ler/pesquisar/editar/escrever ficheiros, `bash`, git só leitura, testes/lint) —
 > F3: as permissões decidem-se no backend (`tutor_agent::permissions`: modo + regras
 > `.dxtutor/permissions.json` + piso de segurança); só o que pergunta chega à UI pelo
@@ -303,7 +307,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>`, `mode: Option<String>`, `resume: Option<String>` | `String` (id da sessão) | String | — | `platform/tauri/codev-agent.ts` | **K** · S |
+| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>`, `mode: Option<String>`, `resume: Option<String>`, `provider: Option<String>` | `String` (id da sessão) | String | — | `platform/tauri/codev-agent.ts` | **K** · S |
 | `codev_agent_send` | `session_id: String`, `text: Option<String>` | `()` (via eventos) | — | `codev-agent://event` `{session,event}`, `codev-agent://approval` `{session,request:{call,reason,dangerous,suggestedRule}}`, `codev-agent://error` `{session,error}` | `platform/tauri/codev-agent.ts` | **N** · K · **W** · **X** · S · E |
 | `codev_agent_approve` | `session_id: String`, `tool_use_id: String`, `allow: bool`, `reason: Option<String>`, `remember: Option<bool>` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S · W (`remember` grava `.dxtutor/permissions.json`) |
 | `codev_agent_set_mode` | `session_id: String`, `mode: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |

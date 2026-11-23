@@ -93,6 +93,18 @@ export function parseApproval(payload: unknown): { session: string; request: App
   };
 }
 
+/** Provedores com agente v2 (F8): o backend escolhe o adaptador — Anthropic para o Claude,
+ *  Chat Completions OpenAI-compatível para Codex/OpenAI, Gemini e Ollama. */
+export const AGENT_PROVIDERS: readonly string[] = ["claude", "codex", "gemini", "ollama"];
+
+export const isAgentProvider = (p: string): boolean => AGENT_PROVIDERS.includes(p);
+
+/** Prefixo do erro de um modelo sem tool calling nativo (`codev_agent::NO_TOOLS_MARK`): a
+ *  conversa recua para o protocolo de texto do harness antigo. */
+export const NO_TOOLS_MARK = "[sem-ferramentas] ";
+
+export const isNoToolsError = (e: string): boolean => e.startsWith(NO_TOOLS_MARK);
+
 /** `{session, error}` do evento `codev-agent://error`. */
 export function parseAgentError(payload: unknown): { session: string; error: string } | null {
   if (!isObj(payload) || !str(payload.session)) return null;

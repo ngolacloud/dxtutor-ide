@@ -324,10 +324,13 @@ export interface MissionDeps extends ToolDeps {
 
 /** O agente v2 em Rust (comandos `codev_agent_*` e os seus eventos). */
 export interface AgentGateway {
-  /** Desktop, pasta real aberta e harness v2 ligado (o antigo fica atrás de uma flag). */
+  /** Desktop, pasta real aberta, provedor com agente v2 e harness v2 ligado (o antigo fica
+   *  atrás de uma flag). */
   available(): boolean;
   start(o: {
     root: string;
+    /** `claude`/`codex`/`gemini`/`ollama` (F8). Numa retoma vale o gravado na sessão. */
+    provider: string;
     model: string;
     effort: string;
     testCmd: string | null;
@@ -365,6 +368,8 @@ export interface AgentChatDeps {
   workspace: Pick<Workspace, "root">;
   /** O agente escreve no disco: depois de cada turno a árvore do editor relê-o. */
   reloadFromDisk(): Promise<void>;
+  /** O provedor activo (o seletor de modelo da conversa). */
+  provider(): string;
   model(): string;
   mode(): string;
   speaker(): string;

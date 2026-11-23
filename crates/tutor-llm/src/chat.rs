@@ -148,6 +148,11 @@ pub struct ChatReply {
     pub provider: String,
 }
 
+/// O endereço do Ollama (definições → `OLLAMA_HOST` → `localhost:11434`).
+pub fn ollama_host() -> String {
+    host()
+}
+
 fn host() -> String {
     cfg_or_env(&load_config().ollama_host, &["OLLAMA_HOST"]).unwrap_or_else(|| DEFAULT_HOST.to_string())
 }

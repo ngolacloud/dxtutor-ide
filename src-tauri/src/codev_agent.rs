@@ -22,15 +22,19 @@ use tutor_agent::checkpoint::{Checkpoint, Checkpoints};
 use tutor_agent::extensions::{self, Command as ProjectCommand, Skill};
 use tutor_agent::hooks::{Hooks, HOOKS_FILE};
 use tutor_agent::mcp::{self, McpTool};
+use tutor_agent::openai::{self, OpenAiCompat};
 use tutor_agent::permissions::{Mode, Policy, Rules, Verdict};
 use tutor_agent::session::{self, HistoryItem, SessionLog, SessionMeta, SessionSummary};
 use tutor_agent::tools::flow::SubagentSpec;
 use tutor_agent::tools::{agent_tools, FlowState, ToolsetOptions, TOOLSET_VERSION};
 use tutor_agent::{trust, Tool};
 use tutor_agent::{
-    Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall,
+    Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall, Provider,
     SystemBlock, ToolCtx, Transcript, TurnOutcome,
 };
+
+/// Um pedido de aprovação à espera: o canal onde a UI responde e a regra sugerida.
+type Pending = (mpsc::Sender<Decision>, Option<String>);
 
 /// Com que configuração abrir uma sessão (args do `codev_agent_start`).
 #[derive(Clone, Default)]
@@ -56,6 +60,134 @@ pub struct StartSpec {
     pub trust_store: Option<PathBuf>,
     /// Configuração MCP do utilizador (o adaptador passa `~/.config/dxtutor/mcp.json`).
     pub user_mcp: Option<PathBuf>,
+    /// Provedor da conversa (`claude`/`codex`/`gemini`/`ollama`, F8). `None` → `claude`.
+    /// Numa retoma é ignorado: vale o gravado na sessão.
+    pub provider: Option<String>,
+    /// Endereço do Ollama (o adaptador passa o das definições/`OLLAMA_HOST`).
+    pub ollama_host: Option<String>,
+}
+
+/// Prefixo do erro de um modelo sem tool calling nativo: a UI reconhece-o e recua para o
+/// protocolo de texto (blocos) do harness antigo.
+pub const NO_TOOLS_MARK: &str = "[sem-ferramentas] ";
+
+/// Os provedores que o agente v2 conhece.
+pub const PROVIDERS: [&str; 4] = ["claude", "codex", "gemini", "ollama"];
+
+/// O que cada provedor suporta no agente v2 (a matriz da F8). As ferramentas, permissões,
+/// checkpoints, hooks, MCP, skills e sessões são do harness — iguais para todos; o resto
+/// depende da API.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct ProviderFeatures {
+    pub tools: bool,
+    pub thinking: bool,
+    pub prompt_cache: bool,
+    pub compaction: bool,
+    pub server_fallbacks: bool,
+    pub effort: bool,
+}
+
+pub fn provider_features(provider: &str) -> ProviderFeatures {
+    let claude = provider == "claude";
+    ProviderFeatures {
+        tools: true,
+        thinking: claude,
+        prompt_cache: claude || provider == "codex" || provider == "gemini", // automática nestes
+        compaction: claude,
+        server_fallbacks: claude,
+        effort: claude,
+    }
+}
+
+/// O aviso mostrado no primeiro turno de uma sessão que não é Claude.
+pub fn features_notice(provider: &str, model: &str) -> Option<String> {
+    if provider == "claude" {
+        return None;
+    }
+    let f = provider_features(provider);
+    let mut missing = vec![];
+    if !f.thinking {
+        missing.push("raciocínio visível");
+    }
+    if !f.compaction {
+        missing.push("compactação automática do contexto");
+    }
+    if !f.server_fallbacks {
+        missing.push("fallback do servidor");
+    }
+    if !f.effort {
+        missing.push("nível de esforço");
+    }
+    if !f.prompt_cache {
+        missing.push("cache de prompt");
+    }
+    Some(format!(
+        "{} ({model}): ferramentas, permissões, checkpoints, hooks, MCP e sessões funcionam \
+         como com o Claude; sem {} (só Claude). Conversas muito longas: começa uma nova.",
+        provider_label(provider),
+        missing.join(", ")
+    ))
+}
+
+fn provider_label(p: &str) -> &str {
+    match p {
+        "codex" => "Codex/OpenAI",
+        "gemini" => "Gemini",
+        "ollama" => "Ollama (local)",
+        _ => "Claude",
+    }
+}
+
+/// O modelo por omissão de cada provedor (quando a UI não manda um utilizável) — os mesmos
+/// que o `bridge.ts` do desktop põe no lugar dos nomes de exemplo.
+pub fn default_model(provider: &str) -> &'static str {
+    match provider {
+        "codex" => "gpt-4.1",
+        "gemini" => "gemini-2.5-flash",
+        "ollama" => "qwen2.5-coder:14b",
+        _ => anthropic::DEFAULT_MODEL,
+    }
+}
+
+/// O modelo a usar: o da UI, excepto os nomes de exemplo do protótipo (`gpt-codex`,
+/// `gemini-pro`) que nenhuma API aceita.
+pub fn resolve_model(provider: &str, model: Option<&str>) -> String {
+    match model.map(str::trim).filter(|m| !m.is_empty()) {
+        Some("gpt-codex") | Some("gemini-pro") | None => default_model(provider).to_string(),
+        Some(m) => m.to_string(),
+    }
+}
+
+/// Constrói o provedor. `key` é a chave desse provedor (o Ollama não precisa).
+pub fn make_provider(
+    provider: &str,
+    key: Option<String>,
+    ollama_host: Option<&str>,
+    workspace_id: Option<String>,
+) -> Result<Arc<dyn Provider>, String> {
+    let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+    let need = |what: &str, env: &str| {
+        format!(
+            "sem chave da {what}: guarda-a em Definições → Modelos e provedores, ou define {env}"
+        )
+    };
+    Ok(match provider {
+        "claude" => {
+            let mut cfg = Config::new(key.ok_or_else(|| need("Anthropic", "ANTHROPIC_API_KEY"))?);
+            cfg.workspace_id = workspace_id;
+            Arc::new(Anthropic::new(cfg))
+        }
+        "codex" => Arc::new(OpenAiCompat::new(openai::Config::openai(
+            key.ok_or_else(|| need("OpenAI", "OPENAI_API_KEY"))?,
+        ))),
+        "gemini" => Arc::new(OpenAiCompat::new(openai::Config::gemini(
+            key.ok_or_else(|| need("Google (Gemini)", "GEMINI_API_KEY"))?,
+        ))),
+        "ollama" => Arc::new(OpenAiCompat::new(openai::Config::ollama(
+            ollama_host.unwrap_or(""),
+        ))),
+        other => return Err(format!("provedor desconhecido para o agente: {other}")),
+    })
 }
 
 /// Os servidores MCP desta sessão: os do utilizador e os do projecto, se confiado.
@@ -111,7 +243,7 @@ struct Session {
     busy: AtomicBool,
     policy: Mutex<Policy>,
     /// tool_use_id → (canal onde a UI responde, regra sugerida para «permitir sempre»)
-    pending: Mutex<HashMap<String, (mpsc::Sender<Decision>, Option<String>)>>,
+    pending: Mutex<HashMap<String, Pending>>,
     /// O registo em disco (`None` se não foi possível criá-lo — a sessão funciona na mesma).
     log: Mutex<Option<SessionLog>>,
     /// O último modo anunciado ao modelo (mensagem `system` a meio da conversa).
@@ -168,16 +300,14 @@ pub fn parse_effort(s: Option<&str>) -> Effort {
     }
 }
 
-/// Abre uma sessão. `api_key` vem de `keys::resolve` (feito pelo adaptador, que conhece
-/// a pasta de configuração da app).
+/// Abre uma sessão. `key_for(provedor)` dá a chave desse provedor (o adaptador usa
+/// `keys::resolve`, que conhece a pasta de configuração da app) — numa retoma o provedor
+/// só se sabe depois de ler a sessão.
 pub fn start(
     spec: StartSpec,
-    api_key: Option<String>,
+    key_for: &dyn Fn(&str) -> Option<String>,
     workspace_id: Option<String>,
 ) -> Result<String, String> {
-    let key = api_key.filter(|k| !k.trim().is_empty()).ok_or_else(|| {
-        "sem chave da Anthropic: guarda-a em Definições → Modelos e provedores, ou define ANTHROPIC_API_KEY".to_string()
-    })?;
     let root = PathBuf::from(spec.root.trim());
     if !root.is_dir() {
         return Err(format!(
@@ -185,10 +315,6 @@ pub fn start(
             root.display()
         ));
     }
-    let mut cfg = Config::new(key.trim());
-    cfg.workspace_id = workspace_id;
-    let provider = Arc::new(Anthropic::new(cfg));
-
     let root_s = root.display().to_string();
     let dir = sessions_dir(spec.sessions_base.as_deref(), &root_s);
 
@@ -205,7 +331,7 @@ pub fn start(
                 return Ok(rid.to_string());
             }
             let (meta, t, log) = SessionLog::open(dir, rid)?;
-            if PathBuf::from(&meta.root) != root {
+            if Path::new(&meta.root) != root {
                 return Err(format!(
                     "a sessão {rid} pertence a outro projecto ({})",
                     meta.root
@@ -214,14 +340,19 @@ pub fn start(
             (meta, t, Some(log))
         }
         None => {
+            let provider = spec
+                .provider
+                .as_deref()
+                .map(|p| p.trim().to_ascii_lowercase())
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| "claude".into());
+            if !PROVIDERS.contains(&provider.as_str()) {
+                return Err(format!("provedor desconhecido para o agente: {provider}"));
+            }
             let meta = SessionMeta {
                 id: new_id(),
                 root: root_s.clone(),
-                model: spec
-                    .model
-                    .clone()
-                    .filter(|m| !m.trim().is_empty())
-                    .unwrap_or_else(|| anthropic::DEFAULT_MODEL.to_string()),
+                model: resolve_model(&provider, spec.model.as_deref()),
                 effort: parse_effort(spec.effort.as_deref()).as_str().to_string(),
                 system: tutor_agent::context::system_prompt(&root)
                     .into_iter()
@@ -229,14 +360,22 @@ pub fn start(
                     .collect(),
                 test_cmd: spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
                 lint_cmd: spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
-                compaction: true,
+                compaction: provider_features(&provider).compaction,
                 created: session::now(),
                 toolset: TOOLSET_VERSION,
                 mcp_tools: vec![], // preenchido abaixo, depois de ligar os servidores
+                provider,
             };
             (meta, Transcript::new(), None)
         }
     };
+
+    let provider = make_provider(
+        &meta.provider,
+        key_for(&meta.provider),
+        spec.ollama_host.as_deref(),
+        workspace_id,
+    )?;
 
     // servidores MCP: ligam-se sempre; numa sessão nova as definições anunciadas ficam
     // gravadas, numa retoma usam-se as gravadas (o prefixo do pedido não pode mudar)
@@ -334,6 +473,9 @@ pub fn start(
         }
     }
 
+    if let Some(n) = features_notice(&meta.provider, &meta.model) {
+        notes.insert(0, n);
+    }
     let id = meta.id.clone();
     let s = Session {
         agent,
@@ -438,7 +580,10 @@ pub fn send(
     }
     drop(t);
     s.busy.store(false, Ordering::SeqCst);
-    r.map_err(|e: AgentError| e.to_string())
+    r.map_err(|e: AgentError| match &e {
+        AgentError::Provider(p) if openai::is_tools_unsupported(p) => format!("{NO_TOOLS_MARK}{e}"),
+        _ => e.to_string(),
+    })
 }
 
 /// Espera pela decisão da UI, desistindo se a sessão for cancelada.
@@ -575,7 +720,7 @@ pub fn extensions_status(
     };
     let mut servers: Vec<String> = vec![];
     if let Some(u) = user_mcp {
-        servers.extend(mcp::load_config(&u).unwrap_or_default().into_keys());
+        servers.extend(mcp::load_config(u).unwrap_or_default().into_keys());
     }
     servers.extend(
         mcp::load_config(&root.join(mcp::PROJECT_FILE))
@@ -641,6 +786,84 @@ pub fn close(id: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn key(k: &'static str) -> impl Fn(&str) -> Option<String> {
+        move |_| Some(k.to_string())
+    }
+
+    #[test]
+    fn providers_models_and_feature_matrix() {
+        assert_eq!(
+            resolve_model("codex", Some("gpt-codex")),
+            "gpt-4.1",
+            "nome de exemplo do protótipo"
+        );
+        assert_eq!(
+            resolve_model("gemini", Some("gemini-pro")),
+            "gemini-2.5-flash"
+        );
+        assert_eq!(
+            resolve_model("ollama", Some(" llama3.1:8b ")),
+            "llama3.1:8b"
+        );
+        assert_eq!(resolve_model("claude", None), anthropic::DEFAULT_MODEL);
+        assert!(provider_features("claude").compaction && provider_features("claude").thinking);
+        let g = provider_features("gemini");
+        assert!(g.tools && !g.thinking && !g.compaction && !g.server_fallbacks);
+        assert!(features_notice("claude", "x").is_none());
+        let n = features_notice("ollama", "qwen").unwrap();
+        assert!(n.contains("Ollama") && n.contains("compactação") && n.contains("cache de prompt"));
+        // sem chave: Claude/OpenAI/Gemini recusam; o Ollama não precisa
+        assert!(make_provider("codex", None, None, None)
+            .err()
+            .unwrap()
+            .contains("OPENAI_API_KEY"));
+        assert!(make_provider("gemini", Some(" ".into()), None, None).is_err());
+        assert!(make_provider("ollama", None, Some("http://box:11434"), None).is_ok());
+        assert!(make_provider("mistral", Some("k".into()), None, None).is_err());
+    }
+
+    #[test]
+    fn non_claude_sessions_record_the_provider_and_resume_with_it() {
+        let proj = tempfile::tempdir().unwrap();
+        let base = tempfile::tempdir().unwrap().keep();
+        let asked = std::sync::Mutex::new(vec![]);
+        let key_for = |p: &str| {
+            asked.lock().unwrap().push(p.to_string());
+            Some("sk".to_string())
+        };
+        let spec = StartSpec {
+            root: proj.path().display().to_string(),
+            sessions_base: Some(base.clone()),
+            provider: Some("Gemini".into()),
+            model: Some("gemini-pro".into()),
+            ..Default::default()
+        };
+        let id = start(spec.clone(), &key_for, None).unwrap();
+        let s = get(&id).unwrap();
+        assert_eq!(s.agent.cfg.model, "gemini-2.5-flash");
+        assert!(!s.agent.cfg.compaction, "compactação é só da Anthropic");
+        assert!(s.startup_notices[0].starts_with("Gemini (gemini-2.5-flash)"));
+        close(&id);
+        // a retoma ignora o provedor da UI e pede a chave do gravado
+        let resumed = StartSpec {
+            provider: Some("claude".into()),
+            resume: Some(id.clone()),
+            ..spec
+        };
+        assert_eq!(start(resumed, &key_for, None).unwrap(), id);
+        assert_eq!(*asked.lock().unwrap(), ["gemini", "gemini"]);
+        assert_eq!(get(&id).unwrap().agent.cfg.model, "gemini-2.5-flash");
+        close(&id);
+        let bad = StartSpec {
+            root: proj.path().display().to_string(),
+            provider: Some("mistral".into()),
+            ..Default::default()
+        };
+        assert!(start(bad, &key("sk"), None)
+            .unwrap_err()
+            .contains("mistral"));
+    }
+
     #[test]
     fn start_requires_a_key_and_an_existing_folder() {
         let dir = std::env::temp_dir();
@@ -649,19 +872,19 @@ mod tests {
             sessions_base: Some(tempfile::tempdir().unwrap().keep()),
             ..Default::default()
         };
-        assert!(start(spec.clone(), None, None)
+        assert!(start(spec.clone(), &|_: &str| None, None)
             .unwrap_err()
             .contains("sem chave"));
-        assert!(start(spec.clone(), Some("  ".into()), None).is_err());
+        assert!(start(spec.clone(), &key("  "), None).is_err());
         let bad = StartSpec {
             root: "/nao/existe/mesmo".into(),
             ..Default::default()
         };
-        assert!(start(bad, Some("sk".into()), None)
+        assert!(start(bad, &key("sk"), None)
             .unwrap_err()
             .contains("não existe"));
 
-        let id = start(spec, Some("sk-test".into()), None).unwrap();
+        let id = start(spec, &key("sk-test"), None).unwrap();
         assert!(id.starts_with("cda-"));
         assert!(cancel(&id));
         assert!(
@@ -683,7 +906,7 @@ mod tests {
             sessions_base: Some(dir.path().join(".sessions")),
             ..Default::default()
         };
-        let id = start(spec, Some("sk-test".into()), None).unwrap();
+        let id = start(spec, &key("sk-test"), None).unwrap();
         let s = get(&id).unwrap();
         let bash = |cmd: &str| PendingCall {
             id: "x".into(),
@@ -759,7 +982,7 @@ mod tests {
             sessions_base: Some(base.path().to_path_buf()),
             ..Default::default()
         };
-        let id = start(spec(None, "claude-opus-5-5"), Some("sk".into()), None).unwrap();
+        let id = start(spec(None, "claude-opus-5-5"), &key("sk"), None).unwrap();
         {
             // simula um turno já feito (send precisa da rede): histórico + gravação
             let s = get(&id).unwrap();
@@ -785,12 +1008,7 @@ mod tests {
 
         // o AGENTS.md muda e a UI pede outro modelo — a retoma usa o prefixo gravado
         std::fs::write(proj.path().join("AGENTS.md"), "OUTRA regra").unwrap();
-        let rid = start(
-            spec(Some(id.clone()), "claude-haiku-5-5"),
-            Some("sk".into()),
-            None,
-        )
-        .unwrap();
+        let rid = start(spec(Some(id.clone()), "claude-haiku-5-5"), &key("sk"), None).unwrap();
         assert_eq!(rid, id);
         let s = get(&rid).unwrap();
         assert_eq!(
@@ -810,8 +1028,8 @@ mod tests {
         close(&rid);
         let mut bad = spec(Some(id.clone()), "x");
         bad.root = other.path().display().to_string();
-        assert!(start(bad, Some("sk".into()), None).is_err());
-        assert!(start(spec(Some("../fora".into()), "x"), Some("sk".into()), None).is_err());
+        assert!(start(bad, &key("sk"), None).is_err());
+        assert!(start(spec(Some("../fora".into()), "x"), &key("sk"), None).is_err());
     }
 
     #[test]
@@ -823,7 +1041,7 @@ mod tests {
             sessions_base: Some(proj.path().join(".s")),
             ..Default::default()
         };
-        let id = start(spec, Some("sk".into()), None).unwrap();
+        let id = start(spec, &key("sk"), None).unwrap();
         let s = get(&id).unwrap();
         let edit = PendingCall {
             id: "e".into(),
@@ -885,7 +1103,7 @@ mod tests {
             trust_store: Some(store.clone()),
             ..Default::default()
         };
-        let id = start(spec, Some("sk".into()), None).unwrap();
+        let id = start(spec, &key("sk"), None).unwrap();
         let s = get(&id).unwrap();
         assert!(s.agent.hooks.is_some());
         assert!(s

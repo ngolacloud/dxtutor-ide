@@ -75,7 +75,7 @@ apresentar árvore e grafo sem ciclos. Não se cria uma crate por tipo/ficheiro.
 | `tutor-track` | 2 | 349 | Registo de tentativas (SQLite) |
 | `tutor-board` | 1 | 294 | Board kanban (SQLite) |
 | `tutor-cli` | 1 | 200 | Prova ponta-a-ponta |
-| `tutor-agent` | 7 | — | Harness v2 do Co-Dev: loop de agente com tool use nativo (ADR-0003). Depende de `serde`/`serde_json`/`ureq`/`ignore`/`regex` e de `tutor-llm` (política única da modebar); consumido por `src-tauri` via `codev_agent` |
+| `tutor-agent` | 7 | — | Harness v2 do Co-Dev: loop de agente com tool use nativo (ADR-0003); provedores Anthropic e OpenAI-compatível (Codex, Gemini, Ollama — F8). Depende de `serde`/`serde_json`/`ureq`/`ignore`/`regex` e de `tutor-llm` (política única da modebar); consumido por `src-tauri` via `codev_agent` |
 
 ### UI (`ui-app/src/`)
 

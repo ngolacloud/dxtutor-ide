@@ -1,6 +1,6 @@
 # ADR-0003 — Harness v2 do Co-Dev: loop de agente em Rust com tool use nativo
 
-- **Estado:** aceite (recomendações do §11 aceites); F0–F7 feitas (F4–F7 por validar à mão no desktop)
+- **Estado:** aceite (recomendações do §11 aceites); F0–F8 feitas (F4–F8 por validar à mão no desktop)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto (angolardevops)
 - **Relacionado:** `ADR-0002` (camadas da feature Co-Dev na UI, que a F4 reutiliza);
@@ -219,6 +219,7 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
 
 1. **Âmbito dos provedores na primeira entrega.** ✅ *Aceite:* Claude primeiro (F0–F7) e
    o adaptador OpenAI-compatível em F8. Até lá, Codex, Gemini e Ollama continuam no harness actual.
+   *(Feito na F8 — ver §14.)*
 2. **Fallbacks do servidor em caso de recusa** ligados por omissão. ✅ *Aceite*, com um selo na UI.
 3. **Modelo dos sub-agentes.** ✅ *Aceite:* o mesmo do agente principal por omissão, configurável.
    Um modelo mais barato (ex.: `claude-haiku-5-5`) poupa custo, mas a escolha é tua.
@@ -297,3 +298,26 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
   gravadas com a sessão (a retoma reenvia-as). `lsp_diagnostics` lê a cache dos diagnósticos
   que o `lsp.rs` já publica (não controla sessões LSP). `codev_agent_start` passou a
   assíncrono. Conjunto de ferramentas versão 3 (+ `skill` e as injectadas pelo anfitrião).
+
+- **F8 (2026-11-23).** `tutor_agent::openai`: provedor OpenAI-compatível (Chat Completions
+  com `stream: true` e tool calls nativas) para Codex/OpenAI, Gemini (endpoint compatível
+  da Google) e Ollama (`/v1/chat/completions`, sem chave). O histórico canónico continua em
+  blocos Anthropic; o adaptador converte-o à ida (`tool_calls`, mensagens `tool`, `system`
+  a meio como nota `user` onde o provedor não o aceita, `additionalProperties` retirado do
+  schema para o Gemini) e devolve blocos `text`/`tool_use` — loop, ferramentas,
+  permissões, checkpoints, hooks, MCP, skills e sessões são os mesmos. Particularidades
+  tratadas: o Gemini termina com `finish_reason: "stop"` mesmo a pedir ferramentas e manda
+  ids vazios (gerados, únicos no processo); argumentos JSON partidos → `invalid_tool_inputs`
+  (o loop pede para repetir); erros no formato `[{error}]` do Gemini. A sessão grava o
+  `provider` (as anteriores → `claude`) e a retoma usa o gravado, com a chave desse provedor.
+  **Matriz:** raciocínio visível, compactação, fallbacks do servidor e `effort` são só do
+  Claude (não se enviam aos outros); cache de prompt é automática no OpenAI/Gemini. A
+  sessão avisa no primeiro turno o que falta. **Fallback de fences:** um modelo sem tool
+  calling (o Ollama responde 400 «does not support tools») devolve um erro marcado
+  (`[sem-ferramentas]`); a UI marca esse provedor+modelo e reenvia a mensagem pelo harness
+  antigo (protocolo ` ```dxaction `), que fica só para esse caso, para o protótipo e para a
+  flag `dx2.codevLegacy`. Mudar de modelo no seletor abre outra sessão. Os nomes de exemplo
+  do protótipo (`gpt-codex`, `gemini-pro`) dão lugar aos modelos por omissão do desktop
+  (`gpt-4.1`, `gemini-2.5-flash`). **Por validar com as APIs reais:** os três provedores
+  (as fixtures seguem a forma documentada de cada um, mas não foram gravadas de tráfego
+  real).

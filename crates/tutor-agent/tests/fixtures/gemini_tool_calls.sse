@@ -1,0 +1,4 @@
+data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"function":{"arguments":"{\"path\":\"src/main.rs\"}","name":"read"},"id":"","index":0,"type":"function"},{"function":{"arguments":"{}","name":"git_status"},"id":"","index":1,"type":"function"}]},"finish_reason":"stop","index":0}],"created":3,"id":"gem-1","model":"gemini-2.5-pro","object":"chat.completion.chunk","usage":{"completion_tokens":20,"prompt_tokens":900,"total_tokens":920}}
+
+data: [DONE]
+

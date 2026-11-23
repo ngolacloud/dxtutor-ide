@@ -136,7 +136,7 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
   incompatível (`~/.cache/fontconfig`, escrita por um fontconfig mais novo, por exemplo de
   uma app Flatpak/Snap) faz o WebKitGTK bloquear antes de desenhar a página. Regenera-a:
   `mv ~/.cache/fontconfig ~/.cache/fontconfig.bak && fc-cache -r`.
-- **Retomar uma conversa do Co-Dev.** Com uma pasta aberta e o Claude seleccionado,
+- **Retomar uma conversa do Co-Dev.** Com uma pasta aberta e um provedor seleccionado,
   escreve `/retomar` no painel do Co-Dev para escolher uma conversa anterior do projecto.
   As conversas ficam em `~/.config/dxtutor/sessions/` (fora do repositório).
 - **Comandos do Co-Dev (agente v2).** `/plano <pedido>` — investiga só com leitura e
@@ -155,6 +155,13 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
   Hooks e servidores MCP do projecto correm comandos definidos pelo repositório: só
   arrancam depois de confiares neles em `/comandos`, e voltam a pedir confiança se o
   ficheiro mudar.
+- **Co-Dev com outros provedores.** O agente (ferramentas reais, permissões, checkpoints,
+  `/plano`, `/reverter`, `/retomar`, hooks, MCP, skills) funciona com Claude, Codex/OpenAI,
+  Gemini e Ollama — escolhe no seletor de modelo da conversa. Só o Claude tem raciocínio
+  visível, compactação automática de conversas longas e fallback do servidor; a primeira
+  resposta de outro provedor diz o que falta. Modelos do Ollama sem suporte a ferramentas
+  (ex.: `gemma2:2b`) passam sozinhos ao modo de texto; para o agente completo usa um com
+  ferramentas (`qwen2.5-coder`, `llama3.1`, `qwen3`).
 - **Board → agente.** Num cartão do Board, «⚡ Agente» entrega a issue ao Co-Dev: investiga,
   propõe um plano para aprovares e implementa.
 - **Voltar ao harness antigo do Co-Dev.** Na consola da página:

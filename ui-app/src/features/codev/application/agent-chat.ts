@@ -7,7 +7,7 @@
 
 import type { AgentChatDeps, CardRef, ToolRef } from "./ports";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
-import { ago, callDiff, describeCall, describeSession, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
+import { ago, callDiff, describeCall, describeSession, isNoToolsError, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
 import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 
@@ -18,11 +18,18 @@ interface Turn {
   reasoning: string;
   tools: Map<string, ToolRef>;
   finish: () => void;
+  /** O modelo não tem tool calling nativo: a mensagem vai pelo protocolo de texto. */
+  noTools?: boolean;
 }
 
 export function makeAgentChat(deps: AgentChatDeps) {
   const { gateway, presenter, gate } = deps;
   let session: string | null = null;
+  /** `provedor|modelo` com que a sessão abriu: se o seletor mudar, abre-se outra. */
+  let sessionKey: string | null = null;
+  /** Provedor+modelo sem tool calling nativo (descoberto no 1.º pedido) → harness antigo. */
+  const noTools = new Set<string>();
+  const key = (): string => `${deps.provider()}|${deps.model()}`;
   let turn: Turn | null = null;
   let unsubscribe: (() => void) | null = null;
 
@@ -127,7 +134,14 @@ export function makeAgentChat(deps: AgentChatDeps) {
   function onError(s: string, message: string): void {
     const t = turn;
     if (!t || s !== session) return;
-    presenter.liveError(t.card, false, undefined, message);
+    if (isNoToolsError(message)) {
+      noTools.add(sessionKey ?? key());
+      t.noTools = true;
+      presenter.assistantText(
+        t.card,
+        `O modelo ${deps.model()} não suporta ferramentas nativas — esta conversa segue pelo modo de texto (blocos).`,
+      );
+    } else presenter.liveError(t.card, false, undefined, message);
     t.finish();
   }
 
@@ -143,9 +157,12 @@ export function makeAgentChat(deps: AgentChatDeps) {
 
   async function ensureSession(): Promise<string> {
     await ensureSubscribed();
+    if (session && sessionKey !== key()) reset(); // o seletor de modelo mudou
     if (!session) {
+      sessionKey = key();
       session = await gateway.start({
         root: deps.workspace.root(),
+        provider: deps.provider(),
         model: deps.model(),
         effort: "high",
         testCmd: deps.verify.command("test")?.cmd ?? null,
@@ -156,8 +173,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
     return session;
   }
 
-  /** Envia uma mensagem do utilizador e espera pelo fim do turno. */
-  async function send(q: string): Promise<void> {
+  /** Envia uma mensagem do utilizador e espera pelo fim do turno. `false` se o modelo não
+   *  tem tool calling nativo — quem chama reenvia pelo harness antigo. */
+  async function send(q: string): Promise<boolean> {
+    let fallback = false;
     presenter.userMessage(q);
     const card = presenter.thinking(deps.speaker());
     presenter.beginRun("Agente Co-Dev");
@@ -165,7 +184,17 @@ export function makeAgentChat(deps: AgentChatDeps) {
     try {
       const id = await ensureSession();
       await new Promise<void>((resolve) => {
-        turn = { card, segments: [], reasoning: "", tools: new Map(), finish: resolve };
+        const tt: Turn = {
+          card,
+          segments: [],
+          reasoning: "",
+          tools: new Map(),
+          finish: () => {
+            fallback = !!tt.noTools;
+            resolve();
+          },
+        };
+        turn = tt;
         signal.addEventListener("abort", () => void gateway.cancel(id), { once: true });
         gateway.send(id, q).catch((e: unknown) => {
           presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
@@ -181,6 +210,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
       presenter.refreshCtx();
       presenter.scrollMsgs();
     }
+    if (fallback) reset();
+    return !fallback;
   }
 
   /** `/retomar`: lista as conversas anteriores do projecto e retoma a escolhida — o
@@ -200,8 +231,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
       if (!pick) return;
       if (session && session !== pick) void gateway.close(session);
       await ensureSubscribed();
+      sessionKey = key();
       session = await gateway.start({
         root: deps.workspace.root(),
+        provider: deps.provider(),
         model: deps.model(),
         effort: "high",
         testCmd: null,
@@ -306,10 +339,11 @@ export function makeAgentChat(deps: AgentChatDeps) {
   function reset(): void {
     if (session) void gateway.close(session);
     session = null;
+    sessionKey = null;
   }
 
   return {
-    available: (): boolean => gateway.available(),
+    available: (): boolean => gateway.available() && !noTools.has(key()),
     send,
     resumeMenu,
     plan,

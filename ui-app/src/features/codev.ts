@@ -131,22 +131,22 @@ function handlePrompt(q: string) {
   if (/^\/plano(\s|$)/.test(q)) {
     const pedido = q.replace(/^\/plano\s*/, '');
     if (!pedido) { user(q); card('co-dev', 'Escreve o pedido a seguir: <code>/plano acrescenta paginação à API</code>. O agente investiga só com leitura e propõe o plano para aprovares.'); return; }
-    if (!codevEngine.agentPlan(pedido)) { user(q); card('co-dev', 'O modo plano precisa do app desktop, com uma pasta aberta e o Claude seleccionado.'); }
+    if (!codevEngine.agentPlan(pedido)) { user(q); card('co-dev', 'O modo plano precisa do app desktop, com uma pasta aberta e um provedor com agente seleccionado (Claude, Codex, Gemini ou Ollama).'); }
     return;
   }
   if (q === '/comandos') {
     user(q);
-    if (!codevEngine.agentCommands()) card('co-dev', 'Os comandos do projecto precisam do app desktop, com uma pasta aberta e o Claude seleccionado.');
+    if (!codevEngine.agentCommands()) card('co-dev', 'Os comandos do projecto precisam do app desktop, com uma pasta aberta e um provedor com agente seleccionado (Claude, Codex, Gemini ou Ollama).');
     return;
   }
   if (q === '/reverter') {
     user(q);
-    if (!codevEngine.agentRewind()) card('co-dev', 'Voltar atrás precisa do app desktop, com uma pasta aberta e o Claude seleccionado.');
+    if (!codevEngine.agentRewind()) card('co-dev', 'Voltar atrás precisa do app desktop, com uma pasta aberta e um provedor com agente seleccionado (Claude, Codex, Gemini ou Ollama).');
     return;
   }
   if (q === '/retomar' || q === '/sessoes' || q === '/sessões') {
     user(q);
-    if (!codevEngine.agentResume()) card('co-dev', 'Retomar conversas precisa do app desktop, com uma pasta aberta e o Claude seleccionado.');
+    if (!codevEngine.agentResume()) card('co-dev', 'Retomar conversas precisa do app desktop, com uma pasta aberta e um provedor com agente seleccionado (Claude, Codex, Gemini ou Ollama).');
     return;
   }
   if (q === '/test' || q === '/lint') {

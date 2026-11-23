@@ -192,9 +192,11 @@ const agentChat = makeAgentChat({
   verify,
   workspace: { root: () => bridge.diskRoot() ?? "" },
   reloadFromDisk: () => bridge.reloadDisk(),
+  provider: () => bridge.monolith.activeProvider,
   model: () => {
     const p = bridge.providers() as unknown as Record<string, { model?: string }>;
-    return (p.claude && p.claude.model) || "claude-opus-5-5";
+    const active = p[bridge.monolith.activeProvider];
+    return (active && active.model) || "";
   },
   mode: () => bridge.monolith.mode,
   speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
@@ -202,9 +204,13 @@ const agentChat = makeAgentChat({
   openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
 });
 
-/** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude), senão o
- *  harness antigo (protótipo, outros provedores até à F8, ou a flag `dx2.codevLegacy`). */
-const chat = (q: string): Promise<void> => (agentChat.available() ? agentChat.send(q) : liveChat(q));
+/** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/
+ *  Gemini/Ollama), senão o harness antigo (protótipo, a flag `dx2.codevLegacy`, ou um modelo
+ *  sem tool calling nativo — descoberto no 1.º pedido, a mensagem é reenviada por aqui). */
+const chat = async (q: string): Promise<void> => {
+  if (agentChat.available() && (await agentChat.send(q))) return;
+  return liveChat(q);
+};
 
 /* ───── the wired engine (codev.ts publishes these onto window) ───── */
 export const codevEngine = {

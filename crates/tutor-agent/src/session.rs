@@ -43,10 +43,18 @@ pub struct SessionMeta {
     /// que o servidor tenha mudado entretanto).
     #[serde(default)]
     pub mcp_tools: Vec<crate::mcp::McpToolDef>,
+    /// O provedor da sessão (`claude`/`codex`/`gemini`/`ollama`, F8); ficheiros anteriores
+    /// não o têm → `claude`. Uma retoma usa sempre o mesmo provedor.
+    #[serde(default = "provider_claude")]
+    pub provider: String,
 }
 
 fn toolset_v1() -> u32 {
     1
+}
+
+fn provider_claude() -> String {
+    "claude".into()
 }
 
 /// Uma linha do ficheiro.
@@ -297,6 +305,7 @@ mod tests {
             compaction: true,
             created: 100,
             toolset: 2,
+            provider: "claude".into(),
             mcp_tools: vec![],
         }
     }

@@ -29,9 +29,9 @@ pub async fn codev_agent_start(
     lint_cmd: Option<String>,
     mode: Option<String>,
     resume: Option<String>,
+    provider: Option<String>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    let key = keys::resolve(&dir, "claude");
     let spec = StartSpec {
         root,
         model,
@@ -43,10 +43,13 @@ pub async fn codev_agent_start(
         host_tools: vec![std::sync::Arc::new(crate::lsp::LspDiagnosticsTool)],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),
+        provider,
+        ollama_host: Some(tutor_llm::chat::ollama_host()),
         ..Default::default()
     };
     tauri::async_runtime::spawn_blocking(move || {
-        codev_agent::start(spec, key, keys::anthropic_workspace_id())
+        let key_for = |p: &str| keys::resolve(&dir, p);
+        codev_agent::start(spec, &key_for, keys::anthropic_workspace_id())
     })
     .await
     .map_err(|e| format!("agent start task failed: {e}"))?

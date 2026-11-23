@@ -29,6 +29,7 @@ pub mod context;
 pub mod extensions;
 pub mod hooks;
 pub mod mcp;
+pub mod openai;
 pub mod permissions;
 pub mod provider;
 pub mod retry;

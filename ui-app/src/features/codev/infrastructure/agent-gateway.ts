@@ -7,15 +7,16 @@
 import * as ipc from "../../../platform/tauri/codev-agent";
 import { isDesktop } from "../../../platform/tauri/core";
 import type { AgentGateway } from "../application/ports";
-import { parseAgentError, parseAgentEvent, parseApproval, parseCheckpoints, parseExtensions, parseHistory, parseSessions } from "../domain/agent-events";
+import { isAgentProvider, parseAgentError, parseAgentEvent, parseApproval, parseCheckpoints, parseExtensions, parseHistory, parseSessions } from "../domain/agent-events";
 import * as bridge from "./legacy-bridge";
 
 export const agentGateway: AgentGateway = {
   available: () =>
-    isDesktop() && !!bridge.diskRoot() && bridge.monolith.activeProvider === "claude" && bridge.agentV2Enabled(),
+    isDesktop() && !!bridge.diskRoot() && isAgentProvider(bridge.monolith.activeProvider) && bridge.agentV2Enabled(),
   start: (o) =>
     ipc.startAgent({
       root: o.root,
+      provider: o.provider,
       model: o.model,
       effort: o.effort,
       testCmd: o.testCmd,
