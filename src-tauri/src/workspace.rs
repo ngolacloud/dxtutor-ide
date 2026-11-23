@@ -186,26 +186,11 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, String> {
     Ok(root.join(relp))
 }
 
-/// Refuses `p` (already lexically inside `root`) when the part of it that exists on
-/// disk resolves — through symlinks — to somewhere outside `root`. Lexical checks
-/// alone let a link in a cloned repo (`docs -> ~/.ssh`) carry a write out of the
-/// workspace. The deepest existing ancestor is canonicalized (paths about to be
-/// created are fine); a dangling symlink is refused because its target can't be checked.
+/// Refuses `p` when the part of it that exists on disk resolves — through symlinks — to
+/// somewhere outside `root`. One implementation for the whole app: the agent's tools use
+/// the same guard (`tutor_agent::sandbox`).
 pub fn ensure_within(root: &Path, p: &Path) -> Result<(), String> {
-    let root_c = fs::canonicalize(root).map_err(|e| format!("workspace root: {e}"))?;
-    let mut cur: PathBuf = p.to_path_buf();
-    while fs::symlink_metadata(&cur).is_err() {
-        if !cur.pop() {
-            return Err("path escapes the workspace".into());
-        }
-    }
-    let real = fs::canonicalize(&cur)
-        .map_err(|_| format!("path escapes the workspace (unresolvable link): {}", cur.display()))?;
-    if real.starts_with(&root_c) {
-        Ok(())
-    } else {
-        Err(format!("path escapes the workspace through a symlink: {}", p.display()))
-    }
+    tutor_agent::sandbox::ensure_within(root, p)
 }
 
 pub fn write(root: &Path, rel: &str, content: &str) -> Result<(), String> {

@@ -5,9 +5,10 @@
 //! adaptador IPC (`commands::codev_agent`) só põe isto numa thread e traduz os eventos
 //! para o Tauri; a regra de aprovação vive aqui.
 //!
-//! Estado da F1: sem ferramentas registadas (chegam em F2) e aprovação mínima — leituras
-//! passam, tudo o resto pergunta à UI. A política por modo (Manual/Assistido/Auto) e o
-//! classificador de comandos entram em F3.
+//! Estado: ferramentas reais (F2: read/glob/grep/edit/write/bash/git + run_tests/lint
+//! quando a UI passa os comandos detectados) e aprovação mínima — leituras passam, tudo
+//! o resto pergunta à UI. A política por modo (Manual/Assistido/Auto) e o classificador
+//! de comandos entram em F3.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use tutor_agent::anthropic::{self, Anthropic, Config};
+use tutor_agent::tools::{coding_tools, ToolsetOptions};
 use tutor_agent::{
     Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall,
     SystemBlock, ToolCtx, Transcript, TurnOutcome,
@@ -28,6 +30,9 @@ pub struct StartSpec {
     pub root: String,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// Comandos de verificação detectados pela UI (`features/codev/domain/project-commands`).
+    pub test_cmd: Option<String>,
+    pub lint_cmd: Option<String>,
 }
 
 struct Session {
@@ -108,7 +113,12 @@ pub fn start(
         root,
         cancel: Arc::new(AtomicBool::new(false)),
     };
-    let agent = Agent::new(provider, vec![], acfg, ctx);
+    let tools = coding_tools(&ToolsetOptions {
+        test_cmd: spec.test_cmd,
+        lint_cmd: spec.lint_cmd,
+        ..Default::default()
+    });
+    let agent = Agent::new(provider, tools, acfg, ctx);
 
     let id = new_id();
     let s = Session {

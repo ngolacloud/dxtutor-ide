@@ -14,13 +14,16 @@ use tauri::{Emitter, Manager};
 use crate::codev_agent::{self, StartSpec};
 use crate::keys;
 
-/// Abre uma sessão do agente no projecto `root`. Devolve o id da sessão.
+/// Abre uma sessão do agente no projecto `root`, com os comandos de verificação que a UI
+/// detectou (`test_cmd`/`lint_cmd`, opcionais). Devolve o id da sessão.
 #[tauri::command]
 pub fn codev_agent_start(
     app: tauri::AppHandle,
     root: String,
     model: Option<String>,
     effort: Option<String>,
+    test_cmd: Option<String>,
+    lint_cmd: Option<String>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let key = keys::resolve(&dir, "claude");
@@ -29,6 +32,8 @@ pub fn codev_agent_start(
             root,
             model,
             effort,
+            test_cmd,
+            lint_cmd,
         },
         key,
         keys::anthropic_workspace_id(),

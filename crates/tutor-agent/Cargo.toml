@@ -12,7 +12,15 @@ serde_json = "1"
 # Síncrono de propósito (como o tutor-llm): a TUI e a CLI reutilizam o agente, e no
 # Tauri cada sessão corre numa thread dedicada (padrão do pty.rs).
 ureq = { version = "2.12", features = ["json"] }
+# glob/grep das ferramentas: o motor do ripgrep (respeita .gitignore) e regex
+ignore = "0.4"
+regex = "1"
+
+[target.'cfg(unix)'.dependencies]
+# matar o grupo de processos do bash (timeout/cancelamento) sem deixar netos vivos
+libc = "0.2"
 
 [dev-dependencies]
+tempfile = { workspace = true }
 # só para o exemplo `stream` ler a chave guardada nas Definições
 tutor-llm = { path = "../tutor-llm" }

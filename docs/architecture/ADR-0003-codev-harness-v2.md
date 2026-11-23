@@ -1,6 +1,6 @@
 # ADR-0003 — Harness v2 do Co-Dev: loop de agente em Rust com tool use nativo
 
-- **Estado:** aceite (recomendações do §11 aceites); F0 e F1 feitas (F1 sem UI: a ligação é a F4)
+- **Estado:** aceite (recomendações do §11 aceites); F0, F1 e F2 feitas (ainda sem UI: a ligação é a F4)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto (angolardevops)
 - **Relacionado:** `ADR-0002` (camadas da feature Co-Dev na UI, que a F4 reutiliza);
@@ -130,7 +130,7 @@ Todas correm na raiz do projecto e passam pelo `ensure_within` do hotfix (symlin
 | `write` | Ficheiros novos, ou sobrescrita de um ficheiro já lido | por modo |
 | `bash` | Grupo de processos próprio, timeout, saída limitada (início + fim), sempre na raiz do projecto | classificador (§7) |
 | `run_tests` / `lint` | Comandos detectados (`domain/project-commands.ts`, passados na configuração da sessão) | como no passo 2 |
-| `lsp_diagnostics` | Diagnósticos do ficheiro ou do projecto (reutiliza o `lsp.rs`) | livre |
+| `lsp_diagnostics` | **Adiado para F5.** O LSP real (`lsp.rs`) está acoplado ao Tauri e às sessões que a UI arranca, e o `tutor_eval::diagnostics_for` compila um excerto de exercício, não um projecto. Até lá os diagnósticos chegam ao modelo por `run_tests`/`lint` | livre |
 | `git_status` / `git_diff` | Só leitura | livre |
 | `todo_write` | Lista de tarefas da sessão, sincronizada com o Board (`tutor-board`) | livre |
 | `exit_plan` | Sai do plan mode e apresenta o plano para aprovação | — |
@@ -199,9 +199,9 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
 
 | Fase | Entrega | Aceitação |
 |---|---|---|
-| **F0 Fundações** | Crate `tutor-agent`; tipos canónicos; provider Anthropic com parser SSE completo (texto, thinking, `input_json_delta`, usage, erros); retry; modelo e versão correctos; sem prefill | Parser testado com fixtures SSE gravadas (sem rede); retry testado com servidor falso; zero chamadas reais nos testes |
-| **F1 Loop** | Loop por `stop_reason`, ferramentas em paralelo/série, cancelamento, eventos; comandos Tauri `codev_agent_*` (+ IPC-MATRIX) | Testes com provider falso guionado: tool_use → result → end_turn; recusa; max_tokens a meio de tool_use; tool_results agrupados; cancelamento |
-| **F2 Ferramentas** | read/glob/grep/edit/write/bash/run_tests/lsp/git | Testes em tempdir: staleness do edit, unicidade do old_string, symlinks, truncagem, timeout com kill do grupo |
+| **F0 Fundações** ✅ | Crate `tutor-agent`; tipos canónicos; provider Anthropic com parser SSE completo (texto, thinking, `input_json_delta`, usage, erros); retry; modelo e versão correctos; sem prefill | Parser testado com fixtures SSE gravadas (sem rede); retry testado com servidor falso; zero chamadas reais nos testes |
+| **F1 Loop** ✅ | Loop por `stop_reason`, ferramentas em paralelo/série, cancelamento, eventos; comandos Tauri `codev_agent_*` (+ IPC-MATRIX) | Testes com provider falso guionado: tool_use → result → end_turn; recusa; max_tokens a meio de tool_use; tool_results agrupados; cancelamento |
+| **F2 Ferramentas** ✅ | read/glob/grep/edit/write/bash/run_tests/lint/git (`lsp_diagnostics` adiado para F5); `sandbox` única partilhada com o `src-tauri` | Testes em tempdir: staleness do edit, unicidade do old_string, symlinks, truncagem, timeout com kill do grupo |
 | **F3 Permissões** | Classificador, regras, modos, aprovação ida-e-volta; `policy.rs` ligado | Tabela de ≥60 comandos (incluindo os contornos da regex actual) com a classificação esperada |
 | **F4 UI v2** | O caso de uso `live-chat` (ADR-0002) passa a cliente fino do agente Rust através de uma porta `AgentGateway`; cartões de ferramenta, aprovação, thinking e custo; **remove o protocolo de fences e o prefill** | Fluxo real com uma pasta aberta, validado à mão por ti; typecheck/lint/testes |
 | **F5 Contexto e sessão** | System prompt cacheado, AGENTS.md/CLAUDE.md, sessões JSONL e retoma, compactação, custo | Cache hit a partir do 2.º turno (medido); retoma após reinício |

@@ -288,12 +288,14 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 > **ADR-0003 (F1):** adaptadores finos sobre o caso de uso Tauri-free
 > `crate::codev_agent`, que gere sessões do loop do crate `tutor-agent` (tool use
 > nativo, histórico append-only). O turno corre numa thread e responde por eventos.
-> Ainda sem consumidor na UI (a ligação é a F4); ainda sem ferramentas (F2).
+> Ainda sem consumidor na UI (a ligação é a F4). F2: o turno usa as ferramentas reais
+> (ler/pesquisar/editar/escrever ficheiros, `bash`, git só leitura, testes/lint) —
+> mutações e execução pedem aprovação pelo evento `codev-agent://approval`.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>` | `String` (id da sessão) | String | — | — | **K** · S |
-| `codev_agent_send` | `session_id: String`, `text: Option<String>` | `()` (via eventos) | — | `codev-agent://event` `{session,event}`, `codev-agent://approval` `{session,call}`, `codev-agent://error` `{session,error}` | — | **N** · K · S · E |
+| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>` | `String` (id da sessão) | String | — | — | **K** · S |
+| `codev_agent_send` | `session_id: String`, `text: Option<String>` | `()` (via eventos) | — | `codev-agent://event` `{session,event}`, `codev-agent://approval` `{session,call}`, `codev-agent://error` `{session,error}` | — | **N** · K · **W** · **X** · S · E |
 | `codev_agent_approve` | `session_id: String`, `tool_use_id: String`, `allow: bool`, `reason: Option<String>` | `bool` | — | — | — | S |
 | `codev_agent_cancel` | `session_id: String` | `bool` | — | — | — | S |
 | `codev_agent_close` | `session_id: String` | `bool` | — | — | — | S |
