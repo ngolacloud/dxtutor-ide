@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U2 feitas, U3 em curso
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -182,3 +182,20 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   arranque no browser com a configuração restaurada do `localStorage` (os eventos saem
   durante o arranque, sem erros). Auto-teste desktop idêntico. Nota: um `auto` guardado
   volta a `assist` no arranque — é o tecto do harness do projecto (v5), não a U3.
+
+- **U3c (2026-11-23) — colecções com dono e os decoradores do `refresh` como subscritores.**
+  Novos donos: `workspaceStore` (`FS`, `ROOT`, `OPEN`) e, no `agentStore`, `PROV`, `CHAT`,
+  `RUN` — o app.ts continua a criá-los e o acessor adopta o mesmo objecto (sem cópia).
+  Eventos novos: `workspace:changed` (emitido no fim do `refresh()` — o sinal de facto de
+  «o workspace mudou», já que quase todas as mutações de `FS` acabam nele), `agent:run`
+  (`runState`) e `agent:providers` (modelo/ligado de um provedor). O `refresh` era decorado
+  três vezes (grafo/board/blame no app.ts, autosave no bridge.ts, sync do PairCode no
+  pair.ts): os três viraram subscritores, pela mesma ordem (a de avaliação dos módulos), e
+  um erro num deles já não cancela os outros. O compositor subscreve `agent:run` (o
+  `chat-view` deixou de o chamar) e o Co-Dev `agent:providers` (o `toggleProv`, o seletor
+  de modelo e o campo das Definições deixaram de chamar `updateAgentUI`). Ficam para a U4,
+  com o app.ts: `TB` (os separadores — um `let` reatribuído, não adoptável por referência)
+  e `USAGE` (não publicado). Shims de estado: 15. Verificado: 335 testes, arranque no
+  browser, auto-teste desktop (o passo `autosave` passa pelo novo subscritor do bridge;
+  as diferenças nos passos `llm*`/`providers` vêm do ambiente — passou a haver uma chave
+  da Anthropic guardada, sem créditos).

@@ -20,6 +20,7 @@ import { gitClient } from "./platform/tauri/git";
 import { providersClient, type ProvidersConfig, type ProviderInfo } from "./platform/tauri/providers";
 import { agentTasksClient, type AgentTask } from "./platform/tauri/agent-tasks";
 import { appClient, type AppInfo } from "./platform/tauri/app";
+import { bus } from "./app/bus";
 
 interface ProcHandler { line: (l: string, err?: boolean) => void; exit: (code: number) => void }
 /** Workspace carregado: contrato tipado do adaptador `platform/tauri/workspace`. */
@@ -350,12 +351,10 @@ function flushSave(): void {
     document.dispatchEvent(new CustomEvent("dx:saved", { detail: { root, files: w.map(x => x[0]).concat(d) } }));
   });
 }
-const _refresh = refresh;
-refresh = function (this: unknown, ...args: Parameters<typeof refresh>) {
-  const r = _refresh.apply(this, args);
+/* U3c: autosave do desktop a cada mudança do workspace (antes: decorava o refresh) */
+bus.on("workspace:changed", () => {
   if (R.root) { clearTimeout(saveT); saveT = window.setTimeout(flushSave, 350); }
-  return r;
-};
+});
 window.addEventListener("beforeunload", () => flushSave());
 
 /* explorer shows the opened folder by its own name; terminal prompt shows the real user and host */

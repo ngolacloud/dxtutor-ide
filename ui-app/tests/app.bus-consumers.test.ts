@@ -37,3 +37,45 @@ it("ligar/desligar o contexto do editor actualiza o chip de contexto", () => {
   // com um ficheiro activo o chip acende; sem ficheiro fica apagado — mas foi redesenhado
   expect(pill.textContent).toMatch(/^@ /);
 });
+
+/* ───── U3c: colecções com dono e eventos do workspace, da execução e dos provedores ───── */
+
+it("os donos guardam os MESMOS objectos que o app.ts criou (adopção, sem cópia)", async () => {
+  const { workspaceStore, agentStore } = await import("../src/app/store");
+  expect(workspaceStore.files).toBe(w.FS);
+  expect(workspaceStore.root).toBe("dxtutor/");
+  expect(agentStore.providers).toBe(w.PROV);
+  expect(agentStore.chat).toBe(w.CHAT);
+  expect(agentStore.run).toBe(w.RUN);
+  expect(Object.keys(workspaceStore.files).length).toBeGreaterThan(5);
+});
+
+it("refresh() emite workspace:changed (quem decorava o refresh subscreve agora)", async () => {
+  const { bus } = await import("../src/app/bus");
+  const seen: Array<{ fromEditor: boolean; force: boolean }> = [];
+  bus.on("workspace:changed", (p) => seen.push(p));
+  w.refresh();
+  w.refresh(true, true);
+  expect(seen).toEqual([
+    { fromEditor: false, force: false },
+    { fromEditor: true, force: true },
+  ]);
+  // writeFile chama o refresh → o mesmo sinal
+  w.writeFile(w.ROOT + "notes/u3c.md", "olá");
+  expect(seen.length).toBe(3);
+});
+
+it("runState emite agent:run e o compositor troca enviar↔parar sem ser chamado", () => {
+  w.runState(true, "teste");
+  expect($("#cc-send").classList.contains("stop")).toBe(true);
+  w.runState(false);
+  expect($("#cc-send").classList.contains("stop")).toBe(false);
+});
+
+it("mudar o modelo de um provedor emite agent:providers e redesenha o chip", async () => {
+  const { agentStore } = await import("../src/app/store");
+  w.ACTIVE = "claude";
+  w.PROV.claude.model = "claude-sonnet-5-5";
+  agentStore.providerChanged("claude");
+  expect($("#cc-model").textContent).toContain("Sonnet 5.5");
+});

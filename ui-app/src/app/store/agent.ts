@@ -11,6 +11,31 @@ const provider = ownedGlobal<string>("ACTIVE", "claude", (next, prev) => bus.emi
 const context = ownedGlobal<boolean>("CTX_ON", true, (next) => bus.emit("agent:context", { enabled: next }));
 const persona = ownedGlobal<string>("AGENT", "lead", (next, prev) => bus.emit("agent:persona", { persona: next, prev }));
 
+/* colecções (U3c): o app.ts cria-as e publica-as; o acessor adopta o mesmo objecto */
+export interface Provider {
+  name: string;
+  model: string;
+  ep?: string;
+  on?: boolean;
+  local?: boolean;
+  col?: string;
+}
+export interface ChatMessage {
+  role: string;
+  content: string;
+}
+export interface RunState {
+  active: boolean;
+  paused: boolean;
+  stop: boolean;
+  label: string;
+  t0: number;
+  [k: string]: unknown;
+}
+const providers = ownedGlobal<Record<string, Provider>>("PROV", {});
+const chat = ownedGlobal<ChatMessage[]>("CHAT", []);
+const run = ownedGlobal<RunState>("RUN", { active: false, paused: false, stop: false, label: "", t0: 0 });
+
 export const agentStore = {
   get mode(): string {
     return mode.get();
@@ -41,5 +66,19 @@ export const agentStore = {
   },
   set persona(v: string) {
     persona.set(v);
+  },
+  /** Os provedores (nome, modelo, endpoint, ligado). Mudar um → `providerChanged(k)`. */
+  get providers(): Record<string, Provider> {
+    return providers.get();
+  },
+  /** A configuração do provedor `k` mudou no lugar (modelo, ligado/desligado). */
+  providerChanged(k: string): void {
+    bus.emit("agent:providers", { provider: k });
+  },
+  get chat(): ChatMessage[] {
+    return chat.get();
+  },
+  get run(): RunState {
+    return run.get();
   },
 };

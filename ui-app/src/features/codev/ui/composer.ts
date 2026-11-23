@@ -35,6 +35,7 @@ import {
   type SlashAction,
 } from "../domain/composer";
 import type { DictationPort } from "../application/ports";
+import { bus } from "../../../app/bus";
 
 /* ───── o que o compositor precisa do resto da app ───── */
 
@@ -439,7 +440,8 @@ export function submit(): void {
   refreshComposer();
 }
 
-/** Fim de uma execução: actualiza a barra e envia a próxima mensagem da fila. */
+/** Fim de uma execução: actualiza a barra e envia a próxima mensagem da fila. Ligado ao
+ *  evento `agent:run` do bus (U3c); exportado também para os testes. */
 export function composerRunChanged(running: boolean): void {
   refreshComposer();
   if (!running && host && queue.length) {
@@ -450,6 +452,7 @@ export function composerRunChanged(running: boolean): void {
     }, 0);
   }
 }
+bus.on("agent:run", ({ active }) => composerRunChanged(active));
 
 function addMention(path: string): void {
   if (attachments.some((a) => a.path === path)) return;

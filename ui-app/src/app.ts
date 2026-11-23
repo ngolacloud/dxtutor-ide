@@ -7,6 +7,7 @@
    sério fica para fase posterior — esta fase só componentiza. */
 export {};
 import { jsa } from "./core";
+import { bus } from "./app/bus";
 
 /* O seed de demonstração (SEED.base) só é carregado quando a build foi feita com
    VITE_SEED=1 — i.e. `npm run dev:seed`. O `npm run dev` arranca com o workspace
@@ -90,7 +91,10 @@ window.refresh = function(fromEd,force){const sig=Object.keys(FS).map(p=>p+stOf(
   if(sig!==SIG||force){SIG=sig;syncTree();buildExplorer();}
   drawProblems();badges();if(RP[PANE]&&PANE!=='search')RP[PANE]();hydrate();
   if(!fromEd){const t=tabOf(cur);if(!t)show(TB.length?TB[TB.length-1].id:null);else if(t.kind==='file'){const ta=$('#ed-ta'),top=$('#ebody').scrollTop;if(ta&&ta.value!==FS[t.path].content){ta.value=FS[t.path].content;}if(ta){paintEd(t.path);$('#ebody').scrollTop=top;}drawTabs();}else if(t.kind==='diff'||t.kind==='manager'){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}else drawTabs();}
-  else if(tabOf(cur)&&tabOf(cur).kind==='file')paintEd(tabOf(cur).path);drawOutline();}
+  else if(tabOf(cur)&&tabOf(cur).kind==='file')paintEd(tabOf(cur).path);drawOutline();
+  /* U3c (ADR-0004): o fim do refresh é o sinal «o workspace mudou» — quem reagia
+     decorando o refresh (grafo/board, autosave do desktop, sync do PairCode) subscreve */
+  bus.emit('workspace:changed',{fromEditor:!!fromEd,force:!!force});}
 window.badges = function(){const set=(p,v)=>{const b=$(`.act[data-pane="${p}"] .badge`);if(b){b.textContent=v;b.style.display=v?'grid':'none';}};set('scm',changes().length||'');set('codev',typeof RUN!=='undefined'&&RUN.active?'●':'');}
 
 /* ───── activity bar e painéis laterais ───── */
@@ -292,7 +296,7 @@ function tabIc$dup1(t){if(t.kind==='file')return fIcon(t.title);const m={agent:'
 function buildActivity(){const bar=$('#activity');bar.innerHTML='';ACTS.forEach(a=>{const el=document.createElement('button');el.className='act'+(a.spacer?' spacer':'')+(a.sep?' sep':'');el.title=a.title;el.dataset.pane=a.pane||'';el.innerHTML=svg(a.ic)+`<span class="badge${a.acc?' acc':''}" style="display:none"></span>`;
   el.onclick=e=>{e.stopPropagation();a.overflow?openOverflow(el):a.run?a.run():setPane(a.pane,true);};bar.appendChild(el);});}
 function resetAll(){if(RUN.active){toast('Pára a execução primeiro');return;}loadSeed();MISSIONS.length=0;DECS.length=0;CKPT.length=0;CHAT.length=0;BL.issues.length=0;BL.seq=11;BL.mig=3;BL.adr=4;SD=JSON.parse(JSON.stringify(ST_SEED));saveSD();TB=[];newChat();refresh(false,true);openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'});toast('Protótipo reposto ao estado inicial');}
-const _refresh=refresh;refresh=function(a,b){_refresh(a,b);if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();};
+bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();});
 const _stLang=window.stLang;window.stLang=function(){_stLang();blame();};
 function blame(){const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path)),c=h?GIT.c[h]:GIT.c['1a2b3c4'];if(!c){/* desktop: syncGit reconstrói GIT.c com hashes reais e files:[], logo '1a2b3c4' (semente do protótipo) não existe — sem crash, só o estado local */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 /* decoração v4 do pane Co-Dev (Equipa/Backlog/Studio) migrada e dobrada em features/codev.ts */

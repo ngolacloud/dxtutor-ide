@@ -22,6 +22,12 @@ export interface AppEvents {
   "layout:locale": { locale: string; prev: string };
   /** Separador activo do editor (`null` = nenhum). */
   "editor:tab": { id: string | null; prev: string | null };
+  /** O workspace mudou (ficheiros, estado git, painel): emitido no fim do `refresh()`. */
+  "workspace:changed": { fromEditor: boolean; force: boolean };
+  /** Execução do agente começou/acabou (o botão enviar↔parar, a fila do compositor). */
+  "agent:run": { active: boolean; label: string };
+  /** A configuração de um provedor mudou (modelo, ligado/desligado). */
+  "agent:providers": { provider: string };
 }
 
 export type AppEvent = keyof AppEvents;

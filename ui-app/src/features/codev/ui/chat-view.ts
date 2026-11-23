@@ -19,7 +19,8 @@
 
 import { $, esc } from "../../../core";
 import * as bridge from "../infrastructure/legacy-bridge";
-import { composerContext, composerRunChanged, trackSubagent } from "./composer";
+import { composerContext, trackSubagent } from "./composer";
+import { bus } from "../../../app/bus";
 import { RUBRIC } from "../domain/scoring";
 import type {
   ApprovalGate,
@@ -145,7 +146,8 @@ export function runState(on: boolean, label?: string): void {
   $("#rc-pause")!.innerHTML = "<kbd>p</kbd> pausar";
   runLabel();
   bridge.badges();
-  composerRunChanged(on);
+  // U3c: quem precisa de saber (o compositor: enviar↔parar e a fila) subscreve o bus
+  bus.emit("agent:run", { active: on, label: RUN.label });
 }
 
 export function runLabel(): void {

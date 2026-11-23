@@ -16,6 +16,7 @@ import { pairClient } from "./platform/tauri/pair";
 import { shellClient } from "./platform/tauri/shell";
 import { fsClient } from "./platform/tauri/fs";
 import { appClient } from "./platform/tauri/app";
+import { bus } from "./app/bus";
 
 export {};
 
@@ -407,12 +408,10 @@ function leaveRemote(): void {
   if (t) { t.innerHTML = ""; newInput(true); }
 }
 let syncT: number | undefined, applying = false;
-const _refresh = refresh;
-refresh = function (this: unknown, ...args: Parameters<typeof refresh>) {
-  const r = _refresh.apply(this, args);
+/* U3c: envia as mudanças ao parceiro a cada mudança do workspace (antes: decorava o refresh) */
+bus.on("workspace:changed", () => {
   if (live() && !applying) { clearTimeout(syncT); syncT = window.setTimeout(syncOut, 120); }
-  return r;
-};
+});
 function syncOut(): void {
   if (!live()) return;
   const now = realFiles(), set: Record<string, string> = {}, del: string[] = [];

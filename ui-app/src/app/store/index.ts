@@ -4,4 +4,5 @@
 export { agentStore } from "./agent";
 export { layoutStore } from "./layout";
 export { editorStore } from "./editor";
+export { workspaceStore } from "./workspace";
 export { bus } from "../bus";

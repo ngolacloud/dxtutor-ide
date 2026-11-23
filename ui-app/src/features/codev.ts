@@ -24,6 +24,7 @@ import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
 import { bus } from "../app/bus";
+import { agentStore } from "../app/store";
 import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
 import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/composer";
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
@@ -81,12 +82,13 @@ window.updateAgentUI = function () {
    em vez de cada sítio que muda o modo/provedor/contexto chamar updateAgentUI/ctxPill. */
 bus.on('agent:mode', ({ mode }) => { codevEngine.agentModeChanged(mode); window.updateAgentUI(); });
 bus.on('agent:provider', () => window.updateAgentUI());
+bus.on('agent:providers', () => window.updateAgentUI());
 bus.on('agent:context', () => ctxPill());
 bus.on('editor:tab', () => ctxPill());
 window.setMode = function (m) { bridge.monolith.mode = m; bridge.save(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
 function cycleMode() { const k = Object.keys(MODES); window.setMode(k[(k.indexOf(bridge.monolith.mode) + 1) % k.length]); }
 function pickModel() { bridge.palette('', { ph: 'Modelo para a conversa…', items: Object.entries(bridge.providers()).map(([k, p]: [string, any]) => ({ l: `${p.name} — ${p.model}`, d: p.on ? bridge.provState(k) : 'desligado', run: () => { if (!p.on) { bridge.toast(p.name + ' está desligado — liga-o nas Definições'); return; } bridge.monolith.activeProvider = k; bridge.save(); } })) }); }
-function toggleProv(k: string) { const p = bridge.providers(); p[k].on = !p[k].on; bridge.save(); window.updateAgentUI(); const panes = bridge.panes(); if (panes[bridge.monolith.pane]) panes[bridge.monolith.pane](); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); }
+function toggleProv(k: string) { const p = bridge.providers(); p[k].on = !p[k].on; bridge.save(); agentStore.providerChanged(k); const panes = bridge.panes(); if (panes[bridge.monolith.pane]) panes[bridge.monolith.pane](); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); }
 function newChat() {
   if (bridge.run().active) { bridge.toast('Pára a missão primeiro'); return; }
   bridge.chat().length = 0;
@@ -295,7 +297,7 @@ const ACTIONS: ActionTable = {
   /* change — espelha os antigos onchange */
   "set-prov-model": {
     on: "change",
-    run: (e) => { bridge.providers()[e.on].model = e.value; bridge.save(); window.updateAgentUI(); },
+    run: (e) => { bridge.providers()[e.on].model = e.value; bridge.save(); agentStore.providerChanged(e.on); },
   },
   "set-prov-ep": { on: "change", run: (e) => { bridge.providers()[e.on].ep = e.value; } },
   "set-route": {
@@ -340,7 +342,7 @@ const composerHost: ComposerHost = {
   provider: () => bridge.monolith.activeProvider,
   model: () => bridge.providers()?.[bridge.monolith.activeProvider]?.model ?? '',
   providers: () => Object.entries(bridge.providers() ?? {}).map(([key, p]) => ({ key, name: p.name, model: p.model, on: !!p.on })),
-  selectModel: (p, m) => { const all = bridge.providers(); all[p].model = m; bridge.monolith.activeProvider = p; bridge.save(); window.updateAgentUI(); },
+  selectModel: (p, m) => { const all = bridge.providers(); all[p].model = m; bridge.monolith.activeProvider = p; bridge.save(); agentStore.providerChanged(p); },
   effort: () => parseEffort(bridge.effort()),
   setEffort: (e) => { bridge.setEffort(e); refreshComposer(); },
   ctxOn: () => bridge.monolith.contextEnabled,
