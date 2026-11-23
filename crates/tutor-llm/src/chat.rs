@@ -45,16 +45,67 @@ pub fn load_config() -> ProvidersConfig {
 /// Persist provider settings with owner-only permissions (0600).
 pub fn save_config(cfg: &ProvidersConfig) -> Result<()> {
     let path = config_path().ok_or_else(|| anyhow::anyhow!("no HOME to store config"))?;
+    write_private(&path, serde_json::to_string_pretty(cfg)?.as_bytes()).context("writing config")
+}
+
+/// Write a secrets file so it is never readable by other users, not even briefly:
+/// the temp file is created with mode 0600 from the start (no umask window before a
+/// later chmod), filled, fsynced and atomically renamed over `path`.
+pub fn write_private(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).context("creating config dir")?;
+        std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(&path, serde_json::to_string_pretty(cfg)?).context("writing config")?;
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let _ = std::fs::remove_file(&tmp);
+    let mut f = opts.open(&tmp)?;
+    let res = f.write_all(contents).and_then(|_| f.sync_all());
+    drop(f);
+    if let Err(e) = res.and_then(|_| std::fs::rename(&tmp, path)) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
     Ok(())
+}
+
+/// What the webview sees in place of a saved key. The real keys never cross the IPC
+/// boundary: the UI only needs to know *whether* one is saved, and when it posts the
+/// form back with this placeholder the stored key is kept.
+pub const KEY_MASK: &str = "••••••••";
+
+impl ProvidersConfig {
+    /// A copy safe to hand to the UI: every non-empty key replaced by [`KEY_MASK`].
+    pub fn redacted(&self) -> Self {
+        let m = |k: &str| if k.is_empty() { String::new() } else { KEY_MASK.to_string() };
+        Self {
+            anthropic_key: m(&self.anthropic_key),
+            openai_key: m(&self.openai_key),
+            gemini_key: m(&self.gemini_key),
+            ..self.clone()
+        }
+    }
+
+    /// The config to persist from a form the UI posted: keys still equal to
+    /// [`KEY_MASK`] keep the value in `stored`; anything else (a new key, or "" to
+    /// clear) replaces it.
+    pub fn merged_over(mut self, stored: &ProvidersConfig) -> Self {
+        let keep = |new: &mut String, old: &str| {
+            if new == KEY_MASK {
+                *new = old.to_string();
+            }
+        };
+        keep(&mut self.anthropic_key, &stored.anthropic_key);
+        keep(&mut self.openai_key, &stored.openai_key);
+        keep(&mut self.gemini_key, &stored.gemini_key);
+        self
+    }
 }
 
 /// Strip surrounding whitespace and one layer of wrapping quotes. Keys and IDs
@@ -721,6 +772,50 @@ pub fn gemini_chat_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacted_hides_keys_and_merge_keeps_them() {
+        let stored = ProvidersConfig {
+            anthropic_key: "sk-ant-secret".into(),
+            openai_key: "sk-openai".into(),
+            gemini_key: String::new(),
+            ollama_model: "qwen".into(),
+            ..Default::default()
+        };
+        let ui = stored.redacted();
+        assert_eq!(ui.anthropic_key, KEY_MASK);
+        assert_eq!(ui.openai_key, KEY_MASK);
+        assert_eq!(ui.gemini_key, "");
+        assert_eq!(ui.ollama_model, "qwen");
+        let json = serde_json::to_string(&ui).unwrap();
+        assert!(!json.contains("secret") && !json.contains("sk-openai"));
+
+        // Form posted back untouched: keys survive.
+        let back = ui.clone().merged_over(&stored);
+        assert_eq!(back.anthropic_key, "sk-ant-secret");
+        assert_eq!(back.openai_key, "sk-openai");
+        // One key replaced, one cleared.
+        let edit = ProvidersConfig { gemini_key: "g-new".into(), openai_key: String::new(), ..ui }
+            .merged_over(&stored);
+        assert_eq!(edit.gemini_key, "g-new");
+        assert_eq!(edit.openai_key, "");
+        assert_eq!(edit.anthropic_key, "sk-ant-secret");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_private_is_owner_only_and_atomic() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = std::env::temp_dir().join(format!("dxtutor-wp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let p = d.join("sub/keys.json");
+        write_private(&p, b"one").unwrap();
+        write_private(&p, b"two").unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "two");
+        assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::read_dir(p.parent().unwrap()).unwrap().count(), 1, "no temp left behind");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     /// Live end-to-end validation of the P4 streaming path against a running Ollama.
     /// Proves tokens actually stream in and cancellation stops the read. Requires a

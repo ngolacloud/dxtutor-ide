@@ -14,7 +14,7 @@
    — em `app.ts`, `RP.run=()=>window.renderRunPane()` delega aqui (lazy, no switch
    de pane). Mesmo padrão de `features/remote.ts`. */
 
-import { $, hd, svg } from "../core";
+import { $, hd, svg, jsa } from "../core";
 
 /** Configurações de arranque do workspace: [comando, descrição]. Cada linha
  *  corre no terminal integrado via `runTask` (window-resolved no clique). */
@@ -35,7 +35,7 @@ function renderRunPane(): void {
     hd("Run and Debug") +
     `<div class="sections"><div class="sec-empty">Configurações de arranque do workspace. Cada uma corre no terminal integrado.</div>${TASKS.map(
       (c) =>
-        `<div class="scm-row" onclick="runTask('${c[0]}')"><span class="ic" style="color:var(--green)">${svg("run")}</span><span class="nm">${c[0]}</span><span class="pth">${c[1]}</span></div>`,
+        `<div class="scm-row" onclick="runTask(${jsa(c[0])})"><span class="ic" style="color:var(--green)">${svg("run")}</span><span class="nm">${c[0]}</span><span class="pth">${c[1]}</span></div>`,
     ).join("")}</div>`;
 }
 

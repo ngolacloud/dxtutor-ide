@@ -12,7 +12,7 @@
    Shim transitório: publica `renderTutorPane`; `app.ts` delega
    `RP.tutor=()=>window.renderTutorPane()` (lazy, no switch de pane). */
 
-import { $, hd, svg, esc } from "../core";
+import { $, hd, svg, esc, jsa } from "../core";
 
 /** Renderiza o pane «Learning Track»: onboarding se não houver língua escolhida,
  *  senão o curso com progresso, unidades expansíveis e passos. */
@@ -29,8 +29,8 @@ function renderTutorPane(): void {
   let lvl = "";
   el.innerHTML = hd("Learning Track", `<button title="Change language or level" onclick="ltOnboard(1)">${svg("settings")}</button>`) + `<div class="sections"><div class="lt-course notr">${esc(c.title)}</div><div class="lt-tot"><span class="lp-bar" style="flex:1;margin:0"><i style="width:${tot ? ltPts() / tot * 100 : 0}%"></i></span><span>${ltPts()} / ${tot} pts</span></div>
    ${ltUnits().map((u: any) => { const open = !!LTS.open[u.id], dn = u.steps.filter((s: any) => ltDone(s.id)).length, h = u.level !== lvl ? `<div class="lt-lvl">${u.level}</div>` : ""; lvl = u.level;
-     return h + `<div class="lt-unit${open ? " open" : ""}" onclick="LTS.open['${u.id}']=!LTS.open['${u.id}'];saveLT();RP.tutor()"><span class="chev">${svg("chev")}</span><span class="nm notr">${esc(u.title)}</span>${stars(u.difficulty)}<span class="cnt">${dn}/${u.steps.length}</span></div>` + (open ? u.steps.map((s: any, i: number) => { const done = ltDone(s.id), lock = i > 0 && !ltDone(u.steps[i - 1].id);
-       return `<div class="lt-step${LTS.cur === s.id ? " cur" : ""}${lock ? " lock" : ""}" onclick="ltOpen('${s.id}')"><span class="st">${done ? "✓" : lock ? "🔒" : "▶"}</span><span class="nm notr">${esc(s.title)}</span>${stars(s.difficulty, s.kind)}<span class="tag k-${s.kind}">${LT_BADGE[s.kind]}</span><span class="pt">+${s.points}</span></div>`; }).join("") : ""); }).join("")}</div>`;
+     return h + `<div class="lt-unit${open ? " open" : ""}" onclick="LTS.open[${jsa(u.id)}]=!LTS.open[${jsa(u.id)}];saveLT();RP.tutor()"><span class="chev">${svg("chev")}</span><span class="nm notr">${esc(u.title)}</span>${stars(u.difficulty)}<span class="cnt">${dn}/${u.steps.length}</span></div>` + (open ? u.steps.map((s: any, i: number) => { const done = ltDone(s.id), lock = i > 0 && !ltDone(u.steps[i - 1].id);
+       return `<div class="lt-step${LTS.cur === s.id ? " cur" : ""}${lock ? " lock" : ""}" onclick="ltOpen(${jsa(s.id)})"><span class="st">${done ? "✓" : lock ? "🔒" : "▶"}</span><span class="nm notr">${esc(s.title)}</span>${stars(s.difficulty, s.kind)}<span class="tag k-${s.kind}">${LT_BADGE[s.kind]}</span><span class="pt">+${s.points}</span></div>`; }).join("") : ""); }).join("")}</div>`;
 }
 
 /* ── publicação transitória no window (shim para o residual) ──

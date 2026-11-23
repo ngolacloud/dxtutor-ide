@@ -27,13 +27,9 @@ pub fn save(dir: &Path, provider: &str, key: &str) -> Result<(), String> {
         all.insert(provider.to_string(), key.trim().to_string());
     }
     let p = file(dir);
-    fs::write(&p, serde_json::to_string_pretty(&all).unwrap()).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&p, fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
+    let json = serde_json::to_string_pretty(&all).map_err(|e| e.to_string())?;
+    // 0600 desde a criação + rename atómico: a chave nunca fica legível por outros.
+    tutor_llm::chat::write_private(&p, json.as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn resolve(dir: &Path, provider: &str) -> Option<String> {

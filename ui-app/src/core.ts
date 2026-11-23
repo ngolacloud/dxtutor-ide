@@ -312,7 +312,17 @@ export const esc = (s: unknown): string =>
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+/** Literal JS seguro para interpolar num atributo de handler inline:
+ *  `onclick="openPath(${jsa(p)})"`. JSON.stringify fecha o contexto JS (aspas,
+ *  barras, quebras de linha, U+2028) e `esc` fecha o contexto do atributo HTML
+ *  (o browser descodifica as entidades antes de correr o handler). Nunca usar
+ *  `'${x}'` dentro de on*="…": um caminho ou nome vindo do disco, do git, de um
+ *  VSIX ou do par remoto com `'` torna-se código. */
+export const jsa = (s: unknown): string =>
+  esc(JSON.stringify(String(s == null ? "" : s)));
 
 /** `document.querySelector` tipado. */
 export const $ = (sel: string): HTMLElement | null =>

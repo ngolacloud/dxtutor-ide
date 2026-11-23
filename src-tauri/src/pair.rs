@@ -17,8 +17,9 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
@@ -157,22 +158,40 @@ impl Pair {
         };
         let (p, c, ev2) = (self.clone(), crypto.clone(), ev.clone());
         let task = tokio::spawn(async move {
+            // Handshakes run concurrently, each under a deadline and at most
+            // MAX_HANDSHAKES at a time: a peer on the LAN that connects and stays silent
+            // (or trickles a big frame) can no longer hold the listener and keep the
+            // real guest out. Only a peer that proves the key reaches `session`.
+            let slots = Arc::new(Semaphore::new(MAX_HANDSHAKES));
+            let inflight: Arc<Mutex<std::collections::HashSet<IpAddr>>> = Arc::default();
+            let (authed_tx, mut authed_rx) =
+                tokio::sync::mpsc::channel::<(WebSocketStream<TcpStream>, String)>(1);
             loop {
-                let Ok((tcp, addr)) = listener.accept().await else { break };
-                let _ = tcp.set_nodelay(true);
-                if let Ok(ws) =
-                    tokio_tungstenite::accept_async_with_config(tcp, Some(ws_config())).await
-                {
-                    session(
-                        ws,
-                        false,
-                        addr.ip().to_string(),
-                        p.clone(),
-                        c.clone(),
-                        ev2.clone(),
-                    )
-                    .await;
-                    (ev2.status)(json!({"state": "waiting", "role": "host"}));
+                tokio::select! {
+                    acc = listener.accept() => {
+                        let Ok((tcp, addr)) = acc else { break };
+                        // one pending handshake per address, so a single machine can't
+                        // squat every slot
+                        if !inflight.lock().unwrap().insert(addr.ip()) { continue }
+                        let Ok(slot) = slots.clone().try_acquire_owned() else {
+                            inflight.lock().unwrap().remove(&addr.ip());
+                            continue;
+                        };
+                        let _ = tcp.set_nodelay(true);
+                        let (c, tx, inflight) = (c.clone(), authed_tx.clone(), inflight.clone());
+                        tokio::spawn(async move {
+                            let _slot = slot;
+                            let ws = handshake_host(tcp, &c).await;
+                            inflight.lock().unwrap().remove(&addr.ip());
+                            if let Some(ws) = ws {
+                                let _ = tx.try_send((ws, addr.ip().to_string()));
+                            }
+                        });
+                    }
+                    Some((ws, peer)) = authed_rx.recv() => {
+                        session(ws, false, true, peer, p.clone(), c.clone(), ev2.clone()).await;
+                        (ev2.status)(json!({"state": "waiting", "role": "host"}));
+                    }
                 }
             }
         });
@@ -227,7 +246,7 @@ impl Pair {
                     let (p, c, ev2, peer) =
                         (self.clone(), crypto.clone(), ev.clone(), target.clone());
                     let task = tokio::spawn(async move {
-                        session(ws, true, peer, p, c, ev2.clone()).await;
+                        session(ws, true, false, peer, p, c, ev2.clone()).await;
                         (ev2.status)(json!({"state": "ended", "role": "guest"}));
                     });
                     let mut s = self.0.lock().unwrap();
@@ -243,16 +262,47 @@ impl Pair {
     }
 }
 
+/// Concurrent unauthenticated handshakes the host will entertain.
+const MAX_HANDSHAKES: usize = 4;
+/// Largest WebSocket message/frame. A workspace snapshot is the biggest thing sent
+/// (the loader caps what enters the editor); 512 MB let any unauthenticated peer make
+/// the host buffer half a gigabyte before the key was even checked.
+const MAX_MSG: usize = 64 << 20;
+
 fn ws_config() -> WebSocketConfig {
     let mut c = WebSocketConfig::default();
-    c.max_message_size = Some(512 << 20);
-    c.max_frame_size = Some(512 << 20);
+    c.max_message_size = Some(MAX_MSG);
+    c.max_frame_size = Some(MAX_MSG);
     c
+}
+
+/// Host side of the handshake for one incoming TCP connection: WebSocket upgrade
+/// within 5 s, then a sealed HELLO within 10 s. `None` (connection dropped) otherwise.
+async fn handshake_host(tcp: TcpStream, c: &Crypto) -> Option<WebSocketStream<TcpStream>> {
+    let mut ws = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::accept_async_with_config(tcp, Some(ws_config())),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let first = tokio::time::timeout(Duration::from_secs(10), ws.next())
+        .await
+        .ok()??
+        .ok()?;
+    match first {
+        Message::Binary(b) if b.len() <= 1024 && c.open(&b).as_deref() == Some(HELLO) => Some(ws),
+        _ => {
+            let _ = ws.close(None).await;
+            None
+        }
+    }
 }
 
 async fn session<S>(
     ws: WebSocketStream<S>,
     guest: bool,
+    authed: bool,
     peer: String,
     p: Pair,
     c: Arc<Crypto>,
@@ -270,9 +320,11 @@ async fn session<S>(
     {
         return;
     }
-    let first = tokio::time::timeout(Duration::from_secs(10), stream.next()).await;
-    let ok =
-        matches!(&first, Ok(Some(Ok(Message::Binary(b)))) if c.open(b).as_deref() == Some(HELLO));
+    // The host checked the guest's HELLO in `handshake_host` already (`authed`).
+    let ok = authed || {
+        let first = tokio::time::timeout(Duration::from_secs(10), stream.next()).await;
+        matches!(&first, Ok(Some(Ok(Message::Binary(b)))) if c.open(b).as_deref() == Some(HELLO))
+    };
     if !ok {
         let _ = sink.close().await;
         if guest {
@@ -403,6 +455,37 @@ mod tests {
         *t.last_mut().unwrap() ^= 1;
         assert!(a.open(&t).is_none());
         assert_ne!(a.seal(b"x"), a.seal(b"x"), "nonces must differ");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_silent_connection_does_not_lock_out_the_guest() {
+        let (hev, _hmsg, hst) = events();
+        let host = Pair::default();
+        let token = host.host("host", Some(0), hev).await.unwrap();
+        let port = decode_token(&token).unwrap().port;
+        // Someone on the LAN opens TCP connections and never speaks. (Test peers all
+        // come from 127.0.0.1, so the squatter connects to the IPv4 loopback alias
+        // 127.0.0.2 where the OS allows it; the guest uses 127.0.0.1.)
+        let mut squatters = Vec::new();
+        for _ in 0..MAX_HANDSHAKES + 2 {
+            let sock = tokio::net::TcpSocket::new_v4().unwrap();
+            if sock.bind("127.0.0.2:0".parse().unwrap()).is_err() {
+                return; // no loopback alias on this OS (macOS): nothing to test
+            }
+            squatters.push(sock.connect(([127, 0, 0, 1], port).into()).await.unwrap());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let (gev, _gmsg, gst) = events();
+        let guest = Pair::default();
+        guest
+            .join(&token, Some(format!("127.0.0.1:{port}")), gev)
+            .await
+            .unwrap();
+        wait_state(&gst, "connected");
+        wait_state(&hst, "connected");
+        drop(squatters);
+        guest.stop();
+        host.stop();
     }
 
     #[tokio::test(flavor = "multi_thread")]

@@ -19,7 +19,7 @@
    reatribuição de `GSEL`) são strings HTML resolvidas no window em tempo de clique —
    não entram no grafo de tipos. Do core importa-se só o que é dono de lá (`esc`). */
 
-import { esc } from "../core";
+import { esc, jsa } from "../core";
 
 /* ───── corpo do renderer da tab `graph` (era VIEW.graph no monólito) ───── */
 function renderGraphView(_t: unknown, host: HTMLElement) {
@@ -66,11 +66,11 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
          col = LANE[r.col % LANE.length],
          sel = GSEL === r.h;
        return (
-         `<div class="gl-row${sel ? " sel" : ""}" onclick="GSEL=GSEL==='${r.h}'?null:'${r.h}';rerender('graph')"><span class="gl-refs">${refsAt(r.h)
+         `<div class="gl-row${sel ? " sel" : ""}" onclick="GSEL=GSEL===${jsa(r.h)}?null:${jsa(r.h)};rerender('graph')"><span class="gl-refs">${refsAt(r.h)
            .map((b) => `<span class="gl-ref${b === BRANCH ? " head" : ""}" style="--c:${col}">${b === BRANCH ? "● " : ""}${esc(b)}</span>`)
            .join("")}${GIT.tags[r.h] ? `<span class="gl-ref tagr">${GIT.tags[r.h]}</span>` : ""}</span><span class="gl-msg">${esc(c.m)}</span><span class="gl-au"><i style="background:${a.col}">${a.n.charAt(0)}</i>${esc(a.n)}</span><span class="gl-h">${r.h}</span><span class="gl-t">${rel(c.t)}</span></div>` +
          (sel
-           ? `<div class="gl-det">${c.files.length ? (c.files as string[]).map((p: string) => `<button class="mini" onclick="event.stopPropagation();FS['${p}']?openPath('${p}'):toast('O ficheiro não existe neste ramo')">${esc(short(p))}</button>`).join("") : '<span style="color:var(--fg-muted)">Commit anterior ao protótipo — sem lista de ficheiros.</span>'}${c.p.length > 1 ? `<span class="tag">merge de ${c.p.length} pais</span>` : ""}</div>`
+           ? `<div class="gl-det">${c.files.length ? (c.files as string[]).map((p: string) => `<button class="mini" onclick="event.stopPropagation();FS[${jsa(p)}]?openPath(${jsa(p)}):toast('O ficheiro não existe neste ramo')">${esc(short(p))}</button>`).join("") : '<span style="color:var(--fg-muted)">Commit anterior ao protótipo — sem lista de ficheiros.</span>'}${c.p.length > 1 ? `<span class="tag">merge de ${c.p.length} pais</span>` : ""}</div>`
            : "")
        );
      })

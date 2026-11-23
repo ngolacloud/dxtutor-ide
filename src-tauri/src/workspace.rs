@@ -186,8 +186,31 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, String> {
     Ok(root.join(relp))
 }
 
+/// Refuses `p` (already lexically inside `root`) when the part of it that exists on
+/// disk resolves — through symlinks — to somewhere outside `root`. Lexical checks
+/// alone let a link in a cloned repo (`docs -> ~/.ssh`) carry a write out of the
+/// workspace. The deepest existing ancestor is canonicalized (paths about to be
+/// created are fine); a dangling symlink is refused because its target can't be checked.
+pub fn ensure_within(root: &Path, p: &Path) -> Result<(), String> {
+    let root_c = fs::canonicalize(root).map_err(|e| format!("workspace root: {e}"))?;
+    let mut cur: PathBuf = p.to_path_buf();
+    while fs::symlink_metadata(&cur).is_err() {
+        if !cur.pop() {
+            return Err("path escapes the workspace".into());
+        }
+    }
+    let real = fs::canonicalize(&cur)
+        .map_err(|_| format!("path escapes the workspace (unresolvable link): {}", cur.display()))?;
+    if real.starts_with(&root_c) {
+        Ok(())
+    } else {
+        Err(format!("path escapes the workspace through a symlink: {}", p.display()))
+    }
+}
+
 pub fn write(root: &Path, rel: &str, content: &str) -> Result<(), String> {
     let p = safe_join(root, rel)?;
+    ensure_within(root, &p)?;
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -196,6 +219,7 @@ pub fn write(root: &Path, rel: &str, content: &str) -> Result<(), String> {
 
 pub fn delete(root: &Path, rel: &str) -> Result<(), String> {
     let p = safe_join(root, rel)?;
+    ensure_within(root, &p)?;
     match fs::remove_file(&p) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -251,6 +275,23 @@ mod tests {
         let l = load(&d, 3, 1024).unwrap();
         assert_eq!(l.files.len(), 3);
         assert!(l.truncated);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_writes_through_symlinks_that_leave_the_root() {
+        let base = std::env::temp_dir().join(format!("dxtutor-ws-link-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let (root, out) = (base.join("ws"), base.join("outside"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(&out).unwrap();
+        std::os::unix::fs::symlink(&out, root.join("docs")).unwrap();
+        std::os::unix::fs::symlink(root.join("src"), root.join("alias")).unwrap();
+        assert!(write(&root, "docs/authorized_keys", "x").is_err());
+        assert!(!out.join("authorized_keys").exists());
+        assert!(write(&root, "alias/ok.rs", "x").is_ok());
+        assert!(write(&root, "new/dir/a.rs", "x").is_ok());
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

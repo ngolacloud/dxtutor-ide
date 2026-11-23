@@ -20,7 +20,7 @@
    topo do monólito, por isso as entradas `doSearch`/`replaceAll` saíram também do
    `Object.assign(window,…)` do `app.ts` (senão ReferenceError travava o chunk). */
 
-import { $, hd, esc, toast } from "../core";
+import { $, hd, esc, toast, jsa } from "../core";
 
 /** Tupla de ocorrência numa linha: [nº da linha (1-based), linha, offset do match]. */
 type Hit = [number, string, number];
@@ -52,7 +52,7 @@ function doSearch(): void {
       files++;
       n += hits.length;
       h +=
-        `<div class="row" style="padding-left:8px" onclick="openPath('${p}')">${window.fIcon(
+        `<div class="row" style="padding-left:8px" onclick="openPath(${jsa(p)})">${window.fIcon(
           p,
         )}<span class="nm">${esc(
           p.split("/").pop(),
@@ -61,7 +61,7 @@ function doSearch(): void {
           .slice(0, 30)
           .map(
             (x) =>
-              `<div class="s-hit" onclick="openPath('${p}',${x[0]})"><span class="n">${x[0]}</span><span>${esc(
+              `<div class="s-hit" onclick="openPath(${jsa(p)},${x[0]})"><span class="n">${x[0]}</span><span>${esc(
                 x[1].slice(Math.max(0, x[2] - 18), x[2]),
               )}<mark>${esc(x[1].substr(x[2], q.length))}</mark>${esc(
                 x[1].slice(x[2] + q.length, x[2] + q.length + 60),

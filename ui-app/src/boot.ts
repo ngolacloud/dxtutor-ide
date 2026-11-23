@@ -16,6 +16,7 @@
    Com tudo window-backed, boot e app partilham UMA fonte por nome e o app continua a
    ganhar onde redefine. @ts-nocheck: tipar fica para fase posterior. */
 export {};
+import { esc } from "./core";
 
 /* ── mutáveis partilhadas: window-backed SEM binding léxico. Fonte única, lida e
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
@@ -203,7 +204,7 @@ window.renderLevel = function(obj,host,depth,path){
     const node=obj[name];const pad=8+depth*12;
     const row=document.createElement('div');row.className='row'+(node.git?' git-'+node.git:'');row.style.paddingLeft=pad+'px'; // profundidade ilimitada — não cabe em classe estática
     const gi=node.git?(node.dir?`<span class="dot"></span>`:`<span class="deco">${node.git.toUpperCase()}</span>`):'';
-    row.innerHTML=`<span class="chev${node.dir?'':' leaf'}">${svg('chev')}</span><span class="ic ${iconClass(node)}">${iconFor(node,node.open)}</span><span class="nm">${name}</span>${gi}`;
+    row.innerHTML=`<span class="chev${node.dir?'':' leaf'}">${svg('chev')}</span><span class="ic ${iconClass(node)}">${iconFor(node,node.open)}</span><span class="nm">${esc(name)}</span>${gi}`;
     host.appendChild(row);
     if(node.dir){
       const kids=document.createElement('div');kids.className='children';
@@ -226,7 +227,7 @@ window.collapseAll = function(){$$('#exp-sections .tree .row.open').forEach(r=>{
 window.openFile = function(name,t){let x=TABS.find(o=>o.name===name);if(!x){x={name,t:t||'file'};TABS.push(x);}setActive(name);}
 window.tabIcon = function(t){if(t==='chat'||t==='agent')return svg('sparkle','chat');if(t==='rust')return svg('rust','rs');if(t==='css')return svg('file','css');return svg('file');}
 window.renderTabs = function(){const host=$('#tabs');host.innerHTML='';TABS.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.name===activeTab?' active':'');
-  el.innerHTML=`<span class="ic ${t.t==='rust'?'rs':t.t==='css'?'css':t.t==='chat'||t.t==='agent'?'chat':''}">${tabIcon(t.t)}</span><span class="nm">${t.name}</span><button class="x" data-ic="close"></button>`;
+  el.innerHTML=`<span class="ic ${t.t==='rust'?'rs':t.t==='css'?'css':t.t==='chat'||t.t==='agent'?'chat':''}">${tabIcon(t.t)}</span><span class="nm">${esc(t.name)}</span><button class="x" data-ic="close"></button>`;
   el.onclick=e=>{if(e.target.closest('.x')){closeTab(t.name);e.stopPropagation();return;}setActive(t.name);};host.appendChild(el);});hydrate();}
 window.renderDocs = function(){const host=$('#ebody');TABS.forEach(t=>{if($('#doc-'+cid(t.name)))return;const d=document.createElement('div');d.className='doc';d.id='doc-'+cid(t.name);
   if(t.t==='chat')d.innerHTML=welcome();
@@ -246,7 +247,7 @@ window.assistantCenter = function(){document.body.style.setProperty('--agent-w',
 window.assistantDock = function(){closeTab('Assistant');}
 window.cid = function(s){return s.replace(/[^a-z0-9]/gi,'_');}
 window.setActive = function(name){activeTab=name;renderTabs();renderDocs();$$('.doc').forEach(d=>d.classList.remove('show'));const d=$('#doc-'+cid(name));if(d)d.classList.add('show');
-  const t=TABS.find(o=>o.name===name);$('#breadcrumbs').innerHTML=t?`<span class="crumb">dxtutor</span><span class="sep">›</span><span class="crumb">desktop</span><span class="sep">›</span><span class="crumb">src</span><span class="sep">›</span><span class="crumb cur">${name}</span>`:'';
+  const t=TABS.find(o=>o.name===name);$('#breadcrumbs').innerHTML=t?`<span class="crumb">dxtutor</span><span class="sep">›</span><span class="crumb">desktop</span><span class="sep">›</span><span class="crumb">src</span><span class="sep">›</span><span class="crumb cur">${esc(name)}</span>`:'';
   renderMinimap(name);}
 window.renderMinimap = function(name){const mm=$('#minimap'),scroll=$('#ebody'),t=TABS.find(o=>o.name===name);
   if(!t||t.t==='chat'||!DOCS[name]){mm.classList.add('hidden');scroll.classList.remove('with-mm');return;}

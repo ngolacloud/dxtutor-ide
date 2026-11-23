@@ -39,7 +39,7 @@ pub fn list_providers() -> Vec<ProviderInfo> {
     assistant::list_providers()
 }
 
-/// The saved AI/provider settings (keys + Ollama config), for the settings form.
+/// The saved AI/provider settings for the settings form — keys come back masked.
 #[tauri::command]
 pub fn get_providers_config() -> ProvidersConfig {
     assistant::load_config()

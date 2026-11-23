@@ -10,6 +10,7 @@
    partilhadas (FS, ROOT, BRANCH, refresh, promptHTML, …) já são ambiente. */
 
 export {};
+import { jsa } from "./core";
 
 import { loadWorkspace, type LoadedWorkspace } from "./platform/tauri/workspace";
 
@@ -147,7 +148,7 @@ window.DXR = R;
 window.addEventListener("error", e => R.errors.push(String(e.message || e)));
 window.addEventListener("unhandledrejection", e => R.errors.push("promise: " + String((e.reason && e.reason.message) || e.reason)));
 
-const escH = (s: unknown): string => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] ?? c));
+const escH = (s: unknown): string => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c));
 const ansi = (s: string): string => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "");
 const relOf = (p: string): string => (p.startsWith(ROOT) ? p.slice(ROOT.length) : p);
 const isReal = (k: string): boolean => k.startsWith(ROOT) && !k.startsWith(ROOT + "learn/");
@@ -486,7 +487,7 @@ R.approve = (id, ok) => {
 function askApproval(cmd: string): Promise<boolean> {
   const id = "a" + Date.now();
   return new Promise(ok => {
-    const c = card("approval", `Run in <b>${escH(R.name)}</b>?<pre style="white-space:pre-wrap;margin:6px 0">${escH(cmd)}</pre><span><button class="mini pri" onclick="DXR.approve('${id}',true)">Allow</button> <button class="mini" onclick="DXR.approve('${id}',false)">Deny</button></span>`);
+    const c = card("approval", `Run in <b>${escH(R.name)}</b>?<pre style="white-space:pre-wrap;margin:6px 0">${escH(cmd)}</pre><span><button class="mini pri" onclick="DXR.approve(${jsa(id)},true)">Allow</button> <button class="mini" onclick="DXR.approve(${jsa(id)},false)">Deny</button></span>`);
     approvals[id] = { ok, el: (c.bd.querySelector("span:last-child") as HTMLElement | null) || c.bd };
   });
 }
@@ -809,7 +810,7 @@ VIEW.observe = (t: any, host: any) => {
   const pg = host.querySelector(".page") || host;
   const k8s = t.env && t.env !== "local" && ENVS.k8sOn;
   const cmd = k8s ? `kubectl --context ${ENVS.ctx} -n ${ENVS.ns} logs -f --tail=200 deploy/${t.name}` : `${compose()} logs -f --tail=200 ${t.name}`;
-  pg.insertAdjacentHTML("afterbegin", `<div class="sec-empty" style="margin:0 0 10px"><b>Real logs:</b> <code>${escH(cmd)}</code> <button class="mini pri" onclick='DXR.logs(${JSON.stringify(cmd)})'>Stream in terminal</button> <span class="dim">(the charts below are modelled)</span></div>`);
+  pg.insertAdjacentHTML("afterbegin", `<div class="sec-empty" style="margin:0 0 10px"><b>Real logs:</b> <code>${escH(cmd)}</code> <button class="mini pri" onclick="DXR.logs(${jsa(cmd)})">Stream in terminal</button> <span class="dim">(the charts below are modelled)</span></div>`);
 };
 R.logs = cmd => runInTerm(cmd, { env: envFor() });
 
@@ -859,7 +860,7 @@ VIEW.welcome = (t: any, host: any) => {
   const sub = host.querySelector(".sub");
   if (!sub) return;
   const rec = LS.get("dx-recent", []) as string[];
-  sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" onclick="DXR.open()">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" onclick='DXR.open(${JSON.stringify(p)})'>${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
+  sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" onclick="DXR.open()">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" onclick="DXR.open(${jsa(p)})">${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
 };
 
 /* ───── start ───── */
@@ -912,13 +913,17 @@ async function selftest(): Promise<void> {
   await step("providers", async () => {
     const caps = PROVCAPS.map(c => ({ id: c.id, available: c.available, streaming: c.streaming, cancel: c.cancel }));
     const before = await inv("get_providers_config") as ProvidersConfig;
+    // As chaves vêm mascaradas (nunca atravessam o IPC). Com uma chave OpenAI real já guardada não
+    // há como a repor depois da sonda — não se escreve; o passo só corre a sério com HOME temporário.
+    const leak = [before.anthropicKey, before.openaiKey, before.geminiKey].some(k => k && !/^•+$/.test(k));
+    if (before.openaiKey) return { caps, skipped: "openai key already saved", masked: !leak };
     await inv("save_providers_config", { config: { ...before, openaiKey: "sk-selftest-probe" } });
     const after = await inv("get_providers_config") as ProvidersConfig;
-    const saved = after.openaiKey === "sk-selftest-probe", keptOthers = after.anthropicKey === before.anthropicKey;
-    // Restaura a config original — o passo é net-zero mesmo se correr com HOME real: nunca deixa a sonda gravada.
+    const saved = !!after.openaiKey && after.openaiKey !== "sk-selftest-probe", keptOthers = after.anthropicKey === before.anthropicKey;
+    // Restaura a config original (openaiKey vazia) — o passo é net-zero: nunca deixa a sonda gravada.
     await inv("save_providers_config", { config: before });
     const restored = await inv("get_providers_config") as ProvidersConfig;
-    return { caps, saved, keptOthers, restored: restored.openaiKey === before.openaiKey };
+    return { caps, saved, masked: !leak, keptOthers, restored: !restored.openaiKey };
   });
   if (R.root) {
     await step("open", () => ({ root: R.root, git: R.git, branch: BRANCH, commits: GIT.order.length, files: Object.keys(R.disk).length }));

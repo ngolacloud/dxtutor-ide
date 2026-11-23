@@ -51,14 +51,18 @@ pub fn list_providers() -> Vec<ProviderInfo> {
     tutor_llm::chat::list_providers()
 }
 
-/// As definições de IA/providers guardadas (chaves + config Ollama), para o formulário.
+/// As definições de IA/providers para o formulário, com cada chave guardada substituída
+/// por `KEY_MASK`: o webview sabe que chaves existem, nunca os seus valores (regra de
+/// segurança — quem precisa da chave real lê `tutor_llm::chat::load_config` no backend).
 pub fn load_config() -> ProvidersConfig {
-    tutor_llm::chat::load_config()
+    tutor_llm::chat::load_config().redacted()
 }
 
 /// Persiste as definições de IA/providers em `~/.config/dxtutor/providers.json` (0600).
+/// Chaves que o formulário devolve ainda mascaradas mantêm o valor guardado.
 pub fn save_config(config: &ProvidersConfig) -> Result<(), String> {
-    tutor_llm::chat::save_config(config).map_err(|e| format!("{e}"))
+    let merged = config.clone().merged_over(&tutor_llm::chat::load_config());
+    tutor_llm::chat::save_config(&merged).map_err(|e| format!("{e}"))
 }
 
 // ── Diagnósticos — regra de mapeamento para o DTO ────────────────────────────────────

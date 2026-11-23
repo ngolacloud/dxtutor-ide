@@ -23,7 +23,7 @@
    `runTests`, …) resolvem no escopo GLOBAL em runtime. Nada é lido ansiosamente no
    eval — `FS`/`P_*`/DOM só são tocados DENTRO das funções, chamadas depois do arranque. */
 
-import { esc } from "../core";
+import { esc, jsa } from "../core";
 
 const has = (p: string, re: RegExp) => !!FS[p] && re.test(FS[p].content);
 const lexBug = () => has(P_LX, /for c in chars \{/) && has(P_LX, /chars\.peek\(\)/);
@@ -61,7 +61,7 @@ function runTests(pkg?: string) {
 }
 function drawProblems() {
   const d = window.diagnostics(), e = d.filter(x => x.sev === 'e').length, w = d.length - e;
-  $('#pc-problems')!.innerHTML = d.length ? d.map(x => `<div class="prob" onclick="openPath('${x.p}',${x.line})"><span class="pi ${x.sev}">${x.sev === 'e' ? '✖' : '⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join('') : '<div class="sec-empty">Sem problemas no workspace.</div>';
+  $('#pc-problems')!.innerHTML = d.length ? d.map(x => `<div class="prob" onclick="openPath(${jsa(x.p)},${x.line})"><span class="pi ${x.sev}">${x.sev === 'e' ? '✖' : '⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join('') : '<div class="sec-empty">Sem problemas no workspace.</div>';
   $('#pb-prob')!.textContent = String(d.length); const s = $('#st-prob')!; s.innerHTML = `✖ ${e} ⚠ ${w}`; s.style.color = e ? 'var(--red)' : w ? 'var(--yellow)' : 'var(--git-u)';
   const t = runTests(), st = $('#st-tests')!; st.innerHTML = !t.build ? '✖ build' : `${t.ok ? '✓' : '✖'} ${t.tests.filter(x => x.ok).length}/${t.tests.length} testes`; st.style.color = t.ok ? 'var(--git-u)' : 'var(--red)';
 }

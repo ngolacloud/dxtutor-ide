@@ -778,7 +778,9 @@ fn walk_tree(dir: &Path, depth: u32, max_depth: u32, cap: u32, count: &mut u32, 
 /// or write outside the project.
 #[tauri::command]
 pub fn workspace_resolve(root: String, path: String) -> Result<String, String> {
-    contained_path(&root, &path).map(|p| p.to_string_lossy().to_string())
+    let p = contained_path(&root, &path)?;
+    crate::workspace::ensure_within(Path::new(&root), &p)?;
+    Ok(p.to_string_lossy().to_string())
 }
 
 /// Perform a controlled, user-approved filesystem action from the Dev Assistant, STRICTLY
@@ -793,6 +795,7 @@ pub fn workspace_action(
     content: Option<String>,
 ) -> Result<String, String> {
     let target = contained_path(&root, &path)?;
+    crate::workspace::ensure_within(Path::new(&root), &target)?;
     match op.as_str() {
         "createDir" => {
             fs::create_dir_all(&target).map_err(|e| format!("cannot create dir: {e}"))?;

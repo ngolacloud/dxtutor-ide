@@ -299,16 +299,26 @@ async function handle(m: Msg): Promise<void> {
       P.peerName = m.name || P.peerName; P.peerRtc = !!m.rtc;
       toast(`${P.peerName} joined — PairCode`); say(P.peerName + " joined");
       drawAll(); void startCall(); break;
-    case "vf": onFrame(m.d); break;
+    /* frames de vídeo do par: só data-URLs de imagem em base64 (o valor vai para <img src>) */
+    case "vf": if (isFrame(m.d)) onFrame(m.d); break;
     case "af": onAudio(m.d); break;
-    case "snap": enterRemote(m); break;
-    case "files": applyFiles(m); break;
+    /* o snapshot do workspace só flui anfitrião → convidado; no anfitrião seria o convidado a
+       substituir-lhe a vista (e a soltar-lhe o R.root) */
+    case "snap": if (P.role === "guest") enterRemote(m); break;
+    /* edições remotas: o convidado aceita as do anfitrião (fonte de verdade); o anfitrião só as
+       aceita enquanto o convidado conduz — um navigator não escreve no disco do anfitrião */
+    case "files": if (P.role === "guest" || P.driver === "guest") applyFiles(m); break;
     case "view":
       P.peerView = m as unknown as ViewMsg;
       if (!amDriver()) applyView(P.peerView);
       break;
     case "ctl-req": askControl(m); break;
+    /* passagem de comando. O anfitrião só aceita a devolução do controlo pelo convidado que está
+       a conduzir; nunca um convidado a tomá-lo para si (o "cmd" a seguir correria no shell do
+       anfitrião). O convidado aceita o que o anfitrião decidir (dar ou retomar). */
     case "ctl":
+      if (m.driver !== "host" && m.driver !== "guest") break;
+      if (P.role === "host" && !(P.driver === "guest" && m.driver === "host")) break;
       P.driver = m.driver; P.pendingReq = false;
       try { show(cur); } catch { /* */ }
       toast(amDriver() ? "You have control — you are driving" : `${P.peerName} is driving — you are navigating`);
@@ -322,7 +332,7 @@ async function handle(m: Msg): Promise<void> {
     /* commands from the guest run through the host's own terminal (no pair.js, isto era um
        wrapper sobre handle; o guarda é o mesmo — fora dele a mensagem é ignorada) */
     case "cmd":
-      if (P.role === "host" && P.driver === "guest") {
+      if (P.role === "host" && P.driver === "guest" && typeof m.line === "string") {
         setPanelTab("terminal", true);
         applyingCmd = true;
         try { await window.run(m.line); } finally { applyingCmd = false; }
@@ -406,7 +416,20 @@ function syncOut(): void {
   del.forEach(k => delete P.sent[k]);
   void send({ t: "files", set, del });
 }
+/* caminhos que um par nunca escreve/apaga no anfitrião: .git/ (hooks = execução no próximo
+   commit), segmentos ".." ou vazios, absolutos e caracteres de controlo. */
+const unsafeRemotePath = (k: string): boolean =>
+  typeof k !== "string" || /[\0-\x1f]/.test(k) || k.startsWith("/") || /^[A-Za-z]:/.test(k) ||
+  k.split(/[\\/]/).some(seg => seg === ".." || seg === "." || seg.toLowerCase() === ".git");
+const isFrame = (d: unknown): d is string =>
+  typeof d === "string" && d.length < 4_000_000 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(d);
 function applyFiles(m: Msg): void {
+  if (P.role === "host") {
+    const set = (m.set && typeof m.set === "object" ? m.set : {}) as Record<string, unknown>;
+    const bad = Object.keys(set).filter(k => unsafeRemotePath(k) || typeof set[k] !== "string")
+      .concat(((Array.isArray(m.del) ? m.del : []) as unknown[]).filter(k => unsafeRemotePath(k as string)) as string[]);
+    if (bad.length) { say("blocked remote edit: " + bad.slice(0, 3).join(", ")); toast("PairCode: edição remota bloqueada (" + bad.length + " caminho(s) não permitidos)"); return; }
+  }
   applying = true;
   try {
     const t = tabOf(cur), open = t && t.path;

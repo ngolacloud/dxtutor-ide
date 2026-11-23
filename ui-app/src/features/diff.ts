@@ -17,7 +17,7 @@
    DENTRO das funções, chamadas depois do arranque, e resolvem no escopo GLOBAL em
    runtime. Do core importa-se só o que é dono de lá (`esc`). */
 
-import { esc } from "../core";
+import { esc, jsa } from "../core";
 
 /* ───── matemática do diff (puras) ───── */
 function diffLines(a: string | null | undefined, b: string | null | undefined){const A=a?a.split('\n'):[],B=b?b.split('\n'):[],n=A.length,m=B.length,L=Array.from({length:n+1},()=>new Uint16Array(m+1));
@@ -28,7 +28,7 @@ function diffStat(a: string | null | undefined, b: string | null | undefined){co
 
 /* ───── corpo do renderer da tab `diff` (era VIEW.diff no monólito) ───── */
 function renderDiffView(tab: unknown, host: HTMLElement){const t=tab as { fixed?: boolean; a?: string; b?: string; path: string; label?: string };const a=t.fixed?t.a:(FS[t.path]?FS[t.path].orig:''),b=t.fixed?t.b:(FS[t.path]?FS[t.path].content:''),d=diffLines(a,b),ext=extOf(t.path),s=diffStat(a,b);
-  host.innerHTML=`<div class="diff"><div class="diff-h"><b style="color:var(--fg)">${short(t.path)}</b><span class="tag">${esc(t.label||'HEAD ↔ área de trabalho')}</span><span style="color:var(--green)">+${s.add}</span><span style="color:var(--red)">−${s.del}</span><button class="mini" onclick="openPath('${t.path}')">Abrir ficheiro</button></div>${d.length?d.map(x=>`<div class="dl ${x[0]==='+'?'add':x[0]==='-'?'del':''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${hlLine(x[1] as string,ext)||' '}</span></div>`).join(''):'<div class="sec-empty">Sem diferenças.</div>'}</div>`;}
+  host.innerHTML=`<div class="diff"><div class="diff-h"><b style="color:var(--fg)">${esc(short(t.path))}</b><span class="tag">${esc(t.label||'HEAD ↔ área de trabalho')}</span><span style="color:var(--green)">+${s.add}</span><span style="color:var(--red)">−${s.del}</span><button class="mini" onclick="openPath(${jsa(t.path)})">Abrir ficheiro</button></div>${d.length?d.map(x=>`<div class="dl ${x[0]==='+'?'add':x[0]==='-'?'del':''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${hlLine(x[1] as string,ext)||' '}</span></div>`).join(''):'<div class="sec-empty">Sem diferenças.</div>'}</div>`;}
 
 /* ───── lançador de tab diff ───── */
 function openDiff(p: string, a?: string, b?: string, label?: string){const fixed=a!==undefined;openTab({id:(fixed?'prop:':'diff:')+p,title:p.split('/').pop()+(fixed?' (proposta)':' (diff)'),kind:'diff',path:p,fixed,a,b,label});}

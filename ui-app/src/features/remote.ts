@@ -14,7 +14,7 @@
    switch de pane). Quando o próprio registo `RP` migrar para uma feature, o espelho
    cai. Este é o padrão para migrar qualquer render de pane do `RP`. */
 
-import { $, hd } from "../core";
+import { $, hd, jsa } from "../core";
 
 /** Renderiza o pane «Remote Explorer»: ligação local do protótipo + hosts SSH
  *  (desligados — ligações remotas reais dependem do backend da aplicação). */
@@ -26,7 +26,7 @@ function renderRemotePane(): void {
     `<div class="sections"><div class="scm-grp">Local</div><div class="scm-row" style="cursor:default"><span class="pdot" style="background:var(--green)"></span><span class="nm">delonix</span><span class="pth">ligado · este protótipo</span></div><div class="scm-grp">SSH</div>${["kaeso-preprod", "ngolacloud-cp-01"]
       .map(
         (h) =>
-          `<div class="scm-row" onclick="toast('${h}: ligação remota não disponível no protótipo')"><span class="pdot off"></span><span class="nm">${h}</span><span class="pth">desligado</span></div>`,
+          `<div class="scm-row" onclick="toast(${jsa(`${h}: ligação remota não disponível no protótipo`)})"><span class="pdot off"></span><span class="nm">${h}</span><span class="pth">desligado</span></div>`,
       )
       .join("")}<div class="sec-empty">Ligações remotas reais dependem do backend da aplicação.</div></div>`;
 }
