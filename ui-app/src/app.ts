@@ -219,7 +219,7 @@ XC.git=(a,raw)=>window.gitCmd(a,raw);
    saveTeam/loadTeam/pickAgent/agentPill/scopeProbe + VIEW.team) migrado p/ features/team.ts
    (inversão @ts-nocheck, window-backed). Aqui ficam: openTeam (abrir tab — $dup0; versão viva
    em v5.ts), a decoração Object.assign(AGENTS.*) abaixo, e o shim VIEW.team que v5/v6 decoram. ───── */
-VIEW.team=(t,host)=>window.renderTeamView(t,host);
+/* VIEW.team registado (composto) pela própria features/team.ts (ADR-0004, U4g4). */
 
 /* ───── router: motor (CAPL/CAP/TASKP/ROUTE_CACHE/LIVE_OK/rankModels/routeModel) migrado p/ features/router.ts; aqui só consumidores (VIEW.team, genBacklog, runIssue) que lêem por global ───── */
 

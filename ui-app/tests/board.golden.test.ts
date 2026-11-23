@@ -144,7 +144,6 @@ describe("políticas compostas pelo board (ADR-0004, U4g3)", () => {
   }
 
   it("revisão antes de validar: «Validar» sem revisão abre a revisão e a issue fica em func", () => {
-    w.VIEW.review = () => {}; // o renderer da revisão vive no v5.ts, fora do harness
     const it = w.mkIssue({ title: "rev", agent: "be", sprint: 0, stage: "func", res: [{ n: "t", ok: true }] });
     expect(w.HARN.review).toBe(true);
     w.BL.view = -1; const host = renderInto();

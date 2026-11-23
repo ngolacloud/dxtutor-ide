@@ -8,26 +8,27 @@
    CAP/TASKP/rankModels/show/cur) resolvem por window em runtime (@ts-nocheck, late-binding).
 
    CORRIGE um gap latente: board.ts chamava `inScope`/`ownerOf` por global mas app.ts não os
-   publicava — aqui são publicados no window. `openTeam` (abrir tab) NÃO migra: a versão viva
-   é a de v5.ts; o $dup0 de abertura fica em app.ts. VIEW.team é eager + DECORADO por v6 →
-   corpo aqui em `renderTeamView` e shim brace-less `VIEW.team=(t,host)=>window.renderTeamView(…)`
-   em app.ts (v6.ts continua a decorar o shim; v5.ts deixou de decorar — nada lhe restava, ver
-   abaixo). GOTCHA C: os símbolos saíram do Object.assign de app.ts.
+   publicava — aqui são publicados no window. Desde a U4g4 do ADR-0004 esta feature também
+   é dona do `openTeam`, do `VIEW.team` (composto: `renderTeamView` + a linha «explain before
+   validating», que era do v6) e do `VIEW.review` (era do v5); o shim do app.ts saiu. GOTCHA
+   C: os símbolos saíram do Object.assign de app.ts.
 
    Motor do harness de projecto MIGRADO de v5.ts (RIGHTS/RIGHT_RE/ALWAYS/MORD/HT/HARN/isHuman/
    harnessToml/applyTemplate/toggleRight/authorship/reviewIssue), fundido com `renderTeamView`:
    a secção "Project harness"/"Who decides"/"Who did the work" que v5.ts inseria por fora
    (DOM insertAdjacentHTML sobre o resultado de VIEW.team) passa a fazer parte do corpo único
-   de renderTeamView — o wrapper `_team5`/`VIEW.team=` em v5.ts desapareceu. Resíduo que FICA
-   em v5.ts (doTool/setMode/approveIssue/VIEW.board decorators, boot5, codeGuard, CMD.push)
-   lê RIGHTS/RIGHT_RE/HT/MORD/isHuman/HARN/harnessToml/toggleRight/authorship/reviewIssue por
-   nome livre (@ts-nocheck, late-binding) — publicados no Object.assign final. `applyTemplate`
-   fica `window.applyTemplate=` directo porque v6.ts REATRIBUI a função inteira (como v5.ts já
-   fazia para dxRun/dxStop/setMode/doTool/approveIssue). ALWAYS/AG0 ficam léxicos (só usados
+   de renderTeamView — o wrapper `_team5`/`VIEW.team=` em v5.ts desapareceu. As políticas que
+   o v5/v6 aplicavam com estes dados vivem agora nos donos das funções (U4g3/U4g4): o board.ts
+   (revisão/explicação/codeGuard no runner) e o codev.ts (tecto do setMode, direitos no doTool,
+   codeGuard no runMission); o `codeGuard` e o arranque do `explain` vivem aqui. O
+   `applyTemplate` publica-se como `window.applyTemplate=` (base + o acerto do `explain`, que
+   era a decoração do v6). ALWAYS/AG0 ficam léxicos (só usados
    aqui dentro). `RUN`/`DECS` não tinham contrato ambiente em pair.ts — acrescentados; `BL`
    lê-se via `window.BL` como tasks.ts já fazia (sem novo ambiente). */
 
 import { esc, S, jsa } from "../core";
+import { VIEW } from "../app/store/registry";
+import type { Tab } from "../app/store/editor";
 import { CAPL, CAP, TASKP, type Capability } from "./router/domain/model-routing";
 import { rankModels } from "./router";
 
@@ -60,14 +61,10 @@ function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim())
    v5.ts, fundido com renderTeamView) ─────
    A secção "Project harness"/"Who decides"/"Who did the work" que v5.ts inseria por
    fora (DOM insertAdjacentHTML sobre o resultado de VIEW.team) passa a fazer parte do
-   corpo único de renderTeamView — o wrapper `_team5`/`VIEW.team=` em v5.ts desaparece
-   (nada resta para decorar; v6.ts continua a decorar VIEW.team directamente a partir
-   do shim de app.ts, inserindo a linha "Explain the change…"). HARN é window-backed
-   como AGENTS (mutado em-lugar por doTool/approveIssue/VIEW.board em v5.ts e por
-   applyTemplate/VIEW.team em v6.ts). applyTemplate fica `window.applyTemplate=`
-   directo porque v6.ts REATRIBUI a função inteira; os restantes publicam-se no
-   Object.assign final para o resíduo (doTool, setMode, approveIssue, VIEW.board,
-   boot5, codeGuard, CMD.push em v5.ts) continuar a lê-los por nome livre. ALWAYS/AG0
+   corpo único de renderTeamView. HARN é window-backed como AGENTS (lido no acto pelas
+   políticas do board.ts/codev.ts e pelo boot5 do v5.ts) e hidrata do LS logo ao carregar
+   (fim do ficheiro). Os restantes publicam-se no Object.assign final para o resíduo
+   (boot5/CMD.push em v5.ts) continuar a lê-los por nome livre. ALWAYS/AG0
    ficam léxicos (só usados aqui dentro). RUN/DECS não tinham contrato ambiente
    (pair.ts) — acrescentados; BL lê-se via `window.BL` como tasks.ts já fazia. */
 const RIGHTS: Record<string, string> = { code: 'Writing code', arch: 'Architecture decisions (ADRs)', schema: 'Database schema changes', deps: 'Adding dependencies', merge: 'Merge into develop', release: 'Release to main', deploy: 'Deploy to Kubernetes', push: 'Push to remote' };
@@ -87,7 +84,12 @@ const AG0 = JSON.parse(JSON.stringify(AGENTS));
    porque team.ts avalia ANTES de app.ts — que é quem define `LS` (padrão hidratação
    preguiçosa das features-folha, como BPS em debug.ts / tasks.ts). */
 let harnHydrated = false;
-function hydrateHarn() { if (harnHydrated) return; harnHydrated = true; Object.assign(HARN, LS.get('harn5', {})); }
+function hydrateHarn() {
+  if (harnHydrated) return; harnHydrated = true; Object.assign(HARN, LS.get('harn5', {}));
+  /* «explain before validating»: sem escolha guardada, ligado nos templates Study e Critical
+     systems (era o arranque do v6.ts — ADR-0004, U4g4) */
+  if (HARN.explain == null) HARN.explain = ['study', 'critical'].includes(HARN.tpl);
+}
 function isHuman(r: string): boolean { hydrateHarn(); return ALWAYS.includes(r) || HARN.human.includes(r); }
 function harnessToml(): string {
   hydrateHarn();
@@ -109,7 +111,7 @@ max_files = ${a.max}
 model = "${a.model}"`).join('\n\n')}
 `;
 }
-window.applyTemplate = function (id: string) {
+function applyTemplateBase(id: string) {
   hydrateHarn();
   if (RUN.active) { toast('Wait for the run to finish'); return; }
   const t = HT[id];
@@ -119,6 +121,12 @@ window.applyTemplate = function (id: string) {
   S.THRESH = t.thresh; S.MODE = t.mode; LS.set('harn5', HARN);
   saveTeam(); window.save(); updateAgentUI(); writeFile(ROOT + '.dxtutor/harness.toml', harnessToml());
   toast(`Harness applied: ${t.n}`); log('harness', `template ${id} applied · ceiling ${t.ceiling}`); rerender('team');
+}
+/* Aplicar um template também acerta o «explain before validating» (mesmo quando a base
+   recusa por haver uma execução a correr). Era a decoração do v6.ts (ADR-0004, U4g4). */
+window.applyTemplate = function (id: string) {
+  applyTemplateBase(id);
+  HARN.explain = ['study', 'critical'].includes(id); LS.set('harn5', HARN); rerender('team');
 };
 function toggleRight(r: string) {
   hydrateHarn();
@@ -164,6 +172,30 @@ function renderTeamView(_t:unknown,host:HTMLElement){
 /** «Escrever código é teu» (o direito `code` é humano neste harness): em vez de delegar,
  *  correr um sprint ou uma missão, o Co-Dev explica que não edita ficheiros e oferece os
  *  testes ou o harness. Devolve `true` quando bloqueou. Era do v5.ts (ADR-0004, U4g3). */
+/* ───── vistas do harness (ADR-0004, U4g4 — viviam no v5.ts/v6.ts e no app.ts) ───── */
+/** O separador «Team & harness»: o corpo + a linha «explain before validating» (era a
+ *  decoração do v6) logo a seguir à linha da revisão do diff. */
+function teamView(t: unknown, host: HTMLElement): void {
+  renderTeamView(t, host);
+  const row = [...host.querySelectorAll('.rowline')].find((r) => /Review the diff before validating/.test(r.textContent || ''));
+  if (row) row.insertAdjacentHTML('afterend', `<div class="rowline"><span>Explain the change in your own words before validating</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">on in Study and Critical systems</span><button class="sw${HARN.explain ? ' on' : ''}" onclick="HARN.explain=!HARN.explain;LS.set('harn5',HARN);rerender('team')"></button></div>`);
+}
+const RV = window as unknown as {
+  BL: { issues: { id: string; title: string; branch?: string | null; stage: string }[] };
+  GIT: { trees: Record<string, Record<string, string>> };
+  diffLines: (a: string, b: string) => [string, string, unknown, unknown][];
+  extOf: (p: string) => string; hlLine: (l: string, ext: string) => string; short: (p: string) => string;
+};
+/** A revisão de uma issue: o diff do ramo contra o develop, com «Validate and merge». */
+function reviewView(t: Tab, host: HTMLElement): void {
+  const it = RV.BL.issues.find((i) => i.id === t.issue), GIT = RV.GIT, tr = it && GIT.trees[it.branch as string], dv = GIT.trees.develop, files = tr ? Object.keys(tr).filter((p) => tr[p] !== dv[p]) : [];
+  host.innerHTML = `<div class="diff"><div class="diff-h"><b style="color:var(--fg)" class="notr">${it ? esc(it.id + ' · ' + it.title) : ''}</b><span class="tag notr">${it ? esc(it.branch || '') : ''} → develop</span><span class="sp" style="flex:1"></span>${it && it.stage === 'func' ? `<button class="mini pri" onclick="approveIssue(${jsa(it.id)});closeTab('review')">✓ Validate and merge</button><button class="mini" onclick="rejectIssue(${jsa(it.id)})">✗ Reject</button>` : ''}</div>${files.length ? files.map((p) => { const d = RV.diffLines(dv[p] || '', (tr as Record<string, string>)[p]), ext = RV.extOf(p); return `<div class="diff-h" style="padding-top:14px"><b style="color:var(--accent-hover)">${esc(RV.short(p))}</b><span style="color:var(--green)">+${d.filter((x) => x[0] === '+').length}</span><span style="color:var(--red)">−${d.filter((x) => x[0] === '-').length}</span></div>` + d.map((x) => `<div class="dl ${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : ''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${RV.hlLine(x[1], ext) || ' '}</span></div>`).join(''); }).join('') : '<div class="sec-empty">Nothing to review: the branch was already merged or has no changes.</div>'}</div>`;
+}
+VIEW.team = teamView;
+VIEW.review = reviewView;
+/** Abre o separador «Team & harness». */
+function openTeam(): void { openTab({ id: 'team', title: 'Team & harness', kind: 'team' }); }
+
 const CG = window as unknown as { focusAgent: (nofocus?: boolean) => void; user: (t: string) => void; card: (who: string, html: string) => unknown };
 function codeGuard(what: string): boolean {
   if (!isHuman('code')) return false;
@@ -173,6 +205,11 @@ function codeGuard(what: string): boolean {
 }
 
 Object.assign(window, {
-  codeGuard, globRe, inScope, canRun, ownerOf, harnessCheck, harnessCmd, agentSys, saveTeam, loadTeam, pickAgent, agentPill, scopeProbe, renderTeamView,
+  codeGuard, openTeam, globRe, inScope, canRun, ownerOf, harnessCheck, harnessCmd, agentSys, saveTeam, loadTeam, pickAgent, agentPill, scopeProbe, renderTeamView,
   RIGHTS, RIGHT_RE, HT, HARN, MORD, isHuman, harnessToml, toggleRight, authorship, reviewIssue, hydrateHarn,
 });
+
+/* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê
+   directamente — o tecto no setMode, o boot5, as políticas do board — vê já os valores
+   guardados. Era a chamada `window.hydrateHarn()` do v5.ts (ADR-0004, U4g4). */
+hydrateHarn();

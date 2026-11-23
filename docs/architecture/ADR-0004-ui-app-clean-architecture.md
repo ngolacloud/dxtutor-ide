@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g3)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g4)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -373,3 +373,28 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `codeGuard`, validação e delegação normais — idênticos, sem erros de página; não cobre
   uma corrida completa do runner nem o fecho dos componentes do Studio) e auto-teste
   desktop idêntico ao da U4g2.
+- **U4g4 (2026-11-24) — o harness do projecto e o Co-Dev.** As políticas do harness que o
+  v5/v6 aplicavam ao Co-Dev foram dobradas no `features/codev.ts`, dono das funções, sem
+  republicar: o tecto de autonomia no `setMode`, os direitos humanos (`code` e os caminhos de
+  arquitectura/migrações/dependências, com «your call») no `doTool` publicado, e o
+  `codeGuard` no `runMission`. O resto foi para o `features/team.ts`, dono do `HARN`: o
+  arranque do `explain` (dentro do `hydrateHarn`), o acerto do `explain` no `applyTemplate`
+  (também quando a base recusa por haver uma execução a correr, como antes), o `VIEW.team`
+  composto com a linha «explain before validating» (o shim do app.ts saiu), o `VIEW.review`
+  e o `openTeam`. O `HARN` hidrata do LS logo ao carregar o team.ts — antes era o v5 que
+  chamava `hydrateHarn()`, à espera de que o app.ts criasse o `LS`; desde a U4f o `LS` nasce
+  no `app/store`, antes de tudo. Entre o team.ts e o v5 nada lia o `HARN` no eval nem
+  escrevia o `harn5`, por isso os valores vistos são os mesmos. **Comportamento
+  pré-existente, reportado (não corrigido):** só o `doTool` publicado leva o gate de
+  direitos; as missões e o chat usam o `doTool` local do motor (`codev/index.ts`), que nunca
+  o teve. As missões são barradas à entrada pelo `codeGuard` quando o `code` é humano, mas o
+  chat livre não tem `codeGuard`, e nenhum dos dois passa pelo «your call» dos direitos de
+  caminho (arquitectura/migrações/dependências) — fica só a aprovação do próprio motor. No v5 restam o `VIEW.studio` (Deploy), o `VIEW.welcome`, o `boot5` e o `tick`
+  (sem efeito, cala o relógio do boot.ts). Lint 282 (sai o `jsa` sem uso no v5); métricas
+  sem mudança. Verificado: 367 testes (nenhuma asserção mudou; saiu o stub do `VIEW.review`
+  do teste do board, que agora existe no harness), arranque no browser 4/4, comparação no
+  browser HEAD vs árvore (tecto do setMode, bloqueio de edição com `code` humano, pedido e
+  rejeição de um direito, `codeGuard` numa missão, `openTeam` com a linha do explain,
+  `applyTemplate` normal e durante uma execução, a vista de revisão, e um arranque com o
+  harness guardado no localStorage — idênticos, sem erros de página) e auto-teste desktop
+  idêntico ao da U4g3.

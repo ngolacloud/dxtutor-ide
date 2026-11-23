@@ -85,7 +85,34 @@ bus.on('agent:provider', () => window.updateAgentUI());
 bus.on('agent:providers', () => window.updateAgentUI());
 bus.on('agent:context', () => ctxPill());
 bus.on('editor:tab', () => ctxPill());
-window.setMode = function (m) { bridge.monolith.mode = m; bridge.save(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
+/* ───── políticas do harness do projecto sobre o Co-Dev (ADR-0004, U4g4) ─────
+   Eram decorações do v5.ts, dobradas aqui no dono das funções (sem republicar no window):
+   o tecto de autonomia no setMode, os direitos humanos no doTool e o «o código é teu» no
+   runMission. Os dados do harness (HARN/MORD/RIGHTS/RIGHT_RE/isHuman/codeGuard) são do
+   features/team.ts e lêem-se no acto, como o v5 os lia por nome livre. NOTA (pré-existente,
+   preservado): só o doTool PUBLICADO leva o gate de direitos — as missões e o chat usam o
+   doTool local do motor (codev/index.ts), que nunca teve o gate do v5. */
+interface HarnessGlobals {
+  HARN: { ceiling: string }; MORD: string[]; RIGHTS: Record<string, string>; RIGHT_RE: Record<string, RegExp>;
+  isHuman: (r: string) => boolean; codeGuard: (what: string) => boolean;
+  MODE: string; short: (p: string) => string; log: (s: string, m: string) => void;
+}
+const HG = window as unknown as HarnessGlobals;
+type DoToolArgs = Parameters<typeof codevEngine.doTool>;
+async function harnessDoTool(t: DoToolArgs[0], host: DoToolArgs[1], role?: DoToolArgs[2]): Promise<unknown> {
+  if (t.t === 'edit') {
+    const p = String((t as { p?: unknown }).p);
+    if (HG.isHuman('code') && !/\/learn\//.test(p)) { (tl(host, 'harness', HG.short(p)).querySelector('.tr') as HTMLElement).innerHTML = '<span class="bad">✖ writing code is yours in this project</span>'; HG.log('harness', 'edit blocked: code is human-only'); return false; }
+    const r = Object.keys(HG.RIGHT_RE).find((k) => HG.isHuman(k) && HG.RIGHT_RE[k].test(p));
+    if (r && HG.MODE !== 'manual') { const d = tl(host, 'your call', HG.RIGHTS[r] + ' · ' + HG.short(p)); const v = await ask(d, [{ l: 'Approve', v: 1, pri: 1, done: '✓ approved by you' }, { l: 'Reject', v: 0, done: '✗ rejected by you' }]); if (!v) { HG.log('humano', 'rejected ' + HG.short(p)); return false; } }
+  }
+  return codevEngine.doTool(t, host, role);
+}
+function harnessRunMission(S: Parameters<typeof codevEngine.runMission>[0], text: string): ReturnType<typeof codevEngine.runMission> | undefined {
+  if (HG.codeGuard(text)) return;
+  return codevEngine.runMission(S, text);
+}
+window.setMode = function (m) { if (HG.MORD.indexOf(m) > HG.MORD.indexOf(HG.HARN.ceiling)) { bridge.toast(`This project's harness caps autonomy at ${MODES[HG.HARN.ceiling].l}`); return; } bridge.monolith.mode = m; bridge.save(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
 function cycleMode() { const k = Object.keys(MODES); window.setMode(k[(k.indexOf(bridge.monolith.mode) + 1) % k.length]); }
 function pickModel() { bridge.palette('', { ph: 'Modelo para a conversa…', items: Object.entries(bridge.providers()).map(([k, p]: [string, any]) => ({ l: `${p.name} — ${p.model}`, d: p.on ? bridge.provState(k) : 'desligado', run: () => { if (!p.on) { bridge.toast(p.name + ' está desligado — liga-o nas Definições'); return; } bridge.monolith.activeProvider = k; bridge.save(); } })) }); }
 function toggleProv(k: string) { const p = bridge.providers(); p[k].on = !p[k].on; bridge.save(); agentStore.providerChanged(k); const panes = bridge.panes(); if (panes[bridge.monolith.pane]) panes[bridge.monolith.pane](); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); }
@@ -131,8 +158,8 @@ function demo(id: string) { const S = SCN_().find((s) => s.id === id)!; focusAge
 /* publica o motor Co-Dev (já ligado em ./codev/index.ts) no window; os onclick inline,
    o resíduo app.ts e features/board.ts resolvem-nos por global */
 Object.assign(window, {
-  doTool: codevEngine.doTool,
-  runMission: codevEngine.runMission,
+  doTool: harnessDoTool,
+  runMission: harnessRunMission,
   dec: codevEngine.dec,
   decideQ: codevEngine.decideQ,
   council: codevEngine.council,

@@ -47,10 +47,8 @@ function dlg(o){let d=$('#dlg');if(!d){document.body.insertAdjacentHTML('beforee
 /* delegate (dono humano) e VIEW.board (duplo-clique, dono, custo) compostos em features/board.ts; _todo6 (morto: nunca lido) saiu (ADR-0004, U4g3). */
 
 /* ───── explain before approving ───── */
-HARN.explain=HARN.explain!=null?HARN.explain:['study','critical'].includes(HARN.tpl);
-const _apply6=applyTemplate;applyTemplate=function(id){_apply6(id);HARN.explain=['study','critical'].includes(id);LS.set('harn5',HARN);rerender('team');};
+/* o arranque do HARN.explain, a decoração do applyTemplate e a linha do VIEW.team migrados p/ features/team.ts (ADR-0004, U4g4). */
 /* approveIssue com explicação composto em features/board.ts (ADR-0004, U4g3). */
-const _team6=VIEW.team;VIEW.team=(t,host)=>{_team6(t,host);const row=[...host.querySelectorAll('.rowline')].find(r=>/Review the diff before validating/.test(r.textContent));if(row)row.insertAdjacentHTML('afterend',`<div class="rowline"><span>Explain the change in your own words before validating</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">on in Study and Critical systems</span><button class="sw${HARN.explain?' on':''}" onclick="HARN.explain=!HARN.explain;LS.set('harn5',HARN);rerender('team')"></button></div>`);};
 
 /* ───── environments (motor extraído p/ features/infra.ts) ─────
    O motor de environments vive em features/infra.ts, e a decoração de dxDeploy (prepara
