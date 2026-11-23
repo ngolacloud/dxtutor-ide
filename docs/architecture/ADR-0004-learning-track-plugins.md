@@ -1,6 +1,6 @@
 # ADR-0004 — Learning Track em plugins de curso (10 linguagens, texto de conceitos, VS Code)
 
-- **Estado:** aceite; Fases 1 e 2 implementadas (branch `feat/learning-plugins`)
+- **Estado:** aceite; Fases 1, 2 e 3 implementadas (branch `feat/learning-plugins`); Fase 4 em curso
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0002` (Clean Architecture das features), `IPC-MATRIX.md` §10d,
@@ -184,12 +184,23 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
      - Corrigido pelo caminho: o `Show()` do harness rebentava com `InvalidCastException` ao
        mostrar um `Dictionary<K,V>` num `Equal` falhado. Agora usa o enumerador de
        `IDictionary`; há um teste de regressão.
-   - **Swift (descritor feito):** `swiftc -O -swift-version 6`. O aluno escreve só declarações
-     (`Student.swift`), e os testes vão para um `main.swift` com um harness `@MainActor`
-     (testes `async`). Procura a toolchain real do swiftly, porque o proxy do swiftly no PATH
-     precisa do `$HOME` verdadeiro. Por isso as pastas de `host_path_hints` passaram a vir
-     antes do binário encontrado no PATH.
-   - **Falta:** o curso de Swift, com a mesma receita.
+   - **Swift (feito):**
+     - Descritor: `swiftc -O -swift-version 6`. O aluno escreve só declarações
+       (`Student.swift`), e os testes vão para um `main.swift` com um harness `@MainActor`
+       (testes `async`). Procura a toolchain real do swiftly, porque o proxy do swiftly no PATH
+       precisa do `$HOME` verdadeiro. Por isso as pastas de `host_path_hints` passaram a vir
+       antes do binário encontrado no PATH.
+     - Curso `courses/swift/`: 34 unidades e 170 passos, com um bloco de Swift para produção no
+       lugar das bases de dados (generics, Codable, datas, Regex, Hashable, semântica de
+       valor), async/await, task groups, actors, AsyncStream, result builders e ARC.
+       `dxt plugin test` dá 170/170 duas vezes. Embutido só no backend.
+   - **Fase 3 concluída: as 10 linguagens oficiais têm curso completo** (Rust, Go, Python,
+     TypeScript, Java, Kotlin, Swift, C#, C++, SQL; 8 × 170 passos novos), avaliador real e
+     `dxt plugin test` verde.
+   - **Aviso de ambiente:** o instalador do swiftly acrescenta `. ~/.local/share/swiftly/env.sh`
+     ao `~/.profile`. Esse ficheiro usa sintaxe de bash e faz rebentar `sh -l` (dash). O executor
+     de testes do projecto (`testexec.rs`, `sh -lc`) e o teste `tests_run` falham nessa máquina
+     até a linha ser guardada com `[ -n "$BASH_VERSION" ] && …`.
    - **Melhoria futura:** o manifesto do plugin de curso poder trazer o seu próprio descritor de
      avaliador (hoje um descritor da comunidade vai para `~/.config/dxtutor/plugins/`).
 4. **Extensões VS Code.** Contribuições declarativas: temas → tokens CSS, gramáticas TextMate

@@ -274,6 +274,8 @@ const JAVA_BASICS: &str = include_str!("../../../courses/java/courses/java.toml"
 const KOTLIN_BASICS: &str = include_str!("../../../courses/kotlin/courses/kotlin.toml");
 /// C#: também só no backend; avaliado pelo descritor C# (Roslyn do SDK do .NET 8).
 const CSHARP_BASICS: &str = include_str!("../../../courses/csharp/courses/csharp.toml");
+/// Swift: também só no backend; avaliado pelo descritor Swift (swiftc em modo Swift 6).
+const SWIFT_BASICS: &str = include_str!("../../../courses/swift/courses/swift.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -287,6 +289,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("java-basics", JAVA_BASICS),
         parse("kotlin-basics", KOTLIN_BASICS),
         parse("csharp-basics", CSHARP_BASICS),
+        parse("swift-basics", SWIFT_BASICS),
     ]
 }
 
@@ -849,6 +852,11 @@ mod python_tests {
     #[test]
     fn csharp_basics_tem_a_forma_do_curso_oficial() {
         forma_oficial("csharp-basics", "csharp");
+    }
+
+    #[test]
+    fn swift_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("swift-basics", "swift");
     }
 
     #[test]

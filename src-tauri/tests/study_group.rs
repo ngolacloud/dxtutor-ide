@@ -69,6 +69,7 @@ fn new_language_challenges_are_graded_for_real() {
         ("java", "java"),
         ("kotlin", "kotlinc"),
         ("csharp", "dotnet"),
+        ("swift", "swiftc"),
     ] {
         if std::process::Command::new(tool)
             .arg("--version")
