@@ -28,6 +28,8 @@
    lê-se via `window.BL` como tasks.ts já fazia (sem novo ambiente). */
 
 import { esc, S, jsa } from "../core";
+import { CAPL, CAP, TASKP, type Capability } from "./router/domain/model-routing";
+import { rankModels } from "./router";
 
 interface Agent { n: string; d: string; col: string; paths: string[]; cmds: string[]; task: string; model: string; max: number }
 // cores em var(--token) do tema (theme.ts) em vez de hex fixo — mudam ao trocar de tema;
@@ -156,8 +158,8 @@ function renderTeamView(_t:unknown,host:HTMLElement){
     <div><label>Pode escrever em (um padrão por linha)</label><textarea rows="2" onchange="AGENTS.${k}.paths=this.value.split('\\n').map(s=>s.trim()).filter(Boolean);saveTeam()">${esc(a.paths.join('\n'))}</textarea></div>
     <div><label>Comandos permitidos</label><textarea rows="2" onchange="AGENTS.${k}.cmds=this.value.split('\\n').map(s=>s.trim()).filter(Boolean);saveTeam()">${esc(a.cmds.join('\n'))}</textarea></div>
     <div style="display:grid;grid-template-columns:1fr 90px;gap:8px"><div><label>Modelo</label><select onchange="AGENTS.${k}.model=this.value;saveTeam()"><option value="auto"${a.model==='auto'?' selected':''}>Automático (router)</option>${Object.entries(PROV).map(([p,v])=>`<option value="${p}"${a.model===p?' selected':''}>${v.name}</option>`).join('')}</select></div><div><label>Máx. ficheiros</label><input type="number" min="0" max="50" value="${a.max}" onchange="AGENTS.${k}.max=+this.value;saveTeam()"></div></div></div>`).join('')}</div>
-  <h2>Router de modelos</h2><div class="sub">Com o modelo em «Automático», o assistente descreve a tarefa e pede o modelo mais adequado. Os perfis abaixo são valores de exemplo, editáveis na aplicação real.</div><div class="tbl-wrap"><table class="tbl"><tr><th>Provedor</th>${Object.keys(CAPL).map(c=>`<th>${CAPL[c]}</th>`).join('')}</tr>${Object.entries(PROV).map(([p,v])=>`<tr><td><span class="pdot${v.on?'':' off'}" style="background:${v.col}"></span> ${v.name}</td>${Object.keys(CAPL).map(c=>`<td class="c">${CAP[p][c]}</td>`).join('')}</tr>`).join('')}</table></div>
-  <div class="tbl-wrap" style="margin-top:10px">${Object.entries(TASKP).map(([k,p])=>{const r=rankModels(k);return `<div class="rowline"><b style="width:210px;flex:none">${p.l}</b><span style="color:var(--fg-muted)">${Object.entries(p.w).map(([c,w])=>CAPL[c]+' ×'+w).join(' · ')}</span><span class="sp"></span>${r.length?`<span class="pdot" style="background:${PROV[r[0].p].col}"></span>${PROV[r[0].p].name}`:'—'}</div>`;}).join('')}</div></div>`;}
+  <h2>Router de modelos</h2><div class="sub">Com o modelo em «Automático», o assistente descreve a tarefa e pede o modelo mais adequado. Os perfis abaixo são valores de exemplo, editáveis na aplicação real.</div><div class="tbl-wrap"><table class="tbl"><tr><th>Provedor</th>${(Object.keys(CAPL) as Capability[]).map(c=>`<th>${CAPL[c]}</th>`).join('')}</tr>${Object.entries(PROV).map(([p,v])=>`<tr><td><span class="pdot${v.on?'':' off'}" style="background:${v.col}"></span> ${v.name}</td>${(Object.keys(CAPL) as Capability[]).map(c=>`<td class="c">${CAP[p][c]}</td>`).join('')}</tr>`).join('')}</table></div>
+  <div class="tbl-wrap" style="margin-top:10px">${Object.entries(TASKP).map(([k,p])=>{const r=rankModels(k);return `<div class="rowline"><b style="width:210px;flex:none">${p.l}</b><span style="color:var(--fg-muted)">${Object.entries(p.w).map(([c,w])=>CAPL[c as Capability]+' ×'+w).join(' · ')}</span><span class="sp"></span>${r.length?`<span class="pdot" style="background:${PROV[r[0].p].col}"></span>${PROV[r[0].p].name}`:'—'}</div>`;}).join('')}</div></div>`;}
 
 Object.assign(window, {
   globRe, inScope, canRun, ownerOf, harnessCheck, harnessCmd, agentSys, saveTeam, loadTeam, pickAgent, agentPill, scopeProbe, renderTeamView,

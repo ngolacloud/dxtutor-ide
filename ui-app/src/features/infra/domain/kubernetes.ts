@@ -77,7 +77,7 @@ export function k8sInfra(D: Design, cat: Catalog): string {
 export function k8sDocs(files: Files): K8sDoc[] {
   const out: K8sDoc[] = [];
   Object.keys(files).filter((p) => /deploy\/k8s\/.*\.yaml$/.test(p)).sort().forEach((p) => files[p].content.split(/^---$/m).forEach((d) => {
-    const k = (d.match(/^kind:\s*(\w+)/m) || [])[1], n = (d.match(/^  name:\s*(\S+)/m) || [])[1];
+    const k = (d.match(/^kind:\s*(\w+)/m) || [])[1], n = (d.match(/^ {2}name:\s*(\S+)/m) || [])[1];
     if (k && n) out.push({ k, n, file: p, rep: +((d.match(/replicas:\s*(\d+)/) || [])[1] || 1), img: (d.match(/image:\s*(\S+)/) || [])[1], port: (d.match(/containerPort:\s*(\d+)/) || [])[1] });
   }));
   return out;

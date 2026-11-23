@@ -19,7 +19,11 @@ Opcional, para as funções de infra: `docker` (ou `podman`) com compose, `kubec
 npm install
 npm run dev        # abre a aplicação em modo de desenvolvimento
 npm run build      # gera o instalador em target/release/bundle/
-npm test           # testes do backend Rust (cargo test)
+npm test           # testes da UI (vitest) + backend Rust (cargo test --workspace)
+npm run ui:test    # só os testes da UI
+npm run lint       # ESLint: estrito nos domínios (features/*/domain), avisos no código legado
+npm run format     # Prettier no código novo
+npm run arch:check # fronteiras de arquitectura e matriz IPC
 ```
 
 Por ser um workspace Cargo, os artefactos saem em `<raiz>/target/` (um só

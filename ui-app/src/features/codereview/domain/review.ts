@@ -39,7 +39,7 @@ export function reviewFindings(input: ReviewInput): Finding[] {
     each(/^FROM \S+:latest/, l => add(l, "risk", "Unpinned base image", "Builds change under you.", "Pin a version or digest."));
     if (/COPY src/.test(content) && /cargo build/.test(content)) add(ls.findIndex(x => /COPY src/.test(x)) + 1, "perf", "Dependencies rebuild on every source change", "Copying <code>src</code> before building invalidates the dependency layer.", "Build dependencies with only <code>Cargo.toml</code>/<code>Cargo.lock</code> first, then copy <code>src</code>.");
   }
-  if (/docker-compose\.yml$/.test(path)) each(/^      - [a-z][\w-]*$/, l => { if (/depends_on/.test(ls.slice(Math.max(0, l - 4), l).join(""))) add(l, "risk", "depends_on without a health condition", "The app starts before its database accepts connections.", "Use <code>condition: service_healthy</code>."); });
+  if (/docker-compose\.yml$/.test(path)) each(/^ {6}- [a-z][\w-]*$/, l => { if (/depends_on/.test(ls.slice(Math.max(0, l - 4), l).join(""))) add(l, "risk", "depends_on without a health condition", "The app starts before its database accepts connections.", "Use <code>condition: service_healthy</code>."); });
   if (/deploy\/k8s\/.*\.yaml$/.test(path)) {
     if (/kind: Deployment/.test(content) && !/resources:/.test(content)) add(ls.findIndex(x => /kind: Deployment/.test(x)) + 1, "risk", "No resource requests or limits", "The scheduler cannot place it well and one pod can starve the node.", "Set <code>resources.requests</code> and <code>limits</code>.");
     if (/stringData:/.test(content)) add(ls.findIndex(x => /stringData:/.test(x)) + 1, "risk", "Secret values in plain text in git", "Anyone with repo access reads them.", "Use SOPS, Sealed Secrets or an external secrets operator.");

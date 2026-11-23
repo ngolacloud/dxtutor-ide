@@ -12,13 +12,15 @@ concurrency:
 
 jobs:
   ui:
-    name: UI (typecheck, build, testes, fronteiras de arquitectura)
+    name: UI (lint, formato, typecheck, build, testes, fronteiras de arquitectura)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm run ui:build
       - run: npm run ui:test
       - run: npm run arch:check
