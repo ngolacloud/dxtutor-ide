@@ -230,7 +230,7 @@ VIEW.team=(t,host)=>window.renderTeamView(t,host);
    openBoard) + produtor (genBacklog/genBacklogIssues) migrados p/ features/board.ts;
    tplNode + genBacklog$dup0 (código morto) eliminados. Aqui só o shim de VIEW.board
    (eager; v5/v6 decoram-no) e os decoradores/consumidores que lêem por global. ───── */
-VIEW.board=(t,host)=>window.renderBoardView(t,host);
+/* VIEW.board registado (composto) pela própria features/board.ts (ADR-0004, U4g3). */
 
 /* ───── Tutor (clássico): percursos LEARN/LP/lesson·/VIEW.learn/RP.tutor(v4) ELIMINADOS —
    código morto substituído pelo Learning Track (features/learn.ts + features/tutor.ts).
@@ -281,7 +281,7 @@ VIEW.lt=(t,host)=>window.renderLtView(t,host);/* corpo migrado p/ features/learn
    composeYaml/dockerfile/appFiles/k8sYaml/cloudMap lidos por global por features/board.ts ───── */
 /* genBacklog/genBacklogIssues (produtor Studio→backlog) migrados p/ features/board.ts;
    lêem os geradores (composeYaml/dockerfile/appFiles/k8sYaml/cloudMap, em features/generators.ts) por global. */
-const _approve=approveIssue;approveIssue=function(id){_approve(id);if(BL.issues.some(i=>i.infra&&i.stage==='done')){SD.nodes.forEach(n=>{if(!BL.issues.some(i=>i.node===n.id)&&n.st!=='ok')n.st='ok';});saveSD();}rerender('board');};
+/* decoração de approveIssue (fecha componentes do Studio) composta em features/board.ts (ADR-0004, U4g3). */
 Object.assign(AGENTS.be,{paths:['crates/**','apps/*/src/**','apps/*/Cargo.toml','apps/*/go.mod','apps/*/package.json','apps/*/requirements.txt'],max:8});Object.assign(AGENTS.fe,{paths:['desktop/src/**','web/**']});Object.assign(AGENTS.ops,{paths:['docker-compose.yml','.env.example','Makefile','apps/*/Dockerfile','deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','docker compose','make','git push'],max:12});Object.assign(AGENTS.qa,{cmds:['cargo test','dx lint','dx test','sh tests/smoke.sh']});
 
 /* ───── RUN: one command for the whole stack ───── */

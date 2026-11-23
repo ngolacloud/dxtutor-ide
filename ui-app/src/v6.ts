@@ -18,6 +18,7 @@
    `infra` por PORTA TIPADA (import ES), em vez de os resolver por global no window
    — a feature já não os publica. */
 import { driftReport, DSTY } from "./features/infra";
+import { nfmt } from "./core";
 export {};
 
 /* ═════════ dxtutor IDE v6 — Tasks, Extensions, Environments, drift, observability, Debug assistant, Explain / Review / Under the hood ═════════ */
@@ -29,7 +30,7 @@ Object.assign(P,{
   bug:'<path d="M5.5 5.5a2.5 2.5 0 0 1 5 0"/><rect x="4.5" y="5.5" width="7" height="8" rx="3.5"/><path d="M8 8v5M2 8.5h2.5M11.5 8.5H14M2.5 12l2-1M13.5 12l-2-1M2.5 5l2 1.2M13.5 5l-2 1.2"/>',
   pulse:'<path d="M1.5 8.5h3l1.5-4 3 8 1.8-5.5 1 1.5h2.7"/>',
   layers:'<path d="M8 2l6 3.2-6 3.2-6-3.2z"/><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"/>'});
-const nfmt=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(n|0);
+/* nfmt passou p/ core.ts (ADR-0004, U4g3) — importado acima. */
 function dlg(o){let d=$('#dlg');if(!d){document.body.insertAdjacentHTML('beforeend','<div id="dlg"></div>');d=$('#dlg');}
   d.innerHTML=`<div class="dlg-box"><h2>${o.title}</h2><div class="dlg-b">${o.body}</div>${o.input?`<textarea id="dlg-in" rows="${o.rows||3}" placeholder="${esc(o.input)}"></textarea><div class="dlg-err" id="dlg-err"></div>`:''}<div class="dlg-f"><button class="mini" id="dlg-no">Cancel</button><button class="mini pri" id="dlg-ok"${o.block?' disabled':''}>${o.ok||'OK'}</button></div></div>`;d.classList.add('show');
   const close=()=>d.classList.remove('show'),i=$('#dlg-in');$('#dlg-no').onclick=close;d.onclick=e=>{if(e.target===d)close();};
@@ -38,25 +39,17 @@ function dlg(o){let d=$('#dlg');if(!d){document.body.insertAdjacentHTML('beforee
 /* ───── cost per issue (RATE/usd/MIN_PER_PT/advice/costAvg migrados p/ features/tasks.ts) ─────
    Aqui fica só o decorador de runIssue (board.ts), que acumula o custo medido em
    it.cost; lê o conversor por fachada window.usd (sem o substring migrado). */
-const _runIssue6=runIssue;runIssue=async function(it){const snap=Object.fromEntries(Object.keys(USAGE).map(k=>[k,USAGE[k].tok])),t0=Date.now();
-  try{await _runIssue6(it);}finally{it.cost=it.cost||{tok:0,usd:0,sec:0,runs:0,by:{}};Object.keys(USAGE).forEach(k=>{const d=USAGE[k].tok-snap[k];if(d>0){it.cost.tok+=d;it.cost.usd+=window.usd(d,k);it.cost.by[k]=(it.cost.by[k]||0)+d;}});it.cost.sec+=(Date.now()-t0)/1000;it.cost.runs++;if(PANE==='tasks')RP.tasks();}};
+/* custo medido do runIssue composto em features/board.ts (ADR-0004, U4g3). */
 
 /* ───── tasks panel and issue view (TK/STC/ownerName/openIssue/VIEW.issue migrados p/
    features/tasks.ts) ───── */
 /* RP.tasks/VIEW.issue registados pela própria features/tasks.ts (ADR-0004, U4g1). */
-const _delegate6=delegate;delegate=function(id){const i=BL.issues.find(x=>x.id===id);if(i&&i.owner==='you'){toast(`${id} is yours — move it to Test when your code is ready`);openIssue(id);return;}return _delegate6(id);};
-const _todo6=()=>BL.issues.find(i=>i.owner==='you');
-const _board6=VIEW.board;VIEW.board=(t,host)=>{_board6(t,host);host.querySelectorAll('.kc').forEach(k=>{const id=(k.querySelector('.kc-id')||{}).textContent,i=BL.issues.find(x=>x.id===id);if(!i)return;k.ondblclick=()=>openIssue(id);
-  if(i.owner==='you'){const m=k.querySelector('.kc-m');if(m)m.innerHTML=`<span class="av" style="background:#8a8f9c">Y</span>You<span class="tag" style="margin-left:auto">S${i.sprint+1}</span>`;k.querySelectorAll('.mini').forEach(b=>{if(/delegate/.test(b.getAttribute('onclick')||''))b.remove();});}
-  if(i.cost)k.querySelector('.kc-m').insertAdjacentHTML('beforeend',`<span class="tk-c" title="${nfmt(i.cost.tok)} tokens">$${i.cost.usd.toFixed(2)}</span>`);});};
+/* delegate (dono humano) e VIEW.board (duplo-clique, dono, custo) compostos em features/board.ts; _todo6 (morto: nunca lido) saiu (ADR-0004, U4g3). */
 
 /* ───── explain before approving ───── */
 HARN.explain=HARN.explain!=null?HARN.explain:['study','critical'].includes(HARN.tpl);
 const _apply6=applyTemplate;applyTemplate=function(id){_apply6(id);HARN.explain=['study','critical'].includes(id);LS.set('harn5',HARN);rerender('team');};
-const _approve6=approveIssue;approveIssue=function(id){const it=BL.issues.find(i=>i.id===id);
-  if(it&&it.stage==='func'&&HARN.explain&&!it.explain&&(!HARN.review||it.reviewed)){dlg({title:`Explain ${it.id} before validating`,body:`<p>This project asks you to say, in your own words, what the change does and why it is safe to merge. It is saved with the issue and the merge commit.</p><p style="color:var(--fg-muted)">${esc(it.title)}</p>`,input:'e.g. Adds the orders table with an index on created_at so the list query does not scan the table…',ok:'Validate and merge',
-    validate:v=>v.split(/\s+/).filter(Boolean).length<8?'Write at least one full sentence (8 words or more).':'',onOk:v=>{it.explain=v;approveIssue(id);}});return;}
-  _approve6(id);if(it&&it.merged&&it.explain&&GIT.c[it.merged])GIT.c[it.merged].note=it.explain;if(PANE==='tasks')RP.tasks();};
+/* approveIssue com explicação composto em features/board.ts (ADR-0004, U4g3). */
 const _team6=VIEW.team;VIEW.team=(t,host)=>{_team6(t,host);const row=[...host.querySelectorAll('.rowline')].find(r=>/Review the diff before validating/.test(r.textContent));if(row)row.insertAdjacentHTML('afterend',`<div class="rowline"><span>Explain the change in your own words before validating</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">on in Study and Critical systems</span><button class="sw${HARN.explain?' on':''}" onclick="HARN.explain=!HARN.explain;LS.set('harn5',HARN);rerender('team')"></button></div>`);};
 
 /* ───── environments (motor extraído p/ features/infra.ts) ─────

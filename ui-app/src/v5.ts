@@ -51,8 +51,7 @@ const _doTool5=doTool;doTool=async function(t,host,role){if(t.t==='edit'){if(isH
   return _doTool5(t,host,role);};
 VIEW.review=(t,host)=>{const it=BL.issues.find(i=>i.id===t.issue),tr=it&&GIT.trees[it.branch],dv=GIT.trees.develop,files=tr?Object.keys(tr).filter(p=>tr[p]!==dv[p]):[];
   host.innerHTML=`<div class="diff"><div class="diff-h"><b style="color:var(--fg)" class="notr">${it?esc(it.id+' · '+it.title):''}</b><span class="tag notr">${it?esc(it.branch||''):''} → develop</span><span class="sp" style="flex:1"></span>${it&&it.stage==='func'?`<button class="mini pri" onclick="approveIssue(${jsa(it.id)});closeTab('review')">✓ Validate and merge</button><button class="mini" onclick="rejectIssue(${jsa(it.id)})">✗ Reject</button>`:''}</div>${files.length?files.map(p=>{const d=diffLines(dv[p]||'',tr[p]),ext=extOf(p);return `<div class="diff-h" style="padding-top:14px"><b style="color:var(--accent-hover)">${esc(short(p))}</b><span style="color:var(--green)">+${d.filter(x=>x[0]==='+').length}</span><span style="color:var(--red)">−${d.filter(x=>x[0]==='-').length}</span></div>`+d.map(x=>`<div class="dl ${x[0]==='+'?'add':x[0]==='-'?'del':''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${hlLine(x[1],ext)||' '}</span></div>`).join('');}).join(''):'<div class="sec-empty">Nothing to review: the branch was already merged or has no changes.</div>'}</div>`;};
-const _approve5=approveIssue;approveIssue=function(id){const it=BL.issues.find(i=>i.id===id);if(it&&it.stage==='func'&&HARN.review&&!it.reviewed){toast('Review the diff before validating');reviewIssue(id);return;}_approve5(id);};
-const _board5=VIEW.board;VIEW.board=(t,host)=>{_board5(t,host);if(!HARN.review)return;host.querySelectorAll('.kc-a').forEach(a=>{const m=(a.innerHTML.match(/approveIssue\('([^']+)'\)/)||[])[1],it=BL.issues.find(i=>i.id===m);if(it&&!it.reviewed)a.innerHTML=`<button class="mini pri" onclick="reviewIssue(${jsa(it.id)})">Review diff</button>`;});};
+/* decorações de approveIssue/VIEW.board (revisão), delegate/runSprint (codeGuard) compostas em features/board.ts; codeGuard em features/team.ts (ADR-0004, U4g3). */
 
 /* ───── less noise ───── */
 const _studio5=VIEW.studio;VIEW.studio=(t,host)=>{_studio5(t,host);const r=host.querySelector('.mini.run');if(r)r.insertAdjacentHTML('afterend','<button class="mini run" style="background:var(--blue)" onclick="dxDeploy()">⎈ Deploy</button>');};
@@ -72,10 +71,7 @@ function boot5(){ENVS.rtOn=false;ENVS.k8sOn=false;if(MORD.indexOf(MODE)>MORD.ind
   const tt=tabOf('team');if(tt)tt.title='Team & harness';updateAgentUI();drawRemote();refresh(false,true);show(cur);}
 function openTeam(){openTab({id:'team',title:'Team & harness',kind:'team'});}
 function tick(){}
-function codeGuard(what){if(!isHuman('code'))return false;focusAgent(true);user(what);card('co-dev',`<p>In this project <b>writing code is yours</b> (harness: ${HT[HARN.tpl].n}). I will not edit files.</p><p>I can explain the problem, review what you write, and run the tests when you are ready. Ask in the box below, or change the harness in <b>Team &amp; harness</b>.</p><div class="gate"><button class="gb" onclick="handlePrompt('/test')">Run the tests</button><button class="gb" onclick="openTeam()">Open the harness</button></div>`);return true;}
 const _runMission5=runMission;runMission=function(S,text){if(codeGuard(text))return;return _runMission5(S,text);};
-const _delegate5=delegate;delegate=function(id){if(codeGuard('Delegate '+id+'.'))return;return _delegate5(id);};
-const _runSprint5=runSprint;runSprint=function(s){if(codeGuard('Run Sprint '+(s+1)+'.'))return;return _runSprint5(s);};
 
 /* ── publicação no window: os nomes que app.ts (núcleo/i18n) / v6.ts / startup.ts /
    boot.ts / handlers inline consomem como referências livres. Internos ficam léxicos.
@@ -84,4 +80,4 @@ const _runSprint5=runSprint;runSprint=function(s){if(codeGuard('Run Sprint '+(s+
    runTaskQuiet/saveEnv/ctlLogs) migraram p/ features/infra.ts, e o motor do harness
    (HARN/applyTemplate/authorship/harnessToml/isHuman/reviewIssue/toggleRight/RIGHTS/
    RIGHT_RE/HT/MORD) migrou p/ features/team.ts — removidos daqui (GOTCHA C). ── */
-Object.assign(window, { boot5, codeGuard, openTeam, tick });
+Object.assign(window, { boot5, openTeam, tick });

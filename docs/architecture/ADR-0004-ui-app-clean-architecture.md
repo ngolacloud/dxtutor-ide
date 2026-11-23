@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g2)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g3)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -345,3 +345,31 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   ctlLogs, dxRun/dxStop/dxDeploy incluindo um deploy bem-sucedido com `K8S.ver` fixado —
   saída do terminal, retornos e separadores byte-idênticos, sem erros de página) e
   auto-teste desktop idêntico ao da U4g1.
+- **U4g3 (2026-11-24) — as políticas que decoravam o board.** As decorações de
+  `approveIssue`, `delegate`, `runSprint`, `runIssue` e `VIEW.board`, espalhadas pelo app.ts,
+  v5.ts e v6.ts, são agora compostas no `features/board.ts`, pela mesma ordem de dentro para
+  fora: (app) validar uma issue de infra fecha os componentes do Studio; (v5) revisão do
+  diff antes de validar e «o código é teu» (`codeGuard`) antes de delegar ou correr um
+  sprint; (v6) explicação antes de validar, dono humano (`owner === "you"`), custo medido
+  das corridas e, no quadro, duplo-clique, dono e custo. Publicam-se já compostas; o
+  bridge.ts continua a decorar o `runSprint` por cima. O `VIEW.board` composto regista-se no
+  board.ts (o shim do app.ts saiu); `renderBoardView` continua publicado como o corpo base que
+  os goldens caracterizam. O `codeGuard` passou do v5 para o `features/team.ts` (é uma
+  política do harness; a decoração do `runMission` no v5 continua a chamá-lo por nome), o
+  `nfmt` passou do v6 para o `core.ts`, e saiu o `_todo6` do v6 (morto: nunca lido). Prova de
+  ordem: entre o board.ts e o app/v5/v6 nenhum módulo lia estes nomes por valor no eval.
+  **Teste ajustado (decisão registada):** como o harness dos testes inclui o board.ts e
+  exclui o v5/v6, as políticas passaram a correr nos testes. O teste de dispatch «approve»
+  usava uma issue em `func` por rever, e o harness por omissão (`HARN.review`) bloqueia a
+  validação — na app real sempre bloqueou. A issue do teste passa a estar revista (a
+  pré-condição real) e entram dois testes novos que prendem os gates (revisão e dono
+  humano). Os snapshots dos goldens não mudaram. **Bugs pré-existentes reportados (não
+  corrigidos):** desde que o quadro emite `data-action`, a camada v5 do `VIEW.board` já não
+  encontra `approveIssue('…')` no HTML para trocar o «Validar» por «Review diff», e a camada
+  v6 já não encontra `delegate` no `onclick` para tirar o «Delegar» das issues tuas. Os
+  gates nas funções continuam a proteger o clique. Lint 283 → 282; métricas sem mudança.
+  Verificado: 367 testes, arranque no browser 4/4, comparação no browser HEAD vs árvore
+  (quadro com dono/custo/duplo-clique, os gates de revisão, explicação, dono humano e
+  `codeGuard`, validação e delegação normais — idênticos, sem erros de página; não cobre
+  uma corrida completa do runner nem o fecho dos componentes do Studio) e auto-teste
+  desktop idêntico ao da U4g2.

@@ -122,13 +122,45 @@ describe("dispatch delegado (data-action) — Fase 4", () => {
     expect(it.stage).toBe("dev"); // caminho it.custom → setStage('dev'), sem o runner
   });
 
-  it("approve: clicar «Validar» numa issue func → done (gfFinish + setStage)", () => {
+  it("approve: clicar «Validar» numa issue func já revista → done (gfFinish + setStage)", () => {
     const it = w.mkIssue({ title: "val", agent: "be", sprint: 0, stage: "func", res: [{ n: "t", ok: true }] });
+    // O harness por omissão pede a revisão do diff antes de validar (HARN.review). Desde a
+    // U4g3 do ADR-0004 essa política é composta pelo board.ts e entra no harness de testes
+    // (antes vivia no v5.ts, fora dele) — a issue tem de estar revista, como na app real.
+    it.reviewed = true;
     w.BL.view = -1; const host = renderInto();
     const btn = host.querySelector(`[data-action="approve"][data-on="${it.id}"]`)!;
     expect(btn).toBeTruthy();
     click(btn);
     expect(it.stage).toBe("done");
+  });
+});
+
+describe("políticas compostas pelo board (ADR-0004, U4g3)", () => {
+  const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  function renderInto(): HTMLElement {
+    const host = document.createElement("div"); host.id = "board-host"; document.body.appendChild(host);
+    w.renderBoardView(null, host); return host;
+  }
+
+  it("revisão antes de validar: «Validar» sem revisão abre a revisão e a issue fica em func", () => {
+    w.VIEW.review = () => {}; // o renderer da revisão vive no v5.ts, fora do harness
+    const it = w.mkIssue({ title: "rev", agent: "be", sprint: 0, stage: "func", res: [{ n: "t", ok: true }] });
+    expect(w.HARN.review).toBe(true);
+    w.BL.view = -1; const host = renderInto();
+    click(host.querySelector(`[data-action="approve"][data-on="${it.id}"]`)!);
+    expect(it.stage).toBe("func");
+    expect(it.reviewed).toBe(true);
+    expect(w.TB.some((t: any) => t.id === "review" && t.issue === it.id)).toBe(true);
+  });
+
+  it("dono humano: delegar uma issue tua não a move", () => {
+    const it = w.mkIssue({ title: "mine", agent: "lead", sprint: 0, stage: "todo", custom: true });
+    it.owner = "you";
+    w.openIssue = () => {}; // a vista de issue não interessa aqui
+    w.BL.view = -1; const host = renderInto();
+    click(host.querySelector(`[data-action="delegate"][data-on="${it.id}"]`)!);
+    expect(it.stage).toBe("todo");
   });
 });
 

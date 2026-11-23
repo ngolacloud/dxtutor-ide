@@ -155,6 +155,28 @@ export const decoratedApproveIssue = (id: string): void => { G.approveIssue(id);
 export const decoratedDelegate = (id: string): void => { G.delegate(id); };
 export const decoratedRunSprint = (s: number): void => { G.runSprint(s); };
 
+/* ───── colaboradores das políticas que decoram o runner (ADR-0004, U4g3) ─────
+   O harness do projecto (HARN, reviewIssue, codeGuard — features/team.ts), a vista de
+   issue (openIssue — features/tasks.ts), o design do Studio (SD/saveSD), o diálogo (dlg —
+   v6.ts), o uso por provedor (USAGE — agentStore) e o conversor para dólares (usd —
+   tasks.ts). Lidos no acto, como as decorações do app.ts/v5/v6 os liam por nome livre. */
+export interface Harness { review?: boolean; explain?: boolean; tpl: string }
+export interface StudioNode { id: string; st: string }
+export interface DlgOpts {
+  title: string; body: string; input?: string; ok?: string;
+  validate?: (v: string) => string; onOk?: (v: string) => void;
+}
+export const harness = (): Harness => G.HARN;
+export const reviewIssue = (id: string): void => G.reviewIssue(id);
+export const codeGuard = (what: string): boolean => G.codeGuard(what);
+export const openIssue = (id: string): void => G.openIssue(id);
+export const studioNodes = (): StudioNode[] => G.SD.nodes;
+export const saveSD = (): void => G.saveSD();
+export const dlg = (o: DlgOpts): void => G.dlg(o);
+export const usage = (): Record<string, { tok: number }> => G.USAGE;
+export const usd = (tok: number, p: string): number => G.usd(tok, p);
+export const commitNotes = (): Record<string, { note?: string }> => G.GIT.c;
+
 /* ───── publicação da superfície pública no `window` ─────
    Os nomes reais resolvem os `onclick` inline (escopo global), os decoradores de
    app.ts/v5/v6 e os consumidores (studio/router/codev/tasks) que resolvem por global. */

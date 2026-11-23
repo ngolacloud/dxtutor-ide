@@ -326,6 +326,10 @@ export const esc = (s: unknown): string =>
  *  (o browser descodifica as entidades antes de correr o handler). Nunca usar
  *  `'${x}'` dentro de on*="…": um caminho ou nome vindo do disco, do git, de um
  *  VSIX ou do par remoto com `'` torna-se código. */
+/** Uma contagem curta (1.2k, 3.4M) — os tokens nos cartões, no Tasks e no custo. Era
+ *  léxica do v6.ts (ADR-0004, U4g3). */
+export const nfmt = (n: number): string => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n | 0));
+
 export const jsa = (s: unknown): string =>
   esc(JSON.stringify(String(s == null ? "" : s)));
 

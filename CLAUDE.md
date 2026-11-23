@@ -195,9 +195,11 @@ features/board.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BL
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm/debug, o markup vive no
 resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`/`runSprint`/
-`approveIssue` são DECORADAS em runtime pelo monólito (app.ts/v5/v6) — as arestas internas
-e os handlers data-action resolvem a versão DECORADA por `window` no acto
-(`decorated*` do bridge), nunca a função local base. Os handlers de ARRASTAR
+`approveIssue` publicam-se já COMPOSTAS com as políticas que antes eram decorações do
+app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3), e
+o bridge.ts ainda decora o `runSprint` — as arestas internas e os handlers data-action
+resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
+O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). Os handlers de ARRASTAR
 (`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
 `STRIPPED_ATTRS`, migrá-los partia o golden. Rede de segurança em
 `tests/board.golden.test.ts` (goldens do pane vazio/povoado, caracterização de
