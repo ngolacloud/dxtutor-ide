@@ -332,7 +332,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `dictation_status` | — | `dictation::Status` (`ready`, `binary`, `model`, `recorder`, `missing`, `recording`) | — | — | `platform/tauri/dictation.ts` | R |
+| `dictation_status` | — | `dictation::Status` (`ready`, `binary`, `model`, `recorder`, `missing`, `recording`, `device`) | — | — | `platform/tauri/dictation.ts` | R |
 | `dictation_start` | — | `()` | String | — | `platform/tauri/dictation.ts` | **X** · S |
 | `dictation_stop` | `lang: Option<String>` | `String` (texto) | String | — | `platform/tauri/dictation.ts` | **X** · S (async: whisper numa thread de bloqueio) |
 | `dictation_cancel` | — | `()` | — | — | `platform/tauri/dictation.ts` | S |

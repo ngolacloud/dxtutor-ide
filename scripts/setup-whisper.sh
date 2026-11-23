@@ -10,7 +10,8 @@
 #
 # GPU: com os cabeçalhos Vulkan e o glslc instalados (Ubuntu/Debian:
 # `sudo apt install libvulkan-dev glslc`), compila com Vulkan — NVIDIA, AMD e Intel; o
-# ditado passa de segundos para menos de um. Sem eles, compila para CPU.
+# ditado passa de segundos para menos de um. Sem eles, compila para CPU. Os SPIRV-Headers
+# (`spirv-headers` no apt) vêm do GitHub para a pasta acima se o sistema não os tiver.
 # Variáveis: WHISPER_TAG (versão do whisper.cpp), DXTUTOR_WHISPER_DIR (pasta de destino).
 #
 # Nada é instalado no sistema: o binário fica na pasta acima; se não houver cmake, vem do
@@ -52,15 +53,31 @@ else
 fi
 
 GPU=OFF
+PREFIX=""
 if command -v glslc >/dev/null 2>&1 && { [ -f /usr/include/vulkan/vulkan.h ] || [ -n "${VULKAN_SDK:-}" ]; }; then
   GPU=ON
   say "Vulkan encontrado: a compilar com GPU"
+  # o ggml-vulkan pede o pacote CMake dos SPIRV-Headers (só cabeçalhos)
+  if ! find /usr/share /usr/lib /usr/local ${VULKAN_SDK:+"$VULKAN_SDK"} -name 'SPIRV-HeadersConfig.cmake' -print -quit 2>/dev/null | grep -q .; then
+    DEPS="$DIR/deps"
+    if [ ! -f "$DEPS/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake" ]; then
+      say "a obter os SPIRV-Headers para $DEPS"
+      rm -rf "$DIR/spirv-headers"
+      git clone --quiet --depth 1 --branch "${SPIRV_TAG:-vulkan-sdk-1.3.296.0}" https://github.com/KhronosGroup/SPIRV-Headers "$DIR/spirv-headers"
+      "$CMAKE" -S "$DIR/spirv-headers" -B "$DIR/spirv-headers/build" -DCMAKE_INSTALL_PREFIX="$DEPS" -DSPIRV_HEADERS_ENABLE_TESTS=OFF >/dev/null
+      "$CMAKE" --install "$DIR/spirv-headers/build" >/dev/null
+    fi
+    PREFIX="$DEPS"
+  fi
 else
   say "sem Vulkan (libvulkan-dev + glslc): a compilar para CPU — para GPU: sudo apt install libvulkan-dev glslc"
 fi
 say "a compilar o whisper-cli (Release, estático)"
 "$CMAKE" -S "$SRC" -B "$SRC/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-  -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DGGML_VULKAN="$GPU" >/dev/null
+  -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DGGML_VULKAN="$GPU" \
+  ${PREFIX:+-DCMAKE_PREFIX_PATH="$PREFIX"} ${PREFIX:+-DCMAKE_CXX_FLAGS="-isystem $PREFIX/include"} >/dev/null
+# (o whisper.cpp v1.9.x encontra os SPIRV-Headers no CMake mas não lhes junta o include:
+#  conta com eles em /usr/include, como no pacote do apt — daí o -isystem acima)
 "$CMAKE" --build "$SRC/build" --config Release -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" --target whisper-cli >/dev/null
 BIN="$SRC/build/bin/whisper-cli"
 [ -x "$BIN" ] || { echo "a compilação não produziu $BIN" >&2; exit 1; }
@@ -72,6 +89,22 @@ else
   say "a descarregar o modelo ggml-$MODEL.bin"
   curl -fL --progress-bar -o "$OUT.part" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$MODEL.bin"
   mv "$OUT.part" "$OUT"
+fi
+
+# GPU: escolher a dedicada (uma: 0) entre as que o Vulkan vê — por omissão o whisper usa a
+# 0, que num portátil é a integrada (mais lenta do que a CPU). A transcrição de teste também
+# deixa os shaders compilados na cache do driver (a 1.ª vez demora alguns segundos).
+rm -f "$DIR/gpu-device"
+if [ "$GPU" = ON ]; then
+  PROBE=$("$BIN" -m "$OUT" -f "$SRC/samples/jfk.wav" -l en -ac 768 -nt 2>&1 >/dev/null || true)
+  DEV=$(printf '%s\n' "$PROBE" | sed -n 's/^ggml_vulkan: \([0-9]\+\) = \(.*\) | uma: 0.*/\1\t\2/p' | head -1)
+  if [ -n "$DEV" ]; then
+    printf '%s\n' "${DEV%%$'\t'*}" > "$DIR/gpu-device"
+    say "GPU dedicada: ${DEV#*$'\t'} (dispositivo ${DEV%%$'\t'*})"
+    "$BIN" -m "$OUT" -f "$SRC/samples/jfk.wav" -l en -ac 768 -nt -np -dev "${DEV%%$'\t'*}" >/dev/null 2>&1 || true
+  else
+    say "sem GPU dedicada: o whisper usa a GPU por omissão"
+  fi
 fi
 
 say "pronto: $BIN"

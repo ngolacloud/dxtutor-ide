@@ -409,6 +409,7 @@ export interface DictationStatus {
   recorder: string | null;
   missing: string[];
   recording: boolean;
+  device: number | null;
 }
 
 /** Microfone → texto sem sair da máquina. `available()` é falso fora do desktop. */

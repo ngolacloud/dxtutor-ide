@@ -88,7 +88,7 @@ function setup() {
   const dict = { ready: true, recording: false, text: "olá mundo", calls: [] as string[] };
   const dictation: DictationPort = {
     available: () => true,
-    status: async () => ({ ready: dict.ready, binary: "/b/whisper-cli", model: "/m/ggml-small.bin", recorder: "pw-record", missing: dict.ready ? [] : ["whisper.cpp (whisper-cli) — corre scripts/setup-whisper.sh"], recording: dict.recording }),
+    status: async () => ({ ready: dict.ready, binary: "/b/whisper-cli", model: "/m/ggml-small.bin", recorder: "pw-record", missing: dict.ready ? [] : ["whisper.cpp (whisper-cli) — corre scripts/setup-whisper.sh"], recording: dict.recording, device: 1 }),
     start: async () => {
       dict.calls.push("start");
       dict.recording = true;

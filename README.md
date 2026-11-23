@@ -178,9 +178,11 @@ A CSP só permite scripts da própria aplicação; o protótipo usa scripts e ha
   - **Língua:** português por omissão; muda em «/ → Língua do ditado» (Português, English,
     Automática). Evita a automática: em frases curtas o whisper troca o português por
     lixo («ande, ande, ande…»).
-  - **Velocidade:** em CPU, ~5–9 s por frase com o modelo turbo. Com GPU fica abaixo de 1 s:
-    `sudo apt install libvulkan-dev glslc` e volta a correr `scripts/setup-whisper.sh`
-    (compila com Vulkan — NVIDIA, AMD e Intel).
+  - **Velocidade:** em CPU, ~5–9 s por frase com o modelo turbo; com GPU, ~0,8 s (medido
+    numa RTX 4060). Para GPU: `sudo apt install libvulkan-dev glslc` e volta a correr
+    `scripts/setup-whisper.sh` — compila com Vulkan (NVIDIA, AMD e Intel), escolhe a GPU
+    dedicada (num portátil a integrada é mais lenta do que a CPU) e guarda-a em
+    `~/.local/share/dxtutor/whisper/gpu-device` (`DXTUTOR_WHISPER_DEVICE` sobrepõe-se).
   - `DXTUTOR_WHISPER_BIN` e `DXTUTOR_WHISPER_MODEL` apontam para outro binário/modelo.
 - **Co-Dev com outros provedores.** O agente (ferramentas reais, permissões, checkpoints,
   `/plano`, `/reverter`, `/retomar`, hooks, MCP, skills) funciona com Claude, Codex/OpenAI,
