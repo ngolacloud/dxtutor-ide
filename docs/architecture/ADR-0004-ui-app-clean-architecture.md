@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4b)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -218,4 +218,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   definição). Remoção por AST e por linhas inteiras (uma primeira tentativa por intervalos
   do AST partiu linhas partilhadas — apanhado pelo typecheck/goldens). `@ts-nocheck` 8 → 7;
   lint 299 → 292 avisos. Verificado: 342 testes (goldens sem diff), arranque no browser
+  4/4 e auto-teste desktop idêntico.
+
+- **U4b (2026-11-23) — separadores do editor.** `features/tabs.ts` (tipado) é dono da barra
+  de separadores e da navegação: `tabOf`, `openTab`, `openPath`, `openFile`, `setActive`,
+  `show` (escolhe o renderer em `VIEW`), `closeTab`, `stepTab`, `drawTabs`, `tabIc`,
+  `parkAgent`, `miniOff` — saíram do app.ts (e da sua lista de publicação) e são
+  publicados por esta feature, que avalia antes do app.ts; o v6 continua a decorar o
+  `show` (agora esta versão). A lista `TB` passou a ter dono (`editorStore.tabs`): ao
+  deixar de ser declarada no app.ts, as 23 utilizações — incluindo a reatribuição
+  `TB=[…]` do arranque — passam pelo acessor. Métrica: «chamadas `Object.assign(window`»
+  passou a «nomes publicados» (251) — mover uma função de módulo não deve contar como
+  recuo, deixar de a publicar sim; o número é igual ao do HEAD anterior (os nomes mudaram
+  de dono, não se multiplicaram). E2E: expectativas a 10 s (falsos negativos
+  intermitentes no 1.º teste com a máquina carregada — já tinha acontecido na U1).
+  Verificado: 346 testes (goldens sem diff; 4 novos dos separadores), arranque no browser
   4/4 e auto-teste desktop idêntico.

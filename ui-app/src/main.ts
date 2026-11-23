@@ -52,6 +52,7 @@ import "./features/graph";
 import "./features/termgit";
 import "./features/palette";
 import "./features/editor";
+import "./features/tabs";
 import "./features/explorer";
 import "./features/diagnostics";
 import "./features/terminal";

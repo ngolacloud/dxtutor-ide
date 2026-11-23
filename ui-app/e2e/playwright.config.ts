@@ -11,6 +11,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // a máquina de desenvolvimento corre outras sessões em paralelo (carga ~10): 5 s por
+  // expectativa deu falsos negativos intermitentes no 1.º teste; um erro real continua a falhar
+  expect: { timeout: 10_000 },
   reporter: process.env.CI ? [["list"], ["html", { open: "never", outputFolder: "../../playwright-report" }]] : "list",
   outputDir: "../../test-results",
   use: {

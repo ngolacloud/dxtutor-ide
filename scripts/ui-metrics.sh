@@ -25,8 +25,19 @@ metric "ficheiros com // @ts-nocheck (U4)" 7 0 \
   "$(grep -rlE '^// @ts-nocheck' "$SRC" | count)"
 metric "atribuições window.X = (U3/U7)" 194 0 \
   "$(grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count)"
-metric "Object.assign(window, …) (U7)" 40 0 \
-  "$(grep -rho 'Object\.assign(window' "$SRC" --include=*.ts | count)"
+# nomes publicados em Object.assign(window, { … }) — mede o que o monólito ainda resolve
+# por global; mover uma função de módulo não muda o número (U4), deixar de a publicar sim
+published_names() {
+  local total=0 f n
+  for f in $(grep -rl 'Object\.assign(window' "$SRC" --include=*.ts); do
+    n=$(sed -E 's#//.*$##' "$f" | tr '\n' ' ' | grep -oE 'Object\.assign\(window, *\{[^}]*\}' \
+      | grep -oE '[{,][[:space:]]*[A-Za-z_$][A-Za-z0-9_$]*' | count)
+    total=$((total + n))
+  done
+  echo "$total"
+}
+metric "nomes publicados por Object.assign(window, …) (U7)" 251 0 \
+  "$(published_names)"
 metric "handlers inline on*=\"…\" (U5)" 165 0 \
   "$(grep -rhoE '[[:space:]]on(click|dblclick|change|input|keydown|keyup|submit|mousedown|mouseup|contextmenu|blur|focus|dragstart|dragover|dragleave|drop|load|error)=' "$SRC" "$UI/index.html" | count)"
 metric "invoke cru inv(\"…\") fora de platform/ (U2)" 0 0 \

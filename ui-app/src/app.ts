@@ -51,27 +51,8 @@ const P_LX=ROOT+'crates/lexer/src/lib.rs',P_REPO=ROOT+'crates/store/src/conversa
 /* motor has/lexBug/dsLint/diagnostics/runTests/drawProblems/nextProblem migrado p/ features/diagnostics.ts; lido por global (P_* ficam donas aqui) */
 
 /* ───── separadores e vistas ───── */
-let TB=[];window.cur=null;window.PANE='explorer';const VIEW={};
-const tabOf=id=>TB.find(o=>o.id===id);
-function openTab(t,act){let x=tabOf(t.id);if(x)Object.assign(x,t);else TB.push(t);if(act===false)drawTabs();else show(t.id);}
-function openPath(p,line){if(!FS[p]){toast('Ficheiro não existe: '+short(p));return;}openTab({id:p,title:p.split('/').pop(),kind:'file',path:p});if(line)gotoLine(line);}
-function openFile(name){const p=Object.keys(FS).find(k=>k.endsWith('/'+name));if(p)openPath(p);}
-function setActive(id){if(tabOf(id))show(id);}
-function drawTabs(){const host=$('#tabs');host.innerHTML='';TB.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.id===cur?' active':'');el.title=t.path?short(t.path):t.title;
-  const dup=t.path&&TB.some(o=>o!==t&&o.kind==='file'&&o.title===t.title);el.innerHTML=`${tabIc(t)}<span class="nm">${esc(t.title)}${dup?` <span style="color:var(--fg-muted)">${esc(t.path.split('/').slice(-3,-2)[0]||'')}</span>`:''}</span><button class="x">${svg('close')}</button>`;
-  el.onclick=e=>{if(e.target.closest('.x')){e.stopPropagation();closeTab(t.id);return;}show(t.id);};el.onauxclick=e=>{if(e.button===1)closeTab(t.id);};host.appendChild(el);});
-  const a=host.querySelector('.active');if(a&&a.scrollIntoView)a.scrollIntoView({block:'nearest',inline:'nearest'});}
-function parkAgent(){const b=$('#ag-body');if(b.parentElement.id!=='agent')$('#agent').appendChild(b);}
-function miniOff(){$('#minimap').classList.add('hidden');$('#ebody').classList.remove('with-mm');}
-window.show = function(id){const t=tabOf(id),host=$('#ebody');parkAgent();host.innerHTML='';host.scrollTop=0;host.scrollLeft=0;
-  if(!t){cur=null;drawTabs();miniOff();$('#breadcrumbs').innerHTML='';host.innerHTML=`<div class="empty"><div><b style="color:var(--fg-dim);font-size:14px">dxtutor IDE</b><br><kbd>Ctrl+P</kbd> ir para ficheiro &nbsp; <kbd>Ctrl+Shift+P</kbd> comandos<br><kbd>Ctrl+L</kbd> falar com o Co-Dev &nbsp; <kbd>Ctrl+\`</kbd> terminal</div></div>`;drawOutline();stLang();return;}
-  cur=id;drawTabs();
-  $('#breadcrumbs').innerHTML=(t.path?t.path.split('/'):['dxtutor',t.title]).map((s,i,a)=>`<span class="crumb"${i===a.length-1?' style="color:var(--fg)"':''}>${esc(s)}</span>`).join('<span class="sep">›</span>');
-  if(t.kind!=='file')miniOff();VIEW[t.kind](t,host);hydrate();drawOutline();markActive();stLang();ctxPill();}
-function closeTab(id){const i=TB.findIndex(t=>t.id===id);if(i<0)return;const t=TB[i];TB.splice(i,1);
-  if(t.kind==='agent'){parkAgent();setVar('--agent-w','380px');$('#tgl-agent').classList.add('on');}
-  if(cur===id)show(TB.length?TB[Math.max(0,i-1)].id:null);else drawTabs();}
-function stepTab(d){if(!TB.length)return;const i=TB.findIndex(t=>t.id===cur);show(TB[(i+d+TB.length)%TB.length].id);}
+window.cur=null;window.PANE='explorer';const VIEW={};
+/* separadores do editor (tabOf/openTab/openPath/openFile/setActive/drawTabs/parkAgent/miniOff/show/closeTab/stepTab/tabIc) migrados p/ features/tabs.ts (ADR-0004, U4b); a lista TB tem dono em app/store/editor. */
 
 /* editor: renderFileView/paintEd/gotoLine/stPos/stLang/edCmd/selText migrados p/ features/editor.ts; lidos por global, pane delega no shim abaixo */
 VIEW.file=(t,host)=>window.renderFileView(t,host);
@@ -339,7 +320,6 @@ XC.make=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);re
 const _dx4=XC.dx;XC.dx=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}return _dx4(a);};
 
 /* ───── wiring ───── */
-function tabIc(t){if(t.kind==='file')return fIcon(t.title);if(t.kind==='lt')return `<span class="ic acc">${svg('book')}</span>`;const m={agent:'sparkle',welcome:'sparkle',diff:'scm',settings:'settings',manager:'graph',analysis:'book',graph:'scm',team:'account',studio:'cube',board:'split'};return `<span class="ic acc">${svg(m[t.kind]||'file')}</span>`;}
 VIEW.welcome=(t,host)=>{const w=(ic,a,b,act)=>`<button class="wbtn" onclick="${act}"><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
   host.innerHTML=`<div class="page"><div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><h1 style="font-weight:300;font-size:26px;margin:0">dxtutor <b style="font-weight:600">IDE</b></h1></div>
   <div class="sub">Learn a language step by step, or design an architecture and let a team of assistants build it: backlog, branches, tests, containers — then run everything with one command.</div>
@@ -365,15 +345,10 @@ Object.assign(window, {
   CMD, FS, LS,
   OPEN, PANE, PROV, ROOT, RP, RUN, SECOPEN, STOP, VIEW,
   badges, blame, boot, boot3, boot4, buildActivity, buildMenus,
-  closeTab,
-  drawTabs, esc, fIcon, goPane,
+  esc, fIcon, goPane,
   hydrate, loadCfg, loadSeed, log,
-  mdFull, miniOff,
-  openFile, openPath, openTab,
-  parkAgent,
-  rerender, resetAll, runTask,
-  save, setActive, setPane, setPanelTab, show,
-  stepTab, tabIc, tabOf, togglePanel,
+  mdFull, rerender, resetAll, runTask,
+  save, setPane, setPanelTab, togglePanel,
   toggleSide, use,
   who, writeFile,
   // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
