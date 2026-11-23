@@ -29,8 +29,8 @@ metric "Object.assign(window, …) (U7)" 40 0 \
   "$(grep -rho 'Object\.assign(window' "$SRC" --include=*.ts | count)"
 metric "handlers inline on*=\"…\" (U5)" 165 0 \
   "$(grep -rhoE '[[:space:]]on(click|dblclick|change|input|keydown|keyup|submit|mousedown|mouseup|contextmenu|blur|focus|dragstart|dragover|dragleave|drop|load|error)=' "$SRC" "$UI/index.html" | count)"
-metric "invoke cru inv(\"…\") fora de platform/ (U2)" 44 0 \
-  "$(grep -rhoE '\binv\("' "$SRC" --include=*.ts | count)"
+metric "invoke cru inv(\"…\") fora de platform/ (U2)" 0 0 \
+  "$(grep -rhoE '\binv\("' "$SRC" --include=*.ts --exclude-dir=platform | count)"
 
 printf '\n== Métricas da migração da ui-app (ADR-0004) ==\n'
 printf '  %-46s %8s %8s %6s\n' "métrica" "actual" "baseline" "alvo"

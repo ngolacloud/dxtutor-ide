@@ -11,6 +11,11 @@
    OPEN, TABS, cur, VIEW, MENUS, CMD, $, tabOf) e re-atribui as globais function-declaradas
    via binding do window (refresh, promptHTML, window.run, commit, checkout, …). As
    declarações em `declare global` abaixo são esse contrato, tipado. */
+import type { Invoker } from "./platform/tauri/core";
+import { pairClient } from "./platform/tauri/pair";
+import { shellClient } from "./platform/tauri/shell";
+import { fsClient } from "./platform/tauri/fs";
+import { appClient } from "./platform/tauri/app";
 
 export {};
 
@@ -217,6 +222,8 @@ const SIM = !window.__TAURI__;
 if (SIM ? !window.__PAIRSIM__ : !window.DXR) return;
 const T: TauriLike = SIM ? window.__PAIRSIM__!.T : window.__TAURI__!;
 const inv: Inv = SIM ? window.__PAIRSIM__!.inv : (c, a) => window.__TAURI__!.core.invoke(c, a || {});
+/* clientes IPC tipados (platform/tauri — ADR-0004, U2) sobre o `inv` injectado (real ou simulação) */
+const pairc = pairClient(inv as Invoker), shellc = shellClient(inv as Invoker), fsc = fsClient(inv as Invoker), appc = appClient(inv as Invoker);
 const R: Dxr = SIM ? window.__PAIRSIM__!.R : window.DXR!;
 const escH = (s: unknown): string =>
   String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
@@ -232,14 +239,14 @@ const amDriver = () => !!P.role && P.driver === P.role;
 const live = () => P.state === "connected";
 function send(o: Msg): Promise<void> {
   if (!live()) return Promise.resolve();
-  return inv("pair_send", { msg: JSON.stringify(o) }).catch(e => say(String(e)));
+  return pairc.send(JSON.stringify(o)).catch(e => say(String(e)));
 }
 
 /* ───── session ───── */
 async function start(): Promise<void> {
   if (P.role) { openPanel(); return; }
   try {
-    P.token = await inv("pair_host", { name: myName() + (R.name ? " · " + R.name : "") });
+    P.token = await pairc.host(myName() + (R.name ? " · " + R.name : ""));
     P.role = "host"; P.driver = "host"; P.state = "waiting"; openPanel();
     say("session started — share the token");
   } catch (e) { toast("PairCode could not start: " + e); }
@@ -249,14 +256,14 @@ async function join(token: string, via?: string): Promise<void> {
   if (!token) { toast("Paste the token first"); return; }
   P.role = "guest"; P.state = "joining"; P.driver = "host"; drawPanel();
   try {
-    P.peerName = await inv("pair_join", { token, via: via || null });
+    P.peerName = await pairc.join(token, via || null);
     say("connected to " + P.peerName);
   } catch (e) {
     P.role = null; P.state = "idle"; drawPanel();
     toast(String(e).slice(0, 200)); say(String(e));
   }
 }
-async function end(): Promise<void> { await send({ t: "bye" }); await inv("pair_stop"); cleanup(); }
+async function end(): Promise<void> { await send({ t: "bye" }); await pairc.stop(); cleanup(); }
 function cleanup(): void {
   stopCall();
   if (P.role === "guest") leaveRemote();
@@ -342,7 +349,7 @@ async function handle(m: Msg): Promise<void> {
     case "rtc": await onRtc(m); break;
     case "av": P.peerAv = m; drawDock(); break;
     case "bye":
-      if (P.role === "guest") { await inv("pair_stop"); toast("The host ended the session"); cleanup(); }
+      if (P.role === "guest") { await pairc.stop(); toast("The host ended the session"); cleanup(); }
       break;
   }
 }
@@ -1035,7 +1042,7 @@ void (async () => {
   if (role === "host") {
     await step("host", async () => {
       await start();
-      await inv("write_file", { root: dir, rel: "token.txt", content: P.token });
+      await fsc.writeFile(dir, "token.txt", P.token as string);
       if (slow) openPanel();
       return (P.token as string).slice(0, 12) + "…";
     });
@@ -1045,11 +1052,11 @@ void (async () => {
     await step("guestEditOnDisk", async () => {
       await wait(() => FS[ROOT + "main.rs"] && FS[ROOT + "main.rs"].content.includes("from guest"));
       R.flush!(); await R.idle!();
-      return (await inv("exec", { program: "cat", args: ["main.rs"], cwd: R.root })).stdout.trim();
+      return (await shellc.exec({ program: "cat", args: ["main.rs"], cwd: R.root })).stdout.trim();
     });
     await step("guestCommandRan", async () => {
       await wait(() => Object.keys(R.disk).includes("shared.txt") || false, 10000).catch(() => { /* */ });
-      return (await inv("exec", { program: "cat", args: ["shared.txt"], cwd: R.root })).stdout.trim();
+      return (await shellc.exec({ program: "cat", args: ["shared.txt"], cwd: R.root })).stdout.trim();
     });
     await step("hostEditReachesGuest", async () => {
       takeBack();
@@ -1069,7 +1076,7 @@ void (async () => {
       let tok = "";
       const t0 = Date.now();
       while (!tok && Date.now() - t0 < 30000) {
-        const r = await inv("exec", { program: "cat", args: ["token.txt"], cwd: dir });
+        const r = await shellc.exec({ program: "cat", args: ["token.txt"], cwd: dir });
         tok = r.code === 0 ? r.stdout.trim() : "";
         if (!tok) await new Promise(r2 => setTimeout(r2, 300));
       }
@@ -1127,6 +1134,6 @@ void (async () => {
   }
   await pause(3000);
   rep.errors = R.errors;
-  await inv("selftest_report", { report: rep });
+  await appc.selftestReport(rep);
 })();
 })();

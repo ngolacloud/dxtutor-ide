@@ -14,13 +14,14 @@ import { jsa } from "./core";
 import { detectCommands, summarizeRun, type VerifyKind, type VerifyCommand } from "./features/codev/domain/project-commands";
 
 import { loadWorkspace, type LoadedWorkspace } from "./platform/tauri/workspace";
+import { shellClient, type ExecResult } from "./platform/tauri/shell";
+import { fsClient } from "./platform/tauri/fs";
+import { gitClient } from "./platform/tauri/git";
+import { providersClient, type ProvidersConfig, type ProviderInfo } from "./platform/tauri/providers";
+import { agentTasksClient, type AgentTask } from "./platform/tauri/agent-tasks";
+import { appClient, type AppInfo } from "./platform/tauri/app";
 
-interface ExecResult { code: number; stdout: string; stderr: string; timedOut?: boolean }
 interface ProcHandler { line: (l: string, err?: boolean) => void; exit: (code: number) => void }
-interface AppInfo {
-  version?: string; os?: string; home?: string; configDir?: string;
-  openAtStart?: string; selftest?: string; pairtest?: string;
-}
 /** Workspace carregado: contrato tipado do adaptador `platform/tauri/workspace`. */
 type Workspace = LoadedWorkspace;
 interface CommitNode { h: string; m: string; p: string[]; b: string | null; a: string; t: number; files: unknown[] }
@@ -33,10 +34,6 @@ interface Envs { rt: string; rtOn: boolean; sock: Record<string, string>; kube: 
 interface Tool { name: string; description?: string; inputSchema?: Record<string, unknown>; execute: (input: any) => unknown }
 interface SampleOpts { tools?: Tool[]; signal?: AbortSignal | null; onText?: (x: { text: string }) => void; step?: string | null; cache?: boolean; modelTier?: string; modelHint?: string }
 interface SampleMsg { role: string; content?: unknown }
-/** Config real de providers (tutor-llm, ~/.config/dxtutor/providers.json, serde camelCase). */
-interface ProvidersConfig { provider: string; anthropicKey: string; anthropicWorkspaceId: string; openaiKey: string; geminiKey: string; ollamaHost: string; ollamaModel: string; assistantModel: string }
-/** Capacidade honesta de cada provider, reportada por list_providers (RF-AG-06). */
-interface ProviderInfo { id: string; name: string; available: boolean; streaming: boolean; cancel: boolean; tools: boolean; context: boolean; note: string; models: string[] }
 
 /** O objecto R exposto como window.DXR — tem de continuar atribuível ao Dxr que o pair.ts declara. */
 /** Resultado real de um comando corrido pelo Co-Dev: `ok` vem do código de saída. */
@@ -71,7 +68,7 @@ interface Desktop {
   };
 }
 /** Resultado de uma delegação isolada (agent_task_* → git worktree de HEAD). */
-interface DelegateResult { id: string; status: string; patch: string; error: string }
+type DelegateResult = AgentTask;
 
 declare global {
   // Globais lexicais (let/const em boot.js/app.js) que o pair.ts não declara.
@@ -159,7 +156,8 @@ declare global {
 (() => {
 if (!window.__TAURI__ || !window.__TAURI__.core) return;
 const T = window.__TAURI__;
-const inv = (c: string, a?: Record<string, unknown>) => T.core.invoke(c, a || {});
+/* clientes IPC tipados (platform/tauri — ADR-0004, U2): nada de invoke cru com strings soltas */
+const shell = shellClient(), fsx = fsClient(), gitc = gitClient(), providers = providersClient(), tasks = agentTasksClient(), app = appClient();
 const R: Desktop = { root: null, name: null, git: false, prefix: "", disk: {}, cwd: null, info: {}, keys: {}, proc: null, handlers: {}, errors: [], busy: 0 };
 window.DXR = R;
 window.addEventListener("error", e => R.errors.push(String(e.message || e)));
@@ -174,7 +172,7 @@ const say = (m: string) => { try { log("desktop", m); } catch { /* sem painel de
 
 /* ───── processes ───── */
 async function sh(program: string, args: string[], o: { cwd?: string | null; env?: Record<string, string> | null; stdin?: string | null; timeout?: number } = {}): Promise<ExecResult> {
-  return inv("exec", { program, args, cwd: o.cwd || R.root, env: o.env || null, stdin: o.stdin || null, timeoutMs: o.timeout || 120000 });
+  return shell.exec({ program, args, cwd: o.cwd || R.root, env: o.env || null, stdin: o.stdin || null, timeoutMs: o.timeout || 120000 });
 }
 async function git(...args: string[]): Promise<ExecResult> { return sh("git", args); }
 async function gitOk(...args: string[]): Promise<ExecResult> {
@@ -194,7 +192,7 @@ function stream(line: string, o: { line?: (l: string, err?: boolean) => void; en
   const id = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   return new Promise((ok, no) => {
     R.handlers[id] = { line: o.line || (() => { /* sem sink */ }), exit: ok };
-    inv("run_shell", { id, line, cwd: o.cwd || R.cwd || R.root, env: o.env || envFor() }).then(() => { if (o.onId) o.onId(id); }).catch(e => { delete R.handlers[id]; no(e); });
+    shell.runShell({ id, line, cwd: o.cwd || R.cwd || R.root, env: o.env || envFor() }).then(() => { if (o.onId) o.onId(id); }).catch(e => { delete R.handlers[id]; no(e); });
   });
 }
 
@@ -239,7 +237,7 @@ async function realTerm(raw: string): Promise<void> {
   if (/^cd(\s|$)/.test(v)) {
     echoCmd(raw);
     const target = v.slice(2).trim() || R.root;
-    const tp = await inv("expand_path", { path: target });
+    const tp = await fsx.expandPath(target as string);
     const r = R.info.os === "windows" ? await sh("cmd", ["/C", `cd /d "${tp}" && cd`], { cwd: R.cwd }) : await sh("sh", ["-c", 'cd -- "$1" && pwd', "sh", tp], { cwd: R.cwd });
     if (r.code === 0) {
       R.cwd = r.stdout.trim();
@@ -261,14 +259,14 @@ termExec = function (v: string) {
 document.addEventListener("keydown", e => {
   if (R.proc && e.ctrlKey && (e.key === "c" || e.key === "C") && !String(getSelection()).length && document.activeElement && document.activeElement.closest && document.activeElement.closest("#pc-terminal")) {
     e.preventDefault();
-    void inv("kill_shell", { id: R.proc });
+    void shell.killShell(R.proc as string);
     termLine("^C");
   }
 }, true);
 
 /* ───── folders and autosave ───── */
 async function openFolder(path?: string): Promise<boolean> {
-  if (!path) path = await inv("pick_folder");
+  if (!path) path = (await fsx.pickFolder()) ?? undefined;
   if (!path) return false;
   let L: Workspace;
   try { L = await loadWorkspace(path); } catch (e) { toast("Could not open " + path + ": " + e); return false; }
@@ -347,8 +345,8 @@ function flushSave(): void {
   if (!w.length && !d.length) return;
   const root = R.root;
   enqueue(async () => {
-    for (const [rel, content] of w) await inv("write_file", { root, rel, content });
-    for (const rel of d) await inv("delete_file", { root, rel });
+    for (const [rel, content] of w) await fsx.writeFile(root, rel, content);
+    for (const rel of d) await fsx.deleteFile(root, rel);
     document.dispatchEvent(new CustomEvent("dx:saved", { detail: { root, files: w.map(x => x[0]).concat(d) } }));
   });
 }
@@ -422,8 +420,8 @@ R.syncGit = () => syncGit();
 /* feature `changelog` (harvest ui-next): troca a fonte simulada pela timeline git REAL
    do repositório aberto. git_log dá os commits; git_show dá o patch tal-e-qual. Sem pasta
    aberta → vazio honesto (a vista mostra o aviso). Os comandos existem no backend. */
-window.clLog = async () => (R.root ? inv("git_log", { root: R.root, max: 30 }) : []);
-window.clShow = async (hash: string) => (R.root ? inv("git_show", { root: R.root, hash }) : "");
+window.clLog = async () => (R.root ? gitc.log(R.root, 30) : []);
+window.clShow = async (hash: string) => (R.root ? gitc.show(R.root, hash) : "");
 R.termLine = (t, e) => termLine(t, e);
 const termLineDom = (t: string, e?: boolean) => termLine(t, e);
 R.envFor = () => envFor();
@@ -502,10 +500,10 @@ let PROVCAPS: ProviderInfo[] = [];
     (`assistant_chat_stream`) como o tool-loop (`llm_chat`, via keys::resolve) lêem. */
 async function loadKeys(): Promise<void> {
   try {
-    CFG = await inv("get_providers_config") as ProvidersConfig;
+    CFG = await providers.getConfig();
     R.keys = { claude: CFG.anthropicKey || "", codex: CFG.openaiKey || "", gemini: CFG.geminiKey || "" };
   } catch { CFG = null; R.keys = {}; }
-  try { PROVCAPS = await inv("list_providers") as ProviderInfo[]; } catch { PROVCAPS = []; }
+  try { PROVCAPS = await providers.list(); } catch { PROVCAPS = []; }
 }
 const usable = (k: string) => !!(PROV[k] && PROV[k].on && (PROV[k].local || R.keys[k]));
 function pickProv(): string {
@@ -578,14 +576,14 @@ async function streamChat(k: string, msgs: { role: string; content: string }[], 
   const done = new Promise<{ text: string; provider: string; inputTokens: number; outputTokens: number }>((res, rej) => { settleOk = res; settleErr = rej; });
   const offs: Array<() => void> = [];
   function cleanup(): void { offs.splice(0).forEach(f => { try { f(); } catch { /* já removido */ } }); if (o.signal) o.signal.removeEventListener("abort", onAbort); }
-  function onAbort(): void { void inv("assistant_cancel", { requestId: id }); cleanup(); settleErr(STOP); }
+  function onAbort(): void { void providers.cancel(id); cleanup(); settleErr(STOP); }
   const mine = (e: { payload: unknown }): Record<string, unknown> | null => { const p = e.payload as { requestId?: string } | null; return p && p.requestId === id ? (p as Record<string, unknown>) : null; };
   offs.push((await T.event.listen("llm://token", e => { const p = mine(e); if (!p) return; text += String(p.delta ?? ""); if (o.onText) o.onText({ text }); })) as () => void);
   offs.push((await T.event.listen("llm://done", e => { const p = mine(e); if (!p) return; cleanup(); settleOk({ text, provider: k, inputTokens: 0, outputTokens: Math.round(text.length / 4) }); })) as () => void);
   offs.push((await T.event.listen("llm://error", e => { const p = mine(e); if (!p) return; cleanup(); settleErr(new Error(String(p.error ?? "erro do modelo"))); })) as () => void);
   if (o.signal) { if (o.signal.aborted) { onAbort(); return done; } o.signal.addEventListener("abort", onAbort); }
   const mode = R.root ? "project" : "study";
-  void inv("assistant_chat_stream", { messages: msgs, provider: prov, model: PROV[k].model, requestId: id, mode, stepId: o.step ?? null })
+  void providers.chatStream({ messages: msgs, provider: prov, model: PROV[k].model, requestId: id, mode, stepId: o.step ?? null })
     .catch(e => { cleanup(); settleErr(e); });
   return done;
 }
@@ -689,20 +687,20 @@ provState = k => PROV[k].local ? "local" : R.keys[k] ? "live" : "no key";
    submit → status → cancel: o Co-Dev delega aqui e o humano revê/aplica o patch. */
 async function delegate(writes: [string, string][], o: { signal?: AbortSignal | null; onStatus?: (s: string) => void } = {}): Promise<DelegateResult> {
   if (!R.root) throw new Error("abre uma pasta primeiro");
-  const id = await inv("agent_task_submit", { root: R.root, writes }) as string;
+  const id = await tasks.submit(R.root, writes);
   for (let i = 0; i < 1200; i++) {
-    if (o.signal && o.signal.aborted) { await inv("agent_task_cancel", { id }); throw STOP; }
-    const st = await inv("agent_task_status", { id }) as DelegateResult | null;
+    if (o.signal && o.signal.aborted) { await tasks.cancel(id); throw STOP; }
+    const st = await tasks.status(id);
     if (!st) throw new Error("tarefa desconhecida: " + id);
     if (o.onStatus) o.onStatus(st.status);
     if (st.status !== "running") return st;
     await new Promise(r => setTimeout(r, 100));
   }
-  await inv("agent_task_cancel", { id });
+  await tasks.cancel(id);
   throw new Error("a delegação não terminou a tempo");
 }
 R.delegate = (writes, o) => delegate(writes, o);
-R.cancelTask = id => inv("agent_task_cancel", { id }) as Promise<boolean>;
+R.cancelTask = id => tasks.cancel(id);
 /** Card de revisão: mostra o patch isolado e deixa aplicá-lo ao projecto ou descartá-lo. */
 async function delegateReview(title: string, writes: [string, string][]): Promise<void> {
   const ac = new AbortController();
@@ -735,7 +733,7 @@ testProv = async function (k: string, btn: HTMLElement) {
   const o = btn.parentElement!.querySelector(".pd")!;
   const P = PROV[k];
   try {
-    const r = await inv("llm_chat", { req: { provider: k, endpoint: P.ep, model: P.model, messages: [{ role: "user", text: "Reply with the single word OK." }], maxTokens: 16 } });
+    const r = await providers.llmChat({ provider: k, endpoint: P.ep, model: P.model, messages: [{ role: "user", text: "Reply with the single word OK." }], maxTokens: 16 });
     o.innerHTML = `<span style="color:var(--green)">✓ ${escH(P.model)}</span> answered: ${escH(r.text.slice(0, 60))}`;
   } catch (e) { o.innerHTML = `<span style="color:var(--red)">✖</span> ${escH(String(e).slice(0, 240))}`; }
   btn.textContent = "Test connection";
@@ -760,8 +758,8 @@ VIEW.settings = (t: any, host: any) => {
       const field = CFG_FIELD[k];
       if (!field) return;
       try {
-        const base: ProvidersConfig = CFG || (await inv("get_providers_config") as ProvidersConfig);
-        await inv("save_providers_config", { config: { ...base, [field]: v } });
+        const base: ProvidersConfig = CFG || (await providers.getConfig());
+        await providers.saveConfig({ ...base, [field]: v });
         await loadKeys(); inp.value = "";
         toast(v ? PROV[k].name + ": chave guardada" : PROV[k].name + ": chave removida");
         show(cur); updateAgentUI();
@@ -787,7 +785,7 @@ const compose = () => rtBin() + " compose";
 rtConnect = async function () {
   hydrateEnvs();
   if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); STACK = null; DEVC = null; drawStack(); say("container runtime disconnected"); infraDraw(); return; }
-  R.sock = await inv("expand_path", { path: ENVS.sock[ENVS.rt] });
+  R.sock = await fsx.expandPath(ENVS.sock[ENVS.rt]);
   const env = { DOCKER_HOST: "unix://" + R.sock, CONTAINER_HOST: "unix://" + R.sock };
   const r = await sh(rtBin(), ["info", "--format", ENVS.rt === "podman" ? "{{.Version.Version}}" : "{{.ServerVersion}}"], { env, timeout: 15000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) }));
   if (r.code === 0) { ENVS.rtOn = true; saveEnv(); say(`${RTN[ENVS.rt]} ${r.stdout.trim()} connected at ${R.sock}`); toast(`${RTN[ENVS.rt]} ${r.stdout.trim()} connected`); }
@@ -797,7 +795,7 @@ rtConnect = async function () {
 k8sConnect = async function () {
   hydrateEnvs();
   if (ENVS.k8sOn) { ENVS.k8sOn = false; saveEnv(); K8S = null; say("cluster disconnected"); infraDraw(); return; }
-  const kube: string = await inv("expand_path", { path: ENVS.kube });
+  const kube: string = await fsx.expandPath(ENVS.kube);
   R.kube = kube;
   const env = { KUBECONFIG: kube };
   const ctx = await sh("kubectl", ["config", "get-contexts", "-o", "name"], { env, timeout: 15000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) }));
@@ -923,7 +921,7 @@ VIEW.welcome = (t: any, host: any) => {
 
 /* ───── start ───── */
 void (async () => {
-  R.info = await inv("app_info");
+  R.info = await app.info();
   try {
     R.user = (await sh("whoami", [], { cwd: R.info.home })).stdout.trim().split(/[\\/]/).pop();
     R.host = (await sh("hostname", [], { cwd: R.info.home })).stdout.trim().split(".")[0];
@@ -993,17 +991,17 @@ async function selftest(): Promise<void> {
   // dir temporário (DXTUTOR_SELFTEST headless), nunca no providers.json real do utilizador.
   await step("providers", async () => {
     const caps = PROVCAPS.map(c => ({ id: c.id, available: c.available, streaming: c.streaming, cancel: c.cancel }));
-    const before = await inv("get_providers_config") as ProvidersConfig;
+    const before = await providers.getConfig();
     // As chaves vêm mascaradas (nunca atravessam o IPC). Com uma chave OpenAI real já guardada não
     // há como a repor depois da sonda — não se escreve; o passo só corre a sério com HOME temporário.
     const leak = [before.anthropicKey, before.openaiKey, before.geminiKey].some(k => k && !/^•+$/.test(k));
     if (before.openaiKey) return { caps, skipped: "openai key already saved", masked: !leak };
-    await inv("save_providers_config", { config: { ...before, openaiKey: "sk-selftest-probe" } });
-    const after = await inv("get_providers_config") as ProvidersConfig;
+    await providers.saveConfig({ ...before, openaiKey: "sk-selftest-probe" });
+    const after = await providers.getConfig();
     const saved = !!after.openaiKey && after.openaiKey !== "sk-selftest-probe", keptOthers = after.anthropicKey === before.anthropicKey;
     // Restaura a config original (openaiKey vazia) — o passo é net-zero: nunca deixa a sonda gravada.
-    await inv("save_providers_config", { config: before });
-    const restored = await inv("get_providers_config") as ProvidersConfig;
+    await providers.saveConfig(before);
+    const restored = await providers.getConfig();
     return { caps, saved, masked: !leak, keptOthers, restored: !restored.openaiKey };
   });
   if (R.root) {
@@ -1078,13 +1076,13 @@ async function selftest(): Promise<void> {
       const rel = "notes/scm-probe.txt", key = ROOT + rel, msg = "test: scm pane real git";
       writeFile(key, "scm pane drives real git\n"); flushSave(); await Q;
       const listedChange = changes().includes(key);
-      const seen = async () => (await inv("git_changes", { root: R.root }) as { path: string }[]).some(c => c.path === rel);
+      const seen = async () => (await gitc.changes(R.root!)).some(c => c.path === rel);
       const backendSeesNew = await seen();
       stage(key);
       const staged = STAGED.has(key);
       commit(msg); await Q; await Q;
       const head = (await git("log", "-1", "--format=%s")).stdout.trim();
-      const logTop = (await inv("git_log", { root: R.root, max: 1 }) as { subject: string }[])[0];
+      const logTop = (await gitc.log(R.root!, 1))[0];
       const cleanAfter = !changes().includes(key), backendClean = !(await seen());
       const before = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim();
       checkout("feature/scm-probe", true); await Q;
@@ -1189,13 +1187,13 @@ async function selftest(): Promise<void> {
       const res = await R.delegate!([["notes/delegated.txt", "escrito num worktree isolado pelo executor delegado\n"]]);
       const patchHasFile = res.status === "done" && /delegated\.txt/.test(res.patch);
       const untouched = !FS[ROOT + "notes/delegated.txt"]; // a delegação não toca na árvore real
-      const id = await inv("agent_task_submit", { root: R.root, writes: [["notes/cancel.txt", "x\n"]] }) as string;
+      const id = await tasks.submit(R.root!, [["notes/cancel.txt", "x\n"]]);
       const cancelled = await R.cancelTask!(id);
       return { status: res.status, patchHasFile, patchLen: res.patch.length, untouched, cancelled };
     });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;
-  await inv("selftest_report", { report: rep });
+  await app.selftestReport(rep);
 }
 })();

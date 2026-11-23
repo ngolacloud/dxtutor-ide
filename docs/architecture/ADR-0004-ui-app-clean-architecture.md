@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U1 feitas
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U1 feitas, U2 em curso (U2a feita)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -131,3 +131,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   goldens lê a ordem do `main.ts` (deixou de ter uma cópia da lista). Verificado: 320
   testes (goldens sem diff), arranque no browser 3/3, e a app desktop real no Xvfb (bridge
   Tauri, explorador real, painel com o terminal do SO). Métrica: tags 43 → 1.
+
+- **U2a (2026-11-23) — clientes IPC tipados.** As 43 chamadas `inv("…")` cruas do
+  `bridge.ts` (31) e do `pair.ts` (10) passam a clientes de `platform/tauri/` por domínio —
+  `shell` (exec, shell interactiva), `fs`, `git`, `providers` (config, lista, `llm_chat`,
+  chat em streaming), `agent-tasks`, `app` (info, auto-teste) e `pair` —, cada um construído
+  sobre um `Invoker` injectável (`core.ts`): o `bridge.ts` usa o `invoke` real e o `pair.ts`
+  o seu (que pode ser a simulação do PairCode). Tipos de retorno fiéis ao backend
+  (`ExecOut`, `GitCommit`, `GitChange`, `ProvidersConfig`, `ChatResp`, `AgentTask`…), em vez
+  dos casts `as X` espalhados. Onde o `inv` cru aceitava `null` (raiz por definir, `R.proc`,
+  token), o valor passado em runtime é o mesmo (cast explícito, sem mudança de
+  comportamento). Verificado com o **auto-teste desktop** (`DXTUTOR_SELFTEST`, Xvfb): os 23
+  passos dão resultados idênticos com e sem a U2a, sem erros. Métrica `inv` cru fora de
+  `platform/`: 43 → 0 (a contagem passou a excluir `platform/`, que é onde os clientes vivem).
+  IPC-MATRIX: o consumidor destes 25 comandos passa a ser o cliente tipado. **Falta (U2b):**
+  o objecto `DXR` e as 11 substituições do `bridge.ts` para um `platform/desktop/` com portas
+  injectadas pelo `main.ts`.
