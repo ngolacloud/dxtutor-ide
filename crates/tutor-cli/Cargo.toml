@@ -13,4 +13,5 @@ path = "src/main.rs"
 tutor-core = { path = "../tutor-core" }
 tutor-eval = { path = "../tutor-eval" }
 tutor-tui = { path = "../tutor-tui" }
+tutor-plugins = { path = "../tutor-plugins" }
 anyhow.workspace = true

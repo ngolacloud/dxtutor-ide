@@ -32,6 +32,51 @@ use tutor_llm::policy::{policy_for, Mode, StudyPolicy};
 /// O projecto que o editor carrega. Mantido num só sítio para um futuro selector ser fácil.
 pub const PROJECT_ID: &str = "rust-word-frequency";
 
+// ── Fonte única de cursos: embutidos + plugins instalados ────────────────────────────
+
+/// Os cursos embutidos no binário, lidos uma só vez (antes cada consulta re-parseava o TOML).
+fn builtin() -> &'static [Course] {
+    static BUILTIN: std::sync::OnceLock<Vec<Course>> = std::sync::OnceLock::new();
+    BUILTIN.get_or_init(tutor_core::builtin_courses)
+}
+
+/// Os cursos dos plugins instalados, em cache até o registo (`installed.json`) mudar — uma
+/// instalação pelo `dxt` com a app aberta também é vista.
+fn plugin_courses() -> Vec<Course> {
+    type Cache = Option<(
+        std::path::PathBuf,
+        Option<std::time::SystemTime>,
+        Vec<Course>,
+    )>;
+    static CACHE: std::sync::Mutex<Cache> = std::sync::Mutex::new(None);
+    let Ok(store) = tutor_plugins::Store::open_default() else {
+        return Vec::new();
+    };
+    let stamp = store.fingerprint();
+    let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some((root, s, courses)) = cache.as_ref() {
+        if root == store.root() && *s == stamp {
+            return courses.clone();
+        }
+    }
+    let courses: Vec<Course> = store.courses().into_iter().map(|(_, c)| c).collect();
+    *cache = Some((store.root().to_path_buf(), stamp, courses.clone()));
+    courses
+}
+
+/// Todos os cursos: os embutidos primeiro, depois os dos plugins. A instalação recusa ids de
+/// curso/passo repetidos, por isso um plugin nunca faz sombra a um curso embutido.
+pub fn all_courses() -> Vec<Course> {
+    let mut all = builtin().to_vec();
+    all.extend(plugin_courses());
+    all
+}
+
+/// Os cursos embutidos (a instalação de plugins precisa deles para detectar ids repetidos).
+pub fn builtin_courses() -> &'static [Course] {
+    builtin()
+}
+
 /// Erro tipado da fatia de estudo. As variantes com mensagem de contrato passam pelo
 /// [`Display`], que reproduz EXACTAMENTE as mensagens que `lib.rs` emitia (o adaptador
 /// mapeia-as para `String` na fronteira IPC, sem as reescrever).
@@ -82,7 +127,7 @@ impl std::error::Error for StudyError {}
 /// linguagem do curso ao lado do passo. O frontend endereça hints/diagnósticos por id de
 /// passo (passado como `phaseId`/`stepId`).
 pub fn course_step(step_id: &str) -> Option<(String, tutor_core::Step)> {
-    for course in tutor_core::builtin_courses() {
+    for course in all_courses() {
         if let Some(step) = course.step(step_id) {
             return Some((course.language.clone(), step.clone()));
         }
@@ -134,7 +179,7 @@ pub fn load_phase(phase_id: &str) -> Result<Phase, StudyError> {
 
 /// Carrega o curso guiado de uma linguagem (ex. `"rust"`), ou [`StudyError::NoCourse`].
 pub fn course(language: &str) -> Result<Course, StudyError> {
-    tutor_core::builtin_courses()
+    all_courses()
         .into_iter()
         .find(|c| c.language.eq_ignore_ascii_case(language.trim()))
         .ok_or_else(|| StudyError::NoCourse(language.to_string()))
@@ -143,7 +188,7 @@ pub fn course(language: &str) -> Result<Course, StudyError> {
 /// Todos os cursos embutidos (um por currículo/linguagem), para o onboarding construir o
 /// selector de linguagens dinamicamente.
 pub fn courses() -> Vec<Course> {
-    tutor_core::builtin_courses()
+    all_courses()
 }
 
 /// Carrega o glossário curado de uma linguagem, ou [`StudyError::NoGlossary`].
@@ -175,7 +220,7 @@ pub fn grade_phase(phase_id: &str, code: &str) -> Result<(Assessment, Phase), St
 /// Avalia um passo `challenge`: localiza-o em todas as unidades dos cursos, constrói um
 /// `Phase` a partir dele e reusa o avaliador honesto (`tutor_eval::assess`).
 pub fn grade_step(step_id: &str, code: &str) -> Result<(Assessment, Phase), StudyError> {
-    for course in tutor_core::builtin_courses() {
+    for course in all_courses() {
         if let Some(step) = course.step(step_id) {
             let phase = step
                 .as_phase(&course.language, Level::Basico)

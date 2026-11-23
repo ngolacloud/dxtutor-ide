@@ -18,6 +18,7 @@ pub mod dictation;
 pub mod git;
 pub mod missions;
 pub mod pair;
+pub mod plugins;
 pub mod review;
 pub mod sandbox;
 pub mod search;

@@ -78,6 +78,7 @@ use commands::git::{
 };
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
+use commands::plugins::{plugin_install, plugin_list, plugin_remove};
 use commands::review::{list_review_analyzers, review_code, verify_review_fix};
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
@@ -224,6 +225,9 @@ struct UnitDto {
     id: String,
     title: String,
     intro: String,
+    /// The topic's reading text (markdown): the unit's concepts and how the language
+    /// expresses them. Empty for content that does not carry one yet.
+    concepts: String,
     /// Increasing difficulty marker (0 = none). Presentation only.
     difficulty: u8,
     /// Pedagogical level: "basic" | "intermediate" | "advanced". Lets the
@@ -265,6 +269,8 @@ pub(crate) struct CourseDto {
     title: String,
     level: String,
     summary: String,
+    /// Reading text that introduces the language (markdown). May be empty.
+    overview: String,
     units: Vec<UnitDto>,
 }
 
@@ -482,6 +488,7 @@ pub(crate) fn course_dto(c: &tutor_core::Course) -> CourseDto {
         title: c.title.clone(),
         level: c.level.clone(),
         summary: c.summary.clone(),
+        overview: c.overview.clone(),
         units: c
             .units
             .iter()
@@ -489,6 +496,7 @@ pub(crate) fn course_dto(c: &tutor_core::Course) -> CourseDto {
                 id: u.id.clone(),
                 title: u.title.clone(),
                 intro: u.intro.clone(),
+                concepts: u.concepts.clone(),
                 difficulty: u.difficulty,
                 level: u.level.clone(),
                 steps: u.steps.iter().map(step_dto).collect(),
@@ -891,6 +899,9 @@ pub fn run() {
             request_plan,
             request_fix,
             get_course,
+            plugin_list,
+            plugin_install,
+            plugin_remove,
             list_courses,
             run_drill,
             run_measured,

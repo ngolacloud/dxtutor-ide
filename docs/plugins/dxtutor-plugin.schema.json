@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ngolacloud/dxtutor-ide/blob/main/docs/plugins/dxtutor-plugin.schema.json",
+  "title": "dxtutor course plugin manifest",
+  "description": "dxtutor-plugin.json at the root of a course plugin. Source of truth: crates/tutor-plugins/src/manifest.rs.",
+  "type": "object",
+  "required": ["schema", "id", "name", "version", "engine", "kind", "language", "courses"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema": { "const": 1, "description": "Manifest format version." },
+    "id": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$", "minLength": 2, "description": "Unique plugin id; also the install folder name." },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "description": "Semantic version, e.g. 0.1.0." },
+    "description": { "type": "string" },
+    "authors": { "type": "array", "items": { "type": "string" } },
+    "license": { "type": "string" },
+    "repository": { "type": "string" },
+    "engine": { "type": "string", "description": "Supported dxtutor versions as a semver requirement, e.g. >=0.7.0." },
+    "kind": { "const": "course" },
+    "language": {
+      "type": "object",
+      "required": ["id", "name", "extension"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$", "examples": ["rust", "go", "python", "typescript", "java", "kotlin", "swift", "csharp", "cpp", "sql"] },
+        "name": { "type": "string", "minLength": 1 },
+        "icon": { "type": "string", "description": "An emoji for the language card." },
+        "extension": { "type": "string", "pattern": "^[A-Za-z0-9]+$", "description": "Exercise file extension without the dot." },
+        "indent": { "type": "string", "pattern": "^(tab|[1-8])$", "default": "4" },
+        "testCommand": { "type": "string", "description": "Test command shown to the learner (display only)." }
+      },
+      "additionalProperties": false
+    },
+    "courses": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "\\.(toml|json)$", "description": "Relative path to a course file." }
+    }
+  },
+  "additionalProperties": false
+}

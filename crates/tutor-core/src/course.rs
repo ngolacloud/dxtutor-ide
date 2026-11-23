@@ -33,8 +33,45 @@ pub struct Course {
     /// [`Step::as_phase`].
     pub level: String,
     pub summary: String,
-    #[serde(rename = "unit")]
+    /// Visão geral da LINGUAGEM (markdown): o que é, onde se usa, o modelo mental que o
+    /// curso vai construir. Lida antes da primeira unidade. Vazia no conteúdo antigo.
+    #[serde(default)]
+    pub overview: String,
+    /// `unit` no TOML (`[[unit]]`); `units` também é aceite (JSON dos plugins).
+    #[serde(rename = "unit", alias = "units")]
     pub units: Vec<Unit>,
+}
+
+/// Formato de origem de um ficheiro de curso.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CourseFormat {
+    Toml,
+    Json,
+}
+
+impl CourseFormat {
+    /// Deduz o formato pela extensão do ficheiro (`.toml` / `.json`).
+    pub fn from_path(path: &str) -> Option<Self> {
+        let lower = path.to_ascii_lowercase();
+        if lower.ends_with(".toml") {
+            Some(Self::Toml)
+        } else if lower.ends_with(".json") {
+            Some(Self::Json)
+        } else {
+            None
+        }
+    }
+}
+
+impl Course {
+    /// Lê um curso de texto, sem panic: o erro descreve o problema para o autor do conteúdo
+    /// (é o caminho dos plugins, onde o conteúdo vem de fora e pode estar mal formado).
+    pub fn parse(raw: &str, format: CourseFormat) -> Result<Course, String> {
+        match format {
+            CourseFormat::Toml => toml::from_str(raw).map_err(|e| e.to_string()),
+            CourseFormat::Json => serde_json::from_str(raw).map_err(|e| e.to_string()),
+        }
+    }
 }
 
 impl Course {
@@ -54,6 +91,11 @@ pub struct Unit {
     pub title: String,
     #[serde(default)]
     pub intro: String,
+    /// Texto de leitura do TÓPICO (markdown): explica os conceitos da unidade e como a
+    /// linguagem os exprime, para o leitor perceber antes de praticar. Mais longo que o
+    /// `intro` (que é um resumo de uma ou duas frases). Vazio no conteúdo antigo.
+    #[serde(default)]
+    pub concepts: String,
     /// Dificuldade crescente (0 = sem marca). Puramente de apresentação — o
     /// frontend pode usá-la para desenhar uma escala. `#[serde(default)]` para o
     /// conteúdo que ainda não a declara.
@@ -64,7 +106,8 @@ pub struct Unit {
     /// devolve `"basic"` para o conteúdo que ainda não o declara.
     #[serde(default = "default_unit_level")]
     pub level: String,
-    #[serde(rename = "step")]
+    /// `step` no TOML (`[[unit.step]]`); `steps` também é aceite (JSON dos plugins).
+    #[serde(rename = "step", alias = "steps")]
     pub steps: Vec<Step>,
 }
 
@@ -229,7 +272,8 @@ pub fn load_course(id: &str) -> Option<Course> {
 }
 
 fn parse(name: &str, raw: &str) -> Course {
-    toml::from_str(raw).unwrap_or_else(|e| panic!("curso inválido em {name}.toml: {e}"))
+    Course::parse(raw, CourseFormat::Toml)
+        .unwrap_or_else(|e| panic!("curso inválido em {name}.toml: {e}"))
 }
 
 #[cfg(test)]
@@ -746,5 +790,36 @@ mod tests {
         .expect("step mínimo");
         assert!(probe.install_commands.is_empty());
         assert!(probe.run_command.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    #[test]
+    fn json_aceita_units_e_steps_e_os_campos_novos() {
+        let raw = r#"{
+          "id": "demo", "language": "python", "title": "Demo", "level": "beginner",
+          "summary": "s", "overview": "Python é…",
+          "units": [{ "id": "u1", "title": "U1", "concepts": "Variáveis são nomes.",
+                      "steps": [{ "kind": "concept", "id": "c1", "title": "C1", "body": "b" }] }]
+        }"#;
+        let c = Course::parse(raw, CourseFormat::Json).expect("json válido");
+        assert_eq!(c.overview, "Python é…");
+        assert_eq!(c.units[0].concepts, "Variáveis são nomes.");
+        assert_eq!(c.units[0].level, "basic");
+        assert_eq!(c.step("c1").unwrap().kind, StepKind::Concept);
+    }
+
+    #[test]
+    fn parse_devolve_erro_em_vez_de_panic() {
+        assert!(Course::parse("id = 1", CourseFormat::Toml).is_err());
+        assert!(Course::parse("{", CourseFormat::Json).is_err());
+        assert_eq!(
+            CourseFormat::from_path("a/B.TOML"),
+            Some(CourseFormat::Toml)
+        );
+        assert_eq!(CourseFormat::from_path("x.yaml"), None);
     }
 }

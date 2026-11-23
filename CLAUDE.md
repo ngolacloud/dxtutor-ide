@@ -36,7 +36,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer` e `infra`); cada nova extracção
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra` e `learn`); cada nova extracção
   acrescenta-se lá. Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
   o único `@ts-nocheck` dentro de uma subárvore — ver abaixo). A `infra` nasceu com a
   subárvore inteiramente TIPADA (decisão do dono): nenhum `@ts-nocheck` novo, A6 fica 8.
@@ -288,6 +288,27 @@ segurança em `tests/infra.golden.test.ts` (3 goldens de #pane-infra + caracteri
 motor runtime/K8s/secrets/drift/obs + 6 testes de dispatch delegado) e
 `tests/infra.domain.test.ts` (domínio puro, fixture sintética de design+catálogo).
 
+## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
+
+ADR-0004. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
+`dxtutor-plugin.json` + cursos no formato `tutor_core::Course` (TOML/JSON), com
+`Course.overview` e `Unit.concepts` (o texto de leitura de cada tópico). Os oficiais vivem em
+`github.com/dxtutor-courses/<id>`. O catálogo oficial tem no máximo 10 linguagens
+(`learn/domain/catalog.ts`): rust, go, python, typescript, java, kotlin, swift, csharp,
+cpp, sql.
+
+- `crates/tutor-plugins` — manifesto, validação, origem, instalação e registo. É partilhado
+  pelos comandos Tauri `plugin_*` (`commands/plugins.rs`) e pelo `dxt plugin …` (tutor-cli).
+- `src-tauri/src/study.rs::all_courses()` — fonte única de cursos (embutidos + plugins, em
+  cache pelo mtime do registo). Nunca chamar `tutor_core::builtin_courses()` directamente no
+  backend.
+- `features/learn/` (governada por A7/A8, tipada): `domain/` (catalog, course-adapter), `application/`
+  (CourseGateway + catalog-service), `ui/actions.ts`, `infrastructure/legacy-bridge.ts`. O
+  resíduo `features/learn.ts` é dono do DOM e do motor. Rust/Go embutidos continuam com
+  avaliação simulada no browser; os cursos do backend usam `submit_step` real.
+- Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
+  `learn.onboarding.test.ts`. Guia de autoria: `docs/plugins/README.md`.
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,
@@ -312,6 +333,8 @@ registada (mudança de UI aprovada), nunca para «fazer passar».
 ## Referências
 
 - `docs/architecture/ADR-0002-codev-clean-architecture.md` — a decisão e as 6 fases.
+- `docs/architecture/ADR-0004-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
+- `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.
 - `docs/architecture/IPC-MATRIX.md` / `MIGRATION.md` — backend (comandos Tauri).
