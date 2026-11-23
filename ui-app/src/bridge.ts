@@ -11,6 +11,7 @@
 
 export {};
 import { jsa } from "./core";
+import { detectCommands, summarizeRun, type VerifyKind, type VerifyCommand } from "./features/codev/domain/project-commands";
 
 import { loadWorkspace, type LoadedWorkspace } from "./platform/tauri/workspace";
 
@@ -38,6 +39,8 @@ interface ProvidersConfig { provider: string; anthropicKey: string; anthropicWor
 interface ProviderInfo { id: string; name: string; available: boolean; streaming: boolean; cancel: boolean; tools: boolean; context: boolean; note: string; models: string[] }
 
 /** O objecto R exposto como window.DXR — tem de continuar atribuível ao Dxr que o pair.ts declara. */
+/** Resultado real de um comando corrido pelo Co-Dev: `ok` vem do código de saída. */
+interface VerifyOutcome { ok: boolean; code: number | null; sum: string; out: string }
 interface Desktop {
   root: string | null; name: string | null; git: boolean; prefix: string;
   disk: Record<string, string>; cwd: string | null; info: AppInfo;
@@ -51,6 +54,8 @@ interface Desktop {
   logs?: (cmd: string) => unknown; open?: (p?: string) => unknown; close?: () => void;
   delegate?: (writes: [string, string][], o?: { signal?: AbortSignal | null; onStatus?: (s: string) => void }) => Promise<DelegateResult>;
   cancelTask?: (id: string) => Promise<boolean>;
+  exec?: (cmd: string) => Promise<VerifyOutcome>;
+  projectCmd?: (kind: VerifyKind) => VerifyCommand | null;
   delegateReview?: (title: string, writes: [string, string][]) => Promise<void>;
 }
 /** Resultado de uma delegação isolada (agent_task_* → git worktree de HEAD). */
@@ -491,6 +496,26 @@ function askApproval(cmd: string): Promise<boolean> {
     approvals[id] = { ok, el: (c.bd.querySelector("span:last-child") as HTMLElement | null) || c.bd };
   });
 }
+/** Corre `cmd` no projecto aberto e devolve o resultado REAL (código de saída, resumo e
+    caudas de stdout/stderr para o modelo). Antes, as ferramentas run_tests/design_lint do
+    Co-Dev recebiam sempre {ok:true} no desktop — o modelo "verificava" sem nada correr.
+    A saída é ecoada no terminal integrado para o humano ver o mesmo que o modelo. */
+R.exec = async (cmd: string): Promise<VerifyOutcome> => {
+  flushSave();
+  await Q;
+  termLine("$ " + cmd);
+  const o = { timeout: 600000, env: envFor() };
+  const r = R.info.os === "windows" ? await sh("cmd", ["/C", cmd], o) : await sh("sh", ["-c", cmd], o);
+  const stdout = ansi(r.stdout || ""), stderr = ansi(r.stderr || "");
+  const ok = r.code === 0 && !r.timedOut;
+  (stdout + (stderr ? "\n" + stderr : "")).trimEnd().split("\n").slice(-40).forEach(l => termLine(l, !ok));
+  const sum = summarizeRun(r.code, !!r.timedOut, stdout, stderr);
+  termLine(sum, !ok);
+  await reloadDisk();
+  return { ok, code: r.code, sum, out: `exit ${r.code}${r.timedOut ? " (timed out)" : ""}\n--- stdout\n${stdout.slice(-12000)}\n--- stderr\n${stderr.slice(-6000)}` };
+};
+/** O comando de testes/lint deste projecto (detectado a partir dos ficheiros no disco). */
+R.projectCmd = (kind: VerifyKind) => (R.root ? detectCommands(R.disk)[kind] : null);
 function extraTools(): Tool[] {
   if (!R.root) return [];
   return [{
@@ -565,7 +590,7 @@ async function desktopSample(input: string | SampleMsg[], o: SampleOpts = {}) {
     "• Escrever/substituir um ficheiro inteiro (conteúdo COMPLETO, nunca um excerto):\n" +
     "```dxcode path=caminho/relativo.rs\n<conteúdo completo>\n```\n" +
     "• Correr uma ferramenta, com JSON numa só linha:\n" +
-    "```dxaction\n{\"tool\":\"run_tests\",\"input\":{\"package\":\"lexer\"}}\n```\n" +
+    "```dxaction\n{\"tool\":\"run_tests\",\"input\":{}}\n```\n" +
     "Um bloco por acção, com a cerca ``` no início da linha. Depois de eu te devolver os resultados " +
     "(dxcontinue), continua; quando terminares de vez, responde sem mais blocos. Ferramentas:\n" + catalog;
   const base: { role: string; content: string }[] = typeof input === "string"

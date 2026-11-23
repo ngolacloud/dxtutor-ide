@@ -49,6 +49,12 @@ ${af ? `\nFicheiro activo (${workspace.shortPath(af)}):\n${fs[af].content.slice(
     presenter.beginRun("Claude ao vivo");
     const signal = presenter.startAbort();
     const h: ToolHost = c.tools;
+    /* pasta real (desktop): run_tests/design_lint correm os comandos DETECTADOS do
+       projecto (domain/project-commands), não o `cargo test` do workspace de exemplo */
+    const REAL = !!deps.verify?.real();
+    const TESTC = REAL ? deps.verify!.command("test") : null;
+    const LINTC = REAL ? deps.verify!.command("lint") : null;
+    type RunResult = { ok: boolean; sum?: string; out?: string } | null;
     const tools = [
       {
         name: "list_files",
@@ -84,24 +90,34 @@ ${af ? `\nFicheiro activo (${workspace.shortPath(af)}):\n${fs[af].content.slice(
       },
       {
         name: "run_tests",
-        description: 'Corre cargo test. Parâmetro opcional package: "lexer" ou "store".',
-        inputSchema: { type: "object", properties: { package: { type: "string" } } },
+        description: REAL
+          ? TESTC
+            ? `Corre os testes do projecto (${TESTC.cmd}) e devolve o código de saída e a saída real.`
+            : "Não foi detectado comando de testes neste projecto; usa run_command."
+          : 'Corre cargo test. Parâmetro opcional package: "lexer" ou "store".',
+        inputSchema: { type: "object", properties: REAL ? {} : { package: { type: "string" } } },
         execute: async (i: { package?: string }) => {
-          harness.cmd("cargo test");
-          const r = (await tool({ t: "run", cmd: "cargo test" + (i && i.package ? " -p " + i.package : "") } as RuntimeTool, h, undefined, signal)) as
-            | { ok: boolean; sum?: string }
-            | null;
-          return r ? r.sum : "o humano não autorizou o comando";
+          if (REAL && !TESTC) return 'nenhum comando de testes detectado (define "test" em .dxtutor/commands.json ou usa run_command)';
+          const cmd = REAL ? TESTC!.cmd : "cargo test" + (i && i.package ? " -p " + i.package : "");
+          harness.cmd(cmd);
+          const r = (await tool({ t: "run", cmd } as RuntimeTool, h, undefined, signal)) as RunResult;
+          return r ? r.out || r.sum : "o humano não autorizou o comando";
         },
       },
       {
         name: "design_lint",
-        description: "Corre o lint do Design System (cores fixas fora dos tokens).",
+        description: REAL
+          ? LINTC
+            ? `Corre o lint do projecto (${LINTC.cmd}) e devolve o código de saída e a saída real.`
+            : "Não foi detectado comando de lint neste projecto; usa run_command."
+          : "Corre o lint do Design System (cores fixas fora dos tokens).",
         inputSchema: { type: "object", properties: {} },
         execute: async () => {
-          harness.cmd("dx lint");
-          const r = (await tool({ t: "run", cmd: "dx lint" } as RuntimeTool, h, undefined, signal)) as { ok: boolean; sum?: string } | null;
-          return r ? r.sum : "o humano não autorizou o comando";
+          if (REAL && !LINTC) return 'nenhum comando de lint detectado (define "lint" em .dxtutor/commands.json ou usa run_command)';
+          const cmd = REAL ? LINTC!.cmd : "dx lint";
+          harness.cmd(cmd);
+          const r = (await tool({ t: "run", cmd } as RuntimeTool, h, undefined, signal)) as RunResult;
+          return r ? r.out || r.sum : "o humano não autorizou o comando";
         },
       },
       {

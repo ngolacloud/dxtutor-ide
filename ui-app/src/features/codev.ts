@@ -127,7 +127,21 @@ Object.assign(window, {
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
 function handlePrompt(q: string) {
   if (bridge.run().active) { bridge.toast('Há uma execução em curso — pára-a ou espera'); return; } focusAgent(true);
-  if (q === '/test' || q === '/lint') { user(q); const r = bridge.runTask(q === '/test' ? 'cargo test' : 'dx lint'); card('co-dev', `<code>${q === '/test' ? 'cargo test' : 'dx lint'}</code> → ${r && r.ok ? '✓' : '✖'} ${esc(r ? r.sum : '')}`); return; }
+  if (q === '/test' || q === '/lint') {
+    user(q);
+    const k = q === '/test' ? 'test' : 'lint', real = bridge.realExec();
+    if (real) {
+      // pasta real: o comando detectado do projecto, a correr a sério
+      const v = bridge.projectCommand(k);
+      if (!v) { card('co-dev', `Não detectei um comando de ${k === 'test' ? 'testes' : 'lint'} neste projecto. Define-o em <code>.dxtutor/commands.json</code>.`); return; }
+      bridge.setPanelTab('terminal', true);
+      void real(v.cmd).then(r => card('co-dev', `<code>${esc(v.cmd)}</code> → ${r.ok ? '✓' : '✖'} ${esc(r.sum)}`));
+      return;
+    }
+    const cmd = k === 'test' ? 'cargo test' : 'dx lint', r = bridge.runTask(cmd);
+    card('co-dev', `<code>${cmd}</code> → ${r && r.ok ? '✓' : '✖'} ${esc(r ? r.sum : '')}`);
+    return;
+  }
   const S = SCN_().find((s: any) => s.match.test(q)); if (S) window.runMission(S, q); else codevEngine.liveChat(q);
 }
 function agSend() { const i = $('#ag-input') as HTMLInputElement, q = i.value.trim(); if (!q) return; i.value = ''; handlePrompt(q); }

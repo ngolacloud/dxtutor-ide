@@ -23,6 +23,9 @@ import type { Prov } from "../../../core";
 export type { Prov };
 export { prov, provState, show, toast, log, writeFile, rerender, hhmm };
 
+import type { RealRun } from "../application/ports";
+import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
+
 const G = window as unknown as Record<string, any>;
 
 /* ───── globals this bridge is the first to type (no existing declaration, no name collision) ───── */
@@ -124,6 +127,13 @@ export const runTests = (...args: [pkg?: string]): { build: boolean; err: string
   window.runTests(...args);
 export const runTask = (cmd: string): { ok: boolean; sum?: string } | undefined => G.runTask(cmd);
 export const termExec = (v: string): { ok: boolean; sum?: string } | undefined => G.termExec(v);
+/** Desktop com pasta real: corre o comando a sério (bridge `DXR.exec`) — o `ok` vem do
+ *  exit code. `null` no protótipo/sem pasta, onde vale o terminal simulado. */
+export const realExec = (): ((cmd: string) => Promise<RealRun>) | null =>
+  G.DXR && G.DXR.root && typeof G.DXR.exec === "function" ? (cmd: string) => G.DXR.exec(cmd) : null;
+/** O comando de testes/lint detectado do projecto aberto (`null` sem pasta real). */
+export const projectCommand = (kind: VerifyKind): VerifyCommand | null =>
+  G.DXR && G.DXR.root && typeof G.DXR.projectCmd === "function" ? G.DXR.projectCmd(kind) : null;
 export const dsLint = (): { p: string; line: number; hex: string }[] => window.dsLint();
 export const lexBug = (): boolean => window.lexBug();
 

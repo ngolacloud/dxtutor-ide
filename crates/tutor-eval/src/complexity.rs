@@ -356,7 +356,7 @@ mod tests {
     /// tudo custa `m·log m` (**linearítmico**). A sonda tem de os distinguir.
     #[test]
     fn distingue_heap_de_ordenacao_total() {
-        const LN_K: f64 = 2.302_585; // ln(10)
+        const LN_K: f64 = std::f64::consts::LN_10;
         let heap = estimate(&samples_on(&SIZES_BIG, |m| 9.0 * m * LN_K)).unwrap();
         let sort = estimate(&samples_on(&SIZES_BIG, |m| 2.0 * m * m.ln())).unwrap();
         assert_eq!(heap.best, Class::Linear, "heap de tamanho k devia medir linear");

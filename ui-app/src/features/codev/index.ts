@@ -18,6 +18,7 @@ import { makeLiveChat } from "./application/live-chat";
 import type {
   Workspace,
   Terminal,
+  Verify,
   ProviderGateway,
   Scm,
   Checkpoints,
@@ -40,8 +41,17 @@ export const decisions: Decision[] = [];
 let mid = 0;
 
 /* ───── adapters over the legacy bridge ───── */
+/* Comandos de verificação detectados da tabela fixa do ecossistema (ex.: `cargo test`)
+   contam como seguros no modo Assistido; os escritos por extenso num ficheiro do repo
+   (.dxtutor/commands.json, scripts, Makefile) não — são texto arbitrário do repositório. */
+const trustedVerify = (c: string): boolean =>
+  (["test", "lint"] as const).some((k) => {
+    const v = bridge.projectCommand(k);
+    return !!v && v.trusted && v.cmd === c;
+  });
+
 const rules: CommandRules = {
-  isSafe: (c) => bridge.safe().test(c),
+  isSafe: (c) => bridge.safe().test(c) || trustedVerify(c),
   isDestructive: (c) => bridge.danger().test(c),
 };
 
@@ -58,6 +68,12 @@ const workspace: Workspace = {
 
 const terminal: Terminal = {
   exec: (cmd) => bridge.termExec(cmd),
+  realRun: () => bridge.realExec(),
+};
+
+const verify: Verify = {
+  real: () => !!bridge.realExec(),
+  command: (kind) => bridge.projectCommand(kind),
 };
 
 const providers: ProviderGateway = {
@@ -149,6 +165,7 @@ const liveChat = makeLiveChat({
   notifier,
   presenter,
   harness,
+  verify,
   chat: chatStore,
   modeLabel: () => bridge.modes()[bridge.monolith.mode].l,
   projectRules: () => {

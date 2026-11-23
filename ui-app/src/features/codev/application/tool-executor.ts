@@ -80,7 +80,12 @@ export function makeDoTool(deps: ToolDeps) {
       }
       await clock.beat(280, signal);
       presenter.revealTerminal();
-      const r = terminal.exec(t.cmd!) || { ok: true, sum: "ok" };
+      // Desktop com pasta real: corre a sério e o ok vem do exit code. Nunca um "ok" por
+      // omissão — antes o modelo "verificava" sem nada correr.
+      const real = terminal.realRun?.() ?? null;
+      const r = real
+        ? await real(t.cmd!)
+        : terminal.exec(t.cmd!) || { ok: false, sum: "não executado: sem terminal disponível" };
       presenter.toolRunResult(d, r.ok, r.sum || "");
       notifier.log("terminal", t.cmd + " → " + (r.sum || "ok"));
       await clock.beat(420, signal);

@@ -28,6 +28,7 @@ import type {
   Requirement,
   FileEntry,
 } from "../domain/types";
+import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -111,8 +112,28 @@ export interface Workspace {
   root(): string;
 }
 
+/** Resultado de um comando corrido a sério (desktop com pasta real). */
+export interface RealRun {
+  ok: boolean;
+  code: number | null;
+  sum: string;
+  /** exit code + caudas de stdout/stderr, para devolver ao modelo */
+  out: string;
+}
+
 export interface Terminal {
+  /** Terminal simulado do protótipo (sem pasta real). */
   exec(cmd: string): { ok: boolean; sum?: string } | undefined;
+  /** Execução real quando há pasta aberta no desktop; `null` no protótipo. Opcional
+   *  para os fakes dos testes que não a exercitam. */
+  realRun?(): ((cmd: string) => Promise<RealRun>) | null;
+}
+
+/** Comandos de verificação do projecto aberto (detectados por `domain/project-commands`). */
+export interface Verify {
+  /** Há pasta real aberta (os comandos detectados substituem o `cargo test` do exemplo). */
+  real(): boolean;
+  command(kind: VerifyKind): VerifyCommand | null;
 }
 
 export interface ProviderGateway {
@@ -293,6 +314,8 @@ export interface LiveDeps {
   notifier: Notifier;
   presenter: MissionPresenter;
   harness: Harness;
+  /** Opcional: sem ele, run_tests/design_lint mantêm o comportamento do exemplo. */
+  verify?: Verify;
   chat: ChatStore;
   modeLabel(): string;
   projectRules(): string;
