@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { approvalFor, type CommandRules } from "../src/features/codev/domain/policy";
 import { RUBRIC, RETRY_LIMIT, candidateTotal, scoreChecks, passesThreshold } from "../src/features/codev/domain/scoring";
-import { buildScenarios } from "../src/features/codev/domain/scenarios";
+import { buildScenarios, scenarioForPrompt } from "../src/features/codev/domain/scenarios";
 import { buildLexerE0382 } from "../src/features/codev/domain/scenarios/lexer-e0382";
 import { buildChatHistory } from "../src/features/codev/domain/scenarios/chat-history";
 import type { Mode, ScenarioEnv, FileEntry } from "../src/features/codev/domain/types";
@@ -121,6 +121,15 @@ function fakeEnv(over: Partial<ScenarioEnv> = {}): ScenarioEnv {
 }
 
 describe("scenarios — dados puros parametrizados pelo ScenarioEnv", () => {
+  it("scenarioForPrompt: texto livre só cai num cenário na simulação do browser", () => {
+    const scn = buildScenarios(fakeEnv());
+    const real = "This command failed in my terminal.\nerror[E0382]: use of moved value: `chars`";
+    expect(scenarioForPrompt(real, scn, true)?.id).toBe("a");
+    expect(scenarioForPrompt(real, scn, false)).toBeUndefined();
+    expect(scenarioForPrompt("mostra o histórico de conversas", scn, false)).toBeUndefined();
+    expect(scenarioForPrompt("olá", scn, true)).toBeUndefined();
+  });
+
   it("buildScenarios devolve [a, b] por essa ordem", () => {
     const scn = buildScenarios(fakeEnv());
     expect(scn.map((s) => s.id)).toEqual(["a", "b"]);

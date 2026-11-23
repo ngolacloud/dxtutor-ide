@@ -29,7 +29,7 @@ import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
 import { isDesktop } from "../platform/tauri/core";
 import { RUBRIC } from "./codev/domain/scoring";
-import { buildScenarios } from "./codev/domain/scenarios";
+import { buildScenarios, scenarioForPrompt } from "./codev/domain/scenarios";
 import type { Scenario, ScenarioEnv } from "./codev/domain/types";
 import {
   codevEngine,
@@ -171,7 +171,8 @@ function handlePrompt(q: string) {
     card('co-dev', `<code>${cmd}</code> → ${r && r.ok ? '✓' : '✖'} ${esc(r ? r.sum : '')}`);
     return;
   }
-  const S = SCN_().find((s: any) => s.match.test(q)); if (S) window.runMission(S, q); else void codevEngine.chat(q);
+  // texto livre só cai num cenário demo na simulação do browser; no desktop vai ao modelo real
+  const S = scenarioForPrompt(q, SCN_(), !bridge.isDesktop()); if (S) window.runMission(S, q); else void codevEngine.chat(q);
 }
 /* Enter/enviar: o compositor junta anexos, modo Plano e fila, e chama handlePrompt */
 function agSend() { submit(); }
