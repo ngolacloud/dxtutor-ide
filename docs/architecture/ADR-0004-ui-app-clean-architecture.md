@@ -170,3 +170,15 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   **A seguir (U3b):** consumidores a subscrever o bus em vez de se chamarem por globais
   (`updateAgentUI`, `refresh`, `badges`), e os donos das colecções (`FS`, `TABS`, `CHAT`,
   `RUN`, `PROV`).
+
+- **U3b (2026-11-23) — primeiros consumidores do bus.** O Co-Dev subscreve
+  `agent:mode` (avisa a sessão do agente v2 e redesenha a UI), `agent:provider`
+  (redesenha), `agent:context` e `editor:tab` (chip de contexto) — e deixa de depender de
+  cada sítio que muda esse estado chamar `updateAgentUI`/`ctxPill`: o `setMode`, o
+  `pickModel` e o `toggleCtx` do compositor perderam essas chamadas. Qualquer escritor —
+  modebar, compositor, paleta, Definições, harness do projecto, o `loadCfg` do arranque, ou
+  uma escrita directa no window — actualiza a barra de estado, o compositor e o chip.
+  Testes: integração com o harness real (escritas pelo window → UI actualizada) e um
+  arranque no browser com a configuração restaurada do `localStorage` (os eventos saem
+  durante o arranque, sem erros). Auto-teste desktop idêntico. Nota: um `auto` guardado
+  volta a `assist` no arranque — é o tecto do harness do projecto (v5), não a U3.

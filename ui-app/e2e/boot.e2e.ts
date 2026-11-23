@@ -84,3 +84,21 @@ test("painel inferior, paleta de comandos e compositor do Co-Dev respondem", asy
   await expect(page.locator("#cc-mode")).toContainText(/Auto|Plano|Plan|Manual|Assist/);
   expect(errors).toEqual([]);
 });
+
+test("arranca com configuração guardada (modo e provedor restaurados) sem erros", async ({ page }) => {
+  // o loadCfg do arranque restaura MODE/ACTIVE do localStorage — com a U3 isso emite
+  // eventos no bus durante o arranque; os subscritores têm de aguentar
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "dx2.cfg",
+      // «manual» (abaixo do tecto do harness do projecto, que por omissão é «assist» e
+      // baixaria um «auto» guardado — comportamento do v5, não da U3)
+      JSON.stringify({ MODE: "manual", ACTIVE: "gemini", THRESH: 70, prov: { gemini: { on: true, model: "gemini-2.5-pro" } } }),
+    );
+  });
+  const errors = await boot(page);
+  await expect(page.locator("#st-mode")).toContainText("Manual");
+  await expect(page.locator("#cc-mode")).toContainText("Manual");
+  await expect(page.locator("#cc-model")).toContainText("Gemini 2.5 Pro");
+  expect(errors).toEqual([]);
+});
