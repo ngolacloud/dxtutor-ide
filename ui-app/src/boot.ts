@@ -161,55 +161,6 @@ window.DOCS={
   'assistant.ts':[['cm','// Painel Assistant — render das mensagens.'],['','<span class="kw">export function</span> <span class="fn">renderMessages</span>(): <span class="ty">void</span> {'],['','  <span class="kw">const</span> host = <span class="fn">$</span>(<span class="str">"#ag-msgs"</span>);'],['','  host.innerHTML = state.messages.<span class="fn">map</span>(<span class="fn">bubble</span>).<span class="fn">join</span>(<span class="str">""</span>);'],['','}']],
   'styles.css':[['cm','/* dxtutor — tema Grafite + laranja */'],['',':root {'],['','  --bg-base: <span class="num">#0f0f11</span>;'],['','  --accent: <span class="num">#e06c3b</span>;'],['','  --accent-hover: <span class="num">#f08a4b</span>;'],['','}']],
 };
-window.iconFor = function(node,open){if(node.dir)return svg(open?'folderOpen':'folder',open?'':'folder-ic');return svg(node.t==='rust'?'rust':'file');}
-window.iconClass = function(node){return node.dir?'folder':(node.t||'file');}
-window.buildExplorer = function(){
-  const host=$('#exp-sections');host.innerHTML='';
-  // Root folder section (projects) — file tree
-  const treeSec=document.createElement('div');treeSec.className='section flexible';
-  const hd=document.createElement('div');hd.className='sec-hd open';hd.innerHTML=`<span class="chev">${svg('chev')}</span><span class="lbl">projects</span><span class="acts"><button>${svg('new-file')}</button><button>${svg('refresh')}</button></span>`;
-  const body=document.createElement('div');body.className='sec-body show';const tree=document.createElement('div');tree.className='tree';body.appendChild(tree);
-  hd.onclick=()=>{hd.classList.toggle('open');body.classList.toggle('show');};
-  renderLevel(TREE.projects.children,tree,0,['projects']);
-  treeSec.appendChild(hd);treeSec.appendChild(body);host.appendChild(treeSec);
-  // extra sections
-  [['OUTLINE','A pré-visualização não fornece informação de outline.'],
-   ['TIMELINE','A pré-visualização não fornece informação de timeline.'],
-   ['RUST DEPENDENCIES','adler2 2.0.1 · aead 0.5.2 · aes 0.9.1 · aes-gcm 0.11.0'],
-   ['TRUNK CHECK','Para usar o trunk, abre ou clona um repositório git.']
-  ].forEach(([lbl,txt],i)=>{
-    const sec=document.createElement('div');sec.className='section';
-    const h=document.createElement('div');h.className='sec-hd'+(i===2?' open':'');h.innerHTML=`<span class="chev">${svg('chev')}</span><span class="lbl">${lbl}</span>`;
-    const b=document.createElement('div');b.className='sec-body'+(i===2?' show':'');
-    if(i===2){b.innerHTML=`<div class="tree tree-flat">${['adler2 2.0.1','aead 0.5.2','aes 0.9.1','aes-gcm 0.11.0','sha2 0.10.8'].map(d=>`<div class="row"><span class="chev">${svg('chev')}</span><span class="ic folder">${svg('folder','folder-ic')}</span><span class="nm">${d}</span></div>`).join('')}</div>`;}
-    else b.innerHTML=`<div class="sec-empty">${txt}</div>`;
-    h.onclick=()=>{h.classList.toggle('open');b.classList.toggle('show');};
-    sec.appendChild(h);sec.appendChild(b);host.appendChild(sec);
-  });
-}
-window.renderLevel = function(obj,host,depth,path){
-  Object.keys(obj).forEach(name=>{
-    const node=obj[name];const pad=8+depth*12;
-    const row=document.createElement('div');row.className='row'+(node.git?' git-'+node.git:'');row.style.paddingLeft=pad+'px'; // profundidade ilimitada — não cabe em classe estática
-    const gi=node.git?(node.dir?`<span class="dot"></span>`:`<span class="deco">${node.git.toUpperCase()}</span>`):'';
-    row.innerHTML=`<span class="chev${node.dir?'':' leaf'}">${svg('chev')}</span><span class="ic ${iconClass(node)}">${iconFor(node,node.open)}</span><span class="nm">${esc(name)}</span>${gi}`;
-    host.appendChild(row);
-    if(node.dir){
-      const kids=document.createElement('div');kids.className='children';
-      if(depth>=0){const g=document.createElement('span');g.className='guide';g.style.left=(pad+7)+'px';kids.appendChild(g);}
-      host.appendChild(kids);let built=false;
-      const expand=open=>{row.classList.toggle('open',open);kids.classList.toggle('show',open);
-        row.querySelector('.ic').innerHTML=iconFor(node,open);
-        if(open&&!built&&node.children){renderLevel(node.children,kids,depth+1,path.concat(name));built=true;}};
-      row.onclick=e=>{e.stopPropagation();sel(row);expand(!row.classList.contains('open'));};
-      if(node.open){expand(true);}
-    }else{
-      row.onclick=e=>{e.stopPropagation();sel(row);openFile(name,node.t);};
-    }
-  });
-}
-window.sel = function(r){$$('.row.sel').forEach(x=>x.classList.remove('sel'));r.classList.add('sel');}
-window.collapseAll = function(){$$('#exp-sections .tree .row.open').forEach(r=>{r.classList.remove('open');const k=r.nextElementSibling;if(k&&k.classList.contains('children'))k.classList.remove('show');r.querySelector('.ic').innerHTML=svg('folder','folder-ic');});}
 
 /* ═════════ TABS / EDITOR ═════════ */
 window.tabIcon = function(t){if(t==='chat'||t==='agent')return svg('sparkle','chat');if(t==='rust')return svg('rust','rs');if(t==='css')return svg('file','css');return svg('file');}

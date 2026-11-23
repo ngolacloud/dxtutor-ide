@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4b)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4c)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -234,3 +234,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   intermitentes no 1.º teste com a máquina carregada — já tinha acontecido na U1).
   Verificado: 346 testes (goldens sem diff; 4 novos dos separadores), arranque no browser
   4/4 e auto-teste desktop idêntico.
+
+- **U4c (2026-11-23) — explorador.** O `features/explorer.ts` já era dono da árvore; ficaram
+  com ele também a selecção de linha `sel` (era do boot.ts e ainda usada pelo
+  `renderLevel` da feature), a reconstrução da árvore a partir do FS `syncTree` e o ícone
+  por extensão `fIcon` (eram do app.ts) — tipados; o bridge.ts continua a decorar o
+  `syncTree` (agora esta versão). Código morto removido do boot.ts, com a mesma prova da
+  U4a: `buildExplorer`, `renderLevel` e `collapseAll` (a feature, que avalia depois,
+  substitui-os) e `iconFor`/`iconClass` (só usados por esses); o `wireSections` fica (é
+  dos contentores, `buildDocker`). Métrica: as duas formas de publicar no window
+  (`window.X =` e os nomes em `Object.assign`) fundiram-se numa só — «globais publicadas»
+  (430; era 435 no HEAD anterior) —, porque mover uma função pode trocar de sintaxe sem
+  mudar nada (aqui: `sel`/`syncTree` passaram de `window.X =` para a lista da feature).
+  Vitest com 15 s por teste: com a máquina carregada (carga 17–26 pelas outras sessões) o
+  golden que arranca a app inteira passava os 5 s — o HEAD sem a U4c falhava igual.
+  Verificado: 349 testes (goldens sem diff; 3 novos), arranque no browser 4/4 e
+  auto-teste desktop idêntico.

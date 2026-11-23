@@ -15,5 +15,9 @@ export default defineConfig({
     setupFiles: ["./tests/setup.ts"],
     include: ["tests/**/*.test.ts"],
     isolate: true,
+    // os goldens e os testes de integração arrancam a app inteira (harness.ts): ~4-5 s com
+    // a máquina carregada — o limite de 5 s por omissão dava falsos negativos (ADR-0004, U4c)
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
   },
 });

@@ -29,15 +29,11 @@ const ROOT='dxtutor/',FS={},OPEN=new Set(['dxtutor','dxtutor/crates','dxtutor/cr
 /* estado git/scm (STAGED/BRANCH/COMMIT_MSG/BRANCHES/COMMITS/AUTHOR/GSEL) migrado p/ features/scm.ts; lido aqui por global */
 const extOf=p=>(p.includes('.')?p.split('.').pop():'').toLowerCase();
 const LANG={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
-function fIcon(p){const e=extOf(p);return `<span class="ic x-${e}">${svg(e==='rs'?'rust':e==='md'?'book':e==='sql'?'volume':'file')}</span>`;}
+/* fIcon/syncTree (ícone por extensão, árvore a partir do FS) migrados p/ features/explorer.ts (ADR-0004, U4c). */
 /* stOf/changes (estado da árvore de trabalho) migrados p/ features/scm.ts; lidos por global */
 const short=p=>p.replace(ROOT,'');
 const norm=p=>{p=String(p||'').replace(/^\.?\//,'');return p.startsWith(ROOT)?p:ROOT+p;};
 function writeFile(p,content){if(FS[p])FS[p].content=content;else{FS[p]={content,orig:null};let d=p.split('/');d.pop();while(d.length){OPEN.add(d.join('/'));d.pop();}}refresh();}
-window.syncTree = function(){const mk=dp=>({dir:1,children:{},dpath:dp}),root=mk('dxtutor');
-  Object.keys(FS).forEach(p=>{const parts=p.split('/').slice(1);let n=root,acc='dxtutor';parts.forEach((s,i)=>{if(i===parts.length-1)n.children[s]={path:p};else{acc+='/'+s;n=n.children[s]||(n.children[s]=mk(acc));}});});
-  const sort=n=>{const o={};Object.keys(n.children).sort((a,b)=>(!!n.children[b].dir-!!n.children[a].dir)||a.localeCompare(b)).forEach(k=>{o[k]=n.children[k];if(o[k].dir)sort(o[k]);});n.children=o;};sort(root);
-  TREE.projects.children.dxtutor=root;}
 
 /* ───── explorer ───── */
 /* 8 funções (renderLevel/buildExplorer/markActive/collapseAll/symbols/drawOutline/newFile/newFolder) migradas p/ features/explorer.ts; lidas por global (window.*) aqui (refresh/show), em boot.ts e v6.ts (symbols) */
@@ -345,7 +341,7 @@ Object.assign(window, {
   CMD, FS, LS,
   OPEN, PANE, PROV, ROOT, RP, RUN, SECOPEN, STOP, VIEW,
   badges, blame, boot, boot3, boot4, buildActivity, buildMenus,
-  esc, fIcon, goPane,
+  esc, goPane,
   hydrate, loadCfg, loadSeed, log,
   mdFull, rerender, resetAll, runTask,
   save, setPane, setPanelTab, togglePanel,
