@@ -63,12 +63,19 @@ export function scrollMsgs(): void {
   m.scrollTop = $("#ag-intro") ? 0 : m.scrollHeight;
 }
 
+/** Texto do humano → HTML da bolha: escapado; as quebras de linha ficam (a bolha tem
+ *  `white-space: pre-wrap`) e os blocos ``` viram `<pre>` (sem as crases à vista). Texto
+ *  sem blocos dá exactamente `esc(t)`. */
+export function userHtml(t: string): string {
+  return esc(t).replace(/\n?```[^\n]*\n([\s\S]*?)\n?```\n?/g, (_m, code: string) => `<pre>${code}</pre>`);
+}
+
 export function user(t: string): void {
   const i = $("#ag-intro");
   if (i) i.remove();
   $("#ag-msgs")!.insertAdjacentHTML(
     "beforeend",
-    `<div class="m user"><div class="bub"><div class="bh"><span class="br2">tu</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${esc(t)}</div></div></div>`,
+    `<div class="m user"><div class="bub"><div class="bh"><span class="br2">tu</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${userHtml(t)}</div></div></div>`,
   );
   scrollMsgs();
 }
