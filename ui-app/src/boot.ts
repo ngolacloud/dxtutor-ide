@@ -22,7 +22,7 @@ import { esc } from "./core";
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
    Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
    livre em modo estrito (módulo). ── */
-Object.assign(window, { toTimer: undefined, openMenu: null, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'], HIST: [], hidx: 0 });
+Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'], HIST: [], hidx: 0 });
 
 window.$=s=>document.querySelector(s);window.$$=s=>[...document.querySelectorAll(s)];
 
@@ -119,19 +119,9 @@ window.MENUS=[
   {t:'Terminal',items:[{l:'New Terminal',k:'Ctrl+Shift+`'},{l:'Split Terminal',k:'Ctrl+Shift+5'},{sep:1},{l:'Run Task…'},{l:'Run Build Task…',k:'Ctrl+Shift+B'},{sep:1},{l:'Clear',act:'termClear'}]},
   {t:'Help',items:[{l:'Welcome'},{l:'Documentation'},{l:'Show All Commands',k:'Ctrl+Shift+P'},{sep:1},{l:'About dxtutor IDE'}]},
 ];
-window.buildMenubar = function(){const mb=$('#menubar');MENUS.forEach((m,i)=>{const b=document.createElement('button');b.className='menu-top';b.textContent=m.t;b.onclick=e=>{e.stopPropagation();openMenu===i?closeMenus():showMenu(i,b);};b.onmouseenter=()=>{if(openMenu!==null&&openMenu!==i)showMenu(i,b);};mb.appendChild(b);});}
-window.closeMenus = function(){$$('.menu-pop').forEach(p=>p.remove());$$('.menu-top').forEach(b=>b.classList.remove('open'));openMenu=null;}
-window.showMenu = function(i,btn){closeMenus();openMenu=i;btn.classList.add('open');const r=btn.getBoundingClientRect();renderPop(MENUS[i].items,r.left,r.bottom+2);}
-window.renderPop = function(items,x,y){const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
-  items.forEach(it=>{if(it.sep){const s=document.createElement('div');s.className='mi-sep';pop.appendChild(s);return;}
-    const mi=document.createElement('div');mi.className='mi'+(it.k?' has-key':'');let h='';
-    if(it.on!==undefined||it.check!==undefined)h+=`<span class="mi-check">${(it.on||it.check)?'✓':''}</span>`;
-    h+=`<span>${it.l}</span>`;if(it.k)h+=`<span class="key">${it.k}</span>`;if(it.sub)h+=`<span class="chev">▶</span>`;mi.innerHTML=h;
-    if(it.sub){mi.onmouseenter=()=>{pop.querySelectorAll('.menu-pop').forEach(p=>p.remove());const r=mi.getBoundingClientRect();const sp=renderPop(it.sub,r.right-3,r.top-5);pop.appendChild(sp);};mi.onclick=e=>e.stopPropagation();}
-    else mi.onclick=e=>{e.stopPropagation();closeMenus();if(typeof it.act==='function')it.act();else if(it.act&&window[it.act])window[it.act]();else toast(it.l);};
-    pop.appendChild(mi);});
-  const w=pop.offsetWidth;if(x+w>innerWidth)x=innerWidth-w-6;pop.style.left=x+'px';pop.style.top=y+'px';return pop;}
-document.addEventListener('click',closeMenus);
+/* fecha os menus a cada clique — registado aqui (primeiro, como sempre) mas resolvido na hora: o
+   closeMenus é da features/menus.ts, que avalia depois (ADR-0004, U4d2) */
+document.addEventListener('click',()=>closeMenus());
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
 window.TREE={projects:{dir:1,open:1,children:{

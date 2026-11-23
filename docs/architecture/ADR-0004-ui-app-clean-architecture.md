@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4d1)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4d)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -262,3 +262,16 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   Globais publicadas: 430 (as mesmas — mudaram de dono). Lint 291 → 289. Verificado: 353
   testes (goldens sem diff; 4 novos), arranque no browser 4/4 e auto-teste desktop
   idêntico. A seguir, U4d2: menus.
+
+- **U4d2 (2026-11-23) — barra de menus.** `features/menus.ts` (tipado) é dono do mecanismo
+  dos menus — `buildMenubar`, `showMenu`, `closeMenus`, `renderPop` (com submenus) — e o
+  menu aberto (`openMenu`) passou a estado do módulo (deixou de ser global: 430 → 429). O
+  conteúdo (`MENUS`, montado pelo `buildMenus` do app.ts e ajustado pelo v5/v6/bridge/
+  pair/visualizer) fica onde está: é configuração com closures sobre funções de muitas
+  features e dissolve-se quando cada feature registar os seus comandos. **Apanhado pelos
+  testes:** o boot.ts registava `document.addEventListener('click', closeMenus)` no eval —
+  uma referência por valor que a verificação desta fatia (só chamadas) não procurou;
+  passou a `() => closeMenus()` (mesma ordem de registo, resolvido na hora) e a prova
+  completa (capturas + referências por valor) foi repetida para todos os nomes movidos
+  desde a U4b, sem mais casos. Verificado: 356 testes (goldens sem diff; 3 novos),
+  arranque no browser 4/4 e auto-teste desktop idêntico.
