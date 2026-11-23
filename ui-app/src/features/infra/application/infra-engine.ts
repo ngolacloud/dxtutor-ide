@@ -106,8 +106,11 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
   function runTaskQuiet(c: string, out: string): void {
     if (terminal.getVar("--panel-h") !== "0px") terminal.setPanelTab("terminal", true); terminal.echoCmd(c); terminal.echo(`<span class="dim">${esc(out)}</span>`); terminal.newInput(true);
   }
+  /** Os logs de um workload: abrem o tab de observabilidade do ambiente local. (A versão
+   *  antiga, que escrevia três linhas no terminal, era sobreposta pelo v6 ao carregar e
+   *  nunca corria — saiu ao dobrar a decoração aqui; ADR-0004, U4g2.) */
   function ctlLogs(n: string): void {
-    terminal.setPanelTab("terminal", true); terminal.echoCmd(`${cli()} logs --tail 3 ${n}`); terminal.echo(`<span class="dim">${n}  | listening\n${n}  | GET /healthz 200\n${n}  | ready</span>`); terminal.newInput(true);
+    openObserve("local", n);
   }
 
   /* ═══════════ motor environments / drift / secrets ═══════════ */

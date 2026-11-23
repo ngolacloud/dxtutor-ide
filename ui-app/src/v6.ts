@@ -17,7 +17,7 @@
 /* ADR-0002 passo 6: VIEW.envs/VIEW.observe passam a importar os corpos da feature
    `infra` por PORTA TIPADA (import ES), em vez de os resolver por global no window
    — a feature já não os publica. */
-import { initSecrets, driftReport, DSTY } from "./features/infra";
+import { driftReport, DSTY } from "./features/infra";
 export {};
 
 /* ═════════ dxtutor IDE v6 — Tasks, Extensions, Environments, drift, observability, Debug assistant, Explain / Review / Under the hood ═════════ */
@@ -60,11 +60,8 @@ const _approve6=approveIssue;approveIssue=function(id){const it=BL.issues.find(i
 const _team6=VIEW.team;VIEW.team=(t,host)=>{_team6(t,host);const row=[...host.querySelectorAll('.rowline')].find(r=>/Review the diff before validating/.test(r.textContent));if(row)row.insertAdjacentHTML('afterend',`<div class="rowline"><span>Explain the change in your own words before validating</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">on in Study and Critical systems</span><button class="sw${HARN.explain?' on':''}" onclick="HARN.explain=!HARN.explain;LS.set('harn5',HARN);rerender('team')"></button></div>`);};
 
 /* ───── environments (motor extraído p/ features/infra.ts) ─────
-   Inversão Debug/SCM/ext: o motor de environments (labels/estado/secrets/promoção) vive
-   agora em features/infra.ts, par do render renderInfraPane. Aqui fica SÓ a decoração de
-   dxDeploy (de v5 — carrega depois, eager-read da base) que, após um deploy, prepara os
-   secrets por `initSecrets`, importado da feature por porta tipada (ADR-0002 passo 6). */
-const _dxDeploy6=dxDeploy;dxDeploy=function(){const r=_dxDeploy6();if(r&&r.ok&&K8S){K8S.ver=GIT.refs.develop;K8S.at=Date.now();initSecrets();}return r;};
+   O motor de environments vive em features/infra.ts, e a decoração de dxDeploy (prepara
+   os secrets depois de um deploy) também (ADR-0004, U4g2). */
 /* VIEW.envs registado pela própria features/infra.ts (ADR-0004, U4g1). */
 
 /* ───── design vs reality / drift (decora Studio: drawStudio/VIEW.studio de app.ts) ─────
@@ -79,12 +76,8 @@ VIEW.studio=(t,host)=>{window.renderStudioView(t,host);const b=host.querySelecto
 
 /* ───── logs and metrics ───── */
 /* ───── logs and metrics / observabilidade (motor extraído p/ features/infra.ts) ─────
-   O motor de observabilidade (estado, RNG, séries temporais, mini-gráficos, openObserve) e
-   o corpo de VIEW.observe vivem na feature. Aqui ficam o shim de VIEW.observe e o override
-   de ctlLogs (de v5 — passa a abrir o tab de observabilidade em vez dos logs do terminal);
-   openObserve resolve no window. */
-/* VIEW.observe e RP.infra registados pela própria features/infra.ts (ADR-0004, U4g1). */
-ctlLogs=n=>openObserve('local',n);
+   O motor de observabilidade, o VIEW.observe/RP.infra (U4g1) e o override de ctlLogs (abre
+   o tab de observabilidade; U4g2) vivem na feature (ADR-0004). */
 
 /* ───── Debug assistant (motor extraído p/ features/debug.ts) ─────
    Aqui ficam só os helpers de lexer partilhados com renderHood/reviewFindings

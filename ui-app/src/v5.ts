@@ -12,8 +12,9 @@
    se inseria por fora, via VIEW.team=_team5, passa a fazer parte do corpo único da
    feature — por isso o wrapper de VIEW.team desapareceu deste ficheiro). Fica aqui só o
    que tem mesmo de carregar DEPOIS do core, DECORANDO o resíduo com os globais que
-   features/team.ts publica: a decoração de dxRun/dxStop, a wiring do terminal
-   XC.kubectl/XC.devcontainer/XC.dx, os decorators de doTool/setMode/approveIssue/
+   features/team.ts publica (a decoração de dxRun/dxStop passou p/ features/stack.ts e a
+   wiring do terminal XC.kubectl/XC.devcontainer/XC.dx p/ features/infra.ts — U4g2): os
+   decorators de doTool/setMode/approveIssue/
    VIEW.board (leem RIGHTS/RIGHT_RE/isHuman/HARN/reviewIssue por nome livre), boot5,
    codeGuard e CMD.push (leem HT/MORD/HARN/applyTemplate/isHuman).
 
@@ -33,11 +34,7 @@ export {};
 import { jsa } from "./core";
 
 /* ═════════ dxtutor IDE v5 — project harness, less noise ═════════ */
-const _dxRun5=dxRun;dxRun=function(term){if(!needRt()){if(term===true)echo('<span class="er">Cannot connect to the container runtime. Point the socket in Infra.</span>');return{ok:false,sum:'no runtime'};}const r=_dxRun5(term);infraDraw();return r;};
-const _dxStop5=dxStop;dxStop=function(t){_dxStop5(t);infraDraw();};
-XC.kubectl=a=>{if(!ENVS.k8sOn){echo('<span class="er">The connection to the server was refused — connect the cluster in Infra.</span>');return;}if(a[0]==='get'){echo(K8S?(/^po/.test(a[1]||'')?K8S.deps.flatMap(d=>Array.from({length:d.rep},(_,i)=>`${(d.n+'-'+(i+1)).padEnd(28)} 1/1   Running`)).join('\n'):K8S.deps.map(d=>`${d.n.padEnd(22)} ${d.ready}/${d.rep}   ${d.img}`).join('\n')):'<span class="dim">No resources found in '+esc(ENVS.ns)+' namespace.</span>');return;}echo('<span class="dim">kubectl get deploy | get pods</span>');};
-XC.devcontainer=a=>{if(a[0]==='up')dcAttach();else echo('<span class="dim">devcontainer up</span>');};
-const _dx5=XC.dx;XC.dx=a=>{if(a[0]==='deploy')return dxDeploy();return _dx5(a);};
+/* decoração de dxRun/dxStop dobrada em features/stack.ts; comandos do terminal kubectl/devcontainer/dx deploy migrados p/ features/infra.ts (ADR-0004, U4g2). */
 
 /* ───── project harness: decoradores residuais (motor em features/team.ts) ─────
    RIGHTS/RIGHT_RE/HT/MORD/HARN/isHuman/harnessToml/applyTemplate/toggleRight/

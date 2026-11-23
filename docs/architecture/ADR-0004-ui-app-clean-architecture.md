@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g2)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -325,3 +325,23 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   (cada `RP.*` é o renderer da feature; as 13 vistas existem; os quatro painéis e as vistas
   creview/hood/observe desenham sem erros, com a decoração do visualizer no hood) e
   auto-teste desktop idêntico ao da U4f (23 passos).
+- **U4g2 (2026-11-23) — as decorações de infra do v5/v6.** Cada decoração foi dobrada no
+  dono do que decorava, em vez de ser recriada como `window.X = …` noutro sítio: o guard do
+  runtime de contentores e o redesenho do Infra no `dxRun`/`dxStop` foram para o
+  `features/stack.ts` (dono da base); o `dxDeploy` que prepara os secrets publica-se já
+  composto pelo `features/infra.ts`; e o override do `ctlLogs` (abrir o tab de
+  observabilidade) entrou no próprio motor de infra. A versão antiga do `ctlLogs` (três
+  linhas no terminal) era código morto: o v6 sobrepunha-a ao carregar e o motor nunca a
+  chamava. Os comandos de terminal `kubectl`, `devcontainer` e `dx deploy` são registados
+  pelo infra.ts no `XC` — por isso o `features/terminal.ts` (dono do `XC`, que no eval só
+  define e publica) passou a avaliar antes do infra no main.ts. O `dx deploy` passa a
+  decorar o `XC.dx` antes do app.ts (test/sprint, run/stop), mas os subcomandos são
+  disjuntos, por isso o resultado é o mesmo. Prova de ordem: entre o infra.ts e o v5/v6
+  nenhum módulo lia estes nomes por valor no eval (só chamadas tardias). Métricas sem
+  mudança; a primeira versão (decorações como `window.X =` no infra.ts) subia as globais
+  publicadas 422 → 426 e foi trocada pela versão dobrada. Verificado: 365 testes (goldens
+  sem diff), arranque no browser 4/4, uma comparação no browser entre a HEAD e esta árvore
+  (27 passos: kubectl/devcontainer/dx/docker/make com e sem runtime e cluster ligados,
+  ctlLogs, dxRun/dxStop/dxDeploy incluindo um deploy bem-sucedido com `K8S.ver` fixado —
+  saída do terminal, retornos e separadores byte-idênticos, sem erros de página) e
+  auto-teste desktop idêntico ao da U4g1.

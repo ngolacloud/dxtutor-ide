@@ -230,6 +230,7 @@ declare global {
     envState: (e: string) => any;
     openObserve: (env: string, n: string) => void;
     renderInfraPane: () => void;
+    infraDraw: () => void;
     /* feature `syntax` (migrada de app.ts): realce de uma linha. O editor (paintEd),
        o diff, o `cat` do terminal e o outline — em app.ts e em v5.ts/v6.ts —
        resolvem-no por nome livre. */

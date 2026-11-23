@@ -37,6 +37,8 @@ import "./features/tasks";
 import "./features/ext";
 import "./features/codev";
 import "./features/checkpoint";
+/* o terminal (dono do XC) avalia antes do infra, que lhe regista comandos (ADR-0004, U4g2) */
+import "./features/terminal";
 import "./features/infra";
 import "./features/visualizer";
 import "./features/router";
@@ -58,7 +60,6 @@ import "./features/menus";
 import "./features/workspace";
 import "./features/explorer";
 import "./features/diagnostics";
-import "./features/terminal";
 import "./app";
 import "./v5";
 import "./v6";
