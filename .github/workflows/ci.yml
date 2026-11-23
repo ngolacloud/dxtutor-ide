@@ -26,14 +26,16 @@ jobs:
       - run: npm run arch:check
 
   rust:
-    name: Rust (clippy + testes do workspace)
+    name: Rust (fmt + clippy + testes do workspace)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
-        with: { components: clippy }
+        with: { components: "clippy, rustfmt" }
+      # formatação primeiro: falha em segundos, antes de instalar o WebKit e compilar
+      - run: cargo fmt --all -- --check
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev patchelf
       # o crate src-tauri embute ui-app/dist em compile time (generate_context!)
