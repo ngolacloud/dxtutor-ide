@@ -743,9 +743,14 @@ const CFG_FIELD: Record<string, "anthropicKey" | "openaiKey" | "geminiKey"> = { 
 const _settings = VIEW.settings;
 VIEW.settings = (t: any, host: any) => {
   _settings(t, host);
-  const ks = Object.keys(PROV);
-  host.querySelectorAll(".pgrid")[0] && host.querySelectorAll(".pgrid")[0].querySelectorAll(".pcard").forEach((cd: any, i: number) => {
-    const k = ks[i];
+  /* A grelha dos provedores é a que tem campos de chave — NÃO a primeira .pgrid: o app.ts
+     insere a secção «Language» (também .pgrid/.pcard) antes dela, e ligar pela posição
+     deixava os campos de chave sem handler (colar a chave não gravava nada). Cada cartão
+     identifica o seu provedor pelo data-on do «Testar ligação», não pela ordem. */
+  const grid = [...host.querySelectorAll(".pgrid")].find((g: any) => g.querySelector("input[type=password]"));
+  grid && grid.querySelectorAll(".pcard").forEach((cd: any) => {
+    const k = (cd.querySelector('[data-action="test-prov"]') as HTMLElement | null)?.dataset.on ?? "";
+    if (!PROV[k]) return;
     // Capacidades honestas do backend (streaming/cancel/disponível) por baixo de cada provider.
     const cap = PROVCAPS.find(c => c.id === STREAM_PROV[k]);
     const pd = cd.querySelector(".pd");
