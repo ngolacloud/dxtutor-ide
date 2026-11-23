@@ -29,6 +29,7 @@
    `writeSession`. */
 
 import { $, hd, svg, esc, hhmm, toast, log, writeFile } from "../core";
+import { RP } from "../app/store/registry";
 import type { CodeStep, CodeTrace, CrashTrace, DbgSession, LaunchConfig, OpsStep } from "./debug/domain/types";
 import { buildLexTrace } from "./debug/domain/lexer-trace";
 import { buildCrashTrace } from "./debug/domain/crash-trace";
@@ -155,8 +156,11 @@ const ACTIONS: ActionTable = {
 };
 bindActions(ACTIONS);
 
+/* registo do painel (ADR-0004, U4g1 — antes era um shim no v6.ts) */
+RP.debug = renderDebugPane;
+
 /* ── publicação no window (via bridge) ──
-   • `renderDebugPane` — RP.debug (v6) delega (lazy, no switch de pane).
+   • `renderDebugPane` — o renderer do painel (registado acima em RP.debug).
    • motor (`startDebug`/`dbg*`/`saveBps`/`debugConfigs`/`lexTrace`/`crashTrace`) — os
      `onclick`/keydown/menus do monólito resolvem-nos por nome livre ao disparar.
    • fachadas SEM substring proibido para o resíduo de v6.ts ler o estado:

@@ -25,6 +25,7 @@
    resíduo @ts-nocheck está FORA da subárvore
    features/infra/ (não governado por A7/A8). */
 import { $, $$, hd, svg, esc } from "../core";
+import { RP, VIEW } from "../app/store/registry";
 import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "./infra/domain/constants";
 import { seeded, spark, buildObs, obsLine as domObsLine } from "./infra/domain/observability";
 import { urlHosts } from "./infra/domain/secrets";
@@ -191,6 +192,12 @@ const ACTIONS = {
   "obs-clear": { on: "click", run: e => { window.OBS[e.on].logs = []; window.show(window.cur); } },
 };
 bindActions(ACTIONS);
+
+/* registo das vistas (ADR-0004, U4g1 — antes eram shims no v6.ts; o bridge.ts decora
+   depois o VIEW.observe, e continua a decorar esta versão) */
+RP.infra = renderInfraPane;
+VIEW.envs = renderEnvsView;
+VIEW.observe = renderObserveView;
 
 /* ── publicação transitória no window (shim para o residual) ──
    O render e os dois motores ficam no window; v5.ts/v6.ts e os onclick inline resolvem

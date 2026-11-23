@@ -17,7 +17,7 @@
 /* ADR-0002 passo 6: VIEW.envs/VIEW.observe passam a importar os corpos da feature
    `infra` por PORTA TIPADA (import ES), em vez de os resolver por global no window
    — a feature já não os publica. */
-import { renderEnvsView, renderObserveView, initSecrets, driftReport, DSTY } from "./features/infra";
+import { initSecrets, driftReport, DSTY } from "./features/infra";
 export {};
 
 /* ═════════ dxtutor IDE v6 — Tasks, Extensions, Environments, drift, observability, Debug assistant, Explain / Review / Under the hood ═════════ */
@@ -43,8 +43,7 @@ const _runIssue6=runIssue;runIssue=async function(it){const snap=Object.fromEntr
 
 /* ───── tasks panel and issue view (TK/STC/ownerName/openIssue/VIEW.issue migrados p/
    features/tasks.ts) ───── */
-RP.tasks=()=>window.renderTasksPane();/* corpo migrado p/ features/tasks.ts; shim delega (lazy, no switch de pane) */
-VIEW.issue=(t,host)=>window.renderIssueView(t,host);/* corpo migrado p/ features/tasks.ts; shim delega */
+/* RP.tasks/VIEW.issue registados pela própria features/tasks.ts (ADR-0004, U4g1). */
 const _delegate6=delegate;delegate=function(id){const i=BL.issues.find(x=>x.id===id);if(i&&i.owner==='you'){toast(`${id} is yours — move it to Test when your code is ready`);openIssue(id);return;}return _delegate6(id);};
 const _todo6=()=>BL.issues.find(i=>i.owner==='you');
 const _board6=VIEW.board;VIEW.board=(t,host)=>{_board6(t,host);host.querySelectorAll('.kc').forEach(k=>{const id=(k.querySelector('.kc-id')||{}).textContent,i=BL.issues.find(x=>x.id===id);if(!i)return;k.ondblclick=()=>openIssue(id);
@@ -66,7 +65,7 @@ const _team6=VIEW.team;VIEW.team=(t,host)=>{_team6(t,host);const row=[...host.qu
    dxDeploy (de v5 — carrega depois, eager-read da base) que, após um deploy, prepara os
    secrets por `initSecrets`, importado da feature por porta tipada (ADR-0002 passo 6). */
 const _dxDeploy6=dxDeploy;dxDeploy=function(){const r=_dxDeploy6();if(r&&r.ok&&K8S){K8S.ver=GIT.refs.develop;K8S.at=Date.now();initSecrets();}return r;};
-VIEW.envs=(t,host)=>renderEnvsView(t,host);/* corpo em features/infra.ts; importado por porta tipada (ADR passo 6) */
+/* VIEW.envs registado pela própria features/infra.ts (ADR-0004, U4g1). */
 
 /* ───── design vs reality / drift (decora Studio: drawStudio/VIEW.studio de app.ts) ─────
    O relatório de drift e o mapa de estilos das etiquetas vivem em features/infra.ts; aqui
@@ -84,9 +83,8 @@ VIEW.studio=(t,host)=>{window.renderStudioView(t,host);const b=host.querySelecto
    o corpo de VIEW.observe vivem na feature. Aqui ficam o shim de VIEW.observe e o override
    de ctlLogs (de v5 — passa a abrir o tab de observabilidade em vez dos logs do terminal);
    openObserve resolve no window. */
-VIEW.observe=(t,host)=>renderObserveView(t,host);/* corpo em features/infra.ts; importado por porta tipada (ADR passo 6) */
+/* VIEW.observe e RP.infra registados pela própria features/infra.ts (ADR-0004, U4g1). */
 ctlLogs=n=>openObserve('local',n);
-RP.infra=()=>window.renderInfraPane();/* corpo migrado p/ features/infra.ts (base v5 + decoração v6 dobradas); shim delega */
 
 /* ───── Debug assistant (motor extraído p/ features/debug.ts) ─────
    Aqui ficam só os helpers de lexer partilhados com renderHood/reviewFindings
@@ -94,7 +92,7 @@ RP.infra=()=>window.renderInfraPane();/* corpo migrado p/ features/infra.ts (bas
    O estado é lido por fachadas sem substring proibido: window.dbgState()/dbgBreaks/dbgLaunch(). */
 function lexVariant(){const c=FS[P_LX]?FS[P_LX].content:'';if(lexBug())return'bug';if(/for c in chars\.clone\(\)/.test(c))return'clone';if(/for c in chars\.by_ref\(\)/.test(c))return'byref';if(/while let Some\(c\) = chars\.next\(\)/.test(c))return'whilelet';return'other';}
 const LXL=re=>{const ls=(FS[P_LX]?FS[P_LX].content:'').split('\n');return ls.findIndex(l=>re.test(l))+1;};
-RP.debug=()=>window.renderDebugPane();/* corpo migrado p/ features/debug.ts; shim delega (lazy, no switch de pane) */
+/* RP.debug registado pela própria features/debug.ts (ADR-0004, U4g1). */
 
 /* ───── extensions (Open VSX) ─────
    Motor (catálogo, estado instalado, instalar/remover/alternar, comandos, VSIX,
@@ -103,8 +101,7 @@ RP.debug=()=>window.renderDebugPane();/* corpo migrado p/ features/debug.ts; shi
    VIEW.extd→renderExtd) e as decorações que DECORAM globais do app.ts (diagnostics/
    paintEd — têm de carregar depois do app.ts), que lêem o motor por fachada-alias sem
    o substring migrado: window.vsxOn(id)/vsxFmt()/vsxCmds(). */
-RP.ext=()=>window.renderExtPane();/* corpo migrado p/ features/ext.ts; shim delega (lazy, no switch de pane) */
-VIEW.extd=(t,host)=>window.renderExtd(t,host);/* corpo migrado p/ features/ext.ts; shim delega */
+/* RP.ext/VIEW.extd registados pela própria features/ext.ts (ADR-0004, U4g1). */
 const _diag6=diagnostics;diagnostics=function(){const d=_diag6();if(!window.vsxOn('redhat.vscode-yaml'))return d;Object.keys(FS).filter(p=>/\.ya?ml$/.test(p)).forEach(p=>{const ls=FS[p].content.split('\n');ls.forEach((l,i)=>{if(/^\t/.test(l))d.push({p,line:i+1,sev:'e',msg:'yaml: tabs are not allowed for indentation'});});
   if(/deploy\/k8s\//.test(p))FS[p].content.split(/^---$/m).reduce((off,doc)=>{if(/^kind:\s*Deployment/m.test(doc)&&!/resources:/.test(doc)){const ln=off+doc.split('\n').findIndex(l=>/^kind:\s*Deployment/.test(l))+1;d.push({p,line:Math.max(1,ln),sev:'w',msg:'yaml(k8s): Deployment without resources.requests/limits'});}return off+doc.split('\n').length;},0);});return d;};
 const _paintEd6=paintEd;paintEd=function(p){_paintEd6(p);const gut=$('#ed-gut'),hl=$('#ed-hl');if(!gut||!hl)return;const gs=gut.children,ls=hl.children;
@@ -117,8 +114,7 @@ const _paintEd6=paintEd;paintEd=function(p){_paintEd6(p);const gut=$('#ed-gut'),
    VIEW.hood vivem agora na feature; aqui ficam só os shims. explainCmd/reviewCmd/
    hoodCmd continuam a resolver por nome livre (EACT, keydown, boot6/menus abaixo,
    e o onclick "explainCmd(true)" em debug.ts), publicados no window pela feature. */
-VIEW.creview=(t,host)=>window.renderCreviewView(t,host);
-VIEW.hood=(t,host)=>window.renderHoodView(t,host);
+/* VIEW.creview/VIEW.hood registados pela própria features/codereview.ts (ADR-0004, U4g1). */
 
 /* ───── editor action bar, shortcuts, activity bar ───── */
 const EACT=[['bulb','Explain','Ctrl+K E','explainCmd()'],['review','Code review','Ctrl+K R','reviewCmd()'],['bug','Debug','F5','startDebug()'],['run','RUN','Ctrl+F5','dxRun()'],['eye','Under the hood','Ctrl+K U','hoodCmd()']];

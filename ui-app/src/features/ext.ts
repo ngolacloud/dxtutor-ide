@@ -21,14 +21,15 @@
    (2) nada de leitura global ANSIOSA no eval: `EXS` nasce com os defaults e hidrata de
        `LS` PREGUIÇOSAMENTE (`hydrateExs`, guard-once dentro da porta `state.read()`) —
        obrigatório porque este módulo avalia antes de `app.ts` publicar `LS`;
-   (3) o corpo de `VIEW.extd` evalua-se tarde (VIEW só existe depois de app.ts), por
-       isso fica como `renderExtd` publicado no window e v6 mantém o shim
-       `VIEW.extd=(t,host)=>window.renderExtd(t,host)` (par de `RP.ext`);
+   (3) `RP.ext`/`VIEW.extd` são registados por este módulo (ADR-0004, U4g1): os registos
+       `RP`/`VIEW` nascem em app/store/registry.ts, antes das features (antes nasciam
+       no app.ts e o v6 mantinha os shims);
    (4) o resíduo de v6 (decorações diagnostics/paintEd/keydown + arranque) lê o motor
        por fachadas-alias sem o substring migrado: `window.vsxOn(id)` (=extOn),
        `window.vsxFmt()` (=formatDoc), `window.vsxCmds()` (=extCmds). */
 
 import { $, hd, svg, esc, jsa } from "../core";
+import { RP, VIEW } from "../app/store/registry";
 import { type ExtItem, type ExsState } from "./ext/domain/types";
 import { sectionsFor } from "./ext/domain/policy";
 import { makeExtEngine } from "./ext/application/ext-engine";
@@ -143,9 +144,12 @@ function renderExtPane(){
   if (vi) vi.onchange = e => { const fs = (e.target as HTMLInputElement).files; if (fs && fs[0]) loadVsix(fs[0]); };
 }
 
+/* registo das vistas (ADR-0004, U4g1 — antes eram shims no v6.ts) */
+RP.ext = renderExtPane;
+VIEW.extd = (t, host) => renderExtd(t as { ext?: string }, host);
+
 /* ── publicação no window (via bridge) ──
-   Nomes reais (resolvem os onclick inline e as chamadas do resíduo @ts-nocheck de v6);
-   shims em v6: RP.ext→renderExtPane, VIEW.extd→renderExtd.
+   Nomes reais (resolvem os onclick inline e as chamadas do resíduo @ts-nocheck de v6).
    Aliases sem o substring migrado p/ as decorações de v6 (diagnostics/paintEd/keydown/
    arranque) lerem o motor: vsxOn=extOn, vsxFmt=formatDoc, vsxCmds=extCmds. */
 publish({

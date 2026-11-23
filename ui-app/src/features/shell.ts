@@ -1,7 +1,7 @@
 /* ═════════ dxtutor IDE — feature: a «shell» da janela (ADR-0004, U4d1) ═════════
    Dona do layout: a barra de actividade (`buildActivity`, o menu de vistas extra
-   `openOverflow`, os contadores `badges`), os painéis laterais (`setPane`/`goPane`, o
-   registo de renderers `RP`, o cabeçalho `hd`), a barra lateral e o painel inferior
+   `openOverflow`, os contadores `badges`), os painéis laterais (`setPane`/`goPane` — o
+   registo de renderers `RP` vem de app/store/registry.ts —, o cabeçalho `hd`), a barra lateral e o painel inferior
    (`toggleSide`, `togglePanel`, `setPanelTab`, `sideOpen`) e os separadores
    redimensionáveis (`mkRz`). Vivia repartida entre o app.ts e o boot.ts (@ts-nocheck);
    aqui é tipada. O painel activo tem dono (`layoutStore.pane`, global `PANE`).
@@ -15,6 +15,7 @@
 import { $, $$, hd, svg, toast } from "../core";
 import { agentStore } from "../app/store/agent";
 import { layoutStore } from "../app/store/layout";
+import { RP } from "../app/store/registry";
 
 interface Act {
   ic: string;
@@ -44,8 +45,6 @@ interface LegacyGlobals {
 }
 const G = window as unknown as LegacyGlobals;
 
-/** Os renderers dos painéis laterais, por nome (`RP.scm = () => …`). */
-const RP: Record<string, () => void> = {};
 
 const sideOpen = (): boolean => G.getVar("--side-w") !== "0px";
 
@@ -191,6 +190,6 @@ function mkRz(el: HTMLElement, v: string, base: number, min: number, max: number
 }
 
 /* publicação transitória no window (o monólito, o v6 e os onclick inline usam por nome) */
-Object.assign(window, { RP, hd, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz });
+Object.assign(window, { hd, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz });
 
 export { RP, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz };

@@ -9,16 +9,17 @@
    Avalia ANTES do app.ts (ordem do main.ts) e publica as funções no window, como o
    app.ts fazia: o resto do monólito (app/v5/v6/bridge/pair) e os onclick inline chamam-
    -nas por nome. O v6 decora o `show` depois (`_show6`) — continua a decorar esta versão.
-   O que ainda vive no monólito (`VIEW`, `hydrate`, `drawOutline`, `markActive`,
+   O registo dos renderers por tipo (`VIEW`) vem de app/store/registry.ts. O que ainda
+   vive no monólito (`hydrate`, `drawOutline`, `markActive`,
    `ctxPill`, `setVar`, `short`, `fIcon`, `gotoLine`, `stLang`) lê-se em runtime pela
    fachada `G` — nunca no eval do módulo. */
 
 import { $, esc, svg, toast } from "../core";
 import { editorStore, type Tab } from "../app/store/editor";
+import { VIEW } from "../app/store/registry";
 
 interface LegacyGlobals {
   FS: Record<string, { content: string; orig: string | null }>;
-  VIEW: Record<string, (t: Tab, host: HTMLElement) => void>;
   short: (p: string) => string;
   fIcon: (name: string) => string;
   gotoLine: (line: number) => void;
@@ -143,7 +144,7 @@ function show(id: string | null): void {
     .map((s, i, a) => `<span class="crumb"${i === a.length - 1 ? ' style="color:var(--fg)"' : ""}>${esc(s)}</span>`)
     .join('<span class="sep">›</span>');
   if (t.kind !== "file") miniOff();
-  G.VIEW[t.kind](t, host);
+  VIEW[t.kind](t, host);
   G.hydrate();
   G.drawOutline();
   G.markActive();

@@ -6,5 +6,6 @@ export { layoutStore } from "./layout";
 export { editorStore } from "./editor";
 export { workspaceStore } from "./workspace";
 export { LS } from "./storage";
+export { RP, VIEW } from "./registry";
 export { save, loadCfg } from "./config";
 export { bus } from "../bus";

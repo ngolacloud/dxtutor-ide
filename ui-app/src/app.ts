@@ -44,7 +44,7 @@ const P_LX=ROOT+'crates/lexer/src/lib.rs',P_REPO=ROOT+'crates/store/src/conversa
 /* motor has/lexBug/dsLint/diagnostics/runTests/drawProblems/nextProblem migrado p/ features/diagnostics.ts; lido por global (P_* ficam donas aqui) */
 
 /* ───── separadores e vistas ───── */
-window.cur=null;window.PANE='explorer';const VIEW={};
+window.cur=null;window.PANE='explorer';/* VIEW com dono em app/store/registry.ts (ADR-0004, U4g1) */
 /* separadores do editor (tabOf/openTab/openPath/openFile/setActive/drawTabs/parkAgent/miniOff/show/closeTab/stepTab/tabIc) migrados p/ features/tabs.ts (ADR-0004, U4b); a lista TB tem dono em app/store/editor. */
 
 /* editor: renderFileView/paintEd/gotoLine/stPos/stLang/edCmd/selText migrados p/ features/editor.ts; lidos por global, pane delega no shim abaixo */
@@ -83,8 +83,7 @@ RP.scm=()=>{const el=$('#pane-scm'),ch=changes(),st=ch.filter(p=>STAGED.has(p)),
 RP.run=()=>window.renderRunPane();/* corpo migrado p/ features/run.ts; shim delega (lazy, no switch de pane) */
 function runTask(c){setPanelTab('terminal');return termExec(c);}
 RP.test=()=>window.renderTestPane();/* corpo migrado p/ features/test.ts; shim delega (lazy, no switch de pane) */
-RP.ext=()=>{$('#pane-ext').innerHTML=hd('Extensions')+`<div class="sections"><div class="scm-grp">Provedores de LLM<span class="cnt">${Object.values(PROV).filter(p=>p.on).length}/4</span></div>${Object.entries(PROV).map(([k,p])=>`<div class="scm-row" onclick="toggleProv(${jsa(k)})"><span class="pdot${p.on?'':' off'}" style="background:${p.col}"></span><span class="nm">${p.name}</span><span class="pth">${p.vendor}</span><span class="sw${p.on?' on':''}" style="margin-left:auto"></span></div>`).join('')}
-  <div class="scm-grp">Linguagem e qualidade<span class="cnt">4</span></div>${[['rust','rust-analyzer','diagnósticos Rust'],['shield','Design System Lint','dx lint'],['test','Test Explorer','cargo test'],['check','Spell Checker','pt-AO (pré-AO90)']].map(e=>`<div class="scm-row" style="cursor:default"><span class="ic">${svg(e[0])}</span><span class="nm">${e[1]}</span><span class="pth">${e[2]}</span></div>`).join('')}<button class="btn ghost" onclick="openSettings()">Configurar provedores…</button></div>`;};
+/* RP.ext antigo (provedores de LLM) eliminado — código morto: o v6 sobrepunha-o ao carregar; o painel é da features/ext.ts (ADR-0004, U4g1). */
 RP.remote=()=>window.renderRemotePane();/* corpo migrado p/ features/remote.ts; shim delega (lazy, no switch de pane) */
 RP.account=()=>window.renderAccountPane();/* corpo migrado p/ features/account.ts; shim delega (lazy, no switch de pane) */
 RP.codev=()=>window.renderCodevPane();/* base v3 + decoração v4 migradas p/ features/codev.ts; shim delega (lazy, no switch de pane) */
@@ -138,10 +137,10 @@ window.provState=k=>k==='claude'?(SAMPLE?'ao vivo':'ao vivo indisponível aqui')
 /* motor de missões (dec/decideQ/total/council/execSteps/evaluate/reflect/runMission): migrado p/ features/codev.ts. */
 
 /* conversa livre (handlePrompt/agSend/liveChat) + posicionamento (assistantCenter/Dock/toggleAgent/toggleAgentOn/focusAgent): migrados p/ features/codev.ts.
-   VIEW.agent fica como shim (VIEW só nasce em app.ts): */
+   VIEW.agent fica como shim: */
 VIEW.agent=(t,host)=>window.renderAgentView(t,host);
 /* páginas Co-Dev (welcome/settings/manager/analysis + openSettings/openManager/openAnalysis/testProv + POLICY/GAPS/NEXT): migradas p/ features/codev.ts.
-   Os VIEW.* ficam shims (VIEW só nasce em app.ts): */
+   Os VIEW.* ficam shims: */
 VIEW.welcome=(t,host)=>window.renderWelcomePage(t,host);
 VIEW.settings=(t,host)=>window.renderSettingsPage(t,host);
 VIEW.manager=(t,host)=>window.renderManagerPage(t,host);
@@ -315,7 +314,7 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
    consomem; ao virar módulo, os let/const/function de topo deixaram de ser globais de
    script. As mutáveis partilhadas já são window-backed acima (fonte única). ── */
 Object.assign(window, {
-  CMD, FS, OPEN, PANE, PROV, ROOT, RUN, SECOPEN, STOP, VIEW,
+  CMD, FS, OPEN, PANE, PROV, ROOT, RUN, SECOPEN, STOP,
   blame, boot, boot3, boot4, buildMenus,
   esc, hydrate, log,
   mdFull, rerender, resetAll, runTask,

@@ -14,8 +14,8 @@
    `window` ao clicar.
 
    Shim transitório: publica `renderTasksPane`/`renderIssueView`/`openIssue`/`usd`/
-   `TK`/`saveTK`/`STC`; v6.ts delega `RP.tasks=()=>window.renderTasksPane()` e
-   `VIEW.issue=(t,host)=>window.renderIssueView(t,host)` (lazy), e o decorador de
+   `TK`/`saveTK`/`STC`; regista ela própria `RP.tasks` e `VIEW.issue` (ADR-0004, U4g1 —
+   antes eram shims no v6.ts), e o decorador de
    `runIssue` (board.ts) lê `window.usd` para acumular o custo medido.
 
    GOTCHA: esta feature carrega CEDO (antes de app.ts, onde `LS` nasce) — um `LS.get`
@@ -24,6 +24,7 @@
    guard-once), como BPS em features/debug.ts. */
 
 import { $, hd, svg, esc, prov, jsa } from "../core";
+import { RP, VIEW } from "../app/store/registry";
 
 interface TaskFilter { sprint: number; who: string; open: Record<string, boolean> }
 
@@ -109,7 +110,11 @@ function renderIssueView(t: any, host: HTMLElement): void {
 }
 
 /* ── publicação transitória no window (shim para o residual @ts-nocheck de v6.ts) ──
-   RP.tasks/VIEW.issue delegam em renderTasksPane/renderIssueView; o decorador de
+   (RP.tasks/VIEW.issue são registados acima, directamente); o decorador de
    runIssue (v6.ts) lê window.usd; os onclick="…" inline resolvem TK/saveTK/openIssue. */
+/* registo das vistas (ADR-0004, U4g1 — antes eram shims no v6.ts) */
+RP.tasks = renderTasksPane;
+VIEW.issue = renderIssueView;
+
 window.renderTasksPane = renderTasksPane;
 Object.assign(window, { renderIssueView, openIssue, usd, TK, saveTK, STC });

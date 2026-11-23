@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -304,3 +304,24 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   publica-se sempre com nomes curtos (`{ use, connected }`). Verificado: 365 testes
   (goldens sem diff; 5 novos), arranque no browser 4/4 (incluindo o restauro do
   `loadCfg`) e auto-teste desktop idêntico.
+- **U4g1 (2026-11-23) — os registos de vistas.** A U4g (camadas `v5`/`v6`) parte-se em
+  sub-fatias: primeiro os registos, depois as decorações por grupo (infra, board,
+  codev/harness, editor, studio/team). Os registos `RP` (painéis laterais) e `VIEW`
+  (separadores) ganham dono em `app/store/registry.ts`, que avalia antes de tudo — antes o
+  `VIEW` nascia no app.ts, depois das features, e era o `v6` que registava as vistas delas.
+  Agora cada feature regista as suas: `tasks` (`RP.tasks`, `VIEW.issue`), `infra`
+  (`RP.infra`, `VIEW.envs`, `VIEW.observe`), `debug` (`RP.debug`), `ext` (`RP.ext`,
+  `VIEW.extd`) e `codereview` (`VIEW.creview`, `VIEW.hood`) — directamente, sem o shim
+  preguiçoso (nenhum destes renderers é reatribuído no `window`). As decorações que vêm
+  depois continuam a apanhar estas versões: o `bridge.ts` decora o `VIEW.observe` ao
+  carregar e o `visualizer` decora o `VIEW.hood` no `boot7`. Saiu também o `RP.ext` antigo
+  do app.ts (o painel de provedores de LLM), que era código morto — o `v6` sobrepunha-o ao
+  carregar e ninguém o lia entre os dois; com o registo a passar para antes do app.ts, ficar
+  com ele tê-lo-ia ressuscitado. Os registos que o app.ts ainda faz (com sobreposições
+  dentro do próprio ficheiro: `RP.scm` duas vezes, `VIEW.welcome` três) ficam para a fatia
+  do app.ts. Handlers inline 165 → 163 (os dois `onclick` do `RP.ext` morto); globais
+  publicadas 422 (o `VIEW` passa do app.ts para o registo, o `RP` da shell para o registo).
+  Verificado: 365 testes (goldens sem diff), arranque no browser 4/4, uma sonda no browser
+  (cada `RP.*` é o renderer da feature; as 13 vistas existem; os quatro painéis e as vistas
+  creview/hood/observe desenham sem erros, com a decoração do visualizer no hood) e
+  auto-teste desktop idêntico ao da U4f (23 passos).
