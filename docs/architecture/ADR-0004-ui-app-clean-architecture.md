@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4d)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4e)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -275,3 +275,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   completa (capturas + referências por valor) foi repetida para todos os nomes movidos
   desde a U4b, sem mais casos. Verificado: 356 testes (goldens sem diff; 3 novos),
   arranque no browser 4/4 e auto-teste desktop idêntico.
+
+- **U4e (2026-11-23) — terminal emulado.** O `features/terminal.ts` (que já tinha o prompt,
+  o `termExec` e o registo `XC`) ganhou o terminal de base que vivia no boot.ts: os
+  primitivos do ciclo de input (`echo`, `echoCmd`, `scrollTerm`, `termClear`, `termNew`,
+  `onKey`, `complete`), a navegação na árvore (`dirAt`, `curDir`) e o interpretador `run`
+  (`ls`/`cd`/`pwd`/`cat`/`tree`/`git`/`cargo`/… com o `XC` por cima), tipados. O
+  histórico (`HIST`/`hidx`) passou a estado do módulo. O `run` e o `promptHTML` são
+  decorados depois pelo bridge.ts e pelo pair.ts: o Enter e o prompt chamam-nos pelo
+  window em runtime (a versão decorada, como antes). Código morto removido do boot.ts com
+  prova: `promptHTML` e `newInput` (o terminal.ts já publicava os seus, que avaliam
+  depois). Globais publicadas 429 → 423. Verificado: 360 testes (goldens sem diff; 4 novos
+  do terminal), arranque no browser e auto-teste desktop idêntico (os passos `terminal`,
+  `terminalUI` e `termgit` passam pelo `run` decorado). **Risco conhecido:** as outras
+  sessões correm `ui:build` no mesmo `ui-app/dist` que o teste de arranque serve — uma
+  reconstrução a meio troca os ficheiros por baixo do servidor (uma falha isolada nesta
+  fatia, 3/3 verdes a seguir).

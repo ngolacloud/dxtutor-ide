@@ -22,7 +22,7 @@ import { esc } from "./core";
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
    Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
    livre em modo estrito (módulo). ── */
-Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'], HIST: [], hidx: 0 });
+Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'] });
 
 window.$=s=>document.querySelector(s);window.$$=s=>[...document.querySelectorAll(s)];
 
@@ -199,34 +199,7 @@ window.agSend = function(){const i=$('#ag-input');if(!i.value.trim())return;cons
   setTimeout(()=>{msgs.insertAdjacentHTML('beforeend',`<div class="m ai"><div class="bub"><div class="bh"><span>⊡</span><span class="br2">assistant</span><span class="bt">agora</span></div><div class="bd">Recebido: <code>${q.slice(0,40).replace(/</g,'&lt;')}</code>. (protótipo — sem backend)</div></div></div>`);msgs.scrollTop=msgs.scrollHeight;},250);}
 
 /* ═════════ TERMINAL ═════════ */
-window.USER='walter';window.HOST='delonix';
-window.promptHTML = function(){return `<span class="pr"><span>${USER}</span><span class="at">@</span><span>${HOST}</span><span class="at">:</span><span class="pth">${CWD.join('/')}</span><span class="br"> (main)</span><span class="at">$</span></span> `;}
-window.termNew = function(){termClear();}
-window.termClear = function(){const t=$('#term');t.innerHTML='';echo(`<span class="ac">delonix shell</span> <span class="dim">· emulado · </span><span class="ok">help</span><span class="dim"> para começar</span>`);newInput();}
-window.echo = function(h){const t=$('#term');const d=document.createElement('div');d.className='line';d.innerHTML=h;t.appendChild(d);scrollTerm();}
-window.scrollTerm = function(){const p=$('#pc-terminal');p.scrollTop=p.scrollHeight;}
-window.newInput = function(){const t=$('#term');const old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';t.appendChild(w);const c=$('#cmd');c.focus();c.onkeydown=onKey;scrollTerm();}
-window.onKey = function(e){const c=e.target;if(e.key==='Enter'){const v=c.value;run(v);if(v.trim())HIST.push(v);hidx=HIST.length;}else if(e.key==='ArrowUp'){if(hidx>0){hidx--;c.value=HIST[hidx]||'';}e.preventDefault();}else if(e.key==='ArrowDown'){if(hidx<HIST.length-1){hidx++;c.value=HIST[hidx]||'';}else{hidx=HIST.length;c.value='';}e.preventDefault();}else if(e.key==='Tab'){e.preventDefault();complete(c);}else if(e.ctrlKey&&e.key==='l'){e.preventDefault();termClear();}}
-window.dirAt = function(parts){let n=TREE.projects;for(const p of parts){if(!n.children||!n.children[p])return null;n=n.children[p];}return n;}
-window.curDir = function(){return dirAt(CWD.slice(4));}
-window.complete = function(c){const parts=c.value.split(' '),frag=parts[parts.length-1],d=curDir();if(!d||!d.children)return;const m=Object.keys(d.children).filter(x=>x.startsWith(frag));if(m.length===1){parts[parts.length-1]=m[0];c.value=parts.join(' ');}else if(m.length>1){echoCmd(c.value);echo('<span class="dim">'+m.join('   ')+'</span>');newInput();$('#cmd').value=c.value;}}
-window.echoCmd = function(v){const w=$('#inputwrap');if(w)w.remove();echo(promptHTML()+'<span class="cmd">'+(v||'').replace(/</g,'&lt;')+'</span>');}
-window.run = function(raw){echoCmd(raw);const v=raw.trim();if(!v){newInput();return;}const[cmd,...a]=v.split(/\s+/);
-  const C={
-    help(){echo(`<span class="ac">comandos:</span>\n<span class="ok">ls</span> [dir]   <span class="ok">cd</span> &lt;dir&gt;   <span class="ok">pwd</span>   <span class="ok">cat</span> &lt;f&gt;   <span class="ok">tree</span>\n<span class="ok">git</span> status|branch|log   <span class="ok">cargo</span> build|test\n<span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">neofetch</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
-    ls(){const d=a[0]?dirAt(CWD.slice(4).concat(a[0].split('/').filter(Boolean))):curDir();if(!d||!d.children){echo('<span class="er">ls: '+(a[0]||'.')+': não encontrado</span>');return;}echo(Object.keys(d.children).map(n=>d.children[n].dir?`<span class="dir">${n}/</span>`:`<span class="${d.children[n].t==='rust'?'ac':''}">${n}</span>`).join('   ')||'<span class="dim">(vazio)</span>');},
-    pwd(){echo('/home/'+USER+'/'+CWD.slice(1).join('/'));},
-    cd(){const x=a[0]||'~';if(x==='~'||x==='/'){CWD=['~','workspaces','NgolaCloud','projects'];return;}if(x==='..'){if(CWD.length>4)CWD.pop();return;}let t=CWD.slice();for(const p of x.split('/').filter(Boolean)){if(p==='..'){if(t.length>4)t.pop();continue;}const nd=dirAt(t.slice(4).concat(p));if(!nd||!nd.dir){echo('<span class="er">cd: '+x+': não é um directório</span>');return;}t.push(p);}CWD=t;},
-    cat(){const f=a[0];if(!f){echo('<span class="er">cat: falta o ficheiro</span>');return;}const b=f.split('/').pop();if(DOCS[b])DOCS[b].forEach(l=>echo('<span class="'+(l[0]==='err'?'':l[0])+'">'+l[1]+'</span>'));else echo('<span class="dim">// '+b+' — conteúdo não disponível no protótipo</span>');},
-    tree(){echo('<span class="dir">'+CWD[CWD.length-1]+'/</span>');const d=curDir();if(d&&d.children){const ks=Object.keys(d.children);ks.forEach((k,i)=>echo('<span class="dim">'+(i===ks.length-1?'└─ ':'├─ ')+'</span>'+(d.children[k].dir?'<span class="dir">'+k+'/</span>':k)));}},
-    echo(){echo(a.join(' ').replace(/</g,'&lt;'));},whoami(){echo(USER);},date(){echo(new Date().toString());},
-    history(){HIST.forEach((h,i)=>echo('<span class="dim">'+String(i+1).padStart(4)+'</span>  '+h.replace(/</g,'&lt;')));},
-    clear(){termClear();return 'skip';},
-    neofetch(){echo(`<span class="ac">    ✦✦✦✦✦    </span>  <span class="ok">${USER}@${HOST}</span>\n<span class="ac">  ✦✦ </span><span class="dim">delonix</span><span class="ac"> ✦✦  </span>  <span class="ac">OS</span>    Delonix Linux 7.0\n<span class="ac">  ✦✦✦✦✦✦✦✦✦  </span>  <span class="ac">Shell</span> dsh 2.1 (emulado)\n<span class="ac">    ✦✦✦✦✦    </span>  <span class="ac">IDE</span>   dxtutor IDE · grafite\n                 <span class="ac">CPU</span>   16 cores · <span class="ok">extrema velocidade</span>`);},
-    git(){const s=a[0];if(s==='status')echo(`No ramo <span class="ac">main</span>\n<span class="dim">Changes not staged:</span>\n  <span class="warn">modified:</span>   desktop/src/styles.css\n  <span class="warn">modified:</span>   desktop/src/assistant.ts\n<span class="dim">Untracked:</span>\n  <span class="er">desktop/src/theme.css</span>`);else if(s==='branch')echo(`<span class="ok">* main</span>\n  develop\n  feat/learning-paths`);else if(s==='log')echo(`<span class="ac">c638e07</span> feat(arch): persist the Studio design\n<span class="ac">a5b0d39</span> feat(arch): double-click a node to delete it\n<span class="ac">64943bc</span> feat(arch): interactive canvas`);else echo('<span class="dim">git: status|branch|log</span>');},
-    cargo(){const s=a[0];if(s==='build'){echo('<span class="dim">   Compiling dxtutor v0.1.0</span>');setTimeout(()=>{echo('<span class="ok">    Finished</span> dev in 0.81s');newInput();},140);return 'async';}if(s==='test'){echo('<span class="dim">   Running tests…</span>');setTimeout(()=>{echo('<span class="ok">test result: ok. 261 passed; 0 failed</span>');newInput();},160);return 'async';}echo('<span class="dim">cargo: build|test</span>');},
-  };
-  let r;if(XC[cmd])r=XC[cmd](a,v);else if(C[cmd])r=C[cmd]();else echo('<span class="er">'+cmd+': comando não encontrado</span> <span class="dim">(help)</span>');if(r!=='skip'&&r!=='async')newInput();}
+/* terminal emulado (USER/HOST, prompt, input, run, history…) migrado p/ features/terminal.ts (ADR-0004, U4e). */
 
 /* ═════════ PROBLEMS ═════════ */
 window.buildProblems = function(){$('#pc-problems').innerHTML=[['e','E0382: use of moved value: `chars`','desktop/src/lib.rs:5'],['w','variável `peek` nunca usada','desktop/src/parser.rs:22'],['w','preferir `while let` a `loop`+`match`','desktop/src/main.rs:88'],['w','import não usado: `std::fmt`','desktop/src/i18n.ts:3']].map(d=>`<div class="prob"><span class="pi ${d[0]}">${d[0]==='e'?'✖':'⚠'}</span><span><span>${d[1]}</span> <span class="ploc">${d[2]}</span></span></div>`).join('');}
