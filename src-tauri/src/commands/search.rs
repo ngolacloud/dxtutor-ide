@@ -20,9 +20,11 @@ pub async fn search_project(
     max: Option<usize>,
     ignore_case: Option<bool>,
 ) -> Result<Vec<tutor_eval::search::SearchHit>, String> {
-    tauri::async_runtime::spawn_blocking(move || search::search(Path::new(&root), &query, max, ignore_case))
-        .await
-        .map_err(|e| format!("search task failed: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        search::search(Path::new(&root), &query, max, ignore_case)
+    })
+    .await
+    .map_err(|e| format!("search task failed: {e}"))
 }
 
 /// Section 5 (daily work): list the project's files (relative, sorted) for quick-open.
@@ -52,7 +54,9 @@ pub async fn read_folder_sources(
     max_files: Option<usize>,
     max_bytes: Option<usize>,
 ) -> Result<Vec<FolderSource>, String> {
-    tauri::async_runtime::spawn_blocking(move || search::read_folder_sources(Path::new(&dir), max_files, max_bytes))
-        .await
-        .map_err(|e| format!("read_folder_sources task failed: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        search::read_folder_sources(Path::new(&dir), max_files, max_bytes)
+    })
+    .await
+    .map_err(|e| format!("read_folder_sources task failed: {e}"))
 }

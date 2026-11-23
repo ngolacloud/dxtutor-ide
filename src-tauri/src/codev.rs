@@ -53,8 +53,14 @@ mod tests {
         assert!(m.edits_need_approval && m.commands_need_approval);
         for mode in ["assist", "auto"] {
             let p = policy_for_mode(mode);
-            assert!(!p.edits_need_approval, "{mode}: edições aplicam-se sozinhas");
-            assert!(!p.commands_need_approval, "{mode}: comandos aplicam-se sozinhos");
+            assert!(
+                !p.edits_need_approval,
+                "{mode}: edições aplicam-se sozinhas"
+            );
+            assert!(
+                !p.commands_need_approval,
+                "{mode}: comandos aplicam-se sozinhos"
+            );
         }
     }
 

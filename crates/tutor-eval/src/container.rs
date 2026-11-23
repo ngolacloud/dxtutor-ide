@@ -238,7 +238,11 @@ pub struct ContainerSpec {
 impl ContainerSpec {
     /// Especificação mínima: imagem, directório de trabalho e comando. Sem env extra,
     /// sem volumes de cache, sem rede e com [`CONTAINER_TIMEOUT`].
-    pub fn new(image: impl Into<String>, workdir_host: impl Into<PathBuf>, cmd: Vec<String>) -> Self {
+    pub fn new(
+        image: impl Into<String>,
+        workdir_host: impl Into<PathBuf>,
+        cmd: Vec<String>,
+    ) -> Self {
         ContainerSpec {
             image: image.into(),
             workdir_host: workdir_host.into(),
@@ -388,7 +392,10 @@ pub fn session_up(root: &Path, image: &str) -> Result<String> {
     if out.status.success() {
         Ok(name)
     } else {
-        anyhow::bail!("arranque da sessão falhou:\n{}", String::from_utf8_lossy(&out.stderr));
+        anyhow::bail!(
+            "arranque da sessão falhou:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 }
 
@@ -442,7 +449,10 @@ pub fn project_test_command(root: &Path) -> Option<&'static str> {
 /// escolhido pela extensão. `has_cargo` encaminha `.rs` para `cargo run` quando o projecto
 /// tem `Cargo.toml`. `None` quando não há executor conhecido para a extensão.
 pub fn run_file_command(rel: &str, has_cargo: bool) -> Option<String> {
-    let ext = Path::new(rel).extension().and_then(|e| e.to_str()).unwrap_or("");
+    let ext = Path::new(rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     // Cita o caminho para espaços; tudo corre com /work como cwd.
     let q = format!("'{}'", rel.replace('\'', "'\\''"));
     let cmd = match ext {
@@ -493,7 +503,10 @@ pub fn session_down(name: &str) -> Result<()> {
     if out.status.success() {
         Ok(())
     } else {
-        anyhow::bail!("paragem da sessão falhou:\n{}", String::from_utf8_lossy(&out.stderr));
+        anyhow::bail!(
+            "paragem da sessão falhou:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 }
 
@@ -850,10 +863,21 @@ mod tests {
 
     #[test]
     fn comando_de_execucao_por_extensao() {
-        assert_eq!(run_file_command("main.py", false).as_deref(), Some("python3 'main.py' || python 'main.py'"));
-        assert_eq!(run_file_command("app.go", false).as_deref(), Some("go run 'app.go'"));
-        assert_eq!(run_file_command("src/main.rs", true).as_deref(), Some("cargo run"));
-        assert!(run_file_command("src/main.rs", false).unwrap().starts_with("rustc "));
+        assert_eq!(
+            run_file_command("main.py", false).as_deref(),
+            Some("python3 'main.py' || python 'main.py'")
+        );
+        assert_eq!(
+            run_file_command("app.go", false).as_deref(),
+            Some("go run 'app.go'")
+        );
+        assert_eq!(
+            run_file_command("src/main.rs", true).as_deref(),
+            Some("cargo run")
+        );
+        assert!(run_file_command("src/main.rs", false)
+            .unwrap()
+            .starts_with("rustc "));
         assert_eq!(run_file_command("README.md", false), None);
     }
 
@@ -866,7 +890,9 @@ mod tests {
         assert_ne!(a, c, "roots diferentes → nomes diferentes");
         assert!(a.starts_with("dxtutor-sess-"));
         // Nome válido para container (só minúsculas/dígitos/hífen).
-        assert!(a.chars().all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-'));
+        assert!(a
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-'));
     }
 
     #[test]
@@ -978,7 +1004,11 @@ mod tests {
         }
         let out = run_python_in_sandbox("print('ola do container')\n")
             .expect("correr o snippet no container não devia falhar o sandbox");
-        assert!(out.ok, "o snippet devia sair com sucesso; stderr:\n{}", out.stderr);
+        assert!(
+            out.ok,
+            "o snippet devia sair com sucesso; stderr:\n{}",
+            out.stderr
+        );
         assert!(
             out.stdout.contains("ola do container"),
             "stdout devia conter 'ola do container', obteve-se:\n{}",
@@ -1002,10 +1032,9 @@ mod tests {
             eprintln!("salto: motor == host ou CLI do motor ({engine:?}) ausente");
             return;
         }
-        let out = run_rust_snippet_in_container(
-            "fn main() { println!(\"ola rust do container\"); }\n",
-        )
-        .expect("o sandbox do container não devia falhar a arrancar");
+        let out =
+            run_rust_snippet_in_container("fn main() { println!(\"ola rust do container\"); }\n")
+                .expect("o sandbox do container não devia falhar a arrancar");
         assert!(
             out.ok,
             "o snippet rust devia compilar e correr; stderr:\n{}",

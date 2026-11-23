@@ -160,9 +160,9 @@ impl BoardStore {
 
     /// Lê o backlog de `root`, ou `None` se ainda não existe.
     pub fn load_board(&self, root: &str) -> rusqlite::Result<Option<Backlog>> {
-        let mut head = self.conn.prepare(
-            "SELECT problem, seq FROM boards WHERE root = ?1",
-        )?;
+        let mut head = self
+            .conn
+            .prepare("SELECT problem, seq FROM boards WHERE root = ?1")?;
         let mut rows = head.query(params![root])?;
         let (problem, seq): (String, u32) = match rows.next()? {
             Some(r) => (r.get(0)?, r.get::<_, i64>(1)? as u32),
@@ -174,7 +174,10 @@ impl BoardStore {
             .prepare("SELECT idx, goal FROM sprints WHERE root = ?1 ORDER BY idx")?;
         let sprints = sp
             .query_map(params![root], |r| {
-                Ok(Sprint { index: r.get::<_, i64>(0)? as u32, goal: r.get(1)? })
+                Ok(Sprint {
+                    index: r.get::<_, i64>(0)? as u32,
+                    goal: r.get(1)?,
+                })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -203,7 +206,12 @@ impl BoardStore {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        Ok(Some(Backlog { problem, seq, sprints, stories }))
+        Ok(Some(Backlog {
+            problem,
+            seq,
+            sprints,
+            stories,
+        }))
     }
 }
 
@@ -271,7 +279,10 @@ mod tests {
     fn boards_are_isolated_per_workspace() {
         let mut s = BoardStore::in_memory().unwrap();
         s.save_board("/ws/a", &sample(), 1).unwrap();
-        assert!(s.load_board("/ws/b").unwrap().is_none(), "outra raiz não vê");
+        assert!(
+            s.load_board("/ws/b").unwrap().is_none(),
+            "outra raiz não vê"
+        );
         // Guardar em /ws/b não mexe em /ws/a.
         let mut only_one = sample();
         only_one.stories.truncate(1);
@@ -289,6 +300,10 @@ mod tests {
         smaller.stories.truncate(1);
         s.save_board("/ws/a", &smaller, 2).unwrap();
         let got = s.load_board("/ws/a").unwrap().unwrap();
-        assert_eq!(got.stories.len(), 1, "estado anterior substituído, não acumulado");
+        assert_eq!(
+            got.stories.len(),
+            1,
+            "estado anterior substituído, não acumulado"
+        );
     }
 }

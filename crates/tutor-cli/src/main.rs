@@ -12,9 +12,15 @@ fn main() -> Result<()> {
     match cmd.as_str() {
         "tui" => tutor_tui::run("rust-word-frequency"),
         "snapshot" => {
-            let phase: usize = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+            let phase: usize = std::env::args()
+                .nth(2)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
             let gab = std::env::args().any(|a| a == "--gabarito");
-            print!("{}", tutor_tui::snapshot("rust-word-frequency", phase, gab)?);
+            print!(
+                "{}",
+                tutor_tui::snapshot("rust-word-frequency", phase, gab)?
+            );
             Ok(())
         }
         "demo" => demo(),
@@ -49,10 +55,7 @@ fn demo() -> Result<()> {
         println!("  Fase {}: {}  [{:?}]", i + 1, ph.title, ph.level);
     }
 
-    let phase = project
-        .phase("p1-tokenize")
-        .expect("fase 1 existe")
-        .clone();
+    let phase = project.phase("p1-tokenize").expect("fase 1 existe").clone();
 
     banner(&format!("FASE EM FOCO — {}", phase.title));
     println!("{}", strip_md(&phase.instructions));
@@ -86,7 +89,11 @@ fn demo() -> Result<()> {
 }
 
 fn report(a: &Assessment) {
-    let mark = if a.correctness.passed { "✓ PASSOU" } else { "✗ FALHOU" };
+    let mark = if a.correctness.passed {
+        "✓ PASSOU"
+    } else {
+        "✗ FALHOU"
+    };
     println!("  Correcção: {mark}  ({})", a.correctness.summary);
     if !a.correctness.passed {
         println!("  ---- saída dos testes ----");
@@ -154,7 +161,10 @@ fn rank(c: Class) -> u8 {
 
 fn reveal_gabarito(phase: &Phase) {
     let g = &phase.gabarito;
-    println!("Complexidade de referência:  tempo {}   espaço {}\n", g.time, g.space);
+    println!(
+        "Complexidade de referência:  tempo {}   espaço {}\n",
+        g.time, g.space
+    );
     println!("--- solução ---");
     println!("{}", g.solution.trim());
     println!("\n--- porquê ---");

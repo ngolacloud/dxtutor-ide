@@ -78,7 +78,7 @@ mod tests {
         let phase = &p.phases[0];
         assert_eq!(phase.entry, "count_chars");
         assert_eq!(phase.language, "rust"); // herdada do projecto
-        // O teste oculto exige a contagem por valores escalares (4), não por bytes (5).
+                                            // O teste oculto exige a contagem por valores escalares (4), não por bytes (5).
         assert!(
             phase.tests.contains("count_chars(\"ação\"), 4"),
             "falta o contra-exemplo bytes-vs-escalares"
@@ -104,7 +104,10 @@ mod tests {
         assert_eq!(phase.hint(9), phase.hint(3));
         // Nenhuma pista entrega a solução literal.
         for h in &phase.hints {
-            assert!(!h.contains(".chars().count()"), "a pista não deve dar o código");
+            assert!(
+                !h.contains(".chars().count()"),
+                "a pista não deve dar o código"
+            );
         }
     }
 
@@ -113,7 +116,9 @@ mod tests {
     #[test]
     fn variacao_inverter_por_caracteres() {
         let p = load_project("rust-count-chars").expect("projecto count-chars");
-        let phase = p.phase("p2-reverse-chars").expect("fase da variação existe");
+        let phase = p
+            .phase("p2-reverse-chars")
+            .expect("fase da variação existe");
         assert_eq!(phase.entry, "reverse_chars");
         assert!(phase.tests.contains("reverse_chars(\"ação\"), \"oãça\""));
         assert!(phase.gabarito.solution.contains(".chars().rev().collect()"));

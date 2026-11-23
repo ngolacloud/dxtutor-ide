@@ -103,8 +103,7 @@ function tokenize(input) {
     assert!(
         !a.correctness.passed,
         "a solução errada NÃO devia passar; resumo: {}\n{}",
-        a.correctness.summary,
-        a.correctness.raw
+        a.correctness.summary, a.correctness.raw
     );
     assert!(
         a.complexity.is_none(),
@@ -145,7 +144,9 @@ fn js_sonda_separa_linear_de_quadratico() {
     // Gabarito: linear.
     let lin = assess(&ph, &ph.gabarito.solution).expect("avaliar gabarito (linear)");
     assert!(lin.correctness.passed, "gabarito devia passar a correcção");
-    let lin_est = lin.complexity.expect("gabarito tem medição de complexidade");
+    let lin_est = lin
+        .complexity
+        .expect("gabarito tem medição de complexidade");
 
     // Variante quadrática, mas correcta: passa os mesmos testes.
     let quad = assess(&ph, TOKENIZE_QUADRATICA).expect("avaliar variante quadrática");
@@ -154,7 +155,9 @@ fn js_sonda_separa_linear_de_quadratico() {
         "a variante quadrática devia passar a MESMA correcção; saída:\n{}",
         quad.correctness.raw
     );
-    let quad_est = quad.complexity.expect("a variante tem medição de complexidade");
+    let quad_est = quad
+        .complexity
+        .expect("a variante tem medição de complexidade");
 
     println!(
         "gabarito linear: {} (R²={:.3}, p={:.2})  |  variante quadrática: {} (R²={:.3}, p={:.2})",
@@ -192,12 +195,19 @@ fn js_diagnostics_apontam_a_linha_do_erro() {
 
     // Código válido → sem diagnósticos.
     let ok = diagnostics(&ph, "function f(){ return 1 + 1; }").expect("diag de código válido");
-    assert!(ok.is_empty(), "código válido não devia ter diagnósticos: {ok:?}");
+    assert!(
+        ok.is_empty(),
+        "código válido não devia ter diagnósticos: {ok:?}"
+    );
 
     // Erro de sintaxe na 3ª linha → um diagnóstico de erro, ancorado à linha 3.
     let src = "function tokenize(input) {\n  let x = 1;\n  let y = ;\n}\n";
     let diags = diagnostics(&ph, src).expect("diag de código com erro");
-    assert_eq!(diags.len(), 1, "esperado exactamente um diagnóstico: {diags:?}");
+    assert_eq!(
+        diags.len(),
+        1,
+        "esperado exactamente um diagnóstico: {diags:?}"
+    );
     let d = &diags[0];
     assert_eq!(d.severity, Severity::Error);
     assert_eq!(d.line, 3, "o erro está na linha 3, veio linha {}", d.line);
@@ -222,10 +232,15 @@ fn rust_diagnostics_apontam_a_linha_do_erro() {
     let src = "pub fn f() -> i32 {\n    let x = 1\n    x\n}\n";
     let diags = diagnostics(&ph, src).expect("diag Rust");
     assert!(
-        diags.iter().any(|d| d.severity == Severity::Error && d.line >= 2),
+        diags
+            .iter()
+            .any(|d| d.severity == Severity::Error && d.line >= 2),
         "esperado um erro posicional (linha >= 2); veio: {diags:?}"
     );
     for d in &diags {
-        println!("[diagnostics Rust] {:?} L{} C{}: {}", d.severity, d.line, d.col, d.message);
+        println!(
+            "[diagnostics Rust] {:?} L{} C{}: {}",
+            d.severity, d.line, d.col, d.message
+        );
     }
 }

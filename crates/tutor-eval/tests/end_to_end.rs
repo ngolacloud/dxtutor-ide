@@ -146,7 +146,9 @@ fn fase3_sonda_distingue_heap_de_ordenacao_total() {
     // (a) O gabarito ordena tudo → linearítmico.
     let sort = assess(&ph, &ph.gabarito.solution).expect("avaliar gabarito (ordenação)");
     assert!(sort.correctness.passed, "gabarito devia passar a correcção");
-    let sort_est = sort.complexity.expect("gabarito tem medição de complexidade");
+    let sort_est = sort
+        .complexity
+        .expect("gabarito tem medição de complexidade");
 
     // (b) A solução por amontoado → quase-linear, e passa os MESMOS testes.
     let heap = assess(&ph, TOPK_HEAP).expect("avaliar solução por heap");

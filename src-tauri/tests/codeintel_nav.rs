@@ -45,7 +45,8 @@ fn outline_over_a_real_file_finds_the_entrypoint() {
     let root = dir.path();
     fs::create_dir_all(root.join("src")).unwrap();
     let file = root.join("src/main.rs");
-    let code = "fn helper() -> i32 {\n    42\n}\n\nfn main() {\n    println!(\"{}\", helper());\n}\n";
+    let code =
+        "fn helper() -> i32 {\n    42\n}\n\nfn main() {\n    println!(\"{}\", helper());\n}\n";
     fs::write(&file, code).unwrap();
 
     let syms = outline(

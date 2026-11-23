@@ -68,7 +68,10 @@ pub trait Store {
     fn record_attempt(&mut self, a: Attempt) -> bool;
     /// Aplica um lote (sync ao recuperar ligação); devolve o nº de tentativas NOVAS aplicadas.
     fn sync(&mut self, batch: Vec<Attempt>) -> usize {
-        batch.into_iter().filter(|a| self.record_attempt(a.clone())).count()
+        batch
+            .into_iter()
+            .filter(|a| self.record_attempt(a.clone()))
+            .count()
     }
     /// As tentativas de um aluno, mais recentes primeiro. **Só** as desse aluno (privacidade).
     fn attempts_of(&self, student: &str) -> Vec<Attempt>;

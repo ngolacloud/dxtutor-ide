@@ -85,9 +85,6 @@ pub fn debug_stack(
 }
 
 #[tauri::command]
-pub fn debug_stop(
-    sessions: tauri::State<'_, DebugSessions>,
-    id: String,
-) -> Result<(), String> {
+pub fn debug_stop(sessions: tauri::State<'_, DebugSessions>, id: String) -> Result<(), String> {
     debug::driver::stop(&sessions, &id)
 }

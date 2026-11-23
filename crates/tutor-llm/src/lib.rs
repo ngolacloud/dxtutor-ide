@@ -140,7 +140,9 @@ impl ClaudeProvider {
     /// opcionalmente, [`MODEL_ENV`] (senão, [`DEFAULT_MODEL`]). Devolve `None`
     /// se não houver chave.
     pub fn from_env() -> Option<Self> {
-        let api_key = std::env::var(API_KEY_ENV).ok().filter(|k| !k.trim().is_empty())?;
+        let api_key = std::env::var(API_KEY_ENV)
+            .ok()
+            .filter(|k| !k.trim().is_empty())?;
         let model = std::env::var(MODEL_ENV)
             .ok()
             .filter(|m| !m.trim().is_empty())
@@ -181,9 +183,7 @@ impl ClaudeProvider {
                     truncate(detail.trim(), 300)
                 ))
             }
-            Err(ureq::Error::Transport(t)) => {
-                Err(anyhow!("falha de rede ao contactar a API: {t}"))
-            }
+            Err(ureq::Error::Transport(t)) => Err(anyhow!("falha de rede ao contactar a API: {t}")),
         }
     }
 }
@@ -567,10 +567,19 @@ mod tests {
 
         let captured = fake.last.lock().unwrap().clone().expect("pedido guardado");
         let prompt = captured.user_prompt();
-        assert!(prompt.contains("count_frequencies"), "entry em falta no prompt");
+        assert!(
+            prompt.contains("count_frequencies"),
+            "entry em falta no prompt"
+        );
         assert!(prompt.contains("Conta a frequência"), "instruções em falta");
-        assert!(prompt.contains("fn count_frequencies()"), "código do aluno em falta");
-        assert!(prompt.contains("assertion failed"), "saída dos testes em falta");
+        assert!(
+            prompt.contains("fn count_frequencies()"),
+            "código do aluno em falta"
+        );
+        assert!(
+            prompt.contains("assertion failed"),
+            "saída dos testes em falta"
+        );
         assert!(prompt.contains("nível 2"), "nível em falta no prompt");
     }
 
@@ -586,14 +595,20 @@ mod tests {
         let mut r = req(1);
         r.test_output = None;
         let prompt = r.user_prompt();
-        assert!(!prompt.contains("Saída dos testes"), "não devia haver secção de testes");
+        assert!(
+            !prompt.contains("Saída dos testes"),
+            "não devia haver secção de testes"
+        );
     }
 
     #[test]
     fn offline_da_mensagem_util_e_menciona_a_chave() {
         let p = OfflineProvider;
         let out = p.hint(&req(1)).expect("offline nunca falha");
-        assert!(out.contains(API_KEY_ENV), "devia explicar a variável de ambiente");
+        assert!(
+            out.contains(API_KEY_ENV),
+            "devia explicar a variável de ambiente"
+        );
         assert!(out.contains("instruções"), "devia dar uma pista genérica");
         assert_eq!(p.name(), "offline");
     }
@@ -609,7 +624,10 @@ mod tests {
         // 1. Sem chave → Offline.
         std::env::remove_var(API_KEY_ENV);
         std::env::remove_var(MODEL_ENV);
-        assert!(ClaudeProvider::from_env().is_none(), "sem chave não há ClaudeProvider");
+        assert!(
+            ClaudeProvider::from_env().is_none(),
+            "sem chave não há ClaudeProvider"
+        );
         assert_eq!(
             default_provider().name(),
             "offline",
@@ -619,14 +637,20 @@ mod tests {
         // 2. Com chave e sem override → ClaudeProvider com o modelo por omissão.
         std::env::set_var(API_KEY_ENV, "sk-teste-nao-usada");
         let p = ClaudeProvider::from_env().expect("com chave há provider");
-        assert_eq!(p.model, DEFAULT_MODEL, "sem override usa o modelo por omissão");
+        assert_eq!(
+            p.model, DEFAULT_MODEL,
+            "sem override usa o modelo por omissão"
+        );
         assert_eq!(p.name(), "claude");
         assert_eq!(default_provider().name(), "claude");
 
         // 3. Override do modelo é respeitado.
         std::env::set_var(MODEL_ENV, "claude-opus-4-8");
         let p2 = ClaudeProvider::from_env().expect("com chave há provider");
-        assert_eq!(p2.model, "claude-opus-4-8", "deve respeitar o override do modelo");
+        assert_eq!(
+            p2.model, "claude-opus-4-8",
+            "deve respeitar o override do modelo"
+        );
 
         // Restaura o ambiente.
         match prev_key {
@@ -668,7 +692,10 @@ mod tests {
 
         let joined = plan.steps.join("\n");
         // Honestidade: nenhum bloco de código.
-        assert!(!joined.contains("```"), "o plano não pode conter blocos de código");
+        assert!(
+            !joined.contains("```"),
+            "o plano não pode conter blocos de código"
+        );
         // Não despeja o corpo da função-solução: não repete a assinatura dada.
         assert!(
             !joined.contains("fn count_frequencies"),
@@ -697,9 +724,18 @@ mod tests {
         let plan = parse_plan(modelo);
         let joined = plan.steps.join("\n");
         assert!(!joined.contains("```"), "fences não podem passar");
-        assert!(!joined.contains("fn count_frequencies"), "código não pode passar");
-        assert!(plan.steps.iter().any(|s| s == "parse the input"), "passo limpo de numeração");
-        assert!(plan.steps.iter().any(|s| s == "use a hash map to count"), "passo limpo de bullet");
+        assert!(
+            !joined.contains("fn count_frequencies"),
+            "código não pode passar"
+        );
+        assert!(
+            plan.steps.iter().any(|s| s == "parse the input"),
+            "passo limpo de numeração"
+        );
+        assert!(
+            plan.steps.iter().any(|s| s == "use a hash map to count"),
+            "passo limpo de bullet"
+        );
     }
 
     // --- Capacidade 3: CORRECÇÃO (offline-safe, sem rede) ---------------
@@ -727,8 +763,14 @@ mod tests {
         let p = OfflineProvider;
         let out = p.fix_suggestion(&fix_req()).expect("offline nunca falha");
         assert!(!out.trim().is_empty(), "a sugestão não pode ser vazia");
-        assert!(out.contains("line 1"), "devia referir a linha do diagnóstico");
-        assert!(out.contains(API_KEY_ENV), "devia explicar como activar o LLM");
+        assert!(
+            out.contains("line 1"),
+            "devia referir a linha do diagnóstico"
+        );
+        assert!(
+            out.contains(API_KEY_ENV),
+            "devia explicar como activar o LLM"
+        );
         // Honestidade: não resolve o exercício com um bloco de código.
         assert!(!out.contains("```"), "a correcção não pode despejar código");
     }
@@ -743,12 +785,21 @@ mod tests {
     #[test]
     fn user_prompts_novos_formatam_os_campos() {
         let pp = plan_req().user_prompt();
-        assert!(pp.contains("count the frequency"), "comentário no prompt do plano");
-        assert!(pp.contains("Language: rust"), "linguagem no prompt do plano");
+        assert!(
+            pp.contains("count the frequency"),
+            "comentário no prompt do plano"
+        );
+        assert!(
+            pp.contains("Language: rust"),
+            "linguagem no prompt do plano"
+        );
 
         let fp = fix_req().user_prompt();
         assert!(fp.contains("line 1"), "linha no prompt da correcção");
-        assert!(fp.contains("expected `;`"), "mensagem no prompt da correcção");
+        assert!(
+            fp.contains("expected `;`"),
+            "mensagem no prompt da correcção"
+        );
     }
 
     #[test]
@@ -758,7 +809,13 @@ mod tests {
         assert!(plan_sp.contains("no code fences"), "plano proíbe fences");
 
         let fix_sp = fix_system_prompt();
-        assert!(fix_sp.contains("Focus ONLY on the error on this line"), "fix foca-se na linha");
-        assert!(fix_sp.contains("MUST NOT rewrite the whole function"), "fix não reescreve tudo");
+        assert!(
+            fix_sp.contains("Focus ONLY on the error on this line"),
+            "fix foca-se na linha"
+        );
+        assert!(
+            fix_sp.contains("MUST NOT rewrite the whole function"),
+            "fix não reescreve tudo"
+        );
     }
 }

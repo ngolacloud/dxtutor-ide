@@ -189,7 +189,9 @@ fn mi_field(line: &str, key: &str) -> Option<String> {
 /// Parse a `*stopped` (or exit) async record into a Stop.
 fn parse_stop(lines: &[String]) -> Stop {
     let stopped = lines.iter().rev().find(|l| l.starts_with("*stopped"));
-    let Some(l) = stopped else { return Stop::default() };
+    let Some(l) = stopped else {
+        return Stop::default();
+    };
     let reason = mi_field(l, "reason").unwrap_or_default();
     if reason.starts_with("exited") {
         return Stop {
@@ -222,7 +224,9 @@ fn parse_stop(lines: &[String]) -> Stop {
 
 /// Parse `^done,variables=[{name="x",value="1"},...]` into a Var list.
 fn parse_vars(lines: &[String]) -> Vec<Var> {
-    let Some(l) = lines.iter().find(|l| l.contains("variables=[")) else { return vec![] };
+    let Some(l) = lines.iter().find(|l| l.contains("variables=[")) else {
+        return vec![];
+    };
     parse_name_value_list(l)
 }
 
@@ -253,7 +257,9 @@ fn parse_name_value_list(l: &str) -> Vec<Var> {
 
 /// Parse `^done,stack=[frame={level="0",func="main",...},...]` into frames.
 fn parse_stack(lines: &[String]) -> Vec<Frame> {
-    let Some(l) = lines.iter().find(|l| l.contains("stack=[")) else { return vec![] };
+    let Some(l) = lines.iter().find(|l| l.contains("stack=[")) else {
+        return vec![];
+    };
     let mut out = Vec::new();
     let mut rest: &str = l;
     while let Some(open) = rest.find("frame={") {
@@ -395,7 +401,10 @@ mod tests {
     fn capabilities_are_honest_and_consistent_with_available() {
         // Detecção determinística a partir do PATH; nunca entra em pânico e a nota nunca é vazia.
         let cap = capabilities();
-        assert!(!cap.note.is_empty(), "a nota de capacidade explica sempre o estado");
+        assert!(
+            !cap.note.is_empty(),
+            "a nota de capacidade explica sempre o estado"
+        );
         // `available()` (gdb na PATH) e o motor detectado pela DAP coincidem: se há gdb, o
         // detector vê um motor; a fatia inteira é alcançável sem driver nem tauri::State.
         if available() {
@@ -415,7 +424,10 @@ mod tests {
             driver::set_break(&sessions, "ghost", "t.c", 1).unwrap_err(),
             "no such debug session"
         );
-        assert_eq!(driver::run(&sessions, "ghost").unwrap_err(), "no such debug session");
+        assert_eq!(
+            driver::run(&sessions, "ghost").unwrap_err(),
+            "no such debug session"
+        );
         // `stop` numa sessão inexistente é benigno (remove None → Ok), como antes.
         assert!(driver::stop(&sessions, "ghost").is_ok());
     }

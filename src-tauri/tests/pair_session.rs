@@ -62,7 +62,10 @@ fn token_round_trips_through_the_public_facade() {
 #[test]
 fn send_without_a_peer_is_an_error() {
     // Nenhuma ligação ainda: a mensagem não tem para onde ir — mensagem histórica estável.
-    assert_eq!(Pair::default().send("late").unwrap_err(), "no one is connected");
+    assert_eq!(
+        Pair::default().send("late").unwrap_err(),
+        "no one is connected"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -72,7 +75,11 @@ async fn host_and_guest_exchange_over_loopback_through_the_facade() {
     // port 0 = porta efémera: o teste não prende a 47821 da máquina.
     let token = host.host("host", Some(0), hev).await.unwrap();
     let t = decode_token(&token).unwrap();
-    assert_eq!(t.addrs.last().unwrap(), "127.0.0.1", "loopback fica por último");
+    assert_eq!(
+        t.addrs.last().unwrap(),
+        "127.0.0.1",
+        "loopback fica por último"
+    );
     let port = t.port;
 
     // um token com o endereço certo mas outra chave é recusado no handshake selado.

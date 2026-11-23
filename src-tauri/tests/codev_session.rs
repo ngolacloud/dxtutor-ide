@@ -56,13 +56,22 @@ fn session_start_list_and_discard_round_trip_over_a_real_repo() {
     let root = dir.path();
 
     // Começa sem sessões abertas.
-    assert!(codev::sessions(root).is_empty(), "repo acabado de criar não tem sessões");
+    assert!(
+        codev::sessions(root).is_empty(),
+        "repo acabado de criar não tem sessões"
+    );
 
     let info = codev::session_start(root, "Minha Tarefa").expect("abrir sessão num repo não falha");
-    assert_eq!(info.slug, "minha-tarefa", "o nome vira um slug git-ref-safe");
+    assert_eq!(
+        info.slug, "minha-tarefa",
+        "o nome vira um slug git-ref-safe"
+    );
     assert_eq!(info.branch, "codev/minha-tarefa");
     assert_eq!(info.base, "main", "a sessão parte da branch base actual");
-    assert!(Path::new(&info.worktree).is_dir(), "a worktree isolada existe em disco");
+    assert!(
+        Path::new(&info.worktree).is_dir(),
+        "a worktree isolada existe em disco"
+    );
 
     let open = codev::sessions(root);
     assert_eq!(open.len(), 1, "a sessão aberta aparece na listagem");
@@ -82,7 +91,10 @@ fn starting_a_session_outside_a_repo_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
 
     let err = codev::session_start(dir.path(), "x").unwrap_err();
-    assert_eq!(err, "not a git repository", "mensagem de erro preservada da versão em lib.rs");
+    assert_eq!(
+        err, "not a git repository",
+        "mensagem de erro preservada da versão em lib.rs"
+    );
 }
 
 /// A regra `policy_for_mode` atravessa a fronteira do crate: a modebar decide o modo, o
@@ -91,7 +103,17 @@ fn starting_a_session_outside_a_repo_is_an_error() {
 #[test]
 fn policy_for_mode_is_reachable_and_fails_closed() {
     assert_eq!(codev::policy_for_mode("auto").mode, "auto");
-    assert!(codev::policy_for_mode("auto").chains, "auto encadeia passos");
-    assert_eq!(codev::policy_for_mode("desconhecido").mode, "manual", "fail-closed");
-    assert!(codev::policy_for_mode("auto").destructive_always_asks, "destrutivo pede sempre");
+    assert!(
+        codev::policy_for_mode("auto").chains,
+        "auto encadeia passos"
+    );
+    assert_eq!(
+        codev::policy_for_mode("desconhecido").mode,
+        "manual",
+        "fail-closed"
+    );
+    assert!(
+        codev::policy_for_mode("auto").destructive_always_asks,
+        "destrutivo pede sempre"
+    );
 }

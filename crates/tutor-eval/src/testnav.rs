@@ -82,7 +82,13 @@ pub fn run_test(root: &Path, path: &str) -> TestRun {
 
     let scratch = match tempfile::tempdir() {
         Ok(d) => d,
-        Err(e) => return TestRun { ran: false, passed: false, output: format!("scratch: {e}") },
+        Err(e) => {
+            return TestRun {
+                ran: false,
+                passed: false,
+                output: format!("scratch: {e}"),
+            }
+        }
     };
     match run_guarded(cmd, scratch.path(), "test", TEST_TIMEOUT, None) {
         Ok(o) if o.timed_out => TestRun {
@@ -93,12 +99,28 @@ pub fn run_test(root: &Path, path: &str) -> TestRun {
         Ok(o) => {
             let combined = format!("{}{}", o.stdout, o.stderr);
             match test_outcome(&combined, path) {
-                Outcome::Passed => TestRun { ran: true, passed: true, output: combined },
-                Outcome::Failed => TestRun { ran: true, passed: false, output: combined },
-                Outcome::DidNotRun => TestRun { ran: false, passed: false, output: combined },
+                Outcome::Passed => TestRun {
+                    ran: true,
+                    passed: true,
+                    output: combined,
+                },
+                Outcome::Failed => TestRun {
+                    ran: true,
+                    passed: false,
+                    output: combined,
+                },
+                Outcome::DidNotRun => TestRun {
+                    ran: false,
+                    passed: false,
+                    output: combined,
+                },
             }
         }
-        Err(e) => TestRun { ran: false, passed: false, output: format!("spawn: {e}") },
+        Err(e) => TestRun {
+            ran: false,
+            passed: false,
+            output: format!("spawn: {e}"),
+        },
     }
 }
 
@@ -133,7 +155,13 @@ pub(crate) fn suite_kind(root: &Path) -> SuiteKind {
 /// Honest when the root carries no recognised suite.
 pub fn run_suite(root: &Path) -> TestRun {
     match suite_kind(root) {
-        SuiteKind::Cargo => run_whole(root, "cargo", &["test", "--", "--nocapture"], false, suite_passed),
+        SuiteKind::Cargo => run_whole(
+            root,
+            "cargo",
+            &["test", "--", "--nocapture"],
+            false,
+            suite_passed,
+        ),
         SuiteKind::Go => run_whole(root, "go", &["test", "./..."], true, go_suite_passed),
         SuiteKind::Python => run_whole(
             root,
@@ -145,7 +173,9 @@ pub fn run_suite(root: &Path) -> TestRun {
         SuiteKind::None => TestRun {
             ran: false,
             passed: false,
-            output: "No Rust (Cargo.toml), Go (go.mod) or Python test suite found at the project root.".into(),
+            output:
+                "No Rust (Cargo.toml), Go (go.mod) or Python test suite found at the project root."
+                    .into(),
         },
     }
 }
@@ -161,7 +191,13 @@ fn run_whole(
 ) -> TestRun {
     let scratch = match tempfile::tempdir() {
         Ok(d) => d,
-        Err(e) => return TestRun { ran: false, passed: false, output: format!("scratch: {e}") },
+        Err(e) => {
+            return TestRun {
+                ran: false,
+                passed: false,
+                output: format!("scratch: {e}"),
+            }
+        }
     };
     let mut cmd = Command::new(prog);
     cmd.args(args);
@@ -181,9 +217,17 @@ fn run_whole(
         },
         Ok(o) => {
             let combined = format!("{}{}", o.stdout, o.stderr);
-            TestRun { ran: true, passed: verdict(&combined), output: combined }
+            TestRun {
+                ran: true,
+                passed: verdict(&combined),
+                output: combined,
+            }
         }
-        Err(e) => TestRun { ran: false, passed: false, output: format!("spawn: {e}") },
+        Err(e) => TestRun {
+            ran: false,
+            passed: false,
+            output: format!("spawn: {e}"),
+        },
     }
 }
 
@@ -206,7 +250,13 @@ pub(crate) fn suite_passed(output: &str) -> bool {
 pub fn run_go_test(root: &Path, name: &str) -> TestRun {
     let scratch = match tempfile::tempdir() {
         Ok(d) => d,
-        Err(e) => return TestRun { ran: false, passed: false, output: format!("scratch: {e}") },
+        Err(e) => {
+            return TestRun {
+                ran: false,
+                passed: false,
+                output: format!("scratch: {e}"),
+            }
+        }
     };
     let mut cmd = Command::new("go");
     cmd.args(["test", "-run", &format!("^{name}$"), "-v", "./..."]);
@@ -221,12 +271,28 @@ pub fn run_go_test(root: &Path, name: &str) -> TestRun {
         Ok(o) => {
             let combined = format!("{}{}", o.stdout, o.stderr);
             match go_test_outcome(&combined, name) {
-                Outcome::Passed => TestRun { ran: true, passed: true, output: combined },
-                Outcome::Failed => TestRun { ran: true, passed: false, output: combined },
-                Outcome::DidNotRun => TestRun { ran: false, passed: false, output: combined },
+                Outcome::Passed => TestRun {
+                    ran: true,
+                    passed: true,
+                    output: combined,
+                },
+                Outcome::Failed => TestRun {
+                    ran: true,
+                    passed: false,
+                    output: combined,
+                },
+                Outcome::DidNotRun => TestRun {
+                    ran: false,
+                    passed: false,
+                    output: combined,
+                },
             }
         }
-        Err(e) => TestRun { ran: false, passed: false, output: format!("spawn: {e}") },
+        Err(e) => TestRun {
+            ran: false,
+            passed: false,
+            output: format!("spawn: {e}"),
+        },
     }
 }
 
@@ -305,7 +371,9 @@ fn walk_go(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
         let name = e.file_name().to_string_lossy().to_string();
         let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
         if is_dir {
-            if name.starts_with('.') || matches!(name.as_str(), "vendor" | "node_modules" | "target") {
+            if name.starts_with('.')
+                || matches!(name.as_str(), "vendor" | "node_modules" | "target")
+            {
                 continue;
             }
             walk_go(&e.path(), depth + 1, out);
@@ -380,12 +448,16 @@ fn walk_python(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
         let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
         if is_dir {
             if name.starts_with('.')
-                || matches!(name.as_str(), "venv" | ".venv" | "node_modules" | "__pycache__" | "target")
+                || matches!(
+                    name.as_str(),
+                    "venv" | ".venv" | "node_modules" | "__pycache__" | "target"
+                )
             {
                 continue;
             }
             walk_python(&e.path(), depth + 1, out);
-        } else if name.ends_with(".py") && (name.starts_with("test") || name.ends_with("_test.py")) {
+        } else if name.ends_with(".py") && (name.starts_with("test") || name.ends_with("_test.py"))
+        {
             out.push(e.path());
         }
     }
@@ -417,10 +489,18 @@ pub(crate) fn python_test_names(code: &str) -> Vec<(String, u32)> {
 pub fn run_python_test(root: &Path, name: &str) -> TestRun {
     let scratch = match tempfile::tempdir() {
         Ok(d) => d,
-        Err(e) => return TestRun { ran: false, passed: false, output: format!("scratch: {e}") },
+        Err(e) => {
+            return TestRun {
+                ran: false,
+                passed: false,
+                output: format!("scratch: {e}"),
+            }
+        }
     };
     let mut cmd = Command::new("python3");
-    cmd.args(["-m", "unittest", "discover", "-s", ".", "-t", ".", "-k", name, "-v"]);
+    cmd.args([
+        "-m", "unittest", "discover", "-s", ".", "-t", ".", "-k", name, "-v",
+    ]);
     cmd.current_dir(root);
     cmd.env("PYTHONDONTWRITEBYTECODE", "1");
     match run_guarded(cmd, scratch.path(), "pytest", TEST_TIMEOUT, None) {
@@ -432,12 +512,28 @@ pub fn run_python_test(root: &Path, name: &str) -> TestRun {
         Ok(o) => {
             let combined = format!("{}{}", o.stdout, o.stderr);
             match python_test_outcome(&combined) {
-                Outcome::Passed => TestRun { ran: true, passed: true, output: combined },
-                Outcome::Failed => TestRun { ran: true, passed: false, output: combined },
-                Outcome::DidNotRun => TestRun { ran: false, passed: false, output: combined },
+                Outcome::Passed => TestRun {
+                    ran: true,
+                    passed: true,
+                    output: combined,
+                },
+                Outcome::Failed => TestRun {
+                    ran: true,
+                    passed: false,
+                    output: combined,
+                },
+                Outcome::DidNotRun => TestRun {
+                    ran: false,
+                    passed: false,
+                    output: combined,
+                },
             }
         }
-        Err(e) => TestRun { ran: false, passed: false, output: format!("spawn: {e}") },
+        Err(e) => TestRun {
+            ran: false,
+            passed: false,
+            output: format!("spawn: {e}"),
+        },
     }
 }
 
@@ -534,7 +630,10 @@ mod tests {
         let found = discover_tests(root);
         let names: Vec<&str> = found.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"soma_simples"), "found: {names:?}");
-        let caro = found.iter().find(|t| t.name == "caro").expect("caro discovered");
+        let caro = found
+            .iter()
+            .find(|t| t.name == "caro")
+            .expect("caro discovered");
         assert!(caro.ignored, "#[ignore] must be noted");
         let simples = found.iter().find(|t| t.name == "soma_simples").unwrap();
         assert!(!simples.ignored);
@@ -560,9 +659,18 @@ mod tests {
 
         let found = discover_tests(root);
         let names: Vec<&str> = found.iter().map(|t| t.name.as_str()).collect();
-        assert!(names.contains(&"async_tokio"), "tokio::test deve contar: {names:?}");
-        assert!(names.contains(&"async_std_t"), "async_std::test deve contar: {names:?}");
-        assert!(!names.contains(&"nao_e_test"), "#[rstest] não é #[test]: {names:?}");
+        assert!(
+            names.contains(&"async_tokio"),
+            "tokio::test deve contar: {names:?}"
+        );
+        assert!(
+            names.contains(&"async_std_t"),
+            "async_std::test deve contar: {names:?}"
+        );
+        assert!(
+            !names.contains(&"nao_e_test"),
+            "#[rstest] não é #[test]: {names:?}"
+        );
     }
 
     #[test]
@@ -578,8 +686,14 @@ mod tests {
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"TestSoma"));
         assert!(names.contains(&"Test_edge"));
-        assert!(!names.contains(&"TestMain"), "TestMain é especial, não é teste");
-        assert!(!names.contains(&"Testing"), "'Testing' não segue a convenção");
+        assert!(
+            !names.contains(&"TestMain"),
+            "TestMain é especial, não é teste"
+        );
+        assert!(
+            !names.contains(&"Testing"),
+            "'Testing' não segue a convenção"
+        );
         assert!(!names.contains(&"helper"));
     }
 
@@ -593,7 +707,10 @@ mod tests {
         )
         .unwrap();
         let found = discover_tests(root);
-        let go = found.iter().find(|t| t.name == "TestAdd").expect("TestAdd descoberto");
+        let go = found
+            .iter()
+            .find(|t| t.name == "TestAdd")
+            .expect("TestAdd descoberto");
         assert_eq!(go.lang, "go");
         assert_eq!(go.path, "TestAdd");
         assert!(go.file.ends_with("math_test.go"));
@@ -618,10 +735,22 @@ mod tests {
 
     #[test]
     fn parser_do_resultado_python() {
-        assert_eq!(python_test_outcome("test_add (m.T.test_add) ... ok\n\nRan 1 test in 0.0s\n\nOK\n"), Outcome::Passed);
-        assert_eq!(python_test_outcome("test_add ... FAIL\n\nRan 1 test\n\nFAILED (failures=1)\n"), Outcome::Failed);
-        assert_eq!(python_test_outcome("\nRan 0 tests in 0.000s\n\nOK\n"), Outcome::DidNotRun);
-        assert_eq!(python_test_outcome("Traceback...\nSyntaxError: bad"), Outcome::DidNotRun);
+        assert_eq!(
+            python_test_outcome("test_add (m.T.test_add) ... ok\n\nRan 1 test in 0.0s\n\nOK\n"),
+            Outcome::Passed
+        );
+        assert_eq!(
+            python_test_outcome("test_add ... FAIL\n\nRan 1 test\n\nFAILED (failures=1)\n"),
+            Outcome::Failed
+        );
+        assert_eq!(
+            python_test_outcome("\nRan 0 tests in 0.000s\n\nOK\n"),
+            Outcome::DidNotRun
+        );
+        assert_eq!(
+            python_test_outcome("Traceback...\nSyntaxError: bad"),
+            Outcome::DidNotRun
+        );
     }
 
     #[test]
@@ -640,43 +769,83 @@ mod tests {
         )
         .unwrap();
         let ok = run_python_test(root, "test_passa");
-        assert!(ok.ran && ok.passed, "test_passa devia passar:\n{}", ok.output);
+        assert!(
+            ok.ran && ok.passed,
+            "test_passa devia passar:\n{}",
+            ok.output
+        );
         let bad = run_python_test(root, "test_falha");
-        assert!(bad.ran && !bad.passed, "test_falha devia falhar:\n{}", bad.output);
+        assert!(
+            bad.ran && !bad.passed,
+            "test_falha devia falhar:\n{}",
+            bad.output
+        );
     }
 
     #[test]
     fn parser_do_resultado_do_cargo() {
         let p = "tests::soma";
         assert_eq!(
-            test_outcome("running 1 test\ntest tests::soma ... ok\ntest result: ok. 1 passed", p),
+            test_outcome(
+                "running 1 test\ntest tests::soma ... ok\ntest result: ok. 1 passed",
+                p
+            ),
             Outcome::Passed
         );
         assert_eq!(
-            test_outcome("test tests::soma ... FAILED\ntest result: FAILED. 0 passed; 1 failed", p),
+            test_outcome(
+                "test tests::soma ... FAILED\ntest result: FAILED. 0 passed; 1 failed",
+                p
+            ),
             Outcome::Failed
         );
         // 0 tests ran (name not found) — doctests still print "test result: ok." but the
         // target never ran. Must NOT be a pass.
         assert_eq!(
-            test_outcome("running 0 tests\ntest result: ok. 0 passed; 0 failed; 1 filtered out", p),
+            test_outcome(
+                "running 0 tests\ntest result: ok. 0 passed; 0 failed; 1 filtered out",
+                p
+            ),
             Outcome::DidNotRun
         );
-        assert_eq!(test_outcome("error[E0308]: mismatched types", p), Outcome::DidNotRun);
+        assert_eq!(
+            test_outcome("error[E0308]: mismatched types", p),
+            Outcome::DidNotRun
+        );
     }
 
     #[test]
     fn parser_do_resultado_go() {
-        assert_eq!(go_test_outcome("=== RUN   TestAdd\n--- PASS: TestAdd (0.00s)\nPASS\nok  demo", "TestAdd"), Outcome::Passed);
-        assert_eq!(go_test_outcome("--- FAIL: TestAdd (0.00s)\nFAIL", "TestAdd"), Outcome::Failed);
-        assert_eq!(go_test_outcome("testing: warning: no tests to run\nok  demo [no tests to run]", "TestAusente"), Outcome::DidNotRun);
-        assert_eq!(go_test_outcome("./x_test.go:3:1: expected declaration", "TestAdd"), Outcome::DidNotRun);
+        assert_eq!(
+            go_test_outcome(
+                "=== RUN   TestAdd\n--- PASS: TestAdd (0.00s)\nPASS\nok  demo",
+                "TestAdd"
+            ),
+            Outcome::Passed
+        );
+        assert_eq!(
+            go_test_outcome("--- FAIL: TestAdd (0.00s)\nFAIL", "TestAdd"),
+            Outcome::Failed
+        );
+        assert_eq!(
+            go_test_outcome(
+                "testing: warning: no tests to run\nok  demo [no tests to run]",
+                "TestAusente"
+            ),
+            Outcome::DidNotRun
+        );
+        assert_eq!(
+            go_test_outcome("./x_test.go:3:1: expected declaration", "TestAdd"),
+            Outcome::DidNotRun
+        );
     }
 
     #[test]
     fn parser_da_suite_completa() {
         assert!(suite_passed("test result: ok. 3 passed; 0 failed"));
-        assert!(!suite_passed("test foo ... FAILED\ntest result: FAILED. 2 passed; 1 failed"));
+        assert!(!suite_passed(
+            "test foo ... FAILED\ntest result: FAILED. 2 passed; 1 failed"
+        ));
         assert!(!suite_passed("error[E0425]: cannot find value"));
         assert!(!suite_passed("sem resultado")); // nada correu
     }
@@ -684,9 +853,13 @@ mod tests {
     #[test]
     fn go_suite_verdict() {
         assert!(go_suite_passed("ok  \tdemo\t0.10s"));
-        assert!(go_suite_passed("ok  \tdemo\nok  \tdemo/sub [no test files]"));
+        assert!(go_suite_passed(
+            "ok  \tdemo\nok  \tdemo/sub [no test files]"
+        ));
         assert!(!go_suite_passed("--- FAIL: TestX\nFAIL\tdemo"));
-        assert!(!go_suite_passed("./x.go:1:1: syntax error\nFAIL\tdemo [build failed]"));
+        assert!(!go_suite_passed(
+            "./x.go:1:1: syntax error\nFAIL\tdemo [build failed]"
+        ));
     }
 
     #[test]
@@ -730,9 +903,17 @@ mod tests {
         .unwrap();
 
         let ok = run_go_test(root, "TestPassa");
-        assert!(ok.ran && ok.passed, "TestPassa devia passar:\n{}", ok.output);
+        assert!(
+            ok.ran && ok.passed,
+            "TestPassa devia passar:\n{}",
+            ok.output
+        );
         let bad = run_go_test(root, "TestFalha");
-        assert!(bad.ran && !bad.passed, "TestFalha devia falhar:\n{}", bad.output);
+        assert!(
+            bad.ran && !bad.passed,
+            "TestFalha devia falhar:\n{}",
+            bad.output
+        );
     }
 
     #[test]
@@ -742,9 +923,17 @@ mod tests {
         write_project(dir.path());
 
         let ok = run_test(dir.path(), "tests::passa");
-        assert!(ok.ran && ok.passed, "o teste 'passa' devia passar:\n{}", ok.output);
+        assert!(
+            ok.ran && ok.passed,
+            "o teste 'passa' devia passar:\n{}",
+            ok.output
+        );
 
         let bad = run_test(dir.path(), "tests::falha");
-        assert!(bad.ran && !bad.passed, "o teste 'falha' devia falhar:\n{}", bad.output);
+        assert!(
+            bad.ran && !bad.passed,
+            "o teste 'falha' devia falhar:\n{}",
+            bad.output
+        );
     }
 }

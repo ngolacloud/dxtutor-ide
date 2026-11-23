@@ -35,7 +35,8 @@ fn parse_compose_ps_ndjson_extracts_fields_and_ports() {
 fn parse_compose_ps_handles_array_form_and_empty() {
     assert!(sandbox::parse_compose_ps("").is_empty());
     assert!(sandbox::parse_compose_ps("   \n ").is_empty());
-    let arr = r#"[{"Name":"x","Service":"x","State":"exited","Status":"Exited (0)","Image":"alpine"}]"#;
+    let arr =
+        r#"[{"Name":"x","Service":"x","State":"exited","Status":"Exited (0)","Image":"alpine"}]"#;
     let svcs = sandbox::parse_compose_ps(arr);
     assert_eq!(svcs.len(), 1);
     assert_eq!(svcs[0].state, "exited");

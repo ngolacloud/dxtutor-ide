@@ -100,7 +100,12 @@ impl Store for SqliteStore {
             return out;
         }
         // Build a parameter list for the enrolled students.
-        let placeholders = class.students.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let placeholders = class
+            .students
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!(
             "SELECT unit, COUNT(*) FROM attempts
                WHERE passed = 0 AND student IN ({placeholders}) GROUP BY unit"
@@ -109,8 +114,11 @@ impl Store for SqliteStore {
             Ok(s) => s,
             Err(_) => return out,
         };
-        let params: Vec<&dyn rusqlite::ToSql> =
-            class.students.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let params: Vec<&dyn rusqlite::ToSql> = class
+            .students
+            .iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
         if let Ok(rows) = stmt.query_map(params.as_slice(), |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))
         }) {
@@ -142,7 +150,10 @@ mod tests {
     #[test]
     fn sqlite_sync_is_idempotent_and_private() {
         let mut s = SqliteStore::in_memory().unwrap();
-        let batch = vec![attempt("a1", "ana", "u1", false, 1), attempt("a2", "rui", "u1", true, 2)];
+        let batch = vec![
+            attempt("a1", "ana", "u1", false, 1),
+            attempt("a2", "rui", "u1", true, 2),
+        ];
         assert_eq!(s.sync(batch.clone()), 2);
         assert_eq!(s.sync(batch), 0); // re-sync → no duplicates (durable idempotency)
         assert_eq!(s.attempts_of("ana").len(), 1);

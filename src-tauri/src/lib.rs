@@ -10,9 +10,9 @@
 //! its R²/confidence, and only ships the curated gabarito. `request_hint` uses
 //! the offline-safe provider when no API key is present.
 
-mod board;
 pub mod agent;
 pub mod assistant;
+mod board;
 mod bridge;
 pub mod codeintel;
 pub mod codev;
@@ -39,27 +39,6 @@ pub mod workspace;
 
 // Comandos extraídos para `commands/<feature>.rs` (Etapa 3). Importados por nome
 // para o registo de handlers abaixo continuar a referenciá-los sem prefixo de módulo.
-use commands::review::{list_review_analyzers, review_code, verify_review_fix};
-use commands::codeintel::{
-    diff_lines, file_outline, list_symbols, project_entrypoint, propose_entrypoint,
-    resolve_definition, resolve_hover, resolve_references, symbol_ranges, symbol_relations,
-};
-use commands::tests::{list_tests, run_all_tests, run_path, run_test, run_tests};
-use commands::git::{
-    git_branch, git_branches, git_changes, git_checkout, git_clone, git_commit, git_create_branch,
-    git_diff, git_log, git_show, git_stage, git_stage_all, git_unstage,
-};
-use commands::codev::{
-    codev_policy, codev_session_deliver, codev_session_discard, codev_session_list,
-    codev_session_start,
-};
-use commands::codev_agent::{
-    codev_agent_approve, codev_agent_cancel, codev_agent_checkpoints, codev_agent_close,
-    codev_agent_history, codev_agent_rewind, codev_agent_send, codev_agent_sessions,
-    codev_agent_extensions, codev_agent_set_mode, codev_agent_set_plan, codev_agent_start,
-    codev_agent_trust,
-};
-use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::agent::{
     agent_isolated_patch, agent_task_cancel, agent_task_status, agent_task_submit, arch_scaffold,
     arch_scaffold_preview, arch_validate,
@@ -67,6 +46,20 @@ use commands::agent::{
 use commands::assistant::{
     assistant_cancel, assistant_chat, assistant_chat_stream, assistant_models, get_diagnostics,
     get_providers_config, list_providers, save_providers_config,
+};
+use commands::codeintel::{
+    diff_lines, file_outline, list_symbols, project_entrypoint, propose_entrypoint,
+    resolve_definition, resolve_hover, resolve_references, symbol_ranges, symbol_relations,
+};
+use commands::codev::{
+    codev_policy, codev_session_deliver, codev_session_discard, codev_session_list,
+    codev_session_start,
+};
+use commands::codev_agent::{
+    codev_agent_approve, codev_agent_cancel, codev_agent_checkpoints, codev_agent_close,
+    codev_agent_extensions, codev_agent_history, codev_agent_rewind, codev_agent_send,
+    codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan, codev_agent_start,
+    codev_agent_trust,
 };
 use commands::debug_cmds::{
     debug_available, debug_break, debug_capabilities, debug_continue, debug_launch, debug_locals,
@@ -77,13 +70,20 @@ use commands::devcontainer::{
     devcontainer_session_run, devcontainer_session_status, devcontainer_session_up,
     devcontainer_up,
 };
-use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
+use commands::git::{
+    git_branch, git_branches, git_changes, git_checkout, git_clone, git_commit, git_create_branch,
+    git_diff, git_log, git_show, git_stage, git_stage_all, git_unstage,
+};
+use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
+use commands::review::{list_review_analyzers, review_code, verify_review_fix};
+use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
+use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::study::{
     get_course, get_glossary, get_study_guide, list_courses, list_phases, request_fix,
     request_hint, request_plan, study_policy, submit, submit_step,
 };
-use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
+use commands::tests::{list_tests, run_all_tests, run_path, run_test, run_tests};
 
 use serde::Serialize;
 use tutor_core::{Level, Phase, StepKind};
@@ -964,11 +964,20 @@ mod tests {
     fn scaffold_preview_payload_has_compose() {
         use tutor_eval::arch::{Architecture, Component, Kind};
         let arch = Architecture {
-            components: vec![Component { id: "api".into(), name: "api".into(), kind: Kind::Service, outbox: false }],
+            components: vec![Component {
+                id: "api".into(),
+                name: "api".into(),
+                kind: Kind::Service,
+                outbox: false,
+            }],
             connections: vec![],
         };
         let files = arch.scaffold(); // exactamente o que arch_scaffold_preview devolve
-        assert!(files.iter().any(|(p, _)| p == "docker-compose.yml"), "sem compose: {:?}", files.iter().map(|(p, _)| p).collect::<Vec<_>>());
+        assert!(
+            files.iter().any(|(p, _)| p == "docker-compose.yml"),
+            "sem compose: {:?}",
+            files.iter().map(|(p, _)| p).collect::<Vec<_>>()
+        );
         assert!(files.iter().any(|(p, _)| p == "services/api/Dockerfile"));
     }
 
@@ -995,7 +1004,10 @@ mod tests {
             gabarito: reveal_gabarito(false, &g),
         };
         let json = serde_json::to_string(&dto).expect("serialize");
-        assert!(json.contains("\"gabarito\":null"), "gabarito must be null: {json}");
+        assert!(
+            json.contains("\"gabarito\":null"),
+            "gabarito must be null: {json}"
+        );
         assert!(
             !json.contains("fn answer") && !json.contains("constant work"),
             "failed payload leaked the solution/justification: {json}"
@@ -1020,6 +1032,9 @@ mod tests {
             gabarito: reveal_gabarito(true, &g),
         };
         let json = serde_json::to_string(&dto).expect("serialize");
-        assert!(json.contains("fn answer"), "passed payload should include the solution: {json}");
+        assert!(
+            json.contains("fn answer"),
+            "passed payload should include the solution: {json}"
+        );
     }
 }

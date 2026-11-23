@@ -46,9 +46,17 @@ pub fn resolve_definition(
     character: u32,
     text: Option<&str>,
 ) -> Option<Location> {
-    request(root, file, line, character, "textDocument/definition", false, text)
-        .map(|v| parse_locations(&v))
-        .and_then(|ls| ls.into_iter().next())
+    request(
+        root,
+        file,
+        line,
+        character,
+        "textDocument/definition",
+        false,
+        text,
+    )
+    .map(|v| parse_locations(&v))
+    .and_then(|ls| ls.into_iter().next())
 }
 
 /// Resolve ALL references to the symbol at (`line`, `character`) across the project via
@@ -60,9 +68,17 @@ pub fn resolve_references(
     character: u32,
     text: Option<&str>,
 ) -> Vec<Location> {
-    request(root, file, line, character, "textDocument/references", true, text)
-        .map(|v| parse_locations(&v))
-        .unwrap_or_default()
+    request(
+        root,
+        file,
+        line,
+        character,
+        "textDocument/references",
+        true,
+        text,
+    )
+    .map(|v| parse_locations(&v))
+    .unwrap_or_default()
 }
 
 /// Hover info (type signature / docs, as markdown) for the symbol at (`line`, `character`)
@@ -74,8 +90,16 @@ pub fn resolve_hover(
     character: u32,
     text: Option<&str>,
 ) -> Option<String> {
-    request(root, file, line, character, "textDocument/hover", false, text)
-        .and_then(|v| parse_hover(&v))
+    request(
+        root,
+        file,
+        line,
+        character,
+        "textDocument/hover",
+        false,
+        text,
+    )
+    .and_then(|v| parse_hover(&v))
 }
 
 /// Shared driver: spawn rust-analyzer, handshake, open the file, poll `method` at the
@@ -137,7 +161,10 @@ fn request(
             .unwrap_or_else(|_| file.display().to_string());
         ("file:///work".to_string(), format!("file:///work/{rel}"))
     } else {
-        (format!("file://{}", root.display()), format!("file://{}", file.display()))
+        (
+            format!("file://{}", root.display()),
+            format!("file://{}", file.display()),
+        )
     };
     // Prefer the live buffer (unsaved edits) over the on-disk content.
     let text = match text {
@@ -151,7 +178,17 @@ fn request(
     // Run the exchange on a worker thread; recv_timeout enforces the hard budget.
     let (tx, rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {
-        let r = exchange(&mut stdin, &mut reader, &root_uri, &file_uri, &text, line, character, method, include_decl);
+        let r = exchange(
+            &mut stdin,
+            &mut reader,
+            &root_uri,
+            &file_uri,
+            &text,
+            line,
+            character,
+            method,
+            include_decl,
+        );
         let _ = tx.send(r);
     });
     let mut result = rx.recv_timeout(BUDGET).ok().flatten();
@@ -162,7 +199,8 @@ fn request(
     if use_container {
         if let Some(v) = &result {
             let host = format!("file://{}", root.display());
-            if let Ok(mapped) = serde_json::from_str(&v.to_string().replace("file:///work", &host)) {
+            if let Ok(mapped) = serde_json::from_str(&v.to_string().replace("file:///work", &host))
+            {
                 result = Some(mapped);
             }
         }
@@ -182,16 +220,25 @@ fn exchange(
     method: &str,
     include_decl: bool,
 ) -> Option<Value> {
-    send(stdin, &json!({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": { "processId": null, "rootUri": root_uri, "capabilities": {} }
-    }))?;
+    send(
+        stdin,
+        &json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": root_uri, "capabilities": {} }
+        }),
+    )?;
     read_until_id(reader, 1)?; // initialize result (ignored)
-    send(stdin, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }))?;
-    send(stdin, &json!({
-        "jsonrpc": "2.0", "method": "textDocument/didOpen",
-        "params": { "textDocument": { "uri": file_uri, "languageId": "rust", "version": 1, "text": text } }
-    }))?;
+    send(
+        stdin,
+        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+    )?;
+    send(
+        stdin,
+        &json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": file_uri, "languageId": "rust", "version": 1, "text": text } }
+        }),
+    )?;
 
     // rust-analyzer returns null/[] until it has indexed the crate — poll a few times.
     for id in 2..40 {
@@ -202,7 +249,10 @@ fn exchange(
         if include_decl {
             params["context"] = json!({ "includeDeclaration": true });
         }
-        send(stdin, &json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))?;
+        send(
+            stdin,
+            &json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
+        )?;
         let result = read_until_id(reader, id)?;
         if is_ready(&result) {
             return Some(result);
@@ -229,8 +279,12 @@ fn lsp_server(lang: &str) -> Option<(&'static str, &'static [&'static str], &'st
         "rust" => Some(("rust-analyzer", &[], "rust")),
         "python" | "py" => Some(("pyright-langserver", &["--stdio"], "python")),
         "go" => Some(("gopls", &[], "go")),
-        "typescript" | "ts" | "tsx" => Some(("typescript-language-server", &["--stdio"], "typescript")),
-        "javascript" | "js" | "jsx" => Some(("typescript-language-server", &["--stdio"], "javascript")),
+        "typescript" | "ts" | "tsx" => {
+            Some(("typescript-language-server", &["--stdio"], "typescript"))
+        }
+        "javascript" | "js" | "jsx" => {
+            Some(("typescript-language-server", &["--stdio"], "javascript"))
+        }
         _ => None,
     }
 }
@@ -284,21 +338,33 @@ pub fn document_symbols(
             .unwrap_or_else(|_| file.display().to_string());
         ("file:///work".to_string(), format!("file:///work/{rel}"))
     } else {
-        (format!("file://{}", root.display()), format!("file://{}", file.display()))
+        (
+            format!("file://{}", root.display()),
+            format!("file://{}", file.display()),
+        )
     };
     let lang_id = lang_id.to_string();
     let text = text.to_string();
 
     let (tx, rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {
-        let r = exchange_symbols(&mut stdin, &mut reader, &root_uri, &file_uri, &lang_id, &text);
+        let r = exchange_symbols(
+            &mut stdin,
+            &mut reader,
+            &root_uri,
+            &file_uri,
+            &lang_id,
+            &text,
+        );
         let _ = tx.send(r);
     });
     let result = rx.recv_timeout(BUDGET).ok().flatten();
     let _ = child.kill();
     let _ = child.wait();
     let _ = worker.join();
-    result.map(|v| parse_document_symbols(&v)).unwrap_or_default()
+    result
+        .map(|v| parse_document_symbols(&v))
+        .unwrap_or_default()
 }
 
 fn exchange_symbols(
@@ -309,23 +375,35 @@ fn exchange_symbols(
     lang_id: &str,
     text: &str,
 ) -> Option<Value> {
-    send(stdin, &json!({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": { "processId": null, "rootUri": root_uri,
-            "capabilities": { "textDocument": { "documentSymbol": { "hierarchicalDocumentSymbolSupport": true } } } }
-    }))?;
+    send(
+        stdin,
+        &json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "processId": null, "rootUri": root_uri,
+                "capabilities": { "textDocument": { "documentSymbol": { "hierarchicalDocumentSymbolSupport": true } } } }
+        }),
+    )?;
     read_until_id(reader, 1)?;
-    send(stdin, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }))?;
-    send(stdin, &json!({
-        "jsonrpc": "2.0", "method": "textDocument/didOpen",
-        "params": { "textDocument": { "uri": file_uri, "languageId": lang_id, "version": 1, "text": text } }
-    }))?;
+    send(
+        stdin,
+        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+    )?;
+    send(
+        stdin,
+        &json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": file_uri, "languageId": lang_id, "version": 1, "text": text } }
+        }),
+    )?;
     // The server may need a moment to parse/index — poll a few times.
     for id in 2..24 {
-        send(stdin, &json!({
-            "jsonrpc": "2.0", "id": id, "method": "textDocument/documentSymbol",
-            "params": { "textDocument": { "uri": file_uri } }
-        }))?;
+        send(
+            stdin,
+            &json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/documentSymbol",
+                "params": { "textDocument": { "uri": file_uri } }
+            }),
+        )?;
         let result = read_until_id(reader, id)?;
         if is_ready(&result) {
             return Some(result);
@@ -471,12 +549,20 @@ fn parse_hover(result: &Value) -> Option<String> {
     let contents = result.get("contents")?;
     let text = match contents {
         Value::String(s) => s.clone(),
-        Value::Object(o) => o.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        Value::Object(o) => o
+            .get("value")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         Value::Array(a) => a
             .iter()
             .map(|p| match p {
                 Value::String(s) => s.clone(),
-                Value::Object(o) => o.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                Value::Object(o) => o
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 _ => String::new(),
             })
             .collect::<Vec<_>>()
@@ -520,8 +606,16 @@ mod tests {
 
     #[test]
     fn parse_locations_handles_the_shapes() {
-        let loc = json!({ "uri": "file:///a.rs", "range": { "start": { "line": 3, "character": 4 } } });
-        assert_eq!(parse_locations(&loc), vec![Location { uri: "file:///a.rs".into(), line: 3, character: 4 }]);
+        let loc =
+            json!({ "uri": "file:///a.rs", "range": { "start": { "line": 3, "character": 4 } } });
+        assert_eq!(
+            parse_locations(&loc),
+            vec![Location {
+                uri: "file:///a.rs".into(),
+                line: 3,
+                character: 4
+            }]
+        );
 
         let arr = json!([
             { "uri": "file:///b.rs", "range": { "start": { "line": 1, "character": 0 } } },
@@ -538,7 +632,8 @@ mod tests {
 
     #[test]
     fn parse_hover_handles_markup_string_and_array() {
-        let markup = json!({ "contents": { "kind": "markdown", "value": "fn helper(n: i32) -> i32" } });
+        let markup =
+            json!({ "contents": { "kind": "markdown", "value": "fn helper(n: i32) -> i32" } });
         assert_eq!(parse_hover(&markup).unwrap(), "fn helper(n: i32) -> i32");
         let s = json!({ "contents": "plain hover" });
         assert_eq!(parse_hover(&s).unwrap(), "plain hover");
@@ -551,7 +646,10 @@ mod tests {
     #[test]
     fn uri_to_path_decodes_percent_escapes() {
         assert_eq!(uri_to_path("file:///home/u/src/a.rs"), "/home/u/src/a.rs");
-        assert_eq!(uri_to_path("file:///home/my%20project/a.rs"), "/home/my project/a.rs");
+        assert_eq!(
+            uri_to_path("file:///home/my%20project/a.rs"),
+            "/home/my project/a.rs"
+        );
         assert_eq!(uri_to_path("file:///p/a%C3%A7%C3%A3o.rs"), "/p/ação.rs"); // UTF-8 bytes
         assert_eq!(uri_to_path("/already/plain"), "/already/plain");
     }
@@ -566,7 +664,10 @@ mod tests {
         let t0 = std::time::Instant::now();
         assert!(resolve_definition(dir.path(), &py, 0, 4, None).is_none());
         assert!(resolve_references(dir.path(), &py, 0, 4, None).is_empty());
-        assert!(t0.elapsed().as_secs() < 2, "non-Rust must not pay the LSP cold start");
+        assert!(
+            t0.elapsed().as_secs() < 2,
+            "non-Rust must not pay the LSP cold start"
+        );
     }
 
     #[test]
@@ -574,9 +675,17 @@ mod tests {
     fn resolves_a_cross_file_definition() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::write(root.join("Cargo.toml"), "[package]\nname=\"demo\"\nversion=\"0.0.0\"\nedition=\"2021\"\n\n[workspace]\n").unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname=\"demo\"\nversion=\"0.0.0\"\nedition=\"2021\"\n\n[workspace]\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::write(root.join("src/lib.rs"), "pub fn helper(n: i32) -> i32 { n + 1 }\n").unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            "pub fn helper(n: i32) -> i32 { n + 1 }\n",
+        )
+        .unwrap();
         // main.rs line 2 (0-based 1) calls demo::helper — resolve that usage.
         let main = "fn main() {\n    let _ = demo::helper(2);\n}\n";
         std::fs::write(root.join("src/main.rs"), main).unwrap();
@@ -594,17 +703,28 @@ mod tests {
     fn resolves_references_across_files() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::write(root.join("Cargo.toml"), "[package]\nname=\"demo\"\nversion=\"0.0.0\"\nedition=\"2021\"\n\n[workspace]\n").unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname=\"demo\"\nversion=\"0.0.0\"\nedition=\"2021\"\n\n[workspace]\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
         let lib = "pub fn helper(n: i32) -> i32 { n + 1 }\n";
         std::fs::write(root.join("src/lib.rs"), lib).unwrap();
-        std::fs::write(root.join("src/main.rs"), "fn main() {\n    let _ = demo::helper(2);\n}\n").unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    let _ = demo::helper(2);\n}\n",
+        )
+        .unwrap();
 
         // Position on `helper` at its declaration in lib.rs (line 0).
         let col = lib.find("helper").unwrap() as u32;
         let refs = resolve_references(root, &root.join("src/lib.rs"), 0, col, None);
         // With includeDeclaration: the decl in lib.rs + the use in main.rs.
         assert!(refs.len() >= 2, "expected ≥2 references, got {refs:?}");
-        assert!(refs.iter().any(|r| r.uri.ends_with("src/main.rs")), "a use in main.rs: {refs:?}");
+        assert!(
+            refs.iter().any(|r| r.uri.ends_with("src/main.rs")),
+            "a use in main.rs: {refs:?}"
+        );
     }
 }

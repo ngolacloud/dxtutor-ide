@@ -44,12 +44,20 @@ fn on_path(tool: &str) -> Option<PathBuf> {
 
 /// Detect the host's debug capability. Deterministic from `PATH`; never panics.
 pub fn detect_debug_adapter() -> DebugCapability {
-    let adapter = ADAPTERS.iter().find(|a| on_path(a).is_some()).map(|a| a.to_string());
-    let engine = ENGINES.iter().find(|e| on_path(e).is_some()).map(|e| e.to_string());
+    let adapter = ADAPTERS
+        .iter()
+        .find(|a| on_path(a).is_some())
+        .map(|a| a.to_string());
+    let engine = ENGINES
+        .iter()
+        .find(|e| on_path(e).is_some())
+        .map(|e| e.to_string());
     let available = adapter.is_some();
 
     let note = if let Some(a) = &adapter {
-        format!("DAP debugging available via `{a}` — real breakpoints and variable/stack inspection.")
+        format!(
+            "DAP debugging available via `{a}` — real breakpoints and variable/stack inspection."
+        )
     } else if let Some(e) = &engine {
         format!(
             "A debug engine (`{e}`) is installed, but no DAP adapter (codelldb / lldb-dap) was \
@@ -62,7 +70,12 @@ pub fn detect_debug_adapter() -> DebugCapability {
             .to_string()
     };
 
-    DebugCapability { available, adapter, engine, note }
+    DebugCapability {
+        available,
+        adapter,
+        engine,
+        note,
+    }
 }
 
 #[cfg(test)]

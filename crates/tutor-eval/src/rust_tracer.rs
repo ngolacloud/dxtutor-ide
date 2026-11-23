@@ -265,7 +265,9 @@ fn build_instrumented(file: &syn::File, mode: Mode) -> String {
 }
 
 /// Nomes de parâmetros simples (ignora `self` e padrões destruturados).
-fn collect_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::Token![,]>) -> Vec<syn::Ident> {
+fn collect_params(
+    inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::Token![,]>,
+) -> Vec<syn::Ident> {
     let mut out = Vec::new();
     for arg in inputs {
         if let syn::FnArg::Typed(pt) = arg {
@@ -581,11 +583,7 @@ fn compile_and_trace_container(src: &str) -> Result<TraceOutcome> {
     }
 
     // 2) Correr o binário instrumentado (sem rede); o traço sai no stderr.
-    let mut run = ContainerSpec::new(
-        image,
-        root,
-        vec!["./target/debug/drill".into()],
-    );
+    let mut run = ContainerSpec::new(image, root, vec!["./target/debug/drill".into()]);
     run.timeout = TRACE_RUN_TIMEOUT;
     let r = run_in_container(run)?;
 
@@ -711,7 +709,10 @@ fn run_only(code: &str, note: String) -> ExecutionTrace {
                 if !notes.is_empty() {
                     notes.push('\n');
                 }
-                notes.push_str(&format!("compiler/run output:\n{}", truncate(&stderr, 1200)));
+                notes.push_str(&format!(
+                    "compiler/run output:\n{}",
+                    truncate(&stderr, 1200)
+                ));
             }
             stdout
         }
@@ -765,9 +766,13 @@ mod tests {
     /// Em [`Mode::Full`] a instrumentação captura as variáveis em scope.
     #[test]
     fn full_captura_variaveis() {
-        let file = syn::parse_file("fn main() { let total = 3; println!(\"{}\", total); }").unwrap();
+        let file =
+            syn::parse_file("fn main() { let total = 3; println!(\"{}\", total); }").unwrap();
         let src = build_instrumented(&file, Mode::Full);
-        assert!(src.contains("__dxtutor_dbg"), "modo completo devia capturar valores");
+        assert!(
+            src.contains("__dxtutor_dbg"),
+            "modo completo devia capturar valores"
+        );
         assert!(src.contains("\"total\""), "devia referir a variável total");
     }
 
@@ -777,7 +782,10 @@ mod tests {
     fn full_captura_binding_tipado() {
         let file = syn::parse_file("fn main() { let x: i32 = 5; println!(\"{x}\"); }").unwrap();
         let src = build_instrumented(&file, Mode::Full);
-        assert!(src.contains("\"x\""), "o binding tipado devia ser capturado: {src}");
+        assert!(
+            src.contains("\"x\""),
+            "o binding tipado devia ser capturado: {src}"
+        );
     }
 
     #[test]
@@ -802,11 +810,10 @@ fn main() {
         );
 
         // Há um passo em que `total` vale 6 (1+2+3) — valor REAL observado.
-        let viu_total_6 = trace.steps.iter().any(|s| {
-            s.locals
-                .iter()
-                .any(|v| v.name == "total" && v.value == "6")
-        });
+        let viu_total_6 = trace
+            .steps
+            .iter()
+            .any(|s| s.locals.iter().any(|v| v.name == "total" && v.value == "6"));
         assert!(
             viu_total_6,
             "devia existir um passo com total=6; passos:\n{:#?}",

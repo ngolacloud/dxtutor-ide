@@ -103,8 +103,13 @@ impl LanguageRunner for GoRunner {
         // `go mod tidy` resolve os imports (stdlib é no-op; externos descarregam com
         // rede); depois `go test -v` para contarmos passes/falhas individuais.
         let script = "go mod tidy && go test -v ./...";
-        let out = run_go_script(root, script, pick(TEST_TIMEOUT_HOST, TEST_TIMEOUT_CONTAINER), true)
-            .context("correr `go test`")?;
+        let out = run_go_script(
+            root,
+            script,
+            pick(TEST_TIMEOUT_HOST, TEST_TIMEOUT_CONTAINER),
+            true,
+        )
+        .context("correr `go test`")?;
 
         let mut raw = String::new();
         raw.push_str(&out.stdout);
@@ -134,8 +139,13 @@ impl LanguageRunner for GoRunner {
         let root = dir.path();
         scaffold_probe_module(root, student_code, probe)?;
 
-        let out = run_go_script(root, "go run .", pick(PROBE_TIMEOUT_HOST, PROBE_TIMEOUT_CONTAINER), true)
-            .context("correr a sonda Go")?;
+        let out = run_go_script(
+            root,
+            "go run .",
+            pick(PROBE_TIMEOUT_HOST, PROBE_TIMEOUT_CONTAINER),
+            true,
+        )
+        .context("correr a sonda Go")?;
         if !out.ok {
             anyhow::bail!(
                 "a sonda Go terminou com erro (possível timeout/ciclo infinito):\n{}\n{}",
@@ -406,13 +416,14 @@ fn run_go_host(dir: &Path, script: &str, timeout: Duration) -> Result<RunOutput>
 /// Caminho container: corre `sh -c "<script>"` em `golang:1.25-alpine`, montando
 /// `dir` em `/work`, com o volume de cache `dxtutor-go:/go` e `network` conforme
 /// pedido. `GOTOOLCHAIN=local` evita descargas de toolchain.
-fn run_go_container(dir: &Path, script: &str, timeout: Duration, network: bool) -> Result<RunOutput> {
+fn run_go_container(
+    dir: &Path,
+    script: &str,
+    timeout: Duration,
+    network: bool,
+) -> Result<RunOutput> {
     let image = image_for("go").expect("go tem imagem conhecida");
-    let mut spec = ContainerSpec::new(
-        image,
-        dir,
-        vec!["sh".into(), "-c".into(), script.into()],
-    );
+    let mut spec = ContainerSpec::new(image, dir, vec!["sh".into(), "-c".into(), script.into()]);
     spec.timeout = timeout;
     spec.cache_volumes = cache_volumes_for("go");
     spec.network = network;
@@ -467,7 +478,12 @@ fn summarize_go(raw: &str, passed: bool) -> String {
         return format!("{pass} passaram, {fail} falharam");
     }
     // Erro de compilação: o `go build`/`go test` imprime `./ficheiro.go:L:C: …`.
-    if raw.contains(".go:") && (raw.contains("expected") || raw.contains("undefined") || raw.contains("syntax error") || raw.contains("# ")) {
+    if raw.contains(".go:")
+        && (raw.contains("expected")
+            || raw.contains("undefined")
+            || raw.contains("syntax error")
+            || raw.contains("# "))
+    {
         return "não compilou (erro de compilação)".to_string();
     }
     if raw.contains("[no test files]") || raw.contains("no tests to run") {
@@ -534,7 +550,10 @@ mod tests {
     fn with_package_prefixa_quando_falta_e_respeita_quando_existe() {
         let bare = "func Soma(a, b int) int { return a + b }";
         let wrapped = with_package(bare, "student");
-        assert!(wrapped.starts_with("package student"), "devia prefixar: {wrapped}");
+        assert!(
+            wrapped.starts_with("package student"),
+            "devia prefixar: {wrapped}"
+        );
 
         let already = "package main\n\nfunc main() {}";
         assert_eq!(
@@ -556,7 +575,10 @@ mod tests {
     #[test]
     fn summarize_deteta_erro_de_compilacao() {
         let raw = "# student\n./student.go:3:10: expected ';', found '}'\n";
-        assert_eq!(summarize_go(raw, false), "não compilou (erro de compilação)");
+        assert_eq!(
+            summarize_go(raw, false),
+            "não compilou (erro de compilação)"
+        );
     }
 
     #[test]
@@ -590,11 +612,17 @@ mod tests {
             sizes: vec![10, 20, 40],
             expected: "O(n)".into(),
         };
-        let src = render_probe("func sum(xs []int) int { t := 0; for _, x := range xs { t += x }; return t }", &probe);
+        let src = render_probe(
+            "func sum(xs []int) int { t := 0; for _, x := range xs { t += x }; return t }",
+            &probe,
+        );
         assert!(src.contains("package main"), "deve ser package main");
         assert!(src.contains("func gen(n int)"), "deve conter o gerador");
         assert!(src.contains("func sum(xs []int)"), "deve conter o aluno");
-        assert!(src.contains("sizes := []int{10, 20, 40}"), "deve conter os tamanhos: {src}");
+        assert!(
+            src.contains("sizes := []int{10, 20, 40}"),
+            "deve conter os tamanhos: {src}"
+        );
         assert!(src.contains("__sink = sum(input)"), "deve conter a chamada");
     }
 }

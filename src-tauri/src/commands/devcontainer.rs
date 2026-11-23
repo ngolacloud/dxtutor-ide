@@ -70,12 +70,10 @@ pub async fn devcontainer_session_run(
     root: String,
     file: String,
 ) -> Result<DevcontainerUp, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        devcontainer::session_run(Path::new(&root), &file)
-    })
-    .await
-    .map_err(|e| format!("devcontainer task failed: {e}"))?
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || devcontainer::session_run(Path::new(&root), &file))
+        .await
+        .map_err(|e| format!("devcontainer task failed: {e}"))?
+        .map_err(|e| e.to_string())
 }
 
 /// Whether the persistent session is running (best-effort probe). Runs off the UI thread.

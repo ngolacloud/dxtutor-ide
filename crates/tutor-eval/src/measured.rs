@@ -192,7 +192,9 @@ struct MeasuredOutcome {
 impl MeasuredOutcome {
     /// Sucesso = não excedeu o tempo e saiu com código 0.
     fn ok(&self) -> bool {
-        !self.timed_out && libc::WIFEXITED(self.status_raw) && libc::WEXITSTATUS(self.status_raw) == 0
+        !self.timed_out
+            && libc::WIFEXITED(self.status_raw)
+            && libc::WEXITSTATUS(self.status_raw) == 0
     }
 }
 
@@ -252,7 +254,10 @@ fn run_measured_binary(bin: &Path, root: &Path) -> Result<MeasuredOutcome> {
     // `/proc/<pid>/statm` — nada estimado.
     let mut samples: Vec<MemSample> = Vec::new();
     if let Some(rss_kb) = read_rss_kb(pid) {
-        samples.push(MemSample { t_ms: start.elapsed().as_secs_f64() * 1000.0, rss_kb });
+        samples.push(MemSample {
+            t_ms: start.elapsed().as_secs_f64() * 1000.0,
+            rss_kb,
+        });
     }
 
     let timed_out = loop {
@@ -316,7 +321,10 @@ fn run_measured_binary(bin: &Path, root: &Path) -> Result<MeasuredOutcome> {
     // sempre com o instante final no pico de RSS medido pela `rusage` (fonte da
     // verdade do pico). Assim, mesmo um programa curtíssimo traz ≥1-2 pontos.
     if peak_rss_kb > 0 {
-        samples.push(MemSample { t_ms: wall_ms, rss_kb: peak_rss_kb });
+        samples.push(MemSample {
+            t_ms: wall_ms,
+            rss_kb: peak_rss_kb,
+        });
     }
 
     let telemetry = Telemetry {
@@ -483,7 +491,10 @@ fn rustc_emit(root: &Path, src: &Path, args: &[&str]) -> Result<RustcOut> {
 
     let out = run_guarded(cmd, root, "rustc", CARGO_TIMEOUT, None).context("executar `rustc`")?;
     if out.timed_out {
-        anyhow::bail!("`rustc` excedeu o tempo limite ({}s)", CARGO_TIMEOUT.as_secs());
+        anyhow::bail!(
+            "`rustc` excedeu o tempo limite ({}s)",
+            CARGO_TIMEOUT.as_secs()
+        );
     }
     Ok(RustcOut {
         ok: out.status.map(|s| s.success()).unwrap_or(false),
@@ -494,16 +505,16 @@ fn rustc_emit(root: &Path, src: &Path, args: &[&str]) -> Result<RustcOut> {
 /// Emite uma representação com `--emit=<kind>` e lê o ficheiro `<crate_name>.<ext>`.
 fn emit_file(root: &Path, src: &Path, kind: &str, crate_name: &str, ext: &str) -> Result<String> {
     let emit = format!("--emit={kind}");
-    let out = rustc_emit(root, src, &[&emit, "--crate-name", crate_name, "--out-dir", "."])?;
+    let out = rustc_emit(
+        root,
+        src,
+        &[&emit, "--crate-name", crate_name, "--out-dir", "."],
+    )?;
     if !out.ok {
-        anyhow::bail!(
-            "rustc --emit={kind} falhou:\n{}",
-            trim_notes(&out.stderr)
-        );
+        anyhow::bail!("rustc --emit={kind} falhou:\n{}", trim_notes(&out.stderr));
     }
     let path = root.join(format!("{crate_name}.{ext}"));
-    std::fs::read_to_string(&path)
-        .with_context(|| format!("ler {}", path.display()))
+    std::fs::read_to_string(&path).with_context(|| format!("ler {}", path.display()))
 }
 
 /// Desmonta o binário com `objdump -d` se a ferramenta existir no PATH.
@@ -519,7 +530,8 @@ fn disassemble(root: &Path, bin: &Path) -> Result<Option<String>> {
     cmd.args(["-d", "--no-show-raw-insn"]);
     cmd.arg(bin);
 
-    let out = run_guarded(cmd, root, "objdump", CARGO_TIMEOUT, None).context("executar `objdump`")?;
+    let out =
+        run_guarded(cmd, root, "objdump", CARGO_TIMEOUT, None).context("executar `objdump`")?;
     if out.timed_out {
         anyhow::bail!("`objdump` excedeu o tempo limite");
     }
@@ -567,14 +579,22 @@ mod tests {
         let (run, tel) =
             run_rust_snippet_measured("fn main() {\n    println!(\"Hello, measured!\");\n}\n")
                 .expect("o sandbox devia arrancar");
-        assert!(run.ok, "o hello-world devia compilar e correr; stderr:\n{}", run.stderr);
+        assert!(
+            run.ok,
+            "o hello-world devia compilar e correr; stderr:\n{}",
+            run.stderr
+        );
         assert!(
             run.stdout.contains("Hello"),
             "stdout devia conter 'Hello', obteve-se:\n{}",
             run.stdout
         );
         assert_eq!(tel.exit_code, 0, "código de saída devia ser 0");
-        assert!(tel.wall_ms > 0.0, "wall_ms devia ser > 0, obteve-se {}", tel.wall_ms);
+        assert!(
+            tel.wall_ms > 0.0,
+            "wall_ms devia ser > 0, obteve-se {}",
+            tel.wall_ms
+        );
         assert!(
             tel.peak_rss_kb > 0,
             "peak_rss_kb devia ser > 0, obteve-se {}",

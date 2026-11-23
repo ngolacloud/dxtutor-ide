@@ -18,10 +18,17 @@ fn search_and_list_cover_a_real_project() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src/main.rs"), "fn main() {\n    let needle = 42;\n}\n").unwrap();
+    fs::write(
+        root.join("src/main.rs"),
+        "fn main() {\n    let needle = 42;\n}\n",
+    )
+    .unwrap();
 
     let hits = search(root, "needle", None, None);
-    assert!(!hits.is_empty(), "a pesquisa literal tem de encontrar `needle`: {hits:?}");
+    assert!(
+        !hits.is_empty(),
+        "a pesquisa literal tem de encontrar `needle`: {hits:?}"
+    );
 
     let files = list_files(root, None);
     assert!(
@@ -41,10 +48,17 @@ fn detect_projects_pins_root_and_one_level() {
     fs::create_dir_all(root.join("api")).unwrap();
     fs::write(root.join("api/go.mod"), "module api\n").unwrap();
     fs::create_dir_all(root.join("target/inner")).unwrap();
-    fs::write(root.join("target/inner/Cargo.toml"), "[package]\nname=\"x\"\n").unwrap();
+    fs::write(
+        root.join("target/inner/Cargo.toml"),
+        "[package]\nname=\"x\"\n",
+    )
+    .unwrap();
 
     let found = detect_projects(root);
-    assert!(found.iter().any(|p| p.kind == "rust"), "raiz Rust: {found:?}");
+    assert!(
+        found.iter().any(|p| p.kind == "rust"),
+        "raiz Rust: {found:?}"
+    );
     assert!(found.iter().any(|p| p.kind == "go"), "api/ Go: {found:?}");
     assert!(
         !found.iter().any(|p| p.path.contains("target")),
@@ -74,5 +88,9 @@ fn read_folder_sources_bounds_and_filters() {
 
     // Limite explícito de 1 ficheiro: truncagem honesta pára ao primeiro.
     let capped = read_folder_sources(root, Some(1), None);
-    assert_eq!(capped.len(), 1, "o cap de ficheiros é respeitado: {capped:?}");
+    assert_eq!(
+        capped.len(),
+        1,
+        "o cap de ficheiros é respeitado: {capped:?}"
+    );
 }

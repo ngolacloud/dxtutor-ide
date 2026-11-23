@@ -58,7 +58,11 @@ fn history_applies_the_default_page_and_respects_an_explicit_limit() {
     let dir = repo_with_two_commits();
 
     let all = gitops::history(dir.path(), None);
-    assert_eq!(all.len(), 2, "sem limite → os dois commits (dentro da página por omissão)");
+    assert_eq!(
+        all.len(),
+        2,
+        "sem limite → os dois commits (dentro da página por omissão)"
+    );
 
     let one = gitops::history(dir.path(), Some(1));
     assert_eq!(one.len(), 1, "página explícita de 1 ganha ao default");
@@ -91,9 +95,15 @@ fn a_bad_checkout_is_a_typed_git_error_carrying_stderr() {
     let dir = repo_with_two_commits();
 
     let err = gitops::checkout(dir.path(), "nao-existe").unwrap_err();
-    assert!(matches!(err, GitError::Git(_)), "o git correu e reportou — erro tipado Git");
+    assert!(
+        matches!(err, GitError::Git(_)),
+        "o git correu e reportou — erro tipado Git"
+    );
     // O `Display` passa o stderr cru (sem o prefixo de tarefa), como o comando fazia.
     let msg = err.to_string();
-    assert!(!msg.starts_with("git task failed:"), "stderr do git passa sem prefixo: {msg}");
+    assert!(
+        !msg.starts_with("git task failed:"),
+        "stderr do git passa sem prefixo: {msg}"
+    );
     assert!(!msg.is_empty(), "o stderr do git não é vazio");
 }

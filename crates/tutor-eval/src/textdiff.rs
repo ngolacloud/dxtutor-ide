@@ -48,7 +48,10 @@ pub fn line_diff(old: &str, new: &str) -> Vec<DiffLine> {
 
     let mut out = Vec::new();
     let (mut i, mut j) = (0, 0);
-    let line = |op, s: &str| DiffLine { op, text: s.to_string() };
+    let line = |op, s: &str| DiffLine {
+        op,
+        text: s.to_string(),
+    };
     while i < n && j < m {
         if a[i] == b[j] {
             out.push(line(Op::Context, a[i]));
@@ -91,15 +94,29 @@ mod tests {
     #[test]
     fn pure_add_and_del() {
         let added = line_diff("a\nc", "a\nb\nc");
-        assert_eq!(ops(&added), vec![(Op::Context, "a"), (Op::Add, "b"), (Op::Context, "c")]);
+        assert_eq!(
+            ops(&added),
+            vec![(Op::Context, "a"), (Op::Add, "b"), (Op::Context, "c")]
+        );
         let removed = line_diff("a\nb\nc", "a\nc");
-        assert_eq!(ops(&removed), vec![(Op::Context, "a"), (Op::Del, "b"), (Op::Context, "c")]);
+        assert_eq!(
+            ops(&removed),
+            vec![(Op::Context, "a"), (Op::Del, "b"), (Op::Context, "c")]
+        );
     }
 
     #[test]
     fn replace_is_del_then_add() {
         let d = line_diff("a\nold\nc", "a\nnew\nc");
-        assert_eq!(ops(&d), vec![(Op::Context, "a"), (Op::Del, "old"), (Op::Add, "new"), (Op::Context, "c")]);
+        assert_eq!(
+            ops(&d),
+            vec![
+                (Op::Context, "a"),
+                (Op::Del, "old"),
+                (Op::Add, "new"),
+                (Op::Context, "c")
+            ]
+        );
     }
 
     #[test]

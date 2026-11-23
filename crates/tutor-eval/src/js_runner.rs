@@ -316,7 +316,13 @@ fn parse_position(stack: &str) -> (u32, u32) {
     let rest = &stack[idx..];
     // rest começa em "<linha>:<coluna>" seguido de ')' ou fim de linha.
     let mut it = rest.split(|c: char| c == ':' || c == ')' || c == '\n' || c == ' ');
-    let line = it.next().and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(0);
-    let col = it.next().and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(0);
+    let line = it
+        .next()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+    let col = it
+        .next()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(0);
     (line, col)
 }

@@ -292,9 +292,21 @@ mod tests {
 
         for unit in &course.units {
             // Cada unidade começa num concept, tem >= 2 drills e termina num challenge.
-            let concepts = unit.steps.iter().filter(|s| s.kind == StepKind::Concept).count();
-            let drills = unit.steps.iter().filter(|s| s.kind == StepKind::Drill).count();
-            let challenges = unit.steps.iter().filter(|s| s.kind == StepKind::Challenge).count();
+            let concepts = unit
+                .steps
+                .iter()
+                .filter(|s| s.kind == StepKind::Concept)
+                .count();
+            let drills = unit
+                .steps
+                .iter()
+                .filter(|s| s.kind == StepKind::Drill)
+                .count();
+            let challenges = unit
+                .steps
+                .iter()
+                .filter(|s| s.kind == StepKind::Challenge)
+                .count();
             assert_eq!(concepts, 1, "unidade {} devia ter 1 concept", unit.id);
             assert!(drills >= 2, "unidade {} devia ter >= 2 drills", unit.id);
             assert_eq!(challenges, 1, "unidade {} devia ter 1 challenge", unit.id);
@@ -357,7 +369,11 @@ mod tests {
                 "challenge {} sem testes",
                 challenge.id
             );
-            assert!(!challenge.entry.trim().is_empty(), "challenge {} sem entry", challenge.id);
+            assert!(
+                !challenge.entry.trim().is_empty(),
+                "challenge {} sem entry",
+                challenge.id
+            );
             let phase = challenge
                 .as_phase(&course.language, Level::Basico)
                 .unwrap_or_else(|| panic!("challenge {} devia virar Phase", challenge.id));
@@ -450,7 +466,9 @@ mod tests {
         assert_eq!(default_unit_level(), "basic");
 
         // Um passo não-challenge não produz Phase.
-        assert!(course.units[0].steps[0].as_phase("rust", Level::Basico).is_none());
+        assert!(course.units[0].steps[0]
+            .as_phase("rust", Level::Basico)
+            .is_none());
     }
 
     #[test]
@@ -510,9 +528,21 @@ mod tests {
 
         for unit in &course.units {
             // Cada unidade: 1 concept primeiro, >= 2 drills, 1 challenge por último.
-            let concepts = unit.steps.iter().filter(|s| s.kind == StepKind::Concept).count();
-            let drills = unit.steps.iter().filter(|s| s.kind == StepKind::Drill).count();
-            let challenges = unit.steps.iter().filter(|s| s.kind == StepKind::Challenge).count();
+            let concepts = unit
+                .steps
+                .iter()
+                .filter(|s| s.kind == StepKind::Concept)
+                .count();
+            let drills = unit
+                .steps
+                .iter()
+                .filter(|s| s.kind == StepKind::Drill)
+                .count();
+            let challenges = unit
+                .steps
+                .iter()
+                .filter(|s| s.kind == StepKind::Challenge)
+                .count();
             assert_eq!(concepts, 1, "unidade {} devia ter 1 concept", unit.id);
             assert!(drills >= 2, "unidade {} devia ter >= 2 drills", unit.id);
             assert_eq!(challenges, 1, "unidade {} devia ter 1 challenge", unit.id);
@@ -540,7 +570,11 @@ mod tests {
                     "drill {} sem `package main` no target",
                     drill.id
                 );
-                assert!(!drill.line_comments.is_empty(), "drill {} sem line_comments", drill.id);
+                assert!(
+                    !drill.line_comments.is_empty(),
+                    "drill {} sem line_comments",
+                    drill.id
+                );
                 assert_eq!(
                     drill.run_command, "go run .",
                     "drill {} devia correr com `go run .`",
@@ -581,7 +615,11 @@ mod tests {
                 .iter()
                 .find(|s| s.kind == StepKind::Challenge)
                 .expect("passo challenge");
-            assert!(!challenge.entry.trim().is_empty(), "challenge {} sem entry", challenge.id);
+            assert!(
+                !challenge.entry.trim().is_empty(),
+                "challenge {} sem entry",
+                challenge.id
+            );
             assert_eq!(
                 challenge.run_command, "go test ./...",
                 "challenge {} devia correr com `go test ./...`",
@@ -644,7 +682,10 @@ mod tests {
         }
 
         // Os três níveis estão representados (basic, intermediate e advanced).
-        assert!(course.units.iter().any(|u| u.level == "basic"), "falta nível basic");
+        assert!(
+            course.units.iter().any(|u| u.level == "basic"),
+            "falta nível basic"
+        );
         assert!(
             course.units.iter().any(|u| u.level == "intermediate"),
             "falta nível intermediate"
@@ -669,7 +710,10 @@ mod tests {
         );
         for drill in &pkg_drills {
             assert!(
-                drill.install_commands.iter().any(|c| c.starts_with("go get ")),
+                drill
+                    .install_commands
+                    .iter()
+                    .any(|c| c.starts_with("go get ")),
                 "drill {}: install_commands devia conter um `go get`",
                 drill.id
             );
@@ -683,7 +727,11 @@ mod tests {
             .flat_map(|u| u.steps.iter())
             .filter(|s| s.kind == StepKind::Concept)
         {
-            assert!(concept.run_command.is_empty(), "concept {} com run_command", concept.id);
+            assert!(
+                concept.run_command.is_empty(),
+                "concept {} com run_command",
+                concept.id
+            );
             assert!(
                 concept.install_commands.is_empty(),
                 "concept {} com install_commands",

@@ -121,13 +121,23 @@ mod tests {
     #[test]
     fn log_limit_defaults_to_the_public_page_size() {
         assert_eq!(log_limit(None), DEFAULT_LOG_LIMIT);
-        assert_eq!(DEFAULT_LOG_LIMIT, 200, "página por omissão = contrato histórico");
-        assert_eq!(log_limit(Some(5)), 5, "uma página explícita ganha ao default");
+        assert_eq!(
+            DEFAULT_LOG_LIMIT, 200,
+            "página por omissão = contrato histórico"
+        );
+        assert_eq!(
+            log_limit(Some(5)),
+            5,
+            "uma página explícita ganha ao default"
+        );
     }
 
     #[test]
     fn want_staged_defaults_to_the_working_tree() {
-        assert!(!want_staged(None), "sem staged → árvore de trabalho vs HEAD");
+        assert!(
+            !want_staged(None),
+            "sem staged → árvore de trabalho vs HEAD"
+        );
         assert!(want_staged(Some(true)));
         assert!(!want_staged(Some(false)));
     }

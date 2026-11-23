@@ -83,7 +83,13 @@ pub const KEY_MASK: &str = "••••••••";
 impl ProvidersConfig {
     /// A copy safe to hand to the UI: every non-empty key replaced by [`KEY_MASK`].
     pub fn redacted(&self) -> Self {
-        let m = |k: &str| if k.is_empty() { String::new() } else { KEY_MASK.to_string() };
+        let m = |k: &str| {
+            if k.is_empty() {
+                String::new()
+            } else {
+                KEY_MASK.to_string()
+            }
+        };
         Self {
             anthropic_key: m(&self.anthropic_key),
             openai_key: m(&self.openai_key),
@@ -129,8 +135,12 @@ fn cfg_or_env(cfg_val: &str, envs: &[&str]) -> Option<String> {
     if !cleaned.is_empty() {
         return Some(cleaned);
     }
-    envs.iter()
-        .find_map(|k| std::env::var(k).ok().map(|v| clean(&v)).filter(|v| !v.is_empty()))
+    envs.iter().find_map(|k| {
+        std::env::var(k)
+            .ok()
+            .map(|v| clean(&v))
+            .filter(|v| !v.is_empty())
+    })
 }
 
 /// One chat turn. `role` is "system" | "user" | "assistant".
@@ -154,7 +164,8 @@ pub fn ollama_host() -> String {
 }
 
 fn host() -> String {
-    cfg_or_env(&load_config().ollama_host, &["OLLAMA_HOST"]).unwrap_or_else(|| DEFAULT_HOST.to_string())
+    cfg_or_env(&load_config().ollama_host, &["OLLAMA_HOST"])
+        .unwrap_or_else(|| DEFAULT_HOST.to_string())
 }
 
 /// What one AI backend can do here, honestly reported so the UI advertises only what
@@ -232,15 +243,26 @@ pub fn list_providers() -> Vec<ProviderInfo> {
         note: if claude_key {
             "Key set — streams via the Messages API.".into()
         } else {
-            "Set the Anthropic key (settings or ANTHROPIC_API_KEY); org id alone is not a key.".into()
+            "Set the Anthropic key (settings or ANTHROPIC_API_KEY); org id alone is not a key."
+                .into()
         },
         models: vec![],
     };
     vec![
         ollama,
         claude,
-        keyed("openai", "OpenAI / Codex", &cfg.openai_key, &["OPENAI_API_KEY"]),
-        keyed("gemini", "Gemini (Google)", &cfg.gemini_key, &["GEMINI_API_KEY", "GOOGLE_API_KEY"]),
+        keyed(
+            "openai",
+            "OpenAI / Codex",
+            &cfg.openai_key,
+            &["OPENAI_API_KEY"],
+        ),
+        keyed(
+            "gemini",
+            "Gemini (Google)",
+            &cfg.gemini_key,
+            &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        ),
         ProviderInfo {
             id: "copilot".into(),
             name: "GitHub Copilot".into(),
@@ -270,7 +292,11 @@ pub fn ollama_models() -> Vec<String> {
         .and_then(|m| m.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                .filter_map(|m| {
+                    m.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -313,7 +339,10 @@ pub fn ollama_chat(messages: &[ChatMsg], model: Option<&str>) -> Result<ChatRepl
         "stream": false,
     });
 
-    match ureq::post(&url).timeout(Duration::from_secs(120)).send_json(body) {
+    match ureq::post(&url)
+        .timeout(Duration::from_secs(120))
+        .send_json(body)
+    {
         Ok(resp) => {
             let v: serde_json::Value = resp.into_json().context("parsing Ollama reply")?;
             let content = v
@@ -373,7 +402,10 @@ pub fn ollama_chat_stream(
         },
     });
 
-    let resp = match ureq::post(&url).timeout(Duration::from_secs(300)).send_json(body) {
+    let resp = match ureq::post(&url)
+        .timeout(Duration::from_secs(300))
+        .send_json(body)
+    {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
             let detail = r.into_string().unwrap_or_default();
@@ -436,8 +468,9 @@ pub fn claude_chat_stream_env(
     on_delta: impl FnMut(&str) -> bool,
 ) -> Result<ChatReply> {
     let cfg = load_config();
-    let api_key = cfg_or_env(&cfg.anthropic_key, &["ANTHROPIC_API_KEY"])
-        .ok_or_else(|| anyhow::anyhow!("No Anthropic key — set it in AI settings or ANTHROPIC_API_KEY"))?;
+    let api_key = cfg_or_env(&cfg.anthropic_key, &["ANTHROPIC_API_KEY"]).ok_or_else(|| {
+        anyhow::anyhow!("No Anthropic key — set it in AI settings or ANTHROPIC_API_KEY")
+    })?;
     // O modelo escolhido na UI manda (antes era ignorado e caía sempre no haiku-4-5).
     let model = model
         .map(str::trim)
@@ -448,7 +481,11 @@ pub fn claude_chat_stream_env(
     // Org-scoped keys need the workspace id in a header.
     let workspace = cfg_or_env(
         &cfg.anthropic_workspace_id,
-        &["ANTHROPIC_WORKSPACE_ID", "CLAUDE_WORKSPACE_ID", "CLAUDE_ORG_ID"],
+        &[
+            "ANTHROPIC_WORKSPACE_ID",
+            "CLAUDE_WORKSPACE_ID",
+            "CLAUDE_ORG_ID",
+        ],
     );
     claude_chat_stream(messages, &model, &api_key, workspace.as_deref(), on_delta)
 }
@@ -522,7 +559,11 @@ pub fn claude_chat_stream(
         };
         match v.get("type").and_then(|t| t.as_str()) {
             Some("content_block_delta") => {
-                if let Some(text) = v.get("delta").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                if let Some(text) = v
+                    .get("delta")
+                    .and_then(|d| d.get("text"))
+                    .and_then(|t| t.as_str())
+                {
                     if !text.is_empty() {
                         full.push_str(text);
                         if !on_delta(text) {
@@ -566,8 +607,9 @@ pub fn openai_chat_stream_env(
     on_delta: impl FnMut(&str) -> bool,
 ) -> Result<ChatReply> {
     let cfg = load_config();
-    let api_key = cfg_or_env(&cfg.openai_key, &["OPENAI_API_KEY"])
-        .ok_or_else(|| anyhow::anyhow!("No OpenAI key — set it in AI settings or OPENAI_API_KEY"))?;
+    let api_key = cfg_or_env(&cfg.openai_key, &["OPENAI_API_KEY"]).ok_or_else(|| {
+        anyhow::anyhow!("No OpenAI key — set it in AI settings or OPENAI_API_KEY")
+    })?;
     // Caller's choice wins; else a configured assistant model; else a safe default.
     let model = model
         .map(str::to_string)
@@ -660,8 +702,10 @@ pub fn gemini_chat_stream_env(
     on_delta: impl FnMut(&str) -> bool,
 ) -> Result<ChatReply> {
     let cfg = load_config();
-    let api_key = cfg_or_env(&cfg.gemini_key, &["GEMINI_API_KEY", "GOOGLE_API_KEY"])
-        .ok_or_else(|| anyhow::anyhow!("No Gemini key — set it in AI settings or GEMINI_API_KEY"))?;
+    let api_key =
+        cfg_or_env(&cfg.gemini_key, &["GEMINI_API_KEY", "GOOGLE_API_KEY"]).ok_or_else(|| {
+            anyhow::anyhow!("No Gemini key — set it in AI settings or GEMINI_API_KEY")
+        })?;
     let model = model
         .map(str::to_string)
         .or_else(|| cfg_or_env(&cfg.assistant_model, &["DXTUTOR_ASSISTANT_MODEL"]))
@@ -690,7 +734,11 @@ pub fn gemini_chat_stream(
         .filter(|m| m.role != "system")
         .map(|m| {
             // Gemini only knows `user` and `model`; map `assistant` → `model`.
-            let role = if m.role == "assistant" { "model" } else { "user" };
+            let role = if m.role == "assistant" {
+                "model"
+            } else {
+                "user"
+            };
             serde_json::json!({ "role": role, "parts": [{ "text": m.content }] })
         })
         .collect();
@@ -789,8 +837,12 @@ mod tests {
         assert_eq!(back.anthropic_key, "sk-ant-secret");
         assert_eq!(back.openai_key, "sk-openai");
         // One key replaced, one cleared.
-        let edit = ProvidersConfig { gemini_key: "g-new".into(), openai_key: String::new(), ..ui }
-            .merged_over(&stored);
+        let edit = ProvidersConfig {
+            gemini_key: "g-new".into(),
+            openai_key: String::new(),
+            ..ui
+        }
+        .merged_over(&stored);
         assert_eq!(edit.gemini_key, "g-new");
         assert_eq!(edit.openai_key, "");
         assert_eq!(edit.anthropic_key, "sk-ant-secret");
@@ -806,8 +858,15 @@ mod tests {
         write_private(&p, b"one").unwrap();
         write_private(&p, b"two").unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "two");
-        assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(std::fs::read_dir(p.parent().unwrap()).unwrap().count(), 1, "no temp left behind");
+        assert_eq!(
+            std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::read_dir(p.parent().unwrap()).unwrap().count(),
+            1,
+            "no temp left behind"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -853,7 +912,10 @@ mod tests {
             },
         )
         .expect("cancelled stream should still return Ok");
-        assert!(seen <= 2, "cancellation should stop the read almost immediately");
+        assert!(
+            seen <= 2,
+            "cancellation should stop the read almost immediately"
+        );
         let _ = partial; // partial content is fine; we only assert it did not hang/err
     }
 
@@ -863,7 +925,10 @@ mod tests {
     #[test]
     #[ignore = "requires ANTHROPIC_API_KEY exported in the environment"]
     fn claude_stream_live() {
-        if std::env::var("ANTHROPIC_API_KEY").map(|v| v.is_empty()).unwrap_or(true) {
+        if std::env::var("ANTHROPIC_API_KEY")
+            .map(|v| v.is_empty())
+            .unwrap_or(true)
+        {
             eprintln!("SKIP: ANTHROPIC_API_KEY not set in this environment.");
             return;
         }
@@ -880,10 +945,17 @@ mod tests {
             },
         )
         .expect("Claude stream should succeed with a valid key");
-        assert!(chunks >= 1, "expected at least one streamed chunk from Claude");
+        assert!(
+            chunks >= 1,
+            "expected at least one streamed chunk from Claude"
+        );
         assert!(!reply.content.trim().is_empty(), "Claude reply was empty");
         assert_eq!(reply.provider, "claude");
-        eprintln!("Claude replied ({}): {:?}", reply.model, reply.content.trim());
+        eprintln!(
+            "Claude replied ({}): {:?}",
+            reply.model,
+            reply.content.trim()
+        );
     }
 
     /// Live validation of the Claude SSE adapter via the SAVED config (the exact path
@@ -911,10 +983,17 @@ mod tests {
             },
         )
         .expect("Claude stream (config) should succeed with a valid configured key");
-        assert!(chunks >= 1, "expected at least one streamed chunk from Claude");
+        assert!(
+            chunks >= 1,
+            "expected at least one streamed chunk from Claude"
+        );
         assert!(!reply.content.trim().is_empty(), "Claude reply was empty");
         assert_eq!(reply.provider, "claude");
-        eprintln!("Claude(config) replied ({}): {:?}", reply.model, reply.content.trim());
+        eprintln!(
+            "Claude(config) replied ({}): {:?}",
+            reply.model,
+            reply.content.trim()
+        );
     }
 
     /// Live validation of the OpenAI SSE adapter via config/env. Skips cleanly with no
@@ -941,10 +1020,17 @@ mod tests {
             },
         )
         .expect("OpenAI stream should succeed with a valid key");
-        assert!(chunks >= 1, "expected at least one streamed chunk from OpenAI");
+        assert!(
+            chunks >= 1,
+            "expected at least one streamed chunk from OpenAI"
+        );
         assert!(!reply.content.trim().is_empty(), "OpenAI reply was empty");
         assert_eq!(reply.provider, "openai");
-        eprintln!("OpenAI replied ({}): {:?}", reply.model, reply.content.trim());
+        eprintln!(
+            "OpenAI replied ({}): {:?}",
+            reply.model,
+            reply.content.trim()
+        );
     }
 
     /// Live validation of the Gemini SSE adapter via config/env. Skips cleanly with no
@@ -971,9 +1057,16 @@ mod tests {
             },
         )
         .expect("Gemini stream should succeed with a valid key");
-        assert!(chunks >= 1, "expected at least one streamed chunk from Gemini");
+        assert!(
+            chunks >= 1,
+            "expected at least one streamed chunk from Gemini"
+        );
         assert!(!reply.content.trim().is_empty(), "Gemini reply was empty");
         assert_eq!(reply.provider, "gemini");
-        eprintln!("Gemini replied ({}): {:?}", reply.model, reply.content.trim());
+        eprintln!(
+            "Gemini replied ({}): {:?}",
+            reply.model,
+            reply.content.trim()
+        );
     }
 }

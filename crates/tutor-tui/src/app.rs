@@ -231,7 +231,9 @@ impl App {
     /// Verifica, sem bloquear, se a dica em fundo chegou. Devolve `true` se o
     /// estado mudou (para forçar um redesenho).
     pub fn poll_hint(&mut self) -> bool {
-        let Some(rx) = &self.hint_rx else { return false };
+        let Some(rx) = &self.hint_rx else {
+            return false;
+        };
         match rx.try_recv() {
             Ok(result) => {
                 self.hint_rx = None;

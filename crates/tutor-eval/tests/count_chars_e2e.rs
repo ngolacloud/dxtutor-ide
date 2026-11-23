@@ -63,7 +63,11 @@ pub fn count_chars(input: &str) -> usize {
 fn variacao_referencia_passa() {
     let p = phase("p2-reverse-chars");
     let a = assess(&p, &p.gabarito.solution).expect("avaliação corre");
-    assert!(a.correctness.passed, "a referência da variação devia passar:\n{}", a.correctness.raw);
+    assert!(
+        a.correctness.passed,
+        "a referência da variação devia passar:\n{}",
+        a.correctness.raw
+    );
 }
 
 #[test]

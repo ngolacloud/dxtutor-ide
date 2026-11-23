@@ -343,10 +343,17 @@ mod tests {
     fn separa_n_nlogn_n2_com_ruido() {
         for seed in 0..24u64 {
             let lin = estimate(&jittered(&SIZES_BIG, 0.06, seed, |n| 7.0 * n + 500.0)).unwrap();
-            let nln = estimate(&jittered(&SIZES_BIG, 0.06, seed + 100, |n| 4.0 * n * n.ln())).unwrap();
+            let nln = estimate(&jittered(&SIZES_BIG, 0.06, seed + 100, |n| {
+                4.0 * n * n.ln()
+            }))
+            .unwrap();
             let sq = estimate(&jittered(&SIZES_BIG, 0.06, seed + 200, |n| 0.02 * n * n)).unwrap();
             assert_eq!(lin.best, Class::Linear, "O(n) trocado na semente {seed}");
-            assert_eq!(nln.best, Class::Linearithmic, "O(n log n) trocado na semente {seed}");
+            assert_eq!(
+                nln.best,
+                Class::Linearithmic,
+                "O(n log n) trocado na semente {seed}"
+            );
             assert_eq!(sq.best, Class::Quadratic, "O(n²) trocado na semente {seed}");
         }
     }
@@ -359,7 +366,11 @@ mod tests {
         const LN_K: f64 = std::f64::consts::LN_10;
         let heap = estimate(&samples_on(&SIZES_BIG, |m| 9.0 * m * LN_K)).unwrap();
         let sort = estimate(&samples_on(&SIZES_BIG, |m| 2.0 * m * m.ln())).unwrap();
-        assert_eq!(heap.best, Class::Linear, "heap de tamanho k devia medir linear");
+        assert_eq!(
+            heap.best,
+            Class::Linear,
+            "heap de tamanho k devia medir linear"
+        );
         assert_eq!(
             sort.best,
             Class::Linearithmic,

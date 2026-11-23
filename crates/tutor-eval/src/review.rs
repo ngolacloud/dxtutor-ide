@@ -197,7 +197,13 @@ pub fn verify_fix(
         if e.expected.is_empty() {
             continue;
         }
-        let actual = span_text(current_source, e.start_line, e.start_col, e.end_line, e.end_col);
+        let actual = span_text(
+            current_source,
+            e.start_line,
+            e.start_col,
+            e.end_line,
+            e.end_col,
+        );
         if actual.as_deref() != Some(e.expected.as_str()) {
             return FixVerification {
                 applicable: false,
@@ -309,16 +315,22 @@ fn go_bin() -> String {
 /// Detect which review analyzers are installed on this host. Drives the honest
 /// "which analyzers worked" report and lets the UI advertise real capability.
 pub fn detect_analyzers() -> Vec<AnalyzerInfo> {
-    let info = |id: &str, language: &str, version: Option<String>, note: Option<String>| AnalyzerInfo {
-        id: id.to_string(),
-        language: language.to_string(),
-        available: version.is_some(),
-        version,
-        note,
-    };
+    let info =
+        |id: &str, language: &str, version: Option<String>, note: Option<String>| AnalyzerInfo {
+            id: id.to_string(),
+            language: language.to_string(),
+            available: version.is_some(),
+            version,
+            note,
+        };
 
     vec![
-        info("cargo", "rust", probe_version("cargo", &["--version"]), None),
+        info(
+            "cargo",
+            "rust",
+            probe_version("cargo", &["--version"]),
+            None,
+        ),
         info(
             "clippy",
             "rust",
@@ -338,8 +350,18 @@ pub fn detect_analyzers() -> Vec<AnalyzerInfo> {
             probe_version("gopls", &["version"]),
             Some("Semantic engine for Go review and the CodeMap.".into()),
         ),
-        info("ruff", "python", probe_version("ruff", &["--version"]), None),
-        info("python", "python", probe_version("python3", &["--version"]), None),
+        info(
+            "ruff",
+            "python",
+            probe_version("ruff", &["--version"]),
+            None,
+        ),
+        info(
+            "python",
+            "python",
+            probe_version("python3", &["--version"]),
+            None,
+        ),
     ]
 }
 
@@ -434,7 +456,11 @@ fn dedup_findings(findings: &mut Vec<Finding>) {
 /// parses the compiler JSON stream into findings, filtered to `scope`.
 fn review_rust(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) {
     let clippy = probe_version("cargo", &["clippy", "--version"]).is_some();
-    let (tool, subcmd) = if clippy { ("clippy", "clippy") } else { ("rustc", "check") };
+    let (tool, subcmd) = if clippy {
+        ("clippy", "clippy")
+    } else {
+        ("rustc", "check")
+    };
 
     let mut cmd = Command::new("cargo");
     cmd.args([subcmd, "--quiet", "--message-format=json", "--all-targets"]);
@@ -459,7 +485,11 @@ fn review_rust(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) 
 
     if outcome.timed_out {
         return (
-            failed_run(tool, "rust", format!("timed out after {}s", REVIEW_TIMEOUT.as_secs())),
+            failed_run(
+                tool,
+                "rust",
+                format!("timed out after {}s", REVIEW_TIMEOUT.as_secs()),
+            ),
             Vec::new(),
         );
     }
@@ -521,9 +551,15 @@ fn review_rust(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) 
 fn rustc_check_file(file: &Path, scratch_dir: &Path) -> Vec<Finding> {
     let out = scratch_dir.join("dxtutor-review-meta");
     let mut cmd = Command::new("rustc");
-    cmd.args(["--edition", "2021", "--error-format=json", "--emit=metadata", "-o"])
-        .arg(&out)
-        .arg(file);
+    cmd.args([
+        "--edition",
+        "2021",
+        "--error-format=json",
+        "--emit=metadata",
+        "-o",
+    ])
+    .arg(&out)
+    .arg(file);
     if let Some(dir) = file.parent() {
         cmd.current_dir(dir);
     }
@@ -651,7 +687,10 @@ fn split_spans(spans: Option<&Vec<serde_json::Value>>) -> Option<(Span, Vec<Span
     let mut primary = None;
     let mut related = Vec::new();
     for s in spans {
-        let is_primary = s.get("is_primary").and_then(|b| b.as_bool()).unwrap_or(false);
+        let is_primary = s
+            .get("is_primary")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false);
         if let Some(span) = span_from_json(s) {
             if is_primary && primary.is_none() {
                 primary = Some(span);
@@ -674,9 +713,15 @@ fn split_spans(spans: Option<&Vec<serde_json::Value>>) -> Option<(Span, Vec<Span
 fn span_from_json(s: &serde_json::Value) -> Option<Span> {
     let file = s.get("file_name")?.as_str()?.to_string();
     let start_line = s.get("line_start")?.as_u64()? as u32;
-    let end_line = s.get("line_end").and_then(|l| l.as_u64()).unwrap_or(start_line as u64) as u32;
+    let end_line = s
+        .get("line_end")
+        .and_then(|l| l.as_u64())
+        .unwrap_or(start_line as u64) as u32;
     let start_col = s.get("column_start").and_then(|c| c.as_u64()).unwrap_or(1) as u32;
-    let end_col = s.get("column_end").and_then(|c| c.as_u64()).unwrap_or(start_col as u64) as u32;
+    let end_col = s
+        .get("column_end")
+        .and_then(|c| c.as_u64())
+        .unwrap_or(start_col as u64) as u32;
     let label = s
         .get("label")
         .and_then(|l| l.as_str())
@@ -739,11 +784,22 @@ fn unavailable_run(tool: &str, language: &str, detail: impl Into<String>) -> Ana
 fn review_go(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) {
     let go = go_bin();
     if probe_version(&go, &["version"]).is_none() {
-        return (unavailable_run("go vet", "go", "Go toolchain not installed."), Vec::new());
+        return (
+            unavailable_run("go vet", "go", "Go toolchain not installed."),
+            Vec::new(),
+        );
     }
-    let scratch = match tempfile::Builder::new().prefix("dxtutor-review-go-").tempdir() {
+    let scratch = match tempfile::Builder::new()
+        .prefix("dxtutor-review-go-")
+        .tempdir()
+    {
         Ok(d) => d,
-        Err(e) => return (failed_run("go vet", "go", format!("scratch dir: {e}")), Vec::new()),
+        Err(e) => {
+            return (
+                failed_run("go vet", "go", format!("scratch dir: {e}")),
+                Vec::new(),
+            )
+        }
     };
     let mut cmd = Command::new(&go);
     cmd.args(["vet", "./..."]);
@@ -751,11 +807,20 @@ fn review_go(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) {
     cmd.env("GOTOOLCHAIN", "local"); // never pull a toolchain mid-review
     let outcome = match run_guarded(cmd, scratch.path(), "review-go", REVIEW_TIMEOUT, None) {
         Ok(o) => o,
-        Err(e) => return (failed_run("go vet", "go", format!("spawn: {e}")), Vec::new()),
+        Err(e) => {
+            return (
+                failed_run("go vet", "go", format!("spawn: {e}")),
+                Vec::new(),
+            )
+        }
     };
     if outcome.timed_out {
         return (
-            failed_run("go vet", "go", format!("timed out after {}s", REVIEW_TIMEOUT.as_secs())),
+            failed_run(
+                "go vet",
+                "go",
+                format!("timed out after {}s", REVIEW_TIMEOUT.as_secs()),
+            ),
             Vec::new(),
         );
     }
@@ -826,7 +891,9 @@ fn parse_go_vet(stderr: &str) -> Vec<Finding> {
             related: Vec::new(),
             evidence: None,
             consequence: Some("A suspicious construct that can misbehave at runtime.".into()),
-            verification: Some("Fix it and re-run Code Review; `go vet` should no longer flag it.".into()),
+            verification: Some(
+                "Fix it and re-run Code Review; `go vet` should no longer flag it.".into(),
+            ),
             fix: None,
         });
     }
@@ -884,7 +951,10 @@ fn span_original_text(s: &serde_json::Value) -> String {
     for (i, row) in rows.iter().enumerate() {
         let line = row.get("text").and_then(|t| t.as_str()).unwrap_or("");
         let chars: Vec<char> = line.chars().collect();
-        let hs = row.get("highlight_start").and_then(|n| n.as_u64()).unwrap_or(1) as usize;
+        let hs = row
+            .get("highlight_start")
+            .and_then(|n| n.as_u64())
+            .unwrap_or(1) as usize;
         let he = row
             .get("highlight_end")
             .and_then(|n| n.as_u64())
@@ -935,13 +1005,24 @@ fn ruff_fix(item: &serde_json::Value) -> Option<SuggestedFix> {
     if fix.get("applicability").and_then(|a| a.as_str()) != Some("safe") {
         return None;
     }
-    let file = item.get("filename").and_then(|f| f.as_str()).unwrap_or("").to_string();
+    let file = item
+        .get("filename")
+        .and_then(|f| f.as_str())
+        .unwrap_or("")
+        .to_string();
     let n = |v: &serde_json::Value, a: &str, b: &str, d: u64| {
-        v.get(a).and_then(|l| l.get(b)).and_then(|x| x.as_u64()).unwrap_or(d) as u32
+        v.get(a)
+            .and_then(|l| l.get(b))
+            .and_then(|x| x.as_u64())
+            .unwrap_or(d) as u32
     };
     let mut edits = Vec::new();
     for edit in fix.get("edits")?.as_array()? {
-        let content = edit.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+        let content = edit
+            .get("content")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
         let sr = n(edit, "location", "row", 1);
         let sc = n(edit, "location", "column", 1);
         let er = n(edit, "end_location", "row", sr as u64);
@@ -978,7 +1059,11 @@ fn ruff_fix(item: &serde_json::Value) -> Option<SuggestedFix> {
 fn review_python(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>) {
     if probe_version("ruff", &["--version"]).is_none() {
         return (
-            unavailable_run("ruff", "python", "Ruff not installed — Python review degraded."),
+            unavailable_run(
+                "ruff",
+                "python",
+                "Ruff not installed — Python review degraded.",
+            ),
             Vec::new(),
         );
     }
@@ -986,9 +1071,17 @@ fn review_python(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>
         ReviewScope::File(p) => normalize(p, root),
         _ => root.to_string_lossy().to_string(),
     };
-    let scratch = match tempfile::Builder::new().prefix("dxtutor-review-py-").tempdir() {
+    let scratch = match tempfile::Builder::new()
+        .prefix("dxtutor-review-py-")
+        .tempdir()
+    {
         Ok(d) => d,
-        Err(e) => return (failed_run("ruff", "python", format!("scratch dir: {e}")), Vec::new()),
+        Err(e) => {
+            return (
+                failed_run("ruff", "python", format!("scratch dir: {e}")),
+                Vec::new(),
+            )
+        }
     };
     let mut cmd = Command::new("ruff");
     cmd.args([
@@ -1002,11 +1095,20 @@ fn review_python(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>
     cmd.current_dir(root);
     let outcome = match run_guarded(cmd, scratch.path(), "review-py", REVIEW_TIMEOUT, None) {
         Ok(o) => o,
-        Err(e) => return (failed_run("ruff", "python", format!("spawn: {e}")), Vec::new()),
+        Err(e) => {
+            return (
+                failed_run("ruff", "python", format!("spawn: {e}")),
+                Vec::new(),
+            )
+        }
     };
     if outcome.timed_out {
         return (
-            failed_run("ruff", "python", format!("timed out after {}s", REVIEW_TIMEOUT.as_secs())),
+            failed_run(
+                "ruff",
+                "python",
+                format!("timed out after {}s", REVIEW_TIMEOUT.as_secs()),
+            ),
             Vec::new(),
         );
     }
@@ -1014,7 +1116,11 @@ fn review_python(root: &Path, scope: &ReviewScope) -> (AnalyzerRun, Vec<Finding>
     // failure prints to stderr and leaves stdout empty.
     if outcome.stdout.trim().is_empty() && !outcome.stderr.trim().is_empty() {
         return (
-            failed_run("ruff", "python", first_nonempty_line(&outcome.stderr).unwrap_or_default()),
+            failed_run(
+                "ruff",
+                "python",
+                first_nonempty_line(&outcome.stderr).unwrap_or_default(),
+            ),
             Vec::new(),
         );
     }
@@ -1042,7 +1148,10 @@ fn parse_ruff_json(stdout: &str) -> Vec<Finding> {
     let arr: Vec<serde_json::Value> = serde_json::from_str(stdout.trim()).unwrap_or_default();
     let mut out = Vec::new();
     for item in arr {
-        let code = item.get("code").and_then(|c| c.as_str()).map(|s| s.to_string());
+        let code = item
+            .get("code")
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string());
         let message = item
             .get("message")
             .and_then(|m| m.as_str())
@@ -1092,7 +1201,9 @@ fn parse_ruff_json(stdout: &str) -> Vec<Finding> {
             related: Vec::new(),
             evidence: None,
             consequence: consequence_for(class),
-            verification: Some("Fix it and re-run Code Review; Ruff should no longer report it.".into()),
+            verification: Some(
+                "Fix it and re-run Code Review; Ruff should no longer report it.".into(),
+            ),
             fix,
         });
     }
@@ -1158,7 +1269,10 @@ fn has_file_with_ext(root: &Path, ext: &str, cap: usize) -> bool {
             if path.is_dir() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if matches!(name.as_ref(), "target" | ".git" | "node_modules" | "__pycache__" | ".venv") {
+                if matches!(
+                    name.as_ref(),
+                    "target" | ".git" | "node_modules" | "__pycache__" | ".venv"
+                ) {
                     continue;
                 }
                 stack.push(path);
@@ -1231,7 +1345,10 @@ fn git_changed_files(root: &Path) -> Vec<String> {
 }
 
 fn first_nonempty_line(s: &str) -> Option<String> {
-    s.lines().map(str::trim).find(|l| !l.is_empty()).map(|l| l.to_string())
+    s.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(|l| l.to_string())
 }
 
 #[cfg(test)]
@@ -1269,7 +1386,10 @@ mod tests {
         // Developer inserts a line at the top; line 2 is now different code.
         let edited = "// a new comment\nfn main() {\n    let x = 1;\n}\n";
         let v = verify_fix(edited, &version, &fix);
-        assert!(!v.applicable, "a fix from an older revision must be refused");
+        assert!(
+            !v.applicable,
+            "a fix from an older revision must be refused"
+        );
         assert!(v.reason.contains("re-run Review"), "reason: {}", v.reason);
     }
 
@@ -1311,7 +1431,11 @@ mod tests {
         let fix = fix_with("let x = 1;", 1, 1, 1, 11);
         let v = verify_fix(src, &version, &fix);
         assert!(!v.applicable);
-        assert!(v.reason.contains("no longer matches"), "reason: {}", v.reason);
+        assert!(
+            v.reason.contains("no longer matches"),
+            "reason: {}",
+            v.reason
+        );
     }
 
     #[test]
@@ -1366,7 +1490,12 @@ mod tests {
                 .iter()
                 .find(|a| a.language == "rust")
                 .unwrap();
-            assert_eq!(rust.status, AnalyzerStatus::Ran, "detail: {:?}", rust.detail);
+            assert_eq!(
+                rust.status,
+                AnalyzerStatus::Ran,
+                "detail: {:?}",
+                rust.detail
+            );
             assert!(
                 report
                     .findings
@@ -1405,7 +1534,11 @@ mod tests {
         .unwrap();
 
         let report = review(root, &ReviewScope::Project, None).expect("review");
-        let go = report.analyzers.iter().find(|a| a.language == "go").unwrap();
+        let go = report
+            .analyzers
+            .iter()
+            .find(|a| a.language == "go")
+            .unwrap();
         assert_eq!(go.status, AnalyzerStatus::Ran, "detail: {:?}", go.detail);
         let f = report
             .findings
@@ -1428,7 +1561,11 @@ mod tests {
         fs::write(root.join("mod.py"), "def f():\n    return undefined_name\n").unwrap();
 
         let report = review(root, &ReviewScope::Project, None).expect("review");
-        let py = report.analyzers.iter().find(|a| a.language == "python").unwrap();
+        let py = report
+            .analyzers
+            .iter()
+            .find(|a| a.language == "python")
+            .unwrap();
         assert_eq!(py.status, AnalyzerStatus::Ran, "detail: {:?}", py.detail);
         let f = report
             .findings

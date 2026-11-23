@@ -117,13 +117,7 @@ pub fn references(
 
 /// Informação de hover (tipo/docs em markdown) do símbolo em (`line`, `col`) — ambos
 /// 1-based do editor. `None` quando ausente/irresolúvel.
-pub fn hover(
-    root: &Path,
-    file: &Path,
-    line: u32,
-    col: u32,
-    text: Option<&str>,
-) -> Option<String> {
+pub fn hover(root: &Path, file: &Path, line: u32, col: u32, text: Option<&str>) -> Option<String> {
     lsp::resolve_hover(root, file, editor_to_lsp(line), editor_to_lsp(col), text)
 }
 
@@ -142,7 +136,11 @@ mod tests {
 
     #[test]
     fn resolved_from_shapes_the_dto_back_to_1_based() {
-        let loc = Location { uri: "file:///x/src/main.rs".into(), line: 0, character: 4 };
+        let loc = Location {
+            uri: "file:///x/src/main.rs".into(),
+            line: 0,
+            character: 4,
+        };
         let def = resolved_from(loc);
         assert_eq!(def.line, 1, "linha 0 do LSP é a 1 do editor");
         assert_eq!(def.col, 5, "coluna 4 do LSP é a 5 do editor");

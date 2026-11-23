@@ -28,8 +28,11 @@ fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
 #[tauri::command]
 pub async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        workspace::open_workspace(std::path::Path::new(&root), workspace::LoadPolicy::default())
-            .map_err(|e| format!("{root}: {e}"))
+        workspace::open_workspace(
+            std::path::Path::new(&root),
+            workspace::LoadPolicy::default(),
+        )
+        .map_err(|e| format!("{root}: {e}"))
     })
     .await
     .map_err(|e| e.to_string())?

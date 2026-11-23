@@ -34,16 +34,21 @@ pub async fn propose_entrypoint(
     lang: String,
     code: String,
 ) -> Result<Option<tutor_eval::entrypoint::EntrypointProposal>, String> {
-    tauri::async_runtime::spawn_blocking(move || tutor_eval::entrypoint::propose_entrypoint(&lang, &code))
-        .await
-        .map_err(|e| format!("propose_entrypoint task failed: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        tutor_eval::entrypoint::propose_entrypoint(&lang, &code)
+    })
+    .await
+    .map_err(|e| format!("propose_entrypoint task failed: {e}"))
 }
 
 /// Localized editing review: a line-level diff of the original block `old` vs the proposed
 /// `new`, each line tagged context/add/del — the basis for the "show what changes" highlight
 /// and "accept selected lines". Pure; runs off the UI thread.
 #[tauri::command]
-pub async fn diff_lines(old: String, new: String) -> Result<Vec<tutor_eval::textdiff::DiffLine>, String> {
+pub async fn diff_lines(
+    old: String,
+    new: String,
+) -> Result<Vec<tutor_eval::textdiff::DiffLine>, String> {
     tauri::async_runtime::spawn_blocking(move || tutor_eval::textdiff::line_diff(&old, &new))
         .await
         .map_err(|e| format!("diff_lines task failed: {e}"))

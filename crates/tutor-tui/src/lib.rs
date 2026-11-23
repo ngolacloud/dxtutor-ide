@@ -141,7 +141,10 @@ mod tests {
     struct FakeHints;
     impl tutor_llm::HintProvider for FakeHints {
         fn hint(&self, req: &tutor_llm::HintRequest) -> anyhow::Result<String> {
-            Ok(format!("Pista fake nivel {}: relê as instruções.", req.level()))
+            Ok(format!(
+                "Pista fake nivel {}: relê as instruções.",
+                req.level()
+            ))
         }
     }
 
@@ -159,7 +162,10 @@ mod tests {
         assert!(screen.contains("dxtutor"), "cabeçalho em falta");
         assert!(screen.contains("fase 1/3"), "indicador de fase em falta");
         assert!(screen.contains("Código"), "painel do editor em falta");
-        assert!(screen.contains("Instruções"), "painel de instruções em falta");
+        assert!(
+            screen.contains("Instruções"),
+            "painel de instruções em falta"
+        );
         assert!(screen.contains("tokenize"), "código inicial não carregou");
         assert!(screen.contains("F5 avaliar"), "barra de atalhos em falta");
         assert!(screen.contains("F1 dica"), "atalho da dica em falta");
@@ -168,7 +174,10 @@ mod tests {
     #[test]
     fn dica_aparece_no_painel() {
         let mut a = app_fake();
-        assert!(!render(&a).contains("Pista fake"), "não devia haver dica antes de pedir");
+        assert!(
+            !render(&a).contains("Pista fake"),
+            "não devia haver dica antes de pedir"
+        );
 
         a.request_hint();
         assert!(a.hinting, "devia estar a pensar logo após request_hint");
@@ -188,8 +197,14 @@ mod tests {
         assert!(!a.hinting, "devia ter deixado de pensar");
 
         let screen = render(&a);
-        assert!(screen.contains("Pista fake nivel 1"), "texto da dica em falta no painel");
-        assert!(screen.contains("Dica (nível 1)"), "título do painel de dica em falta");
+        assert!(
+            screen.contains("Pista fake nivel 1"),
+            "texto da dica em falta no painel"
+        );
+        assert!(
+            screen.contains("Dica (nível 1)"),
+            "título do painel de dica em falta"
+        );
     }
 
     #[test]
@@ -229,7 +244,10 @@ mod tests {
         a.toggle_gabarito();
         let screen = render(&a);
         assert!(screen.contains("GABARITO"), "gabarito não apareceu");
-        assert!(screen.contains("Referência"), "complexidade de referência em falta");
+        assert!(
+            screen.contains("Referência"),
+            "complexidade de referência em falta"
+        );
     }
 
     #[test]
@@ -245,7 +263,10 @@ mod tests {
         a.request_eval();
         assert!(a.evaluating, "devia estar a avaliar logo após request_eval");
         // Enquanto avalia, o painel mostra o spinner (UI responsiva).
-        assert!(render(&a).contains("A avaliar"), "spinner em falta durante a avaliação");
+        assert!(
+            render(&a).contains("A avaliar"),
+            "spinner em falta durante a avaliação"
+        );
 
         let mut done = false;
         for _ in 0..600 {
@@ -261,7 +282,10 @@ mod tests {
         let last = a.last.as_ref().expect("resultado presente");
         assert!(last.correctness.passed, "o gabarito tinha de passar");
         assert!(a.show_gabarito, "devia revelar o gabarito ao passar");
-        assert!(render(&a).contains("bate o óptimo"), "veredicto de complexidade em falta");
+        assert!(
+            render(&a).contains("bate o óptimo"),
+            "veredicto de complexidade em falta"
+        );
     }
 
     #[test]

@@ -229,7 +229,10 @@ fn ident_after<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
 fn outline_heuristic(code: &str, lang: &str) -> Vec<SymbolRange> {
     let py = matches!(lang, "python" | "py");
     let go = matches!(lang, "go");
-    let js = matches!(lang, "javascript" | "typescript" | "js" | "ts" | "jsx" | "tsx" | "mjs" | "cjs");
+    let js = matches!(
+        lang,
+        "javascript" | "typescript" | "js" | "ts" | "jsx" | "tsx" | "mjs" | "cjs"
+    );
     let mut out = Vec::new();
     let mut push = |name: &str, kind: SymbolKind, line: u32| {
         out.push(SymbolRange {
@@ -253,7 +256,10 @@ fn outline_heuristic(code: &str, lang: &str) -> Vec<SymbolRange> {
                 let after = t[5..].trim_start();
                 // Skip a method receiver `(r T)` if present.
                 let name_part = if after.starts_with('(') {
-                    after.find(')').map(|c| after[c + 1..].trim_start()).unwrap_or(after)
+                    after
+                        .find(')')
+                        .map(|c| after[c + 1..].trim_start())
+                        .unwrap_or(after)
                 } else {
                     after
                 };
@@ -272,15 +278,23 @@ fn outline_heuristic(code: &str, lang: &str) -> Vec<SymbolRange> {
             for p in ["export ", "default "] {
                 s = s.strip_prefix(p).unwrap_or(s).trim_start();
             }
-            if let Some(n) = ident_after(s, "async function ").or_else(|| ident_after(s, "function ")) {
+            if let Some(n) =
+                ident_after(s, "async function ").or_else(|| ident_after(s, "function "))
+            {
                 push(n, SymbolKind::Function, line);
             } else if let Some(n) = ident_after(s, "class ") {
                 push(n, SymbolKind::Struct, line);
-            } else if let Some(kw) = ["const ", "let ", "var "].iter().find(|k| s.starts_with(**k)) {
+            } else if let Some(kw) = ["const ", "let ", "var "]
+                .iter()
+                .find(|k| s.starts_with(**k))
+            {
                 // Arrow/function assigned to a binding: `const foo = (…) => …` / `= async …`.
                 if let Some(n) = ident_after(s, kw) {
                     let rhs = s.splitn(2, '=').nth(1).unwrap_or("");
-                    if rhs.contains("=>") || rhs.contains("function") || rhs.trim_start().starts_with("async") {
+                    if rhs.contains("=>")
+                        || rhs.contains("function")
+                        || rhs.trim_start().starts_with("async")
+                    {
                         push(n, SymbolKind::Function, line);
                     }
                 }
@@ -341,7 +355,10 @@ pub fn all_symbols(root: &Path, max: usize) -> Vec<SymbolRef> {
     }
 
     // Go and Python (syntactic, by line).
-    for (ext, name_of) in [("go", go_def_name as fn(&str) -> Option<&str>), ("py", python_def_name)] {
+    for (ext, name_of) in [
+        ("go", go_def_name as fn(&str) -> Option<&str>),
+        ("py", python_def_name),
+    ] {
         for path in files_with_ext(root, ext) {
             if out.len() >= max {
                 break;
@@ -391,7 +408,12 @@ fn index_file(file: &str, code: &str) -> Option<FileIndex> {
     })
 }
 
-fn collect_items(file: &str, items: &[syn::Item], fns: &mut Vec<FnDef>, types: &mut Vec<SymbolRef>) {
+fn collect_items(
+    file: &str,
+    items: &[syn::Item],
+    fns: &mut Vec<FnDef>,
+    types: &mut Vec<SymbolRef>,
+) {
     for it in items {
         match it {
             syn::Item::Fn(f) => fns.push(fn_def(&f.sig.ident, SymbolKind::Function, it.span())),
@@ -610,22 +632,46 @@ mod tests {
     fn heuristic_outline_python_go_js() {
         let py = "import os\n\nclass Foo:\n    def method_a(self):\n        pass\n\nasync def run():\n    pass\n";
         let p = outline(py, "python");
-        assert!(p.iter().any(|s| s.name == "Foo" && s.start_line == 3), "{p:?}");
-        assert!(p.iter().any(|s| s.name == "method_a" && s.start_line == 4), "{p:?}");
-        assert!(p.iter().any(|s| s.name == "run" && s.start_line == 7), "{p:?}");
+        assert!(
+            p.iter().any(|s| s.name == "Foo" && s.start_line == 3),
+            "{p:?}"
+        );
+        assert!(
+            p.iter().any(|s| s.name == "method_a" && s.start_line == 4),
+            "{p:?}"
+        );
+        assert!(
+            p.iter().any(|s| s.name == "run" && s.start_line == 7),
+            "{p:?}"
+        );
 
         let go = "package main\n\ntype User struct{}\n\nfunc (u User) Name() string { return \"\" }\n\nfunc main() {}\n";
         let g = outline(go, "go");
         assert!(g.iter().any(|s| s.name == "User"), "{g:?}");
-        assert!(g.iter().any(|s| s.name == "Name" && s.start_line == 5), "{g:?}");
-        assert!(g.iter().any(|s| s.name == "main" && s.start_line == 7), "{g:?}");
+        assert!(
+            g.iter().any(|s| s.name == "Name" && s.start_line == 5),
+            "{g:?}"
+        );
+        assert!(
+            g.iter().any(|s| s.name == "main" && s.start_line == 7),
+            "{g:?}"
+        );
 
         let js = "export function parse(x) {}\nclass Widget {}\nconst build = async (n) => n + 1;\nif (x) {}\n";
         let j = outline(js, "js");
-        assert!(j.iter().any(|s| s.name == "parse" && s.start_line == 1), "{j:?}");
+        assert!(
+            j.iter().any(|s| s.name == "parse" && s.start_line == 1),
+            "{j:?}"
+        );
         assert!(j.iter().any(|s| s.name == "Widget"), "{j:?}");
-        assert!(j.iter().any(|s| s.name == "build" && s.start_line == 3), "{j:?}");
-        assert!(!j.iter().any(|s| s.name == "if"), "control keywords excluded: {j:?}");
+        assert!(
+            j.iter().any(|s| s.name == "build" && s.start_line == 3),
+            "{j:?}"
+        );
+        assert!(
+            !j.iter().any(|s| s.name == "if"),
+            "control keywords excluded: {j:?}"
+        );
     }
 
     #[test]
@@ -681,8 +727,16 @@ mod tests {
         let root = dir.path();
         fs::create_dir_all(root.join("src")).unwrap();
         // Two different `helper` functions, one per module.
-        fs::write(root.join("src/a.rs"), "pub fn helper(n: i32) -> i32 {\n    n + 1\n}\n").unwrap();
-        fs::write(root.join("src/b.rs"), "pub fn helper(s: &str) -> usize {\n    s.len()\n}\n").unwrap();
+        fs::write(
+            root.join("src/a.rs"),
+            "pub fn helper(n: i32) -> i32 {\n    n + 1\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/b.rs"),
+            "pub fn helper(s: &str) -> usize {\n    s.len()\n}\n",
+        )
+        .unwrap();
         fs::write(
             root.join("src/main.rs"),
             "mod a;\nmod b;\nfn main() {\n    let _ = a::helper(1);\n    let _ = b::helper(\"x\");\n}\n",
@@ -700,19 +754,41 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/lib.rs"), "pub fn rust_fn() {}\npub struct RustType;\n").unwrap();
-        fs::write(root.join("srv.go"), "package d\nfunc GoFunc() {}\ntype GoType struct{}\n").unwrap();
-        fs::write(root.join("app.py"), "class PyClass:\n    def py_method(self):\n        pass\n").unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn rust_fn() {}\npub struct RustType;\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("srv.go"),
+            "package d\nfunc GoFunc() {}\ntype GoType struct{}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app.py"),
+            "class PyClass:\n    def py_method(self):\n        pass\n",
+        )
+        .unwrap();
 
         let syms = all_symbols(root, 1000);
         let names: Vec<&str> = syms.iter().map(|s| s.name.as_str()).collect();
-        for want in ["rust_fn", "RustType", "GoFunc", "GoType", "PyClass", "py_method"] {
+        for want in [
+            "rust_fn",
+            "RustType",
+            "GoFunc",
+            "GoType",
+            "PyClass",
+            "py_method",
+        ] {
             assert!(names.contains(&want), "faltou {want} em {names:?}");
         }
         // Ordenado por nome (palette estável).
         let mut sorted = syms.clone();
         sorted.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
-        assert_eq!(syms.iter().map(|s| &s.name).collect::<Vec<_>>(), sorted.iter().map(|s| &s.name).collect::<Vec<_>>());
+        assert_eq!(
+            syms.iter().map(|s| &s.name).collect::<Vec<_>>(),
+            sorted.iter().map(|s| &s.name).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -732,11 +808,19 @@ impl S {
 fn other() {}
 ";
         let ranges = symbol_ranges(code, "helper");
-        assert_eq!(ranges.len(), 2, "two `helper` (free fn + method): {ranges:?}");
+        assert_eq!(
+            ranges.len(),
+            2,
+            "two `helper` (free fn + method): {ranges:?}"
+        );
         // The free fn spans lines 1..3.
-        assert!(ranges.iter().any(|r| r.start_line == 1 && r.end_line == 3 && r.kind == SymbolKind::Function));
+        assert!(ranges
+            .iter()
+            .any(|r| r.start_line == 1 && r.end_line == 3 && r.kind == SymbolKind::Function));
         // The method spans lines 7..9.
-        assert!(ranges.iter().any(|r| r.start_line == 7 && r.end_line == 9 && r.kind == SymbolKind::Method));
+        assert!(ranges
+            .iter()
+            .any(|r| r.start_line == 7 && r.end_line == 9 && r.kind == SymbolKind::Method));
         // A non-existent name yields nothing; a single match yields one range.
         assert!(symbol_ranges(code, "nope").is_empty());
         assert_eq!(symbol_ranges(code, "other").len(), 1);
@@ -745,7 +829,10 @@ fn other() {}
     #[test]
     fn go_def_name_reconhece_formas() {
         assert_eq!(go_def_name("func Add(a, b int) int {"), Some("Add"));
-        assert_eq!(go_def_name("func (s *Server) Start() error {"), Some("Start"));
+        assert_eq!(
+            go_def_name("func (s *Server) Start() error {"),
+            Some("Start")
+        );
         assert_eq!(go_def_name("type Node struct {"), Some("Node"));
         assert_eq!(go_def_name("const MaxSize = 10"), Some("MaxSize"));
         assert_eq!(go_def_name("var Logger *log.Logger"), Some("Logger"));
@@ -773,7 +860,9 @@ fn other() {}
         for sym in ["Server", "start", "helper"] {
             let rel = symbol_relations(root, sym).expect("relations");
             assert!(
-                rel.definitions.iter().any(|d| d.name == sym && d.file.ends_with("app.py")),
+                rel.definitions
+                    .iter()
+                    .any(|d| d.name == sym && d.file.ends_with("app.py")),
                 "{sym}: sem definição Python em {:?}",
                 rel.definitions
             );
@@ -792,7 +881,9 @@ fn other() {}
         for sym in ["Start", "Node", "MaxSize"] {
             let rel = symbol_relations(root, sym).expect("relations");
             assert!(
-                rel.definitions.iter().any(|d| d.name == sym && d.file.ends_with("server.go")),
+                rel.definitions
+                    .iter()
+                    .any(|d| d.name == sym && d.file.ends_with("server.go")),
                 "{sym}: sem definição Go em {:?}",
                 rel.definitions
             );

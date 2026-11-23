@@ -65,13 +65,21 @@ mod tests {
         // Cada entrada está completa.
         for e in &g.entries {
             assert!(!e.keyword.trim().is_empty(), "entrada sem keyword");
-            assert!(!e.summary.trim().is_empty(), "entrada {} sem summary", e.keyword);
+            assert!(
+                !e.summary.trim().is_empty(),
+                "entrada {} sem summary",
+                e.keyword
+            );
             assert!(
                 !e.when_to_use.trim().is_empty(),
                 "entrada {} sem when_to_use",
                 e.keyword
             );
-            assert!(!e.example.trim().is_empty(), "entrada {} sem example", e.keyword);
+            assert!(
+                !e.example.trim().is_empty(),
+                "entrada {} sem example",
+                e.keyword
+            );
         }
         // Linguagem desconhecida não traz glossário.
         assert!(load_glossary("cobol").is_none());

@@ -85,7 +85,10 @@ impl std::fmt::Display for DevcontainerError {
                 write!(f, "devcontainer.json is not valid JSON: {e}")
             }
             DevcontainerError::NoImageOrBuild => {
-                write!(f, "devcontainer.json has neither `image` nor `build.dockerfile`.")
+                write!(
+                    f,
+                    "devcontainer.json has neither `image` nor `build.dockerfile`."
+                )
             }
             DevcontainerError::NoDockerfile => write!(f, "build has no `dockerfile`."),
             DevcontainerError::NoSession => {
@@ -139,7 +142,11 @@ fn resolve_image(
         .ok_or(DevcontainerError::NoDockerfile)?;
     // The .devcontainer directory is the reference dir for build paths.
     let dc_dir = base.join(".devcontainer");
-    let ref_dir = if dc_dir.is_dir() { dc_dir } else { base.to_path_buf() };
+    let ref_dir = if dc_dir.is_dir() {
+        dc_dir
+    } else {
+        base.to_path_buf()
+    };
     let dockerfile_path = ref_dir.join(dockerfile);
     let context = build
         .get("context")
@@ -152,7 +159,10 @@ fn resolve_image(
             .map(|s| s.to_string_lossy().to_lowercase())
             .unwrap_or_else(|| "project".into())
     );
-    log.push_str(&format!("▸ building {tag} from {}\n", dockerfile_path.display()));
+    log.push_str(&format!(
+        "▸ building {tag} from {}\n",
+        dockerfile_path.display()
+    ));
     let out = tutor_eval::build_image(&context, &dockerfile_path, &tag)
         .map_err(|e| DevcontainerError::Engine(e.to_string()))?;
     log.push_str(&out);
@@ -165,9 +175,11 @@ fn resolve_image(
 fn post_create_command(v: &serde_json::Value) -> String {
     match v.get("postCreateCommand") {
         Some(serde_json::Value::String(s)) => s.clone(),
-        Some(serde_json::Value::Array(a)) => {
-            a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(" ")
-        }
+        Some(serde_json::Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| x.as_str())
+            .collect::<Vec<_>>()
+            .join(" "),
         _ => "echo \"container ready: $(pwd)\"; uname -s; ls -a".to_string(),
     }
 }
@@ -203,7 +215,12 @@ pub fn info(base: &Path) -> DevcontainerInfo {
             };
         }
     }
-    DevcontainerInfo { present: false, name: None, image: None, path: None }
+    DevcontainerInfo {
+        present: false,
+        name: None,
+        image: None,
+        path: None,
+    }
 }
 
 /// Bring the Dev Container up: resolve/build its image, then run `postCreateCommand` (or a
@@ -328,7 +345,10 @@ pub fn session_run(base: &Path, file: &str) -> Result<DevcontainerUp, Devcontain
 /// Best-effort: probes the engine, falling back to `running: false` when it is absent.
 pub fn session_status(base: &Path) -> SessionStatus {
     let name = tutor_eval::session_name(base);
-    SessionStatus { running: tutor_eval::session_running(&name), name }
+    SessionStatus {
+        running: tutor_eval::session_running(&name),
+        name,
+    }
 }
 
 /// Tear the persistent session down (remove the long-lived container).
@@ -400,7 +420,10 @@ mod tests {
             DevcontainerError::NoImageOrBuild.to_string(),
             "devcontainer.json has neither `image` nor `build.dockerfile`."
         );
-        assert_eq!(DevcontainerError::NoDockerfile.to_string(), "build has no `dockerfile`.");
+        assert_eq!(
+            DevcontainerError::NoDockerfile.to_string(),
+            "build has no `dockerfile`."
+        );
         assert_eq!(
             DevcontainerError::NoSession.to_string(),
             "No running session — press Reopen in Container first."
@@ -430,7 +453,10 @@ mod tests {
         )
         .unwrap();
         let v = read_config(dir.path()).expect("devcontainer.json válido");
-        assert_eq!(v.get("image").and_then(|i| i.as_str()), Some("debian:bookworm"));
+        assert_eq!(
+            v.get("image").and_then(|i| i.as_str()),
+            Some("debian:bookworm")
+        );
 
         // JSON partido no top-level → InvalidJson (mensagem histórica, não NoConfig).
         fs::remove_file(dir.path().join(".devcontainer/devcontainer.json")).unwrap();
@@ -447,8 +473,14 @@ mod tests {
         let mut log = String::new();
         let v = serde_json::json!({ "image": "alpine:3" });
         // A imagem explícita devolve (image, built=false) sem tocar no motor de build.
-        assert_eq!(resolve_image(dir.path(), &v, &mut log).unwrap(), ("alpine:3".into(), false));
-        assert!(log.is_empty(), "o caminho de imagem explícita não escreve log de build");
+        assert_eq!(
+            resolve_image(dir.path(), &v, &mut log).unwrap(),
+            ("alpine:3".into(), false)
+        );
+        assert!(
+            log.is_empty(),
+            "o caminho de imagem explícita não escreve log de build"
+        );
     }
 
     #[test]
@@ -463,7 +495,10 @@ mod tests {
         );
         // `build` sem `dockerfile` → NoDockerfile.
         let v = serde_json::json!({ "build": { "context": "." } });
-        assert_eq!(resolve_image(dir.path(), &v, &mut log), Err(DevcontainerError::NoDockerfile));
+        assert_eq!(
+            resolve_image(dir.path(), &v, &mut log),
+            Err(DevcontainerError::NoDockerfile)
+        );
     }
 
     #[test]
@@ -488,8 +523,14 @@ mod tests {
         // `session_running` devolve false quando não há sessão (ou motor) → NoSession, antes
         // de qualquer `exec`. Determinístico offline (um tempdir fresco nunca tem sessão).
         let dir = tempdir().unwrap();
-        assert_eq!(session_exec(dir.path(), "true").unwrap_err(), DevcontainerError::NoSession);
-        assert_eq!(session_run(dir.path(), "main.rs").unwrap_err(), DevcontainerError::NoSession);
+        assert_eq!(
+            session_exec(dir.path(), "true").unwrap_err(),
+            DevcontainerError::NoSession
+        );
+        assert_eq!(
+            session_run(dir.path(), "main.rs").unwrap_err(),
+            DevcontainerError::NoSession
+        );
     }
 
     #[test]

@@ -85,5 +85,8 @@ fn diagnostics_maps_js_runner_output_to_dtos() {
     }
 
     let clean = assistant::diagnostics("js", "const x = 1;").expect("runner JS corre offline");
-    assert!(clean.is_empty(), "JS válido não tem diagnósticos, veio {clean:?}");
+    assert!(
+        clean.is_empty(),
+        "JS válido não tem diagnósticos, veio {clean:?}"
+    );
 }

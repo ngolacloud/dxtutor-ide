@@ -25,7 +25,10 @@ use crate::{
     StudyGuideDto,
 };
 use tutor_llm::policy::StudyPolicy;
-use tutor_llm::{default_fix_provider, default_plan_provider, default_provider, FixRequest, HintRequest, PlanRequest};
+use tutor_llm::{
+    default_fix_provider, default_plan_provider, default_provider, FixRequest, HintRequest,
+    PlanRequest,
+};
 
 /// List the project title and its phases (shown in the sidebar as "files").
 #[tauri::command]
@@ -135,7 +138,10 @@ pub fn get_course(language: String) -> Result<CourseDto, String> {
 /// appear without any frontend change.
 #[tauri::command]
 pub fn list_courses() -> Vec<CourseSummaryDto> {
-    study::courses().into_iter().map(course_summary_dto).collect()
+    study::courses()
+        .into_iter()
+        .map(course_summary_dto)
+        .collect()
 }
 
 /// The active study policy for the given mode + step. The frontend uses it to hide

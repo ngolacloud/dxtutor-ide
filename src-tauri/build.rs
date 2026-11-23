@@ -17,7 +17,9 @@ fn main() {
 fn watch_dir(dir: &Path) {
     // Watch the directory itself too, so added/removed files are also caught.
     println!("cargo:rerun-if-changed={}", dir.display());
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {

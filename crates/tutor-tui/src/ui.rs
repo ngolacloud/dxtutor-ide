@@ -17,13 +17,13 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     header(f, app, root[0]);
 
-    let body = Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
-        .split(root[1]);
+    let body =
+        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).split(root[1]);
 
     editor(f, app, body[0]);
 
-    let right = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(body[1]);
+    let right =
+        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(body[1]);
     instructions(f, app, right[0]);
     result(f, app, right[1]);
 
@@ -123,11 +123,19 @@ fn result_lines(app: &App) -> Vec<Line<'static>> {
     if let Some(hint) = &app.hint {
         if !app.show_gabarito {
             out.push(Line::styled(
-                format!("── DICA (nível {}) ──────────────────────", app.hint_level.max(1)),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                format!(
+                    "── DICA (nível {}) ──────────────────────",
+                    app.hint_level.max(1)
+                ),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
             for l in hint.trim().lines() {
-                out.push(Line::styled(l.to_string(), Style::default().fg(Color::Yellow)));
+                out.push(Line::styled(
+                    l.to_string(),
+                    Style::default().fg(Color::Yellow),
+                ));
             }
             out.push(Line::raw(""));
             out.push(Line::styled(
@@ -150,16 +158,16 @@ fn result_lines(app: &App) -> Vec<Line<'static>> {
         out.push(Line::raw(
             "A correcção é julgada pelos testes; a complexidade é medida",
         ));
-        out.push(Line::raw(
-            "empiricamente. F2 mostra/esconde o gabarito.",
-        ));
+        out.push(Line::raw("empiricamente. F2 mostra/esconde o gabarito."));
     }
 
     if app.show_gabarito {
         let g = &app.phase().gabarito;
         out.push(Line::styled(
             "── GABARITO ─────────────────────────────",
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
         ));
         out.push(Line::from(vec![
             Span::raw("Referência:  tempo "),
@@ -197,10 +205,7 @@ fn verdict_lines(a: &Assessment, out: &mut Vec<Line<'static>>) {
     if !a.correctness.passed {
         out.push(Line::raw(""));
         for l in a.correctness.raw.lines().take(12) {
-            out.push(Line::styled(
-                l.to_string(),
-                Style::default().fg(Color::Red),
-            ));
+            out.push(Line::styled(l.to_string(), Style::default().fg(Color::Red)));
         }
         return;
     }
@@ -217,7 +222,9 @@ fn verdict_lines(a: &Assessment, out: &mut Vec<Line<'static>>) {
                 Span::raw("Complexidade medida: "),
                 Span::styled(
                     est.big_o().to_string(),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(format!(
                     "  (R²={:.3}, p={:.2}, confiança {conf})",
@@ -240,10 +247,7 @@ fn verdict(measured: Class, expected: Class) -> (String, Color) {
     match rank(measured).cmp(&rank(expected)) {
         Ordering::Equal => ("✓ bate o óptimo".into(), Color::Green),
         Ordering::Less => ("✓ melhor que o esperado".into(), Color::Green),
-        Ordering::Greater => (
-            "⚠ pior que o óptimo — vê o gabarito".into(),
-            Color::Yellow,
-        ),
+        Ordering::Greater => ("⚠ pior que o óptimo — vê o gabarito".into(), Color::Yellow),
     }
 }
 
@@ -267,10 +271,7 @@ fn status_bar(f: &mut Frame, app: &App, area: Rect) {
         Status::Editing => String::new(),
     };
     let line = Line::from(vec![
-        Span::styled(
-            keys,
-            Style::default().fg(Color::Black).bg(Color::Gray),
-        ),
+        Span::styled(keys, Style::default().fg(Color::Black).bg(Color::Gray)),
         Span::styled(msg, Style::default().fg(Color::Yellow)),
     ]);
     f.render_widget(Paragraph::new(line), area);

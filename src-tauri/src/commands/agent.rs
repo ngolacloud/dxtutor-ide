@@ -62,7 +62,10 @@ pub async fn agent_isolated_patch(
 /// Submit a delegated task: runs the isolated executor and registers the result under a task
 /// id (submit → the task runs → collectable by id). Returns the id immediately.
 #[tauri::command]
-pub async fn agent_task_submit(root: String, writes: Vec<(String, String)>) -> Result<String, String> {
+pub async fn agent_task_submit(
+    root: String,
+    writes: Vec<(String, String)>,
+) -> Result<String, String> {
     let id = agent::new_task_id();
     agent::register_running(&id);
     let id2 = id.clone();

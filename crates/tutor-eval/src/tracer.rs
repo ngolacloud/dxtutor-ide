@@ -200,7 +200,8 @@ fn trace_python_container(code: &str) -> Result<ExecutionTrace> {
         .context("criar directório temporário do traçado")?;
     let root = dir.path();
     std::fs::write(root.join("student.py"), code).context("escrever o código do aluno")?;
-    std::fs::write(root.join("trace_harness.py"), HARNESS).context("escrever o harness de traçado")?;
+    std::fs::write(root.join("trace_harness.py"), HARNESS)
+        .context("escrever o harness de traçado")?;
 
     let image = image_for("python").expect("python tem imagem conhecida");
     let mut spec = ContainerSpec::new(
@@ -248,7 +249,10 @@ fn parse_harness_output(stdout: &str, stderr: &str) -> ExecutionTrace {
         Err(e) => {
             return ExecutionTrace {
                 supported: true,
-                notes: format!("could not parse trace output ({e}); raw:\n{}", truncate(raw, 1200)),
+                notes: format!(
+                    "could not parse trace output ({e}); raw:\n{}",
+                    truncate(raw, 1200)
+                ),
                 steps: Vec::new(),
                 stdout: String::new(),
             };
@@ -371,11 +375,17 @@ print(\"soma:\", resultado)
 
         // Há eventos de call e return da função `soma`.
         assert!(
-            trace.steps.iter().any(|s| s.event == "call" && s.func == "soma"),
+            trace
+                .steps
+                .iter()
+                .any(|s| s.event == "call" && s.func == "soma"),
             "devia haver um evento call de `soma`"
         );
         assert!(
-            trace.steps.iter().any(|s| s.event == "return" && s.func == "soma"),
+            trace
+                .steps
+                .iter()
+                .any(|s| s.event == "return" && s.func == "soma"),
             "devia haver um evento return de `soma`"
         );
 

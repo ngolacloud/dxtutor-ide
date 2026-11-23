@@ -118,7 +118,11 @@ fn tasks() -> &'static Mutex<HashMap<String, AgentTask>> {
 /// Gera um id de tarefa único no processo (`task-<pid>-<seq>`), monotónico.
 pub fn new_task_id() -> String {
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    format!("task-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "task-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// Regista a tarefa `id` como em execução (estado inicial do ciclo), antes de o worker
@@ -126,7 +130,12 @@ pub fn new_task_id() -> String {
 pub fn register_running(id: &str) {
     tasks().lock().unwrap().insert(
         id.to_string(),
-        AgentTask { id: id.to_string(), status: "running".into(), patch: String::new(), error: String::new() },
+        AgentTask {
+            id: id.to_string(),
+            status: "running".into(),
+            patch: String::new(),
+            error: String::new(),
+        },
     );
 }
 
@@ -135,8 +144,18 @@ pub fn register_running(id: &str) {
 /// ciclo submit → collect.
 pub fn run_and_store(id: &str, root: &Path, writes: &[(String, String)]) {
     let rec = match worktree_patch(root, writes) {
-        Ok(patch) => AgentTask { id: id.to_string(), status: "done".into(), patch, error: String::new() },
-        Err(e) => AgentTask { id: id.to_string(), status: "error".into(), patch: String::new(), error: e },
+        Ok(patch) => AgentTask {
+            id: id.to_string(),
+            status: "done".into(),
+            patch,
+            error: String::new(),
+        },
+        Err(e) => AgentTask {
+            id: id.to_string(),
+            status: "error".into(),
+            patch: String::new(),
+            error: e,
+        },
     };
     tasks().lock().unwrap().insert(id.to_string(), rec);
 }
@@ -161,8 +180,18 @@ mod tests {
     fn valid_design() -> Architecture {
         Architecture {
             components: vec![
-                Component { id: "svc".into(), name: "Svc".into(), kind: Kind::Service, outbox: false },
-                Component { id: "db".into(), name: "Db".into(), kind: Kind::Store, outbox: false },
+                Component {
+                    id: "svc".into(),
+                    name: "Svc".into(),
+                    kind: Kind::Service,
+                    outbox: false,
+                },
+                Component {
+                    id: "db".into(),
+                    name: "Db".into(),
+                    kind: Kind::Store,
+                    outbox: false,
+                },
             ],
             connections: vec![Connection {
                 from: "svc".into(),
@@ -178,9 +207,14 @@ mod tests {
         // A pré-visualização é exactamente o que o scaffold escreveria (mesmo mecanismo).
         let arch = valid_design();
         let preview = scaffold_preview(&arch);
-        assert!(!preview.is_empty(), "um desenho válido tem scaffold não-vazio: {preview:?}");
         assert!(
-            preview.iter().any(|(rel, _)| rel.ends_with("ARCHITECTURE.md")),
+            !preview.is_empty(),
+            "um desenho válido tem scaffold não-vazio: {preview:?}"
+        );
+        assert!(
+            preview
+                .iter()
+                .any(|(rel, _)| rel.ends_with("ARCHITECTURE.md")),
             "o scaffold inclui ARCHITECTURE.md: {preview:?}"
         );
     }
@@ -191,11 +225,17 @@ mod tests {
         let root = dir.path();
         let written = scaffold(root, &valid_design()).expect("desenho válido materializa-se");
         assert!(!written.is_empty(), "escreveu ficheiros: {written:?}");
-        assert!(root.join("ARCHITECTURE.md").is_file(), "ARCHITECTURE.md foi escrito");
+        assert!(
+            root.join("ARCHITECTURE.md").is_file(),
+            "ARCHITECTURE.md foi escrito"
+        );
 
         // Segunda passagem: tudo já existe → nada de novo escrito (nunca sobrescreve).
         let again = scaffold(root, &valid_design()).expect("segunda passagem não falha");
-        assert!(again.is_empty(), "nada é reescrito quando já existe: {again:?}");
+        assert!(
+            again.is_empty(),
+            "nada é reescrito quando já existe: {again:?}"
+        );
     }
 
     /// Um desenho inválido: uma ligação a partir de um componente inexistente (dangling-edge
@@ -217,12 +257,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let arch = invalid_design();
         // Pré-condição: o desenho tem um erro de validação (scaffold vazio).
-        assert!(arch.validate().iter().any(|f| f.severity == Severity::Error), "o desenho é inválido");
+        assert!(
+            arch.validate()
+                .iter()
+                .any(|f| f.severity == Severity::Error),
+            "o desenho é inválido"
+        );
         // A regra dispara o erro tipado em vez de materializar nada.
         let err = scaffold(dir.path(), &arch).unwrap_err();
-        assert!(matches!(err, ScaffoldError::InvalidDesign), "design inválido → InvalidDesign");
+        assert!(
+            matches!(err, ScaffoldError::InvalidDesign),
+            "design inválido → InvalidDesign"
+        );
         // A mensagem é a histórica, preservada da versão em lib.rs.
-        assert_eq!(err.to_string(), "design has errors — fix them before scaffolding");
+        assert_eq!(
+            err.to_string(),
+            "design has errors — fix them before scaffolding"
+        );
     }
 
     #[test]
@@ -243,7 +294,10 @@ mod tests {
         assert_eq!(st.status, "running", "o estado inicial do ciclo é running");
 
         assert!(cancel(&id), "cancelar uma tarefa existente devolve true");
-        assert!(status(&id).is_none(), "depois do cancel o registo desapareceu");
+        assert!(
+            status(&id).is_none(),
+            "depois do cancel o registo desapareceu"
+        );
         assert!(!cancel(&id), "cancelar duas vezes devolve false");
     }
 }

@@ -250,8 +250,13 @@ mod tests {
     fn project_mode_leaves_the_messages_untouched() {
         // Modo project (não tutor-constrained, `Mode::Project`) → mensagens intactas, sem
         // system prepended.
-        let prep = prepare_stream(Some("project"), true, vec![msg("user", "olá")], Some("claude"))
-            .expect("claude é válido");
+        let prep = prepare_stream(
+            Some("project"),
+            true,
+            vec![msg("user", "olá")],
+            Some("claude"),
+        )
+        .expect("claude é válido");
         assert_eq!(prep.provider, "claude");
         assert_eq!(prep.messages.len(), 1);
         assert_eq!(prep.messages[0].role, "user");
@@ -295,7 +300,10 @@ mod tests {
         // JS é o runner offline/rápido (motor embebido): código partido → ≥1 diagnóstico,
         // tudo com severidade de string bem-formada.
         let diags = diagnostics("js", "let x = ;").expect("runner JS corre offline");
-        assert!(!diags.is_empty(), "JS sintacticamente inválido dá diagnóstico");
+        assert!(
+            !diags.is_empty(),
+            "JS sintacticamente inválido dá diagnóstico"
+        );
         for d in &diags {
             assert!(
                 d.severity == "error" || d.severity == "warning",
@@ -308,6 +316,9 @@ mod tests {
     #[test]
     fn diagnostics_of_valid_js_is_empty() {
         let diags = diagnostics("js", "const x = 1;").expect("runner JS corre offline");
-        assert!(diags.is_empty(), "JS válido não tem diagnósticos, veio {diags:?}");
+        assert!(
+            diags.is_empty(),
+            "JS válido não tem diagnósticos, veio {diags:?}"
+        );
     }
 }

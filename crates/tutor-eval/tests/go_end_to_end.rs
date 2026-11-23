@@ -107,8 +107,8 @@ func TestSoma(t *testing.T) {
 "#;
     let ph = go_phase(TESTS);
     // Multiplica em vez de somar → falha o teste.
-    let a = assess(&ph, "func Soma(a, b int) int { return a * b }")
-        .expect("avaliar solução errada");
+    let a =
+        assess(&ph, "func Soma(a, b int) int { return a * b }").expect("avaliar solução errada");
     assert!(
         !a.correctness.passed,
         "a solução errada NÃO devia passar; resumo: {}\n{}",

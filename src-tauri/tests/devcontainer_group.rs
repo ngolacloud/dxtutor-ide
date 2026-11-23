@@ -92,8 +92,11 @@ fn session_without_a_running_container_is_a_typed_error() {
 #[ignore = "requer docker/podman com daemon a correr"]
 fn live_session_up_exec_down() {
     let dir = tempdir().unwrap();
-    fs::write(dir.path().join(".devcontainer.json"), "{ \"image\": \"docker.io/library/alpine:3\" }")
-        .unwrap();
+    fs::write(
+        dir.path().join(".devcontainer.json"),
+        "{ \"image\": \"docker.io/library/alpine:3\" }",
+    )
+    .unwrap();
 
     let up = devcontainer::session_up(dir.path()).expect("session up");
     assert!(up.ok);

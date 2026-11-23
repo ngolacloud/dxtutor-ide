@@ -24,7 +24,11 @@ fn opens_a_real_project_end_to_end() {
     let loaded = open_workspace(root, LoadPolicy::default()).expect("abre o workspace");
 
     let paths: Vec<_> = loaded.files.iter().map(|f| f.path.as_str()).collect();
-    assert_eq!(paths, vec!["README.md", "src/main.rs"], "só texto, ordenado, sem node_modules");
+    assert_eq!(
+        paths,
+        vec!["README.md", "src/main.rs"],
+        "só texto, ordenado, sem node_modules"
+    );
     assert_eq!(loaded.skipped, 1, "o binário é contado como ignorado");
     assert!(!loaded.truncated);
     assert_eq!(
@@ -42,8 +46,14 @@ fn custom_policy_truncates_the_file_set() {
     for i in 0..6 {
         fs::write(dir.path().join(format!("f{i}.txt")), "x").unwrap();
     }
-    let loaded = open_workspace(dir.path(), LoadPolicy { max_files: 2, max_bytes: 1024 })
-        .expect("abre com política apertada");
+    let loaded = open_workspace(
+        dir.path(),
+        LoadPolicy {
+            max_files: 2,
+            max_bytes: 1024,
+        },
+    )
+    .expect("abre com política apertada");
     assert_eq!(loaded.files.len(), 2);
     assert!(loaded.truncated, "atingido o limite → truncado");
 }

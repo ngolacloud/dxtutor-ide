@@ -148,8 +148,7 @@ pub fn courses() -> Vec<Course> {
 
 /// Carrega o glossário curado de uma linguagem, ou [`StudyError::NoGlossary`].
 pub fn glossary(language: &str) -> Result<Glossary, StudyError> {
-    tutor_core::load_glossary(language)
-        .ok_or_else(|| StudyError::NoGlossary(language.to_string()))
+    tutor_core::load_glossary(language).ok_or_else(|| StudyError::NoGlossary(language.to_string()))
 }
 
 /// Carrega o guia de estudo (remediação) de uma unidade numa linguagem, ou
@@ -168,7 +167,8 @@ pub fn study_guide(language: &str, unit_id: &str) -> Result<StudyGuide, StudyErr
 /// (o gabarito viaja com a fase) para o adaptador revelar o gabarito só em sucesso.
 pub fn grade_phase(phase_id: &str, code: &str) -> Result<(Assessment, Phase), StudyError> {
     let phase = load_phase(phase_id)?;
-    let assessment = tutor_eval::assess(&phase, code).map_err(|e| StudyError::Eval(e.to_string()))?;
+    let assessment =
+        tutor_eval::assess(&phase, code).map_err(|e| StudyError::Eval(e.to_string()))?;
     Ok((assessment, phase))
 }
 

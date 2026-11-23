@@ -15,9 +15,15 @@ use std::process::Command;
 #[test]
 fn capabilities_and_available_are_reachable_and_honest() {
     let cap = debug::capabilities();
-    assert!(!cap.note.is_empty(), "a nota de capacidade nunca é vazia: {cap:?}");
+    assert!(
+        !cap.note.is_empty(),
+        "a nota de capacidade nunca é vazia: {cap:?}"
+    );
     if debug::available() {
-        assert!(cap.engine.is_some(), "com gdb na PATH há motor detectado: {cap:?}");
+        assert!(
+            cap.engine.is_some(),
+            "com gdb na PATH há motor detectado: {cap:?}"
+        );
     }
 }
 
@@ -30,7 +36,10 @@ fn unknown_session_fails_loudly_without_a_debugger() {
         debug::driver::set_break(&sessions, "ghost", "t.c", 1).unwrap_err(),
         "no such debug session"
     );
-    assert_eq!(debug::driver::run(&sessions, "ghost").unwrap_err(), "no such debug session");
+    assert_eq!(
+        debug::driver::run(&sessions, "ghost").unwrap_err(),
+        "no such debug session"
+    );
     // `stop` numa sessão inexistente é benigno, como antes.
     assert!(debug::driver::stop(&sessions, "ghost").is_ok());
 }
@@ -67,17 +76,28 @@ fn live_round_trip_through_the_public_api() {
     let bp = debug::driver::set_break(&sessions, "t", &src.to_string_lossy(), 1).unwrap();
     assert!(bp >= 1, "breakpoint number");
     let stop = debug::driver::run(&sessions, "t").unwrap();
-    assert!(stop.stopped && !stop.exited, "stops at the breakpoint: {stop:?}");
+    assert!(
+        stop.stopped && !stop.exited,
+        "stops at the breakpoint: {stop:?}"
+    );
     assert_eq!(stop.func, "add", "stopped in add");
     let vars = debug::driver::locals(&sessions, "t").unwrap();
-    assert!(vars.iter().any(|v| v.name == "a" && v.value == "2"), "a=2 among {vars:?}");
+    assert!(
+        vars.iter().any(|v| v.name == "a" && v.value == "2"),
+        "a=2 among {vars:?}"
+    );
     let frames = debug::driver::stack(&sessions, "t").unwrap();
-    assert!(frames.iter().any(|f| f.func == "main"), "main in backtrace: {frames:?}");
+    assert!(
+        frames.iter().any(|f| f.func == "main"),
+        "main in backtrace: {frames:?}"
+    );
     debug::driver::stop(&sessions, "t").unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn which(tool: &str) -> Option<std::path::PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|d| d.join(tool)).find(|p| p.is_file())
+    std::env::split_paths(&path)
+        .map(|d| d.join(tool))
+        .find(|p| p.is_file())
 }

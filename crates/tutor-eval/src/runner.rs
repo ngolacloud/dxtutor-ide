@@ -133,7 +133,13 @@ impl LanguageRunner for RustRunner {
             .tempdir()
             .context("criar directório temporário da sonda")?;
         let root = dir.path();
-        scaffold_package(root, student_code, &phase.tests, Some(probe), &phase.dependencies)?;
+        scaffold_package(
+            root,
+            student_code,
+            &phase.tests,
+            Some(probe),
+            &phase.dependencies,
+        )?;
         run_probe(root)
     }
 
@@ -278,7 +284,10 @@ fn scaffold_package(
         ),
     )?;
 
-    std::fs::write(root.join("src/lib.rs"), format!("#![allow(dead_code)]\n{code}"))?;
+    std::fs::write(
+        root.join("src/lib.rs"),
+        format!("#![allow(dead_code)]\n{code}"),
+    )?;
     std::fs::write(root.join("tests/hidden.rs"), tests)?;
 
     // A sonda tem de existir sempre (o Cargo.toml declara o bin); se a fase não
@@ -351,8 +360,8 @@ fn run_tests(root: &Path) -> Result<Correctness> {
 
     // Sem rlimits estritos: o compilador precisa de folga de memória e de escrever
     // artefactos. A guarda aqui é o timeout de parede + grupo de processos próprio.
-    let outcome = run_guarded(cmd, root, "test", CARGO_TIMEOUT, None)
-        .context("executar `cargo test`")?;
+    let outcome =
+        run_guarded(cmd, root, "test", CARGO_TIMEOUT, None).context("executar `cargo test`")?;
 
     let mut raw = String::new();
     raw.push_str(&outcome.stdout);
@@ -360,13 +369,21 @@ fn run_tests(root: &Path) -> Result<Correctness> {
 
     if outcome.timed_out {
         let summary = format!("excedeu o tempo limite ({}s)", CARGO_TIMEOUT.as_secs());
-        return Ok(Correctness { passed: false, summary, raw });
+        return Ok(Correctness {
+            passed: false,
+            summary,
+            raw,
+        });
     }
 
     let passed = outcome.status.map(|s| s.success()).unwrap_or(false);
     let summary = summarize(&raw, passed);
 
-    Ok(Correctness { passed, summary, raw })
+    Ok(Correctness {
+        passed,
+        summary,
+        raw,
+    })
 }
 
 fn summarize(raw: &str, passed: bool) -> String {
@@ -490,8 +507,8 @@ fn rust_diagnostics(student_code: &str) -> Result<Vec<Diagnostic>> {
         .current_dir(root);
     configure_cargo_env(&mut cmd);
 
-    let outcome = run_guarded(cmd, root, "check", CARGO_TIMEOUT, None)
-        .context("executar `cargo check`")?;
+    let outcome =
+        run_guarded(cmd, root, "check", CARGO_TIMEOUT, None).context("executar `cargo check`")?;
     if outcome.timed_out {
         anyhow::bail!(
             "o `cargo check` excedeu o tempo limite ({}s)",
@@ -735,9 +752,7 @@ mod tests {
 
     #[test]
     fn probe_ciclo_infinito_e_abatido_pelo_timeout() {
-        let dir = scaffold_with_probe(
-            "fn main() { loop { std::hint::black_box(0u64); } }\n",
-        );
+        let dir = scaffold_with_probe("fn main() { loop { std::hint::black_box(0u64); } }\n");
         let start = Instant::now();
         let res = run_probe(dir.path());
         let elapsed = start.elapsed();
@@ -761,7 +776,11 @@ mod tests {
     fn run_rust_snippet_hello_world_imprime_stdout() {
         let out = run_rust_snippet("fn main() {\n    println!(\"Hello, world!\");\n}\n")
             .expect("correr o snippet não devia falhar no sandbox");
-        assert!(out.ok, "o hello-world devia compilar e correr; stderr:\n{}", out.stderr);
+        assert!(
+            out.ok,
+            "o hello-world devia compilar e correr; stderr:\n{}",
+            out.stderr
+        );
         assert!(
             out.stdout.contains("Hello, world!"),
             "stdout devia conter 'Hello, world!', obteve-se:\n{}",

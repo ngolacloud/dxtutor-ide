@@ -90,8 +90,8 @@ pub async fn compile_pipeline(code: String) -> Result<PipelineDto, String> {
 #[tauri::command]
 pub async fn trace_execution(language: String, code: String) -> Result<ExecutionTraceDto, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<ExecutionTraceDto, String> {
-        let trace =
-            tutor_eval::trace_execution(&language, &code).map_err(|e| format!("trace failed: {e}"))?;
+        let trace = tutor_eval::trace_execution(&language, &code)
+            .map_err(|e| format!("trace failed: {e}"))?;
         Ok(execution_trace_dto(trace))
     })
     .await

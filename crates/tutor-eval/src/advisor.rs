@@ -177,7 +177,11 @@ mod tests {
 
     #[test]
     fn rust_tipos_incompativeis() {
-        let a = advise("rust", &diag("mismatched types: expected `String`, found `&str`")).unwrap();
+        let a = advise(
+            "rust",
+            &diag("mismatched types: expected `String`, found `&str`"),
+        )
+        .unwrap();
         assert!(!a.is_empty());
     }
 

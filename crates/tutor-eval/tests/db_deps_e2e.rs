@@ -41,8 +41,8 @@ fn assert_db_challenge_passes(course_id: &str, unit_id: &str) {
         .expect("challenge vira Phase");
     let solution = phase.gabarito.solution.clone();
 
-    let assessment = tutor_eval::assess(&phase, &solution)
-        .unwrap_or_else(|e| panic!("assess {unit_id}: {e}"));
+    let assessment =
+        tutor_eval::assess(&phase, &solution).unwrap_or_else(|e| panic!("assess {unit_id}: {e}"));
     assert!(
         assessment.correctness.passed,
         "{unit_id}: a solução de referência devia passar os testes ocultos com a dependência provisionada.\n{}",

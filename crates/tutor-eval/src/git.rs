@@ -212,13 +212,19 @@ fn slugify(name: &str) -> String {
         }
     }
     let s = out.trim_matches('-').to_string();
-    if s.is_empty() { "session".into() } else { s }
+    if s.is_empty() {
+        "session".into()
+    } else {
+        s
+    }
 }
 
 /// Keep `.worktrees/` out of the base tree's `git status` without touching tracked files:
 /// append it to `.git/info/exclude` (idempotent).
 fn ensure_worktrees_excluded(root: &Path) {
-    let Some(common) = git(root, &["rev-parse", "--git-common-dir"]) else { return };
+    let Some(common) = git(root, &["rev-parse", "--git-common-dir"]) else {
+        return;
+    };
     let common = common.trim();
     let gitdir = if Path::new(common).is_absolute() {
         PathBuf::from(common)
@@ -258,13 +264,27 @@ pub fn session_start(root: &Path, name: &str) -> Result<SessionInfo, String> {
     }
     ensure_worktrees_excluded(root);
     // Reuse a stale branch of the same name if present; otherwise branch from HEAD.
-    let exists = git(root, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_some();
+    let exists = git(
+        root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .is_some();
     if exists {
         git_mutate(root, &["worktree", "add", &wt_s, &branch])?;
     } else {
         git_mutate(root, &["worktree", "add", "-b", &branch, &wt_s, "HEAD"])?;
     }
-    Ok(SessionInfo { slug, branch, base, worktree: wt_s })
+    Ok(SessionInfo {
+        slug,
+        branch,
+        base,
+        worktree: wt_s,
+    })
 }
 
 /// Deliver a session: commit anything uncommitted in the worktree, integrate its branch into
@@ -283,7 +303,11 @@ pub fn session_deliver(root: &Path, slug: &str, message: &str) -> Result<Deliver
     git_mutate(&wt, &["add", "-A"])?;
     let has_staged = git(&wt, &["diff", "--cached", "--quiet"]).is_none(); // exit 1 (None) ⇒ staged changes
     if has_staged {
-        let msg = if message.trim().is_empty() { format!("codev session {slug}") } else { message.to_string() };
+        let msg = if message.trim().is_empty() {
+            format!("codev session {slug}")
+        } else {
+            message.to_string()
+        };
         commit(&wt, &msg)?;
     }
     // 2) Integrate into the base branch iff the session has commits the base lacks.
@@ -295,8 +319,15 @@ pub fn session_deliver(root: &Path, slug: &str, message: &str) -> Result<Deliver
             .arg("-C")
             .arg(root)
             .args([
-                "-c", "user.name=dxtutor", "-c", "user.email=dxtutor@localhost",
-                "merge", "--no-ff", "-m", &format!("Merge codev session {slug}"), &branch,
+                "-c",
+                "user.name=dxtutor",
+                "-c",
+                "user.email=dxtutor@localhost",
+                "merge",
+                "--no-ff",
+                "-m",
+                &format!("Merge codev session {slug}"),
+                &branch,
             ])
             .output()
             .map_err(|e| format!("could not start git: {e}"))?;
@@ -308,7 +339,9 @@ pub fn session_deliver(root: &Path, slug: &str, message: &str) -> Result<Deliver
                 String::from_utf8_lossy(&out.stderr).trim()
             ));
         }
-        let short = git(root, &["rev-parse", "--short", "HEAD"]).map(|s| s.trim().to_string()).unwrap_or_default();
+        let short = git(root, &["rev-parse", "--short", "HEAD"])
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
         (true, short, format!("integrated into {base}"))
     } else {
         (false, String::new(), "nothing to integrate".to_string())
@@ -317,13 +350,22 @@ pub fn session_deliver(root: &Path, slug: &str, message: &str) -> Result<Deliver
     let _ = git_mutate(root, &["worktree", "remove", "--force", &wt_s]);
     let _ = git_mutate(root, &["worktree", "prune"]);
     let _ = git_mutate(root, &["branch", "-D", &branch]);
-    Ok(DeliverInfo { merged, base, commit: commit_short, note })
+    Ok(DeliverInfo {
+        merged,
+        base,
+        commit: commit_short,
+        note,
+    })
 }
 
 /// Discard a session without integrating: remove the worktree and delete its branch.
 pub fn session_discard(root: &Path, slug: &str) -> Result<(), String> {
     let branch = format!("codev/{slug}");
-    let wt_s = root.join(".worktrees").join(slug).to_string_lossy().into_owned();
+    let wt_s = root
+        .join(".worktrees")
+        .join(slug)
+        .to_string_lossy()
+        .into_owned();
     let _ = git_mutate(root, &["worktree", "remove", "--force", &wt_s]);
     let _ = git_mutate(root, &["worktree", "prune"]);
     git_mutate(root, &["branch", "-D", &branch])
@@ -450,7 +492,12 @@ fn git_mutate(root: &Path, args: &[&str]) -> Result<(), String> {
 /// Like [`git`] but returns stdout even on a non-zero exit — needed for `git diff
 /// --no-index`, which exits 1 precisely when the files differ.
 fn git_allow_fail(root: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").arg("-C").arg(root).args(args).output().ok()?;
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .ok()?;
     Some(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
@@ -512,7 +559,12 @@ mod tests {
     use super::*;
 
     fn run(root: &Path, args: &[&str]) {
-        let ok = Command::new("git").arg("-C").arg(root).args(args).status().unwrap();
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .unwrap();
         assert!(ok.success(), "git {args:?} failed");
     }
 
@@ -538,21 +590,41 @@ mod tests {
         std::fs::write(root.join("newdir/inside.txt"), "x\n").unwrap();
 
         let changes = changed_files(root);
-        assert!(changes.iter().any(|c| c.path == "a.txt" && c.status == "M"), "{changes:?}");
-        assert!(changes.iter().any(|c| c.path == "b.txt" && c.status == "??"), "{changes:?}");
-        assert!(changes.iter().any(|c| c.path == "newdir/inside.txt"), "untracked dir expanded: {changes:?}");
-        assert!(!changes.iter().any(|c| c.path.ends_with('/')), "no bare directory entries: {changes:?}");
+        assert!(
+            changes.iter().any(|c| c.path == "a.txt" && c.status == "M"),
+            "{changes:?}"
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.path == "b.txt" && c.status == "??"),
+            "{changes:?}"
+        );
+        assert!(
+            changes.iter().any(|c| c.path == "newdir/inside.txt"),
+            "untracked dir expanded: {changes:?}"
+        );
+        assert!(
+            !changes.iter().any(|c| c.path.ends_with('/')),
+            "no bare directory entries: {changes:?}"
+        );
 
         let d = diff(root, Some("a.txt"), false);
         assert!(d.contains("+two"), "diff should show the added line:\n{d}");
 
         // Branch name (git's default may be master or main depending on config).
         let branch = current_branch(root).expect("a branch");
-        assert!(branch == "main" || branch == "master", "unexpected branch: {branch}");
+        assert!(
+            branch == "main" || branch == "master",
+            "unexpected branch: {branch}"
+        );
 
         // An untracked file shows its whole content as additions (not blank).
         let du = diff(root, Some("b.txt"), false);
-        assert!(du.contains("+new"), "untracked diff should show the content:\n{du}");
+        assert!(
+            du.contains("+new"),
+            "untracked diff should show the content:\n{du}"
+        );
     }
 
     #[test]
@@ -564,13 +636,19 @@ mod tests {
 
         // Untracked: index blank, work "?".
         let before = changed_files(root);
-        let a = before.iter().find(|c| c.path == "a.txt").expect("a.txt listed");
+        let a = before
+            .iter()
+            .find(|c| c.path == "a.txt")
+            .expect("a.txt listed");
         assert_eq!(a.work, "?");
 
         // Stage it → it moves to the index column ("A").
         stage(root, "a.txt").unwrap();
         let staged = changed_files(root);
-        assert!(staged.iter().any(|c| c.path == "a.txt" && c.index == "A"), "{staged:?}");
+        assert!(
+            staged.iter().any(|c| c.path == "a.txt" && c.index == "A"),
+            "{staged:?}"
+        );
 
         // Commit the staged change → tree is clean.
         commit(root, "add a").unwrap();
@@ -581,7 +659,10 @@ mod tests {
         stage(root, "a.txt").unwrap();
         unstage(root, "a.txt").unwrap();
         let un = changed_files(root);
-        assert!(un.iter().any(|c| c.path == "a.txt" && c.work == "M"), "{un:?}");
+        assert!(
+            un.iter().any(|c| c.path == "a.txt" && c.work == "M"),
+            "{un:?}"
+        );
     }
 
     #[test]
@@ -599,8 +680,15 @@ mod tests {
         create_branch(root, "feature/x").unwrap();
         assert_eq!(current_branch(root).as_deref(), Some("feature/x"));
         let names = branches(root);
-        assert!(names.contains(&"feature/x".to_string()) && names.contains(&base), "{names:?}");
-        assert_eq!(names.first().unwrap(), "feature/x", "current branch first: {names:?}");
+        assert!(
+            names.contains(&"feature/x".to_string()) && names.contains(&base),
+            "{names:?}"
+        );
+        assert_eq!(
+            names.first().unwrap(),
+            "feature/x",
+            "current branch first: {names:?}"
+        );
 
         checkout(root, &base).unwrap();
         assert_eq!(current_branch(root).as_deref(), Some(base.as_str()));
@@ -615,7 +703,10 @@ mod tests {
         run(root, &["config", "user.name", "Tester"]);
         std::fs::write(root.join("a.txt"), "one\n").unwrap();
         run(root, &["add", "a.txt"]);
-        run(root, &["commit", "-q", "-m", "first: with punctuation, commas"]);
+        run(
+            root,
+            &["commit", "-q", "-m", "first: with punctuation, commas"],
+        );
         std::fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
         run(root, &["add", "a.txt"]);
         run(root, &["commit", "-q", "-m", "second"]);
@@ -628,7 +719,10 @@ mod tests {
         assert_eq!(commits[0].parents, vec![commits[1].hash.clone()]);
         assert!(commits[1].parents.is_empty(), "root has no parent");
         // HEAD/branch ref is attached to the tip.
-        assert!(commits[0].refs.iter().any(|r| r.contains("main") || r.contains("master")));
+        assert!(commits[0]
+            .refs
+            .iter()
+            .any(|r| r.contains("main") || r.contains("master")));
 
         let patch = show(root, &commits[0].hash);
         assert!(patch.contains("+two"), "{patch}");
@@ -647,14 +741,23 @@ mod tests {
 
         let patch = worktree_patch(
             root,
-            &[("a.txt".into(), "one\ntwo\n".into()), ("new.txt".into(), "hi\n".into())],
+            &[
+                ("a.txt".into(), "one\ntwo\n".into()),
+                ("new.txt".into(), "hi\n".into()),
+            ],
         )
         .unwrap();
         assert!(patch.contains("+two"), "patch shows the edit:\n{patch}");
-        assert!(patch.contains("new.txt"), "patch shows the new file:\n{patch}");
+        assert!(
+            patch.contains("new.txt"),
+            "patch shows the new file:\n{patch}"
+        );
 
         // The real working tree is UNTOUCHED (no two, no new file, tree clean).
-        assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "one\n");
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            "one\n"
+        );
         assert!(!root.join("new.txt").exists());
         assert!(changed_files(root).is_empty(), "working tree stayed clean");
     }
@@ -683,7 +786,11 @@ mod tests {
             "worktree is on the session branch"
         );
         // The base tree's status stays clean (.worktrees excluded).
-        assert!(changed_files(root).is_empty(), "base tree clean: {:?}", changed_files(root));
+        assert!(
+            changed_files(root).is_empty(),
+            "base tree clean: {:?}",
+            changed_files(root)
+        );
 
         // The assistant works in the worktree: new file + edit, then deliver.
         std::fs::write(wt.join("feature.txt"), "hello\n").unwrap();
@@ -694,8 +801,14 @@ mod tests {
         assert!(!d.commit.is_empty(), "merge commit recorded");
 
         // The change landed on develop (the base tree), and the worktree is gone.
-        assert_eq!(std::fs::read_to_string(root.join("feature.txt")).unwrap(), "hello\n");
-        assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "base\nmore\n");
+        assert_eq!(
+            std::fs::read_to_string(root.join("feature.txt")).unwrap(),
+            "hello\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            "base\nmore\n"
+        );
         assert!(!wt.exists(), "worktree removed");
         assert!(sessions(root).is_empty(), "no open sessions after deliver");
         assert!(
@@ -704,15 +817,24 @@ mod tests {
         );
         // A real merge commit (two parents) tops develop.
         let commits = log(root, 10);
-        assert!(commits[0].subject.contains("Merge codev session"), "{commits:?}");
+        assert!(
+            commits[0].subject.contains("Merge codev session"),
+            "{commits:?}"
+        );
         assert_eq!(commits[0].parents.len(), 2, "no-ff merge has two parents");
 
         // Discard path: start another, then throw it away without integrating.
         let s2 = session_start(root, "scratch").unwrap();
         std::fs::write(Path::new(&s2.worktree).join("junk.txt"), "x\n").unwrap();
         session_discard(root, &s2.slug).unwrap();
-        assert!(!Path::new(&s2.worktree).exists(), "discarded worktree removed");
-        assert!(!root.join("junk.txt").exists(), "discard integrated nothing");
+        assert!(
+            !Path::new(&s2.worktree).exists(),
+            "discarded worktree removed"
+        );
+        assert!(
+            !root.join("junk.txt").exists(),
+            "discard integrated nothing"
+        );
         assert!(sessions(root).is_empty());
     }
 

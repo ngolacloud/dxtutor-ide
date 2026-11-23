@@ -38,7 +38,10 @@ fn runs_the_project_suite_over_a_real_rust_project() {
 
     let run = run_project_suite(dir.path()).expect("um crate Rust válido tem comando de teste");
 
-    assert_eq!(run.command, "cargo test", "escolheu o comando pelo marcador Cargo.toml");
+    assert_eq!(
+        run.command, "cargo test",
+        "escolheu o comando pelo marcador Cargo.toml"
+    );
     assert!(run.ok, "a suite passa: {}\n{}", run.stdout, run.stderr);
 }
 

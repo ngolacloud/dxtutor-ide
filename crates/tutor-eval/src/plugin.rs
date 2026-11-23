@@ -170,7 +170,9 @@ impl LanguagePlugin {
         if self.aliases.iter().any(|a| a.eq_ignore_ascii_case(&want)) {
             return true;
         }
-        self.extensions.iter().any(|e| e.eq_ignore_ascii_case(&want))
+        self.extensions
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(&want))
     }
 
     /// The effective host timeout.
@@ -387,7 +389,8 @@ fn parse_cc_diagnostics(text: &str) -> Vec<Diagnostic> {
         let line = line.trim();
         // Need at least "f:L:C: sev: msg" → four ':' separators before the message.
         let mut it = line.splitn(5, ':');
-        let (_file, l, c, sev, msg) = match (it.next(), it.next(), it.next(), it.next(), it.next()) {
+        let (_file, l, c, sev, msg) = match (it.next(), it.next(), it.next(), it.next(), it.next())
+        {
             (Some(f), Some(l), Some(c), Some(s), Some(m)) if !f.is_empty() => (f, l, c, s, m),
             _ => continue,
         };
@@ -631,7 +634,11 @@ mod tests {
     #[test]
     fn expand_fills_placeholders() {
         let c = &builtin_plugins()[0];
-        let s = expand("run {file} test {test_file} entry {entry} dir {dir}", c, "add");
+        let s = expand(
+            "run {file} test {test_file} entry {entry} dir {dir}",
+            c,
+            "add",
+        );
         assert_eq!(s, "run student.c test student_test.c entry add dir .");
     }
 
@@ -672,9 +679,15 @@ mod tests {
 
         // 1) A complete program runs via run_cmd.
         let out = runner
-            .run_program("#include <stdio.h>\nint main(void){ printf(\"ola do C\\n\"); return 0; }\n")
+            .run_program(
+                "#include <stdio.h>\nint main(void){ printf(\"ola do C\\n\"); return 0; }\n",
+            )
             .expect("running a complete C program should not fail the sandbox");
-        assert!(out.ok, "C program should compile and run; stderr:\n{}", out.stderr);
+        assert!(
+            out.ok,
+            "C program should compile and run; stderr:\n{}",
+            out.stderr
+        );
         assert!(
             out.stdout.contains("ola do C"),
             "stdout should contain the printed line, got:\n{}",
@@ -686,7 +699,11 @@ mod tests {
         let good = runner
             .check_correctness(&phase, "int add(int a, int b) { return a + b; }")
             .expect("correctness run should not fail the sandbox");
-        assert!(good.passed, "correct solution should pass; raw:\n{}", good.raw);
+        assert!(
+            good.passed,
+            "correct solution should pass; raw:\n{}",
+            good.raw
+        );
 
         // 3) …and a wrong solution fails.
         let bad = runner

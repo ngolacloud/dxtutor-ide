@@ -28,9 +28,11 @@ pub async fn assistant_chat(
     messages: Vec<ChatMsg>,
     model: Option<String>,
 ) -> Result<ChatReply, String> {
-    tauri::async_runtime::spawn_blocking(move || assistant::ollama_chat(&messages, model.as_deref()))
-        .await
-        .map_err(|e| format!("assistant task failed: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        assistant::ollama_chat(&messages, model.as_deref())
+    })
+    .await
+    .map_err(|e| format!("assistant task failed: {e}"))?
 }
 
 /// The AI providers and what each can do right now (Ollama live; others gated).

@@ -25,27 +25,27 @@ pub mod dap;
 pub mod entrypoint;
 pub mod git;
 pub mod go_runner;
-pub mod lsp;
 pub mod js_runner;
 pub mod lang;
+pub mod lsp;
 pub mod measured;
 pub mod plugin;
 pub mod review;
 pub mod runner;
+pub mod rust_tracer;
 pub mod search;
 pub mod testnav;
 pub mod textdiff;
-pub mod rust_tracer;
 pub mod tracer;
 
 pub use advisor::advise;
 pub use complexity::{Class, Confidence, Estimate, Sample};
 pub use container::{
     build_image, cache_volumes_for, current_engine, engine_available, engine_name, image_for,
-    project_test_command, run_file_command, session_down, session_exec, session_name, session_running,
-    session_shell_command, session_up, parse_engine,
-    run_in_container, run_python_in_sandbox, run_rust_snippet_in_container,
-    run_rust_snippet_in_container_deps, sandbox_engine, set_engine, ContainerSpec, SandboxEngine,
+    parse_engine, project_test_command, run_file_command, run_in_container, run_python_in_sandbox,
+    run_rust_snippet_in_container, run_rust_snippet_in_container_deps, sandbox_engine,
+    session_down, session_exec, session_name, session_running, session_shell_command, session_up,
+    set_engine, ContainerSpec, SandboxEngine,
 };
 pub use go_runner::{run_go_program, run_go_program_with_deps};
 pub use lang::{assess, diagnostics, diagnostics_for, Diagnostic, LanguageRunner, Severity};
@@ -54,5 +54,7 @@ pub use plugin::{
     available_languages, builtin_plugins, find_plugin, registry, LanguageInfo, LanguagePlugin,
     PluginRunner,
 };
-pub use runner::{run_rust_snippet, run_rust_snippet_with_deps, Assessment, Correctness, RunOutput};
+pub use runner::{
+    run_rust_snippet, run_rust_snippet_with_deps, Assessment, Correctness, RunOutput,
+};
 pub use tracer::{trace_execution, trace_python, ExecutionTrace, TraceStep, Var};

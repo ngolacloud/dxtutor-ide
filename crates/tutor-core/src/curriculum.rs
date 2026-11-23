@@ -119,9 +119,14 @@ impl Curriculum {
     }
 
     /// Competências já dominadas vs em falta, para "mostrar ao aluno o que já domina".
-    pub fn progress<'a>(&'a self, mastered: &HashSet<String>) -> (Vec<&'a Competency>, Vec<&'a Competency>) {
-        let (done, todo): (Vec<_>, Vec<_>) =
-            self.competencies.iter().partition(|c| mastered.contains(&c.id));
+    pub fn progress<'a>(
+        &'a self,
+        mastered: &HashSet<String>,
+    ) -> (Vec<&'a Competency>, Vec<&'a Competency>) {
+        let (done, todo): (Vec<_>, Vec<_>) = self
+            .competencies
+            .iter()
+            .partition(|c| mastered.contains(&c.id));
         (done, todo)
     }
 }
@@ -211,15 +216,28 @@ mod tests {
     fn pilot_curriculum_has_three_labs_with_rubric_and_transfer() {
         let c = load_curriculum("cs-foundations").expect("embedded pilot");
         // The three pilot labs, each with the right honest evidence kind.
-        assert_eq!(c.unit("lab.cs.compare").unwrap().evidence, EvidenceKind::Measurement);
-        assert_eq!(c.unit("lab.ce.memory").unwrap().evidence, EvidenceKind::Simulation);
-        assert_eq!(c.unit("lab.se.regression").unwrap().evidence, EvidenceKind::Tests);
+        assert_eq!(
+            c.unit("lab.cs.compare").unwrap().evidence,
+            EvidenceKind::Measurement
+        );
+        assert_eq!(
+            c.unit("lab.ce.memory").unwrap().evidence,
+            EvidenceKind::Simulation
+        );
+        assert_eq!(
+            c.unit("lab.se.regression").unwrap().evidence,
+            EvidenceKind::Tests
+        );
         // Every lab carries a rubric and a transfer question (RF-LT-03).
         for u in &c.units {
             assert!(!u.rubric.is_empty(), "{} has a rubric", u.id);
             assert!(!u.transfer.is_empty(), "{} has a transfer question", u.id);
         }
         // Competencies map to CS2023 areas.
-        assert!(c.competency("c.cost").unwrap().cs2023.contains(&"AL".to_string()));
+        assert!(c
+            .competency("c.cost")
+            .unwrap()
+            .cs2023
+            .contains(&"AL".to_string()));
     }
 }

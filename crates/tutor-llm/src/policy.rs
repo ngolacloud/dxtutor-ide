@@ -162,9 +162,15 @@ pub fn govern_chat(mode: Mode, system: Option<&str>) -> GovernedChat {
             Some(s) => format!("{}\n\n{}", tutor_directive(), s),
             None => tutor_directive().to_string(),
         };
-        GovernedChat { system: Some(sys), tutored: true }
+        GovernedChat {
+            system: Some(sys),
+            tutored: true,
+        }
     } else {
-        GovernedChat { system: system.map(str::to_string), tutored: false }
+        GovernedChat {
+            system: system.map(str::to_string),
+            tutored: false,
+        }
     }
 }
 
@@ -293,9 +299,18 @@ mod tests {
     fn study_mode_forbids_solution_and_buffer_writes() {
         for autonomous in [true, false] {
             let p = policy_for(Mode::Study, autonomous);
-            assert!(!allows(&p, Capability::EmitFullSolution), "solution must be blocked");
-            assert!(!allows(&p, Capability::WriteStudentBuffer), "buffer write must be blocked");
-            assert!(!allows(&p, Capability::FreeformCodegen), "chat must be tutor-only");
+            assert!(
+                !allows(&p, Capability::EmitFullSolution),
+                "solution must be blocked"
+            );
+            assert!(
+                !allows(&p, Capability::WriteStudentBuffer),
+                "buffer write must be blocked"
+            );
+            assert!(
+                !allows(&p, Capability::FreeformCodegen),
+                "chat must be tutor-only"
+            );
         }
     }
 
@@ -313,7 +328,10 @@ mod tests {
         let g = govern_chat(Mode::Study, Some("be brief"));
         assert!(g.tutored);
         let s = g.system.unwrap();
-        assert!(s.starts_with(tutor_directive()), "directive must lead in study mode");
+        assert!(
+            s.starts_with(tutor_directive()),
+            "directive must lead in study mode"
+        );
         assert!(s.ends_with("be brief"));
         // Study with no system prompt still gets the directive.
         let g = govern_chat(Mode::Study, None);
@@ -344,7 +362,10 @@ mod tests {
     #[test]
     fn codev_manual_asks_for_every_edit_and_command() {
         assert_eq!(approval_for(CoDevMode::Manual, Action::Edit), Approval::Ask);
-        assert_eq!(approval_for(CoDevMode::Manual, Action::RunCommand), Approval::Ask);
+        assert_eq!(
+            approval_for(CoDevMode::Manual, Action::RunCommand),
+            Approval::Ask
+        );
         let p = codev_policy(CoDevMode::Manual);
         assert!(p.edits_need_approval);
         assert!(p.commands_need_approval);
@@ -354,8 +375,16 @@ mod tests {
     #[test]
     fn codev_assist_and_auto_auto_apply_edits_and_commands() {
         for m in [CoDevMode::Assist, CoDevMode::Auto] {
-            assert_eq!(approval_for(m, Action::Edit), Approval::Auto, "edits auto in {m:?}");
-            assert_eq!(approval_for(m, Action::RunCommand), Approval::Auto, "commands auto in {m:?}");
+            assert_eq!(
+                approval_for(m, Action::Edit),
+                Approval::Auto,
+                "edits auto in {m:?}"
+            );
+            assert_eq!(
+                approval_for(m, Action::RunCommand),
+                Approval::Auto,
+                "commands auto in {m:?}"
+            );
             let p = codev_policy(m);
             assert!(!p.edits_need_approval);
             assert!(!p.commands_need_approval);
@@ -371,8 +400,16 @@ mod tests {
     #[test]
     fn codev_destructive_and_push_always_ask_in_every_mode() {
         for m in [CoDevMode::Manual, CoDevMode::Assist, CoDevMode::Auto] {
-            assert_eq!(approval_for(m, Action::Destructive), Approval::Ask, "destructive must ask in {m:?}");
-            assert_eq!(approval_for(m, Action::Push), Approval::Ask, "push must ask in {m:?}");
+            assert_eq!(
+                approval_for(m, Action::Destructive),
+                Approval::Ask,
+                "destructive must ask in {m:?}"
+            );
+            assert_eq!(
+                approval_for(m, Action::Push),
+                Approval::Ask,
+                "push must ask in {m:?}"
+            );
             assert!(codev_policy(m).destructive_always_asks);
         }
     }

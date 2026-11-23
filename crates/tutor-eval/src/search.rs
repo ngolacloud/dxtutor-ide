@@ -18,7 +18,14 @@ pub struct SearchHit {
     pub text: String,
 }
 
-const SKIP_DIRS: &[&str] = &["target", ".git", "node_modules", "vendor", "dist", "__pycache__"];
+const SKIP_DIRS: &[&str] = &[
+    "target",
+    ".git",
+    "node_modules",
+    "vendor",
+    "dist",
+    "__pycache__",
+];
 const MAX_FILE_BYTES: u64 = 1_048_576; // 1 MiB — skip anything bigger (likely generated/binary)
 const MAX_LINE: usize = 240; // trim very long lines in the result
 
@@ -29,7 +36,11 @@ pub fn search_project(root: &Path, query: &str, max: usize, ignore_case: bool) -
     if query.is_empty() {
         return out;
     }
-    let needle = if ignore_case { query.to_lowercase() } else { query.to_string() };
+    let needle = if ignore_case {
+        query.to_lowercase()
+    } else {
+        query.to_string()
+    };
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let rd = match std::fs::read_dir(&dir) {
@@ -51,7 +62,11 @@ pub fn search_project(root: &Path, query: &str, max: usize, ignore_case: bool) -
                 continue;
             }
             // Skip oversized/binary files cheaply.
-            if entry.metadata().map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+            if entry
+                .metadata()
+                .map(|m| m.len() > MAX_FILE_BYTES)
+                .unwrap_or(true)
+            {
                 continue;
             }
             let content = match std::fs::read_to_string(&path) {
@@ -63,7 +78,11 @@ pub fn search_project(root: &Path, query: &str, max: usize, ignore_case: bool) -
                 // Case-insensitive: match on a lowered copy; the reported column is a byte
                 // offset into it, which equals the original's since lowercasing ASCII (and
                 // the common BMP cases) is length-stable for our display purposes.
-                let haystack = if ignore_case { line.to_lowercase() } else { line.to_string() };
+                let haystack = if ignore_case {
+                    line.to_lowercase()
+                } else {
+                    line.to_string()
+                };
                 if let Some(col) = haystack.find(&needle) {
                     out.push(SearchHit {
                         file: rel.clone(),
@@ -138,7 +157,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::write(root.join("src/a.rs"), "fn main() {\n    let needle = 1;\n}\n").unwrap();
+        std::fs::write(
+            root.join("src/a.rs"),
+            "fn main() {\n    let needle = 1;\n}\n",
+        )
+        .unwrap();
         std::fs::write(root.join("b.txt"), "no match here\nanother needle line\n").unwrap();
         // A skipped dir must be ignored.
         std::fs::create_dir_all(root.join("target")).unwrap();
@@ -146,9 +169,16 @@ mod tests {
 
         let hits = search_project(root, "needle", 100, false);
         assert_eq!(hits.len(), 2, "hits: {hits:?}");
-        assert!(hits.iter().any(|h| h.file.ends_with("a.rs") && h.line == 2 && h.col == 9));
-        assert!(hits.iter().any(|h| h.file.ends_with("b.txt") && h.line == 2));
-        assert!(!hits.iter().any(|h| h.file.contains("target")), "build dir must be skipped");
+        assert!(hits
+            .iter()
+            .any(|h| h.file.ends_with("a.rs") && h.line == 2 && h.col == 9));
+        assert!(hits
+            .iter()
+            .any(|h| h.file.ends_with("b.txt") && h.line == 2));
+        assert!(
+            !hits.iter().any(|h| h.file.contains("target")),
+            "build dir must be skipped"
+        );
     }
 
     #[test]
@@ -178,8 +208,14 @@ mod tests {
         let files = list_files(root, 100);
         assert!(files.iter().any(|f| f == "src/main.rs"));
         assert!(files.iter().any(|f| f == "README.md"));
-        assert!(!files.iter().any(|f| f.contains("target")), "build dir skipped");
-        assert!(!files.iter().any(|f| f.contains(".hidden")), "dotfiles skipped");
+        assert!(
+            !files.iter().any(|f| f.contains("target")),
+            "build dir skipped"
+        );
+        assert!(
+            !files.iter().any(|f| f.contains(".hidden")),
+            "dotfiles skipped"
+        );
         // Sorted for a stable quick-open list.
         let mut sorted = files.clone();
         sorted.sort();

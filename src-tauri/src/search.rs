@@ -64,7 +64,12 @@ pub struct FolderSource {
 /// Section 5 (daily work): global literal search across the project at `root`. Returns up
 /// to `max` hits (file-relative); `None` falls back to the public page size. Offline,
 /// bounded. Delega o varrimento a `tutor_eval::search::search_project` (o mecanismo).
-pub fn search(root: &Path, query: &str, max: Option<usize>, ignore_case: Option<bool>) -> Vec<SearchHit> {
+pub fn search(
+    root: &Path,
+    query: &str,
+    max: Option<usize>,
+    ignore_case: Option<bool>,
+) -> Vec<SearchHit> {
     tutor_eval::search::search_project(
         root,
         query,
@@ -142,7 +147,11 @@ pub fn detect_projects(root: &Path) -> Vec<ProjectInfo> {
 /// Collect source files under `dir` (recursive, skipping hidden / build dirs), bounded by
 /// `max_files` and `max_bytes` total, for a module-level Explain. Honest truncation: stops
 /// adding once a cap is hit. `None` em qualquer limite cai no contrato público.
-pub fn read_folder_sources(dir: &Path, max_files: Option<usize>, max_bytes: Option<usize>) -> Vec<FolderSource> {
+pub fn read_folder_sources(
+    dir: &Path,
+    max_files: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Vec<FolderSource> {
     let max_files = max_files.unwrap_or(DEFAULT_FOLDER_MAX_FILES);
     let max_bytes = max_bytes.unwrap_or(DEFAULT_FOLDER_MAX_BYTES);
     let mut out: Vec<FolderSource> = Vec::new();
@@ -156,7 +165,10 @@ pub fn read_folder_sources(dir: &Path, max_files: Option<usize>, max_bytes: Opti
         let mut entries: Vec<_> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
         entries.sort();
         for p in entries {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             if name.starts_with('.') {
                 continue;
             }
@@ -207,11 +219,18 @@ mod tests {
         std::fs::create_dir_all(root.join("svc")).unwrap();
         std::fs::write(root.join("svc/go.mod"), "module svc\n").unwrap();
         std::fs::create_dir_all(root.join("target/sub")).unwrap();
-        std::fs::write(root.join("target/sub/Cargo.toml"), "[package]\nname=\"y\"\n").unwrap();
+        std::fs::write(
+            root.join("target/sub/Cargo.toml"),
+            "[package]\nname=\"y\"\n",
+        )
+        .unwrap();
 
         let found = detect_projects(root);
         let kinds: Vec<_> = found.iter().map(|p| p.kind.as_str()).collect();
-        assert!(kinds.contains(&"rust"), "a raiz é um projecto Rust: {found:?}");
+        assert!(
+            kinds.contains(&"rust"),
+            "a raiz é um projecto Rust: {found:?}"
+        );
         assert!(kinds.contains(&"go"), "svc/ é um projecto Go: {found:?}");
         assert!(
             !found.iter().any(|p| p.path.contains("target")),
@@ -243,8 +262,14 @@ mod tests {
 
         let got = read_folder_sources(root, None, None);
         let paths: Vec<_> = got.iter().map(|s| s.path.as_str()).collect();
-        assert!(paths.iter().any(|p| p.ends_with("keep.rs")), "a fonte real entra: {paths:?}");
-        assert!(!paths.iter().any(|p| p.ends_with("data.bin")), "não-fonte fica de fora");
+        assert!(
+            paths.iter().any(|p| p.ends_with("keep.rs")),
+            "a fonte real entra: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.ends_with("data.bin")),
+            "não-fonte fica de fora"
+        );
         assert!(
             !paths.iter().any(|p| p.contains("node_modules")),
             "node_modules é saltado: {paths:?}"

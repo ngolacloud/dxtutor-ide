@@ -40,7 +40,8 @@ pub fn propose_entrypoint(lang: &str, code: &str) -> Option<EntrypointProposal> 
             snippet: if code.contains("def main(") {
                 "\n\nif __name__ == \"__main__\":\n    main()\n".into()
             } else {
-                "\n\nif __name__ == \"__main__\":\n    # TODO: program entry point\n    pass\n".into()
+                "\n\nif __name__ == \"__main__\":\n    # TODO: program entry point\n    pass\n"
+                    .into()
             },
             note: "Added the `if __name__ == \"__main__\":` run guard.".into(),
         }),
@@ -51,13 +52,16 @@ pub fn propose_entrypoint(lang: &str, code: &str) -> Option<EntrypointProposal> 
 fn has_rust_main(code: &str) -> bool {
     code.lines().any(|l| {
         let t = l.trim_start();
-        (t.starts_with("fn main(") || t.starts_with("pub fn main(") || t.starts_with("async fn main("))
+        (t.starts_with("fn main(")
+            || t.starts_with("pub fn main(")
+            || t.starts_with("async fn main("))
             && !t.starts_with("//")
     })
 }
 
 fn has_go_main(code: &str) -> bool {
-    code.lines().any(|l| l.trim_start().starts_with("func main("))
+    code.lines()
+        .any(|l| l.trim_start().starts_with("func main("))
 }
 
 fn has_go_package_main(code: &str) -> bool {
@@ -77,7 +81,10 @@ mod tests {
 
     #[test]
     fn rust_adds_main_only_when_missing() {
-        assert!(propose_entrypoint("rust", "struct S;").unwrap().snippet.contains("fn main()"));
+        assert!(propose_entrypoint("rust", "struct S;")
+            .unwrap()
+            .snippet
+            .contains("fn main()"));
         assert!(propose_entrypoint("rust", "fn main() {}\n").is_none());
         assert!(propose_entrypoint("rust", "async fn main() {}").is_none());
         // A commented-out main does not count.
@@ -88,7 +95,11 @@ mod tests {
     fn go_main_and_package_note() {
         let p = propose_entrypoint("go", "package foo\n").unwrap();
         assert!(p.snippet.contains("func main()"));
-        assert!(p.note.contains("package"), "warns about package main: {}", p.note);
+        assert!(
+            p.note.contains("package"),
+            "warns about package main: {}",
+            p.note
+        );
         let ok = propose_entrypoint("go", "package main\n").unwrap();
         assert!(!ok.note.contains("NOTE"));
         assert!(propose_entrypoint("go", "package main\nfunc main() {}\n").is_none());
@@ -96,8 +107,14 @@ mod tests {
 
     #[test]
     fn python_guard_calls_main_when_present() {
-        assert!(propose_entrypoint("python", "x = 1\n").unwrap().snippet.contains("pass"));
-        assert!(propose_entrypoint("python", "def main():\n    pass\n").unwrap().snippet.contains("main()"));
+        assert!(propose_entrypoint("python", "x = 1\n")
+            .unwrap()
+            .snippet
+            .contains("pass"));
+        assert!(propose_entrypoint("python", "def main():\n    pass\n")
+            .unwrap()
+            .snippet
+            .contains("main()"));
         assert!(propose_entrypoint("python", "if __name__ == '__main__':\n    pass\n").is_none());
     }
 

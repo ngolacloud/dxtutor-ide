@@ -79,7 +79,10 @@ mod tests {
             ReviewScope::WorkingChanges
         ));
         // Desconhecido → projecto inteiro (fail-open histórico), sem erro.
-        assert!(matches!(parse_scope("whatever", None).unwrap(), ReviewScope::Project));
+        assert!(matches!(
+            parse_scope("whatever", None).unwrap(),
+            ReviewScope::Project
+        ));
     }
 
     #[test]
