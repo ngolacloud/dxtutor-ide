@@ -7,14 +7,24 @@
 import * as ipc from "../../../platform/tauri/codev-agent";
 import { isDesktop } from "../../../platform/tauri/core";
 import type { AgentGateway } from "../application/ports";
-import { parseAgentError, parseAgentEvent, parseApproval } from "../domain/agent-events";
+import { parseAgentError, parseAgentEvent, parseApproval, parseHistory, parseSessions } from "../domain/agent-events";
 import * as bridge from "./legacy-bridge";
 
 export const agentGateway: AgentGateway = {
   available: () =>
     isDesktop() && !!bridge.diskRoot() && bridge.monolith.activeProvider === "claude" && bridge.agentV2Enabled(),
   start: (o) =>
-    ipc.startAgent({ root: o.root, model: o.model, effort: o.effort, testCmd: o.testCmd, lintCmd: o.lintCmd, mode: o.mode }),
+    ipc.startAgent({
+      root: o.root,
+      model: o.model,
+      effort: o.effort,
+      testCmd: o.testCmd,
+      lintCmd: o.lintCmd,
+      mode: o.mode,
+      resume: o.resume ?? null,
+    }),
+  sessions: async (root) => parseSessions(await ipc.listAgentSessions(root)),
+  history: async (s) => parseHistory(await ipc.agentHistory(s)),
   send: (s, text) => ipc.sendAgent(s, text),
   approve: (s, id, allow, reason, remember) => ipc.approveAgent(s, id, allow, reason, remember),
   cancel: (s) => ipc.cancelAgent(s),

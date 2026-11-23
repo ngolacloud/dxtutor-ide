@@ -16,7 +16,8 @@ use crate::codev_agent::{self, StartSpec};
 use crate::keys;
 
 /// Abre uma sessão do agente no projecto `root`, com os comandos de verificação que a UI
-/// detectou (`test_cmd`/`lint_cmd`, opcionais). Devolve o id da sessão.
+/// detectou (`test_cmd`/`lint_cmd`, opcionais), ou retoma uma gravada (`resume`: o id).
+/// Devolve o id da sessão.
 #[tauri::command]
 pub fn codev_agent_start(
     app: tauri::AppHandle,
@@ -26,6 +27,7 @@ pub fn codev_agent_start(
     test_cmd: Option<String>,
     lint_cmd: Option<String>,
     mode: Option<String>,
+    resume: Option<String>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let key = keys::resolve(&dir, "claude");
@@ -37,6 +39,8 @@ pub fn codev_agent_start(
             test_cmd,
             lint_cmd,
             mode,
+            resume,
+            sessions_base: None,
         },
         key,
         keys::anthropic_workspace_id(),
@@ -108,4 +112,18 @@ pub fn codev_agent_cancel(session_id: String) -> bool {
 #[tauri::command]
 pub fn codev_agent_close(session_id: String) -> bool {
     codev_agent::close(&session_id)
+}
+
+/// As sessões gravadas do projecto `root` (mais recentes primeiro).
+#[tauri::command]
+pub fn codev_agent_sessions(root: String) -> Vec<tutor_agent::session::SessionSummary> {
+    codev_agent::list_sessions(&root, None)
+}
+
+/// O histórico simplificado de uma sessão aberta (para redesenhar a conversa retomada).
+#[tauri::command]
+pub fn codev_agent_history(
+    session_id: String,
+) -> Result<Vec<tutor_agent::session::HistoryItem>, String> {
+    codev_agent::history(&session_id)
 }

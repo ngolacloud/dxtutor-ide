@@ -178,9 +178,13 @@ export function ask<T>(host: ToolHost, btns: Array<{ l: string; v: T; pri?: unkn
     btns.forEach((b) => {
       const x = document.createElement("button");
       x.className = "gb" + (b.pri ? " pri" : "");
-      x.innerHTML = b.l;
+      // texto, nunca HTML: os rótulos podem trazer texto vindo do modelo (comandos, regras)
+      x.textContent = b.l;
       x.onclick = () => {
-        bar.innerHTML = `<span class="gdone">${b.done || b.l}</span>`;
+        const done = document.createElement("span");
+        done.className = "gdone";
+        done.textContent = b.done || b.l;
+        bar.replaceChildren(done);
         bridge.run().pend = null;
         res(b.v);
       };

@@ -22,8 +22,25 @@ pub const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 pub const API_VERSION: &str = "2026-10-21";
 /// Beta dos fallbacks do servidor em caso de recusa (`fallbacks: "default"`).
 pub const BETA_FALLBACKS: &str = "server-side-fallback-2026-07-01";
+/// Beta da compactação no servidor por limiar de tokens.
+pub const BETA_COMPACTION: &str = "compact-2026-01-12";
 /// Modelo por omissão do Co-Dev.
 pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
+
+/// Uma mensagem no formato da API. As `system` a meio vão com o conteúdo como texto
+/// simples (a forma documentada); as restantes com os blocos tal como estão.
+fn wire_message(m: &crate::types::Message) -> Value {
+    if m.role == Role::System {
+        let text: Vec<&str> = m
+            .content
+            .iter()
+            .filter_map(|b| b["text"].as_str())
+            .collect();
+        json!({ "role": "system", "content": text.join("\n") })
+    } else {
+        json!({ "role": m.role, "content": m.content })
+    }
+}
 
 /// O corpo JSON do pedido. Recusa, antes de sair, pedidos que a API rejeitaria.
 pub fn body(req: &Request) -> Result<Value, ProviderError> {
@@ -35,6 +52,26 @@ pub fn body(req: &Request) -> Result<Value, ProviderError> {
         return Err(ProviderError::InvalidRequest(
             "a primeira mensagem tem de ser do utilizador".into(),
         ));
+    }
+    // mensagens `system` a meio: depois de uma do utilizador, e últimas ou seguidas do assistente
+    for (i, m) in req.messages.iter().enumerate() {
+        if m.role != Role::System {
+            continue;
+        }
+        if i == 0 || req.messages[i - 1].role != Role::User {
+            return Err(ProviderError::InvalidRequest(
+                "uma mensagem system tem de vir depois de uma do utilizador".into(),
+            ));
+        }
+        if req
+            .messages
+            .get(i + 1)
+            .is_some_and(|n| n.role != Role::Assistant)
+        {
+            return Err(ProviderError::InvalidRequest(
+                "uma mensagem system tem de ser a última ou ser seguida do assistente".into(),
+            ));
+        }
     }
     if !req.resume_paused && req.messages.last().map(|m| m.role) == Some(Role::Assistant) {
         return Err(ProviderError::InvalidRequest(
@@ -49,7 +86,7 @@ pub fn body(req: &Request) -> Result<Value, ProviderError> {
         "model": req.model,
         "max_tokens": req.max_tokens,
         "stream": true,
-        "messages": req.messages.iter().map(|m| json!({"role": m.role, "content": m.content})).collect::<Vec<_>>(),
+        "messages": req.messages.iter().map(wire_message).collect::<Vec<_>>(),
         "thinking": {
             "type": "adaptive",
             "display": match req.thinking { ThinkingDisplay::Summarized => "summarized", ThinkingDisplay::Omitted => "omitted" },
@@ -90,6 +127,10 @@ pub fn body(req: &Request) -> Result<Value, ProviderError> {
     if req.fallbacks {
         b["fallbacks"] = json!("default");
     }
+    if req.compaction {
+        // limiar por omissão do servidor (150k tokens de entrada)
+        b["context_management"] = json!({ "edits": [{ "type": "compact_20260112" }] });
+    }
     Ok(b)
 }
 
@@ -125,8 +166,15 @@ pub fn headers(cfg: &Config, req: &Request) -> Vec<(&'static str, String)> {
         ("content-type", "application/json".to_string()),
         ("accept", "text/event-stream".to_string()),
     ];
-    if req.fallbacks {
-        h.push(("anthropic-beta", BETA_FALLBACKS.to_string()));
+    let betas: Vec<&str> = [
+        (req.fallbacks, BETA_FALLBACKS),
+        (req.compaction, BETA_COMPACTION),
+    ]
+    .into_iter()
+    .filter_map(|(on, b)| on.then_some(b))
+    .collect();
+    if !betas.is_empty() {
+        h.push(("anthropic-beta", betas.join(",")));
     }
     if let Some(ws) = cfg.workspace_id.as_deref().filter(|w| !w.trim().is_empty()) {
         h.push(("anthropic-workspace-id", ws.trim().to_string()));
@@ -302,10 +350,12 @@ mod tests {
         r.effort = Effort::Low;
         r.thinking = ThinkingDisplay::Omitted;
         r.fallbacks = false;
+        r.compaction = false;
         let b = body(&r).unwrap();
         assert_eq!(b["output_config"]["effort"], "low");
         assert_eq!(b["thinking"]["display"], "omitted");
         assert!(b.get("fallbacks").is_none());
+        assert!(b.get("context_management").is_none());
         let h = headers(&Config::new("k"), &r);
         assert!(!h.iter().any(|(k, _)| *k == "anthropic-beta"));
     }
@@ -317,9 +367,45 @@ mod tests {
         let h = headers(&c, &req());
         let get = |k: &str| h.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
         assert_eq!(get("anthropic-version").as_deref(), Some("2026-10-21"));
-        assert_eq!(get("anthropic-beta").as_deref(), Some(BETA_FALLBACKS));
+        assert_eq!(
+            get("anthropic-beta").as_deref(),
+            Some("server-side-fallback-2026-07-01,compact-2026-01-12")
+        );
         assert_eq!(get("anthropic-workspace-id").as_deref(), Some("ws_1"));
         assert_eq!(get("x-api-key").as_deref(), Some("sk-test"));
+    }
+
+    #[test]
+    fn compaction_is_requested_with_the_server_default_threshold() {
+        let b = body(&req()).unwrap();
+        assert_eq!(
+            b["context_management"],
+            json!({"edits": [{"type": "compact_20260112"}]})
+        );
+    }
+
+    #[test]
+    fn mid_conversation_system_messages_follow_the_api_rules() {
+        let mut r = req();
+        r.messages.push(Message::system("O modo passou a Auto."));
+        let b = body(&r).unwrap();
+        assert_eq!(
+            b["messages"][1],
+            json!({"role": "system", "content": "O modo passou a Auto."})
+        );
+        // seguida do assistente: aceite
+        r.messages
+            .push(Message::assistant(vec![json!({"type":"text","text":"ok"})]));
+        r.messages.push(Message::user_text("continua"));
+        assert!(body(&r).is_ok());
+        // a primeira, depois do assistente, ou seguida do utilizador: recusada antes de sair
+        let mut bad = req();
+        bad.messages = vec![Message::system("x"), Message::user_text("olá")];
+        assert!(body(&bad).is_err());
+        let mut bad = req();
+        bad.messages.push(Message::system("x"));
+        bad.messages.push(Message::user_text("y"));
+        assert!(body(&bad).is_err());
     }
 
     #[test]

@@ -8,7 +8,10 @@
 //! - F2: as ferramentas reais ([`tools`]) — read/glob/grep/edit/write/bash/git e
 //!   run_tests/lint — contidas na raiz do projecto ([`sandbox`]);
 //! - F3: permissões no backend ([`permissions`]) — classificador de comandos de shell,
-//!   regras por projecto, ficheiros protegidos e o modo da modebar.
+//!   regras por projecto, ficheiros protegidos e o modo da modebar;
+//! - F5: contexto e sessão — system prompt com as instruções do projecto ([`context`]),
+//!   sessões JSONL append-only retomáveis byte a byte ([`session`]), mensagens `system`
+//!   a meio da conversa e compactação no servidor.
 //!
 //! Invariantes que este crate garante por construção:
 //! - **histórico append-only** ([`types::Transcript`] não tem remoção nem edição): o
@@ -21,11 +24,13 @@
 
 pub mod agent;
 pub mod anthropic;
+pub mod context;
 pub mod permissions;
 pub mod provider;
 pub mod retry;
 pub mod sandbox;
 pub mod schema;
+pub mod session;
 pub mod tool;
 pub mod tools;
 pub mod types;

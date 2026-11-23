@@ -29,7 +29,7 @@ import type {
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
-import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
+import type { AgentEvent, ApprovalRequest, HistoryItem, SessionSummary } from "../domain/agent-events";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -327,7 +327,12 @@ export interface AgentGateway {
     testCmd: string | null;
     lintCmd: string | null;
     mode: string;
+    resume?: string | null;
   }): Promise<string>;
+  /** As sessões gravadas do projecto. */
+  sessions(root: string): Promise<SessionSummary[]>;
+  /** O histórico simplificado de uma sessão aberta. */
+  history(session: string): Promise<HistoryItem[]>;
   send(session: string, text: string | null): Promise<void>;
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
   cancel(session: string): Promise<boolean>;
@@ -352,6 +357,8 @@ export interface AgentChatDeps {
   model(): string;
   mode(): string;
   speaker(): string;
+  /** Segundos desde a época (relógio injectado para os testes). */
+  nowSecs(): number;
 }
 
 export interface LiveDeps {

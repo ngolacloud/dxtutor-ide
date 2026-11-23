@@ -45,6 +45,8 @@ pub struct AgentConfig {
     pub fallbacks: bool,
     /// Pedidos ao modelo por turno do utilizador (decisão do plano: 60).
     pub max_iterations: u32,
+    /// Compactação no servidor (Claude).
+    pub compaction: bool,
 }
 
 impl AgentConfig {
@@ -58,6 +60,7 @@ impl AgentConfig {
             max_tokens: base.max_tokens,
             fallbacks: base.fallbacks,
             max_iterations: 60,
+            compaction: base.compaction,
         }
     }
 }
@@ -237,6 +240,7 @@ impl Agent {
             thinking: self.cfg.thinking,
             fallbacks: self.cfg.fallbacks,
             resume_paused,
+            compaction: self.cfg.compaction,
         }
     }
 
@@ -284,7 +288,10 @@ impl Agent {
     ) -> Result<TurnOutcome, AgentError> {
         match user {
             Some(m) => transcript.push(m),
-            None if transcript.last().map(|m| m.role) == Some(Role::User) => {}
+            None if matches!(
+                transcript.last().map(|m| m.role),
+                Some(Role::User | Role::System)
+            ) => {}
             None => return Err(AgentError::NothingToContinue),
         }
         let by_name: HashMap<&str, &Arc<dyn Tool>> =
@@ -339,7 +346,7 @@ impl Agent {
                     transcript.push(Message::assistant(resp.content));
                     return Ok(self.finish(TurnOutcome::Done { truncated: false }, events));
                 }
-                StopReason::PauseTurn => {
+                StopReason::PauseTurn | StopReason::Compaction => {
                     transcript.push(Message::assistant(resp.content));
                     resume_paused = true;
                     continue;

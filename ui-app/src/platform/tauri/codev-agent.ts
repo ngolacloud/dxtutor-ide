@@ -13,6 +13,8 @@ export interface StartAgentArgs {
   testCmd?: string | null;
   lintCmd?: string | null;
   mode?: string | null;
+  /** Retomar a sessão gravada com este id. */
+  resume?: string | null;
 }
 
 /** Abre uma sessão; devolve o id. Falha se não houver chave da Anthropic ou a pasta não existir. */
@@ -24,7 +26,14 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     testCmd: a.testCmd ?? null,
     lintCmd: a.lintCmd ?? null,
     mode: a.mode ?? null,
+    resume: a.resume ?? null,
   });
+
+/** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */
+export const listAgentSessions = (root: string): Promise<unknown> => invoke<unknown>("codev_agent_sessions", { root });
+
+/** O histórico simplificado de uma sessão aberta — `Vec<HistoryItem>`. */
+export const agentHistory = (sessionId: string): Promise<unknown> => invoke<unknown>("codev_agent_history", { sessionId });
 
 /** Envia uma mensagem (`text: null` repete a partir do histórico). Responde por eventos. */
 export const sendAgent = (sessionId: string, text: string | null): Promise<void> =>

@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use tutor_agent::anthropic::{self, Anthropic, Config};
 use tutor_agent::permissions::{Mode, Policy, Rules, Verdict};
+use tutor_agent::session::{self, HistoryItem, SessionLog, SessionMeta, SessionSummary};
 use tutor_agent::tools::{coding_tools, ToolsetOptions};
 use tutor_agent::{
     Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall,
@@ -36,6 +37,11 @@ pub struct StartSpec {
     pub lint_cmd: Option<String>,
     /// Modo da modebar (`manual`/`assist`/`auto`; desconhecido → Manual, falha fechada).
     pub mode: Option<String>,
+    /// Retomar a sessão gravada com este id (o prefixo do pedido vem do ficheiro, tal como
+    /// foi gravado; `model`/`effort`/`test_cmd`/`lint_cmd` são ignorados).
+    pub resume: Option<String>,
+    /// Pasta das sessões (por omissão `~/.config/dxtutor/sessions`) — os testes usam outra.
+    pub sessions_base: Option<PathBuf>,
 }
 
 /// O que a UI recebe quando uma chamada precisa de decisão humana.
@@ -58,6 +64,28 @@ struct Session {
     policy: Mutex<Policy>,
     /// tool_use_id → (canal onde a UI responde, regra sugerida para «permitir sempre»)
     pending: Mutex<HashMap<String, (mpsc::Sender<Decision>, Option<String>)>>,
+    /// O registo em disco (`None` se não foi possível criá-lo — a sessão funciona na mesma).
+    log: Mutex<Option<SessionLog>>,
+    /// O último modo anunciado ao modelo (mensagem `system` a meio da conversa).
+    announced: Mutex<Option<Mode>>,
+}
+
+/// O texto que anuncia o modo ao modelo (vai como mensagem `system` a meio da conversa,
+/// para não mexer no system prompt de topo — que invalidaria a cache).
+pub fn mode_note(m: Mode) -> String {
+    let d = match m {
+        Mode::Manual => "Manual — cada edição e comando é aprovado pelo humano antes de correr",
+        Mode::Assist => {
+            "Assistido — edições e comandos seguros correm sozinhos; o resto pede aprovação"
+        }
+        Mode::Auto => "Auto — só as acções perigosas pedem aprovação",
+    };
+    format!("Modo de autonomia: {d}.")
+}
+
+fn sessions_dir(base: Option<&Path>, root: &str) -> Option<PathBuf> {
+    let base = base.map(Path::to_path_buf).or_else(session::default_base)?;
+    Some(session::project_dir(&base, root))
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, Arc<Session>>> {
@@ -85,19 +113,6 @@ pub fn parse_effort(s: Option<&str>) -> Effort {
     }
 }
 
-/// System prompt mínimo da F1 (o completo, com AGENTS.md/CLAUDE.md e cache, é F5).
-fn system_prompt(root: &Path) -> Vec<SystemBlock> {
-    vec![SystemBlock {
-        text: format!(
-            "És o Co-Dev do dxtutor IDE: um co-programador sénior que trabalha orientado por um \
-             programador humano, no projecto em {}. Responde em português (ortografia pré-AO90), \
-             de forma curta e concreta. Antes de declarar uma tarefa feita, verifica-a.",
-            root.display()
-        ),
-        cache: true,
-    }]
-}
-
 /// Abre uma sessão. `api_key` vem de `keys::resolve` (feito pelo adaptador, que conhece
 /// a pasta de configuração da app).
 pub fn start(
@@ -119,13 +134,65 @@ pub fn start(
     cfg.workspace_id = workspace_id;
     let provider = Arc::new(Anthropic::new(cfg));
 
-    let mut acfg = AgentConfig::new(
-        spec.model
-            .filter(|m| !m.trim().is_empty())
-            .unwrap_or_else(|| anthropic::DEFAULT_MODEL.to_string()),
-    );
-    acfg.effort = parse_effort(spec.effort.as_deref());
-    acfg.system = system_prompt(&root);
+    let root_s = root.display().to_string();
+    let dir = sessions_dir(spec.sessions_base.as_deref(), &root_s);
+
+    // sessão nova: monta o prefixo; retoma: lê-o do ficheiro, tal como foi gravado
+    let (meta, transcript, log) = match spec.resume.as_deref().filter(|r| !r.trim().is_empty()) {
+        Some(rid) => {
+            let dir = dir
+                .as_ref()
+                .ok_or("sem pasta de sessões (HOME por definir)")?;
+            if let Some(live) = sessions().lock().unwrap().get(rid) {
+                // já aberta nesta execução: reutiliza (o modo segue a modebar)
+                live.policy.lock().unwrap().mode =
+                    Mode::parse(spec.mode.as_deref().unwrap_or("manual"));
+                return Ok(rid.to_string());
+            }
+            let (meta, t, log) = SessionLog::open(dir, rid)?;
+            if PathBuf::from(&meta.root) != root {
+                return Err(format!(
+                    "a sessão {rid} pertence a outro projecto ({})",
+                    meta.root
+                ));
+            }
+            (meta, t, Some(log))
+        }
+        None => {
+            let meta = SessionMeta {
+                id: new_id(),
+                root: root_s.clone(),
+                model: spec
+                    .model
+                    .filter(|m| !m.trim().is_empty())
+                    .unwrap_or_else(|| anthropic::DEFAULT_MODEL.to_string()),
+                effort: parse_effort(spec.effort.as_deref()).as_str().to_string(),
+                system: tutor_agent::context::system_prompt(&root)
+                    .into_iter()
+                    .map(|b| (b.text, b.cache))
+                    .collect(),
+                test_cmd: spec.test_cmd.filter(|c| !c.trim().is_empty()),
+                lint_cmd: spec.lint_cmd.filter(|c| !c.trim().is_empty()),
+                compaction: true,
+                created: session::now(),
+            };
+            // sem registo em disco a sessão funciona na mesma (só não se retoma)
+            let log = dir.as_ref().and_then(|d| SessionLog::create(d, &meta).ok());
+            (meta, Transcript::new(), log)
+        }
+    };
+
+    let mut acfg = AgentConfig::new(meta.model.clone());
+    acfg.effort = parse_effort(Some(&meta.effort));
+    acfg.compaction = meta.compaction;
+    acfg.system = meta
+        .system
+        .iter()
+        .map(|(text, cache)| SystemBlock {
+            text: text.clone(),
+            cache: *cache,
+        })
+        .collect();
     let mode = Mode::parse(spec.mode.as_deref().unwrap_or("manual"));
     let policy = Policy::new(
         mode,
@@ -137,19 +204,21 @@ pub fn start(
         cancel: Arc::new(AtomicBool::new(false)),
     };
     let tools = coding_tools(&ToolsetOptions {
-        test_cmd: spec.test_cmd,
-        lint_cmd: spec.lint_cmd,
+        test_cmd: meta.test_cmd.clone(),
+        lint_cmd: meta.lint_cmd.clone(),
         ..Default::default()
     });
     let agent = Agent::new(provider, tools, acfg, ctx);
 
-    let id = new_id();
+    let id = meta.id.clone();
     let s = Session {
         agent,
-        transcript: Mutex::new(Transcript::new()),
+        transcript: Mutex::new(transcript),
         busy: AtomicBool::new(false),
         policy: Mutex::new(policy),
         pending: Mutex::new(HashMap::new()),
+        log: Mutex::new(log),
+        announced: Mutex::new(None),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -208,9 +277,25 @@ pub fn send(
         d
     };
     let mut t = s.transcript.lock().unwrap();
-    let r = s
-        .agent
-        .run_turn(&mut t, text.map(Message::user_text), on_event, &mut approve);
+    let r = match text {
+        Some(q) => {
+            t.push(Message::user_text(q));
+            // anuncia o modo no primeiro turno e quando muda (mensagem system a meio)
+            let mode = s.policy.lock().unwrap().mode;
+            let mut announced = s.announced.lock().unwrap();
+            if *announced != Some(mode) {
+                *announced = Some(mode);
+                t.push(Message::system(mode_note(mode)));
+            }
+            drop(announced);
+            s.agent.run_turn(&mut t, None, on_event, &mut approve)
+        }
+        // «tentar de novo»: continua do histórico, sem nota nova
+        None => s.agent.run_turn(&mut t, None, on_event, &mut approve),
+    };
+    if let Some(log) = s.log.lock().unwrap().as_mut() {
+        let _ = log.sync(&t); // append-only: só as mensagens novas
+    }
     drop(t);
     s.busy.store(false, Ordering::SeqCst);
     r.map_err(|e: AgentError| e.to_string())
@@ -270,6 +355,21 @@ pub fn set_mode(id: &str, mode: &str) -> bool {
     }
 }
 
+/// As sessões gravadas do projecto `root`, das mais recentes para as mais antigas.
+pub fn list_sessions(root: &str, base: Option<&Path>) -> Vec<SessionSummary> {
+    let root = PathBuf::from(root.trim()).display().to_string();
+    sessions_dir(base, &root)
+        .map(|d| session::list(&d))
+        .unwrap_or_default()
+}
+
+/// O histórico simplificado de uma sessão aberta, para a UI redesenhar a conversa.
+pub fn history(id: &str) -> Result<Vec<HistoryItem>, String> {
+    let s = get(id)?;
+    let t = s.transcript.lock().unwrap();
+    Ok(session::history(&t))
+}
+
 /// Cancela o turno em curso (o loop pára no próximo ponto de verificação).
 pub fn cancel(id: &str) -> bool {
     match get(id) {
@@ -296,6 +396,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let spec = StartSpec {
             root: dir.display().to_string(),
+            sessions_base: Some(tempfile::tempdir().unwrap().keep()),
             ..Default::default()
         };
         assert!(start(spec.clone(), None, None)
@@ -329,6 +430,7 @@ mod tests {
         let spec = StartSpec {
             root: dir.path().display().to_string(),
             mode: Some("manual".into()),
+            sessions_base: Some(dir.path().join(".sessions")),
             ..Default::default()
         };
         let id = start(spec, Some("sk-test".into()), None).unwrap();
@@ -391,6 +493,81 @@ mod tests {
         assert!(set_mode(&id, "auto"));
         assert_eq!(s.policy.lock().unwrap().mode, Mode::Auto);
         close(&id);
+    }
+
+    #[test]
+    fn sessions_persist_and_resume_with_the_exact_prefix() {
+        let proj = tempfile::tempdir().unwrap();
+        let base = tempfile::tempdir().unwrap();
+        std::fs::write(proj.path().join("AGENTS.md"), "Usa cargo nextest.").unwrap();
+        let root = proj.path().display().to_string();
+        let spec = |resume: Option<String>, model: &str| StartSpec {
+            root: root.clone(),
+            model: Some(model.into()),
+            test_cmd: Some("cargo test".into()),
+            resume,
+            sessions_base: Some(base.path().to_path_buf()),
+            ..Default::default()
+        };
+        let id = start(spec(None, "claude-opus-5-5"), Some("sk".into()), None).unwrap();
+        {
+            // simula um turno já feito (send precisa da rede): histórico + gravação
+            let s = get(&id).unwrap();
+            let mut t = s.transcript.lock().unwrap();
+            t.push(Message::user_text("corrige o lexer"));
+            t.push(Message::system(mode_note(Mode::Assist)));
+            t.push(Message::assistant(vec![
+                serde_json::json!({"type":"thinking","thinking":"…","signature":"EqQB=="}),
+                serde_json::json!({"type":"text","text":"Feito."}),
+            ]));
+            s.log.lock().unwrap().as_mut().unwrap().sync(&t).unwrap();
+        }
+        let system_before = get(&id).unwrap().agent.cfg.system.clone();
+        assert!(system_before
+            .iter()
+            .any(|b| b.text.contains("Usa cargo nextest.")));
+        close(&id);
+
+        let list = list_sessions(&root, Some(base.path()));
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id);
+        assert_eq!(list[0].title, "corrige o lexer");
+
+        // o AGENTS.md muda e a UI pede outro modelo — a retoma usa o prefixo gravado
+        std::fs::write(proj.path().join("AGENTS.md"), "OUTRA regra").unwrap();
+        let rid = start(
+            spec(Some(id.clone()), "claude-haiku-5-5"),
+            Some("sk".into()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(rid, id);
+        let s = get(&rid).unwrap();
+        assert_eq!(
+            s.agent.cfg.system, system_before,
+            "system prompt reenviado tal como foi gravado"
+        );
+        assert_eq!(s.agent.cfg.model, "claude-opus-5-5");
+        assert_eq!(s.transcript.lock().unwrap().len(), 3);
+        let h = history(&rid).unwrap();
+        assert_eq!(
+            h.iter().map(|x| x.role.as_str()).collect::<Vec<_>>(),
+            ["user", "assistant"]
+        );
+
+        // outro projecto não pode retomar esta sessão
+        let other = tempfile::tempdir().unwrap();
+        close(&rid);
+        let mut bad = spec(Some(id.clone()), "x");
+        bad.root = other.path().display().to_string();
+        assert!(start(bad, Some("sk".into()), None).is_err());
+        assert!(start(spec(Some("../fora".into()), "x"), Some("sk".into()), None).is_err());
+    }
+
+    #[test]
+    fn mode_notes_name_the_mode() {
+        assert!(mode_note(Mode::Manual).contains("Manual"));
+        assert!(mode_note(Mode::Auto).contains("perigosas"));
     }
 
     #[test]

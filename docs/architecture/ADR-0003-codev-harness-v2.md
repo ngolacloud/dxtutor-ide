@@ -1,6 +1,6 @@
 # ADR-0003 — Harness v2 do Co-Dev: loop de agente em Rust com tool use nativo
 
-- **Estado:** aceite (recomendações do §11 aceites); F0–F4 feitas (F4 por validar à mão no desktop)
+- **Estado:** aceite (recomendações do §11 aceites); F0–F5 feitas (F4/F5 por validar à mão no desktop)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto (angolardevops)
 - **Relacionado:** `ADR-0002` (camadas da feature Co-Dev na UI, que a F4 reutiliza);
@@ -131,7 +131,7 @@ Todas correm na raiz do projecto e passam pelo `ensure_within` do hotfix (symlin
 | `write` | Ficheiros novos, ou sobrescrita de um ficheiro já lido | por modo |
 | `bash` | Grupo de processos próprio, timeout, saída limitada (início + fim), sempre na raiz do projecto | classificador (§7) |
 | `run_tests` / `lint` | Comandos detectados (`domain/project-commands.ts`, passados na configuração da sessão) | como no passo 2 |
-| `lsp_diagnostics` | **Adiado para F5.** O LSP real (`lsp.rs`) está acoplado ao Tauri e às sessões que a UI arranca, e o `tutor_eval::diagnostics_for` compila um excerto de exercício, não um projecto. Até lá os diagnósticos chegam ao modelo por `run_tests`/`lint` | livre |
+| `lsp_diagnostics` | **Adiado (F5 → F7).** O LSP real (`lsp.rs`) está acoplado ao Tauri e às sessões que a UI arranca, e o `tutor_eval::diagnostics_for` compila um excerto de exercício, não um projecto. Até lá os diagnósticos chegam ao modelo por `run_tests`/`lint` | livre |
 | `git_status` / `git_diff` | Só leitura | livre |
 | `todo_write` | Lista de tarefas da sessão, sincronizada com o Board (`tutor-board`) | livre |
 | `exit_plan` | Sai do plan mode e apresenta o plano para aprovação | — |
@@ -208,7 +208,7 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
 | **F2 Ferramentas** ✅ | read/glob/grep/edit/write/bash/run_tests/lint/git (`lsp_diagnostics` adiado para F5); `sandbox` única partilhada com o `src-tauri` | Testes em tempdir: staleness do edit, unicidade do old_string, symlinks, truncagem, timeout com kill do grupo |
 | **F3 Permissões** ✅ | Classificador, regras, modos, aprovação ida-e-volta; `policy.rs` ligado | Tabela de ≥60 comandos (incluindo os contornos da regex actual) com a classificação esperada |
 | **F4 UI v2** ✅ | O caso de uso `live-chat` (ADR-0002) passa a cliente fino do agente Rust através de uma porta `AgentGateway`; cartões de ferramenta, aprovação, thinking e custo; **remove o protocolo de fences e o prefill** | Fluxo real com uma pasta aberta, validado à mão por ti; typecheck/lint/testes |
-| **F5 Contexto e sessão** | System prompt cacheado, AGENTS.md/CLAUDE.md, sessões JSONL e retoma, compactação, custo | Cache hit a partir do 2.º turno (medido); retoma após reinício |
+| **F5 Contexto e sessão** ✅ | System prompt cacheado, AGENTS.md/CLAUDE.md, sessões JSONL e retoma, compactação, custo | Cache hit a partir do 2.º turno (medido); retoma após reinício |
 | **F6 Plano → entrega** | Plan mode, todos↔Board, checkpoints e rewind, revisão de diffs, sub-agentes | Cenário guiado ponta-a-ponta num repositório de teste |
 | **F7 Ecossistema** | Cliente MCP (stdio/http), hooks (antes/depois de ferramenta, fim de turno), slash commands e skills em `.dxtutor/` | Servidor MCP de exemplo ligado; hook que bloqueia uma ferramenta |
 | **F8 Outros provedores** | Adaptador OpenAI-compatível (Codex, Gemini, Ollama) com tool calls; o protocolo de fences fica só como fallback para modelos sem tools | Testes com fixtures por provedor; matriz de funcionalidades na UI |
@@ -252,3 +252,17 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
   não foi removido**: pela decisão §11.1, Codex, Gemini e Ollama continuam no harness
   antigo até à F8. O que saiu foi o *prefill* do caminho Claude antigo (dava 400 no
   Opus 5.5), que agora também respeita o modelo escolhido e trata erros a meio do stream.
+
+- **F5 (2026-11-23).** System prompt = núcleo estável + instruções do projecto
+  (`AGENTS.md`, `CLAUDE.md`, `.dxtutor/regras.md`, com limites de tamanho), montado **uma
+  vez** e gravado com a sessão; o modo vai como mensagem `system` a meio da conversa
+  (primeiro turno e quando muda), sem tocar no prefixo. Sessões em JSONL append-only
+  (`tutor_agent::session`); retomar (`/retomar` no Co-Dev) reenvia o prefixo **byte a
+  byte** a partir do ficheiro — o *preserved thinking* recusa (400, em contas recentes) um
+  histórico cujo system prompt, ferramentas ou mensagens anteriores tenham mudado.
+  Compactação no servidor ligada por omissão (beta `compact-2026-01-12`, limiar do
+  servidor), com o bloco `compaction` preservado e o delta `compaction_delta` tratado.
+  **Por validar com a API real:** o hit de cache a partir do 2.º turno e a compactação
+  (só se dispara acima de ~150k tokens). **Memória** (`.dxtutor/memory/`) e
+  **`lsp_diagnostics`** ficam para F6/F7: a memória precisa da ferramenta de escrita (F6) e
+  o LSP depende de sessões arrancadas pela UI no `lsp.rs`, acopladas ao Tauri.

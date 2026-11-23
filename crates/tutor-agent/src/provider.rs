@@ -76,6 +76,9 @@ pub struct Request {
     /// e é reenviada tal como veio. Fora disso, uma última mensagem do assistente é
     /// prefill e o pedido é recusado.
     pub resume_paused: bool,
+    /// Compactação no servidor quando o contexto cresce (beta `compact-2026-01-12`): os
+    /// blocos `compaction` devolvidos ficam no histórico e o servidor ignora o que vem antes.
+    pub compaction: bool,
 }
 
 impl Request {
@@ -91,6 +94,7 @@ impl Request {
             thinking: ThinkingDisplay::Summarized,
             fallbacks: true,
             resume_paused: false,
+            compaction: true,
         }
     }
 }
@@ -104,6 +108,8 @@ pub enum StopReason {
     StopSequence,
     PauseTurn,
     Refusal,
+    /// O servidor compactou o contexto e pausou (`pause_after_compaction`).
+    Compaction,
     Other(String),
 }
 
@@ -116,6 +122,7 @@ impl StopReason {
             "stop_sequence" => StopReason::StopSequence,
             "pause_turn" => StopReason::PauseTurn,
             "refusal" => StopReason::Refusal,
+            "compaction" => StopReason::Compaction,
             other => StopReason::Other(other.to_string()),
         }
     }

@@ -128,6 +128,11 @@ Object.assign(window, {
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
 function handlePrompt(q: string) {
   if (bridge.run().active) { bridge.toast('Há uma execução em curso — pára-a ou espera'); return; } focusAgent(true);
+  if (q === '/retomar' || q === '/sessoes' || q === '/sessões') {
+    user(q);
+    if (!codevEngine.agentResume()) card('co-dev', 'Retomar conversas precisa do app desktop, com uma pasta aberta e o Claude seleccionado.');
+    return;
+  }
   if (q === '/test' || q === '/lint') {
     user(q);
     const k = q === '/test' ? 'test' : 'lint', real = bridge.realExec();

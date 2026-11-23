@@ -196,6 +196,11 @@ impl Accumulator {
                         append_str(v, "signature", d["signature"].as_str().unwrap_or(""));
                         Ok(())
                     }
+                    ("compaction_delta", Builder::Block(v)) => {
+                        // o resumo da compactação: tem de voltar ao servidor tal como veio
+                        append_str(v, "content", d["content"].as_str().unwrap_or(""));
+                        Ok(())
+                    }
                     ("citations_delta", Builder::Block(v)) => {
                         if !v["citations"].is_array() {
                             v["citations"] = json!([]);
@@ -337,6 +342,30 @@ pub fn parse_stream<I: IntoIterator<Item = std::io::Result<String>>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compaction_block_is_rebuilt_from_its_delta() {
+        let events = [
+            r#"{"type":"message_start","message":{"id":"m","model":"claude-opus-5-5","usage":{"input_tokens":5}}}"#,
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"compaction","content":""}}"#,
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"compaction_delta","content":"Resumo: o utilizador pediu X."}}"#,
+            r#"{"type":"content_block_stop","index":0}"#,
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}"#,
+            r#"{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Continuo."}}"#,
+            r#"{"type":"content_block_stop","index":1}"#,
+            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}"#,
+        ];
+        let mut acc = Accumulator::new();
+        for e in events {
+            acc.on_data(e, &mut |_| true).unwrap();
+        }
+        let r = acc.finish().unwrap();
+        assert_eq!(
+            r.content[0],
+            json!({"type":"compaction","content":"Resumo: o utilizador pediu X."})
+        );
+        assert_eq!(r.content[1]["text"], "Continuo.");
+    }
 
     #[test]
     fn sse_lines_join_multiline_data_and_ignore_event_lines() {

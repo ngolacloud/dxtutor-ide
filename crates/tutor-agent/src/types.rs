@@ -14,6 +14,9 @@ use serde_json::{json, Value};
 pub enum Role {
     User,
     Assistant,
+    /// Mensagem `system` a meio da conversa (instrução do operador — ex.: mudança de modo)
+    /// sem tocar no `system` de topo, que invalidaria a cache.
+    System,
 }
 
 /// Uma mensagem da conversa: papel + blocos de conteúdo (JSON da API).
@@ -44,6 +47,15 @@ impl Message {
     pub fn user_text(text: impl Into<String>) -> Self {
         Message {
             role: Role::User,
+            content: vec![json!({ "type": "text", "text": text.into() })],
+        }
+    }
+
+    /// Instrução do operador a meio da conversa (vai como `role: "system"`; tem de seguir
+    /// uma mensagem do utilizador e ser a última ou ser seguida do assistente).
+    pub fn system(text: impl Into<String>) -> Self {
+        Message {
+            role: Role::System,
             content: vec![json!({ "type": "text", "text": text.into() })],
         }
     }

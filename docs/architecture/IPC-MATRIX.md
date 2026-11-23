@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (139 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (141 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 139 comandos, **34 são consumidos pela `ui-app`** e **105 não o são**: a UI
+Dos 141 comandos, **36 são consumidos pela `ui-app`** e **105 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -283,13 +283,15 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `codev_session_discard` | `root: String`, `slug: String` | `()` | String | — | — | **G** |
 | `codev_session_list` | `root: String` | `Vec<git::SessionInfo>` | String | — | — | R |
 
-## 10b. Agente Co-Dev v2 — `commands/codev_agent.rs` (6)
+## 10b. Agente Co-Dev v2 — `commands/codev_agent.rs` (8)
 
 > **ADR-0003 (F1):** adaptadores finos sobre o caso de uso Tauri-free
 > `crate::codev_agent`, que gere sessões do loop do crate `tutor-agent` (tool use
 > nativo, histórico append-only). O turno corre numa thread e responde por eventos.
 > F4: consumidos pela UI através de `platform/tauri/codev-agent.ts` (porta `AgentGateway`
-> da feature Co-Dev). F2: o turno usa as ferramentas reais
+> da feature Co-Dev). F5: sessões gravadas em `~/.config/dxtutor/sessions/<projecto>/`
+> (JSONL append-only, 0600); `resume` reabre uma com o prefixo do pedido tal como foi
+> gravado (system prompt, ferramentas, modelo). F2: o turno usa as ferramentas reais
 > (ler/pesquisar/editar/escrever ficheiros, `bash`, git só leitura, testes/lint) —
 > F3: as permissões decidem-se no backend (`tutor_agent::permissions`: modo + regras
 > `.dxtutor/permissions.json` + piso de segurança); só o que pergunta chega à UI pelo
@@ -297,10 +299,12 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>`, `mode: Option<String>` | `String` (id da sessão) | String | — | `platform/tauri/codev-agent.ts` | **K** · S |
+| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>`, `mode: Option<String>`, `resume: Option<String>` | `String` (id da sessão) | String | — | `platform/tauri/codev-agent.ts` | **K** · S |
 | `codev_agent_send` | `session_id: String`, `text: Option<String>` | `()` (via eventos) | — | `codev-agent://event` `{session,event}`, `codev-agent://approval` `{session,request:{call,reason,dangerous,suggestedRule}}`, `codev-agent://error` `{session,error}` | `platform/tauri/codev-agent.ts` | **N** · K · **W** · **X** · S · E |
 | `codev_agent_approve` | `session_id: String`, `tool_use_id: String`, `allow: bool`, `reason: Option<String>`, `remember: Option<bool>` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S · W (`remember` grava `.dxtutor/permissions.json`) |
 | `codev_agent_set_mode` | `session_id: String`, `mode: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
+| `codev_agent_sessions` | `root: String` | `Vec<session::SessionSummary>` | — | — | `platform/tauri/codev-agent.ts` | R |
+| `codev_agent_history` | `session_id: String` | `Vec<session::HistoryItem>` | String | — | `platform/tauri/codev-agent.ts` | S |
 | `codev_agent_cancel` | `session_id: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
 | `codev_agent_close` | `session_id: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
 
@@ -435,9 +439,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **139** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 6 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **34** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 6) |
+| Comandos registados | **141** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 8 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
+| Consumidos pela `ui-app` | **36** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 8) |
 | Não consumidos pela `ui-app` | **105** |
 | Eventos distintos | **12** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty) |

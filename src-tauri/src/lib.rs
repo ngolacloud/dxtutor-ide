@@ -54,8 +54,8 @@ use commands::codev::{
     codev_session_start,
 };
 use commands::codev_agent::{
-    codev_agent_approve, codev_agent_cancel, codev_agent_close, codev_agent_send,
-    codev_agent_set_mode, codev_agent_start,
+    codev_agent_approve, codev_agent_cancel, codev_agent_close, codev_agent_history,
+    codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_start,
 };
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::agent::{
@@ -865,6 +865,8 @@ pub fn run() {
             codev_agent_cancel,
             codev_agent_close,
             codev_agent_set_mode,
+            codev_agent_sessions,
+            codev_agent_history,
             debug_capabilities,
             assistant_models,
             assistant_chat,

@@ -142,3 +142,62 @@ export function outcomeNotice(o: TurnOutcome): string | null {
       return "Atingido o limite de passos deste turno. Envia «continua» para o agente prosseguir.";
   }
 }
+
+/** Uma sessão gravada (espelho de `tutor_agent::session::SessionSummary`, camelCase). */
+export interface SessionSummary {
+  id: string;
+  title: string;
+  messages: number;
+  model: string;
+  created: number;
+  updated: number;
+}
+
+/** Uma entrada do histórico simplificado de uma sessão retomada. */
+export interface HistoryItem {
+  role: "user" | "assistant";
+  text: string;
+  tools: string[];
+}
+
+export function parseSessions(v: unknown): SessionSummary[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(
+    (s): s is SessionSummary =>
+      isObj(s) &&
+      str(s.id) &&
+      str(s.title) &&
+      typeof s.messages === "number" &&
+      typeof s.updated === "number",
+  );
+}
+
+export function parseHistory(v: unknown): HistoryItem[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((h) => isObj(h) && (h.role === "user" || h.role === "assistant") && str(h.text))
+    .map((h) => {
+      const o = h as Record<string, unknown>;
+      return {
+        role: o.role as "user" | "assistant",
+        text: o.text as string,
+        tools: Array.isArray(o.tools) ? (o.tools.filter(str) as string[]) : [],
+      };
+    });
+}
+
+/** Há quanto tempo, em português: «agora», «há 5 min», «há 3 h», «há 2 dias». */
+export function ago(thenSecs: number, nowSecs: number): string {
+  const d = Math.max(0, nowSecs - thenSecs);
+  if (d < 60) return "agora";
+  if (d < 3600) return `há ${Math.floor(d / 60)} min`;
+  if (d < 86400) return `há ${Math.floor(d / 3600)} h`;
+  const days = Math.floor(d / 86400);
+  return `há ${days} dia${days === 1 ? "" : "s"}`;
+}
+
+/** Rótulo de uma sessão na lista de retoma (texto simples). */
+export function describeSession(s: SessionSummary, nowSecs: number): string {
+  const t = s.title.length > 60 ? s.title.slice(0, 59) + "…" : s.title;
+  return `${t} · ${ago(s.updated, nowSecs)} · ${s.messages} mensagens`;
+}

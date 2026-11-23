@@ -129,3 +129,15 @@ scripts/pairtest.sh    duas instâncias emparelhadas, com câmara e microfone fa
 ## Segurança
 
 A CSP só permite scripts da própria aplicação; o protótipo usa scripts e handlers inline, por isso `script-src` inclui `'unsafe-inline'` e a modificação automática da CSP pelo Tauri está desligada. A interface não faz pedidos de rede: as chamadas aos modelos saem do backend Rust.
+
+## Resolução de problemas
+
+- **A janela abre vazia (só o fundo escuro).** Em Linux, uma cache de tipos de letra
+  incompatível (`~/.cache/fontconfig`, escrita por um fontconfig mais novo, por exemplo de
+  uma app Flatpak/Snap) faz o WebKitGTK bloquear antes de desenhar a página. Regenera-a:
+  `mv ~/.cache/fontconfig ~/.cache/fontconfig.bak && fc-cache -r`.
+- **Retomar uma conversa do Co-Dev.** Com uma pasta aberta e o Claude seleccionado,
+  escreve `/retomar` no painel do Co-Dev para escolher uma conversa anterior do projecto.
+  As conversas ficam em `~/.config/dxtutor/sessions/` (fora do repositório).
+- **Voltar ao harness antigo do Co-Dev.** Na consola da página:
+  `localStorage.setItem("dx2.codevLegacy", "true")` (e `removeItem` para voltar).

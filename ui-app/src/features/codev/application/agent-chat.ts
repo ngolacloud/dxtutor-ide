@@ -7,7 +7,7 @@
 
 import type { AgentChatDeps, CardRef, ToolRef } from "./ports";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
-import { describeCall, outcomeNotice, summarizeResult } from "../domain/agent-events";
+import { describeCall, describeSession, outcomeNotice, summarizeResult } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 
 /** O turno em curso: cartão, segmentos de texto (um por pedido ao modelo), ferramentas. */
@@ -106,7 +106,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     t.finish();
   }
 
-  async function ensureSession(): Promise<string> {
+  async function ensureSubscribed(): Promise<void> {
     if (!unsubscribe) {
       unsubscribe = await gateway.subscribe({
         event: onEvent,
@@ -114,6 +114,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
         error: onError,
       });
     }
+  }
+
+  async function ensureSession(): Promise<string> {
+    await ensureSubscribed();
     if (!session) {
       session = await gateway.start({
         root: deps.workspace.root(),
@@ -154,9 +158,53 @@ export function makeAgentChat(deps: AgentChatDeps) {
     }
   }
 
+  /** `/retomar`: lista as conversas anteriores do projecto e retoma a escolhida — o
+   *  backend reabre-a com o prefixo gravado; aqui redesenha-se a conversa. */
+  async function resumeMenu(): Promise<void> {
+    const card = presenter.thinking(deps.speaker());
+    try {
+      const list = await gateway.sessions(deps.workspace.root());
+      if (!list.length) {
+        presenter.assistantText(card, "Ainda não há conversas anteriores neste projecto.");
+        return;
+      }
+      presenter.assistantText(card, "Conversas anteriores deste projecto — escolhe uma para continuar:");
+      const now = deps.nowSecs();
+      const btns = list.slice(0, 6).map((s, i) => ({ l: describeSession(s, now), v: s.id, pri: i === 0 }));
+      const pick = await gate.ask<string>(card.tools, [...btns, { l: "Cancelar", v: "" }]).catch(() => "");
+      if (!pick) return;
+      if (session && session !== pick) void gateway.close(session);
+      await ensureSubscribed();
+      session = await gateway.start({
+        root: deps.workspace.root(),
+        model: deps.model(),
+        effort: "high",
+        testCmd: null,
+        lintCmd: null,
+        mode: deps.mode(),
+        resume: pick,
+      });
+      for (const h of await gateway.history(session)) {
+        if (h.role === "user") presenter.userMessage(h.text);
+        else {
+          const c = presenter.thinking(deps.speaker());
+          presenter.assistantText(c, h.text || "(só chamadas de ferramentas)");
+          if (h.tools.length) presenter.agentNote?.(c, "tools", `${h.tools.length} chamada(s): ${h.tools.join(", ")}`);
+        }
+      }
+      const end = presenter.thinking(deps.speaker());
+      presenter.assistantText(end, "Conversa retomada. Continua a escrever — o agente tem o histórico completo.");
+    } catch (e: unknown) {
+      presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
+    } finally {
+      presenter.scrollMsgs();
+    }
+  }
+
   return {
     available: (): boolean => gateway.available(),
     send,
+    resumeMenu,
     /** A modebar mudou: vale a partir da próxima decisão da sessão em curso. */
     modeChanged(mode: string): void {
       if (session) void gateway.setMode(session, mode);

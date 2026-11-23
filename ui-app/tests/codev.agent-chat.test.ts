@@ -3,13 +3,13 @@
 import { test, expect, vi } from "vitest";
 import { makeAgentChat } from "../src/features/codev/application/agent-chat";
 import type { AgentChatDeps, AgentGateway } from "../src/features/codev/application/ports";
-import type { AgentEvent, ApprovalRequest } from "../src/features/codev/domain/agent-events";
-import { parseAgentEvent, parseApproval, describeCall, summarizeResult } from "../src/features/codev/domain/agent-events";
+import type { AgentEvent, ApprovalRequest, HistoryItem, SessionSummary } from "../src/features/codev/domain/agent-events";
+import { parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago } from "../src/features/codev/domain/agent-events";
 import { costUSD, formatUsage } from "../src/features/codev/domain/pricing";
 
 type H = Parameters<AgentGateway["subscribe"]>[0];
 
-function setup(choice: "allow" | "always" | "deny" = "allow") {
+function setup(choice: string = "allow") {
   let h!: H;
   const calls: string[] = [];
   const log = (s: string) => calls.push(s);
@@ -24,6 +24,8 @@ function setup(choice: "allow" | "always" | "deny" = "allow") {
     cancel: vi.fn(async () => true),
     setMode: vi.fn(async () => true),
     close: vi.fn(async () => true),
+    sessions: vi.fn(async () => [] as SessionSummary[]),
+    history: vi.fn(async () => [] as HistoryItem[]),
     subscribe: vi.fn(async (handlers: H) => {
       h = handlers;
       return () => undefined;
@@ -54,7 +56,8 @@ function setup(choice: "allow" | "always" | "deny" = "allow") {
     gate: {
       ask: async <T>(_h: unknown, btns: Array<{ l: string; v: T }>) => {
         gateButtons.push(btns.map((b) => b.l));
-        return btns.find((b) => (b.v as unknown) === choice)!.v;
+        const b = btns.find((x) => (x.v as unknown) === choice) ?? btns[btns.length - 1];
+        return b.v;
       },
     },
     verify: { real: () => true, command: (k) => (k === "test" ? { cmd: "cargo test", from: "Cargo.toml", trusted: true } : null) },
@@ -63,6 +66,7 @@ function setup(choice: "allow" | "always" | "deny" = "allow") {
     model: () => "claude-opus-5-5",
     mode: () => "assist",
     speaker: () => "co-dev · agente",
+    nowSecs: () => 10_000,
   };
   const chat = makeAgentChat(deps);
   const emit = (e: AgentEvent, s = "S1") => h.event(s, e);
@@ -217,4 +221,50 @@ test("rótulos, resumos e custo", () => {
   expect(costUSD("claude-opus-5-5", u(0, 0, 1_000_000, 1_000_000))).toBeCloseTo(0.2 + 5);
   expect(costUSD("modelo-desconhecido", u(1, 1))).toBeNull();
   expect(formatUsage("claude-opus-5-5", u(2000, 300, 10_000))).toBe("12k entrada (10k da cache) · 300 saída · $0.016");
+});
+
+test("/retomar: lista as conversas, abre a escolhida com resume (sem criar outra) e redesenha-a", async () => {
+  const t = setup("sess-b");
+  (t.gateway.sessions as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+    { id: "sess-b", title: "corrige o <b>lexer</b>", messages: 6, model: "m", created: 1, updated: 10_000 - 7200 },
+    { id: "sess-a", title: "primeira", messages: 2, model: "m", created: 1, updated: 1 },
+  ]);
+  (t.gateway.start as ReturnType<typeof vi.fn>).mockResolvedValueOnce("sess-b");
+  (t.gateway.history as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+    { role: "user", text: "corrige o lexer", tools: [] },
+    { role: "assistant", text: "Feito.", tools: ["read", "edit"] },
+  ]);
+  await t.chat.resumeMenu();
+  expect(t.gateway.sessions).toHaveBeenCalledWith("/proj");
+  // rótulos em texto simples (o gate insere-os como texto, não HTML)
+  expect(t.gateButtons[0]).toEqual(["corrige o <b>lexer</b> · há 2 h · 6 mensagens", "primeira · há 0 dias · 2 mensagens".replace("há 0 dias", ago(1, 10_000)), "Cancelar"]);
+  expect(t.gateway.start).toHaveBeenCalledTimes(1);
+  expect(t.gateway.start).toHaveBeenCalledWith(expect.objectContaining({ resume: "sess-b", mode: "assist" }));
+  expect(t.calls).toContain("text Feito.");
+  expect(t.calls).toContain("note tools 2 chamada(s): read, edit");
+  // a mensagem seguinte vai para a sessão retomada
+  t.setScript(() => t.emit(done(), "sess-b"));
+  await t.chat.send("e agora?");
+  expect(t.gateway.send).toHaveBeenLastCalledWith("sess-b", "e agora?");
+});
+
+test("/retomar sem sessões ou cancelado não abre nada", async () => {
+  const t = setup("");
+  await t.chat.resumeMenu();
+  expect(t.calls).toContain("text Ainda não há conversas anteriores neste projecto.");
+  (t.gateway.sessions as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+    { id: "x", title: "t", messages: 1, model: "m", created: 1, updated: 1 },
+  ]);
+  await t.chat.resumeMenu();
+  expect(t.gateway.start).not.toHaveBeenCalled();
+});
+
+test("parse e rótulos das sessões", () => {
+  expect(parseSessions([{ id: "a", title: "t", messages: 1, model: "m", created: 1, updated: 2 }, { id: 3 }, null]).length).toBe(1);
+  expect(parseSessions("nada")).toEqual([]);
+  expect(parseHistory([{ role: "user", text: "olá" }, { role: "system", text: "x" }])).toEqual([{ role: "user", text: "olá", tools: [] }]);
+  expect(ago(100, 130)).toBe("agora");
+  expect(ago(0, 600)).toBe("há 10 min");
+  expect(ago(0, 86_400)).toBe("há 1 dia");
+  expect(describeSession({ id: "a", title: "x".repeat(80), messages: 3, model: "m", created: 0, updated: 0 }, 0)).toMatch(/^x{59}… · agora · 3 mensagens$/);
 });
