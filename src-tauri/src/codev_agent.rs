@@ -5,10 +5,10 @@
 //! adaptador IPC (`commands::codev_agent`) só põe isto numa thread e traduz os eventos
 //! para o Tauri; a regra de aprovação vive aqui.
 //!
-//! Estado: ferramentas reais (F2: read/glob/grep/edit/write/bash/git + run_tests/lint
-//! quando a UI passa os comandos detectados) e aprovação mínima — leituras passam, tudo
-//! o resto pergunta à UI. A política por modo (Manual/Assistido/Auto) e o classificador
-//! de comandos entram em F3.
+//! Estado: ferramentas reais (F2) e permissões decididas aqui, no backend (F3): a
+//! `tutor_agent::permissions::Policy` (modo da modebar + regras do projecto/utilizador +
+//! piso de segurança) decide cada chamada; só o que ela manda perguntar chega à UI, com a
+//! razão e a regra que «permitir sempre» gravaria.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use tutor_agent::anthropic::{self, Anthropic, Config};
+use tutor_agent::permissions::{Mode, Policy, Rules, Verdict};
 use tutor_agent::tools::{coding_tools, ToolsetOptions};
 use tutor_agent::{
     Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall,
@@ -33,14 +34,30 @@ pub struct StartSpec {
     /// Comandos de verificação detectados pela UI (`features/codev/domain/project-commands`).
     pub test_cmd: Option<String>,
     pub lint_cmd: Option<String>,
+    /// Modo da modebar (`manual`/`assist`/`auto`; desconhecido → Manual, falha fechada).
+    pub mode: Option<String>,
+}
+
+/// O que a UI recebe quando uma chamada precisa de decisão humana.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalRequest {
+    pub call: PendingCall,
+    /// Porque é que se pergunta (modo, comando desconhecido, perigoso, ficheiro protegido).
+    pub reason: String,
+    /// Piso de segurança: a UI não oferece «permitir sempre».
+    pub dangerous: bool,
+    /// A regra que «permitir sempre» gravaria em `.dxtutor/permissions.json`.
+    pub suggested_rule: Option<String>,
 }
 
 struct Session {
     agent: Agent,
     transcript: Mutex<Transcript>,
     busy: AtomicBool,
-    /// tool_use_id → canal onde a UI responde à aprovação
-    pending: Mutex<HashMap<String, mpsc::Sender<Decision>>>,
+    policy: Mutex<Policy>,
+    /// tool_use_id → (canal onde a UI responde, regra sugerida para «permitir sempre»)
+    pending: Mutex<HashMap<String, (mpsc::Sender<Decision>, Option<String>)>>,
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, Arc<Session>>> {
@@ -109,6 +126,12 @@ pub fn start(
     );
     acfg.effort = parse_effort(spec.effort.as_deref());
     acfg.system = system_prompt(&root);
+    let mode = Mode::parse(spec.mode.as_deref().unwrap_or("manual"));
+    let policy = Policy::new(
+        mode,
+        Rules::load(&root, Rules::user_file().as_deref()),
+        root.clone(),
+    );
     let ctx = ToolCtx {
         root,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -125,6 +148,7 @@ pub fn start(
         agent,
         transcript: Mutex::new(Transcript::new()),
         busy: AtomicBool::new(false),
+        policy: Mutex::new(policy),
         pending: Mutex::new(HashMap::new()),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
@@ -148,7 +172,7 @@ pub fn send(
     id: &str,
     text: Option<String>,
     on_event: &mut dyn FnMut(AgentEvent),
-    on_approval: &mut dyn FnMut(&PendingCall),
+    on_approval: &mut dyn FnMut(&ApprovalRequest),
 ) -> Result<TurnOutcome, String> {
     let s = get(id)?;
     if s.busy.swap(true, Ordering::SeqCst) {
@@ -157,13 +181,28 @@ pub fn send(
     s.agent.ctx.cancel.store(false, Ordering::Relaxed);
     let session = s.clone();
     let mut approve = |call: &PendingCall| -> Decision {
-        // F1: leituras passam; o resto pergunta (F3 traz a política por modo)
-        if call.read_only {
-            return Decision::Allow;
-        }
+        let verdict = session.policy.lock().unwrap().decide(call);
+        let (reason, dangerous, suggested_rule) = match verdict {
+            Verdict::Allow => return Decision::Allow,
+            Verdict::Deny { reason } => return Decision::Deny(reason),
+            Verdict::Ask {
+                reason,
+                dangerous,
+                suggested_rule,
+            } => (reason, dangerous, suggested_rule),
+        };
         let (tx, rx) = mpsc::channel();
-        session.pending.lock().unwrap().insert(call.id.clone(), tx);
-        on_approval(call);
+        session
+            .pending
+            .lock()
+            .unwrap()
+            .insert(call.id.clone(), (tx, suggested_rule.clone()));
+        on_approval(&ApprovalRequest {
+            call: call.clone(),
+            reason,
+            dangerous,
+            suggested_rule,
+        });
         let d = wait_decision(&rx, &session.agent.ctx.cancel);
         session.pending.lock().unwrap().remove(&call.id);
         d
@@ -188,20 +227,46 @@ fn wait_decision(rx: &mpsc::Receiver<Decision>, cancel: &AtomicBool) -> Decision
     }
 }
 
-/// A UI responde a um pedido de aprovação. `false` se não havia nada pendente.
-pub fn approve(id: &str, tool_use_id: &str, allow: bool, reason: Option<String>) -> bool {
+/// A UI responde a um pedido de aprovação. Com `remember` (e `allow`), a regra sugerida
+/// passa a valer nesta sessão e fica gravada em `.dxtutor/permissions.json`. Pedidos do
+/// piso de segurança não trazem regra sugerida, por isso não há «permitir sempre» para
+/// eles. `false` se não havia nada pendente com esse id.
+pub fn approve(
+    id: &str,
+    tool_use_id: &str,
+    allow: bool,
+    reason: Option<String>,
+    remember: bool,
+) -> bool {
     let Ok(s) = get(id) else { return false };
-    let tx = s.pending.lock().unwrap().remove(tool_use_id);
-    match tx {
-        Some(tx) => {
-            let d = if allow {
-                Decision::Allow
-            } else {
-                Decision::Deny(reason.unwrap_or_else(|| "recusado".into()))
-            };
-            tx.send(d).is_ok()
+    let Some((tx, rule)) = s.pending.lock().unwrap().remove(tool_use_id) else {
+        return false;
+    };
+    if allow && remember {
+        if let Some(rule) = rule {
+            let mut p = s.policy.lock().unwrap();
+            if !p.rules.allow.contains(&rule) {
+                p.rules.allow.push(rule.clone());
+            }
+            let _ = Rules::remember(&p.root, &rule);
         }
-        None => false,
+    }
+    let d = if allow {
+        Decision::Allow
+    } else {
+        Decision::Deny(reason.unwrap_or_else(|| "recusado".into()))
+    };
+    tx.send(d).is_ok()
+}
+
+/// Muda o modo da sessão (a modebar). Vale a partir da próxima decisão.
+pub fn set_mode(id: &str, mode: &str) -> bool {
+    match get(id) {
+        Ok(s) => {
+            s.policy.lock().unwrap().mode = Mode::parse(mode);
+            true
+        }
+        Err(_) => false,
     }
 }
 
@@ -248,10 +313,84 @@ mod tests {
         let id = start(spec, Some("sk-test".into()), None).unwrap();
         assert!(id.starts_with("cda-"));
         assert!(cancel(&id));
-        assert!(!approve(&id, "nada", true, None), "sem aprovação pendente");
+        assert!(
+            !approve(&id, "nada", true, None, false),
+            "sem aprovação pendente"
+        );
+        assert!(set_mode(&id, "auto"));
         assert!(close(&id));
         assert!(!close(&id));
         assert!(!cancel(&id));
+    }
+
+    #[test]
+    fn remember_persists_the_suggested_rule_and_the_floor_never_remembers() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: dir.path().display().to_string(),
+            mode: Some("manual".into()),
+            ..Default::default()
+        };
+        let id = start(spec, Some("sk-test".into()), None).unwrap();
+        let s = get(&id).unwrap();
+        let bash = |cmd: &str| PendingCall {
+            id: "x".into(),
+            name: "bash".into(),
+            input: serde_json::json!({ "command": cmd }),
+            read_only: false,
+            command: Some(cmd.into()),
+        };
+        assert!(matches!(
+            s.policy.lock().unwrap().decide(&bash("cargo build")),
+            Verdict::Ask { .. }
+        ));
+
+        // «permitir sempre» sobre um pedido normal: grava e passa a valer já
+        let (tx, rx) = mpsc::channel();
+        s.pending
+            .lock()
+            .unwrap()
+            .insert("t1".into(), (tx, Some("bash:cargo build".into())));
+        assert!(approve(&id, "t1", true, None, true));
+        assert_eq!(rx.recv().unwrap(), Decision::Allow);
+        let saved = std::fs::read_to_string(Rules::project_file(dir.path())).unwrap();
+        assert!(saved.contains("bash:cargo build"), "{saved}");
+        assert_eq!(
+            s.policy
+                .lock()
+                .unwrap()
+                .decide(&bash("cargo build --release")),
+            Verdict::Allow
+        );
+
+        // pedido do piso (sem regra sugerida): «lembrar» não grava nada
+        let (tx, rx) = mpsc::channel();
+        s.pending.lock().unwrap().insert("t2".into(), (tx, None));
+        assert!(approve(&id, "t2", true, None, true));
+        assert_eq!(rx.recv().unwrap(), Decision::Allow);
+        assert_eq!(
+            Rules::load(dir.path(), None).allow,
+            vec!["bash:cargo build"]
+        );
+
+        // recusa com razão chega ao loop
+        let (tx, rx) = mpsc::channel();
+        s.pending
+            .lock()
+            .unwrap()
+            .insert("t3".into(), (tx, Some("edit".into())));
+        assert!(approve(&id, "t3", false, Some("não mexas".into()), true));
+        assert_eq!(rx.recv().unwrap(), Decision::Deny("não mexas".into()));
+        assert!(
+            !Rules::load(dir.path(), None)
+                .allow
+                .contains(&"edit".to_string()),
+            "recusar não grava regra"
+        );
+
+        assert!(set_mode(&id, "auto"));
+        assert_eq!(s.policy.lock().unwrap().mode, Mode::Auto);
+        close(&id);
     }
 
     #[test]
@@ -274,7 +413,12 @@ mod tests {
 
     #[test]
     fn send_on_unknown_session_fails() {
-        let r = send("cda-nada", Some("olá".into()), &mut |_| {}, &mut |_| {});
+        let r = send(
+            "cda-nada",
+            Some("olá".into()),
+            &mut |_| {},
+            &mut |_: &ApprovalRequest| {},
+        );
         assert!(r.unwrap_err().contains("desconhecida"));
     }
 }

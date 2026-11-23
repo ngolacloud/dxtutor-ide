@@ -57,6 +57,11 @@ pub trait Tool: Send + Sync {
     fn eager_input(&self) -> bool {
         false
     }
+    /// O comando de shell que esta chamada vai correr, se correr algum (bash, testes,
+    /// lint) — é o que o classificador de permissões avalia.
+    fn command_preview(&self, _input: &Value) -> Option<String> {
+        None
+    }
     /// Corre com um input **já validado** contra [`Tool::input_schema`].
     fn run(&self, input: &Value, ctx: &ToolCtx) -> ToolOutput;
 

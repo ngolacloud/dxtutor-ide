@@ -6,7 +6,9 @@
 //! - F1: o loop do agente ([`agent`]) guiado por `stop_reason`, o contrato das
 //!   ferramentas ([`tool`]) e a validação do input contra o schema ([`schema`]).
 //! - F2: as ferramentas reais ([`tools`]) — read/glob/grep/edit/write/bash/git e
-//!   run_tests/lint — contidas na raiz do projecto ([`sandbox`]). Permissões: F3.
+//!   run_tests/lint — contidas na raiz do projecto ([`sandbox`]);
+//! - F3: permissões no backend ([`permissions`]) — classificador de comandos de shell,
+//!   regras por projecto, ficheiros protegidos e o modo da modebar.
 //!
 //! Invariantes que este crate garante por construção:
 //! - **histórico append-only** ([`types::Transcript`] não tem remoção nem edição): o
@@ -19,6 +21,7 @@
 
 pub mod agent;
 pub mod anthropic;
+pub mod permissions;
 pub mod provider;
 pub mod retry;
 pub mod sandbox;

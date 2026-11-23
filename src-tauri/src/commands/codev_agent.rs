@@ -5,7 +5,8 @@
 //! configuração da app), corre-se o turno numa thread (o HTTP e as ferramentas nunca
 //! travam a janela) e traduzem-se os eventos do loop para o Tauri:
 //! - `codev-agent://event` `{session, event}` — eventos do loop (`AgentEvent`, serde);
-//! - `codev-agent://approval` `{session, call}` — uma chamada à espera de decisão;
+//! - `codev-agent://approval` `{session, request}` — uma chamada à espera de decisão
+//!   (`request`: `call`, `reason`, `dangerous`, `suggestedRule`);
 //! - `codev-agent://error` `{session, error}` — o turno falhou (o histórico fica pronto
 //!   para `codev_agent_send` com `text: null`, «tentar de novo»).
 
@@ -24,6 +25,7 @@ pub fn codev_agent_start(
     effort: Option<String>,
     test_cmd: Option<String>,
     lint_cmd: Option<String>,
+    mode: Option<String>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let key = keys::resolve(&dir, "claude");
@@ -34,6 +36,7 @@ pub fn codev_agent_start(
             effort,
             test_cmd,
             lint_cmd,
+            mode,
         },
         key,
         keys::anthropic_workspace_id(),
@@ -55,10 +58,10 @@ pub fn codev_agent_send(app: tauri::AppHandle, session_id: String, text: Option<
                     serde_json::json!({ "session": sid, "event": event }),
                 );
             },
-            &mut |call| {
+            &mut |req| {
                 let _ = a2.emit(
                     "codev-agent://approval",
-                    serde_json::json!({ "session": sid, "call": call }),
+                    serde_json::json!({ "session": sid, "request": req }),
                 );
             },
         );
@@ -78,8 +81,21 @@ pub fn codev_agent_approve(
     tool_use_id: String,
     allow: bool,
     reason: Option<String>,
+    remember: Option<bool>,
 ) -> bool {
-    codev_agent::approve(&session_id, &tool_use_id, allow, reason)
+    codev_agent::approve(
+        &session_id,
+        &tool_use_id,
+        allow,
+        reason,
+        remember.unwrap_or(false),
+    )
+}
+
+/// Muda o modo da sessão (Manual/Assistido/Auto) — a modebar.
+#[tauri::command]
+pub fn codev_agent_set_mode(session_id: String, mode: String) -> bool {
+    codev_agent::set_mode(&session_id, &mode)
 }
 
 /// Cancela o turno em curso (botão Parar).

@@ -1,6 +1,6 @@
 # ADR-0003 — Harness v2 do Co-Dev: loop de agente em Rust com tool use nativo
 
-- **Estado:** aceite (recomendações do §11 aceites); F0, F1 e F2 feitas (ainda sem UI: a ligação é a F4)
+- **Estado:** aceite (recomendações do §11 aceites); F0–F3 feitas (ainda sem UI: a ligação é a F4)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto (angolardevops)
 - **Relacionado:** `ADR-0002` (camadas da feature Co-Dev na UI, que a F4 reutiliza);
@@ -58,8 +58,9 @@ um fluxo **plano → tarefas → execução → verificação → entrega** vis�
 
 ### 3.1 Crate novo `tutor-agent` (ARCHITECTURE.md §2)
 
-Grafo sem ciclos: `tutor-agent` → `serde`, `serde_json`, `ureq` (e, em F2+, `tutor-eval`
-para LSP/git e `tutor-board` para os todos). Consumidores: `src-tauri` (por um caso
+Grafo sem ciclos: `tutor-agent` → `serde`, `serde_json`, `ureq`, `ignore`, `regex` e
+`tutor-llm` (a política da modebar tem uma só fonte; o `tutor-llm` não depende do
+agente). Em F5+ também `tutor-board` para os todos. Consumidores: `src-tauri` (por um caso
 de uso Tauri-free, como os restantes grupos da Etapa 3), `tutor-tui` e `tutor-cli`.
 Não depende de `src-tauri` nem de `tauri`.
 
@@ -138,8 +139,11 @@ Todas correm na raiz do projecto e passam pelo `ensure_within` do hotfix (symlin
 
 ## 7. Permissões (backend)
 
-- **Modos:** Manual (pergunta tudo), Assistido (leituras livres, edições e comandos
-  seguros automáticos, o resto pergunta), Auto (só os perigosos perguntam).
+- **Modos:** Manual (pergunta cada edição e comando; leituras livres), Assistido
+  (edições e comandos seguros automáticos, o resto pergunta), Auto (só o piso de
+  segurança pergunta). O piso — comandos perigosos e ficheiros protegidos (`.git/`,
+  `.dxtutor/`, `.env`, `.ssh/`, `.github/workflows/`) — pergunta sempre e não há
+  regra que o dispense.
   Liga o `tutor_llm::policy` (via `crate::codev::policy_for_mode`), que hoje só a
   modebar consulta.
 - **Classificador de comandos** (substitui a regex):
@@ -202,7 +206,7 @@ Cada fase é um PR independente, com testes, e o CI tem de passar.
 | **F0 Fundações** ✅ | Crate `tutor-agent`; tipos canónicos; provider Anthropic com parser SSE completo (texto, thinking, `input_json_delta`, usage, erros); retry; modelo e versão correctos; sem prefill | Parser testado com fixtures SSE gravadas (sem rede); retry testado com servidor falso; zero chamadas reais nos testes |
 | **F1 Loop** ✅ | Loop por `stop_reason`, ferramentas em paralelo/série, cancelamento, eventos; comandos Tauri `codev_agent_*` (+ IPC-MATRIX) | Testes com provider falso guionado: tool_use → result → end_turn; recusa; max_tokens a meio de tool_use; tool_results agrupados; cancelamento |
 | **F2 Ferramentas** ✅ | read/glob/grep/edit/write/bash/run_tests/lint/git (`lsp_diagnostics` adiado para F5); `sandbox` única partilhada com o `src-tauri` | Testes em tempdir: staleness do edit, unicidade do old_string, symlinks, truncagem, timeout com kill do grupo |
-| **F3 Permissões** | Classificador, regras, modos, aprovação ida-e-volta; `policy.rs` ligado | Tabela de ≥60 comandos (incluindo os contornos da regex actual) com a classificação esperada |
+| **F3 Permissões** ✅ | Classificador, regras, modos, aprovação ida-e-volta; `policy.rs` ligado | Tabela de ≥60 comandos (incluindo os contornos da regex actual) com a classificação esperada |
 | **F4 UI v2** | O caso de uso `live-chat` (ADR-0002) passa a cliente fino do agente Rust através de uma porta `AgentGateway`; cartões de ferramenta, aprovação, thinking e custo; **remove o protocolo de fences e o prefill** | Fluxo real com uma pasta aberta, validado à mão por ti; typecheck/lint/testes |
 | **F5 Contexto e sessão** | System prompt cacheado, AGENTS.md/CLAUDE.md, sessões JSONL e retoma, compactação, custo | Cache hit a partir do 2.º turno (medido); retoma após reinício |
 | **F6 Plano → entrega** | Plan mode, todos↔Board, checkpoints e rewind, revisão de diffs, sub-agentes | Cenário guiado ponta-a-ponta num repositório de teste |

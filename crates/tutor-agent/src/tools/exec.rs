@@ -203,6 +203,9 @@ impl Tool for Bash {
     fn read_only(&self) -> bool {
         false
     }
+    fn command_preview(&self, input: &Value) -> Option<String> {
+        input["command"].as_str().map(String::from)
+    }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> ToolOutput {
         let command = input["command"].as_str().unwrap_or_default();
         if command.trim().is_empty() {
@@ -259,6 +262,9 @@ impl Tool for Verify {
     }
     fn read_only(&self) -> bool {
         false // corre código do projecto
+    }
+    fn command_preview(&self, _input: &Value) -> Option<String> {
+        Some(self.command.clone())
     }
     fn run(&self, _input: &Value, ctx: &ToolCtx) -> ToolOutput {
         let r = run_process(shell(&self.command), &ctx.root, MAX_TIMEOUT, ctx);

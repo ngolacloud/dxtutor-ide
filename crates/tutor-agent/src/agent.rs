@@ -69,6 +69,9 @@ pub struct PendingCall {
     pub name: String,
     pub input: Value,
     pub read_only: bool,
+    /// O comando de shell que a chamada vai correr (bash, run_tests, lint), para o
+    /// classificador de permissões.
+    pub command: Option<String>,
 }
 
 /// A decisão sobre uma chamada (modo de aprovação: F3; aqui é o anfitrião que decide).
@@ -405,6 +408,7 @@ impl Agent {
                 name: c.name.clone(),
                 input: c.input.clone(),
                 read_only: tool.read_only(),
+                command: tool.command_preview(&c.input),
             };
             match approve(&pending) {
                 Decision::Allow => runnable.push((i, Arc::clone(tool))),
