@@ -2,7 +2,8 @@
    O ÚNICO ficheiro da subárvore `features/lsp/` autorizado a ler `window.*` (A8 do
    arch-check). Lê o workspace aberto pelo desktop (`DXR.root`), o prefixo das chaves
    (`ROOT`), o `FS` em memória e o separador activo (`cur` + `tabOf`); chama o pintor
-   publicado (`paintEd`) e o `openPath`. Não publica nada no `window`. Acessores lêem
+   publicado (`paintEd`), o `openPath`, o `writeFile` (edições do rename; o autosave leva-as ao
+   disco) e o `show` (volta a mostrar o ficheiro activo). Não publica nada no `window`. Acessores lêem
    `window` NO ACTO (a pasta abre de forma assíncrona). */
 
 import { toast } from "../../../core";
@@ -22,6 +23,8 @@ interface Globals {
   paintEd?: (key: string) => void;
   openPath?: (key: string, line?: number) => void;
   stPos?: () => void;
+  writeFile?: (key: string, content: string) => void;
+  show?: (id: string | null) => void;
 }
 const G = window as unknown as Globals;
 
@@ -52,4 +55,8 @@ export const editor: EditorPort = {
     G.stPos?.();
   },
   notify: (message) => toast(message),
+  writeFile: (key, text) => G.writeFile?.(key, text),
+  reload: (key) => {
+    if (fileKeyOfTab(G.cur ?? null) === key) G.show?.(G.cur ?? null);
+  },
 };
