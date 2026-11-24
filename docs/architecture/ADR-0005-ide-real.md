@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a feita, R2b–R2e e R3–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a e R2b feitas, R2c–R2e e R3–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -237,3 +237,16 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   `testing` novo — escreve um teste Python com um caso verde e um vermelho, e o pane real
   lista-os (list_tests), «Run all» dá `✓ 1 ✗ 1` (run_all_tests) e o ▶ corre um (run_test);
   `errors: []`. IPC-MATRIX: os três comandos ganham consumidor. Métricas: globais 370 → 369.
+- **R2b (2026-11-24) — Search real.** No desktop com pasta aberta, o pane Search procura em
+  toda a pasta no disco pelo backend (`search_project`, sem distinguir maiúsculas, até 2000
+  ocorrências — o corte diz-se), em vez de só nos ficheiros carregados: apanha também o que
+  o carregamento saltou (grande, binário, além do limite), que aparece esbatido e, ao clicar,
+  explica porque não abre. Debounce de 200 ms; uma resposta atrasada nunca pinta por cima de
+  uma mais recente; um erro do backend diz-se no pane. No browser continua a procurar nos
+  ficheiros carregados. Os resultados abrem-se por um só listener em `#s-res`
+  (`data-p`/`data-l`) em vez de `onclick` inline (handlers inline 149 → 147). Cliente IPC novo
+  `platform/tauri/search.ts`.
+  **Testes com IPC falso:** `search.r2b` (FS no browser, `search_project` com agrupamento e
+  ordem, ficheiro não carregado, debounce, resposta atrasada, erro). **Selftest desktop:**
+  passo `search` novo — o pane encontra, sem distinguir maiúsculas, a linha 9 do teste Python
+  gravado pelo passo `testing`; `errors: []`. IPC-MATRIX: `search_project` ganha consumidor.

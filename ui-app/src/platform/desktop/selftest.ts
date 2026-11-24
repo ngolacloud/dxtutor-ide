@@ -288,6 +288,17 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await wait(() => st() !== "⟳ testes…" && !el()?.querySelector('[data-action="run-test"][disabled]'), 30000);
       return { listed, suiteDone, statusAfterSuite, statusAfterOne: st(), suiteShown: /Última corrida da suíte/.test(el()?.textContent || "") };
     });
+    // pesquisa (ADR-0005, R2b): o pane Search procura em toda a pasta pelo backend
+    // (search_project) — encontra o teste que o passo `testing` gravou no disco (o
+    // notes/selftest.txt do `autosave` ficou em main; o gitflow deixa o repo em develop).
+    await step("search", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      window.renderSearchPane();
+      const q = document.getElementById("s-q") as HTMLInputElement | null, res = () => document.getElementById("s-res");
+      if (q) { q.value = "ASSERTEQUAL(1 + 1, 3)"; q.dispatchEvent(new Event("input")); } // sem distinguir maiúsculas
+      const found = await wait(() => !!res()?.querySelector('[data-p$="test_dx_selftest.py"][data-l="9"]'), 10000);
+      return { found, summary: (res()?.querySelector(".sec-empty")?.textContent || "").trim() };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;
