@@ -41,7 +41,8 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
-  foram tipados), o `boot.ts` também (U4j1) e, por fim, o `app.ts` (U4j5b).
+  foram tipados), o `boot.ts` também (U4j1) e, por fim, o `app.ts` (U4j5b), que depois se dividiu
+  em `app/commands.ts` (CMD/menus) e `app/boot-steps.ts` (boot, boot3–boot6) e deixou de existir (U4j5c).
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
@@ -167,7 +168,7 @@ Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
 resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. Particularidades: a sessão
 `DBG` é polimórfica (`pre`/`code`/`ops`) — tipada por união + casts por `kind`; os
 helpers de lexer (`lexVariant`/`LXL`) vivem em `debug.ts` (ADR-0004 U4g5) e os containers
-`#pane-debug`/`#pc-dbg` nascem no `boot6` (no app.ts desde a U4g7; o arranque não corre no
+`#pane-debug`/`#pc-dbg` nascem no `boot6` (no `app/boot-steps.ts` desde a U4j5c; o arranque não corre no
 harness) — o golden reproduz estas peças como fixtures (cópias antigas).
 Rede de segurança em `tests/debug.golden.test.ts` (goldens de #pane-debug/#pc-dbg nos
 estados sem-sessão/pre/code, caracterização dos geradores, e 4 testes de dispatch
@@ -289,7 +290,7 @@ features/infra.ts  RESÍDUO strangler (tipado desde a U4i1 do ADR-0004; FORA da 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
 TODO tipado — interfaces locais (Design/TechSpec/KindSpec/K8sState/Secrets/…) no centro,
 os `any`/casts das formas opacas do monólito confinam-se ao bridge; (2) o `#pane-infra` nasce no `boot5`
-(no app.ts desde a U4g7), que não corre no harness → `infra.golden.test.ts` reproduz esta
+(no `app/boot-steps.ts` desde a U4j5c), que não corre no harness → `infra.golden.test.ts` reproduz esta
 fixture (e o antigo shim `RP.infra`) em `provideFixtures()`; (3) o estado window-backed PERSISTE entre testes no
 jsdom mas a reavaliação de `infra.ts` reassigna `window.ENVS/ENVX/K8S/…` por `bootApp`;
 LS é inoperante em headless (persistência é porta de infra, não se caracteriza). Rede de
@@ -327,7 +328,7 @@ Particularidades: (1) não entra no harness de goldens — o caminho do browser/
 a demo e os goldens ficam intactos; a rede é `tests/panel.{domain,application}.test.ts` +
 o passo `panel` do auto-teste desktop (`platform/desktop/selftest.ts`: PTY real, /dev/pts,
 integração de shell, scan); (2) `runInTerm` (`platform/desktop/terminal.ts`) delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
-linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`features/shortcuts.ts` chamam
+linha `#term` fica para o terminal partilhado do PairCode; (3) `features/shortcuts.ts` chama
 `termOwnsKey(e)` nos atalhos globais — com o foco no xterm, as teclas são da shell excepto
 a lista curta de `isAppKey` (estilo `commandsToSkipShell` do VS Code).
 
