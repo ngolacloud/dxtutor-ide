@@ -27,7 +27,12 @@ import { bindActions, type ActionTable } from "./codev/ui/actions";
 import { bus } from "../app/bus";
 import { desktopPorts } from "../app/desktop";
 import { agentStore } from "../app/store";
-import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
+import { composerActions, composerAsk, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
+import { presenter } from "./codev/ui/chat-view";
+import { makeAsk } from "./codev/application/ask";
+import type { Sampler } from "./codev/application/ports";
+import { hunkContext, selectionContext, type AskContext, type AskRequest } from "./codev/domain/ask";
+import { codevAsk as codevAskRegistry } from "../app/codev-ask";
 import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/composer";
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
@@ -234,6 +239,29 @@ Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, as
 /* Board (opção 2 do ADR-0003): o Board pede ao Co-Dev pelo seu legacy-bridge, sem importar a feature */
 Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvailable: codevEngine.agentAvailable });
 
+/* ───── codev.ask (A2.4): the one way other features ask Co-Dev ─────
+   `explain` answers straight away in the chat; the rest lands in the composer as chips +
+   text (sent at once with `send`). Registered in app/codev-ask for the other features. */
+const codevAsk = makeAsk({
+  sample: () => bridge.sample() as unknown as Sampler | null,
+  presenter,
+  speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · explicação",
+  focus: () => focusAgent(true),
+  compose: (text, context, send) => composerAsk(text, context, send),
+});
+/** Ctrl+I / «Enviar selecção ao Co-Dev»: the editor's selection (or the file) as context. */
+function codevAskFromEditor(): void {
+  const t = bridge.tabOf(bridge.monolith.currentTabId);
+  const ta = document.getElementById('ed-ta') as HTMLTextAreaElement | null;
+  const rel = t && t.path ? (t.path.startsWith(bridge.root()) ? t.path.slice(bridge.root().length) : t.path) : null;
+  const sel = ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : '';
+  const ctx: AskContext[] = !rel ? [] : sel
+    ? [selectionContext(rel, ta!.value.slice(0, ta!.selectionStart).split('\n').length, sel)]
+    : [{ kind: 'file', label: rel.split('/').pop() || rel, path: rel }];
+  void codevAsk({ intent: 'chat', context: ctx, send: false });
+}
+codevAskRegistry.register((r: AskRequest) => codevAsk(r), codevAskFromEditor);
+
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
 window.renderWelcomePage = (_t, host) => {
   const w = (ic: string, a: string, b: string, action: string, on = '') => `<button class="wbtn" data-action="${action}"${on ? ` data-on="${esc(on)}"` : ''}><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
@@ -343,6 +371,13 @@ const ACTIONS: ActionTable = {
   "hunk-faster": { on: "click", run: () => hunkReview.faster() },
   "hunk-stop": { on: "click", run: () => hunkReview.stop() },
   "hunk-back": { on: "click", run: () => hunkReview.backToCodev() },
+  "hunk-explain": {
+    on: "click",
+    run: (e) => {
+      const h = hunkReview.state().hunks.find((x) => x.id === e.on);
+      if (h) void codevAsk({ intent: 'explain', text: 'Explica esta alteração proposta: o que muda e porquê.', context: [hunkContext(h.path, h.anchor, h.old, h.text)], send: true });
+    },
+  },
   /* change — espelha os antigos onchange */
   "set-prov-model": {
     on: "change",

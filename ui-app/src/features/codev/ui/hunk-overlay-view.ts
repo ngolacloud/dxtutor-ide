@@ -28,9 +28,9 @@ function bar(h: HunkState, typing: boolean, paused: boolean): string {
     if (h.choice) {
       return `<span class="hk-tag">Co-Dev</span><span class="hk-state">${h.choice === "accept" ? "aceite" : "rejeitada"} — à espera das outras</span>`;
     }
-    return `<span class="hk-tag">Co-Dev</span>` + btn("hunk-accept", "Aceitar", true) + btn("hunk-reject", "Rejeitar");
+    return `<span class="hk-tag">Co-Dev</span>` + btn("hunk-accept", "Aceitar", true) + btn("hunk-reject", "Rejeitar") + btn("hunk-explain", "Explicar");
   }
-  return `<span class="hk-tag">Co-Dev</span><span class="hk-state">a aguardar decisão…</span>`;
+  return `<span class="hk-tag">Co-Dev</span><span class="hk-state">a aguardar decisão…</span>` + btn("hunk-explain", "Explicar");
 }
 
 /** The overlay's `decorate`, the scroll and key handling, bound to one HunkReview. */
