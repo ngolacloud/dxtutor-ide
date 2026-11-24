@@ -131,7 +131,9 @@ impl BoardStore {
         // Migração aditiva (ADR-0006, R3b): bases criadas antes da coluna `meta` ganham-na.
         let has_meta = {
             let mut st = conn.prepare("PRAGMA table_info(stories)")?;
-            let names = st.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let names = st
+                .query_map([], |r| r.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             names.iter().any(|n| n == "meta")
         };
         if !has_meta {
@@ -347,7 +349,10 @@ mod tests {
         let b = sample();
         s.save_board("/ws", &b, 1).unwrap();
         let got = s.load_board("/ws").unwrap().unwrap();
-        assert_eq!(got.stories[1].meta, Some(serde_json::json!({ "agent": "be", "owner": "you" })));
+        assert_eq!(
+            got.stories[1].meta,
+            Some(serde_json::json!({ "agent": "be", "owner": "you" }))
+        );
         assert_eq!(got.stories[0].meta, None);
         assert_eq!(got, b);
     }

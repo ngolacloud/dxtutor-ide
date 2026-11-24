@@ -765,7 +765,12 @@ pub fn server_status(path: &str) -> Option<ServerStatus> {
         Ok(_) => (true, None),
         Err(e) => (false, Some(e)),
     };
-    Some(ServerStatus { language: lang.id.into(), server: lang.server_label.into(), installed, problem })
+    Some(ServerStatus {
+        language: lang.id.into(),
+        server: lang.server_label.into(),
+        installed,
+        problem,
+    })
 }
 
 // ── Commands — all async: the blocking work runs on spawn_blocking, off the UI thread. ──
@@ -1125,7 +1130,10 @@ mod phase4_lang_tests {
     fn server_status_names_the_language_and_server() {
         assert_eq!(server_status("/w/notes.txt"), None);
         let st = server_status("/w/src/Main.java").unwrap();
-        assert_eq!((st.language.as_str(), st.server.as_str()), ("java", "jdtls"));
+        assert_eq!(
+            (st.language.as_str(), st.server.as_str()),
+            ("java", "jdtls")
+        );
         // instalado ou não depende da máquina; sem servidor, diz porquê
         assert_eq!(st.installed, st.problem.is_none());
     }

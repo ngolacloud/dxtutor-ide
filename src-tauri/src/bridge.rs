@@ -176,7 +176,10 @@ pub async fn vsix_fetch_open_vsx(id: String) -> Result<String, String> {
 /// Pesquisa extensões no Open VSX (ADR-0006, R6b): o catálogo do pane «Extensions» deixa de ser
 /// uma lista fixa. Só fala com open-vsx.org.
 #[tauri::command]
-pub async fn vsix_search_open_vsx(query: String, size: Option<u32>) -> Result<Vec<vsix::OvsxHit>, String> {
+pub async fn vsix_search_open_vsx(
+    query: String,
+    size: Option<u32>,
+) -> Result<Vec<vsix::OvsxHit>, String> {
     vsix::search_open_vsx(&query, size).await
 }
 

@@ -181,12 +181,19 @@ pub fn absorb_usage(provider: &str, v: &serde_json::Value, u: &mut Usage) {
     let n = |x: &serde_json::Value| x.as_u64();
     match provider {
         "claude" => {
-            let usage = v.get("message").and_then(|m| m.get("usage")).or_else(|| v.get("usage"));
+            let usage = v
+                .get("message")
+                .and_then(|m| m.get("usage"))
+                .or_else(|| v.get("usage"));
             if let Some(us) = usage {
-                let input = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
-                    .iter()
-                    .filter_map(|k| us.get(*k).and_then(n))
-                    .sum::<u64>();
+                let input = [
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                ]
+                .iter()
+                .filter_map(|k| us.get(*k).and_then(n))
+                .sum::<u64>();
                 if us.get("input_tokens").is_some() {
                     u.input = input;
                 }
@@ -910,29 +917,85 @@ mod usage_tests {
     #[test]
     fn claude_le_a_entrada_com_cache_e_a_saida_cumulativa() {
         let mut u = Usage::default();
-        absorb_usage("claude", &json!({"type": "message_start", "message": {"usage": {"input_tokens": 12, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 5, "output_tokens": 1}}}), &mut u);
-        absorb_usage("claude", &json!({"type": "content_block_delta", "delta": {"text": "x"}}), &mut u);
-        absorb_usage("claude", &json!({"type": "message_delta", "usage": {"output_tokens": 42}}), &mut u);
-        assert_eq!(u, Usage { input: 1017, output: 42 });
+        absorb_usage(
+            "claude",
+            &json!({"type": "message_start", "message": {"usage": {"input_tokens": 12, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 5, "output_tokens": 1}}}),
+            &mut u,
+        );
+        absorb_usage(
+            "claude",
+            &json!({"type": "content_block_delta", "delta": {"text": "x"}}),
+            &mut u,
+        );
+        absorb_usage(
+            "claude",
+            &json!({"type": "message_delta", "usage": {"output_tokens": 42}}),
+            &mut u,
+        );
+        assert_eq!(
+            u,
+            Usage {
+                input: 1017,
+                output: 42
+            }
+        );
     }
 
     #[test]
     fn openai_le_o_chunk_final_e_ignora_usage_nulo() {
         let mut u = Usage::default();
-        absorb_usage("openai", &json!({"choices": [{"delta": {"content": "x"}}], "usage": null}), &mut u);
-        absorb_usage("openai", &json!({"choices": [], "usage": {"prompt_tokens": 30, "completion_tokens": 7}}), &mut u);
-        assert_eq!(u, Usage { input: 30, output: 7 });
+        absorb_usage(
+            "openai",
+            &json!({"choices": [{"delta": {"content": "x"}}], "usage": null}),
+            &mut u,
+        );
+        absorb_usage(
+            "openai",
+            &json!({"choices": [], "usage": {"prompt_tokens": 30, "completion_tokens": 7}}),
+            &mut u,
+        );
+        assert_eq!(
+            u,
+            Usage {
+                input: 30,
+                output: 7
+            }
+        );
     }
 
     #[test]
     fn gemini_e_ollama() {
         let mut g = Usage::default();
-        absorb_usage("gemini", &json!({"usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 3}}), &mut g);
-        absorb_usage("gemini", &json!({"usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 8}}), &mut g);
-        assert_eq!(g, Usage { input: 9, output: 8 });
+        absorb_usage(
+            "gemini",
+            &json!({"usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 3}}),
+            &mut g,
+        );
+        absorb_usage(
+            "gemini",
+            &json!({"usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 8}}),
+            &mut g,
+        );
+        assert_eq!(
+            g,
+            Usage {
+                input: 9,
+                output: 8
+            }
+        );
         let mut o = Usage::default();
-        absorb_usage("ollama", &json!({"done": true, "prompt_eval_count": 26, "eval_count": 290}), &mut o);
-        assert_eq!(o, Usage { input: 26, output: 290 });
+        absorb_usage(
+            "ollama",
+            &json!({"done": true, "prompt_eval_count": 26, "eval_count": 290}),
+            &mut o,
+        );
+        assert_eq!(
+            o,
+            Usage {
+                input: 26,
+                output: 290
+            }
+        );
     }
 
     #[test]

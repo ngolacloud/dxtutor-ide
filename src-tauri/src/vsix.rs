@@ -172,7 +172,11 @@ pub async fn search_open_vsx(query: &str, size: Option<u32>) -> Result<Vec<OvsxH
         .map_err(|e| e.to_string())?;
     let resp = client
         .get(format!("{OPEN_VSX}/api/-/search"))
-        .query(&[("query", q.to_string()), ("size", search_size(size).to_string()), ("sortBy", "relevance".to_string())])
+        .query(&[
+            ("query", q.to_string()),
+            ("size", search_size(size).to_string()),
+            ("sortBy", "relevance".to_string()),
+        ])
         .send()
         .await
         .map_err(|e| format!("Open VSX: {e}"))?;
@@ -235,10 +239,28 @@ mod tests {
         ]});
         let hits = parse_search(&v);
         assert_eq!(hits.len(), 2);
-        assert_eq!(hits[0], OvsxHit { id: "rust-lang.rust-analyzer".into(), name: "rust-analyzer".into(), publisher: "rust-lang".into(), description: "Rust support".into(), version: "0.4.1".into(), downloads: 7, verified: true });
+        assert_eq!(
+            hits[0],
+            OvsxHit {
+                id: "rust-lang.rust-analyzer".into(),
+                name: "rust-analyzer".into(),
+                publisher: "rust-lang".into(),
+                description: "Rust support".into(),
+                version: "0.4.1".into(),
+                downloads: 7,
+                verified: true
+            }
+        );
         assert_eq!(hits[1].name, "go"); // sem displayName, o nome
         assert!(parse_search(&serde_json::json!({})).is_empty());
-        assert_eq!((search_size(None), search_size(Some(0)), search_size(Some(500))), (30, 1, 50));
+        assert_eq!(
+            (
+                search_size(None),
+                search_size(Some(0)),
+                search_size(Some(500))
+            ),
+            (30, 1, 50)
+        );
     }
 
     /// Ao vivo contra o open-vsx.org (rede): `cargo test -p dxtutor-ide --lib -- --ignored open_vsx_live`.
