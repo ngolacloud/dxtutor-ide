@@ -592,6 +592,14 @@
   .lsp-hover{position:fixed;z-index:60;max-width:560px;max-height:320px;overflow:auto;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:8px;padding:8px 10px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;color:var(--fg);pointer-events:none}
   .lsp-hover.hidden{display:none}.lsp-hover .lsp-code{margin:0;font-family:var(--font-mono);white-space:pre-wrap;color:var(--fg-bright)}
   .lsp-hover .lsp-text{margin-top:6px;white-space:pre-wrap;color:var(--fg-dim)}.lsp-hover .lsp-text:first-child{margin-top:0}
+  /* referências (Shift+F12) e rename (F2) */
+  .lsp-pop{position:fixed;z-index:61;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;color:var(--fg)}
+  .lsp-refs{min-width:320px;max-width:640px;max-height:340px;overflow:auto;padding:4px 0}
+  .lsp-pop-h{padding:6px 12px 4px;color:var(--fg-dim);font-size:11px}
+  .lsp-ref{display:flex;gap:10px;width:100%;text-align:left;padding:5px 12px;background:none;border:0;color:var(--fg);font-family:var(--font-mono);font-size:12px;cursor:pointer}
+  .lsp-ref:hover,.lsp-ref:focus{background:rgba(74,158,255,.14);outline:0}.lsp-ref:disabled{opacity:.5;cursor:default}
+  .lsp-ref-w{flex:none;color:var(--fg-bright)}.lsp-ref-t{overflow:hidden;text-overflow:ellipsis;white-space:pre;color:var(--fg-dim)}
+  .lsp-rename{padding:8px;width:260px}.lsp-rename .inp{width:100%;font-family:var(--font-mono)}.lsp-pop-hint{margin-top:5px;color:var(--fg-muted);font-size:11px}
   .onb-plug{margin-top:22px;padding-top:18px;border-top:1px solid var(--border)}.onb-plug h3{font-size:13.5px;font-weight:600;margin-bottom:10px}
   .onb-pin{display:flex;gap:8px}.onb-pin input{flex:1;min-width:0;background:var(--bg-editor);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--fg);font-family:var(--font-mono);font-size:12px}.onb-pin input:focus{outline:none;border-color:var(--accent)}
   .onb-msg{font-size:12px;color:var(--green);margin:8px 0 0;word-break:break-word;white-space:pre-wrap}.onb-msg.bad{color:var(--red)}

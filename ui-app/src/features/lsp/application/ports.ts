@@ -9,6 +9,9 @@ export interface LspPort {
   didChange(path: string, text: string, version: number): Promise<void>;
   hover(path: string, line: number, character: number): Promise<unknown>;
   definition(path: string, line: number, character: number): Promise<unknown>;
+  references(path: string, line: number, character: number): Promise<unknown>;
+  prepareRename(path: string, line: number, character: number): Promise<unknown>;
+  rename(path: string, line: number, character: number, newName: string): Promise<unknown>;
   /** Avisa quando o servidor publica diagnósticos de um ficheiro (URI). */
   onDiagnostics(cb: (uri: string) => void): void;
 }
@@ -34,6 +37,10 @@ export interface EditorPort {
   /** Abre o ficheiro na linha (1-based) e põe o cursor na coluna (0-based). */
   open(key: string, line: number, character: number): void;
   notify(message: string): void;
+  /** Grava o texto novo de um ficheiro no editor (o autosave leva-o ao disco). */
+  writeFile(key: string, text: string): void;
+  /** Volta a mostrar o ficheiro, se for o activo (o texto mudou por fora da textarea). */
+  reload(key: string): void;
 }
 
 /** Adiar uma acção (o relógio, injectado para os testes). */

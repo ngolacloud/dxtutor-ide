@@ -3,15 +3,23 @@
    não mexer no `editor.ts`:
      • rato parado sobre um símbolo (~450 ms) → hover num cartão junto ao cursor;
      • F12, ou Ctrl/⌘+clique → definição do símbolo no cursor;
+     • Shift+F12 → lista de referências; F2 → caixa de rename (`ui/popups.ts`);
      • Escape, escrever, deslocar ou sair da textarea → fecha o cartão.
    Dono do DOM do cartão (`#lsp-hover`). Não toca em `window`. */
 
-import { offsetAtPoint, type EditorMetrics } from "../domain/positions";
+import { offsetAtPoint, pointOfOffset, type EditorMetrics } from "../domain/positions";
 import type { HoverBlock } from "../domain/results";
+import type { Reference, RenameResult, RenameTarget } from "../application/lsp-client";
+import { closePopup, showReferences, showRenameBox } from "./popups";
 
 export interface EditorHooksDeps {
   hoverAt(offset: number): Promise<HoverBlock[]>;
   definitionAt(offset: number): Promise<void>;
+  referencesAt(offset: number): Promise<Reference[] | null>;
+  prepareRenameAt(offset: number): Promise<RenameTarget | null>;
+  renameAt(offset: number, newName: string): Promise<RenameResult | null>;
+  /** Abre uma referência escolhida na lista. */
+  openReference(r: Reference): void;
   /** Só activo com uma pasta real aberta (no workspace de exemplo não há servidor). */
   enabled(): boolean;
 }
@@ -101,13 +109,34 @@ export function bindEditorHooks(d: EditorHooksDeps): void {
       hideCard();
     }
   };
+  /** Canto do carácter `offset` no ecrã (para abrir os cartões junto ao cursor). */
+  const screenPoint = (ta: HTMLTextAreaElement, offset: number): { x: number; y: number } => {
+    const r = ta.getBoundingClientRect(), m = metricsOf(ta), p = pointOfOffset(ta.value, offset, m);
+    return { x: r.left + p.x, y: r.top + p.y + m.lineHeight + 4 };
+  };
   const onKey = (e: KeyboardEvent): void => {
     if (!isEditor(e.target)) return;
     cancel();
     hideCard();
-    if (e.key === "F12" && !e.shiftKey && d.enabled()) {
+    if (!d.enabled()) return;
+    const ta = e.target, caret = ta.selectionStart;
+    if (e.key === "F12" && !e.shiftKey) {
       e.preventDefault();
-      void d.definitionAt(e.target.selectionStart);
+      void d.definitionAt(caret);
+    } else if (e.key === "F12" && e.shiftKey) {
+      e.preventDefault();
+      void d.referencesAt(caret).then((refs) => {
+        if (!refs) return;
+        const p = screenPoint(ta, caret);
+        showReferences(refs, p.x, p.y, (r) => d.openReference(r), () => ta.focus());
+      });
+    } else if (e.key === "F2") {
+      e.preventDefault();
+      void d.prepareRenameAt(caret).then((t) => {
+        if (!t) return;
+        const p = screenPoint(ta, t.start);
+        showRenameBox(t.placeholder, p.x, p.y, (name) => void d.renameAt(caret, name), () => ta.focus());
+      });
     }
   };
   const onClick = (e: MouseEvent): void => {
@@ -129,6 +158,8 @@ export function bindEditorHooks(d: EditorHooksDeps): void {
   document.addEventListener("scroll", onScroll, true);
   doc[KEY] = () => {
     cancel();
+    closePopup("lsp-refs");
+    closePopup("lsp-rename");
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseout", onLeave);
     document.removeEventListener("keydown", onKey);

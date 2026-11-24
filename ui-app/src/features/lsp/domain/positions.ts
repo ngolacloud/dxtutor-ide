@@ -38,6 +38,28 @@ export interface EditorMetrics {
   tabSize: number;
 }
 
+/** Offset → canto superior esquerdo do carácter (x, y em píxeis, relativo à textarea), com
+ *  tabs expandidos. É o inverso de {@link offsetAtPoint}: onde abrir a caixa de rename. */
+export function pointOfOffset(text: string, offset: number, m: EditorMetrics): { x: number; y: number } {
+  const { line, character } = offsetToPosition(text, offset);
+  const lineText = text.split("\n")[line] ?? "";
+  let col = 0;
+  for (let i = 0; i < Math.min(character, lineText.length); i++) col += lineText[i] === "\t" ? m.tabSize - (col % m.tabSize) : 1;
+  return { x: col * m.charWidth, y: line * m.lineHeight };
+}
+
+/** O identificador no offset (ou mesmo antes dele): letras, dígitos, `_` e `$`. */
+export function wordAt(text: string, offset: number): { start: number; end: number; word: string } | null {
+  const isId = (ch: string | undefined) => !!ch && /[\p{L}\p{N}_$]/u.test(ch);
+  let start = Math.max(0, Math.min(offset, text.length));
+  if (!isId(text[start]) && isId(text[start - 1])) start--;
+  if (!isId(text[start])) return null;
+  let end = start;
+  while (start > 0 && isId(text[start - 1])) start--;
+  while (end < text.length && isId(text[end])) end++;
+  return { start, end, word: text.slice(start, end) };
+}
+
 /** Ponto (x, y em píxeis, relativo ao canto da textarea) → offset do carácter por baixo,
  *  ou `null` se o ponto está depois do fim da linha ou abaixo da última linha. */
 export function offsetAtPoint(text: string, x: number, y: number, m: EditorMetrics): number | null {

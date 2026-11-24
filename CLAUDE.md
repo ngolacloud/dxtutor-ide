@@ -418,8 +418,12 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
 - **`application/lsp-client.ts`:** `lsp_start` uma vez por pasta, `didOpen` uma vez por
   ficheiro (bus `editor:tab`), `didChange` com versões (bus `workspace:changed`), hover,
   definição, e repinta o editor quando chegam diagnósticos do ficheiro aberto.
-- **`ui/editor-hooks.ts`:** rato parado → cartão `#lsp-hover`; F12 ou Ctrl+clique → definição.
-  Listeners delegados no `document`, sem mexer no `editor.ts`; não publica globais.
+- **`ui/editor-hooks.ts`:** rato parado → cartão `#lsp-hover`; F12 ou Ctrl+clique → definição;
+  Shift+F12 → lista de referências; F2 → caixa de rename (`ui/popups.ts`: `#lsp-refs`,
+  `#lsp-rename`). Listeners delegados no `document`, sem mexer no `editor.ts`; não publica globais.
+- **Rename:** o cliente aplica a `WorkspaceEdit` (`changes` ou `documentChanges`; `domain/edits.ts`)
+  aos ficheiros da pasta pelo `writeFile` (o autosave leva-as ao disco), envia `didChange` dos que o
+  servidor tem abertos e conta o que salta (fora da pasta, operações de ficheiro).
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
 - **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, e o passo

@@ -305,8 +305,9 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
     // feature `lsp`: o editor ligado ao servidor de linguagem, conduzido como um utilizador —
     // abrir o ficheiro (editor:tab → lsp_start + didOpen), esperar os diagnósticos no gutter,
-    // rato parado sobre um símbolo (mousemove → cartão de hover) e F12 numa chamada (salta
-    // para a definição). Só corre para as linguagens cujo servidor está instalado.
+    // rato parado sobre um símbolo (mousemove → cartão de hover), F12 numa chamada (salta
+    // para a definição), Shift+F12 (lista de referências) e F2 + nome novo + Enter (rename em
+    // todos os ficheiros, gravado no disco). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
   }
   rep.errors = R.errors;
@@ -373,11 +374,35 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       el.dispatchEvent(new KeyboardEvent("keydown", { key: "F12", bubbles: true }));
       return null;
     }, 90_000, 3000);
-    const caretLine = caretLineNow();
+    const caretLine = caretLineNow(), defFile = W.cur;
+    // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
+    const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
+    const refRows = await until(() => {
+      const rows = [...document.querySelectorAll("#lsp-refs .lsp-ref")].map(b => b.textContent ?? "");
+      if (rows.length >= 2) return rows;
+      caretOn(callLine, callWord).dispatchEvent(new KeyboardEvent("keydown", { key: "F12", shiftKey: true, bubbles: true }));
+      return null;
+    }, 60_000, 2500);
+    document.getElementById("lsp-refs")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    // 5) F2 na chamada → caixa com o nome → escrever o nome novo + Enter → todos os ficheiros
+    const newName = lang === "java" ? "sum" : "salute";
+    const box = await until(() => {
+      const input = document.querySelector<HTMLInputElement>("#lsp-rename input");
+      if (input) return input;
+      caretOn(callLine, callWord).dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true }));
+      return null;
+    }, 30_000, 2000);
+    const placeholder = box ? box.value : null;
+    if (box) { box.value = newName; box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); }
+    const renamed = await until(() => Object.keys(files).every(rel => !FS[ROOT + rel].content.includes(callWord + "(")) && Object.keys(files).some(rel => FS[ROOT + rel].content.includes(newName + "(")), 60_000, 500);
+    flushSave(); await idle();
+    const onDisk = renamed ? (await sh("cat", Object.keys(files))).stdout.split(newName + "(").length - 1 : 0;
     return {
       diagnostic: diag ? `${diag.line}: ${diag.msg.slice(0, 90)}` : null, gutterErr, diagMs,
       hover: hoverText ? hoverText.replace(/\s+/g, " ").slice(0, 120) : null,
-      definition: { jumped: !!jumped, file: W.cur, caretLine, expectedLine: defLine },
+      definition: { jumped: !!jumped, file: defFile, caretLine, expectedLine: defLine },
+      references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
+      rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk },
     };
   }
 }
