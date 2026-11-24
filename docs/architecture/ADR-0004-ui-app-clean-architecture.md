@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h3; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h4; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -561,3 +561,29 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   da pasta — idênticos. Nota de ambiente: entre corridas o `providers.json` real ganhou e
   perdeu uma chave OpenAI por fora destas corridas, e um `terminalUI` saiu `false` uma vez
   (repetido duas vezes: `true`) — sinais de outra sessão a usar o mesmo HOME.
+- **U4h4 (2026-11-24) — o stack e a infra.** Duas portas, uma por dono: `StackDesktop`
+  (`features/stack.ts`: `dxRun`, `dxStop`, `drawStack`) e `InfraDesktop`
+  (`infra/application/ports.ts`: `rtConnect`, `k8sConnect`, `dxDeploy`, `observe`), registadas
+  em `desktopPorts.stack`/`desktopPorts.infra`. Os donos publicam as versões compostas com a
+  porta (as bases passam a `dxRunGuarded`/`dxStopGuarded`/`drawStackBase` e, na infra, o
+  `rtConnect`/`k8sConnect` do motor, o `dxDeployPrimed` e o `renderObserveView`); o
+  `platform/desktop/infra.ts` deixa de reatribuir os seis globais e o `VIEW.observe` e instala
+  as duas portas com os mesmos corpos (o `drawStack` real deixa de passar os argumentos à base,
+  que não os lê). As chamadas internas do stack (o `drawStack` no fim do `dxRunBase`/
+  `dxStopBase`) já resolviam o global, por isso continuam a passar pelo desktop; dentro das
+  portas, `drawStack`/`needRt`/`infraDraw`/`k8sDocs`/`goPane` resolvem para os globais
+  (provado com o type checker). **Decisão registada — mudança de comportamento aprovada pelo
+  dono a 2026-11-24:** o `boot4`/`boot5`/`boot6` guardam o `dxRun`/`dxStop`/`dxDeploy` por
+  valor em 9 entradas efectivas (paleta: «Project: RUN the whole stack», «Project: Stop the
+  stack», «Project: Deploy to Kubernetes»; menus Project e Run: RUN, Stop, Deploy). Como o
+  arranque corre antes do bridge, na app desktop essas entradas ficavam com as versões
+  SIMULADAS, enquanto o Ctrl+F5 e os botões da Infra usavam as reais. Com a porta no dono, a
+  versão publicada já a consulta desde o início, por isso as 9 entradas passam a usar o
+  desktop real; no browser nada muda. Lint 280 → 277 (saem três `any` das decorações). Verificado:
+  367 testes, arranque no browser 4/4, auto-teste desktop idêntico ao da U4h3 (o passo `infra`
+  exercita o `rtConnect`/`k8sConnect` reais e as guardas do deploy pela porta); e uma sonda
+  temporária na app real, HEAD vs árvore: as 9 entradas passam de «não são as publicadas» a
+  «são as publicadas», e o RUN da paleta/menu passa do resultado simulado
+  (`{ok:false, sum:"no runtime"}`) ao do caminho desktop (`{ok:false}`, o mesmo do Ctrl+F5);
+  idênticos o `window.dxRun`/`dxDeploy`, o deploy, os logs reais na observabilidade e os
+  outros 23 passos.

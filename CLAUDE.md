@@ -280,7 +280,7 @@ features/infra.ts  RESÍDUO strangler (@ts-nocheck, FORA da subárvore) + raiz d
                    renderObserveView, drawRemote/infraDraw, cache OBS/polling); compõe o
                    motor com os adaptadores do bridge, tem a tabela ACTIONS, e re-publica
                    os shims window.* (envPrime/envDrift/envDriftStyle; rtConnect/k8sConnect/
-                   dxDeploy são reatribuídos pelo desktop (platform/desktop/infra.ts) — ACTIONS chama window.X).
+                   dxDeploy publicados consultam a porta desktopPorts.infra (U4h4) — ACTIONS chama window.X).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
@@ -343,7 +343,8 @@ um global por acaso. A U4h1 só mudou o código de sítio; a partir da U4h2 cada
 `window.X = …` passa a uma PORTA definida pela feature dona (`application/ports.ts`) e
 registada em `app/desktop.ts` (`desktopPorts.<feature>`): o dono consulta-a no acto, nas
 versões que publica, e a porta recebe a versão simulada como último argumento. Já migrado:
-`scm` (commit/checkout/gitMerge/gfFinish — U4h2), `terminal` (run/termExec/promptHTML — U4h3).
+`scm` (commit/checkout/gitMerge/gfFinish — U4h2), `terminal` (run/termExec/promptHTML — U4h3), `stack` (dxRun/dxStop/drawStack) e `infra`
+(rtConnect/k8sConnect/dxDeploy/VIEW.observe) — U4h4.
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 

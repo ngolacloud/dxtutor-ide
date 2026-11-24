@@ -116,6 +116,19 @@ export interface InfraDeps {
 /** Resultado de um deploy (o decorador v6 lê `.ok`). */
 export interface DeployResult { ok: boolean }
 
+/** O separador de observabilidade, no que a parte desktop lê. */
+export interface ObserveTab { env?: string; name: string }
+
+/** A parte desktop da infra (ADR-0004, U4h4), injectada pela app Tauri em `desktopPorts.infra`:
+ *  o socket do runtime e o cluster reais, o deploy real para o cluster e os logs reais na
+ *  vista de observabilidade. Cada operação recebe a versão simulada (`virtual`). */
+export interface InfraDesktop {
+  rtConnect(virtual: () => void): unknown;
+  k8sConnect(virtual: () => void): unknown;
+  dxDeploy(virtual: () => { ok: boolean; sum?: string }): { ok: boolean; sum?: string };
+  observe(t: ObserveTab, host: HTMLElement, virtual: (t: ObserveTab, host: HTMLElement) => void): void;
+}
+
 /** A superfície que o motor devolve (os dois motores da Infra). */
 export interface InfraEngine {
   /* runtime / dev-container / Kubernetes */

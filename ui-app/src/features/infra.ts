@@ -21,11 +21,12 @@
    funções, nunca no eval). Os nomes livres do monólito (SD/TECH/KIND/FS/GIT/goPane/dlg/…)
    resolvem no window ao correr, através do bridge. As decorações de v6 (dxDeploy/drawStudio)
    importam initSecrets/driftReport/DSTY por porta tipada (ADR-0002 passo 6); rtConnect/
-   k8sConnect/dxDeploy são reatribuídos por bridge.ts (versões reais do Tauri). Este
+   k8sConnect/dxDeploy publicados consultam a porta desktop (`desktopPorts.infra`, U4h4). Este
    resíduo @ts-nocheck está FORA da subárvore
    features/infra/ (não governado por A7/A8). */
 import { $, $$, hd, svg, esc } from "../core";
 import { RP, VIEW } from "../app/store/registry";
+import { desktopPorts } from "../app/desktop";
 import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "./infra/domain/constants";
 import { seeded, spark, buildObs, obsLine as domObsLine } from "./infra/domain/observability";
 import { urlHosts } from "./infra/domain/secrets";
@@ -198,7 +199,10 @@ bindActions(ACTIONS);
    depois o VIEW.observe, e continua a decorar esta versão) */
 RP.infra = renderInfraPane;
 VIEW.envs = renderEnvsView;
-VIEW.observe = renderObserveView;
+/* ADR-0004, U4h4: o VIEW.observe, o rtConnect/k8sConnect e o dxDeploy PUBLICADOS consultam a porta
+   desktop (`desktopPorts.infra`, injectada por platform/desktop/infra.ts: socket/cluster/deploy e
+   logs reais); antes o desktop reatribuía-os no `window`. */
+VIEW.observe = (t, host) => { const d = desktopPorts.infra; if (d) d.observe(t, host, renderObserveView); else renderObserveView(t, host); };
 
 /* ── o que vivia nas camadas v5/v6 (ADR-0004, U4g2) ──
    Corria ao carregar o v5.ts/v6.ts; agora corre aqui, que avalia antes — e nada entre os
@@ -207,6 +211,9 @@ VIEW.observe = renderObserveView;
    • dxDeploy: depois de um deploy, fixa a versão no cluster e prepara os secrets (v6).
    As chamadas internas do motor continuam a usar a versão base, como antes. (O override
    do ctlLogs — abrir o tab de observabilidade — foi dobrado no próprio motor.) */
+const rtConnectPublished = () => { const d = desktopPorts.infra; return d ? d.rtConnect(rtConnect) : rtConnect(); };
+const k8sConnectPublished = () => { const d = desktopPorts.infra; return d ? d.k8sConnect(k8sConnect) : k8sConnect(); };
+const dxDeployPublished = () => { const d = desktopPorts.infra; return d ? d.dxDeploy(dxDeployPrimed) : dxDeployPrimed(); };
 function dxDeployPrimed() { const r = dxDeploy(); const K8S = window.K8S; if (r && r.ok && K8S) { K8S.ver = window.GIT.refs.develop; K8S.at = Date.now(); initSecrets(); } return r; }
 
 /* ── publicação transitória no window (shim para o residual) ──
@@ -214,7 +221,7 @@ function dxDeployPrimed() { const r = dxDeploy(); const K8S = window.K8S; if (r 
    estes nomes como globais. (As decorações de v6 — dxDeploy/drawStudio — já não lêem
    initSecrets/driftReport/DSTY por global: importam-nos por porta tipada; ADR-0002 passo 6.) */
 publish({
-  rtConnect, k8sConnect, dxDeploy: dxDeployPrimed, needRt, projectContext, devcontainerJson, dcAttach, dcDetach,
+  rtConnect: rtConnectPublished, k8sConnect: k8sConnectPublished, dxDeploy: dxDeployPublished, needRt, projectContext, devcontainerJson, dcAttach, dcDetach,
   drawRemote, infraDraw, appEnv, k8sInfra, k8sDocs, k8sScale, k8sDown, runTaskQuiet, ctlLogs,
   saveEnv, cli, hydrateEnvs,
   ENVL, ENVX, saveEnvx, designApps, localSecrets, urlHosts, envDeps, envState,

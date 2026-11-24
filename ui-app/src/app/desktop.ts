@@ -6,12 +6,18 @@
 
 import type { ScmDesktop } from "../features/scm/application/ports";
 import type { TerminalDesktop } from "../features/terminal";
+import type { StackDesktop } from "../features/stack";
+import type { InfraDesktop } from "../features/infra/application/ports";
 
 export interface DesktopPorts {
   /** git real no repositório aberto (platform/desktop/git.ts) — U4h2 */
   scm?: ScmDesktop;
   /** shell e prompt reais na pasta aberta (platform/desktop/terminal.ts) — U4h3 */
   terminal?: TerminalDesktop;
+  /** docker compose real (platform/desktop/infra.ts) — U4h4 */
+  stack?: StackDesktop;
+  /** runtime, cluster, deploy e logs reais (platform/desktop/infra.ts) — U4h4 */
+  infra?: InfraDesktop;
 }
 
 export const desktopPorts: DesktopPorts = {};

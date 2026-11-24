@@ -14,6 +14,7 @@
    GOTCHA C: `composeServices` saiu do Object.assign(window) de app.ts. */
 
 import { esc } from "../core";
+import { desktopPorts } from "../app/desktop";
 
 interface Svc { name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }
 
@@ -28,14 +29,30 @@ const dxRunBase = function(term?: unknown){if(term!==true){setPanelTab('terminal
   const stk=STACK=order.map(s=>({name:s.name,src:s.build?'build ./'+s.build:(s.image||''),url:s.route&&gw?`http://localhost:8080${s.route}`:s.port?`http://localhost:${s.port}`:'internal',state:s.hc?'healthy':'running'}));
   echo(`\n<span class="ac">${stk.length} services up</span> <span class="dim">· simulated: a browser cannot start containers. In the desktop app this is the real</span> docker compose up --build`+stk.filter(s=>s.url!=='internal').map(s=>`\n  ➜  ${s.name.padEnd(18)} <span class="ac">${s.url}</span>`).join(''));newInput(true);drawStack();setPanelTab('services');toast(`${stk.length} services up`);return{ok:true,sum:stk.length+' services up'};}
 const dxStopBase = function(term?: unknown){if(!STACK){toast('Nothing is running');if(term===true)echo('<span class="dim">no containers</span>');return;}if(term!==true)echoCmd('docker compose down');echo(STACK.slice().reverse().map(s=>` <span class="ok">✔</span> Container ${s.name}  <span class="dim">Removed</span>`).join('\n'));newInput(true);STACK=null;drawStack();}
-window.drawStack = function(){const el=$('#pc-services'),st=$('#st-stack'),stk=STACK;if(st){st.textContent=stk?`▶ ${stk.length} services`:'';st.style.display=stk?'':'none';}if(!el)return;
+function drawStackBase(): void {const el=$('#pc-services'),st=$('#st-stack'),stk=STACK;if(st){st.textContent=stk?`▶ ${stk.length} services`:'';st.style.display=stk?'':'none';}if(!el)return;
   el.innerHTML=stk?`<div class="svc-h"><b>${stk.length} services running</b><span class="tag warn">simulated</span><span class="sp"></span><button class="mini" onclick="dxStop()">■ Stop</button></div><table class="tbl">${stk.map(s=>`<tr><td><span class="pdot" style="background:var(--green)"></span> <span class="notr">${esc(s.name)}</span></td><td class="c notr">${esc(s.src)}</td><td class="notr">${s.url==='internal'?'<span style="color:var(--fg-muted)">internal</span>':esc(s.url)}</td><td class="c">${s.state}</td></tr>`).join('')}</table>`
     :`<div class="sec-empty">Nothing is running. <b>▶ RUN</b> builds every Dockerfile and starts the stack described by <code>docker-compose.yml</code>.</div><button class="mini pri" style="margin-left:16px" onclick="dxRun()">▶ RUN</button>`;}
+window.drawStack = function(){const d=desktopPorts.stack;if(d)d.drawStack(drawStackBase);else drawStackBase();};
 
 /* Sem runtime de contentores ligado (pane Infra), o RUN recusa; depois de correr/parar, o
    pane Infra e o indicador remoto redesenham. Era a decoração da camada v5 (ADR-0004, U4g2);
-   o bridge.ts continua a decorar por cima. */
-window.dxRun = function(term){if(!window.needRt()){if(term===true)echo('<span class="er">Cannot connect to the container runtime. Point the socket in Infra.</span>');return{ok:false,sum:'no runtime'};}const r=dxRunBase(term);window.infraDraw();return r;};
-window.dxStop = function(t?: unknown){dxStopBase(t);window.infraDraw();};
+   a parte desktop entra pela porta (abaixo). */
+const dxRunGuarded = function(term?: unknown){if(!window.needRt()){if(term===true)echo('<span class="er">Cannot connect to the container runtime. Point the socket in Infra.</span>');return{ok:false,sum:'no runtime'};}const r=dxRunBase(term);window.infraDraw();return r;};
+const dxStopGuarded = function(t?: unknown){dxStopBase(t);window.infraDraw();};
+/* ADR-0004, U4h4: o dxRun/dxStop/drawStack PUBLICADOS consultam a porta desktop
+   (`desktopPorts.stack`, injectada por platform/desktop/infra.ts na app Tauri: docker compose
+   real na pasta aberta); antes o desktop reatribuía-os no `window`. As chamadas internas (o
+   drawStack no fim do dxRunBase/dxStopBase) já resolviam o global, por isso passam pela porta. */
+window.dxRun = function(term){const d=desktopPorts.stack;return d?d.dxRun(term,dxRunGuarded):dxRunGuarded(term);};
+window.dxStop = function(t?: unknown){const d=desktopPorts.stack;if(d)d.dxStop(t,dxStopGuarded);else dxStopGuarded(t);};
+
+/** A parte desktop do stack (ADR-0004, U4h4), injectada pela app Tauri em `desktopPorts.stack`:
+ *  com uma pasta aberta que tem compose, o RUN/Stop correm o docker compose real e o pane
+ *  Services marca a stack como «live». Cada operação recebe a versão simulada (`virtual`). */
+export interface StackDesktop {
+  dxRun(term: unknown, virtual: (term?: unknown) => { ok: boolean; sum?: string }): { ok: boolean; sum?: string };
+  dxStop(term: unknown, virtual: (term?: unknown) => void): void;
+  drawStack(virtual: () => void): void;
+}
 
 Object.assign(window, { composeServices });
