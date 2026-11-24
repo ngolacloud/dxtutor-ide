@@ -10,6 +10,7 @@ import { codevAsk } from "./codev-ask";
 import { openCodevRun } from "../features/codev/index";
 import { GIT_COMMANDS } from "../features/scm/extras";
 import { openHoodReal, openTrace } from "../features/hood/index";
+import { openOps } from "../features/ops/index";
 import { openAnalysis } from "../features/codev";
 import { edCmd } from "../features/editor";
 import { stepTab } from "../features/tabs";
@@ -47,6 +48,6 @@ export let LCUR: [string, string]=['rust','own'];/* fallback constante dos call-
 
 /* comandos da camada v3 (Projecto, Git, Gitflow, Tutor) */
 CMD.push(['Projecto: Studio de arquitectura','',openStudio],['Projecto: Quadro (kanban)','',openBoard],['Projecto: Gerar backlog a partir do Studio','',genBacklog],['Projecto: Executar Sprint 1','',()=>runSprint(0)],['Projecto: Executar Sprint 2','',()=>runSprint(1)],['Projecto: Nova issue…','',newIssue],['Equipa: Assistentes e harness','',()=>openTeam()],['Equipa: Escolher assistente da conversa…','',pickAgent],
-  ['Git: Grafo de commits','',()=>openGraph()],...GIT_COMMANDS.map(([l,f])=>[l,'',f] as [string,string,()=>void]),['Hood: Machine Code per Line (real)','',openHoodReal],['Visualize: Trace the Real Execution','',openTrace],['Gitflow: Iniciar feature…','',()=>gfPrompt('feature')],['Gitflow: Iniciar fix…','',()=>gfPrompt('fix')],['Gitflow: Iniciar release…','',()=>gfPrompt('release')],['Gitflow: Finalizar ramo actual','',()=>gfFinish()?toast('Ramo finalizado'):toast('Não estás num ramo de gitflow')],['Tutor: Continuar a aprender','',()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}]);
+  ['Git: Grafo de commits','',()=>openGraph()],...GIT_COMMANDS.map(([l,f])=>[l,'',f] as [string,string,()=>void]),['Hood: Machine Code per Line (real)','',openHoodReal],['Visualize: Trace the Real Execution','',openTrace],['Ops: IaC Plan, Kubernetes and Cloud','',openOps],['Gitflow: Iniciar feature…','',()=>gfPrompt('feature')],['Gitflow: Iniciar fix…','',()=>gfPrompt('fix')],['Gitflow: Iniciar release…','',()=>gfPrompt('release')],['Gitflow: Finalizar ramo actual','',()=>gfFinish()?toast('Ramo finalizado'):toast('Não estás num ramo de gitflow')],['Tutor: Continuar a aprender','',()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}]);
 
 Object.assign(window, { CMD });

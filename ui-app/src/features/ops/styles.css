@@ -1,0 +1,33 @@
+/* feature ops — A9 (docs/v2/UI-AUDIT.md item 10): o separador Ops (features/ops/ui/ops-view.ts). Prefixo ops- próprio (o .op e o .op-l/.op-t já são do Output e do editor). */
+.ops{height:100%;overflow:auto;padding:14px 20px 28px;box-sizing:border-box;font-family:var(--font-ui);color:var(--fg);font-size:12.5px}
+.ops-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}.ops-top b{font-size:15px;color:var(--fg-bright)}
+.ops-dim{color:var(--fg-muted);font-size:11.5px}
+.ops-sp{flex:1}
+.ops-ran{font-family:var(--font-mono);font-size:11px;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:4px 8px;margin-bottom:8px;color:var(--fg-dim)}
+.ops-sec{border:1px solid var(--seam);border-radius:8px;padding:8px 12px;margin-bottom:12px;background:var(--bg-panel)}
+.ops-sec h3{margin:2px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted)}
+.ops-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0}
+.ops .btn{display:inline-block;width:auto;margin:0;padding:4px 10px;font-size:12px}.ops .btn.ops-ai{color:var(--accent-hover)}
+.ops-dir{width:auto;min-width:160px;margin:0;font-family:var(--font-mono);font-size:11.5px}
+.ops-chip{padding:1px 8px;border-radius:9px;background:var(--bg-input);border:1px solid var(--border);font-family:var(--font-mono);font-size:11.5px}
+.ops-sum{margin:6px 0}
+.ops-res{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:5px;cursor:pointer;font-family:var(--font-mono);font-size:12px;border-left:3px solid var(--border)}
+.ops-res:hover{background:var(--bg-hover)}
+.ops-res.a-create{border-left-color:var(--green)}.ops-res.a-delete{border-left-color:var(--red)}.ops-res.a-replace{border-left-color:var(--red)}.ops-res.a-update{border-left-color:var(--yellow)}
+.ops-act{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-muted);min-width:56px}
+.ops-attrs{margin:2px 0 6px 20px}
+.ops-attr{display:grid;grid-template-columns:minmax(80px,auto) 1fr auto 1fr;gap:8px;align-items:start;font-size:11.5px;padding:2px 0}
+.ops-attr code{font-family:var(--font-mono);white-space:pre-wrap;word-break:break-word}.ops-b{color:var(--red)}.ops-a{color:var(--green)}
+.ops-ct{display:flex;align-items:center;gap:8px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);margin:10px 0 4px}
+.ops-row{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:5px;font-size:12px;flex-wrap:wrap}
+.ops-row:hover{background:var(--bg-hover)}.ops-row.bad{border-left:3px solid var(--red);padding-left:6px}
+.ops-nm{font-family:var(--font-mono)}
+.ops-why{font-family:var(--font-mono);font-size:11px;color:var(--red)}
+.ops-msg{color:var(--fg-dim);font-size:11.5px;min-width:0;flex:1 1 200px}
+.ops-mini{background:none;border:1px solid var(--border);border-radius:5px;color:var(--fg-dim);font-size:11px;padding:1px 7px;cursor:pointer}.ops-mini:hover{color:var(--fg);background:var(--bg-input)}
+.ops-hist{margin:0 0 6px 18px;border-left:1px dashed var(--border);padding-left:8px}
+.ops-err{font-family:var(--font-mono);font-size:11.5px;color:var(--red);white-space:pre-wrap;margin:6px 0}
+.ops-clouds{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.ops-card{border:1px solid var(--seam);border-radius:8px;padding:8px 10px;background:var(--bg);min-width:0}
+.ops-ok{color:var(--green);font-size:11px}
+#pane-infra .ops-entry{display:block}

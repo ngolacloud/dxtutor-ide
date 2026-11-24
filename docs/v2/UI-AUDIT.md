@@ -352,6 +352,33 @@ As acções Infra que correm comandos reais não mostram o comando exacto para a
 | OPS-05 | Pods, eventos, serviços, port-forward, exec, rollout history/undo, scale/delete **reais** (hoje simulados), cada um com o comando mostrado. | M |
 | OPS-06 | Co-Dev explica plano/alerta e propõe IaC como hunks; qualquer mudança cloud passa pela aprovação com o comando exacto (o classificador `permissions/shell.rs` já marca `terraform apply`, `kubectl delete`, etc. como perigosos). | M |
 
+**Estado após a A9 (2026-11-24):** a R5 do ADR-0006 já tinha tornado o Infra real: runtime, contentores, dev container,
+scale/delete, ambientes do cluster, observabilidade sem PRNG. Os segredos em texto simples saíram na R5c1/A0.5. A A9
+junta a feature nova e tipada `features/ops/` (separador «Ops», com um botão no pane Infra e uma entrada na paleta),
+sobre `tutor_eval::ops`, com 6 comandos (205 no total):
+- **OPS-03:** as pastas com `.tf` e o `plan` / `plan -refresh-only` (drift) com OpenTofu ou Terraform, lidos do
+  `show -json` como diff por recurso e atributo (valores conhecidos só depois do apply e valores sensíveis escondidos).
+  O ficheiro do plano vai para uma pasta temporária. «Aplicar num terminal…» mostra o comando exacto.
+- **OPS-05:** o namespace para onde o pane Infra aponta — pods (com o motivo de estarem presos), deployments e as suas
+  revisões (ReplicaSets), serviços, eventos de aviso.
+  - Os logs vão directos para um terminal.
+  - Shell, apagar pod, reiniciar, escalar, voltar a uma revisão e port-forward são comandos com o `--kubeconfig`,
+    `--context` e `-n` explícitos, mostrados por inteiro e corridos num terminal só depois de aprovados (uma recusa não
+    envia nada).
+- **OPS-01:** o estado do `aws`/`gcloud`/`az` (instalado, versão, perfil/projecto/subscrição lidos da configuração local,
+  ou como instalar) e o inventário só de leitura pelas CLIs oficiais. Nesta máquina nenhuma está instalada, por isso só o
+  estado vazio honesto foi verificado ao vivo; os parsers estão testados sobre a forma do JSON de cada CLI.
+- **OPS-06:** «Explicar este plano», «Propor uma alteração» (hunks nos `.tf`) e «Porquê?» para um pod com problemas,
+  pelo `codev.ask`.
+- **Verificação:** com um plano real do OpenTofu (criar, sem alterações depois do apply, uma actualização antes/depois)
+  e o kubectl só contra um kubeconfig temporário vazio — nunca os clusters do utilizador.
+- **Por fazer:**
+  - OPS-02: logs ao vivo e funções das clouds (`aws logs tail`, `gcloud logging tail`, emuladores);
+  - OPS-04: SLO/error budget a partir de Prometheus/CloudWatch;
+  - a cache dos inventários em SQLite;
+  - Pulumi, CDK e `az deployment what-if`;
+  - o custo com Infracost.
+
 ## 3. Item 8 · Comparação com outros IDEs e dores recorrentes
 
 Base: conhecimento público dos produtos até meados de 2026; **não houve pesquisa web nesta fase**. Antes
