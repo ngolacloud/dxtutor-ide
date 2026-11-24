@@ -206,6 +206,12 @@ pub enum AgentEvent {
         hunk: String,
         path: String,
     },
+    /// The report of the turn, built from its events (HARNESS-07; emitted by the host
+    /// before `done`).
+    Report {
+        title: String,
+        markdown: String,
+    },
     /// Validation of the turn's provisional changes (Auto mode; emitted by the host).
     /// `baseline`: the same commands before the first change of the turn.
     Validation {

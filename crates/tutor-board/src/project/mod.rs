@@ -171,6 +171,19 @@ pub struct ChangeSetRow {
 pub struct IssueDetail {
     pub activity: Vec<Activity>,
     pub change_sets: Vec<ChangeSetRow>,
+    /// Reports of the Co-Dev turns that worked on the issue (HARNESS-07).
+    pub reports: Vec<Artifact>,
+}
+
+/// The report of a Co-Dev turn.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Artifact {
+    pub id: i64,
+    pub session: String,
+    pub at: i64,
+    pub title: String,
+    pub markdown: String,
 }
 
 /// A change set to record (one accepted hunk), from the Co-Dev host.
@@ -527,10 +540,42 @@ impl ProjectStore {
                 })
             })?
             .collect::<Result<_, _>>()?;
+        let mut ar = self.conn.prepare(
+            "SELECT id, session, at, title, markdown FROM artifacts WHERE root = ?1 AND issue_key = ?2 ORDER BY at DESC, id DESC LIMIT 50",
+        )?;
+        let reports = ar
+            .query_map(params![root, key], |r| {
+                Ok(Artifact {
+                    id: r.get(0)?,
+                    session: r.get(1)?,
+                    at: r.get(2)?,
+                    title: r.get(3)?,
+                    markdown: r.get(4)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
         Ok(IssueDetail {
             activity,
             change_sets,
+            reports,
         })
+    }
+
+    /// Records the report of a Co-Dev turn, linked to its issue when it has one.
+    pub fn record_artifact(
+        &mut self,
+        root: &str,
+        session: &str,
+        issue_key: Option<&str>,
+        title: &str,
+        markdown: &str,
+        now: i64,
+    ) -> Result<(), ProjectError> {
+        self.conn.execute(
+            "INSERT INTO artifacts (root, session, issue_key, at, title, markdown) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![root, session, issue_key, now, title, markdown],
+        )?;
+        Ok(())
     }
 
     /// Records one accepted hunk; linked to its issue when the turn came from one.

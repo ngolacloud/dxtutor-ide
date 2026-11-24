@@ -386,3 +386,89 @@ fn project_hooks_block_give_feedback_and_run_at_stop() {
         .iter()
         .any(|e| matches!(e, AgentEvent::Notice { text } if text == "hook stop: fim-do-turno")));
 }
+
+#[test]
+fn toolset_5_adds_plan_steps_and_subagent_roles_and_keeps_4_as_it_was() {
+    let fs = FlowState::default();
+    let spec = SubagentSpec {
+        provider: scripted(vec![]),
+        model: "m".into(),
+        effort: Effort::Low,
+    };
+    let schema = |v: u32, name: &str| -> Value {
+        agent_tools(
+            &ToolsetOptions::default(),
+            v,
+            &fs,
+            Some(spec.clone()),
+            vec![],
+        )
+        .into_iter()
+        .find(|t| t.name() == name)
+        .unwrap()
+        .input_schema()
+    };
+    // version 4 sessions resume byte for byte
+    assert_eq!(
+        schema(4, "exit_plan")["properties"]
+            .as_object()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(schema(4, "task")["properties"].get("role").is_none());
+    // version 5: steps with files and lines; roles
+    let plan = schema(5, "exit_plan");
+    assert_eq!(
+        plan["properties"]["steps"]["items"]["properties"]["files"]["items"]["required"],
+        json!(["path"])
+    );
+    assert_eq!(plan["required"], json!(["plan"]));
+    assert_eq!(
+        schema(5, "task")["properties"]["role"]["enum"],
+        json!(["explorer", "reviewer", "tester", "architect"])
+    );
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 5);
+}
+
+#[test]
+fn a_session_rewritten_to_a_prefix_reopens_with_it() {
+    let d = tempfile::tempdir().unwrap();
+    let meta = tutor_agent::session::SessionMeta {
+        id: "s1".into(),
+        root: "/p".into(),
+        model: "m".into(),
+        effort: "high".into(),
+        system: vec![("x".into(), true)],
+        test_cmd: None,
+        lint_cmd: None,
+        compaction: true,
+        created: 1,
+        toolset: 5,
+        ..serde_json::from_value(json!({"id":"s1","root":"/p","model":"m","effort":"high","system":[],"test_cmd":null,"lint_cmd":null,"compaction":true,"created":1})).unwrap()
+    };
+    let mut log = tutor_agent::session::SessionLog::create(d.path(), &meta).unwrap();
+    let mut t = Transcript::new();
+    for q in ["um", "dois", "três"] {
+        t.push(Message::user_text(q));
+    }
+    log.sync(&t).unwrap();
+    let cut = t.truncated(1);
+    log.rewrite(&cut).unwrap();
+    let (m2, t2, mut log2) = tutor_agent::session::SessionLog::open(d.path(), "s1").unwrap();
+    assert_eq!(m2.toolset, 5);
+    assert_eq!(t2.len(), 1);
+    assert_eq!(t2.messages()[0].text(), "um");
+    // and it keeps appending after the rewrite
+    let mut t3 = t2.clone();
+    t3.push(Message::user_text("quatro"));
+    log2.sync(&t3).unwrap();
+    assert_eq!(
+        tutor_agent::session::SessionLog::open(d.path(), "s1")
+            .unwrap()
+            .1
+            .len(),
+        2
+    );
+    assert!(!d.path().join("s1.jsonl.tmp").exists());
+}
