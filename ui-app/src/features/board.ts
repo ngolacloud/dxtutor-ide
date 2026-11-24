@@ -36,6 +36,8 @@ import type { Backlog, Issue } from "./board/domain/types";
 import { STAGES } from "./board/domain/issue";
 import { inView, points, autoSprint } from "./board/domain/kanban";
 import { makeBoardEngine } from "./board/application/board-engine";
+import { toBacklogDto, fromBacklogDto } from "./board/domain/persist";
+import { tauriBoard } from "./board/infrastructure/tauri";
 import { bindActions, type ActionTable } from "./board/ui/actions";
 import {
   backlog, design, saveDesign, agents, provs, taskProfiles,
@@ -43,7 +45,7 @@ import {
   git, staged, gfStart, gfFinish, commitGit, checkout, stOf,
   validateDesign, tech, kindTable, cloudTable, isApp, nodeSlug, appDir,
   card, tl, ask, beat, sleep, user, note, runLabel, runState, focusAgent, agentPill, handlePrompt, scrollMsgs,
-  echo, echoCmd, newInput, setPanelTab, getVar, projectTests, changes, settle,
+  echo, echoCmd, newInput, setPanelTab, getVar, projectTests, changes, settle, boardRoot,
   openTab, openStudio, palette, refresh,
   toast, log, rerender,
   decoratedRunIssue, decoratedApproveIssue, decoratedDelegate, decoratedRunSprint, publish,
@@ -52,10 +54,47 @@ import {
 } from "./board/infrastructure/legacy-bridge";
 
 /* estado — window-backed (publicado via bridge; onclick inline `BL.view=…` resolve em
-   window.BL no escopo global). BL é sessão em memória, não vem de LS. STAGES vem do
-   domínio puro e publica-se para o monólito/v6. */
+   window.BL no escopo global). STAGES vem do domínio puro e publica-se para o monólito/v6. */
 const BL: Backlog = { issues: [], seq: 11, mig: 3, adr: 4, view: -1 };
 publish({ BL, STAGES });
+
+/* ───── o backlog por pasta (ADR-0006, R3b) ─────
+   No desktop com pasta aberta, o quadro vem do backend (`board_load`, um backlog por pasta,
+   num SQLite da app) quando a pasta abre, e grava-se (`board_save`) quando muda: depois de cada
+   interacção no IDE (clique/alteração/largar) e de cada passo do runner, uma verificação com
+   debounce compara o backlog serializado com o último gravado e só grava se mudou — as
+   mutações vivem em vários sítios (motor, políticas, Tasks, revisão), por isso detecta-se a
+   mudança em vez de a perseguir. Nunca se grava o quadro de uma pasta sobre outra: só depois de
+   carregar a pasta actual. No browser o quadro fica em memória. */
+let boardLoadedFor: string | null = null, boardSaved = "", boardSaveT: ReturnType<typeof setTimeout> | undefined;
+async function loadBoardForFolder(): Promise<void> {
+  const r = boardRoot();
+  boardLoadedFor = null;
+  BL.issues.length = 0; BL.seq = 11;
+  if (!r) { rerender("board"); return; }
+  try {
+    const dto = await tauriBoard().load(r);
+    if (boardRoot() !== r) return; // a pasta mudou entretanto
+    if (dto) { const got = fromBacklogDto(dto); BL.issues.push(...got.issues); BL.seq = got.seq; }
+    boardSaved = JSON.stringify(toBacklogDto(BL));
+    boardLoadedFor = r;
+  } catch (e) { log("board", "não consegui ler o backlog desta pasta: " + (e instanceof Error ? e.message : String(e))); }
+  rerender("board");
+  if (pane() === "tasks" && panes().tasks) panes().tasks();
+}
+function saveBoardSoon(): void {
+  clearTimeout(boardSaveT);
+  boardSaveT = setTimeout(() => {
+    const r = boardRoot();
+    if (!r || r !== boardLoadedFor) return;
+    const dto = toBacklogDto(BL), json = JSON.stringify(dto);
+    if (json === boardSaved) return;
+    boardSaved = json;
+    tauriBoard().save(r, dto).catch((e) => { boardSaved = ""; log("board", "não consegui gravar o backlog: " + (e instanceof Error ? e.message : String(e))); });
+  }, 400);
+}
+document.addEventListener("dx:workspace", () => { void loadBoardForFolder(); });
+for (const ev of ["click", "change", "drop"]) document.addEventListener(ev, saveBoardSoon, true);
 
 /* ───── raiz de composição: liga os adaptadores do bridge (infra) às portas do motor
    (application). O motor fica puro (sem window/DOM); o `window`/DOM ficam deste lado. O
@@ -79,7 +118,7 @@ const engine = makeBoardEngine({
   },
   agent: { available: () => agentAvailable(), story: (st) => agentStory(st) },
   terminal: { echo: (h) => echo(h), echoCmd: (c) => echoCmd(c), newInput: (nf) => newInput(nf), setPanelTab: (t, nf) => setPanelTab(t, nf), getVar: (k) => getVar(k), projectTests: () => projectTests() },
-  view: { rerender: (k) => rerender(k), refresh: () => refresh(), rerenderCodev: () => { if (pane() === "codev" && panes().codev) panes().codev(); } },
+  view: { rerender: (k) => { rerender(k); if (k === "board") saveBoardSoon(); }, refresh: () => refresh(), rerenderCodev: () => { if (pane() === "codev" && panes().codev) panes().codev(); } },
   notifier: { toast: (m) => toast(m), note: (m) => note(m), log: (s, m) => log(s, m) },
   nav: { openTab: (t) => openTab(t), palette: (pre, cfg) => palette(pre, cfg) },
   orchestration: { runIssue: (it) => decoratedRunIssue(it), approveIssue: (id) => decoratedApproveIssue(id) },

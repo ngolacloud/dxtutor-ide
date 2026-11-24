@@ -223,7 +223,10 @@ uma issue (Delegar, Sprint, ⚡ Agente) é ramo gitflow → o agente real implem
 espera pela fila git/disco do desktop entre os passos. Sem agente, di-lo. Saíram os
 produtores `gen`/`fix` (templates dos geradores), os testes-predicado, o router e as pausas
 encenadas — e com eles o bug do `sleep(380)` global. O «Gerar backlog» do Studio cria issues
-só com o enunciado e o contexto do desenho na nota.
+só com o enunciado e o contexto do desenho na nota. **Backlog por pasta (R3b):** no desktop com pasta, o
+quadro carrega-se do backend ao abrir a pasta (`board_load`) e grava-se quando muda
+(`board_save`, por detecção de mudança com debounce — `board/domain/persist.ts` mapeia
+Issue ↔ Story, o que não tem coluna vai em `meta`); no browser fica em memória.
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 

@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3a feita, R3b–R3c e R4–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3a e R3b feitas, R3c e R4–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -363,3 +363,21 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   real: ramo `feature/dx-11-…`, commit `feat: Selftest do board (DX-11)` no git, os testes do
   projecto (unittest via `.dxtutor/commands.json`) passam, a issue fica em «Validação
   funcional» e o repositório volta a `develop`; `errors: []`. Métricas: handlers inline 145 → 143.
+- **R3b (2026-11-24) — o backlog por pasta.** O quadro deixa de ser só sessão em memória: no
+  desktop com pasta aberta, carrega-se do backend quando a pasta abre (`board_load`, um backlog
+  por pasta num SQLite da app) e grava-se quando muda (`board_save`). As mutações vivem em vários
+  sítios (motor, políticas do quadro, Tasks, revisão), por isso grava-se por detecção de mudança:
+  depois de cada interacção (clique/alteração/largar) e de cada passo do runner, uma verificação
+  com debounce compara o backlog serializado com o último gravado. Nunca se grava antes de
+  carregar a pasta actual, nem o quadro de uma pasta sobre outra; ao trocar de pasta o quadro é o
+  dela. No browser fica em memória. **Backend:** o `Story` do `tutor-board` ganha `meta`
+  (JSON opcional, numa coluna nova, com migração aditiva para bases antigas e um teste) para os
+  campos do quadro sem coluna (agente, dono humano, merge, componente do Studio, revisão,
+  explicação, custo, resultado dos testes). **UI:** mapeamento puro novo
+  `board/domain/persist.ts` (título → `want`, tipo → `kind`, o resto em `meta`; os defaults não
+  se guardam; um backlog vindo de fora com `seq` atrasado fica coerente) e adaptador
+  `board/infrastructure/tauri.ts`. **Testes com IPC falso:** `board.persist` (mapeamento e ida e
+  volta, browser sem IPC, carregar ao abrir a pasta, gravar só depois de carregar e só se mudou,
+  trocar de pasta sem misturar) + o teste Rust da coluna `meta`. **Selftest desktop:** o passo
+  `board` confirma que a issue ficou gravada no SQLite real (`func`, agente `be`) e que reabrir a
+  pasta a carrega de volta; `errors: []`. IPC-MATRIX: `board_load`/`board_save` ganham consumidor.

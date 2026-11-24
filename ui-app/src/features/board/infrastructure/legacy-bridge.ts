@@ -55,6 +55,8 @@ export const agentAvailable = (): boolean => typeof G.codevAgentAvailable === "f
  *  disponível ou não aceitou. */
 export const agentStory = (s: { id: string; title: string; type: string; pts: number; note?: string }): Promise<void> | null =>
   typeof G.codevAgentStory === "function" ? ((G.codevAgentStory(s) as Promise<void> | null) ?? null) : null;
+/** A pasta aberta no desktop (a chave do backlog no backend); null sem pasta e no browser. */
+export const boardRoot = (): string | null => (G.DXR && G.DXR.root) || null;
 /** Os ficheiros com alterações por commitar (motor scm). */
 export const changes = (): string[] => G.changes();
 /** Espera pela fila de operações do desktop (git, gravação no disco): `DXR.idle()`, duas vezes

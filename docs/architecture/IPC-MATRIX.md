@@ -479,8 +479,8 @@ Backlog persistido em SQLite (`tutor-board`). Não consumidos pela `ui-app`
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `board_load` | `root: Option<String>` | `Option<Backlog>` | String | — | — | R · S |
-| `board_save` | `root: Option<String>`, `backlog: Backlog` | `()` | String | — | — | **W** · S |
+| `board_load` | `root: Option<String>` | `Option<Backlog>` | String | — | `features/board` | R · S |
+| `board_save` | `root: Option<String>`, `backlog: Backlog` | `()` | String | — | `features/board` | **W** · S |
 
 ## 18. Pesquisa / projecto — `commands/search.rs` (4)
 

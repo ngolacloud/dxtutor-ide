@@ -58,6 +58,11 @@ pub struct Story {
     /// Ramo git associado, se houver.
     #[serde(default)]
     pub branch: Option<String>,
+    /// Campos do quadro da UI sem coluna própria (agente dono, dono humano, commit do merge,
+    /// componente do Studio, revisão/explicação, custo…), guardados tal-e-qual como JSON. O
+    /// backend não os interpreta: é a UI que os escreve e lê (ADR-0006, R3b).
+    #[serde(default)]
+    pub meta: Option<serde_json::Value>,
 }
 
 /// O backlog completo de um workspace: o problema de origem, as sprints e as stories.
@@ -123,6 +128,15 @@ impl BoardStore {
             );
             CREATE INDEX IF NOT EXISTS idx_stories_root ON stories(root);",
         )?;
+        // Migração aditiva (ADR-0006, R3b): bases criadas antes da coluna `meta` ganham-na.
+        let has_meta = {
+            let mut st = conn.prepare("PRAGMA table_info(stories)")?;
+            let names = st.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            names.iter().any(|n| n == "meta")
+        };
+        if !has_meta {
+            conn.execute_batch("ALTER TABLE stories ADD COLUMN meta TEXT")?;
+        }
         Ok(Self { conn })
     }
 
@@ -145,13 +159,20 @@ impl BoardStore {
         for (ord, st) in b.stories.iter().enumerate() {
             let acceptance = serde_json::to_string(&st.acceptance)
                 .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+            let meta = match &st.meta {
+                Some(v) => Some(
+                    serde_json::to_string(v)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                ),
+                None => None,
+            };
             tx.execute(
                 "INSERT INTO stories
-                   (root, id, sprint, role, want, so_that, acceptance, points, stage, kind, prompt, note, branch, ord)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                   (root, id, sprint, role, want, so_that, acceptance, points, stage, kind, prompt, note, branch, ord, meta)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
                 params![
                     root, st.id, st.sprint, st.role, st.want, st.so_that, acceptance,
-                    st.points, st.stage, st.kind, st.prompt, st.note, st.branch, ord as i64
+                    st.points, st.stage, st.kind, st.prompt, st.note, st.branch, ord as i64, meta
                 ],
             )?;
         }
@@ -182,7 +203,7 @@ impl BoardStore {
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         let mut so = self.conn.prepare(
-            "SELECT id, sprint, role, want, so_that, acceptance, points, stage, kind, prompt, note, branch
+            "SELECT id, sprint, role, want, so_that, acceptance, points, stage, kind, prompt, note, branch, meta
              FROM stories WHERE root = ?1 ORDER BY ord",
         )?;
         let stories = so
@@ -202,6 +223,9 @@ impl BoardStore {
                     prompt: r.get(9)?,
                     note: r.get(10)?,
                     branch: r.get(11)?,
+                    meta: r
+                        .get::<_, Option<String>>(12)?
+                        .and_then(|m| serde_json::from_str(&m).ok()),
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -239,7 +263,7 @@ mod tests {
                     ],
                     points: 3, stage: "backlog".into(), kind: "feature".into(),
                     prompt: "## Contexto\nProjecto …\n## Tarefa\nImplementar …\n## Critérios\n- …".into(),
-                    note: String::new(), branch: None,
+                    note: String::new(), branch: None, meta: None,
                 },
                 Story {
                     id: "DX-2".into(), sprint: 1,
@@ -250,6 +274,7 @@ mod tests {
                     points: 5, stage: "backlog".into(), kind: "feature".into(),
                     prompt: "## Contexto\n…".into(),
                     note: String::new(), branch: Some("feature/checkout".into()),
+                    meta: Some(serde_json::json!({ "agent": "be", "owner": "you" })),
                 },
             ],
         }
@@ -305,5 +330,25 @@ mod tests {
             1,
             "estado anterior substituído, não acumulado"
         );
+    }
+
+    #[test]
+    fn meta_round_trips_and_old_dbs_gain_the_column() {
+        // uma base antiga, sem a coluna `meta`
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE stories (root TEXT NOT NULL, id TEXT NOT NULL, sprint INTEGER NOT NULL, role TEXT NOT NULL,
+               want TEXT NOT NULL, so_that TEXT NOT NULL, acceptance TEXT NOT NULL, points INTEGER NOT NULL,
+               stage TEXT NOT NULL, kind TEXT NOT NULL, prompt TEXT NOT NULL, note TEXT NOT NULL, branch TEXT,
+               ord INTEGER NOT NULL, PRIMARY KEY (root, id));",
+        )
+        .unwrap();
+        let mut s = BoardStore::from_conn(conn).unwrap();
+        let b = sample();
+        s.save_board("/ws", &b, 1).unwrap();
+        let got = s.load_board("/ws").unwrap().unwrap();
+        assert_eq!(got.stories[1].meta, Some(serde_json::json!({ "agent": "be", "owner": "you" })));
+        assert_eq!(got.stories[0].meta, None);
+        assert_eq!(got, b);
     }
 }

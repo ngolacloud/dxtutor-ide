@@ -358,7 +358,17 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         await wait(() => it.stage === "func" || it.stage === "dev", 60000);
         await idle(); await idle();
         const log = (await git("log", "--all", "--format=%s")).stdout;
-        return { stage: it.stage, note: it.note, branch: it.branch, committed: log.includes(`feat: Selftest do board (${it.id})`), head: (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim() };
+        // R3b: o quadro grava-se no backend (board_save) e volta ao reabrir a pasta (board_load)
+        await new Promise(r => setTimeout(r, 900));
+        const inv = window.__TAURI__!.core.invoke as (c: string, a: Record<string, unknown>) => Promise<{ stories: Array<{ id: string; stage: string; meta?: { agent?: string } }> } | null>;
+        const saved = await inv("board_load", { root: R.root });
+        const st = saved?.stories.find(x => x.id === it.id);
+        const BLw = (window as unknown as { BL: { issues: Array<{ id: string; stage: string }> } }).BL;
+        BLw.issues.length = 0;
+        document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
+        await wait(() => BLw.issues.some(x => x.id === it.id), 5000);
+        return { stage: it.stage, note: it.note, branch: it.branch, committed: log.includes(`feat: Selftest do board (${it.id})`), head: (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim(),
+          persisted: st ? { stage: st.stage, agent: st.meta?.agent } : null, reloaded: BLw.issues.find(x => x.id === it.id)?.stage ?? null };
       } finally { G.codevAgentAvailable = prevA; G.codevAgentStory = prevS; }
     });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
