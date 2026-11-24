@@ -569,3 +569,51 @@ fn test_history_finds_flaky_tests_and_keeps_runs() {
     assert_eq!(h.cases[0].case_id, "a", "flaky first");
     assert!(s.test_history("/other", 30).unwrap().runs.is_empty());
 }
+
+#[test]
+fn breakpoints_are_kept_per_project_and_file() {
+    use super::breakpoints::Breakpoint;
+    let mut s = store();
+    let bp = |line: u32, cond: Option<&str>| Breakpoint {
+        file: "src/main.rs".into(),
+        line,
+        condition: cond.map(String::from),
+        hit_condition: None,
+        log_message: None,
+        enabled: true,
+    };
+    s.save_breakpoints("/p", "src/main.rs", &[bp(3, None), bp(9, Some("i == 3"))])
+        .unwrap();
+    s.save_breakpoints(
+        "/p",
+        "src/lib.rs",
+        &[Breakpoint {
+            file: "src/lib.rs".into(),
+            line: 1,
+            condition: None,
+            hit_condition: Some("2".into()),
+            log_message: Some("x={x}".into()),
+            enabled: false,
+        }],
+    )
+    .unwrap();
+    s.save_breakpoints("/other", "src/main.rs", &[bp(1, None)])
+        .unwrap();
+    let all = s.breakpoints("/p").unwrap();
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0].file, "src/lib.rs");
+    assert!(!all[0].enabled);
+    assert_eq!(all[0].log_message.as_deref(), Some("x={x}"));
+    assert_eq!(all[2].condition.as_deref(), Some("i == 3"));
+    // replacing a file's list; blank strings are not kept
+    s.save_breakpoints("/p", "src/main.rs", &[bp(4, Some("  "))])
+        .unwrap();
+    let main: Vec<_> = s
+        .breakpoints("/p")
+        .unwrap()
+        .into_iter()
+        .filter(|b| b.file == "src/main.rs")
+        .collect();
+    assert_eq!(main.len(), 1);
+    assert_eq!(main[0].condition, None);
+}

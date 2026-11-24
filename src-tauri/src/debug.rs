@@ -21,6 +21,12 @@ pub struct Stop {
     pub line: u32,
     pub exited: bool,
     pub exit_code: Option<i32>,
+    /// the thread that stopped (DAP)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<i64>,
+    /// the adapter's explanation of the stop — an exception's text (DAP)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -219,6 +225,7 @@ fn parse_stop(lines: &[String]) -> Stop {
             .unwrap_or(0),
         exited: false,
         exit_code: None,
+        ..Default::default()
     }
 }
 
@@ -307,6 +314,46 @@ impl DebugSessions {
         let mut map = self.0.lock().map_err(|_| "debug lock poisoned")?;
         let s = map.get_mut(id).ok_or("no such debug session")?;
         f(s)
+    }
+}
+
+// ── DAP sessions (A7, docs/v2/UI-AUDIT.md item 4) ───────────────────────────────────
+// A session over a real DAP adapter (`tutor_eval::dapc`, lldb-dap). The registry hands out
+// `Arc`s and never holds its lock while the program runs, so `pause`/`stop` can be sent while a
+// `run` waits for the next stop.
+
+#[derive(Default)]
+pub struct DapSessions(Mutex<HashMap<String, std::sync::Arc<tutor_eval::dapc::DapSession>>>);
+
+impl DapSessions {
+    pub fn get(&self, id: &str) -> Option<std::sync::Arc<tutor_eval::dapc::DapSession>> {
+        self.0.lock().ok().and_then(|m| m.get(id).cloned())
+    }
+    pub fn insert(&self, id: String, s: tutor_eval::dapc::DapSession) -> Result<(), String> {
+        self.0
+            .lock()
+            .map_err(|_| "debug lock")?
+            .insert(id, std::sync::Arc::new(s));
+        Ok(())
+    }
+    pub fn remove(&self, id: &str) -> Option<std::sync::Arc<tutor_eval::dapc::DapSession>> {
+        self.0.lock().ok().and_then(|mut m| m.remove(id))
+    }
+}
+
+impl From<tutor_eval::dapc::DapStop> for Stop {
+    fn from(d: tutor_eval::dapc::DapStop) -> Stop {
+        Stop {
+            stopped: d.stopped,
+            reason: d.reason,
+            func: d.func,
+            file: d.file,
+            line: d.line,
+            exited: d.exited,
+            exit_code: d.exit_code,
+            thread: d.thread,
+            description: d.description,
+        }
     }
 }
 

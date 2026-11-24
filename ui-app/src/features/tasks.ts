@@ -42,7 +42,7 @@ function hydrate(): void {
   Object.assign(RATE, LS.get("rate6", RATE));
   Object.assign(TK, LS.get("tk6", TK));
 }
-const usd = (tok: number, p: string): number => { hydrate(); return (tok / 1e6) * (RATE[p] || 0); };
+export const usd = (tok: number, p: string): number => { hydrate(); return (tok / 1e6) * (RATE[p] || 0); };
 
 function costAvg(agent: string): { tok: number; usd: number; att: number } | null {
   const BL = window.BL;
@@ -126,7 +126,7 @@ RP.tasks = renderTasksPane;
 VIEW.issue = renderIssueView;
 
 window.renderTasksPane = renderTasksPane;
-Object.assign(window, { renderIssueView, openIssue, usd, TK, saveTK, STC });
+Object.assign(window, { openIssue, TK, saveTK, STC });
 
 /* ── acções do pane e da vista (ADR-0004, U5b) ── eram `onclick="…"`/`onchange="…"` inline, que
    resolviam o TK/BL/RP/cur/PANE e as funções no window ao clicar; as acções fazem o mesmo, no acto. */

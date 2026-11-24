@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7c)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1024,3 +1024,42 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   do motor e dos catálogos, no index.html, no Rust e nos cursos; os pares com números (`#`) ficam. Os pares que saíram
   vão para `tests/fixtures/i18n-pruned-pairs.json`, e o `i18n.catalogs.test.ts` continua a provar cada entrada
   contra o motor ∪ esses pares. Prova de paridade nas duas línguas igual antes e depois; goldens iguais.
+- **U7 — plano (2026-11-24).** O fim dos globais publicados no `window` (324 depois da U7a) e das 17 fachadas de
+  estado (`ownedGlobal`). Um *scanner* sobre o *type checker* do TypeScript lista, para cada nome, quem o publica
+  (`Object.assign(window, …)`, `window.X =`, `ownedGlobal`) e quem o lê (nome livre que resolve para a declaração
+  global, `window.X` ou uma fachada `G.X`, `callGlobal("X")`, testes, e2e). Fatias: **U7a** as publicações mortas;
+  **U7b…** por feature, os nomes lidos só por nome livre noutros módulos passam a `import` (quando ninguém decora a
+  versão publicada — o `callGlobal` existe precisamente para os que são decorados ou trocados pelo desktop) e a
+  publicação sai; no fim, as fachadas `ownedGlobal` dão lugar aos stores e o `arch-check` ganha a regra final (nenhum
+  `Object.assign(window, …)` fora de uma lista explícita de pontes). Como na U6, os módulos em desenvolvimento noutras
+  sessões entram por último.
+- **U7a (2026-11-24) — 31 publicações mortas.** Critério conservador: o nome não aparece (como palavra) em nenhum
+  outro ficheiro — código da UI, testes, e2e, index.html, Rust — e o próprio módulo não o lê pelo `window`. Saem das
+  chamadas `Object.assign(window, …)` de 13 módulos (`toggleProv`, `assistantDock`, `renderLevel`, `renderFileView`,
+  `trAttrs`, `showMenu`, `openOverflow`, `tabIc`, `parkAgent`, `renderIssueView`, `globRe`/`canRun`/`ownerOf`/…,
+  `NW`/`NH`/`mkT`, `LT_LEVELS`/`LT_EXT`/`drillState`, `curDir`/`dirAt`, …). Cinco definições ficaram sem uso nenhum e
+  saíram como código morto: `toggleAgentOn`, `LT_LANGS`, `NT`, `termNew` e o `routeModel` do router (com a sua cache
+  `ROUTE_CACHE`) — o escolhedor de modelo por LLM que já ninguém chamava. Globais publicadas 355 → 324.
+- **U7b (2026-11-24) — os globais lidos só por nome livre passam a import.** Um global troca-se por `import` sem mudar
+  nada quando: tem um único publicador, que o publica como atalho de uma declaração de topo (`{ nome }`), e ninguém o
+  reatribui nem decora; todos os leitores o lêem por nome livre (nenhum pelo `window`, por uma fachada ou pelo
+  `callGlobal`, nem testes, e2e ou Rust); e o publicador já avalia antes de cada leitor na ordem do `main.ts` (o
+  import não muda a ordem dos efeitos). Passam a import: `loadTeam`, `HT`, `sideOpen`, `mkRz`, `openAnalysis`,
+  `gfAsk`, `edCmd`, `SECOPEN` e o `buildDocker` do boot (era `window.buildDocker = function`, passa a `export
+  function`). O `openLesson` ficou publicado: a função real não recebe argumentos (é um resto que chama o `ltResume`)
+  e os leitores passam dois, que o JavaScript ignorava — o import obrigaria a mexer nas chamadas. Globais publicadas
+  324 → 315. Paridade nas duas línguas igual. **O que falta é de outra natureza** (contagem do *scanner*): 137 nomes
+  são lidos pelo `window`, por uma fachada dos `legacy-bridge` ou pelo `callGlobal` — em parte de propósito, para
+  apanhar a versão decorada ou trocada pelo desktop; 114 são publicados por `window.X =`, mais do que uma vez, ou são
+  fachadas de estado; 26 aparecem em testes. Cada um destes pede uma decisão por nome (é ponto de decoração? a porta
+  desktop cobre-o?), por isso a U7 continua por feature, a começar pelas fachadas dos `legacy-bridge`.
+- **U7c (2026-11-24) — as fachadas dos `legacy-bridge`: o que dá para trocar sem decidir nada.** Mesmo critério da U7b,
+  agora para leituras pelas fachadas das pontes: o nome tem um único publicador que ninguém decora, avalia antes da
+  ponte, e TODOS os seus leitores podem passar a import (nenhum em testes/e2e, nenhum `callGlobal`, nenhuma leitura
+  pelo `window` fora das pontes, nenhum em módulos de outras sessões — incluindo agora o `lsp` e o `panel`, ainda a
+  receber trabalho). Só quatro passam, todos lidos pela ponte do board: `usd` (tasks), `codeGuard` (team), `CLOUD` e
+  `validateDesign` (studio) — a ponte importa-os e a publicação sai. Globais publicadas 315 → 311. **O resto não sai
+  sem decisões:** das leituras pelas pontes, 62 têm o publicador a avaliar DEPOIS da ponte (a leitura tardia pelo
+  `window` é o que evita a dependência circular/ordem trocada — trocar por import pede mover código), 40 são de nomes
+  publicados mais do que uma vez ou por `window.X =`, e os outros têm leitores em testes, no desktop ou em módulos de
+  outras sessões. Ver o plano a seguir.

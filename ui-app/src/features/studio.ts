@@ -45,10 +45,6 @@ const G = window as unknown as { DRIFT: string | null };
 const slug = (s: any) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const rid = () => Math.random().toString(16).slice(2, 9);
 
-/* ───── tipos de nó legados (camada «desenhar a arquitectura»): já só os lê código
-   morto do backlog no monólito (tplNode/genBacklog$dup0); publicado para não deixar
-   referências livres soltas ───── */
-const NT={ui:{l:'Interface',ic:'layout-side',col:'#6ea8ff'},svc:{l:'Serviço',ic:'cube',col:'#dea584'},db:{l:'Base de dados',ic:'volume',col:'#5cc9a7'},queue:{l:'Fila',ic:'sync',col:'#e0b64a'},cache:{l:'Cache',ic:'history',col:'#5fcad6'},ext:{l:'Externo',ic:'cloud',col:'#c678dd'}};
 
 /* ───── o desenho é do projecto (ADR-0006, R6a) ─────
    Sai o desenho semeado (`ST_SEED`: Gateway, Orders API, Billing Worker… de um projecto de
@@ -81,7 +77,7 @@ document.addEventListener('dx:workspace', () => { SD = loadSD(); SSEL = null; SL
 function openStudio(){openTab({id:'studio',title:'Studio',kind:'studio'});}
 
 /* ───── catálogo de tecnologias cloud ───── */
-const CLOUD:Record<string,any>={app:{l:'APP',col:'#dea584',t:'Application runtimes'},oss:{l:'OSS',col:'#5cc9a7',t:'Open source'},aws:{l:'AWS',col:'#ff9900',t:'Amazon Web Services'},azure:{l:'AZURE',col:'#3a96dd',t:'Microsoft Azure'},gcp:{l:'GCP',col:'#ea4335',t:'Google Cloud'}};
+export const CLOUD:Record<string,any>={app:{l:'APP',col:'#dea584',t:'Application runtimes'},oss:{l:'OSS',col:'#5cc9a7',t:'Open source'},aws:{l:'AWS',col:'#ff9900',t:'Amazon Web Services'},azure:{l:'AZURE',col:'#3a96dd',t:'Microsoft Azure'},gcp:{l:'GCP',col:'#ea4335',t:'Google Cloud'}};
 const PG='postgres:16-alpine',RD='redis:7-alpine',TF='traefik:v3.1',KC='quay.io/keycloak/keycloak:25.0',RMQ='rabbitmq:3.13-management-alpine',GCE='gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators';
 const mkT=(n:string,cloud:string,kind:string,img:string,port:number,local?:string)=>({n,cloud,kind,img,port,local});
 const TECH:Record<string,any>={
@@ -102,7 +98,7 @@ const KIND={
   oidc:{cmd:'start-dev',env:['KEYCLOAK_ADMIN: admin','KEYCLOAK_ADMIN_PASSWORD: admin'],wire:(s:string)=>[`OIDC_ISSUER: http://${s}:8080/realms/master`]},otel:{wire:(s:string)=>[`OTEL_EXPORTER_OTLP_ENDPOINT: http://${s}:4317`]},obs:{},
   gateway:{cmd:'--providers.docker=true --providers.docker.exposedbydefault=false --entrypoints.web.address=:80'}};
 const isApp=(n:any)=>['app','web'].includes(TECH[n.tech].kind),sl=(n:any)=>slug(n.n),appDir=(n:any)=>(TECH[n.tech].kind==='web'?'web/':'apps/')+sl(n);
-function validateDesign(){const f:any[]=[],deg=(id:string)=>SD.edges.filter(e=>e[0]===id||e[1]===id).length,names:Record<string,number>={};
+export function validateDesign(){const f:any[]=[],deg=(id:string)=>SD.edges.filter(e=>e[0]===id||e[1]===id).length,names:Record<string,number>={};
   SD.nodes.forEach(n=>{const T=TECH[n.tech];if(names[sl(n)])f.push(['e',`Two components are named “${n.n}”. Names become service names and must be unique.`]);names[sl(n)]=1;if(!deg(n.id))f.push(['w',`“${n.n}” is not connected to anything.`]);
     if(!isApp(n)&&T.kind!=='gateway'&&T.kind!=='obs'&&deg(n.id)&&!SD.edges.some(e=>e[1]===n.id&&isApp(SD.nodes.find(x=>x.id===e[0]))))f.push(['w',`No application uses “${n.n}”. Draw the arrow from the app to the resource.`]);
     if(T.kind==='web'&&!SD.edges.some(e=>e[1]===n.id&&TECH[SD.nodes.find(x=>x.id===e[0])!.tech].kind==='gateway'))f.push(['w',`“${n.n}” is not behind a gateway, so it will be published directly.`]);});
@@ -169,4 +165,4 @@ VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { NT, NW, NH, loadSD, CLOUD, TECH, KIND, mkT, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel, validateDesign });
+Object.assign(window, { loadSD, TECH, KIND, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel });

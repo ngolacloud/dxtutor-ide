@@ -56,7 +56,7 @@ interface GfAskMission {
 
 /** No fim de uma missão entregue num ramo gitflow, propõe fechar o ramo — ou avisa
  *  que fica aberto se ainda houver alterações por commitar. */
-async function gfAsk(host: HTMLElement, M: GfAskMission): Promise<void> {
+export async function gfAsk(host: HTMLElement, M: GfAskMission): Promise<void> {
   const b = BRANCH;
   if (!/^(feature|fix)\//.test(b)) return;
   if ([...M.files].some((p) => stOf(p))) {
@@ -73,4 +73,4 @@ async function gfAsk(host: HTMLElement, M: GfAskMission): Promise<void> {
   }
 }
 
-Object.assign(window, { checkpoint, restoreCkpt, gfAsk });
+Object.assign(window, { checkpoint, restoreCkpt });

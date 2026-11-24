@@ -25,6 +25,7 @@ import { desktopPorts } from "../app/desktop";
 import { codeintelClient, type SymbolRange } from "../platform/tauri/codeintel";
 import { translator } from "../app/i18n";
 import { EXPLORER_MESSAGES } from "./explorer.messages";
+import { SECOPEN } from "./workspace";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(EXPLORER_MESSAGES);
 
@@ -187,5 +188,5 @@ export interface ExplorerDesktop { syncTree(virtual: () => void): void }
 export interface OutlineDesktop { covers(p: string): boolean; symbols(p: string): Promise<OutSym[] | null> }
 /* o syncTree PUBLICADO consulta a porta (antes o desktop reatribuía-o no `window`); só o app.ts o chama, pelo global */
 const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) d.syncTree(syncTree); else syncTree(); };
-Object.assign(window, { renderLevel, buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });
+Object.assign(window, { buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });
 

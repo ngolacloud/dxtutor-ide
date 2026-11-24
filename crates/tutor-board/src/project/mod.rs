@@ -13,6 +13,7 @@
 //! - Co-Dev change sets (accepted hunks, docs/v2/RF-CODEV-STREAM.md §9) and commits that
 //!   cite an issue key are linked to the issue.
 
+pub mod breakpoints;
 pub mod reports;
 pub mod schema;
 pub mod testhist;
@@ -607,6 +608,21 @@ impl ProjectStore {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// The gutter's breakpoints of the project (DBG-03).
+    pub fn breakpoints(&self, root: &str) -> Result<Vec<breakpoints::Breakpoint>, ProjectError> {
+        breakpoints::load(&self.conn, root)
+    }
+
+    /// Replaces the breakpoints of one file of the project.
+    pub fn save_breakpoints(
+        &mut self,
+        root: &str,
+        file: &str,
+        list: &[breakpoints::Breakpoint],
+    ) -> Result<(), ProjectError> {
+        breakpoints::save_file(&mut self.conn, root, file, list)
     }
 
     /// Keeps a test run with its per-test results (TEST-03).

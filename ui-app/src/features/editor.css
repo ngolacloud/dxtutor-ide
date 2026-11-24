@@ -68,3 +68,5 @@
   .op-t{color:var(--fg-muted);margin-right:10px;user-select:none}
   /* A4: o blame da linha do cursor, no fim da linha (features/editor.ts annotateLine — app/line-annotation.ts) */
   .ed-hl .bl-inline{color:var(--fg-muted);opacity:.75;font-style:italic;margin-left:2.5em;white-space:pre;pointer-events:none}
+  /* A7: os valores das variáveis enquanto o depurador está parado (app/inline-values.ts) */
+  .ed-hl .dv-inline{color:var(--accent-hover);opacity:.8;margin-left:2.5em;white-space:pre;pointer-events:none;font-style:italic}
