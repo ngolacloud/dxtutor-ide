@@ -77,9 +77,10 @@ describe("completion — cliente", () => {
       didChange: async (_p: string, t: string, v: number) => void calls.push(`change v${v} ${t}`),
       completion: async (_p: string, l: number, c: number, trig: string | null) => (calls.push(`complete ${l}:${c} ${trig}`), { items: [{ label: "length" }] }),
       onDiagnostics: () => {},
+      serverStatus: async () => ({ language: "java", server: "jdtls", installed: true }),
     } as unknown as LspPort;
     const workspace: WorkspacePort = { diskRoot: () => "/w", virtualPrefix: () => "p/", fileKeyOfTab: (id) => id, currentFileKey: () => "p/A.java", text: (k) => files[k] ?? null };
-    const editor = { repaint() {}, open() {}, notify() {}, writeFile() {}, reload() {} } as EditorPort;
+    const editor = { repaint() {}, open() {}, notify() {}, writeFile() {}, reload() {}, notice() {} } as EditorPort;
     const client = makeLspClient({ lsp, workspace, editor, defer: (f) => f() });
     await client.onTab("p/A.java");
     files["p/A.java"] = "class A { s.le }";
