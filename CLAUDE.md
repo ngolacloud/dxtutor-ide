@@ -360,12 +360,12 @@ registarem os seus comandos (U7).
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
 `dxtutor-plugin.json` + cursos no formato `tutor_core::Course` (TOML/JSON), com
 `Course.overview` e `Unit.concepts` (o texto de leitura de cada tópico). Os oficiais vivem em
-`github.com/dxtutor-courses/<id>`. O catálogo oficial tem no máximo 10 linguagens
+`github.com/ngolacloud/dxtutor-course-<id>`. O catálogo oficial tem no máximo 10 linguagens
 (`learn/domain/catalog.ts`): rust, go, python, typescript, java, kotlin, swift, csharp,
 cpp, sql.
 
 - **Fonte única dos cursos Rust/Go: `courses/<id>/`** (plugin oficial completo, publicado em
-  `dxtutor-courses/<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
+  `ngolacloud/dxtutor-course-<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
   da UI (`ui-app/src/content/courses/*.json`) é **gerado**: editar só o TOML e correr
   `python3 scripts/sync-ui-courses.py`. O teste `crates/tutor-core/tests/ui_json.rs` falha se
   divergirem.
@@ -407,6 +407,29 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
   `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
   goldens do catálogo ficam intactos.
+
+## O editor ligado ao servidor de linguagem (`ui-app/src/features/lsp/`)
+
+Feature nova e tipada, só na app desktop (governada por A7/A8). Até aqui a UI oficial nunca
+chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`).
+
+- **`domain/`:** `languages.ts` (extensão → `languageId`, alinhado com `LANGS` do `lsp.rs`),
+  `positions.ts` (offset ↔ `{line, character}` e ponto do rato → offset, com tabs),
+  `results.ts` (hover e definição normalizados; `plainMarkdown` limpa o markdown do servidor),
+  `paths.ts` (chave do `FS` ↔ caminho absoluto). PURO.
+- **`application/lsp-client.ts`:** `lsp_start` uma vez por pasta, `didOpen` uma vez por
+  ficheiro (bus `editor:tab`), `didChange` com versões (bus `workspace:changed`), hover,
+  definição, e repinta o editor quando chegam diagnósticos do ficheiro aberto.
+- **`ui/editor-hooks.ts`:** rato parado → cartão `#lsp-hover`; F12 ou Ctrl+clique → definição;
+  Shift+F12 → lista de referências; F2 → caixa de rename (`ui/popups.ts`: `#lsp-refs`,
+  `#lsp-rename`). Listeners delegados no `document`, sem mexer no `editor.ts`; não publica globais.
+- **Rename:** o cliente aplica a `WorkspaceEdit` (`changes` ou `documentChanges`; `domain/edits.ts`)
+  aos ficheiros da pasta pelo `writeFile` (o autosave leva-as ao disco), envia `didChange` dos que o
+  servidor tem abertos e conta o que salta (fora da pasta, operações de ficheiro).
+- Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
+  aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
+- **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, e o passo
+  `lsp-java`/`lsp-kotlin` do auto-teste desktop (`DXTUTOR_SELFTEST`, Xvfb), que conduz o editor real.
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 

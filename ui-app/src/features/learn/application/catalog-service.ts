@@ -15,7 +15,7 @@ export interface CatalogState {
  * Junta os cursos embutidos aos do backend. Para uma linguagem com os dois, o embutido ganha
  * (o comportamento de sempre de Rust/Go: o protótipo traz os testes e simula a avaliação),
  * EXCEPTO quando um plugin instalado traz essa linguagem: aí o plugin é conteúdo mais recente
- * (ex. `dxtutor-courses/rust` substitui o curso Rust embutido) e o backend serve-o.
+ * (ex. `ngolacloud/dxtutor-course-rust` substitui o curso Rust embutido) e o backend serve-o.
  */
 export async function loadCatalog(gw: CourseGateway, embedded: Readonly<Record<string, Course>>): Promise<CatalogState> {
   const courses: Record<string, Course> = { ...embedded };

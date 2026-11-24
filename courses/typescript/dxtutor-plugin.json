@@ -6,7 +6,7 @@
   "description": "TypeScript: From Zero to Confident — from your first typed program to unions and narrowing, generics, async code, SQLite with node:sqlite, type-level programming and data structures.",
   "authors": ["dxtutor"],
   "license": "MIT OR Apache-2.0",
-  "repository": "https://github.com/dxtutor-courses/typescript",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-typescript",
   "engine": ">=0.7.0",
   "kind": "course",
   "language": {

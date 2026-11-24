@@ -72,3 +72,4 @@ import "./startup";
 import "./bridge";
 import "./pair";
 import "./features/panel/index";
+import "./features/lsp/index";
