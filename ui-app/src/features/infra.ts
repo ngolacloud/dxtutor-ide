@@ -26,6 +26,7 @@
 import { $, $$, hd, svg, esc } from "../core";
 import { RP, VIEW } from "../app/store/registry";
 import { desktopPorts } from "../app/desktop";
+import { openSsh } from "./remote";
 import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "./infra/domain/constants";
 import { spark, emptyObs, obsTarget as domObsTarget, parseLogLines, pushSample } from "./infra/domain/observability";
 import { urlHosts } from "./infra/domain/secrets";
@@ -121,7 +122,7 @@ function renderInfraPane(): void {
    <div class="scm-grp">Kubernetes${on(ENVS.k8sOn)}</div><input class="inp notr" value="${esc(ENVS.kube)}" title="KUBECONFIG" data-action="kube-conf"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context" data-action="kube-ctx">${(KCTX.length ? KCTX : [ENVS.ctx]).map(c => `<option${c === ENVS.ctx ? " selected" : ""}>${esc(c)}</option>`).join("")}</select><input class="inp notr" style="margin:0;width:100%" value="${esc(ENVS.ns)}" title="Namespace" data-action="kube-ns"></div>
    <button class="btn${ENVS.k8sOn ? " ghost" : ""}" data-action="k8s-connect">${ENVS.k8sOn ? "Disconnect" : "Connect cluster"}</button>
    ${ENVS.k8sOn ? (K8S ? K8S.deps.map((d: any) => `<div class="scm-row" style="cursor:default"><span class="pdot" style="background:${d.ready ? "var(--green)" : "var(--fg-muted)"}"></span><span class="nm notr">${esc(d.n)}</span><span class="pth">${d.ready}/${d.rep}</span><span class="ra" style="display:flex"><button title="Scale down" data-action="k8s-scale" data-on="${esc(d.n)}|-1">−</button><button title="Scale up" data-action="k8s-scale" data-on="${esc(d.n)}|1">+</button></span></div>`).join("") + `<button class="btn" data-action="dx-deploy">⎈ Redeploy</button><button class="btn ghost" data-action="k8s-down">Delete from cluster</button>` : `<div class="sec-empty">${docs ? `${docs} resources ready in <code>deploy/k8s</code>.` : "No manifests yet — the platform issue from the Studio creates them."}</div><button class="btn" data-action="dx-deploy">⎈ Deploy to ${esc(ENVS.ctx)}</button>`) : ""}
-   <div class="scm-grp">Remote hosts<span class="cnt">${ENVS.ssh.length}</span></div>${ENVS.ssh.map((h: string, i: number) => `<div class="scm-row" data-action="ssh-toast"><span class="ic">${svg("remote")}</span><span class="nm notr">${esc(h)}</span><span class="ra" style="display:flex"><button title="Remove" data-action="ssh-del" data-on="${esc(i)}">×</button></span></div>`).join("")}<input class="inp notr" placeholder="user@host" data-action="ssh-add">
+   <div class="scm-grp">Remote hosts<span class="cnt">${ENVS.ssh.length}</span></div>${ENVS.ssh.map((h: string, i: number) => `<div class="scm-row" data-action="ssh-open" data-on="${esc(h)}"><span class="ic">${svg("remote")}</span><span class="nm notr">${esc(h)}</span><span class="ra" style="display:flex"><button title="Remove" data-action="ssh-del" data-on="${esc(i)}">×</button></span></div>`).join("")}<input class="inp notr" placeholder="user@host" data-action="ssh-add">
    ${(window as unknown as { DXR?: unknown }).DXR ? "" : '<div class="sec-empty">O socket e o KUBECONFIG ligam o runtime de contentores e o cluster reais na app desktop; no browser não há a que ligar.</div>'}</div>`;
   // ── decoração v6 (environments / observabilidade) ──
   const sec = $("#pane-infra .sections");
@@ -233,7 +234,8 @@ const ACTIONS: ActionTable = {
   "k8s-connect": { on: "click", run: () => window.k8sConnect() },
   "k8s-scale": { on: "click", run: e => { const [n, d] = e.on.split("|"); window.k8sScale(n, +d); } },
   "k8s-down": { on: "click", run: () => window.k8sDown() },
-  "ssh-toast": { on: "click", run: () => window.toast("SSH sessions need the desktop app") },
+  /* ADR-0006, R6c: no desktop abre um terminal com `ssh <host>` (features/remote.ts); no browser diz que não há como */
+  "ssh-open": { on: "click", run: e => { if (!openSsh(e.on)) window.toast("SSH terminals need the desktop app"); } },
   "ssh-del": { on: "click", run: e => { ENVS.ssh.splice(+e.on, 1); window.saveEnv(); window.infraDraw(); } },
   "ssh-add": { on: "change", run: e => { if (e.value.trim()) { ENVS.ssh.push(e.value.trim()); window.saveEnv(); window.infraDraw(); } } },
   "env-chip": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); window.infraDraw(); void refreshEnvs(); } },

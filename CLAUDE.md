@@ -365,7 +365,7 @@ docker/kubectl) vive em `platform/desktop/`: `context.ts` (os clientes IPC, o ob
 `window.DXR`, processos `sh`/`git`/`stream`, a fila `enqueue`/`idle`, e os serviços tardios
 `ctx.flushSave`/`ctx.syncGit`/`ctx.envFor`/`ctx.runInTerm`/… que cada módulo preenche) e um
 módulo por área com um `install<Área>(ctx)` (terminal, workspace, git, llm, agent-tasks,
-infra, demos, ext) + `selftest.ts`. O `bridge.ts` é só a composição: sai no browser, cria o
+infra, remote, ext; o `demos` saiu na R3a do ADR-0006) + `selftest.ts`. O `bridge.ts` é só a composição: sai no browser, cria o
 contexto, instala os módulos pela ordem das antigas secções (a ordem dos efeitos no eval
 importa) e corre o arranque. Regra ao mexer: um módulo usa os serviços de outro SEMPRE por
 `ctx.x(...)` no acto (nunca capturado no install), e nada de nomes soltos que resolvam para

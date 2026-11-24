@@ -18,6 +18,7 @@ import { installLlm } from "./platform/desktop/llm";
 import { installAgentTasks } from "./platform/desktop/agent-tasks";
 import { installInfra } from "./platform/desktop/infra";
 import { installExt } from "./platform/desktop/ext";
+import { installRemote } from "./platform/desktop/remote";
 import { selftest } from "./platform/desktop/selftest";
 
 (() => {
@@ -30,6 +31,7 @@ installGit(ctx);
 installLlm(ctx);
 installAgentTasks(ctx);
 installInfra(ctx);
+installRemote(ctx);
 /* (installDemos saiu: o Sprint corre com o agente real também com pasta aberta — ADR-0006, R3a) */
 installExt();
 installFolderUi(ctx);

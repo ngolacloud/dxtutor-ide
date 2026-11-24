@@ -549,6 +549,31 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       W.extRemove(id);
       return { ...res, removed: !W.EXS.inst[id] && !W.EXS.vsix.some(v => v.id === id) };
     });
+    // Remote (ADR-0006, R6c): os hosts do ~/.ssh/config real. Só escreve um config temporário se
+    // NÃO houver nenhum (e apaga-o no fim) — nunca mexe no do utilizador. O host aponta para uma
+    // porta local fechada: o teste de ligação (ssh BatchMode) falha com a mensagem real do ssh.
+    await step("remote", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 150)); return f(); };
+      const home = R.info.home || "", cfg = home + "/.ssh/config";
+      const had = (await sh("test", ["-e", cfg])).code === 0, hadDir = (await sh("test", ["-d", home + "/.ssh"])).code === 0;
+      if (!had) { await sh("mkdir", ["-p", home + "/.ssh"]); await sh("sh", ["-c", 'cat > "$1"', "sh", cfg], { stdin: "Host dx-selftest\n  HostName 127.0.0.1\n  Port 9\n  User nobody\n" }); }
+      const side = document.querySelector(".side");
+      if (side && !document.getElementById("pane-remote")) side.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-remote"></div>');
+      window.renderRemotePane();
+      const el = () => document.getElementById("pane-remote")?.textContent || "";
+      const status = () => { const b = document.querySelector('#pane-remote [data-remote="test"][data-host="dx-selftest"]'); return b?.closest(".scm-row")?.querySelector(".pth")?.textContent || ""; };
+      const listed = await wait(() => had ? !/A ler o/.test(el()) : /nobody@127\.0\.0\.1:9/.test(status()), 10000);
+      let tested = "";
+      if (!had) {
+        document.querySelector<HTMLElement>('#pane-remote [data-remote="test"][data-host="dx-selftest"]')?.click();
+        await wait(() => /^[✖✓]/.test(status()), 20000);
+        tested = status().slice(0, 120);
+        await sh("rm", ["-f", cfg]);
+        if (!hadDir) await sh("rmdir", [home + "/.ssh"]);
+      }
+      const local = document.querySelector("#pane-remote .scm-row .nm")?.textContent || "";
+      return { hadConfig: had, listed, local, tested };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

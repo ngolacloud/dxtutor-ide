@@ -13,6 +13,7 @@ import type { ExplorerDesktop } from "../features/explorer";
 import type { WelcomeDesktop } from "../features/welcome";
 import type { ChangelogDesktop } from "../features/changelog";
 import type { ExtDesktop } from "../features/ext/application/ports";
+import type { RemoteDesktop } from "../features/remote";
 
 export interface DesktopPorts {
   /** git real no repositório aberto (platform/desktop/git.ts) — U4h2 */
@@ -34,6 +35,8 @@ export interface DesktopPorts {
   changelog?: ChangelogDesktop;
   /** o JSZip embutido na app — U4h5b */
   ext?: ExtDesktop;
+  /** o ~/.ssh/config real, os terminais SSH e o teste de ligação — ADR-0006, R6c */
+  remote?: RemoteDesktop;
 }
 
 export const desktopPorts: DesktopPorts = {};

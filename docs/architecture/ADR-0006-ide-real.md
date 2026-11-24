@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5 feita (R5a–R5c2; verificada no desktop — os ambientes com um kubeconfig temporário, nunca os clusters do utilizador); R6 em curso (R6a e R6b feitas; R6c Remote por fazer)
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5 feita (R5a–R5c2; verificada no desktop — os ambientes com um kubeconfig temporário, nunca os clusters do utilizador); R6 feita (R6a–R6c; verificada no desktop)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -610,3 +610,26 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   recomendações, secções) e `vsix.rs` (o parser da pesquisa). **Selftest desktop:** passo
   `extensions` — pesquisa real no Open VSX e instalação do tema Dracula (os dois temas ficam
   aplicáveis), depois desinstalado; sem rede, diz-se; `errors: []`.
+- **R6c (2026-11-24) — os hosts remotos do `~/.ssh/config` real.** O Remote Explorer deixa a
+  ligação local «delonix · este protótipo» e os dois hosts SSH fixos que só davam um aviso. Na app
+  desktop (porta nova `desktopPorts.remote`, `platform/desktop/remote.ts`): o local é
+  `user@host` desta máquina; os hosts vêm do `~/.ssh/config` real, interpretado por
+  `features/remote-config.ts` (puro: os nomes concretos de `Host` com HostName/User/Port/
+  IdentityFile — o primeiro valor ganha, como no OpenSSH —; padrões e `Match` ignorados; `Include`
+  não seguido e dito), mais os acrescentados no pane Infra. Cada host abre um terminal com
+  `ssh <host>` (uma tarefa num PTY: passphrases e chaves de host são do utilizador) ou testa a
+  ligação com `ssh -o BatchMode=yes -o ConnectTimeout=6 <host> true` — só quando se pede, nunca
+  sozinho, e sem aceitar chaves às escondidas. O `ssh` recebe com `-F` o ficheiro que o pane
+  mostra (o OpenSSH procura o seu pela pasta da base de utilizadores, não pelo `$HOME`: sem isto
+  os dois podiam divergir — foi o selftest que o mostrou). No pane Infra, clicar num host abre o
+  terminal SSH (era um aviso). **Browser:** o pane diz que os hosts vêm do `~/.ssh/config` na app
+  desktop. Sem goldens tocados. **Testes:** `remote.r6c` (7: o parser, o pane no browser e no
+  desktop com porta falsa — hosts do config e do Infra, terminal, teste com o erro real —, erro
+  de leitura, o clique no Infra). **Selftest desktop:** passo `remote` — só escreve um
+  `~/.ssh/config` temporário se não houver nenhum (e apaga-o); o host aparece com
+  `nobody@127.0.0.1:9` e o teste devolve a mensagem do ssh («Connection refused»); `errors: []`.
+- **Fim da série (2026-11-24).** R0–R6 feitas. O que ficou por verificar nesta máquina, e porquê:
+  sessões reais do gdb (não instalado), o agente e o uso de tokens com um modelo real (sem chave),
+  e uma promoção a um cluster real (nunca se tocou nos clusters do utilizador). Reportado e não
+  corrigido na série: o resto «…common methods.<code>rust_tracer</code>).» na mensagem de erro do
+  visualizer (e45f18d, do develop).
