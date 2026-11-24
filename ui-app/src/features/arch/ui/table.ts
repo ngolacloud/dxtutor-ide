@@ -22,6 +22,7 @@ export function archActions(studio: ArchStudio, prompt: (message: string, initia
       },
     },
     "arch-add-group": { on: "click", run: () => { const l = ask("Group label (e.g. Host, Control Plane, Node 1):"); if (l) studio.addGroup(l); } },
+    "arch-arrange": { on: "click", run: () => studio.arrange() },
     "arch-add-view": { on: "click", run: () => { const t = ask("Panel title (e.g. Docker, Delonix):"); if (t) studio.addView(t); } },
 
     // componente

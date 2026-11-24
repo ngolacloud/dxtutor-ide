@@ -194,6 +194,11 @@ export function viewOfGroup(d: Design, id: string): ArchView | undefined {
 /** O painel onde um componente vive (pelo seu grupo). */
 export const viewOfNode = (d: Design, n: DesignNode): ArchView | undefined => (n.group ? viewOfGroup(d, n.group) : undefined);
 
+/** Um grupo raiz com o mesmo nome do seu painel é o CORPO do painel: a moldura do painel já
+ *  o mostra, por isso não se desenha contorno nem pílula (arrastá-lo move o painel). */
+export const isPanelBody = (d: Design, g: ArchGroup): boolean =>
+  d.views.some((v) => v.roots.includes(g.id) && v.title.trim().toLowerCase() === g.label.trim().toLowerCase());
+
 export function addGroup(d: Design, label: string, rect: { x: number; y: number; w: number; h: number }, parent?: string, kind: GroupKind = "boundary"): string {
   const id = uniqueId(d, label, "group");
   const g: DesignGroup = { id, label, kind, style: "dashed", ...rect };

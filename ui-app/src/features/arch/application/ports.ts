@@ -29,8 +29,9 @@ export interface Workspace {
   prompt(message: string, initial: string): string | null;
 }
 
-/** Quem desenha. `all` = tudo; `canvas` = só o SVG; `inspector` = só o painel lateral. */
-export type Repaint = "all" | "canvas" | "inspector";
+/** Quem desenha. `all` = tudo; `canvas` = só o SVG; `drag` = só o SVG, a meio de um arrasto
+ *  (setas rectas, sem encaminhar: barato a cada movimento do rato); `inspector` = só o painel. */
+export type Repaint = "all" | "canvas" | "drag" | "inspector";
 
 export interface ArchStudioDeps {
   gateway: ArchGateway;

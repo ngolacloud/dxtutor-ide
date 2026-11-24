@@ -10,6 +10,13 @@ const threshold = ownedGlobal<number>("THRESH", 85, (next, prev) => bus.emit("ag
 const provider = ownedGlobal<string>("ACTIVE", "claude", (next, prev) => bus.emit("agent:provider", { provider: next, prev }));
 const context = ownedGlobal<boolean>("CTX_ON", true, (next) => bus.emit("agent:context", { enabled: next }));
 const persona = ownedGlobal<string>("AGENT", "lead", (next, prev) => bus.emit("agent:persona", { persona: next, prev }));
+/* cada avaliação começa no valor inicial (ADR-0004, U4j5a): numa reavaliação (o harness dos testes reavalia os módulos
+   a cada teste) o acessor herdaria o valor que ficou no window; era o app.ts que repunha o MODE/ACTIVE/THRESH/CTX_ON no arranque. Na app, que
+   avalia uma vez, é o valor que já tem — sem efeito. */
+mode.set("assist");
+threshold.set(85);
+provider.set("claude");
+context.set(true);
 
 /* colecções (U3c): o app.ts cria-as e publica-as; o acessor adopta o mesmo objecto */
 export interface Provider {

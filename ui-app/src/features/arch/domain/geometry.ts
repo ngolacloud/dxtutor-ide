@@ -4,7 +4,7 @@
    raiz, com barra de título), o alvo de uma largada (o grupo mais fundo debaixo do ponto)
    e o sítio livre para um elemento novo. PURO: sem DOM, sem window. */
 
-import { ancestry, depth, findGroup, viewOfGroup } from "./design";
+import { ancestry, depth, findGroup, isPanelBody, viewOfGroup } from "./design";
 import type { Design, DesignNode, Rect } from "./types";
 
 export const NODE_W = 150;
@@ -184,3 +184,13 @@ export function borderPoint(r: Rect, toward: { x: number; y: number }): { x: num
   const k = Math.min(dx ? (r.w / 2) / Math.abs(dx) : Infinity, dy ? (r.h / 2) / Math.abs(dy) : Infinity);
   return { x: c.x + dx * k, y: c.y + dy * k };
 }
+
+/** A etiqueta-pílula de um grupo: centrada sobre a linha de topo do rectângulo desenhado. */
+export function pillRect(label: string, r: Rect): Rect {
+  const w = Math.max(44, label.length * 10.5 * 0.6 + 22);
+  return { x: r.x + r.w / 2 - w / 2, y: r.y - 10, w, h: 20 };
+}
+
+/** As pílulas desenhadas (os corpos de painel não têm). */
+export const groupPills = (d: Design, l: Layout): Rect[] =>
+  d.groups.filter((g) => !isPanelBody(d, g) && l.groups.has(g.id)).map((g) => pillRect(g.label, l.groups.get(g.id)!));

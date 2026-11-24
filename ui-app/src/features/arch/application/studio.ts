@@ -15,6 +15,7 @@ import {
   parseDesign, relationFor, relationTakesEvent, removeComponent, removeConnection, removeGroup, removeView,
   setGroupParent, setGroupView, toArchitecture, isEventKind,
 } from "../domain/design";
+import { autoLayout } from "../domain/autolayout";
 import { center, freeGroupSpot, freeSpot, groupAt, layout, panelAt } from "../domain/geometry";
 import type {
   ArchConnection, ArchFinding, ArchKind, ArchView, Design, DesignGroup, DesignNode, GroupKind, GroupStyle, Selection,
@@ -306,6 +307,19 @@ export function makeArchStudio(deps: ArchStudioDeps) {
       changed();
     },
 
+    // ── auto-layout ──
+    /** Arruma tudo por camadas, de cima para baixo. Substitui as posições à mão: pede
+     *  confirmação quando já há componentes. */
+    arrange(confirmed = false): boolean {
+      if (!s.design.components.length && !s.design.groups.length) return false;
+      if (!confirmed && !workspace.confirm("Lay out the whole design top to bottom? The positions you set by hand will be replaced.")) return false;
+      const next = autoLayout(s.design);
+      s.design.components = next.components;
+      s.design.groups = next.groups;
+      changed();
+      return true;
+    },
+
     // ── arrastar e redimensionar ──
     /** Arrastar um cartão: move sem guardar (a gravação é no fim, em `endMove`). */
     move(id: string, x: number, y: number): void {
@@ -313,7 +327,7 @@ export function makeArchStudio(deps: ArchStudioDeps) {
       if (!n) return;
       n.x = x;
       n.y = y;
-      repaint("canvas");
+      repaint("drag");
     },
     /** Fim de arrasto de um cartão: fica no grupo mais fundo debaixo do seu centro. */
     endMove(id?: string): void {
@@ -331,11 +345,12 @@ export function makeArchStudio(deps: ArchStudioDeps) {
         }
       }
       save();
+      repaint("canvas"); // as setas voltam a ser encaminhadas
     },
     moveGroup(id: string, dx: number, dy: number): void {
       if (!group(id)) return;
       shiftGroup(id, dx, dy);
-      repaint("canvas");
+      repaint("drag");
     },
     /** Fim de arrasto de um grupo: o pai passa a ser o grupo mais fundo debaixo do seu
      *  centro (fora dele próprio e dos seus); sem pai, entra no painel que o contém. */
@@ -358,16 +373,18 @@ export function makeArchStudio(deps: ArchStudioDeps) {
       const after = JSON.stringify([g.parent ?? null, s.design.views.map((v) => v.roots)]);
       if (after !== before) { changed(); return; }
       save();
+      repaint("canvas");
     },
     resizeGroup(id: string, w: number, h: number): void {
       const g = group(id);
       if (!g) return;
       g.w = Math.max(80, w);
       g.h = Math.max(50, h);
-      repaint("canvas");
+      repaint("drag");
     },
     endResize(): void {
       save();
+      repaint("canvas");
     },
 
     // ── selecção e ligação ──
