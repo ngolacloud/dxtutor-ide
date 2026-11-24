@@ -20,6 +20,10 @@ export interface LspPort {
   documentSymbols(path: string): Promise<unknown>;
   /** `workspace/symbol` em cada servidor que já corre na pasta `root`: `[{ language, result }]`. */
   workspaceSymbols(root: string, query: string): Promise<unknown>;
+  /** O tipo no cursor: `{ supported, items }` (`supported: false` se o servidor não tem hierarquia de tipos). */
+  prepareTypeHierarchy(path: string, line: number, character: number): Promise<unknown>;
+  /** Os supertipos ou subtipos de um `TypeHierarchyItem` (devolvido tal como veio). */
+  typeHierarchy(path: string, item: unknown, direction: "supertypes" | "subtypes"): Promise<unknown>;
   /** Formata o documento (`range` nulo) ou só o intervalo; `null` se o servidor não formatou. */
   format(path: string, tabSize: number, insertSpaces: boolean, range: { start: { line: number; character: number }; end: { line: number; character: number } } | null): Promise<unknown>;
   executeCommand(path: string, command: string, args: unknown[] | null): Promise<unknown>;

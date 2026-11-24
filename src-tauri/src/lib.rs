@@ -1028,6 +1028,8 @@ pub fn run() {
             lsp::lsp_format,
             lsp::lsp_document_symbols,
             lsp::lsp_workspace_symbols,
+            lsp::lsp_prepare_type_hierarchy,
+            lsp::lsp_type_hierarchy,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,
