@@ -56,7 +56,11 @@ import {
   agentAvailable, agentStory,
 } from "./board/infrastructure/legacy-bridge";
 import { translator } from "../app/i18n";
-import { BOARD_ENGINE_MESSAGES } from "./board/application/messages";
+import { BOARD_ENGINE_MESSAGES, type BoardEngineKey } from "./board/application/messages";
+import { BOARD_DESKTOP_MESSAGES, type BoardDesktopKey } from "./board/application/desktop-messages";
+
+/* o motor recebe uma só porta `copy`: os textos migrados (pares do motor) e os novos (desktop) */
+const tbe = translator(BOARD_ENGINE_MESSAGES), tbd = translator(BOARD_DESKTOP_MESSAGES);
 import { BOARD_MESSAGES } from "./board/ui/messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOARD_MESSAGES);
@@ -86,7 +90,7 @@ async function loadBoardForFolder(): Promise<void> {
     if (dto) { const got = fromBacklogDto(dto); BL.issues.push(...got.issues); BL.seq = got.seq; }
     boardSaved = JSON.stringify(toBacklogDto(BL));
     boardLoadedFor = r;
-  } catch (e) { log("board", "não consegui ler o backlog desta pasta: " + (e instanceof Error ? e.message : String(e))); }
+  } catch (e) { log("board", tbd("readFail", { error: e instanceof Error ? e.message : String(e) })); }
   rerender("board");
   if (pane() === "tasks" && panes().tasks) panes().tasks();
 }
@@ -98,7 +102,7 @@ function saveBoardSoon(): void {
     const dto = toBacklogDto(BL), json = JSON.stringify(dto);
     if (json === boardSaved) return;
     boardSaved = json;
-    tauriBoard().save(r, dto).catch((e) => { boardSaved = ""; log("board", "não consegui gravar o backlog: " + (e instanceof Error ? e.message : String(e))); });
+    tauriBoard().save(r, dto).catch((e) => { boardSaved = ""; log("board", tbd("saveFail", { error: e instanceof Error ? e.message : String(e) })); });
   }, 400);
 }
 document.addEventListener("dx:workspace", () => { void loadBoardForFolder(); });
@@ -108,7 +112,7 @@ for (const ev of ["click", "change", "drop"]) document.addEventListener(ev, save
    (application). O motor fica puro (sem window/DOM); o `window`/DOM ficam deste lado. O
    estado BL é a MESMA referência que `backlog()` do bridge devolve (window.BL). ───── */
 const engine = makeBoardEngine({
-  copy: translator(BOARD_ENGINE_MESSAGES),
+  copy: (k, p) => (k in BOARD_DESKTOP_MESSAGES.en ? tbd(k as BoardDesktopKey, p) : tbe(k as BoardEngineKey, p)),
   store: { backlog: () => backlog(), design: () => design(), saveDesign: () => saveDesign() },
   catalog: { tech: () => tech(), kind: () => kindTable(), cloud: () => cloudTable(), isApp: (n) => isApp(n), nodeSlug: (n) => nodeSlug(n), appDir: (n) => appDir(n), root: () => root() },
   generators: { validateDesign: () => validateDesign() },

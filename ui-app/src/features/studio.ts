@@ -36,8 +36,10 @@ import { driftReport, DSTY, ENVL } from "./infra";
 import { translator } from "../app/i18n";
 import { STUDIO_MESSAGES } from "./studio.messages";
 import { services } from "../app/services";
+import { STUDIO_DESKTOP_MESSAGES } from "./studio.desktop-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(STUDIO_MESSAGES);
+const txd = translator(STUDIO_DESKTOP_MESSAGES);
 
 /* fachada do único global da infra que o drift lê (escrito pela acção studio:drift) */
 const G = window as unknown as { DRIFT: string | null };
@@ -63,7 +65,7 @@ function loadSD(): { nodes: any[]; edges: string[][] } {
     const f = FS[P_STUDIO()];
     if (!f) return emptyDesign();
     try { const d = JSON.parse(f.content); if (validDesign(d)) return d; } catch { /* inválido */ }
-    log('studio', '.dxtutor/studio.json não é um desenho válido — o Studio abre vazio');
+    log('studio', txd('invalidDesign'));
     return emptyDesign();
   }
   const d = LS.get('studio4', null);

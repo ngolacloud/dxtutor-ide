@@ -23,6 +23,8 @@ import type {
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
+import type { ReplyLanguage } from "../domain/reply-language";
+import type { CodevCopy } from "./messages";
 import type { AgentEvent, AgentOrigin, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
@@ -220,6 +222,8 @@ export interface ApprovalGate {
 /* ───────── composed dependency bundles handed to the use cases ───────── */
 
 export interface ToolDeps {
+  /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
+  copy?: CodevCopy;
   workspace: Workspace;
   terminal: Terminal;
   providers: ProviderGateway;
@@ -281,6 +285,8 @@ export interface AgentGateway {
 }
 
 export interface AgentChatDeps {
+  /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
+  copy?: CodevCopy;
   gateway: AgentGateway;
   presenter: ChatPresenter;
   gate: ApprovalGate;
@@ -327,6 +333,8 @@ export interface HunkSink {
 export interface HunkReviewDeps {
   /** RF-E07: a hunk was applied to `path`; `before` is the file's text it replaced (Ctrl+Z). */
   applied?(path: string, before: string): void;
+  /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
+  copy?: CodevCopy;
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
   flush(): Promise<void>;
   reloadFromDisk(): Promise<void>;
@@ -364,6 +372,8 @@ export interface LiveDeps {
   setLiveOk(): void;
   refresh(): void;
   tool: (t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal) => Promise<unknown>;
+  /** A língua da interface: o modelo responde nela (`domain/reply-language`); sem ela, português. */
+  replyLanguage?(): ReplyLanguage;
 }
 
 

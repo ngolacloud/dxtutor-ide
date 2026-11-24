@@ -1,15 +1,17 @@
 // Caso de uso agent-chat (ADR-0003, F4) com fakes: gateway guionado, presenter que
 // regista chamadas e gate que escolhe um botão. Sem DOM, sem Tauri.
 import { test, expect, vi } from "vitest";
+import { translator } from "../src/app/i18n";
+import { CODEV_ENGINE_MESSAGES } from "../src/features/codev/application/messages";
 import { makeAgentChat } from "../src/features/codev/application/agent-chat";
 import type { AgentChatDeps, AgentGateway } from "../src/features/codev/application/ports";
 import type { AgentEvent, ApprovalRequest, HistoryItem, SessionSummary } from "../src/features/codev/domain/agent-events";
-import { isAgentProvider, isNoToolsError, parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago, parseExtensions, storyPrompt } from "../src/features/codev/domain/agent-events";
+import { isAgentProvider, isNoToolsError, parseAgentEvent, parseApproval, describeCall, summarizeResult, describeSession, parseSessions, parseHistory, ago, parseExtensions } from "../src/features/codev/domain/agent-events";
 import { costUSD, formatUsage } from "../src/features/codev/domain/pricing";
 
 type H = Parameters<AgentGateway["subscribe"]>[0];
 
-function setup(choice: unknown = "allow") {
+function setup(choice: unknown = "allow", extra: Partial<AgentChatDeps> = {}) {
   const prov = { id: "claude", model: "claude-opus-5-5" };
   let h!: H;
   const calls: string[] = [];
@@ -89,6 +91,7 @@ function setup(choice: unknown = "allow") {
     speaker: () => "co-dev · agente",
     nowSecs: () => 10_000,
     openDiff: vi.fn(),
+    ...extra,
   };
   const chat = makeAgentChat(deps);
   const emit = (e: AgentEvent, s = "S1") => h.event(s, e);
@@ -419,7 +422,26 @@ test("F7: parse do estado das extensões e pedido de uma correcção", () => {
   expect(x.mcp).toEqual({ present: false, trusted: false });
   expect(x.mcpServers).toEqual(["s"]);
   expect(parseExtensions(null).commands).toEqual([]);
-  expect(storyPrompt({ id: "DX-1", title: "t", type: "fix", pts: 1 })).toContain("(correcção, 1 pontos)");
+});
+
+test("i18n: com a porta copy (a interface em inglês), o pedido da issue e as notas saem em inglês", async () => {
+  const copy = translator(CODEV_ENGINE_MESSAGES);
+  const t = setup("allow", { copy });
+  t.setScript(() => t.emit(done()));
+  await t.chat.story({ id: "DX-1", title: "t", type: "fix", pts: 1 });
+  const sent = (t.gateway.send as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+  expect(sent).toContain("Implement issue DX-1 from the Board: «t» (fix, 1 points).");
+  expect(sent).toContain("exit_plan");
+  t.setScript(() => t.emit({ kind: "done", outcome: { type: "cancelled" } } as AgentEvent));
+  await t.chat.send("x");
+  expect(t.calls).toContain("note outcome Interrupted by you. The history is consistent: you can carry on.");
+});
+
+test("sem a porta copy (fakes antigos), os textos ficam os de antes: uma correcção é «correcção»", async () => {
+  const t = setup();
+  t.setScript(() => t.emit(done()));
+  await t.chat.story({ id: "DX-1", title: "t", type: "fix", pts: 1 });
+  expect((t.gateway.send as ReturnType<typeof vi.fn>).mock.calls[0][1]).toContain("(correcção, 1 pontos)");
 });
 
 test("F8: o provedor activo vai ao backend e mudar de modelo abre outra sessão", async () => {

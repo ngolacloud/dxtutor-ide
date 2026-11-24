@@ -21,11 +21,53 @@ const MAX_FILE_BYTES: usize = 40 * 1024;
 /// Tamanho máximo do conjunto das instruções do projecto.
 const MAX_TOTAL_BYTES: usize = 120 * 1024;
 
-/// O núcleo do Co-Dev: como trabalha e o que nunca faz. Sem nada que mude por sessão.
+/// Em que língua o Co-Dev responde ao humano: a da interface (o `LOCALE` da UI), escolhida
+/// quando a sessão começa. As instruções ao modelo continuam em português; só a regra da
+/// resposta muda. Sem língua (UIs antigas, testes) fica o português, como antes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReplyLang {
+    #[default]
+    Pt,
+    En,
+}
+
+impl ReplyLang {
+    /// O código da UI (`en`, `ptAO`, …) → língua da resposta; desconhecido → português.
+    pub fn from_ui(code: Option<&str>) -> Self {
+        match code.map(|c| c.trim().to_ascii_lowercase()) {
+            Some(c) if c == "en" || c.starts_with("en-") || c.starts_with("en_") => ReplyLang::En,
+            _ => ReplyLang::Pt,
+        }
+    }
+
+    /// A regra do núcleo do system prompt.
+    pub fn core_rule(self) -> &'static str {
+        match self {
+            ReplyLang::Pt => "Respondes em português (ortografia pré-AO90), de forma curta e concreta.",
+            ReplyLang::En => "You always answer the human in English, briefly and concretely (even though these instructions are in Portuguese).",
+        }
+    }
+
+    /// A frase curta que fecha os briefs dos sub-agentes.
+    pub fn reply_rule(self) -> &'static str {
+        match self {
+            ReplyLang::Pt => "Responde em português.",
+            ReplyLang::En => "Answer in English.",
+        }
+    }
+}
+
+/// O núcleo do Co-Dev em português (a língua por omissão).
 pub fn core_prompt() -> String {
-    "És o Co-Dev do dxtutor IDE: um co-programador sénior que trabalha orientado por um \
-     programador humano, dentro do projecto aberto. Respondes em português (ortografia \
-     pré-AO90), de forma curta e concreta.\n\
+    core_prompt_in(ReplyLang::Pt)
+}
+
+/// O núcleo do Co-Dev: como trabalha e o que nunca faz. Só muda com a língua da resposta,
+/// escolhida no início da sessão (e gravada com ela).
+pub fn core_prompt_in(lang: ReplyLang) -> String {
+    format!(
+        "És o Co-Dev do dxtutor IDE: um co-programador sénior que trabalha orientado por um \
+     programador humano, dentro do projecto aberto. {}\n\
      \n\
      Como trabalhas:\n\
      - Lê antes de alterar: usa read/grep/glob para perceber o código antes de editar.\n\
@@ -40,8 +82,9 @@ pub fn core_prompt() -> String {
      - Em tarefas grandes, podes começar por propor um plano; em trabalho com vários passos, \
      regista-os com `todo_write`.\n\
      - Memória do projecto: guarda em `.dxtutor/memory/` (markdown) decisões e factos \
-     duradouros que valha a pena lembrar noutra conversa; é lida no início de cada sessão."
-        .to_string()
+     duradouros que valha a pena lembrar noutra conversa; é lida no início de cada sessão.",
+        lang.core_rule()
+    )
 }
 
 /// Lê as instruções do projecto em `root` (só os ficheiros que existem), cortando
@@ -108,11 +151,16 @@ pub fn project_instructions(root: &Path) -> Option<String> {
     })
 }
 
+/// O system prompt de uma sessão nova, em português (ver [`system_prompt_in`]).
+pub fn system_prompt(root: &Path) -> Vec<SystemBlock> {
+    system_prompt_in(root, ReplyLang::Pt)
+}
+
 /// O system prompt de uma sessão nova: núcleo + instruções do projecto, com o breakpoint
 /// de cache no fim (cobre ferramentas + system).
-pub fn system_prompt(root: &Path) -> Vec<SystemBlock> {
+pub fn system_prompt_in(root: &Path, lang: ReplyLang) -> Vec<SystemBlock> {
     let mut v = vec![SystemBlock {
-        text: core_prompt(),
+        text: core_prompt_in(lang),
         cache: false,
     }];
     if let Some(p) = project_instructions(root) {
@@ -175,6 +223,23 @@ mod tests {
         let p = &system_prompt(d.path())[1].text;
         assert!(p.find("memory/a.md").unwrap() < p.find("memory/b.md").unwrap());
         assert!(!p.contains("ignorado"));
+    }
+
+    #[test]
+    fn the_reply_language_follows_the_interface() {
+        let d = tempfile::tempdir().unwrap();
+        let pt = &system_prompt(d.path())[0].text;
+        assert!(pt.contains("Respondes em português (ortografia pré-AO90)"));
+        assert_eq!(
+            system_prompt(d.path()),
+            system_prompt_in(d.path(), ReplyLang::Pt)
+        );
+        let en = &system_prompt_in(d.path(), ReplyLang::En)[0].text;
+        assert!(en.contains("answer the human in English"));
+        assert!(!en.contains("Respondes em português"));
+        assert_eq!(ReplyLang::from_ui(Some("en")), ReplyLang::En);
+        assert_eq!(ReplyLang::from_ui(Some("ptAO")), ReplyLang::Pt);
+        assert_eq!(ReplyLang::from_ui(None), ReplyLang::Pt);
     }
 
     #[test]

@@ -35,6 +35,7 @@ import { bindActions, type ActionTable } from "./debug/ui/actions";
 import { inlineValues as computeInline, type BpMeta } from "./debug/domain/dap";
 import { bpLabel, bpMenu, dapButtons, dapExtras, dapStopped, outputBlock } from "./debug/ui/dap-view";
 import { DAP_MESSAGES, type DapKey } from "./debug/ui/dap-messages";
+import { DEBUG_ENGINE_MESSAGES } from "./debug/application/messages";
 import { translator } from "../app/i18n";
 import { codevAsk } from "../app/codev-ask";
 import { inlineValues } from "../app/inline-values";
@@ -131,6 +132,7 @@ const engine = makeDebugEngine({
   bpMeta: BPMETA,
   say: sayD,
   kubeTarget: () => kubeTarget(),
+  copy: translator(DEBUG_ENGINE_MESSAGES),
 });
 const { startDebug, dbgContinue, dbgStep, dbgStop, toggleBp } = engine;
 /** A10: «Debug: Attach to a Process…» (a paleta importa-o; não vai para o window). */

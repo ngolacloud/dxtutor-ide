@@ -12,6 +12,7 @@
    corre sem browser. A regra de dependências aponta para dentro: as portas importam
    `domain/`, nunca o contrário. (Verificado por A7/A8 do `arch-check`.) */
 import type { InfraEngineKey } from "./messages";
+import type { InfraDesktopKey } from "./desktop-messages";
 
 import type {
   Design, DesignNode, Envs, EnvX, Files, K8sState, KindSpec, TechSpec, Commit,
@@ -117,7 +118,7 @@ export interface EnvCluster {
 export interface InfraDeps {
   /** Os textos que o motor emite, na língua da interface (ADR-0004, U6c): a composição injecta `translator(…)`;
    *  o motor não conhece o `window` nem o motor de tradução. */
-  copy: (key: InfraEngineKey, params?: Record<string, string | number>) => string;
+  copy: (key: InfraEngineKey | InfraDesktopKey, params?: Record<string, string | number>) => string;
   state: State;
   catalog: CatalogPort;
   workspace: Workspace;

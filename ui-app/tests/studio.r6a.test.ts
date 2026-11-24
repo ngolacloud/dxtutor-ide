@@ -70,7 +70,7 @@ describe("com pasta (desktop)", () => {
     w.FS[P()] = { content: "{oops", orig: null };
     const log = vi.spyOn(w, "log");
     expect(SM.loadSD()).toEqual({ nodes: [], edges: [] });
-    expect(log).toHaveBeenCalledWith("studio", expect.stringMatching(/não é um desenho válido/));
+    expect(log).toHaveBeenCalledWith("studio", expect.stringMatching(/is not a valid design/));
   });
 
   it("«Clear design» esvazia o desenho e grava-o no projecto", () => {

@@ -240,10 +240,19 @@ except SyntaxError as e:
     print(json.dumps({"error": f"SyntaxError: {e.msg} (line {e.lineno})"})); sys.exit(0)
 out = {}
 def walk(c, scope):
+    cur = None
     for ins in dis.get_instructions(c):
-        n = getattr(ins, "line_number", None)
-        if n is None and ins.positions is not None:
-            n = ins.positions.lineno
+        n = getattr(ins, "line_number", None)  # 3.13+
+        if n is None:
+            pos = getattr(ins, "positions", None)  # 3.11+
+            if pos is not None and pos.lineno:
+                n = pos.lineno
+        if n is None:
+            # 3.8-3.10: only the first instruction of a line carries it (`starts_line`)
+            sl = ins.starts_line
+            if isinstance(sl, int) and not isinstance(sl, bool) and sl:
+                cur = sl
+            n = cur
         if not n:
             continue
         key = (scope, n)
@@ -468,8 +477,15 @@ pub fn measure_growth(code: &str, sizes: &[u64]) -> Growth {
     finish(samples, String::new(), baseline)
 }
 
+/// Below this (after taking off the start-up time) a run is start-up noise, not the work: such
+/// sizes stay in the samples but out of the fit. Measured on the CI runner: n = 2000 of a
+/// quadratic loop came out at 0.001 ms, and that one point turned O(n²) into O(n³).
+const MIN_FIT_MS: f64 = 1.0;
+
 fn finish(samples: Vec<GrowthSample>, notes: String, baseline_ms: f64) -> Growth {
-    let pts: Vec<crate::complexity::Sample> = samples
+    let (fit, tiny): (Vec<&GrowthSample>, Vec<&GrowthSample>) =
+        samples.iter().partition(|s| s.ms >= MIN_FIT_MS);
+    let pts: Vec<crate::complexity::Sample> = fit
         .iter()
         .map(|s| crate::complexity::Sample {
             n: s.n as f64,
@@ -482,10 +498,21 @@ fn finish(samples: Vec<GrowthSample>, notes: String, baseline_ms: f64) -> Growth
         None
     };
     let ok = est.is_some();
-    let notes = if !ok && notes.is_empty() {
-        "Too few runs to fit a class.".into()
+    let left_out = if tiny.is_empty() {
+        String::new()
     } else {
-        notes
+        let ns: Vec<String> = tiny.iter().map(|s| format!("n = {}", s.n)).collect();
+        format!(
+            "{} ran in under {MIN_FIT_MS} ms after start-up — too fast to time, left out of the fit.",
+            ns.join(", ")
+        )
+    };
+    let notes = match (ok, notes.is_empty(), left_out.is_empty()) {
+        (false, true, true) => "Too few runs to fit a class.".into(),
+        (false, true, false) => format!("{left_out} Give larger sizes."),
+        (_, _, true) => notes,
+        (_, true, false) => left_out,
+        (_, false, false) => format!("{notes} {left_out}"),
     };
     Growth {
         ok,
@@ -580,6 +607,39 @@ mod tests {
         assert!(b.lines.iter().any(|l| l.line == 4 && l.scope == "<module>"));
         let bad = python_bytecode("def x(:\n");
         assert!(!bad.ok && bad.notes.contains("SyntaxError"));
+    }
+
+    #[test]
+    fn growth_leaves_runs_faster_than_start_up_out_of_the_fit() {
+        // the CI runner's numbers: n = 2000 at 0.001 ms (start-up noise) made a quadratic loop fit O(n³)
+        let s = |n: u64, ms: f64| GrowthSample { n, ms };
+        let g = finish(
+            vec![
+                s(2000, 0.001),
+                s(4000, 4.106),
+                s(8000, 18.518),
+                s(12000, 45.266),
+                s(16000, 78.315),
+            ],
+            String::new(),
+            2.13,
+        );
+        assert!(g.ok, "{}", g.notes);
+        assert_eq!(g.big_o.as_deref(), Some("O(n²)"), "{g:?}");
+        assert_eq!(g.samples.len(), 5, "the fast size stays in the samples");
+        assert!(
+            g.notes.contains("n = 2000") && g.notes.contains("left out"),
+            "{}",
+            g.notes
+        );
+        // too few left to fit
+        let few = finish(
+            vec![s(1, 0.001), s(2, 0.002), s(3, 2.0), s(4, 4.0), s(5, 6.0)],
+            String::new(),
+            1.0,
+        );
+        assert!(!few.ok);
+        assert!(few.notes.contains("Give larger sizes"), "{}", few.notes);
     }
 
     #[test]

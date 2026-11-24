@@ -11,6 +11,7 @@
 
 import type { Frame, Session, Stop, Var } from "../domain/session";
 import type { BpMeta, BreakpointSpec, DapThread, LaunchInfo, VarNode, Watch } from "../domain/dap";
+import type { DebugCopy } from "./messages";
 
 /** O motor de depuração do backend (gdb/MI), por sessão. */
 export interface DebugPort {
@@ -129,6 +130,8 @@ export interface DebugDeps {
   kubeTarget?: () => { context: string; namespace: string; kubeconfig: string } | null;
   /** the texts of the A7 messages (the view's catalog) */
   say?: (key: string, params?: Record<string, string | number>) => string;
+  /** the texts of the session messages in the interface language (`./messages`); without it, Portuguese */
+  copy?: DebugCopy;
 }
 
 /** A superfície que o motor devolve. */

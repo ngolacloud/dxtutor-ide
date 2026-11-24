@@ -12,9 +12,15 @@ import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { devcontainerClient } from "../tauri/devcontainer";
 import { parseClusterState, deploymentsIn, ANN_VER, ANN_AT } from "../../features/infra/domain/environments";
-import { parseDockerStats, parseKubectlTop } from "../../features/infra/domain/observability";
+import { parseDockerStats, parseKubectlTop, type ObsText } from "../../features/infra/domain/observability";
 import type { EnvState, ObsTarget } from "../../features/infra/domain/types";
 import type { DesktopContext } from "./context";
+import { translator } from "../../app/i18n";
+import { DESKTOP_MESSAGES } from "./desktop-messages";
+
+const tdk = translator(DESKTOP_MESSAGES);
+/** os erros das amostras de observabilidade na língua da interface (o domínio recebe-os por parâmetro) */
+const obsText = (): ObsText => ({ noSample: tdk("obsNoSample"), badStats: tdk("obsBadStats"), noCpuMem: tdk("obsNoCpuMem"), noPods: tdk("obsNoPods") });
 
 export function installInfra(ctx: DesktopContext): void {
 const { R, fsx, sh, escH, say, idle } = ctx;
@@ -37,7 +43,7 @@ async function readNs(ctxName: string, ns: string): Promise<EnvState | null> {
   const [dep, pods, ing] = await Promise.all([get("deploy"), get("pods"), get("ingress")]);
   /* a última linha é a mensagem do kubectl (as de cima são o registo do klog) */
   if (dep.code !== 0) throw new Error(String(dep.stderr || "kubectl falhou").trim().split("\n").pop());
-  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "");
+  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "", tdk("lastEnd"));
   if (!st.deps.length) return null;
   return { ver: st.ver, at: st.at, ingress: st.ingress, deps: st.deps.map(d => ({ n: d.n, rep: d.rep, ready: d.ready, status: d.err ? "crash" : "ok", err: d.err ?? null, restarts: d.restarts ?? 0, img: d.img })) };
 }
@@ -46,7 +52,7 @@ async function readK8s(): Promise<void> {
   const get = (what: string) => sh("kubectl", ["--context", ENVS.ctx, "-n", ENVS.ns, "get", what, "-o", "json"], { env: envFor(), timeout: 20000 });
   const [dep, pods, ing] = await Promise.all([get("deploy"), get("pods"), get("ingress")]);
   if (dep.code !== 0) return;
-  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "");
+  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "", tdk("lastEnd"));
   K8S = st.deps.length ? { docs: k8sDocs(), deps: st.deps, ver: st.ver, at: st.at, ingress: st.ingress } : null;
 }
 /* ───── ajudas da observabilidade (R5c2) ───── */
@@ -78,7 +84,7 @@ const human = (n: unknown): string => { if (typeof n !== "number") return String
 async function drawContainers(): Promise<void> {
   const host = document.getElementById("dk-containers"), imgs = document.getElementById("dk-images");
   if (!host || !imgs) return;
-  if (!ENVS.rtOn) { host.innerHTML = '<div class="sec-empty">Sem runtime de contentores ligado. Liga o socket do Docker ou do Podman em Infra.</div>'; imgs.innerHTML = ""; return; }
+  if (!ENVS.rtOn) { host.innerHTML = `<div class="sec-empty">${tdk("noRuntime")}</div>`; imgs.innerHTML = ""; return; }
   host.innerHTML = '<div class="sec-empty">A ler os contentores…</div>';
   const [ps, im] = await Promise.all([
     sh(rtBin(), ["ps", "-a", "--format", "json"], { env: envFor(), timeout: 20000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) })),
@@ -88,11 +94,11 @@ async function drawContainers(): Promise<void> {
   const rows = jsonRows(ps.stdout).map((c: any) => ({ name: Array.isArray(c.Names) ? c.Names[0] : String(c.Names || c.Name || c.ID || ""), image: String(c.Image || ""), state: String(c.State || "").toLowerCase(), status: String(c.Status || c.State || "") }));
   host.innerHTML = rows.length
     ? rows.map(c => `<div class="row dk-row sub" title="${escH(c.image)}"><span class="ct-dot" style="background:${c.state === "running" ? "var(--green)" : "var(--fg-muted)"}"></span><span class="nm dk-fixed notr">${escH(c.name)}</span><span class="pth dk-path notr">${escH(c.image)} · ${escH(c.status)}</span></div>`).join("")
-    : '<div class="sec-empty">Nenhum contentor.</div>';
+    : `<div class="sec-empty">${tdk("noContainers")}</div>`;
   const irows = im.code === 0 ? jsonRows(im.stdout).map((x: any) => ({ name: x.Repository ? `${x.Repository}:${x.Tag}` : Array.isArray(x.Names) && x.Names[0] ? x.Names[0] : String(x.Id || x.ID || "").slice(0, 19), size: human(x.Size) })) : [];
   imgs.innerHTML = irows.length
     ? irows.map(x => `<div class="row dk-row"><span class="nm notr">${escH(x.name)}</span><span class="pth notr">${escH(x.size)}</span></div>`).join("")
-    : '<div class="sec-empty">Nenhuma imagem.</div>';
+    : `<div class="sec-empty">${tdk("noImages")}</div>`;
 }
 RP.containers = () => { void drawContainers(); };
 R.drawContainers = () => drawContainers();
@@ -178,20 +184,20 @@ dcAttach(_dcAttach) {
   const root = R.root, pDc = (window as unknown as { P_DC: string }).P_DC;
   if (!FS[pDc]) writeFile(pDc, (window as unknown as { devcontainerJson: () => string }).devcontainerJson());
   flushSave();
-  setPanelTab("terminal", true); echoCmd("devcontainer up (sessão do projecto)");
+  setPanelTab("terminal", true); echoCmd(tdk("dcUpCmd"));
   void idle().then(async () => {
     try {
       const up = await devcontainerClient().sessionUp(root);
       const out = [up.ran ? `$ ${up.ran}` : "", up.stdout.trim(), up.stderr.trim()].filter(Boolean).join("\n");
       if (out) echo(`<span class="dim">${escH(out.slice(-4000))}</span>`);
-      if (!up.ok) { echo('<span class="er">o dev container não arrancou</span>'); toast("O dev container não arrancou — vê o terminal"); newInput(true); return; }
+      if (!up.ok) { echo(`<span class="er">${tdk("dcNotStarted")}</span>`); toast(tdk("dcNotStartedToast")); newInput(true); return; }
       const st = await devcontainerClient().sessionStatus(root).catch(() => ({ running: true, name: "" }));
       /* a sessão corre no motor de sandbox do backend (o mesmo da Learning Track), que pode não ser o
          runtime escolhido acima: diz-se qual, em vez de o trocar às escondidas */
       const engine = await devcontainerClient().engine().catch(() => "");
       const dv = { name: st.name || "dev container", image: up.image, engine };
       DEVC = dv;
-      echo(`<span class="ok">dev container ${escH(dv.name)} a correr em ${escH(engine || "?")} (${escH(up.image)}${up.built ? ", construída" : ""})</span>`); newInput(true);
+      echo(`<span class="ok">${tdk("dcRunning", { name: escH(dv.name), engine: escH(engine || "?"), image: escH(up.image), built: up.built ? tdk("dcBuilt") : "" })}</span>`); newInput(true);
       say(`dev container ${dv.name} up`); toast("Projecto ligado ao dev container");
     } catch (e) { echo(`<span class="er">${escH(String(e))}</span>`); newInput(true); toast("O dev container não arrancou"); }
     infraDraw();
@@ -200,7 +206,7 @@ dcAttach(_dcAttach) {
 dcDetach(_dcDetach) {
   if (!R.root) return _dcDetach();
   const root = R.root;
-  void devcontainerClient().sessionDown(root).then(() => { DEVC = null; say("dev container parado"); toast("Dev container parado"); infraDraw(); }, (e) => { toast("Não consegui parar o dev container: " + e); });
+  void devcontainerClient().sessionDown(root).then(() => { DEVC = null; say("dev container parado"); toast("Dev container parado"); infraDraw(); }, (e) => { toast(tdk("dcStopFail", { error: String(e) })); });
 },
 /* ───── o scale e o delete do Kubernetes com o kubectl real (ADR-0006, R5b) ───── */
 k8sScale(n, d, _k8sScale) {
@@ -243,12 +249,12 @@ obs: {
     if (t.via === "compose") {
       const ps = await sh(rtBin(), ["compose", "ps", "-q", t.n], { env: envFor(), timeout: 15000 }).catch(fail);
       const id = ps.stdout.trim().split("\n")[0];
-      if (ps.code !== 0 || !id) return { error: ps.code !== 0 ? lastLine(ps.stderr) : `${t.n} não está a correr` };
+      if (ps.code !== 0 || !id) return { error: ps.code !== 0 ? lastLine(ps.stderr) : tdk("notRunning", { name: t.n }) };
       const r = await sh(rtBin(), ["stats", "--no-stream", "--format", "json", id], { env: envFor(), timeout: 15000 }).catch(fail);
-      return r.code === 0 ? parseDockerStats(r.stdout) : { error: lastLine(r.stderr) };
+      return r.code === 0 ? parseDockerStats(r.stdout, obsText()) : { error: lastLine(r.stderr) };
     }
     const r = await sh("kubectl", [...kns(t), "top", "pod", "-l", await selectorOf(t), "--no-headers"], { env: envFor(), timeout: 15000 }).catch(fail);
-    return r.code === 0 ? parseKubectlTop(r.stdout) : { error: lastLine(r.stderr) };
+    return r.code === 0 ? parseKubectlTop(r.stdout, obsText()) : { error: lastLine(r.stderr) };
   },
   async logs(t) {
     const r = t.via === "compose"

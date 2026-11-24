@@ -6,6 +6,7 @@
    from `presenter.startAbort()` (wired to `RUN.abort`). */
 
 import type { LiveDeps, RuntimeTool, ToolHost } from "./ports";
+import { replyRule } from "../domain/reply-language";
 
 export function makeLiveChat(deps: LiveDeps) {
   const { workspace, providers, presenter, harness, chat, tool } = deps;
@@ -41,7 +42,7 @@ export function makeLiveChat(deps: LiveDeps) {
     const sys = `És o Co-Dev do dxtutor IDE: um co-programador sénior que entende requisitos, arquitectura, design system, padrões de projecto e base de dados. Trabalhas orientado por um programador humano.
 Modo de autonomia actual: ${deps.modeLabel()}. Em modo Manual as tuas edições e comandos podem ser rejeitados pelo humano.
 ${REAL ? "Tens ferramentas para listar, ler e escrever ficheiros do workspace e para correr os testes e o lint do projecto. Lê antes de editar. write_file recebe o conteúdo COMPLETO do ficheiro. Depois de editar, corre run_tests e design_lint, avalia o teu próprio resultado e corrige se falhar (no máximo 2 tentativas)." : "Tens ferramentas para listar, ler e escrever ficheiros do workspace. Lê antes de editar. write_file recebe o conteúdo COMPLETO do ficheiro. Nesta vista não há onde correr testes nem lint (só na app desktop com uma pasta aberta): não digas que os correste."}
-Responde em português (ortografia pré-AO90), de forma curta e concreta. Usa markdown simples.
+${replyRule(deps.replyLanguage?.() ?? "ptAO")} Usa markdown simples.
 
 Regras do projecto:
 ${deps.projectRules()}

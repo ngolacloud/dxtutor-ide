@@ -5,6 +5,8 @@
    answers in the chat (code may be shown there, RF-CODEV-STREAM §7) and changes nothing.
    Pure: no DOM, no window. */
 
+import { replyRule } from "./reply-language";
+
 export type AskIntent = "chat" | "explain" | "fix" | "change" | "review" | "plan";
 
 export interface AskContext {
@@ -45,17 +47,20 @@ export function defaultQuestion(intent: AskIntent): string {
   }
 }
 
-/** The text that goes to the composer for a request. */
-export const askText = (r: AskRequest): string => (r.text && r.text.trim() ? r.text.trim() : defaultQuestion(r.intent));
+/** The text that goes to the composer for a request. `fallback`: the default question in the interface
+ *  language (the use case passes it); without it, the Portuguese one. */
+export const askText = (r: AskRequest, fallback?: string): string =>
+  r.text && r.text.trim() ? r.text.trim() : fallback ?? defaultQuestion(r.intent);
 
-/** A request to explain: the question and its context, for a direct answer in the chat. */
-export function explainPrompt(r: AskRequest): string {
+/** A request to explain: the question and its context, for a direct answer in the chat. `rule`: the
+ *  language rule (`reply-language`); without it, Portuguese. `question`: as `askText`. */
+export function explainPrompt(r: AskRequest, rule: string = replyRule("ptAO"), question?: string): string {
   const ctx = r.context
     .map((c) => `<contexto tipo="${c.kind}" nome="${c.label.replace(/"/g, "'")}">\n${c.text ?? ""}\n</contexto>`)
     .join("\n\n");
   return (
-    `${askText(r)}\n\n${ctx}\n\n` +
-    "Responde em português (ortografia pré-AO90), de forma curta e concreta. É um pedido de explicação: " +
+    `${askText(r, question)}\n\n${ctx}\n\n` +
+    rule + " É um pedido de explicação: " +
     "podes mostrar código na resposta, mas não proponhas alterar ficheiros."
   ).trim();
 }

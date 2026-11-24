@@ -42,27 +42,34 @@ export function toMiB(q: string): number | undefined {
   return f[u] != null ? v * f[u] : undefined;
 }
 
+/** Os textos dos erros de uma amostra: o adaptador desktop passa os da língua da interface (o domínio não
+ *  conhece o tradutor); por omissão, os de sempre, em português. */
+export interface ObsText { noSample: string; badStats: string; noCpuMem: string; noPods: string }
+export const OBS_TEXT_PT: ObsText = {
+  noSample: "sem amostra", badStats: "resposta inesperada do stats", noCpuMem: "o stats não trouxe CPU nem memória", noPods: "nenhum pod com métricas",
+};
+
 /** Uma linha do `docker stats --no-stream --format json` (ou o array do `podman stats`). */
-export function parseDockerStats(out: string): ObsSample {
+export function parseDockerStats(out: string, tx: ObsText = OBS_TEXT_PT): ObsSample {
   const t = out.trim();
-  if (!t) return { error: "sem amostra" };
+  if (!t) return { error: tx.noSample };
   let row: Record<string, unknown>;
-  try { const v = JSON.parse(t.startsWith("[") ? t : t.split("\n")[0]); row = Array.isArray(v) ? v[0] || {} : v; } catch { return { error: "resposta inesperada do stats" }; }
+  try { const v = JSON.parse(t.startsWith("[") ? t : t.split("\n")[0]); row = Array.isArray(v) ? v[0] || {} : v; } catch { return { error: tx.badStats }; }
   const cpu = parseFloat(String(row.CPUPerc ?? row.cpu_percent ?? row.CPU ?? "").replace("%", ""));
   const mem = toMiB(String(row.MemUsage ?? row.mem_usage ?? "").split("/")[0]);
-  return Number.isFinite(cpu) || mem != null ? { cpu: Number.isFinite(cpu) ? cpu : undefined, mem } : { error: "o stats não trouxe CPU nem memória" };
+  return Number.isFinite(cpu) || mem != null ? { cpu: Number.isFinite(cpu) ? cpu : undefined, mem } : { error: tx.noCpuMem };
 }
 
 /** O `kubectl top pod --no-headers` (nome, CPU em millicores, memória): a soma dos pods, com a
  *  CPU em % de um núcleo (1000m = 100%). */
-export function parseKubectlTop(out: string): ObsSample {
+export function parseKubectlTop(out: string, tx: ObsText = OBS_TEXT_PT): ObsSample {
   let cpu = 0, mem = 0, rows = 0;
   out.split("\n").map((l) => l.trim().split(/\s+/)).filter((c) => c.length >= 3).forEach(([, c, m]) => {
     const mc = /m$/.test(c) ? parseFloat(c) : parseFloat(c) * 1000, mi = toMiB(m);
     if (Number.isFinite(mc)) { cpu += mc / 10; rows++; }
     if (mi != null) mem += mi;
   });
-  return rows ? { cpu, mem } : { error: "nenhum pod com métricas" };
+  return rows ? { cpu, mem } : { error: tx.noPods };
 }
 
 const LEVEL = /\b(FATAL|PANIC|ERROR|ERR|WARN(?:ING)?|INFO|DEBUG|TRACE|LOG)\b/i;
