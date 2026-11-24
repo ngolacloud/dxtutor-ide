@@ -156,6 +156,26 @@ bisect. Dos 13 comandos `git_*`, a UI usa 3 (`git_log`, `git_show`, `git_changes
 | SCM-06 heatmap, "quem conhece" | Ausente. | Agregação do blame por autor/idade (Rust). | S |
 | SCM-07 Co-Dev | Agente tem `git_status`/`git_diff` read-only; nada dedicado. | Acções "Explicar commit", "Mensagem de commit (inglês)", "Rever staged", "Bisect assistido" pelo contrato do item 6; o humano faz o commit. | M |
 
+**Estado após a A4 (2026-11-24):** feito —
+- **Backend:** `tutor_eval::gitx` corre o git real e lê a sua saída de máquina, validando os argumentos que vêm da UI.
+  Comandos `git_blame`, `git_history`, `git_show_path`, `git_compare`, `git_stash`, `git_worktree`, `git_rebase`,
+  `git_amend` (186 no total).
+- **SCM-01:** o blame da linha do cursor aparece no fim da linha (registo `app/line-annotation.ts`) e no `#st-blame`,
+  que deixa de ler o espelho; um clique abre o histórico dessa linha.
+- **SCM-04:** separador «File history», com os commits de um ficheiro (`--follow`) ou de linhas (`-L`) e o diff de cada um.
+- **SCM-06:** «Quem conhece este código» (linhas por autor e última vez) e o blame em blocos coloridos por idade.
+- **SCM-05:** «Compare» (à frente/atrás e os ficheiros desde a base comum); stashes e worktrees no pane (nunca remove a
+  worktree aberta nem a principal); «Amend», com segunda confirmação se o commit já estiver num remoto; rebase
+  interactivo (reordenar, pick/reword/squash/fixup/drop), que só corre depois de aprovado o comando exacto e é desfeito
+  se o git parar.
+- **SCM-07:** «Explicar este commit», «Escrever a mensagem de commit» (inglês, Conventional Commits) e «Rever o que está
+  staged», pelo `codev.ask`; o humano faz o commit.
+- **Onde aparece:** tudo só no desktop com repositório; no browser e nos goldens o pane fica igual. Os textos nascem com
+  chave (`features/scm/ui/git-messages.ts`, en + ptAO). Também se corrigiu o encolher das linhas do pane quando
+  transborda.
+- **Por fazer:** SCM-02 (CodeLens sobre blame + `symbol_relations`), SCM-03 (pesquisa e filtros no grafo, arrastar um
+  ramo para merge/rebase), bisect assistido, e abrir uma worktree numa janela nova.
+
 ### Item 5 · Project: Kanban, Scrum, XP ou Scrum + XP
 
 **Estado actual:** quadro em memória (`BL`, `board.ts:59`) com 6 colunas fixas (`STAGES`), filtros

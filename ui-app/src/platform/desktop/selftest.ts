@@ -205,14 +205,14 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // listed and popped back, the worktree list, an interactive-rebase plan, and the pane's sections.
     await step("gitExtras", async () => {
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
-      const gx = tauriGitExtras(), root = R.root as string, file = "notes/selftest.txt";
+      const gx = tauriGitExtras(), root = R.root as string, file = "notes/flow.txt"; // tracked on develop (the gitflow step merged it)
       gitExtras.invalidate();
       gitExtras.lineBlame(file, 1);
       const blamed = await wait(() => !!gitExtras.lineBlame(file, 1), 10000);
       const b = gitExtras.lineBlame(file, 1);
       await gitExtras.openHistory(file, null);
-      const histOk = await wait(() => (gitExtras.state().history?.diff || "").includes("written by the IDE"), 10000);
-      writeFile(ROOT + file, "written by the IDE\nstash me\n"); flushSave(); await idle();
+      const histOk = await wait(() => /^\+x$/m.test(gitExtras.state().history?.diff || ""), 10000);
+      writeFile(ROOT + file, "x\nstash me\n"); flushSave(); await idle();
       const pushed = await gx.stash(root, { op: "push", message: "selftest stash", untracked: false });
       const cleanAfterPush = (await git("status", "--porcelain", "--", file)).stdout.trim() === "";
       const popped = await gx.stash(root, { op: "apply", index: 0, pop: true });
