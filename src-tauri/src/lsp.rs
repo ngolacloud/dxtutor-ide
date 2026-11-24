@@ -665,6 +665,9 @@ fn capabilities() -> Value {
                 },
                 "contextSupport": true
             },
+            // Shift+Alt+F (documento) e Shift+Alt+F com selecção (intervalo) — features/lsp.
+            "formatting": {},
+            "rangeFormatting": {},
             "publishDiagnostics": { "relatedInformation": true }
         },
         // `window.workDoneProgress` is MANDATORY for server-initiated progress: without it
@@ -1158,6 +1161,61 @@ pub async fn lsp_execute_command(
     .map_err(|e| e.to_string())?
 }
 
+/// Os parâmetros de `textDocument/formatting` (sem intervalo) ou `textDocument/rangeFormatting`.
+fn format_request(
+    uri: &str,
+    tab_size: u32,
+    insert_spaces: bool,
+    range: Option<(u32, u32, u32, u32)>,
+) -> (&'static str, Value) {
+    let mut params = json!({
+        "textDocument": { "uri": uri },
+        "options": { "tabSize": tab_size, "insertSpaces": insert_spaces }
+    });
+    match range {
+        Some((sl, sc, el, ec)) => {
+            params["range"] = json!({
+                "start": { "line": sl, "character": sc },
+                "end": { "line": el, "character": ec }
+            });
+            ("textDocument/rangeFormatting", params)
+        }
+        None => ("textDocument/formatting", params),
+    }
+}
+
+/// Formata o documento (ou só o intervalo, se vier) — devolve as `TextEdit` do servidor,
+/// `null` se ele não formatou (sem suporte ou erro: o kotlin-language-server, por exemplo,
+/// falha a formatar um fragmento, porque o ktfmt analisa o intervalo sozinho).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn lsp_format(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    tab_size: u32,
+    insert_spaces: bool,
+    start_line: Option<u32>,
+    start_character: Option<u32>,
+    end_line: Option<u32>,
+    end_character: Option<u32>,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        let range = match (start_line, start_character, end_line, end_character) {
+            (Some(sl), Some(sc), Some(el), Some(ec)) => Some((sl, sc, el, ec)),
+            _ => None,
+        };
+        let (method, params) = format_request(&path_to_uri(&path), tab_size, insert_spaces, range);
+        session_request(&session, method, params)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn lsp_rename(
     app: AppHandle,
@@ -1391,6 +1449,20 @@ mod diag_tests {
 #[cfg(test)]
 mod phase4_lang_tests {
     use super::*;
+
+    #[test]
+    fn formatting_asks_for_the_document_or_the_range() {
+        let (m, p) = format_request("file:///w/A.java", 4, true, None);
+        assert_eq!(m, "textDocument/formatting");
+        assert_eq!(p["options"]["tabSize"], 4);
+        assert_eq!(p["options"]["insertSpaces"], true);
+        assert!(p.get("range").is_none());
+        let (m, p) = format_request("file:///w/A.java", 2, false, Some((2, 0, 3, 5)));
+        assert_eq!(m, "textDocument/rangeFormatting");
+        assert_eq!(p["range"]["start"]["line"], 2);
+        assert_eq!(p["range"]["end"]["character"], 5);
+        assert!(capabilities()["textDocument"]["formatting"].is_object());
+    }
 
     #[test]
     fn code_actions_get_the_diagnostics_that_touch_the_range() {

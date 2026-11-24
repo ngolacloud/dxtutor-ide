@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 186 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 187 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -528,6 +528,12 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   edições por `workspace/applyEdit` (o backend emite-as como `lsp://apply-edit`, a UI aplica-as);
   `java.apply.workspaceEdit` aplica-se localmente. O backend junta ao contexto os diagnósticos das
   LINHAS pedidas e, logo após uma edição, espera (até 2 s) pelos diagnósticos do texto novo.
+- **Formatação** (`domain/formatting.ts`, `ui/format-hooks.ts`, comando `lsp_format`): Shift+Alt+F
+  no editor formata o documento (ou só a selecção, por `rangeFormatting`) pelo servidor, com o
+  cursor entre os mesmos caracteres visíveis. A tecla é apanhada na fase de captura, antes do
+  atalho global do «Format Document» do dxtutor (`features/shortcuts.ts`), que continua a correr
+  quando não há servidor ou ele não formata o documento. O kotlin-language-server (ktfmt) não
+  formata selecções: a UI avisa e não mexe no texto.
 - **Pedidos do servidor ao cliente:** o `id` pode ser número ou TEXTO (o jdtls usa texto); o
   `dispatch` responde a ambos. Sem resposta ao `workspace/configuration`, o jdtls bloqueava.
 - **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
