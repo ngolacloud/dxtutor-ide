@@ -16,7 +16,12 @@ export const SYSTEM_KINDS: readonly SystemKind[] = [
 export const KINDS: readonly ArchKind[] = [...EVENT_KINDS, ...SYSTEM_KINDS];
 export const GROUP_KINDS: readonly GroupKind[] = ["host", "plane", "node", "module", "layer", "boundary"];
 export const PROTOCOLS: readonly Protocol[] = ["grpc", "http", "unix-socket", "fork-exec", "syscall", "fs", "ssh", "event"];
-export const EDGE_STYLES: readonly EdgeStyle[] = ["control", "data", "optional"];
+export const EDGE_STYLES: readonly EdgeStyle[] = ["control", "data", "optional", "depends"];
+
+/** O texto de cada estilo na legenda do desenho (pt-AO, como o resto do diagrama). */
+export const EDGE_STYLE_LEGEND: Record<EdgeStyle, string> = {
+  control: "controlo", data: "dados e pedidos", optional: "opcional", depends: "depende de",
+};
 const RELATIONS: readonly ArchRelation[] = ["writes", "reads", "publishes", "consumes", "routes-to"];
 
 /** Cor de cada Kind de eventos (o desenho de eventos não tem painéis). */

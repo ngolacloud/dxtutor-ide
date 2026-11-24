@@ -32,6 +32,7 @@ function planning(p: Project, now: number): string {
         s.state === "planned" ? `<button class="pj-btn pri" data-action="pj-sprint-start" data-on="${esc(s.id)}"><span>Start</span></button>` : `<button class="pj-btn" data-action="pj-sprint-close" data-on="${esc(s.id)}"><span>Close</span></button>`
       }</div>${s.goal ? `<div class="pj-goal">${esc(s.goal)}</div>` : ""}
       <div class="pj-dim${over ? " bad" : ""}"><span>${pts} points planned${s.capacity !== null ? ` of ${s.capacity} capacity` : ""}</span></div>
+      <div class="pj-dim${s.budgetUsd !== null && s.spentUsd >= s.budgetUsd ? " bad" : ""}"><span>Co-Dev $${s.spentUsd.toFixed(2)}${s.budgetUsd !== null ? ` of $${s.budgetUsd.toFixed(2)} budget` : ""}</span> <input class="pj-input pj-budget" type="number" min="0" step="1" title="Co-Dev budget for this sprint (USD); empty = no limit" data-action="pj-sprint-budget" data-on="${esc(s.id)}" value="${s.budgetUsd ?? ""}" placeholder="budget $"></div>
       ${items.map((i) => `<div class="pj-row" data-action="pj-open" data-on="${esc(i.key)}"><span class="pj-key">${esc(i.key)}</span><span class="pj-row-t">${esc(i.title)}</span><span class="pj-pts">${i.points ?? "–"}</span><button class="pj-icon" title="Back to the backlog" data-action="pj-unplan" data-on="${esc(i.key)}">✕</button></div>`).join("")}</div>`;
     })
     .join("");

@@ -170,7 +170,8 @@ export function agCtl(a: string): void {
     RUN.paused = !RUN.paused;
     $("#rc-pause")!.innerHTML = RUN.paused ? "<kbd>p</kbd> retomar" : "<kbd>p</kbd> pausar";
     runLabel();
-  } else if (a === "stop") {
+  } else if (a === "stop" || a === "esc") {
+    // RF-G07: Esc stops Co-Dev like the Stop button (boot.ts sends "esc" outside text fields)
     RUN.stop = true;
     RUN.paused = false;
     if (RUN.abort) RUN.abort.abort();

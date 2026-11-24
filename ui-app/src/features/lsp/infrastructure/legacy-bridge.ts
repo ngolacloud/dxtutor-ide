@@ -3,7 +3,8 @@
    arch-check). Lê o workspace aberto pelo desktop (`DXR.root`), o prefixo das chaves
    (`ROOT`), o `FS` em memória e o separador activo (`cur` + `tabOf`); chama o pintor
    publicado (`paintEd`), o `openPath`, o `writeFile` (edições do rename; o autosave leva-as ao
-   disco) e o `show` (volta a mostrar o ficheiro activo). Não publica nada no `window`. Acessores lêem
+   disco) e o `show` (volta a mostrar o ficheiro activo); acrescenta o «Go to Symbol» ao `CMD` da
+   paleta. Não publica nada no `window`. Acessores lêem
    `window` NO ACTO (a pasta abre de forma assíncrona). */
 
 import { toast, esc } from "../../../core";
@@ -26,8 +27,15 @@ interface Globals {
   writeFile?: (key: string, content: string) => void;
   show?: (id: string | null) => void;
   vsxFmt?: () => void;
+  CMD?: [string, string, () => void, string?][];
 }
 const G = window as unknown as Globals;
+
+/** Acrescenta uma entrada à paleta de comandos (o array `CMD` já publicado; não cria globais). */
+export function addPaletteCommand(label: string, key: string, run: () => void): void {
+  const cmd = G.CMD;
+  if (cmd && !cmd.some((c) => c[0] === label)) cmd.push([label, key, run]);
+}
 
 function fileKeyOfTab(tabId: string | null): string | null {
   const t = G.tabOf?.(tabId);

@@ -22,6 +22,7 @@ import { tabMarks } from "./app/tab-marks";
 import { editorStore } from "./app/store/editor";
 import { drawTabs } from "./features/tabs";
 import { scrollTerm } from "./features/terminal";
+import { pairState } from "./app/pair-state";
 
 export {};
 
@@ -235,6 +236,10 @@ window.PAIR = P;
 const myName = () => R.user || "me";
 const other = (r: Role): Role => (r === "host" ? "guest" : "host");
 const amDriver = () => !!P.role && P.driver === P.role;
+/* RF-P03/P04: Co-Dev and the Project read who drives (no window global) */
+pairState.register(() => (P.role ? { inSession: P.state === "connected", driver: P.driver, me: P.role } : null));
+/* RF-S09: the host mirrors Co-Dev's live hunks to the guest (same stream, same highlight) */
+pairState.registerCodevSend((e) => { if (P.role === "host" && P.state === "connected") void send({ t: "codev", e } as unknown as Msg); });
 const live = () => P.state === "connected";
 /* ───── what the host shares (UI-PAIR-01) ─────
    Private paths never leave the host's machine: the filter is applied to what is SENT (the
@@ -352,7 +357,7 @@ function cleanup(): void {
 }
 
 void T.event.listen("pair-status", e => {
-  const s = (e.payload || {}) as { state?: string; peer?: unknown; error?: string };
+  const s = (e.payload || {}) as { state?: string; peer?: unknown; error?: string; message?: string };
   if (s.state === "waiting") {
     if (P.role === "host" && P.state === "connected") {
       toast((P.peerName || "Your pair") + " left the session");
@@ -367,6 +372,8 @@ void T.event.listen("pair-status", e => {
     if (P.role === "host") sendSnapshot();
   } else if (s.state === "ended" || (s.state === "disconnected" && P.role === "guest")) {
     if (P.role === "guest") { toast("PairCode session ended"); cleanup(); }
+    // RF-P05: the host's token is single use and expires — the hosting ends with it
+    else if (P.role === "host" && s.state === "ended") { toast(s.message || "PairCode: a sessão terminou; o token já não serve"); cleanup(); }
   } else if (s.state === "error") {
     toast(s.error || "PairCode error");
     if (P.role === "guest") cleanup();
@@ -380,6 +387,11 @@ void T.event.listen("pair-msg", e => {
 });
 
 async function handle(m: Msg): Promise<void> {
+  if ((m as { t: string }).t === "codev") {
+    // RF-S09: the host's Co-Dev writes; the guest's editor shows it live, read-only
+    if (P.role === "guest") pairState.codevIn((m as unknown as { e: unknown }).e);
+    return;
+  }
   switch (m.t) {
     case "hello":
       P.peerName = m.name || P.peerName; P.peerRtc = !!m.rtc;

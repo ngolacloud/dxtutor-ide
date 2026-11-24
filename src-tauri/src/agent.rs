@@ -100,7 +100,8 @@ impl tutor_agent::Tool for ArchProposeTool {
          proposal in the Studio. Groups are nested boundaries (host, plane, node, module, \
          layer, boundary); views are at most two side-by-side panels (\"known system\" on \
          the left, ours on the right), each listing its root groups. Arrows: style control \
-         (default), data (client requests) or optional; label only when the meaning is not \
+         (default), data (client requests), optional, or depends (a static dependency such \
+         as crate → crate; the drawing adds a legend); label only when the meaning is not \
          obvious. Put in `source` the file or crate where each box and arrow is confirmed; \
          a panel marked strict warns about anything without a source."
     }
@@ -131,7 +132,7 @@ impl tutor_agent::Tool for ArchProposeTool {
                             "properties": {
                                 "from": {"type": "string"},
                                 "to": {"type": "string"},
-                                "style": {"type": "string", "enum": ["control", "data", "optional"]},
+                                "style": {"type": "string", "enum": ["control", "data", "optional", "depends"], "description": "depends = static dependency (a depends on b, e.g. between crates), not a runtime flow"},
                                 "protocol": {"type": "string", "enum": ["grpc", "http", "unix-socket", "fork-exec", "syscall", "fs", "ssh", "event"]},
                                 "label": {"type": "string"},
                                 "relation": {"type": "string", "enum": ["writes", "reads", "publishes", "consumes", "routes-to"], "description": "only for event-driven designs"},

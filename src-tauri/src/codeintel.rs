@@ -165,3 +165,141 @@ mod tests {
         assert_eq!(err.to_string(), "codemap failed: boom");
     }
 }
+
+/// The agent's `outline` tool (toolset 8, RF-E04, docs/v2/RF-DELONIX-PLANO.md F2.2): before
+/// writing, Co-Dev finds the symbol and its exact line range (the language server's document
+/// symbols, or the syntax map as a fallback) — the plan then says `src/lib.rs: 40–52 (fn parse)`.
+pub struct OutlineTool;
+
+/// The outline language of a file, by extension (`None`: not a source file the map knows).
+pub fn outline_lang(path: &str) -> Option<&'static str> {
+    let ext = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "rs" => "rust",
+        "go" => "go",
+        "py" => "python",
+        "ts" | "tsx" | "mts" | "cts" => "typescript",
+        "js" | "jsx" | "mjs" | "cjs" => "javascript",
+        "java" => "java",
+        "kt" | "kts" => "kotlin",
+        "cs" => "csharp",
+        "swift" => "swift",
+        "c" | "h" | "cc" | "cpp" | "cxx" | "hpp" | "hh" => "cpp",
+        _ => return None,
+    })
+}
+
+impl tutor_agent::Tool for OutlineTool {
+    fn name(&self) -> &str {
+        "outline"
+    }
+    fn description(&self) -> &str {
+        "Os símbolos de um ficheiro (funções, métodos, structs, classes…) com o intervalo exacto \
+         de linhas de cada um. Usa-o antes de alterar código para apontar o intervalo certo no \
+         plano e no edit_lines (ex.: «src/lib.rs: 40–52 (fn parse)»)."
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "symbol": {"type": "string", "description": "só os símbolos com este nome (opcional)"}
+            },
+            "required": ["path"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn mutates_files(&self) -> bool {
+        false
+    }
+    fn run(
+        &self,
+        input: &serde_json::Value,
+        ctx: &tutor_agent::ToolCtx,
+    ) -> tutor_agent::ToolOutput {
+        let given = input["path"].as_str().unwrap_or_default();
+        let abs = match tutor_agent::sandbox::resolve(&ctx.root, given) {
+            Ok(p) => p,
+            Err(e) => return tutor_agent::ToolOutput::err(e),
+        };
+        let Some(lang) = outline_lang(given) else {
+            return tutor_agent::ToolOutput::err(format!(
+                "{given}: não sei os símbolos deste tipo de ficheiro; usa grep/read"
+            ));
+        };
+        let code = match std::fs::read_to_string(&abs) {
+            Ok(c) => c,
+            Err(e) => return tutor_agent::ToolOutput::err(format!("{given}: {e}")),
+        };
+        let root = ctx.root.display().to_string();
+        let file = abs.display().to_string();
+        let want = input["symbol"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let syms: Vec<String> = outline(&code, lang, Some(&root), Some(&file))
+            .into_iter()
+            .filter(|s| want.is_none_or(|w| s.name == w))
+            .map(|s| {
+                let kind = serde_json::to_value(s.kind)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default();
+                format!("{}–{} {kind} {}", s.start_line, s.end_line, s.name)
+            })
+            .collect();
+        if syms.is_empty() {
+            return tutor_agent::ToolOutput::ok(format!(
+                "{given}: sem símbolos{}",
+                want.map(|w| format!(" com o nome {w}")).unwrap_or_default()
+            ));
+        }
+        tutor_agent::ToolOutput::ok(format!("{given}\n{}", syms.join("\n")))
+    }
+}
+
+#[cfg(test)]
+mod outline_tool_tests {
+    use super::*;
+    use tutor_agent::Tool;
+
+    #[test]
+    fn the_agent_gets_each_symbol_with_its_line_range() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        std::fs::write(
+            d.path().join("src/lib.rs"),
+            "struct P;\n\nfn parse(s: &str) -> P {\n    let _ = s;\n    P\n}\n",
+        )
+        .unwrap();
+        let ctx = tutor_agent::ToolCtx {
+            root: d.path().to_path_buf(),
+            cancel: Default::default(),
+        };
+        let r = OutlineTool.run(&serde_json::json!({"path": "src/lib.rs"}), &ctx);
+        assert!(!r.is_error, "{}", r.content);
+        assert!(
+            r.content.contains("3–6 fn parse") || r.content.contains("3–6 function parse"),
+            "{}",
+            r.content
+        );
+        let only = OutlineTool.run(
+            &serde_json::json!({"path": "src/lib.rs", "symbol": "parse"}),
+            &ctx,
+        );
+        assert!(
+            !only.content.contains(" P\n") && only.content.contains("parse"),
+            "{}",
+            only.content
+        );
+        assert!(
+            OutlineTool
+                .run(&serde_json::json!({"path": "notes.txt"}), &ctx)
+                .is_error
+        );
+        assert_eq!(outline_lang("a/b.TSX"), Some("typescript"));
+    }
+}

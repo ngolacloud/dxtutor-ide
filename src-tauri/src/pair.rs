@@ -166,8 +166,17 @@ impl Pair {
             let inflight: Arc<Mutex<std::collections::HashSet<IpAddr>>> = Arc::default();
             let (authed_tx, mut authed_rx) =
                 tokio::sync::mpsc::channel::<(WebSocketStream<TcpStream>, String)>(1);
+            // RF-P05 (docs/v2/RF-DELONIX-PLANO.md F6.4): with nobody joining for a while the
+            // token expires; and it lets in one guest only — when that guest leaves, it is spent
+            let idle = tokio::time::sleep(host_idle());
+            tokio::pin!(idle);
             loop {
                 tokio::select! {
+                    _ = &mut idle => {
+                        (ev2.status)(json!({"state": "ended", "role": "host", "reason": "expired",
+                            "message": "O token expirou: ninguém entrou a tempo. Partilha um novo."}));
+                        break;
+                    }
                     acc = listener.accept() => {
                         let Ok((tcp, addr)) = acc else { break };
                         // one pending handshake per address, so a single machine can't
@@ -190,7 +199,10 @@ impl Pair {
                     }
                     Some((ws, peer)) = authed_rx.recv() => {
                         session(ws, false, true, peer, p.clone(), c.clone(), ev2.clone()).await;
-                        (ev2.status)(json!({"state": "waiting", "role": "host"}));
+                        // single use: the guest left, the token is spent (no reconnect with it)
+                        (ev2.status)(json!({"state": "ended", "role": "host", "reason": "used",
+                            "message": "O convidado saiu e o token foi usado. Para outra sessão, partilha um novo."}));
+                        break;
                     }
                 }
             }
@@ -263,6 +275,17 @@ impl Pair {
 }
 
 /// Concurrent unauthenticated handshakes the host will entertain.
+/// How long a hosted token waits for a guest before it expires (RF-P05): 30 minutes, or
+/// `DXTUTOR_PAIR_IDLE_SECS` (the tests use a second).
+pub fn host_idle() -> Duration {
+    let secs = std::env::var("DXTUTOR_PAIR_IDLE_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(30 * 60);
+    Duration::from_secs(secs)
+}
+
 const MAX_HANDSHAKES: usize = 4;
 /// Largest WebSocket message/frame. A workspace snapshot is the biggest thing sent
 /// (the loader caps what enters the editor); 512 MB let any unauthenticated peer make

@@ -160,6 +160,11 @@ pub enum AgentEvent {
     Notice {
         text: String,
     },
+    /// The agent asked the human instead of choosing (`ask_human`, RF-G06); sent by the host
+    /// when the turn ends. The issue of the turn, if any, is blocked with the question.
+    Question {
+        text: String,
+    },
     /// A hunk of an `edit`/`write` starts streaming (docs/v2/RF-CODEV-STREAM.md §3).
     /// `range` is in the file as it was at `base`; `old` is the text it replaces.
     HunkStart {

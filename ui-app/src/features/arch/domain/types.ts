@@ -15,8 +15,9 @@ export type ArchKind = EventKind | SystemKind;
 export type ArchRelation = "writes" | "reads" | "publishes" | "consumes" | "routes-to";
 /** Por onde passa uma seta do diagrama de sistema. */
 export type Protocol = "grpc" | "http" | "unix-socket" | "fork-exec" | "syscall" | "fs" | "ssh" | "event";
-/** Controlo (cor do painel), dados/pedidos (verde) ou opcional (cinzento). */
-export type EdgeStyle = "control" | "data" | "optional";
+/** Controlo (cor do painel), dados/pedidos (verde), opcional (cinzento) ou dependência. */
+/** `depends` = dependência estática (`a → b`: `a` depende de `b`), não um fluxo em execução. */
+export type EdgeStyle = "control" | "data" | "optional" | "depends";
 export type GroupKind = "host" | "plane" | "node" | "module" | "layer" | "boundary";
 export type GroupStyle = "dashed" | "solid";
 

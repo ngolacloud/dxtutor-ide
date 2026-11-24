@@ -23,7 +23,7 @@ import type {
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
-import type { AgentEvent, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
+import type { AgentEvent, AgentOrigin, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -266,7 +266,8 @@ export interface AgentGateway {
   savePermissions(root: string, rules: { allow: string[]; deny: string[] }): Promise<void>;
   extensions(root: string): Promise<ExtensionsStatus>;
   trust(root: string, kind: "hooks" | "mcp"): Promise<void>;
-  send(session: string, text: string | null): Promise<void>;
+  /** `origin`: the human request (RF-G01); `text: null` («try again») keeps the last one. */
+  send(session: string, text: string | null, origin?: AgentOrigin): Promise<void>;
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
   cancel(session: string): Promise<boolean>;
   setMode(session: string, mode: string): Promise<boolean>;
@@ -307,6 +308,8 @@ export interface AgentChatDeps {
   flush?(): Promise<void>;
   /** The Run view of the harness (A3): every event of the turn, and when a turn starts. */
   run?: { event(session: string, e: AgentEvent): void; turnStarted(): void };
+  /** RF-P03: may this side approve the agent's proposals (PairCode: only the driver)? */
+  canApprove?(): boolean;
 }
 
 /** Where the agent chat sends the hunk events of a turn. */

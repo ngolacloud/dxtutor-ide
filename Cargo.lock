@@ -4978,6 +4978,7 @@ dependencies = [
  "serde_json",
  "similar",
  "tempfile",
+ "toml 0.8.2",
  "tutor-llm",
  "ureq",
 ]

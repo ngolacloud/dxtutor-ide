@@ -14,7 +14,7 @@ use std::sync::{Mutex, OnceLock};
 
 use tauri::{AppHandle, Manager};
 use tutor_board::project::{
-    reports::Reports, IssueDetail, Op, Project, ProjectError, ProjectStore,
+    reports::Reports, AuditEntry, IssueDetail, Op, Project, ProjectError, ProjectStore,
 };
 use tutor_board::{Backlog, BoardStore};
 
@@ -123,6 +123,84 @@ pub fn project_issue(
 pub fn project_reports(app: AppHandle, root: String) -> Result<Reports, ProjectError> {
     let root = root_of(&root)?;
     open(&app)?.reports(&root, now_ms())
+}
+
+/// O registo de auditoria do Co-Dev (RF-T01): de uma issue (`issue`) ou da pasta toda, por
+/// ordem, com os segredos já mascarados. É o que «Exportar registo» grava em JSON.
+#[tauri::command]
+pub fn project_audit(
+    app: AppHandle,
+    root: String,
+    issue: Option<String>,
+) -> Result<Vec<AuditEntry>, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.audit(&root, issue.as_deref().filter(|k| !k.trim().is_empty()))
+}
+
+/// O prompt exacto com que a issue vai ao Co-Dev (RF-B03/B04): o template do projecto
+/// (`.dxtutor/prompts/issue.{pt,en}.md`) ou o embutido, com a story, os critérios, as regras do
+/// arquitecto, o âmbito e o código com números de linha; a versão do template e uma estimativa
+/// de tokens. É o que «Ver prompt» mostra e o que «Work on it with Co-Dev» envia.
+#[tauri::command]
+pub fn project_issue_prompt(
+    app: AppHandle,
+    root: String,
+    key: String,
+    lang: Option<String>,
+) -> Result<tutor_agent::issue_prompt::Rendered, ProjectError> {
+    let root = root_of(&root)?;
+    let st = open(&app)?;
+    issue_prompt_from(&st, &root, &key, lang.as_deref())
+}
+
+/// The prompt of `key` from the store (separate from the command for the tests).
+pub fn issue_prompt_from(
+    st: &ProjectStore,
+    root: &str,
+    key: &str,
+    lang: Option<&str>,
+) -> Result<tutor_agent::issue_prompt::Rendered, ProjectError> {
+    let p = st.load(root, now_ms())?;
+    let i = p
+        .issues
+        .iter()
+        .find(|i| i.key == key)
+        .ok_or_else(|| ProjectError {
+            code: "not_found".into(),
+            message: format!("a issue {key} não existe"),
+            overridable: false,
+        })?;
+    // RF-B07: the error of the last failed test run goes with the next attempt
+    let previous_failure = if i.attempts > 0 {
+        st.detail(root, key)?
+            .activity
+            .iter()
+            .find(|a| a.kind == "tests" && a.note.starts_with("os testes falharam"))
+            .map(|a| {
+                a.note
+                    .trim_start_matches("os testes falharam: ")
+                    .to_string()
+            })
+    } else {
+        None
+    };
+    let data = tutor_agent::issue_prompt::IssueData {
+        key: i.key.clone(),
+        title: i.title.clone(),
+        kind: i.kind.clone(),
+        story_as: i.story_as.clone(),
+        story_want: i.story_want.clone(),
+        story_so: i.story_so.clone(),
+        description: i.description.clone(),
+        criteria: i.acceptance.iter().map(|c| c.text.clone()).collect(),
+        scope: i.scope.clone(),
+        previous_failure,
+    };
+    Ok(tutor_agent::issue_prompt::render(
+        Path::new(root),
+        &data,
+        lang,
+    ))
 }
 
 // ── O quadro Tasks (ADR-0006, R3b) ─────────────────────────────────────────────────────────

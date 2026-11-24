@@ -44,3 +44,5 @@ import "../features/testing/styles.css";
 import "../features/hood/styles.css";
 /* A9: o separador Ops (prefixo ops-); a posição não decide nada */
 import "../features/ops/styles.css";
+/* feature comments: o botão de comentar na margem do editor e a caixa «Start discussion» (só classes cmt-*, a posição não decide nada) */
+import "../features/comments/styles.css";

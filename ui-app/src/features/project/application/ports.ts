@@ -10,6 +10,10 @@ export interface ProjectGateway {
   apply(root: string, op: Record<string, unknown>): Promise<unknown>;
   issue(root: string, key: string): Promise<unknown>;
   reports(root: string): Promise<unknown>;
+  /** The exact prompt the issue goes to Co-Dev with (RF-B03): `{text, lang, source, version, tokens}`. */
+  issuePrompt?(root: string, key: string): Promise<unknown>;
+  /** The Co-Dev audit log (RF-T01) of one issue, or of the folder with `null`. */
+  audit?(root: string, issue: string | null): Promise<unknown>;
 }
 
 export interface Workspace {
@@ -38,6 +42,17 @@ export interface Git {
 export interface CodevPort {
   available(): boolean;
   work(issue: Issue, project: Project): void;
+  /** F4: sends the issue with its exact prompt (template rendered by the backend). */
+  workWith?(issue: Issue, prompt: IssuePrompt): void;
+}
+
+/** The prompt an issue goes to Co-Dev with (`project_issue_prompt`, RF-B03/B04). */
+export interface IssuePrompt {
+  text: string;
+  lang: string;
+  source: string;
+  version: string;
+  tokens: number;
 }
 
 export interface Dialog {
@@ -57,4 +72,9 @@ export interface ProjectDeps {
   dialog: Dialog;
   notify: Notifier;
   now(): number;
+  /** RF-P03: may this side run an issue with Co-Dev (PairCode: only the driver)? */
+  canDrive?(): boolean;
+  navigatorMessage?: string;
+  /** Hands the human a file to save (the audit log export). */
+  download?(name: string, text: string): void;
 }

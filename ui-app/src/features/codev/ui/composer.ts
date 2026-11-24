@@ -21,6 +21,7 @@ import {
   MODE_OPTIONS,
   SLASH_ACTIONS,
   DICTATION_LANGS,
+  WRITE_PACES,
   buildPrompt,
   filterActions,
   formatSize,
@@ -93,6 +94,9 @@ export interface ComposerHost {
   /** A língua do ditado (`pt`, `en` ou `auto`) e escolhê-la. */
   dictationLang(): string;
   setDictationLang(l: string): void;
+  /** RF-S02: the editor's writing pace (`slow`/`normal`/`fast`/`instant`). */
+  writePace?(): string;
+  setWritePace?(id: string): void;
   /** Os modelos instalados no Ollama local. */
   localModels(): Promise<string[]>;
 }
@@ -633,6 +637,21 @@ function doAction(id: string): void {
     case "export":
       h.exportConversation();
       return;
+    case "pace": {
+      const cur = h.writePace?.() ?? "normal";
+      h.palette(
+        "Velocidade de escrita no editor…",
+        WRITE_PACES.map((p) => ({
+          l: p.label,
+          d: (p.id === cur ? "actual · " : "") + (p.id === "instant" ? "mostra tudo de uma vez" : `${p.cps} caracteres/s`),
+          run: () => {
+            h.setWritePace?.(p.id);
+            refreshComposer();
+          },
+        })),
+      );
+      break;
+    }
     case "dictlang": {
       const cur = h.dictationLang();
       h.palette(
@@ -774,6 +793,12 @@ function onKey(ev: KeyboardEvent): void {
   if (ev.key === "Escape" && open) {
     ev.preventDefault();
     close();
+    return;
+  }
+  // RF-G07: with nothing to close, Esc in the box stops a running turn (like the Stop button)
+  if (ev.key === "Escape" && host.running()) {
+    ev.preventDefault();
+    host.stop();
     return;
   }
   if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {

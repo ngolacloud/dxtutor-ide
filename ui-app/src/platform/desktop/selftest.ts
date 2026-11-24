@@ -720,7 +720,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // abrir o ficheiro (editor:tab → lsp_start + didOpen), esperar os diagnósticos no gutter,
     // rato parado sobre um símbolo (mousemove → cartão de hover), F12 numa chamada (salta
     // para a definição), Shift+F12 (lista de referências) e F2 + nome novo + Enter (rename em
-    // todos os ficheiros, gravado no disco). Só corre para as linguagens com servidor instalado.
+    // todos os ficheiros, gravado no disco); pelo meio completion, assinatura, code actions,
+    // formatação e Go to Symbol (Ctrl+Shift+O + o Outline). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
   }
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
@@ -918,6 +919,33 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const el3 = ta()!; el3.value = original; el3.setSelectionRange(0, 0); el3.dispatchEvent(new Event("input", { bubbles: true }));
       await until(() => FS[main].content === original, 5_000, 100);
     }
+    // 3f) Go to Symbol: Ctrl+Shift+O lista os símbolos do ficheiro; filtrar por «mai» e Enter
+    //     levam o cursor à linha do `main`. E o Outline mostra os símbolos do servidor.
+    const symRows = () => [...document.querySelectorAll("#lsp-symbols .lsp-sym")].map(b => `${b.querySelector(".lsp-act-kind")?.textContent} ${b.querySelector(".lsp-sym-n")?.textContent}`);
+    const symbolList = await until(() => {
+      const rows = symRows();
+      if (rows.some(r => r.includes("main"))) return rows;
+      if (W.cur !== main) W.openPath(main);
+      if (!document.getElementById("lsp-symbols")) {
+        const el = ta()!; el.focus(); el.setSelectionRange(0, 0);
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "O", code: "KeyO", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+      }
+      return null;
+    }, 60_000, 2500);
+    const symInput = document.querySelector<HTMLInputElement>("#lsp-symbols input");
+    let filtered: string[] | null = null, symbolJump: number | null = null;
+    if (symInput) {
+      symInput.value = "mai"; symInput.dispatchEvent(new Event("input", { bubbles: true }));
+      filtered = symRows();
+      await sleep(1500); // o cartão filtrado fica no ecrã para a captura
+      symInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      symbolJump = caretLineNow();
+    }
+    document.getElementById("lsp-symbols")?.remove();
+    const outlineRows = await until(() => {
+      const rows = [...document.querySelectorAll("#outline .s-hit")].map(h => h.textContent ?? "");
+      return rows.some(r => r.includes("main")) ? rows : null;
+    }, 20_000, 500);
     // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
     const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
     const refRows = await until(() => {
@@ -966,6 +994,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       signature: { first: firstSig, ...(lang === "java" ? { afterComma: secondSig } : {}) },
       codeActions: { titles: actionTitles ? actionTitles.slice(0, 5) : null, ...(lang === "java" ? { applied: actionApplied } : {}) },
       formatting: { from: uglyLine, to: formattedLine },
+      symbols: { list: symbolList, filtered, caretLineAfterEnter: symbolJump, expectedLine: lang === "java" ? 2 : 3, outline: outlineRows },
       references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
       rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk, ...(probeRename ? { probe: probeRename } : {}) },
       toasts,
