@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (216 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (221 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -264,7 +264,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `git_amend` | `root: String`, `message: Option<String>`, `allow_published: Option<bool>` | `String` (o hash curto novo) | String (`published: …` se já está num remoto) | — | `features/scm` (A4) | **G** · W |
 | `git_diff_range` | `root`, `base`, `target`, `path: Option<String>` | `String` (o diff de `base...target`) | String | — | `features/scm` (A10, revisão de ramos) | R |
 
-## 9. Agente / arquitectura — `commands/agent.rs` (10)
+## 9. Agente / arquitectura — `commands/agent.rs` (16)
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/agent.rs` (adaptadores finos)
 > sobre o caso de uso Tauri-free `agent` — regra do scaffold com erro tipado
@@ -284,6 +284,11 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `arch_import_mermaid` | `source: String` | `arch::mermaid::MermaidImport` (`{ arch, warnings }`) | String | — | `platform/tauri/arch.ts` (`features/arch`) | R |
 | `arch_save_export` | `root: String`, `rel: String`, `bytes: Vec<u8>` | `String` (caminho relativo escrito) | String | — | `platform/tauri/arch.ts` (`features/arch`) | **W** (só dentro de `root`, só svg/png/mmd/md/json) |
 | `arch_conformance` | `root: String` | `Option<Vec<Violation {rule, message, path, line}>>` (o repositório contra `.dxtutor/architecture.toml`: bibliotecas proibidas/não aprovadas, dependências entre camadas, nomes; menos o que um ADR aceite desculpa — RF-A05) | String | — | `features/panel` (Problems, com a fonte «arquitectura») | R |
+| `arch_rules_load` | `root: String` | `RulesDoc {exists, rules, error, canEdit, note}` (`.dxtutor/architecture.toml` como formulário para o Studio e se quem está ao teclado o pode alterar — F5.2/F5.7) | — | — | `features/arch` (painel «Rules») | R · X (`git config`) |
+| `arch_rules_save` | `root: String`, `rules: Rules` | `RulesDoc` (validadas por `conformance::validate`; só o Arquitecto quando o `team.json` nomeia pessoas) | String | — | `features/arch` | **W** (só `.dxtutor/architecture.toml`) |
+| `adr_list` | `root: String` | `Vec<Adr {path, id, title, status, accepted}>` (`docs/adr/`, `docs/decisions/`, `docs/architecture/ADR*`) | — | — | `features/arch` | R |
+| `adr_accept` | `root: String`, `path: String` | `Adr` (o estado passa a aceite e fica escrito quem aprovou; só o Arquitecto — F5.5) | String | — | `features/arch` | **W** (só o ADR) · X (`git config`) |
+| `arch_rules_commit` | `root: String`, `paths: Vec<String>`, `message: String` | `String` (hash curto; `git commit --only` do ficheiro de regras e dos ADR, o resto preparado fica de fora; só o Arquitecto, com identidade git humana) | String | — | `features/arch` | **G** · X |
 
 ## 10. Co-Dev — `commands/codev.rs` (5)
 
@@ -610,9 +615,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **216** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 22 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 11 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 21 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 16 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 9 |
-| Consumidos pela `ui-app` | **132** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 15 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08)) |
+| Comandos registados | **221** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 22 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 16 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 21 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 16 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 9 |
+| Consumidos pela `ui-app` | **137** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 15 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5)) |
 | Não consumidos pela `ui-app` | **84** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

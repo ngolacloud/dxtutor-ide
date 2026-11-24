@@ -30,5 +30,15 @@ test("abre o Studio de arquitectura pela paleta, vazio, e desenha um componente"
   await studio.locator("svg[data-arch-svg]").click({ position: { x: 200, y: 300 } });
   await expect(studio.locator("[data-arch-insp]")).toContainText("open the desktop app");
   await page.screenshot({ path: test.info().outputPath("arch.png") });
+
+  // F5.2: «§ Rules» abre o painel das regras do arquitecto; sem Tauri, diz onde elas vivem
+  await studio.locator('[data-action="arch-rules"]').click();
+  await expect(studio.locator("[data-arch-insp]")).toContainText("Architect's rules");
+  await expect(studio.locator("[data-arch-insp]")).toContainText("open a folder in the desktop app");
+  await expect(studio.locator('[data-action="arch-rules"]')).toHaveClass(/pri/);
+  // o Import/Export fecha-o (um painel de cada vez)
+  await studio.locator('[data-action="arch-io"]').click();
+  await expect(studio.locator("[data-arch-insp]")).toContainText("Import Mermaid");
+  await expect(studio.locator('[data-action="arch-rules"]')).not.toHaveClass(/pri/);
   expect(errors).toEqual([]);
 });

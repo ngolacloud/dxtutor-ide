@@ -99,14 +99,23 @@ pub fn check(roles: Option<&[String]>, need: &[&str], what: &str) -> Result<(), 
     }
 }
 
+/// Is `path` (relative to the project) an ADR? Anything under `docs/adr/` or `docs/decisions/`,
+/// and the files of `docs/architecture/` whose name starts with `ADR` — the folders where
+/// `conformance::adr_accepted` looks (the rest of `docs/architecture/` is ordinary documentation).
+pub fn is_adr(path: &str) -> bool {
+    let p = path.trim_start_matches("./");
+    p.starts_with("docs/adr/")
+        || p.starts_with("docs/decisions/")
+        || p.strip_prefix("docs/architecture/").is_some_and(|f| {
+            !f.contains('/') && f.get(..3).is_some_and(|h| h.eq_ignore_ascii_case("adr"))
+        })
+}
+
 /// The roles that approve a change to `path` (relative to the project), or `None` when any
 /// developer may: the architect's rules and the ADRs, and the prompt templates.
 pub fn approvers_of(path: &str) -> Option<&'static [&'static str]> {
     let p = path.trim_start_matches("./");
-    if p == tutor_agent::conformance::RULES_FILE
-        || p.starts_with("docs/adr/")
-        || p.starts_with("docs/decisions/")
-    {
+    if p == tutor_agent::conformance::RULES_FILE || is_adr(p) {
         Some(&["architect"])
     } else if p.starts_with(".dxtutor/prompts/") {
         Some(&["architect", "tech_lead"])
@@ -157,6 +166,18 @@ mod tests {
             Some(&["architect", "tech_lead"][..])
         );
         assert_eq!(approvers_of("src/lib.rs"), None);
+        // the ADRs of docs/architecture/ (where this repository keeps them), not its other documents
+        assert_eq!(
+            approvers_of("docs/architecture/ADR-0006-arch-studio.md"),
+            Some(&["architect"][..])
+        );
+        assert_eq!(
+            approvers_of("docs/architecture/adr-0009.md"),
+            Some(&["architect"][..])
+        );
+        assert_eq!(approvers_of("docs/architecture/ARCHITECTURE.md"), None);
+        assert_eq!(approvers_of("docs/architecture/old/ADR-1.md"), None);
+        assert!(is_adr("docs/decisions/0003-db.md") && !is_adr("docs/v2/ADR.md"));
         // no people defined: nothing is enforced
         assert!(check(None, &["architect"], "x").is_ok());
     }

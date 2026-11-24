@@ -9,11 +9,12 @@
 
 import { VIEW } from "../../app/store/registry";
 import { makeArchStudio } from "./application/studio";
+import { makeRulesEditor } from "./application/rules";
 import type { Repaint } from "./application/ports";
 import { makeArchView } from "./ui/view";
 import { bindActions } from "./ui/actions";
 import { archActions } from "./ui/table";
-import { tauriArchGateway, tauriProposals } from "./infrastructure/tauri";
+import { tauriArchGateway, tauriProposals, tauriRulesGateway } from "./infrastructure/tauri";
 import { designStore, files, openTab, themeVars, workspace } from "./infrastructure/legacy-bridge";
 import { THEME_VARS, makeRenderer } from "./ui/export";
 
@@ -26,11 +27,13 @@ const studio = makeArchStudio({
   files,
   repaint: (scope: Repaint) => view?.repaint(scope),
 });
-view = makeArchView({ studio, root: workspace.root, savesToProject: () => tauriArchGateway.available() && !!workspace.root() });
+/* F5.2/F5.5: o painel «Rules» — as regras do arquitecto e os ADR */
+const rules = makeRulesEditor({ gateway: tauriRulesGateway, workspace, design: () => studio.state().design, repaint: () => view?.repaint("all") });
+view = makeArchView({ studio, rules, root: workspace.root, savesToProject: () => tauriArchGateway.available() && !!workspace.root() });
 
 VIEW.arch = (_t, host) => view!.mount(host);
 
-bindActions(archActions(studio, workspace.prompt));
+bindActions(archActions(studio, workspace.prompt, rules));
 
 /* Propostas do agente do Co-Dev (ferramenta `arch_propose`, F6): abrem o Studio com a
    proposta por cima do desenho actual. Só no desktop. */
@@ -46,3 +49,5 @@ export function openArch(): void {
 
 /** Para testes e para o harness (F6): o caso de uso composto. */
 export const archStudio = studio;
+/** Para testes: o painel «Rules» composto. */
+export const archRules = rules;

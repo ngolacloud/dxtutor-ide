@@ -11,6 +11,7 @@
 //! the offline-safe provider when no API key is present.
 
 pub mod agent;
+pub mod arch_rules;
 pub mod assistant;
 mod board;
 mod bridge;
@@ -46,8 +47,9 @@ pub mod workspace;
 // Comandos extraídos para `commands/<feature>.rs` (Etapa 3). Importados por nome
 // para o registo de handlers abaixo continuar a referenciá-los sem prefixo de módulo.
 use commands::agent::{
-    agent_isolated_patch, agent_task_cancel, agent_task_status, agent_task_submit,
-    arch_conformance, arch_export_mermaid, arch_import_mermaid, arch_save_export, arch_scaffold,
+    adr_accept, adr_list, agent_isolated_patch, agent_task_cancel, agent_task_status,
+    agent_task_submit, arch_conformance, arch_export_mermaid, arch_import_mermaid,
+    arch_rules_commit, arch_rules_load, arch_rules_save, arch_save_export, arch_scaffold,
     arch_scaffold_preview, arch_validate,
 };
 use commands::assistant::{
@@ -899,6 +901,11 @@ pub fn run() {
             arch_import_mermaid,
             arch_save_export,
             arch_conformance,
+            arch_rules_load,
+            arch_rules_save,
+            adr_list,
+            adr_accept,
+            arch_rules_commit,
             run_tests,
             git_log,
             git_show,
