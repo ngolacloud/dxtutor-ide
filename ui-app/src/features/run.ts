@@ -89,3 +89,4 @@ document.addEventListener("click", (e) => {
 window.renderRunPane = renderRunPane;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.run = renderRunPane;
+

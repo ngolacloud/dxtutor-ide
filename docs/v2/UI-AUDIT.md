@@ -86,6 +86,12 @@ existir ou ser ligado no Rust para cumprir a regra "nasce com backend real".
 Persistência: nenhuma (sessão efémera, correcto). O protótipo HTML anexo já mostra estes três requisitos
 a funcionar; servem de referência visual.
 
+**Estado após a A1 (2026-11-24):** feito. UI-PAIR-01 com o filtro no envio (snapshot, sync, vista, separadores
+e escritas do convidado), `.env` e chaves sempre privados, clique direito num separador ou pasta do explorador
+para tornar privado; UI-PAIR-02 com a legenda e a mensagem `tabs` (o convidado espelha só os separadores
+partilhados); UI-PAIR-03 com a chamada encaixada no fundo da barra lateral (36 px minimizada) e no item de
+estado quando a lateral está escondida. Os caminhos privados duram a sessão (não são gravados).
+
 ### Item 12 + 6 · Co-Dev escreve no editor, ao vivo, e está em todos os ecrãs
 
 **Estado actual (mais avançado do que o protótipo no motor):**
@@ -117,6 +123,17 @@ a funcionar; servem de referência visual.
 | HARNESS-06 subagentes | Só o investigador genérico `task` (read-only), listado num popover. | Sem reviewer/tester/architect; sem execuções em segundo plano. | Papéis como *skills/agentes* do `tutor-agent` com cartões; `codev_session_*` (worktrees, já registados e sem UI) servem as execuções em fundo. | L |
 | HARNESS-07 artefactos | Ausente. | Sem walkthrough/relatório/diff resumido ligado à issue. | Gerados no fim da execução a partir dos eventos reais; guardados em SQLite ligados à issue (item 5). | M |
 | HARNESS-08 MCP e hooks | **Real** (`mcp.json`, `.dxtutor/hooks.json`, commands, skills), geridos só pelo fluxo `/comandos`. | Sem secção nas Definições. | Secção nas Definições sobre os mesmos ficheiros. | S |
+
+**Estado após a A3 (2026-11-24):** feito — o separador «Co-Dev run» (menu Co-Dev e paleta) com o plano e os
+ficheiros/linhas de cada passo (`exit_plan` com `steps`, conjunto de ferramentas 5), as tarefas vivas, os
+sub-agentes com papéis (explorer/reviewer/tester/architect, todos só leitura), o medidor de contexto do evento
+`usage`, o relatório de cada turno (feito dos eventos, guardado em SQLite com a issue e mostrado no chat e no
+painel da issue), os checkpoints com «Rewind to here» (ficheiros e conversa: o JSONL da sessão é reescrito),
+as regras de permissões do projecto (`codev_agent_permissions`/`codev_agent_save_permissions`) e MCP/hooks/
+comandos/skills, e `DELONIX.md` nas instruções. Por fazer: chips @symbol/@test/@issue/@commit/@terminal no
+compositor (HARNESS-04), execuções de sub-agentes em segundo plano em worktrees (`codev_session_*`, HARNESS-06),
+a lista de tarefas no painel Tasks antigo (Q3), e as secções nas Definições (estão no separador, para não mexer
+nos goldens das Definições — decisão do dono). Uma sessão retomada só volta os ficheiros, não a conversa.
 
 Coisas a **retirar** (contra a regra "nada de demo"): as missões guionadas, o "conselho de modelos" com
 pontuações pré-feitas e os custos fictícios das missões (`application/run-mission.ts`,
@@ -161,6 +178,15 @@ releases nem cerimónias. Sem migrações (`CREATE IF NOT EXISTS`, sem `user_ver
 | PROJ-04 | Painel de issue com critérios, DoR/DoD, actividade e secção **Development** com dados **reais**: ramo (cria com o comando git exacto), commits que citam a chave (`git log --grep`), change sets aceites do Co-Dev (eventos reais), testes (item 3), CI/deploy (quando existir fonte). | M |
 | PROJ-05 | Vistas Backlog, Planning (capacidade, objectivo, planning poker), Releases, Reports (burndown, velocity, CFD, cycle time **calculados do histórico em `activity`**, não inventados), Daily, Retro, Team & pairs, Settings. | L |
 | PROJ-06 | Commits com `DX-123` actualizam a issue (hook pós-commit ou leitura do `git log`); contagem de change sets; sprint na barra de estado. | M |
+
+**Estado após a A5 (2026-11-24):** feito — store SQLite com migrações e regras no Rust (backend), os comandos
+`project_load/apply/issue/reports`, a actividade "Project" (PROJ-01) com quadro, backlog + caixa de entrada,
+planning (sprints e capacidade), releases, reports do histórico, retro e settings (PROJ-02/03/05), o painel da
+issue com Development real (PROJ-04: ramo pelo comando git exacto, commits que citam a chave, change sets do
+Co-Dev) e a ligação dos commits por "Sync commits" (PROJ-06). Por fazer: sprint na barra de estado e ligação
+automática dos commits (hook pós-commit) (PROJ-06), as vistas Daily e Team & pairs e o planning poker
+(PROJ-05), exportar/importar `.dxtutor/board.json` (Q7). O painel "Tasks" (o quadro simulado antigo) continua
+como estava, à espera da Q3.
 
 Nota: o protótipo HTML (`project.js`) é uma boa referência visual, mas os relatórios dele usam séries
 fixas marcadas "sample". Aqui só se desenha o que se consegue calcular; com pouco histórico, os gráficos

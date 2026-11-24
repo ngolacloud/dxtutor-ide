@@ -30,8 +30,17 @@ pub async fn codev_agent_start(
     mode: Option<String>,
     resume: Option<String>,
     provider: Option<String>,
+    review_edits: Option<bool>,
+    issue: Option<String>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    // `arch_propose` (Studio, F6): a proposta chega à UI pelo evento `arch://proposal`
+    let emitter = app.clone();
+    let arch_propose = crate::agent::ArchProposeTool {
+        emit: std::sync::Arc::new(move |p| {
+            let _ = emitter.emit("arch://proposal", p);
+        }),
+    };
     let spec = StartSpec {
         root,
         model,
@@ -41,10 +50,14 @@ pub async fn codev_agent_start(
         mode,
         resume,
         host_tools: vec![std::sync::Arc::new(crate::lsp::LspDiagnosticsTool)],
+        host_tools_v4: vec![std::sync::Arc::new(arch_propose)],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),
         provider,
         ollama_host: Some(tutor_llm::chat::ollama_host()),
+        review_edits: review_edits.unwrap_or(false),
+        issue_key: issue,
+        change_log: crate::board::db_path(&app).ok(),
         ..Default::default()
     };
     tauri::async_runtime::spawn_blocking(move || {
@@ -104,6 +117,18 @@ pub fn codev_agent_approve(
     )
 }
 
+/// Decide os hunks de um `hunk_review` (docs/v2/RF-CODEV-STREAM.md §4): só os aceites são
+/// escritos; um hunk sem decisão conta como recusado. Erro se a sessão, a chamada ou um
+/// hunk não existirem (a revisão continua à espera).
+#[tauri::command]
+pub fn codev_agent_review(
+    session_id: String,
+    call: String,
+    decisions: Vec<codev_agent::HunkVerdict>,
+) -> Result<(), String> {
+    codev_agent::review(&session_id, &call, &decisions)
+}
+
 /// Muda o modo da sessão (Manual/Assistido/Auto) — a modebar.
 #[tauri::command]
 pub fn codev_agent_set_mode(session_id: String, mode: String) -> bool {
@@ -142,20 +167,43 @@ pub fn codev_agent_set_plan(session_id: String, on: bool) -> Result<(), String> 
     codev_agent::set_plan(&session_id, on)
 }
 
-/// Os checkpoints de ficheiros da sessão (um por turno que alterou ficheiros).
+/// Os checkpoints de ficheiros da sessão (um por turno que alterou ficheiros); cada um diz se
+/// a conversa também pode voltar a esse ponto (`conversation`).
 #[tauri::command]
 pub fn codev_agent_checkpoints(
     session_id: String,
-) -> Result<Vec<tutor_agent::checkpoint::Checkpoint>, String> {
+) -> Result<Vec<codev_agent::CheckpointView>, String> {
     codev_agent::checkpoints(&session_id)
 }
 
-/// Repõe os ficheiros como estavam no checkpoint (antes do turno que o criou).
+/// Repõe os ficheiros como estavam no checkpoint (antes do turno que o criou); com
+/// `conversation: true` («Rewind to here»), a conversa volta também a esse ponto.
 #[tauri::command]
-pub async fn codev_agent_rewind(session_id: String, checkpoint: u32) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || codev_agent::rewind(&session_id, checkpoint))
-        .await
-        .map_err(|e| format!("rewind task failed: {e}"))?
+pub async fn codev_agent_rewind(
+    session_id: String,
+    checkpoint: u32,
+    conversation: Option<bool>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        codev_agent::rewind(&session_id, checkpoint, conversation.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| format!("rewind task failed: {e}"))?
+}
+
+/// As regras de permissões do projecto e do utilizador (painel de permissões, A3 HARNESS-05).
+#[tauri::command]
+pub fn codev_agent_permissions(root: String) -> codev_agent::PermissionsView {
+    codev_agent::permissions(&root)
+}
+
+/// Grava as regras do projecto (`.dxtutor/permissions.json`) e aplica-as às sessões abertas.
+#[tauri::command]
+pub fn codev_agent_save_permissions(
+    root: String,
+    rules: tutor_agent::permissions::Rules,
+) -> Result<(), String> {
+    codev_agent::save_permissions(&root, rules)
 }
 
 /// O que o projecto define para o agente: comandos, skills, hooks e servidores MCP (com o

@@ -46,7 +46,8 @@ pub mod workspace;
 // para o registo de handlers abaixo continuar a referenciá-los sem prefixo de módulo.
 use commands::agent::{
     agent_isolated_patch, agent_task_cancel, agent_task_status, agent_task_submit,
-    arch_export_mermaid, arch_import_mermaid, arch_scaffold, arch_scaffold_preview, arch_validate,
+    arch_export_mermaid, arch_import_mermaid, arch_save_export, arch_scaffold,
+    arch_scaffold_preview, arch_validate,
 };
 use commands::assistant::{
     assistant_cancel, assistant_chat, assistant_chat_stream, assistant_models, get_diagnostics,
@@ -62,9 +63,9 @@ use commands::codev::{
 };
 use commands::codev_agent::{
     codev_agent_approve, codev_agent_cancel, codev_agent_checkpoints, codev_agent_close,
-    codev_agent_extensions, codev_agent_history, codev_agent_rewind, codev_agent_send,
-    codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan, codev_agent_start,
-    codev_agent_trust,
+    codev_agent_extensions, codev_agent_history, codev_agent_permissions, codev_agent_review,
+    codev_agent_rewind, codev_agent_save_permissions, codev_agent_send, codev_agent_sessions,
+    codev_agent_set_mode, codev_agent_set_plan, codev_agent_start, codev_agent_trust,
 };
 use commands::debug_cmds::{
     debug_available, debug_break, debug_capabilities, debug_continue, debug_launch, debug_locals,
@@ -871,6 +872,7 @@ pub fn run() {
             arch_scaffold,
             arch_export_mermaid,
             arch_import_mermaid,
+            arch_save_export,
             run_tests,
             git_log,
             git_show,
@@ -883,6 +885,9 @@ pub fn run() {
             codev_agent_start,
             codev_agent_send,
             codev_agent_approve,
+            codev_agent_review,
+            codev_agent_permissions,
+            codev_agent_save_permissions,
             codev_agent_cancel,
             codev_agent_close,
             codev_agent_set_mode,
@@ -976,6 +981,10 @@ pub fn run() {
             lsp::lsp_server_status,
             board::board_load,
             board::board_save,
+            board::project_load,
+            board::project_apply,
+            board::project_issue,
+            board::project_reports,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dxtutor IDE");

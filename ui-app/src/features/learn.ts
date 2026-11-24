@@ -12,7 +12,7 @@
    além de LS, já publicado pelo boot). ONB/LT_HOOD window-puros (reatribuídos/escritos por
    onclicks inline); LTS é const mutado em sítio; LT_SUB é local (só a feature o escreve). */
 
-import { $, esc, svg, jsa } from "../core";
+import { $, esc, svg } from "../core";
 import { VIEW } from "../app/store/registry";
 import rustCourse from "../content/courses/rust.json";
 import goCourse from "../content/courses/go.json";
@@ -23,6 +23,7 @@ import type { Grade } from "./learn/application/ports";
 import { gradeStep, installPlugin, loadCatalog, msg, removePlugin } from "./learn/application/catalog-service";
 import { tauriCourseGateway } from "./learn/infrastructure/legacy-bridge";
 import { bindActions } from "./learn/ui/actions";
+import { registerActions, callGlobal } from "../app/actions";
 
 /* ───── conteúdo dos cursos ───── */
 /* Conteúdo dos cursos: dados, não código. Rust e Go vêm embutidos (src/content/courses/*.json,
@@ -71,7 +72,7 @@ function ltOnboard(step:any){hydrateLT();let o=$('#onb');if(!o){document.body.in
   if(step===1||!step){ONB={lang:LTS.lang,levels:LTS.levels.slice()};if(CATALOG==='idle')refreshCatalog();
     const cards=languageCards(COURSES,PLUGINS).map(cd=>{const l=cd.language,ok=cd.state==='available';return `<button class="onb-lang${ok?'':' soon'}" ${ok?`data-action="lt-pick" data-on="${esc(l.id)}"`:'disabled'}><span class="g">${l.icon}</span><b>${esc(l.name)}</b>${ok?`<small class="notr">${esc(cd.summary.slice(0,58))}${cd.summary.length>58?'…':''}</small>`:''}<span class="tag ${ok?'live':''}">${ok?(cd.community?'Community':'Available'):'Coming soon'}</span></button>`;}).join('');
     o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>What do you want to learn?</h2><p>Pick a language and we'll guide you through a hands-on track, one step at a time.</p><div class="onb-langs">${cards}</div>${ltPluginPanel()}</div>`;}
-  else o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>What's your level?</h2><p>Pick one or more. Your track loads only the levels you choose — mix Basic and Intermediate, go straight to Advanced, or take all three. You can change this later from the gear icon.</p>${LT_LEVELS.map(l=>`<button class="onb-lvl${ONB.levels.includes(l[0])?' on':''}" onclick="ONB.levels.includes(${jsa(l[0])})?ONB.levels.splice(ONB.levels.indexOf(${jsa(l[0])}),1):ONB.levels.push(${jsa(l[0])});ltOnboard(2)"><span><b>${l[1]}</b><small>${l[2]}</small></span><i>${ONB.levels.includes(l[0])?'✓':''}</i></button>`).join('')}<div class="onb-foot"><button class="lnk" onclick="ltOnboard(1)">← Back</button><button class="mini pri" ${ONB.levels.length?'':'disabled'} onclick="ltStart()">Start →</button></div></div>`;
+  else o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>What's your level?</h2><p>Pick one or more. Your track loads only the levels you choose — mix Basic and Intermediate, go straight to Advanced, or take all three. You can change this later from the gear icon.</p>${LT_LEVELS.map(l=>`<button class="onb-lvl${ONB.levels.includes(l[0])?' on':''}" data-action="learn:level" data-on="${esc(l[0])}"><span><b>${l[1]}</b><small>${l[2]}</small></span><i>${ONB.levels.includes(l[0])?'✓':''}</i></button>`).join('')}<div class="onb-foot"><button class="lnk" data-action="learn:back">← Back</button><button class="mini pri" ${ONB.levels.length?'':'disabled'} data-action="learn:start">Start →</button></div></div>`;
   o.classList.add('show');}
 /* ───── plugins de curso: carregar, instalar, remover (casos de uso em learn/application) ───── */
 let ONB_STEP=0;
@@ -144,7 +145,7 @@ function openLesson(){ltResume();}function nextLesson(){return[0,0];}
 
 /* ───── corpo da vista (editor + painel do passo); app.ts mantém o shim VIEW.lt ───── */
 function renderLtView(t:any,host:HTMLElement){hydrateLT();const f=ltFind(LTS.cur);if(!f){host.innerHTML='<div class="empty">Open a step from the Learning Track.</div>';return;}const p=t.path;
-  host.innerHTML=`<div class="lt"><div class="lt-ed"><div class="lt-bar"><span class="lt-file notr">● ${esc(t.title)}</span><span class="sp"></span><button class="mini" onclick="LT_HOOD=!LT_HOOD;ltRes()">Under the hood</button><button class="mini pri" id="lt-go" onclick="ltGo()"></button></div><div class="lt-scroll"><div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div></div></div><div class="lt-res" id="lt-res"></div></div>`;
+  host.innerHTML=`<div class="lt"><div class="lt-ed"><div class="lt-bar"><span class="lt-file notr">● ${esc(t.title)}</span><span class="sp"></span><button class="mini" data-action="learn:hood">Under the hood</button><button class="mini pri" id="lt-go" data-action="learn:go"></button></div><div class="lt-scroll"><div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div></div></div><div class="lt-res" id="lt-res"></div></div>`;
   const ta=$('#ed-ta') as HTMLTextAreaElement;ta.value=FS[p].content;paintEd(p);miniOff();ta.oninput=()=>{FS[p].content=ta.value;paintEd(p);miniOff();LT_SUB=null;ltRes();};
   ta.onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();const ind=findLanguage(LTS.lang!,PLUGINS)?.indent??'    ';if(!document.execCommand('insertText',false,ind))ta.setRangeText(ind,ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};ta.onkeyup=ta.onclick=()=>stPos();ltRes();}
 const tgt=(s:any)=>s.target.replace(/^\n/,'').replace(/\n+$/,'').split('\n');
@@ -154,7 +155,7 @@ function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-g
   if(LT_HOOD)h+=`<div class="lt-card hood"><h3>Under the hood</h3><div class="notr">${mdFull(s.intro)}</div><p class="lt-note">In the desktop app this view also compiles your code and shows measured CPU, memory and I/O. The browser prototype shows the explanation only.</p></div>`;
   if(s.kind==='concept'){h+=`<div class="lt-card notr"><h2>${esc(s.title)}</h2>${mdFull(s.body)}</div>`;go.textContent='Continue →';}
   else if(s.kind==='drill'){const d=drillState(s),hide=s.placeholder_policy!=='shown'&&!LTS.show[dk(s.id)]&&!done;if(d.all&&!done){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}const fin=ltDone(s.id);
-    h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.prompt)}</div><div class="lt-prog"><span class="lp-bar" style="flex:1;margin:0"><i style="width:${d.n/d.T.length*100}%"></i></span><span>${d.n}/${d.T.length} lines</span>${hide?`<button class="mini" onclick="LTS.show[${jsa(dk(s.id))}]=1;saveLT();ltRes()">Show target</button>`:''}</div>
+    h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.prompt)}</div><div class="lt-prog"><span class="lp-bar" style="flex:1;margin:0"><i style="width:${d.n/d.T.length*100}%"></i></span><span>${d.n}/${d.T.length} lines</span>${hide?`<button class="mini" data-action="learn:showTarget" data-on="${esc(dk(s.id))}">Show target</button>`:''}</div>
       <div class="lt-target notr">${d.T.map((l:any,i:number)=>{const cur=!d.ok[i]&&d.ok.slice(0,i).every(Boolean);return `<div class="tl${d.ok[i]?' ok':cur?' cur':''}"><span class="n">${d.ok[i]?'✓':i+1}</span><div><code>${hide&&!d.ok[i]?'· · ·':hlLine(l,LT_EXT[LTS.lang!])||'&nbsp;'}</code>${(d.ok[i]||cur)&&s.line_comments&&s.line_comments[i]?`<small>${mdFull(s.line_comments[i]).replace(/^<p>|<\/p>$/g,'')}</small>`:''}</div></div>`;}).join('')}</div></div>`;
     if(fin)h+=`<div class="lt-card ok"><h3>✓ It matches</h3><div class="notr">${mdFull(s.explanation)}</div><p class="lt-note">The desktop app now runs the program and shows its real output.</p></div>`;go.textContent=fin?'Continue →':'Check ▷';}
   else if(course().origin==='backend'){
@@ -176,7 +177,7 @@ function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-g
     if(done){h+=`<div class="lt-card ok"><h3>✓ Submitted</h3>${tests.map(n=>`<div class="chk ok"><span class="g">✓</span><span class="notr">${esc(n)}</span><span class="w">simulated</span></div>`).join('')}<p class="lt-note">Hidden tests decide correctness in the desktop app (<code>${LTS.lang==='go'?'go test':'cargo test'}</code>). The browser cannot compile, so this prototype only checks that you replaced the starter with a real implementation.</p></div>`;
       if(s.gabarito)h+=`<div class="lt-card"><h3>Reference solution</h3><div class="lt-cx"><span>time <b>${esc(s.gabarito.time)}</b></span><span>space <b>${esc(s.gabarito.space)}</b></span></div><pre class="notr">${esc(s.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(s.gabarito.justification)}</div></div>`;}
     go.textContent=done?'Continue →':'Submit ▷';}
-  h+=`<div class="lt-help"><button class="mini" onclick="ltAsk()">Ask the Tutor</button><span>The Tutor explains and hints; you write the final code.</span></div>`;const top=el.scrollTop;el.innerHTML=h;el.scrollTop=top;}
+  h+=`<div class="lt-help"><button class="mini" data-action="learn:ask">Ask the Tutor</button><span>The Tutor explains and hints; you write the final code.</span></div>`;const top=el.scrollTop;el.innerHTML=h;el.scrollTop=top;}
 function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:any)=>x.id===s.id)+1];
   if(s.kind==='concept'&&!ltDone(s.id)){LTS.done[dk(s.id)]=1;saveLT();}
   else if(s.kind==='drill'&&!ltDone(s.id)){const d=drillState(s);toast(`${d.n} of ${d.T.length} lines match — keep typing`);ltRes();return;}
@@ -195,3 +196,17 @@ function ltAsk(){const{s}=ltFind(LTS.cur)!;AGENT='tutor';agentPill();focusAgent(
 Object.assign(window, { LTS, saveLT, LT_LANGS, LT_LEVELS, LT_EXT, LT_BADGE, course, ltUnits, dk, ltDone, ltFind, ltPath, ltSeq, ltPts, stars, ltOnboard, ltStart, ltResume, ltOpen, openLesson, nextLesson, renderLtView, tgt, drillState, ltRes, ltGo, ltAsk });
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts; o visualizer decora-a no boot7) */
 VIEW.lt = renderLtView;
+
+/* acções do onboarding e do editor de exercícios (ADR-0004, U5c): eram `onclick="…"` inline, que liam e
+   escreviam o ONB/LT_HOOD/LTS no window e chamavam as funções publicadas, ao clicar; vão pelo
+   despachante partilhado, que faz o mesmo no acto. */
+const LW = window as unknown as { ONB: { levels: string[] }; LT_HOOD: boolean; LTS: { show: Record<string, number> } };
+registerActions({
+  "learn:level": { click: (c) => { const o = LW.ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); callGlobal("ltOnboard", 2); } },
+  "learn:back": { click: () => void callGlobal("ltOnboard", 1) },
+  "learn:start": { click: () => void callGlobal("ltStart") },
+  "learn:hood": { click: () => { LW.LT_HOOD = !LW.LT_HOOD; callGlobal("ltRes"); } },
+  "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; callGlobal("saveLT"); callGlobal("ltRes"); } },
+  "learn:ask": { click: () => void callGlobal("ltAsk") },
+  "learn:go": { click: () => void callGlobal("ltGo") },
+});

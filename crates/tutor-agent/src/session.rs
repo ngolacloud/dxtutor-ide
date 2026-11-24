@@ -144,6 +144,7 @@ pub fn session_path(dir: &Path, id: &str) -> Result<PathBuf, String> {
 pub struct SessionLog {
     path: PathBuf,
     persisted: usize,
+    meta: SessionMeta,
 }
 
 fn open_append(path: &Path, create: bool) -> std::io::Result<std::fs::File> {
@@ -173,7 +174,11 @@ impl SessionLog {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let mut f = open_append(&path, true).map_err(|e| format!("{}: {e}", path.display()))?;
         write_line(&mut f, &Line::Meta { meta: meta.clone() }).map_err(|e| e.to_string())?;
-        Ok(SessionLog { path, persisted: 0 })
+        Ok(SessionLog {
+            path,
+            persisted: 0,
+            meta: meta.clone(),
+        })
     }
 
     /// Abre uma sessão existente: devolve o cabeçalho, o histórico e o registo pronto a
@@ -203,7 +208,15 @@ impl SessionLog {
         }
         let meta = meta.ok_or_else(|| format!("sessão {id}: sem cabeçalho"))?;
         let persisted = t.len();
-        Ok((meta, t, SessionLog { path, persisted }))
+        Ok((
+            meta.clone(),
+            t,
+            SessionLog {
+                path,
+                persisted,
+                meta,
+            },
+        ))
     }
 
     /// Acrescenta ao ficheiro as mensagens do histórico que ainda não estão lá.
@@ -222,6 +235,32 @@ impl SessionLog {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Replaces the file with the header and `t` ("Rewind to here" cuts the conversation back
+    /// to a checkpoint). Written to a temporary file and renamed, so a crash never leaves a
+    /// half-written session.
+    pub fn rewrite(&mut self, t: &Transcript) -> Result<(), String> {
+        let tmp = self.path.with_extension("jsonl.tmp");
+        let _ = std::fs::remove_file(&tmp);
+        {
+            let mut f = open_append(&tmp, true).map_err(|e| format!("{}: {e}", tmp.display()))?;
+            write_line(
+                &mut f,
+                &Line::Meta {
+                    meta: self.meta.clone(),
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            for m in t.messages() {
+                write_line(&mut f, &Line::Message { message: m.clone() })
+                    .map_err(|e| e.to_string())?;
+            }
+            f.sync_all().map_err(|e| e.to_string())?;
+        }
+        std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())?;
+        self.persisted = t.len();
+        Ok(())
     }
 }
 

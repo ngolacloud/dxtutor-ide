@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 167 comandos, **78 são consumidos pela `ui-app`** e **89 não o são**: a UI
+Dos 175 comandos, **89 são consumidos pela `ui-app`** e **86 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -252,7 +252,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `git_checkout` | `root: String`, `branch: String` | `()` | String | — | — (via `exec`) | **G** |
 | `git_create_branch` | `root: String`, `name: String` | `()` | String | — | — (via `exec`) | **G** |
 
-## 9. Agente / arquitectura — `commands/agent.rs` (9)
+## 9. Agente / arquitectura — `commands/agent.rs` (10)
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/agent.rs` (adaptadores finos)
 > sobre o caso de uso Tauri-free `agent` — regra do scaffold com erro tipado
@@ -268,8 +268,9 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `arch_validate` | `arch: arch::Architecture` | `Vec<arch::Finding>` | String | — | `platform/tauri/arch.ts` (`features/arch`) | R |
 | `arch_scaffold` | `root: String`, `arch: arch::Architecture` | `Vec<String>` | String | — | `platform/tauri/arch.ts` (`features/arch`) | **W** |
 | `arch_scaffold_preview` | `arch: arch::Architecture` | `Vec<(String,String)>` | — | — | `platform/tauri/arch.ts` (`features/arch`) | R |
-| `arch_export_mermaid` | `arch: arch::Architecture` | `String` | — | — | — | R |
-| `arch_import_mermaid` | `source: String` | `arch::mermaid::MermaidImport` (`{ arch, warnings }`) | String | — | — | R |
+| `arch_export_mermaid` | `arch: arch::Architecture` | `String` | — | — | `platform/tauri/arch.ts` (`features/arch`) | R |
+| `arch_import_mermaid` | `source: String` | `arch::mermaid::MermaidImport` (`{ arch, warnings }`) | String | — | `platform/tauri/arch.ts` (`features/arch`) | R |
+| `arch_save_export` | `root: String`, `rel: String`, `bytes: Vec<u8>` | `String` (caminho relativo escrito) | String | — | `platform/tauri/arch.ts` (`features/arch`) | **W** (só dentro de `root`, só svg/png/mmd/md/json) |
 
 ## 10. Co-Dev — `commands/codev.rs` (5)
 
@@ -287,7 +288,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `codev_session_discard` | `root: String`, `slug: String` | `()` | String | — | — | **G** |
 | `codev_session_list` | `root: String` | `Vec<git::SessionInfo>` | String | — | — | R |
 
-## 10b. Agente Co-Dev v2 — `commands/codev_agent.rs` (13)
+## 10b. Agente Co-Dev v2 — `commands/codev_agent.rs` (16)
 
 > **ADR-0003 (F1):** adaptadores finos sobre o caso de uso Tauri-free
 > `crate::codev_agent`, que gere sessões do loop do crate `tutor-agent` (tool use
@@ -311,15 +312,18 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>`, `mode: Option<String>`, `resume: Option<String>`, `provider: Option<String>` | `String` (id da sessão) | String | — | `platform/tauri/codev-agent.ts` | **K** · S |
+| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>`, `mode: Option<String>`, `resume: Option<String>`, `provider: Option<String>`, `review_edits: Option<bool>`, `issue: Option<String>` (as alterações aceites ficam ligadas a esta issue do Project) | `String` (id da sessão) | String | — | `platform/tauri/codev-agent.ts` | **K** · S |
 | `codev_agent_send` | `session_id: String`, `text: Option<String>` | `()` (via eventos) | — | `codev-agent://event` `{session,event}`, `codev-agent://approval` `{session,request:{call,reason,dangerous,suggestedRule}}`, `codev-agent://error` `{session,error}` | `platform/tauri/codev-agent.ts` | **N** · K · **W** · **X** · S · E |
 | `codev_agent_approve` | `session_id: String`, `tool_use_id: String`, `allow: bool`, `reason: Option<String>`, `remember: Option<bool>` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S · W (`remember` grava `.dxtutor/permissions.json`) |
+| `codev_agent_review` | `session_id: String`, `call: String`, `decisions: Vec<{hunk: String, accept: bool, reason?: String}>` | `()` | String | — | `platform/tauri/codev-agent.ts` | S · **W** (escreve só os hunks aceites) |
 | `codev_agent_set_mode` | `session_id: String`, `mode: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
 | `codev_agent_sessions` | `root: String` | `Vec<session::SessionSummary>` | — | — | `platform/tauri/codev-agent.ts` | R |
 | `codev_agent_history` | `session_id: String` | `Vec<session::HistoryItem>` | String | — | `platform/tauri/codev-agent.ts` | S |
 | `codev_agent_set_plan` | `session_id: String`, `on: bool` | `()` | String | — | `platform/tauri/codev-agent.ts` | S |
-| `codev_agent_checkpoints` | `session_id: String` | `Vec<checkpoint::Checkpoint>` | String | — | `platform/tauri/codev-agent.ts` | S |
-| `codev_agent_rewind` | `session_id: String`, `checkpoint: u32` | `String` | String | — | `platform/tauri/codev-agent.ts` | **W** · S |
+| `codev_agent_checkpoints` | `session_id: String` | `Vec<CheckpointView>` (o checkpoint + `conversation`: a conversa também pode voltar a esse ponto) | String | — | `platform/tauri/codev-agent.ts` | S |
+| `codev_agent_rewind` | `session_id: String`, `checkpoint: u32`, `conversation: Option<bool>` («Rewind to here»: a conversa volta também, e o JSONL da sessão é reescrito) | `String` | String | — | `platform/tauri/codev-agent.ts` | **W** · S |
+| `codev_agent_permissions` | `root: String` | `PermissionsView {project, user, projectFile, userFile}` | — | — | `platform/tauri/codev-agent.ts` | R |
+| `codev_agent_save_permissions` | `root: String`, `rules: Rules {allow, deny}` | `()` | String (regra inválida) | — | `platform/tauri/codev-agent.ts` | **W** (`.dxtutor/permissions.json`; aplica às sessões abertas da pasta) |
 | `codev_agent_extensions` | `root: String` | `ExtensionsStatus` | — | — | `platform/tauri/codev-agent.ts` | R |
 | `codev_agent_trust` | `root: String`, `kind: String` | `()` | String | — | `platform/tauri/codev-agent.ts` | W (`~/.config/dxtutor/trusted.json`) |
 | `codev_agent_cancel` | `session_id: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
@@ -422,7 +426,7 @@ do `bridge.rs`).
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `list_dir` | `path: String` | `Vec<EntryDto>` | String | — | — | R |
-| `read_text_file` | `path: String` | `String` | String | — | — | R |
+| `read_text_file` | `path: String` | `String` | String | — | `platform/tauri/arch.ts` (`features/arch`: abrir do projecto) | R |
 | `write_text_file` | `path: String`, `contents: String` | `()` | String | — | — | **W** |
 | `create_path` | `path: String`, `is_dir: bool` | `()` | String | — | — | **W** |
 | `delete_path` | `path: String` | `()` | String | — | — | **W** |
@@ -488,15 +492,26 @@ ambiente da shell de login resolvido por `shellenv.rs`) e `ports.rs` (portas TCP
 | `problems_scan` | `root: String` | `problems::ScanResult` | String | `problems://check` | `features/panel` | **X** · R |
 | `ports_list` | `root: Option<String>` | `Vec<ports::PortInfo>` | String | — | `features/panel` | R |
 
-## 17. Board (SQLite) — `board.rs` (2)
+## 17. Project (SQLite) e quadro Tasks — `board.rs` (6)
 
-Backlog persistido em SQLite (`tutor-board`). Não consumidos pela `ui-app`
-(board simulado em `features/board.ts`).
+Project (docs/v2/UI-AUDIT.md, item 5; fase A5): Kanban, Scrum, XP ou Scrum + XP sobre o store
+`tutor_board::project` (`app_local_data_dir/board.sqlite3`, tabela `schema_version` e migrações só
+para a frente; a migração 1 importa o Board antigo que lá estivesse). O quadro da actividade Tasks
+(ADR-0006, R3b) continua com `board_load`/`board_save`, mas num ficheiro próprio
+(`app_local_data_dir/tasks.sqlite3`): o `sprints` do Project tem outro esquema. Os dois coexistem
+até a Q3 decidir se o Tasks passa a ser o Project. As regras de fluxo (um passo, WIP, DoR, DoD, bloqueio) são verificadas no store, numa
+transacção por operação; uma regra só se ultrapassa com motivo, registado na actividade. Erros:
+`ProjectError {code, message, overridable}`. Quem age = `git config user.name` do projecto (ou o
+utilizador do SO).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `board_load` | `root: Option<String>` | `Option<Backlog>` | String | — | `features/board` | R · S |
 | `board_save` | `root: Option<String>`, `backlog: Backlog` | `()` | String | — | `features/board` | **W** · S |
+| `project_load` | `root: String` | `Project` | `ProjectError` | — | `platform/tauri/project.ts` | R · **W** (cria o projecto vazio no 1.º uso) · S |
+| `project_apply` | `root: String`, `op: Op` (`{op: "create_issue" \| "move" \| "settings" \| …}`) | `Project` | `ProjectError` | — | `platform/tauri/project.ts` | **W** · S |
+| `project_issue` | `root: String`, `key: String` | `IssueDetail {activity, changeSets}` | `ProjectError` | — | `platform/tauri/project.ts` | R |
+| `project_reports` | `root: String` | `Reports` (cycle time, throughput, CFD, burndown, velocity — do histórico) | `ProjectError` | — | `platform/tauri/project.ts` | R |
 
 ## 18. Pesquisa / projecto — `commands/search.rs` (4)
 
@@ -519,11 +534,11 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **167** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 9 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 13 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **78** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 3 · `features/lsp` 13) |
-| Não consumidos pela `ui-app` | **89** |
-| Eventos distintos | **16** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
+| Comandos registados | **175** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 13 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
+| Consumidos pela `ui-app` | **89** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 13 · `platform/tauri/project.ts` 4) |
+| Não consumidos pela `ui-app` | **86** |
+| Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |
 | Mutam git (**G**) | `git_stage/unstage/stage_all/commit/checkout/create_branch`, `git_clone`, `codev_session_*` |

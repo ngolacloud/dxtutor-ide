@@ -88,3 +88,4 @@ export function openSsh(host: string): boolean {
 window.renderRemotePane = renderRemotePane;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.remote = renderRemotePane;
+

@@ -2,14 +2,17 @@
 // rótulos em espaço livre e auto-layout por camadas — sobre o desenho de referência
 // «Docker vs Kubernetes» e sobre um desenho do tamanho do diagrama de crates do Delonix.
 import { describe, test, expect } from "vitest";
-import { addComponent, addGroup, connect, emptyDesign } from "../src/features/arch/domain/design";
+import delonixJson from "../../crates/tutor-eval/tests/fixtures/arch/delonix-vs-docker.json";
+import seivaJson from "../../crates/tutor-eval/tests/fixtures/arch/seiva-o-mesmo-modulo.json";
+import { addComponent, addGroup, connect, emptyDesign, fromArchitecture } from "../src/features/arch/domain/design";
 import { groupPills, intersects, layout } from "../src/features/arch/domain/geometry";
 import { autoLayout } from "../src/features/arch/domain/autolayout";
-import { crossings, labelRect, placeLabels, routeAll, segmentHitsRect, type Route } from "../src/features/arch/domain/routing";
-import type { Design, Rect } from "../src/features/arch/domain/types";
+import { crossings, labelRect, lineCrossings, placeLabels, routeAll, segmentHitsRect, type Route } from "../src/features/arch/domain/routing";
+import type { Architecture, Design, Rect } from "../src/features/arch/domain/types";
 import { edgeLook } from "../src/features/arch/ui/view";
 import { makeArchStudio } from "../src/features/arch/application/studio";
 import { reference } from "./fixtures/arch-reference";
+import { fakeFiles, fakeRenderer, ioGateway } from "./fixtures/arch-fakes";
 
 const inside = (inner: Rect, outer: Rect): boolean =>
   inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
@@ -207,7 +210,9 @@ describe("caso de uso: ⇅ Arrange", () => {
   function studio(confirm: boolean) {
     const saved: Record<string, unknown> = {};
     const st = makeArchStudio({
-      gateway: { available: () => false, validate: async () => [], preview: async () => [], scaffold: async () => [] },
+      gateway: { available: () => false, validate: async () => [], preview: async () => [], scaffold: async () => [], ...ioGateway },
+      renderer: fakeRenderer,
+      files: fakeFiles(),
       store: { load: () => reference(), save: (k, d) => { saved[k] = d; } },
       workspace: { root: () => null, confirm: () => confirm, prompt: () => null },
       repaint: () => {},
@@ -227,5 +232,108 @@ describe("caso de uso: ⇅ Arrange", () => {
     const st = studio(true);
     expect(st.arrange()).toBe(true);
     expect(JSON.stringify(st.state().design)).toBe(JSON.stringify(autoLayout(reference())));
+  });
+});
+
+describe("rótulos e molduras (encontrado ao desenhar o Delonix)", () => {
+  test("um rótulo não fica a meio da borda de um painel ou grupo se houver alternativa", () => {
+    // seta vertical encostada à borda esquerda de uma moldura: à esquerda o rótulo sairia
+    const cards = new Map([["a", card(20, 0)], ["b", card(20, 300)]]);
+    const routes = routeAll(cards, [{ from: "a", to: "b" }]);
+    const frame = { x: 0, y: -20, w: 400, h: 420 };
+    const [at] = placeLabels([...cards.values()], routes, ["clone · pivot_root · cgroups v2"], [frame]);
+    const box = labelRect("clone · pivot_root · cgroups v2", at!);
+    expect(box.x >= frame.x && box.x + box.w <= frame.x + frame.w).toBe(true);
+  });
+
+  test("o protocolo sozinho não se desenha como rótulo (só o rótulo escrito)", () => {
+    const d = emptyDesign();
+    addComponent(d, "cli", "a");
+    addComponent(d, "daemon", "b");
+    connect(d, "a", "b");
+    d.connections[0].protocol = "unix-socket";
+    expect(edgeLook(d, d.connections[0]).label).toBe("");
+    d.connections[0].label = "socket do dockerd";
+    expect(edgeLook(d, d.connections[0]).label).toBe("socket do dockerd");
+  });
+});
+
+describe("equilíbrio e setas opcionais (encontrado ao desenhar o Delonix)", () => {
+  /** O diagrama real «Delonix vs Docker» (fixture partilhada com os testes Rust). */
+  const delonix = (): Design => fromArchitecture(JSON.parse(JSON.stringify(delonixJson)) as Architecture);
+
+  test("Delonix vs Docker arrumado: limpo, a seta principal a direito, painéis equilibrados, poucos cruzamentos", () => {
+    const d = autoLayout(delonix());
+    const { l, routes, labels, pills } = routed(d);
+    expect(crossings(l.nodes, d.connections, routes)).toEqual([]);
+    expect(crossings(new Map(pills.map((p, i) => [`pill-${i}`, p])), d.connections, routes)).toEqual([]);
+    d.connections.forEach((c, i) => {
+      const t = edgeLook(d, c).label;
+      if (!t) return;
+      const box = labelRect(t, labels[i]!);
+      for (const r of [...l.nodes.values(), ...pills]) expect(intersects(box, r), t).toBe(false);
+    });
+    // a mensagem: a CLI faz o clone, um salto, a direito e sem ajustes à mão
+    const main = d.connections.findIndex((c) => c.from === "cli" && c.to === "ctr");
+    expect(routes[main].points).toHaveLength(2);
+    const [docker, dlx] = [l.panels.get("docker")!, l.panels.get("delonix")!];
+    expect(Math.max(docker.h, dlx.h) / Math.min(docker.h, dlx.h)).toBeLessThan(1.3);
+    expect(dlx.w / docker.w).toBeLessThan(4); // era 7,6
+    expect(lineCrossings(routes)).toBeLessThanOrEqual(2); // eram 11
+  });
+
+  test("as setas opcionais não empurram o fluxo principal para baixo", () => {
+    const d = emptyDesign();
+    for (const n of ["cli", "sup", "ctr"]) addComponent(d, "process", n);
+    connect(d, "cli", "ctr");
+    connect(d, "cli", "sup");
+    connect(d, "sup", "ctr");
+    d.connections[1].style = "optional";
+    d.connections[2].style = "optional";
+    const l = layout(autoLayout(d));
+    const [cli, sup, ctr] = ["cli", "sup", "ctr"].map((id) => l.nodes.get(id)!);
+    expect(ctr.y).toBe(sup.y); // o Container não desce por causa do caminho opcional
+    expect(ctr.y).toBeGreaterThan(cli.y);
+    expect(ctr.x).toBe(cli.x); // debaixo da origem
+    expect(sup.x).toBeGreaterThan(ctr.x); // o opcional ao lado
+  });
+
+  test("uma camada larga parte-se em linhas, mas nunca com menos de três cartões", () => {
+    const d = emptyDesign();
+    addComponent(d, "cli", "root");
+    for (let i = 0; i < 9; i++) { addComponent(d, "process", `c${i}`); connect(d, "root", `c${i}`); }
+    const l = layout(autoLayout(d));
+    const ys = new Set(Array.from({ length: 9 }, (_, i) => l.nodes.get(`c${i}`)!.y));
+    expect(ys.size).toBeGreaterThan(1); // não ficaram todos numa fila
+    const perRow = [...ys].map((y) => Array.from({ length: 9 }, (_, i) => l.nodes.get(`c${i}`)!).filter((r) => r.y === y).length);
+    expect(Math.min(...perRow.slice(0, -1))).toBeGreaterThanOrEqual(3);
+  });
+
+  test("um feixe que passa junto por uma linha conta como um cruzamento", () => {
+    const trunk = (x: number): Route => ({ points: [{ x, y: 0 }, { x, y: 100 }], straight: false });
+    const across: Route = { points: [{ x: -50, y: 50 }, { x: 50, y: 50 }], straight: true };
+    expect(lineCrossings([trunk(0), trunk(0), across])).toBe(1);
+    expect(lineCrossings([trunk(0), trunk(20), across])).toBe(2);
+  });
+});
+
+describe("Seiva — o mesmo módulo (diagrama real)", () => {
+  test("arrumado sem cruzamentos nenhuns, painéis iguais e o mesmo módulo com a mesma forma", () => {
+    const d = autoLayout(fromArchitecture(JSON.parse(JSON.stringify(seivaJson)) as Architecture));
+    const { l, routes, pills } = routed(d);
+    expect(crossings(l.nodes, d.connections, routes)).toEqual([]);
+    expect(crossings(new Map(pills.map((p, i) => [`pill-${i}`, p])), d.connections, routes)).toEqual([]);
+    // uma recta só ganha se não cruzar setas que um caminho ortogonal evita (antes: 1)
+    expect(lineCrossings(routes)).toBe(0);
+    const [mono, svc] = [l.panels.get("monolito")!, l.panels.get("servico")!];
+    expect(Math.max(mono.w, svc.w) / Math.min(mono.w, svc.w)).toBeLessThan(1.1);
+    expect(Math.max(mono.h, svc.h) / Math.min(mono.h, svc.h)).toBeLessThan(1.1);
+    const [m, s] = [l.groups.get("mono-mod")!, l.groups.get("svc-mod")!];
+    expect([m.w, m.h]).toEqual([s.w, s.h]);
+    // e os cinco crates na mesma posição relativa dentro do módulo
+    for (const c of ["interface", "application", "facade", "domain", "infrastructure"]) {
+      const a = l.nodes.get(`m-${c}`)!, b = l.nodes.get(`s-${c}`)!;
+      expect([a.x - m.x, a.y - m.y]).toEqual([b.x - s.x, b.y - s.y]);
+    }
   });
 });

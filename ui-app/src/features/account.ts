@@ -20,6 +20,7 @@
 
 import { $, hd, svg, esc, prov, provState } from "../core";
 import { RP } from "../app/store/registry";
+import { registerActions, globalCalls } from "../app/actions";
 
 interface Identity { user?: string; host?: string; gitName?: string; gitEmail?: string }
 const dxr = (): Identity | undefined => (window as unknown as { DXR?: Identity }).DXR;
@@ -42,10 +43,13 @@ function renderAccountPane(): void {
         ([k, p]) =>
           `<div class="kv"><span class="pdot${p.on ? "" : " off"}" style="background:${p.col}"></span>${p.name}<span class="v">${p.on ? provState(k) : "desligado"}</span></div>`,
       )
-      .join("")}<button class="btn ghost" onclick="openSettings()">Abrir Definições</button><button class="btn ghost" onclick="openManager()">Uso</button></div>`;
+      .join("")}<button class="btn ghost" data-action="account:openSettings">Abrir Definições</button><button class="btn ghost" data-action="account:openManager">Uso</button></div>`;
 }
 
 /* ── publicação transitória no window (shim para o residual: RP.account delega aqui) ── */
 window.renderAccountPane = renderAccountPane;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.account = renderAccountPane;
+
+/* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
+registerActions(globalCalls("account", ["openSettings", "openManager"]));

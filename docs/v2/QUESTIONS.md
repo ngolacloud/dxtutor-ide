@@ -28,7 +28,12 @@ fica só como fallback para C/C++ sem lldb, ou sai.
 Hoje estão em localStorage. Recomendação: `.dxtutor/` no projecto (versionado com o código, partilhado
 pela equipa); SQLite só para dados da instalação (histórico de testes, sessões de debug, quadro).
 
-**Q7 · Quadro: projecto em SQLite local ou ficheiro versionado?**
+**Q7 · ~~Quadro: projecto em SQLite local ou ficheiro versionado?~~ — resolvida por omissão (2026-11-24), reversível.**
+O dono mandou seguir para a A5 sem responder; aplicou-se a recomendação abaixo: o Project vive em SQLite
+local (`app_local_data_dir/board.sqlite3`, `tutor_board::project`, com migrações). A exportação/importação
+para `.dxtutor/board.json` fica para depois.
+
+Texto original:
 Uma equipa a trabalhar no mesmo repo não partilha um SQLite local. Recomendação: SQLite local agora
 (o `tutor-board` já existe), com exportação/importação para `.dxtutor/board.json` e sincronização como
 passo futuro. Confirmar.

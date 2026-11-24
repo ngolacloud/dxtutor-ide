@@ -19,10 +19,11 @@ use std::time::Duration;
 
 use crate::tool::Tool;
 
-pub use exec::{run_process, run_process_io, ExecOutcome};
+pub use exec::{run_process, run_process_io, shell, ExecOutcome, MAX_TIMEOUT};
+pub(crate) use fs::{check_fresh, edit_check, write_check};
 
 /// Impressão digital do conteúdo de cada ficheiro tal como o agente o viu pela última vez.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FileState {
     seen: Mutex<HashMap<PathBuf, u64>>,
 }
@@ -53,6 +54,9 @@ pub struct ToolsetOptions {
     pub lint_cmd: Option<String>,
     /// Timeout por omissão do `bash` (o modelo pode pedir até [`exec::MAX_TIMEOUT`]).
     pub bash_timeout: Duration,
+    /// The read/edit/write state to share with the host (live hunks, RF-CODEV-STREAM);
+    /// `None` creates a private one.
+    pub files: Option<Arc<FileState>>,
 }
 
 impl Default for ToolsetOptions {
@@ -61,13 +65,14 @@ impl Default for ToolsetOptions {
             test_cmd: None,
             lint_cmd: None,
             bash_timeout: Duration::from_secs(120),
+            files: None,
         }
     }
 }
 
 /// As ferramentas de programação, por ordem fixa (mudar a ordem invalida a cache).
 pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
-    let state = Arc::new(FileState::default());
+    let state = opts.files.clone().unwrap_or_default();
     let mut v: Vec<Arc<dyn Tool>> = vec![
         Arc::new(fs::Read {
             state: state.clone(),
@@ -96,8 +101,10 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// Versão do conjunto de ferramentas gravada com cada sessão: retomar uma sessão usa o
 /// conjunto com que ela começou (mudar as ferramentas muda o prefixo do pedido, e o
 /// *preserved thinking* recusa-o). 1 = F2–F5; 2 = + todo_write/exit_plan/task (F6);
-/// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7).
-pub const TOOLSET_VERSION: u32 = 3;
+/// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7);
+/// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura);
+/// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06).
+pub const TOOLSET_VERSION: u32 = 5;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -122,9 +129,13 @@ pub fn agent_tools(
         }));
         v.push(Arc::new(flow::ExitPlan {
             plan_mode: flow_state.plan_mode.clone(),
+            steps: version >= 5,
         }));
         if let Some(spec) = subagent {
-            v.push(Arc::new(flow::Task { spec }));
+            v.push(Arc::new(flow::Task {
+                spec,
+                roles: version >= 5,
+            }));
         }
     }
     if version >= 3 {

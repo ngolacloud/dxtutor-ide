@@ -85,6 +85,18 @@ export const stopSignal = (): unknown => G.STOP;
 export const root = (): string => G.ROOT;
 /** Caminho absoluto da pasta real aberta no desktop (`null` no protótipo). */
 export const diskRoot = (): string | null => (G.DXR && typeof G.DXR.root === "string" ? G.DXR.root : null);
+/** Grava o que o editor tem (autosave do desktop) e espera que a escrita termine, para o
+ *  backend ler o mesmo que o humano vê. No protótipo não há disco: não faz nada. */
+export const flushSave = async (): Promise<void> => {
+  if (!G.DXR) return;
+  if (typeof G.DXR.flush === "function") G.DXR.flush();
+  if (typeof G.DXR.idle === "function") await G.DXR.idle();
+};
+/** Translates the text inside `el` to the current language (the i18n layer skips the editor,
+ *  so what Co-Dev draws over it is translated explicitly). */
+export const translate = (el: Element): void => {
+  if (typeof G.trNode === "function") G.trNode(el);
+};
 /** Relê o disco para o editor (o agente v2 escreve ficheiros directamente). */
 export const reloadDisk = (): Promise<void> =>
   G.DXR && typeof G.DXR.reloadDisk === "function" ? G.DXR.reloadDisk() : Promise.resolve();
@@ -164,6 +176,8 @@ export const openTab = (...args: [t: Partial<CodevTab> & { id: string }, act?: b
 export const closeTab = (id: string): void => G.closeTab(id);
 export const openDiff = (...args: [p: string, a?: string, b?: string, label?: string]): void => G.openDiff(...args);
 export const openPath = (...args: [p: string, line?: number]): void => G.openPath(...args);
+/** A yes/no question to the human (the harness: rewind, trust). */
+export const confirm = (message: string): boolean => window.confirm(message);
 
 /* ───── workspace / diagnostics / tests ───── */
 export const shortPath = (p: string): string => window.short(p);

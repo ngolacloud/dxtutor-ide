@@ -14,7 +14,8 @@ use crate::provider::SystemBlock;
 /// Ficheiros de instruções do projecto, por ordem (os mais gerais primeiro).
 /// Pasta da memória do projecto (todos os `.md`, por ordem alfabética).
 pub const MEMORY_DIR: &str = ".dxtutor/memory";
-pub const INSTRUCTION_FILES: &[&str] = &["AGENTS.md", "CLAUDE.md", ".dxtutor/regras.md"];
+pub const INSTRUCTION_FILES: &[&str] =
+    &["AGENTS.md", "CLAUDE.md", "DELONIX.md", ".dxtutor/regras.md"];
 /// Tamanho máximo de cada ficheiro de instruções incluído.
 const MAX_FILE_BYTES: usize = 40 * 1024;
 /// Tamanho máximo do conjunto das instruções do projecto.

@@ -107,6 +107,7 @@ window.P={
   popout:'<path d="M9 2.5h4.5V7"/><path d="M13.5 2.5 8 8"/><path d="M12 9v3.5a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1H7"/>',
   'dock-right':'<rect x="2" y="2.5" width="12" height="11" rx="1.2"/><path d="M9.5 2.5v11"/>',
   /* os ícones de Tasks/Explain/Review/Debug/observabilidade/Visualize — eram um Object.assign(P,…) no v6.ts (ADR-0004, U4g7) */
+  kanban:'<rect x="1.8" y="2.5" width="3.6" height="11" rx=".8"/><rect x="6.2" y="2.5" width="3.6" height="7" rx=".8"/><rect x="10.6" y="2.5" width="3.6" height="9" rx=".8"/>',
   tasks:'<path d="M6.5 4h7M6.5 8h7M6.5 12h7"/><path d="M2.2 4l1 1 1.6-1.9M2.2 8l1 1 1.6-1.9"/><circle cx="3.4" cy="12" r=".9"/>',
   eye:'<path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
   review:'<path d="M3.5 2.5h6l3 3v8h-9z"/><path d="M5.8 9l1.5 1.5 3-3.2"/>',

@@ -369,6 +369,26 @@ export const presenter: ChatPresenter = {
         .join("");
     scrollMsgs();
   },
+  /* the turn's report (HARNESS-07): built from the events, collapsed under the reply */
+  agentReport(ref: CardRef, title: string, markdown: string) {
+    const c = asCard(ref);
+    const d = document.createElement("details");
+    d.className = "agent-report";
+    const sum = document.createElement("summary");
+    const b = document.createElement("span");
+    b.textContent = "Turn report";
+    sum.appendChild(b);
+    const t = document.createElement("span");
+    t.className = "ar-t";
+    t.textContent = " · " + title; // text, never HTML
+    sum.appendChild(t);
+    d.appendChild(sum);
+    const body = document.createElement("div");
+    body.innerHTML = md(markdown);
+    d.appendChild(body);
+    c.el.querySelector(".bub")!.appendChild(d);
+    scrollMsgs();
+  },
   agentPlan(ref: ToolRef, markdown: string) {
     const box = document.createElement("div");
     box.className = "agent-plan";
@@ -389,5 +409,38 @@ export const presenter: ChatPresenter = {
     w.className = "why" + (dangerous ? " bad" : "");
     w.textContent = (dangerous ? "⚠ " : "") + reason;
     t.appendChild(w);
+  },
+  /* live hunks (RF-CODEV-STREAM): the review bar of a call; per-hunk choices live in the editor */
+  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string }, on: { acceptAll(): void; rejectAll(): void; open(): void }) {
+    const t = el(ref);
+    const bar = document.createElement("div");
+    bar.className = "gate hk-gate";
+    const lead = document.createElement("span");
+    lead.className = "hk-lead";
+    const n = document.createElement("span");
+    n.textContent = `${info.count} alteração(ões) no editor`;
+    lead.appendChild(n);
+    bar.appendChild(lead);
+    const btn = (label: string, pri: boolean, run: () => void) => {
+      const x = document.createElement("button");
+      x.className = "gb" + (pri ? " pri" : "");
+      x.textContent = label; // text, never HTML
+      x.onclick = run;
+      bar.appendChild(x);
+    };
+    btn("Aceitar todas", true, () => on.acceptAll());
+    btn("Rejeitar todas", false, () => on.rejectAll());
+    btn("Ver no editor", false, () => on.open());
+    t.appendChild(bar);
+    scrollMsgs();
+    waiting();
+    return {
+      settle(label: string) {
+        const done = document.createElement("span");
+        done.className = "gdone";
+        done.textContent = label;
+        bar.replaceChildren(done);
+      },
+    };
   },
 };

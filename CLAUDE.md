@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 164 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 173 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -37,7 +37,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   pode voltar a ter a directiva: código novo nasce tipado.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch` e `testing`); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp` e `project`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -217,9 +217,10 @@ resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`
 `approveIssue` publicam-se já COMPOSTAS com as políticas que antes eram decorações do
 app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3) — as arestas internas e os handlers data-action
 resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
-O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). Os handlers de ARRASTAR
-(`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
-`STRIPPED_ATTRS`, migrá-los partia o golden. Rede de segurança em
+O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). O ARRASTAR dos cartões
+(`board:card`/`board:col`) vai pelo despachante partilhado desde a U5d do ADR-0004 — os goldens do
+quadro foram regenerados nessa altura (decisão do dono; o diff foi só a remoção dos 44 atributos
+`ondrag*`/`ondrop`). Rede de segurança em
 `tests/board.golden.test.ts` (goldens do pane vazio/povoado, caracterização de
 genBacklogIssues/mkIssue, testes de dispatch delegado — o «Delegar» com agente falso) e
 `tests/board.domain.test.ts` (domínio puro). **Sem runner guionado (ADR-0006, R3a):** correr
@@ -383,6 +384,18 @@ desktop configura (não decorações). `explorer` (syncTree), `welcome` (VIEW.we
 os itens do menu File, as entradas da paleta e o Ctrl+O — dissolvem-se quando as features
 registarem os seus comandos (U7).
 
+## Acções delegadas partilhadas (`ui-app/src/app/actions.ts`, ADR-0004 U5)
+
+Os módulos sem despachante próprio emitem `data-action="dono:nome"` (+ `data-on`, o único payload —
+os goldens tiram exactamente `data-action`/`data-on`) e registam a tabela com `registerActions`. O
+despachante é o PRIMEIRO listener do document (primeiro import do `main.ts`) e imita o handler
+inline: corre os antepassados com acção pela ordem da borbulha, `c.stop()` = `event.stopPropagation()`,
+cede a um `el.onclick = f` posterior e a controlos desactivados. As acções chamam as funções
+publicadas no acto (`callGlobal`) — não troques por ligações locais sem ver se alguém decora a
+publicada. Handlers inline novos não: a métrica U5 do `ui-metrics.sh` está em 0, e desde a U5e o
+CSP da app (`script-src 'self'`, sem `'unsafe-inline'`) bloqueava-os de qualquer forma. O passo `csp`
+do auto-teste desktop prova-o na app real.
+
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
@@ -517,6 +530,45 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   abre sessão (sem erro). Correndo o auto-teste com um HOME temporário, põe essa pasta no PATH
   (`PATH="$HOME/.local/share/jdtls/bin:$PATH" HOME=/tmp/… DXTUTOR_SELFTEST=…`) — senão o passo
   `lsp-java` diz que o servidor não foi encontrado (e verifica que o editor mostra o aviso).
+## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0006)
+
+Feature NOVA e tipada (governada por A7/A8), separada do Studio do catálogo cloud
+(`features/studio.ts`, que continua a alimentar os geradores e o «Generate backlog»).
+Desenha diagramas de arquitectura interna: painéis comparativos (até 2), grupos
+tracejados aninhados com pílula, cartões com ícone (Tabler, `ui/icons.ts`, gerado) e
+mini-bloco de código, setas por estilo (controlo/dados/opcional) com protocolo e rótulo.
+
+```
+features/arch/
+  domain/          types, design (ops, toArchitecture, parseDesign retrocompatível),
+                   geometry (cartões, grupos que crescem, painéis, pílulas), routing
+                   (setas que nunca atravessam cartões, rótulos livres), autolayout
+                   (camadas, recursivo por grupo), files (.arch.json, Mermaid de um .md). PURO.
+  application/     ports.ts + studio.ts (caso de uso: edição, largadas, validação,
+                   scaffold, exportar/importar, propostas do agente).
+  ui/              view.ts (DOM/SVG), export.ts (SVG autónomo, PNG), table.ts (acções),
+                   actions.ts (listener delegado, chave __archActionHandler__), icons.ts.
+  infrastructure/  tauri.ts (comandos + evento) e legacy-bridge.ts (ÚNICO com window).
+  index.ts         raiz de composição; quem abre o separador importa `openArch`.
+```
+
+- **O modelo e as regras são do Rust:** `crates/tutor-eval/src/arch.rs` (Kind de eventos e
+  de sistema, `groups`, `views`, `source`; regras com testes) e `arch/mermaid.rs` (ida e
+  volta exacta via linhas `%% dxt:`). Nunca validar nem fazer parse de Mermaid no cliente.
+- **Comandos:** `arch_validate`, `arch_scaffold(_preview)`, `arch_export_mermaid`,
+  `arch_import_mermaid`, `arch_save_export` (escreve SÓ dentro da pasta do projecto, só
+  svg/png/mmd/md/json) — em `commands/agent.rs`. Evento `arch://proposal`.
+- **Harness:** a ferramenta do agente `arch_propose` (só leitura, `src-tauri/src/agent.rs`)
+  valida e mostra a proposta por cima do desenho actual; só muda com «Accept». Entra no
+  conjunto de ferramentas versão 4 (`StartSpec.host_tools_v4`): sessões antigas retomam
+  sem ela.
+- **Sem dados de demonstração:** o desenho nasce vazio; a referência «Docker vs Kubernetes»
+  vive só em `ui-app/tests/fixtures/arch-reference.ts` (testes e e2e).
+- **Testes:** `cargo test -p tutor-eval` (regras, Mermaid, fixtures do Delonix),
+  `ui-app/tests/arch.*.test.ts` e os e2e `ui-app/e2e/arch*.e2e.ts` (o `arch-recreate` recria
+  a referência só pela UI e verifica que nenhuma seta atravessa um cartão). GOTCHA-e2e:
+  várias sessões partilham `ui-app/dist` e a porta 4179 — para verificar, construir para
+  uma pasta própria e servir noutra porta (ou `CI=1`).
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 

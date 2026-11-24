@@ -9,6 +9,7 @@
 import type { DesktopContext } from "./context";
 import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
+import { projectClient } from "../tauri/project";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -17,6 +18,10 @@ const realTerm = (raw: string) => ctx.realTerm(raw);
 const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSample(i, o);
   const rep: { tauri: boolean; version?: string; os?: string; errors: string[]; steps: Record<string, unknown>; stepErrors: Record<string, string[]> } =
     { tauri: true, version: R.info.version, os: R.info.os, errors: R.errors, steps: {}, stepErrors: {} };
+  /* U5e do ADR-0004: o script-src já não tem 'unsafe-inline' — regista qualquer violação do CSP durante o
+     auto-teste (um handler inline que tenha escapado à migração seria bloqueado aqui). */
+  const cspViolations: string[] = [];
+  document.addEventListener("securitypolicyviolation", (e) => cspViolations.push(`${e.violatedDirective} ${e.blockedURI || ""} ${(e.sample || "").slice(0, 80)}`.trim()));
   const step = async (n: string, f: () => unknown) => {
     const e0 = R.errors.length;
     try { rep.steps[n] = await f(); } catch (e) { rep.steps[n] = "FAIL: " + ((e as Error) && (e as Error).message || e); }
@@ -204,6 +209,24 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const inPane = await wait(() => (document.getElementById("pane-test")?.textContent || "").includes("probe_passes"), 20000);
       delete FS[key]; flushSave(); await idle();
       return { inPane };
+    });
+    // A5: the Project store through the real Tauri commands and SQLite — create, move one
+    // step, a skipped step refused by the Rust rules (code `step`, overridable), and the
+    // issue's activity. The issue is deleted at the end (the temp folder's project stays empty).
+    await step("project", async () => {
+      const pc = projectClient();
+      const root = R.root as string;
+      const p0 = (await pc.load(root)) as { issues: unknown[] };
+      const p1 = (await pc.apply(root, { op: "create_issue", title: "selftest issue" })) as { issues: Array<{ key: string; title: string }> };
+      const key = p1.issues.find((i) => i.title === "selftest issue")!.key;
+      const p2 = (await pc.apply(root, { op: "move", key, to: "progress" })) as { issues: Array<{ key: string; state: string }> };
+      let refused: { code?: string; overridable?: boolean } = {};
+      try { await pc.apply(root, { op: "move", key, to: "done" }); } catch (e) { refused = e as typeof refused; }
+      const detail = (await pc.issue(root, key)) as { activity: Array<{ kind: string }> };
+      await pc.apply(root, { op: "delete_issue", key });
+      const out = { empty: p0.issues.length === 0, moved: p2.issues.find((i) => i.key === key)?.state, refused: refused.code, overridable: refused.overridable, activity: detail.activity.map((a) => a.kind) };
+      if (out.moved !== "progress" || out.refused !== "step" || out.overridable !== true || !out.activity.includes("moved")) throw new Error("project store: " + JSON.stringify(out));
+      return out;
     });
     // feature `infra` (migrada de v5.ts nesta sessão para features/infra.ts): prova que
     // o motor de runtime/K8s/dev-container ficou correctamente ligado depois da
@@ -583,6 +606,18 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // todos os ficheiros, gravado no disco). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
   }
+  /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
+  await step("csp", async () => {
+    const inlineHandlers = [...document.querySelectorAll("*")].filter((el) => [...el.attributes].some((a) => /^on/i.test(a.name))).map((el) => el.tagName.toLowerCase() + (el.id ? "#" + el.id : "")).slice(0, 20);
+    const violations = cspViolations.slice(0, 20);
+    /* prova de que o CSP está activo: um handler inline plantado não pode correr */
+    const b = document.createElement("button");
+    b.setAttribute("onclick", "this.dataset.ran='1'");
+    document.body.appendChild(b); b.click();
+    await new Promise((r) => setTimeout(r, 50));
+    const ran = b.dataset.ran === "1"; b.remove();
+    return { inlineHandlers, violations, inlineBlocked: !ran };
+  });
   rep.errors = R.errors;
   await app.selftestReport(rep);
 

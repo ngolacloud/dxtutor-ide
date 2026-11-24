@@ -5,11 +5,13 @@
    o Ctrl+O e os botões da página de boas-vindas. Eram as secções «folders and autosave» e
    «menus, palette, welcome» do bridge.ts, verbatim. */
 
-import { jsa } from "../../core";
 import { bus } from "../../app/bus";
+import { editorStore } from "../../app/store/editor";
 import { loadWorkspace } from "../tauri/workspace";
 import type { Workspace } from "./types";
 import { desktopPorts } from "../../app/desktop";
+import { registerActions } from "../../app/actions";
+import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
 
 export function installWorkspace(ctx: DesktopContext): void {
@@ -24,7 +26,8 @@ async function openFolder(path?: string): Promise<boolean> {
   R.root = L.root; R.name = L.name; R.cwd = L.root; R.disk = {};
   Object.keys(FS).forEach(k => { if (!k.startsWith(ROOT + "learn/")) delete FS[k]; });
   L.files.forEach(f => { FS[ROOT + f.path] = { content: f.content, orig: f.content }; R.disk[f.path] = f.content; });
-  try { TABS.filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
+  /* fecha os separadores da pasta anterior (o antigo global TABS estava sempre vazio: não fechava nada) */
+  try { editorStore.tabs.filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
   STAGED.clear(); OPEN.clear(); OPEN.add("dxtutor"); CWD = [R.name!];
   R.git = (await git("rev-parse", "--is-inside-work-tree")).code === 0;
   if (R.git) { R.prefix = (await git("rev-parse", "--show-prefix")).stdout.trim(); await markChanged(); await syncGit(); }
@@ -40,7 +43,7 @@ async function openFolder(path?: string): Promise<boolean> {
   say(`opened ${R.root} · ${L.files.length} files${L.skipped ? ` · ${L.skipped} skipped (binary, large or ignored)` : ""}${L.truncated ? " · file limit reached" : ""}`);
   toast(`${R.name}: ${L.files.length} files${R.git ? " · git " + BRANCH : " · not a git repository"}`);
   document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
-  if (!R.git) { try { card("desktop", `<b>${escH(R.name)}</b> is not a git repository. The graph, gitflow and commits need one.<div style="margin-top:8px"><button class="mini pri" onclick="DXR.gitInit()">git init</button></div>`); } catch { /* sem chat */ } }
+  if (!R.git) { try { card("desktop", `<b>${escH(R.name)}</b> is not a git repository. The graph, gitflow and commits need one.<div style="margin-top:8px"><button class="mini pri" data-action="desktop:gitInit">git init</button></div>`); } catch { /* sem chat */ } }
   return true;
 }
 async function reloadDisk(): Promise<void> {
@@ -52,7 +55,7 @@ async function reloadDisk(): Promise<void> {
   Object.assign(FS, keep);
   R.disk = {};
   L.files.forEach(f => { FS[ROOT + f.path] = { content: f.content, orig: f.content }; R.disk[f.path] = f.content; });
-  try { TABS.filter(t => t.path && !FS[t.path]).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
+  try { editorStore.tabs.filter(t => t.path && !FS[t.path]).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
   if (R.git) await markChanged();
   refresh(false, true);
   try { const t = tabOf(cur); if (t && t.path) show(cur); } catch { /* sem tab activa */ }
@@ -165,6 +168,14 @@ desktopPorts.welcome = { welcome(t, host, _welcome) {
   const sub = host.querySelector(".sub");
   if (!sub) return;
   const rec = LS.get("dx-recent", []) as string[];
-  sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" onclick="DXR.open()">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" onclick="DXR.open(${jsa(p)})">${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
+  sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" data-action="desktop:open">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" data-action="desktop:openRecent" data-on="${escH(p)}">${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
 } };
 }
+
+const DX = (): Desktop => window.DXR as unknown as Desktop;
+/* os botões que o desktop acrescenta chamam o `DXR` no acto (eram `onclick="DXR.…"` inline — ADR-0004, U5c) */
+registerActions({
+  "desktop:gitInit": { click: () => void DX().gitInit!() },
+  "desktop:open": { click: () => void DX().open!() },
+  "desktop:openRecent": { click: (c) => void DX().open!(c.on) },
+});

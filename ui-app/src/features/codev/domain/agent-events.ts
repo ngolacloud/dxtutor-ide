@@ -36,7 +36,31 @@ export type AgentEvent =
   | { kind: "served_by"; model: string }
   | { kind: "checkpoint"; id: number; label: string }
   | { kind: "notice"; text: string }
+  | { kind: "report"; title: string; markdown: string }
+  | HunkEvent
   | { kind: "done"; outcome: TurnOutcome };
+
+/* ── live hunks (docs/v2/RF-CODEV-STREAM.md §3) ── */
+
+export type HunkOp = "replace" | "insert" | "delete" | "create";
+export interface LineRange {
+  start: number;
+  end: number;
+}
+export interface ValidationCheck {
+  command: string;
+  ok: boolean;
+  summary: string;
+}
+export type HunkEvent =
+  | { kind: "hunk_start"; hunk: string; call: string; path: string; op: HunkOp; range: LineRange; base: string | null; old: string }
+  | { kind: "hunk_chunk"; hunk: string; text: string }
+  | { kind: "hunk_end"; hunk: string; text: string; lines: { added: number; removed: number } }
+  | { kind: "hunk_review"; call: string; hunks: string[]; reason: string; why?: string }
+  | { kind: "hunk_applied"; hunk: string; provisional: boolean; fingerprint: string }
+  | { kind: "hunk_rejected"; hunk: string; by: "human" | "validation" | "cancel"; reason: string }
+  | { kind: "hunk_stale"; hunk: string; path: string }
+  | { kind: "validation"; status: "running" | "passed" | "failed" | "skipped"; checks: ValidationCheck[]; baseline: ValidationCheck[] };
 
 export interface PendingCall {
   id: string;
@@ -62,12 +86,45 @@ const str = (v: unknown): v is string => typeof v === "string";
 export function parseAgentEvent(payload: unknown): { session: string; event: AgentEvent } | null {
   if (!isObj(payload) || !str(payload.session) || !isObj(payload.event)) return null;
   const e = payload.event;
-  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "done"];
+  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "report", "done"];
+  if (str(e.kind) && HUNK_KINDS.includes(e.kind)) {
+    return validHunkEvent(e) ? { session: payload.session, event: e as unknown as AgentEvent } : null;
+  }
   if (!str(e.kind) || !known.includes(e.kind)) return null;
   if (e.kind === "stream" && !(isObj(e.event) && str(e.event.type))) return null;
   if ((e.kind === "tool_start" || e.kind === "tool_result") && !(str(e.id) && str(e.name))) return null;
   if (e.kind === "done" && !(isObj(e.outcome) && str(e.outcome.type))) return null;
   return { session: payload.session, event: e as unknown as AgentEvent };
+}
+
+const HUNK_KINDS = ["hunk_start", "hunk_chunk", "hunk_end", "hunk_review", "hunk_applied", "hunk_rejected", "hunk_stale", "validation"];
+const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** Checks the fields the overlay relies on, so a malformed event is dropped, not drawn. */
+function validHunkEvent(e: Record<string, unknown>): boolean {
+  switch (e.kind) {
+    case "hunk_start":
+      return (
+        str(e.hunk) && str(e.call) && str(e.path) && str(e.old) &&
+        ["replace", "insert", "delete", "create"].includes(e.op as string) &&
+        isObj(e.range) && num(e.range.start) && num(e.range.end)
+      );
+    case "hunk_chunk":
+    case "hunk_end":
+      return str(e.hunk) && str(e.text);
+    case "hunk_review":
+      return str(e.call) && Array.isArray(e.hunks) && e.hunks.every(str) && str(e.reason);
+    case "hunk_applied":
+      return str(e.hunk) && typeof e.provisional === "boolean";
+    case "hunk_rejected":
+      return str(e.hunk) && ["human", "validation", "cancel"].includes(e.by as string) && str(e.reason);
+    case "hunk_stale":
+      return str(e.hunk) && str(e.path);
+    case "validation":
+      return ["running", "passed", "failed", "skipped"].includes(e.status as string) && Array.isArray(e.checks) && Array.isArray(e.baseline);
+    default:
+      return false;
+  }
 }
 
 /** `{session, request}` do evento `codev-agent://approval`. */
@@ -235,16 +292,41 @@ export function parseTodos(input: Record<string, unknown>): Todo[] {
     });
 }
 
-/** Um checkpoint de ficheiros (espelho de `tutor_agent::checkpoint::Checkpoint`). */
+/** Um checkpoint de ficheiros (espelho de `codev_agent::CheckpointView`). */
 export interface Checkpoint {
   id: number;
   label: string;
   created: number;
+  /** A conversa também pode voltar a este ponto («Rewind to here»). */
+  conversation: boolean;
 }
 
 export function parseCheckpoints(v: unknown): Checkpoint[] {
   if (!Array.isArray(v)) return [];
-  return v.filter((c): c is Checkpoint => isObj(c) && typeof c.id === "number" && str(c.label) && typeof c.created === "number");
+  return v
+    .filter((c) => isObj(c) && typeof c.id === "number" && str(c.label) && typeof c.created === "number")
+    .map((c) => {
+      const o = c as Record<string, unknown>;
+      return { id: o.id as number, label: o.label as string, created: o.created as number, conversation: o.conversation === true };
+    });
+}
+
+/** As regras de permissões (espelho de `codev_agent::PermissionsView`). */
+export interface Permissions {
+  project: { allow: string[]; deny: string[] };
+  user: { allow: string[]; deny: string[] };
+  projectFile: string;
+  userFile: string | null;
+}
+
+export function parsePermissions(v: unknown): Permissions {
+  const o = isObj(v) ? v : {};
+  const rules = (x: unknown) => {
+    const r = isObj(x) ? x : {};
+    const list = (a: unknown) => (Array.isArray(a) ? (a.filter(str) as string[]) : []);
+    return { allow: list(r.allow), deny: list(r.deny) };
+  };
+  return { project: rules(o.project), user: rules(o.user), projectFile: str(o.projectFile) ? o.projectFile : "", userFile: str(o.userFile) ? o.userFile : null };
 }
 
 /** O diff a mostrar num pedido de aprovação de edit/write (`null` para as outras ferramentas). */

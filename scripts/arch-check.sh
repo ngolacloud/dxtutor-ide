@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=167
+EXPECT_TOTAL=175
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -72,8 +72,14 @@ EXPECT_TSNOCHECK=0
 # Aviso de servidor em falta no editor: lsp.rs ganha lsp_server_status; com o lsp_completion do
 # develop, lsp.rs fica com 10: 164.
 # Assinatura da chamada (lsp_signature_help): lsp.rs fica com 11: 165.
-# Code actions (lsp_code_action + lsp_execute_command): lsp.rs fica com 13: 167.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/codev_agent.rs]=13 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=9 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=13 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=2 )
+# Consolidação (2026-11-24) do develop local (Parte A) com o origin/develop (ADR-0006), a partir dos
+# 165 do ADR-0006: F5 arch_save_export (commands/agent.rs 9→10): 166; A2 codev_agent_review
+# (commands/codev_agent.rs 13→14): 167; A5 project_load/apply/issue/reports (board.rs 2→6 — o
+# board_load/board_save do quadro Tasks fica, num SQLite próprio): 171.
+# A3 (harness): commands/codev_agent.rs ganha codev_agent_permissions e
+# codev_agent_save_permissions (14→16): 171 + 2 = 173.
+# Code actions (lsp_code_action + lsp_execute_command): lsp.rs 11→13: 175.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=10 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=13 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=6 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -188,7 +194,7 @@ fi
 # O resíduo strangler `features/<f>.ts` (publica os shims window.*) está FORA
 # desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
 # A7/A8 cobrem CADA feature nesta lista (codev + ext; a próxima acrescenta-se aqui).
-FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp"
+FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project"
 FEAT_ROOT=ui-app/src/features
 
 echo "== A7 · domínio não importa application/ui/infrastructure =="

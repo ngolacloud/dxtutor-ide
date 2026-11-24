@@ -99,6 +99,9 @@ impl Tool for TodoWrite {
 /// ao humano antes de correr; correr = o plano foi aprovado.
 pub struct ExitPlan {
     pub plan_mode: Arc<AtomicBool>,
+    /// Toolset 5: the plan also lists its steps with the files and lines each one touches
+    /// (the Run view draws them, A3 HARNESS-01).
+    pub steps: bool,
 }
 
 impl Tool for ExitPlan {
@@ -111,9 +114,44 @@ impl Tool for ExitPlan {
          aprovado, o modo plano termina e executas o plano."
     }
     fn input_schema(&self) -> Value {
+        if !self.steps {
+            return json!({
+                "type": "object",
+                "properties": {"plan": {"type": "string", "description": "o plano em markdown"}},
+                "required": ["plan"],
+                "additionalProperties": false
+            });
+        }
         json!({
             "type": "object",
-            "properties": {"plan": {"type": "string", "description": "o plano em markdown"}},
+            "properties": {
+                "plan": {"type": "string", "description": "o plano em markdown"},
+                "steps": {
+                    "type": "array",
+                    "description": "os passos do plano, cada um com os ficheiros (e linhas, se já as conheces) que vai mexer",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string"},
+                            "files": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "path": {"type": "string"},
+                                        "start": {"type": "integer", "minimum": 1},
+                                        "end": {"type": "integer", "minimum": 1}
+                                    },
+                                    "required": ["path"],
+                                    "additionalProperties": false
+                                }
+                            }
+                        },
+                        "required": ["text"],
+                        "additionalProperties": false
+                    }
+                }
+            },
             "required": ["plan"],
             "additionalProperties": false
         })
@@ -147,6 +185,26 @@ pub struct SubagentSpec {
 /// É só leitura, por isso vários podem correr em paralelo no mesmo turno.
 pub struct Task {
     pub spec: SubagentSpec,
+    /// Toolset 5: the sub-agent may take a role (reviewer, tester, architect), each with its
+    /// own brief (A3 HARNESS-06). All of them only read.
+    pub roles: bool,
+}
+
+/// The briefs of the roles (all read-only: a sub-agent runs without asking for approval).
+fn role_brief(role: &str) -> &'static str {
+    match role {
+        "reviewer" => "És o revisor do Co-Dev do dxtutor IDE. Lê as alterações em curso (git_diff, git_status) e o \
+código à volta e procura defeitos reais: erros de lógica, casos limite, regressões, riscos de segurança, testes em falta. \
+Para cada achado dá o ficheiro e a linha, a gravidade (alta/média/baixa) e porquê. Não inventes problemas; se não encontras \
+nada relevante, diz isso. Só tens ferramentas de leitura. Responde em português.",
+        "tester" => "És o testador do Co-Dev do dxtutor IDE. Mapeia os testes que existem para o que te pedem (onde estão, \
+o que cobrem) e o que fica por testar: casos limite, erros, integrações. Propõe os casos de teste em falta, com o ficheiro \
+onde iriam e o que verificam. Não corres comandos: só tens ferramentas de leitura. Responde em português.",
+        "architect" => "És o arquitecto do Co-Dev do dxtutor IDE. Mapeia os módulos, as dependências e as fronteiras que \
+interessam ao pedido, com caminhos de ficheiros. Propõe até três opções de desenho com as suas consequências e recomenda \
+uma, explicando porquê. Não alteras nada: só tens ferramentas de leitura. Responde em português.",
+        _ => SUBAGENT_PROMPT,
+    }
 }
 
 const SUBAGENT_PROMPT: &str = "És um sub-agente de investigação do Co-Dev do dxtutor IDE. \
@@ -165,11 +223,26 @@ impl Tool for Task {
          relatório dele. Vários `task` no mesmo turno correm em paralelo."
     }
     fn input_schema(&self) -> Value {
+        if !self.roles {
+            return json!({
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string", "description": "3-6 palavras"},
+                    "prompt": {"type": "string", "description": "o que investigar, com o contexto necessário"}
+                },
+                "required": ["description", "prompt"],
+                "additionalProperties": false
+            });
+        }
         json!({
             "type": "object",
             "properties": {
                 "description": {"type": "string", "description": "3-6 palavras"},
-                "prompt": {"type": "string", "description": "o que investigar, com o contexto necessário"}
+                "prompt": {"type": "string", "description": "o que fazer, com o contexto necessário"},
+                "role": {
+                    "enum": ["explorer", "reviewer", "tester", "architect"],
+                    "description": "explorer (por omissão): investiga; reviewer: revê as alterações em curso; tester: mapeia os testes e o que falta testar; architect: mapeia módulos e propõe opções de desenho"
+                }
             },
             "required": ["description", "prompt"],
             "additionalProperties": false
@@ -187,8 +260,13 @@ impl Tool for Task {
         let mut cfg = AgentConfig::new(self.spec.model.clone());
         cfg.effort = self.spec.effort;
         cfg.max_iterations = 30;
+        let role = if self.roles {
+            input["role"].as_str().unwrap_or("explorer")
+        } else {
+            "explorer"
+        };
         cfg.system = vec![SystemBlock {
-            text: SUBAGENT_PROMPT.into(),
+            text: role_brief(role).into(),
             cache: true,
         }];
         let child_ctx = ToolCtx {

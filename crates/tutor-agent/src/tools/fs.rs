@@ -109,7 +109,11 @@ impl Tool for Read {
 }
 
 /// Recusa mexer num ficheiro existente que o agente não leu, ou que mudou desde a leitura.
-fn check_fresh(state: &FileState, p: &std::path::Path, given: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn check_fresh(
+    state: &FileState,
+    p: &std::path::Path,
+    given: &str,
+) -> Result<Vec<u8>, String> {
     let cur = std::fs::read(p).map_err(|e| format!("{given}: {e}"))?;
     match state.seen(p) {
         None => Err(format!("{given}: lê o ficheiro com `read` antes de o alterar")),
@@ -118,6 +122,60 @@ fn check_fresh(state: &FileState, p: &std::path::Path, given: &str) -> Result<Ve
         )),
         Some(_) => Ok(cur),
     }
+}
+
+/// The checks `edit` makes before changing anything (also used to plan live hunks, so both
+/// paths refuse the same inputs with the same message). Returns the resolved path, the
+/// current bytes, the text and how many times `old_string` occurs.
+pub(crate) fn edit_check(
+    state: &FileState,
+    root: &std::path::Path,
+    input: &Value,
+) -> Result<(std::path::PathBuf, Vec<u8>, String, usize), String> {
+    let given = input["path"].as_str().unwrap_or_default();
+    let old = input["old_string"].as_str().unwrap_or_default();
+    let new = input["new_string"].as_str().unwrap_or_default();
+    let all = input["replace_all"].as_bool().unwrap_or(false);
+    if old.is_empty() {
+        return Err("old_string vazio: para criar um ficheiro usa `write`".into());
+    }
+    if old == new {
+        return Err("old_string e new_string são iguais: nada a mudar".into());
+    }
+    let p = sandbox::resolve(root, given)?;
+    let cur = check_fresh(state, &p, given)?;
+    let text = String::from_utf8_lossy(&cur).to_string();
+    let n = text.matches(old).count();
+    if n == 0 {
+        return Err(format!(
+            "{given}: old_string não encontrado (confirma espaços e indentação)"
+        ));
+    }
+    if n > 1 && !all {
+        return Err(format!(
+            "{given}: old_string aparece {n} vezes — acrescenta contexto para o tornar único, ou usa replace_all"
+        ));
+    }
+    Ok((p, cur, text, n))
+}
+
+/// The checks `write` makes before writing: the resolved path and, for an existing file,
+/// its current bytes (it must have been read and be unchanged since).
+pub(crate) fn write_check(
+    state: &FileState,
+    root: &std::path::Path,
+    input: &Value,
+) -> Result<(std::path::PathBuf, Option<Vec<u8>>), String> {
+    let given = input["path"].as_str().unwrap_or_default();
+    let p = sandbox::resolve(root, given)?;
+    if p.is_dir() {
+        return Err(format!("{given} é uma pasta"));
+    }
+    if p.exists() {
+        let cur = check_fresh(state, &p, given)?;
+        return Ok((p, Some(cur)));
+    }
+    Ok((p, None))
 }
 
 pub struct Edit {
@@ -157,32 +215,10 @@ impl Tool for Edit {
         let old = input["old_string"].as_str().unwrap_or_default();
         let new = input["new_string"].as_str().unwrap_or_default();
         let all = input["replace_all"].as_bool().unwrap_or(false);
-        if old.is_empty() {
-            return ToolOutput::err("old_string vazio: para criar um ficheiro usa `write`");
-        }
-        if old == new {
-            return ToolOutput::err("old_string e new_string são iguais: nada a mudar");
-        }
-        let p = match sandbox::resolve(&ctx.root, given) {
-            Ok(p) => p,
+        let (p, _, text, n) = match edit_check(&self.state, &ctx.root, input) {
+            Ok(t) => t,
             Err(e) => return ToolOutput::err(e),
         };
-        let cur = match check_fresh(&self.state, &p, given) {
-            Ok(c) => c,
-            Err(e) => return ToolOutput::err(e),
-        };
-        let text = String::from_utf8_lossy(&cur).to_string();
-        let n = text.matches(old).count();
-        if n == 0 {
-            return ToolOutput::err(format!(
-                "{given}: old_string não encontrado (confirma espaços e indentação)"
-            ));
-        }
-        if n > 1 && !all {
-            return ToolOutput::err(format!(
-                "{given}: old_string aparece {n} vezes — acrescenta contexto para o tornar único, ou usa replace_all"
-            ));
-        }
         // linha (1-based) onde começa a primeira substituição, no texto original
         let first = text
             .find(old)
@@ -236,19 +272,11 @@ impl Tool for Write {
     fn run(&self, input: &Value, ctx: &ToolCtx) -> ToolOutput {
         let given = input["path"].as_str().unwrap_or_default();
         let content = input["content"].as_str().unwrap_or_default();
-        let p = match sandbox::resolve(&ctx.root, given) {
-            Ok(p) => p,
+        let (p, cur) = match write_check(&self.state, &ctx.root, input) {
+            Ok(t) => t,
             Err(e) => return ToolOutput::err(e),
         };
-        if p.is_dir() {
-            return ToolOutput::err(format!("{given} é uma pasta"));
-        }
-        let existed = p.exists();
-        if existed {
-            if let Err(e) = check_fresh(&self.state, &p, given) {
-                return ToolOutput::err(e);
-            }
-        }
+        let existed = cur.is_some();
         if let Some(dir) = p.parent() {
             if let Err(e) = std::fs::create_dir_all(dir) {
                 return ToolOutput::err(format!("{given}: {e}"));

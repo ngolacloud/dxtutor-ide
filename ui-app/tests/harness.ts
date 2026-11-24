@@ -15,7 +15,7 @@ const ALL_MODULES = [...MAIN_TS.matchAll(/^import "\.\/([^"]+)";$/gm)].map((m) =
   m[1] === "app/store" ? "../src/app/store/index.ts" : `../src/${m[1]}.ts`,
 );
 const MODULE_CHAIN = ALL_MODULES.slice(0, ALL_MODULES.indexOf("../src/app/boot-steps.ts") + 1);
-if (MODULE_CHAIN.length < 30 || MODULE_CHAIN[0] !== "../src/app/store/index.ts" || MODULE_CHAIN[1] !== "../src/boot.ts" || MODULE_CHAIN.at(-1) !== "../src/app/boot-steps.ts") {
+if (MODULE_CHAIN.length < 30 || MODULE_CHAIN[0] !== "../src/app/actions.ts" || MODULE_CHAIN[1] !== "../src/app/store/index.ts" || MODULE_CHAIN[2] !== "../src/boot.ts" || MODULE_CHAIN.at(-1) !== "../src/app/boot-steps.ts") {
   throw new Error(`harness: a ordem lida do main.ts não é a esperada (${MODULE_CHAIN.length} módulos)`);
 }
 

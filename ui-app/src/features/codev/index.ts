@@ -16,6 +16,13 @@ import { makeDoTool } from "./application/tool-executor";
 import { makeLiveChat } from "./application/live-chat";
 import { makeAgentChat } from "./application/agent-chat";
 import { agentGateway } from "./infrastructure/agent-gateway";
+import { makeHunkReview } from "./application/hunk-review";
+import { makeHunkOverlayView } from "./ui/hunk-overlay-view";
+import { editorOverlay } from "../../app/editor-overlay";
+import type { VView } from "./domain/hunk-overlay";
+import { makeHarness } from "./application/harness";
+import { makeHarnessView } from "./ui/harness-view";
+import { VIEW } from "../../app/store/registry";
 import type {
   Workspace,
   Terminal,
@@ -140,7 +147,69 @@ const liveChat = makeLiveChat({
   tool: doTool,
 });
 
+/* ───── live hunks in the editor (RF-CODEV-STREAM §8) ─────
+   Paths in hunk events are relative to the project; the editor's are `ROOT + rel`. */
+const relPath = (p: string): string => (p.startsWith(bridge.root()) ? p.slice(bridge.root().length) : p);
+let stopTurn: () => void = () => undefined;
+let reveal: (line: number) => void = () => undefined;
+export const hunkReview = makeHunkReview({
+  review: (s, call, d) => agentGateway.review(s, call, d),
+  flush: () => bridge.flushSave(),
+  reloadFromDisk: () => bridge.reloadDisk(),
+  editor: {
+    repaint: (rel) => editorOverlay.repaint(bridge.root() + rel),
+    open: (rel) => bridge.openPath(bridge.root() + rel),
+    current: () => {
+      const t = bridge.tabOf(bridge.monolith.currentTabId);
+      return t && t.path ? relPath(t.path) : null;
+    },
+    reveal: (line) => reveal(line),
+    preview: (rel, text) => bridge.openDiff(bridge.root() + rel, "", text, "ficheiro novo proposto pelo Co-Dev"),
+  },
+  every: (ms, f) => {
+    const id = setInterval(f, ms);
+    return () => clearInterval(id);
+  },
+  pace: () => 40,
+  notify: (m) => bridge.toast(m),
+  cancel: () => stopTurn(),
+});
+hunkReview.readFrom((rel) => bridge.files()[bridge.root() + rel]?.content ?? null);
+const hunkView = makeHunkOverlayView(hunkReview, (el) => bridge.translate(el));
+reveal = hunkView.reveal;
+editorOverlay.set({
+  view: (p, real) => hunkReview.view(relPath(p), real),
+  edit: (p, v, next, real) => hunkReview.edit(relPath(p), v as VView, next, real),
+  decorate: (p, host, v) => hunkView.decorate(p, host, v as VView),
+});
+
 /* ───── agente v2 (ADR-0003, F4): o loop corre no backend Rust ───── */
+/* ───── the harness (A3, docs/v2/UI-AUDIT.md item 11): the «Co-Dev run» tab ───── */
+let sessionOf: () => string | null = () => null;
+const activeModel = (): string => {
+  const p = bridge.providers() as unknown as Record<string, { model?: string }>;
+  const active = p[bridge.monolith.activeProvider];
+  return (active && active.model) || "";
+};
+export const codevRun = makeHarness({
+  gateway: agentGateway,
+  session: () => sessionOf(),
+  root: () => bridge.diskRoot() ?? "",
+  reloadFromDisk: () => bridge.reloadDisk(),
+  open: (rel, line) => bridge.openPath(bridge.root() + rel, line),
+  confirm: (m) => bridge.confirm(m),
+  notify: (m) => bridge.toast(m),
+});
+const harnessView = makeHarnessView(codevRun.state, (f) => void codevRun.onChange(f), activeModel, () => Date.now());
+VIEW["codev-run"] = (_t, host) => {
+  harnessView.mount(host);
+  void codevRun.refresh();
+};
+/** Opens (or focuses) the «Co-Dev run» tab. */
+export function openCodevRun(): void {
+  bridge.openTab({ id: "codev-run", title: "Co-Dev run", kind: "codev-run" });
+}
+
 const agentChat = makeAgentChat({
   gateway: agentGateway,
   presenter,
@@ -166,7 +235,12 @@ const agentChat = makeAgentChat({
     bridge.recordUsage(provider, input + output);
     document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output } }));
   },
+  hunks: hunkReview.sink,
+  flush: () => bridge.flushSave(),
+  run: { event: (s, e) => codevRun.event(s, e), turnStarted: () => codevRun.turnStarted() },
 });
+sessionOf = () => agentChat.sessionId();
+stopTurn = () => agentChat.cancel();
 
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/
  *  Gemini/Ollama), senão o harness antigo (protótipo, a flag `dx2.codevLegacy`, ou um modelo

@@ -117,9 +117,12 @@ apresentar árvore e grafo sem ciclos. Não se cria uma crate por tipo/ficheiro.
 
 - Políticas de execução do agente (ler/escrever ficheiros, correr ferramentas,
   Git/infra) são autoridade do **backend**, não apenas do JavaScript.
-- CSP actual inclui `script-src 'unsafe-inline'` e
-  `dangerousDisableAssetCspModification: true` por causa dos handlers inline.
-  Destino: migrar handlers inline antes de retirar essas permissões.
+- CSP: `script-src 'self'`, sem `'unsafe-inline'` desde a U5e do ADR-0004 — os handlers inline
+  passaram a `data-action` com despachantes delegados (`app/actions.ts` e os das features), e a
+  métrica U5 do `ui-metrics.sh` impede que voltem. O `style-src` mantém `'unsafe-inline'` (há
+  `style="…"` gerado em muitos sítios; decisão §9.3 do ADR-0004) e, por isso, também
+  `dangerousDisableAssetCspModification: true`: se o Tauri injectasse nonces/hashes no `style-src`,
+  o browser passaria a ignorar o `'unsafe-inline'`.
 - Segredos ficam no backend (`keys.rs`), fora dos contratos de leitura da UI.
 - PairCode: ChaCha20-Poly1305 por sessão — não alterar primitivas numa
   reorganização de módulos.

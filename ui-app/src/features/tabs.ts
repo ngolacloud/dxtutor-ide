@@ -14,9 +14,11 @@
    `ctxPill`, `setVar`, `short`, `fIcon`, `gotoLine`, `stLang`) lê-se em runtime pela
    fachada `G` — nunca no eval do módulo. */
 
+import { tabMarks } from "../app/tab-marks";
 import { $, esc, svg, toast } from "../core";
 import { editorStore, type Tab } from "../app/store/editor";
 import { VIEW } from "../app/store/registry";
+import { registerActions, globalCalls } from "../app/actions";
 
 interface LegacyGlobals {
   FS: Record<string, { content: string; orig: string | null }>;
@@ -104,8 +106,10 @@ function drawTabs(): void {
     el.onauxclick = (e) => {
       if (e.button === 1) closeTab(t.id);
     };
+    tabMarks.decorate(t, el);
     host.appendChild(el);
   });
+  tabMarks.after(host);
   const a = host.querySelector(".active");
   if (a && a.scrollIntoView) a.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
@@ -180,12 +184,14 @@ function stepTab(d: number): void {
    `show` publicado é este; as chamadas internas acima passam pelo `window.show`, como
    faziam antes da U4b (o `show` era `window.show` no app.ts) — a U4b tinha-as tornado
    locais e a barra deixara de aparecer ao abrir um ficheiro (regressão corrigida aqui). */
-const EACT: [string, string, string, string][] = [['bulb', 'Explain', 'Ctrl+K E', 'explainCmd()'], ['review', 'Code review', 'Ctrl+K R', 'reviewCmd()'], ['bug', 'Debug', 'F5', 'startDebug()'], ['run', 'RUN', 'Ctrl+F5', 'dxRun()'], ['eye', 'Under the hood', 'Ctrl+K U', 'hoodCmd()']];
+const EACT: [string, string, string, string][] = [['bulb', 'Explain', 'Ctrl+K E', 'explainCmd'], ['review', 'Code review', 'Ctrl+K R', 'reviewCmd'], ['bug', 'Debug', 'F5', 'startDebug'], ['run', 'RUN', 'Ctrl+F5', 'dxRun'], ['eye', 'Under the hood', 'Ctrl+K U', 'hoodCmd']];
+/* os botões da barra de acções do editor chamam a função publicada, no acto (eram `onclick="f()"` — ADR-0004, U5a) */
+registerActions(globalCalls("tabs", EACT.map((a) => a[3])));
 function showWithActions(id: string | null): void {
   show(id);
   const t = tabOf(editorStore.currentTabId), b = $("#breadcrumbs");
   if (!b || !t || !["file", "diff"].includes(t.kind)) return;
-  b.insertAdjacentHTML("beforeend", `<span class="ed-acts">${EACT.map((a) => `<button title="${a[1]} (${a[2]})" onclick="${a[3]}">${svg(a[0])}<span>${a[1]}</span></button>`).join("")}</span>`);
+  b.insertAdjacentHTML("beforeend", `<span class="ed-acts">${EACT.map((a) => `<button title="${a[1]} (${a[2]})" data-action="tabs:${a[3]}">${svg(a[0])}<span>${a[1]}</span></button>`).join("")}</span>`);
 }
 
 /* publicação transitória no window (o monólito e os onclick inline chamam por nome) */

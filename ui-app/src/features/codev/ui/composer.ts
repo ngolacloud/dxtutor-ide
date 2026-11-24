@@ -454,6 +454,26 @@ export function composerRunChanged(running: boolean): void {
 }
 bus.on("agent:run", ({ active }) => composerRunChanged(active));
 
+/** `codev.ask` lands here: the context becomes removable chips, the question goes into the
+ *  box, and with `send` it is sent as if the human pressed Enter. */
+export function composerAsk(text: string, context: Array<{ kind: string; label: string; text?: string; path?: string }>, send: boolean): void {
+  for (const c of context) {
+    if (c.kind === "file" && c.path && !c.text) {
+      addMention(c.path);
+      continue;
+    }
+    if (attachments.some((a) => a.kind === "snippet" && a.name === c.label && a.content === (c.text ?? ""))) continue;
+    attachments.push({ id: "a" + ++attSeq, kind: "snippet", name: c.label, content: c.text ?? "", path: c.path, context: c.kind });
+  }
+  renderAttachments();
+  const i = input();
+  if (!i) return;
+  if (text) i.value = text;
+  autosize();
+  i.focus();
+  if (send && i.value.trim()) submit();
+}
+
 function addMention(path: string): void {
   if (attachments.some((a) => a.path === path)) return;
   attachments.push({ id: "a" + ++attSeq, kind: "mention", name: path.split("/").pop() || path, path });

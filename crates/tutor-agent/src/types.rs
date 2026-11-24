@@ -143,6 +143,11 @@ impl Transcript {
     pub fn last(&self) -> Option<&Message> {
         self.0.last()
     }
+    /// A new transcript with the first `n` messages ("Rewind to here", A3): a prefix of what
+    /// was sent is still valid to continue from; the live transcript is never edited.
+    pub fn truncated(&self, n: usize) -> Transcript {
+        Transcript(self.0[..n.min(self.0.len())].to_vec())
+    }
 }
 
 #[cfg(test)]

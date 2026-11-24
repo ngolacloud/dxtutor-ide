@@ -1,7 +1,8 @@
 # RF-CODEV-STREAM — o Co-Dev escreve no editor, ao vivo
 
-> Estado: **proposta, à espera de aprovação do dono** (Q1 de `QUESTIONS.md`: o dono pediu que este
-> contrato fosse escrito aqui, porque o `RF-backend.md` citado pelo prompt não existe).
+> Estado: **aprovado pelo dono em 2026-11-24** ("segue para a A2"), com as decisões abertas da §10
+> resolvidas pelas opções por omissão aí registadas. O dono pediu que este contrato fosse escrito aqui,
+> porque o `RF-backend.md` citado pelo prompt não existe.
 > Substitui a referência "RF-BK-S03" do prompt da Parte A.
 > Âmbito: fase A2 (UI-CODEV-01/02) e base dos artefactos do harness (A3) e dos change sets do Project (A5).
 
@@ -73,34 +74,34 @@ Todos os inteiros de linha são 1-based. `range` é sempre no ficheiro **tal com
 
 // hunk_start
 { "kind": "hunk_start",
-  "hunk": "h-7f3a",                 // id estável do hunk
+  "hunk": "toolu_01…:1",            // id estável do hunk: "{call}:{n}"
   "call": "toolu_01…",             // id do tool_use (um edit = um hunk; um write pode dar vários)
   "path": "crates/lexer/src/lib.rs",
   "op": "replace",                  // replace | insert | delete | create
   "range": { "start": 5, "end": 5 },// linhas substituídas (insert: start = end + 1, linhas antes de start)
-  "base": "sha256:…",              // impressão digital do ficheiro usada para o cálculo (I5)
+  "base": "9f2c…",                 // impressão digital opaca do ficheiro usado no cálculo (I5); null em create
   "old": "    for c in chars {\n" } // texto substituído (vazio em insert/create)
 
 // hunk_chunk — texto novo a acrescentar ao hunk, por ordem
-{ "kind": "hunk_chunk", "hunk": "h-7f3a", "text": "    while let Some(c) = cha" }
+{ "kind": "hunk_chunk", "hunk": "toolu_01…:1", "text": "    while let Some(c) = cha" }
 
 // hunk_end — o texto final é a concatenação dos chunks; vem repetido para verificação
-{ "kind": "hunk_end", "hunk": "h-7f3a", "text": "    while let Some(c) = chars.next() {\n",
+{ "kind": "hunk_end", "hunk": "toolu_01…:1", "text": "    while let Some(c) = chars.next() {\n",
   "lines": { "added": 1, "removed": 1 } }
 
 // hunk_review — o backend espera decisão sobre estes hunks (todos do mesmo `call`)
-{ "kind": "hunk_review", "call": "toolu_01…", "hunks": ["h-7f3a"],
+{ "kind": "hunk_review", "call": "toolu_01…", "hunks": ["toolu_01…:1"],
   "reason": "Assisted mode: you accept every change", "why": "E0382: `for` moves `chars`" }
 
 // hunk_applied — escrito em disco (Manual/Assistido) ou aplicado provisoriamente (Auto)
-{ "kind": "hunk_applied", "hunk": "h-7f3a", "provisional": false, "fingerprint": "sha256:…" }
+{ "kind": "hunk_applied", "hunk": "toolu_01…:1", "provisional": false, "fingerprint": "4b1e…" }
 
 // hunk_rejected
-{ "kind": "hunk_rejected", "hunk": "h-7f3a", "by": "human", "reason": "Not this approach" }
+{ "kind": "hunk_rejected", "hunk": "toolu_01…:1", "by": "human", "reason": "Not this approach" }
 //   by: human | validation | cancel
 
 // hunk_stale — o ficheiro mudou antes da decisão; não foi aplicado
-{ "kind": "hunk_stale", "hunk": "h-7f3a", "path": "crates/lexer/src/lib.rs" }
+{ "kind": "hunk_stale", "hunk": "toolu_01…:1", "path": "crates/lexer/src/lib.rs" }
 
 // validation
 { "kind": "validation", "status": "passed",           // running | passed | failed | skipped
@@ -122,7 +123,25 @@ acompanha os campos do `edit`:
    `hunk_chunk`.
 3. No fecho do bloco sai `hunk_end` com o texto completo.
 
-`replace_all` com várias ocorrências produz um hunk por ocorrência, com o mesmo `call`.
+`replace_all` com várias ocorrências produz um hunk por ocorrência, com o mesmo `call` (ocorrências na
+mesma linha partilham o hunk). Cada hunk cobre linhas inteiras: o texto do `edit` é alargado ao início e
+ao fim das linhas que toca, por isso o primeiro `hunk_chunk` traz o início da linha e o `hunk_end` o resto.
+
+Se o plano final (calculado com o input completo) não coincidir com o hunk transmitido, ou se a ferramenta
+recusar o input, o hunk transmitido sai com `hunk_rejected` (`by: "cancel"` ou `"validation"`) e os hunks
+certos são anunciados de novo. Nenhum hunk fica aberto depois de `done`: o backend rejeita
+(`by: "cancel"`) os que ficaram por decidir.
+
+Implementação: `crates/tutor-agent/src/hunks.rs` (A2.1). O anfitrião liga os hunks com
+`Agent::hunks = Some(files)` (o `FileState` partilhado com as ferramentas via `ToolsetOptions::files`);
+a TUI/CLI não os ligam e continuam a escrever directamente.
+
+Anfitrião (A2.2, `src-tauri/src/codev_agent.rs`): a opção `review_edits` do `codev_agent_start` liga os
+hunks na sessão. A decisão de cada chamada com hunks é `hunk_gate` (§5): Manual e Assistido emitem
+`hunk_review` no canal de eventos e esperam pelo `codev_agent_review`; o Auto corre a validação base antes
+da primeira alteração do turno, aplica com `provisional: true` e, no fim do turno, valida; se um check que
+passava falhar, repõe o checkpoint do turno. O `done` do turno só sai depois da validação (I4). Auto sem
+comandos de teste/lint ou sem repositório git (sem checkpoint para repor) degrada para revisão (D2).
 
 `write` de **ficheiro novo**: `op: "create"`, `range {start:1,end:0}`, chunks de `content` ao vivo.
 `write` de **ficheiro existente**: o conteúdo é acumulado; no fim, diff de linhas contra `base` e um
@@ -194,6 +213,24 @@ streaming ──hunk_end──► proposed ──(Manual/Assist)──► review
 - Antes de cada turno a UI força o autosave (`ctx.flushSave`) para o backend ler o mesmo que o humano vê.
 - Ficheiro do hunk não aberto: abre-se num separador; com vários ficheiros, a UI segue o hunk activo.
 
+### 8.1 Implementação (A2.3–A2.5) e diferenças face a este contrato
+
+- O editor da app **não é o Monaco**: é uma `textarea` transparente sobre a camada de realce (`#ed-hl`).
+  O overlay é uma vista virtual do ficheiro (`features/codev/domain/hunk-overlay.ts`): as linhas antigas
+  de cada hunk riscadas e as novas a seguir, ao ritmo da escrita. O editor consulta um registo tipado
+  (`app/editor-overlay.ts`); sem overlay, o markup do editor não muda.
+- Só o intervalo do hunk fica só de leitura: uma edição humana fora dele vai para o ficheiro real; uma
+  edição que toca o hunk é recusada (§8 cumprido).
+- `write` de um **ficheiro novo**: o backend transmite os chunks, mas o editor não abre um ficheiro que
+  ainda não existe no disco (I1). "Ver no editor" mostra-o numa pré-visualização (diff vazio → proposto).
+- A linha que substitui um bloco de código longo no chat (§7) é **só texto**, ainda sem o botão que pede
+  a alteração via `edit`.
+- "Explain" usa `codev.ask` com intenção `explain`, respondido directamente pelo modelo (sem turno do
+  agente), por isso funciona enquanto o turno espera pela decisão do humano.
+- O campo `why` do `hunk_review` ainda vai vazio (o backend não o preenche).
+- `codev.ask` (A2.4) é o ponto único para o menu do editor, Ctrl+I, o painel e o "Explain" dos hunks; o
+  `ltAsk` do Learning Track e o `agentStory` do Board mantêm os caminhos actuais (D4 e as fases seguintes).
+
 ## 9. Persistência
 
 - O transcript JSONL da sessão (`~/.config/dxtutor/sessions/…`) regista os eventos `hunk_*` e as
@@ -202,7 +239,16 @@ streaming ──hunk_end──► proposed ──(Manual/Assist)──► review
   (`change_sets(session, turn, call, path, start, end, added, removed, decided_by, decided_at, issue_key)`)
   para o Project os contar por issue. Até à A5 não se cria esta tabela.
 
-## 10. Decisões abertas
+## 10. Decisões (resolvidas por omissão em 2026-11-24; reversíveis)
+
+- **D1 → só o IDE.** A revisão obrigatória de hunks no Assistido é uma opção do anfitrião
+  (`review_edits`), ligada pelo IDE (`src-tauri`). `tutor_llm::policy` e a TUI/CLI não mudam.
+- **D2 → degradar.** Auto sem comandos de validação detectados comporta-se como Assistido nesse turno,
+  com aviso.
+- **D3 → `similar`.**
+- **D4 → depois.** O caminho legado `liveChat` sai quando a A2 estiver a funcionar e o dono confirmar.
+
+Texto original das decisões:
 
 - **D1** — a mudança do modo Assistido (§5) é de produto: confirmar que a TUI/CLI (que partilha
   `tutor_llm::policy`) também passa a pedir revisão no Assistido, ou só o IDE.

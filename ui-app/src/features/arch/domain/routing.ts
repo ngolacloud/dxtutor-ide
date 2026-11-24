@@ -27,6 +27,8 @@ export interface Route {
 }
 
 export interface EdgeEnds {
+  /** Setas da mesma origem com o mesmo estilo partilham o tronco (feixe). */
+  style?: string;
   from: string;
   to: string;
 }
@@ -35,6 +37,11 @@ export interface EdgeEnds {
 export const CLEARANCE = 10;
 const BEND = 40;
 const REUSE = 0.6;
+/** Um troço já usado por uma seta do mesmo feixe (mesma origem, mesmo estilo) custa menos:
+ *  as setas saem juntas e separam-se perto do destino, em vez de correrem em paralelo. */
+const BUNDLE = 0.5;
+/** Atravessar outra seta (de outro feixe) na perpendicular. */
+const CROSS = 30;
 const FACE_AWAY = 30;
 
 const EPS = 1e-6;
@@ -196,7 +203,10 @@ class Grid {
   /** Troço (i,j)→(i+1,j) livre? / (i,j)→(i,j+1) livre? */
   hFree: Uint8Array;
   vFree: Uint8Array;
-  used = new Map<number, number>();
+  /** Que feixes usam cada troço, e que feixes passam em cada ponto na horizontal/vertical. */
+  used = new Map<number, Set<string>>();
+  hUse = new Map<number, Set<string>>();
+  vUse = new Map<number, Set<string>>();
 
   constructor(cards: Rect[], m: number) {
     const xs = new Set<number>(),
@@ -256,7 +266,9 @@ class Grid {
   search(
     starts: { id: number; axis: 0 | 1; cost: number }[],
     ends: Map<number, { axis: 0 | 1; cost: number }>,
+    key = "",
   ): number[] | null {
+    const others = (set: Set<string> | undefined): number => (set ? set.size - (set.has(key) ? 1 : 0) : 0);
     const nx = this.xs.length,
       n = this.free.length;
     const dist = new Float64Array(2 * n).fill(Infinity),
@@ -288,7 +300,10 @@ class Grid {
         j = (id / nx) | 0;
       const step = (nid: number, nAxis: 0 | 1, len: number, seg: number): void => {
         if (!this.free[nid]) return;
-        const cost = d + len + (nAxis !== axis ? BEND : 0) + (this.used.get(seg) ?? 0) * len * REUSE;
+        const users = this.used.get(seg);
+        const mine = users?.has(key) ? BUNDLE : 1;
+        const crossing = others(nAxis === 1 ? this.hUse.get(nid) : this.vUse.get(nid)) ? CROSS : 0;
+        const cost = d + len * mine + (nAxis !== axis ? BEND : 0) + others(users) * len * REUSE + crossing;
         const ns = nid * 2 + nAxis;
         if (cost < dist[ns]) {
           dist[ns] = cost;
@@ -308,14 +323,25 @@ class Grid {
     const path: number[] = [];
     for (let s = bestState; s >= 0; s = prev[s]) path.push(s >> 1);
     path.reverse();
-    // marca os troços usados (as setas seguintes evitam sobrepor-se)
+    return path;
+  }
+
+  /** Regista o caminho escolhido: os troços e os pontos usados por este feixe (as setas
+   *  seguintes evitam sobrepor-se e cruzá-lo; as do mesmo feixe juntam-se a ele). */
+  commit(path: number[], key: string): void {
+    const mark = (m: Map<number, Set<string>>, k: number): void => {
+      const set = m.get(k) ?? new Set<string>();
+      set.add(key);
+      m.set(k, set);
+    };
     for (let k = 0; k + 1 < path.length; k++) {
       const a = path[k],
         b = path[k + 1];
-      const seg = Math.abs(a - b) === 1 ? Math.min(a, b) * 2 : Math.min(a, b) * 2 + 1;
-      this.used.set(seg, (this.used.get(seg) ?? 0) + 1);
+      const horizontal = Math.abs(a - b) === 1;
+      mark(this.used, horizontal ? Math.min(a, b) * 2 : Math.min(a, b) * 2 + 1);
+      mark(horizontal ? this.hUse : this.vUse, a);
+      mark(horizontal ? this.hUse : this.vUse, b);
     }
-    return path;
   }
 
   point(id: number): Point {
@@ -329,15 +355,26 @@ class Grid {
 export function routeAll(cards: Map<string, Rect>, edges: EdgeEnds[], extra: Rect[] = [], m = CLEARANCE): Route[] {
   const all = [...cards.values(), ...extra];
   let grid: Grid | null = null;
+  const done: Route[] = [];
   return edges.map((e) => {
+    const route = routeOne(e);
+    done.push(route);
+    return route;
+  });
+
+  function routeOne(e: EdgeEnds): Route {
     const A = cards.get(e.from),
       B = cards.get(e.to);
     if (!A || !B) return { points: [], straight: true };
     const a = border(A, mid(B)),
       b = border(B, mid(A));
     const others = all.filter((r) => r !== A && r !== B);
-    if (!others.some((r) => segmentHitsRect(a, b, grow(r, 4)))) return { points: [a, b], straight: true };
+    const straight: Route | null = others.some((r) => segmentHitsRect(a, b, grow(r, 4))) ? null : { points: [a, b], straight: true };
+    // uma recta que não cruza nenhuma seta já desenhada ganha logo
+    const straightCross = straight ? crossCount(straight, done) : Infinity;
+    if (straight && straightCross === 0) return straight;
     grid ??= new Grid(all, m);
+    const key = `${e.from}|${e.style ?? ""}`;
     const starts: { id: number; axis: 0 | 1; cost: number; p: { at: Point; out: Point } }[] = [];
     const ends = new Map<number, { axis: 0 | 1; cost: number }>();
     const endPorts = new Map<number, { at: Point; out: Point }>();
@@ -352,12 +389,31 @@ export function routeAll(cards: Map<string, Rect>, edges: EdgeEnds[], extra: Rec
         }
       }
     }
-    const path = grid.search(starts, ends);
-    if (!path) return { points: [a, b], straight: true };
+    const path = grid.search(starts, ends, key);
+    if (!path) return straight ?? { points: [a, b], straight: true };
     const first = starts.find((s) => s.id === path[0])!.p,
       last = endPorts.get(path[path.length - 1])!;
-    return { points: simplify([first.at, ...path.map((id) => grid!.point(id)), last.at]), straight: false };
-  });
+    const ortho: Route = { points: simplify([first.at, ...path.map((id) => grid!.point(id)), last.at]), straight: false };
+    // a recta (que cruza setas) só perde para um caminho ortogonal que cruze menos
+    if (straight && crossCount(ortho, done) >= straightCross) return straight;
+    grid.commit(path, key);
+    return ortho;
+  }
+}
+
+/** Quantas vezes a rota `r` atravessa as rotas já desenhadas (pontos distintos). Só
+ *  compara os troços de `r` com os das outras — linear no número de setas. */
+function crossCount(r: Route, done: Route[]): number {
+  const points = new Set<string>();
+  for (let k = 0; k + 1 < r.points.length; k++) {
+    const a = r.points[k], b = r.points[k + 1];
+    for (const o of done)
+      for (let m = 0; m + 1 < o.points.length; m++) {
+        const p = properCrossing(a, b, o.points[m], o.points[m + 1]);
+        if (p) points.add(p);
+      }
+  }
+  return points.size;
 }
 
 /** Rectas de borda a borda, sem encaminhar (para redesenhar a meio de um arrasto). */
@@ -366,6 +422,32 @@ export function straightRoutes(cards: Map<string, Rect>, edges: EdgeEnds[]): Rou
     const A = cards.get(e.from), B = cards.get(e.to);
     return A && B ? { points: [border(A, mid(B)), border(B, mid(A))], straight: true } : { points: [], straight: true };
   });
+}
+
+/** Quantos cruzamentos de setas se VÊEM: pontos distintos onde troços de setas diferentes
+ *  se atravessam no interior (um feixe que passa junto por uma linha é um cruzamento só;
+ *  troços sobrepostos e pontas partilhadas não contam). */
+export function lineCrossings(routes: Route[]): number {
+  const points = new Set<string>();
+  for (let i = 0; i < routes.length; i++)
+    for (let j = i + 1; j < routes.length; j++)
+      for (let k = 0; k + 1 < routes[i].points.length; k++)
+        for (let m = 0; m + 1 < routes[j].points.length; m++) {
+          const p = properCrossing(routes[i].points[k], routes[i].points[k + 1], routes[j].points[m], routes[j].points[m + 1]);
+          if (p) points.add(p);
+        }
+  return points.size;
+}
+
+/** O ponto (arredondado) onde dois troços se atravessam no interior, ou `null`. */
+function properCrossing(a: Point, b: Point, c: Point, d: Point): string | null {
+  const sign = (o: number): number => (o > EPS ? 1 : o < -EPS ? -1 : 0);
+  const orient = (p: Point, q: Point, r: Point): number => sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  const o1 = orient(a, b, c), o2 = orient(a, b, d), o3 = orient(c, d, a), o4 = orient(c, d, b);
+  if (!(o1 && o2 && o3 && o4 && o1 !== o2 && o3 !== o4)) return null;
+  const den = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x);
+  const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / den;
+  return `${Math.round(a.x + t * (b.x - a.x))},${Math.round(a.y + t * (b.y - a.y))}`;
 }
 
 /** As setas que atravessam um cartão que não é o seu (deve ser vazio). */
@@ -397,17 +479,33 @@ export const labelSize = (text: string): { w: number; h: number } => ({
   h: 13,
 });
 
+/** Dois troços sobrepostos (colineares, com um pedaço em comum): o tronco de um feixe. */
+function overlaps(a: Point, b: Point, c: Point, d: Point): boolean {
+  const vert = (p: Point, q: Point) => Math.abs(p.x - q.x) < EPS;
+  const horiz = (p: Point, q: Point) => Math.abs(p.y - q.y) < EPS;
+  const span = (u0: number, u1: number, v0: number, v1: number) =>
+    Math.min(Math.max(u0, u1), Math.max(v0, v1)) - Math.max(Math.min(u0, u1), Math.min(v0, v1)) > 1;
+  if (vert(a, b) && vert(c, d) && Math.abs(a.x - c.x) < EPS) return span(a.y, b.y, c.y, d.y);
+  if (horiz(a, b) && horiz(c, d) && Math.abs(a.y - c.y) < EPS) return span(a.x, b.x, c.x, d.x);
+  return false;
+}
+
 /** O rectângulo de um rótulo centrado em `c`. */
 export const labelRect = (text: string, c: Point): Rect => {
   const s = labelSize(text);
   return { x: c.x - s.w / 2, y: c.y - s.h / 2, w: s.w, h: s.h };
 };
 
+const insideRect = (a: Rect, b: Rect): boolean =>
+  a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+
 const rectsOverlap = (a: Rect, b: Rect): boolean =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 /** Coloca os rótulos (centro de cada um) em espaço livre. `null` para setas sem rótulo. */
-export function placeLabels(cards: Rect[], routes: Route[], labels: (string | null)[]): (Point | null)[] {
+/** `frames`: os rectângulos dos painéis e dos grupos — um rótulo que fica a meio de uma
+ *  borda (metade dentro, metade fora) perde para um que fica todo de um lado. */
+export function placeLabels(cards: Rect[], routes: Route[], labels: (string | null)[], frames: Rect[] = []): (Point | null)[] {
   const placed: Rect[] = [];
   const segs: [Point, Point][] = [];
   for (const r of routes)
@@ -416,14 +514,19 @@ export function placeLabels(cards: Rect[], routes: Route[], labels: (string | nu
     const text = labels[i];
     if (!text || r.points.length < 2) return null;
     const { w, h } = labelSize(text);
+    // troços partilhados com outra seta (um feixe): o rótulo prefere o troço que é só seu,
+    // perto do destino, para se saber a que seta pertence
+    const shared = (a: Point, b: Point): boolean =>
+      routes.some((o, k) => k !== i && o.points.slice(1).some((q, m) => overlaps(a, b, o.points[m], q)));
     const pieces = r.points
       .slice(0, -1)
       .map((p, k) => ({
         a: p,
         b: r.points[k + 1],
         len: Math.hypot(r.points[k + 1].x - p.x, r.points[k + 1].y - p.y),
+        own: !shared(p, r.points[k + 1]),
       }))
-      .sort((p, q) => q.len - p.len);
+      .sort((p, q) => Number(q.own) - Number(p.own) || q.len - p.len);
     let best: Point | null = null,
       bestScore = Infinity;
     // primeiro encostado à linha; se não há espaço (ex.: dois cartões a 40 px), cada vez
@@ -449,6 +552,7 @@ export function placeLabels(cards: Rect[], routes: Route[], labels: (string | nu
             for (const card of cards) if (rectsOverlap(pad, card)) score += 100;
             for (const s of segs) if (segmentHitsRect(s[0], s[1], pad)) score += 10;
             for (const p of placed) if (rectsOverlap(pad, p)) score += 50;
+            for (const f of frames) if (rectsOverlap(pad, f) && !insideRect(pad, f)) score += 20;
             if (score < bestScore) {
               bestScore = score;
               best = c;

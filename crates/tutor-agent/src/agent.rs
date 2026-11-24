@@ -18,6 +18,9 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::hunks::{
+    Check, HunkOp, HunkTracker, LineCount, LineRange, RejectedBy, ValidationStatus,
+};
 use crate::provider::{
     Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent, SystemBlock,
     ThinkingDisplay, Usage,
@@ -75,6 +78,10 @@ pub struct PendingCall {
     /// O comando de shell que a chamada vai correr (bash, run_tests, lint), para o
     /// classificador de permissões.
     pub command: Option<String>,
+    /// The hunks this `edit`/`write` would apply, when the host turned hunks on
+    /// ([`Agent::hunks`]); the host may decide them one by one ([`Decision::Hunks`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hunks: Vec<String>,
 }
 
 /// A decisão sobre uma chamada (modo de aprovação: F3; aqui é o anfitrião que decide).
@@ -82,6 +89,14 @@ pub struct PendingCall {
 pub enum Decision {
     Allow,
     Deny(String),
+    /// For a call with hunks: apply only `accepted`; the others are rejected, with the
+    /// reason in `rejected` when there is one. `provisional`: Auto mode, which validation
+    /// may still undo (RF-CODEV-STREAM §5).
+    Hunks {
+        accepted: Vec<String>,
+        rejected: Vec<(String, String)>,
+        provisional: bool,
+    },
 }
 
 /// Como acabou um turno.
@@ -145,6 +160,65 @@ pub enum AgentEvent {
     Notice {
         text: String,
     },
+    /// A hunk of an `edit`/`write` starts streaming (docs/v2/RF-CODEV-STREAM.md §3).
+    /// `range` is in the file as it was at `base`; `old` is the text it replaces.
+    HunkStart {
+        hunk: String,
+        call: String,
+        path: String,
+        op: HunkOp,
+        range: LineRange,
+        base: Option<String>,
+        old: String,
+    },
+    /// New text for the hunk, in order.
+    HunkChunk {
+        hunk: String,
+        text: String,
+    },
+    /// The hunk is complete; `text` is the concatenation of its chunks.
+    HunkEnd {
+        hunk: String,
+        text: String,
+        lines: LineCount,
+    },
+    /// The host waits for a decision on these hunks (all of the same call).
+    HunkReview {
+        call: String,
+        hunks: Vec<String>,
+        reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        why: Option<String>,
+    },
+    /// The hunk was written to disk (`provisional`: Auto, pending validation).
+    HunkApplied {
+        hunk: String,
+        provisional: bool,
+        fingerprint: String,
+    },
+    HunkRejected {
+        hunk: String,
+        by: RejectedBy,
+        reason: String,
+    },
+    /// The file changed before the decision; the hunk was not applied.
+    HunkStale {
+        hunk: String,
+        path: String,
+    },
+    /// The report of the turn, built from its events (HARNESS-07; emitted by the host
+    /// before `done`).
+    Report {
+        title: String,
+        markdown: String,
+    },
+    /// Validation of the turn's provisional changes (Auto mode; emitted by the host).
+    /// `baseline`: the same commands before the first change of the turn.
+    Validation {
+        status: ValidationStatus,
+        checks: Vec<Check>,
+        baseline: Vec<Check>,
+    },
     Done {
         outcome: TurnOutcome,
     },
@@ -183,6 +257,14 @@ impl std::error::Error for AgentError {}
 
 type Sleeper = Arc<dyn Fn(Duration) + Send + Sync>;
 
+/// A call whose accepted hunks are applied in place of running `edit`/`write`.
+struct HunkJob {
+    plan: crate::hunks::Plan,
+    accepted: std::collections::HashSet<String>,
+    reasons: HashMap<String, String>,
+    provisional: bool,
+}
+
 /// Estado de um turno partilhado entre os pedidos ao modelo desse turno.
 struct TurnState {
     /// O pedido do utilizador que abriu o turno (rótulo do checkpoint).
@@ -201,6 +283,9 @@ pub struct Agent {
     pub checkpoints: Option<Arc<crate::checkpoint::Checkpoints>>,
     /// Hooks do projecto (só se o humano confiou neles).
     pub hooks: Option<Arc<crate::hooks::Hooks>>,
+    /// Live hunks (RF-CODEV-STREAM): with the tools' read/edit/write state, `edit` and
+    /// `write` stream hunks and apply only what is accepted. `None`: they write directly.
+    pub hunks: Option<Arc<crate::tools::FileState>>,
 }
 
 fn add_usage(t: &mut Usage, u: &Usage) {
@@ -239,6 +324,7 @@ impl Agent {
             sleep: Arc::new(std::thread::sleep),
             checkpoints: None,
             hooks: None,
+            hunks: None,
         }
     }
 
@@ -272,11 +358,15 @@ impl Agent {
         &self,
         req: &Request,
         events: &mut dyn FnMut(AgentEvent),
+        mut tracker: Option<&mut HunkTracker>,
     ) -> Result<Response, ProviderError> {
         let mut attempt = 0;
         loop {
             let cancel = self.ctx.cancel.clone();
             let r = self.provider.stream(req, &mut |e| {
+                if let Some(t) = tracker.as_deref_mut() {
+                    t.on_stream(&e, events);
+                }
                 events(AgentEvent::Stream { event: e });
                 !cancel.load(Ordering::Relaxed)
             });
@@ -294,6 +384,13 @@ impl Agent {
                 return r;
             }
             let reason = r.err().map(|e| e.to_string()).unwrap_or_default();
+            if let Some(t) = tracker.as_deref_mut() {
+                t.discard(
+                    RejectedBy::Cancel,
+                    "the response was interrupted and is being repeated",
+                    events,
+                );
+            }
             attempt += 1;
             events(AgentEvent::Retrying { attempt, reason });
             (self.sleep)(retry::backoff(attempt - 1, None));
@@ -334,19 +431,26 @@ impl Agent {
             label,
             checkpointed: false,
         };
+        let mut tracker = self
+            .hunks
+            .as_ref()
+            .map(|f| HunkTracker::new(&self.ctx.root, f.clone()));
 
         for _ in 0..self.cfg.max_iterations {
             if self.cancelled() {
-                return Ok(self.finish(TurnOutcome::Cancelled, events));
+                return Ok(self.finish(TurnOutcome::Cancelled, events, &mut tracker));
             }
             let req = self.request(transcript, max_tokens, resume_paused);
             resume_paused = false;
-            let resp = match self.ask(&req, events) {
+            let resp = match self.ask(&req, events, tracker.as_mut()) {
                 Ok(r) => r,
                 Err(ProviderError::Cancelled) => {
-                    return Ok(self.finish(TurnOutcome::Cancelled, events))
+                    return Ok(self.finish(TurnOutcome::Cancelled, events, &mut tracker))
                 }
-                Err(e) => return Err(AgentError::Provider(e)),
+                Err(e) => {
+                    drop_hunks(&mut tracker, "the request to the model failed", events);
+                    return Err(AgentError::Provider(e));
+                }
             };
             add_usage(&mut turn, &resp.usage);
             events(AgentEvent::Usage {
@@ -364,9 +468,10 @@ impl Agent {
                 StopReason::Refusal => {
                     // pode trazer um tool_use cortado: não entra no histórico, nada corre
                     let details = resp.stop_details.clone();
-                    return Ok(self.finish(TurnOutcome::Refused { details }, events));
+                    return Ok(self.finish(TurnOutcome::Refused { details }, events, &mut tracker));
                 }
                 StopReason::MaxTokens if has_tools => {
+                    drop_hunks(&mut tracker, "the response was cut short", events);
                     if max_tokens >= MAX_TOKENS_CEILING {
                         return Err(AgentError::MaxTokensExhausted);
                     }
@@ -375,11 +480,19 @@ impl Agent {
                 }
                 StopReason::MaxTokens => {
                     transcript.push(Message::assistant(resp.content));
-                    return Ok(self.finish(TurnOutcome::Done { truncated: true }, events));
+                    return Ok(self.finish(
+                        TurnOutcome::Done { truncated: true },
+                        events,
+                        &mut tracker,
+                    ));
                 }
                 StopReason::EndTurn | StopReason::StopSequence => {
                     transcript.push(Message::assistant(resp.content));
-                    return Ok(self.finish(TurnOutcome::Done { truncated: false }, events));
+                    return Ok(self.finish(
+                        TurnOutcome::Done { truncated: false },
+                        events,
+                        &mut tracker,
+                    ));
                 }
                 StopReason::PauseTurn | StopReason::Compaction => {
                     transcript.push(Message::assistant(resp.content));
@@ -399,20 +512,36 @@ impl Agent {
                         events,
                         approve,
                         &mut turn_state,
+                        tracker.as_mut(),
                     );
                     transcript.push(Message::tool_results(&results));
                     if self.cancelled() {
-                        return Ok(self.finish(TurnOutcome::Cancelled, events));
+                        return Ok(self.finish(TurnOutcome::Cancelled, events, &mut tracker));
                     }
                     max_tokens = self.cfg.max_tokens;
                 }
-                StopReason::Other(s) => return Err(AgentError::UnexpectedStop(s)),
+                StopReason::Other(s) => {
+                    drop_hunks(&mut tracker, "the model stopped unexpectedly", events);
+                    return Err(AgentError::UnexpectedStop(s));
+                }
             }
         }
-        Ok(self.finish(TurnOutcome::IterationLimit, events))
+        Ok(self.finish(TurnOutcome::IterationLimit, events, &mut tracker))
     }
 
-    fn finish(&self, outcome: TurnOutcome, events: &mut dyn FnMut(AgentEvent)) -> TurnOutcome {
+    fn finish(
+        &self,
+        outcome: TurnOutcome,
+        events: &mut dyn FnMut(AgentEvent),
+        tracker: &mut Option<HunkTracker>,
+    ) -> TurnOutcome {
+        // no hunk outlives its turn: the UI must not wait on one
+        let reason = match &outcome {
+            TurnOutcome::Cancelled => "stopped by the user",
+            TurnOutcome::Refused { .. } => "the model refused the response",
+            _ => "the turn ended before the change was decided",
+        };
+        drop_hunks(tracker, reason, events);
         if let (Some(h), TurnOutcome::Done { .. }) = (&self.hooks, &outcome) {
             for text in h.stop() {
                 events(AgentEvent::Notice { text });
@@ -426,6 +555,7 @@ impl Agent {
 
     /// Valida, pede aprovação e executa as chamadas de um turno. Devolve um resultado
     /// por chamada, pela ordem original.
+    #[allow(clippy::too_many_arguments)]
     fn run_tools(
         &self,
         calls: &[crate::types::ToolUse],
@@ -434,11 +564,14 @@ impl Agent {
         events: &mut dyn FnMut(AgentEvent),
         approve: &mut dyn FnMut(&PendingCall) -> Decision,
         turn: &mut TurnState,
+        mut tracker: Option<&mut HunkTracker>,
     ) -> Vec<ToolResult> {
         // 1) validação + aprovação (sequencial: a UI pergunta uma de cada vez)
         let mut out: Vec<Option<ToolOutput>> = vec![None; calls.len()];
         let mut runnable: Vec<(usize, Arc<dyn Tool>)> = vec![];
         let mut ran = vec![false; calls.len()];
+        // calls whose accepted hunks are applied instead of running the tool
+        let mut hunk_jobs: HashMap<usize, HunkJob> = HashMap::new();
         for (i, c) in calls.iter().enumerate() {
             if self.cancelled() {
                 out[i] = Some(ToolOutput::err("cancelado pelo utilizador antes de correr"));
@@ -459,15 +592,91 @@ impl Agent {
                 out[i] = Some(ToolOutput::err(format!("input inválido: {e}")));
                 continue;
             }
+            // live hunks: the call's plan (same checks as the tool) before asking
+            let plan = match tracker
+                .as_deref_mut()
+                .and_then(|t| t.take_plan(&c.id, &c.name, &c.input, events))
+            {
+                Some(Err(e)) => {
+                    out[i] = Some(ToolOutput::err(e));
+                    continue;
+                }
+                Some(Ok(p)) => Some(p),
+                None => None,
+            };
             let pending = PendingCall {
                 id: c.id.clone(),
                 name: c.name.clone(),
                 input: c.input.clone(),
                 read_only: tool.read_only(),
                 command: tool.command_preview(&c.input),
+                hunks: plan.as_ref().map(|p| p.ids()).unwrap_or_default(),
             };
-            match approve(&pending) {
-                Decision::Allow => {
+            let allowed: Result<(), String> = match (approve(&pending), plan) {
+                (Decision::Deny(why), plan) => {
+                    if let (Some(p), Some(t)) = (&plan, tracker.as_deref_mut()) {
+                        let by = if self.cancelled() {
+                            RejectedBy::Cancel
+                        } else {
+                            RejectedBy::Human
+                        };
+                        t.reject(p, by, &why, events);
+                    }
+                    Err(why)
+                }
+                (Decision::Allow, Some(plan)) => {
+                    let accepted = plan.ids().into_iter().collect();
+                    hunk_jobs.insert(
+                        i,
+                        HunkJob {
+                            plan,
+                            accepted,
+                            reasons: HashMap::new(),
+                            provisional: false,
+                        },
+                    );
+                    Ok(())
+                }
+                (Decision::Allow, None) => Ok(()),
+                (
+                    Decision::Hunks {
+                        accepted,
+                        rejected,
+                        provisional,
+                    },
+                    Some(plan),
+                ) => {
+                    hunk_jobs.insert(
+                        i,
+                        HunkJob {
+                            plan,
+                            accepted: accepted.into_iter().collect(),
+                            reasons: rejected.into_iter().collect(),
+                            provisional,
+                        },
+                    );
+                    Ok(())
+                }
+                // a per-hunk answer for a call without hunks: all or nothing
+                (
+                    Decision::Hunks {
+                        accepted, rejected, ..
+                    },
+                    None,
+                ) => {
+                    if accepted.is_empty() {
+                        Err(rejected
+                            .into_iter()
+                            .next()
+                            .map(|(_, r)| r)
+                            .unwrap_or_else(|| "recusado".into()))
+                    } else {
+                        Ok(())
+                    }
+                }
+            };
+            match allowed {
+                Ok(()) => {
                     // hooks pre_tool do projecto: podem bloquear (exit 2)
                     let blocked = match &self.hooks {
                         Some(h) => {
@@ -484,6 +693,11 @@ impl Agent {
                     };
                     match blocked {
                         Some(why) => {
+                            if let (Some(job), Some(t)) =
+                                (hunk_jobs.remove(&i), tracker.as_deref_mut())
+                            {
+                                t.reject(&job.plan, RejectedBy::Validation, &why, events);
+                            }
                             out[i] = Some(ToolOutput::err(format!(
                                 "bloqueado por um hook do projecto: {why}"
                             )));
@@ -491,7 +705,7 @@ impl Agent {
                         None => runnable.push((i, Arc::clone(tool))),
                     }
                 }
-                Decision::Deny(why) => {
+                Err(why) => {
                     out[i] = Some(ToolOutput::err(format!(
                         "o humano não autorizou esta chamada: {why}"
                     )));
@@ -540,7 +754,26 @@ impl Agent {
                 });
             }
             let group = &runnable[k..end];
-            let results: Vec<ToolOutput> = if group.len() == 1 {
+            let job = if group.len() == 1 {
+                hunk_jobs.remove(&group[0].0)
+            } else {
+                None
+            };
+            let results: Vec<ToolOutput> = if let (Some(job), Some(files)) = (job, &self.hunks) {
+                let r = crate::hunks::apply(
+                    &job.plan,
+                    &job.accepted,
+                    &job.reasons,
+                    job.provisional,
+                    files,
+                    &self.ctx.root,
+                    events,
+                );
+                if let Some(t) = tracker.as_deref_mut() {
+                    t.settle(&job.plan);
+                }
+                vec![r]
+            } else if group.len() == 1 {
                 vec![group[0].1.run(&calls[group[0].0].input, &self.ctx)]
             } else {
                 std::thread::scope(|s| {
@@ -565,6 +798,11 @@ impl Agent {
                 ran[*i] = true;
             }
             k = end;
+        }
+
+        // calls that did not get to run (cancelled): their hunks are rejected
+        if let Some(t) = tracker {
+            t.discard(RejectedBy::Cancel, "the call did not run", events);
         }
 
         calls
@@ -597,6 +835,13 @@ impl Agent {
                 }
             })
             .collect()
+    }
+}
+
+/// Rejects every hunk still open (`by: cancel`).
+fn drop_hunks(tracker: &mut Option<HunkTracker>, reason: &str, events: &mut dyn FnMut(AgentEvent)) {
+    if let Some(t) = tracker.as_mut() {
+        t.discard(RejectedBy::Cancel, reason, events);
     }
 }
 

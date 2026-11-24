@@ -104,3 +104,40 @@ fn crates_diagram_is_large_but_complete() {
     assert!(a.components.iter().all(|c| c.kind == Kind::Process));
     assert!(a.validate().is_empty(), "{:?}", a.validate());
 }
+
+/// O diagrama real «Delonix vs Docker» desenhado no Studio (painel Delonix strict e
+/// daemonless, cada elemento com a fonte no código do `delonix`, commit 6b8d18f3).
+const DELONIX_VS_DOCKER: &str = include_str!("fixtures/arch/delonix-vs-docker.json");
+
+#[test]
+fn delonix_vs_docker_is_confirmed_and_round_trips_without_a_duplicate_title() {
+    let a: Architecture = serde_json::from_str(DELONIX_VS_DOCKER).unwrap();
+    assert!(a.validate().is_empty(), "{:?}", a.validate());
+    let m = to_mermaid(&a);
+    for title in ["Docker — 2 daemons residentes", "Delonix — sem daemon"] {
+        assert_eq!(m.matches(&format!("[\"{title}\"]")).count(), 1, "{m}");
+    }
+    let (back, w) = import(&m);
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(json(&back), json(&a));
+}
+
+/// O diagrama real «Seiva — o mesmo módulo» (os dois painéis strict, cada elemento com a
+/// fonte nos geradores do `seiva`, commit 26592bd).
+const SEIVA: &str = include_str!("fixtures/arch/seiva-o-mesmo-modulo.json");
+
+#[test]
+fn seiva_same_module_is_confirmed_and_round_trips() {
+    let a: Architecture = serde_json::from_str(SEIVA).unwrap();
+    assert!(a.validate().is_empty(), "{:?}", a.validate());
+    let m = to_mermaid(&a);
+    for title in [
+        "Monólito modular · um processo",
+        "seiva module split · um serviço",
+    ] {
+        assert_eq!(m.matches(&format!("[\"{title}\"]")).count(), 1, "{m}");
+    }
+    let (back, w) = import(&m);
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(json(&back), json(&a));
+}
