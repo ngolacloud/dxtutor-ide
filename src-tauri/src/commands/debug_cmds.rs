@@ -351,3 +351,59 @@ pub fn debug_snapshot(
     )
     .map_err(|e| e.message)
 }
+
+/// Onde anexar o depurador (A10): os contentores/pods (sem nome), ou os processos dentro de um (ou
+/// desta máquina, `local`) e o adaptador DAP que lá existe.
+#[tauri::command]
+pub async fn debug_attach_targets(
+    target: tutor_eval::attach::Target,
+) -> Result<tutor_eval::attach::Targets, String> {
+    blocking(move || Ok(tutor_eval::attach::targets(&target))).await
+}
+
+/// Anexa o depurador ao processo `pid` do alvo (local, contentor ou pod) por DAP: o adaptador corre
+/// onde o processo corre (`docker exec -i … lldb-dap`); `remote_root` mapeia o caminho onde o
+/// programa foi construído para a pasta do projecto. Depois, os `debug_*` seguem por esta sessão.
+#[tauri::command]
+pub async fn debug_attach(
+    app: tauri::AppHandle,
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    target: tutor_eval::attach::Target,
+    pid: u32,
+    adapter: Option<String>,
+    root: Option<String>,
+    remote_root: Option<String>,
+) -> Result<LaunchInfo, String> {
+    let adapter = match adapter {
+        Some(a) if !a.trim().is_empty() => a,
+        _ if target.kind == "local" => tutor_eval::dapc::find_adapter()
+            .map(|p| p.display().to_string())
+            .ok_or("no DAP adapter on PATH — install lldb-dap (LLVM)")?,
+        _ => "lldb-dap".to_string(),
+    };
+    let argv = tutor_eval::attach::adapter_command(&target, &adapter)?;
+    let (sid, app2) = (id.clone(), app.clone());
+    let on_output: tutor_eval::dapc::OnOutput = Arc::new(move |category: &str, text: &str| {
+        let _ = app2.emit(
+            "debug://output",
+            OutputEvent {
+                id: sid.clone(),
+                category: category.into(),
+                text: text.into(),
+            },
+        );
+    });
+    let map = match (remote_root, root.clone()) {
+        (Some(r), Some(l)) if !r.trim().is_empty() => Some((r, l)),
+        _ => None,
+    };
+    let label = argv.join(" ");
+    let s = blocking(move || DapSession::attach(&argv, pid, root.as_deref(), Some(on_output), map))
+        .await?;
+    dap.insert(id, s)?;
+    Ok(LaunchInfo {
+        engine: "dap".into(),
+        adapter: label,
+    })
+}

@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 205 comandos, **122 são consumidos pela `ui-app`** e **83 não o são**: a UI
+Dos 210 comandos, **127 são consumidos pela `ui-app`** e **83 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -232,7 +232,7 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 > `run_tests` (o único consumido) coexiste com `run_test`/`run_all_tests`
 > (dedicados, não consumidos) — sobreposição a resolver na Etapa 3.
 
-## 8. Git — `commands/git.rs` (21)
+## 8. Git — `commands/git.rs` (22)
 
 Só `git_changes/git_log/git_show` são consumidos; os mutantes correm por
 `exec("git", …)` no `bridge.ts` (ver nota de arquitectura). **Etapa 3**:
@@ -262,6 +262,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `git_worktree` | `root: String`, `op: WorktreeOp` (`list` \| `add {path, branch, create}` \| `remove {path}`) | `Vec<gitx::Worktree>` | String | — | `features/scm` (A4) | **G** · W |
 | `git_rebase` | `root: String`, `op: RebaseOp` (`plan {onto}` \| `run {onto, steps}`) | `gitx::RebasePlan` | String (o rebase é desfeito se parar) | — | `features/scm` (A4) | **G** · W |
 | `git_amend` | `root: String`, `message: Option<String>`, `allow_published: Option<bool>` | `String` (o hash curto novo) | String (`published: …` se já está num remoto) | — | `features/scm` (A4) | **G** · W |
+| `git_diff_range` | `root`, `base`, `target`, `path: Option<String>` | `String` (o diff de `base...target`) | String | — | `features/scm` (A10, revisão de ramos) | R |
 
 ## 9. Agente / arquitectura — `commands/agent.rs` (10)
 
@@ -372,7 +373,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `plugin_install` | `source: String` | `tutor_plugins::Outcome` (`entry`, `language`, `courseIds`, `replaced`, `warnings`) | String | — | `platform/tauri/learn.ts` | **N** (HTTPS GitHub/zip) · W (pasta de plugins) · async |
 | `plugin_remove` | `id: String` | `String` (id removido) | String | — | `platform/tauri/learn.ts` | W (pasta de plugins) |
 
-## 11. Debug (DAP) — `commands/debug_cmds.rs` (19)
+## 11. Debug (DAP) — `commands/debug_cmds.rs` (21)
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/debug_cmds.rs` (adaptadores finos)
 > sobre o caso de uso Tauri-free `debug` — grupo de **passagens** (o motor gdb/MI já era
@@ -411,6 +412,8 @@ variáveis com diff, watch, pause, breakpoints guardados, snapshot) — a saída
 | `debug_snapshot` | `root`, `id`, `issue: Option<String>`, `title`, `markdown` | `()` (artefacto na base do projecto, ligado à issue) | String | — | `features/debug` (A7) | W |
 | `breakpoints_load` | `root: String` | `Vec<project::breakpoints::Breakpoint>` | String | — | `features/debug` (A7) | R |
 | `breakpoints_save` | `root`, `file`, `breakpoints: Vec<Breakpoint>` | `()` | String | — | `features/debug` (A7) | W |
+| `debug_attach_targets` | `target: attach::Target {kind: local\|docker\|podman\|kubectl, name, context, namespace, kubeconfig}` | `attach::Targets` (contentores/pods, ou processos e o adaptador que lá existe) | String | — | `features/debug` (A10) | **X** · R |
+| `debug_attach` | `id`, `target`, `pid: u32`, `adapter: Option<String>`, `root`, `remote_root` (sourceMap) | `LaunchInfo` (o adaptador corre onde o processo corre: `docker exec -i … lldb-dap`) | String | `debug://output` | `features/debug` (A10) | **X** · S |
 
 ## 23. Under the hood real — `commands/hood.rs` (3)
 
@@ -438,6 +441,15 @@ num terminal (`features/ops` mostra-os por extenso).
 | `ops_kube_history` | `context`, `namespace`, `deployment`, `kubeconfig: Option<String>` | `Vec<ops::Revision>` | String | — | `features/ops` (A9) | **X** · R |
 | `ops_cloud_status` | — | `Vec<ops::CloudCli>` (aws/gcloud/az: instalado, versão, perfil local) | String | — | `features/ops` (A9) | **X** · R |
 | `ops_cloud_inventory` | `provider: String` | `ops::CloudInventory` (recursos e os comandos só de leitura corridos) | String | — | `features/ops` (A9) | **X** · R |
+
+## 25. Base de código — `commands/codebase.rs` (2)
+
+A10 (docs/v2/UI-AUDIT.md §3): passagens directas, só leitura (`features/codebase`).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `deps_report` | `root: String`, `online: bool` | `deps::DepsReport` (por ecossistema: desactualizadas — compatível/última/salto/directa — e vulnerabilidades/avisos; os comandos corridos) | String | — | `features/codebase` (A10) | **X** · R |
+| `onboard_map` | `root: String` | `onboard::OnboardMap` (linguagens, pontos de entrada com o comando para correr, docs, ficheiros mais mexidos, pessoas, módulos) | String | — | `features/codebase` (A10) | R |
 
 ## 12. Devcontainers — `commands/devcontainer.rs` (8)
 
@@ -589,9 +601,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **205** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 21 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 19 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 14 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
-| Consumidos pela `ui-app` | **122** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 14 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9) |
+| Comandos registados | **210** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 22 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 21 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 14 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
+| Consumidos pela `ui-app` | **127** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 14 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`)) |
 | Não consumidos pela `ui-app` | **83** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

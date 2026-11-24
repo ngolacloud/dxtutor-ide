@@ -9,6 +9,7 @@
 
 pub mod agent;
 pub mod assistant;
+pub mod codebase;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;

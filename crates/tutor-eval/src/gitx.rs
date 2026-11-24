@@ -274,6 +274,28 @@ pub fn show_path(root: &Path, hash: &str, path: &str) -> Result<String, String> 
     )
 }
 
+/// The diff of `base...target` (what `target` changed since the merge base), optionally of one file —
+/// for reviewing a branch.
+pub fn range_diff(
+    root: &Path,
+    base: &str,
+    target: &str,
+    path: Option<&str>,
+) -> Result<String, String> {
+    let (b, t) = (check_rev(base)?, check_rev(target)?);
+    let range = format!("{b}...{t}");
+    match path {
+        Some(p) => {
+            let p = check_path(p)?;
+            git(
+                root,
+                &["diff", "--no-color", "--find-renames", &range, "--", p],
+            )
+        }
+        None => git(root, &["diff", "--no-color", "--find-renames", &range]),
+    }
+}
+
 // ───── compare ─────
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

@@ -53,6 +53,7 @@ use commands::assistant::{
     assistant_cancel, assistant_chat, assistant_chat_stream, assistant_models, get_diagnostics,
     get_providers_config, list_providers, save_providers_config,
 };
+use commands::codebase::{deps_report, onboard_map};
 use commands::codeintel::{
     diff_lines, file_outline, list_symbols, project_entrypoint, propose_entrypoint,
     resolve_definition, resolve_hover, resolve_references, symbol_ranges, symbol_relations,
@@ -68,10 +69,10 @@ use commands::codev_agent::{
     codev_agent_set_mode, codev_agent_set_plan, codev_agent_start, codev_agent_trust,
 };
 use commands::debug_cmds::{
-    breakpoints_load, breakpoints_save, debug_available, debug_break, debug_capabilities,
-    debug_continue, debug_evaluate, debug_launch, debug_locals, debug_pause, debug_run,
-    debug_set_breakpoints, debug_snapshot, debug_stack, debug_step, debug_stop,
-    debug_stop_on_panic, debug_threads, debug_variables,
+    breakpoints_load, breakpoints_save, debug_attach, debug_attach_targets, debug_available,
+    debug_break, debug_capabilities, debug_continue, debug_evaluate, debug_launch, debug_locals,
+    debug_pause, debug_run, debug_set_breakpoints, debug_snapshot, debug_stack, debug_step,
+    debug_stop, debug_stop_on_panic, debug_threads, debug_variables,
 };
 use commands::devcontainer::{
     devcontainer_exec, devcontainer_info, devcontainer_session_down, devcontainer_session_exec,
@@ -81,8 +82,9 @@ use commands::devcontainer::{
 use commands::dictation::{dictation_cancel, dictation_start, dictation_status, dictation_stop};
 use commands::git::{
     git_amend, git_blame, git_branch, git_branches, git_changes, git_checkout, git_clone,
-    git_commit, git_compare, git_create_branch, git_diff, git_history, git_log, git_rebase,
-    git_show, git_show_path, git_stage, git_stage_all, git_stash, git_unstage, git_worktree,
+    git_commit, git_compare, git_create_branch, git_diff, git_diff_range, git_history, git_log,
+    git_rebase, git_show, git_show_path, git_stage, git_stage_all, git_stash, git_unstage,
+    git_worktree,
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
@@ -988,6 +990,11 @@ pub fn run() {
             ops_kube_history,
             ops_cloud_status,
             ops_cloud_inventory,
+            deps_report,
+            onboard_map,
+            git_diff_range,
+            debug_attach_targets,
+            debug_attach,
             devcontainer_info,
             devcontainer_up,
             devcontainer_exec,

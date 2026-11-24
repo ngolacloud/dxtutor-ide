@@ -18,11 +18,13 @@
 
 pub mod advisor;
 pub mod arch;
+pub mod attach;
 pub mod codemap;
 pub mod complexity;
 pub mod container;
 pub mod dap;
 pub mod dapc;
+pub mod deps;
 pub mod entrypoint;
 pub mod git;
 pub mod gitx;
@@ -32,6 +34,7 @@ pub mod js_runner;
 pub mod lang;
 pub mod lsp;
 pub mod measured;
+pub mod onboard;
 pub mod ops;
 pub mod plugin;
 pub mod review;
