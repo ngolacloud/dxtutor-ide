@@ -9,6 +9,7 @@
      • `diagnostics`/`drawProblems` — com uma pasta real aberta, o Problems verdadeiro.
    Acessores lêem `window` NO ACTO (o bridge.ts abre a pasta de forma assíncrona). */
 
+import { codevAsk } from "../../../app/codev-ask";
 import { esc, svg, toast } from "../../../core";
 import type { Problem } from "../domain/types";
 
@@ -78,6 +79,11 @@ export const panelHidden = (): boolean =>
 /** Envia `text` ao Co-Dev como se o humano o tivesse escrito e carregado Enter: passa
  *  pelo compositor (`agSend` → submit), que respeita a fila quando já há uma execução. */
 export function askCodev(text: string): void {
+  // codev.ask (A2.4): the one entry point; the old path stays for builds without it
+  if (codevAsk.available()) {
+    void codevAsk.ask({ intent: "fix", text, context: [], send: true });
+    return;
+  }
   try {
     G.focusAgent(true);
   } catch {

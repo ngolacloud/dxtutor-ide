@@ -30,8 +30,17 @@ pub async fn codev_agent_start(
     mode: Option<String>,
     resume: Option<String>,
     provider: Option<String>,
+    review_edits: Option<bool>,
+    issue: Option<String>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    // `arch_propose` (Studio, F6): a proposta chega à UI pelo evento `arch://proposal`
+    let emitter = app.clone();
+    let arch_propose = crate::agent::ArchProposeTool {
+        emit: std::sync::Arc::new(move |p| {
+            let _ = emitter.emit("arch://proposal", p);
+        }),
+    };
     let spec = StartSpec {
         root,
         model,
@@ -41,10 +50,14 @@ pub async fn codev_agent_start(
         mode,
         resume,
         host_tools: vec![std::sync::Arc::new(crate::lsp::LspDiagnosticsTool)],
+        host_tools_v4: vec![std::sync::Arc::new(arch_propose)],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),
         provider,
         ollama_host: Some(tutor_llm::chat::ollama_host()),
+        review_edits: review_edits.unwrap_or(false),
+        issue_key: issue,
+        change_log: crate::board::db_path(&app).ok(),
         ..Default::default()
     };
     tauri::async_runtime::spawn_blocking(move || {
@@ -102,6 +115,18 @@ pub fn codev_agent_approve(
         reason,
         remember.unwrap_or(false),
     )
+}
+
+/// Decide os hunks de um `hunk_review` (docs/v2/RF-CODEV-STREAM.md §4): só os aceites são
+/// escritos; um hunk sem decisão conta como recusado. Erro se a sessão, a chamada ou um
+/// hunk não existirem (a revisão continua à espera).
+#[tauri::command]
+pub fn codev_agent_review(
+    session_id: String,
+    call: String,
+    decisions: Vec<codev_agent::HunkVerdict>,
+) -> Result<(), String> {
+    codev_agent::review(&session_id, &call, &decisions)
 }
 
 /// Muda o modo da sessão (Manual/Assistido/Auto) — a modebar.

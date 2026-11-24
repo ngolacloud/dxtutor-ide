@@ -8,7 +8,7 @@
    Fase 2 da componentização: este é o primeiro módulo TypeScript do ui-app, servido como
    <script type="module"> no FIM da cadeia boot.js → app.js (clássicos) → bridge.ts (módulo).
    O contrato com os scripts clássicos mantém-se o do pair.js: lê as globais lexicais (FS, ROOT, BRANCH, CWD,
-   OPEN, TABS, cur, VIEW, MENUS, CMD, $, tabOf) e re-atribui as globais function-declaradas
+   OPEN, cur, VIEW, MENUS, CMD, $, tabOf) e re-atribui as globais function-declaradas
    via binding do window (refresh, promptHTML, window.run, commit, checkout, …). As
    declarações em `declare global` abaixo são esse contrato, tipado. */
 import type { Invoker } from "./platform/tauri/core";
@@ -17,6 +17,9 @@ import { shellClient } from "./platform/tauri/shell";
 import { fsClient } from "./platform/tauri/fs";
 import { appClient } from "./platform/tauri/app";
 import { bus } from "./app/bus";
+import { registerActions } from "./app/actions";
+import { tabMarks } from "./app/tab-marks";
+import { editorStore } from "./app/store/editor";
 
 export {};
 
@@ -98,6 +101,10 @@ interface PairState {
   capNodes?: AudioNode[] | null;
   playT?: number;
   autoMin?: boolean;
+  /** Guest: the tabs the host shares (UI-PAIR-02). */
+  peerTabs?: string[];
+  /** The side bar is hidden, so the call lives in the status bar (UI-PAIR-03). */
+  sideHidden?: boolean;
   ui?: PairUi;
 }
 
@@ -106,7 +113,6 @@ declare global {
   let BRANCH: string;
   let CWD: string[];
   const cur: string | null;
-  const TABS: Tab[];
   const FS: Record<string, FsEntry>;
   const ROOT: string;
   const OPEN: Set<string>;
@@ -122,6 +128,7 @@ declare global {
   const fIcon: (p: string) => string;
   const isHuman: (r: string) => boolean;
   var openTab: (t: Partial<Tab> & { id: string }, act?: boolean) => void;
+  var drawTabs: () => void;
   var closeMenus: () => void;
   var gotoLine: (n: number) => void;
   var connected: () => string[];
@@ -227,6 +234,86 @@ const myName = () => R.user || "me";
 const other = (r: Role): Role => (r === "host" ? "guest" : "host");
 const amDriver = () => !!P.role && P.driver === P.role;
 const live = () => P.state === "connected";
+/* ───── what the host shares (UI-PAIR-01) ─────
+   Private paths never leave the host's machine: the filter is applied to what is SENT (the
+   snapshot, every file sync, the view the guest follows, the tabs it mirrors) and to what the
+   guest may write, never only to what is drawn. Secret files (.env, keys) are always private;
+   the host makes any tab or folder private with a right-click (and shared again the same way). */
+const SECRET = /(^|\/)\.env(\.[^/]*)?$|\.(pem|key|p12|pfx)$|(^|\/)id_(rsa|ed25519|ecdsa)(\.pub)?$/i;
+/** FS keys, or folder prefixes ending in "/". */
+const priv = new Set<string>();
+const isSecret = (k: string): boolean => SECRET.test(k);
+function isPrivate(k: string): boolean {
+  if (isSecret(k) || priv.has(k)) return true;
+  for (const p of priv) if (p.endsWith("/") && k.startsWith(p)) return true;
+  return false;
+}
+function togglePrivate(key: string): void {
+  if (P.role !== "host") return;
+  if (isSecret(key)) { toast("Secret files (.env, keys) are always private"); return; }
+  const was = priv.has(key);
+  if (was) priv.delete(key); else priv.add(key);
+  const name = key.endsWith("/") ? key.slice(ROOT.length, -1) + "/" : key.slice(ROOT.length);
+  toast(was ? `Shared again: ${name}` : `Private: ${name} is no longer shared`);
+  say((was ? "shared " : "private ") + name);
+  syncOut(); sendTabs(true); redrawMarks();
+}
+/** The view the guest may follow: nothing inside a private file. */
+const sharedView = (v: ViewMsg): ViewMsg =>
+  v.path && isPrivate(v.path) ? { path: null, top: 0, line: 0, col: 0, tab: null, kind: null } : v;
+/* the editor's tabs (`editorStore.tabs`; the old `TABS` global is always empty) */
+const openTabs = (): Tab[] => editorStore.tabs as Tab[];
+function sharedTabs(): string[] {
+  return openTabs().filter(t => t.kind === "file" && t.path && FS[t.path] && !isPrivate(t.path)).map(t => t.path as string);
+}
+let lastTabs = "";
+/** Host → guest: the open tabs it shares (the guest mirrors exactly these). */
+function sendTabs(force?: boolean): void {
+  if (!live() || P.role !== "host") return;
+  const tabs = sharedTabs(), k = JSON.stringify(tabs);
+  if (!force && k === lastTabs) return;
+  lastTabs = k;
+  void send({ t: "tabs", tabs });
+}
+function applyTabs(paths: string[]): void {
+  P.peerTabs = paths;
+  if (P.follow) {
+    openTabs().filter(t => t.kind === "file" && t.path && !paths.includes(t.path)).map(t => t.id).forEach(id => { try { closeTab(id); } catch { /* */ } });
+    paths.forEach(p => { if (!tabOf(p)) openTab({ id: p, title: p.split("/").pop() || p, kind: "file", path: p }, false); });
+  }
+  redrawMarks();
+}
+function redrawMarks(): void { try { drawTabs(); } catch { /* sem separadores */ } markRows(); }
+/** Private files and folders in the explorer (host). */
+function markRows(): void {
+  document.querySelectorAll<HTMLElement>("#exp-sections .row").forEach(r => {
+    const k = r.dataset.path ?? (r.dataset.dpath ? r.dataset.dpath + "/" : "");
+    r.classList.toggle("pair-private", P.role === "host" && !!k && isPrivate(k));
+  });
+}
+document.addEventListener("contextmenu", e => {
+  if (P.role !== "host") return;
+  const r = (e.target as HTMLElement | null)?.closest<HTMLElement>("#exp-sections .row");
+  const k = r ? r.dataset.path ?? (r.dataset.dpath ? r.dataset.dpath + "/" : "") : "";
+  if (!k) return;
+  e.preventDefault();
+  togglePrivate(k);
+});
+tabMarks.set(
+  (t, el) => {
+    if (!live() || !t.path || t.kind !== "file") return;
+    const p = P.role === "host" && isPrivate(t.path);
+    el.classList.add(p ? "pair-private" : "pair-shared");
+    el.insertAdjacentHTML("afterbegin", `<span class="pair-ti" title="${p ? "Only you see this tab" : "Shared with " + escH(P.peerName || "your pair")}">${p ? "🙈" : "👥"}</span>`);
+    if (P.role === "host") el.oncontextmenu = e => { e.preventDefault(); togglePrivate(t.path as string); };
+  },
+  bar => {
+    if (!live()) return;
+    const host = P.role === "host", n = host ? sharedTabs().length : (P.peerTabs || []).length;
+    bar.insertAdjacentHTML("beforeend", `<span class="pair-legend" title="${host ? "Right-click a tab or a folder in the explorer to make it private" : "The tabs " + escH(P.peerName || "the host") + " shares with you"}">${host ? "Shared with" : "Shared by"} ${escH(P.peerName || "your pair")} · ${n} tab${n === 1 ? "" : "s"}</span>`);
+  },
+);
+
 function send(o: Msg): Promise<void> {
   if (!live()) return Promise.resolve();
   return pairc.send(JSON.stringify(o)).catch(e => say(String(e)));
@@ -305,6 +392,10 @@ async function handle(m: Msg): Promise<void> {
     /* edições remotas: o convidado aceita as do anfitrião (fonte de verdade); o anfitrião só as
        aceita enquanto o convidado conduz — um navigator não escreve no disco do anfitrião */
     case "files": if (P.role === "guest" || P.driver === "guest") applyFiles(m); break;
+    /* os separadores partilhados pelo anfitrião (UI-PAIR-02): só chegam caminhos do snapshot */
+    case "tabs":
+      if (P.role === "guest" && Array.isArray(m.tabs)) applyTabs((m.tabs as unknown[]).filter((p): p is string => typeof p === "string" && !!FS[p]));
+      break;
     case "view":
       P.peerView = m as unknown as ViewMsg;
       if (!amDriver()) applyView(P.peerView);
@@ -347,14 +438,15 @@ async function handle(m: Msg): Promise<void> {
 /* ───── workspace: host is the source of truth ───── */
 function realFiles(): Record<string, string> {
   const o: Record<string, string> = {};
-  Object.keys(FS).forEach(k => { if (k.startsWith(ROOT) && !k.startsWith(ROOT + "learn/")) o[k] = FS[k].content; });
+  Object.keys(FS).forEach(k => { if (k.startsWith(ROOT) && !k.startsWith(ROOT + "learn/") && !isPrivate(k)) o[k] = FS[k].content; });
   return o;
 }
 function sendSnapshot(): void {
   P.sent = realFiles();
   const orig: Record<string, string | null> = {};
   Object.keys(P.sent).forEach(k => { if (FS[k].orig !== FS[k].content) orig[k] = FS[k].orig; });
-  void send({ t: "snap", name: R.name || "workspace", branch: BRANCH, files: P.sent, orig, driver: P.driver, view: viewNow() });
+  void send({ t: "snap", name: R.name || "workspace", branch: BRANCH, files: P.sent, orig, driver: P.driver, view: sharedView(viewNow()) });
+  sendTabs(true);
 }
 function enterRemote(m: Msg): void {
   if (!P.backup) {
@@ -362,7 +454,7 @@ function enterRemote(m: Msg): void {
     P.backup = { fs: Object.assign({}, FS), root: R.root, name: R.name, git: R.git, branch: BRANCH, cwd: CWD.slice() };
   }
   R.root = null; R.git = false; R.remote = true; R.name = m.name;
-  try { TABS.filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* */ }
+  try { openTabs().filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* */ }
   Object.keys(FS).forEach(k => { if (!k.startsWith(ROOT + "learn/")) delete FS[k]; });
   Object.entries(m.files as Record<string, string>).forEach(([k, c]) => { FS[k] = { content: c, orig: k in m.orig ? m.orig[k] : c }; });
   P.sent = Object.assign({}, m.files);
@@ -385,7 +477,7 @@ function leaveRemote(): void {
   const b = P.backup;
   if (!b) return;
   P.backup = null; R.remote = false;
-  try { TABS.filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* */ }
+  try { openTabs().filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* */ }
   Object.keys(FS).forEach(k => delete FS[k]);
   Object.assign(FS, b.fs);
   R.root = b.root; R.name = b.name; R.git = b.git; BRANCH = b.branch; CWD = b.cwd;
@@ -421,8 +513,9 @@ const isFrame = (d: unknown): d is string =>
 function applyFiles(m: Msg): void {
   if (P.role === "host") {
     const set = (m.set && typeof m.set === "object" ? m.set : {}) as Record<string, unknown>;
-    const bad = Object.keys(set).filter(k => unsafeRemotePath(k) || typeof set[k] !== "string")
-      .concat(((Array.isArray(m.del) ? m.del : []) as unknown[]).filter(k => unsafeRemotePath(k as string)) as string[]);
+    /* nem caminhos privados: o convidado não os conhece, e não os cria nem apaga (UI-PAIR-01) */
+    const bad = Object.keys(set).filter(k => unsafeRemotePath(k) || typeof set[k] !== "string" || isPrivate(k))
+      .concat(((Array.isArray(m.del) ? m.del : []) as unknown[]).filter(k => unsafeRemotePath(k as string) || isPrivate(k as string)) as string[]);
     if (bad.length) { say("blocked remote edit: " + bad.slice(0, 3).join(", ")); toast("PairCode: edição remota bloqueada (" + bad.length + " caminho(s) não permitidos)"); return; }
   }
   applying = true;
@@ -439,7 +532,8 @@ function applyFiles(m: Msg): void {
       P.sent[k] = c;
       if (k === open) touched = true;
     });
-    ((m.del || []) as string[]).forEach(k => { delete FS[k]; delete P.sent[k]; });
+    /* um ficheiro que deixou de ser partilhado (ou foi apagado) fecha também o seu separador */
+    ((m.del || []) as string[]).forEach(k => { delete FS[k]; delete P.sent[k]; if (P.role === "guest" && tabOf(k)) { try { closeTab(k); } catch { /* */ } } });
     if (touched && !amDriver()) {
       const eb = $("#ebody"), top = eb ? eb.scrollTop : 0;
       refresh(false, true); show(cur);
@@ -462,8 +556,10 @@ function viewNow(): ViewMsg {
   };
 }
 window.setInterval(() => {
+  if (P.role === "host") markRows();
   if (!live()) return;
-  const v = viewNow(), k = JSON.stringify(v);
+  sendTabs();
+  const v = sharedView(viewNow()), k = JSON.stringify(v);
   if (k === P.lastView) return;
   P.lastView = k;
   void send(Object.assign({ t: "view", who: P.role }, v));
@@ -791,12 +887,12 @@ document.head.insertAdjacentHTML("beforeend", `<style>
 #pair-modal textarea{height:74px;resize:none;word-break:break-all}
 #pair-modal .row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
 #pair-modal .tabs{display:flex;gap:6px;margin:12px 0}
-#pair-dock{position:fixed;right:16px;bottom:34px;width:272px;transition:left .15s,top .15s;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;box-shadow:var(--sh-pop);z-index:800;overflow:hidden;font-size:12px;color:var(--fg)}
-#pair-dock .ph{display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:move;user-select:none;border-bottom:1px solid var(--border)}
+#pair-dock{position:fixed;left:0;top:0;width:260px;background:var(--bg-elevated);border-top:1px solid var(--border-strong);z-index:800;overflow:hidden;font-size:12px;color:var(--fg);box-sizing:border-box}
+#pair-dock .ph{display:flex;align-items:center;gap:6px;height:36px;box-sizing:border-box;padding:0 8px;user-select:none;border-bottom:1px solid var(--border)}
 #pair-dock .ph b{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#pair-dock .vid{position:relative;height:190px;background:#0c0d10}
+#pair-dock .vid{position:relative;height:110px;background:#0c0d10}
 #pair-dock video{width:100%;height:100%;object-fit:cover;display:block}
-#pair-dock #pair-self{position:absolute;right:6px;bottom:6px;width:76px;height:57px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:#000;object-fit:cover}
+#pair-dock #pair-self{position:absolute;right:6px;bottom:6px;width:64px;height:48px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:#000;object-fit:cover}
 #pair-dock .vl{position:absolute;left:6px;bottom:6px;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:5px}
 #pair-dock .nov{position:absolute;inset:0;display:grid;place-items:center;color:var(--fg-muted);text-align:center;padding:10px}
 #pair-dock .ctl{display:flex;gap:4px;padding:6px;flex-wrap:wrap}#pair-dock .ctl .mini{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -807,9 +903,13 @@ document.head.insertAdjacentHTML("beforeend", `<style>
 .pair-caret{position:absolute;left:0;right:0;border-left:2px solid var(--accent-hover);background:var(--accent-soft);pointer-events:none;z-index:3}
 .pair-caret span{position:absolute;right:6px;top:-1px;font-size:10px;background:var(--accent-hover);color:var(--fg-bright);padding:0 5px;border-radius:0 0 4px 4px}
 .ed-ta.pair-ro{cursor:default}
+.side{box-sizing:border-box;padding-bottom:var(--pair-dock-h,0px)}
+.tab .pair-ti{margin-right:4px;font-size:11px}.tab.pair-private .pair-ti{opacity:.65}.tab.pair-private .nm{font-style:italic;color:var(--fg-muted)}
+.pair-legend{align-self:center;margin-left:auto;padding:1px 9px;border-radius:9px;font-size:11px;white-space:nowrap;background:rgba(92,201,167,.14);color:var(--green)}
+#exp-sections .row.pair-private .nm{font-style:italic;color:var(--fg-muted)}#exp-sections .row.pair-private .nm::after{content:" · private";font-style:normal;font-size:10.5px;color:var(--fg-muted)}
 #st-pair{display:none}
 </style>`);
-document.body.insertAdjacentHTML("beforeend", `<div id="pair-modal" onclick="if(event.target===this)PAIR.ui.close()"><div class="pm" id="pair-pm"></div></div><div id="pair-dock" style="display:none"></div>`);
+document.body.insertAdjacentHTML("beforeend", `<div id="pair-modal" data-action="pair:close"><div class="pm" id="pair-pm"></div></div><div id="pair-dock" style="display:none"></div>`);
 let tab: "start" | "join" = "start";
 function openPanel(t?: "start" | "join"): void {
   if (t) tab = t;
@@ -830,18 +930,18 @@ function drawPanel0(): void {
   if (P.role === "host") {
     el.innerHTML = `<h3>PairCode — you are hosting</h3><div class="dim">Send this token to the other developer. It works once per session and holds the key that encrypts everything you share.</div>
     <div class="row"><textarea id="pair-tok" readonly>${escH(P.token || "")}</textarea></div>
-    <div class="row"><button class="mini pri" onclick="PAIR.ui.copy()">Copy token</button><span class="dim">${live() ? `<b>${escH(P.peerName)}</b> is connected` : "waiting for your pair to join…"}</span><span style="flex:1"></span><button class="mini" onclick="PAIR.ui.end()">End session</button></div>
+    <div class="row"><button class="mini pri" data-action="pair:copy">Copy token</button><span class="dim">${live() ? `<b>${escH(P.peerName)}</b> is connected` : "waiting for your pair to join…"}</span><span style="flex:1"></span><button class="mini" data-action="pair:end">End session</button></div>
     <div class="dim" style="margin-top:10px">Both machines must reach each other: same network, or a VPN such as Tailscale/WireGuard. Across the internet without a VPN, forward TCP port ${escH((P.token && decodeTok(P.token).port) || 47821)} on the host's router and the guest uses "via".</div>`;
     return;
   }
   if (P.role === "guest") {
-    el.innerHTML = `<h3>PairCode — ${live() ? "connected to " + escH(P.peerName) : "joining…"}</h3><div class="dim">You see ${escH(P.peerName || "the host")}'s workspace. ${amDriver() ? "You are driving." : "You are navigating — request control to type."}</div><div class="row"><span style="flex:1"></span><button class="mini" onclick="PAIR.ui.end()">Leave session</button></div>`;
+    el.innerHTML = `<h3>PairCode — ${live() ? "connected to " + escH(P.peerName) : "joining…"}</h3><div class="dim">You see ${escH(P.peerName || "the host")}'s workspace. ${amDriver() ? "You are driving." : "You are navigating — request control to type."}</div><div class="row"><span style="flex:1"></span><button class="mini" data-action="pair:end">Leave session</button></div>`;
     return;
   }
   el.innerHTML = `<h3>PairCode</h3><div class="dim">Pair programming: one drives, the other navigates. The guest sees the host's project live, both see and hear each other, and control changes hands on request.</div>
-   <div class="tabs"><button class="mini ${tab === "start" ? "pri" : ""}" onclick="PAIR.ui.tab('start')">Host a session</button><button class="mini ${tab === "join" ? "pri" : ""}" onclick="PAIR.ui.tab('join')">Join with a token</button></div>
-   ${tab === "start" ? `<div class="dim">Shares <b>${escH(R.root || "the sample workspace")}</b>. Your pair can read every file in it while the session lasts.</div><div class="row"><button class="mini pri" onclick="PAIR.ui.start()">Start and get a token</button></div>`
-    : `<div class="row"><textarea id="pair-in" placeholder="dxp_…"></textarea></div><div class="row"><input id="pair-via" placeholder="via (optional): host:port — for a tunnel or VPN address"></div><div class="row"><button class="mini pri" onclick="PAIR.ui.join()">Join</button><span class="dim">your open folder is set aside and comes back when you leave</span></div>`}`;
+   <div class="tabs"><button class="mini ${tab === "start" ? "pri" : ""}" data-action="pair:tab" data-on="start">Host a session</button><button class="mini ${tab === "join" ? "pri" : ""}" data-action="pair:tab" data-on="join">Join with a token</button></div>
+   ${tab === "start" ? `<div class="dim">Shares <b>${escH(R.root || "the sample workspace")}</b>. Your pair sees its files while the session lasts, except private ones: <b>.env</b> and key files are always private, and you can make any tab or folder private with a right-click.</div><div class="row"><button class="mini pri" data-action="pair:start">Start and get a token</button></div>`
+    : `<div class="row"><textarea id="pair-in" placeholder="dxp_…"></textarea></div><div class="row"><input id="pair-via" placeholder="via (optional): host:port — for a tunnel or VPN address"></div><div class="row"><button class="mini pri" data-action="pair:join">Join</button><span class="dim">your open folder is set aside and comes back when you leave</span></div>`}`;
 }
 function decodeTok(t: string): { port?: number } {
   try { return JSON.parse(atob(t.slice(4).replace(/-/g, "+").replace(/_/g, "/"))); } catch { return {}; }
@@ -857,13 +957,13 @@ function drawDock(): void {
     peerCam = (!P.peerAv || P.peerAv.cam) && (!relay || !!P.frames);
   const st = relay ? "relayed" : P.rtc ? P.rtc.connectionState : "";
   const keepSelf = $("#pair-self") as HTMLVideoElement | null, keepRemote = $("#pair-remote") as HTMLVideoElement | null;
-  d.innerHTML = `<div class="ph" id="pair-drag"><span class="pdot" style="background:${remoteOn ? "var(--green,#5cc9a7)" : "#e0b64a"}"></span><b>${escH(P.peerName || "pair")}</b><span class="pair-badge ${amDriver() ? "" : "nav"}">${amDriver() ? "driving" : "navigating"}</span><button class="mini" title="Minimise" onclick="PAIR.ui.min()">${P.min ? "▢" : "–"}</button></div>
+  d.innerHTML = `<div class="ph" id="pair-drag"><span class="pdot" style="background:${remoteOn ? "var(--green,#5cc9a7)" : "#e0b64a"}"></span><b>${escH(P.peerName || "pair")}</b><span class="pair-badge ${amDriver() ? "" : "nav"}">${amDriver() ? "driving" : "navigating"}</span><button class="mini" title="Minimise" data-action="pair:min">${P.min ? "▢" : "–"}</button></div>
    <div class="vid">${relay ? `<img id="pair-remote-img" style="width:100%;height:100%;object-fit:cover;display:block" ${P.lastFrameData ? `src="${P.lastFrameData}"` : ""}>` : '<video id="pair-remote" autoplay playsinline></video>'}${!remoteOn || !peerCam ? `<div class="nov">${!remoteOn ? "connecting call… " + escH(st) : P.peerAv && !P.peerAv.cam ? escH(P.peerName) + " turned the camera off" : "no video from " + escH(P.peerName) + (relay ? " (audio only)" : "")}</div>` : ""}${relay ? '<span class="vl" style="left:auto;right:88px;top:6px;bottom:auto" title="No WebRTC on one side: video and audio go through the encrypted PairCode channel">relay</span>' : ""}
    <video id="pair-self" autoplay playsinline muted ${P.local && P.cam ? "" : 'style="display:none"'}></video><span class="vl">${escH(P.peerName)}${P.peerAv && !P.peerAv.mic ? " 🔇" : ""}</span></div>
-   <div class="ctl"><button class="mini" title="${P.mic ? "Mute" : "Unmute"}" onclick="PAIR.ui.mic()" ${P.local ? "" : "disabled"}>${P.mic ? "🎙" : "🔇"}</button><button class="mini" title="${P.cam ? "Turn camera off" : "Turn camera on"}" onclick="PAIR.ui.cam()" ${P.local && P.local.getVideoTracks().length ? "" : "disabled"}>${P.cam ? "📷" : "🚫"}</button>
-   <button class="mini" title="Follow the driver's file and cursor" onclick="PAIR.ui.follow()">${P.follow ? "◉ Follow" : "○ Follow"}</button><button class="mini" onclick="PAIR.ui.end()">${P.role === "host" ? "End" : "Leave"}</button></div>
-   <div class="ctl" style="padding-top:0">${amDriver() ? `<button class="mini pri" onclick="PAIR.ui.give()">Give control to ${escH(P.peerName)}</button>` : `<button class="mini pri" onclick="PAIR.ui.request()" ${P.pendingReq ? "disabled" : ""}>${P.pendingReq ? "Waiting for an answer…" : "Request control"}</button>`}${P.role === "host" && !amDriver() ? `<button class="mini" onclick="PAIR.ui.take()">Take back</button>` : ""}</div>
-   ${P.ask ? `<div class="ask"><b>${escH(P.peerName)}</b> asks for control of mouse and keyboard.<div class="ctl" style="padding:6px 0 0"><button class="mini pri" onclick="PAIR.ui.answer(true)">Give control</button><button class="mini" onclick="PAIR.ui.answer(false)">Not now</button></div></div>` : ""}`;
+   <div class="ctl"><button class="mini" title="${P.mic ? "Mute" : "Unmute"}" data-action="pair:mic" ${P.local ? "" : "disabled"}>${P.mic ? "🎙" : "🔇"}</button><button class="mini" title="${P.cam ? "Turn camera off" : "Turn camera on"}" data-action="pair:cam" ${P.local && P.local.getVideoTracks().length ? "" : "disabled"}>${P.cam ? "📷" : "🚫"}</button>
+   <button class="mini" title="Follow the driver's file and cursor" data-action="pair:follow">${P.follow ? "◉ Follow" : "○ Follow"}</button><button class="mini" data-action="pair:end">${P.role === "host" ? "End" : "Leave"}</button></div>
+   <div class="ctl" style="padding-top:0">${amDriver() ? `<button class="mini pri" data-action="pair:give">Give control to ${escH(P.peerName)}</button>` : `<button class="mini pri" data-action="pair:request" ${P.pendingReq ? "disabled" : ""}>${P.pendingReq ? "Waiting for an answer…" : "Request control"}</button>`}${P.role === "host" && !amDriver() ? `<button class="mini" data-action="pair:take">Take back</button>` : ""}</div>
+   ${P.ask ? `<div class="ask"><b>${escH(P.peerName)}</b> asks for control of mouse and keyboard.<div class="ctl" style="padding:6px 0 0"><button class="mini pri" data-action="pair:answer" data-on="1">Give control</button><button class="mini" data-action="pair:answer" data-on="0">Not now</button></div></div>` : ""}`;
   /* keep the live video elements so the picture does not flash on every redraw */
   if (keepSelf && keepSelf.srcObject) {
     $("#pair-self")!.replaceWith(keepSelf);
@@ -877,74 +977,62 @@ function drawDock(): void {
   }
   const sv = $("#pair-self") as HTMLVideoElement | null;
   if (sv && P.local && sv.srcObject !== P.local) { sv.srcObject = P.local; sv.play().catch(() => { /* */ }); }
-  drag(d, $("#pair-drag"));
   placeDock();
 }
-/* The call never covers the Co-Dev chat: it sits in the bottom-right corner of the editor area, and a
-   drag that would end over the chat (or outside the editor and side bar) snaps back to that corner. */
-type Box = { left: number; top: number; right: number; bottom: number };
-let dockPos: { x: number; y: number } | null = null;
-function zone(): { e: Box; a: Box | null } {
-  const eb = $("#ebody"), ag = $("#agent");
-  const e: Box = eb ? eb.getBoundingClientRect() : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
-  const a = ag && ag.offsetParent !== null ? ag.getBoundingClientRect() : null;
-  return { e, a };
+/* UI-PAIR-03: the call sits at the bottom of the side bar (whatever pane is open), at its full
+   width; the side bar keeps that height free (`--pair-dock-h`), so nothing hides under it.
+   Minimised it is just its 36 px header. With the side bar hidden, the call lives in the status
+   bar item, which brings the side bar back. It never covers the editor or the Co-Dev chat. */
+function sideRect(): DOMRect | null {
+  const s = document.querySelector<HTMLElement>(".side");
+  if (!s || s.offsetParent === null) return null;
+  const r = s.getBoundingClientRect();
+  return r.width > 40 && r.height > 80 ? r : null;
 }
-function overlapsChat(r: Box, a: Box | null): boolean {
-  return !!a && r.right > a.left && r.left < a.right && r.bottom > a.top && r.top < a.bottom;
+/* the reserved height changes the side bar's padding: write it only when it changes, so the
+   ResizeObserver below does not loop on its own change */
+function setDockH(px: number): void {
+  const v = px + "px", root = document.documentElement;
+  if (root.style.getPropertyValue("--pair-dock-h") !== v) root.style.setProperty("--pair-dock-h", v);
 }
 function placeDock(): void {
   const d = $("#pair-dock");
-  if (!d || d.style.display === "none") return;
-  const { e, a } = zone(), w = d.offsetWidth, h = d.offsetHeight;
-  if (e.right - e.left < w + 24 && !P.min) { P.min = true; P.autoMin = true; drawDock(); return; }
-  if (P.autoMin && e.right - e.left >= w + 24) { P.autoMin = false; P.min = false; drawDock(); return; }
-  let x = 0, y = 0;
-  if (dockPos) {
-    x = dockPos.x; y = dockPos.y;
-    const r: Box = { left: x, top: y, right: x + w, bottom: y + h };
-    if (overlapsChat(r, a) || x < 0 || y < 0 || x + w > innerWidth || y + h > innerHeight) dockPos = null;
+  if (!d || !live()) { setDockH(0); return; }
+  const r = sideRect(), wasHidden = !!P.sideHidden;
+  P.sideHidden = !r;
+  if (!r) {
+    d.style.display = "none";
+    setDockH(0);
+  } else {
+    d.style.display = "";
+    d.style.left = r.left + "px"; d.style.width = r.width + "px";
+    d.style.top = r.bottom - d.offsetHeight + "px";
+    setDockH(d.offsetHeight);
   }
-  if (!dockPos) { x = Math.max(e.left + 8, e.right - w - 14); y = Math.max(e.top + 8, e.bottom - h - 12); }
-  d.style.left = x + "px"; d.style.top = y + "px"; d.style.right = "auto"; d.style.bottom = "auto";
+  if (wasHidden !== P.sideHidden) drawStatus();
 }
 addEventListener("resize", placeDock);
 try {
-  const ro = new ResizeObserver(() => placeDock());
-  ["#ebody", "#agent", "#panel"].forEach(q => { const el = $(q); if (el) ro.observe(el); });
+  let raf = 0;
+  const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(placeDock); });
+  [".side", "#ebody", "#agent", "#panel"].forEach(q => { const el = document.querySelector(q); if (el) ro.observe(el, { box: "border-box" }); });
 } catch { /* sem ResizeObserver */ }
-function drag(el: HTMLElement, h: HTMLElement | null): void {
-  if (!h) return;
-  h.onmousedown = e => {
-    if ((e.target as HTMLElement).closest("button")) return;
-    const r = el.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
-    const mv = (ev: MouseEvent) => {
-      el.style.left = Math.max(0, Math.min(innerWidth - r.width, ev.clientX - dx)) + "px";
-      el.style.top = Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + "px";
-      el.style.right = "auto"; el.style.bottom = "auto";
-    };
-    const up = () => {
-      removeEventListener("mousemove", mv); removeEventListener("mouseup", up);
-      const b = el.getBoundingClientRect();
-      dockPos = overlapsChat(b, zone().a) ? null : { x: b.left, y: b.top };
-      if (!dockPos) toast("The call stays clear of the Co-Dev chat");
-      placeDock();
-    };
-    addEventListener("mousemove", mv); addEventListener("mouseup", up);
-  };
-}
+/* the side bar opens/closes without resizing anything we observe on some layouts: check now and then */
+window.setInterval(() => { if (live()) placeDock(); }, 700);
 function drawStatus(): void {
   let s = $("#st-pair");
   const anchor = $("#st-prob");
   if (!s && anchor) {
-    anchor.insertAdjacentHTML("afterend", '<button class="si" id="st-pair" title="PairCode" onclick="PAIR.ui.open()"></button>');
+    anchor.insertAdjacentHTML("afterend", '<button class="si" id="st-pair" title="PairCode" data-action="pair:status"></button>');
     s = $("#st-pair");
   }
   if (!s) return;
-  s.style.display = P.role ? "" : "none";
-  s.textContent = P.role ? (live() ? `👥 ${P.peerName || "pair"} · ${amDriver() ? "driving" : "navigating"}` : "👥 waiting for pair…") : "";
+  /* explicit: the stylesheet hides #st-pair by default, so "" would keep it hidden */
+  s.style.display = P.role ? "inline-flex" : "none";
+  s.textContent = P.role ? (live() ? `👥 ${P.peerName || "pair"} · ${amDriver() ? "driving" : "navigating"}${P.sideHidden ? " · show call" : ""}` : "👥 waiting for pair…") : "";
+  s.title = live() && P.sideHidden ? "The call is in the side bar — show it" : "PairCode";
 }
-function drawAll(): void { drawPanel(); drawDock(); drawStatus(); }
+function drawAll(): void { drawPanel(); drawDock(); drawStatus(); redrawMarks(); }
 
 P.ui = {
   open: () => openPanel(),
@@ -966,6 +1054,18 @@ P.ui = {
   answer,
   min: () => { P.min = !P.min; drawDock(); },
 };
+
+/* os botões do painel, da doca e da barra de estado chamam `PAIR.ui` no acto (eram `onclick="PAIR.ui.f()"` — ADR-0004, U5b) */
+const ui = (): PairUi => window.PAIR.ui!;
+registerActions({
+  "pair:close": { click: (c) => { if (c.ev.target === c.el) ui().close(); } },
+  ...Object.fromEntries((["copy", "end", "start", "join", "min", "mic", "cam", "follow", "give", "request", "take", "open"] as const)
+    .map((f) => [`pair:${f}`, { click: () => void ui()[f]() }])),
+  "pair:tab": { click: (c) => ui().tab(c.on as "start" | "join") },
+  "pair:answer": { click: (c) => ui().answer(c.on === "1") },
+  /* com a barra lateral escondida, o item de estado traz a chamada de volta (UI-PAIR-03) */
+  "pair:status": { click: () => { if (live() && P.sideHidden) { toggleSide(); setTimeout(placeDock, 50); } else ui().open(); } },
+});
 
 /* menus, palette, shortcut */
 const items = (): MenuItem[] => [
@@ -1029,7 +1129,13 @@ void (async () => {
   };
   if (role === "host") {
     await step("host", async () => {
+      /* UI-PAIR-01: a secret and a private folder that must never reach the guest */
+      writeFile(ROOT + ".env", "API_KEY=pairtest-secret\n");
+      writeFile(ROOT + "notes/private.md", "# host only\n");
+      R.flush!(); await R.idle!();
       await start();
+      togglePrivate(ROOT + "notes/");
+      openPath(ROOT + "main.rs");
       await fsc.writeFile(dir, "token.txt", P.token as string);
       if (slow) openPanel();
       return (P.token as string).slice(0, 12) + "…";
@@ -1071,6 +1177,16 @@ void (async () => {
       await join(tok);
       await wait(() => live() && FS[ROOT + "main.rs"]);
       return { peer: P.peerName, files: Object.keys(FS).filter(k => !k.includes("/learn/")).map(k => k.slice(ROOT.length)), driver: P.driver };
+    });
+    await step("privateNotShared", async () => {
+      const files = Object.keys(FS).filter(k => !k.includes("/learn/")).map(k => k.slice(ROOT.length));
+      const leaked = files.filter(f => f === ".env" || f.startsWith("notes/"));
+      if (leaked.length) throw new Error("private files reached the guest: " + leaked.join(", "));
+      return { files: files.length, leaked: 0 };
+    });
+    await step("sharedTabs", async () => {
+      await wait(() => (P.peerTabs || []).includes(ROOT + "main.rs"));
+      return { tabs: (P.peerTabs || []).map(p => p.slice(ROOT.length)), legend: ($("#tabs .pair-legend") || { textContent: "" }).textContent };
     });
     await step("readOnlyWhileNavigating", async () => {
       openPath(ROOT + "main.rs");

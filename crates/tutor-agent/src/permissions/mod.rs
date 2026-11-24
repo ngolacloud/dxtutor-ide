@@ -300,6 +300,7 @@ mod tests {
             input,
             read_only,
             command: command.map(String::from),
+            hunks: vec![],
         }
     }
     fn bash(cmd: &str) -> PendingCall {

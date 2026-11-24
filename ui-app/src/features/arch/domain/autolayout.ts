@@ -5,16 +5,22 @@
    Composto e recursivo: cada grupo é arrumado por dentro primeiro e depois entra como uma
    caixa no nível de cima. Em cada nível, as setas sobem até aos itens desse nível (um
    cartão, ou o subgrupo que o contém); quebram-se os ciclos (a seta que fecha o ciclo não
-   conta), atribui-se a camada pelo caminho mais longo, ordena-se cada camada pelo
-   baricentro das camadas de cima (partindo da ordem actual da esquerda para a direita), e
-   cada item puxa-se para debaixo dos seus pais sem sobreposições. Os painéis ficam lado a
+   conta), atribui-se a camada pelo caminho mais longo das setas PRINCIPAIS (as opcionais
+   só penduram o que alcançam logo abaixo da origem), ordena-se cada camada pelo
+   baricentro das camadas de cima (partindo da ordem actual da esquerda para a direita;
+   em empate, o fluxo principal primeiro), parte-se uma camada larga demais em várias
+   linhas (grupos perto de quadrados, painéis equilibrados), e cada item puxa-se para
+   debaixo dos seus pais sem sobreposições. Os painéis ficam lado a
    lado; o que está fora de painéis vai à direita. PURO: sem DOM, sem window. */
 
 import { ancestry } from "./design";
-import { GROUP_PAD, GROUP_PAD_TOP, PANEL_BAR, PANEL_PAD, nodeSize } from "./geometry";
+import { GROUP_PAD, GROUP_PAD_TOP, NODE_W, PANEL_BAR, PANEL_PAD, nodeSize } from "./geometry";
 import type { Design } from "./types";
 
 const HGAP = 40, VGAP = 60, PANEL_GAP = 80, ORIGIN = 24, MIN_GROUP_W = 170, MIN_GROUP_H = 70;
+/** Uma linha nunca se parte com menos de três cartões; e os grupos preferem ser um pouco
+ *  mais largos do que altos. */
+const MIN_LINE_W = 3 * NODE_W + 2 * HGAP, ASPECT = 1.6;
 
 interface Item {
   key: string; // "n:<id>" ou "g:<id>"
@@ -34,56 +40,69 @@ interface Box {
 }
 
 /** Arruma um conjunto de itens por camadas. Devolve a caixa do conteúdo. */
-function arrange(items: Item[], edges: [string, string][]): Box {
+/** Uma seta subida a este nível: de, para, e se é do fluxo principal (controlo/dados) ou
+ *  opcional (as opcionais não empurram o fluxo principal para baixo). */
+type LevelEdge = [string, string, boolean];
+
+/** Arruma um conjunto de itens por camadas. Devolve a caixa do conteúdo. */
+function arrange(items: Item[], edges: LevelEdge[]): Box {
   if (!items.length) return { w: 0, h: 0, place: () => {} };
   const keys = items.map((i) => i.key);
   const at = new Map(keys.map((k, i) => [k, i]));
-  const out: number[][] = items.map(() => []);
-  const seen = new Set<string>();
-  for (const [a, b] of edges) {
+  const out: { j: number; primary: boolean }[][] = items.map(() => []);
+  const seen = new Map<string, { j: number; primary: boolean }>();
+  for (const [a, b, primary] of edges) {
     const i = at.get(a), j = at.get(b);
-    if (i === undefined || j === undefined || i === j || seen.has(`${i}>${j}`)) continue;
-    seen.add(`${i}>${j}`);
-    out[i].push(j);
+    if (i === undefined || j === undefined || i === j) continue;
+    const prev = seen.get(`${i}>${j}`);
+    if (prev) { prev.primary ||= primary; continue; }
+    const e = { j, primary };
+    seen.set(`${i}>${j}`, e);
+    out[i].push(e);
   }
   // quebra de ciclos: DFS pela ordem actual; uma seta para um nó na pilha é ignorada
   const state = new Uint8Array(items.length); // 0 novo, 1 na pilha, 2 feito
-  const dag: number[][] = items.map(() => []);
+  const dag: { j: number; primary: boolean }[][] = items.map(() => []);
   const order = items.map((_, i) => i).sort((a, b) => items[a].x0 - items[b].x0);
   const visit = (i: number): void => {
     state[i] = 1;
-    for (const j of out[i]) {
-      if (state[j] === 1) continue;
-      dag[i].push(j);
-      if (state[j] === 0) visit(j);
+    for (const e of out[i]) {
+      if (state[e.j] === 1) continue;
+      dag[i].push(e);
+      if (state[e.j] === 0) visit(e.j);
     }
     state[i] = 2;
   };
   for (const i of order) if (!state[i]) visit(i);
 
-  // camadas pelo caminho mais longo; o kernel vai sempre para a última
+  // camadas pelo caminho mais longo, só pelas setas principais; o que só se alcança por
+  // setas opcionais fica logo abaixo da origem (sem empurrar ninguém); o kernel vai sempre
+  // para a última camada
   const layer = new Int32Array(items.length);
+  const inPrimary = new Uint8Array(items.length), inOptional = new Uint8Array(items.length);
   const indeg = new Int32Array(items.length);
-  for (const js of dag) for (const j of js) indeg[j]++;
+  for (const es of dag) for (const e of es) { indeg[e.j]++; if (e.primary) inPrimary[e.j] = 1; else inOptional[e.j] = 1; }
   const queue = order.filter((i) => indeg[i] === 0);
   while (queue.length) {
     const i = queue.shift()!;
-    for (const j of dag[i]) {
-      layer[j] = Math.max(layer[j], layer[i] + 1);
-      if (--indeg[j] === 0) queue.push(j);
+    for (const e of dag[i]) {
+      if (e.primary || !inPrimary[e.j]) layer[e.j] = Math.max(layer[e.j], layer[i] + 1);
+      if (--indeg[e.j] === 0) queue.push(e.j);
     }
   }
+  const optionalOnly = (i: number): boolean => !inPrimary[i] && !!inOptional[i];
   let last = 0;
   items.forEach((it, i) => { if (!it.kernel) last = Math.max(last, layer[i]); });
   const hasKernel = items.some((it) => it.kernel);
   items.forEach((it, i) => { if (it.kernel) layer[i] = last + 1; });
   const nLayers = Math.max(...layer) + 1;
 
-  // ordem em cada camada: a actual, depois baricentro dos pais (4 passagens)
+  // ordem em cada camada: a actual, depois baricentro dos pais (4 passagens); em empate,
+  // os filhos do fluxo principal primeiro (ficam debaixo da origem)
   const rows: number[][] = Array.from({ length: nLayers }, () => []);
   for (const i of order) rows[layer[i]].push(i);
   const parents: number[][] = items.map(() => []);
-  dag.forEach((js, i) => js.forEach((j) => parents[j].push(i)));
+  dag.forEach((es, i) => es.forEach((e) => parents[e.j].push(i)));
   const pos = new Float64Array(items.length);
   const index = (): void => rows.forEach((r) => r.forEach((i, k) => { pos[i] = k; }));
   index();
@@ -91,29 +110,62 @@ function arrange(items: Item[], edges: [string, string][]): Box {
     for (let l = 1; l < nLayers; l++) {
       const bary = new Map<number, number>();
       for (const i of rows[l]) {
-        const ps = parents[i];
+        const ps = parents[i].filter((p) => layer[p] < l);
         bary.set(i, ps.length ? ps.reduce((s, p) => s + pos[p], 0) / ps.length : pos[i]);
       }
-      rows[l].sort((a, b) => bary.get(a)! - bary.get(b)!);
+      rows[l].sort((a, b) => bary.get(a)! - bary.get(b)! || Number(optionalOnly(a)) - Number(optionalOnly(b)));
       index();
     }
   }
+  // dois itens ligados entre si na mesma camada ficam lado a lado (ex.: o supervisor ao
+  // lado do Container que clona), em vez de uma seta a voltar para trás por cima de tudo.
+  // Mexe-se o que só tem setas opcionais, e fica logo a seguir ao do fluxo principal (que
+  // não sai de debaixo da sua origem)
+  for (const r of rows) {
+    for (const u of [...r]) {
+      for (const e of dag[u]) {
+        if (layer[e.j] !== layer[u] || Math.abs(r.indexOf(u) - r.indexOf(e.j)) <= 1) continue;
+        const [mover, anchor] = optionalOnly(u) && !optionalOnly(e.j) ? [u, e.j] : [e.j, u];
+        r.splice(r.indexOf(mover), 1);
+        r.splice(r.indexOf(anchor) + 1, 0, mover);
+      }
+    }
+  }
 
-  // coordenadas: cada linha da esquerda para a direita, cada item puxado para debaixo dos pais
-  const x = new Float64Array(items.length), y = new Float64Array(items.length);
-  let top = 0, width = 0;
+  // uma camada larga demais parte-se em várias linhas: o grupo fica perto de quadrado, em
+  // vez de uma fila sem fim (painéis equilibrados)
+  const area = items.reduce((s, it) => s + (it.w + HGAP) * (it.h + VGAP), 0);
+  const cap = Math.max(...items.map((it) => it.w), Math.sqrt(area * ASPECT), MIN_LINE_W);
+  const lines: { items: number[]; layer: number }[] = [];
   rows.forEach((r, l) => {
-    const rowH = Math.max(0, ...r.map((i) => items[i].h));
-    let right = -HGAP;
+    let cur: number[] = [], w = -HGAP;
     for (const i of r) {
-      const ps = parents[i];
+      if (cur.length && w + HGAP + items[i].w > cap) { lines.push({ items: cur, layer: l }); cur = []; w = -HGAP; }
+      cur.push(i);
+      w += HGAP + items[i].w;
+    }
+    if (cur.length) lines.push({ items: cur, layer: l });
+  });
+
+  // coordenadas: cada linha da esquerda para a direita, cada item puxado para debaixo dos
+  // pais já colocados
+  const x = new Float64Array(items.length), y = new Float64Array(items.length);
+  const placed = new Uint8Array(items.length);
+  let top = 0, width = 0;
+  lines.forEach((line, k) => {
+    const rowH = Math.max(0, ...line.items.map((i) => items[i].h));
+    let right = -HGAP;
+    for (const i of line.items) {
+      const ps = parents[i].filter((p) => placed[p]);
       const want = ps.length ? ps.reduce((s, p) => s + x[p] + items[p].w / 2, 0) / ps.length - items[i].w / 2 : right + HGAP;
       x[i] = Math.max(want, right + HGAP);
       y[i] = top;
       right = x[i] + items[i].w;
     }
+    for (const i of line.items) placed[i] = 1;
     width = Math.max(width, right);
-    top += rowH + (hasKernel && l === nLayers - 2 ? VGAP / 2 : VGAP);
+    const beforeKernel = hasKernel && k + 1 < lines.length && items[lines[k + 1].items[0]].kernel;
+    top += rowH + (beforeKernel ? VGAP / 2 : VGAP);
   });
   const minX = Math.min(...items.map((_, i) => x[i]));
   const height = top - VGAP;
@@ -153,10 +205,10 @@ export function autoLayout(src: Design): Design {
       const g = d.groups.find((x) => x.id === gid)!;
       items.push({ key: `g:${gid}`, w: box.w, h: box.h, x0: g.x, kernel: false, place: box.place });
     }
-    const edges: [string, string][] = [];
+    const edges: LevelEdge[] = [];
     for (const c of d.connections) {
       const a = itemOf(c.from, nodes, groups), b = itemOf(c.to, nodes, groups);
-      if (a && b && a !== b) edges.push([a, b]);
+      if (a && b && a !== b) edges.push([a, b, c.style !== "optional"]);
     }
     return arrange(items, edges);
   };

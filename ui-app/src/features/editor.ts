@@ -25,11 +25,31 @@
 import { $, esc, toast, rel } from "../core";
 import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
+import { editorOverlay, type OverlayView } from "../app/editor-overlay";
+
+/* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
+   With an overlay view, the textarea shows the view's text (the file plus the proposed
+   lines) and each edit goes back to the real file through the overlay; an edit on the
+   proposed lines is refused. Without one, nothing changes. */
+const VIEWS = new Map<string, OverlayView | null>();
+function syncView(p: string): string { const f = FS[p], ov = editorOverlay.get(), v = ov ? ov.view(p, f.content) : null; VIEWS.set(p, v); return v ? v.text : f.content; }
+/** Replaces the textarea text keeping the caret where it was relative to the unchanged text. */
+function setKeepingCaret(ta: HTMLTextAreaElement, next: string): void {
+  const prev = ta.value; if (prev === next) return;
+  const pos = ta.selectionStart; let a = 0; while (a < prev.length && a < next.length && prev[a] === next[a]) a++;
+  ta.value = next; const at = pos <= a ? pos : Math.max(a, pos + next.length - prev.length); ta.setSelectionRange(at, at);
+}
+editorOverlay.onRepaint((p) => { const ta = $('#ed-ta') as HTMLTextAreaElement | null; if (!ta || ta.dataset.path !== p || !FS[p]) return; setKeepingCaret(ta, syncView(p)); paintEdFull(p); });
 
 /* ───── corpo do renderer da tab `file` (era VIEW.file no monólito) ───── */
 function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];host.innerHTML=`<div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div>`;
-  const ta=$('#ed-ta') as (HTMLTextAreaElement & { _t?: any })|null;if(!ta)return;ta.value=f.content;paintEd(t.path);
-  ta.oninput=()=>{f.content=ta.value;paintEd(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
+  const ta=$('#ed-ta') as (HTMLTextAreaElement & { _t?: any })|null;if(!ta)return;ta.dataset.path=t.path;ta.value=syncView(t.path);paintEd(t.path);
+  ta.oninput=()=>{const v=VIEWS.get(t.path),ov=editorOverlay.get();
+    if(v&&ov){const real=ov.edit(t.path,v,ta.value,f.content);
+      if(real===null){const pos=Math.max(0,ta.selectionStart-1);ta.value=v.text;ta.setSelectionRange(Math.min(pos,v.text.length),Math.min(pos,v.text.length));toast('Estas linhas são uma proposta do Co-Dev: aceita ou rejeita primeiro');return;}
+      f.content=real;setKeepingCaret(ta,syncView(t.path));}
+    else f.content=ta.value;
+    paintEd(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
   ta.onkeydown=e=>{
     /* Fase 4: snippets e toggle de comentário das extensões VS Code instaladas (feature `ext`). */
     if(e.key==='Tab'&&!e.shiftKey&&window.vsxSnippet&&window.vsxSnippet(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
@@ -39,14 +59,19 @@ function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];hos
   bus.emit('editor:file-view',{path:t.path});/* quem decora a vista do ficheiro (p.ex. o aviso de servidor de linguagem em falta) repõe-se aqui */}
 
 /* ───── pintor do editor (gutter + realce + minimapa a partir dos diagnósticos) ───── */
-function paintEd(p:string){const f=FS[p],lines=f.content.split('\n'),dg:Record<number,string>={},ext=extOf(p);diagnostics().forEach(d=>{if(d.p===p&&dg[d.line]!=='e')dg[d.line]=d.sev;});
-  $('#ed-gut')!.innerHTML=lines.map((_,i)=>`<div${dg[i+1]?` class="g-${dg[i+1]}"`:''}>${i+1}</div>`).join('');
+function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.content).split('\n'),dgReal:Record<number,string>={},ext=extOf(p);diagnostics().forEach(d=>{if(d.p===p&&dgReal[d.line]!=='e')dgReal[d.line]=d.sev;});
+  /* with an overlay, diagnostics follow the real line numbers; proposed lines have none */
+  const dg:Record<number,string>={};lines.forEach((_,i)=>{const r=v?v.lines[i]?.real:i+1;if(r&&dgReal[r])dg[i+1]=dgReal[r];});
+  const num=(i:number)=>{if(!v)return String(i+1);const m=v.lines[i];return m&&m.kind==='new'?'+':m&&m.real?String(m.real):'';};
+  const hk=(i:number)=>{const m=v&&v.lines[i];return m&&m.kind!=='ctx'?` hk-${m.kind}${m.writing?' hk-writing':''}`:'';};
+  $('#ed-gut')!.innerHTML=lines.map((_,i)=>{const c=((dg[i+1]?`g-${dg[i+1]}`:'')+hk(i)).trim();return `<div${c?` class="${c}"`:''}>${num(i)}</div>`;}).join('');
   /* Fase 4: se uma extensão VS Code instalada traz a gramática TextMate da linguagem, o
      realce é do documento inteiro (com estado entre linhas); senão, o realce de sempre. */
   const tm=window.vsxHighlight?window.vsxHighlight(ext,lines):null;
-  $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}">${(tm?tm[i]:hlLine(l,ext))||' '}</div>`).join('');
+  $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?tm[i]:hlLine(l,ext))||' '}</div>`).join('');
   const mm=$('#minimap')!;mm.classList.remove('hidden');$('#ebody')!.classList.add('with-mm');
-  mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');}
+  mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');
+  const ov=editorOverlay.get(),wrap=$('#ed-hl')!.parentElement;if(v&&ov&&wrap)ov.decorate(p,{wrap,hl:$('#ed-hl')!,gut:$('#ed-gut')!},v);}
 
 /* ───── ajudantes da barra de estado ───── */
 function gotoLine(n:number){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta)return;const ls=ta.value.split('\n');n=Math.max(1,Math.min(ls.length,n|0));let o=0;for(let i=0;i<n-1;i++)o+=ls[i].length+1;ta.focus({preventScroll:true});ta.setSelectionRange(o,o+ls[n-1].length);$('#ebody')!.scrollTop=Math.max(0,(n-1)*22-90);stPos();}
@@ -73,6 +98,8 @@ const PE = window as unknown as {
 function paintEdFull(p: string): void {
   paintEd(p);
   const gut = $('#ed-gut'), hl = $('#ed-hl'); if (!gut || !hl) return;
+  /* breakpoints, the debugger line and Error Lens use real line numbers: skipped while the overlay shows proposed lines */
+  if (VIEWS.get(p)) return;
   const gs = gut.children, ls = hl.children;
   [...PE.dbgBreaks].filter((b) => b.startsWith(p + ':')).forEach((b) => { const g = gs[+(b.split(':').pop() as string) - 1]; if (g) g.classList.add('bp'); });
   /* a linha onde o gdb parou (ADR-0006, R4) */

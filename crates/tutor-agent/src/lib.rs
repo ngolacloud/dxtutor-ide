@@ -28,6 +28,7 @@ pub mod checkpoint;
 pub mod context;
 pub mod extensions;
 pub mod hooks;
+pub mod hunks;
 pub mod mcp;
 pub mod openai;
 pub mod permissions;

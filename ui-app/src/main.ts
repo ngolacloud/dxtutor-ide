@@ -18,8 +18,13 @@
    As fases seguintes do ADR-0004 trocam estas dependências implícitas por imports.
 
    U3: os proprietários de estado (`app/store`) vêm PRIMEIRO — publicam as globais de
-   estado como acessores antes de o monólito as escrever, e cada mudança sai no bus. */
+   estado como acessores antes de o monólito as escrever, e cada mudança sai no bus.
 
+   U5: o despachante das acções delegadas partilhadas (`app/actions`) vem antes de tudo — o
+   seu listener tem de ser o primeiro do document, como um handler inline (que corria no
+   elemento, antes de o evento chegar ao document). */
+
+import "./app/actions";
 import "./app/store";
 import "./boot";
 import "./app/globals";
@@ -66,6 +71,7 @@ import "./features/explorer";
 import "./features/diagnostics";
 import "./features/shortcuts";
 import "./features/welcome";
+import "./app/chrome-actions";
 import "./app/commands";
 import "./app/boot-steps";
 import "./startup";

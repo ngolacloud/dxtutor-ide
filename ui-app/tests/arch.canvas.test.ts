@@ -14,6 +14,7 @@ import type { ArchGateway, Repaint } from "../src/features/arch/application/port
 import { canvasSvg, makeArchView } from "../src/features/arch/ui/view";
 import { bindActions } from "../src/features/arch/ui/actions";
 import { archActions } from "../src/features/arch/ui/table";
+import { fakeFiles, fakeRenderer, ioGateway } from "./fixtures/arch-fakes";
 
 const inside = (inner: Rect, outer: Rect): boolean =>
   inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
@@ -168,12 +169,12 @@ describe("geometria", () => {
 
 function studioWith(prompts: string[] = []) {
   const saved: Record<string, unknown> = {};
-  const gateway: ArchGateway = { available: () => false, validate: async () => [], preview: async () => [], scaffold: async () => [] };
+  const gateway: ArchGateway = { available: () => false, validate: async () => [], preview: async () => [], scaffold: async () => [], ...ioGateway };
   const queue = [...prompts];
   const workspace = { root: () => "/p", confirm: () => true, prompt: () => queue.shift() ?? null };
   let view: ReturnType<typeof makeArchView> | null = null;
   const st = makeArchStudio({
-    gateway, workspace, repaint: (s: Repaint) => view?.repaint(s),
+    gateway, workspace, renderer: fakeRenderer, files: fakeFiles(), repaint: (s: Repaint) => view?.repaint(s),
     store: { load: (k) => saved[k] ?? null, save: (k, d) => { saved[k] = JSON.parse(JSON.stringify(d)); } },
   });
   st.ensureLoaded();
@@ -263,7 +264,7 @@ describe("vista", () => {
 
   function mounted(prompts: string[] = []) {
     const t = studioWith(prompts);
-    const view = makeArchView({ studio: t.st, root: t.workspace.root });
+    const view = makeArchView({ studio: t.st, root: t.workspace.root, savesToProject: () => false });
     t.setView(view);
     bindActions(archActions(t.st, t.workspace.prompt));
     view.mount(host);

@@ -45,7 +45,9 @@ export const nodeColor = (d: Design, n: DesignNode): string =>
 /** Cor, tracejado e rótulo de uma seta. */
 export function edgeLook(d: Design, c: ArchConnection): { color: string; dash: string; label: string } {
   if (c.relation) return { color: MUTED, dash: "", label: c.event ? `${c.relation} · ${c.event}` : c.relation };
-  const label = c.label ?? (c.protocol ? PROTOCOL_LABEL[c.protocol] : "");
+  // só o rótulo escrito: o protocolo é do modelo (inspector, Mermaid), não se desenha
+  // sozinho — o guia pede rótulo só quando o significado não é óbvio
+  const label = c.label ?? "";
   if (c.style === "data") return { color: DATA, dash: "6 4", label };
   if (c.style === "optional") return { color: MUTED, dash: "2 4", label };
   const from = findNode(d, c.from);
@@ -134,7 +136,8 @@ export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?
   const pills = groupPills(d, l);
   // a meio de um arrasto: rectas de borda a borda (o encaminhamento faz-se ao largar)
   const routes = fast ? straightRoutes(l.nodes, d.connections) : routeAll(l.nodes, d.connections, pills);
-  const labels = placeLabels([...l.nodes.values(), ...pills], routes, d.connections.map((c) => edgeLook(d, c).label || null));
+  const labels = placeLabels([...l.nodes.values(), ...pills], routes, d.connections.map((c) => edgeLook(d, c).label || null),
+    [...l.panels.values(), ...l.groups.values()]);
   d.connections.forEach((c, i) => { body += edgeSvg(d, c, i, routes[i], labels[i], sel.edge === i, marker); });
   for (const n of d.components) body += nodeSvg(d, n, l.nodes.get(n.id)!, sel.node === n.id || linking === n.id, linking !== null);
   const defs = `<defs>${colors.map((c, k) => `<marker id="arch-ar-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`).join("")}` +
@@ -146,9 +149,11 @@ export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?
 export interface ArchViewDeps {
   studio: ArchStudio;
   root(): string | null;
+  /** As exportações vão para a pasta do projecto (desktop com pasta) ou são downloads. */
+  savesToProject(): boolean;
 }
 
-export function makeArchView({ studio, root }: ArchViewDeps) {
+export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
   let host: HTMLElement | null = null;
   const q = <T extends Element>(sel: string): T | null => (host ? host.querySelector<T>(sel) : null);
 
@@ -175,12 +180,24 @@ export function makeArchView({ studio, root }: ArchViewDeps) {
     const bar = q<HTMLElement>("[data-arch-bar]");
     if (!bar) return;
     const s = studio.state(), d = s.design;
+    const canvas = q<HTMLElement>(".st-canvas");
+    if (canvas) canvas.style.outline = s.proposal ? "2px dashed var(--accent)" : "";
+    if (s.proposal) {
+      bar.innerHTML = `<b style="font-size:14px">Architecture</b>
+    <span style="color:var(--accent)">Co-Dev proposes: <b>${esc(s.proposal.title)}</b>${s.showCurrent ? " · showing your current design" : ""}</span>
+    <span class="sp"></span>
+    <button class="mini" data-action="arch-peek">${s.showCurrent ? "Show the proposal" : "Show current design"}</button>
+    <button class="mini" data-action="arch-discard">Discard</button>
+    <button class="mini pri" data-action="arch-accept">Accept</button>`;
+      return;
+    }
     const scaffold = !d.components.length || hasEventKinds(d);
     bar.innerHTML = `<b style="font-size:14px">Architecture</b>
     <button class="mini${s.linking !== null ? " pri" : ""}" data-action="arch-link">⤳ Connect</button>
     <button class="mini" data-action="arch-add-group" title="A dashed boundary (inside the selected group, if any)">＋ Group</button>
     <button class="mini" data-action="arch-add-view" title="Side-by-side comparison (at most two panels)">＋ Panel</button>
     <button class="mini" data-action="arch-arrange" title="Lay everything out in layers, top to bottom">⇅ Arrange</button>
+    <button class="mini${s.io ? " pri" : ""}" data-action="arch-io" title="Export SVG, PNG or Mermaid; import Mermaid">⇄ Import / Export</button>
     <span class="sp"></span>
     ${scaffold ? `<button class="mini" data-action="arch-preview">Preview scaffold</button>
     <button class="mini pri" data-action="arch-scaffold">Generate scaffold</button>` : ""}`;
@@ -191,7 +208,8 @@ export function makeArchView({ studio, root }: ArchViewDeps) {
     if (!svg) return;
     const s = studio.state();
     const sel = s.sel?.t === "node" ? { node: s.sel.id } : s.sel?.t === "group" ? { group: s.sel.id } : s.sel?.t === "edge" ? { edge: s.sel.i } : {};
-    const { svg: inner, bounds: b } = canvasSvg(s.design, sel, s.linking, fast);
+    const shown = s.proposal && !s.showCurrent ? s.proposal.design : s.design;
+    const { svg: inner, bounds: b } = canvasSvg(shown, s.proposal ? {} : sel, s.proposal ? null : s.linking, fast);
     svg.setAttribute("viewBox", `${b.x} ${b.y} ${b.w} ${b.h}`);
     svg.setAttribute("width", String(b.w));
     svg.setAttribute("height", String(b.h));
@@ -300,6 +318,42 @@ export function makeArchView({ studio, root }: ArchViewDeps) {
       `<button class="mini" style="margin-top:10px" data-action="arch-del-conn" data-on="${i}">Delete connection</button>`;
   }
 
+  function proposalInspector(): string {
+    const p = studio.state().proposal!, d = p.design;
+    const errors = p.findings.filter((f) => f.severity === "error").length;
+    const findings = p.findings.length
+      ? p.findings.map((f) => `<div class="st-f ${f.severity === "error" ? "e" : "w"}"><span>${f.severity === "error" ? "✖" : "⚠"}</span><div>${esc(f.message)} <code>${esc(f.rule)}</code></div></div>`).join("")
+      : `<div class="st-f ok"><span>✓</span><div>The proposal is consistent.</div></div>`;
+    return `<h3>Proposal from Co-Dev</h3><p><b>${esc(p.title)}</b></p>` +
+      `<p>Your design does not change until you press <b>Accept</b>. Nothing is written to disk. If the agent proposes again, the new proposal replaces this one.</p>` +
+      `<div class="st-kv"><span>components</span><code>${d.components.length}</code></div>` +
+      `<div class="st-kv"><span>arrows</span><code>${d.connections.length}</code></div>` +
+      `<div class="st-kv"><span>groups</span><code>${d.groups.length}</code></div>` +
+      `<div class="st-kv"><span>panels</span><code>${d.views.length}</code></div>` +
+      `<h3 style="margin-top:14px">Validation${errors ? ` · ${errors} error(s)` : ""}</h3>${findings}`;
+  }
+
+  function ioInspector(): string {
+    const s = studio.state();
+    const where = savesToProject()
+      ? `Saved in the project folder (<code>docs/architecture/</code> by default), after you confirm.`
+      : `Downloaded by the browser (open a folder in the desktop app to save into the project).`;
+    const btn = (f: string, label: string): string => `<button class="mini" data-action="arch-export" data-on="${f}">${label}</button>`;
+    const result = (s.ioError ? `<div class="st-f e"><span>✖</span><div>${esc(s.ioError)}</div></div>` : "") +
+      (s.ioMessage ? `<div class="st-f ok"><span>✓</span><div>${esc(s.ioMessage)}</div></div>` : "") +
+      s.importWarnings.map((w) => `<div class="st-f w"><span>⚠</span><div>${esc(w)}</div></div>`).join("") +
+      (s.mdBlocks ?? []).map((b, i) => `<button class="st-tech" data-action="arch-import-block" data-on="${i}"><span style="font-family:var(--font-mono);font-size:11px">${esc(b.label)}</span><i>⇣</i></button>`).join("");
+    const sample = 'graph TB\n  subgraph HOST["Host Linux"]\n    CLI["delonix"] -- "fork" --> SHIM["log shim"]\n  end';
+    return `<h3>Export</h3><p>${where}</p>` +
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${btn("svg", "SVG")}${btn("png", "PNG")}${btn("mermaid", "Mermaid")}${btn("json", "Design file")}</div>` +
+      result +
+      `<h3 style="margin-top:14px">Import Mermaid</h3><p>A <code>graph</code> or <code>flowchart</code>, with <code>subgraph</code>. Parsed by the Rust backend; the result is laid out top to bottom.</p>` +
+      `<textarea class="inp" data-arch-mermaid rows="7" style="width:100%;resize:vertical;font-family:var(--font-mono);font-size:11px" placeholder="${esc(sample)}"></textarea>` +
+      `<button class="mini" style="margin-top:6px" data-action="arch-import-mermaid">Import</button>` +
+      `<h3 style="margin-top:14px">Open from the project</h3><p>A <code>.arch.json</code> design file, a <code>.mmd</code>, or a Markdown file with Mermaid diagrams (e.g. <code>ARCHITECTURE.md</code>).</p>` +
+      `<input class="inp" data-arch-open style="width:100%;margin:0 0 6px" value="docs/architecture/"><button class="mini" data-action="arch-open">Open</button>`;
+  }
+
   function panelsBlock(d: Design): string {
     if (!d.views.length) return `<p>Use <b>＋ Panel</b> for a side-by-side comparison: the known system on the left, ours on the right.</p>`;
     return d.views.map((v) =>
@@ -316,6 +370,8 @@ export function makeArchView({ studio, root }: ArchViewDeps) {
     if (!ins) return;
     const s = studio.state(), d = s.design;
     const notice = s.notice ? `<div class="st-f w"><span>⚠</span><div>${esc(s.notice)}</div></div>` : "";
+    if (s.proposal) { ins.innerHTML = proposalInspector(); return; }
+    if (s.io && s.linking === null) { ins.innerHTML = notice + ioInspector(); return; }
     if (s.linking !== null) {
       ins.innerHTML = `<h3>Connect</h3><p>${s.linking === "" ? "Click the component the arrow starts from." : "Now click the component it goes to."}</p>`;
       return;
@@ -363,6 +419,7 @@ export function makeArchView({ studio, root }: ArchViewDeps) {
       e.preventDefault();
     };
 
+    if (s.proposal) return; // uma proposta é só para ver: decide-se na barra
     const nodeEl = t.closest<SVGGElement>("[data-n]");
     if (s.linking !== null) { studio.linkClick(nodeEl?.dataset.n ?? null); return; }
 

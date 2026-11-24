@@ -17,7 +17,7 @@
    Shim transitório: publica `renderSearchPane`, `doSearch` e `replaceAll` no
    `window` porque o residual invoca-os por nome livre — `app.ts` delega
    `RP.search=()=>window.renderSearchPane()` (lazy, no switch de pane), o
-   `onclick="replaceAll()"` do botão resolve `window.replaceAll` no clique, e o
+   a acção `search:replaceAll` do botão resolve `window.replaceAll` no clique, e o
    comando «Todo Tree» (v6.ts) chama `doSearch()` como global. Mesmo padrão de
    `features/test.ts` (hoje `features/testing/`), com o detalhe GOTCHA C: mover os leaves REMOVE as defs de
    topo do monólito, por isso as entradas `doSearch`/`replaceAll` saíram também do
@@ -26,6 +26,7 @@
 import { $, hd, esc, toast } from "../core";
 import { RP } from "../app/store/registry";
 import { searchClient, type SearchHit } from "../platform/tauri/search";
+import { registerActions, globalCalls } from "../app/actions";
 
 /** Uma ocorrência numa linha: nº da linha (1-based), a linha, o offset do match nela. */
 interface Hit { line: number; text: string; at: number }
@@ -142,7 +143,7 @@ function renderSearchPane(): void {
     el.dataset.b = "1";
     el.innerHTML =
       hd("Pesquisa") +
-      `<div class="sections"><input class="inp" id="s-q" placeholder="Procurar em todos os ficheiros"><input class="inp" id="s-r" placeholder="Substituir por…"><button class="btn ghost" onclick="replaceAll()">Substituir tudo</button><div id="s-res"></div></div>`;
+      `<div class="sections"><input class="inp" id="s-q" placeholder="Procurar em todos os ficheiros"><input class="inp" id="s-r" placeholder="Substituir por…"><button class="btn ghost" data-action="search:replaceAll">Substituir tudo</button><div id="s-res"></div></div>`;
     const qel = $("#s-q") as HTMLInputElement | null;
     if (qel) qel.oninput = doSearch;
     $("#s-res")?.addEventListener("click", onResultClick);
@@ -158,3 +159,7 @@ window.renderSearchPane = renderSearchPane;
 RP.search = renderSearchPane;
 window.doSearch = doSearch;
 window.replaceAll = replaceAll;
+
+/* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
+/* os resultados abrem-se pelo listener de #s-res (data-p/data-l, ADR-0006 R2b) */
+registerActions(globalCalls("search", ["replaceAll"]));

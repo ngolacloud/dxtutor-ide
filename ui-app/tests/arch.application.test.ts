@@ -6,6 +6,7 @@ import type { ArchGateway, DesignStore, Repaint, Workspace } from "../src/featur
 import type { Architecture, ArchFinding } from "../src/features/arch/domain/types";
 import { makeArchView } from "../src/features/arch/ui/view";
 import { bindActions } from "../src/features/arch/ui/actions";
+import { fakeFiles, fakeRenderer, ioGateway } from "./fixtures/arch-fakes";
 
 function fakes(o: { desktop?: boolean; root?: string | null; findings?: ArchFinding[]; confirm?: boolean; prompts?: string[]; saved?: Record<string, unknown> } = {}) {
   const calls: { validate: Architecture[]; preview: number; scaffold: [string, Architecture][] } = { validate: [], preview: 0, scaffold: [] };
@@ -18,6 +19,7 @@ function fakes(o: { desktop?: boolean; root?: string | null; findings?: ArchFind
     validate: async (a) => { calls.validate.push(JSON.parse(JSON.stringify(a))); return o.findings ?? []; },
     preview: async () => { calls.preview++; return [["services/svc/main.rs", "//"], ["ARCHITECTURE.md", "#"]]; },
     scaffold: async (root, a) => { calls.scaffold.push([root, a]); return ["services/svc/main.rs"]; },
+    ...ioGateway,
   };
   const store: DesignStore = { load: (k) => saved[k] ?? null, save: (k, d) => { saved[k] = JSON.parse(JSON.stringify(d)); } };
   const workspace: Workspace = {
@@ -25,7 +27,7 @@ function fakes(o: { desktop?: boolean; root?: string | null; findings?: ArchFind
     confirm: (m) => { confirms.push(m); return o.confirm ?? true; },
     prompt: () => prompts.shift() ?? null,
   };
-  return { gateway, store, workspace, calls, saved, confirms, repaints, repaint: (s: Repaint) => { repaints.push(s); } };
+  return { gateway, store, workspace, calls, saved, confirms, repaints, renderer: fakeRenderer, files: fakeFiles(), repaint: (s: Repaint) => { repaints.push(s); } };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -156,7 +158,7 @@ describe("vista + despacho delegado", () => {
   function mount(f = fakes({ prompts: ["Orders"] })) {
     let view: ReturnType<typeof makeArchView> | null = null;
     const st = makeArchStudio({ ...f, repaint: (s) => view?.repaint(s) });
-    view = makeArchView({ studio: st, root: f.workspace.root });
+    view = makeArchView({ studio: st, root: f.workspace.root, savesToProject: () => false });
     bindActions({
       "arch-link": { on: "click", run: () => st.toggleLinking() },
       "arch-add": { on: "click", run: ({ on }) => { const n = f.workspace.prompt("", ""); if (n) st.add(on as "service", n); } },

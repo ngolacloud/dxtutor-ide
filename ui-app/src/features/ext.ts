@@ -321,3 +321,4 @@ bindActions({
   "builtin-toggle": { on: "click", run: e => { hydrateExs(); EXS.builtin[e.on] = !builtinOn(EXS, e.on); saveExt(); rerExt(); } },
   "vsix-pick": { on: "click", run: () => { ($("#vsix-in") as HTMLInputElement | null)?.click(); } },
 });
+

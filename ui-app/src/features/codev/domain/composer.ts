@@ -144,10 +144,13 @@ export const parseDictationLang = (s: string | null | undefined): string =>
 
 export interface Attachment {
   id: string;
-  kind: "file" | "mention";
+  kind: "file" | "mention" | "snippet";
   name: string;
-  /** `file`: o texto do ficheiro carregado; `mention`: vazio (o agente lê-o). */
+  /** `file`: o texto do ficheiro carregado; `mention`: vazio (o agente lê-o); `snippet`: o
+   *  contexto que outra feature mandou com `codev.ask` (selecção, hunk, problema…). */
   content?: string;
+  /** `snippet`: de que tipo é o contexto (`selection`, `hunk`, `problem`…). */
+  context?: string;
   /** `mention`: o caminho no projecto. */
   path?: string;
   size?: number;
@@ -178,6 +181,10 @@ export function buildPrompt(text: string, atts: Attachment[]): string {
   const parts = [q];
   const mentions = atts.filter((a) => a.kind === "mention" && a.path).map((a) => a.path as string);
   if (mentions.length) parts.push(`Ficheiros mencionados (lê-os antes de responder): ${mentions.join(", ")}`);
+  for (const a of atts.filter((x) => x.kind === "snippet")) {
+    const where = a.path ? ` caminho="${a.path.replace(/"/g, "'")}"` : "";
+    parts.push(`<contexto tipo="${a.context ?? "selection"}" nome="${a.name.replace(/"/g, "'")}"${where}>\n${a.content ?? ""}\n</contexto>`);
+  }
   for (const a of atts.filter((x) => x.kind === "file")) {
     const body = a.content ?? "";
     const cut = body.length > MAX_ATTACHMENT ? body.slice(0, MAX_ATTACHMENT) + "\n… (cortado)" : body;

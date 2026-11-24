@@ -19,9 +19,10 @@
    reatribuição de `GSEL`) são strings HTML resolvidas no window em tempo de clique —
    não entram no grafo de tipos. Do core importa-se só o que é dono de lá (`esc`). */
 
-import { $, esc, jsa } from "../core";
+import { $, esc } from "../core";
 import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
+import { registerActions, globalCalls, callGlobal } from "../app/actions";
 
 /* ───── corpo do renderer da tab `graph` (era VIEW.graph no monólito) ───── */
 function renderGraphView(_t: unknown, host: HTMLElement) {
@@ -60,7 +61,7 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
     dots += `<circle cx="${X(r.col)}" cy="${Y(i)}" r="${mg ? 4 : 5}" fill="${mg ? "var(--bg-editor)" : col}" stroke="${col}" stroke-width="2"/>`;
   });
   const refsAt = (h: string) => Object.keys(GIT.refs).filter((b) => GIT.refs[b] === h);
-  host.innerHTML = `<div class="gl"><div class="gl-bar"><button class="mini" onclick="pickBranch()">⎇ ${esc(BRANCH)} ▾</button>${BRANCH === "develop" ? `<button class="mini" onclick="gfPrompt('feature')">+ feature</button><button class="mini" onclick="gfPrompt('fix')">+ fix</button><button class="mini" onclick="gfPrompt('release')">+ release</button>` : isFlow(BRANCH) ? `<button class="mini pri" onclick="gfFinish()">Finalizar ${esc(BRANCH)}</button>` : `<button class="mini" onclick="checkout('develop');rerender('graph')">Ir para develop</button>`}<span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${GIT.order.length} commits · ${Object.keys(GIT.refs).length} ramos</span></div>
+  host.innerHTML = `<div class="gl"><div class="gl-bar"><button class="mini" data-action="graph:pickBranch">⎇ ${esc(BRANCH)} ▾</button>${BRANCH === "develop" ? `<button class="mini" data-action="graph:gfPrompt" data-on="feature">+ feature</button><button class="mini" data-action="graph:gfPrompt" data-on="fix">+ fix</button><button class="mini" data-action="graph:gfPrompt" data-on="release">+ release</button>` : isFlow(BRANCH) ? `<button class="mini pri" data-action="graph:gfFinish">Finalizar ${esc(BRANCH)}</button>` : `<button class="mini" data-action="graph:toDevelop">Ir para develop</button>`}<span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${GIT.order.length} commits · ${Object.keys(GIT.refs).length} ramos</span></div>
    <div class="gl-body" style="--gw:${gw}px"><svg class="gl-svg" width="${gw}" height="${L.rows.length * H}">${paths}${dots}</svg>${L.rows
      .map((r) => {
        const c = GIT.c[r.h],
@@ -68,11 +69,11 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
          col = LANE[r.col % LANE.length],
          sel = GSEL === r.h;
        return (
-         `<div class="gl-row${sel ? " sel" : ""}" onclick="GSEL=GSEL===${jsa(r.h)}?null:${jsa(r.h)};rerender('graph')"><span class="gl-refs">${refsAt(r.h)
+         `<div class="gl-row${sel ? " sel" : ""}" data-action="graph:select" data-on="${esc(r.h)}"><span class="gl-refs">${refsAt(r.h)
            .map((b) => `<span class="gl-ref${b === BRANCH ? " head" : ""}" style="--c:${col}">${b === BRANCH ? "● " : ""}${esc(b)}</span>`)
            .join("")}${GIT.tags[r.h] ? `<span class="gl-ref tagr">${GIT.tags[r.h]}</span>` : ""}</span><span class="gl-msg">${esc(c.m)}</span><span class="gl-au"><i style="background:${a.col}">${a.n.charAt(0)}</i>${esc(a.n)}</span><span class="gl-h">${r.h}</span><span class="gl-t">${rel(c.t)}</span></div>` +
          (sel
-           ? `<div class="gl-det">${c.files.length ? (c.files as string[]).map((p: string) => `<button class="mini" onclick="event.stopPropagation();FS[${jsa(p)}]?openPath(${jsa(p)}):toast('O ficheiro não existe neste ramo')">${esc(short(p))}</button>`).join("") : '<span style="color:var(--fg-muted)">Commit anterior ao protótipo — sem lista de ficheiros.</span>'}${c.p.length > 1 ? `<span class="tag">merge de ${c.p.length} pais</span>` : ""}</div>`
+           ? `<div class="gl-det">${c.files.length ? (c.files as string[]).map((p: string) => `<button class="mini" data-action="graph:file" data-on="${esc(p)}">${esc(short(p))}</button>`).join("") : '<span style="color:var(--fg-muted)">Commit anterior ao protótipo — sem lista de ficheiros.</span>'}${c.p.length > 1 ? `<span class="tag">merge de ${c.p.length} pais</span>` : ""}</div>`
            : "")
        );
      })
@@ -86,3 +87,13 @@ window.renderGraphView = renderGraphView;
 bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=(window as unknown as { tabOf: (id: string | null) => { kind?: string } | undefined }).tabOf((window as unknown as { cur: string | null }).cur);if(t&&t.kind==='graph'){const top=$('#ebody')!.scrollTop;(window as unknown as { show: (id: string | null) => void }).show((window as unknown as { cur: string | null }).cur);$('#ebody')!.scrollTop=top;}}});
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.graph = renderGraphView;
+
+/* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
+const UA = window as unknown as { GSEL: string | null; FS: Record<string, unknown> };
+registerActions({
+  ...globalCalls("graph", ["pickBranch", "gfFinish"]),
+  "graph:gfPrompt": { click: (c) => void callGlobal("gfPrompt", c.on) },
+  "graph:toDevelop": { click: () => { callGlobal("checkout", "develop"); callGlobal("rerender", "graph"); } },
+  "graph:select": { click: (c) => { UA.GSEL = UA.GSEL === c.on ? null : c.on; callGlobal("rerender", "graph"); } },
+  "graph:file": { click: (c) => { c.stop(); if (UA.FS[c.on]) callGlobal("openPath", c.on); else callGlobal("toast", "O ficheiro não existe neste ramo"); } },
+});

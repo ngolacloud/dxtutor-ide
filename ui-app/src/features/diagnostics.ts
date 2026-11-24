@@ -12,7 +12,8 @@
    Mecânica: avalia ANTES de `app.ts` e publica no `window`; os nomes livres do monólito
    (`FS`, `$`, `short`, `openPath`, `toast`) só se tocam DENTRO das funções. */
 
-import { esc, jsa } from "../core";
+import { esc } from "../core";
+import { registerActions, callGlobal, args } from "../app/actions";
 
 const has = (p: string, re: RegExp) => !!FS[p] && re.test(FS[p].content);
 /* Sem verificador real no browser, a base não tem diagnósticos: a regra do E0382, o lint de
@@ -34,7 +35,7 @@ window.diagnostics = function () {
 };
 function drawProblems() {
   const d = window.diagnostics(), e = d.filter(x => x.sev === 'e').length, w = d.length - e;
-  $('#pc-problems')!.innerHTML = d.length ? d.map(x => `<div class="prob" onclick="openPath(${jsa(x.p)},${x.line})"><span class="pi ${x.sev}">${x.sev === 'e' ? '✖' : '⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join('') : '<div class="sec-empty">Sem problemas no workspace.</div>';
+  $('#pc-problems')!.innerHTML = d.length ? d.map(x => `<div class="prob" data-action="diagnostics:open" data-on="${esc(JSON.stringify([x.p, x.line]))}"><span class="pi ${x.sev}">${x.sev === 'e' ? '✖' : '⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join('') : '<div class="sec-empty">Sem problemas no workspace.</div>';
   $('#pb-prob')!.textContent = String(d.length); const s = $('#st-prob')!; s.innerHTML = `✖ ${e} ⚠ ${w}`; s.style.color = e ? 'var(--red)' : w ? 'var(--yellow)' : 'var(--git-u)';
 }
 let NP = -1;
@@ -44,3 +45,6 @@ function nextProblem() { const d = window.diagnostics(); if (!d.length) { toast(
 window.has = has;
 window.drawProblems = drawProblems;
 window.nextProblem = nextProblem;
+
+/* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
+registerActions({ "diagnostics:open": { click: (c) => void callGlobal("openPath", ...args<[string, number]>(c)) } });

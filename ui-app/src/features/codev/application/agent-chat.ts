@@ -10,6 +10,7 @@ import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
 import { ago, callDiff, describeCall, describeSession, isNoToolsError, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
 import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
+import { proseOnly } from "../domain/prose";
 
 /** O turno em curso: cartão, segmentos de texto (um por pedido ao modelo), ferramentas. */
 interface Turn {
@@ -20,6 +21,23 @@ interface Turn {
   finish: () => void;
   /** O modelo não tem tool calling nativo: a mensagem vai pelo protocolo de texto. */
   noTools?: boolean;
+  /** Live hunks: the file of each call that streams hunks. */
+  hunkPaths: Map<string, string>;
+}
+
+/** One line for the validation of Auto's provisional changes. */
+function validationNote(e: Extract<AgentEvent, { kind: "validation" }>): string {
+  const cmds = (e.checks.length ? e.checks : e.baseline).map((c) => "`" + c.command + "`").join(", ");
+  switch (e.status) {
+    case "running":
+      return e.baseline.length ? `A validar as alterações provisórias (${cmds})…` : "A medir a base antes das alterações (testes/lint)…";
+    case "passed":
+      return `Validação passou (${cmds}): as alterações provisórias ficam.`;
+    case "failed":
+      return "Validação falhou: " + e.checks.filter((c) => !c.ok).map((c) => "`" + c.command + "` — " + c.summary).join("; ");
+    case "skipped":
+      return "Validação não correu.";
+  }
 }
 
 export function makeAgentChat(deps: AgentChatDeps) {
@@ -31,9 +49,12 @@ export function makeAgentChat(deps: AgentChatDeps) {
   const noTools = new Set<string>();
   const key = (): string => `${deps.provider()}|${deps.model()}`;
   let turn: Turn | null = null;
+  /** The Project issue the session works on (set when the conversation starts from one). */
+  let issueKey: string | null = null;
   let unsubscribe: (() => void) | null = null;
 
-  const text = (t: Turn): string => t.segments.filter((s) => s !== "").join("\n\n");
+  // the chat keeps prose: long code blocks go to the editor, not the reply (RF-CODEV-STREAM §7)
+  const text = (t: Turn): string => proseOnly(t.segments.filter((s) => s !== "").join("\n\n"));
 
   const toolRef = (t: Turn, id: string, name: string, label: string): ToolRef => {
     let r = t.tools.get(id);
@@ -47,7 +68,29 @@ export function makeAgentChat(deps: AgentChatDeps) {
   function onEvent(s: string, e: AgentEvent): void {
     const t = turn;
     if (!t || s !== session) return;
+    if (e.kind.startsWith("hunk_") || e.kind === "validation") deps.hunks?.event(s, e);
     switch (e.kind) {
+      case "hunk_start":
+        t.hunkPaths.set(e.call, e.path);
+        break;
+      case "hunk_review": {
+        const path = t.hunkPaths.get(e.call) ?? "";
+        const ref = toolRef(t, e.call, "edit", path);
+        presenter.toolReason?.(ref, e.reason, false);
+        const sink = deps.hunks;
+        if (sink && presenter.hunkReview) {
+          const bar = presenter.hunkReview(ref, { path, count: e.hunks.length, reason: e.reason }, {
+            acceptAll: () => sink.decideAll(e.call, true),
+            rejectAll: () => sink.decideAll(e.call, false),
+            open: () => sink.open(path),
+          });
+          sink.onSettled(e.call, (label) => bar.settle(label));
+        }
+        break;
+      }
+      case "validation":
+        presenter.agentNote?.(t.card, "validation", validationNote(e));
+        break;
       case "stream": {
         const ev = e.event;
         if (ev.type === "message_start") t.segments.push("");
@@ -171,6 +214,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
         testCmd: deps.verify.command("test")?.cmd ?? null,
         lintCmd: deps.verify.command("lint")?.cmd ?? null,
         mode: deps.mode(),
+        reviewEdits: !!deps.hunks,
+        issue: issueKey,
       });
     }
     return session;
@@ -192,6 +237,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
           segments: [],
           reasoning: "",
           tools: new Map(),
+          hunkPaths: new Map(),
           finish: () => {
             fallback = !!tt.noTools;
             resolve();
@@ -199,7 +245,11 @@ export function makeAgentChat(deps: AgentChatDeps) {
         };
         turn = tt;
         signal.addEventListener("abort", () => void gateway.cancel(id), { once: true });
-        gateway.send(id, q).catch((e: unknown) => {
+        // the backend reads the disk: save what the editor shows first
+        (deps.flush ? deps.flush() : Promise.resolve())
+          .catch(() => undefined)
+          .then(() => gateway.send(id, q))
+          .catch((e: unknown) => {
           presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
           resolve();
         });
@@ -244,6 +294,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         lintCmd: null,
         mode: deps.mode(),
         resume: pick,
+        reviewEdits: !!deps.hunks,
       });
       for (const h of await gateway.history(session)) {
         if (h.role === "user") presenter.userMessage(h.text);
@@ -336,6 +387,9 @@ export function makeAgentChat(deps: AgentChatDeps) {
 
   /** Opção 2 do Board: abrir uma issue lança o agente, em modo plano, com o pedido dela. */
   function story(s: BoardStory): Promise<void> {
+    // a new session that knows the issue: its accepted changes count for it (A5)
+    reset();
+    issueKey = s.id;
     return plan(storyPrompt(s));
   }
 
@@ -343,6 +397,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     if (session) void gateway.close(session);
     session = null;
     sessionKey = null;
+    issueKey = null;
   }
 
   return {
@@ -359,6 +414,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
     },
     /** Nova conversa: fecha a sessão (o histórico vive no backend). */
     reset,
+    /** Stops the turn in progress (Esc in the editor overlay). */
+    cancel(): void {
+      if (session) void gateway.cancel(session);
+    },
   };
 }
 

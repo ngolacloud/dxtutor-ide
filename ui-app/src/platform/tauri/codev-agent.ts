@@ -17,6 +17,10 @@ export interface StartAgentArgs {
   mode?: string | null;
   /** Retomar a sessão gravada com este id. */
   resume?: string | null;
+  /** Hunks ao vivo (docs/v2/RF-CODEV-STREAM.md): edições revistas hunk a hunk no editor. */
+  reviewEdits?: boolean;
+  /** A issue do Project em que esta conversa trabalha (as alterações aceites ficam ligadas a ela). */
+  issue?: string | null;
 }
 
 /** Abre uma sessão; devolve o id. Falha se faltar a chave do provedor ou a pasta não existir. */
@@ -30,6 +34,8 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     mode: a.mode ?? null,
     resume: a.resume ?? null,
     provider: a.provider ?? null,
+    reviewEdits: a.reviewEdits ?? false,
+    issue: a.issue ?? null,
   });
 
 /** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */
@@ -44,6 +50,17 @@ export const sendAgent = (sessionId: string, text: string | null): Promise<void>
 
 export const approveAgent = (sessionId: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean> =>
   invoke<boolean>("codev_agent_approve", { sessionId, toolUseId, allow, reason: reason ?? null, remember: remember ?? false });
+
+/** Uma decisão de um `hunk_review`. */
+export interface HunkDecision {
+  hunk: string;
+  accept: boolean;
+  reason?: string;
+}
+
+/** Decide os hunks de um `hunk_review`; hunks sem decisão contam como recusados. */
+export const reviewAgentHunks = (sessionId: string, call: string, decisions: HunkDecision[]): Promise<void> =>
+  invoke<void>("codev_agent_review", { sessionId, call, decisions });
 
 export const cancelAgent = (sessionId: string): Promise<boolean> => invoke<boolean>("codev_agent_cancel", { sessionId });
 

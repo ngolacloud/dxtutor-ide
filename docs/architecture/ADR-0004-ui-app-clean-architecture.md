@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j5; o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -854,3 +854,75 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   passos). Fecha a U4j: o monólito deixou de existir; o que fica nos dois módulos
   (o conteúdo dos menus/paleta e o ajuste das listas no arranque) dissolve-se quando cada feature
   registar os seus comandos (U7).
+- **U5 — plano (2026-11-24).** Restam 152 handlers inline (contados pela métrica; dois são prosa:
+  o texto de um achado da revisão, `<img src=x onerror=…>`, e um comentário do `tasks.ts`). Um
+  despachante partilhado, `app/actions.ts`, serve os módulos que não têm o seu: o markup emite
+  `data-action="dono:nome"` (+ `data-on`) e o dono regista a tabela. Para que nada mude, o
+  despachante faz o que o inline fazia: é o primeiro listener do document (primeiro import do
+  `main.ts`), corre cada antepassado com acção pela ordem da borbulha (caminho fixado no início),
+  `stop()` faz o `event.stopPropagation()` (pára os antepassados e, por ser o primeiro, os outros
+  listeners do document), e cede quando o código troca o handler por `el.onclick = f` (o
+  `drawRemote` do infra e o `boot5` fazem-no aos botões da barra). Fatias: **U5a** o despachante e
+  a moldura (index.html, os dois botões do arranque, a barra de acções do editor e a página de
+  boas-vindas, que guardavam código em string); **U5b** os resíduos sem despachante (pair, tasks,
+  team, studio, tutor, graph, search, test, run, remote, explorer, diff, diagnostics, account,
+  stack); **U5c** as features com despachante próprio (ext, learn, codev, board) nas suas tabelas
+  e o desktop (`DXR.*`); **U5d** o arrastar do kanban (`ondragstart/over/leave/drop`), que os
+  goldens do board mostram (o harness não os tira) — pede decisão sobre os snapshots; **U5e** o
+  CSP sem `'unsafe-inline'` no `script-src` e a métrica sem a prosa.
+- **U5a (2026-11-24) — o despachante partilhado e a moldura do IDE.** O `app/actions.ts` (com
+  testes da semântica: borbulha, `stop()`, ordem face aos outros listeners do document, cedência
+  ao `el.onclick = f`, caminho fixo quando um handler redesenha, nó de texto como alvo, tipos de
+  evento, nomes com dono) e o `app/chrome-actions.ts`: os 27 botões fixos do index.html e os dois
+  que o arranque acrescenta (`#pill-agent`, `#st-stack`) passam a `data-action="chrome:f"` e
+  chamam a mesma função publicada no acto (`callGlobal`, como o inline, que resolvia o nome no
+  window ao clicar). A barra de acções do editor (`tabs.ts`) e a página de boas-vindas guardavam
+  o código do handler em string (`'explainCmd()'`, `"goPane('infra')"`); passam a guardar o nome
+  da acção (e o argumento) e registam `tabs:*`/`welcome:*`. Nenhum dos nomes chamados colide com
+  uma propriedade do elemento ou do document (o inline procurava aí primeiro). Inline 152 → 121.
+- **U5b (2026-11-24) — os resíduos sem despachante.** O pair (19), tasks (16), team (15), studio
+  (12), graph (8), tutor (4), test (3), search (3), account (2), stack (2), run, remote, explorer, diff
+  e diagnostics (1 cada) passam a `data-action="dono:nome"`; cada um regista as suas acções no fim do
+  módulo. As acções lêem e escrevem o estado no `window` no acto (`TK`, `BL`, `HARN`, `AGENT`,
+  `AGENTS`, `SD`/`SSEL`/`SLINK`/`SCAT`, `DRIFT`, `GSEL`, `LTS`, `FS`, `cur`, `PANE`…) e chamam as funções
+  publicadas por nome (`callGlobal`), como o código inline fazia — não passam a usar ligações locais
+  dos módulos. O `this` passa a `c.el`, o `this.value` a `c.value`, o `event.target===this` a
+  `c.ev.target===c.el`, o `event.stopPropagation()` a `c.stop()`; os números (sprint, linha, índice
+  da aresta) voltam a número; os pares (caminho + linha, grupo + estado) viajam em JSON no `data-on`.
+  O despachante ganha uma regra: um controlo desactivado não corre a sua acção (o browser não chamava
+  o handler inline). Testes de cablagem (`tests/app.actions-wiring.test.ts`): os panes e as vistas
+  sem handlers inline, todo o `dono:nome` com dono, e cliques que provam os payloads e o `stop()`.
+  **Reportado, não corrigido:** o `board.ts` tira o botão «▶ Delegar» dos cartões do kanban que são
+  teus procurando `delegate` no atributo `onclick` — mas esse botão usa `data-action="delegate"` desde
+  a extracção do board (Fase 4 do ADR-0002), por isso a procura nunca encontra nada e o botão fica.
+  Inline 121 → 31.
+- **U5c (2026-11-24) — as features com despachante próprio e o desktop.** O ext (7: a linha da
+  lista, os botões da linha com `event.stopPropagation()`, a página de detalhe e o «Install from
+  VSIX»), o learn (7: onboarding e editor de exercícios, sobre o `ONB`/`LT_HOOD`/`LTS` do window), o
+  codev (a escolha da língua), o board (o «Review diff» do cartão e os três botões dos cartões do
+  Co-Dev que o motor emite) e o desktop (`DXR.logs`/`approve`/`gitInit`/`open`) passam a
+  `data-action`. Vão pelo **despachante partilhado** (`ext:*`, `learn:*`, `codev:*`, `board:*`,
+  `desktop:*`), não pelas tabelas das features: estas só vêem o `[data-action]` mais próximo e correm
+  depois dos outros listeners do document (o `closeMenus`, o fecho das notificações), o que mudaria o
+  efeito dos `event.stopPropagation()` da lista de extensões. Testes de cablagem acrescentados. Ficam
+  os quatro handlers de arrastar do kanban (U5d) e a prosa do achado da revisão. Inline 31 → 5.
+- **U5d (2026-11-24) — o arrastar do kanban; goldens do quadro regenerados.** O cartão
+  (`board:card`, `dragstart`: põe o id no `dataTransfer`) e a coluna (`board:col`: `dragover` marca e
+  previne, `dragleave` desmarca, `drop` desmarca, previne e chama o `dropIssue` publicado com o id e o
+  estágio) passam ao despachante partilhado. Nenhum antepassado das colunas e dos cartões tem acção
+  da tabela do board, por isso o novo `data-action` não tapa nenhum clique. **Goldens regenerados por
+  decisão do dono (2026-11-24):** `board-all` e `board-sprint0` mostravam os atributos `ondrag*`/
+  `ondrop`, que o harness não tira; provou-se que o snapshot novo é o antigo com exactamente esses 44
+  atributos removidos e nada mais. Teste de cablagem do arrastar (com um `dataTransfer` falso — o
+  jsdom não tem). Inline 5 → 1 (a prosa do achado da revisão, que a U5e tira da métrica).
+- **U5e (2026-11-24) — o CSP sem `'unsafe-inline'` no `script-src`.** O `tauri.conf.json` passa a
+  `script-src 'self'`. O `style-src` mantém `'unsafe-inline'` (decisão §9.3) e, com ele, o
+  `dangerousDisableAssetCspModification: true` — se o Tauri injectasse nonces/hashes no `style-src`,
+  o browser passaria a ignorar o `'unsafe-inline'` e os `style="…"` gerados deixavam de valer. Nada
+  mais precisava de script inline: a única tag do index.html é o módulo `src="/src/main.ts"`, e o
+  JSZip do desktop carrega-se de um ficheiro local (`'self'`). A métrica dos handlers passa a contar
+  só atributos de verdade (o valor abre com aspas, escapadas ou não), o que tira a prosa do achado da
+  revisão (`<img src=x onerror=…>`): 1 → 0. Métrica nova, baseline 0: `script-src` com
+  `'unsafe-inline'` no CSP. O auto-teste desktop ganha o passo `csp`: regista as violações do CSP
+  durante o auto-teste, procura atributos `on*` no DOM vivo depois de abertas as vistas, e prova que
+  o CSP está activo (um handler inline plantado não corre). Fecha a U5.

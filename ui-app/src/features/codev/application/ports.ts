@@ -199,6 +199,14 @@ export interface ChatPresenter {
   agentPlan?(ref: ToolRef, markdown: string): void;
   /** Botão «ver diff» numa linha de ferramenta. */
   toolDiffLink?(ref: ToolRef, onDiff: () => void): void;
+  /** Live hunks waiting for a decision (RF-CODEV-STREAM): a bar on the tool line with
+   *  «accept all / reject all / open in the editor». `settle` replaces it with the outcome
+   *  when the review ends (from the chat or from the editor). */
+  hunkReview?(
+    ref: ToolRef,
+    info: { path: string; count: number; reason: string },
+    on: { acceptAll(): void; rejectAll(): void; open(): void },
+  ): { settle(label: string): void };
 }
 
 /** The approval gate: the human say-so on edits, commands and plans. Backed by `window.ask` (shared with board.ts), so its cancellation
@@ -236,7 +244,13 @@ export interface AgentGateway {
     lintCmd: string | null;
     mode: string;
     resume?: string | null;
+    /** Live hunks: edits stream into the editor and are decided hunk by hunk. */
+    reviewEdits?: boolean;
+    /** The Project issue this conversation works on (accepted changes are linked to it). */
+    issue?: string | null;
   }): Promise<string>;
+  /** Decides the hunks of a `hunk_review` (hunks without a decision count as rejected). */
+  review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
   /** As sessões gravadas do projecto. */
   sessions(root: string): Promise<SessionSummary[]>;
   /** O histórico simplificado de uma sessão aberta. */
@@ -281,8 +295,48 @@ export interface AgentChatDeps {
   /** O uso real de cada pedido do agente (tokens de entrada — com os de cache — e de saída):
    *  alimenta o contador de uso (custo das issues no Board) e o `ctx` (ADR-0006, R3c). */
   onUsage?(input: number, output: number): void;
+  /** Live hunks in the editor (RF-CODEV-STREAM); absent → edits are approved per call. */
+  hunks?: HunkSink;
+  /** Saves what the editor has to disk before the agent reads it (autosave flush). */
+  flush?(): Promise<void>;
 }
 
+/** Where the agent chat sends the hunk events of a turn. */
+export interface HunkSink {
+  event(session: string, e: AgentEvent): void;
+  /** Accept or reject every open hunk of a call (the chat's review bar). */
+  decideAll(call: string, accept: boolean): void;
+  /** Shows a file's hunks in the editor. */
+  open(path: string): void;
+  /** Registers what to do when a call's review ends (to settle the chat bar). */
+  onSettled(call: string, f: (label: string) => void): void;
+}
+
+/** What the live-hunk use case needs from the world. */
+export interface HunkReviewDeps {
+  review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
+  flush(): Promise<void>;
+  reloadFromDisk(): Promise<void>;
+  editor: {
+    /** The view of a file changed: redraw it if it is on screen. */
+    repaint(path: string): void;
+    /** Opens a file of the project (relative path) in the editor. */
+    open(path: string): void;
+    /** The relative path of the file on screen, or `null`. */
+    current(): string | null;
+    /** Scrolls so view line `line` (0-based) is visible. */
+    reveal(line: number): void;
+    /** Shows a proposed new file (it does not exist on disk until accepted). */
+    preview(path: string, text: string): void;
+  };
+  /** Runs `f` every `ms`; returns how to stop it. */
+  every(ms: number, f: () => void): () => void;
+  /** Characters per second of the typing (40 by default). */
+  pace(): number;
+  notify(msg: string): void;
+  /** Stops the turn (Esc). */
+  cancel(): void;
+}
 export interface LiveDeps {
   workspace: Workspace;
   providers: ProviderGateway;

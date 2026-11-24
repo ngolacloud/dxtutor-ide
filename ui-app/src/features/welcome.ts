@@ -9,15 +9,21 @@
 import { svg } from "../core";
 import { VIEW } from "../app/store/registry";
 import { desktopPorts } from "../app/desktop";
+import { registerActions, globalCalls, callGlobal } from "../app/actions";
 
-const welcomeBase=(_t: unknown,host: HTMLElement): void=>{const w=(ic:string,a:string,b:string,act:string)=>`<button class="wbtn" onclick="${act}"><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
+const welcomeBase=(_t: unknown,host: HTMLElement): void=>{const w=(ic:string,a:string,b:string,act:string,on?:string)=>`<button class="wbtn" data-action="welcome:${act}"${on===undefined?'':` data-on="${on}"`}><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
   host.innerHTML=`<div class="page"><div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><h1 style="font-weight:300;font-size:26px;margin:0">dxtutor <b style="font-weight:600">IDE</b></h1></div>
   <div class="sub">You decide; the assistants accelerate. Learn a language, or design an architecture and take it to a running stack and a local cluster.</div>
-  <h2>Build</h2><div class="wgrid">${w('cube','1 · Design','Studio with cloud and open-source components','openStudio()')}${w('account','2 · Set the harness','Templates, scopes and who decides','openTeam()')}${w('split','3 · Deliver','Board, sprints, automatic tests, your review','openBoard()')}${w('run','4 · RUN','Start the whole stack on your container runtime','dxRun()')}${w('rocket','5 · Deploy','One click to your local Kubernetes','dxDeploy()')}${w('container','Infra','Socket, dev container, KUBECONFIG',"goPane('infra')")}</div>
-  <h2>Learn</h2><div class="wgrid">${w('book','Learning Track','Rust and Go, from zero to confident','ltResume()')}</div>
-  <h2>Co-Dev</h2><div class="wgrid">${w('graph','Mission manager','Decisions, checkpoints and usage','openManager()')}${w('settings','Settings','Models, autonomy, language','openSettings()')}</div></div>`;};
+  <h2>Build</h2><div class="wgrid">${w('cube','1 · Design','Studio with cloud and open-source components','openStudio')}${w('account','2 · Set the harness','Templates, scopes and who decides','openTeam')}${w('split','3 · Deliver','Board, sprints, automatic tests, your review','openBoard')}${w('run','4 · RUN','Start the whole stack on your container runtime','dxRun')}${w('rocket','5 · Deploy','One click to your local Kubernetes','dxDeploy')}${w('container','Infra','Socket, dev container, KUBECONFIG','goPane','infra')}</div>
+  <h2>Learn</h2><div class="wgrid">${w('book','Learning Track','Rust and Go, from zero to confident','ltResume')}</div>
+  <h2>Co-Dev</h2><div class="wgrid">${w('graph','Mission manager','Decisions, checkpoints and usage','openManager')}${w('settings','Settings','Models, autonomy, language','openSettings')}</div></div>`;};
 /** A parte desktop da página (ADR-0004, U4h5b), injectada em `desktopPorts.welcome`: os botões
  *  «Open Folder…» e as pastas recentes. Recebe a página de base. */
 export interface WelcomeDesktop { welcome(t: unknown, host: HTMLElement, virtual: (t: unknown, host: HTMLElement) => void): void }
 /* o VIEW.welcome consulta a porta (antes o desktop embrulhava-o no `window`) */
 VIEW.welcome=(t,host)=>{const d=desktopPorts.welcome;if(d)d.welcome(t,host,welcomeBase);else welcomeBase(t,host);};
+/* os botões da página chamam a função publicada, no acto (eram `onclick="f(…)"` em string — ADR-0004, U5a) */
+registerActions({
+  ...globalCalls("welcome", ["openStudio", "openTeam", "openBoard", "dxRun", "dxDeploy", "ltResume", "openManager", "openSettings"]),
+  "welcome:goPane": { click: (c) => void callGlobal("goPane", c.on) },
+});

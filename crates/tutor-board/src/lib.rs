@@ -12,6 +12,8 @@
 //!   mesmo backlog deixa a base exactamente igual (sem duplicar stories).
 //! - **Isolamento por workspace**: cada raiz vê apenas o seu backlog.
 
+pub mod project;
+
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 

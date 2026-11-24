@@ -23,6 +23,8 @@ use std::fmt::Write as _;
 
 /// Primeira linha de um ficheiro exportado (informativa: a importação não depende dela).
 pub const HEADER: &str = "%% dxtutor-arch v1";
+/// Marca provisória (nunca sai do parser) dos nós escritos directamente num painel.
+const BODY_MARK: &str = "\u{1}body:";
 /// Prefixo dos `subgraph` que são painéis (o modo comparativo).
 const VIEW_PREFIX: &str = "view__";
 /// Uma fonte Mermaid maior do que isto não é um diagrama de arquitectura.
@@ -60,6 +62,10 @@ struct GroupMeta {
     style: GroupStyle,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+    /// O grupo é o CORPO do painel com este id Mermaid: não tem `subgraph` próprio (o
+    /// conteúdo vai directamente no do painel), para o título não aparecer duas vezes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    body: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -221,9 +227,38 @@ pub fn to_mermaid(a: &Architecture) -> String {
             ids.view[&v.id],
             encode(&v.title)
         );
-        for r in &v.roots {
-            if group_ids.contains(r.as_str()) {
-                emit_group(a, &ids, r, 2, &mut out, &mut done_groups, &mut done_nodes);
+        if let Some(body) = panel_body(a, v) {
+            // o corpo do painel: o conteúdo vai directamente no subgraph do painel
+            done_groups.insert(body);
+            for c in a
+                .components
+                .iter()
+                .filter(|c| c.group.as_deref() == Some(body))
+            {
+                if done_nodes.insert(c.id.as_str()) {
+                    emit_node(&ids, c, 2, &mut out);
+                }
+            }
+            for child in a
+                .groups
+                .iter()
+                .filter(|g| g.parent.as_deref() == Some(body))
+            {
+                emit_group(
+                    a,
+                    &ids,
+                    &child.id,
+                    2,
+                    &mut out,
+                    &mut done_groups,
+                    &mut done_nodes,
+                );
+            }
+        } else {
+            for r in &v.roots {
+                if group_ids.contains(r.as_str()) {
+                    emit_group(a, &ids, r, 2, &mut out, &mut done_groups, &mut done_nodes);
+                }
             }
         }
         out.push_str("  end\n");
@@ -305,6 +340,11 @@ pub fn to_mermaid(a: &Architecture) -> String {
         };
         let _ = writeln!(out, "%% dxt:view {} {}", ids.view[&v.id], json(&meta));
     }
+    let bodies: HashMap<&str, &str> = a
+        .views
+        .iter()
+        .filter_map(|v| panel_body(a, v).map(|b| (b, ids.view[&v.id].as_str())))
+        .collect();
     for (i, g) in a.groups.iter().enumerate() {
         let meta = GroupMeta {
             i,
@@ -312,6 +352,7 @@ pub fn to_mermaid(a: &Architecture) -> String {
             kind: g.kind,
             style: g.style,
             source: g.source.clone(),
+            body: bodies.get(g.id.as_str()).map(|m| m.to_string()),
         };
         let _ = writeln!(out, "%% dxt:group {} {}", ids.group[&g.id], json(&meta));
     }
@@ -328,6 +369,16 @@ pub fn to_mermaid(a: &Architecture) -> String {
     }
     out.push_str(&edge_meta);
     out
+}
+
+/// O grupo-corpo de um painel (a mesma regra da UI): a única raiz do painel, com o mesmo
+/// nome que o título. A moldura do painel já o mostra.
+fn panel_body<'a>(a: &'a Architecture, v: &View) -> Option<&'a str> {
+    let [root] = v.roots.as_slice() else {
+        return None;
+    };
+    let g = a.groups.iter().find(|g| &g.id == root)?;
+    (g.label.trim().to_lowercase() == v.title.trim().to_lowercase()).then_some(g.id.as_str())
 }
 
 fn json<T: Serialize>(v: &T) -> String {
@@ -947,10 +998,8 @@ pub fn from_mermaid(src: &str) -> Result<MermaidImport, String> {
             _ => {
                 let group = match stack.last() {
                     Some(Frame::Group(g)) => Some(g.clone()),
-                    Some(Frame::View(_)) => {
-                        b.warn_once("node-in-view", "nodes placed directly in a panel (outside any group) were kept outside the panels".into());
-                        None
-                    }
+                    // directamente no painel: pertence ao corpo do painel (resolvido no fim)
+                    Some(Frame::View(v)) => Some(format!("{BODY_MARK}{v}")),
                     None => None,
                 };
                 let chars: Vec<char> = s.chars().collect();
@@ -1018,6 +1067,58 @@ pub fn from_mermaid(src: &str) -> Result<MermaidImport, String> {
             "{} subgraph(s) were not closed with `end`",
             stack.len()
         ));
+    }
+
+    // ── corpos dos painéis: o grupo que o export não escreve como subgraph ──
+    let view_mids_in_order: Vec<String> = {
+        let mut v: Vec<(String, usize)> = b.view_at.iter().map(|(k, i)| (k.clone(), *i)).collect();
+        v.sort_by_key(|x| x.1);
+        v.into_iter().map(|x| x.0).collect()
+    };
+    for (vi, vmid) in view_mids_in_order.iter().enumerate() {
+        let mark = format!("{BODY_MARK}{vmid}");
+        let meta_mid = group_meta
+            .iter()
+            .find(|(_, m)| m.body.as_deref() == Some(vmid.as_str()))
+            .map(|(k, _)| k.clone());
+        let direct = b
+            .comps
+            .iter()
+            .any(|c| c.group.as_deref() == Some(mark.as_str()));
+        if meta_mid.is_none() && !direct {
+            continue;
+        }
+        let mid = meta_mid.unwrap_or_else(|| {
+            let base = format!("{}_body", vmid.strip_prefix(VIEW_PREFIX).unwrap_or(vmid));
+            let mut id = base.clone();
+            let mut n = 2;
+            while b.group_at.contains_key(&id) || b.comp_at.contains_key(&id) {
+                id = format!("{base}_{n}");
+                n += 1;
+            }
+            id
+        });
+        for c in b
+            .comps
+            .iter_mut()
+            .filter(|c| c.group.as_deref() == Some(mark.as_str()))
+        {
+            c.group = Some(mid.clone());
+        }
+        let roots = std::mem::take(&mut b.views[vi].roots);
+        for g in b.groups.iter_mut().filter(|g| roots.contains(&g.id)) {
+            g.parent = Some(mid.clone());
+        }
+        b.views[vi].roots = vec![mid.clone()];
+        b.group_at.insert(mid.clone(), b.groups.len());
+        b.groups.push(Group {
+            id: mid,
+            label: b.views[vi].title.clone(),
+            kind: GroupKind::Boundary,
+            parent: None,
+            style: GroupStyle::Dashed,
+            source: None,
+        });
     }
 
     // ── metadados: repõem o modelo exacto ──
@@ -1358,6 +1459,72 @@ mod tests {
         assert_eq!(r.arch.components[0].name, "x ; y");
         assert_eq!(r.arch.components[2].name, "a#b");
         assert_eq!(r.arch.connections.len(), 2);
+    }
+
+    /// A referência com corpos de painel (o grupo raiz com o nome do painel), como a UI os cria.
+    fn with_bodies() -> Architecture {
+        let mut a = docker_vs_k8s();
+        a.views[0].title = "Docker".into();
+        a.views[1].title = "Kubernetes".into();
+        for (g, label) in [(0, "Docker"), (1, "Kubernetes")] {
+            a.groups[g].label = label.into();
+        }
+        a
+    }
+
+    #[test]
+    fn panel_bodies_are_not_a_second_subgraph() {
+        let a = with_bodies();
+        let m = to_mermaid(&a);
+        // cada título uma vez: o subgraph do painel, e não outro do corpo lá dentro
+        assert_eq!(m.matches("[\"Docker\"]").count(), 1, "{m}");
+        assert_eq!(m.matches("[\"Kubernetes\"]").count(), 1, "{m}");
+        assert!(!m.contains("subgraph host["), "{m}");
+        assert!(m.contains("\"body\":\"view__docker\""), "{m}");
+        let back = import(&m);
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        assert_eq!(js(&back.arch), js(&a), "{m}");
+    }
+
+    #[test]
+    fn hand_written_nodes_directly_in_a_panel_get_a_body() {
+        let r = import(
+            "graph TB\n\
+             subgraph view__dlx[\"Delonix\"]\n  cli[\"delonix CLI\"]\n  subgraph host[\"Host\"]\n    ctr\n  end\nend\n\
+             cli --> ctr\n",
+        );
+        let v = &r.arch.views[0];
+        assert_eq!(v.roots, vec!["dlx_body".to_string()]);
+        let body = r.arch.groups.iter().find(|g| g.id == "dlx_body").unwrap();
+        assert_eq!(body.label, "Delonix");
+        assert_eq!(body.parent, None);
+        let g = |id: &str| {
+            r.arch
+                .components
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap()
+                .group
+                .clone()
+        };
+        assert_eq!(g("cli").as_deref(), Some("dlx_body"));
+        assert_eq!(g("ctr").as_deref(), Some("host"));
+        assert_eq!(
+            r.arch
+                .groups
+                .iter()
+                .find(|g| g.id == "host")
+                .unwrap()
+                .parent
+                .as_deref(),
+            Some("dlx_body")
+        );
+        assert!(r.arch.validate().is_empty(), "{:?}", r.arch.validate());
+        assert!(
+            !r.warnings.iter().any(|w| w.contains("panel")),
+            "{:?}",
+            r.warnings
+        );
     }
 
     #[test]

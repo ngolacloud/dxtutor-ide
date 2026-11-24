@@ -20,14 +20,20 @@
    fica aqui é a cola da UI do agente (modos/providers), as páginas e o pane — alvo da
    Phase 4. */
 
-import { $, hd, svg, esc, jsa } from "../core";
+import { $, hd, svg, esc } from "../core";
 import { RP, VIEW } from "../app/store/registry";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
 import { bus } from "../app/bus";
+import { registerActions, callGlobal } from "../app/actions";
 import { desktopPorts } from "../app/desktop";
 import { agentStore } from "../app/store";
-import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
+import { composerActions, composerAsk, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
+import { presenter } from "./codev/ui/chat-view";
+import { makeAsk } from "./codev/application/ask";
+import type { Sampler } from "./codev/application/ports";
+import { hunkContext, selectionContext, type AskContext, type AskRequest } from "./codev/domain/ask";
+import { codevAsk as codevAskRegistry } from "../app/codev-ask";
 import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/composer";
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
@@ -48,6 +54,7 @@ import {
   waiting,
   ask,
   tl,
+  hunkReview,
 } from "./codev/index";
 
 /* ───── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ───── */
@@ -210,6 +217,29 @@ Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, as
 /* Board (opção 2 do ADR-0003): o Board pede ao Co-Dev pelo seu legacy-bridge, sem importar a feature */
 Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvailable: codevEngine.agentAvailable });
 
+/* ───── codev.ask (A2.4): the one way other features ask Co-Dev ─────
+   `explain` answers straight away in the chat; the rest lands in the composer as chips +
+   text (sent at once with `send`). Registered in app/codev-ask for the other features. */
+const codevAsk = makeAsk({
+  sample: () => bridge.sample() as unknown as Sampler | null,
+  presenter,
+  speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · explicação",
+  focus: () => focusAgent(true),
+  compose: (text, context, send) => composerAsk(text, context, send),
+});
+/** Ctrl+I / «Enviar selecção ao Co-Dev»: the editor's selection (or the file) as context. */
+function codevAskFromEditor(): void {
+  const t = bridge.tabOf(bridge.monolith.currentTabId);
+  const ta = document.getElementById('ed-ta') as HTMLTextAreaElement | null;
+  const rel = t && t.path ? (t.path.startsWith(bridge.root()) ? t.path.slice(bridge.root().length) : t.path) : null;
+  const sel = ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : '';
+  const ctx: AskContext[] = !rel ? [] : sel
+    ? [selectionContext(rel, ta!.value.slice(0, ta!.selectionStart).split('\n').length, sel)]
+    : [{ kind: 'file', label: rel.split('/').pop() || rel, path: rel }];
+  void codevAsk({ intent: 'chat', context: ctx, send: false });
+}
+codevAskRegistry.register((r: AskRequest) => codevAsk(r), codevAskFromEditor);
+
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
 function openSettings() { bridge.openTab({ id: 'settings', title: 'Definições', kind: 'settings' }); }
 function openManager() { bridge.openTab({ id: 'manager', title: 'Gestor de missões', kind: 'manager' }); }
@@ -295,6 +325,20 @@ const ACTIONS: ActionTable = {
   "open-team": { on: "click", run: () => bridge.openTeam() },
   "open-board": { on: "click", run: () => bridge.openBoard() },
   "open-studio": { on: "click", run: () => bridge.openStudio() },
+  /* live hunks in the editor (RF-CODEV-STREAM §8) */
+  "hunk-accept": { on: "click", run: (e) => hunkReview.decide(e.on, true) },
+  "hunk-reject": { on: "click", run: (e) => hunkReview.decide(e.on, false) },
+  "hunk-pause": { on: "click", run: () => hunkReview.togglePause() },
+  "hunk-faster": { on: "click", run: () => hunkReview.faster() },
+  "hunk-stop": { on: "click", run: () => hunkReview.stop() },
+  "hunk-back": { on: "click", run: () => hunkReview.backToCodev() },
+  "hunk-explain": {
+    on: "click",
+    run: (e) => {
+      const h = hunkReview.state().hunks.find((x) => x.id === e.on);
+      if (h) void codevAsk({ intent: 'explain', text: 'Explica esta alteração proposta: o que muda e porquê.', context: [hunkContext(h.path, h.anchor, h.old, h.text)], send: true });
+    },
+  },
   /* change — espelha os antigos onchange */
   "set-prov-model": {
     on: "change",
@@ -377,6 +421,8 @@ const provFor=(r: string): string=>PROV[CW.ROUTE[r]].on?CW.ROUTE[r]:(CW.connecte
 const who=(r: string): string=>`${CW.ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
 const provStateBase=(k: string): string=>k==='claude'?(CW.SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
 window.provState=(k: string): string=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
-const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${CW.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" onclick="setLocale(${jsa(l[0])})"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
+const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${CW.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
 VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
 Object.assign(window, { provFor, who });
+/* a escolha da língua nas Definições chama o setLocale publicado, no acto (era `onclick` inline — ADR-0004, U5c) */
+registerActions({ "codev:setLocale": { click: (c) => void callGlobal("setLocale", c.on) } });

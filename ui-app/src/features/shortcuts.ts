@@ -10,6 +10,7 @@
    resultado. Os comandos resolvem-se pelo window no acto. */
 
 import { $ } from "../core";
+import { codevAsk } from "../app/codev-ask";
 
 interface ShortcutGlobals {
   termOwnsKey?: (e: KeyboardEvent) => boolean;
@@ -34,6 +35,7 @@ document.addEventListener("keydown", (e) => {
     if (k === "e") return go(() => G.explainCmd()); if (k === "r") return go(G.reviewCmd); if (k === "u") return go(G.hoodCmd);
     if (k === "d") return go(() => G.startDebug()); if (k === "v") return go(() => G.vizFromEditor());
   }
+  if (c && !e.shiftKey && !e.altKey && k === "i" && codevAsk.available()) return go(() => codevAsk.fromEditor());
   if (c && !e.shiftKey && !e.altKey && k === "k") { go(() => { CHORD = Date.now(); chordLabel("(Ctrl+K) waiting for second key…"); }); return; }
   if (e.key === "F5" && c) return go(G.dxRun); if (e.key === "F5" && e.shiftKey) return go(G.dbgStop);
   if (e.key === "F5") return go(() => G.startDebug()); if (e.key === "F10") return go(G.dbgStep); if (e.key === "F11") return go(G.dbgStepInto);
