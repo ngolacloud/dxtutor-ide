@@ -110,6 +110,79 @@ pub async fn fetch_open_vsx(id: &str) -> Result<Vec<u8>, String> {
     Ok(bytes.to_vec())
 }
 
+/// Um resultado da pesquisa do Open VSX (ADR-0006, R6b): o que o pane «Extensions» mostra.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OvsxHit {
+    /// `publisher.name` (o id que o `vsix_fetch_open_vsx` descarrega).
+    pub id: String,
+    pub name: String,
+    pub publisher: String,
+    pub description: String,
+    pub version: String,
+    pub downloads: u64,
+    pub verified: bool,
+}
+
+/// Quantos resultados se pedem por pesquisa (1..=50).
+pub fn search_size(size: Option<u32>) -> u32 {
+    size.unwrap_or(30).clamp(1, 50)
+}
+
+/// Os resultados da resposta de `/api/-/search` — os sem id válido e os descontinuados ficam de fora.
+pub fn parse_search(v: &Value) -> Vec<OvsxHit> {
+    let s = |x: &Value| x.as_str().unwrap_or_default().to_string();
+    v["extensions"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter(|e| !e["deprecated"].as_bool().unwrap_or(false))
+                .filter_map(|e| {
+                    let (publisher, name) = (s(&e["namespace"]), s(&e["name"]));
+                    let id = format!("{publisher}.{name}");
+                    if !valid_extension_id(&id) {
+                        return None;
+                    }
+                    let display = s(&e["displayName"]);
+                    Some(OvsxHit {
+                        id,
+                        name: if display.is_empty() { name } else { display },
+                        publisher,
+                        description: s(&e["description"]),
+                        version: s(&e["version"]),
+                        downloads: e["downloadCount"].as_u64().unwrap_or(0),
+                        verified: e["verified"].as_bool().unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Pesquisa extensões no Open VSX (só fala com open-vsx.org).
+pub async fn search_open_vsx(query: &str, size: Option<u32>) -> Result<Vec<OvsxHit>, String> {
+    let q = query.trim();
+    if q.is_empty() || q.len() > 200 {
+        return Ok(Vec::new());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent(concat!("dxtutor-ide/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(format!("{OPEN_VSX}/api/-/search"))
+        .query(&[("query", q.to_string()), ("size", search_size(size).to_string()), ("sortBy", "relevance".to_string())])
+        .send()
+        .await
+        .map_err(|e| format!("Open VSX: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Open VSX: HTTP {}", resp.status()));
+    }
+    let v: Value = resp.json().await.map_err(|e| format!("Open VSX: {e}"))?;
+    Ok(parse_search(&v))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +223,22 @@ mod tests {
         let elsewhere = serde_json::json!({"files": {"download": "https://evil.example/x.vsix"}});
         assert!(download_url_from_metadata(&elsewhere).is_err());
         assert!(download_url_from_metadata(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn search_results_are_parsed_and_filtered() {
+        let v = serde_json::json!({"extensions": [
+            {"namespace": "rust-lang", "name": "rust-analyzer", "displayName": "rust-analyzer", "description": "Rust support", "version": "0.4.1", "downloadCount": 7, "verified": true},
+            {"namespace": "old", "name": "thing", "deprecated": true},
+            {"namespace": "bad id", "name": "x"},
+            {"namespace": "golang", "name": "go", "version": "0.1"}
+        ]});
+        let hits = parse_search(&v);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0], OvsxHit { id: "rust-lang.rust-analyzer".into(), name: "rust-analyzer".into(), publisher: "rust-lang".into(), description: "Rust support".into(), version: "0.4.1".into(), downloads: 7, verified: true });
+        assert_eq!(hits[1].name, "go"); // sem displayName, o nome
+        assert!(parse_search(&serde_json::json!({})).is_empty());
+        assert_eq!((search_size(None), search_size(Some(0)), search_size(Some(500))), (30, 1, 50));
     }
 
     /// Ao vivo contra o open-vsx.org (rede): `cargo test -p dxtutor-ide --lib -- --ignored open_vsx_live`.

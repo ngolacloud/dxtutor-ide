@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (161 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (162 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 161 comandos, **64 são consumidos pela `ui-app`** e **97 não o são**: a UI
+Dos 162 comandos, **65 são consumidos pela `ui-app`** e **97 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -87,7 +87,7 @@ Exclusivo do dxtutor-ide. Sessão de colaboração; emite estado/mensagens.
 > `pair_events`, migrado de `lib.rs`). Nomes, args, contratos serde, eventos e mensagens
 > preservados (consumido por `pair.ts`).
 
-## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (16)
+## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (17)
 
 Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 
@@ -107,6 +107,7 @@ Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 | `llm_plan` | `req: llm::ChatReq`, `mode: Option<String>` | `serde_json::Value` | — | — | — | N · K |
 | `vsix_manifest` | `b64: String` | `serde_json::Value` | String | — | — | R |
 | `vsix_fetch_open_vsx` | `id: String` (`publisher.name`) | `String` (VSIX em base64) | String | — | `platform/tauri/extensions.ts` | **N** (só open-vsx.org; valida que é um VSIX; ≤ 100 MiB) · async |
+| `vsix_search_open_vsx` | `query: String`, `size: Option<u32>` (1..=50, 30 por omissão) | `Vec<vsix::OvsxHit>` | String | — | `platform/tauri/extensions.ts` | **N** (só open-vsx.org) · async |
 | `app_info` | — | `serde_json::Value` | — | — | `platform/tauri/app.ts` (via `bridge.ts`) | R · S |
 | `selftest_report` | `report: serde_json::Value` | `()` | — | — | `platform/tauri/app.ts` (via `bridge.ts`, `pair.ts`) | W · S |
 
@@ -505,8 +506,8 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **161** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 9 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
+| Comandos registados | **162** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 9 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
 | Consumidos pela `ui-app` | **64** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1 · `features/panel` 8 · `platform/tauri/arch.ts` 3) |
 | Não consumidos pela `ui-app` | **97** |
 | Eventos distintos | **15** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |

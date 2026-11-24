@@ -535,6 +535,20 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
       return { emptyAtStart, onDisk, reloaded, removed, emptyAfter: W.SD.nodes.length === 0 };
     });
+    // extensões (ADR-0006, R6b): o Open VSX real — pesquisa (vsix_search_open_vsx) e instalar um
+    // tema (só contribuições declarativas, VSIX pequeno), ver o tema aplicável e desinstalar. Sem
+    // rede, diz-se (não é uma falha da app).
+    await step("extensions", async () => {
+      const W = window as unknown as { EXS: { inst: Record<string, unknown>; vsix: Array<{ id: string; contrib?: { themes: string[] } }> }; extInstall: (id: string) => Promise<void>; extRemove: (id: string) => void; renderExtPane: () => void; PANE: string };
+      let hits: Array<{ id: string; downloads: number }> = [];
+      try { hits = await (await import("../tauri/extensions")).searchOpenVsx("rust-analyzer", 3); } catch (e) { return { offline: String((e as Error).message || e).slice(0, 120) }; }
+      const id = "dracula-theme.theme-dracula";
+      await W.extInstall(id);
+      const x = W.EXS.vsix.find(v => v.id === id);
+      const res = { searched: hits.map(h => h.id), firstHasDownloads: (hits[0]?.downloads || 0) > 0, installed: !!W.EXS.inst[id], themes: x?.contrib?.themes || [] };
+      W.extRemove(id);
+      return { ...res, removed: !W.EXS.inst[id] && !W.EXS.vsix.some(v => v.id === id) };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

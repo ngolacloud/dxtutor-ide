@@ -67,7 +67,7 @@ function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta
 const PE = window as unknown as {
   dbgBreaks: Set<string>;
   dbgCurrent?: () => { path: string; line: number } | null;
-  vsxOn: (id: string) => boolean;
+  builtinOn: (key: string) => boolean;
 };
 function paintEdFull(p: string): void {
   paintEd(p);
@@ -77,7 +77,7 @@ function paintEdFull(p: string): void {
   /* a linha onde o gdb parou (ADR-0006, R4) */
   const cur = PE.dbgCurrent ? PE.dbgCurrent() : null;
   if (cur && cur.path === p && ls[cur.line - 1]) { ls[cur.line - 1].classList.add('dbg-cur'); if (gs[cur.line - 1]) gs[cur.line - 1].classList.add('dbg-cur'); }
-  if (PE.vsxOn('usernamehw.errorlens')) { const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
+  if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 
 /* nomes das linguagens na barra de estado (ADR-0004, U4j3 — era do app.ts; o boot4/boot6 acrescentam) */

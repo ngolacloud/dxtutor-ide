@@ -228,3 +228,30 @@ describe("linguagens, language-configuration e LSP", () => {
     expect(KNOWN_LANGUAGE_SERVERS["swiftlang.swift-vscode"].server).toBe("sourcekit-lsp");
   });
 });
+
+import { migrateExs, builtinOn, recommendationsFor } from "../src/features/ext/domain/recommend";
+import { sectionsFor } from "../src/features/ext/domain/policy";
+
+describe("recomendações, funcionalidades e migração (ADR-0006, R6b)", () => {
+  test("migrateExs fica só com os VSIX reais; Error Lens/YAML passam às funcionalidades", () => {
+    const old = { inst: { "rust-lang.rust-analyzer": { on: 1 }, "usernamehw.errorlens": { on: 1 }, "acme.demo": { on: false } }, vsix: [{ id: "acme.demo", n: "Demo", pub: "acme", d: "", ctx: [], vsix: 1 }] };
+    const m = migrateExs(old);
+    expect(m.inst).toEqual({ "acme.demo": { on: false } });
+    expect(m.vsix.map((x) => x.id)).toEqual(["acme.demo"]);
+    expect(m.builtin).toEqual({ "inline-diagnostics": true });
+    expect(migrateExs(null)).toEqual({ inst: {}, vsix: [], builtin: {} });
+  });
+  test("builtinOn: a escolha do utilizador, senão o valor por omissão", () => {
+    expect(builtinOn({ builtin: {} }, "yaml")).toBe(false);
+    expect(builtinOn({ builtin: { yaml: true } }, "yaml")).toBe(true);
+  });
+  test("recommendationsFor: pela pilha, sem as instaladas", () => {
+    expect(recommendationsFor(["rust", "compose"], () => false).map((x) => x.id)).toEqual(["rust-lang.rust-analyzer", "ms-azuretools.vscode-docker"]);
+    expect(recommendationsFor(["rust"], (id) => id === "rust-lang.rust-analyzer")).toEqual([]);
+  });
+  test("sectionsFor: os resultados do Open VSX não repetem instaladas nem recomendadas", () => {
+    const a = { id: "a.a", n: "A", pub: "a", d: "", ctx: [] }, b = { id: "b.b", n: "B", pub: "b", d: "", ctx: [] }, c = { id: "c.c", n: "C", pub: "c", d: "", ctx: [] };
+    const s = sectionsFor([a], [b], [a, b, c], (id) => id === "a.a", "");
+    expect([s.inst, s.rec, s.rest].map((l) => l.map((x) => x.id))).toEqual([["a.a"], ["b.b"], ["c.c"]]);
+  });
+});

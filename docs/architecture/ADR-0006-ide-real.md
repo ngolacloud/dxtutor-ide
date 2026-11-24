@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5 feita (R5a–R5c2; verificada no desktop — os ambientes com um kubeconfig temporário, nunca os clusters do utilizador); R6 em curso (R6a feita; R6b Extensões e R6c Remote por fazer)
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5 feita (R5a–R5c2; verificada no desktop — os ambientes com um kubeconfig temporário, nunca os clusters do utilizador); R6 em curso (R6a e R6b feitas; R6c Remote por fazer)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -586,3 +586,27 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   grava no projecto e não no LS, reabrir a pasta, `studio.json` inválido, Clear design).
   **Selftest desktop:** passo `studio` — abre vazio, um componente novo vai para
   `.dxtutor/studio.json` no disco e volta ao reabrir a pasta; `errors: []`.
+- **R6b (2026-11-24) — as Extensões do Open VSX real.** Sai o catálogo fixo `EXT` (13 extensões
+  com descrições escritas à mão, uma «bundled» — o rust-analyzer — que nunca foi instalada, e
+  três «com efeito» que eram código do dxtutor vestido de extensão). **Backend:** comando novo
+  `vsix_search_open_vsx` (`bridge.rs`, `vsix::search_open_vsx` — só fala com open-vsx.org; os
+  resultados descontinuados e sem id válido ficam de fora; 162 comandos). **Pane:** instaladas =
+  os VSIX instalados de verdade; recomendadas = ids reais do Open VSX pela pilha detectada
+  (`ext/domain/recommend.ts`: Rust → rust-analyzer, Go → golang.go, …); a pesquisa vai ao Open
+  VSX (desktop, com debounce, resposta atrasada não pinta por cima) e mostra os números reais
+  (downloads, editor verificado). **Instalar** descarrega o VSIX real e instala-o pelo caminho de
+  um VSIX do disco (contribuições declarativas aplicadas); no browser diz que precisa da app
+  desktop (um `.vsix` do disco instala-se na mesma). **Funcionalidades do dxtutor**, ditas como
+  tal na secção «Built into dxtutor»: «Inline diagnostics» (era o Error Lens), «YAML checks» (era
+  a extensão YAML) e «Format Document» com Shift+Alt+F sempre disponível (era o «Prettier»,
+  que não era o Prettier). O estado passa à chave `ext7`; o `ext6` migra uma vez (ficam só os
+  VSIX reais; Error Lens/YAML ligados passam às funcionalidades). As linhas, o detalhe e o «+»
+  deixam os `onclick` inline (handlers 141 → 134). **Goldens (decisão deste ADR):** os do pane e
+  do detalhe do catálogo fixo saem; entram o pane no browser (nada instalado, recomendadas,
+  funcionalidades) e o detalhe de uma recomendação; o «extensão removida» fica. **Testes:**
+  `ext.golden` (pane real: estado inicial, recomendações, Install no browser e no desktop com o
+  VSIX descarregado e os comandos na paleta, pesquisa com os números reais, toggle/remover de um
+  VSIX, funcionalidades, Format Document), `ext.contributions` (migração, `builtinOn`,
+  recomendações, secções) e `vsix.rs` (o parser da pesquisa). **Selftest desktop:** passo
+  `extensions` — pesquisa real no Open VSX e instalação do tema Dracula (os dois temas ficam
+  aplicáveis), depois desinstalado; sem rede, diz-se; `errors: []`.

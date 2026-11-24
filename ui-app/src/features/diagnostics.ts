@@ -19,12 +19,12 @@ const has = (p: string, re: RegExp) => !!FS[p] && re.test(FS[p].content);
    cores do `desktop/src/` e os testes derivados dos caminhos do projecto de demonstração saíram
    (ADR-0006, R1c1). No desktop, o painel (features/panel) substitui `diagnostics`/
    `drawProblems` pelos problemas reais do workspace (cargo check, tsc, eslint…).
-   Com a extensão YAML (redhat.vscode-yaml) ligada: tabs na indentação e Deployments k8s sem
-   resources, lidos do conteúdo real dos ficheiros. Era a decoração do v6.ts (ADR-0004, U4g5). */
-const vsxOn = (id: string): boolean => (window as unknown as { vsxOn: (id: string) => boolean }).vsxOn(id);
+   Com «YAML checks» ligado (funcionalidade do dxtutor no pane Extensions; era a extensão YAML a
+   fingir — ADR-0006, R6b): tabs na indentação e Deployments k8s sem resources, lidos do conteúdo real dos ficheiros. Era a decoração do v6.ts (ADR-0004, U4g5). */
+const builtinOn = (key: string): boolean => (window as unknown as { builtinOn: (key: string) => boolean }).builtinOn(key);
 window.diagnostics = function () {
   const d: { p: string; line: number; sev: string; msg: string }[] = [];
-  if (!vsxOn('redhat.vscode-yaml')) return d;
+  if (!builtinOn('yaml')) return d; /* «YAML checks», do dxtutor (era a extensão YAML a fingir — ADR-0006, R6b) */
   Object.keys(FS).filter((p) => /\.ya?ml$/.test(p)).forEach((p) => {
     const ls = FS[p].content.split('\n');
     ls.forEach((l, i) => { if (/^\t/.test(l)) d.push({ p, line: i + 1, sev: 'e', msg: 'yaml: tabs are not allowed for indentation' }); });

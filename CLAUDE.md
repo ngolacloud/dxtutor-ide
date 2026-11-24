@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 161 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 162 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -426,9 +426,14 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
   editor. O resíduo `ext.ts` publica `vsxHighlight` (usado pelo `paintEd`), `vsxSnippet`
   (Tab), `vsxToggleComment` (Ctrl+/), `vsxApplyTheme` e `vsxInstallOpenVsx`.
 - **`ui/actions.ts`:** listener delegado da `ext` (chave `__extActionHandler__`). Os botões da
-  Fase 4 (`vsx-theme`, `vsx-open-vsx`) usam `data-action`; o resto do markup das extensões
-  ainda tem `onclick` inline (a métrica U5 do `ui-metrics.sh` não pode subir).
-- **Backend:** `vsix_fetch_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
+  Fase 4 (`vsx-theme`, `vsx-open-vsx`) e, desde a R6b do ADR-0006, as linhas, o detalhe e o «+»
+  usam `data-action`.
+- **Sem catálogo fixo (ADR-0006, R6b):** instaladas = VSIX reais; recomendadas = ids reais do Open
+  VSX pela pilha (`domain/recommend.ts`); a pesquisa vai ao Open VSX (`vsix_search_open_vsx`,
+  desktop); instalar descarrega o VSIX. Error Lens/YAML/Prettier eram código do dxtutor: são as
+  funcionalidades «Built into dxtutor» (`window.builtinOn(key)`, lido pelo editor e pelos
+  diagnósticos); Shift+Alt+F formata sempre.
+- **Backend:** `vsix_fetch_open_vsx` e `vsix_search_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
   em `lsp.rs`.
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
   `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os

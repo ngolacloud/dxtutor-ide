@@ -825,6 +825,7 @@ pub fn run() {
             bridge::llm_plan,
             bridge::vsix_manifest,
             bridge::vsix_fetch_open_vsx,
+            bridge::vsix_search_open_vsx,
             bridge::app_info,
             bridge::selftest_report,
             // ── rich dxtutor backend (unchanged) ──
