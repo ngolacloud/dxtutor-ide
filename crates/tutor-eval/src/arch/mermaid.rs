@@ -303,7 +303,8 @@ pub fn to_mermaid(a: &Architecture) -> String {
         let arrow = match cn.style {
             Some(EdgeStyle::Control) => "-.->",
             Some(EdgeStyle::Optional) => "-.-",
-            Some(EdgeStyle::Data) | None => "-->",
+            // uma dependência é uma linha cheia, como os dados; o estilo exacto vai no `%% dxt:`
+            Some(EdgeStyle::Data) | Some(EdgeStyle::Depends) | None => "-->",
         };
         let text = cn
             .label
@@ -1307,6 +1308,22 @@ mod tests {
             m.contains("  end_[\""),
             "o id reservado `end` é escapado: {m}"
         );
+    }
+
+    #[test]
+    fn depends_style_round_trips() {
+        let mut a = Architecture::default();
+        a.components
+            .push(Component::new("iface", "interface", Kind::Adapter));
+        a.components
+            .push(Component::new("facade", "facade", Kind::Socket));
+        let mut cn = Connection::link("iface", "facade");
+        cn.style = Some(EdgeStyle::Depends);
+        a.connections.push(cn);
+        let m = to_mermaid(&a);
+        assert!(m.contains("iface --> facade"), "{m}");
+        assert!(m.contains("\"style\":\"depends\""), "{m}");
+        assert_eq!(js(&import(&m).arch), js(&a));
     }
 
     #[test]

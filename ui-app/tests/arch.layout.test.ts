@@ -9,7 +9,7 @@ import { groupPills, intersects, layout } from "../src/features/arch/domain/geom
 import { autoLayout } from "../src/features/arch/domain/autolayout";
 import { crossings, labelRect, lineCrossings, placeLabels, routeAll, segmentHitsRect, type Route } from "../src/features/arch/domain/routing";
 import type { Architecture, Design, Rect } from "../src/features/arch/domain/types";
-import { edgeLook } from "../src/features/arch/ui/view";
+import { canvasSvg, edgeLook } from "../src/features/arch/ui/view";
 import { makeArchStudio } from "../src/features/arch/application/studio";
 import { reference } from "./fixtures/arch-reference";
 import { fakeFiles, fakeRenderer, ioGateway } from "./fixtures/arch-fakes";
@@ -280,6 +280,7 @@ describe("equilíbrio e setas opcionais (encontrado ao desenhar o Delonix)", () 
     expect(Math.max(docker.h, dlx.h) / Math.min(docker.h, dlx.h)).toBeLessThan(1.3);
     expect(dlx.w / docker.w).toBeLessThan(4); // era 7,6
     expect(lineCrossings(routes)).toBeLessThanOrEqual(2); // eram 11
+    expect(canvasSvg(d, {}, null).svg).not.toContain("data-legend"); // sem dependências, sem legenda
   });
 
   test("as setas opcionais não empurram o fluxo principal para baixo", () => {
@@ -331,6 +332,11 @@ describe("Seiva — o mesmo módulo (diagrama real)", () => {
     const [m, s] = [l.groups.get("mono-mod")!, l.groups.get("svc-mod")!];
     expect([m.w, m.h]).toEqual([s.w, s.h]);
     // e os cinco crates na mesma posição relativa dentro do módulo
+    // as dependências entre crates têm o seu estilo e a legenda explica-as
+    expect(d.connections.filter((c) => c.style === "depends")).toHaveLength(12);
+    const { svg } = canvasSvg(d, {}, null);
+    expect(svg).toContain(">depende de</text>");
+    expect(svg).toContain(">controlo (cor do painel)</text>");
     for (const c of ["interface", "application", "facade", "domain", "infrastructure"]) {
       const a = l.nodes.get(`m-${c}`)!, b = l.nodes.get(`s-${c}`)!;
       expect([a.x - m.x, a.y - m.y]).toEqual([b.x - s.x, b.y - s.y]);
