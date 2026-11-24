@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 174 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 176 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -503,6 +503,14 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   negrito; acompanha a escrita e fecha quando o servidor deixa de responder (cursor fora da
   chamada), com Esc ou ao sair. O jdtls traz o signatureHelp DESLIGADO por omissão: o `lsp.rs`
   liga-o nas `initializationOptions` (`init_options`).
+- **Code actions** (`domain/code-actions.ts`, menu em `ui/popups.ts`, comandos `lsp_code_action` +
+  `lsp_execute_command`): Ctrl+. na selecção ou no cursor; correcções primeiro (a preferida à frente).
+  Uma acção com `edit` aplica-se como o rename; um comando executa-se no servidor, que devolve as
+  edições por `workspace/applyEdit` (o backend emite-as como `lsp://apply-edit`, a UI aplica-as);
+  `java.apply.workspaceEdit` aplica-se localmente. O backend junta ao contexto os diagnósticos das
+  LINHAS pedidas e, logo após uma edição, espera (até 2 s) pelos diagnósticos do texto novo.
+- **Pedidos do servidor ao cliente:** o `id` pode ser número ou TEXTO (o jdtls usa texto); o
+  `dispatch` responde a ambos. Sem resposta ao `workspace/configuration`, o jdtls bloqueava.
 - **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
   — o `didChange` normal só sai 180 ms depois da última tecla. Um rename que volta `null` (o jdtls
   logo após uma edição) é perguntado mais duas vezes.
