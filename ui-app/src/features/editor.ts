@@ -22,7 +22,8 @@
    tocados DENTRO das funções, chamadas depois do arranque, e resolvem no escopo GLOBAL
    em runtime. Do core importa-se só o que é dono de lá (`$`, `toast`). */
 
-import { $, esc, toast } from "../core";
+import { $, esc, toast, rel } from "../core";
+import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
 
 /* ───── corpo do renderer da tab `file` (era VIEW.file no monólito) ───── */
@@ -78,7 +79,13 @@ function paintEdFull(p: string): void {
 
 /* nomes das linguagens na barra de estado (ADR-0004, U4j3 — era do app.ts; o boot4/boot6 acrescentam) */
 const LANG: Record<string, string>={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
-Object.assign(window, { LANG, renderFileView, paintEd: paintEdFull, gotoLine, stPos, stLang, edCmd, selText });
+/* o último commit que tocou no ficheiro activo, na barra de estado (ADR-0004, U4j4a — era do app.ts). O stLang
+   PUBLICADO acrescenta-o, como a decoração do app.ts fazia; as chamadas internas ao stLang local continuam sem ele. */
+function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,authorOf=BG.authorOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:GIT.c['1a2b3c4'];if(!c){/* desktop: syncGit reconstrói GIT.c com hashes reais e files:[], logo '1a2b3c4' (semente do protótipo) não existe — sem crash, só o estado local */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
+function stLangWithBlame(): void { stLang(); blame(); }
+/* e corre a cada mudança do workspace (era o fim do subscritor do app.ts) */
+bus.on('workspace:changed',()=>{blame();});
+Object.assign(window, { LANG, renderFileView, paintEd: paintEdFull, gotoLine, stPos, stLang: stLangWithBlame, blame, edCmd, selText });
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.file = (t, host) => renderFileView(t as { path: string }, host);
 

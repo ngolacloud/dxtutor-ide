@@ -44,6 +44,8 @@ const AGENTS: Record<string, Agent> = (window.AGENTS = {
   qa:{n:'QA',d:'Testes automáticos',col:'var(--yellow)',paths:['crates/*/tests/**','tests/**'],cmds:['cargo test','dx lint','dx test'],task:'test',model:'auto',max:6},
   ops:{n:'Plataforma',d:'Infra, CI/CD e deploy',col:'var(--purple)',paths:['deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','git push'],task:'ops',model:'auto',max:4},
   tutor:{n:'Tutor',d:'Explica e orienta; nunca escreve por ti',col:'var(--cyan)',paths:[],cmds:[],task:'teach',model:'auto',max:0}});
+/* caminhos, comandos e limites da camada v4 (ADR-0004, U4j4a — eram um Object.assign no app.ts, que avaliava depois) */
+Object.assign(AGENTS.be,{paths:['crates/**','apps/*/src/**','apps/*/Cargo.toml','apps/*/go.mod','apps/*/package.json','apps/*/requirements.txt'],max:8});Object.assign(AGENTS.fe,{paths:['desktop/src/**','web/**']});Object.assign(AGENTS.ops,{paths:['docker-compose.yml','.env.example','Makefile','apps/*/Dockerfile','deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','docker compose','make','git push'],max:12});Object.assign(AGENTS.qa,{cmds:['cargo test','dx lint','dx test','sh tests/smoke.sh']});
 window.AGENT='lead';
 const globRe=(g:string)=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=>x.replace(/[.+^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*')+'$');
 const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));

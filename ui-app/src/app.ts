@@ -6,7 +6,7 @@
    Object.assign no fim + window.* nas mutáveis partilhadas). @ts-nocheck: tipar a
    sério fica para fase posterior — esta fase só componentiza. */
 export {};
-import { jsa, rel } from "./core";
+import { jsa } from "./core";
 import { setVar, getVar, hydrate, log } from "./features/shell";
 import { short, P_LX } from "./features/workspace";
 import { LANG } from "./features/editor";
@@ -185,9 +185,11 @@ document.addEventListener('click',e=>{if(!e.target.closest('#notes')&&!e.target.
 /* graphLayout/openGraph migrados p/ features/scm.ts; VIEW.graph (abaixo) consome-os por global */
 /* VIEW.graph: registado pela features/graph.ts (ADR-0004, U4j2). */
 /* corpo (sub-comandos status/add/commit/log/branch/checkout/merge/flow/diff/push) migrado p/ features/termgit.ts; shim delega (registo XC de features/terminal.ts) */
-XC.git=(a,raw)=>window.gitCmd(a,raw);
 /* checkpoint/restoreCkpt/gfAsk migrados p/ features/checkpoint.ts (strict, window-backed); aqui lidos por global (CMD acima, codev.ts). */
 
+/* XC.git (termgit), XC.docker/make + dx run|stop (infra), dx test|sprint (board), blame + stLang (editor), o
+   redesenho do grafo/board no workspace:changed (graph/board), GAPS (codev) e AGENTS.* (team) passaram aos
+   donos (ADR-0004, U4j4a). */
 /* ───── equipa: motor (AGENTS/globRe/inScope/canRun/ownerOf/harnessCheck/harnessCmd/agentSys/
    saveTeam/loadTeam/pickAgent/agentPill/scopeProbe + VIEW.team) migrado p/ features/team.ts
    (inversão @ts-nocheck, window-backed). Aqui ficam: openTeam (abrir tab — $dup0; versão viva
@@ -212,13 +214,8 @@ let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/
 
 /* ───── integração com o resto do IDE ───── */
 function resetAll(){if(RUN.active){toast('Pára a execução primeiro');return;}loadSeed();MISSIONS.length=0;DECS.length=0;CKPT.length=0;CHAT.length=0;BL.issues.length=0;BL.seq=11;BL.mig=3;BL.adr=4;SD=JSON.parse(JSON.stringify(ST_SEED));saveSD();TB=[];newChat();refresh(false,true);openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'});toast('Protótipo reposto ao estado inicial');}
-bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();});
-const _stLang=window.stLang;window.stLang=function(){_stLang();blame();};
-function blame(){const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path)),c=h?GIT.c[h]:GIT.c['1a2b3c4'];if(!c){/* desktop: syncGit reconstrói GIT.c com hashes reais e files:[], logo '1a2b3c4' (semente do protótipo) não existe — sem crash, só o estado local */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 /* decoração v4 do pane Co-Dev (Equipa/Backlog/Studio) migrada e dobrada em features/codev.ts */
-const _dx=XC.dx;XC.dx=(a)=>{if(a[0]==='test'&&a[1]){const it=BL.issues.find(i=>i.id.toLowerCase()===a[1].toLowerCase());if(!it){echo('<span class="er">issue desconhecida</span>');return;}dropIssue(it.id,'test');return;}if(a[0]==='sprint'){runSprint((+a[1]||1)-1);return;}return _dx(a);};
 /* (página de boas-vindas desta camada: código morto — sobreposta antes de ser chamada; ADR-0004, U4g7) */
-GAPS.push(['Grafo de commits e ramos','GitLens','Lista plana de commits','Feito: DAG com faixas por ramo, merges, tags, autor por commit, detalhe de ficheiros'],['Gitflow guiado','GitLens / git-flow','Não existia','Feito: cada tarefa abre um ramo e fecha com merge em develop; releases ficam com o humano'],['Vários assistentes com harness','Claude Code (subagentes)','Um só assistente','Feito: 8 papéis; caminhos, comandos e limite de ficheiros aplicados em cada ferramenta'],['Router de modelos','—','Routing fixo','Feito: o assistente descreve a tarefa e recebe o modelo mais adequado'],['Studio de arquitectura','projecto original','Só no histórico de commits','Feito: canvas editável que gera backlog e sprints'],['Backlog, sprints e kanban','Jira / Linear','Não existia','Feito: teste automático ao entrar em Teste; só o que passa chega à validação funcional'],['Tutor','projecto original','Não existia','Feito: percursos, exercícios verificados no editor, pistas graduais, lições a partir dos erros']);
 CMD.push(['Projecto: Studio de arquitectura','',openStudio],['Projecto: Quadro (kanban)','',openBoard],['Projecto: Gerar backlog a partir do Studio','',genBacklog],['Projecto: Executar Sprint 1','',()=>runSprint(0)],['Projecto: Executar Sprint 2','',()=>runSprint(1)],['Projecto: Nova issue…','',newIssue],['Equipa: Assistentes e harness','',()=>openTeam()],['Equipa: Escolher assistente da conversa…','',pickAgent],
   ['Git: Grafo de commits','',()=>openGraph()],['Gitflow: Iniciar feature…','',()=>gfPrompt('feature')],['Gitflow: Iniciar fix…','',()=>gfPrompt('fix')],['Gitflow: Iniciar release…','',()=>gfPrompt('release')],['Gitflow: Finalizar ramo actual','',()=>gfFinish()?toast('Ramo finalizado'):toast('Não estás num ramo de gitflow')],['Tutor: Continuar a aprender','',()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}]);
 function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray(sd.nodes)&&Array.isArray(sd.edges))SD=sd;
@@ -242,14 +239,10 @@ function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray
 /* genBacklog/genBacklogIssues (produtor Studio→backlog) migrados p/ features/board.ts;
    lêem os geradores (composeYaml/dockerfile/appFiles/k8sYaml/cloudMap, em features/generators.ts) por global. */
 /* decoração de approveIssue (fecha componentes do Studio) composta em features/board.ts (ADR-0004, U4g3). */
-Object.assign(AGENTS.be,{paths:['crates/**','apps/*/src/**','apps/*/Cargo.toml','apps/*/go.mod','apps/*/package.json','apps/*/requirements.txt'],max:8});Object.assign(AGENTS.fe,{paths:['desktop/src/**','web/**']});Object.assign(AGENTS.ops,{paths:['docker-compose.yml','.env.example','Makefile','apps/*/Dockerfile','deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','docker compose','make','git push'],max:12});Object.assign(AGENTS.qa,{cmds:['cargo test','dx lint','dx test','sh tests/smoke.sh']});
 
 /* ───── RUN: one command for the whole stack ───── */
 /* ───── RUN: motor (STACK/composeServices/dxRun/dxStop/drawStack) migrado p/ features/stack.ts (inversão @ts-nocheck, window-backed);
    aqui ficam só os consumidores XC.docker/make/dx (terminal) e o wiring de arranque boot4, que lêem dxRun/dxStop/STACK/drawStack por global ───── */
-XC.docker=a=>{if(a[0]==='compose'&&a[1]==='up')return dxRun(true);if(a[0]==='compose'&&a[1]==='down'){dxStop(true);return;}if(a[0]==='compose'&&a[1]==='ps'){echo(STACK?STACK.map(s=>`${s.name.padEnd(20)} ${s.state.padEnd(9)} ${s.url}`).join('\n'):'<span class="dim">no containers</span>');return;}echo('<span class="dim">docker compose up | down | ps</span>');};
-XC.make=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}echo('<span class="dim">make run | stop</span>');};
-const _dx4=XC.dx;XC.dx=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}return _dx4(a);};
 
 /* ───── wiring ───── */
 /* (página de boas-vindas desta camada: código morto — sobreposta antes de ser chamada; ADR-0004, U4g7) */
@@ -298,7 +291,7 @@ function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX'
    (workspace), LANG (editor), runTask (terminal) e rerender (tabs) passaram a ser publicados pelos donos (ADR-0004, U4j3). */
 Object.assign(window, {
   CMD, PANE, PROV, RUN, STOP,
-  blame, boot, boot3, boot4, boot5, boot6, buildMenus,
+  boot, boot3, boot4, boot5, boot6, buildMenus,
   resetAll,
   who, // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
   CHAT, SAFE, DANGER,
