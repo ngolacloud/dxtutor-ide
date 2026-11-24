@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j4; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j5; o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -794,3 +794,63 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   inicial do compositor ficou igual), arch:check, build, e2e 6/6 isolado, auto-teste desktop
   idêntico ao da HEAD. O app.ts fica com o arranque (`boot`…`boot6`), os menus/paleta/atalhos,
   o `refresh`, o `resetAll` e o `LCUR` — a U4j5.
+- **U4j5 — plano (2026-11-24).** O resto do app.ts em duas fatias: **U4j5a** as peças
+  autocontidas (o `refresh` e o `resetAll` para o workspace, os atalhos globais para o
+  `shortcuts.ts`, o fecho das notificações para o `notifications.ts`, o `cur`/`PANE` que já nascem
+  nos stores); **U4j5b** o conteúdo dos menus/paleta (`CMD`/`buildMenus`/`LCUR`) e o arranque
+  (`boot`…`boot6`) para módulos tipados — e o app.ts deixa de existir. *Revisto na execução:* a
+  U4j5b tipa o app.ts no próprio sítio (só tipos, JS emitido idêntico) e a **U4j5c** divide-o
+  em módulos de comandos e de arranque (mover sem mudar) — separar as duas coisas mantém cada
+  prova simples.
+- **U4j5a (2026-11-24) — refresh, resetAll, atalhos e notificações para os donos.** O `refresh`
+  (o sinal «o workspace mudou») e o `resetAll` vão para o `features/workspace.ts`, tipados por uma
+  fachada que lê as funções publicadas no acto (o `show` da barra de acções, o `paintEd` com
+  breakpoints — as que o app.ts resolvia por nome livre); o listener dos atalhos globais (F1,
+  F8, Ctrl+Shift+E/F/G/M/A, Ctrl+P/B/J/`/,/L/G/S, Escape) vai para o `shortcuts.ts`, a seguir ao
+  que lá estava (entre os dois módulos nenhum outro regista teclado, por isso a ordem é a mesma);
+  o que fecha as notificações num clique fora vai para o `notifications.ts` (nenhum listener de
+  clique no document usa `stopImmediatePropagation`, por isso a posição não muda nada). A
+  entrada «Repor protótipo» do `CMD`, que guarda o `resetAll` por valor, continua a apanhar a
+  mesma função, publicada antes de o app.ts avaliar. **Apanhado pelos testes — e corrigido
+  também para a U4j4b:** a atribuição `cur=null`/`PANE='explorer'` do app.ts não tinha efeito
+  na app, mas no harness dos testes, que reavalia os módulos a cada teste, o `ownedGlobal`
+  herda o valor que ficou no `window` — era o app.ts que os repunha a cada arranque; sem ela, o
+  `cur` herdava um separador do teste anterior e dois testes do debug falhavam. O mesmo valia
+  para o `MODE`/`ACTIVE`/`THRESH`/`CTX_ON` que a U4j4b tirou (os testes passaram, mas ficou uma
+  dependência escondida da ordem). A reposição passa para os donos: cada store repõe o valor
+  inicial ao avaliar, logo a seguir a criar o acessor — na app é o valor que já tem; nos testes,
+  cada arranque começa limpo. Globais publicadas 383 → 381. Verificado na worktree limpa sobre a
+  HEAD `187e36e`: tsc, lint 266 (igual), 458 testes, arch:check, build, e2e 6/6 isolado,
+  auto-teste desktop idêntico ao da HEAD.
+- **U4j5b (2026-11-24) — o app.ts tipado; nenhum ficheiro com `@ts-nocheck`.** O último ficheiro
+  com a directiva passa a ser verificado pelo tsc sem mudar de sítio nem de comportamento: só
+  entram tipos. Os nomes livres que o app.ts usa continuam a resolver o global no acto (a versão
+  publicada, eventualmente decorada): os que ainda não tinham tipo global declaram-se num bloco
+  `declare global` no próprio ficheiro, em vez de se importarem — um import trocaria a resolução
+  tardia pela função local do módulo. O `MENUS` vê-se, neste módulo, com o tipo completo dos itens
+  (separadores, submenus, `on`) por uma declaração só de tipo; o `CMD` é uma lista de tuplos
+  `[rótulo, atalho, acção]`; o resto são asserções não-nulas (`!`, inseridas pela posição exacta
+  de cada diagnóstico do tsc) e casts de elementos (`HTMLTextAreaElement`, `Element`). **Prova:**
+  o JS emitido (tipos e comentários fora, parênteses canonizados) é idêntico ao da HEAD, à parte
+  os parênteses à volta de um parâmetro único de arrow; as contagens de `!=`/`!==`/`==`/`===` não
+  mudam. O baseline do A6 (`arch-check.sh`) desce de 11 para 0 e o da métrica do
+  `ui-metrics.sh` de 1 para 0. Verificado na worktree limpa sobre a HEAD `f973a74`: tsc, lint
+  266 (267 na HEAD), 470 testes, arch:check, build, e2e 6/6 isolado, auto-teste desktop idêntico
+  ao da HEAD (25 passos). Falta a U4j5c: dividir o app.ts em módulos e apagá-lo.
+- **U4j5c (2026-11-24) — o app.ts divide-se e deixa de existir.** O que restava move-se sem mudar
+  para dois módulos de composição, na posição que o app.ts tinha no `main.ts`: o
+  `app/commands.ts` (a paleta `CMD`, o `cmd`, o `buildMenus`, o `LCUR` e os comandos da camada
+  v3) e o `app/boot-steps.ts` (o `boot` e o `boot3`…`boot6`, que o `startup.ts` chama). Os tipos
+  dos globais lidos por nome livre (o bloco `declare global` da U4j5b) passam para o
+  `app/ide-globals.d.ts`, só de tipos. Os passos de arranque importam o `CMD`, o `buildMenus` e o
+  `LCUR` do `app/commands.ts`: no app.ts eram ligações locais do mesmo módulo, e o import mantém
+  isso (não passam a ler a versão do `window`). A publicação divide-se em duas (`CMD`/`buildMenus`
+  no fim dos comandos, `PANE`/`boot`… no fim do arranque), com os mesmos nomes; a cadeia do harness
+  dos testes vai agora até ao `app/boot-steps.ts`. **Prova:** as instruções de topo do JS emitido
+  dos dois módulos, sem imports/exports/publicação, são as do app.ts: as 6 funções iguais (são
+  içadas) e as 4 instruções restantes iguais e pela mesma ordem (o `CMD`, o `cmd`, o `LCUR`, o
+  `CMD.push` da v3). Verificado na worktree limpa sobre a HEAD `c8a3b38`: tsc, lint 266 (igual),
+  484 testes, arch:check, build, e2e 6/6 isolado, auto-teste desktop idêntico ao da HEAD (25
+  passos). Fecha a U4j: o monólito deixou de existir; o que fica nos dois módulos
+  (o conteúdo dos menus/paleta e o ajuste das listas no arranque) dissolve-se quando cada feature
+  registar os seus comandos (U7).

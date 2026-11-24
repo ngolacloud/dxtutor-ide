@@ -6,7 +6,7 @@ import { applySampleHistory } from "./fixtures/sample-history";
 import { applySampleDesign } from "./fixtures/sample-design";
 
 // A ordem de arranque vem do src/main.ts (o ponto de entrada único — ADR-0004, U1),
-// até app.ts inclusive: uma só fonte de verdade, em vez de uma cópia da lista aqui.
+// até app/boot-steps.ts inclusive (o antigo app.ts — ADR-0004, U4j5c): uma só fonte de verdade, em vez de uma cópia da lista aqui.
 // startup/bridge/pair/panel ficam de fora (o v5/v6 já não existem — ADR-0004, U4g7): nada no que os goldens caracterizam
 // depende deles, e trazê-los juntaria a cadeia de arranque completa (temporizadores,
 // ponte Tauri) sem necessidade para caracterizar o comportamento actual.
@@ -14,8 +14,8 @@ const MAIN_TS = readFileSync(resolve(__dirname, "../src/main.ts"), "utf-8");
 const ALL_MODULES = [...MAIN_TS.matchAll(/^import "\.\/([^"]+)";$/gm)].map((m) =>
   m[1] === "app/store" ? "../src/app/store/index.ts" : `../src/${m[1]}.ts`,
 );
-const MODULE_CHAIN = ALL_MODULES.slice(0, ALL_MODULES.indexOf("../src/app.ts") + 1);
-if (MODULE_CHAIN.length < 30 || MODULE_CHAIN[0] !== "../src/app/store/index.ts" || MODULE_CHAIN[1] !== "../src/boot.ts" || MODULE_CHAIN.at(-1) !== "../src/app.ts") {
+const MODULE_CHAIN = ALL_MODULES.slice(0, ALL_MODULES.indexOf("../src/app/boot-steps.ts") + 1);
+if (MODULE_CHAIN.length < 30 || MODULE_CHAIN[0] !== "../src/app/store/index.ts" || MODULE_CHAIN[1] !== "../src/boot.ts" || MODULE_CHAIN.at(-1) !== "../src/app/boot-steps.ts") {
   throw new Error(`harness: a ordem lida do main.ts não é a esperada (${MODULE_CHAIN.length} módulos)`);
 }
 

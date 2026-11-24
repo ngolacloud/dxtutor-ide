@@ -57,3 +57,6 @@ function toggleNotes(): void {
 /* ── publicação transitória no window (shim para o residual e o onclick inline) ── */
 window.note = note;
 window.toggleNotes = toggleNotes;
+/* fecha o painel de notificações num clique fora dele (ADR-0004, U4j5a — era do app.ts); nenhum listener de clique
+   no document usa stopImmediatePropagation, por isso a posição deste não muda nada */
+document.addEventListener('click',e=>{if(!(e.target as Element).closest('#notes')&&!(e.target as Element).closest('#st-bell'))$('#notes')!.classList.remove('show');});

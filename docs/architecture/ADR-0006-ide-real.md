@@ -634,3 +634,12 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   methods.<code>rust_tracer</code>).» na mensagem de erro do visualizer (e45f18d, do develop),
   reportado na série, foi corrigido depois a pedido do dono (com um teste do cartão de erro, que
   nenhum cobria).
+- **Merge do develop com a U4j5a–c (2026-11-24).** O `app.ts` foi tipado e dividido em
+  `app/commands.ts` e `app/boot-steps.ts` (e o `refresh` passou ao `features/workspace.ts`). As
+  mudanças desta série no `app.ts` foram levadas para lá: sem as missões de demonstração e o
+  «Repor protótipo» na paleta e nos menus (R0/R1b), `resetWorkspace` no arranque e sem o
+  separador `lib.rs` nem o registo «2 crates indexados» (R1a/R1c), o menu Run com os comandos do
+  projecto e o Step Into (R2d/R4), e o desenho do Studio por `loadSD` (R6a). O `resetAll` e o
+  `loadSeed` que a U4j5a pusera no `workspace.ts` saem; os globais declarados em
+  `app/ide-globals.d.ts` acompanham. Selftest desktop completo (43 passos): `errors: []`.
+  Métricas: globais 381 → 355.
