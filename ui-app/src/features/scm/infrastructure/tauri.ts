@@ -7,6 +7,7 @@
 import { invoke, type Invoker } from "../../../platform/tauri/core";
 import type { GitExtrasPort } from "../application/extras-ports";
 import type { Blame, Compare, HistCommit, RebasePlan, StashResult, Worktree } from "../domain/git-extras";
+import { parseChangeSetGroups } from "../domain/changesets";
 
 export const tauriGitExtras = (inv: Invoker = invoke): GitExtrasPort => ({
   blame: (root, path) => inv<Blame>("git_blame", { root, path }),
@@ -22,4 +23,5 @@ export const tauriGitExtras = (inv: Invoker = invoke): GitExtrasPort => ({
   changes: (root) => inv<Array<{ path: string; status: string }>>("git_changes", { root }),
   worktreeDiff: (root, path) => inv<string>("git_diff", { root, file: path, staged: false }),
   rangeDiff: (root, base, target, path) => inv<string>("git_diff_range", { root, base, target, path }),
+  changeSets: async (root) => parseChangeSetGroups(await inv<unknown>("project_change_sets", { root })),
 });

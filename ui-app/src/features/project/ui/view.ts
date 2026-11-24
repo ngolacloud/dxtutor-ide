@@ -24,7 +24,7 @@ import {
   wipOf,
   type View,
 } from "../domain/board";
-import { COS, KINDS, PRIORITIES, STATES, type Issue, type Project, type State } from "../domain/types";
+import { COS, KINDS, PRIORITIES, STATES, type Issue, type IssueUsage, type Project, type State } from "../domain/types";
 import { renderPanel } from "./panels";
 import { NAVIGATOR_MESSAGE, pairState } from "../../../app/pair-state";
 
@@ -142,6 +142,17 @@ function backlogView(p: Project): string {
 }
 
 /** What the issue lacks to be Ready (RF-B02), as the store computed it. */
+/** `12.3k` — a token count, short. */
+const kTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/** RF-B08/T04: what Co-Dev used on the issue — turns, sessions, the real models, tokens and cost. */
+export function usageLine(u: IssueUsage): string {
+  const cost = `$${u.costUsd.toFixed(2)}${u.unpriced ? ` <span class="pj-dim">(+${plural(u.unpriced, "turn")} not priced)</span>` : ""}`;
+  const models = u.models.map((m) => `<code>${esc(m)}</code>`).join(", ") || "model unknown";
+  return `<div class="pj-usage" title="Summed from the Co-Dev turns in the audit log"><span class="pj-dim">Co-Dev usage</span> ${plural(u.turns, "turn")} in ${plural(u.sessions, "session")} · ${models} · ${kTokens(u.tokensIn)} in / ${kTokens(u.tokensOut)} out tokens · ${cost}</div>`;
+}
+
 function missingList(i: Issue): string {
   const rest = i.missing.filter((m) => m !== "aprovação humana (Ready)");
   return rest.length ? `<div class="pj-missing"><span class="pj-dim">Missing for Ready:</span>${rest.map((m) => `<div class="pj-li bad">· ${esc(m)}</div>`).join("")}</div>` : "";
@@ -225,10 +236,10 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
       ${
         d && d.changeSets.length
           ? `<div class="pj-dim">Co-Dev change sets</div>${d.changeSets
-              .map((c) => `<div class="pj-li"><code>${esc(c.path)}:${c.start}</code> <span class="ok">+${c.added}</span> <span class="bad">−${c.removed}</span> <span class="pj-dim">${esc(c.decidedBy)}</span></div>`)
+              .map((c) => `<div class="pj-li pj-link" title="Open the diff" data-action="pj-diff" data-on="${esc(c.path)}"><code>${esc(c.path)}:${c.start}</code> <span class="ok">+${c.added}</span> <span class="bad">−${c.removed}</span> <span class="pj-dim">${esc(c.decidedBy)}</span></div>`)
               .join("")}`
           : ""
-      }
+      }${d && d.usage.turns ? usageLine(d.usage) : ""}
       <button class="pj-btn pri" data-action="pj-work"${i.missing.length ? ` disabled title="Not Ready: ${esc(i.missing.join("; "))}"` : !pairState.canDrive() ? ` disabled title="${esc(NAVIGATOR_MESSAGE)}"` : ""}><span>Work on it with Co-Dev</span></button>
       <button class="pj-btn" data-action="pj-prompt" title="The exact prompt this issue goes to Co-Dev with"><span>View prompt</span></button>${
         st.prompt && st.prompt.key === i.key

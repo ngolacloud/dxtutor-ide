@@ -5,6 +5,7 @@
    text, a choice), Co-Dev and the tabs. Adapters: infrastructure/tauri.ts and legacy-bridge.ts. */
 
 import type { Blame, Compare, HistCommit, RebaseOp, RebasePlan, StashOp, StashResult, Worktree, WorktreeOp } from "../domain/git-extras";
+import type { ChangeSetGroup } from "../domain/changesets";
 
 export interface GitExtrasPort {
   blame(root: string, path: string): Promise<Blame>;
@@ -25,6 +26,8 @@ export interface GitExtrasPort {
   worktreeDiff(root: string, path: string): Promise<string>;
   /** `base...target`, of one file or everything (`git_diff_range`) */
   rangeDiff(root: string, base: string, target: string, path: string | null): Promise<string>;
+  /** RF-E08: the Co-Dev change sets accepted since the last commit, by issue (`project_change_sets`) */
+  changeSets(root: string): Promise<ChangeSetGroup[]>;
 }
 
 export interface GitWorkspacePort {
@@ -42,6 +45,11 @@ export interface GitWorkspacePort {
   cursor(): { path: string; line: number; start: number; end: number } | null;
   /** the commit message box of the Source Control pane */
   commitMessage(): string;
+  setCommitMessage(message: string): void;
+  /** stage these files (relative paths; already staged ones stay staged) */
+  stage(paths: string[]): void;
+  /** put these files back as they are in the last commit (relative paths) */
+  discard(paths: string[]): void;
   open(path: string, line?: number): void;
 }
 

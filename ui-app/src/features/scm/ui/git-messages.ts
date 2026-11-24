@@ -46,6 +46,9 @@ export const GIT_MESSAGES = {
     askReviewSummary: "Summarize this change for a reviewer: what it does, group by group, and where to look hardest.",
     notARepo: "This folder is not a git repository. Commits, branches, gitflow and the graph use the folder's real git.",
     noRepo: "No git repository open. Version control uses the real git of the folder open in the desktop app.",
+    csTitle: "Co-Dev change sets", csNoIssue: "No issue", csStage: "Stage the files of this set", csDiscard: "Discard the files of this set…",
+    csOpen: "Open the diff", csShared: "also in another set", csStaged: "{n} file(s) of {set} staged",
+    csConfirmDiscard: "Discard the changes of {set}?\n\n{files}\n\nThese files go back to the last commit, with every change in them — yours too.",
   },
   ptAO: {
     justNow: "agora mesmo", minAgo: "há {n} min", hAgo: "há {n} h", dAgo: "há {n} d", moAgo: "há {n} meses", yAgo: "há {n} anos",
@@ -90,6 +93,9 @@ export const GIT_MESSAGES = {
     askReviewSummary: "Resume esta alteração para quem a vai rever: o que faz, grupo a grupo, e onde olhar com mais atenção.",
     notARepo: "Esta pasta não é um repositório git. Os commits, os ramos, o gitflow e o grafo usam o git real da pasta.",
     noRepo: "Nenhum repositório git aberto. O controlo de versões usa o git real da pasta aberta na app desktop.",
+    csTitle: "Alterações do Co-Dev", csNoIssue: "Sem issue", csStage: "Preparar (stage) os ficheiros deste conjunto", csDiscard: "Descartar os ficheiros deste conjunto…",
+    csOpen: "Abrir o diff", csShared: "também noutro conjunto", csStaged: "{n} ficheiro(s) de {set} preparados",
+    csConfirmDiscard: "Descartar as alterações de {set}?\n\n{files}\n\nEstes ficheiros voltam ao último commit, com todas as alterações que têm — também as tuas.",
   },
 } satisfies Messages<string>;
 export type GitKey = keyof typeof GIT_MESSAGES.en;

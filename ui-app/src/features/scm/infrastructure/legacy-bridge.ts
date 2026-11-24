@@ -127,5 +127,9 @@ export const editorCursor = (): { path: string; line: number; start: number; end
 };
 /** O prefixo dos caminhos do editor (as chaves do FS são `ROOT` + caminho relativo). */
 export const rootKey = (): string => (typeof G.ROOT === "string" ? G.ROOT : "");
+/** O `discard` publicado (o do motor: repõe o ficheiro do último commit) de uma chave do FS. */
+export const decoratedDiscard = (p: string): void => (G.discard as (p: string) => void)(p);
+/** Abre o diff de um ficheiro (caminho relativo à pasta). */
+export const openDiffRel = (rel: string): void => G.openDiff(rootKey() + rel);
 /** Abre um ficheiro (caminho relativo à pasta) numa linha. */
 export const openRel = (rel: string, line?: number): void => (G.openPath as (p: string, l?: number) => void)((G.ROOT as string) + rel, line);

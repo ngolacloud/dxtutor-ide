@@ -157,16 +157,226 @@ fn architect_rules(root: &Path, lang: &str) -> String {
     }
 }
 
-/// Budgets of the code context (RF-E03 refines this with symbols and ±N lines).
+/// Budgets of the code context (RF-E03): about 4 000 tokens of code (≈ 4 characters a token).
 const MAX_LINES_PER_FILE: usize = 200;
 const MAX_CONTEXT_CHARS: usize = 16_000;
 const MAX_LISTED_FILES: usize = 40;
+/// Files of a folder or glob read to look for the symbols the issue mentions.
+const MAX_SCANNED_FILES: usize = 400;
+const MAX_SCANNED_BYTES: u64 = 512 * 1024;
+/// The lines shown around a symbol (RF-E03: «±N lines»).
+pub const CONTEXT_LINES: usize = 5;
+/// A symbol longer than this is cut (its outline line still gives the whole range).
+const MAX_SYMBOL_LINES: usize = 80;
+/// An anchor (a symbol the outline only knows by its first line) runs to the next symbol, at most this.
+const ANCHOR_SPAN: usize = 40;
+const MAX_OUTLINE_ENTRIES: usize = 30;
 
-/// The code of the scope, with line numbers: whole files (up to a budget) for paths that are
-/// files, and the file list for folders and globs.
-fn code_context(root: &Path, scope: &[String], lang: &str) -> String {
+/// One symbol of a file with its 1-based, inclusive line range, as the caller's outline gives it
+/// (the IDE passes its syntax map: `tutor-agent` does not parse languages). `end == start` is an
+/// anchor: only the definition line is known.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Symbol {
+    pub name: String,
+    pub kind: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// The symbols of a file (`path` relative to the project, and its text); empty when the file's
+/// language is not known.
+pub type Outliner<'a> = &'a dyn Fn(&str, &str) -> Vec<Symbol>;
+
+/// Is `c` part of an identifier?
+fn ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Does the issue's text point at the symbol `name`? In backticks (`` `parse` ``,
+/// `` `Lexer::next()` ``), called (`parse(`), or — for a name that only an identifier would have
+/// (`parse_header`, `parseHeader`, `TokenStream`) — anywhere as a whole word. A plain word such as
+/// «new» or «list» in the prose does not count.
+pub fn mentions(text: &str, name: &str) -> bool {
+    if name.chars().count() < 2 || !name.chars().all(ident_char) {
+        return false;
+    }
+    let identifier_like = name.contains('_') || name.chars().skip(1).any(|c| c.is_uppercase());
+    let ticked: Vec<&str> = text.split('`').skip(1).step_by(2).collect();
+    let words = |t: &str| -> Vec<usize> {
+        t.match_indices(name)
+            .filter(|(i, _)| {
+                let before = t[..*i].chars().next_back();
+                let after = t[i + name.len()..].chars().next();
+                !before.is_some_and(ident_char) && !after.is_some_and(ident_char)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    };
+    if ticked.iter().any(|t| !words(t).is_empty()) {
+        return true;
+    }
+    let at = words(text);
+    identifier_like && !at.is_empty() || at.iter().any(|i| text[i + name.len()..].starts_with('('))
+}
+
+/// The ranges of `syms` with anchors run to the next symbol (sorted by start).
+fn spans(syms: &[Symbol], total: usize) -> Vec<Symbol> {
+    let mut v: Vec<Symbol> = syms
+        .iter()
+        .filter(|s| s.start >= 1 && s.start <= total)
+        .cloned()
+        .collect();
+    v.sort_by_key(|s| (s.start, s.end));
+    let starts: Vec<usize> = v.iter().map(|s| s.start).collect();
+    for s in &mut v {
+        if s.end <= s.start {
+            let next = starts
+                .iter()
+                .copied()
+                .find(|&n| n > s.start)
+                .unwrap_or(total + 1);
+            s.end = (next - 1).min(s.start + ANCHOR_SPAN - 1).max(s.start);
+        }
+        s.end = s.end.min(total);
+    }
+    v
+}
+
+fn sym_label(s: &Symbol) -> String {
+    let range = if s.end > s.start {
+        format!("{}–{}", s.start, s.end)
+    } else {
+        s.start.to_string()
+    };
+    if s.kind.is_empty() {
+        format!("{range} ({})", s.name)
+    } else {
+        format!("{range} ({} {})", s.kind, s.name)
+    }
+}
+
+/// `other symbols: 1–20 (struct Lexer), …` — where the rest of a file is.
+fn outline_line(syms: &[Symbol], lang: &str) -> String {
+    if syms.is_empty() {
+        return String::new();
+    }
+    let mut parts: Vec<String> = syms
+        .iter()
+        .take(MAX_OUTLINE_ENTRIES)
+        .map(sym_label)
+        .collect();
+    if syms.len() > MAX_OUTLINE_ENTRIES {
+        parts.push(format!("… (+{})", syms.len() - MAX_OUTLINE_ENTRIES));
+    }
+    let head = if lang == "pt" {
+        "outros símbolos"
+    } else {
+        "other symbols"
+    };
+    format!("     │ {head}: {}\n", parts.join(", "))
+}
+
+/// The excerpts of `chosen` (±N lines, merged when they meet), with line numbers, under a header
+/// that names each symbol and its range; then where the other symbols are.
+fn excerpts(rel: &str, lines: &[&str], chosen: &[Symbol], others: &[Symbol], lang: &str) -> String {
+    let total = lines.len();
+    let mut windows: Vec<(usize, usize)> = chosen
+        .iter()
+        .map(|s| {
+            let end = s.end.min(s.start + MAX_SYMBOL_LINES - 1);
+            (
+                s.start.saturating_sub(CONTEXT_LINES).max(1),
+                (end + CONTEXT_LINES).min(total),
+            )
+        })
+        .collect();
+    windows.sort();
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (a, b) in windows {
+        match merged.last_mut() {
+            Some(last) if a <= last.1 + 1 => last.1 = last.1.max(b),
+            _ => merged.push((a, b)),
+        }
+    }
+    let what = if lang == "pt" {
+        format!("trechos ±{CONTEXT_LINES} linhas")
+    } else {
+        format!("excerpts ±{CONTEXT_LINES} lines")
+    };
+    let mut block = format!(
+        "{rel}: {} — {what}\n",
+        chosen.iter().map(sym_label).collect::<Vec<_>>().join(", ")
+    );
+    for (k, (a, b)) in merged.iter().enumerate() {
+        if k > 0 || *a > 1 {
+            block.push_str("     │ …\n");
+        }
+        for (n, line) in lines.iter().enumerate().take(*b).skip(a - 1) {
+            block.push_str(&format!("{:>4} │ {line}\n", n + 1));
+        }
+    }
+    if merged.last().is_some_and(|(_, b)| *b < total) {
+        block.push_str("     │ …\n");
+    }
+    block.push_str(&outline_line(others, lang));
+    block
+}
+
+/// The whole file (up to `MAX_LINES_PER_FILE` lines) with line numbers; when it is cut, where the
+/// symbols past the cut are.
+fn whole_file(rel: &str, lines: &[&str], syms: &[Symbol], lang: &str) -> String {
+    let mut block = format!("{rel}\n");
+    for (n, line) in lines.iter().enumerate().take(MAX_LINES_PER_FILE) {
+        block.push_str(&format!("{:>4} │ {line}\n", n + 1));
+    }
+    if lines.len() > MAX_LINES_PER_FILE {
+        let more = lines.len() - MAX_LINES_PER_FILE;
+        block.push_str(&if lang == "pt" {
+            format!("     │ … (+{more} linhas)\n")
+        } else {
+            format!("     │ … (+{more} lines)\n")
+        });
+        let past: Vec<Symbol> = syms
+            .iter()
+            .filter(|s| s.start > MAX_LINES_PER_FILE)
+            .cloned()
+            .collect();
+        block.push_str(&outline_line(&past, lang));
+    }
+    block
+}
+
+/// The code of the scope, with line numbers (RF-E03, docs/v2/RF-DELONIX-PLANO.md F2.3), inside a
+/// budget of about 4 000 tokens:
+/// - a file of the scope that is short goes whole;
+/// - a long one (or one past the budget) goes as the excerpts of the symbols the issue mentions,
+///   ±N lines, with where its other symbols are — or, when the issue mentions none, its first
+///   lines and where the rest is;
+/// - a folder or a glob gives its file list and the excerpts of the mentioned symbols in it.
+fn code_context(
+    root: &Path,
+    scope: &[String],
+    lang: &str,
+    issue_text: &str,
+    outline: Outliner,
+) -> String {
     let mut out = String::new();
     let mut budget = MAX_CONTEXT_CHARS;
+    let push = |out: &mut String, block: String, budget: &mut usize| -> bool {
+        if block.len() > *budget {
+            return false;
+        }
+        *budget -= block.len();
+        out.push_str(&block);
+        out.push('\n');
+        true
+    };
+    let mentioned = |syms: &[Symbol]| -> (Vec<Symbol>, Vec<Symbol>) {
+        syms.iter()
+            .cloned()
+            .partition(|s| mentions(issue_text, &s.name))
+    };
+    let mut shown: std::collections::HashSet<String> = std::collections::HashSet::new();
     for s in scope {
         let s = s.trim();
         if s.is_empty() {
@@ -178,26 +388,32 @@ fn code_context(root: &Path, scope: &[String], lang: &str) -> String {
             let Ok(text) = std::fs::read_to_string(&p) else {
                 continue;
             };
-            let mut block = format!("{s}\n");
-            for (n, line) in text.lines().enumerate().take(MAX_LINES_PER_FILE) {
-                block.push_str(&format!("{:>4} │ {line}\n", n + 1));
+            shown.insert(s.to_string());
+            let lines: Vec<&str> = text.lines().collect();
+            let syms = spans(&outline(s, &text), lines.len());
+            let (chosen, others) = mentioned(&syms);
+            let whole = whole_file(s, &lines, &syms, lang);
+            let fits = lines.len() <= MAX_LINES_PER_FILE && whole.len() <= budget;
+            let block = if fits {
+                whole
+            } else if !chosen.is_empty() {
+                excerpts(s, &lines, &chosen, &others, lang)
+            } else {
+                whole
+            };
+            if !push(&mut out, block, &mut budget) {
+                // past the budget: at least where its symbols are
+                let gone = if lang == "pt" {
+                    "fora do orçamento de contexto; lê-o com read"
+                } else {
+                    "past the context budget; read it with read"
+                };
+                let mut line = format!("{s} — ({gone})\n");
+                line.push_str(&outline_line(&syms, lang));
+                if !push(&mut out, line.clone(), &mut budget) {
+                    out.push_str(&format!("{s} — ({gone})\n"));
+                }
             }
-            let total = text.lines().count();
-            if total > MAX_LINES_PER_FILE {
-                block.push_str(&format!(
-                    "     │ … (+{} linhas)\n",
-                    total - MAX_LINES_PER_FILE
-                ));
-            }
-            if block.len() > budget {
-                out.push_str(&format!(
-                    "{s} — (fora do orçamento de contexto; lê-o com read)\n"
-                ));
-                continue;
-            }
-            budget -= block.len();
-            out.push_str(&block);
-            out.push('\n');
             continue;
         }
         // folders and globs: the files that match
@@ -216,16 +432,42 @@ fn code_context(root: &Path, scope: &[String], lang: &str) -> String {
             .collect();
         files.sort();
         let n = files.len();
-        files.truncate(MAX_LISTED_FILES);
         out.push_str(&format!(
             "{s}: {}{}\n",
-            files.join(", "),
+            files
+                .iter()
+                .take(MAX_LISTED_FILES)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
             if n > MAX_LISTED_FILES {
                 format!(" … (+{})", n - MAX_LISTED_FILES)
             } else {
                 String::new()
             }
         ));
+        // the symbols the issue mentions, in the files of the folder
+        for f in files.iter().take(MAX_SCANNED_FILES) {
+            if shown.contains(f)
+                || std::fs::metadata(root.join(f)).map_or(true, |m| m.len() > MAX_SCANNED_BYTES)
+            {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(root.join(f)) else {
+                continue;
+            };
+            let lines: Vec<&str> = text.lines().collect();
+            let syms = spans(&outline(f, &text), lines.len());
+            let (chosen, _) = mentioned(&syms);
+            if chosen.is_empty() {
+                continue;
+            }
+            shown.insert(f.clone());
+            let block = excerpts(f, &lines, &chosen, &[], lang);
+            if !push(&mut out, block, &mut budget) {
+                break;
+            }
+        }
     }
     if out.trim().is_empty() {
         out = if lang == "pt" {
@@ -237,8 +479,15 @@ fn code_context(root: &Path, scope: &[String], lang: &str) -> String {
     out.trim_end().to_string()
 }
 
-/// Renders the issue's prompt from the project's template (or the built-in one).
+/// Renders the issue's prompt from the project's template (or the built-in one), with no symbol
+/// outline (whole files and file lists only).
 pub fn render(root: &Path, i: &IssueData, lang: Option<&str>) -> Rendered {
+    render_with(root, i, lang, &|_, _| Vec::new())
+}
+
+/// Renders the issue's prompt; `outline` gives the symbols of a file, for the excerpts of the
+/// symbols the issue mentions (RF-E03).
+pub fn render_with(root: &Path, i: &IssueData, lang: Option<&str>, outline: Outliner) -> Rendered {
     let lang = match lang {
         Some("pt") => "pt",
         Some("en") => "en",
@@ -269,7 +518,16 @@ pub fn render(root: &Path, i: &IssueData, lang: Option<&str>) -> Rendered {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let mut context = code_context(root, &i.scope, lang);
+    let issue_text = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        i.title,
+        i.story_as,
+        i.story_want,
+        i.story_so,
+        i.description,
+        i.criteria.join("\n")
+    );
+    let mut context = code_context(root, &i.scope, lang, &issue_text, outline);
     if let Some(f) = &i.previous_failure {
         let head = if lang == "pt" {
             "Tentativa anterior: os testes falharam"
@@ -410,5 +668,195 @@ mod tests {
         assert!(r
             .text
             .contains("(the project has not defined architect rules yet)"));
+    }
+    /// A syntax map for the tests: `fn name` starts a symbol that ends at the next line that is
+    /// exactly `}` (Rust-like); `def name` is an anchor (Python-like, only the first line).
+    fn toy_outline(_path: &str, code: &str) -> Vec<Symbol> {
+        let lines: Vec<&str> = code.lines().collect();
+        let mut out = Vec::new();
+        for (n, l) in lines.iter().enumerate() {
+            if let Some(rest) = l.strip_prefix("fn ") {
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                let end = lines[n..]
+                    .iter()
+                    .position(|x| *x == "}")
+                    .map_or(n + 1, |k| n + k + 1);
+                out.push(Symbol {
+                    name,
+                    kind: "fn".into(),
+                    start: n + 1,
+                    end,
+                });
+            } else if let Some(rest) = l.strip_prefix("def ") {
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                out.push(Symbol {
+                    name,
+                    kind: "def".into(),
+                    start: n + 1,
+                    end: n + 1,
+                });
+            }
+        }
+        out
+    }
+
+    /// A Rust-like file of `n` functions `f0…`, each 10 lines long (`fn fK() {`, 8 body lines, `}`).
+    fn long_file(names: &[&str]) -> String {
+        names
+            .iter()
+            .map(|n| {
+                let mut f = format!("fn {n}() {{\n");
+                for k in 0..8 {
+                    f.push_str(&format!("    let {n}_{k} = {k};\n"));
+                }
+                f.push_str("}\n");
+                f
+            })
+            .collect()
+    }
+
+    #[test]
+    fn mentions_are_backticks_calls_or_identifier_like_names() {
+        assert!(mentions("Change `parse` to accept tabs", "parse"));
+        assert!(mentions("fix `Lexer::next()` at eof", "next"));
+        assert!(mentions("make parse( skip blanks", "parse"));
+        assert!(mentions("the parse_header bug", "parse_header"));
+        assert!(mentions("paginar o listOrders", "listOrders"));
+        assert!(mentions("TokenStream drops the last token", "TokenStream"));
+        // plain words of the prose are not symbols
+        assert!(!mentions("add a new list of orders", "new"));
+        assert!(!mentions("add a new list of orders", "list"));
+        assert!(!mentions("the reparse step", "parse"));
+        assert!(!mentions("`parser` breaks", "parse"));
+        assert!(!mentions("x", "a b"));
+    }
+
+    #[test]
+    fn a_long_file_goes_as_the_mentioned_symbols_with_n_lines_around_and_where_the_rest_is() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        // 40 functions of 10 lines: 400 lines, past the whole-file limit
+        let names: Vec<String> = (0..40).map(|k| format!("f{k}")).collect();
+        let mut names: Vec<&str> = names.iter().map(String::as_str).collect();
+        names[12] = "parse_header";
+        names[20] = "emit";
+        std::fs::write(d.path().join("src/lexer.rs"), long_file(&names)).unwrap();
+        let mut i = issue();
+        i.title = "Header parsing".into();
+        i.description = "`parse_header` drops the last field; `emit` must flush it.".into();
+        i.scope = vec!["src/lexer.rs".into()];
+        let r = render_with(d.path(), &i, Some("en"), &toy_outline);
+        // the header names each symbol and its range
+        assert!(
+            r.text.contains(
+                "src/lexer.rs: 121–130 (fn parse_header), 201–210 (fn emit) — excerpts ±5 lines"
+            ),
+            "{}",
+            r.text
+        );
+        // ±5 lines around each, with the real line numbers
+        assert!(r.text.contains(" 116 │ "));
+        assert!(r.text.contains(" 121 │ fn parse_header() {"));
+        assert!(r.text.contains(" 135 │ "));
+        assert!(!r.text.contains(" 115 │ "));
+        assert!(!r.text.contains(" 136 │ "));
+        assert!(r.text.contains(" 201 │ fn emit() {"));
+        assert!(!r.text.contains("   1 │ fn f0() {"), "not the whole file");
+        // where the other symbols are
+        assert!(r
+            .text
+            .contains("other symbols: 1–10 (fn f0), 11–20 (fn f1)"));
+        // 38 other symbols, 30 listed
+        assert!(
+            r.text.contains("… (+8)") && !r.text.contains("(fn f39)"),
+            "the outline is capped"
+        );
+        // in Portuguese too
+        let pt = render_with(d.path(), &i, Some("pt"), &toy_outline);
+        assert!(pt.text.contains("— trechos ±5 linhas"));
+        assert!(pt.text.contains("outros símbolos: 1–10 (fn f0)"));
+    }
+
+    #[test]
+    fn without_a_mention_a_long_file_shows_its_start_and_where_the_symbols_past_it_are() {
+        let d = tempfile::tempdir().unwrap();
+        let names: Vec<String> = (0..25).map(|k| format!("g{k}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        std::fs::write(d.path().join("big.rs"), long_file(&names)).unwrap();
+        let mut i = issue();
+        i.description = "Make it faster.".into();
+        i.scope = vec!["big.rs".into()];
+        let r = render_with(d.path(), &i, Some("en"), &toy_outline);
+        assert!(r.text.contains(" 200 │ }"));
+        assert!(r.text.contains("     │ … (+50 lines)"));
+        assert!(
+            r.text
+                .contains("other symbols: 201–210 (fn g20), 211–220 (fn g21)"),
+            "{}",
+            r.text
+        );
+        // without an outline (render): as before
+        let plain = render(d.path(), &i, Some("en"));
+        assert!(plain.text.contains("… (+50 lines)") && !plain.text.contains("other symbols"));
+    }
+
+    #[test]
+    fn a_folder_gives_its_files_and_the_mentioned_symbols_in_them_with_anchors_run_to_the_next() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("app")).unwrap();
+        std::fs::write(d.path().join("app/models.py"), "import x\n\ndef load_orders(db):\n    rows = db.all()\n    return rows\n\ndef save(db):\n    pass\n").unwrap();
+        std::fs::write(
+            d.path().join("app/views.py"),
+            "def index():\n    return 1\n",
+        )
+        .unwrap();
+        let mut i = issue();
+        i.description = "Paginate load_orders.".into();
+        i.scope = vec!["app/".into()];
+        let r = render_with(d.path(), &i, Some("en"), &toy_outline);
+        assert!(r.text.contains("app/: app/models.py, app/views.py"));
+        // the anchor (def) runs to the line before the next symbol
+        assert!(
+            r.text
+                .contains("app/models.py: 3–6 (def load_orders) — excerpts ±5 lines"),
+            "{}",
+            r.text
+        );
+        assert!(r.text.contains("   3 │ def load_orders(db):"));
+        assert!(
+            !r.text.contains("def index"),
+            "views.py has no mentioned symbol"
+        );
+    }
+
+    #[test]
+    fn the_symbol_context_stays_inside_the_budget() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        // many files, each with a mentioned symbol of 80 lines: they cannot all fit
+        for k in 0..60 {
+            let mut f = String::from("fn shared_step() {\n");
+            for n in 0..78 {
+                f.push_str(&format!(
+                    "    let step_{n} = {n}; // a fairly long line of code {k}\n"
+                ));
+            }
+            f.push_str("}\n");
+            std::fs::write(d.path().join(format!("src/m{k:02}.rs")), f).unwrap();
+        }
+        let mut i = issue();
+        i.description = "Rename `shared_step` everywhere.".into();
+        i.scope = vec!["src/".into()];
+        let r = render_with(d.path(), &i, Some("en"), &toy_outline);
+        let code = r.text.split("# Code context").nth(1).unwrap();
+        assert!(code.len() < MAX_CONTEXT_CHARS + 4_000, "{}", code.len());
+        assert!(code.contains("src/m00.rs: 1–80 (fn shared_step)"));
+        assert!(!code.contains("src/m59.rs: 1–80"), "past the budget");
     }
 }

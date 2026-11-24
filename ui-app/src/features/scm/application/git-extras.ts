@@ -10,6 +10,7 @@
    failure; a newer request for a view wins over an older answer still on its way. */
 
 import { blameAt, initialSteps, moveStep, planIsNoop, planProblem, rebaseCommand, worktreePath } from "../domain/git-extras";
+import { changeSetsOfWorkingTree, commitMessageFor, type ScmChangeSet } from "../domain/changesets";
 import { diffStat, groupFiles, type ReviewFile, type ReviewGroup } from "../domain/review";
 import type { Blame, BlameLine, Compare, HistCommit, RebaseAction, RebasePlan, RebaseStep, Stash, Worktree } from "../domain/git-extras";
 import type { CodevPort, GitExtrasPort, GitWorkspacePort, HumanPort, TabsPort } from "./extras-ports";
@@ -70,6 +71,8 @@ export interface ExtrasState {
   /** a text to read in the «git» tab (a stash's diff…) */
   text: { title: string; body: string } | null;
   review: ReviewState | null;
+  /** RF-E08: the Co-Dev change sets still in the working tree, by issue */
+  changeSets: ScmChangeSet[];
   /** the operation running (one at a time) */
   busy: string | null;
 }
@@ -78,7 +81,7 @@ const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; human: HumanPort; codev: CodevPort; tabs: TabsPort; say: Say }) {
   const { git, ws, human, codev, tabs, say } = deps;
-  const st: ExtrasState = { stashes: [], worktrees: [], sideLoaded: false, sideError: "", history: null, compare: null, rebase: null, text: null, review: null, busy: null };
+  const st: ExtrasState = { stashes: [], worktrees: [], sideLoaded: false, sideError: "", history: null, compare: null, rebase: null, text: null, review: null, changeSets: [], busy: null };
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
 
@@ -137,6 +140,48 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
     }
     st.sideLoaded = true;
     emit();
+    await refreshChangeSets();
+  }
+
+  /* ── RF-E08: the Co-Dev change sets of the working tree, by issue ── */
+  async function refreshChangeSets(): Promise<void> {
+    const root = ws.root();
+    if (!root) return;
+    let next: ScmChangeSet[];
+    try {
+      const [changed, groups] = await Promise.all([git.changes(root), git.changeSets(root)]);
+      next = changeSetsOfWorkingTree(groups, changed.map((c) => c.path));
+    } catch {
+      next = []; // no project store (or no git): no section, the rest of the pane is unaffected
+    }
+    if (ws.root() !== root) return;
+    if (JSON.stringify(next) === JSON.stringify(st.changeSets)) return;
+    st.changeSets = next;
+    emit();
+  }
+
+  const setOf = (key: string): ScmChangeSet | undefined => st.changeSets.find((s) => (s.issueKey ?? "") === key);
+  const setName = (s: ScmChangeSet): string => s.issueKey ?? say("csNoIssue");
+
+  /** Stages the files of a set; with the message box empty, suggests «title (KEY)». */
+  function stageSet(key: string): void {
+    const s = setOf(key);
+    if (!s) return;
+    // the message first: staging repaints the pane, which draws the message box
+    const m = commitMessageFor(s);
+    if (m && !ws.commitMessage().trim()) ws.setCommitMessage(m);
+    ws.stage(s.files.map((f) => f.path));
+    human.toast(say("csStaged", { n: s.files.length, set: setName(s) }));
+  }
+
+  /** Puts the files of a set back as in the last commit, after the human confirms. */
+  async function discardSet(key: string): Promise<void> {
+    const s = setOf(key);
+    if (!s) return;
+    const files = s.files.map((f) => `• ${f.path}${f.shared ? ` (${say("csShared")})` : ""}`).join("\n");
+    if (!human.confirm(say("csConfirmDiscard", { set: setName(s), files }))) return;
+    ws.discard(s.files.map((f) => f.path));
+    await refreshChangeSets();
   }
 
   /* ── stashes ── */
@@ -421,6 +466,9 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
     lineBlame,
     invalidate,
     refreshSide,
+    refreshChangeSets,
+    stageSet,
+    discardSet,
     stashPush, stashApply, stashDrop, stashShow,
     worktreeAdd, worktreeRemove,
     amend,

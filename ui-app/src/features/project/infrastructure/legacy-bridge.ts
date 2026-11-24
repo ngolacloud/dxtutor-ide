@@ -15,6 +15,8 @@ import type { Issue, Project } from "../domain/types";
 const G = window as unknown as {
   DXR?: { root?: string | null; git?: boolean };
   openTab?: (t: { id: string; title: string; kind: string }) => void;
+  ROOT?: string;
+  openDiff?: (p: string) => void;
   toast?: (m: string) => void;
   checkout?: (branch: string, create?: boolean) => unknown;
   codevAgentStory?: (s: { id: string; title: string; type: string; pts: number; note?: string }) => Promise<void> | null;
@@ -81,3 +83,6 @@ export const dialog: Dialog = {
 export const notify: Notifier = { toast: (m) => (G.toast ? G.toast(m) : undefined) };
 
 export const openTab = (t: { id: string; title: string; kind: string }): void => G.openTab?.(t);
+
+/** RF-B08: the diff of a file of the open folder (path relative to it), as Source Control opens it. */
+export const openDiff = (rel: string): void => G.openDiff?.((G.ROOT ?? "") + rel);

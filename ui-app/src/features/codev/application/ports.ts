@@ -333,6 +333,8 @@ export interface HunkSink {
 export interface HunkReviewDeps {
   /** RF-E07: a hunk was applied to `path`; `before` is the file's text it replaced (Ctrl+Z). */
   applied?(path: string, before: string): void;
+  /** RF-E08: a block was applied or Auto's validation ended — the recorded change sets may have changed. */
+  recorded?(): void;
   /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
   copy?: CodevCopy;
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
