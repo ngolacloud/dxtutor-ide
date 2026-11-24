@@ -81,6 +81,8 @@ interface TerminalGlobals {
   XC: Record<string, (a: string[], v: string) => unknown>;
   run: (raw: string) => void;
   promptHTML: () => string;
+  setPanelTab: (pt: string, nofocus?: boolean) => void;
+  termExec: (v: string) => unknown;
 }
 const TG = window as unknown as TerminalGlobals;
 
@@ -325,4 +327,8 @@ export interface TerminalDesktop {
 const runVirtual = run as (raw?: string) => unknown;
 const runPublished = (raw?: string): unknown => { const d = desktopPorts.terminal; return d ? d.run(raw, runVirtual) : runVirtual(raw); };
 
-Object.assign(window, { termNew, termClear, echo, scrollTerm, onKey, dirAt, curDir, complete, echoCmd, run: runPublished });
+/** Corre um comando no terminal (mostra-o): era o `runTask` do app.ts (ADR-0004, U4j3). Chama o
+ *  `termExec` PUBLICADO, que consulta a porta desktop (tarefa num PTY na app). */
+function runTask(c: string): unknown { TG.setPanelTab('terminal'); return TG.termExec(c); }
+
+Object.assign(window, { termNew, termClear, echo, scrollTerm, onKey, dirAt, curDir, complete, echoCmd, run: runPublished, runTask });

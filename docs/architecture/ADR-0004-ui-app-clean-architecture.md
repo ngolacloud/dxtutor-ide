@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j2; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j3; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -728,3 +728,28 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   depois do arranque (8/8 nas duas builds) e o teste falha também na HEAD sem estas
   alterações (1 em 10; no total, 1/17 na HEAD e 3/16 com elas) — instabilidade do próprio
   teste (uma corrida entre a paleta e a escrita do Playwright), reportada, não corrigida aqui.
+- **U4j3 (2026-11-24) — o núcleo de helpers e estado do `app.ts` vai para os donos.** O
+  workspace (`features/workspace.ts` e o store) passa a criar e publicar o `FS`/`ROOT`/`OPEN`
+  (o `OPEN` inicial com as 6 pastas que o app.ts criava), o `SECOPEN`, os caminhos
+  `extOf`/`short`/`norm`, as constantes `P_*` e o `LF`; o `shell.ts` o
+  `setVar`/`getVar`/`hydrate` e o `log` (canal Output); o `editor.ts` o `LANG`; o
+  `terminal.ts` o `runTask` (chama o `termExec` PUBLICADO, para manter a porta desktop); o
+  `tabs.ts` o `rerender` (chama o `show` publicado, o da barra de acções); o `core.ts` ganha o
+  `rel` e o `mdFull`, publicados com o `esc`/`hhmm` (iguais aos do core) por um módulo novo,
+  `app/globals.ts` (shim de transição: há quem ainda os leia pelo global — fachadas `G.rel`/
+  `bridge.hhmm`, learn.ts e pair.ts por nome livre). Saem como código morto `slug`/`pascal`/
+  `rid`/`COMMITS0` (sem uso). **Provas:** só o app.ts publicava estes nomes (varredura pela AST
+  de todas as publicações no `window`), por isso publicá-los mais cedo não colide com
+  ninguém; nenhum módulo os lê no eval antes do app.ts; ninguém reatribui o `FS`/`ROOT`/
+  `OPEN` (o app.ts guardava-os em `const` local); o JavaScript emitido de cada função movida
+  é igual ao original (`mdFull`, `rel`, `hydrate`, `log`, `extOf`, `short`, `norm`, `P_*`,
+  `LF`), e o `runTask`/`rerender` só diferem na forma de resolver os mesmos nomes. **Apanhado
+  pelo build, não pelo tsc:** o app.ts ainda tem `@ts-nocheck`, por isso um import de um nome
+  não exportado (`LANG`, `rerender`) só falhou no `vite build`; acrescentaram-se os exports e
+  confirmou-se pela AST que todos os imports do app.ts resolvem. Um comentário dentro do
+  `Object.assign(window, …)` do app.ts fazia a métrica contar nomes a mais; saiu do bloco.
+  Globais publicadas 392 → 389; lint 269 → 266. Verificado na worktree limpa sobre a HEAD
+  `195ee02` (a outra sessão commitou o arch F2 a meio): tsc, 438 testes, arch:check, build,
+  arranque no browser 5/5, auto-teste desktop idêntico ao da U4j2. O `arch.e2e.ts` falhou numa
+  verificação intermédia; medido de novo, 10 corridas: HEAD 1 falha, com estas alterações 0
+  (no total, 2/27 contra 3/26) — a instabilidade já reportada.

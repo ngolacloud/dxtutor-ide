@@ -76,6 +76,10 @@ function paintEdFull(p: string): void {
   if (PE.vsxOn('usernamehw.errorlens')) { const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 
-Object.assign(window, { renderFileView, paintEd: paintEdFull, gotoLine, stPos, stLang, edCmd, selText });
+/* nomes das linguagens na barra de estado (ADR-0004, U4j3 — era do app.ts; o boot4/boot6 acrescentam) */
+const LANG: Record<string, string>={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
+Object.assign(window, { LANG, renderFileView, paintEd: paintEdFull, gotoLine, stPos, stLang, edCmd, selText });
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.file = (t, host) => renderFileView(t as { path: string }, host);
+
+export { LANG };

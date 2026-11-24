@@ -189,6 +189,10 @@ function showWithActions(id: string | null): void {
 }
 
 /* publicação transitória no window (o monólito e os onclick inline chamam por nome) */
-Object.assign(window, { tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show: showWithActions, closeTab, stepTab, EACT });
+/** Volta a desenhar o separador activo se for do tipo `kind`, mantendo o scroll (era do app.ts,
+ *  ADR-0004 U4j3; como lá, usa o `show` publicado — o da barra de acções). */
+function rerender(kind: string): void { const t=tabOf(editorStore.currentTabId);if(t&&t.kind===kind){const top=$('#ebody')!.scrollTop;G.show(editorStore.currentTabId);$('#ebody')!.scrollTop=top;} }
 
-export { tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };
+Object.assign(window, { rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show: showWithActions, closeTab, stepTab, EACT });
+
+export { rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };

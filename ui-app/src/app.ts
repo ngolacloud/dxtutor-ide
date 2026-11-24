@@ -6,7 +6,10 @@
    Object.assign no fim + window.* nas mutáveis partilhadas). @ts-nocheck: tipar a
    sério fica para fase posterior — esta fase só componentiza. */
 export {};
-import { jsa } from "./core";
+import { jsa, rel } from "./core";
+import { setVar, getVar, hydrate, log } from "./features/shell";
+import { short, P_LX } from "./features/workspace";
+import { LANG } from "./features/editor";
 import { bus } from "./app/bus";
 import { desktopPorts } from "./app/desktop";
 import { openArch } from "./features/arch/index";
@@ -18,21 +21,11 @@ import { openArch } from "./features/arch/index";
 
 /* COURSES (conteúdo dos cursos) migrado p/ features/learn.ts */
 /* ═════════ dxtutor IDE v2 — núcleo do IDE ═════════ */
-const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-const hhmm=()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');return p(d.getHours())+':'+p(d.getMinutes());};
-const setVar=(k,v)=>document.body.style.setProperty(k,v);
-const getVar=k=>getComputedStyle(document.body).getPropertyValue(k).trim();
-function hydrate(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.insertAdjacentHTML('afterbegin',svg(el.dataset.ic));el.dataset.done=1;});}
 
 /* ───── sistema de ficheiros virtual ───── */
-const ROOT='dxtutor/',FS={},OPEN=new Set(['dxtutor','dxtutor/crates','dxtutor/crates/lexer','dxtutor/crates/lexer/src','dxtutor/desktop','dxtutor/desktop/src']),SECOPEN={};
 /* estado git/scm (STAGED/BRANCH/COMMIT_MSG/BRANCHES/COMMITS/AUTHOR/GSEL) migrado p/ features/scm.ts; lido aqui por global */
-const extOf=p=>(p.includes('.')?p.split('.').pop():'').toLowerCase();
-const LANG={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
 /* fIcon/syncTree (ícone por extensão, árvore a partir do FS) migrados p/ features/explorer.ts (ADR-0004, U4c). */
 /* stOf/changes (estado da árvore de trabalho) migrados p/ features/scm.ts; lidos por global */
-const short=p=>p.replace(ROOT,'');
-const norm=p=>{p=String(p||'').replace(/^\.?\//,'');return p.startsWith(ROOT)?p:ROOT+p;};
 
 /* ───── explorer ───── */
 /* 8 funções (renderLevel/buildExplorer/markActive/collapseAll/symbols/drawOutline/newFile/newFolder) migradas p/ features/explorer.ts; lidas por global (window.*) aqui (refresh/show), em boot.ts e v6.ts (symbols) */
@@ -42,7 +35,6 @@ const norm=p=>{p=String(p||'').replace(/^\.?\//,'');return p.startsWith(ROOT)?p:
 /* KW + hlLine (realce de uma linha) migrados p/ features/syntax.ts; lidos por global (window.hlLine) em paintEd/diff/cat/outline e em v5.ts/v6.ts */
 
 /* ───── diagnósticos, lint e testes (derivados do estado real dos ficheiros) ───── */
-const P_LX=ROOT+'crates/lexer/src/lib.rs',P_REPO=ROOT+'crates/store/src/conversations.rs',P_MIG=ROOT+'db/migrations/0002_conversations.sql',P_TEST=ROOT+'crates/store/tests/conversations_test.rs',P_HIST=ROOT+'desktop/src/history.ts',P_ADR=ROOT+'.dxtutor/arquitectura/ADR-003-historico.md',P_STORE=ROOT+'crates/store/src/lib.rs';
 /* motor has/lexBug/dsLint/diagnostics/runTests/drawProblems/nextProblem migrado p/ features/diagnostics.ts; lido por global (P_* ficam donas aqui) */
 
 /* ───── separadores e vistas ───── */
@@ -75,11 +67,9 @@ window.refresh = function(fromEd,force){const sig=Object.keys(FS).map(p=>p+stOf(
 /* (o RP.scm antigo que vivia aqui era código morto: sobreposto no mesmo eval pelo shim mais abaixo; saiu na U4j2) */
 /* stage/discard + commit v2 (window.commit, botão) migrados p/ features/scm.ts; pickBranch$dup0 morto removido */
 
-function runTask(c){setPanelTab('terminal');return termExec(c);}
 /* RP.ext antigo (provedores de LLM) eliminado — código morto: o v6 sobrepunha-o ao carregar; o painel é da features/ext.ts (ADR-0004, U4g1). */
 
 /* ───── painel inferior ───── */
-function log(src,msg){const o=$('#pc-output');o.insertAdjacentHTML('beforeend',`<div>[${hhmm()}] <span class="r">${esc(src)}</span> ${esc(msg)}</div>`);o.scrollTop=o.scrollHeight;}
 
 /* ───── terminal (comandos ligados ao estado real) ───── */
 // promptHTML/newInput/termRefreshPrompt/termExec + o registo BASE XC (help/cat/git/cargo/
@@ -111,7 +101,6 @@ const PROV={
 /* ROLE/ROLE_D/ROUTE/MODES/CRIT/MISSIONS/DECS/CKPT + SPEED/MID: motor Co-Dev migrado p/ features/codev.ts (window-backed); aqui lê-se por global. */
 window.MODE='assist';window.ACTIVE='claude';window.THRESH=85;window.CTX_ON=true;window.SAMPLE=null;
 const CHAT=[];/* USAGE com dono no agentStore (ADR-0004, U4f) */
-const COMMITS0=COMMITS.slice();
 const RUN={active:false,paused:false,stop:false,pend:null,abort:null,label:'',t0:0};
 const STOP='__STOP__',SAFE=/^(cargo (test|build|clippy)|dx lint|npm run lint)/,DANGER=/git push|rm -rf|drop table|--force/i;
 const provFor=r=>PROV[ROUTE[r]].on?ROUTE[r]:(connected()[0]||ROUTE[r]);
@@ -189,11 +178,6 @@ document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey|
 document.addEventListener('click',e=>{if(!e.target.closest('#notes')&&!e.target.closest('#st-bell'))$('#notes').classList.remove('show');});
 
 /* ═════════ dxtutor IDE v3 — git em grafo, gitflow, equipa com harness, router de modelos, Studio, backlog/kanban, Tutor ═════════ */
-const slug=s=>String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-const pascal=s=>slug(s).split('-').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join('');
-const rel=t=>{const m=Math.round((Date.now()-t)/60000);return m<1?'agora':m<60?`há ${m} min`:m<1440?`há ${Math.round(m/60)} h`:`há ${Math.round(m/1440)} d`;};
-const rid=()=>Math.random().toString(16).slice(2,9);
-function rerender(kind){const t=tabOf(cur);if(t&&t.kind===kind){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}
 
 /* ───── git: motor (GIT/LANE/gitInit + DAG/merge/gitflow/graphLayout) migrado p/ features/scm.ts; checkpoint/restoreCkpt/gfAsk migrados p/ features/checkpoint.ts; aqui só consumidor (loadSeed) que lê por global ───── */
 /* authorOf + AUTHOR + commit v4 (window.commitGit) migrados p/ features/scm.ts; lidos por global (AUTHOR é window-puro, escrito aqui em runIssue/co-dev) */
@@ -224,7 +208,6 @@ XC.git=(a,raw)=>window.gitCmd(a,raw);
 /* ───── Tutor (clássico): percursos LEARN/LP/lesson·/VIEW.learn/RP.tutor(v4) ELIMINADOS —
    código morto substituído pelo Learning Track (features/learn.ts + features/tutor.ts).
    Ficam só LF (fachada window.LF lida por learn.ts) e LCUR (fallback dos call-sites vivos). ───── */
-const LF=p=>ROOT+'learn/'+p;/* fachada viva: features/learn.ts lê window.LF (ltPath, lazy) */
 let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */
 
 /* ───── integração com o resto do IDE ───── */
@@ -248,12 +231,6 @@ function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray
   refresh(false,true);show(cur);badges();}
 
 /* ═════════ dxtutor IDE v4 — Learning Track (real course content), cloud Studio, generated artefacts, RUN ═════════ */
-function mdFull(s){const out=[],inl=x=>esc(x).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/(^|[\s(])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>');
-  String(s||'').split(/```/).forEach((p,i)=>{if(i%2){out.push(`<pre>${esc(p.replace(/^[a-z]*\n/,'').replace(/\n$/,''))}</pre>`);return;}
-    p.split(/\n{2,}/).forEach(b=>{b=b.trim();if(!b)return;
-      if(/^#{1,4}\s/.test(b)){const[h,...r]=b.split('\n');out.push(`<h3>${inl(h.replace(/^#+\s*/,''))}</h3>`);if(r.length)out.push(`<p>${inl(r.join(' '))}</p>`);}
-      else if(/^\s*[-*]\s/.test(b))out.push('<ul>'+b.split(/\n(?=\s*[-*]\s)/).map(l=>`<li>${inl(l.replace(/^\s*[-*]\s+/,'').replace(/\n\s*/g,' '))}</li>`).join('')+'</ul>');
-      else out.push(`<p>${inl(b.replace(/\n/g,' '))}</p>`);});});return out.join('');}
 
 /* ───── Learning Track: COURSES + motor (LTS, course, ltUnits, drillState, ltRes, ltGo, ltAsk, onboarding) + corpo da vista migrados p/ features/learn.ts; aqui so os shims RP.tutor e VIEW.lt que delegam ───── */
 /* RP.tutor/VIEW.lt: registados pelas features tutor/learn (ADR-0004, U4j2). */
@@ -317,17 +294,16 @@ function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX'
 /* ── fase 4: expor ao window as globais que boot.js/handlers inline/bridge.ts/pair.ts
    consomem; ao virar módulo, os let/const/function de topo deixaram de ser globais de
    script. As mutáveis partilhadas já são window-backed acima (fonte única). ── */
+/* esc/hhmm/rel/mdFull (app/globals.ts), setVar/getVar/hydrate/log (shell), extOf/short/norm/P_…/LF/SECOPEN/FS/ROOT/OPEN
+   (workspace), LANG (editor), runTask (terminal) e rerender (tabs) passaram a ser publicados pelos donos (ADR-0004, U4j3). */
 Object.assign(window, {
-  CMD, FS, OPEN, PANE, PROV, ROOT, RUN, SECOPEN, STOP,
+  CMD, PANE, PROV, RUN, STOP,
   blame, boot, boot3, boot4, boot5, boot6, buildMenus,
-  esc, hydrate, log,
-  mdFull, rerender, resetAll, runTask,
+  resetAll,
   who, // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
-  CHAT, SAFE, DANGER, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
+  CHAT, SAFE, DANGER,
   // fachadas que as features migradas (features/*.ts) consomem por window:
-  provFor, LF,
-  // núcleo lido como referências livres via window (era das camadas v5/v6; hoje features e boot5/boot6):
-  extOf, getVar, hhmm, LANG, P_HIST, P_LX, rel, setVar, short
+  provFor,
 });
 /* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — corre depois de
    todos os donos publicarem os seus bootN (app.ts, visualizer, i18n). */
