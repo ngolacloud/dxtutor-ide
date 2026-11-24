@@ -4,21 +4,50 @@
 
 import { isEdgeStyle, isGroupKind, isKind, isProtocol } from "../domain/design";
 import type { ArchStudio } from "../application/studio";
+import type { RulesEditor } from "../application/rules";
+import { splitList } from "../domain/rules";
 import type { ActionTable } from "./actions";
 
 /** As acções que contam enquanto há uma proposta do agente à espera (o resto fica parado,
  *  para nada mudar às escondidas por baixo da proposta). */
 const WHILE_PROPOSAL = new Set(["arch-accept", "arch-discard", "arch-peek"]);
 
-export function archActions(studio: ArchStudio, prompt: (message: string, initial: string) => string | null): ActionTable {
-  const table = actions(studio, prompt);
+export function archActions(studio: ArchStudio, prompt: (message: string, initial: string) => string | null, rules?: RulesEditor): ActionTable {
+  const table = { ...actions(studio, prompt, rules), ...(rules ? rulesActions(studio, rules) : {}) };
   return Object.fromEntries(Object.entries(table).map(([name, spec]) => [name, {
     on: spec.on,
     run: (e) => { if (!studio.state().proposal || WHILE_PROPOSAL.has(name)) spec.run(e); },
   }]));
 }
 
-function actions(studio: ArchStudio, prompt: (message: string, initial: string) => string | null): ActionTable {
+/** O painel «Rules» (F5.2/F5.5): abre-se no lugar do Import/Export (um de cada vez). */
+function rulesActions(studio: ArchStudio, rules: RulesEditor): ActionTable {
+  const i = (on: string): number => Number(on);
+  return {
+    "arch-rules": { on: "click", run: () => { if (studio.state().io) studio.toggleIo(); void rules.toggle(); } },
+    "arch-rl-add": { on: "click", run: () => rules.addLayer() },
+    "arch-rl-del": { on: "click", run: ({ on }) => rules.removeLayer(i(on)) },
+    "arch-rl-name": { on: "change", run: ({ on, value }) => rules.setLayerName(i(on), value) },
+    "arch-rl-paths": { on: "change", run: ({ on, value }) => rules.setLayerPaths(i(on), splitList(value)) },
+    "arch-rl-uses": { on: "change", run: ({ on, value }) => rules.setLayerUses(i(on), splitList(value)) },
+    "arch-rl-free": { on: "change", run: ({ on, checked }) => rules.setLayerFree(i(on), checked) },
+    "arch-rl-from": { on: "click", run: () => rules.fromDesign() },
+    "arch-rl-lib": { on: "change", run: ({ on, value }) => { if (on === "forbidden" || on === "approved") rules.setLibraries(on, splitList(value)); } },
+    "arch-rl-naming-add": { on: "click", run: () => rules.addNaming() },
+    "arch-rl-naming-del": { on: "click", run: ({ on }) => rules.removeNaming(i(on)) },
+    "arch-rl-naming-paths": { on: "change", run: ({ on, value }) => rules.setNaming(i(on), { paths: splitList(value) }) },
+    "arch-rl-naming-pattern": { on: "change", run: ({ on, value }) => rules.setNaming(i(on), { pattern: value }) },
+    "arch-rl-exc-add": { on: "click", run: () => rules.addException() },
+    "arch-rl-exc-del": { on: "click", run: ({ on }) => rules.removeException(i(on)) },
+    "arch-rl-exc-adr": { on: "change", run: ({ on, value }) => rules.setException(i(on), { adr: value.trim() }) },
+    "arch-rl-exc-rule": { on: "change", run: ({ on, value }) => rules.setException(i(on), { rule: value.trim() }) },
+    "arch-rl-save": { on: "click", run: () => void rules.save() },
+    "arch-adr-accept": { on: "click", run: ({ on }) => void rules.acceptAdr(on) },
+    "arch-rl-commit": { on: "click", run: () => void rules.commit() },
+  };
+}
+
+function actions(studio: ArchStudio, prompt: (message: string, initial: string) => string | null, rules?: RulesEditor): ActionTable {
   const ask = (m: string): string => (prompt(m, "") ?? "").trim();
   const idx = (on: string): number => Number(on);
   return {
@@ -38,7 +67,7 @@ function actions(studio: ArchStudio, prompt: (message: string, initial: string) 
     },
     "arch-add-group": { on: "click", run: () => { const l = ask("Group label (e.g. Host, Control Plane, Node 1):"); if (l) studio.addGroup(l); } },
     "arch-arrange": { on: "click", run: () => studio.arrange() },
-    "arch-io": { on: "click", run: () => studio.toggleIo() },
+    "arch-io": { on: "click", run: () => { rules?.close(); studio.toggleIo(); } },
     "arch-export": { on: "click", run: ({ on }) => { if (on === "svg" || on === "png" || on === "mermaid" || on === "json") void studio.exportAs(on); } },
     "arch-import-mermaid": {
       on: "click",

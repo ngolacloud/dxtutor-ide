@@ -15,6 +15,8 @@ import { CARD, PANEL_BAR, codeLines, groupPills, layout, nameLines, pillRect } f
 import { LABEL_PX, placeLabels, routeAll, straightRoutes, type Point, type Route } from "../domain/routing";
 import type { ArchConnection, ArchKind, Design, DesignGroup, DesignNode, Rect } from "../domain/types";
 import type { ArchStudio } from "../application/studio";
+import type { RulesEditor } from "../application/rules";
+import { RULES_FILE, joinList } from "../domain/rules";
 import type { Repaint } from "../application/ports";
 import { ICONS } from "./icons";
 
@@ -176,12 +178,14 @@ export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?
 
 export interface ArchViewDeps {
   studio: ArchStudio;
+  /** O painel «Rules» (F5.2/F5.5); sem ele, o botão não aparece. */
+  rules?: RulesEditor;
   root(): string | null;
   /** As exportações vão para a pasta do projecto (desktop com pasta) ou são downloads. */
   savesToProject(): boolean;
 }
 
-export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
+export function makeArchView({ studio, rules, root, savesToProject }: ArchViewDeps) {
   let host: HTMLElement | null = null;
   const q = <T extends Element>(sel: string): T | null => (host ? host.querySelector<T>(sel) : null);
 
@@ -226,6 +230,7 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
     <button class="mini" data-action="arch-add-view" title="Side-by-side comparison (at most two panels)">＋ Panel</button>
     <button class="mini" data-action="arch-arrange" title="Lay everything out in layers, top to bottom">⇅ Arrange</button>
     <button class="mini${s.io ? " pri" : ""}" data-action="arch-io" title="Export SVG, PNG or Mermaid; import Mermaid">⇄ Import / Export</button>
+    ${rules ? `<button class="mini${rules.state().open ? " pri" : ""}" data-action="arch-rules" title="The architect's rules (.dxtutor/architecture.toml) and the ADRs">§ Rules</button>` : ""}
     <span class="sp"></span>
     ${scaffold ? `<button class="mini" data-action="arch-preview">Preview scaffold</button>
     <button class="mini pri" data-action="arch-scaffold">Generate scaffold</button>` : ""}`;
@@ -382,6 +387,52 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
       `<input class="inp" data-arch-open style="width:100%;margin:0 0 6px" value="docs/architecture/"><button class="mini" data-action="arch-open">Open</button>`;
   }
 
+  /* ───── as regras do arquitecto e os ADR (F5.2/F5.5) ───── */
+  function rulesInspector(ed: RulesEditor): string {
+    const r = ed.state();
+    const head = `<h3>Architect's rules</h3><p><code>${RULES_FILE}</code>${r.doc && !r.doc.exists ? " — not created yet" : ""}. Checked on every change of Co-Dev and in the Problems panel; a deviation passes only with an accepted ADR.</p>`;
+    if (!ed.available()) return head + `<div class="st-f"><span>·</span><div>The rules live in the project folder: open a folder in the desktop app to edit them.</div></div>`;
+    if (r.loading && !r.doc) return head + `<div class="st-f"><span>…</span><div>Loading…</div></div>`;
+    const can = !!r.doc?.canEdit;
+    const dis = can ? "" : " disabled";
+    const txt = (action: string, on: string, value: string, ph: string): string =>
+      `<input class="inp" style="margin:0 0 4px;width:100%" data-action="${action}" data-on="${esc(on)}" value="${esc(value)}" placeholder="${esc(ph)}"${dis}>`;
+    const note = r.doc?.note ? `<div class="st-f${can ? "" : " w"}"><span>${can ? "·" : "⚠"}</span><div>${esc(r.doc.note)}</div></div>` : "";
+    const status = (r.error ? r.error.split("\n").map((e) => `<div class="st-f e"><span>✖</span><div>${esc(e)}</div></div>`).join("") : "") +
+      (r.message ? `<div class="st-f ok"><span>✓</span><div>${esc(r.message)}</div></div>` : "");
+    const layers = r.draft.layers.map((l, i) =>
+      `<div class="arch-rl" style="border-left:3px solid var(--accent);padding-left:8px;margin:8px 0">` +
+      field("Layer", txt("arch-rl-name", String(i), l.name, "domain")) +
+      field("Paths", txt("arch-rl-paths", String(i), joinList(l.paths), "src/domain/**")) +
+      check("arch-rl-free", String(i), l.mayUse === null, "May depend on any layer").replace("<input", `<input${dis}`) +
+      (l.mayUse === null ? "" : field("May use", txt("arch-rl-uses", String(i), joinList(l.mayUse), "nothing else"))) +
+      (can ? `<button class="mini" data-action="arch-rl-del" data-on="${i}">Remove layer</button>` : "") + `</div>`).join("") ||
+      `<p>No layers yet. Draw a group of kind «Layer» for each one and its arrows, then use <b>Layers from the drawing</b>.</p>`;
+    const naming = r.draft.naming.map((n, i) =>
+      `<div style="margin:6px 0">${txt("arch-rl-naming-paths", String(i), joinList(n.paths), "src/**/*.rs")}${txt("arch-rl-naming-pattern", String(i), n.pattern, "^[a-z0-9_]+\\.rs$")}` +
+      (can ? `<button class="mini" data-action="arch-rl-naming-del" data-on="${i}">Remove</button>` : "") + `</div>`).join("");
+    const exceptions = r.draft.exceptions.map((x, i) =>
+      `<div style="margin:6px 0">${txt("arch-rl-exc-adr", String(i), x.adr, "ADR-0007")}${txt("arch-rl-exc-rule", String(i), x.rule, "library:moment")}` +
+      (can ? `<button class="mini" data-action="arch-rl-exc-del" data-on="${i}">Remove</button>` : "") + `</div>`).join("");
+    const adrs = r.adrs.map((a) =>
+      `<div class="st-f${a.accepted ? " ok" : ""}"><span>${a.accepted ? "✓" : "·"}</span><div><b>${esc(a.id)}</b> ${esc(a.title)} <code>${esc(a.status || "no status")}</code>` +
+      (!a.accepted && can ? ` <button class="mini" data-action="arch-adr-accept" data-on="${esc(a.path)}">Accept</button>` : "") + `</div></div>`).join("") ||
+      `<p>No ADRs in <code>docs/adr/</code>, <code>docs/decisions/</code> or <code>docs/architecture/ADR-*</code>.</p>`;
+    const commit = r.changed.length
+      ? `<h3 style="margin-top:14px">Commit</h3><p>Changed here: ${r.changed.map((p) => `<code>${esc(p)}</code>`).join(", ")}. The commit takes only these files.</p><button class="mini pri" data-action="arch-rl-commit"${dis}>Commit…</button>`
+      : "";
+    return head + note + status +
+      `<h3 style="margin-top:14px">Layers</h3>${layers}` +
+      (can ? `<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="mini" data-action="arch-rl-add">＋ Layer</button><button class="mini" data-action="arch-rl-from" title="A layer for each group of kind «Layer»; the arrows between them say who may use whom">Layers from the drawing</button></div>` : "") +
+      `<h3 style="margin-top:14px">Libraries</h3>` +
+      field("Forbidden", txt("arch-rl-lib", "forbidden", joinList(r.draft.libraries.forbidden), "lodash, moment")) +
+      field("Approved (only these, when set)", txt("arch-rl-lib", "approved", joinList(r.draft.libraries.approved), "any")) +
+      `<h3 style="margin-top:14px">File names</h3>${naming}` + (can ? `<button class="mini" data-action="arch-rl-naming-add">＋ Naming rule</button>` : "") +
+      `<h3 style="margin-top:14px">Exceptions (need an accepted ADR)</h3>${exceptions}` + (can ? `<button class="mini" data-action="arch-rl-exc-add">＋ Exception</button>` : "") +
+      `<div style="margin-top:12px"><button class="mini pri" data-action="arch-rl-save"${can ? "" : " disabled"}>Save rules${r.dirty ? " •" : ""}</button></div>` +
+      `<h3 style="margin-top:14px">ADRs</h3>${adrs}` + commit;
+  }
+
   function panelsBlock(d: Design): string {
     if (!d.views.length) return `<p>Use <b>＋ Panel</b> for a side-by-side comparison: the known system on the left, ours on the right.</p>`;
     return d.views.map((v) =>
@@ -399,6 +450,7 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
     const s = studio.state(), d = s.design;
     const notice = s.notice ? `<div class="st-f w"><span>⚠</span><div>${esc(s.notice)}</div></div>` : "";
     if (s.proposal) { ins.innerHTML = proposalInspector(); return; }
+    if (rules?.state().open && s.linking === null) { ins.innerHTML = rulesInspector(rules); return; }
     if (s.io && s.linking === null) { ins.innerHTML = notice + ioInspector(); return; }
     if (s.linking !== null) {
       ins.innerHTML = `<h3>Connect</h3><p>${s.linking === "" ? "Click the component the arrow starts from." : "Now click the component it goes to."}</p>`;

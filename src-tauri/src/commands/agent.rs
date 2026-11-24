@@ -121,3 +121,47 @@ pub fn arch_conformance(
 ) -> Result<Option<Vec<tutor_agent::conformance::Violation>>, String> {
     tutor_agent::conformance::scan(std::path::Path::new(&root))
 }
+
+/// As regras do arquitecto para o Studio (F5.2): `.dxtutor/architecture.toml` como formulário, e
+/// se quem está ao teclado as pode alterar (`.dxtutor/team.json`, F5.7).
+#[tauri::command]
+pub fn arch_rules_load(root: String) -> crate::arch_rules::RulesDoc {
+    crate::arch_rules::load(Path::new(&root))
+}
+
+/// Grava as regras do arquitecto (só o Arquitecto; recusadas com o que está mal quando não batem
+/// certo). Devolve-as como ficaram.
+#[tauri::command]
+pub fn arch_rules_save(
+    root: String,
+    rules: tutor_agent::conformance::Rules,
+) -> Result<crate::arch_rules::RulesDoc, String> {
+    crate::arch_rules::save(Path::new(&root), rules)
+}
+
+/// Os ADR do projecto (`docs/adr/`, `docs/decisions/`, `docs/architecture/ADR*`) e o seu estado.
+#[tauri::command]
+pub fn adr_list(root: String) -> Vec<crate::arch_rules::Adr> {
+    crate::arch_rules::adrs(Path::new(&root))
+}
+
+/// Aceita um ADR (F5.5, só o Arquitecto): o estado passa a aceite e fica escrito quem o aprovou.
+#[tauri::command]
+pub fn adr_accept(root: String, path: String) -> Result<crate::arch_rules::Adr, String> {
+    crate::arch_rules::accept_adr(Path::new(&root), &path)
+}
+
+/// O commit do arquitecto só com o ficheiro de regras e os ADR (o resto preparado fica de fora).
+/// Devolve o hash curto do commit.
+#[tauri::command]
+pub async fn arch_rules_commit(
+    root: String,
+    paths: Vec<String>,
+    message: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::arch_rules::commit(Path::new(&root), &paths, &message)
+    })
+    .await
+    .map_err(|e| format!("git task failed: {e}"))?
+}

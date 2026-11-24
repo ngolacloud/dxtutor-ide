@@ -14,6 +14,7 @@ import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
 import { tauriOps } from "../../features/ops/infrastructure/tauri";
+import { tauriRulesGateway } from "../../features/arch/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
 import { sdAdd } from "../../features/studio";
 import { saveTeam } from "../../features/team";
@@ -513,6 +514,29 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       G.AGENTS.db.paths = ["sql/**"]; saveTeam(); flushSave(); await idle();
       const onDisk = (await sh("cat", [".dxtutor/team.json"])).stdout;
       return { fe, qa, savedToDisk: /"sql\/\*\*"/.test(onDisk) };
+    });
+    // F5.2/F5.5 (bloco 3 dos RF restantes): as regras do arquitecto e um ADR pelos comandos reais —
+    // gravar as regras (validadas no Rust), aceitar o ADR (o estado e quem aprovou ficam escritos)
+    // e o commit do arquitecto só com esses dois ficheiros. O team.json do passo anterior não
+    // nomeia pessoas: os papéis não se aplicam aqui (o teste do Rust cobre-os).
+    await step("archRules", async () => {
+      const root = R.root as string;
+      writeFile(ROOT + "docs/adr/0001-queue.md", "# Use a queue\n\nStatus: proposed\n");
+      flushSave(); await idle();
+      const saved = await tauriRulesGateway.save(root, {
+        layers: [{ name: "domain", paths: ["src/domain/**"], mayUse: [], imports: [] }],
+        libraries: { forbidden: ["moment"], approved: [] },
+        naming: [],
+        exceptions: [{ adr: "0001", rule: "library:moment" }],
+      });
+      const adrs = await tauriRulesGateway.adrs(root);
+      const accepted = await tauriRulesGateway.acceptAdr(root, "docs/adr/0001-queue.md");
+      const hash = await tauriRulesGateway.commit(root, [".dxtutor/architecture.toml", "docs/adr/0001-queue.md"], "docs(arch): selftest rules");
+      const files = (await git("show", "--name-only", "--format=", "HEAD")).stdout.trim().split("\n");
+      const onDisk = (await sh("cat", ["docs/adr/0001-queue.md"])).stdout;
+      const out = { saved: saved.exists && saved.rules.layers.length === 1, adrs: adrs.map(a => a.id), accepted: accepted.accepted, approvedBy: /Approved by: /.test(onDisk), hash, files };
+      if (!out.saved || !out.accepted || !out.approvedBy || !files.includes(".dxtutor/architecture.toml") || !files.includes("docs/adr/0001-queue.md")) throw new Error("arch rules: " + JSON.stringify(out));
+      return out;
     });
     // depuração (ADR-0006, R4): o gdb do backend. Sem gdb no sistema, o pane di-lo (o caminho
     // honesto); com gdb, uma sessão real sobre um binário Cargo pequeno com um breakpoint:
