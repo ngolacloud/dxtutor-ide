@@ -232,3 +232,26 @@ describe("caso de uso: ⇅ Arrange", () => {
     expect(JSON.stringify(st.state().design)).toBe(JSON.stringify(autoLayout(reference())));
   });
 });
+
+describe("rótulos e molduras (encontrado ao desenhar o Delonix)", () => {
+  test("um rótulo não fica a meio da borda de um painel ou grupo se houver alternativa", () => {
+    // seta vertical encostada à borda esquerda de uma moldura: à esquerda o rótulo sairia
+    const cards = new Map([["a", card(20, 0)], ["b", card(20, 300)]]);
+    const routes = routeAll(cards, [{ from: "a", to: "b" }]);
+    const frame = { x: 0, y: -20, w: 400, h: 420 };
+    const [at] = placeLabels([...cards.values()], routes, ["clone · pivot_root · cgroups v2"], [frame]);
+    const box = labelRect("clone · pivot_root · cgroups v2", at!);
+    expect(box.x >= frame.x && box.x + box.w <= frame.x + frame.w).toBe(true);
+  });
+
+  test("o protocolo sozinho não se desenha como rótulo (só o rótulo escrito)", () => {
+    const d = emptyDesign();
+    addComponent(d, "cli", "a");
+    addComponent(d, "daemon", "b");
+    connect(d, "a", "b");
+    d.connections[0].protocol = "unix-socket";
+    expect(edgeLook(d, d.connections[0]).label).toBe("");
+    d.connections[0].label = "socket do dockerd";
+    expect(edgeLook(d, d.connections[0]).label).toBe("socket do dockerd");
+  });
+});
