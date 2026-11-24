@@ -91,3 +91,11 @@ describe("nomes", () => {
     expect(duration(65000)).toBe("1 min 05 s");
   });
 });
+
+it("RF-A05: as violações das regras do arquitecto entram no Problems, por ficheiro", async () => {
+  const { fromRuleViolations } = await import("../src/features/panel/domain/problems");
+  expect(fromRuleViolations(null)).toEqual([]);
+  const [p] = fromRuleViolations([{ rule: "library:lodash", message: "src/a.ts:1 importa «lodash», uma biblioteca proibida pelo arquitecto", path: "src/a.ts", line: 1 }]);
+  expect(p).toMatchObject({ file: "src/a.ts", line: 1, severity: "error", code: "library:lodash", source: "arquitectura" });
+  expect(fromRuleViolations([{ rule: "naming:x", message: "m", path: "x", line: null }])[0].line).toBe(1);
+});
