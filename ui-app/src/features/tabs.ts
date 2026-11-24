@@ -14,6 +14,7 @@
    `ctxPill`, `setVar`, `short`, `fIcon`, `gotoLine`, `stLang`) lê-se em runtime pela
    fachada `G` — nunca no eval do módulo. */
 
+import { tabMarks } from "../app/tab-marks";
 import { $, esc, svg, toast } from "../core";
 import { editorStore, type Tab } from "../app/store/editor";
 import { VIEW } from "../app/store/registry";
@@ -105,8 +106,10 @@ function drawTabs(): void {
     el.onauxclick = (e) => {
       if (e.button === 1) closeTab(t.id);
     };
+    tabMarks.decorate(t, el);
     host.appendChild(el);
   });
+  tabMarks.after(host);
   const a = host.querySelector(".active");
   if (a && a.scrollIntoView) a.scrollIntoView({ block: "nearest", inline: "nearest" });
 }

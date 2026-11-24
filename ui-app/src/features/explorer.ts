@@ -25,7 +25,7 @@ import { registerActions, callGlobal } from "../app/actions";
 
 function renderLevel(obj:Record<string,any>,host:HTMLElement,depth:number,path:string[]){Object.keys(obj).forEach(name=>{const node=obj[name],pad=8+depth*12,row=document.createElement('div');
   let g=node.git||'';if(node.path)g=(stOf(node.path) as string).toLowerCase();else if(node.dpath)g=changes().some(p=>p.startsWith(node.dpath+'/'))?'m':'';
-  row.className='row'+(g?' git-'+g:'');row.style.paddingLeft=pad+'px';if(node.path)row.dataset.path=node.path;
+  row.className='row'+(g?' git-'+g:'');row.style.paddingLeft=pad+'px';if(node.path)row.dataset.path=node.path;else if(node.dpath)row.dataset.dpath=node.dpath;
   const open=node.dpath?OPEN.has(node.dpath):!!node.open;
   row.innerHTML=`<span class="chev${node.dir?'':' leaf'}">${svg('chev')}</span>${node.dir?`<span class="ic folder">${svg(open?'folderOpen':'folder')}</span>`:fIcon(name)}<span class="nm">${esc(name)}</span>${g?(node.dir?'<span class="dot"></span>':`<span class="deco">${g.toUpperCase()}</span>`):''}`;
   host.appendChild(row);

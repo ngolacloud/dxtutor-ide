@@ -6,6 +6,7 @@
    «menus, palette, welcome» do bridge.ts, verbatim. */
 
 import { bus } from "../../app/bus";
+import { editorStore } from "../../app/store/editor";
 import { loadWorkspace } from "../tauri/workspace";
 import type { Workspace } from "./types";
 import { desktopPorts } from "../../app/desktop";
@@ -25,7 +26,8 @@ async function openFolder(path?: string): Promise<boolean> {
   R.root = L.root; R.name = L.name; R.cwd = L.root; R.disk = {};
   Object.keys(FS).forEach(k => { if (!k.startsWith(ROOT + "learn/")) delete FS[k]; });
   L.files.forEach(f => { FS[ROOT + f.path] = { content: f.content, orig: f.content }; R.disk[f.path] = f.content; });
-  try { TABS.filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
+  /* fecha os separadores da pasta anterior (o antigo global TABS estava sempre vazio: não fechava nada) */
+  try { editorStore.tabs.filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
   STAGED.clear(); OPEN.clear(); OPEN.add("dxtutor"); CWD = [R.name!];
   R.git = (await git("rev-parse", "--is-inside-work-tree")).code === 0;
   if (R.git) { R.prefix = (await git("rev-parse", "--show-prefix")).stdout.trim(); await markChanged(); await syncGit(); }
@@ -53,7 +55,7 @@ async function reloadDisk(): Promise<void> {
   Object.assign(FS, keep);
   R.disk = {};
   L.files.forEach(f => { FS[ROOT + f.path] = { content: f.content, orig: f.content }; R.disk[f.path] = f.content; });
-  try { TABS.filter(t => t.path && !FS[t.path]).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
+  try { editorStore.tabs.filter(t => t.path && !FS[t.path]).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
   if (R.git) await markChanged();
   refresh(false, true);
   try { const t = tabOf(cur); if (t && t.path) show(cur); } catch { /* sem tab activa */ }
