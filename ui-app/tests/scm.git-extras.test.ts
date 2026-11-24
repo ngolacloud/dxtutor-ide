@@ -176,6 +176,8 @@ beforeEach(async () => {
     git_history: () => PLAN.commits,
     git_blame: () => BLAME,
     git_show_path: () => "commit 1111111111\n+new line",
+    git_changes: () => [],
+    project_change_sets: () => [],
   };
   w.__TAURI__ = { core: { invoke: async (cmd: string, args: Record<string, unknown>) => { ipc.push([cmd, args]); if (!handlers[cmd]) throw new Error("comando inesperado: " + cmd); return handlers[cmd](args); } } };
 });
@@ -191,7 +193,9 @@ describe("ligação", () => {
     expect(pane.querySelector('[data-action="gx-wt-remove"][data-on="/proj-feature"]')).not.toBeNull();
     expect(pane.querySelector('[data-action="gx-wt-remove"][data-on="/proj"]')).toBeNull(); // a pasta aberta não se remove
     expect(pane.querySelector('[data-action="gx-rebase"]')).not.toBeNull();
-    expect(ipc.map(([c]) => c).sort()).toEqual(["git_stash", "git_worktree"]);
+    // RF-E08: and the Co-Dev change sets of the working tree (none here: no section)
+    await vi.waitFor(() => expect(ipc.map(([c]) => c).sort()).toEqual(["git_changes", "git_stash", "git_worktree", "project_change_sets"]));
+    expect(pane.textContent).not.toContain("Co-Dev change sets");
   });
 
   it("o separador do histórico: commits, diff, quem conhece e o blame por idade", async () => {

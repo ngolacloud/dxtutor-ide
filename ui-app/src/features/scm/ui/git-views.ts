@@ -9,6 +9,7 @@
 import { esc } from "../../../core";
 import { heat, planIsNoop, planProblem, rebaseCommand, REBASE_ACTIONS } from "../domain/git-extras";
 import type { Blame, BlameLine, HistCommit } from "../domain/git-extras";
+import { rangesText, type ScmChangeSet } from "../domain/changesets";
 import type { CompareState, ExtrasState, HistoryState, RebaseState, ReviewState } from "../application/git-extras";
 import type { GitKey } from "./git-messages";
 
@@ -34,13 +35,30 @@ const btn = (act: string, label: string, on = "", cls = "btn ghost", dis = false
   `<button class="${cls}" data-action="${act}"${on ? ` data-on="${esc(on)}"` : ""}${dis ? " disabled" : ""}>${label}</button>`;
 
 /** The pane's extra sections (desktop with a git repository only). */
+/** RF-E08: the Co-Dev change sets still in the working tree, one block per issue, with Stage and
+ *  Discard for the whole set; a file opens its diff. Nothing when there are none. */
+export function renderChangeSets(t: T, sets: ScmChangeSet[], dis: boolean): string {
+  if (!sets.length) return "";
+  const d = dis ? " disabled" : "";
+  return `<div class="scm-grp">${t("csTitle")}<span class="cnt">${sets.length}</span></div>` + sets
+    .map((s) => {
+      const on = esc(s.issueKey ?? "");
+      const head = `<div class="scm-row gx-row gx-cs-head" title="${esc(s.title)}"><span class="tag acc notr">${esc(s.issueKey ?? t("csNoIssue"))}</span><span class="nm notr" style="max-width:none">${esc(s.title)}</span><span class="pth"><span class="gx-da">+${s.added}</span> <span class="gx-dd">−${s.removed}</span></span><span class="ra"><button title="${t("csDiscard")}" data-action="gx-cs-discard" data-on="${on}"${d}>↶</button><button title="${t("csStage")}" data-action="gx-cs-stage" data-on="${on}"${d}>+</button></span></div>`;
+      const files = s.files
+        .map((f) => `<div class="scm-row gx-row gx-cs-file" title="${t("csOpen")}" data-action="gx-cs-open" data-on="${esc(f.path)}"><span class="nm notr">${esc(f.path.split("/").pop() ?? f.path)}</span><span class="pth notr">${esc(rangesText(f))}</span>${f.shared ? `<span class="tag" title="${t("csShared")}">⇄</span>` : ""}</div>`)
+        .join("");
+      return head + files;
+    })
+    .join("");
+}
+
 export function renderSide(t: T, st: ExtrasState, canAsk: boolean, now: number): string {
   const dis = st.busy !== null;
   const stashes = st.stashes.length
     ? st.stashes.map((s) => `<div class="scm-row gx-row" title="${esc(s.message)}"><span class="nm notr" style="max-width:none">${esc(s.message)}</span><span class="pth">${esc(ago(t, s.time, now))}</span><span class="ra"><button title="${t("show")}" data-action="gx-stash-show" data-on="${s.index}">⧉</button><button title="${t("apply")}" data-action="gx-stash-apply" data-on="${s.index}"${dis ? " disabled" : ""}>↧</button><button title="${t("pop")}" data-action="gx-stash-pop" data-on="${s.index}"${dis ? " disabled" : ""}>⇣</button><button title="${t("drop")}" data-action="gx-stash-drop" data-on="${s.index}"${dis ? " disabled" : ""}>✕</button></span></div>`).join("")
     : `<div class="sec-empty">${t("noStashes")}</div>`;
   const wts = st.worktrees.map((w) => `<div class="scm-row gx-row" title="${esc(w.path)}"><span class="nm notr" style="max-width:none${w.current ? ";font-weight:600" : ""}">${esc(w.branch ?? t("detached", { h: w.head }))}</span><span class="pth notr">${esc(w.path)}</span>${w.current ? `<span class="tag acc" style="margin-left:auto">${t("thisFolder")}</span>` : `<span class="ra"><button title="${t("removeWorktree")}" data-action="gx-wt-remove" data-on="${esc(w.path)}"${dis ? " disabled" : ""}>✕</button></span>`}</div>`).join("");
-  return `<div class="scm-grp">${t("stashes")}<span class="cnt">${st.stashes.length}</span></div>${stashes}<div class="gx-bar">${btn("gx-stash-push", t("stashChanges"), "", "btn ghost", dis)}${btn("gx-stash-push-all", t("stashAll"), "", "btn ghost", dis)}</div>`
+  return renderChangeSets(t, st.changeSets, dis) + `<div class="scm-grp">${t("stashes")}<span class="cnt">${st.stashes.length}</span></div>${stashes}<div class="gx-bar">${btn("gx-stash-push", t("stashChanges"), "", "btn ghost", dis)}${btn("gx-stash-push-all", t("stashAll"), "", "btn ghost", dis)}</div>`
     + `<div class="scm-grp">${t("worktrees")}<span class="cnt">${st.worktrees.length}</span></div>${wts}<div class="gx-bar">${btn("gx-wt-add", t("newWorktree"), "", "btn ghost", dis)}</div>`
     + `<div class="scm-grp">${t("moreGit")}</div><div class="gx-bar">${btn("gx-history", t("fileHistory"))}${btn("gx-compare", t("compareBranches"))}${btn("gx-rebase", t("interactiveRebase"), "", "btn ghost", dis)}${btn("gx-amend", t("amendLast"), "", "btn ghost", dis)}${btn("gx-review", t("reviewChanges"))}</div>`
     + (canAsk ? `<div class="gx-bar">${btn("gx-ask-message", t("askMessage"), "", "btn ghost gx-ai")}${btn("gx-ask-review", t("askReview"), "", "btn ghost gx-ai")}</div>` : "")

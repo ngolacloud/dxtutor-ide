@@ -191,6 +191,31 @@ describe("the Project markup", () => {
     expect(panel.querySelector(".pj-act")?.textContent).toContain("Ana");
   });
 
+  it("RF-B08: the issue panel sums what Co-Dev used and each change set opens its diff", async () => {
+    const usage = { turns: 3, sessions: 2, models: ["claude-sonnet-5-5", "llama3"], tokensIn: 12345, tokensOut: 800, costUsd: 0.4567, unpriced: 1 };
+    const change = { session: "", call: "c1", hunk: "c1:1", path: "src/lexer.rs", start: 40, end: 52, added: 13, removed: 2, decidedBy: "human", decidedAt: NOW };
+    const issue = vi.fn(async () => ({ activity: [], changeSets: [change], usage }));
+    const { d } = deps({ gateway: { ...deps().d.gateway, issue } });
+    const s = makeProjectService(d);
+    await s.open();
+    s.select("PRJ-1");
+    await vi.waitFor(() => expect(s.state().detail?.usage.turns).toBe(3));
+    const host = document.createElement("div");
+    host.innerHTML = renderProject(s.state(), NOW);
+    const u = host.querySelector(".pj-usage")!.textContent!;
+    expect(u).toContain("3 turns in 2 sessions");
+    expect(u).toContain("claude-sonnet-5-5, llama3");
+    expect(u).toContain("12.3k in / 800 out tokens");
+    expect(u).toContain("$0.46 (+1 turn not priced)");
+    expect(host.querySelector('[data-action="pj-diff"]')?.getAttribute("data-on")).toBe("src/lexer.rs");
+    // without turns there is no usage line (and an old backend without `usage` reads as none)
+    issue.mockResolvedValueOnce({ activity: [], changeSets: [] } as never);
+    s.select("PRJ-2");
+    await vi.waitFor(() => expect(s.state().detail?.usage).toEqual({ turns: 0, sessions: 0, models: [], tokensIn: 0, tokensOut: 0, costUsd: 0, unpriced: 0 }));
+    host.innerHTML = renderProject(s.state(), NOW);
+    expect(host.querySelector(".pj-usage")).toBeNull();
+  });
+
   it("reports without history say what they need", async () => {
     const { d } = deps();
     const s = makeProjectService(d);
