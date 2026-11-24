@@ -16,6 +16,8 @@ export interface TestingViewModel {
   state: TestingState;
   /** O comando de testes detectado no projecto (`.dxtutor/commands.json`, package.json, …). */
   projectCmd: string | null;
+  /** A6: as secções dos runners reais (`runs-view.ts`); vazio/ausente = o pane como antes. */
+  runs?: string;
 }
 
 const ICON: Record<TestStatus, [string, string]> = {
@@ -37,12 +39,14 @@ export function renderTesting(m: TestingViewModel): string {
   if (!m.open) return hd("Testing", "") + '<div class="sections"><div class="sec-empty">Abre uma pasta (File → Open Folder…) para descobrir e correr os testes do projecto.</div></div>';
 
   const parts: string[] = [];
+  if (m.runs) parts.push(m.runs);
   if (st.error) parts.push(`<div class="sec-empty" style="color:var(--red)">Erro: ${esc(st.error)}</div>`);
   if (st.loading && !st.items.length) parts.push('<div class="sec-empty">A procurar testes…</div>');
   else if (st.loaded && !st.items.length && !st.error) parts.push('<div class="sec-empty">Não encontrei testes Rust, Go ou Python nesta pasta.</div>');
 
   if (st.items.length) {
     const c = countStates(st.items, st.states);
+    if (m.runs) parts.push(`<div class="scm-grp">Tests in the code</div>`);
     parts.push(`<div class="sec-empty">${c.total} teste(s)${c.passed || c.failed ? ` · <span style="color:var(--green)">${c.passed} passaram</span>${c.failed ? ` · <span style="color:var(--red)">${c.failed} falharam</span>` : ""}` : ""}${c.ignored ? ` · ${c.ignored} ignorado(s)` : ""}</div>`);
     for (const g of groupByFile(st.items)) {
       parts.push(`<div class="scm-grp notr">${esc(g.file)}<span class="cnt">${g.items.length}</span></div>`);

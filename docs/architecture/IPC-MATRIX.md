@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (167 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (197 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 178 comandos, **91 são consumidos pela `ui-app`** e **87 não o são**: a UI
+Dos 200 comandos, **113 são consumidos pela `ui-app`** e **87 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -207,7 +207,7 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 | `resolve_references` | `root: String`, `file: String`, `line: u32`, `col: u32`, `text: Option<String>` | `Vec<ResolvedDef>` | String | — | — | R |
 | `resolve_hover` | `root: String`, `file: String`, `line: u32`, `col: u32`, `text: Option<String>` | `Option<String>` | String | — | — | R |
 
-## 7. Testes e execução — `commands/tests.rs` (5)
+## 7. Testes e execução — `commands/tests.rs` (8)
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -216,6 +216,9 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 | `run_all_tests` | `root: String` | `testnav::TestRun` | String | — | `features/testing` | **X** |
 | `run_tests` | `root: String` | `SuiteRun` | String | — | `bridge.ts`, `features/codev.ts` | **X** |
 | `run_path` | `path: String`, `args: Option<String>` | `RunDto` | String | — | — | **X** |
+| `test_runners` | `root: String` | `Vec<testrun::Runner>` (cargo/go/pytest/unittest/vitest/jest/maven/gradle; `available` + motivo) | String | — | `features/testing` (A6) | R |
+| `test_run` | `root: String`, `runner: String`, `scope: Scope` (`all` \| `case {name}` \| `changed {files}`; `files` vazio = `git diff HEAD` + não seguidos) | `testrun::TestRunReport` (um resultado por teste: estado, duração, mensagem, saída) | String | — | `features/testing` (A6) | **X** · **W** (guarda a execução no histórico SQLite) |
+| `test_history` | `root: String` | `testhist::TestHistory` (execuções recentes; por teste: resultados recentes, trocas, flaky, duração média) | String | — | `features/testing` (A6) | R |
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/tests.rs` (adaptadores finos)
 > sobre o caso de uso Tauri-free `testexec` — despacho por língua de `run_test`
@@ -229,7 +232,7 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 > `run_tests` (o único consumido) coexiste com `run_test`/`run_all_tests`
 > (dedicados, não consumidos) — sobreposição a resolver na Etapa 3.
 
-## 8. Git — `commands/git.rs` (13)
+## 8. Git — `commands/git.rs` (21)
 
 Só `git_changes/git_log/git_show` são consumidos; os mutantes correm por
 `exec("git", …)` no `bridge.ts` (ver nota de arquitectura). **Etapa 3**:
@@ -251,6 +254,14 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `git_commit` | `root: String`, `message: String` | `()` | String | — | — (via `exec`) | **G** |
 | `git_checkout` | `root: String`, `branch: String` | `()` | String | — | — (via `exec`) | **G** |
 | `git_create_branch` | `root: String`, `name: String` | `()` | String | — | — (via `exec`) | **G** |
+| `git_blame` | `root: String`, `path: String` | `gitx::Blame` (por linha: commit, autor, data, assunto; autores com linhas/percentagem/última) | String | — | `features/scm` (A4) | R |
+| `git_history` | `root: String`, `path: String`, `start/end: Option<u32>`, `max: Option<usize>` | `Vec<gitx::HistCommit>` (`--follow`, ou `-L` com linhas) | String | — | `features/scm` (A4) | R |
+| `git_show_path` | `root: String`, `hash: String`, `path: String` | `String` (mensagem + diff desse ficheiro) | String | — | `features/scm` (A4) | R |
+| `git_compare` | `root: String`, `base: String`, `target: String` | `gitx::Compare` (à frente, atrás, ficheiros desde a base comum) | String | — | `features/scm` (A4) | R |
+| `git_stash` | `root: String`, `op: StashOp` (`list` \| `push {message, untracked}` \| `apply {index, pop}` \| `drop {index}` \| `show {index}`) | `gitx::StashResult` | String (o do git) | — | `features/scm` (A4) | **G** · W |
+| `git_worktree` | `root: String`, `op: WorktreeOp` (`list` \| `add {path, branch, create}` \| `remove {path}`) | `Vec<gitx::Worktree>` | String | — | `features/scm` (A4) | **G** · W |
+| `git_rebase` | `root: String`, `op: RebaseOp` (`plan {onto}` \| `run {onto, steps}`) | `gitx::RebasePlan` | String (o rebase é desfeito se parar) | — | `features/scm` (A4) | **G** · W |
+| `git_amend` | `root: String`, `message: Option<String>`, `allow_published: Option<bool>` | `String` (o hash curto novo) | String (`published: …` se já está num remoto) | — | `features/scm` (A4) | **G** · W |
 
 ## 9. Agente / arquitectura — `commands/agent.rs` (10)
 
@@ -362,7 +373,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `plugin_install` | `source: String` | `tutor_plugins::Outcome` (`entry`, `language`, `courseIds`, `replaced`, `warnings`) | String | — | `platform/tauri/learn.ts` | **N** (HTTPS GitHub/zip) · W (pasta de plugins) · async |
 | `plugin_remove` | `id: String` | `String` (id removido) | String | — | `platform/tauri/learn.ts` | W (pasta de plugins) |
 
-## 11. Debug (DAP) — `commands/debug_cmds.rs` (10)
+## 11. Debug (DAP) — `commands/debug_cmds.rs` (19)
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/debug_cmds.rs` (adaptadores finos)
 > sobre o caso de uso Tauri-free `debug` — grupo de **passagens** (o motor gdb/MI já era
@@ -374,18 +385,33 @@ Motor de depuração; os que precisam de sessão usam `State<DebugSessions>`. Co
 Debug corre sessões reais pelo gdb. `debug_launch`/`debug_run`/`debug_continue`/`debug_step`
 são `async` (esperam pelo gdb; síncronos congelavam a thread principal).
 
+**A7 (docs/v2/UI-AUDIT.md item 4):** com um adaptador DAP no PATH (lldb-dap), `debug_launch` abre uma
+sessão DAP (`tutor_eval::dapc`, registo `State<DapSessions>`) e os mesmos comandos seguem por ela; sem
+adaptador, o gdb/MI. Os nove novos (breakpoints com condição/contagem/logpoint, parar em panic, threads,
+variáveis com diff, watch, pause, breakpoints guardados, snapshot) — a saída do programa chega pelo evento
+`debug://output` `{id, category, text}`.
+
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `debug_capabilities` | — | `dap::DebugCapability` | — | — | — | R |
 | `debug_available` | — | `bool` | — | `features/debug` | — | R |
-| `debug_launch` | `id: String`, `program: String`, `cwd: Option<String>` | `()` | String | — | `features/debug` | **X** · S |
+| `debug_launch` | `id: String`, `program: String`, `cwd: Option<String>`, `engine: Option<String>` (`"gdb"` força o gdb) | `LaunchInfo {engine, adapter}` | String | — | `features/debug` | **X** · S |
 | `debug_break` | `id: String`, `file: String`, `line: u32` | `u32` | String | — | `features/debug` | S |
 | `debug_run` | `id: String` | `debug::Stop` | String | — | `features/debug` | X · S |
 | `debug_continue` | `id: String` | `debug::Stop` | String | — | `features/debug` | X · S |
-| `debug_step` | `id: String`, `into: bool` | `debug::Stop` | String | — | `features/debug` | X · S |
+| `debug_step` | `id: String`, `into: bool`, `kind: Option<String>` (`"out"`, DAP) | `debug::Stop` | String | — | `features/debug` | X · S |
 | `debug_locals` | `id: String` | `Vec<debug::Var>` | String | — | `features/debug` | R · S |
-| `debug_stack` | `id: String` | `Vec<debug::Frame>` | String | — | `features/debug` | R · S |
+| `debug_stack` | `id: String`, `thread: Option<i64>` (DAP) | `Vec<debug::Frame>` | String | — | `features/debug` | R · S |
 | `debug_stop` | `id: String` | `()` | String | — | `features/debug` | S |
+| `debug_set_breakpoints` | `id: String`, `file: String`, `breakpoints: Vec<BreakpointSpec {line, condition?, hitCondition?, logMessage?}>` | `Vec<dapc::BreakpointState>` | String | — | `features/debug` (A7) | S |
+| `debug_stop_on_panic` | `id: String`, `on: bool` | `bool` (o adaptador encontrou `rust_panic`) | String | — | `features/debug` (A7) | S |
+| `debug_threads` | `id: String` | `Vec<dapc::DapThread>` | String | — | `features/debug` (A7) | R · S |
+| `debug_variables` | `id: String`, `frame: u32`, `reference: Option<i64>` | `Vec<dapc::VarNode>` (com `changed` desde a paragem anterior) | String | — | `features/debug` (A7) | R · S |
+| `debug_evaluate` | `id: String`, `expression: String`, `frame: u32` | `dapc::VarNode` | String | — | `features/debug` (A7) | R · S |
+| `debug_pause` | `id: String` | `()` | String | — | `features/debug` (A7) | S |
+| `debug_snapshot` | `root`, `id`, `issue: Option<String>`, `title`, `markdown` | `()` (artefacto na base do projecto, ligado à issue) | String | — | `features/debug` (A7) | W |
+| `breakpoints_load` | `root: String` | `Vec<project::breakpoints::Breakpoint>` | String | — | `features/debug` (A7) | R |
+| `breakpoints_save` | `root`, `file`, `breakpoints: Vec<Breakpoint>` | `()` | String | — | `features/debug` (A7) | W |
 
 ## 12. Devcontainers — `commands/devcontainer.rs` (8)
 
@@ -436,7 +462,7 @@ do `bridge.rs`).
 | `workspace_resolve` | `root: String`, `path: String` | `String` | String | — | — | R |
 | `workspace_action` | `root: String`, `op: String`, `path: String`, `content: Option<String>` | `String` | String | — | — | **W** |
 
-## 15. LSP — `lsp.rs` (13)
+## 15. LSP — `lsp.rs` (15)
 
 Todos usam `State<LspState>` + `AppHandle`. Na app desktop, a feature `features/lsp` liga o
 editor: `lsp_start` (uma vez por pasta aberta, que também passa a ser a raiz de reserva de um
@@ -447,7 +473,9 @@ ficheiro sem marcador de projecto), `lsp_did_open`/`lsp_did_change` (ao abrir/ed
 parâmetro activo), `lsp_server_status` (o aviso no editor quando o servidor da linguagem
 não está instalado) e `lsp_code_action` + `lsp_execute_command` (Ctrl+.: correcções e
 refactorings; as edições de um comando voltam do servidor por `workspace/applyEdit`, que o
-backend emite como `lsp://apply-edit`).
+backend emite como `lsp://apply-edit`) e `lsp_format` (Shift+Alt+F: o documento, ou só a selecção;
+sem servidor, ou se ele não formatar, fica o «Format Document» do dxtutor) e `lsp_document_symbols`
+(Ctrl+Shift+O / Go → Go to Symbol…, e o Outline das linguagens que o `file_outline` não cobre).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -461,6 +489,8 @@ backend emite como `lsp://apply-edit`).
 | `lsp_signature_help` | `path: String`, `line: u32`, `character: u32`, `trigger_character: Option<String>`, `is_retrigger: Option<bool>` | `Value` (SignatureHelp \| null) | String | — | `features/lsp` | R · S |
 | `lsp_code_action` | `path: String`, `start_line: u32`, `start_character: u32`, `end_line: u32`, `end_character: u32` | `Value` ((Command \| CodeAction)[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_execute_command` | `path: String`, `command: String`, `arguments: Option<Value>` | `Value` | String | `lsp://apply-edit` | `features/lsp` | W · S |
+| `lsp_format` | `path: String`, `tab_size: u32`, `insert_spaces: bool`, `start_line`/`start_character`/`end_line`/`end_character: Option<u32>` | `Value` (TextEdit[] \| null) | String | — | `features/lsp` | R · S |
+| `lsp_document_symbols` | `path: String` | `Value` (DocumentSymbol[] \| SymbolInformation[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_server_status` | `path: String` | `Option<lsp::ServerStatus>` (`{ language, server, installed, problem }`) | String | — | `features/lsp` (aviso no editor quando falta o servidor) | R · async |
@@ -537,9 +567,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **178** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 11 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 13 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 8 |
-| Consumidos pela `ui-app` | **91** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 13 · `platform/tauri/project.ts` 6) |
+| Comandos registados | **200** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 21 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 11 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 19 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 15 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 8 |
+| Consumidos pela `ui-app` | **113** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 15 · `platform/tauri/project.ts` 6 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7) |
 | Não consumidos pela `ui-app` | **87** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

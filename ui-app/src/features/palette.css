@@ -1,0 +1,12 @@
+/* estilos da feature palette — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  /* paleta */
+  #pal{position:fixed;inset:0;z-index:400;display:none;background:rgba(0,0,0,.25)}
+  #pal.show{display:block}
+  .pal-box{position:absolute;top:44px;left:50%;transform:translateX(-50%);width:min(620px,92vw);background:var(--bg-menu);border:1px solid var(--border-strong);border-radius:11px;box-shadow:var(--sh-pop);padding:7px}
+  #pal-in{width:100%;background:var(--bg-input);border:1px solid var(--accent);border-radius:7px;padding:7px 10px;font-size:13px;outline:none;user-select:text}
+  #pal-list{max-height:340px;overflow:auto;margin-top:6px}
+  .pi{display:flex;align-items:center;gap:10px;padding:5px 9px;border-radius:6px;font-size:12.5px;cursor:pointer;white-space:nowrap}
+  .pi.on{background:var(--accent-soft)}.pi:hover{background:var(--bg-hover)}
+  .pi .d{color:var(--fg-muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
+  .pi .key{margin-left:auto;color:var(--fg-muted);font-family:var(--font-mono);font-size:11px}
+  .pal-empty{padding:10px;color:var(--fg-muted);font-size:12.5px}

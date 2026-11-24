@@ -1,0 +1,9 @@
+/* estilos da feature terminal — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  #term{font-family:var(--font-mono);font-size:12.5px;line-height:1.5;padding:8px 12px;color:#d6d6d9;cursor:text;user-select:text}
+  #term .line{white-space:pre-wrap;word-break:break-word}
+  #term .pr{color:var(--git-u)} #term .pr .at{color:var(--fg-muted)} #term .pr .pth{color:var(--blue)} #term .pr .br{color:var(--accent-hover)}
+  #term .cmd{color:var(--fg-bright)}
+  #term .dim{color:var(--fg-muted)}#term .ok{color:var(--green)}#term .warn{color:var(--yellow)}#term .er{color:var(--red)}#term .ac{color:var(--accent-hover)}#term .dir{color:var(--blue);font-weight:600}
+  #term .inputline{display:flex}
+  #term #cmd{flex:1;background:none;border:none;outline:none;color:var(--fg-bright);font:inherit;caret-color:var(--accent-hover)}
+  #term{color:var(--fg)}

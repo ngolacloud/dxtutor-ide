@@ -68,8 +68,10 @@ use commands::codev_agent::{
     codev_agent_set_mode, codev_agent_set_plan, codev_agent_start, codev_agent_trust,
 };
 use commands::debug_cmds::{
-    debug_available, debug_break, debug_capabilities, debug_continue, debug_launch, debug_locals,
-    debug_run, debug_stack, debug_step, debug_stop,
+    breakpoints_load, breakpoints_save, debug_available, debug_break, debug_capabilities,
+    debug_continue, debug_evaluate, debug_launch, debug_locals, debug_pause, debug_run,
+    debug_set_breakpoints, debug_snapshot, debug_stack, debug_step, debug_stop,
+    debug_stop_on_panic, debug_threads, debug_variables,
 };
 use commands::devcontainer::{
     devcontainer_exec, devcontainer_info, devcontainer_session_down, devcontainer_session_exec,
@@ -78,8 +80,9 @@ use commands::devcontainer::{
 };
 use commands::dictation::{dictation_cancel, dictation_start, dictation_status, dictation_stop};
 use commands::git::{
-    git_branch, git_branches, git_changes, git_checkout, git_clone, git_commit, git_create_branch,
-    git_diff, git_log, git_show, git_stage, git_stage_all, git_unstage,
+    git_amend, git_blame, git_branch, git_branches, git_changes, git_checkout, git_clone,
+    git_commit, git_compare, git_create_branch, git_diff, git_history, git_log, git_rebase,
+    git_show, git_show_path, git_stage, git_stage_all, git_stash, git_unstage, git_worktree,
 };
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
@@ -92,7 +95,9 @@ use commands::study::{
     get_course, get_glossary, get_study_guide, list_courses, list_phases, request_fix,
     request_hint, request_plan, study_policy, submit, submit_step,
 };
-use commands::tests::{list_tests, run_all_tests, run_path, run_test, run_tests};
+use commands::tests::{
+    list_tests, run_all_tests, run_path, run_test, run_tests, test_history, test_run, test_runners,
+};
 
 use serde::Serialize;
 use tutor_core::{Level, Phase, StepKind};
@@ -798,6 +803,7 @@ pub fn run() {
         .manage(lsp::LspState::default())
         .manage(procs::Procs::default())
         .manage(debug::DebugSessions::default())
+        .manage(debug::DapSessions::default())
         .manage(pair::Pair::default())
         .setup(|_app| {
             #[cfg(target_os = "linux")]
@@ -851,11 +857,22 @@ pub fn run() {
             list_tests,
             run_test,
             run_all_tests,
+            test_runners,
+            test_run,
+            test_history,
             search_project,
             list_files,
             git_changes,
             git_diff,
             git_clone,
+            git_blame,
+            git_history,
+            git_show_path,
+            git_compare,
+            git_stash,
+            git_worktree,
+            git_rebase,
+            git_amend,
             git_stage,
             git_unstage,
             git_stage_all,
@@ -949,6 +966,15 @@ pub fn run() {
             debug_locals,
             debug_stack,
             debug_stop,
+            debug_set_breakpoints,
+            debug_stop_on_panic,
+            debug_threads,
+            debug_variables,
+            debug_evaluate,
+            debug_pause,
+            debug_snapshot,
+            breakpoints_load,
+            breakpoints_save,
             devcontainer_info,
             devcontainer_up,
             devcontainer_exec,
@@ -977,6 +1003,8 @@ pub fn run() {
             lsp::lsp_signature_help,
             lsp::lsp_code_action,
             lsp::lsp_execute_command,
+            lsp::lsp_format,
+            lsp::lsp_document_symbols,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,

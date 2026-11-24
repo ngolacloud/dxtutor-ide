@@ -13,6 +13,10 @@ import { desktopPorts } from "../../app/desktop";
 import { registerActions } from "../../app/actions";
 import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
+import { translator } from "../../app/i18n";
+import { LLM_MESSAGES } from "./llm.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(LLM_MESSAGES);
 
 export function installLlm(ctx: DesktopContext): void {
 const { T, R, providers, sh, escH, ansi, idle } = ctx;
@@ -51,7 +55,7 @@ R.approve = (id, ok) => {
 function askApproval(cmd: string): Promise<boolean> {
   const id = "a" + Date.now();
   return new Promise(ok => {
-    const c = card("approval", `Run in <b>${escH(R.name)}</b>?<pre style="white-space:pre-wrap;margin:6px 0">${escH(cmd)}</pre><span><button class="mini pri" data-action="desktop:approve" data-on="${escH(JSON.stringify([id, true]))}">Allow</button> <button class="mini" data-action="desktop:approve" data-on="${escH(JSON.stringify([id, false]))}">Deny</button></span>`);
+    const c = card("approval", `Run in <b>${escH(R.name)}</b>?<pre style="white-space:pre-wrap;margin:6px 0">${escH(cmd)}</pre><span><button class="mini pri" data-action="desktop:approve" data-on="${escH(JSON.stringify([id, true]))}">${txt("allow")}</button> <button class="mini" data-action="desktop:approve" data-on="${escH(JSON.stringify([id, false]))}">${txt("deny")}</button></span>`);
     approvals[id] = { ok, el: (c.bd.querySelector("span:last-child") as HTMLElement | null) || c.bd };
   });
 }

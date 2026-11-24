@@ -13,6 +13,10 @@
    em tempo de chamada (pós-startup). @ts-nocheck como as outras features-motor densas. */
 
 import { esc } from "../core";
+import { translator } from "../app/i18n";
+import { TERMINAL_MESSAGES } from "./terminal.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(TERMINAL_MESSAGES);
 import { desktopPorts } from "../app/desktop"; // marca o ficheiro como MÓDULO (não script) — mantém newInput/termRefreshPrompt com
            // escopo de módulo, sem colidir com os `declare global { var … }` de bridge.ts/pair.ts.
 
@@ -27,12 +31,12 @@ function termRefreshPrompt(){const c=$('#cmd') as HTMLInputElement|null,v=c?c.va
 function termExecBase(v: string): unknown {echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if((XC as any)[cmd])r=(XC as any)[cmd](a,v);else echo('<span class="er">'+esc(cmd)+': comando não encontrado</span> <span class="dim">— este terminal emulado só navega nos ficheiros e no git; o terminal real está na app desktop</span>');newInput(true);return r;}
 window.termExec = function(v){const d=desktopPorts.terminal;return d?d.termExec(v,termExecBase):termExecBase(v);};
 const XC={
-  help(){echo(`<span class="ac">ficheiros</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff\n<span class="ac">co-dev</span>     <span class="ok">dx</span> status | modo manual|assist|auto\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
+  help(){echo(`<span class="ac">${txt("files")}</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff\n<span class="ac">co-dev</span>     <span class="ok">dx</span> status | modo manual|assist|auto\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
   cat(a:string[]){if(!a[0]){echo('<span class="er">cat: falta o ficheiro</span>');return;}const rel=CWD.slice(4).concat(a[0].split('/')).join('/');const p=FS[rel]?rel:Object.keys(FS).find(k=>k.endsWith('/'+a[0].split('/').pop()));if(!p){echo('<span class="er">cat: '+esc(a[0])+': não encontrado</span>');return;}echo(FS[p].content.split('\n').map(l=>hlLine(l,extOf(p))).join('\n'));},
   /* `git`: o handler é o features/termgit.ts (`XC.git=(a,raw)=>window.gitCmd(a,raw)` no app.ts); a
      base simulada que vivia aqui (lista fixa BRANCHES, log do COMMITS) era código morto e saiu (ADR-0006, R1d). */
   dx(a:string[]){const s=a[0];
-    if(s==='status'){echo(`modo <span class="ac">${MODES[MODE].l}</span> · modelo <span class="ac">${PROV[ACTIVE].name}</span> · checkpoints ${CKPT.length}`);return;}
+    if(s==='status'){echo(`modo <span class="ac">${MODES[MODE].l}</span> ${txt("model")} <span class="ac">${PROV[ACTIVE].name}</span> · checkpoints ${CKPT.length}`);return;}
     if(s==='modo'&&MODES[a[1]]){setMode(a[1]);echo('modo: '+MODES[a[1]].l);return;}
     echo('<span class="dim">dx: status | modo manual|assist|auto</span>');},
 };
@@ -75,9 +79,6 @@ TG.HOST = "browser";
 const HIST: string[] = [];
 let hidx = 0;
 
-function termNew(): void {
-  termClear();
-}
 
 function termClear(): void {
   const t = $("#term") as HTMLElement;
@@ -271,4 +272,4 @@ const runPublished = (raw?: string): unknown => { const d = desktopPorts.termina
  *  `termExec` PUBLICADO, que consulta a porta desktop (tarefa num PTY na app). */
 function runTask(c: string): unknown { TG.setPanelTab('terminal'); return TG.termExec(c); }
 
-Object.assign(window, { termNew, termClear, echo, scrollTerm, onKey, dirAt, curDir, complete, echoCmd, run: runPublished, runTask });
+Object.assign(window, { termClear, echo, scrollTerm, complete, echoCmd, run: runPublished, runTask });

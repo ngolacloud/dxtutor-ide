@@ -33,6 +33,10 @@ import type { Tab } from "../app/store/editor";
 import { CAPL, CAP, TASKP, type Capability } from "./router/domain/model-routing";
 import { rankModels } from "./router";
 import { deriveScopes, parseTeamJson, teamJson } from "./team-scopes";
+import { translator } from "../app/i18n";
+import { TEAM_MESSAGES } from "./team.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const msg = translator(TEAM_MESSAGES);
 
 interface Agent { n: string; d: string; col: string; paths: string[]; cmds: string[]; task: string; model: string; max: number }
 // cores em var(--token) do tema (theme.ts) em vez de hex fixo — mudam ao trocar de tema;
@@ -83,7 +87,7 @@ function applyProjectTeam(): void {
 document.addEventListener('dx:workspace', () => applyProjectTeam());
 /** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
 function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJson(AGENTS));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
-function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
+export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
 function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
 function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
 function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,norm(v)));o.innerHTML=who.length?'Pode escrever: '+who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', '):'Nenhum assistente especializado — só o orquestrador, com a tua aprovação.';}
@@ -101,7 +105,7 @@ const RIGHTS: Record<string, string> = { code: 'Writing code', arch: 'Architectu
 const RIGHT_RE: Record<string, RegExp> = { arch: /\.dxtutor\/arquitectura\//, schema: /db\/migrations\/|\/migrations\//, deps: /(Cargo\.toml|package\.json|go\.mod|requirements\.txt)$/ };
 const ALWAYS = ['merge', 'release', 'deploy', 'push'];
 const MORD = ['manual', 'assist', 'auto'];
-const HT: Record<string, any> = {
+export const HT: Record<string, any> = {
   study: { n: 'Study', d: 'You write every line. The assistants explain, hint and review — they never edit files.', ceiling: 'manual', mode: 'manual', thresh: 85, human: ['code', 'arch', 'schema', 'deps'] },
   pair: { n: 'Pair programming', d: 'The assistants propose and edit inside their scope; you decide architecture, schema and dependencies.', ceiling: 'assist', mode: 'assist', thresh: 85, human: ['arch', 'schema', 'deps'] },
   cloud: { n: 'Cloud-native team', d: 'Assistants run whole issues on feature branches. You approve the architecture, review every merge and trigger deploys.', ceiling: 'auto', mode: 'assist', thresh: 85, human: ['arch'] },
@@ -185,18 +189,18 @@ function renderTeamView(_t:unknown,host:HTMLElement){
   hydrateHarn();
   const cx=window.projectContext(),rec=cx.some(c=>c[0]==='odoo')?'erp':cx.some(c=>c[0]==='k8s'||c[0]==='compose')?'cloud':'pair';
   const au=authorship(),tot=Math.max(1,au.h+au.a);
-  host.innerHTML=`<div class="page"><h1>Equipa de assistentes</h1><div class="sub">Cada assistente tem uma responsabilidade e um <b>harness</b>: os caminhos onde pode escrever, os comandos que pode correr e o limite de ficheiros por tarefa. O harness é aplicado em cada chamada de ferramenta — se um assistente tentar sair do escopo, a acção é bloqueada e delegada a quem é dono do caminho.</div>
-  <h2>Project harness</h2><div class="sub">The harness is the project's contract: what the assistants may touch, how far they may go on their own, and which decisions stay with you. It is derived from the project context and saved as <code>.dxtutor/harness.toml</code>, so it is versioned with the code.</div>
-  <div class="rowline hx"><b>Detected context</b>${cx.map(c=>`<span class="tag">${c[1]}</span>`).join('')}<span class="sp"></span>${FS[ROOT+'.dxtutor/harness.toml']?`<button class="mini" data-action="team:openHarness">Open harness.toml</button>`:''}</div>
-  <div class="pgrid" style="margin-top:10px">${Object.entries(HT).map(([k,h])=>`<div class="pcard${HARN.tpl===k?' sel':''}"><div class="ph">${h.n}${HARN.tpl===k?'<span class="tag acc">applied</span>':rec===k?'<span class="tag live">suggested</span>':''}</div><div class="pd">${h.d}</div><div class="hx-meta"><span>ceiling <b>${MODES[h.ceiling].l}</b></span><span>threshold <b>${h.thresh}</b></span></div><button class="mini${HARN.tpl===k?'':' pri'}" data-action="team:applyTemplate" data-on="${esc(k)}">${HARN.tpl===k?'Re-apply':'Apply template'}</button></div>`).join('')}</div>
-  <h2>Who decides</h2><div class="sub">The assistants accelerate the work; these decisions are never theirs. Locked rows are human-only in every template.</div><div class="tbl-wrap">${Object.entries(RIGHTS).map(([r,l])=>`<div class="rowline"><span>${l}</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${isHuman(r)?'you decide':'assistant, inside its scope'}</span><button class="sw${isHuman(r)?' on':''}" ${ALWAYS.includes(r)?'disabled style="opacity:.5"':''} data-action="team:toggleRight" data-on="${esc(r)}"></button></div>`).join('')}<div class="rowline"><span>Review the diff before validating a merge</span><span class="sp"></span><button class="sw${HARN.review?' on':''}" data-action="team:review"></button></div></div>
-  <h2>Who did the work</h2><div class="tbl-wrap"><div class="rowline"><b style="width:120px;flex:none">Commits</b><span class="hx-bar"><i style="width:${au.h/tot*100}%"></i></span><span>you ${au.h} · assistants ${au.a}</span></div><div class="rowline"><b style="width:120px;flex:none">Decisions</b><span class="hx-bar"><i style="width:${au.dh/Math.max(1,au.dh+au.da)*100}%"></i></span><span>you ${au.dh} · assistants ${au.da}</span></div></div>
-  <h2>Testar o escopo</h2><div class="tbl-wrap"><div class="rowline"><input class="inp" style="margin:0;width:320px" placeholder="ex.: db/migrations/0005_x.sql" data-action="team:probe"><span id="probe-out" style="color:var(--fg-dim)"></span></div></div>
-  <h2>Assistentes</h2><div class="pgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${Object.entries(AGENTS).map(([k,a])=>`<div class="pcard"><div class="ph"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${AGENT===k?'<span class="tag acc">na conversa</span>':`<button class="mini" style="margin-left:auto" data-action="team:talk" data-on="${esc(k)}">Falar</button>`}</div><div class="pd">${a.d}</div>
-    <div><label>Pode escrever em (um padrão por linha)</label><textarea rows="2" data-action="team:paths" data-on="${esc(k)}">${esc(a.paths.join('\n'))}</textarea></div>
-    <div><label>Comandos permitidos</label><textarea rows="2" data-action="team:cmds" data-on="${esc(k)}">${esc(a.cmds.join('\n'))}</textarea></div>
-    <div style="display:grid;grid-template-columns:1fr 90px;gap:8px"><div><label>Modelo</label><select data-action="team:model" data-on="${esc(k)}"><option value="auto"${a.model==='auto'?' selected':''}>Automático (router)</option>${Object.entries(PROV).map(([p,v])=>`<option value="${p}"${a.model===p?' selected':''}>${v.name}</option>`).join('')}</select></div><div><label>Máx. ficheiros</label><input type="number" min="0" max="50" value="${a.max}" data-action="team:max" data-on="${esc(k)}"></div></div></div>`).join('')}</div>
-  <h2>Router de modelos</h2><div class="sub">Com o modelo em «Automático», o assistente descreve a tarefa e pede o modelo mais adequado. Os perfis abaixo são valores de exemplo, editáveis na aplicação real.</div><div class="tbl-wrap"><table class="tbl"><tr><th>Provedor</th>${(Object.keys(CAPL) as Capability[]).map(c=>`<th>${CAPL[c]}</th>`).join('')}</tr>${Object.entries(PROV).map(([p,v])=>`<tr><td><span class="pdot${v.on?'':' off'}" style="background:${v.col}"></span> ${v.name}</td>${(Object.keys(CAPL) as Capability[]).map(c=>`<td class="c">${CAP[p][c]}</td>`).join('')}</tr>`).join('')}</table></div>
+  host.innerHTML=`<div class="page"><h1>${msg("teamOfAssistants")}</h1><div class="sub">${msg("eachAssistantHasOne")} <b>harness</b>${msg("thePathsItMay")}</div>
+  <h2>${msg("projectHarness")}</h2><div class="sub">The harness is the project's contract: what the assistants may touch, how far they may go on their own, and which decisions stay with you. It is derived from the project context and saved as <code>.dxtutor/harness.toml</code>, so it is versioned with the code.</div>
+  <div class="rowline hx"><b>${msg("detectedContext")}</b>${cx.map(c=>`<span class="tag">${c[1]}</span>`).join('')}<span class="sp"></span>${FS[ROOT+'.dxtutor/harness.toml']?`<button class="mini" data-action="team:openHarness">Open harness.toml</button>`:''}</div>
+  <div class="pgrid" style="margin-top:10px">${Object.entries(HT).map(([k,h])=>`<div class="pcard${HARN.tpl===k?' sel':''}"><div class="ph">${h.n}${HARN.tpl===k?`<span class="tag acc">${msg("applied")}</span>`:rec===k?`<span class="tag live">${msg("suggested")}</span>`:''}</div><div class="pd">${h.d}</div><div class="hx-meta"><span>ceiling <b>${MODES[h.ceiling].l}</b></span><span>threshold <b>${h.thresh}</b></span></div><button class="mini${HARN.tpl===k?'':' pri'}" data-action="team:applyTemplate" data-on="${esc(k)}">${HARN.tpl===k?'Re-apply':'Apply template'}</button></div>`).join('')}</div>
+  <h2>${msg("whoDecides")}</h2><div class="sub">${msg("theAssistantsAccelerateThe")}</div><div class="tbl-wrap">${Object.entries(RIGHTS).map(([r,l])=>`<div class="rowline"><span>${l}</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${isHuman(r)?'you decide':'assistant, inside its scope'}</span><button class="sw${isHuman(r)?' on':''}" ${ALWAYS.includes(r)?'disabled style="opacity:.5"':''} data-action="team:toggleRight" data-on="${esc(r)}"></button></div>`).join('')}<div class="rowline"><span>${msg("reviewTheDiffBefore")}</span><span class="sp"></span><button class="sw${HARN.review?' on':''}" data-action="team:review"></button></div></div>
+  <h2>${msg("whoDidTheWork")}</h2><div class="tbl-wrap"><div class="rowline"><b style="width:120px;flex:none">Commits</b><span class="hx-bar"><i style="width:${au.h/tot*100}%"></i></span><span>you ${au.h} · assistants ${au.a}</span></div><div class="rowline"><b style="width:120px;flex:none">Decisions</b><span class="hx-bar"><i style="width:${au.dh/Math.max(1,au.dh+au.da)*100}%"></i></span><span>you ${au.dh} · assistants ${au.da}</span></div></div>
+  <h2>${msg("testTheScope")}</h2><div class="tbl-wrap"><div class="rowline"><input class="inp" style="margin:0;width:320px" placeholder="ex.: db/migrations/0005_x.sql" data-action="team:probe"><span id="probe-out" style="color:var(--fg-dim)"></span></div></div>
+  <h2>${msg("assistants")}</h2><div class="pgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${Object.entries(AGENTS).map(([k,a])=>`<div class="pcard"><div class="ph"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${AGENT===k?`<span class="tag acc">${msg("inTheConversation")}</span>`:`<button class="mini" style="margin-left:auto" data-action="team:talk" data-on="${esc(k)}">${msg("talk")}</button>`}</div><div class="pd">${a.d}</div>
+    <div><label>${msg("mayWriteToOne")}</label><textarea rows="2" data-action="team:paths" data-on="${esc(k)}">${esc(a.paths.join('\n'))}</textarea></div>
+    <div><label>${msg("allowedCommands")}</label><textarea rows="2" data-action="team:cmds" data-on="${esc(k)}">${esc(a.cmds.join('\n'))}</textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 90px;gap:8px"><div><label>${msg("model")}</label><select data-action="team:model" data-on="${esc(k)}"><option value="auto"${a.model==='auto'?' selected':''}>${msg("automaticRouter")}</option>${Object.entries(PROV).map(([p,v])=>`<option value="${p}"${a.model===p?' selected':''}>${v.name}</option>`).join('')}</select></div><div><label>${msg("maxFiles")}</label><input type="number" min="0" max="50" value="${a.max}" data-action="team:max" data-on="${esc(k)}"></div></div></div>`).join('')}</div>
+  <h2>${msg("modelRouter")}</h2><div class="sub">${msg("withTheModelSet")}</div><div class="tbl-wrap"><table class="tbl"><tr><th>${msg("provider")}</th>${(Object.keys(CAPL) as Capability[]).map(c=>`<th>${CAPL[c]}</th>`).join('')}</tr>${Object.entries(PROV).map(([p,v])=>`<tr><td><span class="pdot${v.on?'':' off'}" style="background:${v.col}"></span> ${v.name}</td>${(Object.keys(CAPL) as Capability[]).map(c=>`<td class="c">${CAP[p][c]}</td>`).join('')}</tr>`).join('')}</table></div>
   <div class="tbl-wrap" style="margin-top:10px">${Object.entries(TASKP).map(([k,p])=>{const r=rankModels(k);return `<div class="rowline"><b style="width:210px;flex:none">${p.l}</b><span style="color:var(--fg-muted)">${Object.entries(p.w).map(([c,w])=>CAPL[c as Capability]+' ×'+w).join(' · ')}</span><span class="sp"></span>${r.length?`<span class="pdot" style="background:${PROV[r[0].p].col}"></span>${PROV[r[0].p].name}`:'—'}</div>`;}).join('')}</div></div>`;}
 
 /** «Escrever código é teu» (o direito `code` é humano neste harness): em vez de delegar,
@@ -207,7 +211,8 @@ function renderTeamView(_t:unknown,host:HTMLElement){
  *  decoração do v6) logo a seguir à linha da revisão do diff. */
 function teamView(t: unknown, host: HTMLElement): void {
   renderTeamView(t, host);
-  const row = [...host.querySelectorAll('.rowline')].find((r) => /Review the diff before validating/.test(r.textContent || ''));
+  // a linha da revisão encontra-se pelo seu texto na língua actual (vem do catálogo desde a U6c)
+  const row = [...host.querySelectorAll('.rowline')].find((r) => (r.textContent || '').includes(msg("reviewTheDiffBefore")));
   if (row) row.insertAdjacentHTML('afterend', `<div class="rowline"><span>Explain the change in your own words before validating</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">on in Study and Critical systems</span><button class="sw${HARN.explain ? ' on' : ''}" data-action="team:explain"></button></div>`);
 }
 const RV = window as unknown as {
@@ -219,7 +224,7 @@ const RV = window as unknown as {
 /** A revisão de uma issue: o diff do ramo contra o develop, com «Validate and merge». */
 function reviewView(t: Tab, host: HTMLElement): void {
   const it = RV.BL.issues.find((i) => i.id === t.issue), GIT = RV.GIT, tr = it && GIT.trees[it.branch as string], dv = GIT.trees.develop, files = tr ? Object.keys(tr).filter((p) => tr[p] !== dv[p]) : [];
-  host.innerHTML = `<div class="diff"><div class="diff-h"><b style="color:var(--fg)" class="notr">${it ? esc(it.id + ' · ' + it.title) : ''}</b><span class="tag notr">${it ? esc(it.branch || '') : ''} → develop</span><span class="sp" style="flex:1"></span>${it && it.stage === 'func' ? `<button class="mini pri" data-action="team:approve" data-on="${esc(it.id)}">✓ Validate and merge</button><button class="mini" data-action="team:reject" data-on="${esc(it.id)}">✗ Reject</button>` : ''}</div>${files.length ? files.map((p) => { const d = RV.diffLines(dv[p] || '', (tr as Record<string, string>)[p]), ext = RV.extOf(p); return `<div class="diff-h" style="padding-top:14px"><b style="color:var(--accent-hover)">${esc(RV.short(p))}</b><span style="color:var(--green)">+${d.filter((x) => x[0] === '+').length}</span><span style="color:var(--red)">−${d.filter((x) => x[0] === '-').length}</span></div>` + d.map((x) => `<div class="dl ${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : ''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${RV.hlLine(x[1], ext) || ' '}</span></div>`).join(''); }).join('') : '<div class="sec-empty">Nothing to review: the branch was already merged or has no changes.</div>'}</div>`;
+  host.innerHTML = `<div class="diff"><div class="diff-h"><b style="color:var(--fg)" class="notr">${it ? esc(it.id + ' · ' + it.title) : ''}</b><span class="tag notr">${it ? esc(it.branch || '') : ''} → develop</span><span class="sp" style="flex:1"></span>${it && it.stage === 'func' ? `<button class="mini pri" data-action="team:approve" data-on="${esc(it.id)}">${msg("validateAndMerge")}</button><button class="mini" data-action="team:reject" data-on="${esc(it.id)}">${msg("reject")}</button>` : ''}</div>${files.length ? files.map((p) => { const d = RV.diffLines(dv[p] || '', (tr as Record<string, string>)[p]), ext = RV.extOf(p); return `<div class="diff-h" style="padding-top:14px"><b style="color:var(--accent-hover)">${esc(RV.short(p))}</b><span style="color:var(--green)">+${d.filter((x) => x[0] === '+').length}</span><span style="color:var(--red)">−${d.filter((x) => x[0] === '-').length}</span></div>` + d.map((x) => `<div class="dl ${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : ''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${RV.hlLine(x[1], ext) || ' '}</span></div>`).join(''); }).join('') : '<div class="sec-empty">Nothing to review: the branch was already merged or has no changes.</div>'}</div>`;
 }
 VIEW.team = teamView;
 VIEW.review = reviewView;
@@ -227,16 +232,15 @@ VIEW.review = reviewView;
 function openTeam(): void { openTab({ id: 'team', title: 'Team & harness', kind: 'team' }); }
 
 const CG = window as unknown as { focusAgent: (nofocus?: boolean) => void; user: (t: string) => void; card: (who: string, html: string) => unknown };
-function codeGuard(what: string): boolean {
+export function codeGuard(what: string): boolean {
   if (!isHuman('code')) return false;
   CG.focusAgent(true); CG.user(what);
-  CG.card('co-dev', `<p>In this project <b>writing code is yours</b> (harness: ${HT[HARN.tpl].n}). I will not edit files.</p><p>I can explain the problem, review what you write, and run the tests when you are ready. Ask in the box below, or change the harness in <b>Team &amp; harness</b>.</p><div class="gate"><button class="gb" data-action="team:runTests">Run the tests</button><button class="gb" data-action="team:openTeam">Open the harness</button></div>`);
+  CG.card('co-dev', `<p>In this project <b>writing code is yours</b> (harness: ${HT[HARN.tpl].n}). I will not edit files.</p><p>I can explain the problem, review what you write, and run the tests when you are ready. Ask in the box below, or change the harness in <b>Team &amp; harness</b>.</p><div class="gate"><button class="gb" data-action="team:runTests">${msg("runTheTests")}</button><button class="gb" data-action="team:openTeam">Open the harness</button></div>`);
   return true;
 }
 
-Object.assign(window, {
-  codeGuard, openTeam, globRe, inScope, canRun, ownerOf, harnessCheck, harnessCmd, agentSys, saveTeam, loadTeam, pickAgent, agentPill, scopeProbe, renderTeamView,
-  RIGHTS, RIGHT_RE, HT, HARN, MORD, isHuman, harnessToml, toggleRight, authorship, reviewIssue, hydrateHarn,
+Object.assign(window, { openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill,
+  RIGHTS, RIGHT_RE, HARN, MORD, isHuman, reviewIssue,
 });
 
 /* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê
@@ -255,10 +259,10 @@ const lines = (v: string): string[] => v.split('\n').map((s) => s.trim()).filter
 registerActions({
   "team:openHarness": { click: () => void callGlobal('openPath', TA.ROOT + '.dxtutor/harness.toml') },
   "team:applyTemplate": { click: (c) => void callGlobal('applyTemplate', c.on) },
-  "team:toggleRight": { click: (c) => void callGlobal('toggleRight', c.on) },
+  "team:toggleRight": { click: (c) => void toggleRight(c.on) },
   "team:review": { click: () => { TA.HARN.review = !TA.HARN.review; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
   "team:explain": { click: () => { TA.HARN.explain = !TA.HARN.explain; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
-  "team:probe": { input: (c) => void callGlobal('scopeProbe', c.value) },
+  "team:probe": { input: (c) => void scopeProbe(c.value) },
   "team:talk": { click: (c) => { TA.AGENT = c.on; callGlobal('agentPill'); callGlobal('show', TA.cur); } },
   "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); callGlobal('saveTeam'); } },
   "team:cmds": { change: (c) => { TA.AGENTS[c.on].cmds = lines(c.value); callGlobal('saveTeam'); } },

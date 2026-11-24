@@ -12,7 +12,10 @@
 
    Os CONSUMIDORES ficam no monólito e lêem por global: a secção «Router de modelos»
    do `VIEW.team` (tabela `CAP`/`CAPL` + ranking por `TASKP`/`rankModels`) e o motor
-   Co-Dev (`genBacklog`/`runIssue` chamam `routeModel`).
+   Co-Dev (`genBacklog`/`runIssue` chamavam `routeModel`).
+
+   ADR-0004, U7a: o `routeModel` e a sua cache `ROUTE_CACHE` saíram — já ninguém os chamava (nem por nome, nem pelo
+   window); o `rankModels` e os perfis ficam.
 
    Mecânica (igual às migrações anteriores): esta feature avalia ANTES de `app.ts`
    (ordem do index.html), por isso publica o motor no `window` no eval — os nomes
@@ -23,19 +26,10 @@
    `app.ts`. `window.LIVE_OK=false` inicializa-se aqui (router carrega antes de app.ts
    e de bridge.ts, que o põe a `true` quando a amostragem ao vivo fica disponível). */
 
-import { CAPL, CAP, TASKP, rankProviders, topCapabilities, type TaskKind } from "./router/domain/model-routing";
+import { rankProviders } from "./router/domain/model-routing";
 
-window.LIVE_OK=false;const ROUTE_CACHE: Record<string, { p: string; why: string; by: string }>={};
+window.LIVE_OK=false;
 /* perfis e pontuação: domain/model-routing.ts (puro, testado); aqui só o lado com efeitos */
 export function rankModels(task: string){return rankProviders(task,connected());}
-async function routeModel(agent: string,title: string){const a=AGENTS[agent] as { n: string; task: string; model: string },task=a.task,r=rankModels(task);if(!r.length)return{p:ACTIVE,why:'nenhum provedor ligado',by:'—'};
-  if(a.model!=='auto'&&PROV[a.model].on)return{p:a.model,why:'fixado no harness do assistente',by:'harness'};
-  const top=topCapabilities(task),heur={p:r[0].p,why:`tarefa de ${TASKP[task as TaskKind].l.toLowerCase()}: pesa mais ${top}`,by:'perfil'};
-  if(!SAMPLE||!LIVE_OK)return heur;if(ROUTE_CACHE[task])return ROUTE_CACHE[task];
-  try{const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),7000);const res=await SAMPLE(`Escolhe o melhor modelo para esta tarefa de desenvolvimento.\nTarefa: ${title}\nTipo: ${TASKP[task as TaskKind].l}\nModelos disponíveis (capacidades 0-10): ${JSON.stringify(Object.fromEntries(r.map(x=>[x.p,CAP[x.p]])))}\nResponde só com JSON: {"provider":"<id>","why":"<uma frase em português>"}`,{modelTier:'quick',signal:ac.signal});clearTimeout(tm);
-    const j=JSON.parse((res.text.match(/\{[\s\S]*\}/)||['{}'])[0]);if(PROV[j.provider]&&PROV[j.provider].on)return ROUTE_CACHE[task]={p:j.provider,why:String(j.why||'').slice(0,140),by:'LLM'};}catch(e){}
-  return heur;}
 
-/* publica o motor no window — o resíduo do monólito (VIEW.team, genBacklog, runIssue)
-   resolve estes nomes como globais em runtime (padrão de inversão). */
-Object.assign(window,{CAPL,CAP,TASKP,ROUTE_CACHE,rankModels,routeModel});
+/* (ADR-0004, U7d) já não publica nada no window: o team importa o rankModels e os perfis vêm do domínio */

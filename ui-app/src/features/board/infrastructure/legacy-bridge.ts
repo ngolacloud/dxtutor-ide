@@ -27,6 +27,11 @@ import { toast, log, rerender, dlg as coreDlg } from "../../../core";
 import type {
   Backlog, Stage, Issue, Design, TechSpec,
 } from "../domain/types";
+/* U7c do ADR-0004: estes quatro deixaram de ser lidos pelo window — o publicador avalia antes desta ponte, ninguém os decora */
+import { validateDesign as validateDesignImpl, CLOUD } from "../../studio";
+import { codeGuard as codeGuardImpl } from "../../team";
+import { usd as usdImpl } from "../../tasks";
+import { TASKP } from "../../router/domain/model-routing";
 export { toast, log, rerender };
 export type { Backlog, Stage, Issue, Design, TechSpec };
 
@@ -68,7 +73,7 @@ export const stages = (): Stage[] => G.STAGES;
 export const files = (): Record<string, FileEntry> => G.FS;
 export const agents = (): Record<string, Agent> => G.AGENTS;
 export const provs = (): Record<string, Prov> => G.PROV;
-export const taskProfiles = (): Record<string, { l: string }> => G.TASKP;
+export const taskProfiles = (): Record<string, { l: string }> => TASKP;
 
 /* ───── estado da execução / autoria / ramo / agente activo / pane / modo ───── */
 export const run = (): Run => G.RUN;
@@ -96,10 +101,10 @@ export const stOf = (p: string): string => G.stOf(p);
    genBacklogIssues lê-os por global — decisão do dono: geradores FICAM) ───── */
 export const design = (): Design => G.SD;
 export const saveDesign = (): void => G.saveSD();
-export const validateDesign = (): Array<[string, string]> => G.validateDesign();
+export const validateDesign = (): Array<[string, string]> => validateDesignImpl() as Array<[string, string]>;
 export const tech = (): Record<string, TechSpec> => G.TECH;
 export const kindTable = (): Record<string, { hc?: boolean }> => G.KIND;
-export const cloudTable = (): Record<string, { l: string }> => G.CLOUD;
+export const cloudTable = (): Record<string, { l: string }> => CLOUD;
 export const isApp = (n: unknown): boolean => G.isApp(n);
 export const nodeSlug = (n: unknown): string => G.sl(n);
 export const appDir = (n: unknown): string => G.appDir(n);
@@ -169,13 +174,13 @@ export interface DlgOpts {
 }
 export const harness = (): Harness => G.HARN;
 export const reviewIssue = (id: string): void => G.reviewIssue(id);
-export const codeGuard = (what: string): boolean => G.codeGuard(what);
+export const codeGuard = (what: string): boolean => codeGuardImpl(what);
 export const openIssue = (id: string): void => G.openIssue(id);
 export const studioNodes = (): StudioNode[] => G.SD.nodes;
 export const saveSD = (): void => G.saveSD();
 export const dlg = (o: DlgOpts): void => coreDlg(o);  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
 export const usage = (): Record<string, { tok: number }> => G.USAGE;
-export const usd = (tok: number, p: string): number => G.usd(tok, p);
+export const usd = (tok: number, p: string): number => usdImpl(tok, p);
 export const commitNotes = (): Record<string, { note?: string }> => G.GIT.c;
 
 /* ───── publicação da superfície pública no `window` ─────

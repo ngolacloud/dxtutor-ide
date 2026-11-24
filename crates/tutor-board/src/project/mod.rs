@@ -13,8 +13,10 @@
 //! - Co-Dev change sets (accepted hunks, docs/v2/RF-CODEV-STREAM.md §9) and commits that
 //!   cite an issue key are linked to the issue.
 
+pub mod breakpoints;
 pub mod reports;
 pub mod schema;
+pub mod testhist;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -810,6 +812,43 @@ impl ProjectStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// The gutter's breakpoints of the project (DBG-03).
+    pub fn breakpoints(&self, root: &str) -> Result<Vec<breakpoints::Breakpoint>, ProjectError> {
+        breakpoints::load(&self.conn, root)
+    }
+
+    /// Replaces the breakpoints of one file of the project.
+    pub fn save_breakpoints(
+        &mut self,
+        root: &str,
+        file: &str,
+        list: &[breakpoints::Breakpoint],
+    ) -> Result<(), ProjectError> {
+        breakpoints::save_file(&mut self.conn, root, file, list)
+    }
+
+    /// Keeps a test run with its per-test results (TEST-03).
+    pub fn record_test_run(
+        &mut self,
+        root: &str,
+        run: &testhist::NewRun,
+        now: i64,
+    ) -> Result<i64, ProjectError> {
+        let tx = self.conn.transaction()?;
+        let id = testhist::record(&tx, root, run, now)?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// The recent runs and each test's recent results, flips and flakiness.
+    pub fn test_history(
+        &self,
+        root: &str,
+        limit: usize,
+    ) -> Result<testhist::TestHistory, ProjectError> {
+        testhist::history(&self.conn, root, limit)
     }
 
     pub fn reports(&self, root: &str, now: i64) -> Result<reports::Reports, ProjectError> {

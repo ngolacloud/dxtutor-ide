@@ -199,6 +199,6 @@ function showWithActions(id: string | null): void {
  *  ADR-0004 U4j3; como lá, usa o `show` publicado — o da barra de acções). */
 function rerender(kind: string): void { const t=tabOf(editorStore.currentTabId);if(t&&t.kind===kind){const top=$('#ebody')!.scrollTop;G.show(editorStore.currentTabId);$('#ebody')!.scrollTop=top;} }
 
-Object.assign(window, { rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show: showWithActions, closeTab, stepTab, EACT });
+Object.assign(window, { rerender, tabOf, openTab, openPath, openFile, setActive, drawTabs, miniOff, show: showWithActions, closeTab, stepTab, EACT });
 
 export { rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };

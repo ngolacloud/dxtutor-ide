@@ -110,9 +110,9 @@ function extensionsSection(st: HarnessState): string {
 
 export function renderHarness(st: HarnessState, model: string, now: number): string {
   if (!st.available) {
-    return `<div class="hx"><div class="hx-empty"><b>Co-Dev run</b><p>The agent's plan, tasks, checkpoints, permissions and extensions live in the desktop app, with a folder open and a provider with an agent (Claude, Codex, Gemini or Ollama).</p></div></div>`;
+    return `<div class="hx-run"><div class="hx-empty"><b>Co-Dev run</b><p>The agent's plan, tasks, checkpoints, permissions and extensions live in the desktop app, with a folder open and a provider with an agent (Claude, Codex, Gemini or Ollama).</p></div></div>`;
   }
-  return `<div class="hx"><div class="hx-top"><b>Co-Dev run</b>${st.run.running ? `<span class="hx-live">running</span>` : ""}<span class="hx-sp"></span><button class="hx-btn" data-action="hx-refresh"><span>Refresh</span></button></div>
+  return `<div class="hx-run"><div class="hx-top"><b>Co-Dev run</b>${st.run.running ? `<span class="hx-live">running</span>` : ""}<span class="hx-sp"></span><button class="hx-btn" data-action="hx-refresh"><span>Refresh</span></button></div>
     <div class="hx-cols"><div class="hx-col">${runSection(st, model)}</div><div class="hx-col">${checkpointsSection(st, now)}${permissionsSection(st)}${extensionsSection(st)}</div></div></div>`;
 }
 

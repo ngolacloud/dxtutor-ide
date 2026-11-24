@@ -22,8 +22,10 @@ pub mod codemap;
 pub mod complexity;
 pub mod container;
 pub mod dap;
+pub mod dapc;
 pub mod entrypoint;
 pub mod git;
+pub mod gitx;
 pub mod go_runner;
 pub mod js_runner;
 pub mod lang;
@@ -35,6 +37,7 @@ pub mod runner;
 pub mod rust_tracer;
 pub mod search;
 pub mod testnav;
+pub mod testrun;
 pub mod textdiff;
 pub mod tracer;
 

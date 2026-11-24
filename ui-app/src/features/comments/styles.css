@@ -1,0 +1,18 @@
+/* feature `comments`: o botão na margem do editor e a caixa «Start discussion» (dentro da .ed-wrap) */
+  .cmt-gutter{position:absolute;left:-19px;width:18px;display:flex;align-items:center;justify-content:center;z-index:4}
+  .cmt-gutter[hidden],.cmt-box[hidden],.cmt-band[hidden]{display:none}
+  .cmt-btn{display:grid;place-items:center;width:17px;height:17px;padding:0;border:1px solid var(--border-strong);border-radius:4px;background:var(--bg-elevated);color:var(--fg-dim);cursor:pointer}
+  .cmt-btn:hover,.cmt-btn:focus-visible{color:var(--fg-bright);border-color:var(--accent);outline:0}
+  .cmt-band{position:absolute;left:0;right:0;background:color-mix(in srgb,var(--accent) 10%,transparent);box-shadow:inset 2px 0 0 var(--accent);pointer-events:none;z-index:1}
+  .cmt-box{position:absolute;left:0;z-index:6;display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px;background:var(--bg-elevated);border-top:2px solid var(--accent);border-bottom:2px solid var(--accent);border-radius:0 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-family:var(--font-ui);font-size:13px;line-height:1.4;color:var(--fg);white-space:normal}
+  .cmt-head{display:flex;align-items:center;gap:10px}
+  .cmt-title{font-weight:600;color:var(--fg-bright)}
+  .cmt-where{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+  .cmt-del{margin-left:auto;display:grid;place-items:center;width:26px;height:24px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg-dim);cursor:pointer}
+  .cmt-del:hover,.cmt-del:focus-visible{background:var(--bg-hover,rgba(255,255,255,.06));color:var(--red);outline:0}
+  .cmt-input{width:100%;min-height:84px;box-sizing:border-box;resize:vertical;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;background:var(--bg);color:var(--fg);font-family:var(--font-mono);font-size:13px;line-height:1.5;caret-color:var(--fg-bright)}
+  .cmt-input:focus{outline:0;border-color:var(--accent)}
+  .cmt-input::placeholder{color:var(--fg-muted)}
+  .cmt-foot{display:flex;align-items:center;gap:10px}
+  .cmt-hint{font-size:11.5px;color:var(--fg-muted)}
+  .cmt-add{margin-left:auto}

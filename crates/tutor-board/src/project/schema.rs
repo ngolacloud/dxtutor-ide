@@ -139,7 +139,46 @@ const MIGRATIONS: &[&str] = &[
         markdown   TEXT NOT NULL
     );
     CREATE INDEX idx_artifacts_issue ON artifacts(root, issue_key, at);",
-    // 3 — the audit log of Co-Dev (RF-T01, docs/v2/RF-DELONIX-PLANO.md F1.2): one row per
+    // 3 — test runs with per-test results (docs/v2/UI-AUDIT.md item 3, TEST-03): the history
+    //     the Testing pane computes trends and flaky tests from
+    "CREATE TABLE test_runs (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        root         TEXT NOT NULL,
+        at           INTEGER NOT NULL,
+        runner       TEXT NOT NULL,
+        command      TEXT NOT NULL,
+        scope        TEXT NOT NULL,
+        ok           INTEGER NOT NULL,
+        duration_ms  INTEGER NOT NULL,
+        passed       INTEGER NOT NULL,
+        failed       INTEGER NOT NULL,
+        skipped      INTEGER NOT NULL
+    );
+    CREATE INDEX idx_test_runs_root ON test_runs(root, at);
+    CREATE TABLE test_cases (
+        run_id       INTEGER NOT NULL,
+        case_id      TEXT NOT NULL,
+        name         TEXT NOT NULL,
+        suite        TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        duration_ms  INTEGER,
+        message      TEXT
+    );
+    CREATE INDEX idx_test_cases_run ON test_cases(run_id);
+    CREATE INDEX idx_test_cases_case ON test_cases(case_id);",
+    // 4 — the gutter's breakpoints per workspace (docs/v2/UI-AUDIT.md item 4, DBG-03): line,
+    //     condition, hit count, log message (logpoint), on/off — kept across restarts
+    "CREATE TABLE breakpoints (
+        root           TEXT NOT NULL,
+        file           TEXT NOT NULL,
+        line           INTEGER NOT NULL,
+        condition      TEXT,
+        hit_condition  TEXT,
+        log_message    TEXT,
+        enabled        INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (root, file, line)
+    );",
+    // 5 — the audit log of Co-Dev (RF-T01, docs/v2/RF-DELONIX-PLANO.md F1.2): one row per
     //     decision on an action, per mode change and per turn, with the human request it
     //     answered. Secrets are masked by the writer (RF-T05).
     "CREATE TABLE audit (
@@ -169,7 +208,7 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX idx_audit_issue ON audit(root, issue_key, at);
     CREATE INDEX idx_audit_session ON audit(session, at);",
-    // 4 — the user story Co-Dev works on (RF-B01/B02/B04/B06/B07, docs/v2/RF-DELONIX-PLANO.md
+    // 6 — the user story Co-Dev works on (RF-B01/B02/B04/B06/B07, docs/v2/RF-DELONIX-PLANO.md
     //     F4): «As / I want / So that», the file scope and the dependencies, who approved the
     //     Definition of Ready, failed test attempts, the criteria table Co-Dev answered and the
     //     prompt template version it used; and the cost of each turn in the audit log (RF-T04)
@@ -183,7 +222,7 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE issues ADD COLUMN criteria_report TEXT;
     ALTER TABLE issues ADD COLUMN template_version TEXT;
     ALTER TABLE audit ADD COLUMN cost_usd REAL;",
-    // 5 — budgets (RF-T03, docs/v2/RF-DELONIX-PLANO.md F6.1): dollars per issue and per sprint;
+    // 7 — budgets (RF-T03, docs/v2/RF-DELONIX-PLANO.md F6.1): dollars per issue and per sprint;
     //     what was spent is the sum of the real cost of the turns in the audit log
     "ALTER TABLE issues ADD COLUMN budget_usd REAL;
     ALTER TABLE sprints ADD COLUMN budget_usd REAL;",

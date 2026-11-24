@@ -61,6 +61,10 @@ import {
   publishJSZipLoader,
   publish,
 } from "./ext/infrastructure/legacy-bridge";
+import { translator } from "../app/i18n";
+import { EXT_MESSAGES } from "./ext/ui/messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(EXT_MESSAGES);
 
 /* ── ADR-0006, R6b: já não há catálogo fixo. O que se conhece sem estar instalado vem do Open VSX
    real (a pesquisa, na app desktop) e das recomendações pela pilha do projecto
@@ -224,8 +228,8 @@ function renderExtd(t: { ext?: string }, host: HTMLElement){ hydrateExs(); const
   host.innerHTML=`<div class="page" style="max-width:760px"><div style="display:flex;gap:16px;align-items:center">${extIcon(x, true)}<div><h1 class="notr" style="margin:0">${esc(x.n)}</h1><div class="sub notr" style="margin:0">${esc(x.pub)} · <code>${esc(x.id)}</code>${x.ver?' · v'+esc(x.ver):''}${x.remote?` · ${nfmt(x.remote.downloads)} downloads${x.remote.verified?' · verified publisher':''}`:''}</div></div></div>
    ${x.d?`<div class="sub" style="margin-top:12px">${esc(x.d)}</div>`:''}<div style="display:flex;gap:8px;margin:12px 0">${i?`<button class="mini" data-action="ext-toggle" data-on="${esc(x.id)}">${i.on?'Disable':'Enable'}</button><button class="mini" data-action="ext-remove" data-on="${esc(x.id)}">Uninstall</button>`:`<button class="mini pri" data-action="ext-install" data-on="${esc(x.id)}">Install</button>`}</div>
    ${about}
-   ${x.cmds&&x.cmds.length?`<h2>Commands</h2><div class="tbl-wrap">${x.cmds.map(c=>`<div class="rowline"><span class="notr">${esc(c[0])}</span><span class="sp"></span>${c[1]?`<kbd>${esc(c[1])}</kbd>`:''}</div>`).join('')}</div>`:''}
-   ${x.cfg&&x.cfg.length?`<h2>Settings</h2><div class="tbl-wrap">${x.cfg.map(c=>`<div class="rowline"><code class="notr">${esc(c)}</code></div>`).join('')}</div>`:''}${x.engines?`<div class="sub" style="margin-top:12px">Requires VS Code API <code>${esc(x.engines)}</code>.</div>`:''}</div>`; }
+   ${x.cmds&&x.cmds.length?`<h2>${txt("commands")}</h2><div class="tbl-wrap">${x.cmds.map(c=>`<div class="rowline"><span class="notr">${esc(c[0])}</span><span class="sp"></span>${c[1]?`<kbd>${esc(c[1])}</kbd>`:''}</div>`).join('')}</div>`:''}
+   ${x.cfg&&x.cfg.length?`<h2>${txt("settings")}</h2><div class="tbl-wrap">${x.cfg.map(c=>`<div class="rowline"><code class="notr">${esc(c)}</code></div>`).join('')}</div>`:''}${x.engines?`<div class="sub" style="margin-top:12px">Requires VS Code API <code>${esc(x.engines)}</code>.</div>`:''}</div>`; }
 
 /** Fase 4: o que uma extensão instalada por VSIX contribui e o dxtutor aplica — e, com
  *  honestidade, o que não corre (o JavaScript da extensão: não há extension host). */
@@ -233,7 +237,7 @@ function contribSection(x: ExtItem): string {
   const c = x.contrib!;
   const active = contrib.activeTheme();
   const rows: string[] = [];
-  c.themes.forEach(label => rows.push(`<div class="rowline"><span>Color theme <b class="notr">${esc(label)}</b></span><span class="sp"></span>${active === label ? '<span class="tag live">active</span>' : `<button class="mini" data-action="vsx-theme" data-on="${esc(label)}">Apply</button>`}</div>`));
+  c.themes.forEach(label => rows.push(`<div class="rowline"><span>Color theme <b class="notr">${esc(label)}</b></span><span class="sp"></span>${active === label ? `<span class="tag live">${txt("active")}</span>` : `<button class="mini" data-action="vsx-theme" data-on="${esc(label)}">Apply</button>`}</div>`));
   if (c.grammars.length) rows.push(`<div class="rowline"><span>Syntax highlighting (TextMate) for <span class="notr">${c.grammars.map(esc).join(", ")}</span></span></div>`);
   if (c.snippets) rows.push(`<div class="rowline"><span>${c.snippets} snippet${c.snippets === 1 ? "" : "s"} — type the prefix and press <kbd>Tab</kbd></span></div>`);
   if (c.languages.length) rows.push(`<div class="rowline"><span>Languages <span class="notr">${c.languages.map(esc).join(", ")}</span> (file extensions, comments: <kbd>Ctrl+/</kbd>)</span></div>`);

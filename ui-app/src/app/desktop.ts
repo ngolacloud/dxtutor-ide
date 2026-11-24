@@ -9,7 +9,7 @@ import type { TerminalDesktop } from "../features/terminal";
 import type { StackDesktop } from "../features/stack";
 import type { InfraDesktop } from "../features/infra/application/ports";
 import type { CodevDesktop } from "../features/codev/application/ports";
-import type { ExplorerDesktop } from "../features/explorer";
+import type { ExplorerDesktop, OutlineDesktop } from "../features/explorer";
 import type { WelcomeDesktop } from "../features/welcome";
 import type { ChangelogDesktop } from "../features/changelog";
 import type { ExtDesktop } from "../features/ext/application/ports";
@@ -29,6 +29,8 @@ export interface DesktopPorts {
   /** a guarda das corridas de sprint — U4h5 */
   /** o nome da pasta aberta na raiz do explorador — U4h5b */
   explorer?: ExplorerDesktop;
+  /** o Outline das linguagens fora do `file_outline`, pelo servidor de linguagem do editor (features/lsp) */
+  outline?: OutlineDesktop;
   /** «Open Folder…» e as pastas recentes na página de boas-vindas — U4h5b */
   welcome?: WelcomeDesktop;
   /** o git log/show reais do changelog — U4h5b */

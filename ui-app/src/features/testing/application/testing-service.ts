@@ -35,14 +35,17 @@ export interface Testing {
   runOne(key: string): Promise<void>;
   runAll(): Promise<void>;
   subscribe(fn: () => void): () => void;
+  /** A6: os resultados de um runner acendem os testes descobertos (só os que correram). */
+  mark(states: Record<string, TestState>): void;
 }
 
 const fresh = (root: string | null): TestingState => ({ root, items: [], loaded: false, loading: false, running: false, states: {}, suite: null, error: null });
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export function makeTesting(deps: { tests: TestsPort; workspace: WorkspacePort }): Testing {
+export function makeTesting(deps: { tests: TestsPort; workspace: WorkspacePort; /** outra corrida em curso (as dos runners, A6) */ busy?: () => boolean }): Testing {
   const { tests, workspace } = deps;
+  const otherBusy = (): boolean => !!deps.busy?.();
   let st = fresh(null);
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
@@ -82,7 +85,7 @@ export function makeTesting(deps: { tests: TestsPort; workspace: WorkspacePort }
   async function runOne(key: string): Promise<void> {
     const root = sync();
     const t = st.items.find((x) => testKey(x) === key);
-    if (!root || !t || st.running) return;
+    if (!root || !t || st.running || otherBusy()) return;
     st.running = true; st.error = null; st.states[key] = { status: "running" }; emit();
     try {
       await workspace.save?.();
@@ -99,7 +102,7 @@ export function makeTesting(deps: { tests: TestsPort; workspace: WorkspacePort }
 
   async function runAll(): Promise<void> {
     const root = sync();
-    if (!root || st.running) return;
+    if (!root || st.running || otherBusy()) return;
     st.running = true; st.error = null;
     for (const t of st.items) st.states[testKey(t)] = { status: "running" };
     emit();
@@ -125,5 +128,10 @@ export function makeTesting(deps: { tests: TestsPort; workspace: WorkspacePort }
     runOne,
     runAll,
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
+    mark: (states) => {
+      if (st.root !== workspace.root() || !Object.keys(states).length) return;
+      st.states = { ...st.states, ...states };
+      emit();
+    },
   };
 }

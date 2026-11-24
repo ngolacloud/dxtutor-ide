@@ -1,0 +1,34 @@
+/* estilos da feature lsp (hover, aviso de servidor em falta, referências, rename, completion) — vieram do styles.css do origin/develop (PR #6) quando o styles.css se partiu por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+/* feature `lsp`: o cartão de hover do servidor de linguagem (desktop) */
+.lsp-hover{position:fixed;z-index:60;max-width:560px;max-height:320px;overflow:auto;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:8px;padding:8px 10px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;color:var(--fg);pointer-events:none}
+.lsp-missing{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0 0 6px;padding:7px 12px;background:var(--bg-elevated);border-bottom:1px solid var(--border-strong);border-left:3px solid var(--yellow);font-size:12px;color:var(--fg)}
+.lsp-missing b{color:var(--yellow)}.lsp-missing .lsp-detail{color:var(--fg-dim)}.lsp-missing code{font-family:var(--font-mono);color:var(--fg-bright)}.lsp-missing button{margin-left:auto}
+.lsp-hover.hidden{display:none}.lsp-hover .lsp-code{margin:0;font-family:var(--font-mono);white-space:pre-wrap;color:var(--fg-bright)}
+.lsp-hover .lsp-text{margin-top:6px;white-space:pre-wrap;color:var(--fg-dim)}.lsp-hover .lsp-text:first-child{margin-top:0}
+/* referências (Shift+F12) e rename (F2) */
+.lsp-pop{position:fixed;z-index:61;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;color:var(--fg)}
+.lsp-refs{min-width:320px;max-width:640px;max-height:340px;overflow:auto;padding:4px 0}
+.lsp-pop-h{padding:6px 12px 4px;color:var(--fg-dim);font-size:11px}
+.lsp-ref{display:flex;gap:10px;width:100%;text-align:left;padding:5px 12px;background:none;border:0;color:var(--fg);font-family:var(--font-mono);font-size:12px;cursor:pointer}
+.lsp-ref:hover,.lsp-ref:focus{background:rgba(74,158,255,.14);outline:0}.lsp-ref:disabled{opacity:.5;cursor:default}
+.lsp-ref-w{flex:none;color:var(--fg-bright)}.lsp-ref-t{overflow:hidden;text-overflow:ellipsis;white-space:pre;color:var(--fg-dim)}
+/* code actions (Ctrl+.) */
+.lsp-actions .lsp-action{font-family:var(--font-ui)}.lsp-act-kind{flex:none;width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-muted);font-size:11px;font-family:var(--font-mono)}
+.lsp-act-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lsp-action.preferred .lsp-act-title{color:var(--fg-bright);font-weight:600}
+/* Go to Symbol (Ctrl+Shift+O) */
+.lsp-symbols{width:440px;padding:6px 0 4px}.lsp-symbols>.inp{display:block;width:calc(100% - 16px);margin:0 8px 4px;font-family:var(--font-mono)}
+.lsp-sym-list{max-height:300px;overflow:auto}.lsp-sym.sel{background:rgba(74,158,255,.22)}.lsp-sym-n{flex:none;color:var(--fg-bright)}.lsp-sym-none{padding:4px 12px}
+.lsp-rename{padding:8px;width:260px}.lsp-rename .inp{width:100%;font-family:var(--font-mono)}.lsp-pop-hint{margin-top:5px;color:var(--fg-muted);font-size:11px}
+/* completion (Ctrl+Espaço, depois de «.» ou ao escrever) */
+.lsp-complete{width:420px;max-width:calc(100vw - 16px);font-family:var(--font-mono);font-size:12px;overflow:hidden}
+.lsp-c-list{max-height:220px;overflow-y:auto;overflow-x:hidden;padding:3px 0}
+.lsp-c-row{display:flex;align-items:center;gap:8px;padding:2px 10px;cursor:pointer;white-space:nowrap}
+.lsp-c-row.on{background:rgba(74,158,255,.18)}.lsp-c-row:hover{background:rgba(74,158,255,.1)}
+.lsp-c-kind{flex:none;width:14px;text-align:center;color:var(--accent,#e8834d);font-size:11px}
+.lsp-c-label{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg-bright)}.lsp-c-detail{flex:0 2 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg-muted);margin-left:auto;padding-left:12px}
+.lsp-c-doc{border-top:1px solid var(--border);padding:5px 10px;color:var(--fg-dim);font-family:var(--font-ui);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lsp-c-doc:empty{display:none}
+/* assinatura da chamada (signatureHelp): por cima do cursor */
+.lsp-signature{max-width:620px;padding:6px 10px;pointer-events:none}
+.lsp-sig-label{font-family:var(--font-mono);font-size:12px;color:var(--fg);white-space:pre-wrap}
+.lsp-sig-label b{color:var(--fg-bright);font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.lsp-sig-n{color:var(--fg-muted);margin-right:8px}.lsp-sig-doc{margin-top:5px;color:var(--fg-dim);font-size:11.5px;white-space:pre-wrap}

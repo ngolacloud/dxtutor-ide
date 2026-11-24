@@ -534,7 +534,7 @@ fn turn_reports_are_kept_with_their_issue() {
         .conn()
         .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
         .unwrap();
-    assert!(n >= 2, "the reports migration ran");
+    assert_eq!(n, schema::SCHEMA_VERSION as i64);
 }
 
 #[test]
@@ -732,4 +732,99 @@ fn budgets_per_issue_and_sprint_and_what_codev_spent_from_the_audit_log() {
         p.issues.iter().find(|i| i.key == a).unwrap().budget_usd,
         None
     );
+}
+
+#[test]
+fn test_history_finds_flaky_tests_and_keeps_runs() {
+    use testhist::{NewCase, NewRun};
+    let mut s = store();
+    let case = |id: &str, st: &str, ms: u64| NewCase {
+        case_id: id.into(),
+        name: id.into(),
+        suite: "lib".into(),
+        status: st.into(),
+        duration_ms: Some(ms),
+        message: (st == "failed").then(|| format!("{id} broke")),
+    };
+    // a: passes, fails, passes, fails → flaky; b: fails once then fixed → not flaky
+    for (i, (a, b)) in [
+        ("passed", "failed"),
+        ("failed", "passed"),
+        ("passed", "passed"),
+        ("failed", "passed"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let run = NewRun {
+            runner: "cargo:.".into(),
+            command: "cargo test".into(),
+            scope: "all".into(),
+            ok: *a == "passed" && *b == "passed",
+            duration_ms: 1000,
+            cases: vec![case("a", a, 10 + i as u64 * 10), case("b", b, 5)],
+        };
+        s.record_test_run(ROOT, &run, T0 + i as i64 * H).unwrap();
+    }
+    let h = s.test_history(ROOT, 30).unwrap();
+    assert_eq!(h.runs.len(), 4);
+    assert_eq!(h.runs[0].at, T0 + 3 * H, "most recent first");
+    assert_eq!((h.runs[0].passed, h.runs[0].failed), (1, 1));
+    let a = h.cases.iter().find(|c| c.case_id == "a").unwrap();
+    assert_eq!(a.recent, "pfpf");
+    assert_eq!((a.flips, a.flaky, a.last.as_str()), (3, true, "failed"));
+    assert_eq!(a.avg_ms, Some(25));
+    assert_eq!(a.last_message.as_deref(), Some("a broke"));
+    let b = h.cases.iter().find(|c| c.case_id == "b").unwrap();
+    assert_eq!((b.flips, b.flaky), (1, false));
+    assert_eq!(h.cases[0].case_id, "a", "flaky first");
+    assert!(s.test_history("/other", 30).unwrap().runs.is_empty());
+}
+
+#[test]
+fn breakpoints_are_kept_per_project_and_file() {
+    use super::breakpoints::Breakpoint;
+    let mut s = store();
+    let bp = |line: u32, cond: Option<&str>| Breakpoint {
+        file: "src/main.rs".into(),
+        line,
+        condition: cond.map(String::from),
+        hit_condition: None,
+        log_message: None,
+        enabled: true,
+    };
+    s.save_breakpoints("/p", "src/main.rs", &[bp(3, None), bp(9, Some("i == 3"))])
+        .unwrap();
+    s.save_breakpoints(
+        "/p",
+        "src/lib.rs",
+        &[Breakpoint {
+            file: "src/lib.rs".into(),
+            line: 1,
+            condition: None,
+            hit_condition: Some("2".into()),
+            log_message: Some("x={x}".into()),
+            enabled: false,
+        }],
+    )
+    .unwrap();
+    s.save_breakpoints("/other", "src/main.rs", &[bp(1, None)])
+        .unwrap();
+    let all = s.breakpoints("/p").unwrap();
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0].file, "src/lib.rs");
+    assert!(!all[0].enabled);
+    assert_eq!(all[0].log_message.as_deref(), Some("x={x}"));
+    assert_eq!(all[2].condition.as_deref(), Some("i == 3"));
+    // replacing a file's list; blank strings are not kept
+    s.save_breakpoints("/p", "src/main.rs", &[bp(4, Some("  "))])
+        .unwrap();
+    let main: Vec<_> = s
+        .breakpoints("/p")
+        .unwrap()
+        .into_iter()
+        .filter(|b| b.file == "src/main.rs")
+        .collect();
+    assert_eq!(main.len(), 1);
+    assert_eq!(main[0].condition, None);
 }

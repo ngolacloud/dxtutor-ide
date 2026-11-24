@@ -1,0 +1,26 @@
+/* estilos da feature explorer — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  /* tree */
+  .tree{padding:2px 0 6px}
+  .tree-flat .row{padding-left:10px}
+  .row{display:flex;align-items:center;gap:6px;height:22px;padding-right:10px;color:var(--fg);font-size:13px;white-space:nowrap;position:relative}
+  .row:hover{background:var(--bg-hover)}
+  .row.sel{background:var(--bg-sel)}
+  .row.sel::before{content:"";position:absolute;inset:0;box-shadow:inset 1px 0 0 var(--accent)}
+  .row .chev{width:16px;height:16px;flex:none;display:grid;place-items:center;color:var(--fg-dim);transition:transform .12s}
+  .row.open>.chev{transform:rotate(90deg)}
+  .row .chev.leaf{opacity:0}
+  .row .ic{flex:none;display:grid;place-items:center}
+  .row .ic.folder{color:var(--folder)} .row .ic.rs{color:#dea584} .row .ic.file{color:var(--fg-dim)}
+  .row .ic.css{color:var(--blue)} .row .ic.json{color:var(--yellow)} .row .ic.toml{color:var(--git-m)} .row .ic.md{color:var(--blue)}
+  .row .nm{overflow:hidden;text-overflow:ellipsis;flex:1}
+  .row.git-m>.nm{color:var(--git-m)} .row.git-u>.nm{color:var(--git-u)} .row.git-d>.nm{color:var(--git-d)}
+  .row .deco{margin-left:auto;font-family:var(--font-mono);font-weight:700;font-size:11px;padding-left:6px}
+  .row.git-m .deco{color:var(--git-m)} .row.git-u .deco{color:var(--git-u)} .row.git-d .deco{color:var(--git-d)}
+  .row .dot{margin-left:auto;width:7px;height:7px;border-radius:50%;flex:none}
+  .row.git-m .dot{background:var(--git-m)} .row.git-u .dot{background:var(--git-u)}
+  .children{position:relative;display:none}
+  .children.show{display:block}
+  .children>.children::before,.tree .children .children-wrap{}
+  .guide{position:absolute;top:0;bottom:0;width:1px;background:var(--guide)}
+  .row{cursor:pointer}
+  .tag.k-concept{color:var(--fg-dim)}.tag.k-drill{color:var(--cyan);border-color:var(--cyan)}.tag.k-challenge{color:var(--green);border-color:var(--green)}

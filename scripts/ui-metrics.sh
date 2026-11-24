@@ -38,7 +38,7 @@ published_names() {
 # Object.assign(window, {…})): mover uma função de módulo pode trocar de sintaxe sem mudar
 # o número; deixar de a publicar (o consumidor importa) é que baixa (U3/U4/U7)
 window_assigns() { grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count; }
-metric "globais publicadas no window (U3/U4/U7)" 355 0 \
+metric "globais publicadas no window (U3/U4/U7)" 286 0 \
   "$(( $(window_assigns) + $(published_names) ))"
 # só atributos de verdade (o valor abre com aspas, escapadas ou não): a prosa — p.ex. o achado da
 # revisão «<img src=x onerror=…>» — não conta (U5e)
@@ -47,6 +47,10 @@ metric "handlers inline on*=\"…\" (U5)" 0 0 \
 # o CSP da app desktop sem 'unsafe-inline' no script-src (U5e): os handlers inline voltariam a ser precisos
 metric "script-src com 'unsafe-inline' no CSP (U5)" 0 0 \
   "$(grep -oE "script-src[^;]*'unsafe-inline'" src-tauri/tauri.conf.json | count)"
+# pares de texto do motor de tradução (features/i18n.ts, PAIRS): os textos novos nascem com chave (U6b) — o motor
+# só encolhe, à medida que os textos passam a catálogos e os pares deixam de ter quem os use
+metric "pares de texto do motor de tradução (U6)" 927 0 \
+  "$(( $(grep -o '"\], \["' "$SRC/features/i18n.ts" | count) + 1 ))"
 metric "invoke cru inv(\"…\") fora de platform/ (U2)" 0 0 \
   "$(grep -rhoE '\binv\("' "$SRC" --include=*.ts --exclude-dir=platform | count)"
 

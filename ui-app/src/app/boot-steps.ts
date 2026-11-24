@@ -4,13 +4,19 @@
    depois de todos os donos publicarem os seus. Ajustam ACTS/MENUS/CMD/LANG, que se dissolvem quando
    cada feature registar os seus comandos (U7). O CMD, o buildMenus e o LCUR importam-se do
    app/commands.ts: são as mesmas ligações locais que estes passos usavam no app.ts. */
-import { setVar, hydrate, log } from "../features/shell";
+import { setVar, hydrate, log, mkRz } from "../features/shell";
 import { LANG } from "../features/editor";
 import { openArch } from "../features/arch/index";
 import { openProject } from "../features/project/index";
 import { openCodevRun } from "../features/codev/index";
 import { CMD, buildMenus, LCUR } from "./commands";
+import { buildDocker } from "../boot";
 import type { AppCmd, AppMenu } from "./ide-globals";
+import { translator } from "./i18n";
+import { BOOT_MESSAGES } from "./boot-steps.messages";
+import { loadTeam, HT } from "../features/team";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(BOOT_MESSAGES);
 
 /* O global MENUS (declarado em pair.ts) não conhece os separadores/submenus que se constroem aqui:
    neste módulo vê-se com o tipo completo. Declaração só de tipo: continua a resolver o global no acto. */
@@ -38,8 +44,8 @@ function boot3(){loadTeam();SD=loadSD();
   const i=ACTS.findIndex(a=>a.pane==='codev');ACTS.splice(i+1,0,{ic:'book',pane:'tutor',title:'Tutor'},{ic:'cube',run:openStudio,title:'Studio de arquitectura'},{ic:'split',run:openBoard,title:'Quadro'});ACTS[i].sep=1;buildActivity();$('.act')!.classList.add('on');
   $('.side')!.insertAdjacentHTML('beforeend','<div class="pane" id="pane-tutor"></div>');
   /* o #pill-agent nasce no compositor (features/codev/ui/composer.ts); só se cria aqui se faltar */
-  if(!$('#pill-agent'))$('.comp-bar')!.insertAdjacentHTML('afterbegin','<button class="pill" id="pill-agent" title="Assistente da conversa" data-action="chrome:pickAgent"></button>');agentPill();
-  $('#st-lang')!.insertAdjacentHTML('beforebegin','<button class="si opt" id="st-blame" title="Último commit que tocou neste ficheiro"></button>');
+  if(!$('#pill-agent'))$('.comp-bar')!.insertAdjacentHTML('afterbegin',`<button class="pill" id="pill-agent" title="${txt("assistantForThisConversation")}" data-action="chrome:pickAgent"></button>`);agentPill();
+  $('#st-lang')!.insertAdjacentHTML('beforebegin',`<button class="si opt" id="st-blame" title="${txt("lastCommitThatTouched")}"></button>`);
   MENUS.splice(7,0,{t:'Projecto',items:[{l:'Studio de arquitectura',act:openStudio},{l:'Quadro (kanban)',act:openBoard},{l:'Gerar backlog a partir do Studio',act:genBacklog},{sep:1},{l:'Equipa e harness',act:()=>openTeam()},{l:'Grafo de commits',act:()=>openGraph()},{l:'Gitflow',sub:[{l:'Iniciar feature…',act:()=>gfPrompt('feature')},{l:'Iniciar fix…',act:()=>gfPrompt('fix')},{l:'Iniciar release…',act:()=>gfPrompt('release')},{l:'Finalizar ramo actual',act:()=>gfFinish()}]},{sep:1},{l:'Tutor',act:()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}}]});$('#menubar')!.innerHTML='';buildMenubar();
   refresh(false,true);show(cur);badges();}
 function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mudou e porquê');if(ci>=0)CMD.splice(ci,1);
@@ -48,7 +54,7 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
   const rm=MENUS.find(m=>m.t==='Run');if(rm)rm.items!.unshift({l:'▶ RUN the whole stack',k:'Ctrl+F5',act:dxRun},{l:'Stop the stack',act:dxStop},{sep:1});$('#menubar')!.innerHTML='';buildMenubar();
   const ta=ACTS.find(a=>a.pane==='tutor');if(ta){ta.title='Learning Track';buildActivity();$('.act')!.classList.add('on');}
   $('.panel-tabs .panel-tools')!.insertAdjacentHTML('beforebegin','<button class="ptab" data-pt="services">Services</button>');$('.panel-body')!.insertAdjacentHTML('beforeend','<div class="pcontent" id="pc-services"></div>');$$('.ptab').forEach(b=>b.onclick=()=>setPanelTab(b.dataset.pt!));
-  $('#st-tests')!.insertAdjacentHTML('afterend','<button class="si" id="st-stack" style="display:none;color:var(--green)" title="Running stack" data-action="chrome:setPanelTab" data-on="services"></button>');
+  $('#st-tests')!.insertAdjacentHTML('afterend',`<button class="si" id="st-stack" style="display:none;color:var(--green)" title="${txt("runningStack")}" data-action="chrome:setPanelTab" data-on="services"></button>`);
   SD=loadSD();/* o desenho do projecto (ou vazio) — o semeado saiu (ADR-0006, R6a) */
   drawStack();refresh(false,true);show(cur);}
 /* boot5/boot6: os passos de arranque das camadas v5/v6 (ADR-0004, U4g7), verbatim, junto do

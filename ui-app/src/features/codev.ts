@@ -46,7 +46,6 @@ import {
   scrollMsgs,
   user,
   card,
-  phase,
   md,
   beat,
   runState,
@@ -157,7 +156,7 @@ function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last:
 
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
-Object.assign(window, { ctxPill, cycleMode, pickModel, toggleProv, scrollMsgs, newChat: newChatWithCtx, user, card, phase, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
+Object.assign(window, { ctxPill, cycleMode, pickModel, scrollMsgs, newChat: newChatWithCtx, user, card, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
 
 /* publica o doTool (já ligado em ./codev/index.ts, com o gate de direitos do harness acima)
    no window; o features/board.ts resolve-o por global. O motor de missões guionadas e os
@@ -212,10 +211,9 @@ window.renderAgentView = (_t, host) => { host.innerHTML = `<div class="agent-cen
 function assistantCenter() { bridge.openTab({ id: 'agent', title: 'Co-Dev', kind: 'agent' }); }
 function assistantDock() { bridge.closeTab('agent'); }
 function toggleAgent() { if (bridge.tabOf('agent')) { bridge.closeTab('agent'); return; } const show = bridge.getVar('--agent-w') === '0px'; bridge.setVar('--agent-w', show ? '380px' : '0px'); $('#tgl-agent')!.classList.toggle('on', show); }
-function toggleAgentOn() { focusAgent(); }
 function focusAgent(nofocus?: boolean) { if (bridge.tabOf('agent')) { if (bridge.monolith.currentTabId !== 'agent') bridge.show('agent'); } else if (bridge.getVar('--agent-w') === '0px') toggleAgent(); if (!nofocus) ($('#ag-input') as HTMLElement)!.focus(); }
 /* publica o ponto de entrada de conversa livre + posicionamento; VIEW.agent fica como shim em app.ts (VIEW nasce depois) */
-Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, assistantCenter, assistantDock, toggleAgent, toggleAgentOn, focusAgent });
+Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, assistantCenter, toggleAgent, focusAgent });
 /* Board (opção 2 do ADR-0003): o Board pede ao Co-Dev pelo seu legacy-bridge, sem importar a feature */
 Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvailable: codevEngine.agentAvailable });
 
@@ -247,7 +245,7 @@ codevIssue.register((r) => codevEngine.agentIssue(r));
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
 function openSettings() { bridge.openTab({ id: 'settings', title: 'Definições', kind: 'settings' }); }
 function openManager() { bridge.openTab({ id: 'manager', title: 'Gestor de missões', kind: 'manager' }); }
-function openAnalysis() { bridge.openTab({ id: 'analysis', title: 'Análise', kind: 'analysis' }); }
+export function openAnalysis() { bridge.openTab({ id: 'analysis', title: 'Análise', kind: 'analysis' }); }
 function testProvBase(k: string, btn: HTMLElement): void { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> — respostas reais através do Claude deste artefacto.' : 'Ao vivo indisponível nesta vista; activa-se com o artefacto aberto em claude.ai.') : `<span style="color:var(--yellow)">simulado</span> — a página não pode chamar ${esc(PROV[k].ep)}; a chamada real é feita pelo backend da aplicação.`; }, 500); }
 window.testProv = function (k, btn) { const d = desktopPorts.codev; return d && d.testProv ? d.testProv(k, btn, testProvBase) : testProvBase(k, btn); };
 const POLICY = [['Responder a perguntas de clarificação', 'tu', 'Co-Dev se confiança ≥ 80%; senão pergunta', 'Co-Dev; abaixo de 80% assume a opção reversível e assinala'], ['Escolher entre propostas dos modelos', 'tu, com recomendação do juiz', 'juiz', 'juiz'], ['Aprovar o plano', 'tu', 'automático', 'automático'], ['Editar ficheiros', 'aprovas cada edição', 'automático, com diff', 'automático, com diff'], ['Terminal: testes, build, lint', 'aprovas', 'automático', 'automático'], ['Terminal: outros comandos', 'aprovas', 'aprovas', 'automático'], ['Corrigir depois de falhar a auto-avaliação', 'aprovas', 'automático (máx. 2)', 'automático (máx. 2)'], ['Commit local', 'aprovas', 'aprovas', 'automático'], ['Push e acções destrutivas', 'aprovas', 'aprovas', 'aprovas — sempre']];
@@ -275,7 +273,7 @@ window.renderManagerPage = (_t, host) => {
    `features/changelog.ts` (timeline git real). `openAnalysis` (o ponto de entrada do
    menu Help + paleta) mantém-se e passa a abrir o changelog. */
 /* publica openManager/openSettings/openAnalysis (testProv é window.* acima); os VIEW.* ficam shims em app.ts */
-Object.assign(window, { openManager, openSettings, openAnalysis });
+Object.assign(window, { openManager, openSettings });
 
 /** Renderiza o pane «Co-Dev»: base (conhecimento, checkpoints, routing) e,
  *  por cima, a camada v4 (equipa, backlog, studio). */

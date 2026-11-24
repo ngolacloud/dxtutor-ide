@@ -10,6 +10,9 @@ import type { DesktopContext } from "./context";
 import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
+import { gitExtras } from "../../features/scm/extras";
+import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
+import { gfAsk } from "../../features/checkpoint";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -198,6 +201,30 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await git("branch", "-D", flow); await ctx.syncGit();
       return { committed, flowInGit, backViaRow, errBefore, errAfter: R.errors.length };
     });
+    // A4: git beyond the basics against the real repository (features/scm/extras): the blame of a
+    // committed line (author, summary), that file's history and one commit's diff, a stash pushed,
+    // listed and popped back, the worktree list, an interactive-rebase plan, and the pane's sections.
+    await step("gitExtras", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const gx = tauriGitExtras(), root = R.root as string, file = "notes/flow.txt"; // tracked on develop (the gitflow step merged it)
+      gitExtras.invalidate();
+      gitExtras.lineBlame(file, 1);
+      const blamed = await wait(() => !!gitExtras.lineBlame(file, 1), 10000);
+      const b = gitExtras.lineBlame(file, 1);
+      await gitExtras.openHistory(file, null);
+      const histOk = await wait(() => /^\+x$/m.test(gitExtras.state().history?.diff || ""), 10000);
+      writeFile(ROOT + file, "x\nstash me\n"); flushSave(); await idle();
+      const pushed = await gx.stash(root, { op: "push", message: "selftest stash", untracked: false });
+      const cleanAfterPush = (await git("status", "--porcelain", "--", file)).stdout.trim() === "";
+      const popped = await gx.stash(root, { op: "apply", index: 0, pop: true });
+      const back = (await sh("cat", [file])).stdout.includes("stash me");
+      await git("checkout", "--", file); await ctx.reloadDisk();
+      const wts = await gx.worktree(root, { op: "list" });
+      const plan = await gx.rebase(root, { op: "plan", onto: "HEAD~1" });
+      RP.scm();
+      const paneOk = await wait(() => /Stashes/.test(document.getElementById("pane-scm")?.textContent || ""), 5000);
+      return { blamed, author: b?.author, summary: b?.summary, histOk, pushed: pushed.stashes.length === 1, cleanAfterPush, popped: popped.stashes.length === 0, back, worktrees: wts.length, current: wts.some(w => w.current), planCommits: plan.commits.length, dirty: plan.dirty, paneOk };
+    });
     // A0.5: the Testing pane lists the project's REAL tests (list_tests) on the desktop — a Rust
     // probe (descoberta pelo syn), redescoberta pelo «Refresh» do pane (features/testing, ADR-0006 R2a).
     await step("testsPane", async () => {
@@ -209,6 +236,36 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const inPane = await wait(() => (document.getElementById("pane-test")?.textContent || "").includes("probe_passes"), 20000);
       delete FS[key]; flushSave(); await idle();
       return { inPane };
+    });
+    // A6: the Testing pane's real runners (features/testing): a cargo crate in a sub-folder is
+    // detected (test_runners), «Run all» of that runner gives per-test results (one pass, one
+    // fail — test_run), «Run this test» re-runs one, and the history card shows the kept runs
+    // (test_history, SQLite). The probe files are removed at the end.
+    await step("testRuns", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const toml = ROOT + "probe_crate/Cargo.toml", lib = ROOT + "probe_crate/src/lib.rs";
+      writeFile(toml, "[package]\nname = \"probe_crate\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n");
+      writeFile(lib, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_ok() {}\n    #[test]\n    fn probe_bad() { assert_eq!(1, 2, \"probe\"); }\n}\n");
+      flushSave(); await idle();
+      const el = () => document.getElementById("pane-test");
+      const q = <T extends Element>(sel: string) => el()?.querySelector<T>(sel) ?? null;
+      try {
+        PANE = "test"; window.renderTestPane();
+        q<HTMLElement>('[data-action="refresh"]')?.click();
+        const detected = await wait(() => !!q('[data-action="runner-all"][data-on="cargo:probe_crate"]'), 20000);
+        q<HTMLElement>('[data-action="runner-all"][data-on="cargo:probe_crate"]')?.click();
+        const ran = await wait(() => (el()?.querySelectorAll(".tr-case").length || 0) >= 2, 120000);
+        const row = (n: string) => [...(el()?.querySelectorAll(".tr-case") || [])].find(r => (r.textContent || "").includes(n))?.textContent || "";
+        const ok = row("tests::probe_ok").startsWith("✓"), bad = row("tests::probe_bad").startsWith("✖");
+        const idOk = 'cargo:probe_crate|cargo:' ;
+        const one = [...(el()?.querySelectorAll<HTMLElement>('[data-action="case-run"]') || [])].find(b => (b.dataset.on || "").startsWith(idOk) && (b.dataset.on || "").endsWith("::tests::probe_ok"));
+        one?.click();
+        const single = await wait(() => !q('[data-action="case-run"][disabled]') && !q('[data-action="runner-all"][disabled]'), 60000);
+        const kept = await wait(() => /Pass rate/.test(q(".tr-cards")?.textContent || "") || /Taxa de sucesso/.test(q(".tr-cards")?.textContent || ""), 10000);
+        return { detected, ran, ok, bad, single: single && !!one, kept };
+      } finally {
+        delete FS[toml]; delete FS[lib]; flushSave(); await idle();
+      }
     });
     // A5: the Project store through the real Tauri commands and SQLite — create, move one
     // step, a skipped step refused by the Rust rules (code `step`, overridable), and the
@@ -452,19 +509,30 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const G = window as unknown as { startDebug: () => Promise<void>; dbgStep: () => Promise<void>; dbgCurrent: () => { path: string; line: number } | null; toggleBp: (p: string, l: number) => void };
       const pane = () => document.getElementById("pane-debug")?.textContent || "";
       if (!available) { await G.startDebug(); return { available, saysNoGdb: /O gdb não está instalado/.test(pane()) }; }
-      writeFile(ROOT + "dbgself/Cargo.toml", '[package]\nname = "dbgself"\nversion = "0.1.0"\nedition = "2021"\n\n[workspace]\n');
+      // a member of the root workspace below: its own [workspace] table made cargo refuse («multiple workspace roots»)
+      writeFile(ROOT + "dbgself/Cargo.toml", '[package]\nname = "dbgself"\nversion = "0.1.0"\nedition = "2021"\n');
       writeFile(ROOT + "dbgself/src/main.rs", "fn main() {\n    let answer = 40 + 2;\n    println!(\"{answer}\");\n}\n");
       writeFile(ROOT + "Cargo.toml", '[workspace]\nmembers = ["dbgself"]\nresolver = "2"\n');
       flushSave(); await idle();
-      G.toggleBp(ROOT + "dbgself/src/main.rs", 3);
+      // the breakpoints persist (LS) across runs: toggling blindly could remove one left by an earlier run
+      // line 2, not 3: a line breakpoint on `println!` resolves to several locations (the macro), so each
+      // continue stops on line 3 again — real lldb behaviour; `let answer = 40 + 2;` has one location
+      for (const old of [ROOT + "dbgself/src/main.rs:3"]) if ((window as unknown as { dbgBreaks: Set<string> }).dbgBreaks.has(old)) G.toggleBp(ROOT + "dbgself/src/main.rs", 3);
+      const bpKeyNow = ROOT + "dbgself/src/main.rs:2", breaks = (window as unknown as { dbgBreaks: Set<string> }).dbgBreaks;
+      if (!breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2);
       await G.startDebug();
       const stoppedAt = G.dbgCurrent();
-      const vars = /answer/.test(pane());
+      // A7: over DAP (lldb-dap) when it is installed — the engine, then (after the step, once `answer`
+      // exists) the variables tree and the values inline
+      const engine = document.querySelector("#pane-debug .dbg-engine")?.textContent || "gdb";
       await G.dbgStep();
-      await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 3, 20000);
+      await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 2, 20000);
       const after = G.dbgCurrent();
+      const vars = /answer/.test(pane());
+      const inline = [...document.querySelectorAll("#ed-hl .dv-inline")].map(e => e.textContent).join(" | ");
       if (after) await G.startDebug(); // continuar até ao fim
-      return { available, stoppedAt, vars, after, ended: /O programa terminou/.test(pane()) };
+      if (breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2); // a próxima execução começa limpa
+      return { available, engine, stoppedAt, vars, inline, after, ended: /O programa terminou/.test(pane()), pane: pane().slice(0, 400) };
     });
     // contentores (ADR-0006, R5a): ligar o runtime real (docker info pelo socket) e o pane
     // Containers lista os contentores e as imagens reais (ps/images em JSON).
@@ -603,7 +671,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // abrir o ficheiro (editor:tab → lsp_start + didOpen), esperar os diagnósticos no gutter,
     // rato parado sobre um símbolo (mousemove → cartão de hover), F12 numa chamada (salta
     // para a definição), Shift+F12 (lista de referências) e F2 + nome novo + Enter (rename em
-    // todos os ficheiros, gravado no disco). Só corre para as linguagens com servidor instalado.
+    // todos os ficheiros, gravado no disco); pelo meio completion, assinatura, code actions,
+    // formatação e Go to Symbol (Ctrl+Shift+O + o Outline). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
   }
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
@@ -783,6 +852,51 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const el2 = ta()!; el2.value = original; el2.setSelectionRange(0, 0); el2.dispatchEvent(new Event("input", { bubbles: true }));
       await until(() => FS[main].content === original, 5_000, 100);
     }
+    // 3e) formatação: estraga o espaçamento de uma linha, Shift+Alt+F (sem selecção) formata o
+    //     documento pelo servidor e a linha volta ao estilo dele. O ficheiro volta ao que era.
+    const fmtLineNo = original.split("\n").findIndex(l => l.includes(lang === "java" ? "int total" : "val message"));
+    const uglyLine = lang === "java" ? "  int   total=Util.add(1,2) ;" : 'val   message=greet("dxtutor")';
+    const uglyText = original.split("\n").map((l, i) => (i === fmtLineNo ? uglyLine : l)).join("\n");
+    const formattedLine = await until(() => {
+      const now = (FS[main].content.split("\n")[fmtLineNo] ?? "");
+      if (FS[main].content !== uglyText && now.trim() && now !== uglyLine && FS[main].content.includes(uglyLine) === false && now.startsWith("    ")) return now;
+      const el = ta()!; el.focus();
+      if (el.value !== uglyText) { el.value = uglyText; el.dispatchEvent(new Event("input", { bubbles: true })); }
+      el.setSelectionRange(0, 0);
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "F", code: "KeyF", shiftKey: true, altKey: true, bubbles: true, cancelable: true }));
+      return null;
+    }, 60_000, 3000);
+    if (FS[main].content !== original) {
+      const el3 = ta()!; el3.value = original; el3.setSelectionRange(0, 0); el3.dispatchEvent(new Event("input", { bubbles: true }));
+      await until(() => FS[main].content === original, 5_000, 100);
+    }
+    // 3f) Go to Symbol: Ctrl+Shift+O lista os símbolos do ficheiro; filtrar por «mai» e Enter
+    //     levam o cursor à linha do `main`. E o Outline mostra os símbolos do servidor.
+    const symRows = () => [...document.querySelectorAll("#lsp-symbols .lsp-sym")].map(b => `${b.querySelector(".lsp-act-kind")?.textContent} ${b.querySelector(".lsp-sym-n")?.textContent}`);
+    const symbolList = await until(() => {
+      const rows = symRows();
+      if (rows.some(r => r.includes("main"))) return rows;
+      if (W.cur !== main) W.openPath(main);
+      if (!document.getElementById("lsp-symbols")) {
+        const el = ta()!; el.focus(); el.setSelectionRange(0, 0);
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "O", code: "KeyO", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+      }
+      return null;
+    }, 60_000, 2500);
+    const symInput = document.querySelector<HTMLInputElement>("#lsp-symbols input");
+    let filtered: string[] | null = null, symbolJump: number | null = null;
+    if (symInput) {
+      symInput.value = "mai"; symInput.dispatchEvent(new Event("input", { bubbles: true }));
+      filtered = symRows();
+      await sleep(1500); // o cartão filtrado fica no ecrã para a captura
+      symInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      symbolJump = caretLineNow();
+    }
+    document.getElementById("lsp-symbols")?.remove();
+    const outlineRows = await until(() => {
+      const rows = [...document.querySelectorAll("#outline .s-hit")].map(h => h.textContent ?? "");
+      return rows.some(r => r.includes("main")) ? rows : null;
+    }, 20_000, 500);
     // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
     const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
     const refRows = await until(() => {
@@ -830,6 +944,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       completion: { suggestions: suggestions ? suggestions.slice(0, 6) : null, accepted: insertedLine.trim(), completed },
       signature: { first: firstSig, ...(lang === "java" ? { afterComma: secondSig } : {}) },
       codeActions: { titles: actionTitles ? actionTitles.slice(0, 5) : null, ...(lang === "java" ? { applied: actionApplied } : {}) },
+      formatting: { from: uglyLine, to: formattedLine },
+      symbols: { list: symbolList, filtered, caretLineAfterEnter: symbolJump, expectedLine: lang === "java" ? 2 : 3, outline: outlineRows },
       references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
       rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk, ...(probeRename ? { probe: probeRename } : {}) },
       toasts,
