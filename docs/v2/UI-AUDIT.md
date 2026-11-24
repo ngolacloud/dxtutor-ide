@@ -124,6 +124,17 @@ estado quando a lateral está escondida. Os caminhos privados duram a sessão (n
 | HARNESS-07 artefactos | Ausente. | Sem walkthrough/relatório/diff resumido ligado à issue. | Gerados no fim da execução a partir dos eventos reais; guardados em SQLite ligados à issue (item 5). | M |
 | HARNESS-08 MCP e hooks | **Real** (`mcp.json`, `.dxtutor/hooks.json`, commands, skills), geridos só pelo fluxo `/comandos`. | Sem secção nas Definições. | Secção nas Definições sobre os mesmos ficheiros. | S |
 
+**Estado após a A3 (2026-11-24):** feito — o separador «Co-Dev run» (menu Co-Dev e paleta) com o plano e os
+ficheiros/linhas de cada passo (`exit_plan` com `steps`, conjunto de ferramentas 5), as tarefas vivas, os
+sub-agentes com papéis (explorer/reviewer/tester/architect, todos só leitura), o medidor de contexto do evento
+`usage`, o relatório de cada turno (feito dos eventos, guardado em SQLite com a issue e mostrado no chat e no
+painel da issue), os checkpoints com «Rewind to here» (ficheiros e conversa: o JSONL da sessão é reescrito),
+as regras de permissões do projecto (`codev_agent_permissions`/`codev_agent_save_permissions`) e MCP/hooks/
+comandos/skills, e `DELONIX.md` nas instruções. Por fazer: chips @symbol/@test/@issue/@commit/@terminal no
+compositor (HARNESS-04), execuções de sub-agentes em segundo plano em worktrees (`codev_session_*`, HARNESS-06),
+a lista de tarefas no painel Tasks antigo (Q3), e as secções nas Definições (estão no separador, para não mexer
+nos goldens das Definições — decisão do dono). Uma sessão retomada só volta os ficheiros, não a conversa.
+
 Coisas a **retirar** (contra a regra "nada de demo"): as missões guionadas, o "conselho de modelos" com
 pontuações pré-feitas e os custos fictícios das missões (`application/run-mission.ts`,
 `domain/scenarios/*`). Propõe-se substituí-los pelo agente v2 real e pelos custos do evento `usage`.
