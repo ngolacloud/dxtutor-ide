@@ -9,7 +9,7 @@ From the dxtutor app: **Learning Track → Get more languages**, then paste this
 From the terminal:
 
 ```sh
-dxt plugin install {{org}}/{{id}}
+dxt plugin install {{repo}}
 ```
 
 ## Develop
@@ -25,4 +25,4 @@ The course format is documented in the dxtutor repository: `docs/plugins/README.
 
 1. Bump `version` in `dxtutor-plugin.json`.
 2. Tag the commit with the same version (`git tag v0.1.0 && git push --tags`).
-3. Users install a fixed version with `dxt plugin install {{org}}/{{id}}@v0.1.0`.
+3. Users install a fixed version with `dxt plugin install {{repo}}@v0.1.0`.

@@ -6,7 +6,7 @@
   "description": "C#: From Zero to Confident — modern C# 12 on .NET 8 from your first program to records, LINQ, pattern matching, async/await, channels, spans and data structures.",
   "authors": ["dxtutor"],
   "license": "MIT OR Apache-2.0",
-  "repository": "https://github.com/dxtutor-courses/csharp",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-csharp",
   "engine": ">=0.7.0",
   "kind": "course",
   "language": {

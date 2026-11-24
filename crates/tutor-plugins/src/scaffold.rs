@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::manifest::{valid_id, MANIFEST_FILE};
-use crate::source::OFFICIAL_ORG;
+use crate::source::official_repo;
 
 const T_MANIFEST: &str = include_str!("../template/dxtutor-plugin.json");
 const T_COURSE: &str = include_str!("../template/course.toml");
@@ -52,7 +52,7 @@ pub fn create(dir: &Path, p: &NewPlugin) -> Result<Vec<PathBuf>, String> {
         t.replace("{{id}}", p.id)
             .replace("{{name}}", p.name)
             .replace("{{ext}}", p.extension)
-            .replace("{{org}}", OFFICIAL_ORG)
+            .replace("{{repo}}", &official_repo(p.id))
             .replace("{{engine}}", p.engine)
     };
     let files = [

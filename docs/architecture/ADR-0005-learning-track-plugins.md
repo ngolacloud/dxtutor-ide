@@ -39,7 +39,7 @@ O manifesto `dxtutor-plugin.json` (`schema: 1`) descreve o plugin e a linguagem 
 
 ### Um crate partilhado: `crates/tutor-plugins`
 
-Manifesto, validação, origem (`python` → `github:dxtutor-courses/python`, `owner/repo@ref`,
+Manifesto, validação, origem (`python` → `github:ngolacloud/dxtutor-course-python`, `owner/repo@ref`,
 URLs GitHub, `.zip` HTTPS, pasta/zip locais), instalação atómica (staging → rename) e registo
 (`installed.json`, com sha256). Usado pelos comandos Tauri `plugin_list`/`plugin_install`/
 `plugin_remove` (`src-tauri/src/commands/plugins.rs`) e pelo CLI `dxt plugin
@@ -104,7 +104,7 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
      na validação passou a ser por linguagem. **Não corrigido:** `request_hint`/`study_policy`
      resolvem o passo só pelo id (`course_step`) e têm a mesma ambiguidade.
    - Publicação: `scripts/publish-course.sh <id>` faz `git subtree split` de `courses/<id>` e
-     push para `dxtutor-courses/<id>` com a tag `v<versão>`.
+     push para `ngolacloud/dxtutor-course-<id>` com a tag `v<versão>`.
 3. **As 8 linguagens novas**, como cursos completos (paridade com Rust/Go), uma por sessão. Cada
    linguagem precisa do seu avaliador em `tutor_eval` (compilar/correr os testes ocultos) e do
    toolchain disponível, de preferência num dev-container.

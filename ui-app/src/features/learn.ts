@@ -26,7 +26,7 @@ import { bindActions } from "./learn/ui/actions";
 /* ───── conteúdo dos cursos ───── */
 /* Conteúdo dos cursos: dados, não código. Rust e Go vêm embutidos (src/content/courses/*.json,
    o protótipo de browser só tem estes); as outras linguagens chegam como PLUGINS
-   (github.com/dxtutor-courses/<id>, ver docs/plugins/README.md), servidos pelo backend no
+   (github.com/ngolacloud/dxtutor-course-<id>, ver docs/plugins/README.md), servidos pelo backend no
    desktop. COURSES é mutado em sítio por `refreshCatalog` (nunca reatribuído). */
 const EMBEDDED: Record<string, Course> = { rust: fromEmbedded(rustCourse as any), go: fromEmbedded(goCourse as any) };
 const COURSES: Record<string, any> = { ...EMBEDDED };
