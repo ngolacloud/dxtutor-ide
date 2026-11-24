@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # publish-course.sh — publica um curso oficial (courses/<id>/) no seu repositório
-# github.com/dxtutor-courses/<id>, com o histórico da pasta (git subtree split) e uma tag.
+# github.com/ngolacloud/dxtutor-course-<id>, com o histórico da pasta (git subtree split) e uma tag.
 #
 # Uso:   scripts/publish-course.sh <id> [--dry-run]
 #        (a versão vem de courses/<id>/dxtutor-plugin.json; a tag é v<versão>)
 #
-# Pré-requisitos: o repositório dxtutor-courses/<id> existe no GitHub e tens permissão de
+# Pré-requisitos: o repositório ngolacloud/dxtutor-course-<id> existe no GitHub e tens permissão de
 # escrita; o `dxt` está compilado (target/debug/dxt ou no PATH). Valida em modo estrito antes
 # de publicar e recusa uma tag que já exista no remoto.
 
@@ -22,7 +22,7 @@ dir="courses/$id"
 
 version=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$dir/dxtutor-plugin.json")
 tag="v$version"
-remote="https://github.com/dxtutor-courses/$id.git"
+remote="https://github.com/ngolacloud/dxtutor-course-$id.git"
 
 dxt=target/debug/dxt
 [ -x "$dxt" ] || dxt=$(command -v dxt || true)
