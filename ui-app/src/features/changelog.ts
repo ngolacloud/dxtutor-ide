@@ -15,6 +15,10 @@
 import { $, type ClCommit } from "../core";
 import { VIEW } from "../app/store/registry";
 import { desktopPorts } from "../app/desktop";
+import { translator } from "../app/i18n";
+import { CHANGELOG_MESSAGES } from "./changelog.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(CHANGELOG_MESSAGES);
 
 /* estado da vista (módulo-local; persiste entre reaberturas do separador) */
 const CL: {
@@ -92,7 +96,7 @@ function draw(): void {
   host.innerHTML = `<div class="page"><h1>O que mudou e porquê</h1>
     <div class="sub">A linha temporal real deste repositório: cada linha é um commit, e o «porquê» é a mensagem que quem mudou escreveu — nada é resumido nem reescrito. Clica para ver o diff.</div>
     <div class="scm-grp">Commits<span class="cnt">${CL.commits.length}</span>
-      <button class="mini" id="cl-refresh" style="margin-left:8px">Actualizar</button></div>
+      <button class="mini" id="cl-refresh" style="margin-left:8px">${txt("refresh")}</button></div>
     <div class="sections">${rows}</div>
     <div class="scm-grp cl-diff-head" style="display:${CL.selected ? "flex" : "none"}">Diff de <span class="cl-diff-hash" style="font-family:var(--font-mono);margin-left:6px;color:var(--accent-hover)"></span></div>
     <pre class="cl-diff" style="display:${CL.selected ? "block" : "none"};font-family:var(--font-mono);font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;color:var(--fg-dim);padding:10px 2px 40px;margin:0"></pre></div>`;

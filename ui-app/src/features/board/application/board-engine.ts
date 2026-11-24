@@ -26,7 +26,7 @@ import { nodeStatus, sprintCounts } from "../domain/kanban";
 import type { BoardDeps, BoardEngine, Host } from "./ports";
 
 export function makeBoardEngine(deps: BoardDeps): BoardEngine {
-  const { store, catalog, generators, directory, scm, runctl, chat, agent, terminal, view, notifier, nav, orchestration } = deps;
+  const { store, catalog, generators, directory, scm, runctl, chat, agent, terminal, view, notifier, nav, orchestration, copy } = deps;
   const BL = () => store.backlog();
 
   function mkIssue(o: Partial<Issue>): Issue { const it = makeIssue(BL().seq++, o); BL().issues.push(it); return it; }
@@ -73,7 +73,7 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
       const changed = scm.changes().filter((p) => !before.has(p));
       if (!changed.length) {
         it.note = "o agente não alterou ficheiros";
-        chat.cardAppend(c.bd, '<p><span class="tag">sem alterações</span> o agente terminou sem mudar ficheiros — a issue fica em desenvolvimento.</p>');
+        chat.cardAppend(c.bd, `<p><span class="tag">${copy("noChanges")}</span> o agente terminou sem mudar ficheiros — a issue fica em desenvolvimento.</p>`);
         return;
       }
       scm.staged().clear(); changed.forEach((p) => scm.staged().add(p));
@@ -82,7 +82,7 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
       await scm.settle(); /* os testes correm sobre o disco: o commit (e a gravação) primeiro */
       setStage(it, "test");
       const ok = await autoTest(it, c.tools);
-      if (ok) { it.note = ""; setStage(it, "func"); chat.cardAppend(c.bd, '<p><span class="tag live">testes passaram</span> à espera da tua validação funcional no quadro.</p>'); }
+      if (ok) { it.note = ""; setStage(it, "func"); chat.cardAppend(c.bd, `<p><span class="tag live">${copy("testsPassed")}</span> ${copy("waitingForYourFunctional")}</p>`); }
       else { const bad = (it.res || []).filter((x) => !x.ok).map((x) => x.n).join(", "); it.note = bad ? "reprovado em teste: " + bad : "sem testes do projecto"; setStage(it, "dev"); chat.cardAppend(c.bd, '<p><span class="tag bad">testes falharam</span> a issue volta a desenvolvimento.</p>'); }
     } finally {
       if (it.branch && scm.branch() !== "develop") scm.checkout("develop");
@@ -98,8 +98,8 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
   async function runSprint(s: number): Promise<void> {
     if (runctl.active()) { notifier.toast("Há uma execução em curso"); return; } BL().issues.forEach((i) => { if (i.sprint === s && i.stage === "backlog") i.stage = "todo"; }); view.rerender("board"); const todo = (): Issue | undefined => BL().issues.find((i) => i.sprint === s && i.stage === "todo");
     if (!todo()) { notifier.toast("Não há issues por fazer no Sprint " + (s + 1)); return; } chat.focusAgent(true); chat.user(`Executa o Sprint ${s + 1}.`); runctl.setActive(true, "Sprint " + (s + 1)); let n = 0;
-    try { let it: Issue | undefined; while ((it = todo())) { if (runctl.mode() === "manual") { const c = chat.card("co-dev", `<p>Próxima issue: <code>${it.id}</code> ${esc(it.title)} → <b>${directory.agents()[it.agent].n}</b></p>`); const v = await chat.ask(c.bd, [{ l: "Delegar", v: 1, pri: 1, done: "✓ delegada por ti" }, { l: "Parar o sprint", v: 0 }]); if (!v) throw runctl.stop(); } await orchestration.runIssue(it); n++; }
-      const { func: f, dev: b } = sprintCounts(BL().issues, s); chat.card("co-dev", `<p><b>Sprint ${s + 1}</b>: ${n} issues trabalhadas. <b>${f}</b> passaram nos testes automáticos e esperam a tua validação funcional${b ? `; <b>${b}</b> ficaram bloqueadas em desenvolvimento` : ""}.</p><p style="color:var(--fg-dim)">Cada issue está no seu ramo <code>feature/…</code>; o merge em <code>develop</code> acontece quando validares.</p><div class="gate"><button class="gb pri" data-action="board:openBoard">Validar no quadro</button><button class="gb" data-action="board:openGraph">Ver o grafo</button></div>`); notifier.note(`Sprint ${s + 1}: ${f} issues à espera de validação funcional`);
+    try { let it: Issue | undefined; while ((it = todo())) { if (runctl.mode() === "manual") { const c = chat.card("co-dev", `<p>${copy("nextIssue")} <code>${it.id}</code> ${esc(it.title)} → <b>${directory.agents()[it.agent].n}</b></p>`); const v = await chat.ask(c.bd, [{ l: "Delegar", v: 1, pri: 1, done: "✓ delegada por ti" }, { l: "Parar o sprint", v: 0 }]); if (!v) throw runctl.stop(); } await orchestration.runIssue(it); n++; }
+      const { func: f, dev: b } = sprintCounts(BL().issues, s); chat.card("co-dev", `<p><b>Sprint ${s + 1}</b>: ${n} issues trabalhadas. <b>${f}</b> passaram nos testes automáticos e esperam a tua validação funcional${b ? `; <b>${b}</b> ficaram bloqueadas em desenvolvimento` : ""}.</p><p style="color:var(--fg-dim)">${copy("eachIssueIsOn")} <code>feature/…</code>${copy("theMergeInto")} <code>develop</code> ${copy("happensWhenYouValidate")}</p><div class="gate"><button class="gb pri" data-action="board:openBoard">${copy("validateOnTheBoard")}</button><button class="gb" data-action="board:openGraph">${copy("viewTheGraph")}</button></div>`); notifier.note(`Sprint ${s + 1}: ${f} issues à espera de validação funcional`);
     } catch (e: any) { if (e === runctl.stop()) chat.card("co-dev", "Sprint parado a teu pedido."); else { console.error(e); chat.card("sistema", "Erro: " + esc(e.message || e)); } } finally { if (scm.branch() !== "develop") scm.checkout("develop"); runctl.setAuthor("w"); runctl.setActive(false); view.refresh(); view.rerender("board"); chat.scrollMsgs(); }
   }
 

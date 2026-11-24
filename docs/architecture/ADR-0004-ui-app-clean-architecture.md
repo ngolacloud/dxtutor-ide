@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -926,3 +926,101 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `'unsafe-inline'` no CSP. O auto-teste desktop ganha o passo `csp`: regista as violações do CSP
   durante o auto-teste, procura atributos `on*` no DOM vivo depois de abertas as vistas, e prova que
   o CSP está activo (um handler inline plantado não corre). Fecha a U5.
+- **U6 — plano (2026-11-24, decisões do dono).** Duas metades. **CSS primeiro** (decisão do dono):
+  o `styles.css` parte-se por dono com prova de que a cascata não muda. **Depois i18n por chaves**
+  (§9.2): antes de migrar textos, o harness dos goldens passa a normalizar cada snapshot para inglês
+  com o motor actual (decisão do dono: regenerar TODOS os goldens uma vez, com o diff provado igual à
+  tradução); a partir daí cada texto que passa a `t("chave")` mantém os goldens iguais, e o golden
+  prova que o inglês da chave é o que o motor produzia.
+- **U6a (2026-11-24) — o `styles.css` partido por dono.** O `public/styles.css` (1073 linhas, servido
+  à parte e ligado no index.html) dá 28 ficheiros: os tokens em `app/styles/theme.css`, a base partilhada
+  (reset, controlos, botões, campos, cartões, tabelas, linhas de lista, diálogo) em `app/styles/base.css`,
+  a moldura em `features/shell.css`, e cada feature no seu (`features/<f>/styles.css` quando a feature tem
+  pasta, senão `features/<f>.css`). O `src/app/styles.ts` importa-os por uma ordem fixa — é a ordem da
+  cascata (o Vite junta o CSS pela ordem dos imports) — e é o primeiro import do `main.ts`. Cada regra foi
+  para o dono pelo token do seu selector (ou da secção, quando a lista de selectores mistura donos); as
+  regras de um dono mantêm a ordem relativa. **Prova:** (1) os blocos dos 28 ficheiros são exactamente os
+  do original; (2) análise estática de cada par de regras que trocou de ordem e PODE colidir (mesma
+  especificidade, propriedade em comum ou da mesma família de shorthands, sujeito com um token em comum ou
+  sem classes): 202 candidatos, e num browser só dois casam o mesmo elemento em algum dos 44 estados — o
+  `.sec-hd` (as duas regras põem o mesmo `cursor:pointer`) e o `.cmd-center` com as suas `@media`, um bug
+  real que a análise apanhou e se corrigiu (os blocos `@media`/`@container` passam a ter o dono das regras
+  que contêm, não o da secção); (3) os estilos computados de todos os elementos, e dos `::before`/`::after`,
+  em 46 estados da app (panes, painel, vistas, overlays, menus, uma missão do Co-Dev, o separador «Co-Dev
+  run») — 64 576 amostras —
+  são iguais antes e depois, com ruído zero entre duas corridas da mesma build, e a ferramenta apanha uma
+  mudança de um carácter no CSS (60 212 amostras diferentes). As regras `.lsp-*` que o PR #6 acrescentou
+  ao `styles.css` no `origin/develop` (que o `develop` local ainda não tem) foram trazidas tal e qual para
+  `features/lsp/styles.css`: quando se juntar o `origin/develop`, o `styles.css` dá um conflito
+  modificado/apagado que se resolve mantendo o apagado. O mesmo para os ramos que ainda o editem: as regras novas vão para o
+  ficheiro do dono. **O separador «Co-Dev run» (A3, que entrou no `develop` a meio desta fatia) tem o seu
+  ficheiro, `features/codev/harness.css`, logo a seguir aos tokens e ANTES da base** — foi o diff dos estilos
+  computados que o apanhou (a análise estática só olha para sujeitos com uma classe em comum): o `.hx` do
+  separador também casa o `<div class="rowline hx">` da página Team e, no `styles.css`, perdia o `padding`
+  para o `.rowline`, que vinha depois; com o separador junto do resto do Co-Dev, depois da base, o `.rowline.hx`
+  ganhava 14px 20px 28px em vez de 8px 12px. **Reportado, não corrigido:** o nome `.hx` colide entre o
+  separador «Co-Dev run» e a página Team (`team.ts`), por isso o `.hx` do separador aplica `height:100%`,
+  `overflow:auto` e a fonte à linha «Detected context» da página Team. **Corrigido no merge da A6
+  (2026-11-24):** a raiz do separador passou a `.hx-run` (`harness-view.ts`, `harness.css`, e2e); o `.hx` volta a
+  ser só da página Team, e a linha «Detected context» fica com o `padding` 8px 12px do `.rowline` e sem as regras
+  do separador.
+- **U6b (2026-11-24) — goldens em inglês e a fundação dos textos por chave (piloto: Source Control).**
+  (1) O `golden()` do harness passa o clone pelo motor de tradução (`trNode`, `LOCALE='en'`), salvo se um
+  antepassado estiver no `TR_SKIP` (que sai para o módulo puro `features/i18n/skip.ts`, partilhado com o harness).
+  Regeneraram-se, por decisão do dono, os 11 goldens que tinham texto por traduzir (board ×3, codev ×4, scm ×4):
+  provou-se que cada snapshot novo é exactamente o antigo passado pelo motor, e os outros ficaram iguais.
+  (2) `src/app/i18n.ts`: `translator(catálogo)` dá o `t` tipado de uma feature — o texto na língua actual (`LOCALE`,
+  do motor), `{nome}` → parâmetro, inglês como recurso. Os catálogos (`en` + `ptAO`) nascem do motor: os valores
+  são os que ele produzia para o texto que estava no markup. Convive com o motor: o texto já sai na língua certa e o
+  motor não tem par para o trocar. (3) Piloto: o pane Source Control (`features/scm/ui/messages.ts`, 15 chaves —
+  títulos, placeholder, botão de commit com `{staged}`/`{branch}`, grupos, linhas). Os 4 goldens do pane ficaram
+  iguais com as chaves (prova do inglês de cada uma); `tests/i18n.catalogs.test.ts` prova cada entrada contra os
+  pares do motor no sentido da origem (algumas regras só vão de português para inglês) e desenha o pane em `ptAO`.
+  (4) Métrica nova, só desce: pares de texto do motor (`PAIRS`), hoje 1005 — os textos novos nascem com chave e os
+  pares saem quando deixarem de ter quem os use. **Reportado, não migrado:** as duas mensagens do pane sem
+  repositório git («Esta pasta não é um repositório git…», «Nenhum repositório git aberto…») não têm par no motor e
+  aparecem em português na interface em inglês; dar-lhes inglês muda o que se vê, por isso ficam fora do piloto.
+- **U6c (2026-11-24) — textos por chave nos módulos estáveis (lote 1).** 154 textos de 25 módulos passam a
+  catálogos (`features/<f>/ui/messages.ts` quando a feature tem pasta, senão `<ficheiro>.messages.ts`): team, studio,
+  learn, infra, tasks, tutor, checkpoint, search, welcome, ext, stack, account, terminal, visualizer, codereview,
+  palette, explorer, diagnostics, notifications, changelog, graph, board, o arranque e dois módulos do desktop. Uma
+  ferramenta sobre a AST do TypeScript encontra os textos estáticos (`>texto<` e `title`/`placeholder`) nos templates —
+  salta os que tocam num `${…}` e os que têm um antepassado no `TR_SKIP` dentro do mesmo template (o motor não os
+  traduzia) —, pede ao motor os valores `en`/`ptAO`, e só migra o que o motor traduz; o tradutor chama-se `txt` (o `t`
+  colide com variáveis locais) ou `msg` onde o nome já existe. **Prova:** os goldens ficam iguais; o
+  `i18n.catalogs.test.ts` cobre os 26 catálogos; e uma prova de paridade nas duas línguas — 31 panes e vistas
+  desenhados com `LOCALE=en` e `LOCALE=ptAO`, passados pelo motor como faria o observer, ~200 KB de HTML — dá
+  exactamente o mesmo antes e depois. Foi essa prova que apanhou o único caso de comportamento: o `teamView`
+  encontrava a linha «Review the diff…» pelo texto em inglês para inserir a linha «Explain…» a seguir; em `ptAO`, com
+  o texto já em português, deixava de a inserir — passa a procurar pelo texto da chave na língua actual. O teste
+  `search.r2b` verificava o português cru do harness («resultados em»): fixa agora `LOCALE='ptAO'` (o que verifica é
+  o português), e o `bootApp` repõe `LOCALE='en'` em cada arranque. **De fora neste lote** (em desenvolvimento noutras
+  sessões, para não colidir): o Project (A5), o Testing (A6), o separador «Co-Dev run», o Studio de arquitectura, o
+  pane Source Control (A4) e a UI do chat do Co-Dev; e `domain/`/`application/`, que não podem depender do `window`
+  (precisam de uma porta de textos). **Lacunas reportadas:** 558 textos estáticos que o motor nunca traduziu (aparecem
+  na língua de origem nas duas interfaces) ficam como estão — traduzi-los muda o que se vê.
+- **U6c lote 2 (2026-11-24) — textos nos motores puros e a estrutura de todos os catálogos.** (1) Os motores da
+  camada `application/` não podem ler a língua (vem do `window`): o do quadro (9 textos dos cartões do Co-Dev —
+  «Validar no quadro», «Ver o grafo»…) e o da infra (1) recebem uma porta `copy(chave)` declarada nos seus
+  `ports.ts`, com o catálogo em `application/messages.ts` (dados puros); o resíduo que compõe o motor injecta
+  `translator(CATÁLOGO)`. A7/A8 verdes. (2) O `i18n.catalogs.test.ts` descobre todos os catálogos pelo nome do
+  ficheiro (`messages.ts`, `*.messages.ts`, `*-messages.ts`) e verifica a estrutura de cada um — as mesmas chaves nas
+  duas línguas, nenhum valor vazio, os mesmos `{parâmetros}` —, incluindo os de texto NOVO, que não têm par no motor
+  (como o `features/scm/ui/git-messages.ts` da A4); a verificação contra os pares do motor fica para os catálogos de
+  texto migrado (os que dizem que os valores vêm do motor). (3) **Os pares do motor ainda não saem:** o
+  `setLocale` traduz no sítio o texto que já está no ecrã, com os mesmos pares — o texto com chave que não for
+  redesenhado (separadores inactivos, cartões do chat, panes laterais) ficaria na língua anterior até ao próximo
+  redesenho. Tirar pares pede que mudar de língua redesenhe tudo (ou recarregue a interface): é uma decisão de
+  produto, não de refactor. A métrica dos pares fica em 1005 e só desce. Prova de paridade nas duas línguas igual
+  antes e depois; goldens iguais.
+- **U6c lote 3 (2026-11-24) — mudar de língua recarrega a interface; os primeiros pares saem do motor.** (1)
+  **Decisão do dono:** o `setLocale` grava a língua e recarrega a janela (antes traduzia no sítio, com os pares, o
+  texto que estava no ecrã). Antes de recarregar, chama o `flush`/`idle` do desktop (o autosave pendente); a pasta
+  aberta volta a abrir no arranque (`dx-last-folder`). Mudança visível: mudar de língua recarrega a interface — o
+  estado em LS/disco fica, o que só existe em memória (os cartões do chat) perde-se. e2e novo (`locale.e2e.ts`):
+  muda para português, recarrega, o título do quadro (texto com chave) nasce «Quadro»; e volta. (2) Com o texto com
+  chave a nascer sempre na língua certa, um par do motor que só servia texto migrado deixa de servir: saem 78 pares
+  (`PAIRS` 1005 → 927) cujos dois textos já só existem nos catálogos — procurados como substring no código da UI fora
+  do motor e dos catálogos, no index.html, no Rust e nos cursos; os pares com números (`#`) ficam. Os pares que saíram
+  vão para `tests/fixtures/i18n-pruned-pairs.json`, e o `i18n.catalogs.test.ts` continua a provar cada entrada
+  contra o motor ∪ esses pares. Prova de paridade nas duas línguas igual antes e depois; goldens iguais.

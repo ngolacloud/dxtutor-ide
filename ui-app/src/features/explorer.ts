@@ -23,6 +23,10 @@
 import { $, $$, esc, svg } from "../core";
 import { desktopPorts } from "../app/desktop";
 import { codeintelClient, type SymbolRange } from "../platform/tauri/codeintel";
+import { translator } from "../app/i18n";
+import { EXPLORER_MESSAGES } from "./explorer.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(EXPLORER_MESSAGES);
 
 function renderLevel(obj:Record<string,any>,host:HTMLElement,depth:number,path:string[]){Object.keys(obj).forEach(name=>{const node=obj[name],pad=8+depth*12,row=document.createElement('div');
   let g=node.git||'';if(node.path)g=(stOf(node.path) as string).toLowerCase();else if(node.dpath)g=changes().some(p=>p.startsWith(node.dpath+'/'))?'m':'';
@@ -107,7 +111,7 @@ function outlineOf(p: string): OutSym[] | null {
   return c ? c.syms : null;
 }
 function drawOutline(){const o=$('#outline');if(!o)return;const t=tabOf(cur),sy=t&&t.path?outlineOf(t.path):[];
-  o.innerHTML=sy===null?'<div class="sec-empty">A ler os símbolos…</div>':sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:${16+(s.d??0)*12}px" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):t&&t.path?'<div class="sec-empty">Sem símbolos neste ficheiro.</div>':'<div class="sec-empty">Abre um ficheiro para ver os símbolos.</div>';}
+  o.innerHTML=sy===null?'<div class="sec-empty">A ler os símbolos…</div>':sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:${16+(s.d??0)*12}px" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):t&&t.path?'<div class="sec-empty">Sem símbolos neste ficheiro.</div>':`<div class="sec-empty">${txt("openAFileTo")}</div>`;}
 /* clicar num símbolo vai para a linha (sem onclick inline; o #outline é recriado pelo buildExplorer) */
 document.addEventListener('click',(e)=>{const h=(e.target as HTMLElement|null)?.closest<HTMLElement>('#outline .s-hit[data-on]');if(h)gotoLine(+(h.dataset.on as string));});
 function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/) — ex.: desktop/src/novo.ts',verb:'Criar',text:(q:string)=>{q=q.trim();if(!q)return;const p=norm(q);if(FS[p]){toast('Já existe');openPath(p);return;}writeFile(p,'');openPath(p);}});}

@@ -156,6 +156,26 @@ bisect. Dos 13 comandos `git_*`, a UI usa 3 (`git_log`, `git_show`, `git_changes
 | SCM-06 heatmap, "quem conhece" | Ausente. | Agregação do blame por autor/idade (Rust). | S |
 | SCM-07 Co-Dev | Agente tem `git_status`/`git_diff` read-only; nada dedicado. | Acções "Explicar commit", "Mensagem de commit (inglês)", "Rever staged", "Bisect assistido" pelo contrato do item 6; o humano faz o commit. | M |
 
+**Estado após a A4 (2026-11-24):** feito —
+- **Backend:** `tutor_eval::gitx` corre o git real e lê a sua saída de máquina, validando os argumentos que vêm da UI.
+  Comandos `git_blame`, `git_history`, `git_show_path`, `git_compare`, `git_stash`, `git_worktree`, `git_rebase`,
+  `git_amend` (186 no total).
+- **SCM-01:** o blame da linha do cursor aparece no fim da linha (registo `app/line-annotation.ts`) e no `#st-blame`,
+  que deixa de ler o espelho; um clique abre o histórico dessa linha.
+- **SCM-04:** separador «File history», com os commits de um ficheiro (`--follow`) ou de linhas (`-L`) e o diff de cada um.
+- **SCM-06:** «Quem conhece este código» (linhas por autor e última vez) e o blame em blocos coloridos por idade.
+- **SCM-05:** «Compare» (à frente/atrás e os ficheiros desde a base comum); stashes e worktrees no pane (nunca remove a
+  worktree aberta nem a principal); «Amend», com segunda confirmação se o commit já estiver num remoto; rebase
+  interactivo (reordenar, pick/reword/squash/fixup/drop), que só corre depois de aprovado o comando exacto e é desfeito
+  se o git parar.
+- **SCM-07:** «Explicar este commit», «Escrever a mensagem de commit» (inglês, Conventional Commits) e «Rever o que está
+  staged», pelo `codev.ask`; o humano faz o commit.
+- **Onde aparece:** tudo só no desktop com repositório; no browser e nos goldens o pane fica igual. Os textos nascem com
+  chave (`features/scm/ui/git-messages.ts`, en + ptAO). Também se corrigiu o encolher das linhas do pane quando
+  transborda.
+- **Por fazer:** SCM-02 (CodeLens sobre blame + `symbol_relations`), SCM-03 (pesquisa e filtros no grafo, arrastar um
+  ramo para merge/rebase), bisect assistido, e abrir uma worktree numa janela nova.
+
 ### Item 5 · Project: Kanban, Scrum, XP ou Scrum + XP
 
 **Estado actual:** quadro em memória (`BL`, `board.ts:59`) com 6 colunas fixas (`STAGES`), filtros
@@ -207,6 +227,25 @@ verdade `unittest`. Há ainda `measured.rs` (wall, CPU, RSS de pico, I/O — rea
 | TEST-04 | Detecção por projecto e parsing estruturado: `cargo test -- -Z unstable-options --format json` ou `cargo nextest --message-format libtest-json`, `go test -json`, `pytest --junitxml`, `vitest --reporter=json`, JUnit XML (Java), `odoo --test-tags`. Nunca inventar runner. | L |
 | TEST-05 | Testes afectados a partir do grafo de dependências (crates/módulos tocados pelo diff). | M |
 | TEST-06 | Pelo contrato do item 6: explicar falha, hunk de correcção no editor, escrever teste em falta, causa provável de flaky. | M |
+
+**Estado após a A6 (2026-11-24):** feito — `tutor_eval::testrun` detecta os runners que o projecto tem de facto
+(cargo, go, pytest, unittest, vitest/jest só se instalados em `node_modules/.bin`, maven, gradle; na raiz e nas
+pastas filhas; um runner sem a ferramenta aparece com o motivo) e lê a saída estruturada de cada um (`go test
+-json`, JUnit XML do pytest/maven/gradle, JSON do vitest/jest; no cargo, a saída libtest estável — o JSON do
+libtest exige nightly). Comandos `test_runners`, `test_run` (âmbito todos / um teste / afectados — os crates ou
+pacotes que os ficheiros alterados tocam, pelo `git diff HEAD` ou pelos ficheiros gravados) e `test_history`.
+Cada execução fica em SQLite (migração 3: `test_runs`, `test_cases`) e dá os cartões do pane: última execução,
+tendência da taxa de sucesso, testes instáveis (mudanças de resultado nas últimas 10 execuções) e mais lentos.
+O pane mostra os runners, os resultados por suite com duração, o detalhe da falha (mensagem e saída), correr um
+teste só, «Watch» (os afectados a cada gravação), e pede ao Co-Dev pelo `codev.ask`: explicar a falha, corrigir
+(o agente propõe os hunks no editor, como no item 6), escrever o teste em falta do ficheiro aberto e a causa
+provável de um teste instável. Vive na feature `features/testing/` (PR #6, ADR-0006 R2a): `domain/runs.ts`,
+`application/runs-service.ts` (uma corrida de cada vez, também contra as da descoberta), `ui/runs-view.ts`,
+`styles.css`; a lista sintáctica (`list_tests`) fica por baixo como «Tests in the code» e acende-se com os
+resultados dos runners. Sem runners (ou com um backend sem os comandos), o pane fica exactamente como antes. Por fazer: TEST-02 (registo de comandos e snapshots dos artefactos do Playwright/Cypress),
+cobertura (`cargo llvm-cov`/`c8`/`coverage.py`/`go test -cover`) e latências (`criterion`/`k6`/`-bench`) do
+TEST-03, `cargo nextest`, `odoo --test-tags`, tags, e o watch pelo watcher de ficheiros do backend (hoje é pelas
+gravações do editor).
 
 ### Item 4 · Debug que resolve as maiores dores
 

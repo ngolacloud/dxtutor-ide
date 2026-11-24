@@ -520,5 +520,52 @@ fn turn_reports_are_kept_with_their_issue() {
         .conn()
         .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(n, 2);
+    assert_eq!(n, schema::SCHEMA_VERSION as i64);
+}
+
+#[test]
+fn test_history_finds_flaky_tests_and_keeps_runs() {
+    use testhist::{NewCase, NewRun};
+    let mut s = store();
+    let case = |id: &str, st: &str, ms: u64| NewCase {
+        case_id: id.into(),
+        name: id.into(),
+        suite: "lib".into(),
+        status: st.into(),
+        duration_ms: Some(ms),
+        message: (st == "failed").then(|| format!("{id} broke")),
+    };
+    // a: passes, fails, passes, fails → flaky; b: fails once then fixed → not flaky
+    for (i, (a, b)) in [
+        ("passed", "failed"),
+        ("failed", "passed"),
+        ("passed", "passed"),
+        ("failed", "passed"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let run = NewRun {
+            runner: "cargo:.".into(),
+            command: "cargo test".into(),
+            scope: "all".into(),
+            ok: *a == "passed" && *b == "passed",
+            duration_ms: 1000,
+            cases: vec![case("a", a, 10 + i as u64 * 10), case("b", b, 5)],
+        };
+        s.record_test_run(ROOT, &run, T0 + i as i64 * H).unwrap();
+    }
+    let h = s.test_history(ROOT, 30).unwrap();
+    assert_eq!(h.runs.len(), 4);
+    assert_eq!(h.runs[0].at, T0 + 3 * H, "most recent first");
+    assert_eq!((h.runs[0].passed, h.runs[0].failed), (1, 1));
+    let a = h.cases.iter().find(|c| c.case_id == "a").unwrap();
+    assert_eq!(a.recent, "pfpf");
+    assert_eq!((a.flips, a.flaky, a.last.as_str()), (3, true, "failed"));
+    assert_eq!(a.avg_ms, Some(25));
+    assert_eq!(a.last_message.as_deref(), Some("a broke"));
+    let b = h.cases.iter().find(|c| c.case_id == "b").unwrap();
+    assert_eq!((b.flips, b.flaky), (1, false));
+    assert_eq!(h.cases[0].case_id, "a", "flaky first");
+    assert!(s.test_history("/other", 30).unwrap().runs.is_empty());
 }

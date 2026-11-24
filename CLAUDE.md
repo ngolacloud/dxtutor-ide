@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 173 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 187 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -37,7 +37,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   pode voltar a ter a directiva: código novo nasce tipado.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp` e `project`); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project` e `comments`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -396,6 +396,31 @@ publicada. Handlers inline novos não: a métrica U5 do `ui-metrics.sh` está em
 CSP da app (`script-src 'self'`, sem `'unsafe-inline'`) bloqueava-os de qualquer forma. O passo `csp`
 do auto-teste desktop prova-o na app real.
 
+## CSS por feature (`ui-app/src/app/styles.ts`, ADR-0004 U6a)
+
+Não há `public/styles.css` (partiu-se na U6a). Os tokens estão em `app/styles/theme.css`, a base partilhada
+(reset, controlos, `.mini`/`.btn`/`.inp`/`.tag`/`.pcard`/`.tbl`/`.scm-row`, diálogo) em `app/styles/base.css`,
+a moldura (barra de título, menus, actividade, painel lateral e inferior, barra de estado) em
+`features/shell.css`, e cada feature no seu ficheiro (`features/<f>/styles.css` ou `features/<f>.css`).
+Uma regra nova vai para o ficheiro do dono. O `src/app/styles.ts` lista-os pela ORDEM DA CASCATA: só conta
+quando duas regras com a mesma especificidade em ficheiros diferentes disputam a mesma propriedade do mesmo
+elemento. Um ramo que ainda edite o `public/styles.css` dá conflito modificado/apagado ao juntar-se:
+mantém-se o apagado e as regras novas vão para o ficheiro do dono.
+
+## Textos por chave (`ui-app/src/app/i18n.ts`, ADR-0004 U6b)
+
+Texto novo da interface nasce com chave: um catálogo tipado por feature (`en` + `ptAO`, dados puros — p.ex.
+`features/scm/ui/messages.ts`) e `const t = translator(CATÁLOGO)` no módulo que desenha. Nada de pares novos no
+motor (`features/i18n.ts`, `PAIRS`): a métrica U6 do `ui-metrics.sh` só desce. Mudar de língua recarrega a interface
+(U6c lote 3), por isso um par que só sirva texto migrado sai do motor (vai para `tests/fixtures/i18n-pruned-pairs.json`,
+que continua a provar o catálogo). Ao migrar texto existente, os
+valores do catálogo são os que o motor produzia (gera-os com `trText`); `tests/i18n.catalogs.test.ts` confirma-os
+e os goldens provam o inglês. Parâmetros entram tal e qual — escapa-os (`esc`) se forem para HTML.
+Texto emitido por `domain/`/`application/` não importa o `translator` (lê o `window`): o motor recebe uma porta
+`copy(chave)` declarada no seu `ports.ts`, com o catálogo em `application/messages.ts`, e a composição injecta
+`translator(CATÁLOGO)` (é assim no quadro e na infra). Catálogos de texto NOVO (sem par no motor) ficam num
+ficheiro à parte (p.ex. `git-messages.ts`): o teste verifica-lhes só a estrutura.
+
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
@@ -549,7 +574,7 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   abre sessão (sem erro). Correndo o auto-teste com um HOME temporário, põe essa pasta no PATH
   (`PATH="$HOME/.local/share/jdtls/bin:$PATH" HOME=/tmp/… DXTUTOR_SELFTEST=…`) — senão o passo
   `lsp-java` diz que o servidor não foi encontrado (e verifica que o editor mostra o aviso).
-## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0006)
+## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0007)
 
 Feature NOVA e tipada (governada por A7/A8), separada do Studio do catálogo cloud
 (`features/studio.ts`, que continua a alimentar os geradores e o «Generate backlog»).
@@ -589,6 +614,31 @@ features/arch/
   várias sessões partilham `ui-app/dist` e a porta 4179 — para verificar, construir para
   uma pasta própria e servir noutra porta (ou `CI=1`).
 
+## Comentários de linha para o Co-Dev (`ui-app/src/features/comments/`)
+
+Feature nova e tipada (governada por A7/A8), ao estilo do «Start discussion» do Antigravity: com o
+ponteiro no editor, um botão na margem da linha abre uma caixa por baixo dela; «Add Comment to Chat»
+(ou Ctrl+Enter) põe o comentário no compositor do Co-Dev como um chip com o código dessas linhas,
+pelo `codev.ask` partilhado (`intent: "chat"`, `send: false`, contexto `kind: "comment"`) — juntam-se
+vários e o humano escreve o pedido. Uma selecção que contém a linha alarga o comentário a ela toda.
+
+```
+features/comments/
+  domain/comment.ts          linhas (offset/ponteiro → linha), intervalo pela selecção, rótulo e o
+                             contexto para o agente. PURO.
+  application/               ports.ts (EditorPort, AskPort) + line-comments.ts (abrir/descartar/juntar).
+  ui/                        view.ts (botão e caixa DENTRO da .ed-wrap, fora do #ed-gut/#ed-hl que o
+                             paintEd redesenha — e longe dos cliques de breakpoint da margem),
+                             hooks.ts (rato, teclado, acções `comments:*` no despachante partilhado),
+                             messages.ts (en/ptAO: o `.ed` está no TR_SKIP do motor de tradução).
+  infrastructure/editor.ts   a textarea `#ed-ta` e a raiz do workspaceStore (sem window).
+  index.ts                   raiz de composição (corre no browser e na app).
+```
+
+Não comenta por cima de uma proposta do Co-Dev (os números de linha não seriam os do ficheiro).
+Testes: `tests/comments.domain.test.ts` (domínio + caso de uso) e `tests/comments.editor.test.ts`
+(no editor real do harness: posição do botão, caixa, Ctrl+Enter/Esc/lixo, o pedido ao `codev.ask`).
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,
@@ -596,7 +646,9 @@ features/arch/
 `visualizer.golden.test.ts` e `infra.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
 `onclick`/`onchange`/`oninput`/`data-action`/`data-on` antes de comparar — logo
 todo o payload de uma acção viaja em `data-on` (um `data-*` à medida vazaria para o
-snapshot e partia-o). Um diff de golden = **o código mudou de comportamento visual**:
+snapshot e partia-o). Desde a U6b do ADR-0004 o `golden()` também passa o markup pelo motor de
+tradução para inglês (`trNode`, `LOCALE='en'`, respeitando o `TR_SKIP`): os goldens mostram o que o
+utilizador vê em inglês, e um texto que passa a `t("chave")` deixa-os iguais. Um diff de golden = **o código mudou de comportamento visual**:
 corrige o código, não o snapshot. Só se regenera um golden com decisão deliberada e
 registada (mudança de UI aprovada), nunca para «fazer passar».
 
@@ -615,6 +667,7 @@ registada (mudança de UI aprovada), nunca para «fazer passar».
 - `docs/architecture/ADR-0002-codev-clean-architecture.md` — a decisão e as 6 fases.
 - `docs/architecture/ADR-0005-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
 - `docs/architecture/ADR-0006-ide-real.md` — o fim dos dados de demonstração e cada feature no backend real (R0–R6).
+- `docs/architecture/ADR-0007-studio-arquitectura-sistema.md` — o Studio de arquitectura de sistema (painéis, grupos, setas, Mermaid, o agente propõe).
 - `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.

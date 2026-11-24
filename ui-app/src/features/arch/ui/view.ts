@@ -8,7 +8,7 @@
    delegado em `actions.ts`); arrastar e redimensionar ligam-se aqui, ao SVG. Sem window. */
 
 import {
-  EVENT_KINDS, GROUP_KINDS, GROUP_LABEL, KIND_COLOR, KIND_LABEL, PROTOCOLS, PROTOCOL_LABEL, SYSTEM_KINDS,
+  EDGE_STYLES, EDGE_STYLE_LEGEND, EVENT_KINDS, GROUP_KINDS, GROUP_LABEL, KIND_COLOR, KIND_LABEL, PROTOCOLS, PROTOCOL_LABEL, SYSTEM_KINDS,
   descendants, depth, findGroup, findNode, hasEventKinds, isEventKind, isPanelBody, relationTakesEvent, viewOfGroup, viewOfNode,
 } from "../domain/design";
 import { CARD, PANEL_BAR, codeLines, groupPills, layout, nameLines, pillRect } from "../domain/geometry";
@@ -26,6 +26,7 @@ export const KIND_ICON: Record<ArchKind, string> = {
   worker: "box", port: "network", adapter: "transform",
 };
 
+const DEPENDS = "var(--fg-dim)";
 const DATA = "var(--green)", MUTED = "var(--fg-muted)", NEUTRAL = "var(--accent)", ACCENT = "var(--accent)";
 const CODE_BG = "#0d1117", CODE_FG = "#c9d1d9";
 
@@ -50,6 +51,8 @@ export function edgeLook(d: Design, c: ArchConnection): { color: string; dash: s
   const label = c.label ?? "";
   if (c.style === "data") return { color: DATA, dash: "6 4", label };
   if (c.style === "optional") return { color: MUTED, dash: "2 4", label };
+  // uma dependência não é um fluxo: linha cheia e neutra (a legenda explica-a)
+  if (c.style === "depends") return { color: DEPENDS, dash: "", label };
   const from = findNode(d, c.from);
   return { color: (from && viewOfNode(d, from)?.color) ?? MUTED, dash: "6 4", label };
 }
@@ -120,6 +123,29 @@ function edgeSvg(d: Design, c: ArchConnection, i: number, route: Route, labelAt:
   return out + `</g>`;
 }
 
+/** A legenda das setas: só aparece quando há setas de dependência (que, sem ela, se
+ *  confundiam com fluxos), e lista os estilos em uso com o aspecto real de cada um.
+ *  Fica por baixo do desenho; os limites crescem para a conter. */
+function legend(d: Design, b: Rect, marker: (color: string) => string): { svg: string; bounds: Rect } {
+  const styled = d.connections.filter((c) => !c.relation);
+  if (!styled.some((c) => c.style === "depends")) return { svg: "", bounds: b };
+  const entries = EDGE_STYLES.flatMap((st) => {
+    const c = styled.find((x) => (x.style ?? "control") === st);
+    if (!c) return [];
+    // o controlo tem a cor do painel de onde sai: a amostra fica neutra e di-lo
+    if (st === "control") return [{ text: `${EDGE_STYLE_LEGEND.control} (cor do painel)`, look: { ...edgeLook(d, c), color: MUTED } }];
+    return [{ text: EDGE_STYLE_LEGEND[st], look: edgeLook(d, c) }];
+  });
+  const y = b.y + b.h, x0 = b.x + 24;
+  let x = x0, out = "";
+  for (const e of entries) {
+    out += `<line x1="${x}" y1="${y}" x2="${x + 34}" y2="${y}" stroke="${e.look.color}" stroke-width="1.5"${e.look.dash ? ` stroke-dasharray="${e.look.dash}"` : ""} marker-end="url(#${marker(e.look.color)})"/>` +
+      `<text x="${x + 42}" y="${y + 4}" fill="var(--fg-dim)" font-size="11" font-family="var(--font-ui)">${esc(e.text)}</text>`;
+    x += 42 + e.text.length * 6.2 + 28;
+  }
+  return { svg: `<g data-legend="">${out}</g>`, bounds: { ...b, w: Math.max(b.w, x - b.x), h: b.h + 34 } };
+}
+
 /** O SVG completo do desenho (também o que a exportação SVG da F5 vai usar). */
 export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?: number }, linking: string | null, fast = false): { svg: string; bounds: Rect } {
   const l = layout(d);
@@ -140,10 +166,12 @@ export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?
     [...l.panels.values(), ...l.groups.values()]);
   d.connections.forEach((c, i) => { body += edgeSvg(d, c, i, routes[i], labels[i], sel.edge === i, marker); });
   for (const n of d.components) body += nodeSvg(d, n, l.nodes.get(n.id)!, sel.node === n.id || linking === n.id, linking !== null);
+  // a legenda antes das definições: os marcadores das amostras entram em `colors`
+  const leg = legend(d, l.bounds, marker);
+  const b = leg.bounds;
   const defs = `<defs>${colors.map((c, k) => `<marker id="arch-ar-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`).join("")}` +
     `<pattern id="arch-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="var(--guide)"/></pattern></defs>`;
-  const b = l.bounds;
-  return { svg: defs + `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="url(#arch-grid)"/>` + body, bounds: b };
+  return { svg: defs + `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="url(#arch-grid)"/>` + body + leg.svg, bounds: b };
 }
 
 export interface ArchViewDeps {
@@ -306,7 +334,7 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
   function edgeInspector(d: Design, c: ArchConnection, i: number): string {
     const name = (id: string): string => findNode(d, id)?.name.split("\n")[0] ?? id;
     const styles = opt("", c.relation ? "— event link —" : "Control (default)", !c.style) +
-      opt("control", "Control", c.style === "control") + opt("data", "Data / requests", c.style === "data") + opt("optional", "Optional", c.style === "optional");
+      opt("control", "Control", c.style === "control") + opt("data", "Data / requests", c.style === "data") + opt("optional", "Optional", c.style === "optional") + opt("depends", "Depends on (static)", c.style === "depends");
     const protos = opt("", "—", !c.protocol) + PROTOCOLS.map((p) => opt(p, PROTOCOL_LABEL[p], c.protocol === p)).join("");
     return `<h3>Connection</h3><p><b>${esc(name(c.from))}</b> → <b>${esc(name(c.to))}</b></p>` +
       (c.relation ? `<div class="st-kv"><span>relation</span><code>${esc(c.relation)}</code></div>` : "") +

@@ -11,6 +11,10 @@
    para features, o espelho cai. `NOTES`/`UNREAD`/`drawBell` ficam privados. */
 
 import { $, esc, hhmm } from "../core";
+import { translator } from "../app/i18n";
+import { NOTIFICATIONS_MESSAGES } from "./notifications.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(NOTIFICATIONS_MESSAGES);
 
 /** Uma notificação: hora de parede + mensagem. */
 interface Note {
@@ -50,7 +54,7 @@ function toggleNotes(): void {
               `<div class="nt"><span class="tm">${x.t}</span><span>${esc(x.m)}</span></div>`,
           )
           .join("")
-      : '<div class="nt">Sem notificações.</div>';
+      : `<div class="nt">${txt("noNotifications")}</div>`;
   }
 }
 

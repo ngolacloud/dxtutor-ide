@@ -17,6 +17,7 @@
    do bridge»). */
 
 import { toast, log, rerender } from "../../../core";
+import { editorStore } from "../../../app/store/editor";
 import type { Commit, GitState, FileEntry, Author } from "../domain/types";
 export { toast, log, rerender };
 
@@ -99,3 +100,32 @@ export const publish = (surface: Record<string, unknown>): void => {
 
 /* Re-exportação de tipos usados pelo resíduo (evita import directo de domain lá). */
 export type { Commit, GitState, FileEntry, Author };
+
+/* ───── A4 (docs/v2/UI-AUDIT.md item 9): o que o trabalho git novo lê do desktop ───── */
+interface Dxr { root?: string | null; git?: boolean; flush?: () => void; idle?: () => Promise<unknown>; reloadDisk?: () => Promise<unknown>; syncGit?: () => Promise<unknown> }
+const dxr = (): Dxr | undefined => G.DXR as Dxr | undefined;
+/** A pasta aberta quando é um repositório git (null sem pasta, sem repo ou no browser). */
+export const gitRoot = (): string | null => { const d = dxr(); return d && d.root && d.git ? d.root : null; };
+/** O nome da pasta aberta. */
+export const projectName = (): string => { const r = dxr()?.root || ""; return r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "project"; };
+/** Grava o editor no disco e espera pela fila de escrita. */
+export const saveToDisk = async (): Promise<void> => { const d = dxr(); d?.flush?.(); await d?.idle?.(); };
+/** O git mudou a árvore ou as refs: recarrega os ficheiros e o grafo. */
+export const reloadFromGit = async (): Promise<void> => { const d = dxr(); await d?.reloadDisk?.(); await d?.syncGit?.(); };
+export const confirmBox = (m: string): boolean => (G.confirm as (m: string) => boolean)(m);
+/** O ficheiro e a linha do editor (caminho relativo à pasta) e as linhas seleccionadas. */
+export const editorCursor = (): { path: string; line: number; start: number; end: number } | null => {
+  const t = editorStore.tabs.find((x) => x.id === editorStore.currentTabId);
+  const p = t && t.kind === "file" ? (typeof t.path === "string" ? t.path : t.id) : "";
+  const root = G.ROOT as string;
+  if (!p || !root || !p.startsWith(root)) return null;
+  const ta = document.getElementById("ed-ta") as HTMLTextAreaElement | null;
+  const lineAt = (i: number): number => (ta ? ta.value.slice(0, i).split("\n").length : 1);
+  const line = ta ? lineAt(ta.selectionStart) : 1;
+  const end = ta ? lineAt(Math.max(ta.selectionStart, ta.selectionEnd - (ta.selectionEnd > ta.selectionStart ? 1 : 0))) : line;
+  return { path: p.slice(root.length), line, start: Math.min(line, end), end: Math.max(line, end) };
+};
+/** O prefixo dos caminhos do editor (as chaves do FS são `ROOT` + caminho relativo). */
+export const rootKey = (): string => (typeof G.ROOT === "string" ? G.ROOT : "");
+/** Abre um ficheiro (caminho relativo à pasta) numa linha. */
+export const openRel = (rel: string, line?: number): void => (G.openPath as (p: string, l?: number) => void)((G.ROOT as string) + rel, line);

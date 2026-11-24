@@ -10,6 +10,8 @@ import type { DesktopContext } from "./context";
 import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
+import { gitExtras } from "../../features/scm/extras";
+import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -198,6 +200,30 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await git("branch", "-D", flow); await ctx.syncGit();
       return { committed, flowInGit, backViaRow, errBefore, errAfter: R.errors.length };
     });
+    // A4: git beyond the basics against the real repository (features/scm/extras): the blame of a
+    // committed line (author, summary), that file's history and one commit's diff, a stash pushed,
+    // listed and popped back, the worktree list, an interactive-rebase plan, and the pane's sections.
+    await step("gitExtras", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const gx = tauriGitExtras(), root = R.root as string, file = "notes/flow.txt"; // tracked on develop (the gitflow step merged it)
+      gitExtras.invalidate();
+      gitExtras.lineBlame(file, 1);
+      const blamed = await wait(() => !!gitExtras.lineBlame(file, 1), 10000);
+      const b = gitExtras.lineBlame(file, 1);
+      await gitExtras.openHistory(file, null);
+      const histOk = await wait(() => /^\+x$/m.test(gitExtras.state().history?.diff || ""), 10000);
+      writeFile(ROOT + file, "x\nstash me\n"); flushSave(); await idle();
+      const pushed = await gx.stash(root, { op: "push", message: "selftest stash", untracked: false });
+      const cleanAfterPush = (await git("status", "--porcelain", "--", file)).stdout.trim() === "";
+      const popped = await gx.stash(root, { op: "apply", index: 0, pop: true });
+      const back = (await sh("cat", [file])).stdout.includes("stash me");
+      await git("checkout", "--", file); await ctx.reloadDisk();
+      const wts = await gx.worktree(root, { op: "list" });
+      const plan = await gx.rebase(root, { op: "plan", onto: "HEAD~1" });
+      RP.scm();
+      const paneOk = await wait(() => /Stashes/.test(document.getElementById("pane-scm")?.textContent || ""), 5000);
+      return { blamed, author: b?.author, summary: b?.summary, histOk, pushed: pushed.stashes.length === 1, cleanAfterPush, popped: popped.stashes.length === 0, back, worktrees: wts.length, current: wts.some(w => w.current), planCommits: plan.commits.length, dirty: plan.dirty, paneOk };
+    });
     // A0.5: the Testing pane lists the project's REAL tests (list_tests) on the desktop — a Rust
     // probe (descoberta pelo syn), redescoberta pelo «Refresh» do pane (features/testing, ADR-0006 R2a).
     await step("testsPane", async () => {
@@ -209,6 +235,36 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const inPane = await wait(() => (document.getElementById("pane-test")?.textContent || "").includes("probe_passes"), 20000);
       delete FS[key]; flushSave(); await idle();
       return { inPane };
+    });
+    // A6: the Testing pane's real runners (features/testing): a cargo crate in a sub-folder is
+    // detected (test_runners), «Run all» of that runner gives per-test results (one pass, one
+    // fail — test_run), «Run this test» re-runs one, and the history card shows the kept runs
+    // (test_history, SQLite). The probe files are removed at the end.
+    await step("testRuns", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const toml = ROOT + "probe_crate/Cargo.toml", lib = ROOT + "probe_crate/src/lib.rs";
+      writeFile(toml, "[package]\nname = \"probe_crate\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n");
+      writeFile(lib, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_ok() {}\n    #[test]\n    fn probe_bad() { assert_eq!(1, 2, \"probe\"); }\n}\n");
+      flushSave(); await idle();
+      const el = () => document.getElementById("pane-test");
+      const q = <T extends Element>(sel: string) => el()?.querySelector<T>(sel) ?? null;
+      try {
+        PANE = "test"; window.renderTestPane();
+        q<HTMLElement>('[data-action="refresh"]')?.click();
+        const detected = await wait(() => !!q('[data-action="runner-all"][data-on="cargo:probe_crate"]'), 20000);
+        q<HTMLElement>('[data-action="runner-all"][data-on="cargo:probe_crate"]')?.click();
+        const ran = await wait(() => (el()?.querySelectorAll(".tr-case").length || 0) >= 2, 120000);
+        const row = (n: string) => [...(el()?.querySelectorAll(".tr-case") || [])].find(r => (r.textContent || "").includes(n))?.textContent || "";
+        const ok = row("tests::probe_ok").startsWith("✓"), bad = row("tests::probe_bad").startsWith("✖");
+        const idOk = 'cargo:probe_crate|cargo:' ;
+        const one = [...(el()?.querySelectorAll<HTMLElement>('[data-action="case-run"]') || [])].find(b => (b.dataset.on || "").startsWith(idOk) && (b.dataset.on || "").endsWith("::tests::probe_ok"));
+        one?.click();
+        const single = await wait(() => !q('[data-action="case-run"][disabled]') && !q('[data-action="runner-all"][disabled]'), 60000);
+        const kept = await wait(() => /Pass rate/.test(q(".tr-cards")?.textContent || "") || /Taxa de sucesso/.test(q(".tr-cards")?.textContent || ""), 10000);
+        return { detected, ran, ok, bad, single: single && !!one, kept };
+      } finally {
+        delete FS[toml]; delete FS[lib]; flushSave(); await idle();
+      }
     });
     // A5: the Project store through the real Tauri commands and SQLite — create, move one
     // step, a skipped step refused by the Rust rules (code `step`, overridable), and the
