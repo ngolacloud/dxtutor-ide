@@ -42,6 +42,8 @@ interface LegacyGlobals {
   scrollTerm: () => void;
   openSettings: () => void;
   changes: () => string[];
+  BL: { issues: { stage: string }[] };
+  dbgLaunch: () => { id: string }[];
 }
 const G = window as unknown as LegacyGlobals;
 
@@ -59,6 +61,12 @@ function badges(): void {
   };
   set("scm", G.changes().length || "");
   set("codev", agentStore.run && agentStore.run.active ? "●" : "");
+  /* Tasks: issues à espera de validação; Debug: lançadores de crash. Era a decoração do
+     v6.ts (ADR-0004, U4g5) — o badges não tem chamadas internas, por isso dobra-se aqui. */
+  const b = $('.act[data-pane="tasks"] .badge') as HTMLElement | null;
+  if (b) { const n = G.BL.issues.filter((i) => i.stage === "func").length; b.textContent = String(n || ""); b.style.display = n ? "grid" : "none"; }
+  const d = $('.act[data-pane="debug"] .badge') as HTMLElement | null;
+  if (d) { const n = G.dbgLaunch().filter((c) => c.id.startsWith("crash")).length; d.textContent = String(n || ""); d.style.display = n ? "grid" : "none"; }
 }
 
 /** Abre o painel lateral `p`; com `tgl === true`, clicar no activo recolhe a barra. */

@@ -60,6 +60,7 @@ import "./features/menus";
 import "./features/workspace";
 import "./features/explorer";
 import "./features/diagnostics";
+import "./features/shortcuts";
 import "./app";
 import "./v5";
 import "./v6";

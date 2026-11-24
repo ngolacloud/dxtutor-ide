@@ -39,13 +39,27 @@ function dsLint() {
   });
   return out;
 }
-window.diagnostics = function () {
+function diagnosticsBase() {
   const out: { p: string; line: number; sev: string; msg: string }[] = [], add = (p: string, re: RegExp, sev: string, msg: string) => { if (FS[p]) FS[p].content.split('\n').forEach((l, i) => { if (re.test(l)) out.push({ p, line: i + 1, sev, msg }); }); };
   if (lexBug()) add(P_LX, /chars\.peek\(\)/, 'e', 'E0382: use of moved value: `chars` (movido pelo `for` na linha 5)');
   dsLint().forEach(v => out.push({ p: v.p, line: v.line, sev: 'w', msg: `design-system: cor fixa ${v.hex} — usar um token (regras.md §4)` }));
   add(ROOT + 'desktop/src/workspace.ts', /\bany\b/, 'w', 'evitar `any` — tipar explicitamente');
   add(P_REPO, /WHERE workspace_id = \?1 LIMIT/, 'w', 'listagem sem ORDER BY — ordem não determinística');
   return out;
+}
+/* Com a extensão YAML (redhat.vscode-yaml) ligada: tabs na indentação e Deployments k8s sem
+   resources. Era a decoração do v6.ts (ADR-0004, U4g5); o panel do desktop apanha esta
+   versão em runtime (fachada real quando há pasta aberta). */
+const vsxOn = (id: string): boolean => (window as unknown as { vsxOn: (id: string) => boolean }).vsxOn(id);
+window.diagnostics = function () {
+  const d = diagnosticsBase();
+  if (!vsxOn('redhat.vscode-yaml')) return d;
+  Object.keys(FS).filter((p) => /\.ya?ml$/.test(p)).forEach((p) => {
+    const ls = FS[p].content.split('\n');
+    ls.forEach((l, i) => { if (/^\t/.test(l)) d.push({ p, line: i + 1, sev: 'e', msg: 'yaml: tabs are not allowed for indentation' }); });
+    if (/deploy\/k8s\//.test(p)) FS[p].content.split(/^---$/m).reduce((off, doc) => { if (/^kind:\s*Deployment/m.test(doc) && !/resources:/.test(doc)) { const ln = off + doc.split('\n').findIndex((l) => /^kind:\s*Deployment/.test(l)) + 1; d.push({ p, line: Math.max(1, ln), sev: 'w', msg: 'yaml(k8s): Deployment without resources.requests/limits' }); } return off + doc.split('\n').length; }, 0);
+  });
+  return d;
 };
 function runTests(pkg?: string) {
   const R: { n: string; ok: boolean }[] = [];

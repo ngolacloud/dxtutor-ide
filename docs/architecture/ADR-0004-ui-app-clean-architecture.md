@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g4)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g5)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -398,3 +398,34 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `applyTemplate` normal e durante uma execução, a vista de revisão, e um arranque com o
   harness guardado no localStorage — idênticos, sem erros de página) e auto-teste desktop
   idêntico ao da U4g3.
+- **U4g5 (2026-11-24) — o editor (e uma regressão da U4b corrigida).** As decorações do
+  editor saíram do v6 para os donos: a barra de acções nos breadcrumbs (`EACT` + `show`) para
+  o `features/tabs.ts`; os breakpoints, a linha do depurador e o Error Lens no `paintEd`
+  publicado para o `features/editor.ts`; o lint de YAML no `window.diagnostics` para o
+  `features/diagnostics.ts`; os contadores Tasks/Debug para o `badges` do `features/shell.ts`
+  (sem chamadas internas, dobra-se no corpo); o `lexVariant`/`LXL` para o
+  `features/debug.ts`; e os atalhos globais (acordes Ctrl+K, F5/F9/F10, Ctrl+Shift+D/X/T,
+  Shift+Alt+F) para um módulo novo, `features/shortcuts.ts`. O listener de atalhos é de
+  captura no document e avalia depois do visualizer (que faz `stopImmediatePropagation` com
+  o overlay aberto) e antes do app.ts, cujo listener de captura trata teclas disjuntas — o
+  `stopPropagation` de um não impede o outro (mesmo nó). **Regressão da U4b, corrigida:**
+  antes da U4b o `show` era `window.show` no app.ts, e o `openTab`, `setActive`, `closeTab`,
+  `stepTab` e o clique num separador chamavam a versão decorada pelo v6. A U4b tornou essas
+  chamadas locais, e a barra de acções deixou de aparecer ao abrir um ficheiro. Voltam a
+  passar pelo `window.show`. Procurei o mesmo padrão em tudo o que saiu do app.ts/boot.ts
+  desde a U4b: dos nomes decorados por outros módulos, `run`/`promptHTML` já passavam pelo
+  `window` (U4e), `syncTree`/`termExec` só são chamados pelo `window`, e o `badges` não tem
+  chamadas internas — só o `show` tinha regredido. **Bug pré-existente reportado (não
+  corrigido):** desde a extracção do editor (`923a2a5`), o `renderFileView` e o `oninput`
+  chamam o `paintEd` local, por isso as marcas do v6 (breakpoints, linha do depurador, Error
+  Lens) só aparecem quando alguém chama o `window.paintEd`; antes, no app.ts, o `paintEd` era
+  `window.paintEd`. Globais publicadas 422 → 419; lint 282; testes sem alteração (os testes
+  do codereview/debug ainda injectam cópias exactas do `lexVariant`/`LXL` depois do arranque,
+  com comentários que os dão como do v6). Verificado: 367 testes (snapshots sem diff),
+  arranque no browser 4/4, comparação no browser entre três builds — HEAD, esta árvore e o
+  commit anterior à U4b — com a barra de acções ao abrir e ao mostrar, o `EACT` (com o
+  «Visualize» do boot7), o `lexVariant`/`LXL` nas cinco variantes, o lint de YAML com a
+  extensão desligada e ligada, um breakpoint pintado, o contador de Tasks e os atalhos
+  (acorde Ctrl+K E, Ctrl+Shift+T, F9): esta árvore é idêntica ao commit anterior à U4b, e a
+  única diferença para a HEAD é a barra ao abrir um ficheiro; auto-teste desktop idêntico ao
+  da U4g4.

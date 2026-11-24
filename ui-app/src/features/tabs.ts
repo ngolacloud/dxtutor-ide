@@ -8,7 +8,7 @@
 
    Avalia ANTES do app.ts (ordem do main.ts) e publica as funções no window, como o
    app.ts fazia: o resto do monólito (app/v5/v6/bridge/pair) e os onclick inline chamam-
-   -nas por nome. O v6 decora o `show` depois (`_show6`) — continua a decorar esta versão.
+   -nas por nome. O `show` publicado é o composto com a barra de acções (fim do ficheiro).
    O registo dos renderers por tipo (`VIEW`) vem de app/store/registry.ts. O que ainda
    vive no monólito (`hydrate`, `drawOutline`, `markActive`,
    `ctxPill`, `setVar`, `short`, `fIcon`, `gotoLine`, `stLang`) lê-se em runtime pela
@@ -27,6 +27,7 @@ interface LegacyGlobals {
   drawOutline: () => void;
   markActive: () => void;
   stLang: () => void;
+  show: (id: string | null) => void;
   ctxPill: () => void;
   setVar: (k: string, v: string) => void;
 }
@@ -41,7 +42,7 @@ function openTab(t: Tab, act?: boolean): void {
   if (x) Object.assign(x, t);
   else TB().push(t);
   if (act === false) drawTabs();
-  else show(t.id);
+  else G.show(t.id);
 }
 
 function openPath(p: string, line?: number): void {
@@ -59,7 +60,7 @@ function openFile(name: string): void {
 }
 
 function setActive(id: string): void {
-  if (tabOf(id)) show(id);
+  if (tabOf(id)) G.show(id);
 }
 
 function tabIc(t: Tab): string {
@@ -98,7 +99,7 @@ function drawTabs(): void {
         closeTab(t.id);
         return;
       }
-      show(t.id);
+      G.show(t.id);
     };
     el.onauxclick = (e) => {
       if (e.button === 1) closeTab(t.id);
@@ -162,7 +163,7 @@ function closeTab(id: string): void {
     G.setVar("--agent-w", "380px");
     ($("#tgl-agent") as HTMLElement).classList.add("on");
   }
-  if (editorStore.currentTabId === id) show(TB().length ? TB()[Math.max(0, i - 1)].id : null);
+  if (editorStore.currentTabId === id) G.show(TB().length ? TB()[Math.max(0, i - 1)].id : null);
   else drawTabs();
 }
 
@@ -170,10 +171,24 @@ function closeTab(id: string): void {
 function stepTab(d: number): void {
   if (!TB().length) return;
   const i = TB().findIndex((t) => t.id === editorStore.currentTabId);
-  show(TB()[(i + d + TB().length) % TB().length].id);
+  G.show(TB()[(i + d + TB().length) % TB().length].id);
+}
+
+/* ───── a barra de acções do editor (ADR-0004, U4g5 — era a decoração do v6.ts) ─────
+   Nos separadores de ficheiro e de diff, os breadcrumbs ganham Explain / Code review /
+   Debug / RUN / Under the hood (o visualizer acrescenta «Visualize» ao `EACT` no boot7). O
+   `show` publicado é este; as chamadas internas acima passam pelo `window.show`, como
+   faziam antes da U4b (o `show` era `window.show` no app.ts) — a U4b tinha-as tornado
+   locais e a barra deixara de aparecer ao abrir um ficheiro (regressão corrigida aqui). */
+const EACT: [string, string, string, string][] = [['bulb', 'Explain', 'Ctrl+K E', 'explainCmd()'], ['review', 'Code review', 'Ctrl+K R', 'reviewCmd()'], ['bug', 'Debug', 'F5', 'startDebug()'], ['run', 'RUN', 'Ctrl+F5', 'dxRun()'], ['eye', 'Under the hood', 'Ctrl+K U', 'hoodCmd()']];
+function showWithActions(id: string | null): void {
+  show(id);
+  const t = tabOf(editorStore.currentTabId), b = $("#breadcrumbs");
+  if (!b || !t || !["file", "diff"].includes(t.kind)) return;
+  b.insertAdjacentHTML("beforeend", `<span class="ed-acts">${EACT.map((a) => `<button title="${a[1]} (${a[2]})" onclick="${a[3]}">${svg(a[0])}<span>${a[1]}</span></button>`).join("")}</span>`);
 }
 
 /* publicação transitória no window (o monólito e os onclick inline chamam por nome) */
-Object.assign(window, { tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab });
+Object.assign(window, { tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show: showWithActions, closeTab, stepTab, EACT });
 
 export { tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };

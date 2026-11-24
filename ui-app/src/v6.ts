@@ -74,8 +74,7 @@ VIEW.studio=(t,host)=>{window.renderStudioView(t,host);const b=host.querySelecto
    Aqui ficam só os helpers de lexer partilhados com renderHood/reviewFindings
    (lexVariant/LXL, publicados no window) e o shim RP.debug→window.renderDebugPane.
    O estado é lido por fachadas sem substring proibido: window.dbgState()/dbgBreaks/dbgLaunch(). */
-function lexVariant(){const c=FS[P_LX]?FS[P_LX].content:'';if(lexBug())return'bug';if(/for c in chars\.clone\(\)/.test(c))return'clone';if(/for c in chars\.by_ref\(\)/.test(c))return'byref';if(/while let Some\(c\) = chars\.next\(\)/.test(c))return'whilelet';return'other';}
-const LXL=re=>{const ls=(FS[P_LX]?FS[P_LX].content:'').split('\n');return ls.findIndex(l=>re.test(l))+1;};
+/* lexVariant/LXL migrados p/ features/debug.ts (ADR-0004, U4g5). */
 /* RP.debug registado pela própria features/debug.ts (ADR-0004, U4g1). */
 
 /* ───── extensions (Open VSX) ─────
@@ -86,12 +85,7 @@ const LXL=re=>{const ls=(FS[P_LX]?FS[P_LX].content:'').split('\n');return ls.fin
    paintEd — têm de carregar depois do app.ts), que lêem o motor por fachada-alias sem
    o substring migrado: window.vsxOn(id)/vsxFmt()/vsxCmds(). */
 /* RP.ext/VIEW.extd registados pela própria features/ext.ts (ADR-0004, U4g1). */
-const _diag6=diagnostics;diagnostics=function(){const d=_diag6();if(!window.vsxOn('redhat.vscode-yaml'))return d;Object.keys(FS).filter(p=>/\.ya?ml$/.test(p)).forEach(p=>{const ls=FS[p].content.split('\n');ls.forEach((l,i)=>{if(/^\t/.test(l))d.push({p,line:i+1,sev:'e',msg:'yaml: tabs are not allowed for indentation'});});
-  if(/deploy\/k8s\//.test(p))FS[p].content.split(/^---$/m).reduce((off,doc)=>{if(/^kind:\s*Deployment/m.test(doc)&&!/resources:/.test(doc)){const ln=off+doc.split('\n').findIndex(l=>/^kind:\s*Deployment/.test(l))+1;d.push({p,line:Math.max(1,ln),sev:'w',msg:'yaml(k8s): Deployment without resources.requests/limits'});}return off+doc.split('\n').length;},0);});return d;};
-const _paintEd6=paintEd;paintEd=function(p){_paintEd6(p);const gut=$('#ed-gut'),hl=$('#ed-hl');if(!gut||!hl)return;const gs=gut.children,ls=hl.children;
-  [...window.dbgBreaks].filter(b=>b.startsWith(p+':')).forEach(b=>{const g=gs[+b.split(':').pop()-1];if(g)g.classList.add('bp');});
-  const _ds=window.dbgState();if(_ds&&_ds.kind==='code'&&p===P_LX){const s=_ds.steps[_ds.i];if(s&&ls[s.l-1]){ls[s.l-1].classList.add('dbg-cur');if(gs[s.l-1])gs[s.l-1].classList.add('dbg-cur');}}
-  if(window.vsxOn('usernamehw.errorlens')){const seen={};diagnostics().filter(x=>x.p===p).forEach(x=>{if(seen[x.line])return;seen[x.line]=1;const l=ls[x.line-1];if(l)l.insertAdjacentHTML('beforeend',`<span class="el ${x.sev}">  ${esc(x.msg)}</span>`);});}};
+/* decorações de diagnostics (YAML) e paintEd (breakpoints/linha do depurador/Error Lens) migradas p/ features/diagnostics.ts e features/editor.ts (ADR-0004, U4g5). */
 
 /* ───── Explain · Code review · Under the hood (motor migrado p/ features/codereview.ts) ─────
    curFile/explainCmd/reviewCmd/reviewFindings/KNOW/SEVC e os corpos de VIEW.creview/
@@ -101,18 +95,7 @@ const _paintEd6=paintEd;paintEd=function(p){_paintEd6(p);const gut=$('#ed-gut'),
 /* VIEW.creview/VIEW.hood registados pela própria features/codereview.ts (ADR-0004, U4g1). */
 
 /* ───── editor action bar, shortcuts, activity bar ───── */
-const EACT=[['bulb','Explain','Ctrl+K E','explainCmd()'],['review','Code review','Ctrl+K R','reviewCmd()'],['bug','Debug','F5','startDebug()'],['run','RUN','Ctrl+F5','dxRun()'],['eye','Under the hood','Ctrl+K U','hoodCmd()']];
-const _show6=show;show=function(id){_show6(id);const t=tabOf(cur),b=$('#breadcrumbs');if(!b||!t||!['file','diff'].includes(t.kind))return;b.insertAdjacentHTML('beforeend',`<span class="ed-acts">${EACT.map(a=>`<button title="${a[1]} (${a[2]})" onclick="${a[3]}">${svg(a[0])}<span>${a[1]}</span></button>`).join('')}</span>`);};
-let CHORD=0;
-document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey,go=f=>{e.preventDefault();e.stopPropagation();f();};
-  if(window.termOwnsKey&&window.termOwnsKey(e))return;/* foco num terminal real (features/panel): a tecla é da shell */
-  if(CHORD&&Date.now()-CHORD<1600){CHORD=0;$('#st-chord').textContent='';if(k==='e')return go(()=>explainCmd());if(k==='r')return go(reviewCmd);if(k==='u')return go(hoodCmd);if(k==='d')return go(()=>startDebug());if(k==='v')return go(()=>vizFromEditor());}
-  if(c&&!e.shiftKey&&!e.altKey&&k==='k'){go(()=>{CHORD=Date.now();$('#st-chord').textContent='(Ctrl+K) waiting for second key…';});return;}
-  if(e.key==='F5'&&c)return go(dxRun);if(e.key==='F5'&&e.shiftKey)return go(dbgStop);if(e.key==='F5')return go(()=>window.dbgState()?dbgContinue():startDebug());if(e.key==='F10'||e.key==='F11')return go(dbgStep);
-  if(e.key==='F9'){const t=tabOf(cur),ta=$('#ed-ta');if(t&&t.path&&ta)go(()=>toggleBp(t.path,ta.value.slice(0,ta.selectionStart).split('\n').length));return;}
-  if(c&&e.shiftKey&&k==='d')return go(()=>goPane('debug'));if(c&&e.shiftKey&&k==='x')return go(()=>goPane('ext'));if(c&&e.shiftKey&&k==='t')return go(()=>goPane('tasks'));
-  if(e.shiftKey&&e.altKey&&k==='f'&&window.vsxOn('esbenp.prettier-vscode'))return go(()=>window.vsxFmt());},true);
-const _badges6=badges;badges=function(){_badges6();const b=$('.act[data-pane="tasks"] .badge');if(b){const n=BL.issues.filter(i=>i.stage==='func').length;b.textContent=n||'';b.style.display=n?'grid':'none';}const d=$('.act[data-pane="debug"] .badge');if(d){const n=window.dbgLaunch().filter(c=>c.id.startsWith('crash')).length;d.textContent=n||'';d.style.display=n?'grid':'none';}};
+/* EACT + a barra de acções do show (features/tabs.ts), os atalhos globais (features/shortcuts.ts) e os contadores Tasks/Debug do badges (features/shell.ts) migrados (ADR-0004, U4g5). */
 function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX',js:'JavaScript',go:'Go',py:'Python',sh:'Shell'});ACTS.length=0;ACTS.push({ic:'explorer',pane:'explorer',title:'Explorer (Ctrl+Shift+E)'},{ic:'search',pane:'search',title:'Search (Ctrl+Shift+F)'},{ic:'scm',pane:'scm',title:'Source Control (Ctrl+Shift+G)'},{ic:'debug',pane:'debug',title:'Run and Debug (Ctrl+Shift+D)'},{ic:'test',pane:'test',title:'Testing'},{ic:'ext',pane:'ext',title:'Extensions (Ctrl+Shift+X)'},
    {ic:'sparkle',pane:'codev',title:'Co-Dev (Ctrl+Shift+A)',acc:1,sep:1},{ic:'tasks',pane:'tasks',title:'Tasks (Ctrl+Shift+T)'},{ic:'cube',run:openStudio,title:'Studio'},{ic:'container',pane:'infra',title:'Infra and environments'},{ic:'book',pane:'tutor',title:'Learning Track'},{ic:'settings',pane:'settings',title:'Settings (Ctrl+,)',spacer:1});buildActivity();
   ['debug','ext','tasks'].forEach(p=>{if(!$('#pane-'+p))$('.side').insertAdjacentHTML('beforeend',`<div class="pane" id="pane-${p}"></div>`);});const a=$(`.act[data-pane="${PANE}"]`);if(a)a.classList.add('on');
@@ -129,8 +112,7 @@ function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX'
 /* ── publicação no window: os nomes que app.ts (arranque via startup) / v7.ts /
    boot.ts / bridge.ts / handlers inline / i18n consomem. Internos ficam léxicos. ── */
 Object.assign(window, {
-  boot6, dlg, EACT,
-  lexVariant, LXL,
+  boot6, dlg,
   // fachada que a feature `tasks` (features/tasks.ts) consome por window:
   nfmt
   // environments/drift/observabilidade migraram p/ features/infra.ts; TK/STC/
