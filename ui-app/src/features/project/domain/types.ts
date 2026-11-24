@@ -69,6 +69,9 @@ export interface Issue {
   templateVersion: string | null;
   /** What it still lacks to be Ready (RF-B02, from the store); empty = Co-Dev may work on it. */
   missing: string[];
+  /** Co-Dev budget in dollars (RF-T03) and what it spent (real cost of its turns, RF-T04). */
+  budgetUsd: number | null;
+  spentUsd: number;
 }
 
 export interface CriteriaRow {
@@ -99,6 +102,9 @@ export interface Sprint {
   end: number;
   state: "planned" | "active" | "closed";
   capacity: number | null;
+  /** Co-Dev budget in dollars (RF-T03), and what Co-Dev spent on the sprint's issues. */
+  budgetUsd: number | null;
+  spentUsd: number;
 }
 
 export interface Release {
@@ -228,6 +234,8 @@ function parseIssue(o: Record<string, unknown>): Issue {
     criteriaReport: parseReport(o.criteriaReport),
     templateVersion: strOrNull(o.templateVersion),
     missing: arr(o.missing).filter((x): x is string => typeof x === "string"),
+    budgetUsd: numOrNull(o.budgetUsd),
+    spentUsd: num(o.spentUsd),
   };
 }
 
@@ -254,6 +262,8 @@ export function parseProject(v: unknown): Project | null {
         end: num(s.end),
         state: oneOf(s.state, ["planned", "active", "closed"] as const, "planned"),
         capacity: numOrNull(s.capacity),
+        budgetUsd: numOrNull(s.budgetUsd),
+        spentUsd: num(s.spentUsd),
       })),
     releases: arr(v.releases).filter(isObj).map((r) => ({ version: str(r.version), date: num(r.date), goal: str(r.goal), epic: str(r.epic) })),
     retro: arr(v.retro)

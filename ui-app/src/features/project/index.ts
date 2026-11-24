@@ -92,6 +92,7 @@ function field(e: ActionEvent): void {
   if (f === "points") value = e.value === "" ? null : Math.max(0, Math.round(Number(e.value)));
   if (f === "blocked") value = e.value.trim() ? e.value.trim() : null;
   if (f === "scope" || f === "deps") value = e.value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+  if (f === "budget_usd") value = e.value.trim() === "" ? null : Math.max(0, Number(e.value));
   void projectService.update(key, { [f]: value });
 }
 
@@ -139,6 +140,7 @@ const table: ActionTable = {
   "pj-work": { click: () => { const k = sel(); if (k) void projectService.work(k); } },
   "pj-prompt": { click: () => { const k = sel(); if (k) void projectService.viewPrompt(k); } },
   "pj-prompt-close": { click: () => projectService.closePrompt() },
+  "pj-sprint-budget": { change: (e) => void projectService.apply({ op: "set_sprint_budget", id: e.on, budget_usd: e.value.trim() === "" ? null : Math.max(0, Number(e.value)) }) },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-delete": { click: (e) => void projectService.remove(e.on) },
   "pj-comment": { keydown: enter((e) => { const k = sel(); if (k) void projectService.comment(k, e.value); }) },

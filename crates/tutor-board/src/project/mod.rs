@@ -92,6 +92,10 @@ pub struct Issue {
     pub template_version: Option<String>,
     /// What the issue still lacks to be Ready (RF-B02); empty: Co-Dev may work on it.
     pub missing: Vec<String>,
+    /// The issue's Co-Dev budget in dollars (RF-T03); `None`: no limit.
+    pub budget_usd: Option<f64>,
+    /// What Co-Dev spent on it (real cost of the turns in the audit log, RF-T04).
+    pub spent_usd: f64,
 }
 
 /// Does a criterion read as Given/When/Then (or Dado/Quando/Então)?
@@ -148,6 +152,10 @@ pub struct Sprint {
     /// `planned | active | closed`.
     pub state: String,
     pub capacity: Option<u32>,
+    /// The sprint's Co-Dev budget in dollars (RF-T03); `None`: no limit.
+    pub budget_usd: Option<f64>,
+    /// What Co-Dev spent on the sprint's issues (real cost of the turns, audit log).
+    pub spent_usd: f64,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -396,6 +404,15 @@ pub enum Op {
         scope: Option<Vec<String>>,
         #[serde(default)]
         deps: Option<Vec<String>>,
+        /// RF-T03: the issue's budget in dollars (`null` removes it).
+        #[serde(default, deserialize_with = "double")]
+        budget_usd: Option<Option<f64>>,
+    },
+    /// RF-T03: the sprint's Co-Dev budget in dollars (`null` removes it).
+    SetSprintBudget {
+        id: String,
+        #[serde(default)]
+        budget_usd: Option<f64>,
     },
     /// Co-Dev answered every acceptance criterion (`finish_issue`, RF-B06): the table and the
     /// template version are kept on the issue, which goes to Review. Done stays human.
@@ -1065,8 +1082,17 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             story_so,
             scope,
             deps,
+            budget_usd,
         } => {
             issue_row(c, root, &key)?;
+            if let Some(b) = &budget_usd {
+                if b.is_some_and(|v| !(v >= 0.0)) {
+                    return Err(err(
+                        "invalid",
+                        "o orçamento é um valor em dólares, 0 ou mais",
+                    ));
+                }
+            }
             let mut changed: Vec<&str> = vec![];
             let set = |col: &str, v: &dyn rusqlite::ToSql| -> Result<(), ProjectError> {
                 c.execute(
@@ -1149,6 +1175,10 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 set("scope", &json(&clean(v)))?;
                 changed.push("âmbito");
             }
+            if let Some(b) = &budget_usd {
+                set("budget_usd", b)?;
+                changed.push("orçamento");
+            }
             if let Some(v) = &deps {
                 let v = clean(v);
                 if v.contains(&key) {
@@ -1218,6 +1248,19 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                     &changed.join(", "),
                 )?;
             }
+        }
+        Op::SetSprintBudget { id, budget_usd } => {
+            sprint_exists(c, root, &id)?;
+            if budget_usd.is_some_and(|v| !(v >= 0.0)) {
+                return Err(err(
+                    "invalid",
+                    "o orçamento é um valor em dólares, 0 ou mais",
+                ));
+            }
+            c.execute(
+                "UPDATE sprints SET budget_usd = ?3 WHERE root = ?1 AND id = ?2",
+                params![root, id, budget_usd],
+            )?;
         }
         Op::CodevFinished {
             key,
@@ -1867,7 +1910,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
     }
     let mut st = c.prepare(
         "SELECT key, title, kind, priority, points, assignee, pair, epic, cos, blocked, rank, state, sprint, ready, description, branch, dod_done, created, updated,
-                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version
+                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version, budget_usd
          FROM issues WHERE root = ?1 ORDER BY rank, key",
     )?;
     let issues = st
@@ -1910,6 +1953,8 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 template_version: r.get(27)?,
                 missing: vec![],
+                budget_usd: r.get(28)?,
+                spent_usd: 0.0,
                 key,
             })
         })?
@@ -1918,15 +1963,29 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
         .iter()
         .map(|i| (i.key.clone(), i.state.clone()))
         .collect();
+    // RF-T03/T04: what Co-Dev spent on each issue — the real cost of its turns
+    let mut spent: HashMap<String, f64> = HashMap::new();
+    {
+        let mut st = c.prepare(
+            "SELECT issue_key, SUM(cost_usd) FROM audit WHERE root = ?1 AND issue_key IS NOT NULL AND cost_usd IS NOT NULL GROUP BY issue_key",
+        )?;
+        for r in st.query_map(params![root], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+        })? {
+            let (k, v) = r?;
+            spent.insert(k, v);
+        }
+    }
     let issues: Vec<Issue> = issues
         .into_iter()
         .map(|mut i| {
             i.missing = readiness(&i, &states);
+            i.spent_usd = spent.get(&i.key).copied().unwrap_or(0.0);
             i
         })
         .collect();
     let sprints = {
-        let mut st = c.prepare("SELECT id, name, goal, start, end, state, capacity FROM sprints WHERE root = ?1 ORDER BY start, id")?;
+        let mut st = c.prepare("SELECT id, name, goal, start, end, state, capacity, budget_usd FROM sprints WHERE root = ?1 ORDER BY start, id")?;
         let v = st
             .query_map(params![root], |r| {
                 Ok(Sprint {
@@ -1937,11 +1996,24 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                     end: r.get(4)?,
                     state: r.get(5)?,
                     capacity: r.get(6)?,
+                    budget_usd: r.get(7)?,
+                    spent_usd: 0.0,
                 })
             })?
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<Sprint>, _>>()?;
         v
     };
+    let sprints: Vec<Sprint> = sprints
+        .into_iter()
+        .map(|mut sp: Sprint| {
+            sp.spent_usd = issues
+                .iter()
+                .filter(|i| i.sprint.as_deref() == Some(sp.id.as_str()))
+                .map(|i| i.spent_usd)
+                .sum();
+            sp
+        })
+        .collect();
     let releases = {
         let mut st = c.prepare(
             "SELECT version, date, goal, epic FROM releases WHERE root = ?1 ORDER BY date",

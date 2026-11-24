@@ -659,3 +659,77 @@ fn codev_answers_the_criteria_then_tests_send_it_back_and_twice_block_it() {
         .unwrap();
     assert_eq!(p.issues.iter().find(|i| i.key == k).unwrap().attempts, 0);
 }
+
+#[test]
+fn budgets_per_issue_and_sprint_and_what_codev_spent_from_the_audit_log() {
+    let mut s = store();
+    let p = s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "create_sprint", "name": "S1", "start": T0, "end": T0 + 14 * 24 * H}))).unwrap();
+    let sprint = p.sprints[0].id.clone();
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    for k in [&a, &b] {
+        s.apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "plan_issue", "key": k, "sprint": sprint})),
+        )
+        .unwrap();
+    }
+    s.apply(
+        ROOT,
+        "W",
+        T0,
+        op(serde_json::json!({"op": "update_issue", "key": a, "budget_usd": 1.0})),
+    )
+    .unwrap();
+    s.apply(
+        ROOT,
+        "W",
+        T0,
+        op(serde_json::json!({"op": "set_sprint_budget", "id": sprint, "budget_usd": 5.0})),
+    )
+    .unwrap();
+    assert_eq!(
+        s.apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "update_issue", "key": a, "budget_usd": -1.0}))
+        )
+        .unwrap_err()
+        .code,
+        "invalid"
+    );
+    let turn = |issue: &str, cost: f64| AuditEntry {
+        at: T0,
+        session: "cda".into(),
+        event: "turn".into(),
+        origin: "issue".into(),
+        issue_key: Some(issue.into()),
+        cost_usd: Some(cost),
+        ..Default::default()
+    };
+    s.record_audit(ROOT, &turn(&a, 0.25)).unwrap();
+    s.record_audit(ROOT, &turn(&a, 0.5)).unwrap();
+    s.record_audit(ROOT, &turn(&b, 0.1)).unwrap();
+    let p = s.load(ROOT, T0).unwrap();
+    let ia = p.issues.iter().find(|i| i.key == a).unwrap();
+    assert_eq!(ia.budget_usd, Some(1.0));
+    assert!((ia.spent_usd - 0.75).abs() < 1e-9);
+    assert_eq!(p.sprints[0].budget_usd, Some(5.0));
+    assert!((p.sprints[0].spent_usd - 0.85).abs() < 1e-9);
+    // removing the budget
+    let p = s
+        .apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "update_issue", "key": a, "budget_usd": null})),
+        )
+        .unwrap();
+    assert_eq!(
+        p.issues.iter().find(|i| i.key == a).unwrap().budget_usd,
+        None
+    );
+}

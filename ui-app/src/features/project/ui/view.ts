@@ -180,6 +180,7 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
       <label><span>Depends on</span>${txt("deps", i.deps.join(", "), "PRJ-3, PRJ-7")}</label>
     </div>
     <label class="pj-wide"><span>Scope (files Co-Dev may change)</span>${txt("scope", i.scope.join(", "), "src/**, Cargo.toml")}</label>
+    <label class="pj-wide"><span>Co-Dev budget (USD) · spent $${i.spentUsd.toFixed(2)}${i.budgetUsd !== null ? ` of $${i.budgetUsd.toFixed(2)}` : ""}</span><input class="pj-input" type="number" min="0" step="0.5" data-action="pj-field" data-on="budget_usd" value="${i.budgetUsd ?? ""}" placeholder="no limit"></label>
     <div class="pj-sec"><span>Description</span></div>
     <textarea class="pj-input pj-desc" data-action="pj-field" data-on="description" placeholder="What and why">${esc(i.description)}</textarea>
     <div class="pj-sec"><span>Acceptance criteria</span></div>

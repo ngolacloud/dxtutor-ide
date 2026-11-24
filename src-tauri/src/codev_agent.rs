@@ -289,6 +289,88 @@ struct Session {
     origin: Mutex<Option<Origin>>,
     /// Masks secrets in what is written to disk: session log and audit log (RF-T05).
     redactor: Redactor,
+    /// The budget of the current issue request (RF-T03): the tightest of the issue's and the
+    /// sprint's, with what was spent before this turn.
+    budget: Mutex<Option<Budget>>,
+}
+
+/// A Co-Dev budget in dollars (RF-T03, docs/v2/RF-DELONIX-PLANO.md F6.1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Budget {
+    pub label: String,
+    pub limit: f64,
+    /// Spent before the current turn (real cost of the earlier turns, audit log).
+    pub spent: f64,
+    pub warned: bool,
+}
+
+impl Budget {
+    fn left(&self) -> f64 {
+        self.limit - self.spent
+    }
+}
+
+/// What a request on the issue may still spend: the tightest of the issue's and its
+/// sprint's budget (`None`: neither has one).
+fn budget_for(s: &Session, key: &str) -> Option<Budget> {
+    let db = s.change_log.as_ref()?;
+    let st = tutor_board::project::ProjectStore::open(db).ok()?;
+    let p = st
+        .load(&s.agent.ctx.root.display().to_string(), now_ms())
+        .ok()?;
+    let i = p.issues.iter().find(|i| i.key == key)?;
+    let mut options = vec![];
+    if let Some(limit) = i.budget_usd {
+        options.push(Budget {
+            label: key.to_string(),
+            limit,
+            spent: i.spent_usd,
+            warned: false,
+        });
+    }
+    if let Some(sp) = i
+        .sprint
+        .as_ref()
+        .and_then(|id| p.sprints.iter().find(|x| &x.id == id))
+    {
+        if let Some(limit) = sp.budget_usd {
+            options.push(Budget {
+                label: sp.name.clone(),
+                limit,
+                spent: sp.spent_usd,
+                warned: false,
+            });
+        }
+    }
+    options
+        .into_iter()
+        .min_by(|a, b| a.left().total_cmp(&b.left()))
+}
+
+/// RF-T03 after each request: at 80% the human is told; when the next request (as costly as
+/// the last) would pass the limit, Co-Dev stops before it. Returns the notice, and whether to stop.
+pub fn budget_check(b: &mut Budget, turn_cost: f64, last_request: f64) -> (Option<String>, bool) {
+    let total = b.spent + turn_cost;
+    if total + last_request > b.limit {
+        return (
+            Some(format!(
+                "Orçamento de {} atingido (${total:.2} de ${:.2}): o Co-Dev parou antes de o ultrapassar. Para continuar, aumenta o orçamento e pede de novo.",
+                b.label, b.limit
+            )),
+            true,
+        );
+    }
+    if !b.warned && total >= 0.8 * b.limit {
+        b.warned = true;
+        return (
+            Some(format!(
+                "80% do orçamento de {}: ${total:.2} de ${:.2}.",
+                b.label, b.limit
+            )),
+            false,
+        );
+    }
+    (None, false)
 }
 
 /// A checkpoint as the UI lists it: whether the conversation can go back with the files.
@@ -675,6 +757,7 @@ pub fn start(
         cp_marks: Mutex::new(HashMap::new()),
         origin: Mutex::new(None),
         redactor,
+        budget: Mutex::new(None),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -757,6 +840,21 @@ pub fn send(
                 None => {}
             }
         }
+        // RF-T03: the budget of the issue (or its sprint) this request may spend
+        let budget = o
+            .as_ref()
+            .and_then(|o| o.issue.as_deref())
+            .and_then(|k| budget_for(&s, k));
+        if let Some(b) = &budget {
+            if b.left() <= 0.0 {
+                s.busy.store(false, Ordering::SeqCst);
+                return Err(format!(
+                    "O orçamento de {} está esgotado (${:.2} de ${:.2}): aumenta-o para o Co-Dev continuar.",
+                    b.label, b.spent, b.limit
+                ));
+            }
+        }
+        *s.budget.lock().unwrap() = budget;
         *s.origin.lock().unwrap() = o;
     }
     s.policy.lock().unwrap().origin = s.origin.lock().unwrap().clone();
@@ -782,7 +880,37 @@ pub fn send(
     let served_by: RefCell<Option<String>> = RefCell::new(None);
     let mut on_loop_event = |e: AgentEvent| {
         match &e {
-            AgentEvent::Usage { turn, .. } => *turn_usage.borrow_mut() = Some(*turn),
+            AgentEvent::Usage { turn, request } => {
+                *turn_usage.borrow_mut() = Some(*turn);
+                // RF-T03: warn at 80%, stop before the limit
+                let model = served_by
+                    .borrow()
+                    .clone()
+                    .unwrap_or_else(|| session.agent.cfg.model.clone());
+                if let (Some(tc), Some(rc)) = (
+                    tutor_agent::cost::cost_usd(&model, turn),
+                    tutor_agent::cost::cost_usd(&model, request),
+                ) {
+                    let check = session
+                        .budget
+                        .lock()
+                        .unwrap()
+                        .as_mut()
+                        .map(|b| budget_check(b, tc, rc));
+                    if let Some((note, stop)) = check {
+                        if let Some(text) = note {
+                            emit(AgentEvent::Notice { text: text.clone() });
+                            if stop {
+                                session.agent.ctx.cancel.store(true, Ordering::Relaxed);
+                                let mut e = audit_entry(&session, "budget");
+                                e.reason = Some(text);
+                                e.outcome = Some("stopped".into());
+                                audit(&session, e);
+                            }
+                        }
+                    }
+                }
+            }
             AgentEvent::ServedBy { model } => *served_by.borrow_mut() = Some(model.clone()),
             AgentEvent::Checkpoint { id, .. } => {
                 auto.borrow_mut().checkpoint = Some(*id);
@@ -3159,5 +3287,109 @@ mod tests {
         let v = tutor_agent::conformance::scan(d.path()).unwrap().unwrap();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].path, "src/a.ts");
+    }
+
+    #[test]
+    fn the_budget_warns_at_80_percent_and_stops_before_the_limit() {
+        let mut b = Budget {
+            label: "DX-1".into(),
+            limit: 1.0,
+            spent: 0.5,
+            warned: false,
+        };
+        assert_eq!(budget_check(&mut b, 0.1, 0.1), (None, false));
+        let (n, stop) = budget_check(&mut b, 0.3, 0.05);
+        assert!(!stop && n.unwrap().starts_with("80% do orçamento de DX-1"));
+        assert_eq!(
+            budget_check(&mut b, 0.32, 0.05),
+            (None, false),
+            "warned once"
+        );
+        // the next request (as costly as the last) would pass $1: stop before it
+        let (n, stop) = budget_check(&mut b, 0.4, 0.15);
+        assert!(stop && n.unwrap().contains("parou antes de o ultrapassar"));
+    }
+
+    #[test]
+    fn an_issue_request_takes_the_tightest_budget_and_an_exhausted_one_does_not_start() {
+        let (d, id, s, root) = issue_session("true");
+        let db = d.path().join("board.sqlite3");
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        let p = st
+            .apply(
+                &root,
+                "t",
+                1,
+                op(serde_json::json!({"op": "create_sprint", "name": "S1", "start": 0, "end": 10})),
+            )
+            .unwrap();
+        let sprint = p.sprints[0].id.clone();
+        st.apply(
+            &root,
+            "t",
+            1,
+            op(serde_json::json!({"op": "plan_issue", "key": "DX-1", "sprint": sprint})),
+        )
+        .unwrap();
+        st.apply(
+            &root,
+            "t",
+            1,
+            op(serde_json::json!({"op": "update_issue", "key": "DX-1", "budget_usd": 2.0})),
+        )
+        .unwrap();
+        st.apply(
+            &root,
+            "t",
+            1,
+            op(serde_json::json!({"op": "set_sprint_budget", "id": sprint, "budget_usd": 1.0})),
+        )
+        .unwrap();
+        let b = budget_for(&s, "DX-1").unwrap();
+        assert_eq!(
+            (b.label.as_str(), b.limit),
+            ("S1", 1.0),
+            "the sprint leaves less"
+        );
+        // spend it all: the next request does not start
+        st.record_audit(
+            &root,
+            &tutor_board::project::AuditEntry {
+                at: 1,
+                session: "x".into(),
+                event: "turn".into(),
+                origin: "issue".into(),
+                issue_key: Some("DX-1".into()),
+                cost_usd: Some(1.2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        st.apply(&root, "ana", 2, op(serde_json::json!({"op": "update_issue", "key": "DX-1", "story_as": "a", "story_want": "b", "story_so": "c", "scope": ["src/**"]}))).unwrap();
+        st.apply(
+            &root,
+            "ana",
+            2,
+            op(serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true})),
+        )
+        .unwrap();
+        let o = Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some("DX-1".into()),
+            by: String::new(),
+            scope: vec![],
+            template: None,
+        };
+        let e = send(
+            &id,
+            Some("continua".into()),
+            Some(o),
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .unwrap_err();
+        assert!(e.contains("orçamento de S1 está esgotado"), "{e}");
+        assert!(!s.busy.load(Ordering::SeqCst), "the session is free again");
     }
 }

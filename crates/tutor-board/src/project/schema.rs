@@ -183,6 +183,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE issues ADD COLUMN criteria_report TEXT;
     ALTER TABLE issues ADD COLUMN template_version TEXT;
     ALTER TABLE audit ADD COLUMN cost_usd REAL;",
+    // 5 — budgets (RF-T03, docs/v2/RF-DELONIX-PLANO.md F6.1): dollars per issue and per sprint;
+    //     what was spent is the sum of the real cost of the turns in the audit log
+    "ALTER TABLE issues ADD COLUMN budget_usd REAL;
+    ALTER TABLE sprints ADD COLUMN budget_usd REAL;",
 ];
 
 /// The schema version this code expects.

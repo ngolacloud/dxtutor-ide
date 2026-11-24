@@ -1110,3 +1110,6 @@
   .dx-msg{color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis}
   .dx-out{font-family:var(--font-mono);font-size:11.5px;line-height:1.5;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:6px 8px;margin:7px 0;max-height:180px;overflow:auto;white-space:pre-wrap;user-select:text;color:var(--fg-dim)}
   .dx-a{display:flex;gap:6px;margin-top:4px}
+
+/* F6.1 (RF-T03): the sprint's Co-Dev budget */
+.pj-budget{width:90px;display:inline-block;margin-left:6px;padding:1px 4px}

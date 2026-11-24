@@ -249,4 +249,21 @@ describe("the Project markup", () => {
     s.closePrompt();
     expect(renderProject(s.state(), NOW)).not.toContain("≈ 42 tokens");
   });
+
+  it("RF-T03: o orçamento e o gasto do Co-Dev na issue e no sprint", async () => {
+    const snap = raw();
+    (snap.issues as Array<Record<string, unknown>>)[0].budgetUsd = 1;
+    (snap.issues as Array<Record<string, unknown>>)[0].spentUsd = 0.75;
+    (snap.sprints as Array<Record<string, unknown>>)[0].budgetUsd = 5;
+    (snap.sprints as Array<Record<string, unknown>>)[0].spentUsd = 5.2;
+    const { d } = deps({ gateway: { ...deps().d.gateway, load: vi.fn(async () => snap) } });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.select("PRJ-1");
+    expect(renderProject(s.state(), NOW)).toContain("spent $0.75 of $1.00");
+    s.setView("planning");
+    const html = renderProject(s.state(), NOW);
+    expect(html).toContain("Co-Dev $5.20 of $5.00 budget");
+    expect(html).toContain('pj-dim bad"><span>Co-Dev $5.20');
+  });
 });
