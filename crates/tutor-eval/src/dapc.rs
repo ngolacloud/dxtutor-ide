@@ -227,6 +227,15 @@ impl DapClient {
         }
     }
 
+    /// Drops the queued events `pred` accepts (stale ones, before the program is resumed).
+    pub fn drain(&self, pred: impl Fn(&Value) -> bool) -> usize {
+        let (q, _) = &*self.events;
+        let Ok(mut g) = q.lock() else { return 0 };
+        let before = g.len();
+        g.retain(|e| !pred(e));
+        before - g.len()
+    }
+
     pub fn kill(&self) {
         if let Ok(mut c) = self.child.lock() {
             let _ = c.kill();
@@ -548,6 +557,7 @@ impl DapSession {
     /// Lets the program run (the first time: configuration done) until it stops or ends.
     pub fn run(&self) -> Result<DapStop, String> {
         if !self.configured.swap(true, Ordering::SeqCst) {
+            self.client.drain(|e| e["event"] == "stopped");
             self.client.request("configurationDone", json!({}))?;
             return self.wait_stop();
         }
@@ -563,6 +573,9 @@ impl DapSession {
 
     fn resume(&self, command: &str) -> Result<DapStop, String> {
         let t = self.current_thread()?;
+        // a stop still queued is from before this resume (an adapter can repeat `stopped`, one per
+        // thread): reading it as this step's stop would put every later stop one behind
+        self.client.drain(|e| e["event"] == "stopped");
         self.client.request(command, json!({"threadId": t}))?;
         self.wait_stop()
     }

@@ -508,22 +508,30 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const G = window as unknown as { startDebug: () => Promise<void>; dbgStep: () => Promise<void>; dbgCurrent: () => { path: string; line: number } | null; toggleBp: (p: string, l: number) => void };
       const pane = () => document.getElementById("pane-debug")?.textContent || "";
       if (!available) { await G.startDebug(); return { available, saysNoGdb: /O gdb não está instalado/.test(pane()) }; }
-      writeFile(ROOT + "dbgself/Cargo.toml", '[package]\nname = "dbgself"\nversion = "0.1.0"\nedition = "2021"\n\n[workspace]\n');
+      // a member of the root workspace below: its own [workspace] table made cargo refuse («multiple workspace roots»)
+      writeFile(ROOT + "dbgself/Cargo.toml", '[package]\nname = "dbgself"\nversion = "0.1.0"\nedition = "2021"\n');
       writeFile(ROOT + "dbgself/src/main.rs", "fn main() {\n    let answer = 40 + 2;\n    println!(\"{answer}\");\n}\n");
       writeFile(ROOT + "Cargo.toml", '[workspace]\nmembers = ["dbgself"]\nresolver = "2"\n');
       flushSave(); await idle();
-      G.toggleBp(ROOT + "dbgself/src/main.rs", 3);
+      // the breakpoints persist (LS) across runs: toggling blindly could remove one left by an earlier run
+      // line 2, not 3: a line breakpoint on `println!` resolves to several locations (the macro), so each
+      // continue stops on line 3 again — real lldb behaviour; `let answer = 40 + 2;` has one location
+      for (const old of [ROOT + "dbgself/src/main.rs:3"]) if ((window as unknown as { dbgBreaks: Set<string> }).dbgBreaks.has(old)) G.toggleBp(ROOT + "dbgself/src/main.rs", 3);
+      const bpKeyNow = ROOT + "dbgself/src/main.rs:2", breaks = (window as unknown as { dbgBreaks: Set<string> }).dbgBreaks;
+      if (!breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2);
       await G.startDebug();
       const stoppedAt = G.dbgCurrent();
-      const vars = /answer/.test(pane());
-      // A7: over DAP (lldb-dap) when it is installed — the engine, the variables tree and the values inline
+      // A7: over DAP (lldb-dap) when it is installed — the engine, then (after the step, once `answer`
+      // exists) the variables tree and the values inline
       const engine = document.querySelector("#pane-debug .dbg-engine")?.textContent || "gdb";
-      const inline = [...document.querySelectorAll("#ed-hl .dv-inline")].map(e => e.textContent).join(" | ");
       await G.dbgStep();
-      await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 3, 20000);
+      await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 2, 20000);
       const after = G.dbgCurrent();
+      const vars = /answer/.test(pane());
+      const inline = [...document.querySelectorAll("#ed-hl .dv-inline")].map(e => e.textContent).join(" | ");
       if (after) await G.startDebug(); // continuar até ao fim
-      return { available, engine, stoppedAt, vars, inline, after, ended: /O programa terminou/.test(pane()) };
+      if (breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2); // a próxima execução começa limpa
+      return { available, engine, stoppedAt, vars, inline, after, ended: /O programa terminou/.test(pane()), pane: pane().slice(0, 400) };
     });
     // contentores (ADR-0006, R5a): ligar o runtime real (docker info pelo socket) e o pane
     // Containers lista os contentores e as imagens reais (ps/images em JSON).
