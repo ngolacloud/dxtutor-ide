@@ -27,12 +27,12 @@ import { $, $$, hd, svg, esc } from "../core";
 import { RP, VIEW } from "../app/store/registry";
 import { desktopPorts } from "../app/desktop";
 import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "./infra/domain/constants";
-import { seeded, spark, buildObs, obsLine as domObsLine } from "./infra/domain/observability";
+import { spark, emptyObs, obsTarget as domObsTarget, parseLogLines, pushSample } from "./infra/domain/observability";
 import { urlHosts } from "./infra/domain/secrets";
 import { makeInfraEngine } from "./infra/application/infra-engine";
 import { bindActions, type ActionTable } from "./infra/ui/actions";
-import type { DesignNode, EnvDep, ObsData, SecretSets } from "./infra/domain/types";
-import type { ObserveTab } from "./infra/application/ports";
+import type { ObsData, ObsSample, ObsTarget, SecretSets } from "./infra/domain/types";
+import type { ObserveTab, ObsSource } from "./infra/application/ports";
 import {
   envs, envx, k8s, setK8s, stack, setStack, devc, setDevc, pDc, setPDc,
   design, files, root, tech, kind, isApp, nodeSlug, composeServices,
@@ -157,24 +157,54 @@ export function renderEnvsView(_t: unknown, host: HTMLElement) { initSecrets(); 
    ${Object.keys(L).length ? `<div class="tbl-wrap"><table class="tbl sec-t"><tr><th>Workload · key</th><th>Local</th><th>Staging</th><th>Production</th></tr>${Object.entries(L).map(([a, kv]) => Object.keys(kv).map(k => `<tr><td class="notr"><b>${esc(a)}</b><br><code>${esc(k)}</code></td><td class="c notr">${mask(kv[k])}</td>${['staging', 'production'].map(e => { const v = (ENVX.sec![e as keyof SecretSets][a] || {})[k]; return `<td class="notr">${SHOWSEC ? `<input value="${esc(v || '')}" data-action="sec-edit" data-on="${e}|${esc(a)}|${esc(k)}">` : mask(v == null ? '' : v)}</td>`; }).join('')}</tr>`).join('')).join('')}</table></div>` : '<div class="sub">The design has no applications yet.</div>'}
    <h2>Promotion history</h2><div class="tbl-wrap">${ENVX.hist.map(h => `<div class="rowline"><span>${ENVL[h.from]} → <b>${ENVL[h.to]}</b></span><code class="notr">${h.ver}</code><span class="sp"></span><span style="color:var(--fg-muted)">approved by you · ${rel(h.at)}</span></div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">No promotions yet.</div>'}</div></div>`; }
 
-/* ── observabilidade: cache OBS + polling (DOM/relógio ficam no resíduo; o núcleo
-   seedado — seeded/spark/buildObs/obsLine — é puro, importado do domínio). ── */
-const isoTime = () => new Date().toISOString().slice(11, 23);
-function obsInit(env: string, n: string): ObsData {
-  const k = env + ':' + n;
-  if (OBS[k]) return OBS[k];
-  const dep: Partial<EnvDep> = (envState(env) || { deps: [] }).deps.find(d => d.n === n) || { status: 'ok' };
-  const node = design().nodes.find(x => nodeSlug(x) === n), kindName = node ? tech()[node.tech].kind : 'app';
-  return (OBS[k] = buildObs(env, n, { crash: dep.status === 'crash', err: dep.err as string | null, kind: kindName, appLike: isApp((node || { tech: 'rust-axum' }) as DesignNode) }, k, isoTime));
+/* ── observabilidade (ADR-0006, R5c2): as métricas e os logs REAIS do workload ──
+   Na app desktop, a porta `desktopPorts.infra.obs` lê `docker`/`podman stats` + `compose logs`
+   (serviço do compose) ou `kubectl top` + `kubectl logs` (Deployment), a cada 3 s enquanto o
+   separador está à frente; o núcleo (de onde observar, ler o stats/top, as linhas de log) é puro,
+   no domínio. No browser não há de onde os ler, e a vista di-lo (eram séries semeadas e logs
+   sintéticos, com a etiqueta «simulated»). */
+const OBS_MS = 3000;
+const obsTargetOf = (env: string, n: string): ObsTarget | null => domObsTarget(env, n, (stack() || []).map(x => x.name), ENVS, ENVX);
+async function pollObs(o: ObsData, t: ObsTarget, src: ObsSource): Promise<void> {
+  const msg = (e: unknown) => String((e as Error)?.message || e);
+  const [smp, lg] = await Promise.all([
+    src.sample(t).catch((e): ObsSample => ({ error: msg(e) })),
+    src.logs(t).then((x) => ({ x, e: "" }), (e) => ({ x: "", e: msg(e) })),
+  ]);
+  pushSample(o, smp);
+  if (lg.e) o.logErr = lg.e; else { o.logs = parseLogLines(lg.x, o.clearedAt); o.logErr = ""; }
+  o.polled = true;
 }
-function obsLine(o: ObsData) { domObsLine(o, isoTime); }
+let obsBusy = false;
 
-/** Corpo de VIEW.observe — exportado; v6.ts importa e delega (porta tipada, ADR passo 6). */
-export function renderObserveView(t: ObserveTab, host: HTMLElement) { const o = obsInit(t.env as string, t.name), last = (a: number[]) => a[a.length - 1];
-  host.innerHTML = `<div class="obs"><div class="gl-bar"><b class="notr">${esc(t.name)}</b><span class="tag">${ENVL[t.env as string]}</span>${o.crash ? '<span class="tag bad">CrashLoopBackOff</span>' : '<span class="tag live">running</span>'}<span class="tag warn">simulated</span><span class="sp"></span><button class="mini" data-action="obs-clear" data-on="${esc(t.env)}:${esc(t.name)}">Clear</button></div>
-   <div class="obs-m">${[['CPU', '%', o.cpu, 'var(--accent)', 100], ['Memory', 'MiB', o.mem, 'var(--blue)'], ['Requests', '/s', o.rps, 'var(--green)'], ['p95 latency', 'ms', o.p95, 'var(--purple)']].map(([l, u, a, c, mx]) => `<div class="obs-c"><div class="obs-h"><span>${l}</span><b>${last(a as number[]).toFixed(u === '%' || u === '/s' ? 0 : 0)} ${u}</b></div>${spark(a as number[], c as string, mx as number | undefined)}</div>`).join('')}</div>
-   <div class="obs-l" id="obs-l">${o.logs.map(x => `<div class="ll ${x.lv}"><span class="ts">${x.ts}</span><span class="lv">${x.lv}</span><span class="notr">${esc(x.m)}</span></div>`).join('')}</div></div>`; const lg = $('#obs-l')!; lg.scrollTop = lg.scrollHeight;
-  clearInterval(OBST!); OBST = setInterval(() => { const tt = tabOf(cur) as unknown as (ObserveTab & { kind?: string }) | null; if (!tt || tt.kind !== 'observe') { clearInterval(OBST!); return; } const oo = OBS[tt.env + ':' + tt.name]; obsLine(oo); (['cpu', 'mem', 'rps', 'p95'] as const).forEach(k => { const a = oo[k]; a.push(Math.max(0, a[a.length - 1] + (oo.r() - .5) * (a[0] * .3 + 1))); a.shift(); }); const top = $('#obs-l')!.scrollTop, atEnd = $('#obs-l')!.scrollHeight - top - $('#obs-l')!.clientHeight < 30; show(cur!); if (!atEnd) $('#obs-l')!.scrollTop = top; }, 1500); }
+/** Corpo de VIEW.observe. */
+export function renderObserveView(t: ObserveTab, host: HTMLElement) {
+  const env = t.env as string, src = desktopPorts.infra?.obs, target = obsTargetOf(env, t.name);
+  const dep = (envState(env)?.deps || []).find(d => d.n === t.name), k = env + ':' + t.name;
+  const bar = (live: boolean) => `<div class="gl-bar"><b class="notr">${esc(t.name)}</b><span class="tag">${ENVL[env]}</span>${dep && dep.status === 'crash' ? `<span class="tag bad">${esc(String(dep.err || '').split(/[\s:(]/)[0])}</span>` : ''}${live ? '<span class="tag live">live</span>' : ''}<span class="sp"></span>${live ? `<button class="mini" data-action="obs-follow" data-on="${esc(k)}">Follow in terminal</button><button class="mini" data-action="obs-clear" data-on="${esc(k)}">Clear</button>` : ''}</div>`;
+  clearInterval(OBST!);
+  if (!src) { host.innerHTML = `<div class="obs">${bar(false)}<div class="sec-empty" style="margin:12px">As métricas e os logs vêm do runtime de contentores e do cluster reais (<code>docker stats</code> / <code>kubectl top</code> e os logs) — na app desktop.</div></div>`; return; }
+  if (!target) { host.innerHTML = `<div class="obs">${bar(false)}<div class="sec-empty" style="margin:12px">Não sei onde corre <b class="notr">${esc(t.name)}</b> em ${ENVL[env]}: ${env === 'local' ? 'corre a stack (▶ RUN) ou liga o cluster em Infra' : `liga o cluster em Infra e escolhe o contexto de ${ENVL[env]} em Environments`}.</div></div>`; return; }
+  const o = OBS[k] ||= emptyObs(env, t.name), last = (a: number[]) => a.length ? a[a.length - 1] : null;
+  const chart = (l: string, u: string, a: number[], c: string) => { const v = last(a); return `<div class="obs-c"><div class="obs-h"><span>${l}</span><b>${v == null ? '—' : v.toFixed(u === '%' ? 1 : 0) + ' ' + u}</b></div>${a.length > 1 ? spark(a, c) : `<div class="sub notr" style="padding:8px 0">${esc(o.sampleErr || (o.polled ? 'a recolher…' : 'a ler…'))}</div>`}</div>`; };
+  host.innerHTML = `<div class="obs">${bar(true)}<div class="sub notr" style="margin:6px 12px 0"><code>${esc(src.command(target))}</code></div>
+   <div class="obs-m">${chart('CPU', '%', o.cpu, 'var(--accent)')}${chart('Memory', 'MiB', o.mem, 'var(--blue)')}</div>
+   <div class="obs-l" id="obs-l">${o.logErr ? `<div class="ll ERROR"><span class="notr">${esc(o.logErr)}</span></div>` : ''}${o.logs.map(x => `<div class="ll ${x.lv}"><span class="ts">${x.ts}</span><span class="lv">${x.lv}</span><span class="notr">${esc(x.m)}</span></div>`).join('')}${!o.logs.length && !o.logErr ? `<div class="ll"><span class="notr">${o.polled ? 'Sem linhas de log.' : 'A ler os logs…'}</span></div>` : ''}</div></div>`;
+  const lg = $('#obs-l'); if (lg) lg.scrollTop = lg.scrollHeight;
+  const still = () => { const tt = tabOf(cur) as unknown as (ObserveTab & { kind?: string }) | null; return !!tt && tt.kind === 'observe' && tt.env === env && tt.name === t.name; };
+  const tick = () => {
+    if (!still()) { clearInterval(OBST!); return; }
+    if (obsBusy) return; obsBusy = true;
+    void pollObs(o, target, src).finally(() => {
+      obsBusy = false;
+      if (!still()) return;
+      const el = $('#obs-l'), top = el ? el.scrollTop : 0, atEnd = !el || el.scrollHeight - top - el.clientHeight < 30;
+      show(cur!); if (!atEnd) { const el2 = $('#obs-l'); if (el2) el2.scrollTop = top; }
+    });
+  };
+  if (!o.polled) tick();
+  OBST = setInterval(tick, OBS_MS);
+}
 
 /* ═══════════ tabela de acções (ADR-0002, Fase 4) ═══════════
    Liga o nome de acção (emitido como data-action por renderInfraPane/renderEnvsView/
@@ -217,7 +247,8 @@ const ACTIONS: ActionTable = {
   "env-select": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); window.rerender("envs"); window.infraDraw(); } },
   "toggle-sec": { on: "click", run: () => { window.SHOWSEC = !window.SHOWSEC; window.rerender("envs"); } },
   "sec-edit": { on: "change", run: e => { const [env, a, k] = e.on.split("|"); const S = ENVX.sec![env as keyof SecretSets]; S[a] = S[a] || {}; S[a][k] = e.value; window.saveEnvx(); } },
-  "obs-clear": { on: "click", run: e => { window.OBS[e.on].logs = []; window.show(window.cur); } },
+  "obs-clear": { on: "click", run: e => { const o = OBS[e.on]; if (!o) return; o.clearedAt = o.logs.length ? o.logs[o.logs.length - 1].iso || new Date().toISOString() : new Date().toISOString(); o.logs = []; window.show(window.cur); } },
+  "obs-follow": { on: "click", run: e => { const i = e.on.indexOf(":"), t = obsTargetOf(e.on.slice(0, i), e.on.slice(i + 1)), src = desktopPorts.infra?.obs; if (t && src) src.follow(t); } },
 };
 bindActions(ACTIONS);
 
@@ -228,7 +259,7 @@ VIEW.envs = renderEnvsView;
 /* ADR-0004, U4h4: o VIEW.observe, o rtConnect/k8sConnect e o dxDeploy PUBLICADOS consultam a porta
    desktop (`desktopPorts.infra`, injectada por platform/desktop/infra.ts: socket/cluster/deploy e
    logs reais); antes o desktop reatribuía-os no `window`. */
-VIEW.observe = (t, host) => { const d = desktopPorts.infra; if (d) d.observe(t as unknown as ObserveTab, host, renderObserveView); else renderObserveView(t as unknown as ObserveTab, host); };
+VIEW.observe = (t, host) => renderObserveView(t as unknown as ObserveTab, host); /* os dados reais vêm da porta desktopPorts.infra.obs (ADR-0006, R5c2) */
 
 /* ── o que vivia nas camadas v5/v6 (ADR-0004, U4g2) ──
    Corria ao carregar o v5.ts/v6.ts; agora corre aqui, que avalia antes — e nada entre os
@@ -259,7 +290,7 @@ publish({
   saveEnv, cli, hydrateEnvs,
   ENVL, ENVX, saveEnvx, designApps, localSecrets, urlHosts, envDeps, envState,
   envHealth, secretCheck, commitsBetween, promote, redeployEnv, refreshEnvs, setEnvTarget, openEnvs,
-  OBS, obsInit, obsLine, spark, openObserve, seeded, renderInfraPane,
+  OBS, spark, openObserve, renderInfraPane,
 });
 
 /* ── comandos do terminal (ADR-0004, U4g2 — viviam no v5) ──

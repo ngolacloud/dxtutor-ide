@@ -13,7 +13,8 @@ import { bootApp, golden } from "./harness";
  *  2) caracteriza o MOTOR a extrair para `features/infra/{domain,application}/`:
  *     runtime/K8s (projectContext/devcontainerJson/k8sInfra/appEnv/k8sDocs),
  *     secrets (localSecrets/initSecrets/secretCheck), drift (envDeps/envState/
- *     envHealth/driftReport/DSTY) e observabilidade (seeded/spark/obsInit).
+ *     envHealth/driftReport/DSTY) e observabilidade (spark — as séries e os logs são reais
+ *     desde a R5c2 do ADR-0006: infra.r5c2.test.ts).
  *
  * A partir daqui, diff de golden = regressão (corrige o código, nunca o snapshot
  * — ver skill ui-golden-check). As caracterizações fixam a saída EXACTA para que
@@ -25,7 +26,7 @@ import { bootApp, golden } from "./harness";
  * ambiente, que é o que a app dá em runtime.
  *
  * Determinismo: o relógio é FIXADO (`setSystemTime`) antes de `bootApp` (padrão do
- * scm/debug.golden) — `obsInit`/`promote`/`K8S.at` usam `Date`/`Date.now`; timers
+ * scm/debug.golden) — `promote`/`K8S.at` usam `Date`/`Date.now`; timers
  * falsos neutralizam o polling de arranque. O estado window-backed (ENVS/ENVX/K8S/
  * STACK/DEVC/OBS) é reinicializado pela reavaliação de `infra.ts` em cada `bootApp`
  * (reassigna `window.X`); mesmo assim, cada teste fixa explicitamente o que muta. */
@@ -210,23 +211,9 @@ describe("caracterização do motor — drift (design vs realidade)", () => {
   });
 });
 
-describe("caracterização do motor — observabilidade (determinista por seed)", () => {
-  it("seeded: PRNG determinista (mesma seed → mesma sequência)", () => {
-    const r = w.seeded("orders-api");
-    expect(Array.from({ length: 8 }, () => +r().toFixed(6))).toMatchSnapshot("seeded-seq");
-  });
-
+describe("caracterização do motor — observabilidade (o sparkline; as séries são reais desde a R5c2)", () => {
   it("spark: sparkline SVG a partir de uma série fixa (função pura)", () => {
     expect(w.spark([0, 1, 2, 3, 2, 1, 4, 3], "var(--green)")).toMatchSnapshot("spark");
-  });
-
-  it("obsInit: séries + logs seedados para um workload (local/orders-api)", () => {
-    const o = w.obsInit("local", "orders-api");
-    expect({
-      n: o.n, env: o.env, crash: o.crash, kind: o.kind,
-      cpu: o.cpu.map((x: number) => +x.toFixed(3)),
-      logs: o.logs,
-    }).toMatchSnapshot("obsInit");
   });
 });
 

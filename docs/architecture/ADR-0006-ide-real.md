@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5a, R5b e R5c1 feitas, R5c2 e R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5 feita (R5a–R5c2; verificada no desktop — os ambientes com um kubeconfig temporário, nunca os clusters do utilizador); R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -530,3 +530,24 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   clusters do utilizador: um kubeconfig temporário com um contexto cujo servidor não responde; os
   contextos lidos são os reais do ficheiro, a leitura do namespace falha com a mensagem do kubectl
   e o apply por stdin falha sem registar nada; `errors: []`.
+- **R5c2 (2026-11-24) — a observabilidade real.** Saem as séries semeadas (o PRNG `seeded`, o
+  `buildObs`) e os logs sintéticos (`obsLine`), com a etiqueta «simulated» e os gráficos de
+  pedidos/s e p95 (sem métricas da aplicação não há de onde os medir — ficam CPU e memória). Na
+  app desktop, a porta nova `ObsSource` (`desktopPorts.infra.obs`, que substitui a decoração
+  `observe` — punha um botão de logs por cima dos gráficos modelados) lê, a cada 3 s enquanto o
+  separador está à frente: para um serviço do compose a correr, `stats --no-stream` do contentor
+  e `compose logs --timestamps`; para um Deployment, `kubectl top pod -l <selector>` (o selector
+  do próprio Deployment) e `kubectl logs deploy/… --timestamps`, no contexto/namespace do
+  ambiente (antes, os logs de staging/production iam ao contexto do local). O núcleo é puro e
+  testado (`obsTarget`, `parseDockerStats` — docker e podman —, `parseKubectlTop`, `toMiB`,
+  `parseLogLines` — carimbo, o nível que a linha diz, o prefixo do compose —, `pushSample`). Sem
+  métricas (p.ex. um cluster sem metrics-server) a vista diz porquê; um erro de logs aparece nos
+  logs; «Clear» esconde as linhas até ali; «Follow in terminal» corre o `logs -f` (passa a
+  `data-action`: handlers inline 143 → 142). **Browser:** a vista diz que as métricas e os logs
+  vêm da app desktop. **Goldens (decisão deste ADR):** saem o `obsInit` e o `seeded-seq`; o
+  `spark` fica igual (só o título do grupo muda). **Testes:** `infra.r5c2` (5: browser, compose,
+  staging no seu contexto, sem métricas/erro de logs, Clear/Follow) e `infra.domain` (os
+  parsers). **Selftest desktop:** passo `observe` — uma stack de um serviço (projecto com nome
+  único, a primeira imagem local, um entrypoint que escreve linhas conhecidas) arranca com o ▶ RUN
+  real, a vista lê `dxtutor-selftest up` dos logs e CPU/memória do `docker stats`
+  (0.1 %, 1.08 MiB), e o ■ Stop deixa o runtime sem contentores do projecto; `errors: []`.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { projectContext, devcontainerJson, appEnv, k8sInfra, k8sDocs } from "../src/features/infra/domain/kubernetes";
 import { urlHosts, designApps, localSecrets, deriveSecrets, secretCheck } from "../src/features/infra/domain/secrets";
 import { envDeps, envStateOf, envHealthOf, driftReport, commitsBetween, parseClusterState, envManifest, deploymentsIn, ANN_VER, ANN_AT } from "../src/features/infra/domain/environments";
-import { seeded, spark, buildObs, obsLine } from "../src/features/infra/domain/observability";
+import { spark, toMiB, parseDockerStats, parseKubectlTop, parseLogLines, obsTarget, pushSample, emptyObs, OBS_POINTS } from "../src/features/infra/domain/observability";
 import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "../src/features/infra/domain/constants";
 import type { Catalog, Design, DesignNode, Files, K8sState } from "../src/features/infra/domain/types";
 
@@ -221,26 +221,56 @@ describe("commitsBetween", () => {
   });
 });
 
-describe("observability (seeded / spark / buildObs / obsLine)", () => {
-  it("seeded determinista", () => {
-    const a = seeded("k"), b = seeded("k");
-    expect(Array.from({ length: 5 }, () => a())).toEqual(Array.from({ length: 5 }, () => b()));
-  });
+describe("observability — as métricas e os logs reais (ADR-0006, R5c2)", () => {
   it("spark produz um SVG com a série", () => {
     expect(spark([1, 2, 3], "var(--green)")).toContain("<svg");
     expect(spark([1, 2, 3], "var(--green)")).toContain("stroke=\"var(--green)\"");
   });
-  it("buildObs: 60 pontos por série + 14 logs iniciais (relógio injectado)", () => {
-    const o = buildObs("local", "orders-api", { crash: false, err: null, kind: "app", appLike: true }, "local:orders-api", () => "00:00:00.000");
-    expect(o.cpu.length).toBe(60);
-    expect(o.logs.length).toBe(14);
-    expect(o.logs.every((l) => l.ts === "00:00:00.000")).toBe(true);
+  it("toMiB: as unidades do docker (SI e binárias) e do kubectl", () => {
+    expect(toMiB("24.68MiB")).toBeCloseTo(24.68);
+    expect(toMiB("1GiB")).toBe(1024);
+    expect(toMiB("45Mi")).toBe(45);
+    expect(toMiB("2Gi")).toBe(2048);
+    expect(toMiB("512Ki")).toBe(0.5);
+    expect(toMiB("1.5GB")).toBeCloseTo(1430.5, 0);
+    expect(toMiB("x")).toBeUndefined();
   });
-  it("obsLine em crash cicla starting/config/ERROR/back-off", () => {
-    const o = buildObs("staging", "w", { crash: true, err: "boom", kind: "app", appLike: true }, "staging:w", () => "t");
-    const levels = o.logs.slice(0, 4).map((l) => l.lv);
-    expect(levels).toEqual(["INFO", "INFO", "ERROR", "WARN"]);
-    expect(o.logs[2].m).toBe("boom");
+  it("parseDockerStats: a linha do docker e o array do podman", () => {
+    expect(parseDockerStats('{"CPUPerc":"12.50%","MemUsage":"24.68MiB / 30.92GiB","Name":"db"}')).toEqual({ cpu: 12.5, mem: expect.closeTo(24.68) });
+    expect(parseDockerStats('[{"cpu_percent":"0.05%","mem_usage":"10MiB / 1GiB"}]')).toEqual({ cpu: 0.05, mem: 10 });
+    expect(parseDockerStats("")).toEqual({ error: "sem amostra" });
+    expect(parseDockerStats("{oops").error).toMatch(/inesperada/);
+  });
+  it("parseKubectlTop: soma os pods, CPU em % de um núcleo", () => {
+    expect(parseKubectlTop("api-1   250m   120Mi\napi-2   1   1Gi\n")).toEqual({ cpu: 125, mem: 1144 });
+    expect(parseKubectlTop("").error).toMatch(/nenhum pod/);
+  });
+  it("parseLogLines: carimbo, nível dito pela linha, prefixo do compose; o «Clear» esconde as anteriores", () => {
+    const out = "db-1  | 2026-11-24T10:00:00.123456789Z LOG:  database system is ready\n2026-11-24T10:00:01.000Z level=error msg=boom\nlinha sem carimbo WARNING x\n\n";
+    const l = parseLogLines(out);
+    expect(l.map((x) => [x.ts, x.lv, x.m])).toEqual([
+      ["10:00:00.123", "LOG", "LOG:  database system is ready"],
+      ["10:00:01.000", "ERROR", "level=error msg=boom"],
+      ["", "WARN", "linha sem carimbo WARNING x"],
+    ]);
+    expect(parseLogLines(out, "2026-11-24T10:00:00.5Z").map((x) => x.lv)).toEqual(["ERROR", "WARN"]);
+  });
+  it("obsTarget: no local, o compose ganha ao cluster; staging/production usam o contexto do ambiente", () => {
+    const envs = { ctx: "kind-dx", ns: "dx", k8sOn: true }, envx = { ctx: { staging: "stg", production: "" }, ns: { staging: "dx-stg", production: "dx" } };
+    expect(obsTarget("local", "db", ["db"], envs, envx)).toEqual({ via: "compose", env: "local", n: "db" });
+    expect(obsTarget("local", "api", ["db"], envs, envx)).toEqual({ via: "kubectl", env: "local", n: "api", ctx: "kind-dx", ns: "dx" });
+    expect(obsTarget("local", "api", [], { ...envs, k8sOn: false }, envx)).toBe(null);
+    expect(obsTarget("staging", "api", [], envs, envx)).toEqual({ via: "kubectl", env: "staging", n: "api", ctx: "stg", ns: "dx-stg" });
+    expect(obsTarget("production", "api", [], envs, envx)).toBe(null);
+  });
+  it("pushSample: janela de OBS_POINTS; um erro fica em sampleErr e não mexe nas séries", () => {
+    const o = emptyObs("local", "db");
+    for (let i = 0; i < OBS_POINTS + 5; i++) pushSample(o, { cpu: i, mem: 1 });
+    expect(o.cpu.length).toBe(OBS_POINTS);
+    expect(o.cpu[0]).toBe(5);
+    pushSample(o, { error: "metrics-server em falta" });
+    expect(o.sampleErr).toBe("metrics-server em falta");
+    expect(o.cpu.length).toBe(OBS_POINTS);
   });
 });
 

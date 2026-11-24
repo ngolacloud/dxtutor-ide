@@ -306,7 +306,9 @@ features/infra.ts  RESÍDUO strangler (tipado desde a U4i1 do ADR-0004; FORA da 
                    k8sScale/k8sDown também (ADR-0006 R5b: sessão devcontainer_session_* e kubectl
                    reais; no browser não fingem); os ambientes staging/production lêem-se e
                    promovem-se pela porta EnvCluster (desktopPorts.infra.cluster, R5c1: kubectl
-                   get/apply -f - com os segredos do ambiente) — ACTIONS chama window.X).
+                   get/apply -f - com os segredos do ambiente) e a observabilidade pela porta
+                   ObsSource (desktopPorts.infra.obs, R5c2: stats/compose logs, kubectl top/logs;
+                   sem séries semeadas) — ACTIONS chama window.X).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é

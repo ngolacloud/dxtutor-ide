@@ -35,7 +35,7 @@ export interface Desktop {
   reloadDisk?: () => Promise<void>; syncGit?: () => Promise<void>;
   termLine?: (t: string, e?: boolean) => void; envFor?: () => Record<string, string>;
   gitInit?: () => unknown; approve?: (id: string, ok: boolean) => void;
-  logs?: (cmd: string) => unknown; open?: (p?: string) => unknown; close?: () => void;
+  open?: (p?: string) => unknown; close?: () => void;
   delegate?: (writes: [string, string][], o?: { signal?: AbortSignal | null; onStatus?: (s: string) => void }) => Promise<DelegateResult>;
   cancelTask?: (id: string) => Promise<boolean>;
   exec?: (cmd: string) => Promise<VerifyOutcome>;

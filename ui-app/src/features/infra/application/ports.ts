@@ -15,7 +15,7 @@
 import type {
   Design, DesignNode, Envs, EnvX, Files, K8sState, KindSpec, TechSpec, Commit,
   EnvDep, EnvState, SecretCheck, DriftReport, Secrets,
-  Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg,
+  Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg, ObsSample, ObsTarget,
 } from "../domain/types";
 
 /* ───── estado window-backed (o resíduo é dono; o motor lê/escreve por aqui) ───── */
@@ -131,8 +131,21 @@ export interface InfraDeps {
 /** Resultado de um deploy (o decorador v6 lê `.ok`). */
 export interface DeployResult { ok: boolean }
 
-/** O separador de observabilidade, no que a parte desktop lê. */
+/** O separador de observabilidade. */
 export interface ObserveTab { env?: string; name: string }
+
+/** As métricas e os logs reais de um workload (ADR-0006, R5c2), só na app desktop: `docker`/
+ *  `podman stats` e `compose logs` para um serviço do compose; `kubectl top` e `kubectl logs` para
+ *  um Deployment. Sem ela (browser), a vista diz que não há de onde os ler. */
+export interface ObsSource {
+  sample(t: ObsTarget): Promise<ObsSample>;
+  /** O texto de `logs --timestamps --tail=…` (lança com a mensagem do runtime/kubectl). */
+  logs(t: ObsTarget): Promise<string>;
+  /** Segue os logs (`-f`) num terminal. */
+  follow(t: ObsTarget): void;
+  /** O comando de logs, para mostrar. */
+  command(t: ObsTarget): string;
+}
 
 /** A parte desktop da infra (ADR-0004, U4h4), injectada pela app Tauri em `desktopPorts.infra`:
  *  o socket do runtime e o cluster reais, o deploy real para o cluster e os logs reais na
@@ -141,7 +154,9 @@ export interface InfraDesktop {
   rtConnect(virtual: () => void): unknown;
   k8sConnect(virtual: () => void): unknown;
   dxDeploy(virtual: () => { ok: boolean; sum?: string }): { ok: boolean; sum?: string };
-  observe(t: ObserveTab, host: HTMLElement, virtual: (t: ObserveTab, host: HTMLElement) => void): void;
+  /** As métricas e os logs reais da vista de observabilidade (ADR-0006, R5c2; era a decoração
+   *  `observe`, que punha um botão de logs por cima de gráficos modelados). */
+  obs?: ObsSource;
   /** O dev-container real (`devcontainer_session_up`/`down`, ADR-0006 R5b). */
   dcAttach?(virtual: () => void): unknown;
   dcDetach?(virtual: () => void): unknown;

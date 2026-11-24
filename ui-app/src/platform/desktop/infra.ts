@@ -5,7 +5,6 @@
    rtConnect/k8sConnect/dxDeploy/VIEW.observe reais são as portas `desktopPorts.stack` e
    `desktopPorts.infra` que os donos consultam (U4h4). */
 
-import { jsa } from "../../core";
 import type { ExecResult } from "./context";
 import type { StackDesktop } from "../../features/stack";
 import type { InfraDesktop } from "../../features/infra/application/ports";
@@ -13,7 +12,8 @@ import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { devcontainerClient } from "../tauri/devcontainer";
 import { parseClusterState, deploymentsIn, ANN_VER, ANN_AT } from "../../features/infra/domain/environments";
-import type { EnvState } from "../../features/infra/domain/types";
+import { parseDockerStats, parseKubectlTop } from "../../features/infra/domain/observability";
+import type { EnvState, ObsTarget } from "../../features/infra/domain/types";
 import type { DesktopContext } from "./context";
 
 export function installInfra(ctx: DesktopContext): void {
@@ -48,6 +48,25 @@ async function readK8s(): Promise<void> {
   if (dep.code !== 0) return;
   const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "");
   K8S = st.deps.length ? { docs: k8sDocs(), deps: st.deps, ver: st.ver, at: st.at, ingress: st.ingress } : null;
+}
+/* ───── ajudas da observabilidade (R5c2) ───── */
+const fail = (e: unknown): ExecResult => ({ code: -1, stdout: "", stderr: String(e) });
+/** A mensagem de um erro do kubectl/runtime é a última linha (as de cima são registo). */
+const lastLine = (s: string): string => String(s || "").trim().split("\n").pop() || "falhou";
+const shq = (s: string): string => /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+const kns = (t: Extract<ObsTarget, { via: "kubectl" }>) => ["--context", t.ctx, "-n", t.ns];
+const logsCmd = (t: ObsTarget, follow: boolean): string => (t.via === "compose"
+  ? `${compose()} logs --timestamps --tail=200 ${shq(t.n)}`
+  : `kubectl --context ${shq(t.ctx)} -n ${shq(t.ns)} logs deploy/${shq(t.n)} --all-containers=true --timestamps --tail=200`) + (follow ? " -f" : "");
+/** O selector dos pods de um Deployment (`spec.selector.matchLabels`), lido uma vez; `app=<n>` se falha. */
+const selectors: Record<string, string> = {};
+async function selectorOf(t: Extract<ObsTarget, { via: "kubectl" }>): Promise<string> {
+  const k = `${t.ctx}/${t.ns}/${t.n}`;
+  if (selectors[k]) return selectors[k];
+  const r = await sh("kubectl", [...kns(t), "get", "deploy", t.n, "-o", "jsonpath={.spec.selector.matchLabels}"], { env: envFor(), timeout: 15000 }).catch(fail);
+  let sel = `app=${t.n}`;
+  try { const m = JSON.parse(r.stdout || "{}") as Record<string, string>; const kv = Object.entries(m).map(([a, b]) => `${a}=${b}`).join(","); if (r.code === 0 && kv) sel = kv; } catch { /* fica app=<n> */ }
+  return (selectors[k] = sel);
 }
 /** As anotações da versão e da hora do deploy (lidas de volta por `parseClusterState`). */
 const annotate = (kc: string, ns: string, ver: string) => `${kc} -n ${ns} annotate deploy --all ${ANN_VER}=${ver} ${ANN_AT}=$(($(date +%s)*1000)) --overwrite`;
@@ -215,13 +234,31 @@ cluster: {
   },
   read: (t) => readNs(t.ctx, t.ns),
 },
-observe(t, host, _observe) {
-  _observe(t, host);
-  if (!R.root) return;
-  const pg = host.querySelector(".page") || host;
-  const k8s = t.env && t.env !== "local" && ENVS.k8sOn;
-  const cmd = k8s ? `kubectl --context ${ENVS.ctx} -n ${ENVS.ns} logs -f --tail=200 deploy/${t.name}` : `${compose()} logs -f --tail=200 ${t.name}`;
-  pg.insertAdjacentHTML("afterbegin", `<div class="sec-empty" style="margin:0 0 10px"><b>Real logs:</b> <code>${escH(cmd)}</code> <button class="mini pri" onclick="DXR.logs(${jsa(cmd)})">Stream in terminal</button> <span class="dim">(the charts below are modelled)</span></div>`);
+/* ───── as métricas e os logs reais da observabilidade (ADR-0006, R5c2) ─────
+   Um serviço do compose: `stats --no-stream` do contentor e `compose logs`; um Deployment:
+   `kubectl top pod -l <selector>` e `kubectl logs deploy/…`, no contexto/namespace do ambiente
+   (antes, os logs de staging/production iam ao contexto do local). */
+obs: {
+  async sample(t) {
+    if (t.via === "compose") {
+      const ps = await sh(rtBin(), ["compose", "ps", "-q", t.n], { env: envFor(), timeout: 15000 }).catch(fail);
+      const id = ps.stdout.trim().split("\n")[0];
+      if (ps.code !== 0 || !id) return { error: ps.code !== 0 ? lastLine(ps.stderr) : `${t.n} não está a correr` };
+      const r = await sh(rtBin(), ["stats", "--no-stream", "--format", "json", id], { env: envFor(), timeout: 15000 }).catch(fail);
+      return r.code === 0 ? parseDockerStats(r.stdout) : { error: lastLine(r.stderr) };
+    }
+    const r = await sh("kubectl", [...kns(t), "top", "pod", "-l", await selectorOf(t), "--no-headers"], { env: envFor(), timeout: 15000 }).catch(fail);
+    return r.code === 0 ? parseKubectlTop(r.stdout) : { error: lastLine(r.stderr) };
+  },
+  async logs(t) {
+    const r = t.via === "compose"
+      ? await sh(rtBin(), ["compose", "logs", "--no-color", "--timestamps", "--tail=200", t.n], { env: envFor(), timeout: 15000 }).catch(fail)
+      : await sh("kubectl", [...kns(t), "logs", `deploy/${t.n}`, "--all-containers=true", "--timestamps", "--tail=200"], { env: envFor(), timeout: 15000 }).catch(fail);
+    if (r.code !== 0) throw new Error(lastLine(r.stderr));
+    return r.stdout;
+  },
+  follow(t) { setPanelTab("terminal", true); void runInTerm(logsCmd(t, true), { env: envFor() }); },
+  command: (t) => logsCmd(t, false),
 },
 };
 /* ao abrir uma pasta, um dev container já a correr para ela volta a aparecer ligado */
@@ -231,6 +268,5 @@ document.addEventListener("dx:workspace", () => {
 });
 desktopPorts.stack = stackDesktop;
 desktopPorts.infra = infraDesktop;
-R.logs = cmd => runInTerm(cmd, { env: envFor() });
 ctx.envFor = envFor;
 }

@@ -439,6 +439,29 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const gone = name ? !(await sh(bin, ["ps", "-a"])).stdout.includes(name) : false;
       return { image: img, engine, up, name, inPs, down, gone };
     });
+    // observabilidade (ADR-0006, R5c2): uma stack de um serviço (nome de projecto único, a primeira
+    // imagem local, um entrypoint que escreve linhas conhecidas), observada pela porta real —
+    // `stats` e `compose logs` —, e depois `compose down`.
+    await step("observe", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 250)); return f(); };
+      const W = window as unknown as { ROOT: string; STACK: Array<{ name: string }> | null; OBS: Record<string, { polled: boolean; logs: Array<{ m: string }>; cpu: number[]; mem: number[]; sampleErr: string; logErr: string }>; dxRun: () => unknown; dxStop: () => unknown; openObserve: (e: string, n: string) => void; ENVS: { rtOn: boolean } };
+      const img = ((await sh("docker", ["images", "--format", "{{.Repository}}:{{.Tag}}"])).stdout.trim().split("\n").filter(x => x && !x.includes("<none>"))[0]) || "";
+      if (!img || !W.ENVS.rtOn) return { skipped: !img ? "sem imagens locais" : "runtime desligado" };
+      const proj = "dxtutor-selftest-" + Date.now().toString(36);
+      writeFile(W.ROOT + "docker-compose.yml", `name: ${proj}\nservices:\n  obs:\n    image: ${img}\n    entrypoint: ["sh", "-c", "echo dxtutor-selftest up; while true; do echo tick; sleep 1; done"]\n`);
+      flushSave(); await idle();
+      W.dxRun();
+      const up = await wait(() => !!W.STACK && W.STACK.some(x => x.name === "obs"), 120000);
+      W.openObserve("local", "obs");
+      const polled = await wait(() => { const o = W.OBS["local:obs"]; return !!o && o.polled && o.logs.some(l => /dxtutor-selftest up/.test(l.m)); }, 30000);
+      await wait(() => (W.OBS["local:obs"]?.mem.length || 0) >= 1, 15000);
+      const o = W.OBS["local:obs"];
+      const res = { image: img, up, polled, logLines: o ? o.logs.length : 0, firstLog: o?.logs[0]?.m || "", mem: o?.mem.slice(-1)[0], cpu: o?.cpu.slice(-1)[0], sampleErr: o?.sampleErr, logErr: o?.logErr };
+      W.dxStop();
+      const down = await wait(() => W.STACK === null, 60000);
+      const left = (await sh("docker", ["ps", "-a", "-q", "--filter", `label=com.docker.compose.project=${proj}`])).stdout.trim();
+      return { ...res, down, gone: !left };
+    });
     // ambientes (ADR-0006, R5c1): o kubectl real, mas NUNCA contra os clusters do utilizador — um
     // kubeconfig temporário com um contexto cujo servidor não responde. Prova a leitura real dos
     // contextos, o erro de ler um namespace e o apply por stdin a falhar sem inventar nada.

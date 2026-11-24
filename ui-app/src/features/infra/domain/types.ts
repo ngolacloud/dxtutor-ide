@@ -233,22 +233,36 @@ export interface OpenTabArg { id: string; title?: string; kind?: string; [k: str
 
 /** Uma linha de log de um workload. */
 export interface ObsLog {
+  /** A hora (HH:MM:SS.mmm) para mostrar. */
   ts: string;
   lv: string;
   m: string;
+  /** O carimbo completo (ISO) quando a linha o traz — para o «Clear». */
+  iso?: string;
 }
 
-/** As séries + logs de um workload observado (`OBS[env:n]`). */
+/** De onde vêm as métricas e os logs de um workload: um serviço do compose a correr, ou um
+ *  Deployment num contexto/namespace do cluster (ADR-0006, R5c2). */
+export type ObsTarget =
+  | { via: "compose"; env: string; n: string }
+  | { via: "kubectl"; env: string; n: string; ctx: string; ns: string };
+
+/** Uma amostra de recursos: CPU em % de um núcleo e memória em MiB — ou porque não há. */
+export interface ObsSample { cpu?: number; mem?: number; error?: string }
+
+/** As séries + logs reais de um workload observado (`OBS[env:n]`), recolhidos pela app desktop. */
 export interface ObsData {
   n: string;
   env: string;
-  crash: boolean;
-  err: string | null;
-  kind: string;
   logs: ObsLog[];
   cpu: number[];
   mem: number[];
-  rps: number[];
-  p95: number[];
-  r: () => number;
+  /** Porque não há métricas (p.ex. o cluster não tem metrics-server), ou "". */
+  sampleErr: string;
+  /** Porque não há logs, ou "". */
+  logErr: string;
+  /** Os logs até este instante foram limpos pelo utilizador (só se mostram os mais recentes). */
+  clearedAt: string;
+  /** Já houve pelo menos uma recolha. */
+  polled: boolean;
 }
