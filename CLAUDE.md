@@ -407,6 +407,14 @@ quando duas regras com a mesma especificidade em ficheiros diferentes disputam a
 elemento. Um ramo que ainda edite o `public/styles.css` dá conflito modificado/apagado ao juntar-se:
 mantém-se o apagado e as regras novas vão para o ficheiro do dono.
 
+## Textos por chave (`ui-app/src/app/i18n.ts`, ADR-0004 U6b)
+
+Texto novo da interface nasce com chave: um catálogo tipado por feature (`en` + `ptAO`, dados puros — p.ex.
+`features/scm/ui/messages.ts`) e `const t = translator(CATÁLOGO)` no módulo que desenha. Nada de pares novos no
+motor (`features/i18n.ts`, `PAIRS`): a métrica U6 do `ui-metrics.sh` só desce. Ao migrar texto existente, os
+valores do catálogo são os que o motor produzia (gera-os com `trText`); `tests/i18n.catalogs.test.ts` confirma-os
+e os goldens provam o inglês. Parâmetros entram tal e qual — escapa-os (`esc`) se forem para HTML.
+
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
@@ -580,7 +588,9 @@ features/arch/
 `visualizer.golden.test.ts` e `infra.golden.test.ts` comparam o markup renderizado contra snapshots (`__snapshots__/`). O harness (`ui-app/tests/harness.ts`) **strippa exactamente**
 `onclick`/`onchange`/`oninput`/`data-action`/`data-on` antes de comparar — logo
 todo o payload de uma acção viaja em `data-on` (um `data-*` à medida vazaria para o
-snapshot e partia-o). Um diff de golden = **o código mudou de comportamento visual**:
+snapshot e partia-o). Desde a U6b do ADR-0004 o `golden()` também passa o markup pelo motor de
+tradução para inglês (`trNode`, `LOCALE='en'`, respeitando o `TR_SKIP`): os goldens mostram o que o
+utilizador vê em inglês, e um texto que passa a `t("chave")` deixa-os iguais. Um diff de golden = **o código mudou de comportamento visual**:
 corrige o código, não o snapshot. Só se regenera um golden com decisão deliberada e
 registada (mudança de UI aprovada), nunca para «fazer passar».
 

@@ -45,6 +45,8 @@ import { makeScmEngine, NO_REPO } from "./scm/application/scm-engine";
 import type { CommitResult, MergeResult } from "./scm/application/ports";
 import { desktopPorts } from "../app/desktop";
 import { bindActions, type ActionTable } from "./scm/ui/actions";
+import { translator } from "../app/i18n";
+import { SCM_MESSAGES } from "./scm/ui/messages";
 import {
   toast, log, rerender,
   files, agents, fIcon, short, rel,
@@ -144,22 +146,24 @@ function openGraph(sel?: string): void { if (sel) setGraphSel(sel); openTab({ id
 
 /** Renderiza o pane «Source Control»: mensagem de commit, staged/alterações,
  *  próximo passo gitflow, ramos e commits recentes. */
+/** Os textos do pane vêm do catálogo (ADR-0004, U6b — o piloto dos textos por chave). */
+const t = translator(SCM_MESSAGES);
 function renderScmPane(): void {
   const el = $("#pane-scm"), ch = changes(), st = ch.filter((p) => STAGED.has(p)), un = ch.filter((p) => !STAGED.has(p)), lay = graphLayout();
   if (!el) return;
   if (!repo()) {
     const folder = desktopFolder();
-    el.innerHTML = hd("Source Control", "") + `<div class="sections"><div class="sec-empty">${folder ? "Esta pasta não é um repositório git. Os commits, os ramos, o gitflow e o grafo usam o git real da pasta." : "Nenhum repositório git aberto. O controlo de versões usa o git real da pasta aberta na app desktop."}</div>${folder ? '<button class="btn" data-action="git-init">git init</button>' : ""}</div>`;
+    el.innerHTML = hd(t("title"), "") + `<div class="sections"><div class="sec-empty">${folder ? "Esta pasta não é um repositório git. Os commits, os ramos, o gitflow e o grafo usam o git real da pasta." : "Nenhum repositório git aberto. O controlo de versões usa o git real da pasta aberta na app desktop."}</div>${folder ? '<button class="btn" data-action="git-init">git init</button>' : ""}</div>`;
     return;
   }
   const b = branch();
-  const row = (p: string, s: number): string => `<div class="scm-row" data-action="open-diff" data-on="${esc(p)}">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="Abrir ficheiro" data-action="open-path" data-on="${esc(p)}">↗</button><button title="Descartar" data-action="discard" data-on="${esc(p)}">↶</button><button title="${s ? "Retirar do stage" : "Stage"}" data-action="stage" data-on="${esc(p)}">${s ? "−" : "+"}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
-  el.innerHTML = hd("Source Control", `<button title="Grafo de commits" data-action="open-graph">${svg("graph")}</button><button title="Actualizar" data-action="refresh">${svg("refresh")}</button>`) + `<div class="sections"><div class="scm-grp">dxtutor · ${esc(b)}<span class="cnt">${ch.length}</span></div>
-    <input class="inp" id="scm-msg" placeholder="Mensagem de commit" value="${esc(commitMsg())}"><button class="btn" data-action="commit">✓ Commit${st.length ? " (staged)" : ""} em ${esc(b)}</button>
-    ${st.length ? `<div class="scm-grp">Staged<span class="cnt">${st.length}</span></div>` + st.map((p) => row(p, 1)).join("") : ""}<div class="scm-grp">Alterações<span class="cnt">${un.length}</span></div>${un.map((p) => row(p, 0)).join("") || '<div class="sec-empty">Área de trabalho limpa.</div>'}
-    <div class="scm-grp">Gitflow — próximo passo</div>${gfGuide()}
-    <div class="scm-grp">Ramos<span class="cnt">${Object.keys(GIT.refs).length}</span></div>${Object.keys(GIT.refs).map((rb) => { const r = lay.rows.find((x) => x.h === GIT.refs[rb]); return `<div class="scm-row" data-action="checkout" data-on="${esc(rb)}"><span class="pdot" style="background:${LANE[(r ? r.col : 0) % LANE.length]}"></span><span class="nm" style="max-width:none${rb === b ? ";font-weight:600" : ""}">${esc(rb)}</span>${rb === b ? '<span class="tag acc" style="margin-left:auto">HEAD</span>' : ""}</div>`; }).join("")}
-    <div class="scm-grp">Commits</div>${GIT.order.slice(0, 7).map((h) => { const c = GIT.c[h], a = authorOf(c.a); return `<div class="s-hit" style="padding-left:12px" data-action="open-graph-sel" data-on="${esc(h)}" title="${esc(a.n)} · ${rel(c.t)}"><span class="pdot" style="background:${a.col}"></span><span style="color:var(--accent-hover)">${h}</span><span>${esc(c.m)}</span></div>`; }).join("")}<button class="btn ghost" data-action="open-graph">Abrir grafo de commits</button></div>`;
+  const row = (p: string, s: number): string => `<div class="scm-row" data-action="open-diff" data-on="${esc(p)}">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="${t("openFile")}" data-action="open-path" data-on="${esc(p)}">↗</button><button title="${t("discard")}" data-action="discard" data-on="${esc(p)}">↶</button><button title="${s ? t("unstage") : "Stage"}" data-action="stage" data-on="${esc(p)}">${s ? "−" : "+"}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
+  el.innerHTML = hd(t("title"), `<button title="${t("graph")}" data-action="open-graph">${svg("graph")}</button><button title="${t("refresh")}" data-action="refresh">${svg("refresh")}</button>`) + `<div class="sections"><div class="scm-grp">dxtutor · ${esc(b)}<span class="cnt">${ch.length}</span></div>
+    <input class="inp" id="scm-msg" placeholder="${t("message")}" value="${esc(commitMsg())}"><button class="btn" data-action="commit">${t("commit", { staged: st.length ? " (staged)" : "", branch: esc(b) })}</button>
+    ${st.length ? `<div class="scm-grp">${t("staged")}<span class="cnt">${st.length}</span></div>` + st.map((p) => row(p, 1)).join("") : ""}<div class="scm-grp">${t("changes")}<span class="cnt">${un.length}</span></div>${un.map((p) => row(p, 0)).join("") || `<div class="sec-empty">${t("clean")}</div>`}
+    <div class="scm-grp">${t("gitflowNext")}</div>${gfGuide()}
+    <div class="scm-grp">${t("branches")}<span class="cnt">${Object.keys(GIT.refs).length}</span></div>${Object.keys(GIT.refs).map((rb) => { const r = lay.rows.find((x) => x.h === GIT.refs[rb]); return `<div class="scm-row" data-action="checkout" data-on="${esc(rb)}"><span class="pdot" style="background:${LANE[(r ? r.col : 0) % LANE.length]}"></span><span class="nm" style="max-width:none${rb === b ? ";font-weight:600" : ""}">${esc(rb)}</span>${rb === b ? '<span class="tag acc" style="margin-left:auto">HEAD</span>' : ""}</div>`; }).join("")}
+    <div class="scm-grp">${t("commits")}</div>${GIT.order.slice(0, 7).map((h) => { const c = GIT.c[h], a = authorOf(c.a); return `<div class="s-hit" style="padding-left:12px" data-action="open-graph-sel" data-on="${esc(h)}" title="${esc(a.n)} · ${rel(c.t)}"><span class="pdot" style="background:${a.col}"></span><span style="color:var(--accent-hover)">${h}</span><span>${esc(c.m)}</span></div>`; }).join("")}<button class="btn ghost" data-action="open-graph">${t("openGraph")}</button></div>`;
   const i = $("#scm-msg") as HTMLInputElement | null;
   if (i) { i.oninput = () => { setCommitMsg(i.value); }; i.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) commitGitPublished(); }; }
 }
