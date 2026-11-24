@@ -28,6 +28,7 @@ import { VIEW } from "../app/store/registry";
 import { editorOverlay, type OverlayView } from "../app/editor-overlay";
 import { lineAnnotation } from "../app/line-annotation";
 import { inlineValues } from "../app/inline-values";
+import { codevUndo } from "../app/codev-undo";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -46,13 +47,15 @@ editorOverlay.onRepaint((p) => { const ta = $('#ed-ta') as HTMLTextAreaElement |
 /* ───── corpo do renderer da tab `file` (era VIEW.file no monólito) ───── */
 function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];host.innerHTML=`<div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div>`;
   const ta=$('#ed-ta') as (HTMLTextAreaElement & { _t?: any })|null;if(!ta)return;ta.dataset.path=t.path;ta.value=syncView(t.path);paintEd(t.path);
-  ta.oninput=()=>{const v=VIEWS.get(t.path),ov=editorOverlay.get();
+  ta.oninput=()=>{codevUndo.forget(t.path);const v=VIEWS.get(t.path),ov=editorOverlay.get();
     if(v&&ov){const real=ov.edit(t.path,v,ta.value,f.content);
       if(real===null){const pos=Math.max(0,ta.selectionStart-1);ta.value=v.text;ta.setSelectionRange(Math.min(pos,v.text.length),Math.min(pos,v.text.length));toast('Estas linhas são uma proposta do Co-Dev: aceita ou rejeita primeiro');return;}
       f.content=real;setKeepingCaret(ta,syncView(t.path));}
     else f.content=ta.value;
     paintEd(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
   ta.onkeydown=e=>{
+    /* RF-E07: Ctrl+Z right after a Co-Dev block (nothing typed since) puts back the text from before it */
+    if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){const prev=codevUndo.take(t.path);if(prev!==null){e.preventDefault();f.content=prev;ta.value=syncView(t.path);paintEd(t.path);refresh(true);toast('Desfeito o último bloco do Co-Dev');return;}}
     /* Fase 4: snippets e toggle de comentário das extensões VS Code instaladas (feature `ext`). */
     if(e.key==='Tab'&&!e.shiftKey&&window.vsxSnippet&&window.vsxSnippet(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='/'&&window.vsxToggleComment&&window.vsxToggleComment(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}

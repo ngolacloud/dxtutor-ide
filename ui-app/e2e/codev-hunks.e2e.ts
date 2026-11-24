@@ -154,3 +154,17 @@ test("Reject leaves the file as it was", async ({ page }) => {
   await expect(page.locator("#ed-ta")).toHaveValue(LIB);
   await page.screenshot({ path: test.info().outputPath("a2-rejected.png") });
 });
+
+test("RF-E07: Ctrl+Z right after the accepted block puts back exactly the text from before", async ({ page }) => {
+  await boot(page);
+  await askCodev(page, "corrige o E0382 em src/lib.rs");
+  await page.locator('.hk-bar [data-action="hunk-accept"]').click();
+  const ta = page.locator("#ed-ta");
+  await expect(ta).toHaveValue(/while let Some\(_c\)/);
+  await ta.focus();
+  await page.keyboard.press("Control+z");
+  await expect(ta).toHaveValue(LIB);
+  // the autosave takes the undo to the disk too
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __fake: { files: Record<string, string> } }).__fake.files["src/lib.rs"])).toBe(LIB);
+});
+

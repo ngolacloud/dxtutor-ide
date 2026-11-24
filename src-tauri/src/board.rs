@@ -99,6 +99,25 @@ pub fn project_apply(
     op: serde_json::Value,
 ) -> Result<Project, ProjectError> {
     let root = root_of(&root)?;
+    // RF-A06: the Ready (DoR) approval and Done are the Product Owner's or the Tech Lead's
+    let need_role = match op.get("op").and_then(|v| v.as_str()) {
+        Some("update_issue") if op.get("ready").and_then(|v| v.as_bool()) == Some(true) => {
+            Some("aprovar o Ready (a Definition of Ready)")
+        }
+        Some("move") if op.get("to").and_then(|v| v.as_str()) == Some("done") => {
+            Some("marcar uma issue como Done")
+        }
+        _ => None,
+    };
+    if let Some(what) = need_role {
+        crate::roles::require(Path::new(&root), &["product_owner", "tech_lead"], what).map_err(
+            |message| ProjectError {
+                code: "role".into(),
+                message,
+                overridable: false,
+            },
+        )?;
+    }
     let op: Op = serde_json::from_value(op).map_err(|e| ProjectError {
         code: "invalid".into(),
         message: format!("operação inválida: {e}"),

@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=214
+EXPECT_TOTAL=215
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -93,9 +93,10 @@ EXPECT_TSNOCHECK=0
 # Símbolos do ficheiro (lsp_document_symbols, PR #21): lsp.rs 14→15: 205 + 1 = 206.
 # RF do Co-Dev (docs/v2/RF-DELONIX-PLANO.md): board.rs ganha project_audit e project_issue_prompt (6→8) e
 # commands/agent.rs ganha arch_conformance (10→11): 206 + 3 = 209.
+# Símbolos da pasta (lsp_workspace_symbols, PR #28): lsp.rs 15→16: 209 + 1 = 210.
 # A10 (lacunas): commands/codebase.rs novo (deps_report, onboard_map), git.rs ganha git_diff_range
-# (21→22), debug_cmds.rs ganha debug_attach_targets e debug_attach (19→21): 209 + 5 = 214.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=22 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=11 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=21 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=15 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=8 )
+# (21→22), debug_cmds.rs ganha debug_attach_targets e debug_attach (19→21): 210 + 5 = 215.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=22 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=11 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=21 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=16 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=8 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores

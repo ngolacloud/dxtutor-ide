@@ -56,8 +56,10 @@ import {
 } from "./codereview/infrastructure/legacy-bridge";
 import { translator } from "../app/i18n";
 import { CODEREVIEW_MESSAGES } from "./codereview/ui/messages";
+import { ANALYZER_MESSAGES } from "./codereview/ui/analyzer-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(CODEREVIEW_MESSAGES);
+const txa = translator(ANALYZER_MESSAGES);
 
 /* Presenter do cartão de Explain: a porta `view.explainCard` que o motor chama com
    dados simples. A view é dona do markup (o texto fixo `KNOW` dos ficheiros de demonstração
@@ -124,7 +126,7 @@ function analyzersSection(path: string, host: HTMLElement): void {
   const page = host.querySelector('.page') || host;
   const sec = document.createElement('div');
   sec.className = 'cr-analyzers';
-  sec.innerHTML = '<h2>Analisadores do projecto</h2><div class="sub">A correr os analisadores instalados sobre o ficheiro gravado no disco…</div>';
+  sec.innerHTML = '<h2>Analisadores do projecto</h2><div class="sub">' + txa("running") + '</div>';
   page.appendChild(sec);
   const rel = path.slice(pre.length);
   tauriReview().file(root, rel).then(
@@ -141,7 +143,7 @@ function analyzersHtml(r: AnalyzerReport, pre: string): string {
     const extra = [f.evidence ? `<pre class="notr" style="font-size:11px;white-space:pre-wrap">${esc(f.evidence)}</pre>` : '', f.consequence ? `<div><b>Se ficar:</b> ${esc(f.consequence)}</div>` : '', f.verification ? `<div><b>Verificar:</b> ${esc(f.verification)}</div>` : ''].join('');
     return `<div class="rv"><div class="rv-h"><span class="tag" style="color:${col};border-color:${col}">${CLASS_PT[f.class] || esc(f.class)}</span><b>${esc(f.message)}</b><span class="sp"></span><button class="lnk" data-action="open-line" data-on="${f.primary.startLine}:${esc(key)}">line ${f.primary.startLine}</button></div><div class="rv-b"><div class="notr" style="color:var(--fg-muted)">${esc(f.analyzer)}${f.rule ? ' · ' + esc(f.rule) : ''}</div>${extra}</div></div>`;
   }).join('');
-  return `<h2>Analisadores do projecto</h2><div class="sub">Os linters e compiladores instalados, sobre o ficheiro gravado no disco. Cada achado traz a evidência do analisador; tu decides.</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${runs || '<span class="sub">Nenhum analisador se aplica a este ficheiro.</span>'}</div>${fs || (ran ? '<div class="sub">Nenhum achado dos analisadores.</div>' : '')}`;
+  return `<h2>Analisadores do projecto</h2><div class="sub">Os linters e compiladores instalados, sobre o ficheiro gravado no disco. Cada achado traz a evidência do analisador; tu decides.</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${runs || `<span class="sub">${txa("noneApplies")}</span>`}</div>${fs || (ran ? `<div class="sub">${txa("noFindings")}</div>` : '')}`;
 }
 
 /* ───── Under the hood — markup da tab (dono da view) ───── */

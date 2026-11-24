@@ -99,3 +99,28 @@ export function fromLsp(uri: string, d: { range?: { start?: { line?: number; cha
     source: d.source ?? "lsp",
   };
 }
+
+/** One broken rule of the architect, as `arch_conformance` reports it (RF-A05). */
+export interface RuleViolation {
+  rule: string;
+  message: string;
+  path: string;
+  line: number | null;
+}
+
+/** The drift of the architect's rules as Problems (RF-A05, docs/v2/RF-DELONIX-PLANO.md F5.6): by
+ *  file, next to the compilers' and linters', refreshed on every scan (so a new violation shows
+ *  up in the same session). `null` (no rules file) gives none. */
+export function fromRuleViolations(vs: readonly RuleViolation[] | null | undefined): Problem[] {
+  return (vs ?? []).map((v) => ({
+    file: v.path,
+    line: v.line ?? 1,
+    col: 1,
+    endLine: v.line ?? 1,
+    endCol: 1,
+    severity: "error" as Severity,
+    message: v.message,
+    code: v.rule,
+    source: "arquitectura",
+  }));
+}

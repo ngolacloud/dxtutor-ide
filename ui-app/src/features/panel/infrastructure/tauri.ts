@@ -7,6 +7,7 @@
 import { invoke, listen } from "../../../platform/tauri/core";
 import type { CheckEvent, LspPublish, PortsPort, ProblemsPort, PtyPort } from "../application/ports";
 import type { PortInfo, PtyInfo, ScanResult, ShellProfile } from "../domain/types";
+import { fromRuleViolations, type RuleViolation } from "../domain/problems";
 
 export const tauriPty: PtyPort = {
   spawn: (r) => invoke<void>("pty_spawn", { id: r.id, rows: r.rows, cols: r.cols, cwd: r.cwd ?? null, shell: r.shell ?? null, command: r.command ?? null, env: r.env ?? null }),
@@ -28,7 +29,15 @@ export const tauriPty: PtyPort = {
 };
 
 export const tauriProblems: ProblemsPort = {
-  scan: (root) => invoke<ScanResult>("problems_scan", { root }),
+  // RF-A05: the compilers' and linters' problems, and the drift of the architect's rules
+  scan: async (root) => {
+    const [r, rules] = await Promise.all([
+      invoke<ScanResult>("problems_scan", { root }),
+      invoke<RuleViolation[] | null>("arch_conformance", { root }).catch(() => null),
+    ]);
+    const extra = fromRuleViolations(rules);
+    return extra.length ? { ...r, problems: [...r.problems, ...extra] } : r;
+  },
   onCheck: (cb) => listen("problems://check", (p) => cb(p as CheckEvent)),
   onLsp: (cb) =>
     listen("lsp://diagnostics", (p) => {

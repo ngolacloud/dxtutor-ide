@@ -244,7 +244,7 @@ describe("símbolos — Outline pela porta desktopPorts.outline", () => {
     const key = w.ROOT + "src/Util.java";
     w.writeFile(key, "class Util {\n\n\n  static int add(int a, int b) { return a + b; }\n}\n");
     w.openPath(key);
-    expect(outline().textContent).toMatch(/A ler os símbolos/);
+    expect(outline().textContent).toMatch(/Reading the symbols/);
     await vi.advanceTimersByTimeAsync(450);
     expect(asked).toEqual([key]);
     expect(hits()).toEqual(["16px classUtil", "28px methodadd(int, int)"]);
@@ -258,7 +258,7 @@ describe("símbolos — Outline pela porta desktopPorts.outline", () => {
     w.openPath(key);
     await vi.advanceTimersByTimeAsync(450);
     expect(asked).toEqual([key]);
-    expect(outline().textContent).not.toMatch(/A ler os símbolos/);
+    expect(outline().textContent).not.toMatch(/Reading the symbols/);
     const md = Object.keys(w.FS).find((k: string) => k.endsWith(".md"))!;
     w.openPath(md);
     await vi.advanceTimersByTimeAsync(450);

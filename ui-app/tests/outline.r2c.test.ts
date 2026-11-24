@@ -63,7 +63,7 @@ describe("desktop com pasta: file_outline", () => {
 
   it("mostra os símbolos do backend com a língua, a pasta e o caminho absoluto", async () => {
     w.openPath(LX);
-    expect(outline().textContent).toMatch(/A ler os símbolos/);
+    expect(outline().textContent).toMatch(/Reading the symbols/);
     await vi.advanceTimersByTimeAsync(450);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ lang: "rust", root: "/proj", file: "/proj/crates/lexer/src/lib.rs" });

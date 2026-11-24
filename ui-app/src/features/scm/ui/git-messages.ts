@@ -44,6 +44,8 @@ export const GIT_MESSAGES = {
     g_tests: "Tests", g_docs: "Docs", g_config: "Config", g_infra: "Infrastructure", g_styles: "Styles", reviewed: "Reviewed",
     askReviewGroup: "Review this group of the change ({g}, {n} file(s)): bugs, risks, missing tests, and anything that does not fit the rest of the change.",
     askReviewSummary: "Summarize this change for a reviewer: what it does, group by group, and where to look hardest.",
+    notARepo: "This folder is not a git repository. Commits, branches, gitflow and the graph use the folder's real git.",
+    noRepo: "No git repository open. Version control uses the real git of the folder open in the desktop app.",
   },
   ptAO: {
     justNow: "agora mesmo", minAgo: "há {n} min", hAgo: "há {n} h", dAgo: "há {n} d", moAgo: "há {n} meses", yAgo: "há {n} anos",
@@ -86,6 +88,8 @@ export const GIT_MESSAGES = {
     g_tests: "Testes", g_docs: "Documentação", g_config: "Configuração", g_infra: "Infraestrutura", g_styles: "Estilos", reviewed: "Revisto",
     askReviewGroup: "Revê este grupo da alteração ({g}, {n} ficheiro(s)): bugs, riscos, testes em falta, e o que não encaixa no resto da alteração.",
     askReviewSummary: "Resume esta alteração para quem a vai rever: o que faz, grupo a grupo, e onde olhar com mais atenção.",
+    notARepo: "Esta pasta não é um repositório git. Os commits, os ramos, o gitflow e o grafo usam o git real da pasta.",
+    noRepo: "Nenhum repositório git aberto. O controlo de versões usa o git real da pasta aberta na app desktop.",
   },
 } satisfies Messages<string>;
 export type GitKey = keyof typeof GIT_MESSAGES.en;

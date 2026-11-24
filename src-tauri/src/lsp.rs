@@ -583,6 +583,15 @@ fn session_request(
     method: &str,
     params: Value,
 ) -> Result<Value, String> {
+    session_request_within(session, method, params, Duration::from_secs(30))
+}
+
+fn session_request_within(
+    session: &Arc<Mutex<Session>>,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Value, String> {
     let (tx, rx) = channel();
     {
         let mut g = session.lock().map_err(|_| "lsp lock")?;
@@ -593,7 +602,7 @@ fn session_request(
         let si = g.stdin.as_mut().ok_or("lsp not started")?;
         write_msg(si, &msg).map_err(|e| e.to_string())?;
     }
-    rx.recv_timeout(Duration::from_secs(30))
+    rx.recv_timeout(timeout)
         .map_err(|_| format!("lsp timeout: {method}"))
 }
 
@@ -637,7 +646,12 @@ fn wait_ready(session: &Arc<Mutex<Session>>, budget: Duration) {
 /// (medido directamente contra o jdtls 1.61). Os outros servidores não precisam de nada.
 fn init_options(lang: &str) -> Value {
     match lang {
-        "java" => json!({ "settings": { "java": { "signatureHelp": { "enabled": true } } } }),
+        // `symbols.includeSourceMethodDeclarations`: sem isto o workspace/symbol do jdtls só
+        // devolve tipos (medido: «ad» não encontrava `add`).
+        "java" => json!({ "settings": { "java": {
+            "signatureHelp": { "enabled": true },
+            "symbols": { "includeSourceMethodDeclarations": true }
+        } } }),
         _ => Value::Null,
     }
 }
@@ -700,7 +714,10 @@ fn capabilities() -> Value {
             // comandos das code actions: executados no servidor, que devolve as edições por
             // `workspace/applyEdit` (ver `dispatch`)
             "applyEdit": true,
-            "executeCommand": {}
+            "executeCommand": {},
+            // Go to Symbol in Workspace (Ctrl+T). Sem `resolveSupport`: a UI não pede
+            // `workspaceSymbol/resolve` (o kotlin-language-server manda só o URI na mesma).
+            "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u8>>() } }
         }
     })
 }
@@ -1266,6 +1283,70 @@ pub async fn lsp_document_symbols(
     .map_err(|e| e.to_string())?
 }
 
+/// As sessões vivas e inicializadas cuja raiz se sobrepõe à pasta `root` (a mesma, uma
+/// subpasta com marcador de projecto, ou uma pasta acima), com a linguagem de cada uma.
+fn sessions_under(map: &SessionMap, root: &str) -> Vec<(String, Arc<Mutex<Session>>)> {
+    let root = root.trim_end_matches('/');
+    let Ok(m) = map.lock() else {
+        return Vec::new();
+    };
+    m.iter()
+        .filter_map(|(key, s)| {
+            let (lang, r) = key.split_once('\u{0}')?;
+            let ok = roots_overlap(root, r) && s.lock().map(|g| g.initialized).unwrap_or(false);
+            ok.then(|| (lang.to_string(), s.clone()))
+        })
+        .collect()
+}
+
+/// A raiz de uma sessão `r` pertence à pasta aberta `root`: a mesma, uma subpasta, ou uma acima.
+fn roots_overlap(root: &str, r: &str) -> bool {
+    let (root, r) = (root.trim_end_matches('/'), r.trim_end_matches('/'));
+    r == root || r.starts_with(&format!("{root}/")) || root.starts_with(&format!("{r}/"))
+}
+
+/// Os símbolos da pasta inteira (`workspace/symbol`) que servem para `query`, perguntados a
+/// cada servidor que já está a correr nessa pasta (em paralelo, até 5 s cada; um servidor que
+/// não responde fica de fora). Devolve `[{ language, result }]`. Não arranca servidores: os
+/// que existem são os das linguagens abertas (ou aquecidas pelo `lsp_start`).
+/// Medido: o jdtls não devolve nada a uma consulta vazia, e o kotlin-language-server devolve
+/// só o URI do ficheiro (sem linha) — a UI procura a posição no ficheiro depois de o abrir.
+#[tauri::command]
+pub async fn lsp_workspace_symbols(
+    state: State<'_, LspState>,
+    root: String,
+    query: String,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let sessions = sessions_under(&map, &root);
+        let out: Vec<Value> = thread::scope(|sc| {
+            let jobs: Vec<_> = sessions
+                .iter()
+                .map(|(lang, s)| {
+                    let q = query.clone();
+                    sc.spawn(move || {
+                        session_request_within(
+                            s,
+                            "workspace/symbol",
+                            json!({ "query": q }),
+                            Duration::from_secs(5),
+                        )
+                        .ok()
+                        .map(|result| json!({ "language": lang, "result": result }))
+                    })
+                })
+                .collect();
+            jobs.into_iter()
+                .filter_map(|j| j.join().ok().flatten())
+                .collect()
+        });
+        Ok(Value::Array(out))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn lsp_rename(
     app: AppHandle,
@@ -1559,6 +1640,27 @@ mod phase4_lang_tests {
         );
         assert!(init_options("kotlin").is_null());
         assert!(capabilities()["textDocument"]["signatureHelp"].is_object());
+    }
+
+    #[test]
+    fn workspace_symbols_cover_methods_and_the_sessions_of_the_open_folder() {
+        // sem isto o jdtls só devolve tipos no workspace/symbol
+        assert_eq!(
+            init_options("java")["settings"]["java"]["symbols"]["includeSourceMethodDeclarations"],
+            true
+        );
+        assert_eq!(
+            capabilities()["workspace"]["symbol"]["symbolKind"]["valueSet"]
+                .as_array()
+                .map(|a| a.len()),
+            Some(26)
+        );
+        // a sessão pertence à pasta aberta: a mesma, uma subpasta (marcador), ou uma acima
+        assert!(roots_overlap("/w/proj", "/w/proj"));
+        assert!(roots_overlap("/w/proj/", "/w/proj/app"));
+        assert!(roots_overlap("/w/proj/app", "/w/proj"));
+        assert!(!roots_overlap("/w/proj", "/w/project"));
+        assert!(!roots_overlap("/w/proj", "/w/other"));
     }
 
     #[test]

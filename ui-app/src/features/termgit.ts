@@ -15,6 +15,10 @@
    dono de lá (`esc`). */
 
 import { esc } from "../core";
+import { translator } from "../app/i18n";
+import { EMULATED_TERMINAL_MESSAGES } from "./emulated-terminal-messages";
+
+const txe = translator(EMULATED_TERMINAL_MESSAGES);
 /* Há um repositório git aberto? O acessor do scm (no desktop, DXR.git; no browser nunca —
    ADR-0006, R1d), importado em vez de publicado no window. */
 import { repo as repoOpen } from "./scm/infrastructure/legacy-bridge";
@@ -22,7 +26,7 @@ import { diffStat } from "./diff/domain/diff";
 
 function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
   if (!repoOpen()) {
-    echo('<span class="er">fatal: not a git repository</span>\n<span class="dim">o terminal emulado só conhece o git de uma pasta aberta na app desktop</span>');
+    echo('<span class="er">fatal: not a git repository</span>\n<span class="dim">' + txe("gitNoFolder") + '</span>');
     return { ok: false };
   }
   const s = a[0],
@@ -45,7 +49,7 @@ function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
   if (s === "add") {
     ch.forEach((p) => STAGED.add(p));
     refresh();
-    echo(`<span class="dim">${ch.length} ficheiro(s) em stage</span>`);
+    echo(`<span class="dim">${txe("staged", { n: ch.length })}</span>`);
     return;
   }
   if (s === "commit") {
@@ -84,7 +88,7 @@ function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
       echo('<span class="er">uso: git checkout [-b] &lt;ramo&gt;</span>');
       return;
     }
-    echo(checkout(b, nb) ? `Mudou para o ramo '${esc(b)}'` : `<span class="er">não foi possível mudar para '${esc(b)}'</span>`);
+    echo(checkout(b, nb) ? `Mudou para o ramo '${esc(b)}'` : `<span class="er">${txe("checkoutFailed", { branch: esc(b) })}</span>`);
     rerender("graph");
     return;
   }
@@ -100,7 +104,7 @@ function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
       echo(`Ramo <span class="ac">${esc(BRANCH)}</span> criado`);
     } else if (a[2] === "finish") {
       const m = gfFinish();
-      echo(m ? "Finalizado: " + esc(m.m) : '<span class="er">não estás num ramo de gitflow</span>');
+      echo(m ? "Finalizado: " + esc(m.m) : `<span class="er">${txe("notFlow")}</span>`);
     } else {
       echo('<span class="dim">git flow feature|fix|release|hotfix start &lt;nome&gt; · git flow x finish</span>');
     }
@@ -118,7 +122,7 @@ function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
     return;
   }
   if (s === "push") {
-    echo('<span class="dim">o terminal emulado não fala com remotos — faz o push no terminal real da app desktop</span>');
+    echo(`<span class="dim">${txe("noRemotes")}</span>`);
     return { ok: false };
   }
   echo('<span class="dim">git: status | add . | commit -m | log | branch | checkout [-b] | merge | flow | diff | push</span>');

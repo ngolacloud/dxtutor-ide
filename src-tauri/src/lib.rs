@@ -33,6 +33,7 @@ pub mod problems;
 mod procs;
 mod pty;
 pub mod review;
+pub mod roles;
 pub mod sandbox;
 pub mod search;
 mod shell_integration;
@@ -1026,6 +1027,7 @@ pub fn run() {
             lsp::lsp_execute_command,
             lsp::lsp_format,
             lsp::lsp_document_symbols,
+            lsp::lsp_workspace_symbols,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { explainProviderError } from "../src/features/codev/domain/provider-errors";
-import { providerErrorHtml } from "../src/features/codev/ui/chat-view";
+import { providerErrorHtml, providerErrorText } from "../src/features/codev/ui/chat-view";
 
 const ANTHROPIC_CREDIT =
   'Anthropic returned 400: {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_id":"req_011ChLYcBFN8gjGbfrMTgBQv"}';
@@ -10,7 +10,7 @@ describe("erros dos provedores", () => {
     const e = explainProviderError(ANTHROPIC_CREDIT)!;
     expect(e).toMatchObject({ kind: "credit", provider: "Claude (Anthropic)", url: "https://console.anthropic.com/settings/billing" });
     expect(e.detail).toBe("Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.");
-    expect(e.hint).toContain("Ollama");
+    expect(providerErrorText(e).hint).toContain("Ollama");
   });
 
   it("quota esgotada na OpenAI (429 insufficient_quota) é crédito, não limite de pedidos", () => {
@@ -27,7 +27,7 @@ describe("erros dos provedores", () => {
     expect(explainProviderError('Anthropic returned 529: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}')?.kind).toBe("overloaded");
     expect(explainProviderError('Anthropic returned 404: {"type":"error","error":{"type":"not_found_error","message":"model: claude-x"}}')?.kind).toBe("model");
     expect(explainProviderError("Could not reach Anthropic: dns error")?.kind).toBe("network");
-    expect(explainProviderError("Ollama returned 500: connection refused")?.hint).toContain("ollama serve");
+    expect(providerErrorText(explainProviderError("Ollama returned 500: connection refused")!).hint).toContain("ollama serve");
   });
 
   it("o erro do agente (HTTP 401, sem nome) usa o provedor activo do Co-Dev", () => {
@@ -47,15 +47,31 @@ describe("erros dos provedores", () => {
   it("erros desconhecidos ficam como estão", () => {
     expect(explainProviderError("boom")).toBeNull();
     expect(explainProviderError("")).toBeNull();
-    expect(providerErrorHtml("boom <x>")).toBe("Não consegui obter resposta do modelo (boom &lt;x&gt;).");
+    expect(providerErrorHtml("boom <x>")).toBe("Could not get an answer from the model (boom &lt;x&gt;).");
   });
 
   it("o cartão tem título, passo seguinte, botão das Definições e o detalhe escapado", () => {
     const h = providerErrorHtml(ANTHROPIC_CREDIT);
-    expect(h).toContain("<b>Claude (Anthropic): a conta da API não tem créditos.</b>");
+    expect(h).toContain("<b>Claude (Anthropic): the API account has no credits.</b>");
     expect(h).toContain("https://console.anthropic.com/settings/billing");
     expect(h).toContain('data-action="open-settings"');
-    expect(h).toContain("<summary>Detalhes</summary>");
+    expect(h).toContain("<summary>Details</summary>");
     expect(h).not.toContain("request_id");
+  });
+
+  it("em ptAO o cartão sai em português, com os textos de antes", () => {
+    const w = window as unknown as { LOCALE?: string };
+    const prev = w.LOCALE;
+    w.LOCALE = "ptAO";
+    try {
+      const h = providerErrorHtml(ANTHROPIC_CREDIT);
+      expect(h).toContain("<b>Claude (Anthropic): a conta da API não tem créditos.</b>");
+      expect(h).toContain("Resolve aqui: <code>https://console.anthropic.com/settings/billing</code>");
+      expect(h).toContain("<summary>Detalhes</summary>");
+      expect(providerErrorText(explainProviderError("Could not reach Anthropic: dns error")!).title).toBe("Claude (Anthropic): não consegui chegar ao serviço.");
+      expect(providerErrorText(explainProviderError("HTTP 429 (rate_limit_error): slow down")!).title).toBe("O provedor: limite de pedidos atingido.");
+    } finally {
+      w.LOCALE = prev;
+    }
   });
 });

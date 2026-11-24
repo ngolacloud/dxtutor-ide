@@ -63,7 +63,7 @@ describe("desktop com pasta: review_code", () => {
   it("pede a revisão do ficheiro (âmbito file, caminho relativo) e mostra os achados com a classe honesta", async () => {
     const h = host();
     w.renderCreviewView({ path: LX }, h);
-    expect(h.querySelector(".cr-analyzers")!.textContent).toMatch(/A correr os analisadores/);
+    expect(h.querySelector(".cr-analyzers")!.textContent).toMatch(/Running the installed analyzers/);
     await flush();
     expect(calls).toEqual([{ cmd: "review_code", root: "/proj", scope: "file", path: "crates/lexer/src/lib.rs", version: null }]);
     const sec = h.querySelector(".cr-analyzers")!;
@@ -95,7 +95,7 @@ describe("desktop com pasta: review_code", () => {
     h.innerHTML = "<p>outra tab</p>"; // a tab foi redesenhada / fechada
     resolve(REPORT);
     await flush();
-    expect(old.textContent).toMatch(/A correr/); // o nó antigo, fora do DOM, ficou como estava
+    expect(old.textContent).toMatch(/Running/); // o nó antigo, fora do DOM, ficou como estava
     expect(h.textContent).toBe("outra tab");
   });
 
@@ -104,7 +104,7 @@ describe("desktop com pasta: review_code", () => {
     const h = host();
     w.renderCreviewView({ path: LX }, h);
     await flush();
-    expect(h.querySelector(".cr-analyzers")!.textContent).toMatch(/Nenhum achado dos analisadores/);
+    expect(h.querySelector(".cr-analyzers")!.textContent).toMatch(/No findings from the analyzers/);
     w.__TAURI__.core.invoke = async () => { throw new Error("review task failed: x"); };
     const h2 = host();
     w.renderCreviewView({ path: LX }, h2);
