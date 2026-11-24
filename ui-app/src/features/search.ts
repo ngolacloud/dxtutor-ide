@@ -14,14 +14,15 @@
    Shim transitório: publica `renderSearchPane`, `doSearch` e `replaceAll` no
    `window` porque o residual invoca-os por nome livre — `app.ts` delega
    `RP.search=()=>window.renderSearchPane()` (lazy, no switch de pane), o
-   `onclick="replaceAll()"` do botão resolve `window.replaceAll` no clique, e o
+   a acção `search:replaceAll` do botão resolve `window.replaceAll` no clique, e o
    comando «Todo Tree» (v6.ts) chama `doSearch()` como global. Mesmo padrão de
    `features/test.ts`, com o detalhe GOTCHA C: mover os leaves REMOVE as defs de
    topo do monólito, por isso as entradas `doSearch`/`replaceAll` saíram também do
    `Object.assign(window,…)` do `app.ts` (senão ReferenceError travava o chunk). */
 
-import { $, hd, esc, toast, jsa } from "../core";
+import { $, hd, esc, toast } from "../core";
 import { RP } from "../app/store/registry";
+import { registerActions, globalCalls, callGlobal, args } from "../app/actions";
 
 /** Tupla de ocorrência numa linha: [nº da linha (1-based), linha, offset do match]. */
 type Hit = [number, string, number];
@@ -53,7 +54,7 @@ function doSearch(): void {
       files++;
       n += hits.length;
       h +=
-        `<div class="row" style="padding-left:8px" onclick="openPath(${jsa(p)})">${window.fIcon(
+        `<div class="row" style="padding-left:8px" data-action="search:open" data-on="${esc(p)}">${window.fIcon(
           p,
         )}<span class="nm">${esc(
           p.split("/").pop(),
@@ -62,7 +63,7 @@ function doSearch(): void {
           .slice(0, 30)
           .map(
             (x) =>
-              `<div class="s-hit" onclick="openPath(${jsa(p)},${x[0]})"><span class="n">${x[0]}</span><span>${esc(
+              `<div class="s-hit" data-action="search:hit" data-on="${esc(JSON.stringify([p, x[0]]))}"><span class="n">${x[0]}</span><span>${esc(
                 x[1].slice(Math.max(0, x[2] - 18), x[2]),
               )}<mark>${esc(x[1].substr(x[2], q.length))}</mark>${esc(
                 x[1].slice(x[2] + q.length, x[2] + q.length + 60),
@@ -105,7 +106,7 @@ function renderSearchPane(): void {
     el.dataset.b = "1";
     el.innerHTML =
       hd("Pesquisa") +
-      `<div class="sections"><input class="inp" id="s-q" placeholder="Procurar em todos os ficheiros"><input class="inp" id="s-r" placeholder="Substituir por…"><button class="btn ghost" onclick="replaceAll()">Substituir tudo</button><div id="s-res"></div></div>`;
+      `<div class="sections"><input class="inp" id="s-q" placeholder="Procurar em todos os ficheiros"><input class="inp" id="s-r" placeholder="Substituir por…"><button class="btn ghost" data-action="search:replaceAll">Substituir tudo</button><div id="s-res"></div></div>`;
     const qel = $("#s-q") as HTMLInputElement | null;
     if (qel) qel.oninput = doSearch;
   }
@@ -120,3 +121,10 @@ window.renderSearchPane = renderSearchPane;
 RP.search = renderSearchPane;
 window.doSearch = doSearch;
 window.replaceAll = replaceAll;
+
+/* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
+registerActions({
+  ...globalCalls("search", ["replaceAll"]),
+  "search:open": { click: (c) => void callGlobal("openPath", c.on) },
+  "search:hit": { click: (c) => void callGlobal("openPath", ...args<[string, number]>(c)) },
+});

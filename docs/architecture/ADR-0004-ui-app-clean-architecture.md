@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j4; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -794,3 +794,135 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   inicial do compositor ficou igual), arch:check, build, e2e 6/6 isolado, auto-teste desktop
   idêntico ao da HEAD. O app.ts fica com o arranque (`boot`…`boot6`), os menus/paleta/atalhos,
   o `refresh`, o `resetAll` e o `LCUR` — a U4j5.
+- **U4j5 — plano (2026-11-24).** O resto do app.ts em duas fatias: **U4j5a** as peças
+  autocontidas (o `refresh` e o `resetAll` para o workspace, os atalhos globais para o
+  `shortcuts.ts`, o fecho das notificações para o `notifications.ts`, o `cur`/`PANE` que já nascem
+  nos stores); **U4j5b** o conteúdo dos menus/paleta (`CMD`/`buildMenus`/`LCUR`) e o arranque
+  (`boot`…`boot6`) para módulos tipados — e o app.ts deixa de existir. *Revisto na execução:* a
+  U4j5b tipa o app.ts no próprio sítio (só tipos, JS emitido idêntico) e a **U4j5c** divide-o
+  em módulos de comandos e de arranque (mover sem mudar) — separar as duas coisas mantém cada
+  prova simples.
+- **U4j5a (2026-11-24) — refresh, resetAll, atalhos e notificações para os donos.** O `refresh`
+  (o sinal «o workspace mudou») e o `resetAll` vão para o `features/workspace.ts`, tipados por uma
+  fachada que lê as funções publicadas no acto (o `show` da barra de acções, o `paintEd` com
+  breakpoints — as que o app.ts resolvia por nome livre); o listener dos atalhos globais (F1,
+  F8, Ctrl+Shift+E/F/G/M/A, Ctrl+P/B/J/`/,/L/G/S, Escape) vai para o `shortcuts.ts`, a seguir ao
+  que lá estava (entre os dois módulos nenhum outro regista teclado, por isso a ordem é a mesma);
+  o que fecha as notificações num clique fora vai para o `notifications.ts` (nenhum listener de
+  clique no document usa `stopImmediatePropagation`, por isso a posição não muda nada). A
+  entrada «Repor protótipo» do `CMD`, que guarda o `resetAll` por valor, continua a apanhar a
+  mesma função, publicada antes de o app.ts avaliar. **Apanhado pelos testes — e corrigido
+  também para a U4j4b:** a atribuição `cur=null`/`PANE='explorer'` do app.ts não tinha efeito
+  na app, mas no harness dos testes, que reavalia os módulos a cada teste, o `ownedGlobal`
+  herda o valor que ficou no `window` — era o app.ts que os repunha a cada arranque; sem ela, o
+  `cur` herdava um separador do teste anterior e dois testes do debug falhavam. O mesmo valia
+  para o `MODE`/`ACTIVE`/`THRESH`/`CTX_ON` que a U4j4b tirou (os testes passaram, mas ficou uma
+  dependência escondida da ordem). A reposição passa para os donos: cada store repõe o valor
+  inicial ao avaliar, logo a seguir a criar o acessor — na app é o valor que já tem; nos testes,
+  cada arranque começa limpo. Globais publicadas 383 → 381. Verificado na worktree limpa sobre a
+  HEAD `187e36e`: tsc, lint 266 (igual), 458 testes, arch:check, build, e2e 6/6 isolado,
+  auto-teste desktop idêntico ao da HEAD.
+- **U4j5b (2026-11-24) — o app.ts tipado; nenhum ficheiro com `@ts-nocheck`.** O último ficheiro
+  com a directiva passa a ser verificado pelo tsc sem mudar de sítio nem de comportamento: só
+  entram tipos. Os nomes livres que o app.ts usa continuam a resolver o global no acto (a versão
+  publicada, eventualmente decorada): os que ainda não tinham tipo global declaram-se num bloco
+  `declare global` no próprio ficheiro, em vez de se importarem — um import trocaria a resolução
+  tardia pela função local do módulo. O `MENUS` vê-se, neste módulo, com o tipo completo dos itens
+  (separadores, submenus, `on`) por uma declaração só de tipo; o `CMD` é uma lista de tuplos
+  `[rótulo, atalho, acção]`; o resto são asserções não-nulas (`!`, inseridas pela posição exacta
+  de cada diagnóstico do tsc) e casts de elementos (`HTMLTextAreaElement`, `Element`). **Prova:**
+  o JS emitido (tipos e comentários fora, parênteses canonizados) é idêntico ao da HEAD, à parte
+  os parênteses à volta de um parâmetro único de arrow; as contagens de `!=`/`!==`/`==`/`===` não
+  mudam. O baseline do A6 (`arch-check.sh`) desce de 11 para 0 e o da métrica do
+  `ui-metrics.sh` de 1 para 0. Verificado na worktree limpa sobre a HEAD `f973a74`: tsc, lint
+  266 (267 na HEAD), 470 testes, arch:check, build, e2e 6/6 isolado, auto-teste desktop idêntico
+  ao da HEAD (25 passos). Falta a U4j5c: dividir o app.ts em módulos e apagá-lo.
+- **U4j5c (2026-11-24) — o app.ts divide-se e deixa de existir.** O que restava move-se sem mudar
+  para dois módulos de composição, na posição que o app.ts tinha no `main.ts`: o
+  `app/commands.ts` (a paleta `CMD`, o `cmd`, o `buildMenus`, o `LCUR` e os comandos da camada
+  v3) e o `app/boot-steps.ts` (o `boot` e o `boot3`…`boot6`, que o `startup.ts` chama). Os tipos
+  dos globais lidos por nome livre (o bloco `declare global` da U4j5b) passam para o
+  `app/ide-globals.d.ts`, só de tipos. Os passos de arranque importam o `CMD`, o `buildMenus` e o
+  `LCUR` do `app/commands.ts`: no app.ts eram ligações locais do mesmo módulo, e o import mantém
+  isso (não passam a ler a versão do `window`). A publicação divide-se em duas (`CMD`/`buildMenus`
+  no fim dos comandos, `PANE`/`boot`… no fim do arranque), com os mesmos nomes; a cadeia do harness
+  dos testes vai agora até ao `app/boot-steps.ts`. **Prova:** as instruções de topo do JS emitido
+  dos dois módulos, sem imports/exports/publicação, são as do app.ts: as 6 funções iguais (são
+  içadas) e as 4 instruções restantes iguais e pela mesma ordem (o `CMD`, o `cmd`, o `LCUR`, o
+  `CMD.push` da v3). Verificado na worktree limpa sobre a HEAD `c8a3b38`: tsc, lint 266 (igual),
+  484 testes, arch:check, build, e2e 6/6 isolado, auto-teste desktop idêntico ao da HEAD (25
+  passos). Fecha a U4j: o monólito deixou de existir; o que fica nos dois módulos
+  (o conteúdo dos menus/paleta e o ajuste das listas no arranque) dissolve-se quando cada feature
+  registar os seus comandos (U7).
+- **U5 — plano (2026-11-24).** Restam 152 handlers inline (contados pela métrica; dois são prosa:
+  o texto de um achado da revisão, `<img src=x onerror=…>`, e um comentário do `tasks.ts`). Um
+  despachante partilhado, `app/actions.ts`, serve os módulos que não têm o seu: o markup emite
+  `data-action="dono:nome"` (+ `data-on`) e o dono regista a tabela. Para que nada mude, o
+  despachante faz o que o inline fazia: é o primeiro listener do document (primeiro import do
+  `main.ts`), corre cada antepassado com acção pela ordem da borbulha (caminho fixado no início),
+  `stop()` faz o `event.stopPropagation()` (pára os antepassados e, por ser o primeiro, os outros
+  listeners do document), e cede quando o código troca o handler por `el.onclick = f` (o
+  `drawRemote` do infra e o `boot5` fazem-no aos botões da barra). Fatias: **U5a** o despachante e
+  a moldura (index.html, os dois botões do arranque, a barra de acções do editor e a página de
+  boas-vindas, que guardavam código em string); **U5b** os resíduos sem despachante (pair, tasks,
+  team, studio, tutor, graph, search, test, run, remote, explorer, diff, diagnostics, account,
+  stack); **U5c** as features com despachante próprio (ext, learn, codev, board) nas suas tabelas
+  e o desktop (`DXR.*`); **U5d** o arrastar do kanban (`ondragstart/over/leave/drop`), que os
+  goldens do board mostram (o harness não os tira) — pede decisão sobre os snapshots; **U5e** o
+  CSP sem `'unsafe-inline'` no `script-src` e a métrica sem a prosa.
+- **U5a (2026-11-24) — o despachante partilhado e a moldura do IDE.** O `app/actions.ts` (com
+  testes da semântica: borbulha, `stop()`, ordem face aos outros listeners do document, cedência
+  ao `el.onclick = f`, caminho fixo quando um handler redesenha, nó de texto como alvo, tipos de
+  evento, nomes com dono) e o `app/chrome-actions.ts`: os 27 botões fixos do index.html e os dois
+  que o arranque acrescenta (`#pill-agent`, `#st-stack`) passam a `data-action="chrome:f"` e
+  chamam a mesma função publicada no acto (`callGlobal`, como o inline, que resolvia o nome no
+  window ao clicar). A barra de acções do editor (`tabs.ts`) e a página de boas-vindas guardavam
+  o código do handler em string (`'explainCmd()'`, `"goPane('infra')"`); passam a guardar o nome
+  da acção (e o argumento) e registam `tabs:*`/`welcome:*`. Nenhum dos nomes chamados colide com
+  uma propriedade do elemento ou do document (o inline procurava aí primeiro). Inline 152 → 121.
+- **U5b (2026-11-24) — os resíduos sem despachante.** O pair (19), tasks (16), team (15), studio
+  (12), graph (8), tutor (4), test (3), search (3), account (2), stack (2), run, remote, explorer, diff
+  e diagnostics (1 cada) passam a `data-action="dono:nome"`; cada um regista as suas acções no fim do
+  módulo. As acções lêem e escrevem o estado no `window` no acto (`TK`, `BL`, `HARN`, `AGENT`,
+  `AGENTS`, `SD`/`SSEL`/`SLINK`/`SCAT`, `DRIFT`, `GSEL`, `LTS`, `FS`, `cur`, `PANE`…) e chamam as funções
+  publicadas por nome (`callGlobal`), como o código inline fazia — não passam a usar ligações locais
+  dos módulos. O `this` passa a `c.el`, o `this.value` a `c.value`, o `event.target===this` a
+  `c.ev.target===c.el`, o `event.stopPropagation()` a `c.stop()`; os números (sprint, linha, índice
+  da aresta) voltam a número; os pares (caminho + linha, grupo + estado) viajam em JSON no `data-on`.
+  O despachante ganha uma regra: um controlo desactivado não corre a sua acção (o browser não chamava
+  o handler inline). Testes de cablagem (`tests/app.actions-wiring.test.ts`): os panes e as vistas
+  sem handlers inline, todo o `dono:nome` com dono, e cliques que provam os payloads e o `stop()`.
+  **Reportado, não corrigido:** o `board.ts` tira o botão «▶ Delegar» dos cartões do kanban que são
+  teus procurando `delegate` no atributo `onclick` — mas esse botão usa `data-action="delegate"` desde
+  a extracção do board (Fase 4 do ADR-0002), por isso a procura nunca encontra nada e o botão fica.
+  Inline 121 → 31.
+- **U5c (2026-11-24) — as features com despachante próprio e o desktop.** O ext (7: a linha da
+  lista, os botões da linha com `event.stopPropagation()`, a página de detalhe e o «Install from
+  VSIX»), o learn (7: onboarding e editor de exercícios, sobre o `ONB`/`LT_HOOD`/`LTS` do window), o
+  codev (a escolha da língua), o board (o «Review diff» do cartão e os três botões dos cartões do
+  Co-Dev que o motor emite) e o desktop (`DXR.logs`/`approve`/`gitInit`/`open`) passam a
+  `data-action`. Vão pelo **despachante partilhado** (`ext:*`, `learn:*`, `codev:*`, `board:*`,
+  `desktop:*`), não pelas tabelas das features: estas só vêem o `[data-action]` mais próximo e correm
+  depois dos outros listeners do document (o `closeMenus`, o fecho das notificações), o que mudaria o
+  efeito dos `event.stopPropagation()` da lista de extensões. Testes de cablagem acrescentados. Ficam
+  os quatro handlers de arrastar do kanban (U5d) e a prosa do achado da revisão. Inline 31 → 5.
+- **U5d (2026-11-24) — o arrastar do kanban; goldens do quadro regenerados.** O cartão
+  (`board:card`, `dragstart`: põe o id no `dataTransfer`) e a coluna (`board:col`: `dragover` marca e
+  previne, `dragleave` desmarca, `drop` desmarca, previne e chama o `dropIssue` publicado com o id e o
+  estágio) passam ao despachante partilhado. Nenhum antepassado das colunas e dos cartões tem acção
+  da tabela do board, por isso o novo `data-action` não tapa nenhum clique. **Goldens regenerados por
+  decisão do dono (2026-11-24):** `board-all` e `board-sprint0` mostravam os atributos `ondrag*`/
+  `ondrop`, que o harness não tira; provou-se que o snapshot novo é o antigo com exactamente esses 44
+  atributos removidos e nada mais. Teste de cablagem do arrastar (com um `dataTransfer` falso — o
+  jsdom não tem). Inline 5 → 1 (a prosa do achado da revisão, que a U5e tira da métrica).
+- **U5e (2026-11-24) — o CSP sem `'unsafe-inline'` no `script-src`.** O `tauri.conf.json` passa a
+  `script-src 'self'`. O `style-src` mantém `'unsafe-inline'` (decisão §9.3) e, com ele, o
+  `dangerousDisableAssetCspModification: true` — se o Tauri injectasse nonces/hashes no `style-src`,
+  o browser passaria a ignorar o `'unsafe-inline'` e os `style="…"` gerados deixavam de valer. Nada
+  mais precisava de script inline: a única tag do index.html é o módulo `src="/src/main.ts"`, e o
+  JSZip do desktop carrega-se de um ficheiro local (`'self'`). A métrica dos handlers passa a contar
+  só atributos de verdade (o valor abre com aspas, escapadas ou não), o que tira a prosa do achado da
+  revisão (`<img src=x onerror=…>`): 1 → 0. Métrica nova, baseline 0: `script-src` com
+  `'unsafe-inline'` no CSP. O auto-teste desktop ganha o passo `csp`: regista as violações do CSP
+  durante o auto-teste, procura atributos `on*` no DOM vivo depois de abertas as vistas, e prova que
+  o CSP está activo (um handler inline plantado não corre). Fecha a U5.

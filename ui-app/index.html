@@ -6,12 +6,12 @@
   <div class="titlebar">
     <div class="tb-brand" id="brand"></div>
     <div class="menubar" id="menubar"></div>
-    <button class="cmd-center" onclick="palette('')"><span data-ic="search"></span>dxtutor — ficheiros e comandos <kbd>Ctrl+P</kbd></button>
+    <button class="cmd-center" data-action="chrome:palette" data-on=""><span data-ic="search"></span>dxtutor — ficheiros e comandos <kbd>Ctrl+P</kbd></button>
     <div class="tb-right">
-      <button class="tb-ic" id="tgl-side" title="Toggle sidebar" data-ic="layout-side" onclick="toggleSide()"></button>
-      <button class="tb-ic" id="tgl-panel" title="Toggle panel" data-ic="layout-panel" onclick="togglePanel()"></button>
-      <button class="tb-ic on" id="tgl-agent" title="Painel do Co-Dev" data-ic="sparkle" onclick="toggleAgent()"></button>
-      <button class="tb-ic" data-ic="account" title="Conta" onclick="goPane('account')"></button>
+      <button class="tb-ic" id="tgl-side" title="Toggle sidebar" data-ic="layout-side" data-action="chrome:toggleSide"></button>
+      <button class="tb-ic" id="tgl-panel" title="Toggle panel" data-ic="layout-panel" data-action="chrome:togglePanel"></button>
+      <button class="tb-ic on" id="tgl-agent" title="Painel do Co-Dev" data-ic="sparkle" data-action="chrome:toggleAgent"></button>
+      <button class="tb-ic" data-ic="account" title="Conta" data-action="chrome:goPane" data-on="account"></button>
       <span class="win-dot r"></span><span class="win-dot y"></span><span class="win-dot g"></span>
     </div>
   </div>
@@ -25,10 +25,10 @@
       <div class="pane show" id="pane-explorer">
         <div class="side-hd"><span class="t">Explorer</span>
           <span class="acts">
-            <button data-ic="new-file" title="New File" onclick="newFile()"></button>
-            <button data-ic="new-folder" title="New Folder" onclick="newFolder()"></button>
-            <button data-ic="refresh" title="Refresh" onclick="refresh(false,true)"></button>
-            <button data-ic="collapse" title="Collapse Folders" onclick="collapseAll()"></button>
+            <button data-ic="new-file" title="New File" data-action="chrome:newFile"></button>
+            <button data-ic="new-folder" title="New Folder" data-action="chrome:newFolder"></button>
+            <button data-ic="refresh" title="Refresh" data-action="chrome:refresh"></button>
+            <button data-ic="collapse" title="Collapse Folders" data-action="chrome:collapseAll"></button>
           </span>
         </div>
         <div class="sections" id="exp-sections"></div>
@@ -62,8 +62,8 @@
           <button class="ptab" data-pt="output">Output · Co-Dev</button>
           <button class="ptab on" data-pt="terminal">Terminal</button>
           <span class="panel-tools">
-            <button data-ic="trash" title="Limpar terminal" onclick="termClear()"></button>
-            <button data-ic="close" title="Fechar painel" onclick="togglePanel()"></button>
+            <button data-ic="trash" title="Limpar terminal" data-action="chrome:termClear"></button>
+            <button data-ic="close" title="Fechar painel" data-action="chrome:togglePanel"></button>
           </span>
         </div>
         <div class="panel-body">
@@ -78,17 +78,17 @@
     <!-- CO-DEV -->
     <div class="agent" id="agent">
       <div class="ag-hd"><div class="ag-mark" data-ic="sparkle"></div><div class="ag-name">Co-Dev</div>
-        <button class="ag-model" id="ag-model" title="Escolher modelo" onclick="pickModel()"><span class="live"></span><span id="ag-model-l"></span></button>
-        <button class="ag-ic" data-ic="popout" title="Abrir no centro" onclick="assistantCenter()"></button>
-        <button class="ag-ic" data-ic="history" title="Gestor de missões" onclick="openManager()"></button>
-        <button class="ag-ic" data-ic="plus" title="Nova conversa" onclick="newChat()"></button>
+        <button class="ag-model" id="ag-model" title="Escolher modelo" data-action="chrome:pickModel"><span class="live"></span><span id="ag-model-l"></span></button>
+        <button class="ag-ic" data-ic="popout" title="Abrir no centro" data-action="chrome:assistantCenter"></button>
+        <button class="ag-ic" data-ic="history" title="Gestor de missões" data-action="chrome:openManager"></button>
+        <button class="ag-ic" data-ic="plus" title="Nova conversa" data-action="chrome:newChat"></button>
       </div>
       <div id="ag-body">
         <div class="modebar" id="modebar"></div>
         <div class="ag-msgs" id="ag-msgs"></div>
         <div class="run-ctl hidden" id="ag-runctl">
           <div class="rc-top"><span class="spin"></span><span class="rc-lbl" id="rc-lbl"></span><span class="rc-el" id="rc-el"></span></div>
-          <div class="rc-cmds"><button class="rc" id="rc-pause" onclick="agCtl('pause')"><kbd>p</kbd> pausar</button><button class="rc" onclick="agCtl('stop')"><kbd>x</kbd> parar</button><button class="rc" onclick="agCtl('details')"><kbd>d</kbd> registo</button></div>
+          <div class="rc-cmds"><button class="rc" id="rc-pause" data-action="chrome:agCtl" data-on="pause"><kbd>p</kbd> pausar</button><button class="rc" data-action="chrome:agCtl" data-on="stop"><kbd>x</kbd> parar</button><button class="rc" data-action="chrome:agCtl" data-on="details"><kbd>d</kbd> registo</button></div>
         </div>
         <div class="ag-compose" id="ag-compose"><textarea id="ag-input" rows="1" placeholder="Pede ao Co-Dev…"></textarea></div>
       </div>
@@ -100,17 +100,17 @@
 
   <!-- STATUS BAR -->
   <div class="status">
-    <button class="si remote" data-ic="remote-arrows" title="Comandos" onclick="palette('>')"></button>
-    <button class="si" data-ic="branch-sm" title="Mudar de ramo" onclick="pickBranch()"><span id="st-branch-l">main</span></button>
-    <button class="si" id="st-prob" title="Problemas" onclick="setPanelTab('problems')"></button>
-    <button class="si opt" id="st-tests" title="Testes" onclick="goPane('test')"></button>
+    <button class="si remote" data-ic="remote-arrows" title="Comandos" data-action="chrome:palette" data-on=">"></button>
+    <button class="si" data-ic="branch-sm" title="Mudar de ramo" data-action="chrome:pickBranch"><span id="st-branch-l">main</span></button>
+    <button class="si" id="st-prob" title="Problemas" data-action="chrome:setPanelTab" data-on="problems"></button>
+    <button class="si opt" id="st-tests" title="Testes" data-action="chrome:goPane" data-on="test"></button>
     <span class="spacer"></span>
-    <button class="si opt" id="st-pos" title="Ir para a linha" onclick="palette(':')"></button>
+    <button class="si opt" id="st-pos" title="Ir para a linha" data-action="chrome:palette" data-on=":"></button>
     <span class="si opt" id="st-lang"></span>
-    <button class="si opt" id="st-ctx" title="Contexto usado na conversa" onclick="openManager()"></button>
-    <button class="si" data-ic="sparkle" title="Modelo da conversa" onclick="pickModel()"><span id="st-model-l"></span></button>
-    <button class="si mode" id="st-mode" title="Alternar o modo de autonomia" onclick="cycleMode()"></button>
-    <button class="si" id="st-bell" data-ic="bell" title="Notificações" onclick="toggleNotes()"><span id="st-bell-n"></span></button>
+    <button class="si opt" id="st-ctx" title="Contexto usado na conversa" data-action="chrome:openManager"></button>
+    <button class="si" data-ic="sparkle" title="Modelo da conversa" data-action="chrome:pickModel"><span id="st-model-l"></span></button>
+    <button class="si mode" id="st-mode" title="Alternar o modo de autonomia" data-action="chrome:cycleMode"></button>
+    <button class="si" id="st-bell" data-ic="bell" title="Notificações" data-action="chrome:toggleNotes"><span id="st-bell-n"></span></button>
   </div>
 </div>
 

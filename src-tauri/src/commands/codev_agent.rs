@@ -33,6 +33,13 @@ pub async fn codev_agent_start(
     review_edits: Option<bool>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    // `arch_propose` (Studio, F6): a proposta chega à UI pelo evento `arch://proposal`
+    let emitter = app.clone();
+    let arch_propose = crate::agent::ArchProposeTool {
+        emit: std::sync::Arc::new(move |p| {
+            let _ = emitter.emit("arch://proposal", p);
+        }),
+    };
     let spec = StartSpec {
         root,
         model,
@@ -42,6 +49,7 @@ pub async fn codev_agent_start(
         mode,
         resume,
         host_tools: vec![std::sync::Arc::new(crate::lsp::LspDiagnosticsTool)],
+        host_tools_v4: vec![std::sync::Arc::new(arch_propose)],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),
         provider,

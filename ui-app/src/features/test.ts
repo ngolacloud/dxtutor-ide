@@ -6,7 +6,7 @@
    Render quase-puro (browser): corre `window.runTests()` (motor de testes simulado que
    ainda vive no monólito, tipado no core), lê o DOM (`$`), compõe o cabeçalho
    (`hd`) e o ícone (`svg`), escapa texto (`esc`) e emite HTML. Os
-   `onclick="runTask(...)"` / `onclick="openPath(P_LX,10)"` inline resolvem
+   acções `test:runTask` / `test:gotoError` (eram `onclick` inline — U5b) resolvem
    `window.runTask` / `window.openPath` / `window.P_LX` no clique (continuam
    globais via o `Object.assign(window,…)` do monólito), por isso não são
    dependências de import.
@@ -19,6 +19,7 @@
 import { $, hd, svg, esc } from "../core";
 import { RP } from "../app/store/registry";
 import { desktopPorts } from "../app/desktop";
+import { registerActions, callGlobal } from "../app/actions";
 
 /* ───── a parte desktop (A0.5, docs/v2/UI-AUDIT.md) ─────
    Com uma pasta aberta na app Tauri, o pane deixa de mostrar o motor simulado e passa a
@@ -171,7 +172,7 @@ function renderTestPane(): void {
   const body = !r.build
     ? `<div class="sec-empty" style="color:var(--red)">Build falhou — ${esc(
         r.err.split("\n")[0],
-      )}</div><button class="btn ghost" onclick="openPath(P_LX,10)">Ir para o erro</button>`
+      )}</div><button class="btn ghost" data-action="test:gotoError">Ir para o erro</button>`
     : `<div class="sec-empty"><b style="color:var(--green)">${
         r.tests.filter((t) => t.ok).length
       } passados</b> · <b style="color:${
@@ -180,9 +181,9 @@ function renderTestPane(): void {
       r.tests
         .map(
           (t) =>
-            `<div class="scm-row" onclick="runTask('cargo test -p ${t.n.split(
+            `<div class="scm-row" data-action="test:runTask" data-on="${esc('cargo test -p ' + t.n.split(
               "::",
-            )[0]}')"><span style="color:${
+            )[0])}"><span style="color:${
               t.ok ? "var(--green)" : "var(--red)"
             };width:14px;text-align:center">${t.ok ? "✓" : "✖"}</span><span class="nm" style="max-width:none">${t.n}</span></div>`,
         )
@@ -191,7 +192,7 @@ function renderTestPane(): void {
   el.innerHTML =
     hd(
       "Testing",
-      `<button title="Correr todos" onclick="runTask('cargo test')">${svg(
+      `<button title="Correr todos" data-action="test:runTask" data-on="cargo test">${svg(
         "run",
       )}</button>`,
     ) + `<div class="sections">${body}</div>`;
@@ -201,3 +202,10 @@ function renderTestPane(): void {
 window.renderTestPane = renderTestPane;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.test = renderTestPane;
+
+/* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
+const UA = window as unknown as { P_LX: string };
+registerActions({
+  "test:gotoError": { click: () => void callGlobal("openPath", UA.P_LX, 10) },
+  "test:runTask": { click: (c) => void callGlobal("runTask", c.on) },
+});

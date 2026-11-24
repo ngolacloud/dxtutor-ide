@@ -101,8 +101,9 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// Versão do conjunto de ferramentas gravada com cada sessão: retomar uma sessão usa o
 /// conjunto com que ela começou (mudar as ferramentas muda o prefixo do pedido, e o
 /// *preserved thinking* recusa-o). 1 = F2–F5; 2 = + todo_write/exit_plan/task (F6);
-/// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7).
-pub const TOOLSET_VERSION: u32 = 3;
+/// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7);
+/// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura).
+pub const TOOLSET_VERSION: u32 = 4;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]

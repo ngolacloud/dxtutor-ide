@@ -5,11 +5,12 @@
    rtConnect/k8sConnect/dxDeploy/VIEW.observe reais são as portas `desktopPorts.stack` e
    `desktopPorts.infra` que os donos consultam (U4h4). */
 
-import { jsa } from "../../core";
 import type { ExecResult } from "./context";
 import type { StackDesktop } from "../../features/stack";
 import type { InfraDesktop } from "../../features/infra/application/ports";
 import { desktopPorts } from "../../app/desktop";
+import { registerActions } from "../../app/actions";
+import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
 
 export function installInfra(ctx: DesktopContext): void {
@@ -115,7 +116,7 @@ observe(t, host, _observe) {
   const pg = host.querySelector(".page") || host;
   const k8s = t.env && t.env !== "local" && ENVS.k8sOn;
   const cmd = k8s ? `kubectl --context ${ENVS.ctx} -n ${ENVS.ns} logs -f --tail=200 deploy/${t.name}` : `${compose()} logs -f --tail=200 ${t.name}`;
-  pg.insertAdjacentHTML("afterbegin", `<div class="sec-empty" style="margin:0 0 10px"><b>Real logs:</b> <code>${escH(cmd)}</code> <button class="mini pri" onclick="DXR.logs(${jsa(cmd)})">Stream in terminal</button> <span class="dim">(the charts below are modelled)</span></div>`);
+  pg.insertAdjacentHTML("afterbegin", `<div class="sec-empty" style="margin:0 0 10px"><b>Real logs:</b> <code>${escH(cmd)}</code> <button class="mini pri" data-action="desktop:logs" data-on="${escH(cmd)}">Stream in terminal</button> <span class="dim">(the charts below are modelled)</span></div>`);
 },
 };
 desktopPorts.stack = stackDesktop;
@@ -123,3 +124,7 @@ desktopPorts.infra = infraDesktop;
 R.logs = cmd => runInTerm(cmd, { env: envFor() });
 ctx.envFor = envFor;
 }
+
+const DX = (): Desktop => window.DXR as unknown as Desktop;
+/* os botões que o desktop acrescenta chamam o `DXR` no acto (eram `onclick="DXR.…"` inline — ADR-0004, U5c) */
+registerActions({ "desktop:logs": { click: (c) => void DX().logs!(c.on) } });

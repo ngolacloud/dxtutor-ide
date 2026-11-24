@@ -56,6 +56,232 @@ pub fn import_mermaid(source: &str) -> Result<MermaidImport, String> {
     tutor_eval::arch::mermaid::from_mermaid(source)
 }
 
+// ── Proposta de desenho pelo agente (Studio, F6) ─────────────────────────────────────
+
+/// Uma proposta de desenho do agente do Co-Dev, tal como a UI a recebe (evento
+/// `arch://proposal`): o modelo do Studio e os achados da validação.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchProposal {
+    pub title: String,
+    pub arch: Architecture,
+    pub findings: Vec<Finding>,
+}
+
+/// Um desenho com mais componentes do que isto não é um diagrama que se leia.
+pub const MAX_PROPOSAL_COMPONENTS: usize = 200;
+
+/// O nome da ferramenta (o anfitrião injecta-a a partir do conjunto versão 4).
+pub const ARCH_PROPOSE: &str = "arch_propose";
+
+/// `arch_propose`: o agente propõe um desenho ao humano no Studio de arquitectura. Valida-o
+/// com as regras do Studio (`arch_validate`) e devolve os achados ao modelo, para ele
+/// corrigir e propor de novo. **Não escreve nada no disco**: a proposta aparece no Studio
+/// por cima do desenho actual e só o substitui quando o humano carrega em «Accept».
+/// `emit` entrega a proposta à UI (no Tauri, o evento `arch://proposal`).
+pub struct ArchProposeTool {
+    pub emit: std::sync::Arc<dyn Fn(&ArchProposal) + Send + Sync>,
+}
+
+const KINDS: [&str; 18] = [
+    "service", "store", "broker", "consumer", "relay", "gateway", "cli", "process", "daemon",
+    "runtime", "socket", "state", "kernel", "external", "client", "worker", "port", "adapter",
+];
+
+impl tutor_agent::Tool for ArchProposeTool {
+    fn name(&self) -> &str {
+        ARCH_PROPOSE
+    }
+    fn description(&self) -> &str {
+        "Propose an architecture diagram to the human in the Architecture Studio (use it when \
+         they ask you to design, draw or compare an architecture). The design is validated \
+         with the Studio's rules and the findings come back to you: fix the errors and \
+         propose again. Nothing is written to disk; the human accepts or discards the \
+         proposal in the Studio. Groups are nested boundaries (host, plane, node, module, \
+         layer, boundary); views are at most two side-by-side panels (\"known system\" on \
+         the left, ours on the right), each listing its root groups. Arrows: style control \
+         (default), data (client requests) or optional; label only when the meaning is not \
+         obvious. Put in `source` the file or crate where each box and arrow is confirmed; \
+         a panel marked strict warns about anything without a source."
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        let kinds: Vec<&str> = KINDS.to_vec();
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Short title shown to the human, e.g. \"Delonix vs Docker\"."},
+                "architecture": {
+                    "type": "object",
+                    "properties": {
+                        "components": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "name": {"type": "string", "description": "1–2 words; a second line after \\n is allowed"},
+                                "kind": {"type": "string", "enum": kinds},
+                                "group": {"type": "string", "description": "id of the group it lives in"},
+                                "code": {"type": "string", "description": "optional mini code block, e.g. \"delonix run nginx\""},
+                                "source": {"type": "string", "description": "file or crate where it is confirmed"},
+                                "outbox": {"type": "boolean"}
+                            },
+                            "required": ["id", "name", "kind"]
+                        }},
+                        "connections": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "from": {"type": "string"},
+                                "to": {"type": "string"},
+                                "style": {"type": "string", "enum": ["control", "data", "optional"]},
+                                "protocol": {"type": "string", "enum": ["grpc", "http", "unix-socket", "fork-exec", "syscall", "fs", "ssh", "event"]},
+                                "label": {"type": "string"},
+                                "relation": {"type": "string", "enum": ["writes", "reads", "publishes", "consumes", "routes-to"], "description": "only for event-driven designs"},
+                                "event": {"type": "string"},
+                                "source": {"type": "string"}
+                            },
+                            "required": ["from", "to"]
+                        }},
+                        "groups": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string"},
+                                "kind": {"type": "string", "enum": ["host", "plane", "node", "module", "layer", "boundary"]},
+                                "parent": {"type": "string"},
+                                "style": {"type": "string", "enum": ["dashed", "solid"]},
+                                "source": {"type": "string"}
+                            },
+                            "required": ["id", "label", "kind"]
+                        }},
+                        "views": {"type": "array", "maxItems": 2, "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "title": {"type": "string"},
+                                "color": {"type": "string", "description": "#rrggbb"},
+                                "roots": {"type": "array", "items": {"type": "string"}},
+                                "daemonless": {"type": "boolean"},
+                                "strict": {"type": "boolean"}
+                            },
+                            "required": ["id", "title", "roots"]
+                        }}
+                    },
+                    "required": ["components"]
+                }
+            },
+            "required": ["title", "architecture"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn run(
+        &self,
+        input: &serde_json::Value,
+        _ctx: &tutor_agent::ToolCtx,
+    ) -> tutor_agent::ToolOutput {
+        match proposal_from_input(input) {
+            Ok(p) => {
+                (self.emit)(&p);
+                tutor_agent::ToolOutput::ok(proposal_summary(&p))
+            }
+            Err(e) => tutor_agent::ToolOutput::err(e),
+        }
+    }
+}
+
+/// Lê e valida a entrada da ferramenta (sem efeitos).
+pub fn proposal_from_input(input: &serde_json::Value) -> Result<ArchProposal, String> {
+    let title = input["title"].as_str().unwrap_or("").trim().to_string();
+    if title.is_empty() {
+        return Err("a proposal needs a `title`".into());
+    }
+    let arch: Architecture = serde_json::from_value(input["architecture"].clone())
+        .map_err(|e| format!("the architecture does not match the Studio model: {e}"))?;
+    if arch.components.is_empty() {
+        return Err("a proposal needs at least one component".into());
+    }
+    if arch.components.len() > MAX_PROPOSAL_COMPONENTS {
+        return Err(format!(
+            "{} components is too many for a readable diagram (at most {MAX_PROPOSAL_COMPONENTS}): split it",
+            arch.components.len()
+        ));
+    }
+    let findings = arch.validate();
+    Ok(ArchProposal {
+        title,
+        arch,
+        findings,
+    })
+}
+
+/// O que volta ao modelo: o que foi mostrado e os achados, um por linha.
+pub fn proposal_summary(p: &ArchProposal) -> String {
+    use tutor_eval::arch::Severity;
+    let errors = p
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .count();
+    let warnings = p.findings.len() - errors;
+    let mut out = format!(
+        "Proposal «{}» is shown in the Architecture Studio ({} components, {} arrows, {} groups, {} panels). \
+         The human accepts or discards it there; nothing was written to disk.\n",
+        p.title,
+        p.arch.components.len(),
+        p.arch.connections.len(),
+        p.arch.groups.len(),
+        p.arch.views.len()
+    );
+    if p.findings.is_empty() {
+        out.push_str("Validation: no findings.");
+    } else {
+        out.push_str(&format!(
+            "Validation: {errors} error(s), {warnings} warning(s) — fix them and propose again:\n"
+        ));
+        for f in &p.findings {
+            let sev = if f.severity == Severity::Error {
+                "error"
+            } else {
+                "warning"
+            };
+            out.push_str(&format!("- {sev} {}: {}\n", f.rule, f.message));
+        }
+    }
+    out
+}
+
+/// Extensões que o Studio pode exportar para a pasta do projecto.
+pub const EXPORT_EXTENSIONS: &[&str] = &["svg", "png", "mmd", "md", "json"];
+
+/// Escreve uma exportação do Studio (SVG, PNG, Mermaid, ficheiro do desenho) em `rel`,
+/// DENTRO de `root` (o mesmo confinamento do `write_file`: sem `..`, sem caminhos
+/// absolutos, sem sair por symlinks) e só com uma das [`EXPORT_EXTENSIONS`]. Cria as
+/// pastas que faltarem e substitui um ficheiro existente (a UI confirma antes). Devolve o
+/// caminho relativo escrito.
+pub fn save_export(root: &Path, rel: &str, bytes: &[u8]) -> Result<String, String> {
+    let ext = Path::new(rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if !EXPORT_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!(
+            "`{rel}`: the Studio only exports {}",
+            EXPORT_EXTENSIONS.join(", ")
+        ));
+    }
+    // confinamento ANTES de criar pastas (como `workspace::write`): um symlink dentro do
+    // projecto não pode servir para criar nada fora dele
+    let p = crate::workspace::safe_join(root, rel)?;
+    crate::workspace::ensure_within(root, &p)?;
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{rel}: {e}"))?;
+    }
+    std::fs::write(&p, bytes).map_err(|e| format!("{rel}: {e}"))?;
+    Ok(rel.to_string())
+}
+
 /// Pré-visualiza o scaffold de um desenho SEM escrever: os pares `(relPath, content)` que
 /// [`scaffold`] escreveria. Vazio se o desenho for inválido (mesma regra do scaffold).
 /// Delega a `Architecture::scaffold`.
@@ -200,6 +426,119 @@ mod tests {
             connections: vec![Connection::new("svc", "db", Relation::Writes, "")],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn arch_propose_validates_emits_and_never_writes() {
+        use std::sync::{Arc, Mutex};
+        use tutor_agent::Tool;
+        let got: Arc<Mutex<Vec<ArchProposal>>> = Arc::default();
+        let sink = got.clone();
+        let tool = ArchProposeTool {
+            emit: Arc::new(move |p| sink.lock().unwrap().push(p.clone())),
+        };
+        assert_eq!(tool.name(), "arch_propose");
+        assert!(tool.read_only() && !tool.mutates_files());
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = tutor_agent::ToolCtx {
+            root: dir.path().to_path_buf(),
+            cancel: Arc::default(),
+        };
+        let input = serde_json::json!({
+            "title": "Delonix vs Docker",
+            "architecture": {
+                "components": [
+                    {"id": "cli", "name": "delonix", "kind": "cli", "group": "host", "code": "delonix run nginx"},
+                    {"id": "dockerd", "name": "dockerd", "kind": "daemon", "group": "host"}
+                ],
+                "connections": [{"from": "cli", "to": "dockerd", "protocol": "unix-socket"}],
+                "groups": [{"id": "host", "label": "Host", "kind": "host"}],
+                "views": [{"id": "delonix", "title": "Delonix", "roots": ["host"], "daemonless": true}]
+            }
+        });
+        let out = tool.run(&input, &ctx);
+        assert!(!out.is_error, "{}", out.content);
+        // a validação real correu e o achado voltou ao modelo
+        assert!(
+            out.content
+                .contains("Proposal «Delonix vs Docker» is shown"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("warning daemonless-claim"),
+            "{}",
+            out.content
+        );
+        let p = &got.lock().unwrap()[0];
+        assert_eq!(
+            p.arch.components[0].code.as_deref(),
+            Some("delonix run nginx")
+        );
+        assert_eq!(p.findings[0].rule, "daemonless-claim");
+        // nada no disco
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        // o JSON que a UI recebe
+        let js = serde_json::to_value(p).unwrap();
+        assert_eq!(js["title"], "Delonix vs Docker");
+        assert_eq!(js["findings"][0]["severity"], "warning");
+    }
+
+    #[test]
+    fn arch_propose_rejects_bad_input_without_emitting() {
+        use std::sync::{atomic::AtomicUsize, Arc};
+        let n = Arc::new(AtomicUsize::new(0));
+        let c = n.clone();
+        let tool = ArchProposeTool {
+            emit: Arc::new(move |_| {
+                c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }),
+        };
+        let ctx = tutor_agent::ToolCtx {
+            root: std::env::temp_dir(),
+            cancel: Arc::default(),
+        };
+        use tutor_agent::Tool;
+        for bad in [
+            serde_json::json!({"title": "", "architecture": {"components": [{"id": "a", "name": "a", "kind": "cli"}]}}),
+            serde_json::json!({"title": "x", "architecture": {"components": []}}),
+            serde_json::json!({"title": "x", "architecture": {"components": [{"id": "a", "name": "a", "kind": "spaceship"}]}}),
+        ] {
+            assert!(tool.run(&bad, &ctx).is_error);
+        }
+        assert_eq!(n.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let many: Vec<_> = (0..201)
+            .map(|i| serde_json::json!({"id": format!("c{i}"), "name": "c", "kind": "process"}))
+            .collect();
+        let r = proposal_from_input(
+            &serde_json::json!({"title": "x", "architecture": {"components": many}}),
+        );
+        assert!(r.unwrap_err().contains("too many"));
+    }
+
+    #[test]
+    fn save_export_writes_inside_the_project_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let rel = save_export(root, "docs/architecture/d.png", &[0x89, b'P', b'N', b'G'])
+            .expect("escreve dentro da pasta");
+        assert_eq!(rel, "docs/architecture/d.png");
+        assert_eq!(
+            std::fs::read(root.join("docs/architecture/d.png")).unwrap(),
+            [0x89, b'P', b'N', b'G']
+        );
+        // substitui (a UI confirma antes)
+        save_export(root, "docs/architecture/d.png", b"x").unwrap();
+        assert_eq!(
+            std::fs::read(root.join("docs/architecture/d.png")).unwrap(),
+            b"x"
+        );
+        // fora da pasta, absoluto, ou extensão que não é de exportação: recusado
+        assert!(save_export(root, "../fora.svg", b"x").is_err());
+        assert!(save_export(root, "/tmp/abs.svg", b"x").is_err());
+        assert!(save_export(root, "docs/run.sh", b"x").is_err());
+        assert!(save_export(root, "docs/noext", b"x").is_err());
+        assert!(!root.join("docs/run.sh").exists());
     }
 
     #[test]

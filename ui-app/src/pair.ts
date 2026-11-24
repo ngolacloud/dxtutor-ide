@@ -17,6 +17,7 @@ import { shellClient } from "./platform/tauri/shell";
 import { fsClient } from "./platform/tauri/fs";
 import { appClient } from "./platform/tauri/app";
 import { bus } from "./app/bus";
+import { registerActions } from "./app/actions";
 
 export {};
 
@@ -820,7 +821,7 @@ document.head.insertAdjacentHTML("beforeend", `<style>
 .ed-ta.pair-ro{cursor:default}
 #st-pair{display:none}
 </style>`);
-document.body.insertAdjacentHTML("beforeend", `<div id="pair-modal" onclick="if(event.target===this)PAIR.ui.close()"><div class="pm" id="pair-pm"></div></div><div id="pair-dock" style="display:none"></div>`);
+document.body.insertAdjacentHTML("beforeend", `<div id="pair-modal" data-action="pair:close"><div class="pm" id="pair-pm"></div></div><div id="pair-dock" style="display:none"></div>`);
 let tab: "start" | "join" = "start";
 function openPanel(t?: "start" | "join"): void {
   if (t) tab = t;
@@ -841,18 +842,18 @@ function drawPanel0(): void {
   if (P.role === "host") {
     el.innerHTML = `<h3>PairCode — you are hosting</h3><div class="dim">Send this token to the other developer. It works once per session and holds the key that encrypts everything you share.</div>
     <div class="row"><textarea id="pair-tok" readonly>${escH(P.token || "")}</textarea></div>
-    <div class="row"><button class="mini pri" onclick="PAIR.ui.copy()">Copy token</button><span class="dim">${live() ? `<b>${escH(P.peerName)}</b> is connected` : "waiting for your pair to join…"}</span><span style="flex:1"></span><button class="mini" onclick="PAIR.ui.end()">End session</button></div>
+    <div class="row"><button class="mini pri" data-action="pair:copy">Copy token</button><span class="dim">${live() ? `<b>${escH(P.peerName)}</b> is connected` : "waiting for your pair to join…"}</span><span style="flex:1"></span><button class="mini" data-action="pair:end">End session</button></div>
     <div class="dim" style="margin-top:10px">Both machines must reach each other: same network, or a VPN such as Tailscale/WireGuard. Across the internet without a VPN, forward TCP port ${escH((P.token && decodeTok(P.token).port) || 47821)} on the host's router and the guest uses "via".</div>`;
     return;
   }
   if (P.role === "guest") {
-    el.innerHTML = `<h3>PairCode — ${live() ? "connected to " + escH(P.peerName) : "joining…"}</h3><div class="dim">You see ${escH(P.peerName || "the host")}'s workspace. ${amDriver() ? "You are driving." : "You are navigating — request control to type."}</div><div class="row"><span style="flex:1"></span><button class="mini" onclick="PAIR.ui.end()">Leave session</button></div>`;
+    el.innerHTML = `<h3>PairCode — ${live() ? "connected to " + escH(P.peerName) : "joining…"}</h3><div class="dim">You see ${escH(P.peerName || "the host")}'s workspace. ${amDriver() ? "You are driving." : "You are navigating — request control to type."}</div><div class="row"><span style="flex:1"></span><button class="mini" data-action="pair:end">Leave session</button></div>`;
     return;
   }
   el.innerHTML = `<h3>PairCode</h3><div class="dim">Pair programming: one drives, the other navigates. The guest sees the host's project live, both see and hear each other, and control changes hands on request.</div>
-   <div class="tabs"><button class="mini ${tab === "start" ? "pri" : ""}" onclick="PAIR.ui.tab('start')">Host a session</button><button class="mini ${tab === "join" ? "pri" : ""}" onclick="PAIR.ui.tab('join')">Join with a token</button></div>
-   ${tab === "start" ? `<div class="dim">Shares <b>${escH(R.root || "the sample workspace")}</b>. Your pair can read every file in it while the session lasts.</div><div class="row"><button class="mini pri" onclick="PAIR.ui.start()">Start and get a token</button></div>`
-    : `<div class="row"><textarea id="pair-in" placeholder="dxp_…"></textarea></div><div class="row"><input id="pair-via" placeholder="via (optional): host:port — for a tunnel or VPN address"></div><div class="row"><button class="mini pri" onclick="PAIR.ui.join()">Join</button><span class="dim">your open folder is set aside and comes back when you leave</span></div>`}`;
+   <div class="tabs"><button class="mini ${tab === "start" ? "pri" : ""}" data-action="pair:tab" data-on="start">Host a session</button><button class="mini ${tab === "join" ? "pri" : ""}" data-action="pair:tab" data-on="join">Join with a token</button></div>
+   ${tab === "start" ? `<div class="dim">Shares <b>${escH(R.root || "the sample workspace")}</b>. Your pair can read every file in it while the session lasts.</div><div class="row"><button class="mini pri" data-action="pair:start">Start and get a token</button></div>`
+    : `<div class="row"><textarea id="pair-in" placeholder="dxp_…"></textarea></div><div class="row"><input id="pair-via" placeholder="via (optional): host:port — for a tunnel or VPN address"></div><div class="row"><button class="mini pri" data-action="pair:join">Join</button><span class="dim">your open folder is set aside and comes back when you leave</span></div>`}`;
 }
 function decodeTok(t: string): { port?: number } {
   try { return JSON.parse(atob(t.slice(4).replace(/-/g, "+").replace(/_/g, "/"))); } catch { return {}; }
@@ -868,13 +869,13 @@ function drawDock(): void {
     peerCam = (!P.peerAv || P.peerAv.cam) && (!relay || !!P.frames);
   const st = relay ? "relayed" : P.rtc ? P.rtc.connectionState : "";
   const keepSelf = $("#pair-self") as HTMLVideoElement | null, keepRemote = $("#pair-remote") as HTMLVideoElement | null;
-  d.innerHTML = `<div class="ph" id="pair-drag"><span class="pdot" style="background:${remoteOn ? "var(--green,#5cc9a7)" : "#e0b64a"}"></span><b>${escH(P.peerName || "pair")}</b><span class="pair-badge ${amDriver() ? "" : "nav"}">${amDriver() ? "driving" : "navigating"}</span><button class="mini" title="Minimise" onclick="PAIR.ui.min()">${P.min ? "▢" : "–"}</button></div>
+  d.innerHTML = `<div class="ph" id="pair-drag"><span class="pdot" style="background:${remoteOn ? "var(--green,#5cc9a7)" : "#e0b64a"}"></span><b>${escH(P.peerName || "pair")}</b><span class="pair-badge ${amDriver() ? "" : "nav"}">${amDriver() ? "driving" : "navigating"}</span><button class="mini" title="Minimise" data-action="pair:min">${P.min ? "▢" : "–"}</button></div>
    <div class="vid">${relay ? `<img id="pair-remote-img" style="width:100%;height:100%;object-fit:cover;display:block" ${P.lastFrameData ? `src="${P.lastFrameData}"` : ""}>` : '<video id="pair-remote" autoplay playsinline></video>'}${!remoteOn || !peerCam ? `<div class="nov">${!remoteOn ? "connecting call… " + escH(st) : P.peerAv && !P.peerAv.cam ? escH(P.peerName) + " turned the camera off" : "no video from " + escH(P.peerName) + (relay ? " (audio only)" : "")}</div>` : ""}${relay ? '<span class="vl" style="left:auto;right:88px;top:6px;bottom:auto" title="No WebRTC on one side: video and audio go through the encrypted PairCode channel">relay</span>' : ""}
    <video id="pair-self" autoplay playsinline muted ${P.local && P.cam ? "" : 'style="display:none"'}></video><span class="vl">${escH(P.peerName)}${P.peerAv && !P.peerAv.mic ? " 🔇" : ""}</span></div>
-   <div class="ctl"><button class="mini" title="${P.mic ? "Mute" : "Unmute"}" onclick="PAIR.ui.mic()" ${P.local ? "" : "disabled"}>${P.mic ? "🎙" : "🔇"}</button><button class="mini" title="${P.cam ? "Turn camera off" : "Turn camera on"}" onclick="PAIR.ui.cam()" ${P.local && P.local.getVideoTracks().length ? "" : "disabled"}>${P.cam ? "📷" : "🚫"}</button>
-   <button class="mini" title="Follow the driver's file and cursor" onclick="PAIR.ui.follow()">${P.follow ? "◉ Follow" : "○ Follow"}</button><button class="mini" onclick="PAIR.ui.end()">${P.role === "host" ? "End" : "Leave"}</button></div>
-   <div class="ctl" style="padding-top:0">${amDriver() ? `<button class="mini pri" onclick="PAIR.ui.give()">Give control to ${escH(P.peerName)}</button>` : `<button class="mini pri" onclick="PAIR.ui.request()" ${P.pendingReq ? "disabled" : ""}>${P.pendingReq ? "Waiting for an answer…" : "Request control"}</button>`}${P.role === "host" && !amDriver() ? `<button class="mini" onclick="PAIR.ui.take()">Take back</button>` : ""}</div>
-   ${P.ask ? `<div class="ask"><b>${escH(P.peerName)}</b> asks for control of mouse and keyboard.<div class="ctl" style="padding:6px 0 0"><button class="mini pri" onclick="PAIR.ui.answer(true)">Give control</button><button class="mini" onclick="PAIR.ui.answer(false)">Not now</button></div></div>` : ""}`;
+   <div class="ctl"><button class="mini" title="${P.mic ? "Mute" : "Unmute"}" data-action="pair:mic" ${P.local ? "" : "disabled"}>${P.mic ? "🎙" : "🔇"}</button><button class="mini" title="${P.cam ? "Turn camera off" : "Turn camera on"}" data-action="pair:cam" ${P.local && P.local.getVideoTracks().length ? "" : "disabled"}>${P.cam ? "📷" : "🚫"}</button>
+   <button class="mini" title="Follow the driver's file and cursor" data-action="pair:follow">${P.follow ? "◉ Follow" : "○ Follow"}</button><button class="mini" data-action="pair:end">${P.role === "host" ? "End" : "Leave"}</button></div>
+   <div class="ctl" style="padding-top:0">${amDriver() ? `<button class="mini pri" data-action="pair:give">Give control to ${escH(P.peerName)}</button>` : `<button class="mini pri" data-action="pair:request" ${P.pendingReq ? "disabled" : ""}>${P.pendingReq ? "Waiting for an answer…" : "Request control"}</button>`}${P.role === "host" && !amDriver() ? `<button class="mini" data-action="pair:take">Take back</button>` : ""}</div>
+   ${P.ask ? `<div class="ask"><b>${escH(P.peerName)}</b> asks for control of mouse and keyboard.<div class="ctl" style="padding:6px 0 0"><button class="mini pri" data-action="pair:answer" data-on="1">Give control</button><button class="mini" data-action="pair:answer" data-on="0">Not now</button></div></div>` : ""}`;
   /* keep the live video elements so the picture does not flash on every redraw */
   if (keepSelf && keepSelf.srcObject) {
     $("#pair-self")!.replaceWith(keepSelf);
@@ -948,7 +949,7 @@ function drawStatus(): void {
   let s = $("#st-pair");
   const anchor = $("#st-prob");
   if (!s && anchor) {
-    anchor.insertAdjacentHTML("afterend", '<button class="si" id="st-pair" title="PairCode" onclick="PAIR.ui.open()"></button>');
+    anchor.insertAdjacentHTML("afterend", '<button class="si" id="st-pair" title="PairCode" data-action="pair:open"></button>');
     s = $("#st-pair");
   }
   if (!s) return;
@@ -977,6 +978,16 @@ P.ui = {
   answer,
   min: () => { P.min = !P.min; drawDock(); },
 };
+
+/* os botões do painel, da doca e da barra de estado chamam `PAIR.ui` no acto (eram `onclick="PAIR.ui.f()"` — ADR-0004, U5b) */
+const ui = (): PairUi => window.PAIR.ui!;
+registerActions({
+  "pair:close": { click: (c) => { if (c.ev.target === c.el) ui().close(); } },
+  ...Object.fromEntries((["copy", "end", "start", "join", "min", "mic", "cam", "follow", "give", "request", "take", "open"] as const)
+    .map((f) => [`pair:${f}`, { click: () => void ui()[f]() }])),
+  "pair:tab": { click: (c) => ui().tab(c.on as "start" | "join") },
+  "pair:answer": { click: (c) => ui().answer(c.on === "1") },
+});
 
 /* menus, palette, shortcut */
 const items = (): MenuItem[] => [

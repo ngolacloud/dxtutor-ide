@@ -28,7 +28,7 @@
        por fachadas-alias sem o substring migrado: `window.vsxOn(id)` (=extOn),
        `window.vsxFmt()` (=formatDoc), `window.vsxCmds()` (=extCmds). */
 
-import { $, hd, svg, esc, jsa } from "../core";
+import { $, hd, svg, esc } from "../core";
 import { RP, VIEW } from "../app/store/registry";
 import { type ExtItem, type ExsState } from "./ext/domain/types";
 import { sectionsFor } from "./ext/domain/policy";
@@ -37,6 +37,7 @@ import { makeContribEngine } from "./ext/application/contributions-engine";
 import { isDesktop } from "../platform/tauri/core";
 import { fetchOpenVsx } from "../platform/tauri/extensions";
 import { bindActions } from "./ext/ui/actions";
+import { registerActions, callGlobal, args } from "../app/actions";
 import { toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
 import {
   initExs,
@@ -216,12 +217,12 @@ const { extAll, extOn, extCmds, saveExt, extInstall, extRemove, extToggle, loadV
 
 /* ── re-render da UI de extensões (dono do DOM): injectado no motor como `rerender`. ── */
 function rerExt(){ if(pane()==='ext')panes().ext();rerender('extd');refresh(true);const t=tabOf(cur());if(t&&t.kind==='file'&&t.path)paintEd(t.path); }
-function extRow(x: ExtItem){ const i=EXS.inst[x.id],col=`hsl(${[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%360} 45% 45%)`;return `<div class="ex-row" onclick="openTab({id:${jsa(`extd:${x.id}`)},title:${jsa(x.n)},kind:'extd',ext:${jsa(x.id)}})"><span class="ex-ic" style="background:${col}">${esc(x.n.charAt(0))}</span><div class="ex-t"><b class="notr">${esc(x.n)}</b><small class="notr">${esc(x.d)}</small><span class="notr">${esc(x.pub)}${x.vsix?' · VSIX':''}${x.bundled?' · bundled':''}</span></div>${i?(x.bundled?'':`<button class="mini" onclick="event.stopPropagation();extToggle(${jsa(x.id)})">${i.on?'Disable':'Enable'}</button>`):`<button class="mini pri" onclick="event.stopPropagation();extInstall(${jsa(x.id)})">Install</button>`}</div>`; }
+function extRow(x: ExtItem){ const i=EXS.inst[x.id],col=`hsl(${[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%360} 45% 45%)`;return `<div class="ex-row" data-action="ext:open" data-on="${esc(JSON.stringify([x.id, x.n]))}"><span class="ex-ic" style="background:${col}">${esc(x.n.charAt(0))}</span><div class="ex-t"><b class="notr">${esc(x.n)}</b><small class="notr">${esc(x.d)}</small><span class="notr">${esc(x.pub)}${x.vsix?' · VSIX':''}${x.bundled?' · bundled':''}</span></div>${i?(x.bundled?'':`<button class="mini" data-action="ext:rowToggle" data-on="${esc(x.id)}">${i.on?'Disable':'Enable'}</button>`):`<button class="mini pri" data-action="ext:rowInstall" data-on="${esc(x.id)}">Install</button>`}</div>`; }
 
 /* ── corpo do tab de detalhe (VIEW.extd) — publicado; v6 mantém o shim. ── */
 function renderExtd(t: { ext?: string }, host: HTMLElement){ hydrateExs(); const x=extAll().find(e=>e.id===t.ext);if(!x){host.innerHTML='<div class="empty">Extension removed.</div>';return;}const i=EXS.inst[x.id],live=({errorlens:'Diagnostics appear at the end of each line in the editor.',prettier:'Prettier: Format Document (Shift+Alt+F) trims trailing spaces, normalises indentation and the final newline.',yaml:'YAML files are validated: tabs, missing kind, and Deployments without resource requests show in Problems.'} as Record<string, string | undefined>)[x.eff??''];
   host.innerHTML=`<div class="page" style="max-width:760px"><div style="display:flex;gap:16px;align-items:center"><span class="ex-ic big" style="background:hsl(${[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%360} 45% 45%)">${esc(x.n.charAt(0))}</span><div><h1 class="notr" style="margin:0">${esc(x.n)}</h1><div class="sub notr" style="margin:0">${esc(x.pub)} · <code>${esc(x.id)}</code>${x.ver?' · v'+esc(x.ver):''}</div></div></div>
-   <div class="sub" style="margin-top:12px">${esc(x.d)}</div><div style="display:flex;gap:8px;margin:12px 0">${i?(x.bundled?'<span class="tag live">bundled</span>':`<button class="mini" onclick="extToggle(${jsa(x.id)})">${i.on?'Disable':'Enable'}</button><button class="mini" onclick="extRemove(${jsa(x.id)})">Uninstall</button>`):`<button class="mini pri" onclick="extInstall(${jsa(x.id)})">Install</button>`}</div>
+   <div class="sub" style="margin-top:12px">${esc(x.d)}</div><div style="display:flex;gap:8px;margin:12px 0">${i?(x.bundled?'<span class="tag live">bundled</span>':`<button class="mini" data-action="ext:toggle" data-on="${esc(x.id)}">${i.on?'Disable':'Enable'}</button><button class="mini" data-action="ext:remove" data-on="${esc(x.id)}">Uninstall</button>`):`<button class="mini pri" data-action="ext:install" data-on="${esc(x.id)}">Install</button>`}</div>
    ${x.vsix&&x.contrib?contribSection(x):`<h2>In this prototype</h2><div class="adv ${live?'agent':'mix'}">${svg(live?'check':'bulb')}<div>${live||'Runs in the desktop app\'s VS Code–compatible extension host. Here its commands are listed in the palette but do not run.'}</div></div>`}
    ${x.cmds&&x.cmds.length?`<h2>Commands</h2><div class="tbl-wrap">${x.cmds.map(c=>`<div class="rowline"><span class="notr">${esc(c[0])}</span><span class="sp"></span>${c[1]?`<kbd>${esc(c[1])}</kbd>`:''}</div>`).join('')}</div>`:''}
    ${x.cfg&&x.cfg.length?`<h2>Settings</h2><div class="tbl-wrap">${x.cfg.map(c=>`<div class="rowline"><code class="notr">${esc(c)}</code></div>`).join('')}</div>`:''}${x.engines?`<div class="sub" style="margin-top:12px">Requires VS Code API <code>${esc(x.engines)}</code>.</div>`:''}</div>`; }
@@ -272,7 +273,7 @@ function renderExtPane(){
   const el = $("#pane-ext"), cx = projectContext().map(c => c[0]), q = EXQ.toLowerCase();
   const { inst, rec, rest } = sectionsFor(extAll(), EXT, id => !!EXS.inst[id], cx, q);
   if (!el) return;
-  el.innerHTML = hd("Extensions", `<button title="Install from VSIX…" onclick="$('#vsix-in').click()">${svg("plus")}</button>`) + `<div class="sections"><input class="inp" id="ex-q" placeholder="Search extensions in Open VSX" value="${esc(EXQ)}"><input type="file" id="vsix-in" accept=".vsix" style="display:none">${openVsxRow()}
+  el.innerHTML = hd("Extensions", `<button title="Install from VSIX…" data-action="ext:pickVsix">${svg("plus")}</button>`) + `<div class="sections"><input class="inp" id="ex-q" placeholder="Search extensions in Open VSX" value="${esc(EXQ)}"><input type="file" id="vsix-in" accept=".vsix" style="display:none">${openVsxRow()}
    <div class="scm-grp">Installed<span class="cnt">${inst.length}</span></div>${inst.map(extRow).join("") || '<div class="sec-empty">None.</div>'}
    ${rec.length ? `<div class="scm-grp">Recommended for this project<span class="cnt">${rec.length}</span></div>${rec.map(extRow).join("")}` : ""}${rest.length ? `<div class="scm-grp">Open VSX</div>${rest.map(extRow).join("")}` : ""}
    <div class="sec-empty">Extensions come from Open VSX — the Microsoft Marketplace terms only allow Microsoft's own products. Availability varies by extension. In the browser only a few behave live (Error Lens, Prettier, YAML); the desktop app runs them all in a VS Code–compatible extension host.</div></div>`;
@@ -302,4 +303,18 @@ publish({
 bindActions({
   "vsx-theme": { on: "click", run: e => vsxApplyTheme(e.on) },
   "vsx-open-vsx": { on: "click", run: () => { void vsxInstallOpenVsx(); } },
+});
+
+/* acções da lista e da página de detalhe (ADR-0004, U5c): eram `onclick="…"` inline, que resolviam o
+   `openTab`/`extToggle`/`extInstall`/`extRemove`/`$` no window ao clicar; vão pelo despachante partilhado
+   (o que borbulha e pára como o inline), não pela tabela desta feature, cujo despachante só vê o
+   `[data-action]` mais próximo e corre depois dos outros listeners do document. */
+registerActions({
+  "ext:open": { click: (c) => { const [id, n] = args<[string, string]>(c); callGlobal("openTab", { id: `extd:${id}`, title: n, kind: "extd", ext: id }); } },
+  "ext:rowToggle": { click: (c) => { c.stop(); callGlobal("extToggle", c.on); } },
+  "ext:rowInstall": { click: (c) => { c.stop(); callGlobal("extInstall", c.on); } },
+  "ext:toggle": { click: (c) => void callGlobal("extToggle", c.on) },
+  "ext:remove": { click: (c) => void callGlobal("extRemove", c.on) },
+  "ext:install": { click: (c) => void callGlobal("extInstall", c.on) },
+  "ext:pickVsix": { click: () => (callGlobal("$", "#vsix-in") as HTMLElement).click() },
 });

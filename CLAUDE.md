@@ -27,20 +27,22 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 162 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 163 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
   para `ui-next`.
 - **A6** — baseline de `@ts-nocheck` (**directiva** `// @ts-nocheck`, não a palavra
-  em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
+  em prosa): **0 ficheiros** desde a U4j5b do ADR-0004 (era 11). Nenhum ficheiro da UI
+  pode voltar a ter a directiva: código novo nasce tipado.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
   `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn` e `arch`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
-  foram tipados) e o `boot.ts` também (U4j1); só resta o `app.ts`.
+  foram tipados), o `boot.ts` também (U4j1) e, por fim, o `app.ts` (U4j5b), que depois se dividiu
+  em `app/commands.ts` (CMD/menus) e `app/boot-steps.ts` (boot, boot3–boot6) e deixou de existir (U4j5c).
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
@@ -166,7 +168,7 @@ Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
 resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. Particularidades: a sessão
 `DBG` é polimórfica (`pre`/`code`/`ops`) — tipada por união + casts por `kind`; os
 helpers de lexer (`lexVariant`/`LXL`) vivem em `debug.ts` (ADR-0004 U4g5) e os containers
-`#pane-debug`/`#pc-dbg` nascem no `boot6` (no app.ts desde a U4g7; o arranque não corre no
+`#pane-debug`/`#pc-dbg` nascem no `boot6` (no `app/boot-steps.ts` desde a U4j5c; o arranque não corre no
 harness) — o golden reproduz estas peças como fixtures (cópias antigas).
 Rede de segurança em `tests/debug.golden.test.ts` (goldens de #pane-debug/#pc-dbg nos
 estados sem-sessão/pre/code, caracterização dos geradores, e 4 testes de dispatch
@@ -205,9 +207,10 @@ resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`
 app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3), e
 o desktop (`platform/desktop/demos.ts`) ainda decora o `runSprint` — as arestas internas e os handlers data-action
 resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
-O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). Os handlers de ARRASTAR
-(`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
-`STRIPPED_ATTRS`, migrá-los partia o golden. Rede de segurança em
+O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). O ARRASTAR dos cartões
+(`board:card`/`board:col`) vai pelo despachante partilhado desde a U5d do ADR-0004 — os goldens do
+quadro foram regenerados nessa altura (decisão do dono; o diff foi só a remoção dos 44 atributos
+`ondrag*`/`ondrop`). Rede de segurança em
 `tests/board.golden.test.ts` (goldens do pane vazio/povoado, caracterização de
 genBacklogIssues/mkIssue, 3 testes de dispatch delegado) e `tests/board.domain.test.ts`
 (domínio puro). **BUG pré-existente reportado (não corrigido no refactor): `autoTest`
@@ -288,7 +291,7 @@ features/infra.ts  RESÍDUO strangler (tipado desde a U4i1 do ADR-0004; FORA da 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
 TODO tipado — interfaces locais (Design/TechSpec/KindSpec/K8sState/Secrets/…) no centro,
 os `any`/casts das formas opacas do monólito confinam-se ao bridge; (2) o `#pane-infra` nasce no `boot5`
-(no app.ts desde a U4g7), que não corre no harness → `infra.golden.test.ts` reproduz esta
+(no `app/boot-steps.ts` desde a U4j5c), que não corre no harness → `infra.golden.test.ts` reproduz esta
 fixture (e o antigo shim `RP.infra`) em `provideFixtures()`; (3) o estado window-backed PERSISTE entre testes no
 jsdom mas a reavaliação de `infra.ts` reassigna `window.ENVS/ENVX/K8S/…` por `bootApp`;
 LS é inoperante em headless (persistência é porta de infra, não se caracteriza). Rede de
@@ -326,7 +329,7 @@ Particularidades: (1) não entra no harness de goldens — o caminho do browser/
 a demo e os goldens ficam intactos; a rede é `tests/panel.{domain,application}.test.ts` +
 o passo `panel` do auto-teste desktop (`platform/desktop/selftest.ts`: PTY real, /dev/pts,
 integração de shell, scan); (2) `runInTerm` (`platform/desktop/terminal.ts`) delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
-linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`features/shortcuts.ts` chamam
+linha `#term` fica para o terminal partilhado do PairCode; (3) `features/shortcuts.ts` chama
 `termOwnsKey(e)` nos atalhos globais — com o foco no xterm, as teclas são da shell excepto
 a lista curta de `isAppKey` (estilo `commandsToSkipShell` do VS Code).
 
@@ -352,6 +355,18 @@ desktop configura (não decorações). `explorer` (syncTree), `welcome` (VIEW.we
 (clLog/clShow) e `ext` (loadJSZip) — U4h5b. Ficam como CONTRIBUIÇÕES do desktop (não portas):
 os itens do menu File, as entradas da paleta e o Ctrl+O — dissolvem-se quando as features
 registarem os seus comandos (U7).
+
+## Acções delegadas partilhadas (`ui-app/src/app/actions.ts`, ADR-0004 U5)
+
+Os módulos sem despachante próprio emitem `data-action="dono:nome"` (+ `data-on`, o único payload —
+os goldens tiram exactamente `data-action`/`data-on`) e registam a tabela com `registerActions`. O
+despachante é o PRIMEIRO listener do document (primeiro import do `main.ts`) e imita o handler
+inline: corre os antepassados com acção pela ordem da borbulha, `c.stop()` = `event.stopPropagation()`,
+cede a um `el.onclick = f` posterior e a controlos desactivados. As acções chamam as funções
+publicadas no acto (`callGlobal`) — não troques por ligações locais sem ver se alguém decora a
+publicada. Handlers inline novos não: a métrica U5 do `ui-metrics.sh` está em 0, e desde a U5e o
+CSP da app (`script-src 'self'`, sem `'unsafe-inline'`) bloqueava-os de qualquer forma. O passo `csp`
+do auto-teste desktop prova-o na app real.
 
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 
@@ -398,8 +413,8 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
   editor. O resíduo `ext.ts` publica `vsxHighlight` (usado pelo `paintEd`), `vsxSnippet`
   (Tab), `vsxToggleComment` (Ctrl+/), `vsxApplyTheme` e `vsxInstallOpenVsx`.
 - **`ui/actions.ts`:** listener delegado da `ext` (chave `__extActionHandler__`). Os botões da
-  Fase 4 (`vsx-theme`, `vsx-open-vsx`) usam `data-action`; o resto do markup das extensões
-  ainda tem `onclick` inline (a métrica U5 do `ui-metrics.sh` não pode subir).
+  Fase 4 (`vsx-theme`, `vsx-open-vsx`) usam `data-action`; a lista e a página de detalhe passaram ao
+  despachante partilhado (`ext:*`, `app/actions.ts` — ADR-0004, U5c).
 - **Backend:** `vsix_fetch_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
   em `lsp.rs`.
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e

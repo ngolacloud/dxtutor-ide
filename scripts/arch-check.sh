@@ -41,14 +41,14 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=162
+EXPECT_TOTAL=163
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
-# ficheiros que só a mencionam em prosa/JSDoc). Baseline = 11 (ceiling); actual
-# hoje = 5 (app.ts, boot.ts + features/infra.ts, features/visualizer.ts e
-# visualizer/domain/interpreter.ts; o startup foi tipado na U4a e o v5/v6 dissolveram-se
-# na U4g — ADR-0004). O baseline real (ratchet) está em scripts/ui-metrics.sh. Não pode crescer acima do baseline; baixar é bom.
-EXPECT_TSNOCHECK=11
+# ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
+# (o app.ts foi o último: era 11 na Etapa 0; o startup foi tipado na U4a, o v5/v6
+# dissolveram-se na U4g, infra/visualizer/interpreter na U4i e o boot.ts na U4j1).
+# Todo o código da UI é tipado: nenhum ficheiro pode voltar a ter a directiva.
+EXPECT_TSNOCHECK=0
 # Etapa 3: o grupo `review` (3 cmd) saiu de lib.rs (95→92) para commands/review.rs;
 # depois o grupo `code-intel` (10 cmd) saiu de lib.rs (92→82) para commands/codeintel.rs;
 # depois o grupo `testes`/execução (5 cmd) saiu de lib.rs (82→77) para commands/tests.rs;
@@ -68,9 +68,10 @@ EXPECT_TSNOCHECK=11
 # Juntos com a develop (panel 2 + pty 3 = 155): 155 + 3 + 1 = 159.
 # Studio de arquitectura (F2): commands/agent.rs ganha arch_export_mermaid e
 # arch_import_mermaid (7→9): 159 + 2 = 161.
+# F5: arch_save_export (escreve as exportações dentro do projecto; 9→10): 162.
 # A2 da Parte A (docs/v2/RF-CODEV-STREAM.md): commands/codev_agent.rs ganha
-# codev_agent_review (13→14): 161 + 1 = 162.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/codev_agent.rs]=14 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=9 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=15 [fsops.rs]=10 [lsp.rs]=8 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=2 )
+# codev_agent_review (13→14): 162 + 1 = 163.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/codev_agent.rs]=14 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=10 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=15 [fsops.rs]=10 [lsp.rs]=8 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=2 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores

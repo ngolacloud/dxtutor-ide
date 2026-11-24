@@ -15,11 +15,16 @@ import {
   parseDesign, relationFor, relationTakesEvent, removeComponent, removeConnection, removeGroup, removeView,
   setGroupParent, setGroupView, toArchitecture, isEventKind,
 } from "../domain/design";
+import { autoLayout } from "../domain/autolayout";
+import {
+  EXPORT_DIR, EXPORT_EXT, EXPORT_MIME, defaultExportName, designFile, isSafeRel, mermaidBlocks, readDesignFile,
+  type ExportFormat, type MermaidBlock,
+} from "../domain/files";
 import { center, freeGroupSpot, freeSpot, groupAt, layout, panelAt } from "../domain/geometry";
 import type {
   ArchConnection, ArchFinding, ArchKind, ArchView, Design, DesignGroup, DesignNode, GroupKind, GroupStyle, Selection,
 } from "../domain/types";
-import type { ArchStudioDeps } from "./ports";
+import type { ArchStudioDeps, Proposal } from "./ports";
 
 export interface ArchStudioState {
   design: Design;
@@ -34,6 +39,20 @@ export interface ArchStudioState {
   opError: string;
   /** Mensagem curta para o humano (ex.: «no máximo dois painéis»). */
   notice: string;
+  /** O inspector mostra «Import / Export». */
+  io: boolean;
+  /** Resultado da última exportação/importação (ex.: «docs/architecture/x.svg written»). */
+  ioMessage: string;
+  ioError: string;
+  /** Avisos do último import Mermaid (o que não veio tal e qual). */
+  importWarnings: string[];
+  /** Os blocos Mermaid de um Markdown aberto do projecto, à espera de escolha. */
+  mdBlocks: MermaidBlock[] | null;
+  /** Uma proposta do agente à espera de decisão: mostra-se POR CIMA do desenho actual
+   *  (que não muda) até o humano a aceitar ou descartar. */
+  proposal: Proposal | null;
+  /** Durante uma proposta: espreitar o desenho actual em vez da proposta. */
+  showCurrent: boolean;
 }
 
 export const storageKey = (root: string | null): string => `dxnext-studio:${root ?? "default"}`;
@@ -45,10 +64,12 @@ type GroupPatch = Partial<{ label: string; kind: GroupKind; style: GroupStyle; s
 type ViewPatch = Partial<Pick<ArchView, "title" | "color" | "daemonless" | "strict">>;
 
 export function makeArchStudio(deps: ArchStudioDeps) {
-  const { gateway, store, workspace, repaint } = deps;
+  const { gateway, store, workspace, renderer, files, repaint } = deps;
   const s: ArchStudioState = {
     design: emptyDesign(), sel: null, linking: null, findings: [], validating: false,
     valError: "", preview: null, written: null, opError: "", notice: "",
+    io: false, ioMessage: "", ioError: "", importWarnings: [], mdBlocks: null,
+    proposal: null, showCurrent: false,
   };
   let loadedFor: string | undefined;
   /** Cada validação tem um número: só a mais recente escreve os achados. */
@@ -149,8 +170,147 @@ export function makeArchStudio(deps: ArchStudioDeps) {
     for (const n of s.design.components) if (n.group && inside.has(n.group)) { n.x += dx; n.y += dy; }
   }
 
+  /** Substitui o desenho por um importado (sem posições → auto-layout). Confirma se o
+   *  desenho actual não está vazio. */
+  function replaceDesign(next: Design, positioned: boolean): boolean {
+    const current = s.design.components.length + s.design.groups.length;
+    if (current && !workspace.confirm("Replace the current design with the imported one? The current design is not kept.")) return false;
+    s.design = positioned ? next : autoLayout(next);
+    s.sel = null;
+    s.linking = null;
+    changed();
+    return true;
+  }
+
+  const ioFail = (e: unknown): void => {
+    s.ioError = String(e).replace(/^Error:\s*/, "");
+    s.ioMessage = "";
+    repaint("inspector");
+  };
+
+  async function importSource(source: string): Promise<boolean> {
+    s.ioError = ""; s.ioMessage = ""; s.importWarnings = [];
+    if (!gateway.available()) { ioFail(NEEDS_DESKTOP); return false; }
+    try {
+      const r = await gateway.importMermaid(source);
+      if (!replaceDesign(r.design, false)) { repaint("inspector"); return false; }
+      s.io = true;
+      s.importWarnings = r.warnings;
+      s.ioMessage = `Imported ${r.design.components.length} components, ${r.design.connections.length} arrows and ${r.design.groups.length} groups.`;
+      s.mdBlocks = null;
+      repaint("inspector");
+      return true;
+    } catch (e) { ioFail(e); return false; }
+  }
+
   return {
     state: (): Readonly<ArchStudioState> => s,
+
+    // ── propostas do agente (F6) ──
+    /** Uma proposta do agente: arruma-a (chega sem posições) e mostra-a por cima do
+     *  desenho actual, que NÃO muda até «Accept». Uma proposta nova substitui a anterior. */
+    receiveProposal(p: Proposal): void {
+      ensureLoaded();
+      s.proposal = { ...p, design: autoLayout(p.design) };
+      s.showCurrent = false;
+      s.sel = null;
+      s.linking = null;
+      s.io = false;
+      repaint("all");
+    },
+    /** O humano aceita: a proposta passa a ser o desenho (guardado no cliente, como qualquer
+     *  edição — nada vai para o disco do projecto). */
+    acceptProposal(): void {
+      if (!s.proposal) return;
+      s.design = s.proposal.design;
+      s.proposal = null;
+      s.showCurrent = false;
+      changed();
+    },
+    discardProposal(): void {
+      s.proposal = null;
+      s.showCurrent = false;
+      repaint("all");
+    },
+    toggleShowCurrent(): void {
+      if (!s.proposal) return;
+      s.showCurrent = !s.showCurrent;
+      repaint("all");
+    },
+
+    // ── importar / exportar ──
+    toggleIo(): void {
+      s.io = !s.io;
+      s.sel = null;
+      repaint("all");
+    },
+    /** Exporta o desenho: para `docs/architecture/` no projecto (desktop, com pasta aberta,
+     *  com confirmação), ou como download (browser). */
+    async exportAs(format: ExportFormat): Promise<string | null> {
+      s.ioError = ""; s.ioMessage = "";
+      const d = s.design;
+      if (!d.components.length && !d.groups.length) { ioFail("The design is empty: nothing to export."); return null; }
+      let bytes: Uint8Array;
+      try {
+        if (format === "svg") bytes = new TextEncoder().encode(renderer.svg(d));
+        else if (format === "png") bytes = await renderer.png(d);
+        else if (format === "json") bytes = new TextEncoder().encode(designFile(d));
+        else {
+          if (!gateway.available()) { ioFail(NEEDS_DESKTOP); return null; }
+          bytes = new TextEncoder().encode(await gateway.exportMermaid(toArchitecture(d)));
+        }
+      } catch (e) { ioFail(e); return null; }
+      const name = `${defaultExportName(d)}.${EXPORT_EXT[format]}`;
+      const root = workspace.root();
+      if (gateway.available() && root) {
+        const rel = (workspace.prompt(`Save in the project folder (${root}) as:`, `${EXPORT_DIR}/${name}`) ?? "").trim();
+        if (!rel) return null;
+        if (!isSafeRel(rel)) { ioFail(`«${rel}» must be a path inside the project folder.`); return null; }
+        if (!workspace.confirm(`Write ${rel} in ${root}? An existing file with that name is replaced.`)) return null;
+        try {
+          const written = await gateway.saveExport(root, rel, bytes);
+          s.ioMessage = `${written} written.`;
+          repaint("inspector");
+          return written;
+        } catch (e) { ioFail(e); return null; }
+      }
+      files.download(name, bytes, EXPORT_MIME[format]);
+      s.ioMessage = `${name} downloaded.`;
+      repaint("inspector");
+      return name;
+    },
+    /** Importa Mermaid colado (parse no Rust). */
+    importMermaid: importSource,
+    /** Abre um ficheiro do projecto: `.arch.json` (o desenho com posições), `.mmd`, ou um
+     *  Markdown com blocos Mermaid (mostra-os para escolher). */
+    async openFromProject(rel: string): Promise<void> {
+      s.ioError = ""; s.ioMessage = ""; s.importWarnings = []; s.mdBlocks = null;
+      const root = workspace.root();
+      if (!gateway.available()) { ioFail(NEEDS_DESKTOP); return; }
+      if (!root) { ioFail("Open a folder first: files are read from the project."); return; }
+      rel = rel.trim();
+      if (!isSafeRel(rel)) { ioFail(`«${rel}» must be a path inside the project folder.`); return; }
+      let text: string;
+      try { text = await gateway.readFile(root, rel); } catch (e) { ioFail(e); return; }
+      if (/\.json$/i.test(rel)) {
+        const design = readDesignFile(text);
+        if (!design) { ioFail(`${rel} is not a Studio design file.`); return; }
+        if (replaceDesign(design, true)) s.ioMessage = `${rel} opened.`;
+        repaint("inspector");
+        return;
+      }
+      const blocks = mermaidBlocks(text);
+      if (!blocks.length) { ioFail(`${rel} has no Mermaid graph/flowchart to import (sequence diagrams are not imported).`); return; }
+      if (blocks.length === 1) { await importSource(blocks[0].source); return; }
+      s.mdBlocks = blocks;
+      s.ioMessage = `${rel} has ${blocks.length} diagrams: choose one.`;
+      repaint("inspector");
+    },
+    async importBlock(i: number): Promise<void> {
+      const b = s.mdBlocks?.[i];
+      if (b) await importSource(b.source);
+    },
+
     ensureLoaded,
     validate,
     preview,
@@ -306,6 +466,19 @@ export function makeArchStudio(deps: ArchStudioDeps) {
       changed();
     },
 
+    // ── auto-layout ──
+    /** Arruma tudo por camadas, de cima para baixo. Substitui as posições à mão: pede
+     *  confirmação quando já há componentes. */
+    arrange(confirmed = false): boolean {
+      if (!s.design.components.length && !s.design.groups.length) return false;
+      if (!confirmed && !workspace.confirm("Lay out the whole design top to bottom? The positions you set by hand will be replaced.")) return false;
+      const next = autoLayout(s.design);
+      s.design.components = next.components;
+      s.design.groups = next.groups;
+      changed();
+      return true;
+    },
+
     // ── arrastar e redimensionar ──
     /** Arrastar um cartão: move sem guardar (a gravação é no fim, em `endMove`). */
     move(id: string, x: number, y: number): void {
@@ -313,7 +486,7 @@ export function makeArchStudio(deps: ArchStudioDeps) {
       if (!n) return;
       n.x = x;
       n.y = y;
-      repaint("canvas");
+      repaint("drag");
     },
     /** Fim de arrasto de um cartão: fica no grupo mais fundo debaixo do seu centro. */
     endMove(id?: string): void {
@@ -331,11 +504,12 @@ export function makeArchStudio(deps: ArchStudioDeps) {
         }
       }
       save();
+      repaint("canvas"); // as setas voltam a ser encaminhadas
     },
     moveGroup(id: string, dx: number, dy: number): void {
       if (!group(id)) return;
       shiftGroup(id, dx, dy);
-      repaint("canvas");
+      repaint("drag");
     },
     /** Fim de arrasto de um grupo: o pai passa a ser o grupo mais fundo debaixo do seu
      *  centro (fora dele próprio e dos seus); sem pai, entra no painel que o contém. */
@@ -358,16 +532,18 @@ export function makeArchStudio(deps: ArchStudioDeps) {
       const after = JSON.stringify([g.parent ?? null, s.design.views.map((v) => v.roots)]);
       if (after !== before) { changed(); return; }
       save();
+      repaint("canvas");
     },
     resizeGroup(id: string, w: number, h: number): void {
       const g = group(id);
       if (!g) return;
       g.w = Math.max(80, w);
       g.h = Math.max(50, h);
-      repaint("canvas");
+      repaint("drag");
     },
     endResize(): void {
       save();
+      repaint("canvas");
     },
 
     // ── selecção e ligação ──

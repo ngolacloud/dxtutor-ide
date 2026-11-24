@@ -14,6 +14,7 @@ import type { ArchGateway, Repaint } from "../src/features/arch/application/port
 import { canvasSvg, makeArchView } from "../src/features/arch/ui/view";
 import { bindActions } from "../src/features/arch/ui/actions";
 import { archActions } from "../src/features/arch/ui/table";
+import { fakeFiles, fakeRenderer, ioGateway } from "./fixtures/arch-fakes";
 
 const inside = (inner: Rect, outer: Rect): boolean =>
   inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
@@ -168,12 +169,12 @@ describe("geometria", () => {
 
 function studioWith(prompts: string[] = []) {
   const saved: Record<string, unknown> = {};
-  const gateway: ArchGateway = { available: () => false, validate: async () => [], preview: async () => [], scaffold: async () => [] };
+  const gateway: ArchGateway = { available: () => false, validate: async () => [], preview: async () => [], scaffold: async () => [], ...ioGateway };
   const queue = [...prompts];
   const workspace = { root: () => "/p", confirm: () => true, prompt: () => queue.shift() ?? null };
   let view: ReturnType<typeof makeArchView> | null = null;
   const st = makeArchStudio({
-    gateway, workspace, repaint: (s: Repaint) => view?.repaint(s),
+    gateway, workspace, renderer: fakeRenderer, files: fakeFiles(), repaint: (s: Repaint) => view?.repaint(s),
     store: { load: (k) => saved[k] ?? null, save: (k, d) => { saved[k] = JSON.parse(JSON.stringify(d)); } },
   });
   st.ensureLoaded();
@@ -263,7 +264,7 @@ describe("vista", () => {
 
   function mounted(prompts: string[] = []) {
     const t = studioWith(prompts);
-    const view = makeArchView({ studio: t.st, root: t.workspace.root });
+    const view = makeArchView({ studio: t.st, root: t.workspace.root, savesToProject: () => false });
     t.setView(view);
     bindActions(archActions(t.st, t.workspace.prompt));
     view.mount(host);
@@ -307,7 +308,7 @@ describe("vista", () => {
     expect(svg).toContain(">Docker</text>");
     expect(svg).toContain(">Control Plane</text>");
     expect(svg).toContain(">docker run checkout:v2</text>");
-    expect(svg).toContain('stroke="#0f766e" stroke-width="1.5" stroke-dasharray="6 4"'); // seta de controlo na cor do painel
+    expect(svg).toContain('stroke="#0f766e" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="6 4"'); // seta de controlo na cor do painel
   });
 
   test("o canvas desenha painel, grupo tracejado com pílula, ícone e setas por estilo", () => {
@@ -332,7 +333,7 @@ describe("vista", () => {
     expect(svg.querySelector("[data-g] text")!.textContent).toBe("Host");
     expect(svg.querySelectorAll("[data-n]").length).toBe(4);
     expect(svg.querySelector('[data-n="estado-json"] g path')).not.toBeNull(); // o ícone
-    const data = svg.querySelector('[data-e="0"] line:nth-of-type(2)')!;
+    const data = svg.querySelector('[data-e="0"] path:nth-of-type(2)')!;
     expect(data.getAttribute("stroke")).toBe("var(--green)");
     expect(Number(svg.getAttribute("width"))).toBeGreaterThanOrEqual(760);
   });
@@ -344,7 +345,7 @@ describe("vista", () => {
     st.add("runtime", "cri");
     st.connect("kubelet", "cri");
     st.select(null);
-    host.querySelector('[data-e="0"] line')!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    host.querySelector('[data-e="0"] path')!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
     expect(st.state().sel).toEqual({ t: "edge", i: 0 });
     const style = host.querySelector('[data-action="arch-edge-style"]') as HTMLSelectElement;
     style.value = "data";
