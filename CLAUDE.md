@@ -37,7 +37,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   pode voltar a ter a directiva: código novo nasce tipado.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn` e `arch`); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch` e `project`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
