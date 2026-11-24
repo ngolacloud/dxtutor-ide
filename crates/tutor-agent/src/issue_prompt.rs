@@ -138,7 +138,11 @@ pub fn version_of(text: &str) -> String {
 /// The architect's rules for the prompt: `.dxtutor/architecture.yaml` (F5), else
 /// `.dxtutor/regras.md`, else a line saying there are none.
 fn architect_rules(root: &Path, lang: &str) -> String {
-    for f in [".dxtutor/architecture.yaml", ".dxtutor/regras.md"] {
+    for f in [
+        crate::conformance::RULES_FILE,
+        ".dxtutor/architecture.yaml",
+        ".dxtutor/regras.md",
+    ] {
         if let Ok(t) = std::fs::read_to_string(root.join(f)) {
             let t = t.trim();
             if !t.is_empty() {

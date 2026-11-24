@@ -25,6 +25,7 @@
 pub mod agent;
 pub mod anthropic;
 pub mod checkpoint;
+pub mod conformance;
 pub mod context;
 pub mod cost;
 pub mod extensions;

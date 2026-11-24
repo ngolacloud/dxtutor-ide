@@ -303,6 +303,8 @@ pub struct CheckpointView {
 /// What the host keeps of a hunk to record it once accepted.
 #[derive(Clone, Default)]
 struct HunkMeta {
+    /// The new text of the hunk (for the architect's rules, RF-A03).
+    text: String,
     call: String,
     path: String,
     start: u32,
@@ -808,8 +810,9 @@ pub fn send(
                     },
                 );
             }
-            AgentEvent::HunkEnd { hunk, lines, .. } => {
+            AgentEvent::HunkEnd { hunk, lines, text } => {
                 if let Some(m) = metas.borrow_mut().get_mut(hunk) {
+                    m.text = text.clone();
                     m.added = lines.added as u32;
                     m.removed = lines.removed as u32;
                 }
@@ -926,6 +929,7 @@ pub fn send(
             &session.agent.ctx.root,
             &metas.borrow(),
         );
+        let verdict = conformance_gate(verdict, call, &session.agent.ctx.root, &metas.borrow());
         asked_human.set(false);
         let d = decide_call(call, verdict.clone());
         let mut e = audit_entry(&session, "call");
@@ -1074,6 +1078,64 @@ fn audit(s: &Session, mut e: tutor_board::project::AuditEntry) {
     let root = s.agent.ctx.root.display().to_string();
     if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
         let _ = st.record_audit(&root, &e);
+    }
+}
+
+/// RF-A03/A04 (docs/v2/RF-DELONIX-PLANO.md F5.3): every change of the agent goes through the
+/// architect's rules (`.dxtutor/architecture.toml`) before it can be accepted. A forbidden or
+/// unapproved library, a layer dependency that is not allowed or a broken naming rule refuses
+/// the change — in every mode — unless an accepted ADR excuses that rule in `[[exceptions]]`.
+/// Only the lines the change adds are checked (what was already there is the drift, F5.5).
+fn conformance_gate(
+    verdict: Verdict,
+    call: &PendingCall,
+    root: &Path,
+    metas: &HashMap<String, HunkMeta>,
+) -> Verdict {
+    if matches!(verdict, Verdict::Deny { .. }) {
+        return verdict;
+    }
+    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+        return verdict;
+    };
+    let text = if call.hunks.is_empty() {
+        ["new_string", "new_text", "content"]
+            .iter()
+            .find_map(|k| call.input.get(*k).and_then(|v| v.as_str()))
+            .unwrap_or("")
+            .to_string()
+    } else {
+        call.hunks
+            .iter()
+            .filter_map(|h| metas.get(h).map(|m| m.text.clone()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let rules = match tutor_agent::conformance::Rules::load(root) {
+        Ok(Some(r)) => r,
+        Ok(None) => return verdict,
+        Err(e) => {
+            return Verdict::Deny {
+                reason: format!(
+                    "as regras do arquitecto não se lêem ({e}): pede ao humano para as corrigir"
+                ),
+            }
+        }
+    };
+    let rel = path
+        .strip_prefix(&format!("{}/", root.display()))
+        .unwrap_or(path);
+    let found = tutor_agent::conformance::check(&rules, rel, &text);
+    let left = tutor_agent::conformance::unexcused(&rules, root, found);
+    if left.is_empty() {
+        return verdict;
+    }
+    Verdict::Deny {
+        reason: format!(
+            "viola as regras do arquitecto (RF-A03): {} — um desvio só com um ADR aceite em [[exceptions]] de {} (pede-o com ask_human; podes redigir o ADR, não o aprovas)",
+            left.iter().map(|v| v.message.clone()).collect::<Vec<_>>().join("; "),
+            tutor_agent::conformance::RULES_FILE
+        ),
     }
 }
 
@@ -2561,6 +2623,7 @@ mod tests {
             end: 3,
             added: 2,
             removed: 1,
+            ..Default::default()
         };
         let evs = RefCell::new(vec![]);
         validate(
@@ -3040,5 +3103,61 @@ mod tests {
             rewrite_gate(Verdict::Allow, &new, d.path(), &metas),
             Verdict::Allow
         );
+    }
+
+    #[test]
+    fn a_change_that_breaks_the_architects_rules_is_refused_unless_an_accepted_adr_excuses_it() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/architecture.toml"),
+            "[libraries]\nforbidden = [\"lodash\"]\n\n[[exceptions]]\nadr = \"ADR-0009\"\nrule = \"library:lodash\"\n",
+        )
+        .unwrap();
+        let call = PendingCall {
+            id: "e".into(),
+            name: "edit_lines".into(),
+            input: serde_json::json!({"path": "src/a.ts"}),
+            read_only: false,
+            command: None,
+            hunks: vec!["e:1".into()],
+        };
+        let metas: HashMap<String, HunkMeta> = [(
+            "e:1".to_string(),
+            HunkMeta {
+                text: "import _ from 'lodash';\n".into(),
+                ..Default::default()
+            },
+        )]
+        .into();
+        match conformance_gate(Verdict::Allow, &call, d.path(), &metas) {
+            Verdict::Deny { reason } => assert!(
+                reason.contains("lodash") && reason.contains("ADR"),
+                "{reason}"
+            ),
+            v => panic!("{v:?}"),
+        }
+        std::fs::create_dir_all(d.path().join("docs/adr")).unwrap();
+        std::fs::write(
+            d.path().join("docs/adr/ADR-0009-lodash.md"),
+            "Status: accepted\n",
+        )
+        .unwrap();
+        assert_eq!(
+            conformance_gate(Verdict::Allow, &call, d.path(), &metas),
+            Verdict::Allow
+        );
+        // the repository scan (the drift of the rules) sees the same rule
+        std::fs::remove_file(d.path().join("docs/adr/ADR-0009-lodash.md")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/architecture.toml"),
+            "[[layers]]\nname = \"web\"\npaths = [\"src/**\"]\n\n[libraries]\nforbidden = [\"lodash\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        std::fs::write(d.path().join("src/a.ts"), "import _ from 'lodash';\n").unwrap();
+        let v = tutor_agent::conformance::scan(d.path()).unwrap().unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].path, "src/a.ts");
     }
 }
