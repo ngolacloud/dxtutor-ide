@@ -128,6 +128,7 @@ export function makeHunkReview(deps: HunkReviewDeps) {
       if (h && before !== null) deps.applied?.(h.path, before);
       queueReload();
     }
+    if (e.kind === "hunk_applied" || (e.kind === "validation" && e.status !== "running")) deps.recorded?.();
     if (e.kind === "hunk_applied" || e.kind === "hunk_rejected" || e.kind === "hunk_stale") {
       const h = state.hunks.find((x) => x.id === e.hunk);
       if (h && !state.reviews.some((r) => r.call === h.call)) settle(h.call);

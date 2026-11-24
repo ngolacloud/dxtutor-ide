@@ -62,3 +62,6 @@
   .gx-rf{display:flex;align-items:center;gap:8px;padding:3px 4px;border-radius:5px;font-size:12px}.gx-rf:hover{background:var(--bg-hover)}
   .gx-rf.done .gx-rp{color:var(--fg-muted);text-decoration:line-through}
   .gx-rp{font-family:var(--font-mono);font-size:11.5px;cursor:pointer;color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis}
+  /* RF-E08 (F2.7): the Co-Dev change sets of the working tree, by issue */
+  #pane-scm .gx-cs-head .gx-da,#pane-scm .gx-cs-head .gx-dd{background:none}
+  #pane-scm .gx-cs-file{padding-left:24px;cursor:pointer}

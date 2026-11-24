@@ -169,9 +169,22 @@ export interface ChangeSetRow {
   decidedAt: number;
 }
 
+/** What Co-Dev used on an issue, summed from its turns in the audit log (RF-B08/T04). */
+export interface IssueUsage {
+  turns: number;
+  sessions: number;
+  models: string[];
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  /** turns with no price: their cost is not in `costUsd` */
+  unpriced: number;
+}
+
 export interface IssueDetail {
   activity: Activity[];
   changeSets: ChangeSetRow[];
+  usage: IssueUsage;
 }
 
 export interface Reports {
@@ -302,6 +315,20 @@ export function parseDetail(v: unknown): IssueDetail {
         decidedBy: str(c.decidedBy),
         decidedAt: num(c.decidedAt),
       })),
+    usage: parseUsage(o.usage),
+  };
+}
+
+function parseUsage(v: unknown): IssueUsage {
+  const u = isObj(v) ? v : {};
+  return {
+    turns: num(u.turns),
+    sessions: num(u.sessions),
+    models: arr(u.models).filter((m): m is string => typeof m === "string" && m !== ""),
+    tokensIn: num(u.tokensIn),
+    tokensOut: num(u.tokensOut),
+    costUsd: num(u.costUsd),
+    unpriced: num(u.unpriced),
   };
 }
 

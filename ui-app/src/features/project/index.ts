@@ -9,7 +9,7 @@ import { makeProjectService } from "./application/project-service";
 import { makeProjectView } from "./ui/view";
 import { bindActions, type ActionEvent, type ActionTable } from "./ui/actions";
 import { tauriProjectGateway } from "./infrastructure/tauri";
-import { codev, dialog, git, loadMe, notify, openTab, workspace } from "./infrastructure/legacy-bridge";
+import { codev, dialog, git, loadMe, notify, openDiff, openTab, workspace } from "./infrastructure/legacy-bridge";
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { State } from "./domain/types";
 import { projectInbox } from "../../app/project-inbox";
@@ -150,6 +150,7 @@ const table: ActionTable = {
   "pj-prompt-close": { click: () => projectService.closePrompt() },
   "pj-sprint-budget": { change: (e) => void projectService.apply({ op: "set_sprint_budget", id: e.on, budget_usd: e.value.trim() === "" ? null : Math.max(0, Number(e.value)) }) },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
+  "pj-diff": { click: (e) => openDiff(e.on) },
   "pj-delete": { click: (e) => void projectService.remove(e.on) },
   "pj-comment": { keydown: enter((e) => { const k = sel(); if (k) void projectService.comment(k, e.value); }) },
   "pj-submit": { click: submit },

@@ -82,3 +82,7 @@
 
 /* F6.1 (RF-T03): the sprint's Co-Dev budget */
 .pj-budget{width:90px;display:inline-block;margin-left:6px;padding:1px 4px}
+
+/* RF-B08 (F4.7): change sets open their diff; what Co-Dev used on the issue */
+.pj-link{cursor:pointer}.pj-link:hover code{text-decoration:underline}
+.pj-usage{font-size:12px;line-height:1.5}

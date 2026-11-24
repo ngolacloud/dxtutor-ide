@@ -1038,6 +1038,7 @@ pub fn run() {
             board::project_load,
             board::project_apply,
             board::project_issue,
+            board::project_change_sets,
             board::project_reports,
             board::project_audit,
             board::project_issue_prompt,

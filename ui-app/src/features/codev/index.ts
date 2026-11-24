@@ -14,6 +14,7 @@ import * as bridge from "./infrastructure/legacy-bridge";
 import { paceCps } from "./domain/composer";
 import { pairState } from "../../app/pair-state";
 import { codevUndo } from "../../app/codev-undo";
+import { changeSetsSignal } from "../../app/change-sets-signal";
 import { parseAgentEvent } from "./domain/agent-events";
 /** The session id of the hunks mirrored from the PairCode host (RF-S09). */
 const MIRROR = "pair-mirror";
@@ -168,6 +169,7 @@ let reveal: (line: number) => void = () => undefined;
 export const hunkReview = makeHunkReview({
   copy,
   applied: (path, before) => codevUndo.remember(path, before),
+  recorded: () => changeSetsSignal.notify(),
   // RF-P03: in a PairCode session the navigator's decisions are refusals
   review: (s, call, d) =>
     s === MIRROR
