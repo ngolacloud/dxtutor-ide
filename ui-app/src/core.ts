@@ -129,7 +129,6 @@ declare global {
     ltPts: () => number;
     LT_BADGE: Record<string, string>;
     stars: (d: number, kind?: string) => string;
-    renderTutorPane: () => void;
     /* feature `tasks` (migrada de v6.ts): pane «Tasks» (backlog/sprints) + vista de
        detalhe da issue (VIEW.issue). O backlog (BL), estágios (STAGES) e agentes
        (AGENTS) continuam donos do monólito/board.ts/team.ts; nfmt é do core (import). TK/
@@ -172,12 +171,8 @@ declare global {
        papéis e o desenho (SD, window-backed) continuam donos do monólito. */
     MISSIONS: any[];
     SD: any;
-    renderCodevPane: () => void;
-    renderSettingsPage: (t: unknown, host: HTMLElement) => void;
-    renderManagerPage: (t: unknown, host: HTMLElement) => void;
     renderAgentView: (t: unknown, host: HTMLElement) => void;
     testProv: (k: string, btn: HTMLElement) => void;
-    doTool: (t: { t: string; [k: string]: any }, host: Element, role?: string) => Promise<unknown>;
     setMode: (m: string) => void;
     /* feature `infra` (migrada de v5.ts base + v6.ts decoração): pane «Infra» (runtime
        de contentores, dev container, Kubernetes, environments). Base v5 + decoração v6

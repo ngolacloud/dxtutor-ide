@@ -119,7 +119,6 @@ declare global {
   var dcDetach: () => unknown;
   var drawRemote: () => void;
   var hydrateEnvs: () => void;
-  var loadJSZip: () => Promise<unknown>;
   var termExec: (v: string) => unknown;
   var JSZip: unknown;
   // Donas de features/checkpoint.ts, lidas por nome livre pelo selftest (passo `checkpoint`).

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { bootApp } from "./harness";
 
 describe("smoke: a cadeia real de módulos arranca em jsdom", () => {
-  it("publica o motor Co-Dev no window e popula o workspace da fixture", async () => {
+  it("exporta o doTool do Co-Dev e popula o workspace da fixture", async () => {
     const w = await bootApp();
-    expect(typeof (w as any).doTool).toBe("function");
+    expect(typeof (await import("../src/features/codev")).doTool).toBe("function");
     expect(Object.keys((w as any).FS).length).toBeGreaterThan(0);
     expect((w as any).FS[(w as any).ROOT + "crates/lexer/src/lib.rs"]).toBeTruthy();
     expect((w as any).P_LX).toBeUndefined(); // os caminhos fixos do projecto de demonstração saíram (ADR-0006, R1c2)

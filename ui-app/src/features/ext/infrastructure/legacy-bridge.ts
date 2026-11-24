@@ -84,14 +84,14 @@ const cdnLoader = (): Promise<JSZipLib> => {
     document.head.appendChild(s);
   });
 };
-/** Publica o carregador CDN em `window.loadJSZip` (chamado no eval de `ext.ts`, como o
- *  original — o desktop sobrepõe-no depois). */
+/** Liga o carregador do JSZip (chamado no eval de `ext.ts`). Já não vai ao window (ADR-0004, U7k): consulta a porta
+ *  desktop no acto (U4h5b) e, sem ela, carrega do CDN. Os testes trocam-no pela porta `desktopPorts.ext`. */
+let jszipLoader: (() => Promise<JSZipLib>) | null = null;
 export const publishJSZipLoader = (): void => {
-  /* o carregador publicado consulta a porta desktop (ADR-0004, U4h5b; antes o desktop sobrepunha o `window.loadJSZip`) */
-  G.loadJSZip = (): Promise<JSZipLib> => { const d = desktopPorts.ext; return d ? (d.loadJSZip(cdnLoader) as Promise<JSZipLib>) : cdnLoader(); };
+  jszipLoader = (): Promise<JSZipLib> => { const d = desktopPorts.ext; return d ? (d.loadJSZip(cdnLoader) as Promise<JSZipLib>) : cdnLoader(); };
 };
-/** Invoca o `window.loadJSZip` CORRENTE (respeita a sobreposição do desktop). */
-export const callLoadJSZip = (): Promise<JSZipLib> => G.loadJSZip();
+/** Invoca o carregador ligado (respeita a porta desktop). */
+export const callLoadJSZip = (): Promise<JSZipLib> => jszipLoader!();
 
 /* ───── publicação da superfície pública da feature no `window` ─────
    Os nomes reais resolvem os `onclick` inline (escopo global) e as chamadas do resíduo

@@ -92,7 +92,7 @@ describe("leitura: apresentação do curso e conceitos do tópico", () => {
 });
 
 describe("pane do Learning Track sem curso carregado", () => {
-  it("dispatch delegado: «Choose what to learn» abre o selector (data-action lt-onboard)", () => {
+  it("dispatch delegado: «Choose what to learn» abre o selector (data-action lt-onboard)", async () => {
     let pane = document.getElementById("pane-tutor");
     const created = !pane;
     if (!pane) {
@@ -102,7 +102,7 @@ describe("pane do Learning Track sem curso carregado", () => {
     }
     LM.course(); // hidrata o LTS (preguiçoso) antes de o mudar, senão a hidratação sobrepõe-no
     w.LTS.lang = "no-such-course";
-    w.renderTutorPane();
+    (await import("../src/features/tutor")).renderTutorPane();
     expect(pane.textContent).toContain("is loading or is no longer installed");
     expect(document.getElementById("onb")).toBeNull();
     pane.querySelector<HTMLButtonElement>('[data-action="lt-onboard"]')!.click();

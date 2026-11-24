@@ -166,10 +166,9 @@ function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last:
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
 Object.assign(window, { ctxPill, cycleMode, pickModel, scrollMsgs, newChat: newChatWithCtx, user, card, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
 
-/* publica o doTool (já ligado em ./codev/index.ts, com o gate de direitos do harness acima)
-   no window; o features/board.ts resolve-o por global. O motor de missões guionadas e os
-   cenários de demonstração foram removidos (ADR-0006, R1b). */
-Object.assign(window, { doTool: harnessDoTool });
+/* o doTool com o gate de direitos do harness acima: exportado (ADR-0004, U7k — era publicado no window, que só os
+   testes liam). O motor de missões guionadas e os cenários de demonstração foram removidos (ADR-0006, R1b). */
+export { harnessDoTool as doTool };
 
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
 function handlePrompt(q: string) {
@@ -259,7 +258,7 @@ export function openAnalysis() { bridge.openTab({ id: 'analysis', title: tc('ana
 function testProvBase(k: string, btn: HTMLElement): void { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> ' + tc('testLive') : tc('testLiveOff')) : `<span style="color:var(--yellow)">simulado</span> ${tc('testSimulated', { ep: esc(PROV[k].ep) })}`; }, 500); }
 window.testProv = function (k, btn) { const d = desktopPorts.codev; return d && d.testProv ? d.testProv(k, btn, testProvBase) : testProvBase(k, btn); };
 const POLICY = [['Responder a perguntas de clarificação', 'tu', 'Co-Dev se confiança ≥ 80%; senão pergunta', 'Co-Dev; abaixo de 80% assume a opção reversível e assinala'], ['Escolher entre propostas dos modelos', 'tu, com recomendação do juiz', 'juiz', 'juiz'], ['Aprovar o plano', 'tu', 'automático', 'automático'], ['Editar ficheiros', 'aprovas cada edição', 'automático, com diff', 'automático, com diff'], ['Terminal: testes, build, lint', 'aprovas', 'automático', 'automático'], ['Terminal: outros comandos', 'aprovas', 'aprovas', 'automático'], ['Corrigir depois de falhar a auto-avaliação', 'aprovas', 'automático (máx. 2)', 'automático (máx. 2)'], ['Commit local', 'aprovas', 'aprovas', 'automático'], ['Push e acções destrutivas', 'aprovas', 'aprovas', 'aprovas — sempre']];
-window.renderSettingsPage = (_t, host) => {
+export const renderSettingsPage = (_t: unknown, host: HTMLElement): void => {
   const mi = Object.keys(MODES).indexOf(bridge.monolith.mode); const PROV = bridge.providers();
   host.innerHTML = `<div class="page"><h1>Definições</h1><div class="sub">Guardadas neste browser. Chaves e endpoints reais ficam no keychain da aplicação — aqui servem para mostrar o contrato.</div>
   <h2>Modelos e provedores</h2><div class="pgrid">${Object.entries(PROV).map(([k, p]: [string, any]) => `<div class="pcard"><div class="ph"><span class="pdot${p.on ? '' : ' off'}" style="background:${p.col}"></span>${p.name}<span class="tag ${k === 'claude' && bridge.sample() ? 'live' : ''}">${bridge.provState(k)}</span><button class="sw${p.on ? ' on' : ''}" title="Ligar / desligar" data-action="toggle-prov" data-on="${esc(k)}"></button></div>
@@ -271,7 +270,7 @@ window.renderSettingsPage = (_t, host) => {
   <h2>Aparência</h2><div class="pgrid">${Object.keys(bridge.themes()).map(n => `<button class="pcard${n === bridge.monolith.theme ? ' sel' : ''}" data-action="set-theme" data-on="${esc(n)}"><div class="ph">${n}${n === bridge.monolith.theme ? '<span class="tag acc">activo</span>' : ''}</div></button>`).join('')}</div>
   <h2>Atalhos de teclado</h2><div class="tbl-wrap">${bridge.commands().filter(c => c[1]).map(c => `<div class="rowline"><span>${c[0]}</span><span class="sp"></span><kbd>${c[1]}</kbd></div>`).join('')}</div></div>`;
 };
-window.renderManagerPage = (_t, host) => {
+export const renderManagerPage = (_t: unknown, host: HTMLElement): void => {
   const PROV = bridge.providers(); const usage = bridge.usage();
   host.innerHTML = `<div class="page"><h1>Gestor de missões</h1><div class="sub">Tudo o que o Co-Dev fez, decidiu e pode desfazer.</div>
   <h2>Checkpoints</h2><div class="tbl-wrap">${CKPT.map((c: any) => `<div class="rowline"><span style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">${c.t}</span><span>${esc(c.label)}</span><span class="sp"></span><button class="mini" data-action="restore-ckpt" data-on="${c.id}">Restaurar ficheiros</button></div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">Criados antes de cada missão e de cada correcção.</div>'}</div>
@@ -287,7 +286,7 @@ Object.assign(window, { openManager });
 
 /** Renderiza o pane «Co-Dev»: base (conhecimento, checkpoints, routing) e,
  *  por cima, a camada v4 (equipa, backlog, studio). */
-function renderCodevPane(): void {
+export function renderCodevPane(): void {
   const fs = bridge.files(), PROV = bridge.providers(), agents = bridge.agents(), backlog = bridge.backlog(), stages = bridge.stages(), studio = bridge.studioDesign();
   // ── base v3 ──
   const kn = Object.keys(fs).filter(p => p.includes("/.dxtutor/")).sort();
@@ -302,13 +301,10 @@ function renderCodevPane(): void {
   if (sec) sec.insertAdjacentHTML("afterbegin", `<div class="scm-grp">Equipa<span class="cnt">${Object.keys(agents).length}</span></div>${Object.entries(agents).map(([, a]: [string, any]) => `<div class="scm-row" data-action="open-team" title="${esc(a.d)}"><span class="pdot" style="background:${a.col}"></span><span class="nm">${a.n}</span><span class="pth">${esc(a.paths.join(", ") || "só leitura")}</span></div>`).join("")}<div class="scm-grp">Backlog<span class="cnt">${backlog.issues.length}</span></div><div class="scm-row" data-action="open-board"><span class="ic">${svg("split")}</span><span class="nm">Quadro</span><span class="pth">${stages.map(s => backlog.issues.filter((i: any) => i.stage === s[0]).length).join(" · ")}</span></div><div class="scm-row" data-action="open-studio"><span class="ic">${svg("cube")}</span><span class="nm">Studio</span><span class="pth">${studio.nodes.filter((n: any) => n.st === "plan").length} planeados</span></div>`);
 }
 
-/* ── publicação transitória no window (shim para o residual) ──
-   RP.codev (app.ts) delega em renderCodevPane. */
-window.renderCodevPane = renderCodevPane;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.codev = renderCodevPane;
 VIEW.agent = window.renderAgentView;
-VIEW.manager = window.renderManagerPage;
+VIEW.manager = renderManagerPage;
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
    O único sítio que liga o nome de acção (emitido como `data-action` pelos
@@ -451,7 +447,7 @@ export const provFor=(r: string): string=>PROV[ROUTE[r]].on?ROUTE[r]:(CW.connect
 export const who=(r: string): string=>`${ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
 const provStateBase=(k: string): string=>k==='claude'?(CW.SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
 window.provState=(k: string): string=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
-const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${services.i18n!.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
+const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${services.i18n!.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
 VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
 /* o que a ponte do Co-Dev e a conta lêem (ADR-0004, U7h): avaliam antes deste módulo, por isso usam o registo */
 services.codev = { STOP, SAFE, DANGER, provFor, who, openSettings, MODES, ROUTE };

@@ -32,12 +32,14 @@ import { bootApp, golden } from "./harness";
  * a versão morta de app.ts — a função a extrair é a de ext.ts. */
 
 let w: any;
+let DP: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o desktopPorts da cadeia do bootApp (U7k)
 
 beforeEach(async () => {
   vi.useFakeTimers();
   localStorage.clear(); // o estado instalado (ext7) não passa de um teste para o outro
   delete (window as any).EXS;
   w = await bootApp();
+  DP = (await import("../src/app/desktop")).desktopPorts;
 });
 
 afterEach(() => {
@@ -52,7 +54,7 @@ const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", {
 function fakeJSZip(pkg: Record<string, unknown>) {
   const files: Record<string, string> = { "extension/package.json": JSON.stringify(pkg) };
   const zip = { file: (p: string) => (p in files ? { async: async () => files[p] } : null), files: {} };
-  w.loadJSZip = async () => ({ loadAsync: async () => zip });
+  DP.ext = { loadJSZip: async () => ({ loadAsync: async () => zip }) }; // a porta desktop (U7k — era o window.loadJSZip)
 }
 
 describe("goldens de DOM — pane de extensões e tab de detalhe", () => {

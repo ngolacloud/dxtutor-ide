@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7j)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7k)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1152,3 +1152,11 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   (ligação viva para quem os importa). Saem as declarações globais. O teste de caracterização que exigia os
   catálogos do Co-Dev no window passa a exigi-los exportados e fora do window. Ordem de avaliação igual, excepto o
   registo (sem efeitos). Globais publicadas 216 → 197.
+- **U7k (2026-11-24) — os nomes que só os testes liam.** Dos 15 nomes publicados que só testes ou e2e liam, 9 são
+  lidos por testes de outras sessões (lsp, hood, project, scm, debug, visualizer, testing, ops) e o `i18nBoot` é
+  chamado pelo `startup.ts` por nome (`window[passo]`): ficam. Saem seis: `doTool` (o do gate de direitos, agora
+  `export { harnessDoTool as doTool }`), `renderSettingsPage`, `renderManagerPage`, `renderCodevPane` (exportados pelo
+  `features/codev.ts`, que os usa localmente no `VIEW.manager`/`RP.codev`/secção Language), `renderTutorPane`
+  (`features/tutor.ts`) e o `loadJSZip` (a ponte da ext guarda o carregador num valor do módulo e consulta a porta
+  `desktopPorts.ext` no acto; o golden da ext deixa de trocar o `window.loadJSZip` e injecta o JSZip falso pela porta,
+  como o desktop). Os testes lêem os módulos da cadeia do `bootApp`. Globais publicadas 197 → 192.
