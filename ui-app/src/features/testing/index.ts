@@ -1,4 +1,4 @@
-/* ═════════ feature `testing` — raiz de composição (ADR-0005, R2a) ═════════
+/* ═════════ feature `testing` — raiz de composição (ADR-0006, R2a) ═════════
    O pane «Testing» e o `#st-tests` da barra de estado sobre os comandos reais do backend:
    descobre os testes Rust/Go/Python da pasta aberta (`list_tests`), corre um (`run_test`)
    ou a suíte (`run_all_tests`) e mostra o estado real de cada teste e a saída; o comando de

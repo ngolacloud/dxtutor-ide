@@ -10,7 +10,7 @@ import { bootApp } from "./harness";
 
 let w: any;
 /** Um ficheiro da fixture do harness (tests/fixtures/sample-workspace.ts); era a constante
- *  `P_LX` do monólito, que saiu com os caminhos fixos do projecto de demonstração (ADR-0005, R1c2). */
+ *  `P_LX` do monólito, que saiu com os caminhos fixos do projecto de demonstração (ADR-0006, R1c2). */
 let LX: string;
 
 beforeEach(async () => {
@@ -164,7 +164,7 @@ describe("5. ordem/altura de publicação dos globais do motor Co-Dev no window"
     expect(Array.isArray(w.DECS)).toBe(true);
     expect(Array.isArray(w.CKPT)).toBe(true);
     expect(w.DECS.length).toBe(0);
-    // sem missões guionadas (ADR-0005, R1b): o motor e os cenários deixaram de existir
+    // sem missões guionadas (ADR-0006, R1b): o motor e os cenários deixaram de existir
     for (const k of ["runMission", "demo", "CRIT", "MISSIONS", "GAPS", "council", "execSteps"]) {
       expect(w[k], `window.${k}`).toBeUndefined();
     }

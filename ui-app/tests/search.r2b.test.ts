@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
 
-/* Pesquisa (ADR-0005, R2b): no browser procura nos ficheiros carregados; no desktop com pasta
+/* Pesquisa (ADR-0006, R2b): no browser procura nos ficheiros carregados; no desktop com pasta
  * procura em toda a pasta pelo backend (`search_project`, IPC falso aqui). */
 
 let w: any;

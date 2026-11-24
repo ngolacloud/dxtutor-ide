@@ -6,7 +6,7 @@
 
    O motor simulado que vivia aqui — o E0382 do lexer de demonstração, o lint de cores
    preso a `desktop/src/`, o `runTests()` que derivava testes de caminhos fixos — saiu
-   (ADR-0005, R1c1), e com o debug simulado o `lexBug` (R1c2). Fica `has` (o ficheiro casa a
+   (ADR-0006, R1c1), e com o debug simulado o `lexBug` (R1c2). Fica `has` (o ficheiro casa a
    regex?), lido pelo board.
 
    Mecânica: avalia ANTES de `app.ts` e publica no `window`; os nomes livres do monólito
@@ -17,7 +17,7 @@ import { esc, jsa } from "../core";
 const has = (p: string, re: RegExp) => !!FS[p] && re.test(FS[p].content);
 /* Sem verificador real no browser, a base não tem diagnósticos: a regra do E0382, o lint de
    cores do `desktop/src/` e os testes derivados dos caminhos do projecto de demonstração saíram
-   (ADR-0005, R1c1). No desktop, o painel (features/panel) substitui `diagnostics`/
+   (ADR-0006, R1c1). No desktop, o painel (features/panel) substitui `diagnostics`/
    `drawProblems` pelos problemas reais do workspace (cargo check, tsc, eslint…).
    Com a extensão YAML (redhat.vscode-yaml) ligada: tabs na indentação e Deployments k8s sem
    resources, lidos do conteúdo real dos ficheiros. Era a decoração do v6.ts (ADR-0004, U4g5). */

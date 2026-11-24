@@ -203,7 +203,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // feature `termgit` (migrada de app.ts para features/termgit.ts nesta sessão): handler
     // `git` do terminal (XC.git). Só os sub-comandos de leitura — status/log/branch/diff/push
     // não mutam estado, por isso o passo fica net-zero sem checkpoint/restore. O `push` do
-    // terminal emulado já não finge um push (ADR-0005, R1d): `pushOk` tem de ser false.
+    // terminal emulado já não finge um push (ADR-0006, R1d): `pushOk` tem de ser false.
     await step("termgit", () => {
       const before = document.querySelectorAll("#term .line").length;
       gitCmd(["status"], "git status");
@@ -266,7 +266,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const cancelled = await R.cancelTask!(id);
       return { status: res.status, patchHasFile, patchLen: res.patch.length, untouched, cancelled };
     });
-    // feature `testing` (ADR-0005, R2a): o pane Testing sobre os comandos reais. Escreve um
+    // feature `testing` (ADR-0006, R2a): o pane Testing sobre os comandos reais. Escreve um
     // teste Python (unittest: sem projecto cargo, corre depressa) com um caso verde e um
     // vermelho, abre o pane (list_tests), carrega em «Run all» (run_all_tests) e lê o estado
     // de cada teste e a barra de estado; depois corre um só (run_test) pelo ▶ da linha.
@@ -288,7 +288,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await wait(() => st() !== "⟳ testes…" && !el()?.querySelector('[data-action="run-test"][disabled]'), 30000);
       return { listed, suiteDone, statusAfterSuite, statusAfterOne: st(), suiteShown: /Última corrida da suíte/.test(el()?.textContent || "") };
     });
-    // pesquisa (ADR-0005, R2b): o pane Search procura em toda a pasta pelo backend
+    // pesquisa (ADR-0006, R2b): o pane Search procura em toda a pasta pelo backend
     // (search_project) — encontra o teste que o passo `testing` gravou no disco (o
     // notes/selftest.txt do `autosave` ficou em main; o gitflow deixa o repo em develop).
     await step("search", async () => {
@@ -299,7 +299,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const found = await wait(() => !!res()?.querySelector('[data-p$="test_dx_selftest.py"][data-l="9"]'), 10000);
       return { found, summary: (res()?.querySelector(".sec-empty")?.textContent || "").trim() };
     });
-    // outline (ADR-0005, R2c): o Outline do Explorer pelo backend (file_outline — servidor de
+    // outline (ADR-0006, R2c): o Outline do Explorer pelo backend (file_outline — servidor de
     // língua se houver, senão o scanner sintáctico) para o teste Python gravado acima.
     await step("outline", async () => {
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
@@ -308,7 +308,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const got = await wait(() => names().includes("test_falha"), 20000);
       return { got, symbols: names() };
     });
-    // run (ADR-0005, R2d): o pane Run lista os projectos da pasta pelo backend
+    // run (ADR-0006, R2d): o pane Run lista os projectos da pasta pelo backend
     // (detect_projects) e os comandos de cada um — um package.json com um script real.
     await step("run", async () => {
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
@@ -320,14 +320,14 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const listed = await wait(() => !!el()?.querySelector('[data-run-cmd="npm run hello"]'), 10000);
       return { listed, kinds: [...(el()?.querySelectorAll(".scm-grp .cnt") || [])].map(e => e.textContent) };
     });
-    // conta (ADR-0005, R2e1): o pane Conta mostra o utilizador e a máquina reais (whoami/
+    // conta (ADR-0006, R2e1): o pane Conta mostra o utilizador e a máquina reais (whoami/
     // hostname) e a identidade git, em vez de uma identidade fixa.
     await step("account", () => {
       window.renderAccountPane();
       const t = document.getElementById("pane-account")?.textContent || "";
       return { user: R.user, host: R.host, git: R.gitName || null, shown: !!R.user && t.includes(R.user), noFake: !/walter|Team SYS/.test(t) || R.user === "walter" };
     });
-    // code review (ADR-0005, R2e2): a tab junta às regras locais os analisadores reais do
+    // code review (ADR-0006, R2e2): a tab junta às regras locais os analisadores reais do
     // projecto (review_code, âmbito file) para o teste Python gravado acima.
     await step("review", async () => {
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };

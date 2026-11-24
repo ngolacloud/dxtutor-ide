@@ -1,4 +1,4 @@
-/* ═══════════ feature `testing` — domain: tipos (ADR-0005, R2a) ═══════════
+/* ═══════════ feature `testing` — domain: tipos (ADR-0006, R2a) ═══════════
    Formas puras do pane «Testing». Espelham os contratos do backend (`tutor_eval::testnav`,
    comandos `list_tests`/`run_test`/`run_all_tests`) e o estado de cada teste na vista.
    PURO: sem DOM, sem `window`, sem Tauri. */

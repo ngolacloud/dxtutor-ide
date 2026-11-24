@@ -4,7 +4,7 @@
    recebe `content`/`ext`/`path` e devolve `Finding[]` ordenado por severidade. Sem
    `FS`, sem `window`, sem DOM. As regras só olham para o conteúdo do ficheiro: a regra
    do E0382 do lexer de demonstração e o `dsLint` preso a `desktop/src/` saíram
-   (ADR-0005, R1c1); a das cores fixas passou a valer para qualquer CSS/TS/JS.
+   (ADR-0006, R1c1); a das cores fixas passou a valer para qualquer CSS/TS/JS.
 
    Os textos `t`/`why`/`fix` são HTML que a tab de Code review mostra tal-e-qual:
    copiados verbatim (UI congelada). */

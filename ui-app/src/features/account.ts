@@ -26,7 +26,7 @@ const dxr = (): Identity | undefined => (window as unknown as { DXR?: Identity }
 
 /** Renderiza o pane «Conta»: a identidade real (no desktop: o utilizador e a máquina, e a
  *  identidade git que assina os commits; no browser não há sessão local) + o estado de cada
- *  provedor de LLM. ADR-0005, R2e1: sai a identidade fixa «walter · Team SYS». */
+ *  provedor de LLM. ADR-0006, R2e1: sai a identidade fixa «walter · Team SYS». */
 function renderAccountPane(): void {
   const el = $("#pane-account");
   if (!el) return;

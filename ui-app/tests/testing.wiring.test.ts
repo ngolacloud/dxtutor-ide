@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
 
-/* A feature Testing ligada de ponta a ponta na cadeia real de módulos (ADR-0005, R2a), com o
+/* A feature Testing ligada de ponta a ponta na cadeia real de módulos (ADR-0006, R2a), com o
  * IPC do Tauri falso: o pane (via o `RP.test` do app.ts), a barra de estado e o dispatch
  * delegado. O `__TAURI__` falso entra DEPOIS do boot (o painel desktop não arranca). */
 

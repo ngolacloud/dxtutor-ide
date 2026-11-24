@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
 import { commandsFor, nodePm, type ProjectFiles } from "../src/features/run-commands";
 
-/* Run (ADR-0005, R2d): os projectos da pasta pelo backend (`detect_projects`, IPC falso aqui)
+/* Run (ADR-0006, R2d): os projectos da pasta pelo backend (`detect_projects`, IPC falso aqui)
  * e os comandos de cada um pela regra pura; sem a lista fixa do workspace de demonstração. */
 
 const files = (map: Record<string, string>): ProjectFiles => ({ has: (f) => f in map, read: (f) => map[f] ?? null });

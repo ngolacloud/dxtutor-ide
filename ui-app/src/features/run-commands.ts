@@ -1,4 +1,4 @@
-/* ═════════ dxtutor IDE — os comandos de um projecto (ADR-0005, R2d) ═════════
+/* ═════════ dxtutor IDE — os comandos de um projecto (ADR-0006, R2d) ═════════
    Regra PURA: dado o tipo de um projecto detectado (`detect_projects`) e os ficheiros que tem,
    os comandos habituais do ecossistema para o correr, compilar e testar — os do Node vêm dos
    `scripts` reais do package.json, com o gestor de pacotes do lockfile. Sem DOM nem `window`:

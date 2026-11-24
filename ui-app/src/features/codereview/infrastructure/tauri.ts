@@ -1,4 +1,4 @@
-/* ═════════ feature `codereview` — adaptador Tauri (ADR-0005, R2e2) ═════════
+/* ═════════ feature `codereview` — adaptador Tauri (ADR-0006, R2e2) ═════════
    `review_code` (src-tauri/src/commands/review.rs): corre os analisadores instalados
    (clippy/rustc, go vet, ruff, …) sobre um ficheiro da pasta aberta (âmbito `file`, caminho
    relativo). Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */

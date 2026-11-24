@@ -235,7 +235,7 @@ export function ctxPill(): void {
   composerContext(t && t.path ? (t.title ?? t.path) : null);
   /* o `ctx` da barra de estado já não é uma percentagem de um orçamento inventado (caracteres/4
      sobre 2000 tokens): é o uso real que o provider reporta, desenhado por features/codev.ts
-     (ADR-0005, R2e1). */
+     (ADR-0006, R2e1). */
 }
 
 /* ═══════════ ChatPresenter + ApprovalGate implementation ═══════════ */

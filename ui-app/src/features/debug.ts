@@ -10,7 +10,7 @@
    superfície no `window`. As acções do markup são `data-action`+`data-on`, servidas por
    um só listener delegado (`features/debug/ui/actions.ts`).
 
-   ADR-0005, R1c2: sem sessões simuladas. Saíram o passo-a-passo guionado do lexer de
+   ADR-0006, R1c2: sem sessões simuladas. Saíram o passo-a-passo guionado do lexer de
    demonstração (a oferta do `.clone()` do rustc, variáveis/watch/call stack inventados),
    as sondas `kubectl` inventadas a um pod em crash, os lançadores derivados dos
    ambientes simulados, e os helpers `lexVariant`/`LXL`. Não há adaptador de depuração

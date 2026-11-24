@@ -14,7 +14,7 @@ import { bus } from "./app/bus";
 import { desktopPorts } from "./app/desktop";
 import { openArch } from "./features/arch/index";
 
-/* LS, writeFile, resetWorkspace (ex-loadSeed; a semente saiu — ADR-0005, R1a), save/loadCfg e use/connected migrados (ADR-0004, U4f): features/workspace.ts, app/store/{storage,config,agent}.ts. */
+/* LS, writeFile, resetWorkspace (ex-loadSeed; a semente saiu — ADR-0006, R1a), save/loadCfg e use/connected migrados (ADR-0004, U4f): features/workspace.ts, app/store/{storage,config,agent}.ts. */
 
 /* COURSES (conteúdo dos cursos) migrado p/ features/learn.ts */
 /* ═════════ dxtutor IDE v2 — núcleo do IDE ═════════ */
@@ -32,7 +32,7 @@ import { openArch } from "./features/arch/index";
 /* KW + hlLine (realce de uma linha) migrados p/ features/syntax.ts; lidos por global (window.hlLine) em paintEd/diff/cat/outline e em v5.ts/v6.ts */
 
 /* ───── diagnósticos ───── */
-/* diagnostics/drawProblems/nextProblem (+has) em features/diagnostics.ts; o motor simulado saiu (ADR-0005, R1c1) e com o debug simulado os caminhos fixos P_* do projecto de demonstração (R1c2; saíram do features/workspace.ts, para onde a U4j3 os levara) */
+/* diagnostics/drawProblems/nextProblem (+has) em features/diagnostics.ts; o motor simulado saiu (ADR-0006, R1c1) e com o debug simulado os caminhos fixos P_* do projecto de demonstração (R1c2; saíram do features/workspace.ts, para onde a U4j3 os levara) */
 
 /* ───── separadores e vistas ───── */
 window.cur=null;window.PANE='explorer';/* VIEW com dono em app/store/registry.ts (ADR-0004, U4g1) */
@@ -110,7 +110,7 @@ window.provState=k=>{const d=desktopPorts.codev;return d&&d.provState?d.provStat
 
 /* interface do agente + controlo de execução + ferramentas do agente: motor migrado p/ features/codev.ts (window-backed). Fica aqui só setPanelTab (infra do painel inferior, partilhado por boot/debug/infra/pair). */
 
-/* cenários de demonstração e motor de missões guionadas: removidos (ADR-0005, R1b). */
+/* cenários de demonstração e motor de missões guionadas: removidos (ADR-0006, R1b). */
 
 
 /* conversa livre (handlePrompt/agSend/liveChat) + posicionamento (assistantCenter/Dock/toggleAgent/toggleAgentOn/focusAgent): migrados p/ features/codev.ts.
@@ -130,7 +130,7 @@ const CMD=[
   ['Co-Dev: Modo Manual','',()=>setMode('manual')],['Co-Dev: Modo Assistido','',()=>setMode('assist')],['Co-Dev: Modo Auto','',()=>setMode('auto')],
   ['Co-Dev: Parar execução','',()=>agCtl('stop')],['Co-Dev: Restaurar último checkpoint','',()=>CKPT.length?restoreCkpt(CKPT[0].id):toast('Sem checkpoints')],
   ['Git: Commit…','',()=>{goPane('scm');$('#scm-msg').focus();}],['Git: Mudar de ramo…','',pickBranch],
-  ['Run: Projectos e comandos…','',()=>goPane('run')],['Run: Testes do projecto','',()=>goPane('test')],/* eram cargo test/build e dx lint fixos do workspace de demonstração (ADR-0005, R2d) */
+  ['Run: Projectos e comandos…','',()=>goPane('run')],['Run: Testes do projecto','',()=>goPane('test')],/* eram cargo test/build e dx lint fixos do workspace de demonstração (ADR-0006, R2d) */
   ['Preferências: Definições','Ctrl+,',()=>openSettings()],...Object.keys(THEMES).map(n=>['Preferências: Tema — '+n,'',()=>setTheme(n)]),
   ['Ajuda: Bem-vindo','',()=>openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'})],['Ajuda: O que mudou e porquê','',()=>openAnalysis()]];
 const cmd=l=>()=>CMD.find(c=>c[0]===l)[2]();
@@ -207,7 +207,7 @@ XC.git=(a,raw)=>window.gitCmd(a,raw);
 let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */
 
 /* ───── integração com o resto do IDE ───── */
-/* resetAll («Repor protótipo») removido (ADR-0005, R0): esvaziava o FS e o autosave do desktop apagava a pasta aberta no disco. */
+/* resetAll («Repor protótipo») removido (ADR-0006, R0): esvaziava o FS e o autosave do desktop apagava a pasta aberta no disco. */
 bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();});
 const _stLang=window.stLang;window.stLang=function(){_stLang();blame();};
 function blame(){const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path)),c=h?GIT.c[h]:null;if(!c){/* nenhum commit do espelho toca o ficheiro (o syncGit dá files:[]; sem repo não há commits): só o estado local */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}

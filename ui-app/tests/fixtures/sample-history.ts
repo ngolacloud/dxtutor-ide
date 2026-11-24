@@ -1,6 +1,6 @@
 /* Fixture de testes: o histórico git do projecto-exemplo (12 commits, main/develop, dois ramos de
    feature já fundidos, tags v0.1.0/v0.2.0). Era o que o `gitInit` da app semeava sem pasta aberta;
-   a app deixou de inventar histórico (ADR-0005, R1d) — sem repositório git real, o modelo nasce
+   a app deixou de inventar histórico (ADR-0006, R1d) — sem repositório git real, o modelo nasce
    vazio e o motor recusa mudar o git. Aqui é só dado de teste: `applySampleHistory` faz, sobre o
    modelo vazio, o que o antigo `gitInit` fazia (mesmos hashes, mensagens, pais, ramos, idades
    relativas ao relógio, árvores tiradas do `orig` do FS) e liga o espelho em memória como se uma

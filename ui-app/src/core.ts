@@ -73,7 +73,7 @@ declare global {
     replaceAll: () => void;
     renderSearchPane: () => void;
     /* feature `debug`: os breakpoints (`BPS`, window-backed) e o pane (RP.debug →
-       window.renderDebugPane). A sessão simulada (`DBG`) e os lançadores saíram (ADR-0005, R1c2). */
+       window.renderDebugPane). A sessão simulada (`DBG`) e os lançadores saíram (ADR-0006, R1c2). */
     BPS: Set<string>;
     renderDebugPane: () => void;
     /* feature `scm` (migrada de app.ts): Source Control + grafo/gitflow resumidos.

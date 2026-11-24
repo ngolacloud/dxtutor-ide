@@ -4,7 +4,7 @@ import { bootApp, golden } from "./harness";
 /* Rede de segurança da feature Run and Debug (`ui-app/src/features/debug.ts`), via o
  * harness que carrega a cadeia real de módulos.
  *
- * ADR-0005, R1c2 (decisão registada no ADR): as sessões simuladas saíram — o passo-a-passo
+ * ADR-0006, R1c2 (decisão registada no ADR): as sessões simuladas saíram — o passo-a-passo
  * guionado do lexer de demonstração e as sondas `kubectl` inventadas a um pod em crash —
  * e com elas os goldens `pane-pre-session`/`feed-pre-session`/`pane-code-session`/
  * `feed-code-session`, as caracterizações `lexTrace-*`/`crashTrace-dns`/`debugConfigs`
@@ -68,7 +68,7 @@ describe("golden de DOM — Run and Debug (renderDebugPane / drawDbg)", () => {
   });
 });
 
-describe("sem sessões simuladas (ADR-0005, R1c2)", () => {
+describe("sem sessões simuladas (ADR-0006, R1c2)", () => {
   it("startDebug abre o pane, avisa que não há depurador e não cria sessão", () => {
     const toast = vi.spyOn(w, "toast");
     w.startDebug();

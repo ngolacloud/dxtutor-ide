@@ -47,7 +47,7 @@ export const graphSel = (): string | null => G.GSEL;
 export const setGraphSel = (h: string): void => { G.GSEL = h; };
 export const author = (): string => G.AUTHOR;
 
-/* ───── há um repositório git real aberto? (ADR-0005, R1d) ─────
+/* ───── há um repositório git real aberto? (ADR-0006, R1d) ─────
    No desktop o `bridge.ts` (window.DXR) sabe-o: `DXR.git` é verdade quando a pasta aberta
    é um repo (o pair também o actualiza). Sem DXR — o browser — não há repositório. Os
    testes do harness (sem DXR) ligam o espelho pondo `REPO` a true no window

@@ -88,7 +88,7 @@ bus.on('editor:tab', () => ctxPill());
 /* ───── políticas do harness do projecto sobre o Co-Dev (ADR-0004, U4g4) ─────
    Eram decorações do v5.ts, dobradas aqui no dono das funções (sem republicar no window):
    o tecto de autonomia no setMode e os direitos humanos no doTool (o «o código é teu» do
-   runMission saiu com o motor de missões, ADR-0005 R1b). Os dados do harness (HARN/MORD/RIGHTS/RIGHT_RE/isHuman) são do
+   runMission saiu com o motor de missões, ADR-0006 R1b). Os dados do harness (HARN/MORD/RIGHTS/RIGHT_RE/isHuman) são do
    features/team.ts e lêem-se no acto, como o v5 os lia por nome livre. NOTA (pré-existente,
    preservado): só o doTool PUBLICADO leva o gate de direitos — o chat usa o doTool local
    do motor (codev/index.ts), que nunca teve o gate do v5. */
@@ -122,7 +122,7 @@ function newChat() {
   <div class="i-n" id="live-note"></div></div>`; window.updateAgentUI();
 }
 
-/* ───── `ctx` da barra de estado: o uso real da conversa (ADR-0005, R2e1) ─────
+/* ───── `ctx` da barra de estado: o uso real da conversa (ADR-0006, R2e1) ─────
    O backend devolve, no fim de cada volta, os tokens que o provider reportou
    (platform/desktop/llm.ts anuncia-os em `dx:llm-usage`). O `ctx` mostra o tamanho do último
    contexto enviado (tokens de entrada da última volta) e o título dá a soma da conversa; antes
@@ -152,7 +152,7 @@ Object.assign(window, { ctxPill, cycleMode, pickModel, toggleProv, scrollMsgs, n
 
 /* publica o doTool (já ligado em ./codev/index.ts, com o gate de direitos do harness acima)
    no window; o features/board.ts resolve-o por global. O motor de missões guionadas e os
-   cenários de demonstração foram removidos (ADR-0005, R1b). */
+   cenários de demonstração foram removidos (ADR-0006, R1b). */
 Object.assign(window, { doTool: harnessDoTool });
 
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */

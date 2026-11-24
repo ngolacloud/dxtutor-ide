@@ -4,7 +4,7 @@ import { testKey } from "../src/features/testing/domain/results";
 import type { TestsPort } from "../src/features/testing/application/ports";
 import type { TestItem, TestRun } from "../src/features/testing/domain/types";
 
-/* O serviço do pane Testing (ADR-0005, R2a) contra um IPC falso (a porta `TestsPort`). */
+/* O serviço do pane Testing (ADR-0006, R2a) contra um IPC falso (a porta `TestsPort`). */
 
 const A: TestItem = { name: "soma", path: "tests::soma", file: "src/lib.rs", line: 3, ignored: false, lang: "rust" };
 const B: TestItem = { name: "falha", path: "tests::falha", file: "src/lib.rs", line: 9, ignored: false, lang: "rust" };

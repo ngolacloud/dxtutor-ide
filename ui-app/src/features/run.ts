@@ -2,7 +2,7 @@
    O pane «Run» lista os projectos da pasta aberta e os comandos de cada um, e corre-os num
    terminal de tarefa na pasta do projecto.
 
-   ADR-0005, R2d: sai a lista fixa do workspace de demonstração (`cargo test -p lexer`,
+   ADR-0006, R2d: sai a lista fixa do workspace de demonstração (`cargo test -p lexer`,
    `cargo test -p store`, `dx lint`, …). No desktop com pasta, os projectos vêm do backend
    (`detect_projects`: a raiz e as sub-pastas de primeiro nível, pelo ficheiro-marca) e os
    comandos da regra pura `run-commands.ts` (os do Node, dos `scripts` reais do package.json).

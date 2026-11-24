@@ -1,4 +1,4 @@
-/* ═══════════ feature `testing` — application: o serviço do pane (ADR-0005, R2a) ═══════════
+/* ═══════════ feature `testing` — application: o serviço do pane (ADR-0006, R2a) ═══════════
    Estado e casos de uso do pane «Testing», sobre os comandos reais do backend: descobrir os
    testes da pasta aberta (`list_tests`), correr um (`run_test`) ou a suíte inteira
    (`run_all_tests`). Sem DOM nem `window`: quem desenha subscreve e lê `state()`.

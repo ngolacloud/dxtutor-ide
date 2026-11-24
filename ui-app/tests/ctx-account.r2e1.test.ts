@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bootApp } from "./harness";
 
-/* ADR-0005, R2e1: o `ctx` da barra de estado vem do uso real que o provider reporta
+/* ADR-0006, R2e1: o `ctx` da barra de estado vem do uso real que o provider reporta
  * (`dx:llm-usage`, anunciado pelo platform/desktop/llm.ts) e o pane Conta mostra a identidade
  * real (no desktop) em vez de «walter · Team SYS». */
 

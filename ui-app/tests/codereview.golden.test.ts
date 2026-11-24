@@ -17,7 +17,7 @@ import { bootApp, golden } from "./harness";
  * Determinismo: nem `reviewFindings` nem os dois render usam Math.random/Date.
  * O workspace é a fixture `sample-workspace` (aplicada pelo harness), por
  * isso `FS[P_LX]` (crates/lexer/src/lib.rs) existe — já sem regras próprias (a do
- * E0382 do lexer de demonstração saiu: ADR-0005, R1c1).
+ * E0382 do lexer de demonstração saiu: ADR-0006, R1c1).
  * `window.SAMPLE` nasce `null` no arranque e o harness não corre o backend Tauri
  * (`window.claude` ausente), por isso o ramo «Deeper review with Claude» de
  * `renderCreviewView` fica OFF — baseline determinista. Timers falsos só para
@@ -175,7 +175,7 @@ describe("caracterização do motor — reviewFindings (regra pura a extrair)", 
     put("web/app.css", ":root {\n  --accent: #e06c3b;\n}\n.btn { color: #fff; }\n");
     const fs = w.reviewFindings("web/app.css");
     expect(fs.map((f: any) => [f.l, f.sev, f.t])).toEqual([[4, "style", "Fixed colour #fff"]]);
-    // a regra do E0382 do lexer de demonstração saiu (ADR-0005, R1c1)
+    // a regra do E0382 do lexer de demonstração saiu (ADR-0006, R1c1)
     expect(w.reviewFindings(P_LX).some((f: any) => /E0382/.test(f.t))).toBe(false);
   });
 

@@ -10,7 +10,7 @@
    via `window` (fachada tipada no core). Do core importa-se só o que é dono de lá
    (`$`, `hd`, `esc`, `toast`).
 
-   ADR-0005, R2b: no desktop com pasta aberta, a pesquisa corre em toda a pasta no disco
+   ADR-0006, R2b: no desktop com pasta aberta, a pesquisa corre em toda a pasta no disco
    (`search_project`), não só nos ficheiros carregados; os resultados abrem-se por um só
    listener em `#s-res` (data-p/data-l), sem `onclick` inline.
 
@@ -88,7 +88,7 @@ function groupHits(hits: SearchHit[], q: string): FileHits[] {
 let seq = 0, timer: ReturnType<typeof setTimeout> | undefined;
 
 /** Procura incremental pela query de `#s-q`: no desktop com pasta, em toda a pasta no disco
- *  (`search_project`, ADR-0005 R2b — também apanha o que o carregamento saltou); senão nos
+ *  (`search_project`, ADR-0006 R2b — também apanha o que o carregamento saltou); senão nos
  *  ficheiros carregados. Uma resposta atrasada nunca pinta por cima de uma mais recente. */
 function doSearch(): void {
   const qel = $("#s-q") as HTMLInputElement | null;

@@ -42,7 +42,7 @@ void (async () => {
     R.user = (await sh("whoami", [], { cwd: R.info.home })).stdout.trim().split(/[\\/]/).pop();
     R.host = (await sh("hostname", [], { cwd: R.info.home })).stdout.trim().split(".")[0];
   } catch { /* sem shell */ }
-  /* a identidade git (a que assina os commits) para o pane Conta (ADR-0005, R2e1) */
+  /* a identidade git (a que assina os commits) para o pane Conta (ADR-0006, R2e1) */
   try {
     R.gitName = (await sh("git", ["config", "--get", "user.name"], { cwd: R.info.home })).stdout.trim() || undefined;
     R.gitEmail = (await sh("git", ["config", "--get", "user.email"], { cwd: R.info.home })).stdout.trim() || undefined;

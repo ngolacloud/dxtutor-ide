@@ -1,4 +1,4 @@
-// U4f (ADR-0004): workspace (writeFile/resetWorkspace — sem semente, ADR-0005 R1a), LS, save/loadCfg e use/connected.
+// U4f (ADR-0004): workspace (writeFile/resetWorkspace — sem semente, ADR-0006 R1a), LS, save/loadCfg e use/connected.
 import { beforeEach, expect, it } from "vitest";
 import { bootApp } from "./harness";
 

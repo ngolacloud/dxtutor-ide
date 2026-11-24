@@ -16,7 +16,7 @@
 
 import { esc } from "../core";
 /* Há um repositório git aberto? O acessor do scm (no desktop, DXR.git; no browser nunca —
-   ADR-0005, R1d), importado em vez de publicado no window. */
+   ADR-0006, R1d), importado em vez de publicado no window. */
 import { repo as repoOpen } from "./scm/infrastructure/legacy-bridge";
 
 function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {

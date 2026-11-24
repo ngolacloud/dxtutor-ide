@@ -8,7 +8,7 @@
    globais (RP/goPane/tabOf/LS/…). Capturar um valor ansiosamente aqui congelaria em
    `undefined`. Funções e getters são seguros porque só correm depois do arranque.
 
-   ADR-0005, R1c2: saíram os acessores das sessões simuladas — a sessão `window.DBG`, o
+   ADR-0006, R1c2: saíram os acessores das sessões simuladas — a sessão `window.DBG`, o
    caminho e os helpers do lexer de demonstração (`P_LX`/`lexVariant`/`LXL`/`lexBug`), os
    ambientes/segredos do crash inventado, o checkpoint/diálogo/dono humano e os saltos
    para o Explain e os segredos de staging. */

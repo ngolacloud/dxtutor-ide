@@ -109,7 +109,7 @@ async function streamChat(k: string, msgs: { role: string; content: string }[], 
   function onAbort(): void { void providers.cancel(id); cleanup(); settleErr(STOP); }
   const mine = (e: { payload: unknown }): Record<string, unknown> | null => { const p = e.payload as { requestId?: string } | null; return p && p.requestId === id ? (p as Record<string, unknown>) : null; };
   offs.push((await T.event.listen("llm://token", e => { const p = mine(e); if (!p) return; text += String(p.delta ?? ""); if (o.onText) o.onText({ text }); })) as () => void);
-  /* o uso que o provider reportou (ADR-0005, R2e1 — antes 0 de entrada e texto/4 de saída,
+  /* o uso que o provider reportou (ADR-0006, R2e1 — antes 0 de entrada e texto/4 de saída,
      inventados); anuncia-o para o `ctx` da barra de estado (features/codev.ts) */
   offs.push((await T.event.listen("llm://done", e => {
     const p = mine(e); if (!p) return; cleanup();

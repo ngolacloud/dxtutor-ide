@@ -58,7 +58,7 @@ function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta
    VIEW.file (app.ts) delega em renderFileView (shim, no registo de kinds de tab). ── */
 /* ───── o pintor publicado (ADR-0004, U4g5 — era a decoração do v6.ts) ─────
    Por cima da base: os breakpoints no gutter e o Error Lens (a linha corrente do depurador
-   simulado saiu com as sessões guionadas, ADR-0005 R1c2; volta com o DAP na R4).
+   simulado saiu com as sessões guionadas, ADR-0006 R1c2; volta com o DAP na R4).
    BUG PRÉ-EXISTENTE (reportado, não corrigido aqui): as chamadas internas do editor
    (renderFileView/oninput) usam a base, por isso estas marcas só aparecem quando alguém
    chama o `window.paintEd` — desde a extracção do editor (923a2a5); antes, no app.ts, o

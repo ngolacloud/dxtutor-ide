@@ -35,7 +35,7 @@ import type { Decision, Mode } from "./domain/types";
 
 /* ───── state owned by the composition root (published by codev.ts) ───── */
 /** O registo de decisões que a página Team lê (`window.DECS`); sem missões guionadas
- *  (ADR-0005, R1b) fica vazio até a R3 o ligar às decisões reais do agente. */
+ *  (ADR-0006, R1b) fica vazio até a R3 o ligar às decisões reais do agente. */
 export const decisions: Decision[] = [];
 
 /* ───── adapters over the legacy bridge ───── */

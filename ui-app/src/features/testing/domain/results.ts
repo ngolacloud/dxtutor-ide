@@ -1,4 +1,4 @@
-/* ═══════════ feature `testing` — domain: resultados (ADR-0005, R2a) ═══════════
+/* ═══════════ feature `testing` — domain: resultados (ADR-0006, R2a) ═══════════
    Regras PURAS sobre os testes e os resultados: a chave de um teste, o agrupamento por
    ficheiro, a leitura do estado de cada teste na saída de «Run all» (o backend devolve só
    o veredicto da suíte e a saída combinada) e o texto da barra de estado. */

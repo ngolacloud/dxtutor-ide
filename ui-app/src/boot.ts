@@ -159,18 +159,18 @@ window.MENUS=[
 document.addEventListener('click',()=>closeMenus());
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
-/* a árvore nasce vazia: o syncTree (features/explorer.ts) preenche-a com a pasta aberta (ADR-0005, R1a) */
+/* a árvore nasce vazia: o syncTree (features/explorer.ts) preenche-a com a pasta aberta (ADR-0006, R1a) */
 window.TREE={projects:{dir:1,open:1,children:{}}};
 
 /* o editor de demonstração v1 (DOCS, renderTabs/renderDocs/renderMinimap, agentShell, welcome) saiu: as
-   features tabs/editor/codev são as donas (ADR-0005, R1a). Fica o atalho de teclado dos controlos de execução. */
+   features tabs/editor/codev são as donas (ADR-0006, R1a). Fica o atalho de teclado dos controlos de execução. */
 document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target as HTMLElement).tagName))return;
   const open=getComputedStyle(document.body).getPropertyValue('--agent-w').trim()!=='0px'||(activeTab==='Assistant');if(!open)return;
   const rc=$('#ag-runctl');if(e.key==='Escape'){agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
   const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
 window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
 window.buildDocker = function(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
-  /* sem dados inventados (ADR-0005, R1a): os contentores e as imagens reais chegam com a R5 (runtime ligado em Infra) */
+  /* sem dados inventados (ADR-0006, R1a): os contentores e as imagens reais chegam com a R5 (runtime ligado em Infra) */
   $('#dk-containers')!.innerHTML='<div class="sec-empty">Sem runtime de contentores ligado. Liga o socket do Docker ou do Podman em Infra.</div>';
   $('#dk-images')!.innerHTML='';
   wireSections(pane);hydrate();}

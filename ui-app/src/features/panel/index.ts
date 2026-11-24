@@ -112,7 +112,7 @@ function boot(): void {
       st.innerHTML = problems.state().running && !problems.state().scan ? "✖ … ⚠ …" : `✖ ${c.errors} ⚠ ${c.warnings}`;
       st.style.color = c.errors ? "var(--red)" : c.warnings ? "var(--yellow)" : "var(--git-u)";
     }
-    // O `#st-tests` é do features/testing (resultados reais das corridas; ADR-0005, R2a).
+    // O `#st-tests` é do features/testing (resultados reais das corridas; ADR-0006, R2a).
     const el = $("#pc-problems");
     if (el) renderProblems(el, { state: problems.state(), problems: all, filter, collapsed, root: L.root() });
     if (activeTab() === "dbg") drawAssistant();

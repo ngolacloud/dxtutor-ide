@@ -1,4 +1,4 @@
-/* ═════════ feature `testing` — adaptador Tauri (ADR-0005, R2a) ═════════
+/* ═════════ feature `testing` — adaptador Tauri (ADR-0006, R2a) ═════════
    Implementa a porta `TestsPort` sobre o cliente IPC tipado (`platform/tauri/core`):
    `list_tests`, `run_test`, `run_all_tests` (src-tauri/src/commands/tests.rs). Não toca
    em `window` (o cliente tipado é que o faz, fora da subárvore). */

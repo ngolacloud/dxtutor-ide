@@ -28,7 +28,7 @@ const CL: {
 
 /* ── sem repositório (o browser, ou o desktop sem pasta) não há timeline: a vista mostra o
    aviso. A fonte SIMULADA que derivava do histórico inventado do protótipo (`GIT.order`/
-   `COMMITS`) saiu com ele (ADR-0005, R1d). ── */
+   `COMMITS`) saiu com ele (ADR-0006, R1d). ── */
 const noLog = async (): Promise<ClCommit[]> => [];
 const noShow = async (_hash: string): Promise<string> => "";
 

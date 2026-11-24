@@ -92,7 +92,7 @@ function flushSave(): void {
     seen.add(r);
     if (R.disk[r] !== FS[k].content) { w.push([r, FS[k].content]); R.disk[r] = FS[k].content; }
   });
-  /* Rede de segurança (ADR-0005, R0): um FS esvaziado por inteiro (estado reposto, simulação a
+  /* Rede de segurança (ADR-0006, R0): um FS esvaziado por inteiro (estado reposto, simulação a
      limpar o workspace…) não é «o utilizador apagou tudo». Nesse caso não se apaga nada no
      disco: relê-se a pasta. Apagar ficheiros um a um (até ao último) continua a funcionar. */
   if (!seen.size && Object.keys(R.disk).length > 1) {

@@ -22,7 +22,7 @@ export interface ReviewInput {
   ext: string;
 }
 
-/* ───── os analisadores reais do projecto (`review_code`, ADR-0005 R2e2) ─────
+/* ───── os analisadores reais do projecto (`review_code`, ADR-0006 R2e2) ─────
    Espelham `tutor_eval::review` (camelCase): clippy/rustc, go vet, ruff, … sobre o ficheiro
    no disco. A classe é o contrato de honestidade do backend: um lint de estilo nunca é um
    bug, um erro de compilação nunca é uma sugestão. */

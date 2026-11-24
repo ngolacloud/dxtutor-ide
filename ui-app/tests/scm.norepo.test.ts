@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp, golden } from "./harness";
 
-/* ADR-0005, R1d — sem git simulado. O harness liga o espelho com o histórico da fixture
+/* ADR-0006, R1d — sem git simulado. O harness liga o espelho com o histórico da fixture
  * (tests/fixtures/sample-history.ts, `REPO = true`); aqui desliga-se para provar o que a
  * app faz SEM repositório git real (o browser, ou o desktop sem pasta / com pasta sem git):
  * o modelo nasce vazio, o pane diz-o, e nada muda o git em memória. E prova-se a ligação do

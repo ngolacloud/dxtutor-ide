@@ -1,4 +1,4 @@
-/* ═════════ feature `testing` — legacy bridge (ADR-0005, R2a) ═════════
+/* ═════════ feature `testing` — legacy bridge (ADR-0006, R2a) ═════════
    O ÚNICO ficheiro da feature `testing` que toca em `window`. Lê a pasta aberta e o comando
    de testes detectado (`window.DXR`, a parte desktop — `platform/desktop/`), e resolve no
    acto as funções do monólito que a feature chama (abrir ficheiro, correr no terminal,

@@ -1,4 +1,4 @@
-# ADR-0005 — IDE real: fim dos dados de demonstração
+# ADR-0006 — IDE real: fim dos dados de demonstração
 
 - **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop), R3–R6 por fazer
 - **Data:** 2026-11-23
@@ -318,3 +318,16 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   classe, abrir na linha, resultado atrasado, sem achados, erro). **Selftest desktop:** passo
   `review` novo — o teste Python dá `ruff · não instalado` (dito, não escondido); `errors: []`.
   IPC-MATRIX: `review_code` ganha consumidor. **Com isto a R2 fica feita.**
+- **Renumeração e rebase sobre a U4h2–U4h4 + learning-plugins (2026-11-24).** Este ADR nasceu
+  como `ADR-0005-ide-real.md`; o `develop` recebeu entretanto o `ADR-0005-learning-track-plugins.md`
+  (PR #1, primeiro a entrar), por isso passou a **ADR-0006**. As mensagens de commit anteriores
+  (R0…R2e2) e os nomes de passos dizem «ADR-0005»: são este ADR. As referências no código e nos
+  testes desta série foram renumeradas (só as linhas acrescentadas pela série — as do
+  learning-plugins ficam). No rebase: a U4h2 passou a decoração git do desktop a uma porta
+  injectada (`desktopPorts.scm`); o `realCommit` da R1d deu lugar a essa porta, e o `commitGit`
+  (board, terminal, agentes) passa a consultá-la como o `commit` (antes ficava só no espelho em
+  memória). As acções do pane Source Control (botão Commit, mudar de ramo, Ctrl+Enter, finalizar
+  gitflow) passam a chamar as versões publicadas — o `develop` registava como bug pré-existente
+  (desde f07dbc1) que no desktop iam ao motor local sem git real; corrigido aqui por ser «git só
+  real» (R1d). Selftest desktop completo (todos os passos da R1 e da R2): `errors: []`; o gitflow
+  acaba em `develop` com merges reais. Métricas: globais 411 → 368.

@@ -1,4 +1,4 @@
-/* ═════════ cliente IPC: inteligência de código (outline) — ADR-0005, R2c ═════════
+/* ═════════ cliente IPC: inteligência de código (outline) — ADR-0006, R2c ═════════
    Contrato de `file_outline` (src-tauri/src/commands/codeintel.rs): os símbolos de um ficheiro
    — pelo servidor de língua quando há (`root` + `file` absoluto), senão `syn` (Rust) ou o
    scanner sintáctico (Go/Python/JS/TS). */

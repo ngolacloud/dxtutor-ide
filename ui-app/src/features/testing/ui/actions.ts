@@ -1,4 +1,4 @@
-/* ═══════════ feature `testing` — delegated event dispatch (ADR-0005, R2a) ═══════════
+/* ═══════════ feature `testing` — delegated event dispatch (ADR-0006, R2a) ═══════════
    O ÚNICO listener delegado da feature Testing: o pane emite markup com `data-action`
    (o nome da acção) e um `data-on` opcional (o payload em string); um só handler no
    `document` sobe do alvo até ao `[data-action]` mais próximo e corre a entrada da tabela

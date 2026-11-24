@@ -70,7 +70,7 @@ function badges(): void {
   set("codev", agentStore.run && agentStore.run.active ? "●" : "");
   /* Tasks: issues à espera de validação. Era a decoração do v6.ts (ADR-0004, U4g5) — o badges
      não tem chamadas internas, por isso dobra-se aqui. (O contador do Debug contava os
-     lançadores de crash dos ambientes simulados; saiu com eles, ADR-0005 R1c2.) */
+     lançadores de crash dos ambientes simulados; saiu com eles, ADR-0006 R1c2.) */
   const b = $('.act[data-pane="tasks"] .badge') as HTMLElement | null;
   if (b) { const n = G.BL.issues.filter((i) => i.stage === "func").length; b.textContent = String(n || ""); b.style.display = n ? "grid" : "none"; }
 }

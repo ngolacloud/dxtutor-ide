@@ -34,7 +34,7 @@ export function makeLiveChat(deps: LiveDeps) {
     /* pasta real (desktop): run_tests/design_lint correm os comandos DETECTADOS do projecto
        (domain/project-commands). Sem pasta (browser) não há onde correr testes nem lint: as duas
        ferramentas não se oferecem (eram o `cargo test -p lexer|store` e o `dx lint` do workspace
-       de demonstração, que o terminal emulado já não conhece — ADR-0005, R2d). */
+       de demonstração, que o terminal emulado já não conhece — ADR-0006, R2d). */
     const REAL = !!deps.verify?.real();
     const TESTC = REAL ? deps.verify!.command("test") : null;
     const LINTC = REAL ? deps.verify!.command("lint") : null;

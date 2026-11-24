@@ -1,7 +1,7 @@
 /* ═══════════ Co-Dev — domain types (ADR-0002, Phase 2) ═══════════
    Pure TypeScript shapes for the Co-Dev domain: autonomy modes, the approval
    decision, tool calls, the decision log and workspace file entries. (The
-   scripted mission scenarios and their rubric were removed — ADR-0005, R1b.)
+   scripted mission scenarios and their rubric were removed — ADR-0006, R1b.)
 
    Dependency rule (ADR-0002): this folder imports NOTHING — no DOM, no
    `window`, no Tauri, no `application/`/`ui/`/`infrastructure/`. */

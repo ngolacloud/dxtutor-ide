@@ -1,4 +1,4 @@
-/* ═════════ cliente IPC: pesquisa no projecto — ADR-0005, R2b ═════════
+/* ═════════ cliente IPC: pesquisa no projecto — ADR-0006, R2b ═════════
    Contrato de `search_project` (src-tauri/src/commands/search.rs): procura literal em toda a
    pasta no disco (salta .git/node_modules/target/dist…, binários e ficheiros grandes). */
 import { invoke, type Invoker } from "./core";

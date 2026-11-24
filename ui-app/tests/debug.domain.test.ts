@@ -3,7 +3,7 @@ import { bpKey, bpLine, bpPath } from "../src/features/debug/domain/breakpoints"
 
 /* Testes unitários do domínio PURO da feature Run and Debug (ADR-0002, Fase 2): só
  * dados→dados, sem harness nem `window`. Os geradores das sessões simuladas
- * (lexer-trace/crash-trace/launch) saíram com elas (ADR-0005, R1c2); fica a regra das
+ * (lexer-trace/crash-trace/launch) saíram com elas (ADR-0006, R1c2); fica a regra das
  * chaves de breakpoint. */
 
 describe("domain/breakpoints — chaves path:line", () => {

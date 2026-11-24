@@ -4,7 +4,7 @@
    capacidades são fornecidas, no acto da composição (`features/debug.ts`), por
    adaptadores sobre `infrastructure/legacy-bridge.ts`.
 
-   Sem sessões simuladas (ADR-0005, R1c2): saíram o passo-a-passo guionado do lexer de
+   Sem sessões simuladas (ADR-0006, R1c2): saíram o passo-a-passo guionado do lexer de
    demonstração e as sondas inventadas a um pod em crash, e com eles as portas que só
    eles usavam (variante/linhas do lexer, geradores de traço, ambientes, checkpoint,
    humano, diálogo, relógio). Fica o que é real — os breakpoints, guardados e pintados no

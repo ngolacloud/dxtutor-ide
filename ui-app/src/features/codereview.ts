@@ -57,7 +57,7 @@ import {
 
 /* Presenter do cartão de Explain: a porta `view.explainCard` que o motor chama com
    dados simples. A view é dona do markup (o texto fixo `KNOW` dos ficheiros de demonstração
-   saiu — ADR-0005, R1c1). */
+   saiu — ADR-0006, R1c1). */
 function explainCard(c: ExplainCard): void {
   card('co-dev · explain', `<p><b>${esc(short(c.path))}</b> — ${c.lineCount} lines${c.symbols.length ? `, defines ${c.symbols.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${c.firstComment ? `<p>${esc(c.firstComment)}</p>` : ''}
    ${c.diagnostics.length ? `<p><b>Right now:</b> ${c.diagnostics.map(m => esc(m)).join('; ')}.</p>` : ''}${c.findings.length ? `<p><b>What I would watch:</b></p><ul>${c.findings.map(r => `<li>${r.t} (line ${r.l})</li>`).join('')}</ul>` : ''}<p style="color:var(--fg-dim)">With Claude live, Explain answers about the exact code or selection instead of this summary.</p>`);
@@ -103,7 +103,7 @@ function renderCreviewView(tab: unknown, host: HTMLElement): void {
   analyzersSection(t.path, host);
 }
 
-/* ───── os analisadores reais do projecto (ADR-0005, R2e2) ─────
+/* ───── os analisadores reais do projecto (ADR-0006, R2e2) ─────
    No desktop com pasta aberta, a tab junta às regras locais (instantâneas) o que os
    analisadores instalados dizem do ficheiro no disco (`review_code`, âmbito `file`):
    clippy/rustc, go vet, ruff, … com a classe honesta (bug/risco/oportunidade), a regra, a
@@ -148,7 +148,7 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
     stg = (n: string, ok: boolean | null, d: string) => `<div class="hs ${ok === false ? 'bad' : ok === null ? 'skip' : 'ok'}"><span>${ok === false ? '✖' : ok === null ? '○' : '✓'}</span><div><b>${n}</b><small>${d}</small></div></div>`;
   let h = '';
   /* O plano deriva do código: a tabela e a coluna do WHERE e os CREATE INDEX das
-     migrações deste workspace (ADR-0005, R1c1 — antes o nome do índice era o do demo). */
+     migrações deste workspace (ADR-0006, R1c1 — antes o nome do índice era o do demo). */
   function qplan(fe: { content: string }): string {
     const q = (fe.content.match(/SELECT[^"]*/) || [])[0];
     if (!q) return '';

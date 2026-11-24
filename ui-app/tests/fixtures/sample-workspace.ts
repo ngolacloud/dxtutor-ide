@@ -1,7 +1,7 @@
 /* Fixture de testes: o projecto-exemplo `dxtutor/` (um workspace Rust + desktop TS) sobre o qual os
    goldens e os testes de caracterização desenham. Era a semente que a app carregava sem pasta aberta
    (`features/workspace/seed.ts`, `VITE_SEED=1`); a app deixou de trazer dados de demonstração
-   (ADR-0005, R1a) e a semente passou a ser só dado de teste. `applySampleWorkspace` repõe o estado
+   (ADR-0006, R1a) e a semente passou a ser só dado de teste. `applySampleWorkspace` repõe o estado
    que o antigo `loadSeed` deixava: os ficheiros base com três diferenças deterministas face ao git
    (styles.css e assistant.ts modificados, theme.css novo). */
 

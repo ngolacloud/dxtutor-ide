@@ -13,7 +13,7 @@
      gfPrompt/pickBranch/drawTimeline/renderScmPane/openGraph) e RE-PUBLICA a
      superfície no `window`.
 
-   ADR-0005, R1d — sem git simulado: saíram o histórico semeado do `gitInit`, a lista
+   ADR-0006, R1d — sem git simulado: saíram o histórico semeado do `gitInit`, a lista
    fixa de ramos `BRANCHES` (main/develop/feat/learning-paths) e os três commits fixos de
    `COMMITS`. Sem repositório git real aberto, o pane diz isso (no desktop com pasta, com
    um botão `git init`) e o motor recusa mudar o git; com repo, o `bridge.ts` liga tudo ao
@@ -111,12 +111,12 @@ const { gitInit, commit, commitV2, checkout, gitMerge, gfStart, gfFinish, stage,
    porta desktop (`desktopPorts.scm`, injectada por platform/desktop/git.ts na app Tauri) —
    antes o desktop reatribuía-as no `window`. As chamadas internas deste ficheiro (acções do
    pane, paleta de ramos, Ctrl+Enter) passam também pelas versões publicadas — desde a Fase 4
-   (f07dbc1) iam ao motor local e no desktop não usavam git real; corrigido no ADR-0005 (R1d,
+   (f07dbc1) iam ao motor local e no desktop não usavam git real; corrigido no ADR-0006 (R1d,
    «git só real»). O gfStart/gfFinish do motor encadeiam checkout/merge pela porta `flow`,
    ligada às mesmas versões publicadas. */
 const commitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commitV2) : commitV2(msg); };
 /* o commit v4 git-aware (board, terminal, agentes) passa pela MESMA porta que o botão: no
-   desktop com repo, commit real (antes ficava só no espelho em memória — ADR-0005, R1d). */
+   desktop com repo, commit real (antes ficava só no espelho em memória — ADR-0006, R1d). */
 const commitGitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commit) : commit(msg, author); };
 const checkoutPublished = (b: string, create?: boolean): boolean => { const d = desktopPorts.scm; return d ? d.checkout(b, create, checkout) : checkout(b, create); };
 const gitMergePublished = (src: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gitMerge(src, author, gitMerge) : gitMerge(src, author); };

@@ -1,4 +1,4 @@
-/* ═══════════ feature `testing` — ui: o markup do pane (ADR-0005, R2a) ═══════════
+/* ═══════════ feature `testing` — ui: o markup do pane (ADR-0006, R2a) ═══════════
    Desenha o pane «Testing» a partir do estado do serviço: os testes descobertos por
    ficheiro com o estado real de cada um, a saída das corridas que falharam, a última
    corrida da suíte, e o comando de testes do projecto (para o que a descoberta não cobre,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { countStates, groupByFile, parseSuiteOutput, statesAfterSuite, statusBarText, testKey } from "../src/features/testing/domain/results";
 import type { TestItem } from "../src/features/testing/domain/types";
 
-/* Domínio puro do pane Testing (ADR-0005, R2a): dados→dados, sem harness nem `window`. */
+/* Domínio puro do pane Testing (ADR-0006, R2a): dados→dados, sem harness nem `window`. */
 
 const rs = (path: string, file = "src/lib.rs", line = 1, ignored = false): TestItem => ({ name: path.split("::").pop()!, path, file, line, ignored, lang: "rust" });
 const go = (name: string, file = "x_test.go"): TestItem => ({ name, path: name, file, line: 1, ignored: false, lang: "go" });

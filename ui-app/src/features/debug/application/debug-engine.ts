@@ -3,7 +3,7 @@
    `domain/`. Sem DOM, sem `window`, sem Tauri — a composição (`features/debug.ts`)
    injecta os adaptadores do legacy-bridge e as funções de desenho.
 
-   ADR-0005, R1c2: as sessões guionadas (o E0382 do lexer de demonstração e o crash de
+   ADR-0006, R1c2: as sessões guionadas (o E0382 do lexer de demonstração e o crash de
    DNS com saídas de `kubectl` inventadas) saíram. Não há adaptador de depuração ligado,
    por isso «Start debugging» abre o pane e o assistente e diz isso mesmo; os breakpoints
    são reais (alternados no gutter/F9, guardados em LS, pintados pelo editor) e ficam à

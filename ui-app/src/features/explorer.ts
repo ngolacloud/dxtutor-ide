@@ -4,7 +4,7 @@
    linhas da árvore (`renderLevel`), a construção do painel inteiro (`buildExplorer` —
    projectos + Outline + Timeline), `markActive`/`collapseAll`, a extracção de símbolos
    (`symbols`), o desenho do Outline (`drawOutline` — no desktop com pasta, pelo backend
-   `file_outline`, ADR-0005 R2c) e os lançadores `newFile`/`newFolder`.
+   `file_outline`, ADR-0006 R2c) e os lançadores `newFile`/`newFolder`.
 
    Fronteira: a feature é DONA destas 8 funções. Os CONSUMIDORES ficam no monólito e
    lêem por nome livre (global): `buildExplorer` (refresh em app.ts + boot.ts),
@@ -50,7 +50,7 @@ function noFolder(host:HTMLElement){const d=document.createElement('div');d.clas
 function markActive(){$$('#exp-sections .row.sel').forEach(x=>x.classList.remove('sel'));const t=tabOf(cur);if(t&&t.path){const r=$(`#exp-sections .row[data-path="${esc(t.path)}"]`);if(r)r.classList.add('sel');}}
 function collapseAll(){OPEN.clear();Object.values(TREE.projects.children).forEach(n=>{(n as any).open=false;});buildExplorer();}
 function symbols(p:string){const f=FS[p];if(!f)return[];const out:{k:string;n:string;line:number}[]=[];f.content.split('\n').forEach((l,i)=>{const m=l.match(/^\s*(?:pub\s+)?(?:async\s+)?(fn|struct|enum|trait|impl|function|CREATE TABLE|CREATE INDEX)\s+(?:.*?\bfor\s+)?([A-Za-z_]\w*)/)||l.match(/^(#{1,3})\s+(.+)/)||l.match(/^(export)\s+(?:async\s+)?(?:function|const)\s+(\w+)/);if(m)out.push({k:m[1].replace('CREATE ','').toLowerCase(),n:m[2],line:i+1});});return out;}
-/* ───── Outline real (ADR-0005, R2c) ─────
+/* ───── Outline real (ADR-0006, R2c) ─────
    No desktop com pasta aberta, os símbolos de um ficheiro de código vêm do backend
    (`file_outline`: servidor de língua quando há, senão `syn`/scanner sintáctico). Cada
    pedido arranca um servidor de língua, por isso: cache por ficheiro+conteúdo (teclar não

@@ -6,7 +6,7 @@
    O estado é mutado no SÍTIO (mesma referência que o resíduo publica), por isso os
    consumidores do monólito continuam a vê-lo.
 
-   ADR-0005, R1d — sem git simulado. `gitInit` deixa de semear um histórico inventado
+   ADR-0006, R1d — sem git simulado. `gitInit` deixa de semear um histórico inventado
    (12 commits, main/develop, tags v0.1.0/v0.2.0): o modelo nasce vazio, sem ramo. Sem um
    repositório git real aberto (`store.repo()` — no desktop, a pasta aberta é um repo), as
    operações que mudam o git (commit/checkout/merge/gitflow) recusam com um aviso em vez de

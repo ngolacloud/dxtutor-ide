@@ -30,7 +30,7 @@ function writeFile(p: string, content: string): void {
 }
 
 /** Repõe o workspace vazio (sem ficheiros nem nada em stage) e um git simulado novo. A app não
- *  traz dados de demonstração (ADR-0005, R1a): os ficheiros chegam da pasta aberta (desktop). */
+ *  traz dados de demonstração (ADR-0006, R1a): os ficheiros chegam da pasta aberta (desktop). */
 function resetWorkspace(): void {
   const FS = workspaceStore.files;
   Object.keys(FS).forEach((k) => delete FS[k]);

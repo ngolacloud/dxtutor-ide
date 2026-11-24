@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
 
-/* Code review (ADR-0005, R2e2): no desktop com pasta, a tab junta às regras locais os
+/* Code review (ADR-0006, R2e2): no desktop com pasta, a tab junta às regras locais os
  * analisadores reais do projecto (`review_code`, IPC falso aqui). No browser nada muda. */
 
 let w: any;

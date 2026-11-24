@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
 
-/* Outline (ADR-0005, R2c): no browser, a extracção local; no desktop com pasta, o backend
+/* Outline (ADR-0006, R2c): no browser, a extracção local; no desktop com pasta, o backend
  * `file_outline` (IPC falso aqui), com cache por conteúdo e debounce. */
 
 let w: any;

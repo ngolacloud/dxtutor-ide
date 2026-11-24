@@ -33,7 +33,7 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
   async function autoTest(it: Issue, host: Host | null): Promise<boolean> {
     const d = host ? chat.tl(host, "auto-test", it.id + " · disparado ao entrar em Teste") : null; await chat.sleep(380);
     /* sem testes da issue, os do projecto (comandos detectados, a correr a sério no desktop); sem
-       nenhum, a issue não passa — nada de resultados inventados (ADR-0005, R1c1) */
+       nenhum, a issue não passa — nada de resultados inventados (ADR-0006, R1c1) */
     const res = it.tests.length ? it.tests.map((t) => ({ n: t.n, ok: !!t.fn() })) : await terminal.projectTests(), ok = res.length > 0 && res.every((r) => r.ok), f = res.filter((r) => !r.ok).length; it.res = res;
     if (!res.length) notifier.log("auto-test", `${it.id}: sem testes — abre a pasta do projecto na app desktop (comando de testes detectado ou .dxtutor/commands.json)`);
     if (terminal.getVar("--panel-h") !== "0px") terminal.setPanelTab("terminal", true); terminal.echoCmd("dx test " + it.id); terminal.echo(`<span class="dim">running ${res.length} tests (${esc(it.branch || scm.branch())})</span>\n` + res.map((r) => `test ${r.n} ... ${r.ok ? '<span class="ok">ok</span>' : '<span class="er">FAILED</span>'}`).join("\n") + `\n\ntest result: ${ok ? '<span class="ok">ok</span>' : '<span class="er">FAILED</span>'}. ${res.length - f} passed; ${f} failed`); terminal.newInput(true);

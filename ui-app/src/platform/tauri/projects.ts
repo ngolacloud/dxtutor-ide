@@ -1,4 +1,4 @@
-/* ═════════ cliente IPC: projectos da pasta — ADR-0005, R2d ═════════
+/* ═════════ cliente IPC: projectos da pasta — ADR-0006, R2d ═════════
    Contrato de `detect_projects` (src-tauri/src/commands/search.rs): a raiz e as sub-pastas
    de primeiro nível que são projectos, pelo ficheiro-marca (Cargo.toml, go.mod, package.json,
    pyproject.toml/requirements.txt, pom.xml/build.gradle, composer.json, Gemfile). */

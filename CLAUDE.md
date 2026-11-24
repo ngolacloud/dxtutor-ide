@@ -103,7 +103,7 @@ features/codereview.ts  RESÍDUO strangler + raiz de composição: compõe o mot
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). No desktop com pasta, a tab de Code
 review junta às regras locais os analisadores reais do projecto (`review_code`, âmbito
-`file`, pelo adaptador `infrastructure/tauri.ts`; ADR-0005 R2e2). Nota: ao contrário do Co-Dev,
+`file`, pelo adaptador `infrastructure/tauri.ts`; ADR-0006 R2e2). Nota: ao contrário do Co-Dev,
 o markup (`renderCreviewView`/`renderHoodView`) vive no resíduo de composição
 `features/codereview.ts`, não num `ui/*-view.ts` — por isso `ui/` só tem
 `actions.ts`. A tabela de acções fica no resíduo (único sítio com o bridge à mão).
@@ -134,7 +134,7 @@ features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GI
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o codereview, o markup vive
 no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. **Sem git simulado
-(ADR-0005, R1d):** `gitInit` dá um modelo VAZIO (sem ramo nem commits); só há repositório
+(ADR-0006, R1d):** `gitInit` dá um modelo VAZIO (sem ramo nem commits); só há repositório
 quando `store.repo()` — no desktop `DXR.git` (a pasta aberta é um repo), no browser nunca.
 Sem repo, commit/checkout/merge/gitflow recusam com aviso e o pane diz-o (com `git init` no
 desktop com pasta); com repo, o motor é o espelho optimista e o git real vem da porta
@@ -169,7 +169,7 @@ features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BP
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
 resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. **Sem sessões simuladas
-(ADR-0005, R1c2):** o passo-a-passo guionado do lexer de demonstração, as sondas `kubectl`
+(ADR-0006, R1c2):** o passo-a-passo guionado do lexer de demonstração, as sondas `kubectl`
 inventadas e os lançadores derivados dos ambientes simulados saíram. Não há adaptador de
 depuração ligado: «Start debugging» (F5) abre o pane e diz isso; `dbgStep`/`dbgStop` só
 avisam que não há sessão; os breakpoints são reais (gutter/F9, LS `bps6`) e ficam à espera
@@ -415,7 +415,7 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
 
 ## Nona feature: Testing real (`ui-app/src/features/testing/`)
 
-Feature NOVA (ADR-0005, R2a) que substitui `features/test.ts`: o pane «Testing» e o
+Feature NOVA (ADR-0006, R2a) que substitui `features/test.ts`: o pane «Testing» e o
 `#st-tests` sobre os comandos reais do backend. Nasceu tipada e em camadas (governada por A7/A8):
 
 ```
@@ -463,6 +463,7 @@ registada (mudança de UI aprovada), nunca para «fazer passar».
 
 - `docs/architecture/ADR-0002-codev-clean-architecture.md` — a decisão e as 6 fases.
 - `docs/architecture/ADR-0005-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
+- `docs/architecture/ADR-0006-ide-real.md` — o fim dos dados de demonstração e cada feature no backend real (R0–R6).
 - `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.
