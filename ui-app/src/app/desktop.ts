@@ -10,6 +10,10 @@ import type { StackDesktop } from "../features/stack";
 import type { InfraDesktop } from "../features/infra/application/ports";
 import type { CodevDesktop } from "../features/codev/application/ports";
 import type { BoardDesktop } from "../features/board/application/ports";
+import type { ExplorerDesktop } from "../features/explorer";
+import type { WelcomeDesktop } from "../features/welcome";
+import type { ChangelogDesktop } from "../features/changelog";
+import type { ExtDesktop } from "../features/ext/application/ports";
 
 export interface DesktopPorts {
   /** git real no repositório aberto (platform/desktop/git.ts) — U4h2 */
@@ -24,6 +28,14 @@ export interface DesktopPorts {
   codev?: CodevDesktop;
   /** a guarda das corridas de sprint — U4h5 */
   board?: BoardDesktop;
+  /** o nome da pasta aberta na raiz do explorador — U4h5b */
+  explorer?: ExplorerDesktop;
+  /** «Open Folder…» e as pastas recentes na página de boas-vindas — U4h5b */
+  welcome?: WelcomeDesktop;
+  /** o git log/show reais do changelog — U4h5b */
+  changelog?: ChangelogDesktop;
+  /** o JSZip embutido na app — U4h5b */
+  ext?: ExtDesktop;
 }
 
 export const desktopPorts: DesktopPorts = {};

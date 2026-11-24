@@ -108,3 +108,7 @@ export interface ExtDeps {
    *  ela o VSIX instala-se só com o manifesto, como antes. */
   contrib?: import("./contributions-engine").ContribEngine;
 }
+
+/** A parte desktop das extensões (ADR-0004, U4h5b), injectada em `desktopPorts.ext`: o JSZip vem
+ *  com a app em vez do CDN. Recebe o carregador por omissão. */
+export interface ExtDesktop { loadJSZip(virtual: () => Promise<unknown>): Promise<unknown> }

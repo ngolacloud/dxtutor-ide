@@ -346,7 +346,10 @@ versões que publica, e a porta recebe a versão simulada como último argumento
 `scm` (commit/checkout/gitMerge/gfFinish — U4h2), `terminal` (run/termExec/promptHTML — U4h3), `stack` (dxRun/dxStop/drawStack) e `infra`
 (rtConnect/k8sConnect/dxDeploy/VIEW.observe) — U4h4, `codev` (updateAgentUI/testProv/provState/
 VIEW.settings/runMission) e `board` (runSprint) — U4h5a. O `SAMPLE`/`LIVE_OK` são estado que o
-desktop configura (não decorações).
+desktop configura (não decorações). `explorer` (syncTree), `welcome` (VIEW.welcome), `changelog`
+(clLog/clShow) e `ext` (loadJSZip) — U4h5b. Ficam como CONTRIBUIÇÕES do desktop (não portas):
+os itens do menu File, as entradas da paleta e o Ctrl+O — dissolvem-se quando as features
+registarem os seus comandos (U7).
 
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 

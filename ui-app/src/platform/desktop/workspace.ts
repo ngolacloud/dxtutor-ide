@@ -9,6 +9,7 @@ import { jsa } from "../../core";
 import { bus } from "../../app/bus";
 import { loadWorkspace } from "../tauri/workspace";
 import type { Workspace } from "./types";
+import { desktopPorts } from "../../app/desktop";
 import type { DesktopContext } from "./context";
 
 export function installWorkspace(ctx: DesktopContext): void {
@@ -107,11 +108,11 @@ bus.on("workspace:changed", () => {
 window.addEventListener("beforeunload", () => flushSave());
 
 /* explorer shows the opened folder by its own name; terminal prompt shows the real user and host */
-const _syncTree = syncTree;
-syncTree = function (this: unknown, ...args: any[]) {
-  _syncTree.apply(this, args);
+/* a raiz do explorador com o nome da pasta: porta `desktopPorts.explorer` (U4h5b; antes reatribuía o syncTree) */
+desktopPorts.explorer = { syncTree(_syncTree) {
+  _syncTree();
   if (R.root || R.remote) { const r = TREE.projects.children.dxtutor; TREE.projects.children = {}; TREE.projects.children[R.name!] = r; }
-};
+} };
 /* o prompt real (utilizador/host/cwd/ramo) passou para a porta do terminal (platform/desktop/terminal.ts, U4h3) */
 function termBanner(): void {
   const t = $("#term");
@@ -150,12 +151,12 @@ CMD.unshift(["File: Open Folder…", "Ctrl+O", () => openFolder()], ["File: Clos
 document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "o" || e.key === "O")) { e.preventDefault(); void openFolder(); }
 }, true);
-const _welcome = VIEW.welcome;
-VIEW.welcome = (t: any, host: any) => {
+/* os botões de pasta nas boas-vindas: porta `desktopPorts.welcome` (U4h5b; antes embrulhava o VIEW.welcome) */
+desktopPorts.welcome = { welcome(t, host, _welcome) {
   _welcome(t, host);
   const sub = host.querySelector(".sub");
   if (!sub) return;
   const rec = LS.get("dx-recent", []) as string[];
   sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" onclick="DXR.open()">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" onclick="DXR.open(${jsa(p)})">${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
-};
+} };
 }

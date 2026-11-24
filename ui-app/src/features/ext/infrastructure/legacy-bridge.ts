@@ -18,6 +18,7 @@
 
 import { toast, rerender } from "../../../core";
 import type { ExsState } from "../domain/types";
+import { desktopPorts } from "../../../app/desktop";
 export { toast, rerender };
 
 const G = window as unknown as Record<string, any>;
@@ -91,7 +92,8 @@ const cdnLoader = (): Promise<JSZipLib> => {
 /** Publica o carregador CDN em `window.loadJSZip` (chamado no eval de `ext.ts`, como o
  *  original — o desktop sobrepõe-no depois). */
 export const publishJSZipLoader = (): void => {
-  G.loadJSZip = cdnLoader;
+  /* o carregador publicado consulta a porta desktop (ADR-0004, U4h5b; antes o desktop sobrepunha o `window.loadJSZip`) */
+  G.loadJSZip = (): Promise<JSZipLib> => { const d = desktopPorts.ext; return d ? (d.loadJSZip(cdnLoader) as Promise<JSZipLib>) : cdnLoader(); };
 };
 /** Invoca o `window.loadJSZip` CORRENTE (respeita a sobreposição do desktop). */
 export const callLoadJSZip = (): Promise<JSZipLib> => G.loadJSZip();

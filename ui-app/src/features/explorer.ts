@@ -20,6 +20,7 @@
    é dono de lá (`$`, `$$`, `esc`). */
 
 import { $, $$, esc, svg } from "../core";
+import { desktopPorts } from "../app/desktop";
 
 function renderLevel(obj:Record<string,any>,host:HTMLElement,depth:number,path:string[]){Object.keys(obj).forEach(name=>{const node=obj[name],pad=8+depth*12,row=document.createElement('div');
   let g=node.git||'';if(node.path)g=(stOf(node.path) as string).toLowerCase();else if(node.dpath)g=changes().some(p=>p.startsWith(node.dpath+'/'))?'m':'';
@@ -51,8 +52,8 @@ function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',v
    o boot.ts (buildExplorer/renderLevel/collapseAll), o v6.ts (symbols) e as entradas
    do CMD/menus (newFile/newFolder) resolvem como globais. ── */
 /* ── U4c (ADR-0004): também donos da selecção de linha (era do boot.ts), da árvore a partir
-   do FS e do ícone por extensão (eram do app.ts). O bridge.ts decora o syncTree depois
-   (_syncTree) — decora esta versão. ── */
+   do FS e do ícone por extensão (eram do app.ts). O syncTree publicado consulta a porta
+   desktop (`desktopPorts.explorer`, U4h5b). ── */
 /** Marca a linha `r` da árvore como seleccionada (só uma de cada vez). */
 function sel(r: Element): void {
   $$(".row.sel").forEach((x) => x.classList.remove("sel"));
@@ -102,4 +103,9 @@ function fIcon(p: string): string {
   return `<span class="ic x-${e}">${svg(e === "rs" ? "rust" : e === "md" ? "book" : e === "sql" ? "volume" : "file")}</span>`;
 }
 
-Object.assign(window, { renderLevel, buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree, fIcon });
+/** A parte desktop do explorador (ADR-0004, U4h5b), injectada em `desktopPorts.explorer`: com uma
+ *  pasta real aberta, a raiz do explorador mostra o nome da pasta. Recebe a versão de base. */
+export interface ExplorerDesktop { syncTree(virtual: () => void): void }
+/* o syncTree PUBLICADO consulta a porta (antes o desktop reatribuía-o no `window`); só o app.ts o chama, pelo global */
+const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) d.syncTree(syncTree); else syncTree(); };
+Object.assign(window, { renderLevel, buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });

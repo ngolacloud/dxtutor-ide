@@ -18,6 +18,7 @@
    monólito (`app.ts`), logo tocar `window.GIT` no eval do módulo seria ReferenceError. */
 
 import { $, type ClCommit } from "../core";
+import { desktopPorts } from "../app/desktop";
 
 /* estado da vista (módulo-local; persiste entre reaberturas do separador) */
 const CL: {
@@ -74,9 +75,17 @@ function simShow(hash: string): string {
     : head + "\n(O protótipo no browser não guarda o patch — abre a pasta na aplicação para ver o diff real.)";
 }
 
-/* defaults window-resolved; a bridge (desktop) sobrepõe com git_log/git_show */
-window.clLog = async (): Promise<ClCommit[]> => simLog();
-window.clShow = async (hash: string): Promise<string> => simShow(hash);
+/** A parte desktop do changelog (ADR-0004, U4h5b), injectada em `desktopPorts.changelog`: o
+ *  `git log`/`git show` reais do repositório aberto. Recebe a versão simulada. */
+export interface ChangelogDesktop {
+  log(virtual: () => Promise<ClCommit[]>): Promise<ClCommit[]>;
+  show(hash: string, virtual: (hash: string) => Promise<string>): Promise<string>;
+}
+/* fontes window-resolved: consultam a porta desktop (antes o desktop reatribuía-as no `window`) */
+const simLogAsync = async (): Promise<ClCommit[]> => simLog();
+const simShowAsync = async (hash: string): Promise<string> => simShow(hash);
+window.clLog = async (): Promise<ClCommit[]> => { const d = desktopPorts.changelog; return d ? d.log(simLogAsync) : simLog(); };
+window.clShow = async (hash: string): Promise<string> => { const d = desktopPorts.changelog; return d ? d.show(hash, simShowAsync) : simShow(hash); };
 
 /* ── render ───────────────────────────────────────────────────────────────────── */
 

@@ -59,8 +59,8 @@ R.syncGit = () => syncGit();
 /* feature `changelog` (harvest ui-next): troca a fonte simulada pela timeline git REAL
    do repositório aberto. git_log dá os commits; git_show dá o patch tal-e-qual. Sem pasta
    aberta → vazio honesto (a vista mostra o aviso). Os comandos existem no backend. */
-window.clLog = async () => (R.root ? gitc.log(R.root, 30) : []);
-window.clShow = async (hash: string) => (R.root ? gitc.show(R.root, hash) : "");
+/* o changelog real: porta `desktopPorts.changelog` (U4h5b; antes reatribuía o window.clLog/clShow) */
+desktopPorts.changelog = { log: async () => (R.root ? gitc.log(R.root, 30) : []), show: async (hash: string) => (R.root ? gitc.show(R.root, hash) : "") };
 R.termLine = (t, e) => termLine(t, e);
 R.envFor = () => envFor();
 R.gitInit = () => enqueue(async () => { flushSave(); await gitOk("init", "-b", "main"); R.git = true; R.prefix = ""; await markChanged(); await syncGit(); toast("git repository created on main"); });

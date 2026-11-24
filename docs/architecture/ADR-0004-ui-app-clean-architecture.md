@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h4, U4h5a; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h5; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -608,3 +608,22 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   «desktop» do agente, `provState` de cada provedor, Settings (texto, placeholders das chaves,
   capacidades, secção Language), «Test connection» real e as guardas de missões e sprints com
   a pasta aberta — idênticos.
+- **U4h5b (2026-11-24) — explorador, boas-vindas, changelog e extensões.** Quatro portas
+  pequenas, cada uma definida pelo dono: `ExplorerDesktop` (`features/explorer.ts`: `syncTree` —
+  a raiz com o nome da pasta), `WelcomeDesktop` (`features/welcome.ts`: os botões «Open Folder…»
+  e as pastas recentes), `ChangelogDesktop` (`features/changelog.ts`: o `git log`/`git show`
+  reais) e `ExtDesktop` (`ext/application/ports.ts`: o JSZip embutido na app). Os donos publicam
+  as versões compostas (o `syncTree` publicado, o `VIEW.welcome`, o `window.clLog`/`clShow` e o
+  `window.loadJSZip` que o legacy-bridge do ext publica); o desktop (`workspace.ts`, `git.ts`,
+  `ext.ts`) instala as portas com os mesmos corpos (o `syncTree` real deixa de passar argumentos
+  à base, que não os lê). O `syncTree` só é chamado pelo app.ts, pelo global; os outros três são
+  lidos no acto (`window.clLog()`, `G.loadJSZip()`, `VIEW[t.kind]`); nenhum é capturado por valor
+  no arranque. **Ficam como contribuições do desktop, não portas:** os itens do menu File (um
+  getter sobre o `MENUS`, o mesmo padrão que o `boot6` usa nos menus Co-Dev/View), as entradas da
+  paleta (`CMD.unshift`) e o Ctrl+O — são registos do desktop no conteúdo dos menus/paleta do
+  app.ts, que se dissolvem quando as features registarem os seus comandos (U7). Com isto, o
+  desktop já não reatribui nenhuma função publicada pelos donos. Globais publicadas 411 → 409;
+  lint 282 → 276. Verificado: 414 testes, arranque no browser 4/4, auto-teste desktop idêntico ao
+  da HEAD `fcdc98a`; e uma sonda temporária na app real, HEAD vs árvore — raiz do explorador,
+  botões de pasta nas boas-vindas, changelog sobre git real (`git show`), JSZip carregado do
+  ficheiro embutido — idênticos.
