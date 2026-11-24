@@ -8,7 +8,7 @@
 
    Primitivos do ciclo de input (echo/echoCmd/onKey/scrollTerm/termClear) vivem em boot.ts
    e publicam-se no window — ficam lá. Estado/fachadas do monólito (CWD/USER/HOST/BRANCH/
-   esc/changes/STAGED/stOf/short/commitGit/COMMITS/BRANCHES/diffStat/FS/
+   esc/changes/STAGED/stOf/short/diffStat/FS/
    extOf/hlLine/MODES/MODE/PROV/ACTIVE/CKPT/setMode/$) resolvem por window
    em tempo de chamada (pós-startup). @ts-nocheck como as outras features-motor densas. */
 
@@ -29,16 +29,8 @@ window.termExec = function(v){const d=desktopPorts.terminal;return d?d.termExec(
 const XC={
   help(){echo(`<span class="ac">ficheiros</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff\n<span class="ac">co-dev</span>     <span class="ok">dx</span> status | modo manual|assist|auto\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
   cat(a:string[]){if(!a[0]){echo('<span class="er">cat: falta o ficheiro</span>');return;}const rel=CWD.slice(4).concat(a[0].split('/')).join('/');const p=FS[rel]?rel:Object.keys(FS).find(k=>k.endsWith('/'+a[0].split('/').pop()));if(!p){echo('<span class="er">cat: '+esc(a[0])+': não encontrado</span>');return;}echo(FS[p].content.split('\n').map(l=>hlLine(l,extOf(p))).join('\n'));},
-  git(a:string[],raw:string){const s=a[0],ch=changes();
-    if(s==='status'){if(!ch.length){echo(`No ramo <span class="ac">${esc(BRANCH)}</span>\nnada para commitar, área de trabalho limpa`);return{ok:true};}
-      echo(`No ramo <span class="ac">${esc(BRANCH)}</span>`+(STAGED.size?`\n<span class="dim">Staged:</span>\n`+[...STAGED].map(p=>`  <span class="ok">${stOf(p)==='U'?'new file:':'modified:'}   ${short(p)}</span>`).join('\n'):'')+`\n<span class="dim">Alterações:</span>\n`+ch.filter(p=>!STAGED.has(p)).map(p=>stOf(p)==='U'?`  <span class="er">untracked:  ${short(p)}</span>`:`  <span class="warn">modified:</span>   ${short(p)}`).join('\n'));}
-    else if(s==='add'){ch.forEach(p=>STAGED.add(p));refresh();echo(`<span class="dim">${ch.length} ficheiro(s) em stage</span>`);}
-    else if(s==='commit'){const m=(raw.match(/-m\s+(["'])(.*?)\1/)||raw.match(/-m\s+(.+)$/)||[]);const msg=(m[2]||m[1]||'').trim();if(!msg){echo('<span class="er">uso: git commit -m "mensagem"</span>');return;}const c=commitGit(msg);echo(c?`[${esc(BRANCH)} <span class="ac">${c.h}</span>] ${esc(msg)}\n <span class="dim">${c.n} ficheiro(s) alterado(s)</span>`:'<span class="dim">nada para commitar</span>');return{ok:!!c};}
-    else if(s==='log')echo(COMMITS.map(c=>`<span class="ac">${c.h}</span> ${esc(c.m)}`).join('\n'));
-    else if(s==='branch')echo(BRANCHES.map(b=>b===BRANCH?`<span class="ok">* ${b}</span>`:'  '+b).join('\n'));
-    else if(s==='checkout'){if(BRANCHES.includes(a[1])){BRANCH=a[1];const bl=$('#st-branch-l');if(bl)bl.textContent=BRANCH;refresh();echo(`Mudou para o ramo '${esc(BRANCH)}'`);}else echo('<span class="er">ramo desconhecido: '+esc(a[1]||'')+'</span>');}
-    else if(s==='diff')echo(ch.map(p=>{const d=diffStat(FS[p].orig,FS[p].content);return ` ${short(p)} | <span class="ok">+${d.add}</span> <span class="er">-${d.del}</span>`;}).join('\n')||'<span class="dim">sem diferenças</span>');
-    else echo('<span class="dim">git: status | add . | commit -m | log | branch | checkout | diff</span>');},
+  /* `git`: o handler é o features/termgit.ts (`XC.git=(a,raw)=>window.gitCmd(a,raw)` no app.ts); a
+     base simulada que vivia aqui (lista fixa BRANCHES, log do COMMITS) era código morto e saiu (ADR-0005, R1d). */
   dx(a:string[]){const s=a[0];
     if(s==='status'){echo(`modo <span class="ac">${MODES[MODE].l}</span> · modelo <span class="ac">${PROV[ACTIVE].name}</span> · checkpoints ${CKPT.length}`);return;}
     if(s==='modo'&&MODES[a[1]]){setMode(a[1]);echo('modo: '+MODES[a[1]].l);return;}

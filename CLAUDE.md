@@ -118,11 +118,12 @@ features/scm/
                    author.ts (resolveAuthor). PURO.
   application/     ports.ts + scm-engine.ts (makeScmEngine: gitInit/commit[v4]/
                    commitV2/checkout/gitMerge/gfStart/gfFinish/stage/discard, deps
-                   injectadas; Date.now/Math.random como clock/ids).
+                   injectadas; Date.now/Math.random como clock/ids; `store.repo()` e a
+                   porta `flow` — ver abaixo).
   ui/              actions.ts (1 listener delegado: data-action + data-on).
   infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
 features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GIT/LANE/
-                   STAGED/BRANCH/COMMIT_MSG/COMMITS/BRANCHES/AUTHOR/GSEL) e do DOM
+                   STAGED/BRANCH/COMMIT_MSG/COMMITS/AUTHOR/GSEL) e do DOM
                    (renderScmPane/gfGuide/gfPrompt/pickBranch/drawTimeline/openGraph);
                    compõe o motor com os adaptadores do bridge e re-publica os shims
                    window.* (app.ts/v5/v6/bridge/pair + VIEW.graph/XC.git/checkpoint
@@ -130,13 +131,20 @@ features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GI
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o codereview, o markup vive
-no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. GOTCHA-commit:
-o botão «Commit» usa o commit v2 (`window.commit`, só FS+COMMITS); o Ctrl+Enter e os
-auto-commits do monólito usam o v4 git-aware (`window.commitGit`). No desktop, o commit/
-checkout/gitMerge/gfFinish PUBLICADOS passam pela porta `desktopPorts.scm` (git real); as
-chamadas internas do `scm.ts` (acções do pane, paleta de ramos, Ctrl+Enter) usam o motor
-local — bug pré-existente reportado (desde f07dbc1 o pane não usa git real no desktop). Rede de segurança
-em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor) e
+no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. **Sem git simulado
+(ADR-0005, R1d):** `gitInit` dá um modelo VAZIO (sem ramo nem commits); só há repositório
+quando `store.repo()` — no desktop `DXR.git` (a pasta aberta é um repo), no browser nunca.
+Sem repo, commit/checkout/merge/gitflow recusam com aviso e o pane diz-o (com `git init` no
+desktop com pasta); com repo, o motor é o espelho optimista e o git real vem da porta
+`desktopPorts.scm` (platform/desktop/git.ts; o `syncGit` reconstrói o DAG do `git log`).
+GOTCHA-commit: o botão «Commit» usa o commit v2 (`window.commit`); o Ctrl+Enter e os
+auto-commits (board, terminal, agentes) usam o v4 git-aware (`window.commitGit`); no desktop
+OS DOIS passam pela porta (commit real). As acções do pane (commit, ramos, Ctrl+Enter,
+finalizar gitflow) chamam as versões PUBLICADAS, e o gitflow do motor (`gfStart`/`gfFinish`)
+encadeia checkout/merge pela porta `flow`, ligada às mesmas — nunca às locais. Rede
+de segurança em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor sobre
+o histórico da fixture `tests/fixtures/sample-history.ts`, que o harness aplica com
+`REPO=true`), `tests/scm.norepo.test.ts` (sem repositório + ligação do gitflow) e
 `tests/scm.domain.test.ts` (domínio puro).
 
 ## Quarta feature extraída: Run and Debug (`ui-app/src/features/debug/`)

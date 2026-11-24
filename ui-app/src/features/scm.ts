@@ -13,8 +13,14 @@
      gfPrompt/pickBranch/drawTimeline/renderScmPane/openGraph) e RE-PUBLICA a
      superfície no `window`.
 
+   ADR-0005, R1d — sem git simulado: saíram o histórico semeado do `gitInit`, a lista
+   fixa de ramos `BRANCHES` (main/develop/feat/learning-paths) e os três commits fixos de
+   `COMMITS`. Sem repositório git real aberto, o pane diz isso (no desktop com pasta, com
+   um botão `git init`) e o motor recusa mudar o git; com repo, o `bridge.ts` liga tudo ao
+   git real.
+
    Fronteira: a feature DETÉM o estado (GIT/LANE/STAGED/BRANCH/COMMIT_MSG/COMMITS/
-   BRANCHES/AUTHOR/GSEL). Os CONSUMIDORES do motor ficam no monólito e lêem por
+   AUTHOR/GSEL). Os CONSUMIDORES do motor ficam no monólito e lêem por
    global: `VIEW.graph` (grafo), `XC.git`/`git()` (terminal), `checkpoint`/`restoreCkpt`,
    `gfAsk` (co-dev), e `bridge.ts`/`pair.ts`.
 
@@ -35,7 +41,7 @@ import { computeGraphLayout } from "./scm/domain/graph";
 import { statusOf, listChanges } from "./scm/domain/status";
 import { resolveAuthor } from "./scm/domain/author";
 import { isFlow } from "./scm/domain/gitflow";
-import { makeScmEngine } from "./scm/application/scm-engine";
+import { makeScmEngine, NO_REPO } from "./scm/application/scm-engine";
 import type { CommitResult, MergeResult } from "./scm/application/ports";
 import { desktopPorts } from "../app/desktop";
 import { bindActions, type ActionTable } from "./scm/ui/actions";
@@ -45,6 +51,7 @@ import {
   goPane, openTab, palette, refresh, termRefreshPrompt, panes,
   branch, setBranch, commitMsg, setCommitMsg, setGraphSel, author,
   openDiff, openPath, publish,
+  repo, desktopFolder, gitInitFolder, decoratedCheckout, decoratedMerge,
 } from "./scm/infrastructure/legacy-bridge";
 
 /* ───── estado git/scm (window-backed via publish; o resíduo do monólito e as
@@ -52,13 +59,8 @@ import {
 const GIT: GitState = { c: {}, order: [], refs: {}, trees: {}, base: {}, tags: {} };
 const LANE = ["#e08a5b", "#6ea8ff", "#5cc9a7", "#c678dd", "#e0b64a", "#5fcad6", "#f1707a"];
 const STAGED = new Set<string>();
-const BRANCHES = ["main", "develop", "feat/learning-paths"];
-const COMMITS: Array<{ h: string; m: string; n?: number }> = [
-  { h: "c638e07", m: "feat(arch): persist the Studio design" },
-  { h: "a5b0d39", m: "feat(arch): double-click a node to delete it" },
-  { h: "64943bc", m: "feat(arch): interactive canvas" },
-];
-publish({ GIT, LANE, STAGED, BRANCHES, COMMITS, BRANCH: "main", COMMIT_MSG: "", GSEL: null, AUTHOR: "w" });
+const COMMITS: Array<{ h: string; m: string; n?: number }> = [];
+publish({ GIT, LANE, STAGED, COMMITS, BRANCH: "", COMMIT_MSG: "", GSEL: null, AUTHOR: "w" });
 
 /* ───── wrappers de domínio: mantêm as assinaturas window que o golden e o monólito
    chamam, injectando o `FS`/`AGENTS`/`GIT` vivos ───── */
@@ -79,6 +81,7 @@ function drawTimeline(): void {
 const { gitInit, commit, commitV2, checkout, gitMerge, gfStart, gfFinish, stage, discard } = makeScmEngine({
   workspace: { files: () => files() },
   store: {
+    repo: () => repo(),
     git: () => GIT,
     staged: () => STAGED,
     commits: () => COMMITS,
@@ -88,6 +91,7 @@ const { gitInit, commit, commitV2, checkout, gitMerge, gfStart, gfFinish, stage,
     setCommitMsg: (m) => setCommitMsg(m),
     author: () => author(),
   },
+  flow: { checkout: (b, c) => decoratedCheckout(b, c), merge: (s, a) => decoratedMerge(s, a) },
   notifier: { toast: (m) => toast(m) },
   logger: { log: (s, m) => log(s, m) },
   view: {
@@ -106,20 +110,25 @@ const { gitInit, commit, commitV2, checkout, gitMerge, gfStart, gfFinish, stage,
    As versões PUBLICADAS do commit (o v2 do botão), checkout, gitMerge e gfFinish consultam a
    porta desktop (`desktopPorts.scm`, injectada por platform/desktop/git.ts na app Tauri) —
    antes o desktop reatribuía-as no `window`. As chamadas internas deste ficheiro (acções do
-   pane, paleta de ramos, Ctrl+Enter, gfStart/gfFinish do motor) continuam no motor local,
-   como antes: desde a Fase 4 (f07dbc1) as acções do pane deixaram de passar pelo `window`
-   decorado, por isso no desktop não usam git real — bug pré-existente, reportado. */
+   pane, paleta de ramos, Ctrl+Enter) passam também pelas versões publicadas — desde a Fase 4
+   (f07dbc1) iam ao motor local e no desktop não usavam git real; corrigido no ADR-0005 (R1d,
+   «git só real»). O gfStart/gfFinish do motor encadeiam checkout/merge pela porta `flow`,
+   ligada às mesmas versões publicadas. */
 const commitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commitV2) : commitV2(msg); };
+/* o commit v4 git-aware (board, terminal, agentes) passa pela MESMA porta que o botão: no
+   desktop com repo, commit real (antes ficava só no espelho em memória — ADR-0005, R1d). */
+const commitGitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commit) : commit(msg, author); };
 const checkoutPublished = (b: string, create?: boolean): boolean => { const d = desktopPorts.scm; return d ? d.checkout(b, create, checkout) : checkout(b, create); };
 const gitMergePublished = (src: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gitMerge(src, author, gitMerge) : gitMerge(src, author); };
 const gfFinishPublished = (b?: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gfFinish(b, author, gfFinish) : gfFinish(b, author); };
 
 /* ───── UI que abre a paleta (prompts gitflow / mudar de ramo) — chama o motor ───── */
 function gfPrompt(kind: FlowKind): void {
-  palette("", { ph: kind === "release" ? "Versão da release (ex.: 0.3.0)" : `Nome da ${kind} (ex.: exportar-relatorio)`, verb: "Iniciar " + kind, text: (q: string) => { if (!q.trim()) return; gfStart(kind, q.trim()); toast("Ramo criado: " + branch()); rerender("graph"); } });
+  palette("", { ph: kind === "release" ? "Versão da release (ex.: 0.3.0)" : `Nome da ${kind} (ex.: exportar-relatorio)`, verb: "Iniciar " + kind, text: (q: string) => { if (!q.trim()) return; if (!gfStart(kind, q.trim())) return; toast("Ramo criado: " + branch()); rerender("graph"); } });
 }
 function pickBranch(): void {
-  palette("", { ph: "Mudar de ramo…", items: Object.keys(GIT.refs).map((b) => ({ l: b, d: b === branch() ? "actual" : GIT.c[GIT.refs[b]].m, run: () => { checkout(b); toast("Ramo: " + b); rerender("graph"); } })) });
+  if (!repo()) { toast(NO_REPO); return; }
+  palette("", { ph: "Mudar de ramo…", items: Object.keys(GIT.refs).map((b) => ({ l: b, d: b === branch() ? "actual" : GIT.c[GIT.refs[b]].m, run: () => { checkoutPublished(b); toast("Ramo: " + b); rerender("graph"); } })) });
 }
 function gfGuide(): string {
   const b = branch(), n = changes().length, step = (ok: number | boolean, t: string): string => `<div class="gf-s${ok ? " ok" : ""}"><span>${ok ? "✓" : "○"}</span><div>${t}</div></div>`;
@@ -135,6 +144,11 @@ function openGraph(sel?: string): void { if (sel) setGraphSel(sel); openTab({ id
 function renderScmPane(): void {
   const el = $("#pane-scm"), ch = changes(), st = ch.filter((p) => STAGED.has(p)), un = ch.filter((p) => !STAGED.has(p)), lay = graphLayout();
   if (!el) return;
+  if (!repo()) {
+    const folder = desktopFolder();
+    el.innerHTML = hd("Source Control", "") + `<div class="sections"><div class="sec-empty">${folder ? "Esta pasta não é um repositório git. Os commits, os ramos, o gitflow e o grafo usam o git real da pasta." : "Nenhum repositório git aberto. O controlo de versões usa o git real da pasta aberta na app desktop."}</div>${folder ? '<button class="btn" data-action="git-init">git init</button>' : ""}</div>`;
+    return;
+  }
   const b = branch();
   const row = (p: string, s: number): string => `<div class="scm-row" data-action="open-diff" data-on="${esc(p)}">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="Abrir ficheiro" data-action="open-path" data-on="${esc(p)}">↗</button><button title="Descartar" data-action="discard" data-on="${esc(p)}">↶</button><button title="${s ? "Retirar do stage" : "Stage"}" data-action="stage" data-on="${esc(p)}">${s ? "−" : "+"}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
   el.innerHTML = hd("Source Control", `<button title="Grafo de commits" data-action="open-graph">${svg("graph")}</button><button title="Actualizar" data-action="refresh">${svg("refresh")}</button>`) + `<div class="sections"><div class="scm-grp">dxtutor · ${esc(b)}<span class="cnt">${ch.length}</span></div>
@@ -144,7 +158,7 @@ function renderScmPane(): void {
     <div class="scm-grp">Ramos<span class="cnt">${Object.keys(GIT.refs).length}</span></div>${Object.keys(GIT.refs).map((rb) => { const r = lay.rows.find((x) => x.h === GIT.refs[rb]); return `<div class="scm-row" data-action="checkout" data-on="${esc(rb)}"><span class="pdot" style="background:${LANE[(r ? r.col : 0) % LANE.length]}"></span><span class="nm" style="max-width:none${rb === b ? ";font-weight:600" : ""}">${esc(rb)}</span>${rb === b ? '<span class="tag acc" style="margin-left:auto">HEAD</span>' : ""}</div>`; }).join("")}
     <div class="scm-grp">Commits</div>${GIT.order.slice(0, 7).map((h) => { const c = GIT.c[h], a = authorOf(c.a); return `<div class="s-hit" style="padding-left:12px" data-action="open-graph-sel" data-on="${esc(h)}" title="${esc(a.n)} · ${rel(c.t)}"><span class="pdot" style="background:${a.col}"></span><span style="color:var(--accent-hover)">${h}</span><span>${esc(c.m)}</span></div>`; }).join("")}<button class="btn ghost" data-action="open-graph">Abrir grafo de commits</button></div>`;
   const i = $("#scm-msg") as HTMLInputElement | null;
-  if (i) { i.oninput = () => { setCommitMsg(i.value); }; i.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) commit(); }; }
+  if (i) { i.oninput = () => { setCommitMsg(i.value); }; i.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) commitGitPublished(); }; }
 }
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
@@ -162,21 +176,23 @@ function renderScmPane(): void {
      • checkout                    — mudar de ramo (data-on = ramo)
      • gf-prompt                   — prompt gitflow (data-on = feature|fix|release|hotfix)
      • gf-finish-feature/-release  — finalizar o ramo e dar o toast respectivo
+     • git-init                    — `git init` na pasta aberta (desktop, sem repo)
    `gf-finish-*` reproduz `gfFinish()&&toast(…)`: só dá o toast se o merge devolveu
    um commit (não-null), como o `&&` original. */
 const ACTIONS: ActionTable = {
   "open-graph": { on: "click", run: () => openGraph() },
   "open-graph-sel": { on: "click", run: (e) => openGraph(e.on) },
   refresh: { on: "click", run: () => refresh() },
-  commit: { on: "click", run: () => commitV2() },
+  commit: { on: "click", run: () => commitPublished() },
   "open-diff": { on: "click", run: (e) => openDiff(e.on) },
   "open-path": { on: "click", run: (e) => openPath(e.on) },
   discard: { on: "click", run: (e) => discard(e.on) },
   stage: { on: "click", run: (e) => stage(e.on) },
-  checkout: { on: "click", run: (e) => checkout(e.on) },
+  checkout: { on: "click", run: (e) => checkoutPublished(e.on) },
   "gf-prompt": { on: "click", run: (e) => gfPrompt(e.on as FlowKind) },
-  "gf-finish-feature": { on: "click", run: () => { if (gfFinish()) toast("Merge em develop feito"); } },
-  "gf-finish-release": { on: "click", run: () => { if (gfFinish()) toast("Release publicada em main"); } },
+  "gf-finish-feature": { on: "click", run: () => { if (gfFinishPublished()) toast("Merge em develop feito"); } },
+  "gf-finish-release": { on: "click", run: () => { if (gfFinishPublished()) toast("Release publicada em main"); } },
+  "git-init": { on: "click", run: () => gitInitFolder() },
 };
 bindActions(ACTIONS);
 
@@ -185,7 +201,7 @@ bindActions(ACTIONS);
    (app.ts) delega em renderScmPane (lazy, no switch de pane). `commit` v2 (botão) e
    `commitGit` v4 git-aware ficam distintos (GOTCHA-commit). ── */
 publish({
-  commitGit: commit, commit: commitPublished, checkout: checkoutPublished, gitMerge: gitMergePublished, gfFinish: gfFinishPublished,
+  commitGit: commitGitPublished, commit: commitPublished, checkout: checkoutPublished, gitMerge: gitMergePublished, gfFinish: gfFinishPublished,
   gitInit, authorOf, stOf, changes, isFlow, gfStart, gfPrompt, gfGuide,
   pickBranch, drawTimeline, graphLayout, openGraph, stage, discard,
   renderScmPane,

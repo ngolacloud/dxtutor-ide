@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R0, R1b, R1a e R1c1 feitas (verificadas no desktop), R1c2 feita, R1d e R2–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop), R2–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -158,7 +158,7 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   (o passo `gitflow` acaba em `main` em vez de `develop`, sem ramo `feature/*`; os commits
   «feat: flow»/«feat: ckpt ask finish» ficam em `main`), e por isso `checkpoint.finishedViaAsk`
   e `checkpoint.stayedOpen` dão `false`. O selftest não o apanhava porque só falha em `errors`.
-  Resolve-se na R1d, que tira o git simulado: o gitflow passa a ser só git real.
+  Resolve-se na R1d, que tira o git simulado: o gitflow passa a ser só git real. (Resolvido na R1d.)
 - **R1c2 (2026-11-24) — debug simulado e caminhos `P_*`.** Saem as sessões guionadas do
   Run and Debug: a sessão `pre` (a oferta do `.clone()` do rustc sobre o lexer de
   demonstração), a sessão `code` (passo-a-passo com variáveis, watch e call stack
@@ -186,3 +186,29 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   os comentários do v6 ficam com ele, e o golden do assistente sem depurador ganha o ícone
   `bug` real (a U4g7 regenerou o golden do debug pelo mesmo motivo). Métricas após o rebase:
   globais 412 → 370, handlers inline 160 → 155.
+- **R1d (2026-11-24) — git simulado.** O `gitInit` deixa de semear um histórico inventado
+  (12 commits, `main`/`develop`, dois ramos de feature fundidos, tags v0.1.0/v0.2.0): o modelo
+  nasce vazio, sem ramo nem commits. Saem a lista fixa `BRANCHES` (main/develop/
+  feat/learning-paths), os três commits fixos de `COMMITS`, o «main» fixo da barra de estado,
+  a fonte simulada do changelog no browser (derivava do histórico inventado), o `git push`
+  fingido do terminal emulado, o fallback do blame para o hash semeado `1a2b3c4`, e código
+  morto que mostrava o histórico (o `RP.scm` v3 do app.ts e o `git` base do terminal.ts).
+  **Só há repositório quando há git real:** `store.repo()` lê `DXR.git` no desktop (a pasta
+  aberta é um repo; o pair também o actualiza) e é falso no browser. Sem repo,
+  commit/checkout/merge/gitflow recusam com «Sem repositório git — abre uma pasta com git na
+  app desktop» em vez de inventar commits e ramos em memória; o pane Source Control diz-o (no
+  desktop com pasta sem git, com um botão `git init`); o terminal emulado responde
+  `fatal: not a git repository`. **Com repo, tudo vai ao git real:** o gitflow encadeia
+  checkout/merge pela porta `flow`, ligada às versões publicadas (decoradas pelo `bridge.ts`)
+  — corrige o bug pré-existente registado acima —, e o `bridge.ts` passa a ligar ao git real
+  também o `commitGit` (o commit v4 do board, do terminal e dos agentes, que antes ficava só
+  no espelho em memória no desktop); o `commit` v4 já não rebenta num repo acabado de criar
+  (ramo sem árvore). **Selftest desktop** (repo temporário): `errors: []`; `gitflow` acaba em
+  `develop` com merges `--no-ff` reais dos ramos `feature/*`; `checkpoint.finishedViaAsk` e
+  `stayedOpen` passam a `true`; `termgit.pushOk` passa a `false` (o push já não é fingido);
+  sem pasta, `errors: []`. **Testes:** o histórico passa a fixture
+  (`tests/fixtures/sample-history.ts`, cópia fiel do antigo `gitInit`, que liga o espelho com
+  `REPO=true`), aplicada pelo harness — todos os goldens existentes ficam byte-idênticos;
+  teste novo `scm.norepo` (modelo vazio, goldens do pane sem repo no browser e no desktop com
+  pasta, recusas, `DXR.git` manda, terminal e changelog sem repo, push, e o gitflow pelas
+  versões publicadas). Rebase prévio sobre a U4g6/U4g7. Métricas: handlers inline 155 → 149.

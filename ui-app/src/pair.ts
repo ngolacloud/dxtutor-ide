@@ -134,7 +134,6 @@ declare global {
   const palette: (pre?: string, cfg?: any) => void;
   const USER: string;
   const HOST: string;
-  const BRANCHES: string[];
   const MODES: Record<string, { l: string }>;
   const RUN: { active: boolean };
   const MISSIONS: any[];
@@ -144,7 +143,7 @@ declare global {
   // pela feature `checkpoint` (gfAsk) e por v5.ts/board.ts. `v`/`pri` são polimórficos
   // (número 0/1 ou o próprio candidato escolhido), por isso ficam `any`.
   const ask: (host: HTMLElement, btns: Array<{ l: string; v: any; pri?: any; done?: string }>) => Promise<any>;
-  const commitGit: (msg?: string, author?: string) => { h: string; n: number } | null;
+  var commitGit: (msg?: string, author?: string) => { h: string; n: number } | null; // var: o bridge.ts liga-o ao git real (ADR-0005, R1d)
   const diffStat: (a: string | null, b: string) => { add: number; del: number };
   const setMode: (m: string) => void;
   var onKey: (e: KeyboardEvent) => void;

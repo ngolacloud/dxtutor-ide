@@ -202,7 +202,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     await step("terminalUI", async () => { await realTerm("echo ui-line"); await new Promise(r => setTimeout(r, 300)); return [...document.querySelectorAll("#term .line")].some(d => d.textContent === "ui-line"); });
     // feature `termgit` (migrada de app.ts para features/termgit.ts nesta sessão): handler
     // `git` do terminal (XC.git). Só os sub-comandos de leitura — status/log/branch/diff/push
-    // não mutam estado, por isso o passo fica net-zero sem checkpoint/restore.
+    // não mutam estado, por isso o passo fica net-zero sem checkpoint/restore. O `push` do
+    // terminal emulado já não finge um push (ADR-0005, R1d): `pushOk` tem de ser false.
     await step("termgit", () => {
       const before = document.querySelectorAll("#term .line").length;
       gitCmd(["status"], "git status");

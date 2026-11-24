@@ -9,13 +9,8 @@
    `textContent`, nunca HTML, para não injectar.
 
    Fonte de dados window-resolved (padrão das folhas): a feature publica um default
-   SIMULADO (deriva do estado git do protótipo — `GIT.c`/`GIT.order`, dono = scm.ts)
-   e a `bridge.ts` (só em desktop, que carrega DEPOIS) troca-o pelo real
-   (`git_log`/`git_show`). Assim o browser continua a funcionar sem backend e o
-   desktop mostra o repositório verdadeiro — a vista não distingue um do outro.
-
-   O estado git só se lê LAZY, dentro das funções: as features avaliam ANTES do
-   monólito (`app.ts`), logo tocar `window.GIT` no eval do módulo seria ReferenceError. */
+   vazio e a `bridge.ts` (só em desktop, que carrega DEPOIS) troca-o pelo real
+   (`git_log`/`git_show`). */
 
 import { $, type ClCommit } from "../core";
 import { VIEW } from "../app/store/registry";
@@ -31,62 +26,21 @@ const CL: {
   host: HTMLElement | null;
 } = { commits: [], selected: "", diff: "", error: null, loaded: false, host: null };
 
-/* ── fonte SIMULADA (browser): deriva do estado git do protótipo ──────────────── */
-
-/** Refs (ramos/tags) que apontam para um commit — para o crachá na linha. */
-function simRefs(GIT: any, h: string): string[] {
-  const out: string[] = [];
-  for (const b in GIT.refs || {}) if (GIT.refs[b] === h) out.push(b);
-  if (GIT.tags && GIT.tags[h]) out.push(GIT.tags[h]);
-  return out;
-}
-
-/** Timeline simulada: mapeia `GIT.order`/`GIT.c` (dono = scm.ts) para `ClCommit`. */
-function simLog(): ClCommit[] {
-  const GIT: any = window.GIT;
-  if (GIT && Array.isArray(GIT.order) && GIT.order.length) {
-    return GIT.order.slice(0, 30).map((h: string): ClCommit => {
-      const c = GIT.c[h] || {};
-      return {
-        hash: h,
-        short: String(h).slice(0, 7),
-        parents: Array.isArray(c.p) ? c.p : [],
-        subject: c.m || "",
-        author: c.a === "w" ? "Co-Dev / dxtutor" : c.a || "—",
-        date: typeof c.t === "number" ? window.rel(c.t) : "",
-        refs: simRefs(GIT, h),
-      };
-    });
-  }
-  /* fallback mínimo: o resumo `COMMITS` (só hash + mensagem) */
-  return (window.COMMITS || []).map((c): ClCommit => ({
-    hash: c.h, short: String(c.h).slice(0, 7), parents: [], subject: c.m, author: "—", date: "", refs: [],
-  }));
-}
-
-/** Diff simulado: o protótipo não guarda o patch, mas regista os ficheiros tocados. */
-function simShow(hash: string): string {
-  const GIT: any = window.GIT;
-  const c = GIT && GIT.c && GIT.c[hash];
-  if (!c) return "";
-  const files: string[] = Array.isArray(c.files) ? c.files : [];
-  const head = `commit ${c.h}\nAutor:  ${c.a === "w" ? "Co-Dev / dxtutor" : c.a}\nRamo:   ${c.b || "—"}\n\n    ${c.m}\n`;
-  return files.length
-    ? head + "\nFicheiros neste commit:\n" + files.map((f) => "  " + f).join("\n")
-    : head + "\n(O protótipo no browser não guarda o patch — abre a pasta na aplicação para ver o diff real.)";
-}
+/* ── sem repositório (o browser, ou o desktop sem pasta) não há timeline: a vista mostra o
+   aviso. A fonte SIMULADA que derivava do histórico inventado do protótipo (`GIT.order`/
+   `COMMITS`) saiu com ele (ADR-0005, R1d). ── */
+const noLog = async (): Promise<ClCommit[]> => [];
+const noShow = async (_hash: string): Promise<string> => "";
 
 /** A parte desktop do changelog (ADR-0004, U4h5b), injectada em `desktopPorts.changelog`: o
- *  `git log`/`git show` reais do repositório aberto. Recebe a versão simulada. */
+ *  `git log`/`git show` reais do repositório aberto. Recebe a versão sem repositório. */
 export interface ChangelogDesktop {
   log(virtual: () => Promise<ClCommit[]>): Promise<ClCommit[]>;
   show(hash: string, virtual: (hash: string) => Promise<string>): Promise<string>;
 }
 /* fontes window-resolved: consultam a porta desktop (antes o desktop reatribuía-as no `window`) */
-const simLogAsync = async (): Promise<ClCommit[]> => simLog();
-const simShowAsync = async (hash: string): Promise<string> => simShow(hash);
-window.clLog = async (): Promise<ClCommit[]> => { const d = desktopPorts.changelog; return d ? d.log(simLogAsync) : simLog(); };
-window.clShow = async (hash: string): Promise<string> => { const d = desktopPorts.changelog; return d ? d.show(hash, simShowAsync) : simShow(hash); };
+window.clLog = async (): Promise<ClCommit[]> => { const d = desktopPorts.changelog; return d ? d.log(noLog) : noLog(); };
+window.clShow = async (hash: string): Promise<string> => { const d = desktopPorts.changelog; return d ? d.show(hash, noShow) : noShow(hash); };
 
 /* ── render ───────────────────────────────────────────────────────────────────── */
 

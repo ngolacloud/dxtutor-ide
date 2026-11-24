@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { vi } from "vitest";
 import { applySampleWorkspace } from "./fixtures/sample-workspace";
+import { applySampleHistory } from "./fixtures/sample-history";
 
 // A ordem de arranque vem do src/main.ts (o ponto de entrada único — ADR-0004, U1),
 // até app.ts inclusive: uma só fonte de verdade, em vez de uma cópia da lista aqui.
@@ -34,7 +35,8 @@ export async function bootApp(): Promise<typeof window> {
   const w = window as any;
   w.resetWorkspace();
   applySampleWorkspace(w); // o projecto-exemplo é dado de teste (ADR-0005, R1a)
-  w.gitInit(); // o git simulado tira a árvore do FS: depois da fixture, como fazia o loadSeed
+  w.gitInit(); // o modelo git de um workspace sem repositório (vazio)
+  applySampleHistory(w); // o histórico do projecto-exemplo + espelho ligado, como se a pasta fosse um repo (ADR-0005, R1d)
   return window;
 }
 
