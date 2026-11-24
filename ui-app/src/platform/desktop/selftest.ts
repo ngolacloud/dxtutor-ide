@@ -10,6 +10,8 @@ import type { DesktopContext } from "./context";
 import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
+import { gitExtras } from "../../features/scm/extras";
+import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -197,6 +199,30 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const backViaRow = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim() === start;
       await git("branch", "-D", flow); await ctx.syncGit();
       return { committed, flowInGit, backViaRow, errBefore, errAfter: R.errors.length };
+    });
+    // A4: git beyond the basics against the real repository (features/scm/extras): the blame of a
+    // committed line (author, summary), that file's history and one commit's diff, a stash pushed,
+    // listed and popped back, the worktree list, an interactive-rebase plan, and the pane's sections.
+    await step("gitExtras", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const gx = tauriGitExtras(), root = R.root as string, file = "notes/selftest.txt";
+      gitExtras.invalidate();
+      gitExtras.lineBlame(file, 1);
+      const blamed = await wait(() => !!gitExtras.lineBlame(file, 1), 10000);
+      const b = gitExtras.lineBlame(file, 1);
+      await gitExtras.openHistory(file, null);
+      const histOk = await wait(() => (gitExtras.state().history?.diff || "").includes("written by the IDE"), 10000);
+      writeFile(ROOT + file, "written by the IDE\nstash me\n"); flushSave(); await idle();
+      const pushed = await gx.stash(root, { op: "push", message: "selftest stash", untracked: false });
+      const cleanAfterPush = (await git("status", "--porcelain", "--", file)).stdout.trim() === "";
+      const popped = await gx.stash(root, { op: "apply", index: 0, pop: true });
+      const back = (await sh("cat", [file])).stdout.includes("stash me");
+      await git("checkout", "--", file); await ctx.reloadDisk();
+      const wts = await gx.worktree(root, { op: "list" });
+      const plan = await gx.rebase(root, { op: "plan", onto: "HEAD~1" });
+      RP.scm();
+      const paneOk = await wait(() => /Stashes/.test(document.getElementById("pane-scm")?.textContent || ""), 5000);
+      return { blamed, author: b?.author, summary: b?.summary, histOk, pushed: pushed.stashes.length === 1, cleanAfterPush, popped: popped.stashes.length === 0, back, worktrees: wts.length, current: wts.some(w => w.current), planCommits: plan.commits.length, dirty: plan.dirty, paneOk };
     });
     // A0.5: the Testing pane lists the project's REAL tests (list_tests) on the desktop — a Rust
     // probe (descoberta pelo syn), redescoberta pelo «Refresh» do pane (features/testing, ADR-0006 R2a).

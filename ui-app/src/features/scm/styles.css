@@ -4,14 +4,19 @@
   /* ═════════ A4 (docs/v2/UI-AUDIT.md item 9): stashes, worktrees, histórico, comparar, rebase (features/scm/ui/git-views.ts) ═════════ */
   #pane-scm .gx-bar{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 6px}
   #pane-scm .gx-bar .btn{display:inline-block;width:auto;margin:0;padding:4px 10px;font-size:12px}
-  #pane-scm .gx-row .pth{flex:none;max-width:45%}
-  .gx{height:100%;overflow:auto;padding:14px 20px 28px;box-sizing:border-box;font-family:var(--font-ui);color:var(--fg);font-size:12.5px}
+  /* o .sections é uma coluna flex com overflow:auto: sem isto, as linhas com overflow:hidden (.s-hit) encolhem
+     quando o pane passa a sua altura (já acontecia com muitas alterações; as secções da A4 tornavam-no visível) */
+  #pane-scm .sections>*{flex-shrink:0}
+  #pane-scm .gx-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #pane-scm .gx-row .pth{flex:0 1 auto;min-width:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #pane-scm .gx-row .ra,#pane-scm .gx-row .tag{flex:none}
+  .gx{height:100%;overflow:auto;padding:14px 20px 28px;box-sizing:border-box;font-family:var(--font-ui);color:var(--fg);font-size:12.5px;container-type:inline-size}
   .gx-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}.gx-top b{font-size:15px;color:var(--fg-bright)}
   .gx-sp{flex:1}
   .gx .btn{display:inline-block;width:auto;margin:0;padding:4px 10px;font-size:12px}
   .gx .btn.gx-ai,#pane-scm .btn.gx-ai{color:var(--accent-hover)}
   .gx-chip{padding:1px 8px;border-radius:9px;background:var(--bg-input);border:1px solid var(--border);font-family:var(--font-mono);font-size:11.5px}
-  .gx-cols{display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,2fr) minmax(220px,1fr);gap:14px;align-items:start}
+  .gx-cols{display:grid;grid-template-columns:minmax(200px,1fr) minmax(0,2fr) minmax(200px,1fr);gap:14px;align-items:start}
   .gx-col{min-width:0}
   .gx-commit{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;padding:6px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
   .gx-commit:hover{background:var(--bg-hover)}.gx-commit.cur{background:var(--bg-input);border-color:var(--border)}
@@ -48,4 +53,6 @@
   .gx-cmd{font-family:var(--font-mono);font-size:11.5px;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:8px 10px;white-space:pre-wrap;margin:0 0 10px}
   .gx-warn{border-left:3px solid var(--yellow);background:rgba(224,182,74,.1);padding:6px 10px;border-radius:4px;margin-bottom:6px}
   .gx .gx-bar{display:flex;gap:8px;flex-wrap:wrap}
-  @media (max-width:1100px){.gx-cols{grid-template-columns:1fr}}
+  /* a largura que conta é a do separador (o editor), não a da janela */
+  @container (max-width:980px){.gx-cols{grid-template-columns:minmax(200px,1fr) minmax(0,1.7fr)}.gx-side{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.gx-side .gx-card{margin:0}}
+  @container (max-width:560px){.gx-cols{grid-template-columns:1fr}}
