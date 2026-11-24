@@ -74,6 +74,11 @@ pub struct StartSpec {
     /// editor and only accepted hunks are written. Manual and Assist review every hunk;
     /// Auto applies provisionally and validates. Off: the old direct writes.
     pub review_edits: bool,
+    /// The Project issue this conversation works on (e.g. opened from the board): accepted
+    /// hunks are recorded as its change sets.
+    pub issue_key: Option<String>,
+    /// The project database where accepted hunks are recorded (`None`: not recorded).
+    pub change_log: Option<PathBuf>,
 }
 
 /// Prefixo do erro de um modelo sem tool calling nativo: a UI reconhece-o e recua para o
@@ -270,6 +275,63 @@ struct Session {
     checks: Vec<String>,
     /// tool_use_id → the hunks of a call waiting in `hunk_review`.
     review: Mutex<HashMap<String, Vec<String>>>,
+    /// Where accepted hunks are recorded, and for which issue (A5, RF-CODEV-STREAM §9).
+    change_log: Option<PathBuf>,
+    issue_key: Mutex<Option<String>>,
+}
+
+/// What the host keeps of a hunk to record it once accepted.
+#[derive(Clone, Default)]
+struct HunkMeta {
+    call: String,
+    path: String,
+    start: u32,
+    end: u32,
+    added: u32,
+    removed: u32,
+}
+
+/// Records accepted hunks in the project database (a failure is a notice, never fatal).
+fn record_change_sets(
+    s: &Session,
+    metas: &[(String, HunkMeta)],
+    decided_by: &str,
+    emit: &dyn Fn(AgentEvent),
+) {
+    let Some(db) = &s.change_log else { return };
+    if metas.is_empty() {
+        return;
+    }
+    let issue = s.issue_key.lock().unwrap().clone();
+    let root = s.agent.ctx.root.display().to_string();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let r = tutor_board::project::ProjectStore::open(db).and_then(|mut st| {
+        for (hunk, m) in metas {
+            let cs = tutor_board::project::NewChangeSet {
+                session: String::new(),
+                call: m.call.clone(),
+                hunk: hunk.clone(),
+                path: m.path.clone(),
+                start: m.start,
+                end: m.end,
+                added: m.added,
+                removed: m.removed,
+                decided_by: decided_by.to_string(),
+                issue_key: issue.clone(),
+            };
+            st.record_change_set(&root, &cs, now)
+                .map_err(|e| e.message)?;
+        }
+        Ok(())
+    });
+    if let Err(e) = r {
+        emit(AgentEvent::Notice {
+            text: format!("não foi possível registar as alterações no Project: {e}"),
+        });
+    }
 }
 
 /// How the host treats a call that carries hunks (RF-CODEV-STREAM §5; D1, D2).
@@ -323,6 +385,8 @@ struct AutoTurn {
     checkpoint: Option<u32>,
     /// The "Auto degrades to review" notice was shown this turn.
     degraded: bool,
+    /// Provisional hunks, recorded as change sets only if validation passes.
+    provisional_meta: Vec<(String, HunkMeta)>,
 }
 
 /// O texto que anuncia o modo ao modelo (vai como mensagem `system` a meio da conversa,
@@ -569,6 +633,8 @@ pub fn start(
         review_edits: spec.review_edits,
         checks,
         review: Mutex::new(HashMap::new()),
+        change_log: spec.change_log.clone(),
+        issue_key: Mutex::new(spec.issue_key.clone().filter(|k| !k.trim().is_empty())),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -613,14 +679,46 @@ pub fn send(
     let emit = |e: AgentEvent| (**sink.borrow_mut())(e);
     let auto = RefCell::new(AutoTurn::default());
     let held_done: RefCell<Option<AgentEvent>> = RefCell::new(None);
+    let metas: RefCell<HashMap<String, HunkMeta>> = RefCell::new(HashMap::new());
     let mut on_loop_event = |e: AgentEvent| {
         match &e {
             AgentEvent::Checkpoint { id, .. } => auto.borrow_mut().checkpoint = Some(*id),
-            AgentEvent::HunkApplied {
+            AgentEvent::HunkStart {
                 hunk,
-                provisional: true,
+                call,
+                path,
+                range,
                 ..
-            } => auto.borrow_mut().provisional.push(hunk.clone()),
+            } => {
+                metas.borrow_mut().insert(
+                    hunk.clone(),
+                    HunkMeta {
+                        call: call.clone(),
+                        path: path.clone(),
+                        start: range.start as u32,
+                        end: range.end as u32,
+                        ..Default::default()
+                    },
+                );
+            }
+            AgentEvent::HunkEnd { hunk, lines, .. } => {
+                if let Some(m) = metas.borrow_mut().get_mut(hunk) {
+                    m.added = lines.added as u32;
+                    m.removed = lines.removed as u32;
+                }
+            }
+            AgentEvent::HunkApplied {
+                hunk, provisional, ..
+            } => {
+                let m = metas.borrow().get(hunk).cloned().unwrap_or_default();
+                if *provisional {
+                    let mut a = auto.borrow_mut();
+                    a.provisional.push(hunk.clone());
+                    a.provisional_meta.push((hunk.clone(), m));
+                } else {
+                    record_change_sets(&session, &[(hunk.clone(), m)], "human", &emit);
+                }
+            }
             // `done` waits for Auto's validation (sent after the turn)
             AgentEvent::Done { .. } if session.review_edits => {
                 *held_done.borrow_mut() = Some(e);
@@ -793,6 +891,7 @@ fn validate(s: &Session, turn: AutoTurn, emit: &dyn Fn(AgentEvent)) {
             checks: after,
             baseline,
         });
+        record_change_sets(s, &turn.provisional_meta, "validation", emit);
         return;
     }
     let what = broken
@@ -1720,6 +1819,7 @@ mod tests {
                 provisional: vec!["c:1".into()],
                 checkpoint: Some(cp.id),
                 degraded: false,
+                provisional_meta: vec![],
             },
             &|e| sink.borrow_mut().push(e),
         );
@@ -1755,6 +1855,7 @@ mod tests {
                 provisional: vec!["c:1".into()],
                 checkpoint: None,
                 degraded: false,
+                provisional_meta: vec![],
             },
             &|e| sink.borrow_mut().push(e),
         );
@@ -1777,6 +1878,75 @@ mod tests {
         assert!(
             with.last().unwrap().1,
             "the cache breakpoint stays at the end"
+        );
+    }
+
+    #[test]
+    fn auto_changes_that_pass_validation_are_recorded_on_the_issue() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("board.sqlite3");
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            mode: Some("auto".into()),
+            test_cmd: Some("true".into()),
+            review_edits: true,
+            issue_key: Some("DX-7".into()),
+            change_log: Some(db.clone()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        let root = s.agent.ctx.root.display().to_string();
+        {
+            // the issue exists in the project of this folder
+            let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+            st.apply(
+                &root,
+                "t",
+                1,
+                serde_json::from_value(serde_json::json!({"op": "settings", "key_prefix": "DX"}))
+                    .unwrap(),
+            )
+            .unwrap();
+            for _ in 0..7 {
+                st.apply(
+                    &root,
+                    "t",
+                    1,
+                    serde_json::from_value(serde_json::json!({"op": "create_issue", "title": "x"}))
+                        .unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        let meta = HunkMeta {
+            call: "toolu_1".into(),
+            path: "src/a.rs".into(),
+            start: 3,
+            end: 3,
+            added: 2,
+            removed: 1,
+        };
+        let evs = RefCell::new(vec![]);
+        validate(
+            &s,
+            AutoTurn {
+                baseline: Some(vec![]),
+                provisional: vec!["toolu_1:1".into()],
+                checkpoint: None,
+                degraded: false,
+                provisional_meta: vec![("toolu_1:1".into(), meta)],
+            },
+            &|e| evs.borrow_mut().push(e),
+        );
+        let st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let detail = st.detail(&root, "DX-7").unwrap();
+        assert_eq!(detail.change_sets.len(), 1);
+        assert_eq!(detail.change_sets[0].decided_by, "validation");
+        assert_eq!(
+            (detail.change_sets[0].added, detail.change_sets[0].removed),
+            (2, 1)
         );
     }
 

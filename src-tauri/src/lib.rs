@@ -971,8 +971,10 @@ pub fn run() {
             lsp::lsp_hover,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
-            board::board_load,
-            board::board_save,
+            board::project_load,
+            board::project_apply,
+            board::project_issue,
+            board::project_reports,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dxtutor IDE");
