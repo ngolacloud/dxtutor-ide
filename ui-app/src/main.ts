@@ -45,6 +45,7 @@ import "./features/visualizer";
 import "./features/router";
 import "./features/team";
 import "./features/studio";
+import "./features/arch/index";
 import "./features/learn";
 import "./features/generators";
 import "./features/board";

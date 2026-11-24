@@ -36,8 +36,9 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel` e `learn`); cada nova extracção
-  acrescenta-se lá. Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn` e `arch`); cada nova
+  extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
+  é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
   o único `@ts-nocheck` dentro de uma subárvore — ver abaixo). A `infra` nasceu com a
   subárvore inteiramente TIPADA (decisão do dono): nenhum `@ts-nocheck` novo, A6 fica 8.
 
