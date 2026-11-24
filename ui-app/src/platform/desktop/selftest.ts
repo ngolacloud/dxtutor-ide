@@ -385,6 +385,30 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const onDisk = (await sh("cat", [".dxtutor/team.json"])).stdout;
       return { fe, qa, savedToDisk: /"sql\/\*\*"/.test(onDisk) };
     });
+    // depuração (ADR-0006, R4): o gdb do backend. Sem gdb no sistema, o pane di-lo (o caminho
+    // honesto); com gdb, uma sessão real sobre um binário Cargo pequeno com um breakpoint:
+    // pára na linha, lê as variáveis, dá um passo e corre até ao fim.
+    await step("debug", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const available = !!(await inv("debug_available"));
+      const G = window as unknown as { startDebug: () => Promise<void>; dbgStep: () => Promise<void>; dbgCurrent: () => { path: string; line: number } | null; toggleBp: (p: string, l: number) => void };
+      const pane = () => document.getElementById("pane-debug")?.textContent || "";
+      if (!available) { await G.startDebug(); return { available, saysNoGdb: /O gdb não está instalado/.test(pane()) }; }
+      writeFile(ROOT + "dbgself/Cargo.toml", '[package]\nname = "dbgself"\nversion = "0.1.0"\nedition = "2021"\n\n[workspace]\n');
+      writeFile(ROOT + "dbgself/src/main.rs", "fn main() {\n    let answer = 40 + 2;\n    println!(\"{answer}\");\n}\n");
+      writeFile(ROOT + "Cargo.toml", '[workspace]\nmembers = ["dbgself"]\nresolver = "2"\n');
+      flushSave(); await idle();
+      G.toggleBp(ROOT + "dbgself/src/main.rs", 3);
+      await G.startDebug();
+      const stoppedAt = G.dbgCurrent();
+      const vars = /answer/.test(pane());
+      await G.dbgStep();
+      await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 3, 20000);
+      const after = G.dbgCurrent();
+      if (after) await G.startDebug(); // continuar até ao fim
+      return { available, stoppedAt, vars, after, ended: /O programa terminou/.test(pane()) };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

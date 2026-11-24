@@ -168,16 +168,18 @@ features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BP
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
-resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. **Sem sessões simuladas
-(ADR-0006, R1c2):** o passo-a-passo guionado do lexer de demonstração, as sondas `kubectl`
-inventadas e os lançadores derivados dos ambientes simulados saíram. Não há adaptador de
-depuração ligado: «Start debugging» (F5) abre o pane e diz isso; `dbgStep`/`dbgStop` só
-avisam que não há sessão; os breakpoints são reais (gutter/F9, LS `bps6`) e ficam à espera
-do DAP (R4, `debug_*`). No desktop com pasta, o painel (features/panel) desenha no #pc-dbg
-o assistente real. Os containers `#pane-debug`/`#pc-dbg` nascem no `boot6` (no app.ts desde a U4g7;
-o arranque não corre no harness) e são reproduzidos como fixtures no golden. Rede de segurança em
-`tests/debug.golden.test.ts` (goldens do pane/assistente sem depurador e com breakpoints,
-os nomes simulados que já não se publicam, e testes de dispatch delegado dos breakpoints)
+resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. **Depuração real (ADR-0006, R4;
+as sessões simuladas saíram na R1c2):** o motor é o gdb do backend (`debug_*`, adaptador
+`infrastructure/tauri.ts`). F5 escolhe o programa (num projecto/workspace Cargo, `cargo
+build` e o binário em `target/debug/` — `domain/session.ts::cargoTargets`; noutro, o
+caminho do executável), lança o gdb, põe os breakpoints do gutter e corre; parado, o pane
+mostra onde, as variáveis locais e a pilha, o editor pinta a linha (`dbgCurrent`), e
+Continue/Step over (F10)/Step into (F11)/Stop (Shift+F5) seguem para o gdb. Sem gdb, di-lo
+(com o que instalar). Os containers `#pane-debug`/`#pc-dbg` nascem no `boot6` (no app.ts
+desde a U4g7; o arranque não corre no harness) e são reproduzidos como fixtures no golden.
+Rede de segurança em `tests/debug.golden.test.ts` (goldens do pane/assistente sem sessão e
+com breakpoints, a sessão real com IPC falso — construir, lançar, breakpoints, parar,
+variáveis, passo, fim —, sem gdb, sem binários, erro do gdb, e o dispatch dos breakpoints)
 e `tests/debug.domain.test.ts` (domínio puro).
 
 ## Quinta feature extraída: backlog, sprints e kanban (`ui-app/src/features/board/`)

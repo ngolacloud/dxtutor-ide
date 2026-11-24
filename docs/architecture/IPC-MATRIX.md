@@ -363,21 +363,23 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 > Tauri-free; a fatia ganhou a fachada `capabilities()`). Nomes/args/serde/mensagens
 > preservados; A1 mantém-se em 133.
 
-Motor de depuração; os que precisam de sessão usam `State<DebugSessions>`. Não consumidos
-pela `ui-app` (painel Debug usa o motor de instrumentação — ver `features/debug.ts`).
+Motor de depuração; os que precisam de sessão usam `State<DebugSessions>`. Consumidos pela
+`ui-app` desde a R4 do ADR-0006 (`features/debug/infrastructure/tauri.ts`): o pane Run and
+Debug corre sessões reais pelo gdb. `debug_launch`/`debug_run`/`debug_continue`/`debug_step`
+são `async` (esperam pelo gdb; síncronos congelavam a thread principal).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `debug_capabilities` | — | `dap::DebugCapability` | — | — | — | R |
-| `debug_available` | — | `bool` | — | — | — | R |
-| `debug_launch` | `id: String`, `program: String`, `cwd: Option<String>` | `()` | String | — | — | **X** · S |
-| `debug_break` | `id: String`, `file: String`, `line: u32` | `u32` | String | — | — | S |
-| `debug_run` | `id: String` | `debug::Stop` | String | — | — | X · S |
-| `debug_continue` | `id: String` | `debug::Stop` | String | — | — | X · S |
-| `debug_step` | `id: String`, `into: bool` | `debug::Stop` | String | — | — | X · S |
-| `debug_locals` | `id: String` | `Vec<debug::Var>` | String | — | — | R · S |
-| `debug_stack` | `id: String` | `Vec<debug::Frame>` | String | — | — | R · S |
-| `debug_stop` | `id: String` | `()` | String | — | — | S |
+| `debug_available` | — | `bool` | — | `features/debug` | — | R |
+| `debug_launch` | `id: String`, `program: String`, `cwd: Option<String>` | `()` | String | — | `features/debug` | **X** · S |
+| `debug_break` | `id: String`, `file: String`, `line: u32` | `u32` | String | — | `features/debug` | S |
+| `debug_run` | `id: String` | `debug::Stop` | String | — | `features/debug` | X · S |
+| `debug_continue` | `id: String` | `debug::Stop` | String | — | `features/debug` | X · S |
+| `debug_step` | `id: String`, `into: bool` | `debug::Stop` | String | — | `features/debug` | X · S |
+| `debug_locals` | `id: String` | `Vec<debug::Var>` | String | — | `features/debug` | R · S |
+| `debug_stack` | `id: String` | `Vec<debug::Frame>` | String | — | `features/debug` | R · S |
+| `debug_stop` | `id: String` | `()` | String | — | `features/debug` | S |
 
 ## 12. Devcontainers — `commands/devcontainer.rs` (8)
 

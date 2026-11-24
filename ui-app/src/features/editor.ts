@@ -57,14 +57,15 @@ function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta
    outline/diagnósticos/palette/menus) e os onclick inline resolvem como globais.
    VIEW.file (app.ts) delega em renderFileView (shim, no registo de kinds de tab). ── */
 /* ───── o pintor publicado (ADR-0004, U4g5 — era a decoração do v6.ts) ─────
-   Por cima da base: os breakpoints no gutter e o Error Lens (a linha corrente do depurador
-   simulado saiu com as sessões guionadas, ADR-0006 R1c2; volta com o DAP na R4).
+   Por cima da base: os breakpoints no gutter, a linha onde o gdb parou (ADR-0006, R4) e o
+   Error Lens.
    BUG PRÉ-EXISTENTE (reportado, não corrigido aqui): as chamadas internas do editor
    (renderFileView/oninput) usam a base, por isso estas marcas só aparecem quando alguém
    chama o `window.paintEd` — desde a extracção do editor (923a2a5); antes, no app.ts, o
    paintEd era `window.paintEd` e as chamadas internas passavam pela versão decorada. */
 const PE = window as unknown as {
   dbgBreaks: Set<string>;
+  dbgCurrent?: () => { path: string; line: number } | null;
   vsxOn: (id: string) => boolean;
 };
 function paintEdFull(p: string): void {
@@ -72,6 +73,9 @@ function paintEdFull(p: string): void {
   const gut = $('#ed-gut'), hl = $('#ed-hl'); if (!gut || !hl) return;
   const gs = gut.children, ls = hl.children;
   [...PE.dbgBreaks].filter((b) => b.startsWith(p + ':')).forEach((b) => { const g = gs[+(b.split(':').pop() as string) - 1]; if (g) g.classList.add('bp'); });
+  /* a linha onde o gdb parou (ADR-0006, R4) */
+  const cur = PE.dbgCurrent ? PE.dbgCurrent() : null;
+  if (cur && cur.path === p && ls[cur.line - 1]) { ls[cur.line - 1].classList.add('dbg-cur'); if (gs[cur.line - 1]) gs[cur.line - 1].classList.add('dbg-cur'); }
   if (PE.vsxOn('usernamehw.errorlens')) { const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 

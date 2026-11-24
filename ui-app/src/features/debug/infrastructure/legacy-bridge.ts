@@ -32,6 +32,41 @@ export const paintEd = (p: string): void => G.paintEd(p);
 export const setPanelTab = (pt: string, nofocus?: boolean): void => G.setPanelTab(pt, nofocus);
 export const panes = (): Record<string, () => void> => G.RP;
 
+/* ───── a pasta aberta, o FS e um comando na pasta (ADR-0006, R4) ───── */
+/** A pasta aberta no desktop (null sem pasta e no browser). */
+export const root = (): string | null => (G.DXR && G.DXR.root) || null;
+/** O prefixo das chaves do FS (`ROOT`). */
+export const fsRoot = (): string => G.ROOT;
+/** O conteúdo de um ficheiro do FS (null se não existe). */
+export const content = (key: string): string | null => (G.FS && G.FS[key] ? G.FS[key].content : null);
+/** As chaves do FS. */
+export const fsKeys = (): string[] => (G.FS ? Object.keys(G.FS) : []);
+/** Corre um comando na pasta aberta (`DXR.exec`: código de saída real e a saída). */
+export const exec = async (cmd: string): Promise<{ ok: boolean; out: string }> => {
+  const d = G.DXR;
+  if (!d || typeof d.exec !== "function") return { ok: false, out: "sem app desktop" };
+  const r = await d.exec(cmd);
+  return { ok: !!r.ok, out: String(r.out ?? r.sum ?? "") };
+};
+/** A paleta: escolher de uma lista, ou escrever um texto. Resolve com null se a paleta fechar
+ *  sem escolha (senão o motor ficava à espera para sempre). */
+function palettePromise(cfg: (done: (v: string) => void) => Record<string, unknown>): Promise<string | null> {
+  return new Promise((res) => {
+    let settled = false;
+    const done = (v: string): void => { if (!settled) { settled = true; res(v); } };
+    G.palette("", cfg(done));
+    const watch = setInterval(() => {
+      if (settled) { clearInterval(watch); return; }
+      const pal = document.getElementById("pal");
+      if (!pal || !pal.classList.contains("show")) { clearInterval(watch); settled = true; res(null); }
+    }, 300);
+  });
+}
+export const paletteChoose = (title: string, items: string[]): Promise<string | null> =>
+  palettePromise((done) => ({ ph: title, items: items.map((l) => ({ l, run: () => done(l) })) }));
+export const paletteAsk = (title: string): Promise<string | null> =>
+  palettePromise((done) => ({ ph: title, verb: "Depurar", text: (q: string) => done(q) }));
+
 /* ───── persistência (LS, para os breakpoints `bps6`) ───── */
 export const lsGet = <T>(key: string, def: T): T => G.LS.get(key, def);
 export const lsSet = (key: string, val: unknown): void => G.LS.set(key, val);

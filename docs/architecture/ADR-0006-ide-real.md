@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop), R4–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -406,3 +406,30 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   e um teste novo no `codev.agent-chat` (uso por pedido, com cache). **Selftest desktop:** passo
   `team` novo — o frontend derivado do package.json real, o QA do `team.json`, e gravar a equipa
   escreve-a no disco; `errors: []`. **Com isto a R3 fica feita.**
+- **R4 (2026-11-24) — depuração real.** O backend já tinha um motor de depuração real — o gdb
+  sobre a Machine Interface (`debug_*`, `src-tauri/src/debug.rs`) — que a UI nunca consumia; o
+  pane Run and Debug (sem sessões desde a R1c2) passa a usá-lo. «Start debugging» (F5) escolhe
+  o programa — num projecto ou workspace Cargo, `cargo build` (código de saída real) e o binário
+  em `target/debug/` (pergunta qual se houver vários; um workspace só de bibliotecas diz que não
+  há programa para correr); noutro projecto, pergunta pelo executável —, lança o gdb na pasta,
+  põe os breakpoints do gutter e corre. Quando pára: o pane mostra onde (função, ficheiro, linha,
+  razão), as variáveis locais e a pilha que o gdb dá (clicar numa linha da pilha abre-a), o
+  editor abre o ficheiro e pinta a linha corrente (`dbgCurrent`); Continue (F5 com a sessão
+  parada), Step over (F10), Step into (F11, novo, também no menu Run) e Stop (Shift+F5) seguem
+  para o gdb; um breakpoint novo durante a sessão vai para o gdb; o fim do programa diz o código
+  de saída. Sem gdb, o pane di-lo com o que instalar; um erro do gdb diz-se e fecha a sessão.
+  **Backend:** `debug_launch`/`debug_run`/`debug_continue`/`debug_step` passam a `async` — um
+  comando síncrono do Tauri corre na thread principal, e estes esperam pelo gdb até o programa
+  parar (a janela congelava). **Domínio novo** `debug/domain/session.ts` (contratos do gdb;
+  `cargoBins`/`cargoTargets`; `fsKeyFor` — o caminho do gdb → a chave do editor, fora da pasta
+  não abre). **Goldens (decisão deste ADR):** os do pane/assistente sem sessão e com breakpoints
+  mudam do «no debugger attached» para o botão «Start debugging» e a explicação do gdb.
+  **Testes com IPC falso:** a sessão inteira (construir, lançar com o programa e a pasta,
+  breakpoints relativos, parar com variáveis e pilha, editor na linha, passo, F5 a continuar até
+  ao fim e `debug_stop`), sem pasta, sem gdb, workspace só com bibliotecas, erro do gdb, e as
+  regras puras. **Selftest desktop:** passo `debug` novo — esta máquina não tem gdb (só o
+  `rust-gdb`, que precisa dele): confirma o caminho honesto (`saysNoGdb: true`); com gdb, o
+  mesmo passo corre uma sessão real sobre um binário Cargo pequeno (pára no breakpoint, lê a
+  variável, dá um passo e corre até ao fim). `errors: []`. IPC-MATRIX: os nove `debug_*` ganham
+  consumidor. **A verificar na máquina do utilizador:** instalar o gdb e correr o selftest (ou F5
+  num projecto Cargo).
