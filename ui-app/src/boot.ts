@@ -32,7 +32,6 @@ declare global {
     MENUS: unknown[];
     TREE: unknown;
     wireSections: (scope: ParentNode) => void;
-    buildDocker: () => void;
   }
   var toTimer: ReturnType<typeof setTimeout> | undefined;
   var activeTab: string | null;
@@ -170,7 +169,7 @@ document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target 
   const rc=$('#ag-runctl');if(e.key==='Escape'){agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
   const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
 window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
-window.buildDocker = function(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
+export function buildDocker(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
   /* sem dados inventados (ADR-0006, R1a): no desktop, o pane lista os contentores e as imagens reais do
      runtime ligado (platform/desktop/infra.ts regista o RP.containers — R5a); no browser não há runtime */
   $('#dk-containers')!.innerHTML='<div class="sec-empty">Os contentores e as imagens vêm do Docker ou do Podman ligado em Infra, na app desktop.</div>';

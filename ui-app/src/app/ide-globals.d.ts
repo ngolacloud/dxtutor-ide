@@ -23,7 +23,6 @@ declare global {
   const assistantCenter: () => void;
   const badges: () => void;
   const buildActivity: () => void;
-  const buildDocker: () => void;
   const dbgStep: () => void;
   const dbgStepInto: () => void;
   const dbgStop: () => void;
