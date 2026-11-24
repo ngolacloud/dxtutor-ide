@@ -188,6 +188,10 @@ mod tests {
                 .success())
         };
         g(&["init", "-q", "-b", "main"]);
+        // Identidade local: o `snapshot` usa `git commit-tree`, que precisa dela, e uma
+        // máquina sem `user.name`/`user.email` globais (o runner do CI) não a tem.
+        g(&["config", "user.name", "t"]);
+        g(&["config", "user.email", "t@t"]);
         std::fs::write(d.path().join("a.txt"), "um\n").unwrap();
         std::fs::write(d.path().join(".gitignore"), "target/\n").unwrap();
         g(&["add", "."]);

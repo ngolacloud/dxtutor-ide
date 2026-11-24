@@ -229,6 +229,10 @@ fn the_loop_checkpoints_once_per_turn_before_the_first_change() {
             .success())
     };
     g(&["init", "-q", "-b", "main"]);
+    // Identidade local: o checkpoint usa `git commit-tree`, e o runner do CI não tem
+    // `user.name`/`user.email` globais.
+    g(&["config", "user.name", "t"]);
+    g(&["config", "user.email", "t@t"]);
     std::fs::write(root.join("a.txt"), "original\n").unwrap();
     g(&["add", "."]);
     g(&[
