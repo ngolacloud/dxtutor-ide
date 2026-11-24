@@ -1,6 +1,6 @@
 /* ═══════════ feature `debug` — delegated event dispatch (ADR-0002, Fase 4) ═══════════
-   O ÚNICO listener delegado da feature Run and Debug. Os componentes (`drawDbg`,
-   `renderDebugPane`) emitem markup com `data-action` (o nome da acção) e um `data-on`
+   O ÚNICO listener delegado da feature Run and Debug. O componente (`renderDebugPane`)
+   emite markup com `data-action` (o nome da acção) e um `data-on`
    opcional (o seu único payload em string); este módulo liga um só handler ao
    `document` para `click`/`change`/`input`, sobe do alvo do evento até ao
    `[data-action]` mais próximo, e corre a entrada correspondente da tabela. Fim dos

@@ -5,12 +5,12 @@
    monólito @ts-nocheck, por isso assume `@ts-nocheck` como `scm.ts`/`debug.ts`.
 
    Fronteira: a feature DETÉM o catálogo (CLOUD/TECH/KIND/mkT/isApp/sl/appDir),
-   o estado do desenho (SD/SSEL/SLINK/SCAT/ST_SEED/NT/NW/NH), as funções do motor
+   o estado do desenho (SD/SSEL/SLINK/SCAT/NT/NW/NH; o desenho do projecto — loadSD), as funções do motor
    (saveSD/openStudio/sdAdd/sdDel/validateDesign/drawStudio) e o corpo da vista
    (renderStudioView). Os CONSUMIDORES ficam no monólito e lêem por global:
    os geradores (`composeYaml`/`dockerfile`/`appFiles`/`k8sYaml`/`cloudMap`/
    `genBacklogIssues` em app.ts, `k8sInfra`/`appEnv` em v5.ts) lêem TECH/KIND/
-   isApp/sl/appDir; `genBacklog`/`resetAll`/boot lêem SD/ST_SEED/validateDesign/saveSD.
+   isApp/sl/appDir; `genBacklog`/boot lêem SD/loadSD/validateDesign/saveSD.
 
    Mecânica (igual às migrações anteriores): esta feature avalia ANTES de `app.ts`
    (ordem do index.html), por isso publica estado/funções no `window` no eval — os
@@ -18,7 +18,7 @@
    ansiosamente no eval (LS/openTab/genBacklog/dxRun só são tocados DENTRO das
    funções, chamadas depois do arranque). Os primitivos mutáveis SD/SSEL/SLINK/SCAT
    são window-PUROS (sem `let` local): o resíduo e os onclick inline ESCREVEM-nos
-   (`SD=clone(ST_SEED)` em resetAll/boot, `SSEL=…`/`SLINK=…`/`SCAT='…'` nos handlers).
+   (`SD=loadSD()` no boot e ao abrir uma pasta, `SSEL=…`/`SLINK=…`/`SCAT='…'` nos handlers).
 
    VIEW.studio e o drift (ADR-0004, U4g6): a feature regista `VIEW.studio` (o registo
    vem de app/store/registry.ts desde a U4g1) — o corpo `renderStudioView` + o selector
@@ -45,14 +45,34 @@ const rid = () => Math.random().toString(16).slice(2, 9);
    referências livres soltas ───── */
 const NT={ui:{l:'Interface',ic:'layout-side',col:'#6ea8ff'},svc:{l:'Serviço',ic:'cube',col:'#dea584'},db:{l:'Base de dados',ic:'volume',col:'#5cc9a7'},queue:{l:'Fila',ic:'sync',col:'#e0b64a'},cache:{l:'Cache',ic:'history',col:'#5fcad6'},ext:{l:'Externo',ic:'cloud',col:'#c678dd'}};
 
-/* ───── desenho inicial (o valor final: era um seed legado em app.ts imediatamente
-   substituído por Object.assign(ST_SEED,…) da camada do catálogo; aqui fundido) ───── */
-const ST_SEED={nodes:[{id:'gw',tech:'aws-alb',n:'Gateway',x:20,y:155,st:'plan'},{id:'web',tech:'react-vite',n:'Web',x:205,y:30,st:'plan'},{id:'api',tech:'rust-axum',n:'Orders API',x:205,y:155,st:'plan'},{id:'q',tech:'aws-sqs',n:'Order Events',x:205,y:290,st:'plan'},{id:'pg',tech:'aws-rds',n:'Orders DB',x:390,y:30,st:'plan'},{id:'cache',tech:'aws-elasticache',n:'Session Cache',x:390,y:155,st:'plan'},{id:'worker',tech:'go-http',n:'Billing Worker',x:390,y:290,st:'plan'},{id:'s3',tech:'aws-s3',n:'Invoices Bucket',x:575,y:290,st:'plan'}],
-  edges:[['gw','web'],['gw','api'],['web','api'],['api','pg'],['api','cache'],['api','q'],['worker','q'],['worker','pg'],['worker','s3']]};
+/* ───── o desenho é do projecto (ADR-0006, R6a) ─────
+   Sai o desenho semeado (`ST_SEED`: Gateway, Orders API, Billing Worker… de um projecto de
+   demonstração), que aparecia em qualquer pasta. O desenho nasce vazio e guarda-se no PROJECTO, em
+   `.dxtutor/studio.json` (versionável, ao lado do `team.json`), quando há uma pasta aberta; sem
+   pasta (browser), no localStorage — numa chave nova (`studio4`), porque a `studio3` guardava o
+   desenho semeado. */
+const emptyDesign = (): { nodes: any[]; edges: string[][] } => ({ nodes: [], edges: [] });
+const P_STUDIO = () => ROOT + '.dxtutor/studio.json';
+const hasFolder = (): boolean => !!(window as unknown as { DXR?: { root?: string | null } }).DXR?.root;
+const validDesign = (d: any): boolean => !!d && Array.isArray(d.nodes) && Array.isArray(d.edges) && d.nodes.every((n: any) => n && TECH[n.tech]);
+/** O desenho guardado: o `.dxtutor/studio.json` da pasta aberta, ou o do localStorage; vazio se não há (ou não é válido). */
+function loadSD(): { nodes: any[]; edges: string[][] } {
+  if (hasFolder()) {
+    const f = FS[P_STUDIO()];
+    if (!f) return emptyDesign();
+    try { const d = JSON.parse(f.content); if (validDesign(d)) return d; } catch { /* inválido */ }
+    log('studio', '.dxtutor/studio.json não é um desenho válido — o Studio abre vazio');
+    return emptyDesign();
+  }
+  const d = LS.get('studio4', null);
+  return validDesign(d) ? d : emptyDesign();
+}
 
 /* estado do desenho (window-pure: residue+onclicks escrevem) + geometria dos nós */
-window.SD=JSON.parse(JSON.stringify(ST_SEED));window.SSEL=null;window.SLINK=null;window.SCAT='aws';let SCLICK:{id:string|null,t:number}={id:null,t:0};const NW=152,NH=58;
-const saveSD=()=>LS.set('studio3',SD);
+window.SD=emptyDesign();window.SSEL=null;window.SLINK=null;window.SCAT='aws';let SCLICK:{id:string|null,t:number}={id:null,t:0};const NW=152,NH=58;
+const saveSD=()=>{ if (hasFolder()) writeFile(P_STUDIO(), JSON.stringify(SD, null, 2) + '\n'); else LS.set('studio4', SD); };
+/* outra pasta aberta: o desenho é o dela */
+document.addEventListener('dx:workspace', () => { SD = loadSD(); SSEL = null; SLINK = null; rerender('studio'); });
 function openStudio(){openTab({id:'studio',title:'Studio',kind:'studio'});}
 
 /* ───── catálogo de tecnologias cloud ───── */
@@ -84,8 +104,9 @@ function validateDesign(){const f:any[]=[],deg=(id:string)=>SD.edges.filter(e=>e
   if(SD.nodes.filter(n=>TECH[n.tech].kind==='gateway').length>1)f.push(['w','More than one gateway: only the first one is published on port 8080.']);if(!SD.nodes.some(isApp))f.push(['e','The design has no application to build.']);return f;}
 
 /* ───── corpo da vista Studio (o VIEW.studio registado no fim compõe-no com o selector de drift) ───── */
-function renderStudioView(_t:any,host:HTMLElement){host.innerHTML=`<div class="studio"><div class="st-bar"><b style="font-size:14px">Studio</b><button class="mini" id="st-link" onclick="SLINK=SLINK===null?'':null;drawStudio()">⤳ Connect</button><button class="mini" onclick="SD=JSON.parse(JSON.stringify(ST_SEED));SSEL=null;saveSD();drawStudio()">Reset design</button><span class="sp"></span><button class="mini pri" onclick="genBacklog()">Generate backlog &amp; delegate →</button><button class="mini run" onclick="dxRun()">▶ RUN</button></div>
+function renderStudioView(_t:any,host:HTMLElement){host.innerHTML=`<div class="studio"><div class="st-bar"><b style="font-size:14px">Studio</b><button class="mini" id="st-link" onclick="SLINK=SLINK===null?'':null;drawStudio()">⤳ Connect</button><button class="mini" id="st-clear" title="Remove every component from this design">Clear design</button><span class="sp"></span><button class="mini pri" onclick="genBacklog()">Generate backlog &amp; delegate →</button><button class="mini run" onclick="dxRun()">▶ RUN</button></div>
   <div class="st-main"><div class="st-cat" id="st-cat"></div><div class="st-canvas"><svg id="st-svg" viewBox="0 0 760 440" preserveAspectRatio="xMinYMin meet"></svg></div><div class="st-insp" id="st-insp"></div></div></div>`;
+  $('#st-clear')!.onclick=()=>{SD=emptyDesign();SSEL=null;SLINK=null;saveSD();drawStudio();};
   const s=$('#st-svg')!;s.onmousedown=e=>{const g=(e.target as Element).closest('[data-n]') as HTMLElement|null;if(!g){SSEL=null;if(SLINK!==null)SLINK='';drawStudio();return;}const id=g.dataset.n!,n=SD.nodes.find(x=>x.id===id)!,r=s.getBoundingClientRect(),k=760/r.width,ox=(e.clientX-r.left)*k-n.x,oy=(e.clientY-r.top)*k-n.y;let moved=false;
     if(SLINK!==null){if(SLINK==='')SLINK=id;else if(SLINK!==id){if(!SD.edges.some(x=>x[0]===SLINK&&x[1]===id))SD.edges.push([SLINK,id]);SLINK=null;saveSD();}drawStudio();return;}
     const now=Date.now();if(SCLICK.id===id&&now-SCLICK.t<380){sdDel(id);SCLICK.id=null;return;}SCLICK={id,t:now};SSEL=id;
@@ -95,7 +116,7 @@ function drawStudioBase(){const s=$('#st-svg');if(!s)return;const by=(id:string|
   $('#st-cat')!.innerHTML=`<div class="st-tabs">${Object.entries(CLOUD).map(([k,c])=>`<button class="${SCAT===k?'on':''}" style="--c:${c.col}" title="${c.t}" onclick="SCAT=${jsa(k)};drawStudio()">${c.l}</button>`).join('')}</div><div class="st-ct">${CLOUD[SCAT].t}</div>${Object.entries(TECH).filter(([,T])=>T.cloud===SCAT).map(([k,T])=>`<button class="st-tech notr" onclick="sdAdd(${jsa(k)})" title="${T.local?'Runs locally as '+T.local:T.img||'Built from a generated Dockerfile'}"><span class="pdot" style="background:${CLOUD[T.cloud].col}"></span>${esc(T.n)}<i>＋</i></button>`).join('')}`;
   const edge=([a,b]:string[])=>{const A=by(a),B=by(b);if(!A||!B)return'';const ax=A.x+NW/2,ay=A.y+NH/2,bx=B.x+NW/2,by2=B.y+NH/2,dx=bx-ax,dy=by2-ay,k=Math.min(Math.abs(dx)?(NW/2+6)/Math.abs(dx):9,Math.abs(dy)?(NH/2+6)/Math.abs(dy):9),pl=A.st!=='ok'||B.st!=='ok';
     return `<line x1="${ax+dx*k}" y1="${ay+dy*k}" x2="${bx-dx*k}" y2="${by2-dy*k}" stroke="${pl?'var(--accent)':'var(--fg-muted)'}" stroke-width="1.6" ${pl?'stroke-dasharray="5 4"':''} marker-end="url(#ar${pl?'p':''})"/>`;};
-  s.innerHTML=`<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--fg-muted)"/></marker><marker id="arp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="var(--guide)"/></pattern></defs><rect width="760" height="440" fill="url(#grid)"/>${SD.edges.map(edge).join('')}`+
+  s.innerHTML=`<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--fg-muted)"/></marker><marker id="arp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="var(--guide)"/></pattern></defs><rect width="760" height="440" fill="url(#grid)"/>${SD.nodes.length?'':'<text x="380" y="214" text-anchor="middle" fill="var(--fg-muted)" font-size="13">Empty design — add components from the catalog on the left.</text>'}${SD.edges.map(edge).join('')}`+
    SD.nodes.map(n=>{const T=TECH[n.tech],C=CLOUD[T.cloud],pl=n.st==='plan',wip=n.st==='wip',on=SSEL===n.id||SLINK===n.id,cut=(x:string,m:number)=>x.length>m?x.slice(0,m-1)+'…':x;
      return `<g data-n="${n.id}" transform="translate(${n.x} ${n.y})" style="cursor:${SLINK!==null?'crosshair':'grab'}"><rect width="${NW}" height="${NH}" rx="10" fill="var(--bg-elevated)" stroke="${on?'var(--accent)':pl?C.col:'var(--border-strong)'}" stroke-width="${on?2:1.3}" ${pl?'stroke-dasharray="6 4"':''}/><rect width="5" height="${NH-16}" y="8" rx="2.5" fill="${C.col}"/><text x="14" y="17" fill="${C.col}" font-size="8.5" font-weight="700" font-family="var(--font-mono)" letter-spacing=".6">${C.l}</text><text x="${NW-10}" y="17" text-anchor="end" fill="${pl?'var(--accent-hover)':wip?'var(--yellow)':'var(--green)'}" font-size="8.5" font-family="var(--font-mono)">${pl?'planned':wip?'in progress':'built'}</text><text x="14" y="34" fill="var(--fg)" font-size="12.5" font-weight="600" font-family="var(--font-ui)">${esc(cut(n.n,19))}</text><text x="14" y="49" fill="var(--fg-muted)" font-size="10" font-family="var(--font-ui)">${esc(cut(T.n,24))}</text></g>`;}).join('');
   const lb=$('#st-link');if(lb)lb.classList.toggle('pri',SLINK!==null);const n=by(SSEL),ins=$('#st-insp'),fd=validateDesign(),T=n&&TECH[n.tech];
@@ -126,4 +147,4 @@ VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { NT, ST_SEED, NW, NH, CLOUD, TECH, KIND, mkT, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel, validateDesign });
+Object.assign(window, { NT, NW, NH, loadSD, CLOUD, TECH, KIND, mkT, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel, validateDesign });

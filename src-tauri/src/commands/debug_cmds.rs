@@ -7,6 +7,10 @@
 //! idêntico ao que `lib.rs` tinha antes da Etapa 3 — mesmos nomes, args, contratos serde e
 //! mensagens de erro (o `String` de `debug::driver` passa cru). O registo da sessão
 //! (`DebugSessions`) continua gerido pelo Tauri (`.manage(...)` em `lib.rs`).
+//!
+//! ADR-0006, R4: `debug_launch`/`debug_run`/`debug_continue`/`debug_step` são `async` — um
+//! comando síncrono corre na thread principal do Tauri, e estes esperam pelo gdb até o
+//! programa parar (breakpoint, fim do passo, saída): a janela congelava enquanto isso.
 
 use crate::debug::{self, DebugSessions};
 
@@ -24,7 +28,7 @@ pub fn debug_available() -> bool {
 }
 
 #[tauri::command]
-pub fn debug_launch(
+pub async fn debug_launch(
     sessions: tauri::State<'_, DebugSessions>,
     id: String,
     program: String,
@@ -44,7 +48,7 @@ pub fn debug_break(
 }
 
 #[tauri::command]
-pub fn debug_run(
+pub async fn debug_run(
     sessions: tauri::State<'_, DebugSessions>,
     id: String,
 ) -> Result<debug::Stop, String> {
@@ -52,7 +56,7 @@ pub fn debug_run(
 }
 
 #[tauri::command]
-pub fn debug_continue(
+pub async fn debug_continue(
     sessions: tauri::State<'_, DebugSessions>,
     id: String,
 ) -> Result<debug::Stop, String> {
@@ -60,7 +64,7 @@ pub fn debug_continue(
 }
 
 #[tauri::command]
-pub fn debug_step(
+pub async fn debug_step(
     sessions: tauri::State<'_, DebugSessions>,
     id: String,
     into: bool,

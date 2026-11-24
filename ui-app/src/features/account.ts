@@ -18,23 +18,31 @@
    em `app.ts`, `RP.account=()=>window.renderAccountPane()` delega aqui (lazy, no
    switch de pane). Quando o próprio registo `RP` migrar, o espelho cai. */
 
-import { $, hd, svg, prov, provState } from "../core";
+import { $, hd, svg, esc, prov, provState } from "../core";
 import { RP } from "../app/store/registry";
 
-/** Renderiza o pane «Conta»: identidade do utilizador + estado de cada provedor de
- *  LLM (ao vivo/simulado/desligado), com atalhos para Definições e gestor de uso. */
+interface Identity { user?: string; host?: string; gitName?: string; gitEmail?: string }
+const dxr = (): Identity | undefined => (window as unknown as { DXR?: Identity }).DXR;
+
+/** Renderiza o pane «Conta»: a identidade real (no desktop: o utilizador e a máquina, e a
+ *  identidade git que assina os commits; no browser não há sessão local) + o estado de cada
+ *  provedor de LLM. ADR-0006, R2e1: sai a identidade fixa «walter · Team SYS». */
 function renderAccountPane(): void {
   const el = $("#pane-account");
   if (!el) return;
-  const PROV = prov();
+  const PROV = prov(), id = dxr();
+  const who = id
+    ? `<div class="kv"><span class="ic">${svg("account")}</span><b class="notr">${esc(id.user || "?")}</b><span class="v notr">${esc(id.host || "")}</span></div>` +
+      `<div class="kv"><span class="ic">${svg("branch-sm")}</span>git<span class="v notr">${id.gitName ? esc(id.gitName) + (id.gitEmail ? " &lt;" + esc(id.gitEmail) + "&gt;" : "") : "sem user.name configurado"}</span></div>`
+    : '<div class="sec-empty">Sem sessão local: a conta (utilizador, máquina e identidade git) só existe na app desktop.</div>';
   el.innerHTML =
     hd("Conta") +
-    `<div class="sections"><div class="kv"><span class="ic">${svg("account")}</span><b>walter</b><span class="v">Team SYS</span></div><div class="scm-grp">Provedores</div>${Object.entries(PROV)
+    `<div class="sections">${who}<div class="scm-grp">Provedores</div>${Object.entries(PROV)
       .map(
         ([k, p]) =>
           `<div class="kv"><span class="pdot${p.on ? "" : " off"}" style="background:${p.col}"></span>${p.name}<span class="v">${p.on ? provState(k) : "desligado"}</span></div>`,
       )
-      .join("")}<button class="btn ghost" onclick="openSettings()">Abrir Definições</button><button class="btn ghost" onclick="openManager()">Uso e missões</button></div>`;
+      .join("")}<button class="btn ghost" onclick="openSettings()">Abrir Definições</button><button class="btn ghost" onclick="openManager()">Uso</button></div>`;
 }
 
 /* ── publicação transitória no window (shim para o residual: RP.account delega aqui) ── */

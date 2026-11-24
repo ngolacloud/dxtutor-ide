@@ -825,6 +825,7 @@ pub fn run() {
             bridge::llm_plan,
             bridge::vsix_manifest,
             bridge::vsix_fetch_open_vsx,
+            bridge::vsix_search_open_vsx,
             bridge::app_info,
             bridge::selftest_report,
             // ── rich dxtutor backend (unchanged) ──
@@ -969,6 +970,7 @@ pub fn run() {
             lsp::lsp_completion,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
+            lsp::lsp_server_status,
             board::board_load,
             board::board_save,
         ])

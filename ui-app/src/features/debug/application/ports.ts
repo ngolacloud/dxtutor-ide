@@ -1,119 +1,101 @@
 /* ═══════════ feature `debug` — application ports (ADR-0002, Fase 3) ═══════════
    O motor nesta pasta (`debug-engine.ts`) depende SÓ de `domain/` e das interfaces
-   declaradas aqui (e de `esc` de `../../../core`, função pura). Nunca toca no DOM, em
-   `window`, no Tauri ou no legacy-bridge — essas capacidades são fornecidas, no acto da
-   composição (`features/debug.ts`), por adaptadores sobre `infrastructure/legacy-bridge.ts`.
+   declaradas aqui. Nunca toca no DOM, em `window`, no Tauri ou no legacy-bridge — essas
+   capacidades são fornecidas, no acto da composição (`features/debug.ts`), por
+   adaptadores sobre `infrastructure/` (Tauri: `debug_*`; legado: a pasta, o FS, o editor).
 
-   É isto que torna o motor testável e livre de `window`: dá-se-lhe o estado da sessão,
-   o Set de breakpoints, o sistema de ficheiros, os geradores de traço e um punhado de
-   portas (navegação/painel/editor/notificações/log/checkpoint/relógio/humano) e as
-   sessões de depuração correm sem browser. A regra de dependências aponta para dentro:
-   as portas importam `domain/`, nunca o contrário.
+   ADR-0006, R4: depuração real. O motor do backend é o gdb sobre a Machine Interface
+   (`debug_launch`/`debug_break`/`debug_run`/`debug_continue`/`debug_step`/`debug_locals`/
+   `debug_stack`/`debug_stop`): breakpoints, passos, variáveis e pilha vêm do gdb. O Set de
+   breakpoints continua window-backed no resíduo (MESMA referência que o editor pinta). */
 
-   O estado (DBG/BPS) é window-backed no resíduo; o motor vê-o e muta-o através da porta
-   `DebugStore` (as mutações persistem porque é a MESMA referência que o resíduo publica
-   em `window.*`). As funções de DESENHO (drawDbg/refreshDbg/renderDebugPane) vivem no
-   resíduo (donas do DOM) e entram por `DebugView`. */
+import type { Frame, Session, Stop, Var } from "../domain/session";
 
-import type { CodeTrace, CrashTrace, DbgSession, LaunchConfig } from "../domain/types";
+/** O motor de depuração do backend (gdb/MI), por sessão. */
+export interface DebugPort {
+  /** Há um motor instalado (o gdb no PATH)? */
+  available(): Promise<boolean>;
+  launch(id: string, program: string, cwd: string): Promise<void>;
+  breakAt(id: string, file: string, line: number): Promise<number>;
+  run(id: string): Promise<Stop>;
+  cont(id: string): Promise<Stop>;
+  step(id: string, into: boolean): Promise<Stop>;
+  locals(id: string): Promise<Var[]>;
+  stack(id: string): Promise<Frame[]>;
+  stop(id: string): Promise<void>;
+}
 
-/** Acesso ao estado vivo: a sessão (reatribuível), o Set de breakpoints e a sua
- *  persistência preguiçosa/eager em LS (implementadas no resíduo sobre o bridge). */
+/** A pasta aberta, o FS (chaves `fsRoot + relativo`) e um comando de construção na pasta. */
+export interface Workspace {
+  /** A pasta aberta (null sem pasta e no browser). */
+  root(): string | null;
+  fsRoot(): string;
+  content(key: string): string | null;
+  /** As chaves do FS (para encontrar os Cargo.toml de um workspace). */
+  keys(): string[];
+  /** Corre um comando na pasta (código de saída real) — p.ex. `cargo build`. */
+  exec(cmd: string): Promise<{ ok: boolean; out: string }>;
+}
+
+/** O estado vivo: a sessão (reatribuível), o Set de breakpoints e a sua persistência em LS. */
 export interface DebugStore {
-  session(): DbgSession | null;
-  setSession(s: DbgSession | null): void;
+  session(): Session | null;
+  setSession(s: Session | null): void;
   breakpoints(): Set<string>;
   hydrate(): void;
   save(): void;
+  /** A última mensagem para o pane (erro, fim do programa, falta do gdb); "" para limpar. */
+  setMessage(m: string): void;
 }
 
-/** O sistema de ficheiros virtual + o caminho do lexer. */
-export interface Workspace {
-  lexPath(): string;
-  fileContent(path: string): string;
-  writeFile(path: string, content: string): void;
-}
-
-/** Os helpers de lexer (de v6): a variante do fonte e o nº de linha por regex. */
-export interface Lexer {
-  variant(): string;
-  line(re: RegExp): number;
-}
-
-/** Os geradores de traço (domínio + mundo injectado na composição). */
-export interface Scenarios {
-  code(variant: string): CodeTrace;
-  ops(env: string, n: string): CrashTrace;
-  launch(): LaunchConfig[];
-}
-
-/** Etiqueta de apresentação de um ambiente (ENVL). */
-export interface Env {
-  label(env: string): string;
-}
-
-/** O editor: separador actual, abrir caminho (com linha opcional) e repintar gutters. */
+/** O editor: separador actual, abrir na linha, repintar gutters. */
 export interface Editor {
   currentTab(): { path?: string; kind?: string } | null;
   openPath(path: string, line?: number): void;
   paintEd(path: string): void;
 }
 
-/** A casca da UI: navegação para o pane, variáveis CSS do painel e separador do painel. */
+/** A casca da UI: navegação para o pane e separador do painel inferior. */
 export interface Shell {
   goPane(p: string): void;
-  getVar(k: string): string;
-  setVar(k: string, v: string): void;
-  togglePanel(): void;
   setPanelTab(pt: string, nofocus?: boolean): void;
+}
+
+/** Escolher um de vários (binários) ou escrever um caminho (executável): resolve com a escolha,
+ *  ou null se o humano desistiu. */
+export interface Picker {
+  choose(title: string, items: string[]): Promise<string | null>;
+  ask(title: string): Promise<string | null>;
 }
 
 /** As funções de desenho, donas do DOM (vivem no resíduo). */
 export interface DebugView {
-  draw(): void;
   refresh(): void;
-  renderPane(): void;
 }
 
-/** Diálogo modal (forma mínima do `dlg` do monólito). */
-export interface DlgLike { title: string; body: string; ok?: string; onOk?: () => void }
-
-export interface Notifier { toast(m: string): void; dlg(opts: DlgLike): void }
-export interface Logger { log(src: string, msg: string): void }
-/** Quem é dono de um artefacto no projecto (código/…): decide se o motor aplica ou
- *  devolve a mudança ao humano. */
-export interface Human { owns(what: string): boolean }
-export interface Checkpointer { snapshot(label: string): void }
-/** Relógio de apresentação (hhmm) para o carimbo dos itens do feed. */
-export interface Clock { time(): string }
+export interface Notifier { toast(m: string): void }
 
 /* ───────── pacote de dependências entregue ao motor ───────── */
 
 export interface DebugDeps {
   store: DebugStore;
+  dbg: DebugPort;
   workspace: Workspace;
-  lexer: Lexer;
-  scenarios: Scenarios;
-  env: Env;
   editor: Editor;
   shell: Shell;
+  picker: Picker;
   view: DebugView;
   notifier: Notifier;
-  logger: Logger;
-  human: Human;
-  checkpoint: Checkpointer;
-  clock: Clock;
+  /** Gerador de ids de sessão (injectado para os testes). */
+  newId(): string;
 }
 
-/** A superfície que o motor devolve (os casos de uso da sessão de depuração). */
+/** A superfície que o motor devolve. */
 export interface DebugEngine {
-  startDebug(id?: string): void;
-  dbgFeed(k: string, h: string): void;
-  dbgApplyClone(): void;
-  dbgStep(): void;
-  dbgContinue(): void;
-  dbgFinish(): void;
-  dbgStop(): void;
-  dbgFix(): void;
+  /** F5: sem sessão, escolhe o programa, lança o gdb, põe os breakpoints e corre; parado, continua. */
+  startDebug(): Promise<void>;
+  dbgContinue(): Promise<void>;
+  dbgStep(into?: boolean): Promise<void>;
+  dbgStop(): Promise<void>;
   toggleBp(p: string, l: number): void;
 }

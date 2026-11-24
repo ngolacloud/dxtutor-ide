@@ -22,6 +22,9 @@ export interface AppEvents {
   "layout:locale": { locale: string; prev: string };
   /** Separador activo do editor (`null` = nenhum). */
   "editor:tab": { id: string | null; prev: string | null };
+  /** O editor acabou de desenhar a vista de um ficheiro (a chave do `FS`): o `innerHTML` foi
+   *  refeito, por isso quem a decora (o aviso de servidor em falta, `features/lsp`) repõe-se. */
+  "editor:file-view": { path: string };
   /** O workspace mudou (ficheiros, estado git, painel): emitido no fim do `refresh()`. */
   "workspace:changed": { fromEditor: boolean; force: boolean };
   /** Execução do agente começou/acabou (o botão enviar↔parar, a fila do compositor). */

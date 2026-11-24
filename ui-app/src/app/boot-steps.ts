@@ -5,7 +5,6 @@
    cada feature registar os seus comandos (U7). O CMD, o buildMenus e o LCUR importam-se do
    app/commands.ts: são as mesmas ligações locais que estes passos usavam no app.ts. */
 import { setVar, hydrate, log } from "../features/shell";
-import { P_LX } from "../features/workspace";
 import { LANG } from "../features/editor";
 import { openArch } from "../features/arch/index";
 import { CMD, buildMenus, LCUR } from "./commands";
@@ -15,7 +14,7 @@ import type { AppCmd, AppMenu } from "./ide-globals";
    neste módulo vê-se com o tipo completo. Declaração só de tipo: continua a resolver o global no acto. */
 declare const MENUS: AppMenu[];
 
-function boot(){loadCfg();loadSeed();syncTree();
+function boot(){loadCfg();resetWorkspace();syncTree();
   ACTS.length=0;ACTS.push({ic:'explorer',pane:'explorer',title:'Explorer'},{ic:'search',pane:'search',title:'Pesquisa'},{ic:'scm',pane:'scm',title:'Source Control'},{ic:'run',pane:'run',title:'Run and Debug'},{ic:'test',pane:'test',title:'Testing'},{ic:'ext',pane:'ext',title:'Extensions'},{ic:'sparkle',pane:'codev',title:'Co-Dev',acc:1},{ic:'dots',overflow:1,title:'Mais vistas…',spacer:1},{ic:'account',pane:'account',title:'Conta'},{ic:'settings',pane:'settings',title:'Definições'});
   OVERFLOW.length=0;OVERFLOW.push({l:'Remote Explorer',pane:'remote'},{l:'Containers',pane:'containers'});
   $('#brand')!.innerHTML=svg('sparkle');buildMenus();buildMenubar();buildActivity();buildDocker();$('.act')!.classList.add('on');
@@ -25,15 +24,15 @@ function boot(){loadCfg();loadSeed();syncTree();
   $('#pal')!.onclick=e=>{const it=(e.target as Element).closest<HTMLElement>('.pi');if(it)window.palRun(+it.dataset.i!);else if(!(e.target as Element).closest('.pal-box'))window.closePal();};
   /* teclado do #ag-input: dono agora o compositor (features/codev/ui/composer.ts) */
   $('#pc-terminal')!.onclick=()=>{if(!String(getSelection())){const c=$('#cmd');if(c)c.focus({preventScroll:true});}};
-  $('#pc-output')!.innerHTML='';log('rust-analyzer','2 crates indexados');log('co-dev','pronto · '+connected().length+' provedores ligados');
+  $('#pc-output')!.innerHTML='';log('co-dev','pronto · '+connected().length+' provedores ligados');
   termClear();setInterval(()=>{runLabel();},1000);
   newChat();setTheme(THEME);
-  TB=[{id:'welcome',title:'Bem-vindo',kind:'welcome'},{id:P_LX,title:'lib.rs',kind:'file',path:P_LX}];refresh(false,true);show('welcome');
+  TB=[{id:'welcome',title:'Bem-vindo',kind:'welcome'}];refresh(false,true);show('welcome');
   if(innerWidth<1000){setVar('--side-w','0px');}else $('#tgl-side')!.classList.add('on');$('#tgl-panel')!.classList.add('on');
   if(innerWidth<860){setVar('--panel-h','0px');$('#tgl-panel')!.classList.remove('on');assistantCenter();}
   hydrate();if(document.activeElement&&(document.activeElement as HTMLElement).blur)(document.activeElement as HTMLElement).blur();
   let tries=0;(function live(){if(window.claude&&typeof window.claude.use==='function'){window.claude.use('sample').then(s=>{SAMPLE=s||null;updateAgentUI();const t=tabOf(cur);if(t&&t.kind==='settings')show(cur);if(RP[PANE])RP[PANE]();}).catch(()=>{});}else if(++tries<25)setTimeout(live,300);})();}
-function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray(sd.nodes)&&Array.isArray(sd.edges))SD=sd;
+function boot3(){loadTeam();SD=loadSD();
   const i=ACTS.findIndex(a=>a.pane==='codev');ACTS.splice(i+1,0,{ic:'book',pane:'tutor',title:'Tutor'},{ic:'cube',run:openStudio,title:'Studio de arquitectura'},{ic:'split',run:openBoard,title:'Quadro'});ACTS[i].sep=1;buildActivity();$('.act')!.classList.add('on');
   $('.side')!.insertAdjacentHTML('beforeend','<div class="pane" id="pane-tutor"></div>');
   /* o #pill-agent nasce no compositor (features/codev/ui/composer.ts); só se cria aqui se faltar */
@@ -48,7 +47,7 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
   const ta=ACTS.find(a=>a.pane==='tutor');if(ta){ta.title='Learning Track';buildActivity();$('.act')!.classList.add('on');}
   $('.panel-tabs .panel-tools')!.insertAdjacentHTML('beforebegin','<button class="ptab" data-pt="services">Services</button>');$('.panel-body')!.insertAdjacentHTML('beforeend','<div class="pcontent" id="pc-services"></div>');$$('.ptab').forEach(b=>b.onclick=()=>setPanelTab(b.dataset.pt!));
   $('#st-tests')!.insertAdjacentHTML('afterend','<button class="si" id="st-stack" style="display:none;color:var(--green)" title="Running stack" onclick="setPanelTab(\'services\')"></button>');
-  const sd=LS.get('studio3',null);SD=sd&&Array.isArray(sd.nodes)&&sd.nodes.every((n: { tech: string })=>TECH[n.tech])?sd:JSON.parse(JSON.stringify(ST_SEED));
+  SD=loadSD();/* o desenho do projecto (ou vazio) — o semeado saiu (ADR-0006, R6a) */
   drawStack();refresh(false,true);show(cur);}
 /* boot5/boot6: os passos de arranque das camadas v5/v6 (ADR-0004, U4g7), verbatim, junto do
    boot/boot3/boot4 — a mesma natureza. Os nomes livres resolvem como no módulo de origem: o CMD/LANG
@@ -66,7 +65,7 @@ function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX'
   ['debug','ext','tasks'].forEach(p=>{if(!$('#pane-'+p))$('.side')!.insertAdjacentHTML('beforeend',`<div class="pane" id="pane-${p}"></div>`);});const a=$(`.act[data-pane="${PANE}"]`);if(a)a.classList.add('on');
   $('.panel-tabs .panel-tools')!.insertAdjacentHTML('beforebegin','<button class="ptab" data-pt="dbg">Debug assistant</button>');$('.panel-body')!.insertAdjacentHTML('beforeend','<div class="pcontent" id="pc-dbg"></div>');$$('.ptab').forEach(b=>b.onclick=()=>{setPanelTab(b.dataset.pt!);if(b.dataset.pt==='dbg')drawDbg();});drawDbg();
   $('#st-lang')!.insertAdjacentHTML('beforebegin','<span class="si opt" id="st-chord" style="color:var(--accent-hover)"></span>');
-  const rm=MENUS.find(m=>m.t==='Run');if(rm)rm.items=[{l:'Start Debugging',k:'F5',act:()=>startDebug()},{l:'▶ RUN the whole stack',k:'Ctrl+F5',act:dxRun},{l:'Stop the stack',act:dxStop},{sep:1},{l:'Step Over',k:'F10',act:dbgStep},{l:'Stop Debugging',k:'Shift+F5',act:dbgStop},{l:'Toggle Breakpoint',k:'F9',act:()=>{const t=tabOf(cur),ta=$('#ed-ta') as HTMLTextAreaElement|null;if(t&&t.path&&ta)toggleBp(t.path,ta.value.slice(0,ta.selectionStart).split('\n').length);}},{sep:1},{l:'⎈ Deploy to Kubernetes',act:dxDeploy},{l:'Environments and promotion',act:openEnvs},{sep:1},{l:'cargo test',act:()=>runTask('cargo test')},{l:'dx lint',act:()=>runTask('dx lint')}];
+  const rm=MENUS.find(m=>m.t==='Run');if(rm)rm.items=[{l:'Start Debugging',k:'F5',act:()=>startDebug()},{l:'▶ RUN the whole stack',k:'Ctrl+F5',act:dxRun},{l:'Stop the stack',act:dxStop},{sep:1},{l:'Step Over',k:'F10',act:dbgStep},{l:'Step Into',k:'F11',act:()=>dbgStepInto()},{l:'Stop Debugging',k:'Shift+F5',act:dbgStop},{l:'Toggle Breakpoint',k:'F9',act:()=>{const t=tabOf(cur),ta=$('#ed-ta') as HTMLTextAreaElement|null;if(t&&t.path&&ta)toggleBp(t.path,ta.value.slice(0,ta.selectionStart).split('\n').length);}},{sep:1},{l:'⎈ Deploy to Kubernetes',act:dxDeploy},{l:'Environments and promotion',act:openEnvs},{sep:1},{l:'Run Project…',act:()=>goPane('run')},{l:'Run Tests',act:()=>goPane('test')}];
   const cm=MENUS.find(m=>m.t==='Co-Dev');if(cm){const ds=Object.getOwnPropertyDescriptor(cm,'items'),its=()=>ds!.get?ds!.get.call(cm):ds!.value;Object.defineProperty(cm,'items',{configurable:true,get:()=>[{l:'Explain',k:'Ctrl+K E',act:()=>explainCmd()},{l:'Code Review',k:'Ctrl+K R',act:reviewCmd},{l:'Debug',k:'F5',act:()=>startDebug()},{l:'Under the Hood',k:'Ctrl+K U',act:hoodCmd},{sep:1},...its()]});}
   const vm=MENUS.find(m=>m.t==='View');if(vm){const ds=Object.getOwnPropertyDescriptor(vm,'items'),g=()=>ds!.get?ds!.get.call(vm):ds!.value;Object.defineProperty(vm,'items',{configurable:true,get:()=>[...g(),{sep:1},{l:'Tasks',k:'Ctrl+Shift+T',act:()=>goPane('tasks')},{l:'Run and Debug',k:'Ctrl+Shift+D',act:()=>goPane('debug')},{l:'Extensions',k:'Ctrl+Shift+X',act:()=>goPane('ext')},{l:'Debug assistant',act:()=>setPanelTab('dbg')}]});}
   $('#menubar')!.innerHTML='';buildMenubar();

@@ -13,7 +13,8 @@ export interface FsEntry {
 const files = ownedGlobal<Record<string, FsEntry>>("FS", {});
 const root = ownedGlobal<string>("ROOT", "dxtutor/");
 /* as pastas que a árvore abre no arranque (ADR-0004, U4j3 — eram criadas no app.ts) */
-const open = ownedGlobal<Set<string>>("OPEN", new Set(['dxtutor','dxtutor/crates','dxtutor/crates/lexer','dxtutor/crates/lexer/src','dxtutor/desktop','dxtutor/desktop/src']));
+/* as pastas abertas nascem só com a raiz (eram as do projecto de demonstração — ADR-0006, R3c) */
+const open = ownedGlobal<Set<string>>("OPEN", new Set(['dxtutor']));
 
 export const workspaceStore = {
   /** Os ficheiros da IDE (mutável no lugar; quem muda chama `refresh()`). */

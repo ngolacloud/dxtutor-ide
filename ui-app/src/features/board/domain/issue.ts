@@ -15,11 +15,11 @@ export const STAGES: Stage[] = [
 ];
 
 /** Constrói uma issue com os defaults da fábrica (id `DX-<seq>`, feature, 3 pts, no
- *  backlog, sem tentativas/testes/resultado/nota/modelo/ramo), sobreposto por `o`.
+ *  backlog, sem tentativas/resultado/nota/modelo/ramo), sobreposto por `o`.
  *  PURO: devolve a issue; quem a adiciona ao backlog é o chamador. */
 export function makeIssue(seq: number, o: Partial<Issue>): Issue {
   return Object.assign(
-    { id: "DX-" + seq, type: "feature", pts: 3, stage: "backlog", attempts: 0, tests: [], res: null, note: "", model: null, branch: null },
+    { id: "DX-" + seq, type: "feature", pts: 3, stage: "backlog", attempts: 0, res: null, note: "", model: null, branch: null },
     o,
   ) as Issue;
 }

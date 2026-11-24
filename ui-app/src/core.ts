@@ -57,13 +57,7 @@ declare global {
     renderRemotePane: () => void;
     /* feature `run`: o residual delega o render do pane por nome (RP.run → window.renderRunPane) */
     renderRunPane: () => void;
-    /* feature `test`: motor de testes simulado (dono = monólito) + delegação do pane (RP.test → window.renderTestPane) */
-    runTests: (pkg?: string) => {
-      build: boolean;
-      err: string;
-      ok: boolean;
-      tests: Array<{ n: string; ok: boolean }>;
-    };
+    /* feature `testing` (features/testing/): delegação do pane (RP.test → window.renderTestPane) */
     renderTestPane: () => void;
     /* feature `account`: mapa vivo de provedores + estado por provedor (dono = monólito) + delegação do pane */
     PROV: Record<string, Prov>;
@@ -78,11 +72,8 @@ declare global {
     doSearch: () => void;
     replaceAll: () => void;
     renderSearchPane: () => void;
-    /* feature `debug` (migrada de v6.ts): sessão de depuração simulada + lançadores.
-       O estado/motor (`DBG`, `debugConfigs`, `BPS`) continua dono de v6.ts; a feature
-       lê por fachada tipada e delega o pane (RP.debug → window.renderDebugPane). */
-    DBG: unknown;
-    debugConfigs: () => Array<{ id: string; l: string; d: string }>;
+    /* feature `debug`: os breakpoints (`BPS`, window-backed) e o pane (RP.debug →
+       window.renderDebugPane). A sessão simulada (`DBG`) e os lançadores saíram (ADR-0006, R1c2). */
     BPS: Set<string>;
     renderDebugPane: () => void;
     /* feature `scm` (migrada de app.ts): Source Control + grafo/gitflow resumidos.
@@ -117,11 +108,9 @@ declare global {
     renderDiffView: (t: unknown, host: HTMLElement) => void;
     /* feature `router`: amostragem ao vivo disponível (router inicializa; bridge põe a true). */
     LIVE_OK: boolean;
-    /* feature `diagnostics`: motor de diagnósticos/lint/testes derivado de FS; consumido por nome
-       livre por codev/board/test/ext/debug e pelo residual (drawProblems/nextProblem em refresh/boot). */
+    /* feature `diagnostics`: `has` (o ficheiro casa a regex? — lido pelo board) e o desenho dos
+       problemas (drawProblems/nextProblem em refresh/boot); no browser não há verificador. */
     has: (p: string, re: RegExp) => boolean;
-    lexBug: () => boolean;
-    dsLint: () => { p: string; line: number; hex: string }[];
     diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
     drawProblems: () => void;
     nextProblem: () => void;
@@ -163,16 +152,13 @@ declare global {
        aqui — só o resíduo @ts-nocheck de v6.ts as chama por nome livre. As entradas
        abaixo são fachadas que a feature CONSOME doutras features/do monólito: `symbols`
        (explorer.ts), `selText` (editor.ts), `updateAgentUI` (codev.ts), `composeServices`
-       (stack.ts), `lexVariant`/`LXL` (continuam donas de v6.ts), `dbgState` (debug.ts). */
+       (stack.ts). */
     renderCreviewView: (t: unknown, host: HTMLElement) => void;
     renderHoodView: (t: unknown, host: HTMLElement) => void;
     symbols: (p: string) => Array<{ k: string; n: string; line: number }>;
     selText: () => string;
     updateAgentUI: () => void;
     composeServices: () => Array<{ name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }> | null;
-    lexVariant: () => string;
-    LXL: (re: RegExp) => number;
-    dbgState: () => { end?: { t: string; b: string }; feed: Array<{ h: string }> } | null;
     /* feature `ext` (motor migrado de v6.ts, @ts-nocheck): pane «Extensions» (Open VSX).
        A feature é agora dona de todo o motor (catálogo EXT, estado instalado EXS,
        instalar/remover/alternar, comandos, VSIX, formatador) e publica-o no window;
@@ -190,24 +176,19 @@ declare global {
     MISSIONS: any[];
     DECS: any[];
     CKPT: any[];
-    GAPS: Array<[string, string, string, string]>;
     badges: () => void;
     ROUTE: Record<string, string>;
     ROLE: Record<string, string>;
     ROLE_D: Record<string, string>;
     MODES: Record<string, { l: string; d: string }>;
-    CRIT: Array<{ k: string; s: string; l: string; w: number }>;
     provFor: (r: string) => string;
     SD: any;
     renderCodevPane: () => void;
-    renderWelcomePage: (t: unknown, host: HTMLElement) => void;
     renderSettingsPage: (t: unknown, host: HTMLElement) => void;
     renderManagerPage: (t: unknown, host: HTMLElement) => void;
     renderAgentView: (t: unknown, host: HTMLElement) => void;
     testProv: (k: string, btn: HTMLElement) => void;
     doTool: (t: { t: string; [k: string]: any }, host: Element, role?: string) => Promise<unknown>;
-    runMission: (S: any, text?: any) => unknown;
-    demo: (x: string) => void;
     setMode: (m: string) => void;
     /* feature `infra` (migrada de v5.ts base + v6.ts decoração): pane «Infra» (runtime
        de contentores, dev container, Kubernetes, environments). Base v5 + decoração v6

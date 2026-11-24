@@ -84,6 +84,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         break;
       case "usage":
         presenter.agentNote?.(t.card, "usage", formatUsage(deps.model(), e.turn));
+        deps.onUsage?.(e.request.input_tokens + e.request.cache_read_input_tokens + e.request.cache_creation_input_tokens, e.request.output_tokens);
         break;
       case "served_by":
         presenter.agentNote?.(t.card, "fallback", `Respondido por ${e.model} (fallback do servidor).`);

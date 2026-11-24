@@ -17,9 +17,8 @@ import { installGit } from "./platform/desktop/git";
 import { installLlm } from "./platform/desktop/llm";
 import { installAgentTasks } from "./platform/desktop/agent-tasks";
 import { installInfra } from "./platform/desktop/infra";
-import { installDemos } from "./platform/desktop/demos";
 import { installExt } from "./platform/desktop/ext";
-import { installTests } from "./platform/desktop/tests";
+import { installRemote } from "./platform/desktop/remote";
 import { selftest } from "./platform/desktop/selftest";
 
 (() => {
@@ -32,9 +31,9 @@ installGit(ctx);
 installLlm(ctx);
 installAgentTasks(ctx);
 installInfra(ctx);
-installDemos(ctx);
+installRemote(ctx);
+/* (installDemos saiu: o Sprint corre com o agente real também com pasta aberta — ADR-0006, R3a) */
 installExt();
-installTests(ctx);
 installFolderUi(ctx);
 
 /* ───── start ───── */
@@ -44,6 +43,11 @@ void (async () => {
     R.user = (await sh("whoami", [], { cwd: R.info.home })).stdout.trim().split(/[\\/]/).pop();
     R.host = (await sh("hostname", [], { cwd: R.info.home })).stdout.trim().split(".")[0];
   } catch { /* sem shell */ }
+  /* a identidade git (a que assina os commits) para o pane Conta (ADR-0006, R2e1) */
+  try {
+    R.gitName = (await sh("git", ["config", "--get", "user.name"], { cwd: R.info.home })).stdout.trim() || undefined;
+    R.gitEmail = (await sh("git", ["config", "--get", "user.email"], { cwd: R.info.home })).stdout.trim() || undefined;
+  } catch { /* sem git */ }
   await ctx.loadKeys();
   try { updateAgentUI(); } catch { /* painel ainda não montado */ }
   const start = R.info.openAtStart || LS.get("dx-last-folder", "");
