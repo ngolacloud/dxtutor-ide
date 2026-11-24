@@ -6,7 +6,9 @@
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
-use tutor_plugins::{scaffold, validate_dir, Source, Store, Taken, OFFICIAL_ORG};
+use tutor_plugins::{
+    scaffold, validate_dir, Source, Store, Taken, OFFICIAL_ORG, OFFICIAL_REPO_PREFIX,
+};
 
 const HOST_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -25,7 +27,7 @@ dxt plugin — course plugins
                                   reference solution (must pass) and starter (must fail)
 
 Sources:
-  python                          official course (github.com/dxtutor-courses/python)
+  python                          official course (github.com/ngolacloud/dxtutor-course-python)
   owner/repo[@ref]                a GitHub repository, optionally at a tag or branch
   https://github.com/owner/repo   same, as a URL
   https://host/plugin.zip         a zip over HTTPS
@@ -91,7 +93,7 @@ fn list() -> Result<()> {
     let store = store()?;
     let items = store.list();
     if items.is_empty() {
-        println!("No plugins installed. Try: dxt plugin install <language>  (from github.com/{OFFICIAL_ORG})");
+        println!("No plugins installed. Try: dxt plugin install <language>  (from github.com/{OFFICIAL_ORG}/{OFFICIAL_REPO_PREFIX}<language>)");
         return Ok(());
     }
     for it in items {

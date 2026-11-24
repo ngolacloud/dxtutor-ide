@@ -4,8 +4,8 @@ A **course plugin** adds a language track to dxtutor's Learning Track. It is a G
 repository with a manifest and one or more course files. Course files are data, not code.
 You don't need to touch the dxtutor source code to publish a course.
 
-- Official courses live in the [`dxtutor-courses`](https://github.com/dxtutor-courses)
-  GitHub organization, one repository per language.
+- Official courses live in the [`ngolacloud`](https://github.com/ngolacloud) GitHub
+  organization, one repository per language: `ngolacloud/dxtutor-course-<id>`.
 - Anyone can publish a course in their own repository; users install it by URL.
 
 ## Quick start
@@ -45,7 +45,7 @@ A plugin can be at most 64 MiB and 5,000 files.
   "description": "A guided, hands-on Kotlin course.",
   "authors": ["Ada Lovelace <ada@example.com>"],
   "license": "CC-BY-4.0",
-  "repository": "https://github.com/dxtutor-courses/kotlin",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-kotlin",
   "engine": ">=0.7.0",
   "kind": "course",
   "language": {
@@ -248,7 +248,7 @@ place, so a plugin installed by one appears in the other.
 
 | Source | Installs |
 |---|---|
-| `kotlin` | the official course, `github.com/dxtutor-courses/kotlin` |
+| `kotlin` | the official course, `github.com/ngolacloud/dxtutor-course-kotlin` |
 | `owner/repo` · `owner/repo@v1.2.0` · `github:owner/repo` | a GitHub repository, optionally at a tag or branch |
 | `https://github.com/owner/repo[/tree/<ref>]` | the same, as a URL |
 | `https://example.org/plugin.zip` | a zip over HTTPS |
@@ -297,6 +297,6 @@ pretending the tests passed.
 
 ## Contributing an official course
 
-Open an issue in the `dxtutor-courses` organization proposing the language and an outline
+Open an issue in [`ngolacloud/dxtutor-ide`](https://github.com/ngolacloud/dxtutor-ide/issues) proposing the language and an outline
 of units. Official courses must pass `--strict` validation, have a `concepts` text for every
 unit, and cover Basic, Intermediate and Advanced units.
