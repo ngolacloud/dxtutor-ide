@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g5)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g6)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -429,3 +429,24 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   (acorde Ctrl+K E, Ctrl+Shift+T, F9): esta árvore é idêntica ao commit anterior à U4b, e a
   única diferença para a HEAD é a barra ao abrir um ficheiro; auto-teste desktop idêntico ao
   da U4g4.
+- **U4g6 (2026-11-24) — o Studio.** O drift («design vs realidade») saiu do v6 para o
+  dono, `features/studio.ts`: a base do desenho passa a `drawStudioBase` e o `drawStudio`
+  publicado é a base + `paintDrift` (etiqueta de estado por nó e resumo «Design vs
+  <ambiente>» no inspector). As chamadas internas da feature já resolviam `drawStudio` pelo
+  global, por isso o efeito é o mesmo. A feature regista também o `VIEW.studio` (o corpo
+  `renderStudioView` + o selector «Compare with…»), que o v6 definia; o `renderStudioView`
+  deixa de ser publicado. `driftReport`/`DSTY`/`ENVL` vêm de `features/infra.ts` por import
+  (o v6 deixa de importar a infra), e o `DRIFT` lê-se por uma fachada tipada. **Bug
+  pré-existente reportado (não corrigido):** o botão «⎈ Deploy» que o v5 juntava à barra do
+  Studio é código morto desde `f2eced4`: até aí o `app.ts` definia `VIEW.studio`, o v5
+  juntava o botão e o v6 compunha por cima (`_studio6`); o `f2eced4` reescreveu a linha do v6
+  para chamar directamente o `renderStudioView`, e o `_studio5` do v5 passou a capturar
+  `undefined` (nada define `VIEW.studio` antes do v5) e a ser sobreposto antes de alguém o
+  chamar. A linha morta sai do v5; o Deploy continua acessível pela página de boas-vindas,
+  pelo cabeçalho da Infra, pelo comando «Project: Deploy to Kubernetes» e pelo `dx deploy`. Globais publicadas 419 → 418 e handlers inline 163 → 162
+  (o `onclick` morto); lint 282; testes sem alteração. Verificado: 367 testes (snapshots
+  sem diff), arranque no browser 4/4, comparação no browser entre a HEAD e esta árvore (a
+  barra do Studio, o selector, o desenho e o inspector sem drift, com Local sem nada
+  implantado, com Staging escolhido no selector — nós em sync, behind, failing e missing e
+  um workload a mais —, com um nó seleccionado e ao reabrir a vista): idênticas, sem erros
+  de página; auto-teste desktop idêntico ao da U4g5.

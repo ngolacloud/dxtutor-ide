@@ -47,7 +47,9 @@ export {};
 /* decorações de approveIssue/VIEW.board (revisão), delegate/runSprint (codeGuard) compostas em features/board.ts; codeGuard em features/team.ts (ADR-0004, U4g3). */
 
 /* ───── less noise ───── */
-const _studio5=VIEW.studio;VIEW.studio=(t,host)=>{_studio5(t,host);const r=host.querySelector('.mini.run');if(r)r.insertAdjacentHTML('afterend','<button class="mini run" style="background:var(--blue)" onclick="dxDeploy()">⎈ Deploy</button>');};
+/* (o botão «⎈ Deploy» que aqui decorava VIEW.studio era código morto desde f2eced4: o v6
+   passou a definir VIEW.studio sem compor, e este _studio5 capturava undefined — nada define
+   VIEW.studio antes do v5. Removido na U4g6 do ADR-0004; a perda do botão está reportada.) */
 VIEW.welcome=(t,host)=>{const w=(ic,a,b,act)=>`<button class="wbtn" onclick="${act}"><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
   host.innerHTML=`<div class="page"><div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><h1 style="font-weight:300;font-size:26px;margin:0">dxtutor <b style="font-weight:600">IDE</b></h1></div>
   <div class="sub">You decide; the assistants accelerate. Learn a language, or design an architecture and take it to a running stack and a local cluster.</div>

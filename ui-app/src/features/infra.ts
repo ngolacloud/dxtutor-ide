@@ -72,9 +72,10 @@ const {
   initSecrets, envDeps, envState, envHealth, secretCheck, commitsBetween, promote,
   redeployEnv, openEnvs, driftReport, openObserve,
 } = engine;
-/* ADR-0002 passo 6: nomes reais consumidos por v6.ts via import ES (porta tipada),
-   substituindo as antigas fachadas-alias resolvidas por global. */
-export { initSecrets, driftReport, DSTY };
+/* ADR-0002 passo 6: nomes reais consumidos via import ES (porta tipada), substituindo as
+   antigas fachadas-alias resolvidas por global — hoje pelo drift do Studio (features/studio.ts,
+   ADR-0004 U4g6; era a decoração do v6.ts). */
+export { initSecrets, driftReport, DSTY, ENVL };
 
 /* ═══════════ DOM (resíduo dono): remote + redesenho do pane ═══════════ */
 function drawRemote() { const b = $('.si.remote'); if (!b) return; let s = b.querySelector('span.rl'); if (!s) { b.insertAdjacentHTML('beforeend', '<span class="rl notr"></span>'); s = b.querySelector('span.rl'); } s.textContent = DEVC ? ' Dev Container: dxtutor' : ''; b.onclick = () => goPane('infra'); b.title = 'Infra: runtime, dev container, Kubernetes'; }

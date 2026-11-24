@@ -7,17 +7,13 @@
    (padrão `const _x6=x; x=function…`), por isso tem de carregar DEPOIS do app.ts; e
    DEFINE símbolos que o v7 e o arranque consomem, por isso carrega ANTES do v7.ts e
    do startup.ts. As dependências do núcleo (P, MENUS, CMD, VIEW, RP, FS, $, esc, svg,
-   show, paintEd, diagnostics, drawStudio, approveIssue, runIssue, delegate, dxDeploy,
+   show, paintEd, diagnostics, approveIssue, runIssue, delegate, dxDeploy,
    rerender, log…) são referências livres resolvidas no window/escopo do bundle em
    runtime (late-binding). As funções decoradas foram window-backed no app.ts (`window.X=`)
    para que a reatribuição `X=function` aqui actue sobre a MESMA referência. Os nomes
    que o resto do IDE consome são publicados no window no fim (como o app.ts/v7.ts fazem);
    os internos (KNOW, SEVC, LXL, nfmt, CHORD e os _x6 temporários) ficam léxicos ao módulo.
    @ts-nocheck: tipar fica para a fase posterior — esta só componentiza. */
-/* ADR-0002 passo 6: VIEW.envs/VIEW.observe passam a importar os corpos da feature
-   `infra` por PORTA TIPADA (import ES), em vez de os resolver por global no window
-   — a feature já não os publica. */
-import { driftReport, DSTY } from "./features/infra";
 import { nfmt } from "./core";
 export {};
 
@@ -55,15 +51,7 @@ function dlg(o){let d=$('#dlg');if(!d){document.body.insertAdjacentHTML('beforee
    os secrets depois de um deploy) também (ADR-0004, U4g2). */
 /* VIEW.envs registado pela própria features/infra.ts (ADR-0004, U4g1). */
 
-/* ───── design vs reality / drift (decora Studio: drawStudio/VIEW.studio de app.ts) ─────
-   O relatório de drift e o mapa de estilos das etiquetas vivem em features/infra.ts; aqui
-   as decorações importam `driftReport` e `DSTY` por porta tipada (ADR-0002 passo 6). O
-   estado DRIFT é window.DRIFT (inicializado na feature); ENVL é a fachada publicada pela
-   feature. */
-const _drawStudio6=drawStudio;drawStudio=function(){_drawStudio6();if(!DRIFT)return;const s=$('#st-svg');if(!s)return;const r=driftReport(DRIFT);
-  s.querySelectorAll('g[data-n]').forEach(g=>{const x=r.out[g.dataset.n];if(!x)return;const[c,l]=DSTY[x.st];g.querySelector('rect').setAttribute('stroke',c);g.querySelector('rect').setAttribute('stroke-dasharray',x.st==='sync'?'':'4 3');const te=g.querySelector('text[text-anchor="end"]');if(te)te.remove();g.insertAdjacentHTML('beforeend',`<rect x="${NW-76}" y="6" width="70" height="14" rx="7" fill="${c}" opacity=".18"/><text x="${NW-41}" y="16.5" text-anchor="middle" fill="${c}" font-size="8.5" font-weight="700" font-family="var(--font-mono)">${l}</text>`);});
-  const ins=$('#st-insp');if(ins&&!SSEL&&SLINK===null){const cnt=k=>Object.values(r.out).filter(x=>x.st===k).length;ins.insertAdjacentHTML('afterbegin',`<h3>Design vs ${ENVL[DRIFT]}</h3>${!r.s?`<p>${ENVL[DRIFT]} has nothing deployed yet.</p>`:`<p>${cnt('sync')} in sync · ${cnt('drift')+cnt('behind')} drifting · ${cnt('missing')+cnt('bad')} missing or failing</p>${SD.nodes.filter(n=>r.out[n.id].st!=='sync').map(n=>`<div class="st-f ${['bad','missing'].includes(r.out[n.id].st)?'e':'w'}"><span>●</span><div><b class="notr">${esc(n.n)}</b> — <span class="notr">${esc(r.out[n.id].why)}</span></div></div>`).join('')}${r.extra.map(x=>`<div class="st-f w"><span>●</span><div><b class="notr">${esc(x)}</b> — running, but not in the design</div></div>`).join('')}`}<hr style="border:0;border-top:1px solid var(--seam);margin:12px 0">`);}};
-VIEW.studio=(t,host)=>{window.renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" onchange="DRIFT=this.value||null;drawStudio()"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
+/* design vs reality / drift (drawStudio + VIEW.studio) migrado p/ features/studio.ts (ADR-0004, U4g6). */
 
 /* ───── logs and metrics ───── */
 /* ───── logs and metrics / observabilidade (motor extraído p/ features/infra.ts) ─────
