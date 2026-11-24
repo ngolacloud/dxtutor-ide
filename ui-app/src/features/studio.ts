@@ -31,7 +31,7 @@
 
 import { $, esc } from "../core";
 import { VIEW } from "../app/store/registry";
-import { registerActions, globalCalls, callGlobal } from "../app/actions";
+import { registerActions, globalCalls } from "../app/actions";
 import { driftReport, DSTY, ENVL } from "./infra";
 import { translator } from "../app/i18n";
 import { STUDIO_MESSAGES } from "./studio.messages";
@@ -141,18 +141,19 @@ function paintDrift(): void {
   s.querySelectorAll<SVGGElement>('g[data-n]').forEach(g=>{const x=r.out[g.dataset.n!];if(!x)return;const[c,l]=DSTY[x.st];g.querySelector('rect')!.setAttribute('stroke',c);g.querySelector('rect')!.setAttribute('stroke-dasharray',x.st==='sync'?'':'4 3');const te=g.querySelector('text[text-anchor="end"]');if(te)te.remove();g.insertAdjacentHTML('beforeend',`<rect x="${NW-76}" y="6" width="70" height="14" rx="7" fill="${c}" opacity=".18"/><text x="${NW-41}" y="16.5" text-anchor="middle" fill="${c}" font-size="8.5" font-weight="700" font-family="var(--font-mono)">${l}</text>`);});
   const ins=$('#st-insp');if(ins&&!SSEL&&SLINK===null){const cnt=(k:string)=>Object.values(r.out).filter(x=>x.st===k).length;ins.insertAdjacentHTML('afterbegin',`<h3>Design vs ${ENVL[env]}</h3>${!r.s?`<p>${ENVL[env]} has nothing deployed yet.</p>`:`<p>${cnt('sync')} in sync · ${cnt('drift')+cnt('behind')} drifting · ${cnt('missing')+cnt('bad')} missing or failing</p>${SD.nodes.filter(n=>r.out[n.id].st!=='sync').map(n=>`<div class="st-f ${['bad','missing'].includes(r.out[n.id].st)?'e':'w'}"><span>●</span><div><b class="notr">${esc(n.n)}</b> — <span class="notr">${esc(r.out[n.id].why)}</span></div></div>`).join('')}${r.extra.map(x=>`<div class="st-f w"><span>●</span><div><b class="notr">${esc(x)}</b> — running, but not in the design</div></div>`).join('')}`}<hr style="border:0;border-top:1px solid var(--seam);margin:12px 0">`);}
 }
-window.drawStudio = function(){drawStudioBase();paintDrift();};
+/* o drawStudio já não vai ao window (ADR-0004, U7e): só este módulo o chamava */
+function drawStudio(): void { drawStudioBase(); paintDrift(); }
 
 /* acções do Studio (ADR-0004, U5b): eram handlers inline, que resolviam o SD/SSEL/SLINK/SCAT/DRIFT e as
    funções no window ao clicar; as acções fazem o mesmo, no acto. */
 const node = (id: string) => SD.nodes.find((x) => x.id === id)!;
-const save = (): void => { callGlobal('saveSD'); drawStudio(); };
+const save = (): void => { saveSD(); drawStudio(); };
 registerActions({
   ...globalCalls('studio', ['genBacklog', 'dxRun']),
   'studio:link': { click: () => { SLINK = SLINK === null ? '' : null; drawStudio(); } },
   'studio:clear': { click: () => { SD = emptyDesign(); SSEL = null; SLINK = null; save(); } },
   'studio:cat': { click: (c) => { SCAT = c.on; drawStudio(); } },
-  'studio:add': { click: (c) => void callGlobal('sdAdd', c.on) },
+  'studio:add': { click: (c) => sdAdd(c.on) },
   'studio:name': { change: (c) => { node(c.on).n = c.value; save(); } },
   'studio:tech': { change: (c) => { node(c.on).tech = c.value; save(); } },
   'studio:status': { change: (c) => { node(c.on).st = c.value; save(); } },
@@ -165,4 +166,7 @@ VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { loadSD, TECH, KIND, isApp, sl, appDir, saveSD, openStudio, sdAdd });
+Object.assign(window, { TECH, KIND, isApp, sl, openStudio });
+
+/* lidos por import (ADR-0004, U7e): o arranque, os geradores, a ponte do board e o auto-teste desktop */
+export { loadSD, saveSD, appDir, sdAdd };

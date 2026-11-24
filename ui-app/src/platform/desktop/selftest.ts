@@ -12,7 +12,11 @@ import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
 import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
+import { tauriHood } from "../../features/hood/infrastructure/tauri";
+import { tauriOps } from "../../features/ops/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
+import { sdAdd } from "../../features/studio";
+import { saveTeam } from "../../features/team";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -495,7 +499,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
       await new Promise(r => setTimeout(r, 300));
       const fe = G.AGENTS.fe.paths.slice(), qa = G.AGENTS.qa.paths.slice();
-      G.AGENTS.db.paths = ["sql/**"]; G.saveTeam(); flushSave(); await idle();
+      G.AGENTS.db.paths = ["sql/**"]; saveTeam(); flushSave(); await idle();
       const onDisk = (await sh("cat", [".dxtutor/team.json"])).stdout;
       return { fe, qa, savedToDisk: /"sql\/\*\*"/.test(onDisk) };
     });
@@ -533,6 +537,51 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       if (after) await G.startDebug(); // continuar até ao fim
       if (breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2); // a próxima execução começa limpa
       return { available, engine, stoppedAt, vars, inline, after, ended: /O programa terminou/.test(pane()), pane: pane().slice(0, 400) };
+    });
+    // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e
+    // em release, o bytecode Python, os estágios do compilador, uma execução medida, o crescimento com N
+    // e o traço real (Rust e Python).
+    await step("hoodReal", async () => {
+      const hd = tauriHood();
+      const rs = "fn sum(n: u64) -> u64 {\n    let mut s = 0u64;\n    for i in 0..n { s = s.wrapping_add(i ^ (s >> 3)); }\n    s\n}\nfn main() {\n    let n: u64 = std::env::args().nth(1).map(|a| a.parse().unwrap()).unwrap_or(10);\n    println!(\"{}\", sum(n));\n}\n";
+      const [dbg, rel] = [await hd.lineAsm(rs, false), await hd.lineAsm(rs, true)];
+      const py = await hd.bytecode("def add(a, b):\n    return a + b\n\nprint(add(1, 2))\n");
+      const pipe = await hd.pipeline(rs);
+      const run = await hd.measured(rs);
+      const grow = await hd.growth(rs, [20000000, 40000000, 80000000, 160000000, 320000000]); // big enough for the work to dominate the noise
+      const trRs = await hd.trace("rust", rs);
+      const trPy = await hd.trace("python", "def add(a, b):\n    s = a + b\n    return s\n\nprint(add(2, 3))\n");
+      return {
+        debugTotal: dbg.total, releaseTotal: rel.total, line3: (dbg.lines.find((l) => l.line === 3)?.instructions.length ?? 0) > 0,
+        pyOps: py.ok && py.lines.some((l) => l.scope === "add" && l.ops.some((o) => o.startsWith("BINARY_OP"))),
+        llvm: pipe.llvmIr.includes("define"), asm: pipe.asm.length > 0,
+        ran: run.run.ok && run.run.stdout.trim().length > 0, peakKb: run.telemetry.peakRssKb,
+        growth: grow.ok ? `${grow.bigO} (R² ${grow.rSquared?.toFixed(2)}, ${grow.confidence})` : grow.notes.slice(0, 120),
+        traceRust: trRs.supported ? trRs.steps.length : trRs.notes.slice(0, 120), tracePython: trPy.supported ? trPy.steps.length : trPy.notes.slice(0, 120),
+      };
+    });
+    // A9: Ops em só leitura — um plano real do OpenTofu/Terraform numa pasta infra/ do repositório
+    // temporário; o kubectl contra um kubeconfig TEMPORÁRIO e vazio (nunca os clusters do utilizador);
+    // e o estado das CLIs de cloud desta máquina.
+    await step("ops", async () => {
+      const op = tauriOps(), root = R.root as string;
+      const tf = ROOT + "infra/main.tf", kc = ROOT + "kubeconfig-selftest.yaml";
+      writeFile(tf, 'resource "terraform_data" "web" {\n  input = { image = "nginx:1.27", replicas = 2 }\n}\n');
+      writeFile(kc, "apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n");
+      flushSave(); await idle();
+      try {
+        const dirs = await op.iacDirs(root);
+        const plan = await op.iacPlan(root, "infra", false);
+        const kube = await op.kubeState({ kubeconfig: root.replace(/\/$/, "") + "/kubeconfig-selftest.yaml", context: "selftest-nowhere", namespace: "default" });
+        const cloud = await op.cloudStatus();
+        return {
+          dirs, tool: plan.tool, planOk: plan.ok, add: plan.add, address: plan.changes[0]?.address, unknownId: !!plan.changes[0]?.attrs.some((a) => a.name === "id" && a.unknown), planNotes: plan.notes.slice(0, 160),
+          kubeOk: kube.ok, kubeSaysWhy: /selftest-nowhere/.test(kube.notes),
+          cloud: cloud.map((c) => `${c.provider}:${c.installed ? "installed" : "absent"}`).join(" "),
+        };
+      } finally {
+        delete FS[tf]; delete FS[kc]; flushSave(); await idle();
+      }
     });
     // contentores (ADR-0006, R5a): ligar o runtime real (docker info pelo socket) e o pane
     // Containers lista os contentores e as imagens reais (ps/images em JSON).
@@ -616,7 +665,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const W = window as unknown as { SD: { nodes: Array<{ n: string }> }; sdAdd: (t: string) => void; loadSD: () => { nodes: unknown[] } };
       const key = ROOT + ".dxtutor/studio.json";
       const emptyAtStart = W.SD.nodes.length === 0 && !FS[key];
-      W.sdAdd("rust-axum"); flushSave(); await idle();
+      sdAdd("rust-axum"); flushSave(); await idle();
       const disk = (await sh("cat", [".dxtutor/studio.json"])).stdout;
       let onDisk = 0; try { onDisk = JSON.parse(disk).nodes.length; } catch { /* não gravou */ }
       W.SD = { nodes: [] } as never;

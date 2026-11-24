@@ -28,7 +28,7 @@ import type {
   Backlog, Stage, Issue, Design, TechSpec,
 } from "../domain/types";
 /* U7c do ADR-0004: estes quatro deixaram de ser lidos pelo window — o publicador avalia antes desta ponte, ninguém os decora */
-import { validateDesign as validateDesignImpl, CLOUD } from "../../studio";
+import { validateDesign as validateDesignImpl, CLOUD, saveSD as saveSDImpl, appDir as appDirImpl } from "../../studio";
 import { codeGuard as codeGuardImpl } from "../../team";
 import { usd as usdImpl } from "../../tasks";
 import { TASKP } from "../../router/domain/model-routing";
@@ -100,14 +100,14 @@ export const stOf = (p: string): string => G.stOf(p);
 /* ───── design do Studio + catálogo + geradores (ficam donos do monólito; o produtor
    genBacklogIssues lê-os por global — decisão do dono: geradores FICAM) ───── */
 export const design = (): Design => G.SD;
-export const saveDesign = (): void => G.saveSD();
+export const saveDesign = (): void => saveSDImpl();
 export const validateDesign = (): Array<[string, string]> => validateDesignImpl() as Array<[string, string]>;
 export const tech = (): Record<string, TechSpec> => G.TECH;
 export const kindTable = (): Record<string, { hc?: boolean }> => G.KIND;
 export const cloudTable = (): Record<string, { l: string }> => CLOUD;
 export const isApp = (n: unknown): boolean => G.isApp(n);
 export const nodeSlug = (n: unknown): string => G.sl(n);
-export const appDir = (n: unknown): string => G.appDir(n);
+export const appDir = (n: unknown): string => appDirImpl(n);
 
 /* ───── helpers de conversa do Co-Dev (cartões, passos, perguntas, ritmo) ───── */
 export const card = (label: string, html: string): Card => G.card(label, html);
@@ -177,7 +177,7 @@ export const reviewIssue = (id: string): void => G.reviewIssue(id);
 export const codeGuard = (what: string): boolean => codeGuardImpl(what);
 export const openIssue = (id: string): void => G.openIssue(id);
 export const studioNodes = (): StudioNode[] => G.SD.nodes;
-export const saveSD = (): void => G.saveSD();
+export const saveSD = (): void => saveSDImpl();
 export const dlg = (o: DlgOpts): void => coreDlg(o);  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
 export const usage = (): Record<string, { tok: number }> => G.USAGE;
 export const usd = (tok: number, p: string): number => usdImpl(tok, p);

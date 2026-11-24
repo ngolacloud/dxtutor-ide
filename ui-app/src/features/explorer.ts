@@ -125,7 +125,7 @@ function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',v
    do FS e do ícone por extensão (eram do app.ts). O syncTree publicado consulta a porta
    desktop (`desktopPorts.explorer`, U4h5b). ── */
 /** Marca a linha `r` da árvore como seleccionada (só uma de cada vez). */
-function sel(r: Element): void {
+export function sel(r: Element): void {
   $$(".row.sel").forEach((x) => x.classList.remove("sel"));
   r.classList.add("sel");
 }
@@ -188,5 +188,5 @@ export interface ExplorerDesktop { syncTree(virtual: () => void): void }
 export interface OutlineDesktop { covers(p: string): boolean; symbols(p: string): Promise<OutSym[] | null> }
 /* o syncTree PUBLICADO consulta a porta (antes o desktop reatribuía-o no `window`); só o app.ts o chama, pelo global */
 const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) d.syncTree(syncTree); else syncTree(); };
-Object.assign(window, { buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });
+Object.assign(window, { buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, syncTree: syncTreePublished, fIcon });
 

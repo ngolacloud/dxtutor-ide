@@ -23,9 +23,10 @@ import type { Grade } from "./learn/application/ports";
 import { gradeStep, installPlugin, loadCatalog, msg, removePlugin } from "./learn/application/catalog-service";
 import { tauriCourseGateway } from "./learn/infrastructure/legacy-bridge";
 import { bindActions } from "./learn/ui/actions";
-import { registerActions, callGlobal } from "../app/actions";
+import { registerActions } from "../app/actions";
 import { translator } from "../app/i18n";
 import { LEARN_MESSAGES } from "./learn/ui/messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(LEARN_MESSAGES);
 
@@ -65,11 +66,11 @@ const LT_LEVELS=[['basic','Basic','Start from the ground up — syntax and first
 const LT_EXT:Record<string,string>=Object.fromEntries(LANGUAGE_CATALOG.map(l=>[l.id,l.extension])),LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
 let LT_SUB:{ok:boolean;why:string}|null=null;window.ONB={lang:null,levels:[]};window.LT_HOOD=false;
 const course=()=>{hydrateLT();return COURSES[LTS.lang!];},ltUnits=()=>{hydrateLT();return course().units.filter((u:any)=>LTS.levels.includes(u.level));},dk=(id:string)=>LTS.lang+':'+id,ltDone=(id:string)=>!!LTS.done[dk(id)];
-const ltFind=(id:string|null)=>{for(const u of course().units)for(const s of u.steps)if(s.id===id)return{u,s};return null;};
-const ltPath=(s:any)=>LF(`${LTS.lang}/${s.id}.${LT_EXT[LTS.lang!]}`);
+export const ltFind=(id:string|null)=>{for(const u of course().units)for(const s of u.steps)if(s.id===id)return{u,s};return null;};
+export const ltPath=(s:any)=>LF(`${LTS.lang}/${s.id}.${LT_EXT[LTS.lang!]}`);
 const ltSeq=()=>ltUnits().flatMap((u:any)=>u.steps);
 const ltPts=()=>ltSeq().reduce((a:number,s:any)=>a+(ltDone(s.id)?s.points:0),0);
-function stars(d:number,kind:string){if(kind==='concept'||!d)return'';const n=d<=3?1:d<=7?2:d<=12?3:d<=18?4:5;return `<span class="lt-stars" title="Challenge ${n}/5">${'★'.repeat(n)}<i>${'★'.repeat(5-n)}</i></span>`;}
+function stars(d:number,kind?:string){if(kind==='concept'||!d)return'';const n=d<=3?1:d<=7?2:d<=12?3:d<=18?4:5;return `<span class="lt-stars" title="Challenge ${n}/5">${'★'.repeat(n)}<i>${'★'.repeat(5-n)}</i></span>`;}
 function ltOnboard(step:any){hydrateLT();let o=$('#onb');if(!o){document.body.insertAdjacentHTML('beforeend','<div id="onb"></div>');o=$('#onb')!;o.onclick=e=>{if(e.target===o&&LTS.lang)o!.classList.remove('show');};}
   ONB_STEP=step===2?2:1;
   if(step===1||!step){ONB={lang:LTS.lang,levels:LTS.levels.slice()};if(CATALOG==='idle')refreshCatalog();
@@ -136,7 +137,7 @@ function ltReading(f:{u:any;s:any}):string{
 }
 
 function ltStart(){hydrateLT();LTS.lang=ONB.lang;LTS.levels=LT_LEVELS.map(l=>l[0]).filter(l=>ONB.levels.includes(l));LTS.cur=null;saveLT();const o=$('#onb');if(o)o.classList.remove('show');goPane('tutor');ltResume();}
-function ltResume(){hydrateLT();if(!LTS.lang){goPane('tutor');ltOnboard(1);return;}
+export function ltResume(){hydrateLT();if(!LTS.lang){goPane('tutor');ltOnboard(1);return;}
   if(!COURSES[LTS.lang]){if(CATALOG!=='ready'){refreshCatalog().then(()=>{if(COURSES[LTS.lang!])ltResume();else{goPane('tutor');ltOnboard(1);}});return;}
     toast(`The ${findLanguage(LTS.lang,PLUGINS)?.name||LTS.lang} course is not installed`);goPane('tutor');ltOnboard(1);return;}
   const s=ltSeq(),id=LTS.cur&&ltFind(LTS.cur)&&s.some((x:any)=>x.id===LTS.cur)?LTS.cur:(s.find((x:any)=>!ltDone(x.id))||s[0]).id;ltOpen(id);}
@@ -147,7 +148,7 @@ function ltOpen(id:string){hydrateLT();const f=ltFind(id);if(!f)return;const{u,s
 function openLesson(){ltResume();}function nextLesson(){return[0,0];}
 
 /* ───── corpo da vista (editor + painel do passo); app.ts mantém o shim VIEW.lt ───── */
-function renderLtView(t:any,host:HTMLElement){hydrateLT();const f=ltFind(LTS.cur);if(!f){host.innerHTML='<div class="empty">Open a step from the Learning Track.</div>';return;}const p=t.path;
+export function renderLtView(t:any,host:HTMLElement){hydrateLT();const f=ltFind(LTS.cur);if(!f){host.innerHTML='<div class="empty">Open a step from the Learning Track.</div>';return;}const p=t.path;
   host.innerHTML=`<div class="lt"><div class="lt-ed"><div class="lt-bar"><span class="lt-file notr">● ${esc(t.title)}</span><span class="sp"></span><button class="mini" data-action="learn:hood">U${txt("underTheHood")}/button><button class="mini pri" id="lt-go" data-action="learn:go"></button></div><div class="lt-scroll"><div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div></div></div><div class="lt-res" id="lt-res"></div></div>`;
   const ta=$('#ed-ta') as HTMLTextAreaElement;ta.value=FS[p].content;paintEd(p);miniOff();ta.oninput=()=>{FS[p].content=ta.value;paintEd(p);miniOff();LT_SUB=null;ltRes();};
   ta.onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();const ind=findLanguage(LTS.lang!,PLUGINS)?.indent??'    ';if(!document.execCommand('insertText',false,ind))ta.setRangeText(ind,ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};ta.onkeyup=ta.onclick=()=>stPos();ltRes();}
@@ -196,7 +197,10 @@ function ltAsk(){const{s}=ltFind(LTS.cur)!;AGENT='tutor';agentPill();focusAgent(
   else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">W${txt("withClaudeLiveThe")}/p>`);}}
 
 /* ── publicar no window: tutor.ts/visualizer.ts/v5.ts e os shims de app.ts lêem por global ── */
-Object.assign(window, { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltFind, ltPath, ltSeq, ltPts, stars, ltOnboard, ltResume, ltOpen, openLesson, nextLesson, renderLtView,});
+Object.assign(window, { LTS, openLesson, nextLesson });
+/* a API que o pane do tutor lê (ADR-0004, U7g): o tutor avalia antes deste módulo, por isso não o importa — usa o registo */
+services.learn = { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltSeq, ltPts, stars, ltOnboard, ltOpen };
+export { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltSeq, ltPts, stars, ltOnboard, ltOpen };
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts; o visualizer decora-a no boot7) */
 VIEW.lt = renderLtView;
 
@@ -205,11 +209,11 @@ VIEW.lt = renderLtView;
    despachante partilhado, que faz o mesmo no acto. */
 const LW = window as unknown as { ONB: { levels: string[] }; LT_HOOD: boolean; LTS: { show: Record<string, number> } };
 registerActions({
-  "learn:level": { click: (c) => { const o = LW.ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); callGlobal("ltOnboard", 2); } },
-  "learn:back": { click: () => void callGlobal("ltOnboard", 1) },
+  "learn:level": { click: (c) => { const o = LW.ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); ltOnboard(2); } },
+  "learn:back": { click: () => void ltOnboard(1) },
   "learn:start": { click: () => void ltStart() },
   "learn:hood": { click: () => { LW.LT_HOOD = !LW.LT_HOOD; ltRes(); } },
-  "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; callGlobal("saveLT"); ltRes(); } },
+  "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; saveLT(); ltRes(); } },
   "learn:ask": { click: () => void ltAsk() },
   "learn:go": { click: () => void ltGo() },
 });

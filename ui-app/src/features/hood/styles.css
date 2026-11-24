@@ -1,0 +1,36 @@
+/* feature hood — A8 (docs/v2/UI-AUDIT.md item 7): o «Under the hood» real e o traço de execução real
+   (features/hood/ui/*.ts). Prefixo hd- próprio. */
+.hd{height:100%;overflow:auto;padding:14px 20px 28px;box-sizing:border-box;font-family:var(--font-ui);color:var(--fg);font-size:12.5px;container-type:inline-size}
+.hd-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}.hd-top b{font-size:15px;color:var(--fg-bright)}
+.hd-sp{flex:1}
+.hd-chip{padding:1px 8px;border-radius:9px;background:var(--bg-input);border:1px solid var(--border);font-family:var(--font-mono);font-size:11.5px}
+.hd .btn{display:inline-block;width:auto;margin:0;padding:4px 10px;font-size:12px}.hd .btn.hd-ai{color:var(--accent-hover)}
+.hd-seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.hd-tab{background:none;border:0;color:var(--fg-dim);padding:4px 10px;font-size:12px;cursor:pointer}.hd-tab.on{background:var(--bg-input);color:var(--fg)}
+.hd-tabs{display:flex;gap:2px;border-bottom:1px solid var(--seam);margin-bottom:8px;flex-wrap:wrap}
+.hd-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+@container (max-width:760px){.hd-cols{grid-template-columns:1fr}}
+.hd-col{min-width:0}
+.hd-src{font-family:var(--font-mono);font-size:12px;line-height:1.55;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:4px 0;max-height:62vh;overflow:auto}
+.hd-l{display:flex;gap:10px;padding:0 10px;cursor:pointer;white-space:pre;border-left:3px solid transparent}
+.hd-l.has{border-left-color:color-mix(in srgb,var(--accent) calc(var(--hd-heat)*100%),transparent);background:color-mix(in srgb,var(--accent-soft) calc(var(--hd-heat)*70%),transparent)}
+.hd-l:hover{background:var(--bg-hover)}.hd-l.sel{background:var(--accent-soft);border-left-color:var(--accent)}
+.hd-n{color:var(--fg-muted);min-width:2.5em;text-align:right;flex:none}
+.hd-c{min-width:0}
+.hd-meta{color:var(--fg-muted);font-size:11.5px;margin:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.hd-code{font-family:var(--font-mono);font-size:11.5px;line-height:1.5;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:6px 10px;white-space:pre;overflow:auto;max-height:40vh;margin:4px 0 8px;color:var(--fg)}
+.hd-code.hd-big{max-height:62vh}
+.hd-err{font-family:var(--font-mono);font-size:11.5px;color:var(--red);white-space:pre-wrap;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:6px 10px}
+.hd-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:14px}
+.hd-card{border:1px solid var(--seam);border-radius:8px;padding:8px 10px;background:var(--bg-panel);min-width:0;margin-bottom:10px}
+.hd-ct{display:flex;align-items:center;gap:8px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);margin-bottom:6px}
+.hd-kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12px}.hd-kv span{color:var(--fg-muted)}.hd-kv b{font-family:var(--font-mono);font-weight:500}
+.hd-spark{width:100%;height:40px;display:block;margin:4px 0}
+.hd-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0}.hd-row .inp{flex:1;min-width:120px;font-family:var(--font-mono);font-size:11.5px}
+.hd-fit{margin:6px 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hd-bars{display:flex;flex-direction:column;gap:3px}
+.hd-bar{display:grid;grid-template-columns:70px 1fr 70px;gap:8px;align-items:center;font-size:11.5px}.hd-bar span{font-family:var(--font-mono);color:var(--fg-muted);text-align:right}.hd-bar i{height:8px;background:var(--accent);border-radius:3px;display:block}.hd-bar b{font-family:var(--font-mono);font-weight:500}
+.hd-var{display:grid;grid-template-columns:auto auto 1fr;gap:8px;font-family:var(--font-mono);font-size:11.5px;padding:2px 0}.hd-var i{color:var(--fg-muted);font-style:normal}.hd-var b{font-weight:500;text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hd-var.chg b{color:var(--yellow)}.hd-var.chg span::after{content:" ●";color:var(--yellow);font-size:8px}
+.tr-ctl input[type=range]{flex:1;min-width:120px}
+.hd-entry{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px}

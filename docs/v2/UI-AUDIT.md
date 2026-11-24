@@ -312,6 +312,27 @@ verdade**. O Hood é uma lista de etapas por regex. Backend real e sem uso: `tra
 Correcção imediata proposta (texto, não código de motor): tirar a frase "The desktop app traces real
 binaries" enquanto não for verdade.
 
+**Estado após a A8 (2026-11-24):** a frase já tinha saído (R1). A A8 junta a feature nova e tipada `features/hood/`,
+só no desktop (no browser e nos goldens nada muda):
+- **VIZ-01:** separador «Execution trace» com a execução real (`trace_execution`: Python por `settrace`, Rust por
+  instrumentação) passo a passo — reproduzir, pilha, variáveis locais com o que mudou, saída até esse passo. O modelo TS
+  com «predict» fica como modo de aprendizagem (VIZ-06).
+- **VIZ-02/03:** separador «Under the hood (real)» com as instruções de máquina de cada linha (`hood_line_asm`:
+  `rustc -C debuginfo=2` + `objdump -d -l`, debug ou release; o código inline da std fica com a std), o calor de cada
+  linha, o bytecode CPython por linha e função (`hood_python_bytecode`, `dis`), e LLVM IR / assembly / MIR / desmontagem
+  do `compile_pipeline`.
+- **VIZ-05:** «Run & measure» com o `run_measured` (tempo real, CPU, memória de pico, curva de memória) e «Growth with
+  N» (`measure_growth`): o programa é construído uma vez e corrido com N crescente, com o tempo de arranque descontado,
+  e o `complexity::estimate` dá a classe, o R² e a confiança.
+- **VIZ-07:** «Explicar o código desta linha», «Porquê este crescimento?» e «Explicar este passo» pelo `codev.ask`.
+- **Por fazer:**
+  - o flame graph — o `perf` está bloqueado nesta máquina (`perf_event_paranoid=4`, precisa de root ou de baixar o
+    limite); py-spy e pprof não estão instalados;
+  - VIZ-04: a linha temporal de threads;
+  - o grafo de heap real (estender os tracers);
+  - o bytecode JVM (`javap`);
+  - tokens/AST ligados às linhas (VIZ-03 parcial: só MIR/IR/asm).
+
 ### Item 10 · DevOps, platform engineering e SRE com AWS, GCP e Azure
 
 **Real hoje:** `docker|podman info`, `kubectl config get-contexts`/`get ns`, `kubectl get deploy -o json`,
@@ -330,6 +351,33 @@ As acções Infra que correm comandos reais não mostram o comando exacto para a
 | OPS-04 | SLO/error budget a partir de métricas reais (Prometheus/CloudWatch) quando configuradas; caso contrário, estado vazio. Retirar as séries PRNG. | L |
 | OPS-05 | Pods, eventos, serviços, port-forward, exec, rollout history/undo, scale/delete **reais** (hoje simulados), cada um com o comando mostrado. | M |
 | OPS-06 | Co-Dev explica plano/alerta e propõe IaC como hunks; qualquer mudança cloud passa pela aprovação com o comando exacto (o classificador `permissions/shell.rs` já marca `terraform apply`, `kubectl delete`, etc. como perigosos). | M |
+
+**Estado após a A9 (2026-11-24):** a R5 do ADR-0006 já tinha tornado o Infra real: runtime, contentores, dev container,
+scale/delete, ambientes do cluster, observabilidade sem PRNG. Os segredos em texto simples saíram na R5c1/A0.5. A A9
+junta a feature nova e tipada `features/ops/` (separador «Ops», com um botão no pane Infra e uma entrada na paleta),
+sobre `tutor_eval::ops`, com 6 comandos (205 no total):
+- **OPS-03:** as pastas com `.tf` e o `plan` / `plan -refresh-only` (drift) com OpenTofu ou Terraform, lidos do
+  `show -json` como diff por recurso e atributo (valores conhecidos só depois do apply e valores sensíveis escondidos).
+  O ficheiro do plano vai para uma pasta temporária. «Aplicar num terminal…» mostra o comando exacto.
+- **OPS-05:** o namespace para onde o pane Infra aponta — pods (com o motivo de estarem presos), deployments e as suas
+  revisões (ReplicaSets), serviços, eventos de aviso.
+  - Os logs vão directos para um terminal.
+  - Shell, apagar pod, reiniciar, escalar, voltar a uma revisão e port-forward são comandos com o `--kubeconfig`,
+    `--context` e `-n` explícitos, mostrados por inteiro e corridos num terminal só depois de aprovados (uma recusa não
+    envia nada).
+- **OPS-01:** o estado do `aws`/`gcloud`/`az` (instalado, versão, perfil/projecto/subscrição lidos da configuração local,
+  ou como instalar) e o inventário só de leitura pelas CLIs oficiais. Nesta máquina nenhuma está instalada, por isso só o
+  estado vazio honesto foi verificado ao vivo; os parsers estão testados sobre a forma do JSON de cada CLI.
+- **OPS-06:** «Explicar este plano», «Propor uma alteração» (hunks nos `.tf`) e «Porquê?» para um pod com problemas,
+  pelo `codev.ask`.
+- **Verificação:** com um plano real do OpenTofu (criar, sem alterações depois do apply, uma actualização antes/depois)
+  e o kubectl só contra um kubeconfig temporário vazio — nunca os clusters do utilizador.
+- **Por fazer:**
+  - OPS-02: logs ao vivo e funções das clouds (`aws logs tail`, `gcloud logging tail`, emuladores);
+  - OPS-04: SLO/error budget a partir de Prometheus/CloudWatch;
+  - a cache dos inventários em SQLite;
+  - Pulumi, CDK e `az deployment what-if`;
+  - o custo com Infracost.
 
 ## 3. Item 8 · Comparação com outros IDEs e dores recorrentes
 
