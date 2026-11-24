@@ -2,7 +2,8 @@
    No editor, Shift+Alt+T pede ao servidor o tipo no cursor e abre junto dele a hierarquia
    (`ui/popups.ts`, `#lsp-types`): os subtipos (ou, com Tab, os supertipos), carregados a pedido.
    Sem tipo no cursor, ou se o servidor não tem hierarquia de tipos (o kotlin-language-server),
-   diz-o. A paleta chama a acção devolvida (o bridge regista a entrada). A tecla é apanhada na
+   diz-o. O cartão fica dentro da área visível do editor (não tapa o painel do Co-Dev nem o painel
+   inferior). A paleta chama a acção devolvida (o bridge regista a entrada). A tecla é apanhada na
    fase de CAPTURA do `document`. Não toca em `window`. */
 
 import type { TypeEntry, TypeHierarchyStart } from "../application/lsp-client";
@@ -43,7 +44,10 @@ export function bindTypeHierarchyHooks(d: TypeHierarchyHooksDeps): () => void {
       if (r.status === "unsupported") return d.notify(`Type hierarchy: the ${r.language} language server does not support it`);
       if (r.status === "none") return d.notify("Type hierarchy: no type at the cursor");
       const box = ta.getBoundingClientRect(), m = metricsOf(ta), p = pointOfOffset(ta.value, caret, m);
-      showTypeHierarchy(r.root, box.left + p.x, box.top + p.y + m.lineHeight + 4, d.typeHierarchyChildren, d.openType, () => ta.focus({ preventScroll: true }));
+      // a área visível do editor (o contentor que rola o `.ed`): o cartão não sai dela
+      const area = (ta.closest(".ed")?.parentElement ?? ta).getBoundingClientRect();
+      const bounds = { left: area.left, top: area.top, right: area.right, bottom: area.bottom };
+      showTypeHierarchy(r.root, box.left + p.x, box.top + p.y + m.lineHeight + 4, d.typeHierarchyChildren, d.openType, () => ta.focus({ preventScroll: true }), "subtypes", bounds);
     });
   };
 
