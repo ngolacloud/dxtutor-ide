@@ -86,7 +86,7 @@ function applyProjectTeam(): void {
 }
 document.addEventListener('dx:workspace', () => applyProjectTeam());
 /** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
-function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJson(AGENTS));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
+export function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJson(AGENTS));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
 export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
 function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
 function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
@@ -239,7 +239,7 @@ export function codeGuard(what: string): boolean {
   return true;
 }
 
-Object.assign(window, { openTeam, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill,
+Object.assign(window, { openTeam, harnessCheck, harnessCmd, agentSys, pickAgent, agentPill,
   RIGHTS, RIGHT_RE, HARN, MORD, isHuman, reviewIssue,
 });
 
@@ -264,10 +264,10 @@ registerActions({
   "team:explain": { click: () => { TA.HARN.explain = !TA.HARN.explain; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
   "team:probe": { input: (c) => void scopeProbe(c.value) },
   "team:talk": { click: (c) => { TA.AGENT = c.on; callGlobal('agentPill'); callGlobal('show', TA.cur); } },
-  "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); callGlobal('saveTeam'); } },
-  "team:cmds": { change: (c) => { TA.AGENTS[c.on].cmds = lines(c.value); callGlobal('saveTeam'); } },
-  "team:model": { change: (c) => { TA.AGENTS[c.on].model = c.value; callGlobal('saveTeam'); } },
-  "team:max": { change: (c) => { TA.AGENTS[c.on].max = +c.value; callGlobal('saveTeam'); } },
+  "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); saveTeam(); } },
+  "team:cmds": { change: (c) => { TA.AGENTS[c.on].cmds = lines(c.value); saveTeam(); } },
+  "team:model": { change: (c) => { TA.AGENTS[c.on].model = c.value; saveTeam(); } },
+  "team:max": { change: (c) => { TA.AGENTS[c.on].max = +c.value; saveTeam(); } },
   "team:approve": { click: (c) => { callGlobal('approveIssue', c.on); callGlobal('closeTab', 'review'); } },
   "team:reject": { click: (c) => void callGlobal('rejectIssue', c.on) },
   "team:runTests": { click: () => void callGlobal('handlePrompt', '/test') },

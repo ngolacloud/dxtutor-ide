@@ -3,15 +3,17 @@ import { beforeEach, expect, it } from "vitest";
 import { bootApp } from "./harness";
 
 let w: Window & Record<string, any>;
+let WSM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7f)
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
+  WSM = await import("../src/features/workspace");
   localStorage.clear();
 });
 
 it("resetWorkspace esvazia o workspace e o stage: a app não traz ficheiros de demonstração", () => {
   w.writeFile(w.ROOT + "extra.md", "x");
   w.STAGED.add(w.ROOT + "extra.md");
-  w.resetWorkspace();
+  WSM.resetWorkspace();
   expect(Object.keys(w.FS)).toEqual([]);
   expect(w.STAGED.size).toBe(0);
   expect(w.SEED).toBeUndefined();
@@ -53,13 +55,13 @@ it("save/loadCfg: ida e volta do modo, provedor, limiar e modelo — pelos donos
   w.PROV.gemini.model = "outro";
   const seen: string[] = [];
   bus.on("agent:mode", (p) => seen.push(p.mode));
-  w.loadCfg();
+  (await import("../src/app/store/config")).loadCfg();
   expect([w.MODE, w.ACTIVE, w.THRESH, w.PROV.gemini.model]).toEqual(["manual", "gemini", 70, "gemini-2.5-pro"]);
   expect(seen).toEqual(["manual"]);
   // nada guardado → não mexe
   localStorage.clear();
   w.MODE = "auto";
-  w.loadCfg();
+  (await import("../src/app/store/config")).loadCfg();
   expect(w.MODE).toBe("auto");
 });
 

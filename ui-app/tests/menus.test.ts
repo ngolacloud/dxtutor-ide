@@ -3,10 +3,12 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
 
 let w: Window & Record<string, any>;
+let MNM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7f)
 const pops = () => document.querySelectorAll(".menu-pop").length;
 
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
+  MNM = await import("../src/features/menus");
   document.querySelector("#menubar")!.innerHTML = "";
   w.MENUS.length = 0;
   w.MENUS.push(
@@ -39,16 +41,16 @@ it("com um menu aberto, passar o rato por outro troca de menu", () => {
 it("acção por função, por nome no window e sem acção (toast); submenus abrem ao passar o rato", () => {
   const file = w.MENUS[0].items[0].act as ReturnType<typeof vi.fn>;
   w.__acaoMenuTeste = vi.fn();
-  const pop = w.renderPop(w.MENUS[0].items, 0, 0) as HTMLElement;
+  const pop = MNM.renderPop(w.MENUS[0].items, 0, 0) as HTMLElement;
   (pop.querySelector(".mi") as HTMLElement).click();
   expect(file).toHaveBeenCalledTimes(1);
   expect(pops()).toBe(0); // a acção fecha os menus
-  const pop2 = w.renderPop(w.MENUS[0].items, 0, 0) as HTMLElement;
+  const pop2 = MNM.renderPop(w.MENUS[0].items, 0, 0) as HTMLElement;
   const rec = Array.from(pop2.querySelectorAll<HTMLElement>(".mi")).find((m) => m.textContent!.includes("Recentes"))!;
   rec.dispatchEvent(new MouseEvent("mouseenter"));
   expect(pop2.querySelectorAll(".menu-pop").length).toBe(1);
   w.closeMenus();
-  const pop3 = w.renderPop(w.MENUS[1].items, 0, 0) as HTMLElement;
+  const pop3 = MNM.renderPop(w.MENUS[1].items, 0, 0) as HTMLElement;
   (pop3.querySelector(".mi") as HTMLElement).click();
   expect(w.__acaoMenuTeste).toHaveBeenCalledTimes(1);
 });

@@ -79,6 +79,6 @@ const LF = (p: string): string => ROOT + 'learn/' + p;
 /** As secções do explorador abertas/fechadas (sem dono próprio; lido por nome livre). */
 export const SECOPEN: Record<string, boolean> = {};
 
-Object.assign(window, { writeFile, resetWorkspace, refresh, extOf, short, norm, LF });
+Object.assign(window, { writeFile, refresh, extOf, short, norm, LF });
 
 export { writeFile, resetWorkspace, refresh, extOf, short, norm, LF };

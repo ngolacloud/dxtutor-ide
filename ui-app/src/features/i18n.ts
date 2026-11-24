@@ -210,7 +210,7 @@ PAIRS.push(
  ["Nenhum runner de testes nesta pasta. Detectados: Cargo, módulos Go, pytest/unittest, vitest/jest (instalados em node_modules), Maven e Gradle.", "No test runner found in this folder. Detected: Cargo, Go modules, pytest/unittest, vitest/jest (installed in node_modules), Maven and Gradle."],
 );
 const PT2EN=new Map(),EN2PT=new Map();PAIRS.forEach(([p,e])=>{PT2EN.set(p,e);EN2PT.set(e,p);});
-function trText(s:string,toEn?:boolean){const m=s.match(/^(\s*)([\s\S]*?)(\s*)$/)!,core=m[2];if(!core)return null;if(window.__seen)window.__seen.add(core.replace(/\d+(?:[.,]\d+)?/g,'#'));const map=toEn?PT2EN:EN2PT;let r=map.get(core);
+export function trText(s:string,toEn?:boolean){const m=s.match(/^(\s*)([\s\S]*?)(\s*)$/)!,core=m[2];if(!core)return null;if(window.__seen)window.__seen.add(core.replace(/\d+(?:[.,]\d+)?/g,'#'));const map=toEn?PT2EN:EN2PT;let r=map.get(core);
   if(r==null){const nums:string[]=[],k=core.replace(/\d+(?:[.,]\d+)?/g,(x:string)=>{nums.push(x);return'#';}),tpl=nums.length?map.get(k):null;if(tpl!=null){let i=0;r=tpl.replace(/#/g,()=>nums[i++]);}}
   if(r==null)for(const[pt,en,ept,pte]of RULES){const re=toEn?pt:ept,rep=toEn?en:pte;if(re&&rep!=null&&re.test(core)){const x=typeof rep==='string'?core.replace(re,rep):core.replace(re,rep);if(x!==core){r=x;break;}}}
   if(r==null&&toEn&&window.__miss&&/[ãõçáéíóúâêôà]|\b(de|do|da|dos|das|em|para|com|não|uma?|os|as|que|por|ao|ficheiros?|ramo|sem|mais)\b/i.test(core))window.__miss.add(core);
@@ -238,4 +238,4 @@ function hydrateLocale() {
 
 /* ── publicação no window: nomes que o resíduo (app.ts VIEW.settings/CMD),
    os onclick inline e `startup.ts` resolvem como globais. ── */
-Object.assign(window, { setLocale, trText, trNode, i18nBoot, LOCALES });
+Object.assign(window, { setLocale, trNode, i18nBoot, LOCALES });

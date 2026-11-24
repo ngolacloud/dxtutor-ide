@@ -8,10 +8,12 @@ import { bootApp } from "./harness";
 
 type W = Window & Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 let w: W;
+let TKM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7f)
 let hasAction: (n: string) => boolean;
 
 beforeEach(async () => {
   w = (await bootApp()) as W;
+  TKM = await import("../src/features/tasks");
   ({ hasAction } = await import("../src/app/actions"));
   const side = document.querySelector(".side")!;
   for (const p of ["tasks", "tutor", "search", "test", "run", "remote", "account"])
@@ -45,7 +47,7 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     w.BL.issues.push({ id: "DX-1", title: "x", type: "feature", pts: 1, stage: "todo", sprint: 0, agent, attempts: 0, tests: [], res: "", note: "" });
     w.RP.tasks();
     click(document.querySelector('#pane-tasks [data-action="tasks:sprint"][data-on="0"]'));
-    expect(w.TK.sprint).toBe(0);
+    expect(TKM.TK.sprint).toBe(0);
     expect(document.querySelector('#pane-tasks [data-action="tasks:sprint"][data-on="0"]')!.classList.contains("on")).toBe(true);
   });
 

@@ -55,4 +55,4 @@ export function loadCfg(): void {
   });
 }
 
-Object.assign(window, { save, loadCfg });
+Object.assign(window, { save });

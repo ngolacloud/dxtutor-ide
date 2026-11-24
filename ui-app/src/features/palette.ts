@@ -29,9 +29,9 @@ window.PAL_TEXT = window.PAL_TEXT ?? (() => {});
 
 interface PalCfg { ph?: string; verb?: string; items?: { l: string }[]; text?: (q: string) => void }
 function palette(pre: string, cfg?: PalCfg){closeMenus();window.PAL=cfg||null;const inp=$('#pal-in') as HTMLInputElement|null;$('#pal')!.classList.add('show');if(inp){inp.value=pre||'';inp.placeholder=cfg?(cfg.ph||''):'Nome do ficheiro  ·  > comandos  ·  : linha';}window.PIDX=0;palDraw();setTimeout(()=>inp&&inp.focus(),0);}
-function closePal(){$('#pal')!.classList.remove('show');window.PAL=null;}
+export function closePal(){$('#pal')!.classList.remove('show');window.PAL=null;}
 function fuzzy(q: string,s: string){q=q.toLowerCase();s=s.toLowerCase();let i=0;for(const c of s){if(c===q[i])i++;if(i===q.length)return true;}return!q.length;}
-function palDraw(){const q=($('#pal-in') as HTMLInputElement|null)?.value||'';
+export function palDraw(){const q=($('#pal-in') as HTMLInputElement|null)?.value||'';
   if(window.PAL){window.PITEMS=window.PAL.items?window.PAL.items.filter((i: {l: string})=>fuzzy(q,i.l)):[{l:`${window.PAL.verb||'Confirmar'}: ${q||'…'}`,run:()=>window.PAL_TEXT(q)}];}
   else if(q.startsWith('>')){const f=q.slice(1).trim();window.PITEMS=CMD.filter(c=>fuzzy(f,c[0])).map(c=>({l:c[0],k:c[1],run:c[2]}));}
   else if(q.startsWith(':')){const n=parseInt(q.slice(1))||1;window.PITEMS=[{l:'Ir para a linha '+n,run:()=>gotoLine(n)}];}
@@ -39,10 +39,10 @@ function palDraw(){const q=($('#pal-in') as HTMLInputElement|null)?.value||'';
   window.PIDX=Math.min(window.PIDX,Math.max(0,window.PITEMS.length-1));
   $('#pal-list')!.innerHTML=window.PITEMS.length?window.PITEMS.map((it,i)=>`<div class="pi${i===window.PIDX?' on':''}" data-i="${i}">${it.ic||''}<span>${esc(it.l)}</span>${it.d?`<span class="d">${esc(it.d)}</span>`:''}${it.k?`<span class="key">${it.k}</span>`:''}</div>`).join(''):`<div class="pal-empty">${txt("noResults")}</div>`;
   const on=$('#pal-list .on');if(on&&on.scrollIntoView)on.scrollIntoView({block:'nearest'});}
-function palRun(i: number){const it=window.PITEMS[i];if(!it)return;if(window.PAL&&window.PAL.text)window.PAL_TEXT=window.PAL.text;closePal();it.run();}
+export function palRun(i: number){const it=window.PITEMS[i];if(!it)return;if(window.PAL&&window.PAL.text)window.PAL_TEXT=window.PAL.text;closePal();it.run();}
 
 /* ── publicação no window ──
    palette/closePal/palDraw/palRun são chamados por nome livre de muitos pontos
    (CMD, menus, newFile/newFolder, onclicks inline) e pelo resíduo boot/keydown
    de app.ts (via window.*); fuzzy é um matcher puro partilhado. */
-Object.assign(window, { palette, closePal, fuzzy, palDraw, palRun });
+Object.assign(window, { palette,});

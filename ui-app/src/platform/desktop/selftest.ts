@@ -15,6 +15,7 @@ import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
 import { sdAdd } from "../../features/studio";
+import { saveTeam } from "../../features/team";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -497,7 +498,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
       await new Promise(r => setTimeout(r, 300));
       const fe = G.AGENTS.fe.paths.slice(), qa = G.AGENTS.qa.paths.slice();
-      G.AGENTS.db.paths = ["sql/**"]; G.saveTeam(); flushSave(); await idle();
+      G.AGENTS.db.paths = ["sql/**"]; saveTeam(); flushSave(); await idle();
       const onDisk = (await sh("cat", [".dxtutor/team.json"])).stdout;
       return { fe, qa, savedToDisk: /"sql\/\*\*"/.test(onDisk) };
     });

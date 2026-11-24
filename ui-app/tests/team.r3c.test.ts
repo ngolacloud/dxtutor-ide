@@ -60,7 +60,7 @@ describe("na cadeia real", () => {
   it("com pasta, gravar a equipa escreve .dxtutor/team.json no projecto", () => {
     w.DXR = { root: "/proj" };
     w.AGENTS.db.paths = ["sql/**"];
-    w.saveTeam();
+    TMod.saveTeam();
     const saved = parseTeamJson(w.FS[w.ROOT + ".dxtutor/team.json"].content)!;
     expect(saved.db.paths).toEqual(["sql/**"]);
   });

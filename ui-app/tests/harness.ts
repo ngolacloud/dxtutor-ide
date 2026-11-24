@@ -37,7 +37,7 @@ export async function bootApp(): Promise<typeof window> {
     await import(/* @vite-ignore */ mod);
   }
   const w = window as any;
-  w.resetWorkspace();
+  (await import("../src/features/workspace")).resetWorkspace();
   applySampleWorkspace(w); // o projecto-exemplo é dado de teste (ADR-0006, R1a)
   w.gitInit(); // o modelo git de um workspace sem repositório (vazio)
   applySampleHistory(w); // o histórico do projecto-exemplo + espelho ligado, como se a pasta fosse um repo (ADR-0006, R1d)

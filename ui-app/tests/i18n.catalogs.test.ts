@@ -36,13 +36,14 @@ import { LLM_MESSAGES } from "../src/platform/desktop/llm.messages";
 
 type W = Window & { trText: (s: string, toEn?: boolean) => string | null; LOCALE: string; RP: Record<string, () => void> } & Record<string, unknown>;
 let w: W;
-beforeEach(async () => { w = (await bootApp()) as unknown as W; w.LOCALE = "en"; });
+let I18: { trText: (s: string, toEn?: boolean) => string | null };
+beforeEach(async () => { w = (await bootApp()) as unknown as W; w.LOCALE = "en"; I18 = await import("../src/features/i18n"); });
 
 /* os pares que saíram do motor por já só servirem texto migrado (U6c lote 3) — continuam a provar os catálogos */
 const PRUNED_PT2EN = new Map((PRUNED as [string, string][]).map(([pt, en]) => [pt, en]));
 const PRUNED_EN2PT = new Map((PRUNED as [string, string][]).map(([pt, en]) => [en, pt]));
-const toEn = (s: string) => w.trText(s, true) ?? PRUNED_PT2EN.get(s) ?? s;
-const toPt = (s: string) => w.trText(s, false) ?? PRUNED_EN2PT.get(s) ?? s;
+const toEn = (s: string) => I18.trText(s, true) ?? PRUNED_PT2EN.get(s) ?? s;
+const toPt = (s: string) => I18.trText(s, false) ?? PRUNED_EN2PT.get(s) ?? s;
 /* parâmetros de exemplo para as entradas com {nome} */
 const SAMPLE: Record<string, Record<string, string>> = { commit: { staged: " (staged)", branch: "develop" } };
 /* os catálogos de texto MIGRADO (valores tirados do motor) — cada entrada tem de ser um par do motor */
