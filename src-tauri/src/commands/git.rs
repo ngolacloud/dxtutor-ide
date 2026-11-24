@@ -235,3 +235,18 @@ pub async fn git_amend(
     })
     .await
 }
+
+/// O diff de `base...target` (o que `target` mudou desde a base comum), de um ficheiro ou de tudo —
+/// para rever um ramo (A10).
+#[tauri::command]
+pub async fn git_diff_range(
+    root: String,
+    base: String,
+    target: String,
+    path: Option<String>,
+) -> Result<String, String> {
+    blocking(move || {
+        tutor_eval::gitx::range_diff(Path::new(&root), &base, &target, path.as_deref())
+    })
+    .await
+}

@@ -46,3 +46,5 @@ import "../features/hood/styles.css";
 import "../features/ops/styles.css";
 /* feature comments: o botão de comentar na margem do editor e a caixa «Start discussion» (só classes cmt-*, a posição não decide nada) */
 import "../features/comments/styles.css";
+/* A10: Dependencies e Onboarding (prefixo cb-); a posição não decide nada */
+import "../features/codebase/styles.css";

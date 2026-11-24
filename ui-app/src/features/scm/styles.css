@@ -56,3 +56,9 @@
   /* a largura que conta é a do separador (o editor), não a da janela */
   @container (max-width:980px){.gx-cols{grid-template-columns:minmax(200px,1fr) minmax(0,1.7fr)}.gx-side{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.gx-side .gx-card{margin:0}}
   @container (max-width:560px){.gx-cols{grid-template-columns:1fr}}
+  /* A10: «Review changes» — a mudança agrupada por tema (features/scm/ui/git-views.ts renderReview) */
+  .gx-rg{border:1px solid var(--seam);border-radius:8px;padding:6px 10px;margin-bottom:10px;background:var(--bg-panel)}
+  .gx-rgh{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+  .gx-rf{display:flex;align-items:center;gap:8px;padding:3px 4px;border-radius:5px;font-size:12px}.gx-rf:hover{background:var(--bg-hover)}
+  .gx-rf.done .gx-rp{color:var(--fg-muted);text-decoration:line-through}
+  .gx-rp{font-family:var(--font-mono);font-size:11.5px;cursor:pointer;color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis}

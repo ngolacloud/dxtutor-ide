@@ -16,6 +16,9 @@ export const DAP_MESSAGES = {
     noIssue: "(no issue)", snapshotPick: "Keep the snapshot with which issue?", snapshotSaved: "Snapshot saved in the project.", snapshotSavedIssue: "Snapshot saved with {issue}.",
     askExplainStop: "The program stopped here. Explain why these variables have these values, the likely cause of the problem, and suggest the next breakpoint.",
     askTestFromStop: "Write a test that reproduces this state (the inputs that lead to these values) and fails while the bug exists. Propose it as a change.",
+    attach: "Attach…", attachBusy: "Stop the current session first.", attachKindPh: "Attach to a process running where?", attachLocal: "This machine", attachDocker: "A Docker container", attachPodman: "A Podman container", attachPod: "A pod in {c} / {n}",
+    attachContainerPh: "Which container?", attachPodPh: "Which pod?", attachProcPh: "Which process?", attachNothing: "Nothing running there.",
+    attachNoAdapter: "There is no DAP adapter where that process runs: add lldb-dap to the image.", attachRemoteRootPh: "Where was the program built inside it (e.g. /app)? Leave empty if the paths are the same as here.",
   },
   ptAO: {
     stepOut: "Sair da função", pause: "Pausar", stopOnPanic: "Parar em panic", engineDap: "DAP · {adapter}", engineGdb: "gdb/MI",
@@ -30,6 +33,9 @@ export const DAP_MESSAGES = {
     noIssue: "(sem issue)", snapshotPick: "Guardar o snapshot com que issue?", snapshotSaved: "Snapshot guardado no projecto.", snapshotSavedIssue: "Snapshot guardado com a {issue}.",
     askExplainStop: "O programa parou aqui. Explica porque é que estas variáveis têm estes valores, a causa provável do problema, e sugere o próximo breakpoint.",
     askTestFromStop: "Escreve um teste que reproduza este estado (as entradas que levam a estes valores) e falhe enquanto o bug existir. Propõe-o como alteração.",
+    attach: "Anexar…", attachBusy: "Pára primeiro a sessão actual.", attachKindPh: "Anexar a um processo que corre onde?", attachLocal: "Esta máquina", attachDocker: "Um contentor Docker", attachPodman: "Um contentor Podman", attachPod: "Um pod em {c} / {n}",
+    attachContainerPh: "Que contentor?", attachPodPh: "Que pod?", attachProcPh: "Que processo?", attachNothing: "Não há nada a correr aí.",
+    attachNoAdapter: "Não há adaptador DAP onde esse processo corre: acrescenta o lldb-dap à imagem.", attachRemoteRootPh: "Onde foi o programa construído lá dentro (p.ex. /app)? Deixa vazio se os caminhos forem os mesmos daqui.",
   },
 } satisfies Messages<string>;
 export type DapKey = keyof typeof DAP_MESSAGES.en;

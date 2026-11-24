@@ -91,7 +91,19 @@ impl DapClient {
         cwd: Option<&Path>,
         on_output: Option<OnOutput>,
     ) -> Result<DapClient, String> {
-        let mut cmd = Command::new(adapter);
+        DapClient::spawn_cmd(&[adapter.display().to_string()], cwd, on_output)
+    }
+
+    /// Starts an adapter from a command line — `lldb-dap`, or one that runs it elsewhere
+    /// (`docker exec -i <container> lldb-dap`, `kubectl exec -i <pod> -- lldb-dap`).
+    pub fn spawn_cmd(
+        argv: &[String],
+        cwd: Option<&Path>,
+        on_output: Option<OnOutput>,
+    ) -> Result<DapClient, String> {
+        let (prog, rest) = argv.split_first().ok_or("empty adapter command")?;
+        let mut cmd = Command::new(prog);
+        cmd.args(rest);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -100,7 +112,7 @@ impl DapClient {
         }
         let mut child = cmd
             .spawn()
-            .map_err(|e| format!("could not start {}: {e}", adapter.display()))?;
+            .map_err(|e| format!("could not start {}: {e}", argv.join(" ")))?;
         let stdin = child.stdin.take().ok_or("adapter has no stdin")?;
         let stdout = child.stdout.take().ok_or("adapter has no stdout")?;
         let pending: Pending = Arc::default();
@@ -357,6 +369,8 @@ pub struct DapSession {
     /// the folder the program runs in (relative breakpoint paths are resolved against it)
     cwd: Option<PathBuf>,
     pub adapter: String,
+    /// attached to a process that was already running: stopping detaches instead of killing it
+    attached: bool,
 }
 
 fn stop_from(e: &Value) -> DapStop {
@@ -403,13 +417,89 @@ impl DapSession {
     ) -> Result<DapSession, String> {
         let adapter = find_adapter()
             .ok_or("no DAP adapter on PATH — install lldb-dap (LLVM) for step-debugging")?;
-        let client = DapClient::spawn(&adapter, cwd.map(Path::new), on_output)?;
+        let name = adapter
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        DapSession::start(
+            &[adapter.display().to_string()],
+            name,
+            cwd,
+            on_output,
+            "launch",
+            json!({"program": program, "args": args, "cwd": cwd.unwrap_or("."), "stopOnEntry": false}),
+            false,
+        )
+    }
+
+    /// Attaches to the running process `pid` through the adapter `argv` (local `lldb-dap`, or one run
+    /// inside a container or pod with `docker exec -i` / `kubectl exec -i`). The process keeps running
+    /// until a breakpoint (set before `run`) is hit; stopping the session detaches.
+    /// `source_map` = (where the program was built, where that source is here) — e.g. (`/app`, the
+    /// project folder) for a binary built inside a container.
+    pub fn attach(
+        argv: &[String],
+        pid: u32,
+        cwd: Option<&str>,
+        on_output: Option<OnOutput>,
+        source_map: Option<(String, String)>,
+    ) -> Result<DapSession, String> {
+        let name = argv.join(" ");
+        let mut args = json!({"pid": pid});
+        if let Some((from, to)) = source_map {
+            args["sourceMap"] = json!([[from, to]]);
+        }
+        DapSession::start(argv, name, cwd, on_output, "attach", args, true)
+    }
+
+    fn start(
+        argv: &[String],
+        adapter: String,
+        cwd: Option<&str>,
+        on_output: Option<OnOutput>,
+        request: &str,
+        args: Value,
+        attached: bool,
+    ) -> Result<DapSession, String> {
+        let client =
+            DapClient::spawn_cmd(argv, cwd.filter(|_| !attached).map(Path::new), on_output)?;
         client.request(
             "initialize",
             json!({"clientID": "dxtutor", "clientName": "dxtutor IDE", "adapterID": "lldb-dap", "linesStartAt1": true, "columnsStartAt1": true, "pathFormat": "path", "supportsVariableType": true, "supportsRunInTerminalRequest": false}),
         )?;
-        let launch = client.request_later("launch", json!({"program": program, "args": args, "cwd": cwd.unwrap_or("."), "stopOnEntry": false}))?;
-        client.wait_event(|e| e["event"] == "initialized", Some(REQUEST_TIMEOUT))?;
+        let pending = client.request_later(request, args)?;
+        // an attach that fails (ptrace refused, no such pid) answers before any `initialized`
+        let first = client.wait_event(|e| e["event"] == "initialized", Some(REQUEST_TIMEOUT));
+        if first.is_err()
+            || first
+                .as_ref()
+                .map(|e| e["event"] == "terminated")
+                .unwrap_or(false)
+        {
+            let why = pending
+                .recv_timeout(Duration::from_secs(2))
+                .ok()
+                .and_then(|m| response_body(request, m).err())
+                .unwrap_or_else(|| format!("the adapter did not start the {request}"));
+            client.kill();
+            return Err(why);
+        }
+        // an attach that fails (no such pid, ptrace refused) can answer after `initialized`: wait a little
+        // for its answer before calling the session ready
+        let pending = if attached {
+            match pending.recv_timeout(Duration::from_secs(3)) {
+                Ok(m) => {
+                    if let Err(e) = response_body(request, m) {
+                        client.kill();
+                        return Err(e);
+                    }
+                    None
+                }
+                Err(_) => None,
+            }
+        } else {
+            Some(pending)
+        };
         let s = DapSession {
             client,
             breakpoints: Mutex::default(),
@@ -419,15 +509,15 @@ impl DapSession {
             frames: Mutex::default(),
             snaps: Mutex::default(),
             cwd: cwd.map(PathBuf::from),
-            adapter: adapter
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_default(),
+            adapter,
+            attached,
         };
         // the launch response may come before or after configurationDone: keep it for `run`
-        std::thread::spawn(move || {
-            let _ = launch.recv_timeout(Duration::from_secs(120));
-        });
+        if let Some(p) = pending {
+            std::thread::spawn(move || {
+                let _ = p.recv_timeout(Duration::from_secs(120));
+            });
+        }
         Ok(s)
     }
 
@@ -765,7 +855,7 @@ impl DapSession {
     pub fn stop(&self) {
         let _ = self
             .client
-            .request_later("disconnect", json!({"terminateDebuggee": true}));
+            .request_later("disconnect", json!({"terminateDebuggee": !self.attached}));
         std::thread::sleep(Duration::from_millis(100));
         self.client.kill();
     }

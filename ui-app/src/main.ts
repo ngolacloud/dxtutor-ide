@@ -54,6 +54,7 @@ import "./features/checkpoint";
 import "./features/terminal";
 import "./features/infra";
 import "./features/ops/index"; /* A9: decora o RP.infra que o infra acabou de registar */
+import "./features/codebase/index"; /* A10: Dependencies e Onboarding */
 import "./features/visualizer";
 import "./features/router";
 import "./features/team";

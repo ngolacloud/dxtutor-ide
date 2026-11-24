@@ -9,7 +9,7 @@
 import { esc } from "../../../core";
 import { heat, planIsNoop, planProblem, rebaseCommand, REBASE_ACTIONS } from "../domain/git-extras";
 import type { Blame, BlameLine, HistCommit } from "../domain/git-extras";
-import type { CompareState, ExtrasState, HistoryState, RebaseState } from "../application/git-extras";
+import type { CompareState, ExtrasState, HistoryState, RebaseState, ReviewState } from "../application/git-extras";
 import type { GitKey } from "./git-messages";
 
 export type T = (k: GitKey, p?: Record<string, string | number>) => string;
@@ -42,7 +42,7 @@ export function renderSide(t: T, st: ExtrasState, canAsk: boolean, now: number):
   const wts = st.worktrees.map((w) => `<div class="scm-row gx-row" title="${esc(w.path)}"><span class="nm notr" style="max-width:none${w.current ? ";font-weight:600" : ""}">${esc(w.branch ?? t("detached", { h: w.head }))}</span><span class="pth notr">${esc(w.path)}</span>${w.current ? `<span class="tag acc" style="margin-left:auto">${t("thisFolder")}</span>` : `<span class="ra"><button title="${t("removeWorktree")}" data-action="gx-wt-remove" data-on="${esc(w.path)}"${dis ? " disabled" : ""}>✕</button></span>`}</div>`).join("");
   return `<div class="scm-grp">${t("stashes")}<span class="cnt">${st.stashes.length}</span></div>${stashes}<div class="gx-bar">${btn("gx-stash-push", t("stashChanges"), "", "btn ghost", dis)}${btn("gx-stash-push-all", t("stashAll"), "", "btn ghost", dis)}</div>`
     + `<div class="scm-grp">${t("worktrees")}<span class="cnt">${st.worktrees.length}</span></div>${wts}<div class="gx-bar">${btn("gx-wt-add", t("newWorktree"), "", "btn ghost", dis)}</div>`
-    + `<div class="scm-grp">${t("moreGit")}</div><div class="gx-bar">${btn("gx-history", t("fileHistory"))}${btn("gx-compare", t("compareBranches"))}${btn("gx-rebase", t("interactiveRebase"), "", "btn ghost", dis)}${btn("gx-amend", t("amendLast"), "", "btn ghost", dis)}</div>`
+    + `<div class="scm-grp">${t("moreGit")}</div><div class="gx-bar">${btn("gx-history", t("fileHistory"))}${btn("gx-compare", t("compareBranches"))}${btn("gx-rebase", t("interactiveRebase"), "", "btn ghost", dis)}${btn("gx-amend", t("amendLast"), "", "btn ghost", dis)}${btn("gx-review", t("reviewChanges"))}</div>`
     + (canAsk ? `<div class="gx-bar">${btn("gx-ask-message", t("askMessage"), "", "btn ghost gx-ai")}${btn("gx-ask-review", t("askReview"), "", "btn ghost gx-ai")}</div>` : "")
     + (st.sideError ? `<div class="sec-empty notr" style="color:var(--red)">${esc(st.sideError)}</div>` : "")
     + (st.busy ? `<div class="sec-empty">${t("running", { op: st.busy })}</div>` : "");
@@ -130,4 +130,23 @@ export function renderRebase(t: T, r: RebaseState | null): string {
 export function renderText(text: { title: string; body: string } | null): string {
   if (!text) return `<div class="gx"></div>`;
   return `<div class="gx"><div class="gx-top"><b class="notr">${esc(text.title)}</b></div><div class="gx-diff notr">${diffHtml(text.body)}</div></div>`;
+}
+
+const groupName = (t: T, key: string): string => (key.startsWith("src:") ? key.slice(4) : t(("g_" + key) as GitKey));
+
+/** «Review changes» (A10): the change grouped by theme, each file's diff on demand, «reviewed» marks, Co-Dev per group. */
+export function renderReview(t: T, r: ReviewState | null, canAsk: boolean): string {
+  if (!r) return `<div class="gx"><div class="sec-empty">${t("noChanges")}</div></div>`;
+  const total = r.files.length, done = r.reviewed.length;
+  const head = `<div class="gx-top"><b>${t("reviewTitle")}</b>${btn("gx-review-mode", t("worktree"), "worktree", r.mode === "worktree" ? "btn" : "btn ghost")}${btn("gx-review-mode", t("branchVs"), "branch", r.mode === "branch" ? "btn" : "btn ghost")}${r.mode === "branch" ? `<span class="gx-chip notr">${esc(r.base)}...${esc(r.target)}</span>` : ""}<span class="gx-sp"></span>${total ? `<span class="gx-meta">${t("reviewedN", { r: done, n: total })}</span>` : ""}${canAsk && total ? btn("gx-review-summary", t("summarize"), "", "btn ghost gx-ai") : ""}</div>`;
+  if (r.loading) return `<div class="gx">${head}<div class="sec-empty">${t("loading")}</div></div>`;
+  if (r.error) return `<div class="gx">${head}<pre class="sec-empty notr" style="color:var(--red)">${esc(r.error)}</pre></div>`;
+  if (!total) return `<div class="gx">${head}<div class="sec-empty">${t("noChanges")}</div></div>`;
+  const groups = r.groups.map((g) => {
+    const gd = g.files.filter((f) => r.reviewed.includes(f.path)).length;
+    return `<div class="gx-rg"><div class="gx-rgh"><b class="notr">${esc(groupName(t, g.key))}</b><span class="gx-meta">${g.files.length} · <span class="gx-add">+${g.added}</span> <span class="gx-del">−${g.removed}</span> · ${gd}/${g.files.length}</span><span class="gx-sp"></span>${canAsk ? btn("gx-review-group", t("reviewGroup"), g.key, "btn ghost gx-ai") : ""}</div>`
+      + g.files.map((f) => `<div class="gx-rf${r.reviewed.includes(f.path) ? " done" : ""}"><input type="checkbox" title="${t("reviewed")}" data-action="gx-review-mark" data-on="${esc(f.path)}"${r.reviewed.includes(f.path) ? " checked" : ""}><span class="gx-st s-${esc(f.status.slice(0, 1))}">${esc(f.status.slice(0, 1))}</span><a class="notr gx-rp" data-action="gx-review-file" data-on="${esc(f.path)}">${esc(f.path)}</a><span class="gx-sp"></span><span class="gx-add">+${f.added}</span> <span class="gx-del">−${f.removed}</span></div>`
+        + (r.open === f.path ? `<div class="gx-diff notr">${r.diffs[f.path] === undefined ? `<div>${t("loading")}</div>` : diffHtml(r.diffs[f.path])}</div>` : "")).join("") + `</div>`;
+  }).join("");
+  return `<div class="gx">${head}${groups}</div>`;
 }

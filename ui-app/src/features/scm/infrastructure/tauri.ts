@@ -19,4 +19,7 @@ export const tauriGitExtras = (inv: Invoker = invoke): GitExtrasPort => ({
   worktree: (root, op) => inv<Worktree[]>("git_worktree", { root, op }),
   rebase: (root, op) => inv<RebasePlan>("git_rebase", { root, op }),
   amend: (root, message, allowPublished) => inv<string>("git_amend", { root, message, allowPublished }),
+  changes: (root) => inv<Array<{ path: string; status: string }>>("git_changes", { root }),
+  worktreeDiff: (root, path) => inv<string>("git_diff", { root, file: path, staged: false }),
+  rangeDiff: (root, base, target, path) => inv<string>("git_diff_range", { root, base, target, path }),
 });

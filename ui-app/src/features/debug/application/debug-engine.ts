@@ -13,7 +13,7 @@
 import { bpKey, bpLine, bpPath } from "../domain/breakpoints";
 import { cargoTargets, fsKeyFor, relOf, type Session, type Stop } from "../domain/session";
 import { isPlain, sessionMarkdown, specsFor, type BpMeta, type VarNode, type Watch } from "../domain/dap";
-import type { DebugDeps, DebugEngine } from "./ports";
+import type { AttachTarget, DebugDeps, DebugEngine } from "./ports";
 
 /** O que dizer quando não há motor de depuração no sistema. */
 export const NO_GDB = "O gdb não está instalado: a depuração passo-a-passo usa o gdb (Rust, C, C++). Instala-o (p.ex. «sudo apt install gdb») e tenta de novo.";
@@ -336,6 +336,52 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     );
   }
 
+  /* ───── A10: attach to a running process ───── */
+  async function attach(): Promise<void> {
+    store.hydrate();
+    if (store.session()) { notifier.toast(say("attachBusy")); return; }
+    const root = workspace.root();
+    if (!dbg.attach || !dbg.attachTargets) { notifier.toast(say("needsDap")); return; }
+    const kt = deps.kubeTarget?.() ?? null;
+    const kinds: Array<[AttachTarget["kind"], string]> = [["local", say("attachLocal")], ["docker", say("attachDocker")], ["podman", say("attachPodman")], ...(kt ? [["kubectl", say("attachPod", { c: kt.context, n: kt.namespace })] as [AttachTarget["kind"], string]] : [])];
+    const kindLabel = await picker.choose(say("attachKindPh"), kinds.map((k) => k[1]));
+    if (kindLabel === null) return;
+    const kind = kinds.find((k) => k[1] === kindLabel)![0];
+    const target: AttachTarget = { kind, name: "", context: kt?.context ?? "", namespace: kt?.namespace ?? "", kubeconfig: kt?.kubeconfig ?? "" };
+    if (kind !== "local") {
+      const places = await dbg.attachTargets(target).catch((e) => ({ ok: false, places: [], processes: [], adapter: null, notes: String(e) }));
+      if (!places.ok || !places.places.length) { notifier.toast(places.notes || say("attachNothing")); return; }
+      const name = await picker.choose(say(kind === "kubectl" ? "attachPodPh" : "attachContainerPh"), places.places);
+      if (name === null) return;
+      target.name = name;
+    }
+    const inside = await dbg.attachTargets(target).catch((e) => ({ ok: false, places: [], processes: [], adapter: null, notes: String(e) }));
+    if (!inside.ok) { notifier.toast(inside.notes); return; }
+    if (!inside.adapter) { store.setMessage(inside.notes || say("attachNoAdapter")); view.refresh(); return; }
+    const labels = inside.processes.map((p) => `${p.pid} · ${p.command}`);
+    const pickP = await picker.choose(say("attachProcPh"), labels);
+    if (pickP === null) return;
+    const pid = Number(pickP.split(" · ")[0]);
+    let remoteRoot: string | null = null;
+    if (kind !== "local") {
+      const r = await picker.ask(say("attachRemoteRootPh"));
+      if (r === null) return;
+      remoteRoot = r.trim() || null;
+    }
+    const id = deps.newId();
+    const program = `${kind === "local" ? "" : `${target.name}:`}${pickP.split(" · ").slice(1).join(" · ").split(" ")[0]} (pid ${pid})`;
+    store.setSession({ id, program, status: "starting", stop: null, locals: [], stack: [] }); store.setMessage(""); view.refresh();
+    await guarded(async () => {
+      const info = await dbg.attach!(id, target, pid, inside.adapter, root, remoteRoot);
+      store.setSession({ ...store.session()!, engine: "dap", adapter: info.adapter });
+      output.length = 0;
+      for (const file of filesWithBreakpoints()) await sendFile(id, file);
+      if (stopOnPanic && dbg.stopOnPanic) await dbg.stopOnPanic(id, true).catch(() => false);
+      const s = store.session()!; store.setSession({ ...s, status: "running" }); view.refresh();
+      await applyStop(id, await dbg.run(id));
+    });
+  }
+
   const dbgStepOut = (): Promise<void> => { const s = store.session(); if (!isDap(s)) { notifier.toast(say("needsDap")); return Promise.resolve(); } return resume((id) => dbg.step(id, false, "out")); };
   async function dbgPause(): Promise<void> {
     const s = store.session();
@@ -345,7 +391,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
 
   return {
     startDebug, dbgContinue, dbgStep, dbgStop, toggleBp,
-    dbgStepOut, dbgPause, toggleVar, selectFrame, selectThread, addWatch, removeWatch, setStopOnPanic, editBreakpoint, removeBreakpoint, loadKept, askCodev, snapshot,
+    dbgStepOut, dbgPause, toggleVar, selectFrame, selectThread, addWatch, removeWatch, setStopOnPanic, editBreakpoint, removeBreakpoint, loadKept, askCodev, snapshot, attach,
     extra: () => ({ watches, output, stopOnPanic, expanded }),
   };
 }

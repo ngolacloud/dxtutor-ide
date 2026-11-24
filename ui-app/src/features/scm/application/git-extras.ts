@@ -10,6 +10,7 @@
    failure; a newer request for a view wins over an older answer still on its way. */
 
 import { blameAt, initialSteps, moveStep, planIsNoop, planProblem, rebaseCommand, worktreePath } from "../domain/git-extras";
+import { diffStat, groupFiles, type ReviewFile, type ReviewGroup } from "../domain/review";
 import type { Blame, BlameLine, Compare, HistCommit, RebaseAction, RebasePlan, RebaseStep, Stash, Worktree } from "../domain/git-extras";
 import type { CodevPort, GitExtrasPort, GitWorkspacePort, HumanPort, TabsPort } from "./extras-ports";
 
@@ -44,6 +45,20 @@ export interface RebaseState {
   error: string;
 }
 
+/** Reviewing a change (A10): the working tree vs HEAD, or a branch vs its base. */
+export interface ReviewState {
+  mode: "worktree" | "branch";
+  base: string;
+  target: string;
+  files: ReviewFile[];
+  groups: ReviewGroup[];
+  open: string | null;
+  diffs: Record<string, string>;
+  reviewed: string[];
+  loading: boolean;
+  error: string;
+}
+
 export interface ExtrasState {
   stashes: Stash[];
   worktrees: Worktree[];
@@ -54,6 +69,7 @@ export interface ExtrasState {
   rebase: RebaseState | null;
   /** a text to read in the «git» tab (a stash's diff…) */
   text: { title: string; body: string } | null;
+  review: ReviewState | null;
   /** the operation running (one at a time) */
   busy: string | null;
 }
@@ -62,7 +78,7 @@ const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; human: HumanPort; codev: CodevPort; tabs: TabsPort; say: Say }) {
   const { git, ws, human, codev, tabs, say } = deps;
-  const st: ExtrasState = { stashes: [], worktrees: [], sideLoaded: false, sideError: "", history: null, compare: null, rebase: null, text: null, busy: null };
+  const st: ExtrasState = { stashes: [], worktrees: [], sideLoaded: false, sideError: "", history: null, compare: null, rebase: null, text: null, review: null, busy: null };
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
 
@@ -326,6 +342,75 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
     if (s) codev.ask({ intent: "review", text: say("askReviewStaged"), context: [{ kind: "hunk", label: "staged", text: s.diff.slice(0, 16000) }], send: true });
   }
 
+  /* ── reviewing a big change (A10) ── */
+  async function openReview(mode: "worktree" | "branch"): Promise<void> {
+    const root = ws.root();
+    if (!root) return;
+    let base = "HEAD", target = "";
+    if (mode === "branch") {
+      const cur = ws.current();
+      const bs = ws.branches().filter((b) => b !== cur);
+      const pref = ["develop", "main", "master"].filter((b) => bs.includes(b));
+      const pick = await human.pick(say("reviewBasePh", { b: cur }), [...pref, ...bs.filter((b) => !pref.includes(b))].map((b) => ({ label: b, value: b })));
+      if (pick === null) return;
+      base = pick; target = cur;
+    }
+    const r: ReviewState = { mode, base, target, files: [], groups: [], open: null, diffs: {}, reviewed: [], loading: true, error: "" };
+    st.review = r;
+    tabs.open("git-review", say("reviewTab"), "git-review");
+    emit();
+    try {
+      await ws.save();
+      let files: ReviewFile[];
+      if (mode === "branch") {
+        const c = await git.compare(root, base, target);
+        files = c.files.map((f) => ({ path: f.path, status: f.status, added: f.added ?? 0, removed: f.removed ?? 0 }));
+      } else {
+        const ch = await git.changes(root);
+        files = [];
+        for (const c of ch.slice(0, 400)) {
+          const d = await git.worktreeDiff(root, c.path).catch(() => "");
+          r.diffs[c.path] = d;
+          files.push({ path: c.path, status: c.status, ...diffStat(d) });
+        }
+      }
+      if (st.review === r) { r.files = files; r.groups = groupFiles(files); }
+    } catch (e) { if (st.review === r) r.error = msg(e); }
+    if (st.review === r) { r.loading = false; emit(); }
+  }
+  async function diffOf(r: ReviewState, path: string): Promise<string> {
+    const root = ws.root();
+    if (!root) return "";
+    if (r.diffs[path] === undefined) r.diffs[path] = r.mode === "branch" ? await git.rangeDiff(root, r.base, r.target, path).catch((e) => msg(e)) : await git.worktreeDiff(root, path).catch((e) => msg(e));
+    return r.diffs[path];
+  }
+  async function toggleReviewFile(path: string): Promise<void> {
+    const r = st.review;
+    if (!r) return;
+    r.open = r.open === path ? null : path;
+    emit();
+    if (r.open) { await diffOf(r, path); if (st.review === r) emit(); }
+  }
+  function markReviewed(path: string, on: boolean): void {
+    const r = st.review;
+    if (!r) return;
+    r.reviewed = on ? [...new Set([...r.reviewed, path])] : r.reviewed.filter((p) => p !== path);
+    emit();
+  }
+  async function askReviewGroup(key: string): Promise<void> {
+    const r = st.review, g = r?.groups.find((x) => x.key === key);
+    if (!r || !g || !codev.available()) return;
+    let text = "";
+    for (const f of g.files) { const d = await diffOf(r, f.path); if (text.length + d.length > 16000) { text += `\n… (${g.files.length} files; the rest left out)`; break; } text += d + "\n"; }
+    codev.ask({ intent: "review", text: say("askReviewGroup", { g: key, n: g.files.length }), context: [{ kind: "hunk", label: `${key} · ${g.files.length}`, text }], send: true });
+  }
+  function askSummary(): void {
+    const r = st.review;
+    if (!r || !codev.available()) return;
+    const lines = r.groups.map((g) => `${g.key}: ${g.files.length} files +${g.added} −${g.removed}\n${g.files.slice(0, 20).map((f) => `  ${f.status} ${f.path} +${f.added} −${f.removed}`).join("\n")}`);
+    codev.ask({ intent: "explain", text: say("askReviewSummary"), context: [{ kind: "hunk", label: r.mode === "branch" ? `${r.base}...${r.target}` : "working tree", text: lines.join("\n") }], send: true });
+  }
+
   /** The editor's line: what the blame says (status bar, inline annotation). */
   const lineBlame = (path: string, line: number): BlameLine | null => blameAt(blameOf(path), line);
 
@@ -347,6 +432,7 @@ export function makeGitExtras(deps: { git: GitExtrasPort; ws: GitWorkspacePort; 
     move: (i: number, dir: -1 | 1) => editPlan((s) => moveStep(s, i, dir)),
     resetPlan: () => { if (st.rebase?.plan) editPlan(() => initialSteps(st.rebase!.plan!)); },
     askCommitMessage, askReviewStaged,
+    openReview, toggleReviewFile, markReviewed, askReviewGroup, askSummary,
     busy: (): boolean => st.busy !== null,
   };
 }

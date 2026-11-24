@@ -417,6 +417,37 @@ Dores recorrentes e o que este IDE pode fechar:
 | Igualar o ecossistema de extensões do VS Code | **Não** | Não há extension host (decisão do ADR-0005); só contribuições declarativas. |
 | Igualar a profundidade Java/Kotlin do IntelliJ | **Não** (a curto prazo) | — |
 
+**Estado após a A10 (2026-11-24):** o dono aprovou fechar as quatro lacunas ainda abertas (as outras — ambiente,
+feedback lento, testes flaky, mudança de contexto — já tinham fechado nas fases anteriores):
+- **Actualizar dependências** — `tutor_eval::deps` e o separador «Dependencies» (`features/codebase`):
+  - Por ecossistema (Cargo, npm, Go): as vulnerabilidades e os avisos (`cargo audit --json`, `npm audit --json`) e o
+    que está atrasado (`cargo update --dry-run --verbose`, `npm outdated --json`, `go list -m -u -json`: compatível,
+    última, salto, directa).
+  - Offline primeiro (o Cargo com a base local de avisos); os registos só quando se escolhe «online».
+  - «Actualizar» e «Para a última…» são o comando exacto, aprovado e corrido num terminal; depois, «Correr os
+    testes». O Co-Dev planeia uma actualização maior e explica uma vulnerabilidade.
+  - Verificado neste repositório: o lock fica intacto, e há 3 vulnerabilidades reais e avisos.
+- **Entrar numa base de código** — `tutor_eval::onboard` e o separador «Onboarding»:
+  - Mostra as linguagens, os pontos de entrada com o comando para correr (corridos com aprovação), a documentação
+    para ler primeiro, os ficheiros mais mexidos em seis meses, quem mais commita e os maiores módulos.
+  - O Co-Dev faz a visita guiada a partir deste mapa.
+- **Rever diffs grandes** — «Review changes» (`features/scm`, `git_diff_range`):
+  - Revê a área de trabalho ou um ramo contra a base, agrupados por tema (testes, documentação, configuração,
+    infraestrutura, estilos, módulo).
+  - Cada ficheiro tem o seu diff e a marca «revisto», com o progresso; o Co-Dev revê um grupo ou resume a alteração.
+- **Debug de sistemas distribuídos** — `tutor_eval::attach` e o `DapSession::attach`, a partir do «Attach…» no
+  Run and Debug:
+  - Anexa-se a um processo desta máquina, de um contentor Docker/Podman ou de um pod do cluster do Infra.
+  - O adaptador corre onde o processo corre (`docker exec -i … lldb-dap`), com um `sourceMap` para o caminho onde o
+    programa foi construído. Sem adaptador na imagem, diz o que instalar.
+  - Verificado: o attach real a um processo C a correr (`ptrace_scope` 1, com `prctl`), com breakpoint, variáveis e
+    desligar sem matar; e um contentor descartável de uma imagem local.
+- **Por fazer:**
+  - o debugpy (Python) e o Delve dentro de contentores;
+  - o `pip-audit` (não instalado);
+  - a cache dos relatórios de dependências;
+  - a validação dos pontos (?) da tabela com pesquisa actualizada.
+
 ## 4. Mapa de persistência e proposta SQLite
 
 | Dado | Hoje | Deve ir para |

@@ -39,6 +39,11 @@ export const GIT_MESSAGES = {
     askReviewStaged: "Review these staged changes before I commit: bugs, risks and what is missing (tests, docs).",
     blameTitle: "Who changed this line last — click for the line's history",
     needRepo: "This needs a git repository open in the desktop app.",
+    reviewTab: "Review changes", reviewTitle: "Review changes", reviewChanges: "Review changes…", worktree: "Working tree", branchVs: "Branch vs base",
+    reviewBasePh: "Review {b} against…", reviewedN: "{r} of {n} files reviewed", reviewGroup: "✦ Review this group", summarize: "✦ Summarize the change", noChanges: "Nothing to review.",
+    g_tests: "Tests", g_docs: "Docs", g_config: "Config", g_infra: "Infrastructure", g_styles: "Styles", reviewed: "Reviewed",
+    askReviewGroup: "Review this group of the change ({g}, {n} file(s)): bugs, risks, missing tests, and anything that does not fit the rest of the change.",
+    askReviewSummary: "Summarize this change for a reviewer: what it does, group by group, and where to look hardest.",
   },
   ptAO: {
     justNow: "agora mesmo", minAgo: "há {n} min", hAgo: "há {n} h", dAgo: "há {n} d", moAgo: "há {n} meses", yAgo: "há {n} anos",
@@ -76,6 +81,11 @@ export const GIT_MESSAGES = {
     askReviewStaged: "Revê estas alterações staged antes do commit: bugs, riscos e o que falta (testes, documentação).",
     blameTitle: "Quem mudou esta linha por último — clica para o histórico da linha",
     needRepo: "Isto precisa de um repositório git aberto na app desktop.",
+    reviewTab: "Rever alterações", reviewTitle: "Rever alterações", reviewChanges: "Rever alterações…", worktree: "Área de trabalho", branchVs: "Ramo contra a base",
+    reviewBasePh: "Rever {b} contra…", reviewedN: "{r} de {n} ficheiros revistos", reviewGroup: "✦ Rever este grupo", summarize: "✦ Resumir a alteração", noChanges: "Nada para rever.",
+    g_tests: "Testes", g_docs: "Documentação", g_config: "Configuração", g_infra: "Infraestrutura", g_styles: "Estilos", reviewed: "Revisto",
+    askReviewGroup: "Revê este grupo da alteração ({g}, {n} ficheiro(s)): bugs, riscos, testes em falta, e o que não encaixa no resto da alteração.",
+    askReviewSummary: "Resume esta alteração para quem a vai rever: o que faz, grupo a grupo, e onde olhar com mais atenção.",
   },
 } satisfies Messages<string>;
 export type GitKey = keyof typeof GIT_MESSAGES.en;

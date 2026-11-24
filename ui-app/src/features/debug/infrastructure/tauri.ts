@@ -28,6 +28,8 @@ export const tauriDebug = (inv: Invoker = invoke, desktop: () => boolean = isDes
   variables: (id, frame, reference) => inv<VarNode[]>("debug_variables", { id, frame, reference: reference ?? null }),
   evaluate: (id, expression, frame) => inv<VarNode>("debug_evaluate", { id, expression, frame }),
   pause: (id) => inv<void>("debug_pause", { id }),
+  attachTargets: (target) => inv<{ ok: boolean; places: string[]; processes: Array<{ pid: number; command: string }>; adapter: string | null; notes: string }>("debug_attach_targets", { target }),
+  attach: (id, target, pid, adapter, root, remoteRoot) => inv<LaunchInfo>("debug_attach", { id, target, pid, adapter, root, remoteRoot }),
   onOutput: (f) => {
     if (!desktop()) return;
     void listen("debug://output", (p) => {

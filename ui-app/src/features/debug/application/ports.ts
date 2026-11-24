@@ -34,7 +34,13 @@ export interface DebugPort {
   pause?(id: string): Promise<void>;
   /** the program's output as it comes (unsubscribe with the returned function) */
   onOutput?(f: (id: string, category: string, text: string) => void): void;
+  /* ── A10: attach to a running process (local, in a container or a pod) ── */
+  attachTargets?(target: AttachTarget): Promise<{ ok: boolean; places: string[]; processes: Array<{ pid: number; command: string }>; adapter: string | null; notes: string }>;
+  attach?(id: string, target: AttachTarget, pid: number, adapter: string | null, root: string | null, remoteRoot: string | null): Promise<LaunchInfo>;
 }
+
+/** Where a process to attach to runs. */
+export interface AttachTarget { kind: "local" | "docker" | "podman" | "kubectl"; name: string; context: string; namespace: string; kubeconfig: string }
 
 /** A7: the gutter's breakpoints kept per project (SQLite) and a session's snapshot with an issue. */
 export interface ProjectDebugPort {
@@ -119,6 +125,8 @@ export interface DebugDeps {
   codev?: DebugCodevPort;
   /** the meta (condition, hit count, log message, on/off) of the breakpoints, by key `path:line` */
   bpMeta?: Map<string, BpMeta>;
+  /** A10: the cluster the Infra pane points at (to attach to a pod), or null */
+  kubeTarget?: () => { context: string; namespace: string; kubeconfig: string } | null;
   /** the texts of the A7 messages (the view's catalog) */
   say?: (key: string, params?: Record<string, string | number>) => string;
 }
@@ -149,6 +157,8 @@ export interface DebugEngine {
   loadKept(): Promise<void>;
   askCodev(kind: "explain" | "test"): void;
   snapshot(): Promise<void>;
+  /** A10: attach to a running process — local, in a container or in a pod */
+  attach(): Promise<void>;
   /** what the view reads besides the session */
   extra(): { watches: Watch[]; output: string[]; stopOnPanic: boolean; expanded: Set<number> };
 }

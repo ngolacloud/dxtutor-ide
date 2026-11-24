@@ -77,3 +77,9 @@ export const lsSet = (key: string, val: unknown): void => G.LS.set(key, val);
 export const publish = (surface: Record<string, unknown>): void => {
   Object.assign(window, surface);
 };
+
+/** A10: o cluster para onde o pane Infra aponta o kubectl (para anexar a um pod), ou null. */
+export const kubeTarget = (): { context: string; namespace: string; kubeconfig: string } | null => {
+  const e = (window as unknown as { ENVS?: { kube?: string; ctx?: string; ns?: string; k8sOn?: boolean } }).ENVS;
+  return e && e.k8sOn && e.ctx ? { context: e.ctx, namespace: (e.ns || "default").trim() || "default", kubeconfig: (e.kube || "").trim() } : null;
+};
