@@ -61,6 +61,8 @@ pub struct StartSpec {
     /// Ferramentas do anfitrião que só entram no conjunto versão ≥ 4 (ex.: `arch_propose`):
     /// uma sessão gravada antes retoma sem elas (o prefixo do pedido não pode mudar).
     pub host_tools_v4: Vec<Arc<dyn Tool>>,
+    /// Ferramentas do anfitrião do conjunto versão ≥ 8 (ex.: `outline`, RF-E04).
+    pub host_tools_v8: Vec<Arc<dyn Tool>>,
     /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
     /// passa `~/.config/dxtutor/trusted.json`).
     pub trust_store: Option<PathBuf>,
@@ -681,7 +683,13 @@ pub fn start(
 /// do pedido não pode mudar). Ordem fixa.
 fn session_host_tools(spec: &StartSpec, toolset: u32) -> Vec<Arc<dyn Tool>> {
     let v4 = spec.host_tools_v4.iter().filter(|_| toolset >= 4);
-    spec.host_tools.iter().chain(v4).cloned().collect()
+    let v8 = spec.host_tools_v8.iter().filter(|_| toolset >= 8);
+    spec.host_tools
+        .iter()
+        .chain(v4)
+        .chain(v8)
+        .cloned()
+        .collect()
 }
 
 fn get(id: &str) -> Result<Arc<Session>, String> {
@@ -912,7 +920,12 @@ pub fn send(
     };
     // every decision on an action goes to the audit log (RF-T01)
     let mut approve = |call: &PendingCall| -> Decision {
-        let verdict = session.policy.lock().unwrap().decide(call);
+        let verdict = rewrite_gate(
+            session.policy.lock().unwrap().decide(call),
+            call,
+            &session.agent.ctx.root,
+            &metas.borrow(),
+        );
         asked_human.set(false);
         let d = decide_call(call, verdict.clone());
         let mut e = audit_entry(&session, "call");
@@ -1061,6 +1074,57 @@ fn audit(s: &Session, mut e: tutor_board::project::AuditEntry) {
     let root = s.agent.ctx.root.display().to_string();
     if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
         let _ = st.record_audit(&root, &e);
+    }
+}
+
+/// RF-E05 (docs/v2/RF-DELONIX-PLANO.md F2.4): a `write` over an existing file is turned into
+/// line hunks (RF-CODEV-STREAM I2); when they replace more than 60% of the file it is a rewrite,
+/// which always asks — in Auto too — with the percentage. Otherwise the percentage goes into
+/// the reason of an approval that was asked anyway.
+fn rewrite_gate(
+    verdict: Verdict,
+    call: &PendingCall,
+    root: &Path,
+    metas: &HashMap<String, HunkMeta>,
+) -> Verdict {
+    if call.name != "write" || call.hunks.is_empty() || matches!(verdict, Verdict::Deny { .. }) {
+        return verdict;
+    }
+    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+        return verdict;
+    };
+    let Ok(text) = std::fs::read_to_string(root.join(path)) else {
+        return verdict; // a new file: writing it whole is what `write` is for
+    };
+    let total = text.lines().count().max(1);
+    let removed: usize = call
+        .hunks
+        .iter()
+        .filter_map(|h| metas.get(h))
+        .map(|m| m.removed as usize)
+        .sum();
+    let pct = (removed * 100 / total).min(100);
+    if pct > 60 {
+        return Verdict::Ask {
+            reason: format!(
+                "write reescreve {pct}% de {path} (mais de 60%): só para ficheiros novos, gerados \
+                 ou reescritas justificadas — confirma, ou pede alterações por linhas"
+            ),
+            dangerous: true,
+            suggested_rule: None,
+        };
+    }
+    match verdict {
+        Verdict::Ask {
+            reason,
+            dangerous,
+            suggested_rule,
+        } => Verdict::Ask {
+            reason: format!("{reason} (write: {pct}% de {path})"),
+            dangerous,
+            suggested_rule,
+        },
+        v => v,
     }
 }
 
@@ -2924,5 +2988,57 @@ mod tests {
                 .collect();
             assert_eq!(kinds, ["finish", "tests"]);
         }
+    }
+
+    #[test]
+    fn a_write_that_rewrites_most_of_a_file_always_asks_with_the_percentage() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("a.rs"), "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n").unwrap();
+        let call = |hunks: &[&str]| PendingCall {
+            id: "w".into(),
+            name: "write".into(),
+            input: serde_json::json!({"path": "a.rs", "content": "x"}),
+            read_only: false,
+            command: None,
+            hunks: hunks.iter().map(|h| h.to_string()).collect(),
+        };
+        let meta = |removed: u32| HunkMeta {
+            removed,
+            ..Default::default()
+        };
+        let metas: HashMap<String, HunkMeta> =
+            [("w:1".to_string(), meta(7)), ("w:2".to_string(), meta(2))].into();
+        // 70% in Auto (Allow) → asks, as the safety floor, with the percentage
+        match rewrite_gate(Verdict::Allow, &call(&["w:1"]), d.path(), &metas) {
+            Verdict::Ask {
+                reason, dangerous, ..
+            } => {
+                assert!(
+                    dangerous && reason.contains("70%") && reason.contains("a.rs"),
+                    "{reason}"
+                )
+            }
+            v => panic!("{v:?}"),
+        }
+        // 20%: Auto applies; an approval asked anyway shows the percentage
+        assert_eq!(
+            rewrite_gate(Verdict::Allow, &call(&["w:2"]), d.path(), &metas),
+            Verdict::Allow
+        );
+        let ask = Verdict::Ask {
+            reason: "modo Assistido".into(),
+            dangerous: false,
+            suggested_rule: None,
+        };
+        assert!(
+            matches!(rewrite_gate(ask, &call(&["w:2"]), d.path(), &metas), Verdict::Ask { reason, .. } if reason.contains("20% de a.rs"))
+        );
+        // a new file is not a rewrite
+        let mut new = call(&["w:1"]);
+        new.input = serde_json::json!({"path": "novo.rs", "content": "x"});
+        assert_eq!(
+            rewrite_gate(Verdict::Allow, &new, d.path(), &metas),
+            Verdict::Allow
+        );
     }
 }

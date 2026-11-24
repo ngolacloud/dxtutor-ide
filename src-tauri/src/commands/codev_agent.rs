@@ -51,6 +51,7 @@ pub async fn codev_agent_start(
         resume,
         host_tools: vec![std::sync::Arc::new(crate::lsp::LspDiagnosticsTool)],
         host_tools_v4: vec![std::sync::Arc::new(arch_propose)],
+        host_tools_v8: vec![std::sync::Arc::new(crate::codeintel::OutlineTool)],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),
         provider,

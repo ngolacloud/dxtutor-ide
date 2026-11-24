@@ -13,6 +13,7 @@ import { desktopPorts } from "../../app/desktop";
 import { registerActions } from "../../app/actions";
 import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
+import { changedFromDisk, withDiskEol } from "./eol";
 
 export function installWorkspace(ctx: DesktopContext): void {
 const { R, fsx, git, enqueue, escH, isReal, relOf, say } = ctx;
@@ -93,7 +94,8 @@ function flushSave(): void {
     const r = relOf(k);
     if (k.startsWith(ROOT + "learn/") && !(r in R.disk)) return;
     seen.add(r);
-    if (R.disk[r] !== FS[k].content) { w.push([r, FS[k].content]); R.disk[r] = FS[k].content; }
+    // RF-E06: a CRLF file stays CRLF (the editor's textarea gives LF); line endings alone are no change
+    if (changedFromDisk(R.disk[r], FS[k].content)) { const c = withDiskEol(R.disk[r], FS[k].content); w.push([r, c]); R.disk[r] = c; }
   });
   /* Rede de segurança (ADR-0006, R0): um FS esvaziado por inteiro (estado reposto, simulação a
      limpar o workspace…) não é «o utilizador apagou tudo». Nesse caso não se apaga nada no

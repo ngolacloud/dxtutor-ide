@@ -11,6 +11,7 @@
    `window` by `codev.ts`. */
 
 import * as bridge from "./infrastructure/legacy-bridge";
+import { paceCps } from "./domain/composer";
 import { presenter, gate, beat } from "./ui/chat-view";
 import { makeDoTool } from "./application/tool-executor";
 import { makeLiveChat } from "./application/live-chat";
@@ -170,7 +171,8 @@ export const hunkReview = makeHunkReview({
     const id = setInterval(f, ms);
     return () => clearInterval(id);
   },
-  pace: () => 40,
+  // RF-S02: the pace the human chose (Lento 20 / Normal 40 / Rápido 120 / Instantâneo)
+  pace: () => paceCps(bridge.writePace()),
   notify: (m) => bridge.toast(m),
   cancel: () => stopTurn(),
 });

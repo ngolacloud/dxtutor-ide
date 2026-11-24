@@ -386,3 +386,36 @@ test("RF-G07: Esc na caixa pára o Co-Dev a correr; parado, não faz nada", () =
   esc();
   expect(t.sent).toEqual(["<stop>"]);
 });
+
+test("RF-S02: velocidades de escrita; 400 caracteres a Normal levam 10 s (±10%)", async () => {
+  const { paceCps, WRITE_PACES } = await import("../src/features/codev/domain/composer");
+  const { initialOverlay, reduceOverlay, revealStep, activeHunk } = await import("../src/features/codev/domain/hunk-overlay");
+  expect(WRITE_PACES.map((p) => p.label)).toEqual(["Lento", "Normal", "Rápido", "Instantâneo"]);
+  expect([paceCps("slow"), paceCps("normal"), paceCps("fast"), paceCps(undefined)]).toEqual([20, 40, 120, 40]);
+  // the overlay ticks every 50 ms with pace × 0.05 characters (application/hunk-review.ts)
+  let s = initialOverlay();
+  s = reduceOverlay(s, { kind: "hunk_start", hunk: "c:1", call: "c", path: "a.rs", op: "insert", range: { start: 1, end: 0 }, base: null, old: "" });
+  s = reduceOverlay(s, { kind: "hunk_chunk", hunk: "c:1", text: "x".repeat(400) });
+  let ticks = 0;
+  while ((activeHunk(s)?.shown ?? 400) < 400 && ticks < 10_000) {
+    s = revealStep(s, (paceCps("normal") * 50) / 1000);
+    ticks++;
+  }
+  const seconds = (ticks * 50) / 1000;
+  expect(seconds).toBeGreaterThanOrEqual(9);
+  expect(seconds).toBeLessThanOrEqual(11);
+});
+
+test("RF-S02: o menu «/» muda a velocidade de escrita", () => {
+  const t = setup();
+  let pace = "normal";
+  t.host.writePace = () => pace;
+  t.host.setWritePace = (id) => (pace = id);
+  t.type("/");
+  const f = t.$<HTMLInputElement>("#cc-filter");
+  f.value = "velocidade";
+  f.dispatchEvent(new Event("input", { bubbles: true }));
+  expect(t.$("#cc-pop .cc-list").textContent).toContain("Velocidade de escrita no editor");
+  f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  expect(pace).toBe("slow"); // the palette in the test harness runs the first item
+});

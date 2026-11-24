@@ -519,7 +519,45 @@ fn toolset_7_finish_issue_answers_every_criterion_and_keeps_6_as_it_was() {
     let done = fs.finished.lock().unwrap().clone().unwrap();
     assert_eq!(done["criteria"][0]["criterion"], "Dado A quando B então C");
     assert_eq!(done["criteria"][1]["met"], false);
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 7);
+}
+
+#[test]
+fn toolset_8_adds_edit_lines_at_the_end_and_it_writes_only_its_lines() {
+    let fs = FlowState::default();
+    let tools = |v: u32| agent_tools(&ToolsetOptions::default(), v, &fs, None, vec![]);
+    let (n7, n8) = (names(&tools(7)), names(&tools(8)));
+    assert_eq!(&n8[..n7.len()], &n7[..]);
+    assert_eq!(&n8[n7.len()..], &["edit_lines".to_string()]);
+    // without live hunks (TUI/CLI) it writes directly, after a read, with the anchor
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("a.rs"), "fn a() {}\nfn b() {}\nfn c() {}\n").unwrap();
+    let c = ctx(d.path());
+    let t8 = tools(8);
+    let find = |n: &str| t8.iter().find(|t| t.name() == n).unwrap().clone();
+    assert!(!find("read").run(&json!({"path": "a.rs"}), &c).is_error);
+    let r = find("edit_lines").run(&json!({"path": "a.rs", "start": 2, "end": 2, "new_text": "fn b() { todo!() }", "anchor": "fn b() {}"}), &c);
+    assert!(!r.is_error, "{}", r.content);
+    assert_eq!(
+        std::fs::read_to_string(d.path().join("a.rs")).unwrap(),
+        "fn a() {}\nfn b() { todo!() }\nfn c() {}\n"
+    );
+    // the file changed since the read: refused
+    let r = find("edit_lines").run(
+        &json!({"path": "a.rs", "start": 1, "end": 1, "new_text": "x", "anchor": "fn a() {}"}),
+        &c,
+    );
+    assert!(
+        !r.is_error,
+        "the tool's own write keeps the state fresh: {}",
+        r.content
+    );
+    std::fs::write(d.path().join("a.rs"), "changed by the human\n").unwrap();
+    let r = find("edit_lines").run(
+        &json!({"path": "a.rs", "start": 1, "end": 1, "new_text": "y", "anchor": "x"}),
+        &c,
+    );
+    assert!(r.is_error);
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 8);
 }
 
 #[test]

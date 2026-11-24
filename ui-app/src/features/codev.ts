@@ -411,6 +411,8 @@ const composerHost: ComposerHost = {
   switchProvider: () => pickModel(),
   dictation: () => dictationGateway,
   dictationLang: () => parseDictationLang(bridge.dictationLang()),
+  writePace: () => bridge.writePace() ?? "normal",
+  setWritePace: (id) => bridge.setWritePace(id),
   setDictationLang: (l) => bridge.setDictationLang(l),
   localModels: () => (isDesktop() ? ollamaModels() : Promise.resolve([])),
 };

@@ -529,6 +529,121 @@ pub fn plan_edit(
     ))
 }
 
+/// The change of an `edit_lines` call (RF-E01/E02/E06, docs/v2/RF-DELONIX-PLANO.md F2.1): lines
+/// `start..=end` (1-based) become `new_text`; `start == end + 1` inserts before line `start`.
+/// `anchor` is the current text of those lines: if it does not match (the file changed since
+/// the agent read it), the change is refused and the agent reads the file again. The file's
+/// style is kept: its line ending (LF/CRLF) and whether the last line ends with one.
+pub fn lines_change(
+    text: &str,
+    start: usize,
+    end: usize,
+    new_text: &str,
+    anchor: &str,
+) -> Result<Change, String> {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let n = lines.len();
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let norm = |s: &str| s.replace("\r\n", "\n").trim_end_matches('\n').to_string();
+    if start == 0 {
+        return Err("as linhas começam em 1".into());
+    }
+    let insert = start == end + 1;
+    if !insert && (start > end || end > n) {
+        return Err(format!(
+            "intervalo {start}–{end} inválido: o ficheiro tem {n} linha(s); para inserir antes da linha L usa start = L e end = L − 1"
+        ));
+    }
+    if insert && start > n + 1 {
+        return Err(format!("não há linha {start} (o ficheiro tem {n})"));
+    }
+    let old: String = if insert {
+        String::new()
+    } else {
+        lines[start - 1..end].concat()
+    };
+    if norm(anchor) != norm(&old) {
+        let shown: String = old.lines().take(3).collect::<Vec<_>>().join("\n");
+        return Err(format!(
+            "a âncora não coincide com as linhas {start}–{end} (o ficheiro mudou desde que o leste?): \
+             relê-o com read e tenta de novo. Lá está agora: «{shown}»"
+        ));
+    }
+    // the new lines in the file's line ending, ending like the lines they replace
+    let mut new = new_text.replace("\r\n", "\n");
+    let at_eof_without_newline = !insert && end == n && !old.ends_with('\n');
+    let inserting_after_eof_without_newline =
+        insert && start == n + 1 && n > 0 && !text.ends_with('\n');
+    if !new.is_empty() && !new.ends_with('\n') && !at_eof_without_newline {
+        new.push('\n');
+    }
+    if at_eof_without_newline && new.ends_with('\n') {
+        new.pop();
+    }
+    if eol == "\r\n" {
+        new = new.replace('\n', "\r\n");
+    }
+    if inserting_after_eof_without_newline {
+        // the last line needs its line ending before new lines follow it
+        return Ok(Change {
+            op: HunkOp::Replace,
+            range: LineRange { start: n, end: n },
+            old: lines[n - 1].to_string(),
+            new: format!(
+                "{}{eol}{}",
+                lines[n - 1],
+                new.trim_end_matches(['\r', '\n'])
+            ),
+        });
+    }
+    let op = match (old.is_empty(), new.is_empty()) {
+        (true, _) => HunkOp::Insert,
+        (false, true) => HunkOp::Delete,
+        (false, false) => HunkOp::Replace,
+    };
+    if old == new {
+        return Err("as linhas novas são iguais às actuais: nada a mudar".into());
+    }
+    Ok(Change {
+        op,
+        range: if insert {
+            LineRange {
+                start,
+                end: start - 1,
+            }
+        } else {
+            LineRange { start, end }
+        },
+        old,
+        new,
+    })
+}
+
+/// The hunk of an `edit_lines` call, with the tool's checks: the file was read and has not
+/// changed since, it is UTF-8 (a line edit would corrupt another encoding), the anchor matches.
+pub fn plan_edit_lines(
+    files: &FileState,
+    root: &Path,
+    input: &Value,
+) -> Result<(PathBuf, Option<u64>, Vec<Change>), String> {
+    let given = input["path"].as_str().unwrap_or_default();
+    let abs = crate::sandbox::resolve(root, given)?;
+    let cur = crate::tools::check_fresh(files, &abs, given)?;
+    let text = std::str::from_utf8(&cur)
+        .map_err(|_| format!("{given} não é UTF-8: não o altero linha a linha (diz ao humano)"))?;
+    let start = input["start"].as_u64().unwrap_or(0) as usize;
+    let end = input["end"].as_u64().unwrap_or(0) as usize;
+    let change = lines_change(
+        text,
+        start,
+        end,
+        input["new_text"].as_str().unwrap_or_default(),
+        input["anchor"].as_str().unwrap_or_default(),
+    )
+    .map_err(|e| format!("{given}: {e}"))?;
+    Ok((abs, Some(FileState::fingerprint(&cur)), vec![change]))
+}
+
 /// The hunks of a `write` call: a new file is one `create` hunk; an existing file is
 /// diffed line by line against what is on disk.
 pub fn plan_write(
@@ -878,6 +993,9 @@ pub fn broke(baseline: &[Check], after: &[Check]) -> Vec<Check> {
 enum Kind {
     Edit,
     Write,
+    /// Toolset 8: the line range is only known when the input is complete, so the hunk is
+    /// announced then (the editor still types it at the reading pace).
+    EditLines,
 }
 
 impl Kind {
@@ -885,6 +1003,7 @@ impl Kind {
         match name {
             "edit" => Some(Kind::Edit),
             "write" => Some(Kind::Write),
+            "edit_lines" => Some(Kind::EditLines),
             _ => None,
         }
     }
@@ -1018,6 +1137,9 @@ impl HunkTracker {
 
     /// Opens the live hunk once enough of the input is known.
     fn try_start(&mut self, l: &mut Live, events: &mut dyn FnMut(AgentEvent)) {
+        if l.kind == Kind::EditLines {
+            l.deferred = true;
+        }
         if l.stream.is_some() || l.deferred || !l.done.contains("path") {
             return;
         }
@@ -1027,6 +1149,8 @@ impl HunkTracker {
             return;
         };
         let (op, range, old, base, prefix) = match l.kind {
+            // never live (deferred above): the range comes with the complete input
+            Kind::EditLines => return,
             Kind::Edit => {
                 if !l.done.contains("old_string") {
                     return;
@@ -1099,6 +1223,7 @@ impl HunkTracker {
         let field = match l.kind {
             Kind::Edit => "new_string",
             Kind::Write => "content",
+            Kind::EditLines => "new_text",
         };
         let (Some(s), Some(text)) = (l.stream.as_mut(), l.fields.get(field)) else {
             return;
@@ -1123,6 +1248,7 @@ impl HunkTracker {
         let planned = match kind {
             Kind::Edit => plan_edit(&self.files, &self.root, input),
             Kind::Write => plan_write(&self.files, &self.root, input),
+            Kind::EditLines => plan_edit_lines(&self.files, &self.root, input),
         };
         let (abs, base, changes) = match planned {
             Ok(p) => p,
@@ -1979,5 +2105,85 @@ mod tests {
         stream_call(&mut t, "b", "bash", &[r#"{"command":"ls"}"#], &mut ev);
         assert!(ev.is_empty());
         assert!(t.take_plan("b", "bash", &json!({}), &mut |_| {}).is_none());
+    }
+
+    #[test]
+    fn edit_lines_changes_only_its_lines_and_checks_the_anchor() {
+        // RF-E01: a 3-line fix in a 400-line file is a 3-line diff
+        let text: String = (1..=400).map(|n| format!("line {n}\n")).collect();
+        let c = lines_change(&text, 120, 122, "a\nb\nc", "line 120\nline 121\nline 122\n").unwrap();
+        assert_eq!(
+            (c.op, c.range.start, c.range.end),
+            (HunkOp::Replace, 120, 122)
+        );
+        assert_eq!(
+            c.lines(),
+            LineCount {
+                added: 3,
+                removed: 3
+            }
+        );
+        let after = splice(&text, &[&c]).unwrap();
+        assert_eq!(diff_changes(&text, &after).len(), 1);
+        assert_eq!(after.lines().count(), 400);
+        // RF-E02: the file changed since it was read → refused, with what is there now
+        let e = lines_change(&text, 120, 120, "x", "line 999").unwrap_err();
+        assert!(
+            e.contains("âncora não coincide") && e.contains("line 120"),
+            "{e}"
+        );
+        // insert before a line, delete a range, bad ranges
+        let c = lines_change("a\nb\n", 2, 1, "new", "").unwrap();
+        assert_eq!(
+            (c.op, splice("a\nb\n", &[&c]).unwrap().as_str()),
+            (HunkOp::Insert, "a\nnew\nb\n")
+        );
+        let c = lines_change("a\nb\nc\n", 2, 2, "", "b").unwrap();
+        assert_eq!(
+            (c.op, splice("a\nb\nc\n", &[&c]).unwrap().as_str()),
+            (HunkOp::Delete, "a\nc\n")
+        );
+        assert!(lines_change("a\n", 3, 3, "x", "")
+            .unwrap_err()
+            .contains("inválido"));
+        assert!(lines_change("a\n", 1, 1, "a", "a")
+            .unwrap_err()
+            .contains("nada a mudar"));
+    }
+
+    #[test]
+    fn edit_lines_keeps_crlf_and_the_missing_final_newline() {
+        // RF-E06: a patch in a CRLF file does not turn the rest into LF
+        let crlf = "one\r\ntwo\r\nthree\r\n";
+        let c = lines_change(crlf, 2, 2, "TWO\nand a half", "two").unwrap();
+        assert_eq!(
+            splice(crlf, &[&c]).unwrap(),
+            "one\r\nTWO\r\nand a half\r\nthree\r\n"
+        );
+        // the last line without a newline stays without one
+        let c = lines_change("a\nlast", 2, 2, "LAST\n", "last").unwrap();
+        assert_eq!(splice("a\nlast", &[&c]).unwrap(), "a\nLAST");
+        // appending after it gives it its line ending first
+        let c = lines_change("a\nlast", 3, 2, "more", "").unwrap();
+        assert_eq!(splice("a\nlast", &[&c]).unwrap(), "a\nlast\nmore");
+    }
+
+    #[test]
+    fn edit_lines_needs_a_read_fresh_utf8_file() {
+        let d = tempfile::tempdir().unwrap();
+        let files = FileState::default();
+        std::fs::write(d.path().join("a.txt"), "x\ny\n").unwrap();
+        let input = serde_json::json!({"path": "a.txt", "start": 2, "end": 2, "new_text": "Y", "anchor": "y"});
+        assert!(
+            plan_edit_lines(&files, d.path(), &input).is_err(),
+            "not read yet"
+        );
+        files.record(&d.path().join("a.txt"), b"x\ny\n");
+        let (_, base, changes) = plan_edit_lines(&files, d.path(), &input).unwrap();
+        assert!(base.is_some() && changes.len() == 1);
+        std::fs::write(d.path().join("l1.txt"), b"caf\xe9\n").unwrap();
+        files.record(&d.path().join("l1.txt"), b"caf\xe9\n");
+        let e = plan_edit_lines(&files, d.path(), &serde_json::json!({"path": "l1.txt", "start": 1, "end": 1, "new_text": "x", "anchor": ""})).unwrap_err();
+        assert!(e.contains("não é UTF-8"), "{e}");
     }
 }

@@ -206,19 +206,19 @@ Cada ferramenta nova sobe o `TOOLSET_VERSION`. Combinar a ordem antes da F1.
 
 | Passo | O quê | Onde |
 |---|---|---|
-| F2.1 | `edit_lines(path,start,end,new_text,anchor)` (D3) no pipeline de hunks; inserção quando `start > end` | `tutor-agent/src/tools/fs.rs`, `hunks.rs`; `TOOLSET_VERSION` +1 |
-| F2.2 | Ferramentas `outline(path)` e `symbol(path,name)` para o agente (E04), via `codemap::symbol_ranges` (dependência `tutor-agent → tutor-eval`, ou ferramenta do anfitrião) | `tools/mod.rs`, `crates/tutor-eval/src/codemap.rs:179-215` |
-| F2.3 | Construtor de contexto (E03): trechos por símbolo ±N com números de linha, dentro de um orçamento de tokens; usado pelo template (F4.3) | Rust, ao lado do `context.rs` |
-| F2.4 | E05: na revisão de um `write` sobre um ficheiro existente, mostrar a % de linhas alteradas; acima de 60% exige o campo `reason`; lista de ficheiros gerados (`@generated`, globs) | `hunks.rs` (finalize do write), cartão de revisão |
-| F2.5 | E06: o `read` assinala CRLF; recusar ficheiros não-UTF-8 em vez de `from_utf8_lossy`; o editor guarda o EOL de cada ficheiro e repõe-no ao gravar | `fs.rs:66-93, 174`; `features/editor.ts`, `platform/desktop/workspace.ts` |
-| F2.6 | E07: pilha de undo por ficheiro no editor; cada hunk aplicado é um passo; Ctrl+Z repõe o conteúdo anterior exacto | `features/editor.ts` (sem Monaco) |
-| F2.7 | E08: *change set* por issue (a tabela `change_sets` da A5 §9, com `issue_key`); o SCM agrupa-os e mostra a chave | `tutor-board`/store; `features/scm.ts:138` |
+| F2.1 | ✅ **Feito** (conjunto 8): `edit_lines {path, start, end, new_text, anchor}` — substitui ou insere (start = end + 1); âncora = texto actual das linhas, se não coincidir é recusado com o que lá está; mantém LF/CRLF e a linha final; recusa ficheiros não-UTF-8; no IDE vira hunk revisto, na TUI/CLI escreve directamente. Critério RF-E01 testado (3 linhas em 400 → diff de 3). `edit_lines(path,start,end,new_text,anchor)` (D3) no pipeline de hunks; inserção quando `start > end` | `tutor-agent/src/tools/fs.rs`, `hunks.rs`; `TOOLSET_VERSION` +1 |
+| F2.2 | ✅ **Feito** (conjunto 8): ferramenta do anfitrião `outline {path, symbol?}` → símbolos com o intervalo de linhas (servidor de linguagem; reserva: mapa sintáctico), via `codeintel`, sem trazer o `tutor-eval` para o `tutor-agent`. Ferramentas `outline(path)` e `symbol(path,name)` para o agente (E04), via `codemap::symbol_ranges` (dependência `tutor-agent → tutor-eval`, ou ferramenta do anfitrião) | `tools/mod.rs`, `crates/tutor-eval/src/codemap.rs:179-215` |
+| F2.3 | 🟡 **Em parte**: o prompt da issue (F4.3) já leva o código do âmbito com números de linha e orçamento. **Falta:** trechos por símbolo ±N linhas. Construtor de contexto (E03): trechos por símbolo ±N com números de linha, dentro de um orçamento de tokens; usado pelo template (F4.3) | Rust, ao lado do `context.rs` |
+| F2.4 | ✅ **Feito**: um `write` sobre um ficheiro existente que substitui mais de 60% das linhas pede sempre aprovação (também em Auto) com a percentagem; abaixo disso a percentagem vai no motivo de uma aprovação que já se pedia; ficheiros novos não contam. E05: na revisão de um `write` sobre um ficheiro existente, mostrar a % de linhas alteradas; acima de 60% exige o campo `reason`; lista de ficheiros gerados (`@generated`, globs) | `hunks.rs` (finalize do write), cartão de revisão |
+| F2.5 | ✅ **Feito**: `edit_lines` mantém CRLF e recusa não-UTF-8; o autosave do desktop repõe o fim de linha do disco (o textarea dá LF) e não grava diferenças que são só de fim de linha (`platform/desktop/eol.ts`). E06: o `read` assinala CRLF; recusar ficheiros não-UTF-8 em vez de `from_utf8_lossy`; o editor guarda o EOL de cada ficheiro e repõe-no ao gravar | `fs.rs:66-93, 174`; `features/editor.ts`, `platform/desktop/workspace.ts` |
+| F2.6 | ❌ **Por fazer**: pilha de undo por ficheiro no editor (cada hunk aplicado = um passo). E07: pilha de undo por ficheiro no editor; cada hunk aplicado é um passo; Ctrl+Z repõe o conteúdo anterior exacto | `features/editor.ts` (sem Monaco) |
+| F2.7 | ❌ **Por fazer**: agrupar os *change sets* por issue no SCM (estão no painel da issue do Project desde a A5). E08: *change set* por issue (a tabela `change_sets` da A5 §9, com `issue_key`); o SCM agrupa-os e mostra a chave | `tutor-board`/store; `features/scm.ts:138` |
 
 ### F3 — Streaming, o que falta depois da A2 (RF-S01/S02/S08) (S)
 
 | Passo | O quê |
 |---|---|
-| F3.1 | Opções de velocidade (D6) nas Definições; teste do ritmo (400 car em Normal = 10 s ±10%) sobre o `revealStep` puro |
+| F3.1 | ✅ **Feito**: «Velocidade de escrita no editor…» no menu «/» (Lento 20 / Normal 40 / Rápido 120 / Instantâneo), guardada entre execuções; critério RF-S02 testado (400 caracteres a Normal = 10 s). Opções de velocidade (D6) nas Definições; teste do ritmo (400 car em Normal = 10 s ±10%) sobre o `revealStep` puro |
 | F3.2 | Confirmar a rede de segurança dos blocos de código no chat (§7 da A2) e a linha «A escrever `path` a–b» com link |
 | F3.3 | Ordem do plano: hunks de um ficheiro fora da ordem do plano ficam à espera (ou o backend serializa pela ordem do `plan`) |
 | F3.4 | Capturas Playwright a 1440×900: linha activa, bloco escrito, marca na margem que desaparece ao aceitar |

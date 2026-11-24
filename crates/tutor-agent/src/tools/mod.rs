@@ -104,7 +104,7 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7);
 /// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura);
 /// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06).
-pub const TOOLSET_VERSION: u32 = 7;
+pub const TOOLSET_VERSION: u32 = 8;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -136,6 +136,12 @@ pub fn agent_tools(
     subagent: Option<flow::SubagentSpec>,
     extras: Vec<Arc<dyn Tool>>,
 ) -> Vec<Arc<dyn Tool>> {
+    // the edit tools share one file state (what was read, and when)
+    let state = opts.files.clone().unwrap_or_default();
+    let opts = &ToolsetOptions {
+        files: Some(state.clone()),
+        ..opts.clone()
+    };
     let mut v = coding_tools(opts);
     if version >= 2 {
         v.push(Arc::new(flow::TodoWrite {
@@ -173,6 +179,10 @@ pub fn agent_tools(
             criteria: flow_state.criteria.clone(),
             finished: flow_state.finished.clone(),
         }));
+    }
+    // toolset 8 (F2.1): line edits anchored on the lines' text
+    if version >= 8 {
+        v.push(Arc::new(fs::EditLines { state }));
     }
     v
 }

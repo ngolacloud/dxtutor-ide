@@ -240,6 +240,75 @@ impl Tool for Edit {
     }
 }
 
+/// Toolset 8 (RF-E01/E02, docs/v2/RF-DELONIX-PLANO.md F2.1): the main way to change a file —
+/// replace (or insert) a range of lines, anchored on their current text. With live hunks on, the
+/// IDE turns the call into a hunk the human reviews; without (TUI/CLI) it writes directly.
+pub struct EditLines {
+    pub state: Arc<FileState>,
+}
+
+impl Tool for EditLines {
+    fn name(&self) -> &str {
+        "edit_lines"
+    }
+    fn description(&self) -> &str {
+        "A forma principal de alterar um ficheiro: substitui as linhas start..end (1-based, como \
+         o `read` as numera) por new_text; com start = end + 1 insere antes da linha start. \
+         `anchor` é o texto actual dessas linhas (vazio ao inserir): se o ficheiro mudou, a \
+         alteração é recusada e relês o ficheiro. Muda só as linhas necessárias; o fim de linha \
+         (LF/CRLF) do ficheiro mantém-se. Exige ter lido o ficheiro antes."
+    }
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "start": {"type": "integer", "minimum": 1},
+                "end": {"type": "integer", "minimum": 0, "description": "start - 1 para inserir"},
+                "new_text": {"type": "string", "description": "as linhas novas (vazio = apagar o intervalo)"},
+                "anchor": {"type": "string", "description": "o texto actual das linhas start..end"}
+            },
+            "required": ["path", "start", "end", "new_text", "anchor"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        false
+    }
+    fn mutates_files(&self) -> bool {
+        true
+    }
+    fn eager_input(&self) -> bool {
+        true
+    }
+    fn run(&self, input: &Value, ctx: &ToolCtx) -> ToolOutput {
+        let given = input["path"].as_str().unwrap_or_default();
+        let (abs, _, changes) = match crate::hunks::plan_edit_lines(&self.state, &ctx.root, input) {
+            Ok(p) => p,
+            Err(e) => return ToolOutput::err(e),
+        };
+        let text = match std::fs::read(&abs) {
+            Ok(b) => String::from_utf8_lossy(&b).to_string(),
+            Err(e) => return ToolOutput::err(format!("{given}: {e}")),
+        };
+        let refs: Vec<&crate::hunks::Change> = changes.iter().collect();
+        let updated = match crate::hunks::splice(&text, &refs) {
+            Ok(t) => t,
+            Err(e) => return ToolOutput::err(format!("{given}: {e}")),
+        };
+        if let Err(e) = std::fs::write(&abs, updated.as_bytes()) {
+            return ToolOutput::err(format!("{given}: {e}"));
+        }
+        self.state.record(&abs, updated.as_bytes());
+        let c = &changes[0];
+        let l = c.lines();
+        ToolOutput::ok(format!(
+            "{given}: linhas {}–{} (+{} −{})",
+            c.range.start, c.range.end, l.added, l.removed
+        ))
+    }
+}
+
 pub struct Write {
     pub state: Arc<FileState>,
 }
