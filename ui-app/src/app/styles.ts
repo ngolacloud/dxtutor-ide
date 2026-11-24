@@ -42,3 +42,5 @@ import "../features/panel/styles.css";
 import "../features/testing/styles.css";
 /* A8: o «Under the hood» e o traço reais (prefixo hd-); a posição não decide nada */
 import "../features/hood/styles.css";
+/* A9: o separador Ops (prefixo ops-); a posição não decide nada */
+import "../features/ops/styles.css";

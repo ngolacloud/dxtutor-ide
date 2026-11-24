@@ -13,6 +13,7 @@ import { projectClient } from "../tauri/project";
 import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
+import { tauriOps } from "../../features/ops/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
@@ -556,6 +557,29 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         growth: grow.ok ? `${grow.bigO} (R² ${grow.rSquared?.toFixed(2)}, ${grow.confidence})` : grow.notes.slice(0, 120),
         traceRust: trRs.supported ? trRs.steps.length : trRs.notes.slice(0, 120), tracePython: trPy.supported ? trPy.steps.length : trPy.notes.slice(0, 120),
       };
+    });
+    // A9: Ops em só leitura — um plano real do OpenTofu/Terraform numa pasta infra/ do repositório
+    // temporário; o kubectl contra um kubeconfig TEMPORÁRIO e vazio (nunca os clusters do utilizador);
+    // e o estado das CLIs de cloud desta máquina.
+    await step("ops", async () => {
+      const op = tauriOps(), root = R.root as string;
+      const tf = ROOT + "infra/main.tf", kc = ROOT + "kubeconfig-selftest.yaml";
+      writeFile(tf, 'resource "terraform_data" "web" {\n  input = { image = "nginx:1.27", replicas = 2 }\n}\n');
+      writeFile(kc, "apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n");
+      flushSave(); await idle();
+      try {
+        const dirs = await op.iacDirs(root);
+        const plan = await op.iacPlan(root, "infra", false);
+        const kube = await op.kubeState({ kubeconfig: root.replace(/\/$/, "") + "/kubeconfig-selftest.yaml", context: "selftest-nowhere", namespace: "default" });
+        const cloud = await op.cloudStatus();
+        return {
+          dirs, tool: plan.tool, planOk: plan.ok, add: plan.add, address: plan.changes[0]?.address, unknownId: !!plan.changes[0]?.attrs.some((a) => a.name === "id" && a.unknown), planNotes: plan.notes.slice(0, 160),
+          kubeOk: kube.ok, kubeSaysWhy: /selftest-nowhere/.test(kube.notes),
+          cloud: cloud.map((c) => `${c.provider}:${c.installed ? "installed" : "absent"}`).join(" "),
+        };
+      } finally {
+        delete FS[tf]; delete FS[kc]; flushSave(); await idle();
+      }
     });
     // contentores (ADR-0006, R5a): ligar o runtime real (docker info pelo socket) e o pane
     // Containers lista os contentores e as imagens reais (ps/images em JSON).
