@@ -545,7 +545,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const py = await hd.bytecode("def add(a, b):\n    return a + b\n\nprint(add(1, 2))\n");
       const pipe = await hd.pipeline(rs);
       const run = await hd.measured(rs);
-      const grow = await hd.growth(rs, [200000, 400000, 800000, 1600000, 3200000]);
+      const grow = await hd.growth(rs, [20000000, 40000000, 80000000, 160000000, 320000000]); // big enough for the work to dominate the noise
       const trRs = await hd.trace("rust", rs);
       const trPy = await hd.trace("python", "def add(a, b):\n    s = a + b\n    return s\n\nprint(add(2, 3))\n");
       return {

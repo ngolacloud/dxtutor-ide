@@ -53,8 +53,10 @@ function stagePanel(t: T, h: HoodState): string {
 
 function measuredCard(t: T, h: HoodState): string {
   const m = h.measured;
+  /* no sandbox de contentor o CLI não dá CPU nem memória: o backend devolve-os a zero e a vista não os mostra como medidos */
+  const fine = !!m && (m.telemetry.peakRssKb > 0 || m.telemetry.cpuUserMs + m.telemetry.cpuSysMs > 0 || m.telemetry.samples.length > 0);
   const body = m
-    ? `<div class="hd-kv"><span>${t("wall")}</span><b>${fmtMs(m.telemetry.wallMs)}</b><span>${t("cpu")}</span><b>${fmtMs(m.telemetry.cpuUserMs + m.telemetry.cpuSysMs)}</b><span>${t("rss")}</span><b>${(m.telemetry.peakRssKb / 1024).toFixed(1)} MB</b><span>${t("exit")}</span><b>${m.telemetry.exitCode}</b></div>`
+    ? `<div class="hd-kv"><span>${t("wall")}</span><b>${fmtMs(m.telemetry.wallMs)}</b>${fine ? `<span>${t("cpu")}</span><b>${fmtMs(m.telemetry.cpuUserMs + m.telemetry.cpuSysMs)}</b><span>${t("rss")}</span><b>${(m.telemetry.peakRssKb / 1024).toFixed(1)} MB</b>` : ""}<span>${t("exit")}</span><b>${m.telemetry.exitCode}</b></div>${fine ? "" : `<div class="hd-meta">${t("inContainer")}</div>`}`
       + (m.telemetry.samples.length > 1 ? `<div class="hd-meta">${t("memCurve")}</div><svg class="hd-spark" viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true"><polyline points="${sparkPoints(m.telemetry.samples, 240, 40)}" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>` : "")
       + (m.run.stdout || m.run.stderr ? `<pre class="hd-code notr">${esc((m.run.stdout + (m.run.stderr ? "\n" + m.run.stderr : "")).slice(-3000))}</pre>` : "")
     : `<div class="sec-empty">${t("notMeasured")}</div>`;

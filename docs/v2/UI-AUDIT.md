@@ -312,6 +312,27 @@ verdade**. O Hood é uma lista de etapas por regex. Backend real e sem uso: `tra
 Correcção imediata proposta (texto, não código de motor): tirar a frase "The desktop app traces real
 binaries" enquanto não for verdade.
 
+**Estado após a A8 (2026-11-24):** a frase já tinha saído (R1). A A8 junta a feature nova e tipada `features/hood/`,
+só no desktop (no browser e nos goldens nada muda):
+- **VIZ-01:** separador «Execution trace» com a execução real (`trace_execution`: Python por `settrace`, Rust por
+  instrumentação) passo a passo — reproduzir, pilha, variáveis locais com o que mudou, saída até esse passo. O modelo TS
+  com «predict» fica como modo de aprendizagem (VIZ-06).
+- **VIZ-02/03:** separador «Under the hood (real)» com as instruções de máquina de cada linha (`hood_line_asm`:
+  `rustc -C debuginfo=2` + `objdump -d -l`, debug ou release; o código inline da std fica com a std), o calor de cada
+  linha, o bytecode CPython por linha e função (`hood_python_bytecode`, `dis`), e LLVM IR / assembly / MIR / desmontagem
+  do `compile_pipeline`.
+- **VIZ-05:** «Run & measure» com o `run_measured` (tempo real, CPU, memória de pico, curva de memória) e «Growth with
+  N» (`measure_growth`): o programa é construído uma vez e corrido com N crescente, com o tempo de arranque descontado,
+  e o `complexity::estimate` dá a classe, o R² e a confiança.
+- **VIZ-07:** «Explicar o código desta linha», «Porquê este crescimento?» e «Explicar este passo» pelo `codev.ask`.
+- **Por fazer:**
+  - o flame graph — o `perf` está bloqueado nesta máquina (`perf_event_paranoid=4`, precisa de root ou de baixar o
+    limite); py-spy e pprof não estão instalados;
+  - VIZ-04: a linha temporal de threads;
+  - o grafo de heap real (estender os tracers);
+  - o bytecode JVM (`javap`);
+  - tokens/AST ligados às linhas (VIZ-03 parcial: só MIR/IR/asm).
+
 ### Item 10 · DevOps, platform engineering e SRE com AWS, GCP e Azure
 
 **Real hoje:** `docker|podman info`, `kubectl config get-contexts`/`get ns`, `kubectl get deploy -o json`,

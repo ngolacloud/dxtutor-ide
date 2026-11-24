@@ -19,7 +19,7 @@ export const HOOD_MESSAGES = {
     askLineText: "Explain what this source line becomes in the code below, instruction by instruction, and what that says about its cost.",
     askGrowthText: "The measured times fit {o}. Explain where in the code that growth comes from and how to improve it, if it can be improved.",
     askStepText: "Explain what this step of the real execution does and why the locals have these values.",
-    needDesktop: "This runs the real toolchain: it needs the desktop app.", openReal: "Machine code per line (real)", openTrace: "Trace the real execution",
+    needDesktop: "This runs the real toolchain: it needs the desktop app.", inContainer: "The program ran in the sandbox container: its CLI gives the wall time only — CPU and memory are not measured there (switch the sandbox engine to Host to see them).", openReal: "Machine code per line (real)", openTrace: "Trace the real execution",
   },
   ptAO: {
     hoodTab: "Hood · {f}", traceTab: "Traço · {f}", title: "Por baixo do capô (real)", traceTitle: "Traço de execução",
@@ -37,7 +37,7 @@ export const HOOD_MESSAGES = {
     askLineText: "Explica em que se transforma esta linha de código no código abaixo, instrução a instrução, e o que isso diz do seu custo.",
     askGrowthText: "Os tempos medidos ajustam {o}. Explica de onde vem esse crescimento no código e como o melhorar, se puder ser melhorado.",
     askStepText: "Explica o que faz este passo da execução real e porque é que as variáveis locais têm estes valores.",
-    needDesktop: "Isto corre a toolchain real: precisa da app desktop.", openReal: "Código máquina por linha (real)", openTrace: "Traçar a execução real",
+    needDesktop: "Isto corre a toolchain real: precisa da app desktop.", inContainer: "O programa correu no contentor do sandbox: o CLI dele só dá o tempo real — o CPU e a memória não se medem aí (muda o motor do sandbox para Host para os ver).", openReal: "Código máquina por linha (real)", openTrace: "Traçar a execução real",
   },
 } satisfies Messages<string>;
 export type HoodKey = keyof typeof HOOD_MESSAGES.en;

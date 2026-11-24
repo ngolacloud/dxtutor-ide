@@ -136,6 +136,12 @@ describe("as vistas", () => {
     expect(host.querySelector(".hd-code")?.textContent).toContain("xor %rsi,%rax");
     expect(host.querySelectorAll(".hd-bar")).toHaveLength(4);
     expect(host.querySelector(".hd-spark polyline")).not.toBeNull();
+    expect(host.querySelector(".hd-kv")?.textContent).toContain("2.0 MB");
+    // in the sandbox container CPU and memory come back as 0: shown as not measured, not as 0 MB
+    f.h.hood()!.measured = { run: { ok: true, stdout: "", stderr: "" }, telemetry: { wallMs: 3, cpuUserMs: 0, cpuSysMs: 0, peakRssKb: 0, ioReadBlocks: 0, ioWriteBlocks: 0, exitCode: 0, samples: [] } };
+    host.innerHTML = renderHood(t as never, f.h.hood(), true);
+    expect(host.querySelector(".hd-kv")?.textContent).not.toContain("MB");
+    expect(host.textContent).toContain("inContainer");
     await f.h.openTrace();
     f.h.goStep(1);
     host.innerHTML = renderTrace(t as never, f.h.trace(), true);
