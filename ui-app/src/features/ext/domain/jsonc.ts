@@ -1,6 +1,6 @@
 /* ═══════════ feature `ext` — JSON com comentários (JSONC) ═══════════
    Os ficheiros de uma extensão VS Code (temas, snippets, language-configuration) são
-   muitas vezes JSONC: comentários `//` e `/* … *​/` e vírgulas finais. O `JSON.parse`
+   muitas vezes JSONC: comentários de linha e de bloco e vírgulas finais. O `JSON.parse`
    recusa-os, por isso tiramo-los primeiro, sem tocar no conteúdo das strings. PURO. */
 
 /** Remove comentários e vírgulas finais (fora de strings) e faz `JSON.parse`. */
