@@ -143,9 +143,31 @@ export interface VzNote {
   k?: string;
 }
 
-/** Um passo do traço: linha, eventos, saída acumulada e um retrato das frames/heap.
- *  O conteúdo detalhado (frames/heap/ro) é produzido pelo interpretador @ts-nocheck;
- *  aqui ficam os campos que o overlay e a narração consomem. */
+/** Uma referência guardada num slot: aponta para o slot `fi:si` (e para a célula `idx`
+ *  quando é um elemento); `fat` quando é um ponteiro largo (slice/&str). */
+export interface VzSlotRef { fi: number; si: number; idx?: number | null; mut: boolean; fat?: boolean }
+
+/** O retrato de uma variável numa frame (o que o overlay desenha). `ptr` é o id do bloco
+ *  de heap (Vec/String), `ro` o id do literal em dados só-de-leitura, `arr` as células de
+ *  um array, `hdr` o cabeçalho (ptr/cap/len) de um Vec/String. */
+export interface VzSlot {
+  name: string; ty: string; val: string; addr: number; size: number;
+  st?: string; mvAt?: number; mvTo?: string | null; mut?: boolean; fi: number; si: number;
+  ptr: number | null; hdr: { addr: number; cap: number; len: number } | null;
+  ro: number | null; ref: VzSlotRef | null; arr: string[] | null; aes: number;
+}
+
+/** O retrato de uma frame da pilha. */
+export interface VzFrame { fn: string; line: number; sp: number; base: number; slots: VzSlot[] }
+
+/** O retrato de um bloco de heap (buffer de Vec ou bytes de String). */
+export interface VzHeapBlock { id: number; kind: string; addr: number; cap: number; es: number; len: number; cells: string[]; freed?: boolean; label?: string }
+
+/** Um literal em dados só-de-leitura (`&'static str`). */
+export interface VzRoData { id: number; s: string; addr: number; len: number }
+
+/** Um passo do traço: linha, eventos, saída acumulada e um retrato das frames/heap/dados
+ *  só-de-leitura (produzido pelo `snap()` do interpretador). */
 export interface VzStep {
   line: number;
   ev: VzEvent[];
@@ -153,9 +175,9 @@ export interface VzStep {
   err: string;
   cnt: Record<string, number>;
   extra: { retFrom?: string } | null;
-  frames: unknown[];
-  heap: unknown[];
-  ro: unknown[];
+  frames: VzFrame[];
+  heap: VzHeapBlock[];
+  ro: VzRoData[];
 }
 
 /** O desfecho do programa: terminou bem, estourou (panic), não compila (comp) ou

@@ -232,7 +232,7 @@ features/visualizer/
   ui/              actions.ts (bindActions: 1 listener delegado; guard no document, não
                    window; chave própria __vizActionHandler__).
   infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
-features/visualizer.ts  RESÍDUO strangler (@ts-nocheck, FORA da subárvore) + raiz de
+features/visualizer.ts  RESÍDUO strangler (tipado desde a U4i2 do ADR-0004; FORA da subárvore) + raiz de
                    composição: DONO do overlay (vizOpen/vzRender/vzArrows/vzGo/vzPlay/…)
                    e do boot7 (decora VIEW.lt/VIEW.hood, EACT/MENUS/CMD); importa o motor
                    do domínio e o caso de uso, constrói a TABELA de acções (data-action)

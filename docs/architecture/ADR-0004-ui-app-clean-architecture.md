@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4h, U4i1; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4h, U4i1–U4i2; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -644,3 +644,17 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `_t`, exigido pelo `noUnusedParameters`). `@ts-nocheck` 5 → 4; lint 276 → 275. Verificado
   na worktree limpa: tsc, 414 testes (snapshots sem diff), arch:check, build, arranque no
   browser 4/4 e auto-teste desktop idêntico ao da HEAD.
+- **U4i2 (2026-11-24) — o `features/visualizer.ts` tipado.** O estado do overlay ganha um tipo
+  (`VzOverlay`: fonte, passo, temporizador, profundidade, modo prever, resultado, notas,
+  pergunta pendente, pontuação); o `VZ` declara-se com esse tipo desde o início (é `null` até
+  ao primeiro `vizOpen`, e as guardas `if(!VZ)` ficam onde já estavam). O domínio
+  (`visualizer/domain/types.ts`) passa a descrever o retrato que o `snap()` do interpretador
+  produz — `VzSlot`, `VzSlotRef`, `VzFrame`, `VzHeapBlock`, `VzRoData` — em vez de
+  `unknown[]`, o que a U4i3 reutiliza. As globais do arranque que o overlay lê (`P`, `EACT`,
+  `LTS`, `md`) e o `window.VZ` entram por `declare global`; os acessos ao DOM ganham
+  `!`/`as`/`querySelectorAll<HTMLElement>`. JavaScript emitido idêntico, à excepção de uma
+  variável de desestruturação não usada (`k` → `_k`). A meio, a outra sessão commitou o
+  Studio de arquitectura (`817ccde`); a referência passou a essa HEAD (lint 275 → 274, 438
+  testes). `@ts-nocheck` 4 → 3. Verificado na worktree limpa: tsc, 438 testes (snapshots
+  sem diff — os goldens do overlay incluídos), arch:check, build, arranque no browser 5/5 e
+  auto-teste desktop idêntico ao da U4i1.
