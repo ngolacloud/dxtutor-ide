@@ -365,6 +365,7 @@ pub async fn debug_attach_targets(
 /// onde o processo corre (`docker exec -i … lldb-dap`); `remote_root` mapeia o caminho onde o
 /// programa foi construído para a pasta do projecto. Depois, os `debug_*` seguem por esta sessão.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // um argumento por campo do IPC (como o codev_agent_start e o pty)
 pub async fn debug_attach(
     app: tauri::AppHandle,
     dap: tauri::State<'_, DapSessions>,
