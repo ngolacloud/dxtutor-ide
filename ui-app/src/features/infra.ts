@@ -260,3 +260,9 @@ XC.kubectl = (a: string[]) => { const ENVS = window.ENVS, K8S = window.K8S; if (
 XC.devcontainer = (a: string[]) => { if (a[0] === 'up') dcAttach(); else echo('<span class="dim">devcontainer up</span>'); };
 const _dx5 = XC.dx;
 XC.dx = (a: string[]) => { if (a[0] === 'deploy') return window.dxDeploy(); return _dx5(a); };
+/* `docker compose up|down|ps`, `make run|stop` e `dx run|stop` (ADR-0004, U4j4a — eram do app.ts): chamam o
+   dxRun/dxStop PUBLICADOS (com a porta desktop do stack). Os subcomandos do `dx` são disjuntos dos outros
+   decoradores (deploy aqui, test/sprint no board), por isso a ordem da cadeia não muda o resultado. */
+XC.docker=(a: string[])=>{if(a[0]==='compose'&&a[1]==='up')return window.dxRun(true);if(a[0]==='compose'&&a[1]==='down'){window.dxStop(true);return;}if(a[0]==='compose'&&a[1]==='ps'){const STACK=window.STACK;echo(STACK?STACK.map((s: { name: string; state: string; url: string })=>`${s.name.padEnd(20)} ${s.state.padEnd(9)} ${s.url}`).join('\n'):'<span class="dim">no containers</span>');return;}echo('<span class="dim">docker compose up | down | ps</span>');};
+XC.make=(a: string[])=>{if(a[0]==='run')return window.dxRun(true);if(a[0]==='stop'){window.dxStop(true);return;}echo('<span class="dim">make run | stop</span>');};
+const _dx4=XC.dx;XC.dx=(a: string[])=>{if(a[0]==='run')return window.dxRun(true);if(a[0]==='stop'){window.dxStop(true);return;}return _dx4(a);};

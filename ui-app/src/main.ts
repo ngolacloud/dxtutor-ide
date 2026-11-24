@@ -21,6 +21,7 @@
 
 import "./app/store";
 import "./boot";
+import "./app/globals";
 import "./features/theme";
 import "./features/notifications";
 import "./features/remote";

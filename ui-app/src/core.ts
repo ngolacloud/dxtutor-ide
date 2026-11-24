@@ -334,6 +334,18 @@ export const nfmt = (n: number): string => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M
  *  (o browser descodifica as entidades antes de correr o handler). Nunca usar
  *  `'${x}'` dentro de on*="…": um caminho ou nome vindo do disco, do git, de um
  *  VSIX ou do par remoto com `'` torna-se código. */
+/** Tempo relativo em português («agora», «há 5 min», «há 2 h», «há 3 d»). Era do app.ts (ADR-0004, U4j3). */
+export const rel=(t: number): string=>{const m=Math.round((Date.now()-t)/60000);return m<1?'agora':m<60?`há ${m} min`:m<1440?`há ${Math.round(m/60)} h`:`há ${Math.round(m/1440)} d`;};
+
+/** Markdown completo (títulos, listas, código em bloco, negrito/itálico/código em linha) para HTML,
+ *  com o texto escapado. Era o `mdFull` do app.ts (ADR-0004, U4j3). */
+export function mdFull(s: unknown): string {const out: string[]=[],inl=(x: string)=>esc(x).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/(^|[\s(])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>');
+  String(s||'').split(/```/).forEach((p: string,i: number)=>{if(i%2){out.push(`<pre>${esc(p.replace(/^[a-z]*\n/,'').replace(/\n$/,''))}</pre>`);return;}
+    p.split(/\n{2,}/).forEach((b: string)=>{b=b.trim();if(!b)return;
+      if(/^#{1,4}\s/.test(b)){const[h,...r]=b.split('\n');out.push(`<h3>${inl(h.replace(/^#+\s*/,''))}</h3>`);if(r.length)out.push(`<p>${inl(r.join(' '))}</p>`);}
+      else if(/^\s*[-*]\s/.test(b))out.push('<ul>'+b.split(/\n(?=\s*[-*]\s)/).map((l: string)=>`<li>${inl(l.replace(/^\s*[-*]\s+/,'').replace(/\n\s*/g,' '))}</li>`).join('')+'</ul>');
+      else out.push(`<p>${inl(b.replace(/\n/g,' '))}</p>`);});});return out.join('');}
+
 export const jsa = (s: unknown): string =>
   esc(JSON.stringify(String(s == null ? "" : s)));
 

@@ -35,7 +35,7 @@ describe("caso de uso", () => {
     const f = fakes();
     const st = makeArchStudio(f);
     st.ensureLoaded();
-    expect(st.state().design).toEqual({ components: [], connections: [] });
+    expect(st.state().design).toEqual({ components: [], connections: [], groups: [], views: [] });
     st.add("service", "Orders");
     await flush();
     expect(storageKey("/proj")).toBe("dxnext-studio:/proj");
@@ -171,7 +171,7 @@ describe("vista + despacho delegado", () => {
     mount();
     expect(host.querySelectorAll("[data-n]").length).toBe(0);
     expect(host.querySelector("[data-arch-insp]")!.textContent).toMatch(/The design is empty/);
-    expect(host.querySelectorAll('[data-action="arch-add"]').length).toBe(6);
+    expect(host.querySelectorAll('[data-action="arch-add"]').length).toBe(18);
   });
 
   test("acrescentar, renomear e apagar por data-action", async () => {

@@ -59,7 +59,7 @@ describe("operações do desenho", () => {
   test("toArchitecture tira a geometria", () => {
     const d = emptyDesign();
     addComponent(d, "store", "db");
-    expect(toArchitecture(d)).toEqual({ components: [{ id: "db", name: "db", kind: "store", outbox: false }], connections: [] });
+    expect(toArchitecture(d)).toEqual({ components: [{ id: "db", name: "db", kind: "store", outbox: false }], connections: [], groups: [], views: [] });
   });
 });
 
@@ -72,8 +72,8 @@ describe("leitura do desenho guardado (retrocompatível com o Studio do ui-next)
     connections: [{ from: "svc", to: "db", relation: "writes", event: "" }],
   };
 
-  test("o formato antigo abre igual", () => {
-    expect(parseDesign(JSON.parse(JSON.stringify(old)))).toEqual(old);
+  test("o formato antigo abre igual (sem grupos nem painéis)", () => {
+    expect(parseDesign(JSON.parse(JSON.stringify(old)))).toEqual({ ...old, groups: [], views: [] });
   });
 
   test("entradas inválidas caem; o resto abre", () => {

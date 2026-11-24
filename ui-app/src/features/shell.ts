@@ -12,7 +12,7 @@
    (`ACTS`/`OVERFLOW`, `getVar`/`setVar`, `hydrate`, `closeMenus`, `scrollTerm`,
    `openSettings`, `changes`) lê-se em runtime pela fachada `G`. */
 
-import { $, $$, hd, svg, toast } from "../core";
+import { $, $$, hd, svg, toast, esc, hhmm } from "../core";
 import { agentStore } from "../app/store/agent";
 import { layoutStore } from "../app/store/layout";
 import { RP } from "../app/store/registry";
@@ -46,6 +46,14 @@ interface LegacyGlobals {
   dbgLaunch: () => { id: string }[];
 }
 const G = window as unknown as LegacyGlobals;
+
+/* ───── variáveis CSS do layout, ícones por data-ic e o canal Output (ADR-0004, U4j3 — eram do app.ts) ───── */
+const setVar = (k: string, v: string): void => document.body.style.setProperty(k, v);
+const getVar = (k: string): string => getComputedStyle(document.body).getPropertyValue(k).trim();
+/** Insere o ícone de cada `[data-ic]` ainda por preencher (marca-o com `data-done`). */
+function hydrate(): void { $$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.insertAdjacentHTML('afterbegin',svg(el.dataset.ic as string));(el.dataset as unknown as Record<string, unknown>).done=1;}); }
+/** Uma linha no canal Output do painel inferior: `[hh:mm] origem mensagem`. */
+function log(src: string, msg: string): void { const o=$('#pc-output')!;o.insertAdjacentHTML('beforeend',`<div>[${hhmm()}] <span class="r">${esc(src)}</span> ${esc(msg)}</div>`);o.scrollTop=o.scrollHeight; }
 
 
 const sideOpen = (): boolean => G.getVar("--side-w") !== "0px";
@@ -198,6 +206,6 @@ function mkRz(el: HTMLElement, v: string, base: number, min: number, max: number
 }
 
 /* publicação transitória no window (o monólito, o v6 e os onclick inline usam por nome) */
-Object.assign(window, { hd, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz });
+Object.assign(window, { hd, setVar, getVar, hydrate, log, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz });
 
-export { RP, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz };
+export { RP, setVar, getVar, hydrate, log, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz };
