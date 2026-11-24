@@ -11,6 +11,8 @@ export const projectClient = (inv: Invoker = invoke) => ({
   apply: (root: string, op: Record<string, unknown>): Promise<unknown> => inv<unknown>("project_apply", { root, op }),
   issue: (root: string, key: string): Promise<unknown> => inv<unknown>("project_issue", { root, key }),
   reports: (root: string): Promise<unknown> => inv<unknown>("project_reports", { root }),
+  /** O registo de auditoria do Co-Dev (RF-T01): de uma issue, ou da pasta com `issue: null`. */
+  audit: (root: string, issue: string | null): Promise<unknown> => inv<unknown>("project_audit", { root, issue }),
 });
 
 export type ProjectClient = ReturnType<typeof projectClient>;

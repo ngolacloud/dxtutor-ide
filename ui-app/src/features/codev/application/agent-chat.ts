@@ -125,6 +125,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
       case "notice":
         presenter.agentNote?.(t.card, "notice", e.text);
         break;
+      case "question":
+        // RF-G06: the agent stopped to ask; the answer is the human's next message
+        presenter.agentNote?.(t.card, "question", `Pergunta do Co-Dev (responde na próxima mensagem): ${e.text}`);
+        break;
       case "tool_result":
         if (e.name === "task") presenter.subagent?.(e.id, "", e.is_error ? "error" : "done");
         if (e.name !== "todo_write") presenter.toolRunResult(toolRef(t, e.id, e.name, ""), !e.is_error, summarizeResult(e.content));

@@ -202,4 +202,20 @@ describe("the Project markup", () => {
     expect(html).toContain("Appears once issues reach Done");
     expect(html).not.toContain("<svg");
   });
+
+  it("RF-T01: exports the Co-Dev audit log of an issue as JSON, or says there is none", async () => {
+    const files: Array<[string, string]> = [];
+    const rows = [{ event: "call", tool: "bash", command: "git push", outcome: "denied", decidedBy: "human:Ana" }];
+    const audit = vi.fn(async (_r: string, k: string | null) => (k === "PRJ-1" ? rows : []));
+    const { d, toasts } = deps({ gateway: { ...deps().d.gateway, audit }, download: (n, t) => files.push([n, t]) });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.exportAudit("PRJ-1");
+    expect(audit).toHaveBeenCalledWith("/proj", "PRJ-1");
+    expect(files[0][0]).toBe("audit-PRJ-1.json");
+    expect(JSON.parse(files[0][1])).toEqual(rows);
+    await s.exportAudit("PRJ-3");
+    expect(files).toHaveLength(1);
+    expect(toasts.at(-1)).toContain("Ainda não há registo do Co-Dev para PRJ-3");
+  });
 });

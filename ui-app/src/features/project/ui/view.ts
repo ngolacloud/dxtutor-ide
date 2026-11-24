@@ -204,7 +204,8 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
               .join("")}`
           : ""
       }
-      <button class="pj-btn pri" data-action="pj-work"><span>Work on it with Co-Dev</span></button></div>
+      <button class="pj-btn pri" data-action="pj-work"><span>Work on it with Co-Dev</span></button>
+      <button class="pj-btn" data-action="pj-audit" title="Every Co-Dev action on this issue: who asked, the mode, who decided and when (JSON)"><span>Export audit log</span></button></div>
     <div class="pj-sec"><span>Activity</span></div>
     <input class="pj-input" placeholder="Comment and press Enter" data-action="pj-comment">
     ${

@@ -212,6 +212,14 @@ impl Origin {
     }
 }
 
+/// Toolset 6 gates shared with the flow tools (RF-G06/G08): whether the human approved a
+/// plan in this turn, and the question the agent asked (nothing changes until it is answered).
+#[derive(Clone, Default)]
+pub struct Gates {
+    pub plan_approved: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub question: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
 pub struct Policy {
     pub mode: Mode,
     pub rules: Rules,
@@ -223,6 +231,9 @@ pub struct Policy {
     pub require_origin: bool,
     /// The request the current turn answers.
     pub origin: Option<Origin>,
+    /// Toolset 6 sessions: a question waits for the human, and Manual/Assist need an
+    /// approved plan before changing files. `None`: older sessions, TUI, CLI.
+    pub gates: Option<Gates>,
 }
 
 impl Policy {
@@ -234,6 +245,7 @@ impl Policy {
             plan: Default::default(),
             require_origin: false,
             origin: None,
+            gates: None,
         }
     }
 
@@ -342,6 +354,35 @@ impl Policy {
                          antes de alterar alguma coisa"
                     .into(),
             };
+        }
+        if let Some(g) = &self.gates {
+            // RF-G06: a question to the human stops every change until the answer
+            if g.question.lock().unwrap().is_some() {
+                return Verdict::Deny {
+                    reason: "perguntaste ao humano (ask_human): espera pela resposta antes de \
+                             alterar alguma coisa"
+                        .into(),
+                };
+            }
+            // RF-G08: in Manual and Assist the plan comes before changing files
+            let changes_files =
+                (call.input.get("path").is_some() && a.is_none()) || !call.hunks.is_empty();
+            if changes_files
+                && matches!(self.mode, Mode::Manual | Mode::Assist)
+                && !g.plan_approved.load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Verdict::Deny {
+                    reason: format!(
+                        "modo {}: antes de alterar ficheiros apresenta o plano com exit_plan \
+                         (cada ficheiro com o intervalo de linhas) e espera a aprovação",
+                        if self.mode == Mode::Manual {
+                            "Manual"
+                        } else {
+                            "Assistido"
+                        }
+                    ),
+                };
+            }
         }
         let manual = approval_for(self.mode, Action::Edit) == Approval::Ask;
         // edições: piso dos ficheiros protegidos, depois regras e modo
@@ -708,5 +749,41 @@ mod tests {
         ] {
             assert_eq!(scope_matches(pat, path), ok, "{pat} vs {path}");
         }
+    }
+
+    #[test]
+    fn toolset_6_gates_plan_first_and_a_question_stops_changes() {
+        let g = Gates::default();
+        let mut p = Policy::new(Mode::Assist, Rules::default(), "/p");
+        p.gates = Some(g.clone());
+        let edit = call("edit", false, json!({"path": "src/a.rs"}), None);
+        let test = call("bash", false, json!({}), Some("cargo test"));
+        match p.decide(&edit) {
+            Verdict::Deny { reason } => assert!(reason.contains("exit_plan"), "{reason}"),
+            v => panic!("{v:?}"),
+        }
+        // commands and questions do not need a plan
+        assert_eq!(p.decide(&test), Verdict::Allow);
+        assert_eq!(
+            p.decide(&call("ask_human", true, json!({"question": "?"}), None)),
+            Verdict::Allow
+        );
+        g.plan_approved
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(p.decide(&edit), Verdict::Allow);
+        // Auto never needed one
+        let mut q = Policy::new(Mode::Auto, Rules::default(), "/p");
+        q.gates = Some(Gates::default());
+        assert_eq!(q.decide(&edit), Verdict::Allow);
+        // a pending question stops changes and commands, not reads
+        *g.question.lock().unwrap() = Some("qual?".into());
+        assert!(
+            matches!(p.decide(&edit), Verdict::Deny { reason } if reason.contains("ask_human"))
+        );
+        assert!(matches!(p.decide(&test), Verdict::Deny { .. }));
+        assert_eq!(
+            p.decide(&call("read", true, json!({"path": "a"}), None)),
+            Verdict::Allow
+        );
     }
 }

@@ -22,6 +22,13 @@ export const projectService = makeProjectService({
   dialog,
   notify,
   now: () => Date.now(),
+  download: (name, text) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  },
 });
 const view = makeProjectView(projectService, () => Date.now());
 
@@ -129,6 +136,7 @@ const table: ActionTable = {
   "pj-dod": { change: (e) => { const k = sel(); if (k) void projectService.toggleDod(k, Number(e.on)); } },
   "pj-branch": { click: () => { const k = sel(); if (k) void projectService.createBranch(k); } },
   "pj-work": { click: () => { const k = sel(); if (k) projectService.work(k); } },
+  "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-delete": { click: (e) => void projectService.remove(e.on) },
   "pj-comment": { keydown: enter((e) => { const k = sel(); if (k) void projectService.comment(k, e.value); }) },
   "pj-submit": { click: submit },

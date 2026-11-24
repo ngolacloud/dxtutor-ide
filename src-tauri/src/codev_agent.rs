@@ -25,7 +25,7 @@ use tutor_agent::hooks::{Hooks, HOOKS_FILE};
 use tutor_agent::hunks::{self, Check, RejectedBy, ValidationStatus};
 use tutor_agent::mcp::{self, McpTool};
 use tutor_agent::openai::{self, OpenAiCompat};
-use tutor_agent::permissions::{Mode, Origin, Policy, Rules, Verdict, NO_REQUEST};
+use tutor_agent::permissions::{Gates, Mode, Origin, Policy, Rules, Verdict, NO_REQUEST};
 use tutor_agent::redact::Redactor;
 use tutor_agent::session::{self, HistoryItem, SessionLog, SessionMeta, SessionSummary};
 use tutor_agent::tools::flow::SubagentSpec;
@@ -580,6 +580,13 @@ pub fn start(
     policy.plan = flow.plan_mode.clone();
     // RF-G01: in the IDE every action answers a human request (the UI sends its origin)
     policy.require_origin = true;
+    // toolset 6: plan before changing files in Manual/Assist, and a question stops changes
+    if meta.toolset >= 6 {
+        policy.gates = Some(Gates {
+            plan_approved: flow.plan_approved.clone(),
+            question: flow.question.clone(),
+        });
+    }
     let redactor = Redactor::for_root(&root);
     let mut log = log;
     if let Some(l) = log.as_mut() {
@@ -712,6 +719,9 @@ pub fn send(
             *s.issue_key.lock().unwrap() = Some(k);
         }
         *s.origin.lock().unwrap() = o;
+        // a new request needs its own plan, and answers the last question
+        s.flow.plan_approved.store(false, Ordering::SeqCst);
+        *s.flow.question.lock().unwrap() = None;
     }
     s.policy.lock().unwrap().origin = s.origin.lock().unwrap().clone();
     s.agent.ctx.cancel.store(false, Ordering::Relaxed);
@@ -966,11 +976,16 @@ pub fn send(
         let _ = log.sync(&t); // append-only: só as mensagens novas
     }
     drop(t);
+    // RF-G07: after Stop, what was already written stays, and the human is told how to drop it
+    if let (Ok(TurnOutcome::Cancelled), Some(text)) = (&r, stop_notice(auto.borrow().checkpoint)) {
+        emit(AgentEvent::Notice { text });
+    }
     // Auto: validate the provisional changes, then tell the UI the turn is done
     let turn = auto.take();
     if !turn.provisional.is_empty() {
         validate(&s, turn, &emit);
     }
+    settle_flow(&s, &emit);
     if let Some(log) = turn_log.take() {
         report_turn(&s, log, &emit);
     }
@@ -1019,6 +1034,74 @@ fn audit(s: &Session, mut e: tutor_board::project::AuditEntry) {
     let root = s.agent.ctx.root.display().to_string();
     if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
         let _ = st.record_audit(&root, &e);
+    }
+}
+
+/// What the human is told after Stop when the turn already changed files (RF-G07): the
+/// changes stay as they are, and the turn's checkpoint takes them back.
+fn stop_notice(checkpoint: Option<u32>) -> Option<String> {
+    checkpoint.map(|cp| {
+        format!(
+            "Parado a teu pedido: nada mais é escrito. O que o Co-Dev já alterou neste turno ficou \
+             nos ficheiros — revê no Source Control; para descartar tudo, «Rewind to here» no \
+             checkpoint {cp} (separador Co-Dev run) ou /reverter."
+        )
+    })
+}
+
+/// After a turn: the question the agent asked goes to the human (and blocks the turn's issue,
+/// RF-G06); the suggestions go to the Project inbox (RF-G02/B05). Both are in the audit log.
+fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
+    let root = s.agent.ctx.root.display().to_string();
+    let store = || {
+        s.change_log
+            .as_ref()
+            .and_then(|db| tutor_board::project::ProjectStore::open(db).ok())
+    };
+    let apply = |op: serde_json::Value| -> Result<(), String> {
+        let op = serde_json::from_value(op).map_err(|e| e.to_string())?;
+        match store() {
+            Some(mut st) => st
+                .apply(&root, "Co-Dev", now_ms(), op)
+                .map(|_| ())
+                .map_err(|e| e.message),
+            None => Ok(()),
+        }
+    };
+    let question = s.flow.question.lock().unwrap().clone();
+    if let Some(q) = question {
+        emit(AgentEvent::Question { text: q.clone() });
+        let issue = s.issue_key.lock().unwrap().clone();
+        if let Some(k) = &issue {
+            let blocked = format!("dúvida: {q}");
+            if let Err(e) =
+                apply(serde_json::json!({"op": "update_issue", "key": k, "blocked": blocked}))
+            {
+                emit(AgentEvent::Notice {
+                    text: format!("não foi possível marcar {k} como bloqueada: {e}"),
+                });
+            }
+        }
+        let mut e = audit_entry(s, "question");
+        e.reason = Some(q);
+        e.outcome = Some(if issue.is_some() { "blocked" } else { "asked" }.into());
+        audit(s, e);
+    }
+    let suggestions = std::mem::take(&mut *s.flow.suggestions.lock().unwrap());
+    let n = suggestions.len();
+    for (title, why) in suggestions {
+        let r = apply(serde_json::json!({
+            "op": "propose", "title": title, "kind": "story", "source": "Co-Dev", "detail": why
+        }));
+        let mut e = audit_entry(s, "suggest");
+        e.reason = Some(title);
+        e.outcome = Some(if r.is_ok() { "inbox" } else { "failed" }.into());
+        audit(s, e);
+    }
+    if n > 0 && s.change_log.is_some() {
+        emit(AgentEvent::Notice {
+            text: format!("{n} sugestão(ões) do Co-Dev na caixa de entrada do Project: decides tu"),
+        });
     }
 }
 
@@ -2548,5 +2631,88 @@ mod tests {
         assert_eq!(outcome_of(&h(&["1"], &[])), "allowed");
         assert_eq!(outcome_of(&h(&["1"], &["2"])), "partial");
         assert_eq!(outcome_of(&h(&[], &["2"])), "denied");
+    }
+
+    #[test]
+    fn a_question_blocks_the_issue_and_suggestions_wait_in_the_inbox() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("board.sqlite3");
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            mode: Some("assist".into()),
+            issue_key: Some("DX-1".into()),
+            change_log: Some(db.clone()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        // a new session uses toolset 6: the gates are on
+        assert!(s.policy.lock().unwrap().gates.is_some());
+        let root = s.agent.ctx.root.display().to_string();
+        {
+            let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+            st.apply(
+                &root,
+                "t",
+                1,
+                serde_json::from_value(serde_json::json!({"op": "settings", "key_prefix": "DX"}))
+                    .unwrap(),
+            )
+            .unwrap();
+            st.apply(
+                &root,
+                "t",
+                1,
+                serde_json::from_value(serde_json::json!({"op": "create_issue", "title": "x"}))
+                    .unwrap(),
+            )
+            .unwrap();
+        }
+        *s.flow.question.lock().unwrap() = Some("Paginação por cursor ou por página?".into());
+        s.flow
+            .suggestions
+            .lock()
+            .unwrap()
+            .push(("Renomear Parser::go".into(), "src/p.rs 12".into()));
+        let evs = RefCell::new(vec![]);
+        settle_flow(&s, &|e| evs.borrow_mut().push(e));
+        assert!(evs
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Question { text } if text.contains("cursor"))));
+        let st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let p = st.load(&root, 2).unwrap();
+        let issue = p.issues.iter().find(|i| i.key == "DX-1").unwrap();
+        assert_eq!(
+            issue.blocked.as_deref(),
+            Some("dúvida: Paginação por cursor ou por página?")
+        );
+        assert_eq!(p.inbox.len(), 1);
+        assert_eq!(p.inbox[0].title, "Renomear Parser::go");
+        assert_eq!(p.inbox[0].source, "Co-Dev");
+        let kinds: Vec<String> = st
+            .audit(&root, Some("DX-1"))
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event)
+            .collect();
+        assert_eq!(kinds, ["question", "suggest"]);
+        // the suggestions were taken (not offered again next turn)
+        assert!(s.flow.suggestions.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn after_stop_the_human_learns_how_to_drop_the_turns_changes() {
+        assert_eq!(
+            stop_notice(None),
+            None,
+            "nothing was written: nothing to say"
+        );
+        let t = stop_notice(Some(4)).unwrap();
+        assert!(
+            t.contains("checkpoint 4") && t.contains("nada mais é escrito"),
+            "{t}"
+        );
     }
 }

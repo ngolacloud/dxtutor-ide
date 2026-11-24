@@ -102,6 +102,9 @@ pub struct ExitPlan {
     /// Toolset 5: the plan also lists its steps with the files and lines each one touches
     /// (the Run view draws them, A3 HARNESS-01).
     pub steps: bool,
+    /// Toolset 6 (RF-G08): the plan can be proposed in any mode, and an approved plan lets
+    /// the turn change files in Manual and Assist. `None`: toolset ≤ 5 (plan mode only).
+    pub approved: Option<Arc<AtomicBool>>,
 }
 
 impl Tool for ExitPlan {
@@ -109,6 +112,13 @@ impl Tool for ExitPlan {
         "exit_plan"
     }
     fn description(&self) -> &str {
+        if self.approved.is_some() {
+            return "Apresenta o plano ao humano para aprovação (markdown: objectivo, passos \
+                    concretos, como vais verificar, riscos; e em `steps` cada ficheiro com o \
+                    intervalo de linhas que vais mexer). Nos modos Manual e Assistido é \
+                    obrigatório antes de alterar ficheiros; no modo plano termina-o. Aprovado, \
+                    executas só o plano.";
+        }
         "No modo plano, apresenta o plano ao humano para aprovação (markdown: objectivo, \
          passos concretos com os ficheiros a mexer, como vais verificar, riscos). Se for \
          aprovado, o modo plano termina e executas o plano."
@@ -163,6 +173,15 @@ impl Tool for ExitPlan {
         false
     }
     fn run(&self, _input: &Value, _ctx: &ToolCtx) -> ToolOutput {
+        // runs only after the human approved it (the policy always asks for exit_plan)
+        if let Some(a) = &self.approved {
+            a.store(true, Ordering::SeqCst);
+            self.plan_mode.store(false, Ordering::SeqCst);
+            return ToolOutput::ok(
+                "Plano aprovado pelo humano: executa-o, regista-o com todo_write e verifica cada \
+                 passo. O que não estiver no plano não o faças: sugere-o com suggest.",
+            );
+        }
         if !self.plan_mode.swap(false, Ordering::SeqCst) {
             return ToolOutput::err("não estás em modo plano: executa directamente");
         }
@@ -300,5 +319,104 @@ impl Tool for Task {
             Ok(o) => ToolOutput::err(format!("o sub-agente terminou sem relatório ({o:?})")),
             Err(e) => ToolOutput::err(format!("o sub-agente falhou: {e}")),
         }
+    }
+}
+
+/// Toolset 6 (RF-G06): when the request is ambiguous or contradicts the architect's rules,
+/// the agent asks instead of choosing. Read-only: it records the question; the policy then
+/// refuses any change until the human answers in the next message.
+pub struct AskHuman {
+    pub question: Arc<Mutex<Option<String>>>,
+}
+
+impl Tool for AskHuman {
+    fn name(&self) -> &str {
+        "ask_human"
+    }
+    fn description(&self) -> &str {
+        "Quando o pedido é ambíguo, contradiz as regras do projecto/arquitecto, ou falta uma \
+         decisão que é do humano (âmbito, prioridade, abordagem), pergunta em vez de escolher. \
+         Depois desta ferramenta não alteres mais nada: termina a resposta; o humano responde \
+         na próxima mensagem."
+    }
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "a pergunta, curta e concreta"},
+                "options": {"type": "array", "items": {"type": "string"}, "description": "as opções, se as houver"}
+            },
+            "required": ["question"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn mutates_files(&self) -> bool {
+        false
+    }
+    fn run(&self, input: &Value, _ctx: &ToolCtx) -> ToolOutput {
+        let q = input["question"].as_str().unwrap_or("").trim().to_string();
+        if q.is_empty() {
+            return ToolOutput::err("a pergunta está vazia");
+        }
+        let opts: Vec<&str> = input["options"]
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let text = if opts.is_empty() {
+            q
+        } else {
+            format!("{q} ({})", opts.join(" / "))
+        };
+        *self.question.lock().unwrap() = Some(text);
+        ToolOutput::ok(
+            "Pergunta entregue ao humano. Pára aqui: termina a resposta sem mais ferramentas; \
+             nada muda até ele responder.",
+        )
+    }
+}
+
+/// Toolset 6 (RF-G02/B05): something outside the request is suggested, never done; the host
+/// puts it in the Project inbox, where a human accepts or rejects it.
+pub struct Suggest {
+    pub suggestions: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl Tool for Suggest {
+    fn name(&self) -> &str {
+        "suggest"
+    }
+    fn description(&self) -> &str {
+        "Algo que reparaste fora do pedido (outra correcção, uma melhoria, uma issue nova): não \
+         o faças nem o metas neste trabalho — sugere-o. Vai para a caixa de entrada do Project e \
+         o humano decide."
+    }
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "a sugestão numa linha"},
+                "why": {"type": "string", "description": "porquê, e onde (ficheiro e linhas)"}
+            },
+            "required": ["title"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn mutates_files(&self) -> bool {
+        false
+    }
+    fn run(&self, input: &Value, _ctx: &ToolCtx) -> ToolOutput {
+        let title = input["title"].as_str().unwrap_or("").trim().to_string();
+        if title.is_empty() {
+            return ToolOutput::err("a sugestão não tem título");
+        }
+        let why = input["why"].as_str().unwrap_or("").trim().to_string();
+        self.suggestions.lock().unwrap().push((title, why));
+        ToolOutput::ok("Sugestão registada na caixa de entrada do Project. Não a implementes.")
     }
 }

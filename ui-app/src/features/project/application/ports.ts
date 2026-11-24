@@ -10,6 +10,8 @@ export interface ProjectGateway {
   apply(root: string, op: Record<string, unknown>): Promise<unknown>;
   issue(root: string, key: string): Promise<unknown>;
   reports(root: string): Promise<unknown>;
+  /** The Co-Dev audit log (RF-T01) of one issue, or of the folder with `null`. */
+  audit?(root: string, issue: string | null): Promise<unknown>;
 }
 
 export interface Workspace {
@@ -57,4 +59,6 @@ export interface ProjectDeps {
   dialog: Dialog;
   notify: Notifier;
   now(): number;
+  /** Hands the human a file to save (the audit log export). */
+  download?(name: string, text: string): void;
 }

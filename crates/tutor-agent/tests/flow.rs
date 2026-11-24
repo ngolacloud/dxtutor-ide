@@ -428,7 +428,65 @@ fn toolset_5_adds_plan_steps_and_subagent_roles_and_keeps_4_as_it_was() {
         schema(5, "task")["properties"]["role"]["enum"],
         json!(["explorer", "reviewer", "tester", "architect"])
     );
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 5);
+}
+
+#[test]
+fn toolset_6_adds_ask_human_and_suggest_at_the_end_and_keeps_5_as_it_was() {
+    let fs = FlowState::default();
+    let tools = |v: u32| agent_tools(&ToolsetOptions::default(), v, &fs, None, vec![]);
+    let n5 = names(&tools(5));
+    let n6 = names(&tools(6));
+    // the toolset 5 prefix stays byte for byte; the new tools come last
+    assert_eq!(&n6[..n5.len()], &n5[..]);
+    assert_eq!(
+        &n6[n5.len()..],
+        &["ask_human".to_string(), "suggest".to_string()]
+    );
+    let desc = |v: u32| {
+        tools(v)
+            .into_iter()
+            .find(|t| t.name() == "exit_plan")
+            .unwrap()
+            .description()
+            .to_string()
+    };
+    assert!(
+        desc(5).starts_with("No modo plano"),
+        "toolset 5 keeps its description"
+    );
+    assert!(desc(6).contains("Manual e Assistido"));
+    let c = ctx(std::path::Path::new("/tmp"));
+    let t6 = tools(6);
+    let find = |n: &str| t6.iter().find(|t| t.name() == n).unwrap().clone();
+    // exit_plan outside plan mode: an approved plan for the turn (not an error any more)
+    assert!(!find("exit_plan").run(&json!({"plan": "p"}), &c).is_error);
+    assert!(fs.plan_approved.load(Ordering::SeqCst));
+    // ask_human records the question (with the options); suggest goes to the list
+    assert!(find("ask_human").read_only());
+    assert!(
+        !find("ask_human")
+            .run(&json!({"question": "A ou B?", "options": ["A", "B"]}), &c)
+            .is_error
+    );
+    assert_eq!(
+        fs.question.lock().unwrap().as_deref(),
+        Some("A ou B? (A / B)")
+    );
+    assert!(
+        find("ask_human")
+            .run(&json!({"question": " "}), &c)
+            .is_error
+    );
+    assert!(
+        !find("suggest")
+            .run(&json!({"title": "Renomear go()", "why": "src/p.rs:12"}), &c)
+            .is_error
+    );
+    assert_eq!(
+        fs.suggestions.lock().unwrap().as_slice(),
+        &[("Renomear go()".to_string(), "src/p.rs:12".to_string())]
+    );
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 6);
 }
 
 #[test]

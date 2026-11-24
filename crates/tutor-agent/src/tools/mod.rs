@@ -104,7 +104,7 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7);
 /// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura);
 /// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06).
-pub const TOOLSET_VERSION: u32 = 5;
+pub const TOOLSET_VERSION: u32 = 6;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -112,6 +112,14 @@ pub struct FlowState {
     /// Modo plano: a política recusa alterações; `exit_plan` desliga-o quando aprovado.
     pub plan_mode: Arc<std::sync::atomic::AtomicBool>,
     pub todos: Arc<Mutex<Vec<flow::Todo>>>,
+    /// Toolset 6 (RF-G08): the human approved a plan in this turn (`exit_plan`); the host
+    /// clears it at each new request.
+    pub plan_approved: Arc<std::sync::atomic::AtomicBool>,
+    /// Toolset 6 (RF-G06): the question the agent asked the human in this turn (`ask_human`).
+    pub question: Arc<Mutex<Option<String>>>,
+    /// Toolset 6 (RF-G02/B05): what the agent suggested outside the request (`suggest`):
+    /// `(title, why)`, taken by the host to the Project inbox.
+    pub suggestions: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 /// O conjunto de ferramentas de uma sessão, na versão `version`, por ordem fixa.
@@ -130,6 +138,7 @@ pub fn agent_tools(
         v.push(Arc::new(flow::ExitPlan {
             plan_mode: flow_state.plan_mode.clone(),
             steps: version >= 5,
+            approved: (version >= 6).then(|| flow_state.plan_approved.clone()),
         }));
         if let Some(spec) = subagent {
             v.push(Arc::new(flow::Task {
@@ -141,6 +150,16 @@ pub fn agent_tools(
     if version >= 3 {
         v.push(Arc::new(crate::extensions::SkillTool));
         v.extend(extras); // pela ordem que o anfitrião der (determinística por sessão)
+    }
+    // toolset 6 (docs/v2/RF-DELONIX-PLANO.md F1.7/F1.10): at the end, so the toolset 5
+    // prefix stays byte for byte
+    if version >= 6 {
+        v.push(Arc::new(flow::AskHuman {
+            question: flow_state.question.clone(),
+        }));
+        v.push(Arc::new(flow::Suggest {
+            suggestions: flow_state.suggestions.clone(),
+        }));
     }
     v
 }

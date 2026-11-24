@@ -518,3 +518,14 @@ test("live hunks: opens with reviewEdits, saves before sending, and shows the re
   settle!("✓ 1 alteração(ões) aplicada(s)");
   expect(t.calls).toContain("settled ✓ 1 alteração(ões) aplicada(s)");
 });
+
+test("RF-G06: a pergunta do Co-Dev aparece no chat e o evento é reconhecido", async () => {
+  expect(parseAgentEvent({ session: "S1", event: { kind: "question", text: "cursor ou página?" } })).not.toBeNull();
+  const t = setup();
+  t.setScript(() => {
+    t.emit({ kind: "question", text: "cursor ou página?" });
+    t.emit(done());
+  });
+  await t.chat.send("pagina a API");
+  expect(t.calls).toContain("note question Pergunta do Co-Dev (responde na próxima mensagem): cursor ou página?");
+});

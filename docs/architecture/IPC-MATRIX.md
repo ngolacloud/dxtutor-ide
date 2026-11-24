@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 174 comandos, **87 são consumidos pela `ui-app`** e **87 não o são**: a UI
+Dos 174 comandos, **88 são consumidos pela `ui-app`** e **86 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -508,7 +508,7 @@ utilizador do SO).
 | `project_apply` | `root: String`, `op: Op` (`{op: "create_issue" \| "move" \| "settings" \| …}`) | `Project` | `ProjectError` | — | `platform/tauri/project.ts` | **W** · S |
 | `project_issue` | `root: String`, `key: String` | `IssueDetail {activity, changeSets}` | `ProjectError` | — | `platform/tauri/project.ts` | R |
 | `project_reports` | `root: String` | `Reports` (cycle time, throughput, CFD, burndown, velocity — do histórico) | `ProjectError` | — | `platform/tauri/project.ts` | R |
-| `project_audit` | `root: String`, `issue: Option<String>` | `Vec<AuditEntry>` (cada decisão do Co-Dev sobre uma acção, mudança de modo e turno: origem, quem pediu, modo, ferramenta, ficheiro/linhas, comando, veredicto, quem decidiu e quando, modelo, tokens; segredos mascarados — RF-T01/T05) | `ProjectError` | — | — (exportação; a UI liga-a na F1) | R |
+| `project_audit` | `root: String`, `issue: Option<String>` | `Vec<AuditEntry>` (cada decisão do Co-Dev sobre uma acção, mudança de modo e turno: origem, quem pediu, modo, ferramenta, ficheiro/linhas, comando, veredicto, quem decidiu e quando, modelo, tokens; segredos mascarados — RF-T01/T05) | `ProjectError` | — | `platform/tauri/project.ts` («Export audit log» no painel da issue) | R |
 
 ## 18. Pesquisa / projecto — `commands/search.rs` (4)
 
@@ -533,8 +533,8 @@ ferramenta LLM** local, não o comando IPC).
 |---|---|
 | Comandos registados | **174** |
 | Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 11 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 7 |
-| Consumidos pela `ui-app` | **87** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 11 · `platform/tauri/project.ts` 4) |
-| Não consumidos pela `ui-app` | **87** |
+| Consumidos pela `ui-app` | **88** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 11 · `platform/tauri/project.ts` 5) |
+| Não consumidos pela `ui-app` | **86** |
 | Eventos distintos | **16** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |

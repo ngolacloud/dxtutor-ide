@@ -182,6 +182,25 @@ export function makeProjectService(deps: ProjectDeps) {
     rank: (key: string, before: string | null): Promise<boolean> => apply({ op: "rank", key, before }),
     accept: (id: number): Promise<boolean> => apply({ op: "accept_proposal", id }),
     dismiss: (id: number): Promise<boolean> => apply({ op: "dismiss_proposal", id }),
+    /** Exports the Co-Dev audit log of an issue as JSON (RF-T01): every action, who asked,
+     *  the mode, who decided and when, model and tokens. */
+    async exportAudit(key: string): Promise<void> {
+      const r = root();
+      if (!r || !deps.gateway.audit || !deps.download) {
+        deps.notify.toast("O registo de auditoria só existe na app desktop, com uma pasta aberta");
+        return;
+      }
+      try {
+        const rows = await deps.gateway.audit(r, key);
+        if (!Array.isArray(rows) || !rows.length) {
+          deps.notify.toast(`Ainda não há registo do Co-Dev para ${key}`);
+          return;
+        }
+        deps.download(`audit-${key}.json`, JSON.stringify(rows, null, 2) + "\n");
+      } catch (e: unknown) {
+        deps.notify.toast(parseError(e).message);
+      }
+    },
     /** Links the commits that cite issue keys (read from `git log`). */
     async syncCommits(): Promise<void> {
       if (!deps.git.available() || !st.project) return;

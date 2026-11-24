@@ -12,4 +12,5 @@ export const tauriProjectGateway: ProjectGateway = {
   apply: (root, op) => client.apply(root, op),
   issue: (root, key) => client.issue(root, key),
   reports: (root) => client.reports(root),
+  audit: (root, issue) => client.audit(root, issue),
 };
