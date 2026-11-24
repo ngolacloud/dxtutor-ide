@@ -131,12 +131,13 @@ features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GI
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o codereview, o markup vive
 no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. GOTCHA-commit:
 o botão «Commit» usa o commit v2 (`window.commit`, só FS+COMMITS); o Ctrl+Enter e os
-auto-commits do monólito usam o v4 git-aware (`window.commitGit`). No desktop, o commit/
-checkout/gitMerge/gfFinish PUBLICADOS passam pela porta `desktopPorts.scm` (git real); as
-chamadas internas do `scm.ts` (acções do pane, paleta de ramos, Ctrl+Enter) usam o motor
-local — bug pré-existente reportado (desde f07dbc1 o pane não usa git real no desktop). Rede de segurança
-em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor) e
-`tests/scm.domain.test.ts` (domínio puro).
+auto-commits do monólito usam o v4 git-aware (`window.commitGit`). No desktop, o commit (v2 e
+v4)/checkout/gitMerge/gfStart/gfFinish PUBLICADOS passam pela porta `desktopPorts.scm` (git
+real), e desde a A0.5 (docs/v2/UI-AUDIT.md) as acções do pane, a paleta de ramos, o prompt de
+gitflow e o Ctrl+Enter usam essas versões (o bug aberto desde f07dbc1 está fechado). Rede de
+segurança em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor),
+`tests/scm.domain.test.ts` (domínio puro) e `tests/scm.desktop-port.test.ts` (cada entrada do
+pane consulta a porta desktop).
 
 ## Quarta feature extraída: Run and Debug (`ui-app/src/features/debug/`)
 

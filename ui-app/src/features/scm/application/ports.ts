@@ -96,11 +96,14 @@ export interface MergeResult { h: string; m: string }
 /** A parte desktop do scm (ADR-0004, U4h2), injectada pela app Tauri: com uma pasta que é um
  *  repositório git real, o commit / checkout / merge / fim de gitflow PUBLICADOS passam a git
  *  real. Cada operação recebe a versão simulada (`virtual`): sem repositório o adaptador
- *  delega nela; o commit corre-a primeiro (carimba o estado) e depois o `git commit`. */
+ *  delega nela; o commit corre-a primeiro (carimba o estado) e depois o `git commit`.
+ *  A0.5 (docs/v2/UI-AUDIT.md): o início de gitflow também passa pela porta, para os ramos
+ *  criados na UI existirem no repositório. */
 export interface ScmDesktop {
   commit(msg: string | undefined, author: string | undefined, virtual: (msg?: string, author?: string) => CommitResult | null): CommitResult | null;
   checkout(b: string, create: boolean | undefined, virtual: (b: string, create?: boolean) => boolean): boolean;
   gitMerge(src: string, author: string | undefined, virtual: (src: string, author?: string) => MergeResult | null): MergeResult | null;
+  gfStart(kind: string, name: string, virtual: (kind: string, name: string) => string): string;
   gfFinish(b: string | undefined, author: string | undefined, virtual: (b?: string, author?: string) => MergeResult | null): MergeResult | null;
 }
 

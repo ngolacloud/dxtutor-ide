@@ -103,23 +103,26 @@ const { gitInit, commit, commitV2, checkout, gitMerge, gfStart, gfFinish, stage,
 });
 
 /* ───── a parte desktop (ADR-0004, U4h2) ─────
-   As versões PUBLICADAS do commit (o v2 do botão), checkout, gitMerge e gfFinish consultam a
-   porta desktop (`desktopPorts.scm`, injectada por platform/desktop/git.ts na app Tauri) —
-   antes o desktop reatribuía-as no `window`. As chamadas internas deste ficheiro (acções do
-   pane, paleta de ramos, Ctrl+Enter, gfStart/gfFinish do motor) continuam no motor local,
-   como antes: desde a Fase 4 (f07dbc1) as acções do pane deixaram de passar pelo `window`
-   decorado, por isso no desktop não usam git real — bug pré-existente, reportado. */
+   As versões PUBLICADAS do commit (o v2 do botão e o v4 `commitGit`), checkout, gitMerge,
+   gfStart e gfFinish consultam a porta desktop (`desktopPorts.scm`, injectada por
+   platform/desktop/git.ts na app Tauri) — antes o desktop reatribuía-as no `window`.
+   A0.5 (docs/v2/UI-AUDIT.md): as acções do pane, a paleta de ramos, o prompt de gitflow e o
+   Ctrl+Enter passam a usar estas versões, por isso no desktop vão ao git real (era o bug
+   aberto desde f07dbc1). Dentro do motor, gfStart/gfFinish chamam o checkout/merge locais;
+   no desktop a porta refaz a operação com os globais publicados. */
 const commitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commitV2) : commitV2(msg); };
+const commitGitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commit) : commit(msg, author); };
 const checkoutPublished = (b: string, create?: boolean): boolean => { const d = desktopPorts.scm; return d ? d.checkout(b, create, checkout) : checkout(b, create); };
 const gitMergePublished = (src: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gitMerge(src, author, gitMerge) : gitMerge(src, author); };
+const gfStartPublished = (kind: string, name: string): string => { const d = desktopPorts.scm; return d ? d.gfStart(kind, name, gfStart) : gfStart(kind, name); };
 const gfFinishPublished = (b?: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gfFinish(b, author, gfFinish) : gfFinish(b, author); };
 
 /* ───── UI que abre a paleta (prompts gitflow / mudar de ramo) — chama o motor ───── */
 function gfPrompt(kind: FlowKind): void {
-  palette("", { ph: kind === "release" ? "Versão da release (ex.: 0.3.0)" : `Nome da ${kind} (ex.: exportar-relatorio)`, verb: "Iniciar " + kind, text: (q: string) => { if (!q.trim()) return; gfStart(kind, q.trim()); toast("Ramo criado: " + branch()); rerender("graph"); } });
+  palette("", { ph: kind === "release" ? "Versão da release (ex.: 0.3.0)" : `Nome da ${kind} (ex.: exportar-relatorio)`, verb: "Iniciar " + kind, text: (q: string) => { if (!q.trim()) return; gfStartPublished(kind, q.trim()); toast("Ramo criado: " + branch()); rerender("graph"); } });
 }
 function pickBranch(): void {
-  palette("", { ph: "Mudar de ramo…", items: Object.keys(GIT.refs).map((b) => ({ l: b, d: b === branch() ? "actual" : GIT.c[GIT.refs[b]].m, run: () => { checkout(b); toast("Ramo: " + b); rerender("graph"); } })) });
+  palette("", { ph: "Mudar de ramo…", items: Object.keys(GIT.refs).map((b) => ({ l: b, d: b === branch() ? "actual" : GIT.c[GIT.refs[b]].m, run: () => { checkoutPublished(b); toast("Ramo: " + b); rerender("graph"); } })) });
 }
 function gfGuide(): string {
   const b = branch(), n = changes().length, step = (ok: number | boolean, t: string): string => `<div class="gf-s${ok ? " ok" : ""}"><span>${ok ? "✓" : "○"}</span><div>${t}</div></div>`;
@@ -144,7 +147,7 @@ function renderScmPane(): void {
     <div class="scm-grp">Ramos<span class="cnt">${Object.keys(GIT.refs).length}</span></div>${Object.keys(GIT.refs).map((rb) => { const r = lay.rows.find((x) => x.h === GIT.refs[rb]); return `<div class="scm-row" data-action="checkout" data-on="${esc(rb)}"><span class="pdot" style="background:${LANE[(r ? r.col : 0) % LANE.length]}"></span><span class="nm" style="max-width:none${rb === b ? ";font-weight:600" : ""}">${esc(rb)}</span>${rb === b ? '<span class="tag acc" style="margin-left:auto">HEAD</span>' : ""}</div>`; }).join("")}
     <div class="scm-grp">Commits</div>${GIT.order.slice(0, 7).map((h) => { const c = GIT.c[h], a = authorOf(c.a); return `<div class="s-hit" style="padding-left:12px" data-action="open-graph-sel" data-on="${esc(h)}" title="${esc(a.n)} · ${rel(c.t)}"><span class="pdot" style="background:${a.col}"></span><span style="color:var(--accent-hover)">${h}</span><span>${esc(c.m)}</span></div>`; }).join("")}<button class="btn ghost" data-action="open-graph">Abrir grafo de commits</button></div>`;
   const i = $("#scm-msg") as HTMLInputElement | null;
-  if (i) { i.oninput = () => { setCommitMsg(i.value); }; i.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) commit(); }; }
+  if (i) { i.oninput = () => { setCommitMsg(i.value); }; i.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) commitGitPublished(); }; }
 }
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
@@ -168,15 +171,15 @@ const ACTIONS: ActionTable = {
   "open-graph": { on: "click", run: () => openGraph() },
   "open-graph-sel": { on: "click", run: (e) => openGraph(e.on) },
   refresh: { on: "click", run: () => refresh() },
-  commit: { on: "click", run: () => commitV2() },
+  commit: { on: "click", run: () => commitPublished() },
   "open-diff": { on: "click", run: (e) => openDiff(e.on) },
   "open-path": { on: "click", run: (e) => openPath(e.on) },
   discard: { on: "click", run: (e) => discard(e.on) },
   stage: { on: "click", run: (e) => stage(e.on) },
-  checkout: { on: "click", run: (e) => checkout(e.on) },
+  checkout: { on: "click", run: (e) => checkoutPublished(e.on) },
   "gf-prompt": { on: "click", run: (e) => gfPrompt(e.on as FlowKind) },
-  "gf-finish-feature": { on: "click", run: () => { if (gfFinish()) toast("Merge em develop feito"); } },
-  "gf-finish-release": { on: "click", run: () => { if (gfFinish()) toast("Release publicada em main"); } },
+  "gf-finish-feature": { on: "click", run: () => { if (gfFinishPublished()) toast("Merge em develop feito"); } },
+  "gf-finish-release": { on: "click", run: () => { if (gfFinishPublished()) toast("Release publicada em main"); } },
 };
 bindActions(ACTIONS);
 
@@ -185,8 +188,8 @@ bindActions(ACTIONS);
    (app.ts) delega em renderScmPane (lazy, no switch de pane). `commit` v2 (botão) e
    `commitGit` v4 git-aware ficam distintos (GOTCHA-commit). ── */
 publish({
-  commitGit: commit, commit: commitPublished, checkout: checkoutPublished, gitMerge: gitMergePublished, gfFinish: gfFinishPublished,
-  gitInit, authorOf, stOf, changes, isFlow, gfStart, gfPrompt, gfGuide,
+  commitGit: commitGitPublished, commit: commitPublished, checkout: checkoutPublished, gitMerge: gitMergePublished, gfFinish: gfFinishPublished,
+  gitInit, authorOf, stOf, changes, isFlow, gfStart: gfStartPublished, gfPrompt, gfGuide,
   pickBranch, drawTimeline, graphLayout, openGraph, stage, discard,
   renderScmPane,
 });
