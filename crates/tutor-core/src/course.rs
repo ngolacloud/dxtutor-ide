@@ -256,7 +256,7 @@ fn default_placeholder_policy() -> String {
 }
 
 // Os cursos embutidos são os plugins oficiais (courses/<id>/), a mesma fonte publicada em
-// github.com/dxtutor-courses/<id> — ver courses/README.md.
+// github.com/ngolacloud/dxtutor-course-<id> — ver courses/README.md.
 const RUST_BEGINNER: &str = include_str!("../../../courses/rust/courses/rust.toml");
 const GO_BASICS: &str = include_str!("../../../courses/go/courses/go.toml");
 /// Python: embutido só no BACKEND (o protótipo de browser não traz o JSON, para manter o

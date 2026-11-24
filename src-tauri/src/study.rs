@@ -68,7 +68,7 @@ fn plugin_courses() -> Vec<Course> {
 /// curso/passo repetidos, por isso um plugin nunca faz sombra a um curso embutido.
 ///
 /// Um curso de plugin com o MESMO id de um embutido substitui-o: é assim que um plugin oficial
-/// (`dxtutor-courses/rust`) entrega conteúdo mais recente do que o que veio com a app.
+/// (`ngolacloud/dxtutor-course-rust`) entrega conteúdo mais recente do que o que veio com a app.
 pub fn all_courses() -> Vec<Course> {
     let plugins = plugin_courses();
     let mut all: Vec<Course> = builtin()
