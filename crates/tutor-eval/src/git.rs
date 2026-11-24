@@ -447,7 +447,7 @@ pub fn stage_all(root: &Path) -> Result<(), String> {
 /// The author of every commit is the human (RF-T02, docs/v2/RF-DELONIX-PLANO.md F4.8): the
 /// repository's (or the global) git identity. Without one, the commit is refused with how to set
 /// it — never signed by a made-up `dxtutor` user.
-fn require_identity(root: &Path) -> Result<(), String> {
+pub fn require_identity(root: &Path) -> Result<(), String> {
     let get = |k: &str| {
         git(root, &["config", k])
             .map(|s| s.trim().to_string())

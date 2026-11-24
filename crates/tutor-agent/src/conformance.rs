@@ -24,27 +24,27 @@
 use std::path::Path;
 
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::permissions::scope_matches;
 
 pub const RULES_FILE: &str = ".dxtutor/architecture.toml";
 
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct Layer {
     pub name: String,
     #[serde(default)]
     pub paths: Vec<String>,
     /// The other layers this one may import. `None`: unrestricted.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub may_use: Option<Vec<String>>,
     /// How an import into this layer looks (substrings); by default a path or module segment
     /// equal to the layer's name (`../domain/x`, `crate::domain::x`, `app.domain`).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub imports: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct Libraries {
     #[serde(default)]
     pub forbidden: Vec<String>,
@@ -52,20 +52,20 @@ pub struct Libraries {
     pub approved: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct Naming {
     pub paths: Vec<String>,
     pub pattern: String,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct Exception {
     pub adr: String,
     /// `library:<name>`, `layer:<from>-><to>` or `naming:<path>`.
     pub rule: String,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct Rules {
     #[serde(default)]
     pub layers: Vec<Layer>,
@@ -118,6 +118,81 @@ impl Rules {
             }
         })
     }
+}
+
+/// What is wrong with a set of rules before it is written (F5.2: the Studio edits them): every
+/// layer named once and with paths, `may_use` naming other layers, naming patterns that compile,
+/// exceptions with an ADR and a rule key of a known kind. Empty: the rules may be written.
+pub fn validate(rules: &Rules) -> Vec<String> {
+    let mut out = Vec::new();
+    let names: Vec<&str> = rules.layers.iter().map(|l| l.name.trim()).collect();
+    for (k, l) in rules.layers.iter().enumerate() {
+        let name = l.name.trim();
+        if name.is_empty() {
+            out.push(format!("layer {}: it needs a name", k + 1));
+            continue;
+        }
+        if names.iter().filter(|n| **n == name).count() > 1
+            && names.iter().position(|n| *n == name) == Some(k)
+        {
+            out.push(format!("layer «{name}»: the name is used more than once"));
+        }
+        if l.paths.iter().all(|p| p.trim().is_empty()) {
+            out.push(format!(
+                "layer «{name}»: it needs at least one path (e.g. src/{name}/**)"
+            ));
+        }
+        for u in l.may_use.iter().flatten() {
+            if u.trim() == name {
+                out.push(format!(
+                    "layer «{name}»: it does not need to list itself in may_use"
+                ));
+            } else if !names.contains(&u.trim()) {
+                out.push(format!(
+                    "layer «{name}»: may_use names «{u}», which is not a layer"
+                ));
+            }
+        }
+    }
+    for (k, n) in rules.naming.iter().enumerate() {
+        if n.paths.iter().all(|p| p.trim().is_empty()) {
+            out.push(format!("naming rule {}: it needs at least one path", k + 1));
+        }
+        if let Err(e) = Regex::new(&n.pattern) {
+            out.push(format!(
+                "naming rule {}: the pattern does not compile ({e})",
+                k + 1
+            ));
+        }
+    }
+    for (k, e) in rules.exceptions.iter().enumerate() {
+        if e.adr.trim().is_empty() {
+            out.push(format!(
+                "exception {}: it needs the ADR that accepts it",
+                k + 1
+            ));
+        }
+        if !["library:", "layer:", "naming:"]
+            .iter()
+            .any(|p| e.rule.starts_with(p))
+        {
+            out.push(format!(
+                "exception {}: the rule must be library:<name>, layer:<from>-><to> or naming:<path>",
+                k + 1
+            ));
+        }
+    }
+    out
+}
+
+/// The rules as the TOML file is written (with a header saying who changes it).
+pub fn to_toml(rules: &Rules) -> Result<String, String> {
+    let body = toml::to_string_pretty(rules).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "# The architect's rules (RF-A01, docs/v2/RF-DELONIX-PLANO.md F5). Edited in the Studio\n\
+         # («Architecture» → Rules) or by hand; only the architect approves a change. Checked on\n\
+         # every change of the agent and in the Problems panel.\n\n{body}"
+    ))
 }
 
 fn import_patterns() -> &'static [(&'static [&'static str], Regex)] {
@@ -285,6 +360,91 @@ pub fn adr_accepted(root: &Path, id: &str) -> bool {
                 .filter(|e| e.file_name().to_string_lossy().starts_with(id))
                 .any(|e| std::fs::read_to_string(e.path()).is_ok_and(|t| re.is_match(&t)))
         })
+}
+
+fn adr_status_re() -> &'static Regex {
+    static R: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(r"(?im)^(\W*(status|estado)\W*?[:=]\W*)([[:alpha:]çãõéêíáú]+)(.*)$").unwrap()
+    })
+}
+
+/// An ADR's id from its file name: `ADR-0006-arch-studio.md` → `ADR-0006`, `0003-db.md` → `0003`
+/// (what an exception's `adr` names).
+pub fn adr_id(file: &str) -> String {
+    static R: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let re = R.get_or_init(|| Regex::new(r"^(?i)(adr[-_]?\d+|\d+)").unwrap());
+    let stem = file.trim_end_matches(".md");
+    re.find(stem).map_or(stem, |m| m.as_str()).to_string()
+}
+
+/// The word of an ADR's status line, lowercase (`proposed`, `aceite`…), or empty without one.
+pub fn adr_status(text: &str) -> String {
+    adr_status_re()
+        .captures(text)
+        .map(|c| c[3].to_lowercase())
+        .unwrap_or_default()
+}
+
+/// The ADR's text, accepted by `who` on `date` (RF-A04, F5.5): its status line says `accepted`
+/// (`aceite` when it is written `Estado`), and a line under it says who approved it, in the same
+/// form (a YAML key in a front matter; a bullet, bold or not, in a list). Without a status line,
+/// one is added under the title.
+pub fn accept_adr_text(text: &str, who: &str, date: &str) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let front_end = if lines.first().map(|l| l.trim()) == Some("---") {
+        lines
+            .iter()
+            .skip(1)
+            .position(|l| l.trim() == "---")
+            .map(|k| k + 1)
+    } else {
+        None
+    };
+    let re = adr_status_re();
+    let found = lines
+        .iter()
+        .enumerate()
+        .find_map(|(k, l)| re.captures(l).map(|c| (k, c)));
+    let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+    match found {
+        Some((k, c)) => {
+            let pt = c[2].eq_ignore_ascii_case("estado");
+            out[k] = format!(
+                "{}{}{}",
+                &c[1],
+                if pt { "aceite" } else { "accepted" },
+                &c[4]
+            );
+            let label = if pt { "Aprovado por" } else { "Approved by" };
+            let approved = if front_end.is_some_and(|end| k < end) {
+                format!("approved_by: \"{who} ({date})\"")
+            } else {
+                let indent: String = out[k].chars().take_while(|c| c.is_whitespace()).collect();
+                let bullet = if out[k].trim_start().starts_with("- ") {
+                    "- "
+                } else {
+                    ""
+                };
+                if c[1].contains("**") {
+                    format!("{indent}{bullet}**{label}:** {who} ({date})")
+                } else {
+                    format!("{indent}{bullet}{label}: {who} ({date})")
+                }
+            };
+            out.insert(k + 1, approved);
+        }
+        None => {
+            let at = out
+                .iter()
+                .position(|l| l.starts_with("# "))
+                .map_or(0, |k| k + 1);
+            out.insert(at, String::new());
+            out.insert(at + 1, "Status: accepted".into());
+            out.insert(at + 2, format!("Approved by: {who} ({date})"));
+        }
+    }
+    out.join("\n")
 }
 
 /// The violations that no accepted ADR excuses (RF-A04).
@@ -467,5 +627,137 @@ rule = "library:moment"
         assert_eq!(Rules::load(d.path()).unwrap().unwrap().layers.len(), 2);
         std::fs::write(d.path().join(RULES_FILE), "layers = 3").unwrap();
         assert!(Rules::load(d.path()).is_err());
+    }
+
+    #[test]
+    fn the_rules_the_studio_writes_are_validated_and_read_back_the_same() {
+        let good = Rules {
+            layers: vec![
+                Layer {
+                    name: "domain".into(),
+                    paths: vec!["src/domain/**".into()],
+                    may_use: Some(vec![]),
+                    imports: vec![],
+                },
+                Layer {
+                    name: "app".into(),
+                    paths: vec!["src/app/**".into()],
+                    may_use: Some(vec!["domain".into()]),
+                    imports: vec![],
+                },
+                Layer {
+                    name: "ui".into(),
+                    paths: vec!["src/ui/**".into()],
+                    may_use: None,
+                    imports: vec!["@ui/".into()],
+                },
+            ],
+            libraries: Libraries {
+                forbidden: vec!["moment".into()],
+                approved: vec![],
+            },
+            naming: vec![Naming {
+                paths: vec!["src/**/*.rs".into()],
+                pattern: "^[a-z0-9_]+\\.rs$".into(),
+            }],
+            exceptions: vec![Exception {
+                adr: "ADR-0007".into(),
+                rule: "library:moment".into(),
+            }],
+        };
+        assert!(validate(&good).is_empty(), "{:?}", validate(&good));
+        let text = to_toml(&good).unwrap();
+        assert!(text.starts_with("# The architect's rules"));
+        let back: Rules = toml::from_str(&text).unwrap();
+        // the round trip keeps `may_use` absent (unrestricted) apart from an empty list (nothing)
+        assert_eq!(back, good, "{text}");
+
+        let bad = Rules {
+            layers: vec![
+                Layer {
+                    name: "domain".into(),
+                    paths: vec![],
+                    may_use: Some(vec!["domain".into(), "infra".into()]),
+                    imports: vec![],
+                },
+                Layer {
+                    name: "domain".into(),
+                    paths: vec!["x/**".into()],
+                    may_use: None,
+                    imports: vec![],
+                },
+                Layer {
+                    name: " ".into(),
+                    ..Default::default()
+                },
+            ],
+            naming: vec![Naming {
+                paths: vec![],
+                pattern: "([".into(),
+            }],
+            exceptions: vec![Exception {
+                adr: "".into(),
+                rule: "moment".into(),
+            }],
+            ..Default::default()
+        };
+        let p = validate(&bad);
+        for want in [
+            "layer «domain»: the name is used more than once",
+            "layer «domain»: it needs at least one path",
+            "layer «domain»: it does not need to list itself",
+            "may_use names «infra», which is not a layer",
+            "layer 3: it needs a name",
+            "naming rule 1: it needs at least one path",
+            "naming rule 1: the pattern does not compile",
+            "exception 1: it needs the ADR",
+            "exception 1: the rule must be",
+        ] {
+            assert!(p.iter().any(|x| x.contains(want)), "{want} — {p:?}");
+        }
+        assert_eq!(p.iter().filter(|x| x.contains("more than once")).count(), 1);
+    }
+    #[test]
+    fn accepting_an_adr_keeps_its_form_and_says_who_approved_it() {
+        let pt = "# ADR-0006 — Studio\n\n- **Estado:** proposto (revisão a 2026-11-20)\n- **Data:** 2026-11-20\n";
+        assert_eq!(
+            accept_adr_text(pt, "Ana <ana@x.pt>", "2026-11-24"),
+            "# ADR-0006 — Studio\n\n- **Estado:** aceite (revisão a 2026-11-20)\n- **Aprovado por:** Ana <ana@x.pt> (2026-11-24)\n- **Data:** 2026-11-20\n"
+        );
+        let en = "# Use SQLite\n\nStatus: proposed\n\nContext…\n";
+        assert_eq!(
+            accept_adr_text(en, "Ana", "2026-11-24"),
+            "# Use SQLite\n\nStatus: accepted\nApproved by: Ana (2026-11-24)\n\nContext…\n"
+        );
+        let yaml = "---\nstatus: proposed\ndate: 2026-11-01\n---\n# Queue\n";
+        assert_eq!(
+            accept_adr_text(yaml, "Ana", "2026-11-24"),
+            "---\nstatus: accepted\napproved_by: \"Ana (2026-11-24)\"\ndate: 2026-11-01\n---\n# Queue\n"
+        );
+        let none = "# No status\n\nText.\n";
+        assert_eq!(
+            accept_adr_text(none, "Ana", "2026-11-24"),
+            "# No status\n\nStatus: accepted\nApproved by: Ana (2026-11-24)\n\nText.\n"
+        );
+        // what conformance::adr_accepted reads afterwards
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("docs/architecture")).unwrap();
+        std::fs::write(
+            d.path().join("docs/architecture/ADR-0006-studio.md"),
+            accept_adr_text(pt, "Ana", "2026-11-24"),
+        )
+        .unwrap();
+        assert!(adr_accepted(d.path(), "ADR-0006"));
+    }
+
+    #[test]
+    fn adr_ids_and_status_words() {
+        assert_eq!(adr_id("ADR-0006-arch-studio.md"), "ADR-0006");
+        assert_eq!(adr_id("0003-db.md"), "0003");
+        assert_eq!(adr_id("adr_12.md"), "adr_12");
+        assert_eq!(adr_id("notes.md"), "notes");
+        assert_eq!(adr_status("# x\n- **Estado:** aceite (U4)\n"), "aceite");
+        assert_eq!(adr_status("Status: Proposed\n"), "proposed");
+        assert_eq!(adr_status("# no status\n"), "");
     }
 }
