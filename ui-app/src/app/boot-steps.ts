@@ -21,10 +21,11 @@ import { closePal, palDraw, palRun, PITEMS } from "../features/palette";
 import { loadCfg } from "./store/config";
 import { resetWorkspace } from "../features/workspace";
 import { buildActivity } from "../features/shell";
-import { openSettings, runLabel } from "../features/codev";
+import { openSettings, runLabel, assistantCenter, newChat } from "../features/codev";
 import { agentStore, layoutStore, editorStore } from "./store";
 import { syncTree } from "../features/explorer";
 import { setTheme } from "../features/theme";
+import { termClear } from "../features/terminal";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 

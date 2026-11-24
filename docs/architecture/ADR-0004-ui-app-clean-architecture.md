@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7m)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7n)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1181,3 +1181,14 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   real); o `gotoLine` (o teste de cablagem troca-o); o `openLesson`/`nextLesson` (stub de argumentos); o
   `checkpoint`/`clLog`/`clShow`/`gitCmd`/`has`/`log`/`save`/`use`/`connected` (testes de outras sessões lêem-nos); o
   `LIVE_OK` (dois escritores). Ordem de avaliação igual. Globais publicadas 182 → 167.
+- **U7n (2026-11-24) — os botões da moldura.** O `app/chrome-actions.ts` avalia depois de todos os donos, por isso
+  importa as funções em vez de as chamar pelo `callGlobal`: `cycleMode`, `pickModel`, `newChat` (o com o contexto),
+  `agCtl`, `assistantCenter`, `toggleAgent`, `openManager` (`features/codev.ts`), `newFile`, `newFolder`, `collapseAll`
+  (`features/explorer.ts`), `termClear`, `pickAgent` e `toggleNotes` — e os treze saem do window. O `boot.ts` (o
+  Esc/p/x/d da execução), a conta e a ponte do Co-Dev, que avaliam antes, usam o registo (`services.codev.agCtl`/
+  `openManager`, `services.team.pickAgent`); os comandos, o arranque e as boas-vindas importam. Continuam pelo
+  publicado os botões cujos nomes outras sessões ainda lêem (`toggleSide` — o e2e do PairCode chama-o —, `togglePanel`,
+  `refresh`, `palette`, `goPane`, `setPanelTab`, `pickBranch`). O teste da moldura (decisão do dono) passa a trocar
+  só esses no window e a provar os outros pelo efeito: o `#tgl-agent` muda a largura do painel do Co-Dev, o
+  `#rc-pause` pausa uma execução activa, o `#st-mode` pede o modo seguinte ao `setMode` e o `#st-bell` abre as
+  notificações. Ordem de avaliação igual. Globais publicadas 167 → 154.

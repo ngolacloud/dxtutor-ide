@@ -94,7 +94,7 @@ document.addEventListener('dx:workspace', () => applyProjectTeam());
 /** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
 export function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJsonKeeping(AGENTS,FS[ROOT+'.dxtutor/team.json']?.content));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
 export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
-function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{agentStore.persona=k;agentPill();toast('Assistente: '+a.n);}}))});}
+export function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{agentStore.persona=k;agentPill();toast('Assistente: '+a.n);}}))});}
 export function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[agentStore.persona].col}"></span>${AGENTS[agentStore.persona].n}`;}}
 function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,services.workspace!.norm(v)));o.innerHTML=who.length?mdk('canWrite',{who:who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', ')}):mdk('noSpecialist');}
 /* ───── harness de projecto: templates, decision rights, mode ceiling (migrado de
@@ -244,10 +244,8 @@ export function codeGuard(what: string): boolean {
   return true;
 }
 
-Object.assign(window, { pickAgent,
-});
 /* o harness que o Co-Dev e as tarefas lêem (ADR-0004, U7h): avaliam antes deste módulo, por isso usam o registo */
-services.team = { HARN, MORD, RIGHTS, RIGHT_RE, isHuman, harnessCheck, harnessCmd, agentSys, agentPill, openTeam, reviewIssue };
+services.team = { HARN, MORD, RIGHTS, RIGHT_RE, isHuman, harnessCheck, harnessCmd, agentSys, agentPill, openTeam, reviewIssue, pickAgent };
 
 /* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê
    directamente — o tecto no setMode, o boot5, as políticas do board — vê já os valores

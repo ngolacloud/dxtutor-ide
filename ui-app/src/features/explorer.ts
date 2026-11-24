@@ -58,7 +58,7 @@ function noFolder(host:HTMLElement){const d=document.createElement('div');d.clas
   const dxr=(window as unknown as {DXR?:{open?:()=>void}}).DXR;if(!dxr||!dxr.open)return;
   const b=document.createElement('button');b.className='mini pri';b.style.margin='4px 0 0 12px';b.textContent='Abrir pasta…';b.addEventListener('click',()=>dxr.open!());host.appendChild(b);}
 function markActive(){$$('#exp-sections .row.sel').forEach(x=>x.classList.remove('sel'));const t=tabOf(cur);if(t&&t.path){const r=$(`#exp-sections .row[data-path="${esc(t.path)}"]`);if(r)r.classList.add('sel');}}
-function collapseAll(){workspaceStore.openDirs.clear();Object.values(TREE.projects.children).forEach(n=>{(n as any).open=false;});buildExplorer();}
+export function collapseAll(){workspaceStore.openDirs.clear();Object.values(TREE.projects.children).forEach(n=>{(n as any).open=false;});buildExplorer();}
 function symbols(p:string){const f=FS[p];if(!f)return[];const out:{k:string;n:string;line:number}[]=[];f.content.split('\n').forEach((l,i)=>{const m=l.match(/^\s*(?:pub\s+)?(?:async\s+)?(fn|struct|enum|trait|impl|function|CREATE TABLE|CREATE INDEX)\s+(?:.*?\bfor\s+)?([A-Za-z_]\w*)/)||l.match(/^(#{1,3})\s+(.+)/)||l.match(/^(export)\s+(?:async\s+)?(?:function|const)\s+(\w+)/);if(m)out.push({k:m[1].replace('CREATE ','').toLowerCase(),n:m[2],line:i+1});});return out;}
 /* ───── Outline real (ADR-0006, R2c) ─────
    No desktop com pasta aberta, os símbolos de um ficheiro de código vêm do backend
@@ -120,8 +120,8 @@ function drawOutline(){const o=$('#outline');if(!o)return;const t=tabOf(cur),sy=
   o.innerHTML=sy===null?`<div class="sec-empty">${txd('readingSymbols')}</div>`:sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:${16+(s.d??0)*12}px" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):t&&t.path?'<div class="sec-empty">Sem símbolos neste ficheiro.</div>':`<div class="sec-empty">${txt("openAFileTo")}</div>`;}
 /* clicar num símbolo vai para a linha (sem onclick inline; o #outline é recriado pelo buildExplorer) */
 document.addEventListener('click',(e)=>{const h=(e.target as HTMLElement|null)?.closest<HTMLElement>('#outline .s-hit[data-on]');if(h)gotoLine(+(h.dataset.on as string));});
-function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/) — ex.: desktop/src/novo.ts',verb:'Criar',text:(q:string)=>{q=q.trim();if(!q)return;const p=norm(q);if(FS[p]){toast('Já existe');openPath(p);return;}writeFile(p,'');openPath(p);}});}
-function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',verb:'Criar pasta',text:(q:string)=>{q=q.trim().replace(/\/$/,'');if(!q)return;writeFile(norm(q+'/.gitkeep'),'');workspaceStore.openDirs.add('dxtutor/'+q);refresh(true,true);toast('Pasta criada: '+q);}});}
+export function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/) — ex.: desktop/src/novo.ts',verb:'Criar',text:(q:string)=>{q=q.trim();if(!q)return;const p=norm(q);if(FS[p]){toast('Já existe');openPath(p);return;}writeFile(p,'');openPath(p);}});}
+export function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',verb:'Criar pasta',text:(q:string)=>{q=q.trim().replace(/\/$/,'');if(!q)return;writeFile(norm(q+'/.gitkeep'),'');workspaceStore.openDirs.add('dxtutor/'+q);refresh(true,true);toast('Pasta criada: '+q);}});}
 
 /* ── publicação no window: nomes que o resíduo (app.ts: refresh/show + Object.assign),
    o boot.ts (buildExplorer/renderLevel/collapseAll), o v6.ts (symbols) e as entradas
@@ -196,5 +196,5 @@ const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) 
 /* a versão com a porta (U4h5b) é a que se exporta e regista: o arranque importa-a; os separadores e o workspace (avaliam antes) usam o registo (ADR-0004, U7l) */
 export { syncTreePublished as syncTree, drawOutline, markActive };
 services.explorer = { syncTree: syncTreePublished, drawOutline, markActive };
-Object.assign(window, { buildExplorer, collapseAll, symbols, newFile, newFolder, fIcon });
+Object.assign(window, { buildExplorer, symbols, fIcon });
 

@@ -20,7 +20,7 @@
 
 import { $, hd, svg, esc, prov, provState } from "../core";
 import { RP } from "../app/store/registry";
-import { registerActions, globalCalls } from "../app/actions";
+import { registerActions } from "../app/actions";
 import { translator } from "../app/i18n";
 import { ACCOUNT_MESSAGES } from "./account.messages";
 import { services } from "../app/services";
@@ -61,4 +61,4 @@ RP.account = renderAccountPane;
 
 /* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
 /* as Definições pelo registo — o features/codev.ts avalia depois (ADR-0004, U7h) */
-registerActions({ "account:openSettings": { click: () => services.codev!.openSettings() }, ...globalCalls("account", ["openManager"]) });
+registerActions({ "account:openSettings": { click: () => services.codev!.openSettings() }, "account:openManager": { click: () => services.codev!.openManager() } });

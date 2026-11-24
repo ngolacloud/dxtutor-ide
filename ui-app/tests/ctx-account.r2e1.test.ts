@@ -37,10 +37,10 @@ describe("ctx: o uso real da conversa", () => {
     expect(ctx().title).toMatch(/did not report/);
   });
 
-  it("«Nova conversa» repõe o ctx", () => {
+  it("«Nova conversa» repõe o ctx", async () => {
     usage(500, 10);
     expect(ctx().textContent).toBe("ctx 500");
-    w.newChat();
+    (await import("../src/features/codev")).newChat();
     expect(ctx().textContent).toBe("");
   });
 });

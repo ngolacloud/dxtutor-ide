@@ -119,7 +119,7 @@ export const setEffort = (v: string): void => {
 };
 
 /** O assistente da conversa (features/team.ts): escolher e redesenhar o `#pill-agent`. */
-export const pickPersona = (): void => G.pickAgent?.();
+export const pickPersona = (): void => services.team?.pickAgent();
 export const refreshPersona = (): void => services.team?.agentPill();
 
 /** A língua do ditado guardada (`dx2.dictationLang`); `null` = por escolher. */

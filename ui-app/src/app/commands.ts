@@ -13,7 +13,7 @@ import { openHoodReal, openTrace } from "../features/hood/index";
 import { openOps } from "../features/ops/index";
 import { openDeps, openOnboarding } from "../features/codebase/index";
 import { dbgAttach } from "../features/debug";
-import { openAnalysis, openSettings, MODES, CKPT } from "../features/codev";
+import { openAnalysis, openSettings, MODES, CKPT, pickModel, assistantCenter, openManager, newChat, agCtl } from "../features/codev";
 import { edCmd } from "../features/editor";
 import { stepTab, closeTab } from "../features/tabs";
 import { restoreCkpt } from "../features/checkpoint";
@@ -21,9 +21,11 @@ import { openStudio } from "../features/studio";
 import { translator } from "./i18n";
 import { COMMANDS_MESSAGES, THEME_LABEL } from "./commands-messages";
 import { agentStore, layoutStore } from "./store";
-import { openTeam } from "../features/team";
+import { openTeam, pickAgent } from "../features/team";
 import { nextProblem } from "../features/diagnostics";
 import { THEMES, setTheme } from "../features/theme";
+import { newFile, newFolder } from "../features/explorer";
+import { termClear } from "../features/terminal";
 
 const tcm = translator(COMMANDS_MESSAGES);
 

@@ -90,7 +90,7 @@ export const cwd = ownedValue<string[]>(["~", "dxtutor", "workspace", "projects"
 let hidx = 0;
 
 
-function termClear(): void {
+export function termClear(): void {
   const t = $("#term") as HTMLElement;
   t.innerHTML = "";
   echo(`<span class="ac">${txe("banner")}</span> <span class="dim">${txe("bannerNote")}</span><span class="ok">help</span>`);
@@ -282,4 +282,4 @@ const runPublished = (raw?: string): unknown => { const d = desktopPorts.termina
  *  `termExec` PUBLICADO, que consulta a porta desktop (tarefa num PTY na app). */
 function runTask(c: string): unknown { TG.setPanelTab('terminal'); return termExec(c); }
 
-Object.assign(window, { termClear, echo, complete, echoCmd, run: runPublished, runTask });
+Object.assign(window, { echo, complete, echoCmd, run: runPublished, runTask });

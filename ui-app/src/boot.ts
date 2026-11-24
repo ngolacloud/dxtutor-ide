@@ -35,7 +35,6 @@ declare global {
   }
   var toTimer: ReturnType<typeof setTimeout> | undefined;
   var activeTab: string | null;
-  const agCtl: (a: string) => void;
   const svg: (name: string, cls?: string) => string;
   const wireSections: (scope: ParentNode) => void;
   /* o String.replaceAll existe em runtime (ES2021, webview e browsers suportados) mas a lib
@@ -166,8 +165,8 @@ export const TREE: { projects: { dir?: number; open?: number; children: Record<s
    features tabs/editor/codev são as donas (ADR-0006, R1a). Fica o atalho de teclado dos controlos de execução. */
 document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target as HTMLElement).tagName))return;
   const open=getComputedStyle(document.body).getPropertyValue('--agent-w').trim()!=='0px'||(activeTab==='Assistant');if(!open)return;
-  const rc=$('#ag-runctl');if(e.key==='Escape'){agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
-  const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
+  const rc=$('#ag-runctl');if(e.key==='Escape'){services.codev!.agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
+  const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();services.codev!.agCtl(m[e.key]);}});
 window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
 export function buildDocker(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
   /* sem dados inventados (ADR-0006, R1a): no desktop, o pane lista os contentores e as imagens reais do

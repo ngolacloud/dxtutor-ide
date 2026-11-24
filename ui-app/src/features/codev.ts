@@ -164,13 +164,15 @@ function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last:
 
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
-Object.assign(window, { cycleMode, pickModel, newChat: newChatWithCtx, user, card, md, agCtl, waiting, ask });
+Object.assign(window, { user, card, md, waiting, ask });
 
 /* o doTool com o gate de direitos do harness acima: exportado (ADR-0004, U7k — era publicado no window, que só os
    testes liam). O motor de missões guionadas e os cenários de demonstração foram removidos (ADR-0006, R1b). */
 export { harnessDoTool as doTool };
 /* os helpers do transcript que o board, os separadores e o arranque usam: por import (ADR-0004, U7l — eram publicados no window) */
 export { ctxPill, scrollMsgs, beat, runState, runLabel, tl };
+/* os botões da moldura (app/chrome-actions.ts), os comandos e o arranque importam-nos (ADR-0004, U7n — eram publicados no window) */
+export { cycleMode, pickModel, newChatWithCtx as newChat, agCtl, assistantCenter, toggleAgent, openManager };
 
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
 function handlePrompt(q: string) {
@@ -222,7 +224,7 @@ function assistantDock() { bridge.closeTab('agent'); }
 function toggleAgent() { if (bridge.tabOf('agent')) { bridge.closeTab('agent'); return; } const show = bridge.getVar('--agent-w') === '0px'; bridge.setVar('--agent-w', show ? '380px' : '0px'); $('#tgl-agent')!.classList.toggle('on', show); }
 function focusAgent(nofocus?: boolean) { if (bridge.tabOf('agent')) { if (bridge.monolith.currentTabId !== 'agent') bridge.show('agent'); } else if (bridge.getVar('--agent-w') === '0px') toggleAgent(); if (!nofocus) ($('#ag-input') as HTMLElement)!.focus(); }
 /* publica o ponto de entrada de conversa livre + posicionamento; VIEW.agent fica como shim em app.ts (VIEW nasce depois) */
-Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, assistantCenter, toggleAgent, focusAgent });
+Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, focusAgent });
 /* Board (opção 2 do ADR-0003): o Board pede ao Co-Dev pelo seu legacy-bridge, sem importar a feature */
 Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvailable: codevEngine.agentAvailable });
 
@@ -284,7 +286,6 @@ export const renderManagerPage = (_t: unknown, host: HTMLElement): void => {
    `features/changelog.ts` (timeline git real). `openAnalysis` (o ponto de entrada do
    menu Help + paleta) mantém-se e passa a abrir o changelog. */
 /* publica openManager/openSettings/openAnalysis (testProv é window.* acima); os VIEW.* ficam shims em app.ts */
-Object.assign(window, { openManager });
 
 /** Renderiza o pane «Co-Dev»: base (conhecimento, checkpoints, routing) e,
  *  por cima, a camada v4 (equipa, backlog, studio). */
@@ -452,6 +453,6 @@ export const provState=(k: string): string=>{const d=desktopPorts.codev;return d
 const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${services.i18n!.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
 VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
 /* o que a ponte do Co-Dev e a conta lêem (ADR-0004, U7h): avaliam antes deste módulo, por isso usam o registo */
-services.codev = { STOP, SAFE, DANGER, provFor, who, openSettings, MODES, ROUTE, provState };
+services.codev = { STOP, SAFE, DANGER, provFor, who, openSettings, MODES, ROUTE, provState, agCtl, openManager };
 /* a escolha da língua nas Definições chama o setLocale publicado, no acto (era `onclick` inline — ADR-0004, U5c) */
 registerActions({ "codev:setLocale": { click: (c) => void callGlobal("setLocale", c.on) } });

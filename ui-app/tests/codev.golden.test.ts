@@ -31,7 +31,7 @@ describe("goldens de DOM — estados estáticos", () => {
   });
 
   it("chat depois de newChat()", () => {
-    w.newChat();
+    CM.newChat();
     const el = document.querySelector("#ag-msgs")!;
     expect(golden(el)).toMatchSnapshot();
   });
