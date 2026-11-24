@@ -908,16 +908,14 @@ pub fn send(
                         .unwrap()
                         .as_mut()
                         .map(|b| budget_check(b, tc, rc));
-                    if let Some((note, stop)) = check {
-                        if let Some(text) = note {
-                            emit(AgentEvent::Notice { text: text.clone() });
-                            if stop {
-                                session.agent.ctx.cancel.store(true, Ordering::Relaxed);
-                                let mut e = audit_entry(&session, "budget");
-                                e.reason = Some(text);
-                                e.outcome = Some("stopped".into());
-                                audit(&session, e);
-                            }
+                    if let Some((Some(text), stop)) = check {
+                        emit(AgentEvent::Notice { text: text.clone() });
+                        if stop {
+                            session.agent.ctx.cancel.store(true, Ordering::Relaxed);
+                            let mut e = audit_entry(&session, "budget");
+                            e.reason = Some(text);
+                            e.outcome = Some("stopped".into());
+                            audit(&session, e);
                         }
                     }
                 }

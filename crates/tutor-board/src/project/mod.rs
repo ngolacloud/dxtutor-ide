@@ -1125,7 +1125,7 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
         } => {
             issue_row(c, root, &key)?;
             if let Some(b) = &budget_usd {
-                if b.is_some_and(|v| !(v >= 0.0)) {
+                if b.is_some_and(|v| v.is_nan() || v < 0.0) {
                     return Err(err(
                         "invalid",
                         "o orçamento é um valor em dólares, 0 ou mais",
@@ -1290,7 +1290,7 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
         }
         Op::SetSprintBudget { id, budget_usd } => {
             sprint_exists(c, root, &id)?;
-            if budget_usd.is_some_and(|v| !(v >= 0.0)) {
+            if budget_usd.is_some_and(|v| v.is_nan() || v < 0.0) {
                 return Err(err(
                     "invalid",
                     "o orçamento é um valor em dólares, 0 ou mais",

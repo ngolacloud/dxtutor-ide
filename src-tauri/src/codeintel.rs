@@ -242,7 +242,7 @@ impl tutor_agent::Tool for OutlineTool {
             .filter(|s| !s.is_empty());
         let syms: Vec<String> = outline(&code, lang, Some(&root), Some(&file))
             .into_iter()
-            .filter(|s| want.map_or(true, |w| s.name == w))
+            .filter(|s| want.is_none_or(|w| s.name == w))
             .map(|s| {
                 let kind = serde_json::to_value(s.kind)
                     .ok()
