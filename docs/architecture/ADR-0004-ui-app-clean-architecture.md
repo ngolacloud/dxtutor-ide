@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h2; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -520,3 +520,25 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   explorador, prompt real, nota do agente, Settings (texto e placeholders das chaves), logs
   reais na observabilidade, sampler, `loadJSZip`, `drawStack` —, idênticos (só difere um nome
   minificado).
+- **U4h2 (2026-11-24) — o scm: a primeira porta desktop injectada no dono.** Novo registo
+  `app/desktop.ts` (`desktopPorts`), onde a app Tauri instala as portas; no browser e nos testes
+  fica vazio. A interface `ScmDesktop` é do scm (`scm/application/ports.ts`): commit, checkout,
+  gitMerge e gfFinish, cada um com a versão simulada como último argumento (sem repositório o
+  adaptador delega nela; o commit corre-a primeiro e depois o `git commit`). O `scm.ts` publica
+  `commit`/`checkout`/`gitMerge`/`gfFinish` compostos com a porta (consultada no acto); o
+  `platform/desktop/git.ts` deixa de reatribuir os quatro globais e instala
+  `desktopPorts.scm` com os mesmos corpos. **Equivalência:** antes, o `window` decorado era o
+  único caminho para o git real; agora são as versões publicadas — os mesmos chamadores. As
+  chamadas internas do `scm.ts` continuam no motor local, como antes. Dentro do `gfFinish`
+  desktop, os `checkout(…)`/`gitMerge(…)` resolvem (provado com o type checker) para os globais
+  publicados, que voltam a passar pela porta — como antes passavam pelos decorados. Ninguém
+  captura estes nomes por valor (só `G.x`/`window.x` no acto e portas do board/codev).
+  **Bugs pré-existentes reportados (não corrigidos):** (1) desde a Fase 4 do scm (`f07dbc1`),
+  as acções do pane — Commit, mudar de ramo, fim de gitflow — e a paleta de ramos chamam o
+  motor local em vez do `window` decorado, por isso no desktop não usam git real (os
+  `onclick` antigos usavam); com a porta no dono, a correcção é usar as versões publicadas nas
+  acções. (2) O `gfStart` nunca foi desktop: cria o ramo de gitflow só em memória, por isso o
+  gitflow não chega ao git real — o passo `gitflow` do auto-teste acaba em `master` com um só
+  ramo, e o `checkpoint` com `finishedViaAsk: false`, desde a primeira medição da sessão.
+  Métricas sem mudança; lint 280. Verificado: 367 testes, arranque no browser 4/4, auto-teste
+  desktop idêntico ao da U4h1 (os passos `commit` e `scm` confirmam o git real pela porta).

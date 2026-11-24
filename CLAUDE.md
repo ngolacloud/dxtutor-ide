@@ -130,7 +130,10 @@ features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GI
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o codereview, o markup vive
 no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. GOTCHA-commit:
 o botão «Commit» usa o commit v2 (`window.commit`, só FS+COMMITS); o Ctrl+Enter e os
-auto-commits do monólito usam o v4 git-aware (`window.commitGit`). Rede de segurança
+auto-commits do monólito usam o v4 git-aware (`window.commitGit`). No desktop, o commit/
+checkout/gitMerge/gfFinish PUBLICADOS passam pela porta `desktopPorts.scm` (git real); as
+chamadas internas do `scm.ts` (acções do pane, paleta de ramos, Ctrl+Enter) usam o motor
+local — bug pré-existente reportado (desde f07dbc1 o pane não usa git real no desktop). Rede de segurança
 em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor) e
 `tests/scm.domain.test.ts` (domínio puro).
 
@@ -336,8 +339,11 @@ infra, demos, ext) + `selftest.ts`. O `bridge.ts` é só a composição: sai no 
 contexto, instala os módulos pela ordem das antigas secções (a ordem dos efeitos no eval
 importa) e corre o arranque. Regra ao mexer: um módulo usa os serviços de outro SEMPRE por
 `ctx.x(...)` no acto (nunca capturado no install), e nada de nomes soltos que resolvam para
-um global por acaso. A U4h1 só mudou o código de sítio (as decorações `window.X = …`
-continuam); as fatias seguintes trocam-nas por portas injectadas nos donos.
+um global por acaso. A U4h1 só mudou o código de sítio; a partir da U4h2 cada decoração
+`window.X = …` passa a uma PORTA definida pela feature dona (`application/ports.ts`) e
+registada em `app/desktop.ts` (`desktopPorts.<feature>`): o dono consulta-a no acto, nas
+versões que publica, e a porta recebe a versão simulada como último argumento. Já migrado:
+`scm` (commit/checkout/gitMerge/gfFinish — U4h2).
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 

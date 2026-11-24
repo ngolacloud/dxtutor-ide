@@ -5,6 +5,8 @@
    decora commit/checkout/gitMerge/gfFinish (U4h2+: injecção no dono, o scm). */
 
 import type { CommitNode } from "./types";
+import type { ScmDesktop } from "../../features/scm/application/ports";
+import { desktopPorts } from "../../app/desktop";
 import type { DesktopContext } from "./context";
 
 export function installGit(ctx: DesktopContext): void {
@@ -62,8 +64,23 @@ window.clShow = async (hash: string) => (R.root ? gitc.show(R.root, hash) : "");
 R.termLine = (t, e) => termLine(t, e);
 R.envFor = () => envFor();
 R.gitInit = () => enqueue(async () => { flushSave(); await gitOk("init", "-b", "main"); R.git = true; R.prefix = ""; await markChanged(); await syncGit(); toast("git repository created on main"); });
-const _commit = commit, _checkout = checkout, _gitMerge = gitMerge, _gfFinish = gfFinish;
-commit = function (msg?: string, author?: string) {
+function realMerge(src: string, author?: string): CommitNode {
+  const dst = BRANCH, m = `Merge ${src} into ${dst}`;
+  enqueue(async () => {
+    const r = await git("merge", "--no-ff", "-m", m, src);
+    if (r.code !== 0) { await git("merge", "--abort"); throw new Error(`merge of ${src} into ${dst} has conflicts — aborted. Run "git merge ${src}" in the terminal to resolve them by hand.`); }
+    await reloadDisk();
+    await syncGit();
+  });
+  return { h: "pending", m, p: [], b: dst, a: author || "w", t: Date.now(), files: [] };
+}
+/* a porta desktop do scm (ADR-0004, U4h2): o scm.ts consulta-a nas versões publicadas do
+   commit/checkout/gitMerge/gfFinish — antes estas quatro eram reatribuídas no `window`. Os
+   corpos são os mesmos; a versão simulada chega como último argumento (`_commit`, …). Dentro
+   do gfFinish, `checkout(…)`/`gitMerge(…)` continuam a ser os globais publicados (que voltam
+   a passar por esta porta), como antes eram os decorados. */
+const scmDesktop: ScmDesktop = {
+commit(msg, author, _commit) {
   if (!R.git) return _commit(msg, author);
   const m = (msg || COMMIT_MSG || "").trim();
   const list = (STAGED.size ? [...STAGED] : changes()).filter(p => FS[p] && stOf(p));
@@ -81,8 +98,8 @@ commit = function (msg?: string, author?: string) {
     say(c.stdout.split("\n")[0]);
   });
   return r;
-};
-checkout = function (b: string, create?: boolean) {
+},
+checkout(b, create, _checkout) {
   if (!R.git) return _checkout(b, create);
   if (create && GIT.refs[b]) { toast("Branch already exists: " + b); return false; }
   if (!create && !GIT.refs[b] && !/^(main|develop)$/.test(b)) { toast("Unknown branch: " + b); return false; }
@@ -95,24 +112,14 @@ checkout = function (b: string, create?: boolean) {
   enqueue(async () => { await gitOk(...(create ? ["checkout", "-b", b] : ["checkout", b])); await reloadDisk(); await syncGit(); })
     .then(() => { if (R.git) void git("rev-parse", "--abbrev-ref", "HEAD").then(h => { if (h.stdout.trim() !== BRANCH) void syncGit(); }); });
   return true;
-};
-function realMerge(src: string, author?: string): CommitNode {
-  const dst = BRANCH, m = `Merge ${src} into ${dst}`;
-  enqueue(async () => {
-    const r = await git("merge", "--no-ff", "-m", m, src);
-    if (r.code !== 0) { await git("merge", "--abort"); throw new Error(`merge of ${src} into ${dst} has conflicts — aborted. Run "git merge ${src}" in the terminal to resolve them by hand.`); }
-    await reloadDisk();
-    await syncGit();
-  });
-  return { h: "pending", m, p: [], b: dst, a: author || "w", t: Date.now(), files: [] };
-}
-gitMerge = function (src: string, author?: string) {
+},
+gitMerge(src, author, _gitMerge) {
   if (!R.git) return _gitMerge(src, author);
   if (!GIT.refs[src] || src === BRANCH) return null;
   flushSave();
   return realMerge(src, author);
-};
-gfFinish = function (b?: string, author?: string) {
+},
+gfFinish(b, author, _gfFinish) {
   if (!R.git) return _gfFinish(b, author);
   const bn = b || BRANCH;
   if (!isFlow(bn) || !GIT.refs[bn]) return null;
@@ -123,6 +130,8 @@ gfFinish = function (b?: string, author?: string) {
   else { checkout("develop"); res = gitMerge(bn, author); }
   enqueue(async () => { await gitOk("branch", "-d", bn); await syncGit(); say(`gitflow: finished ${bn}`); });
   return res;
+},
 };
+desktopPorts.scm = scmDesktop;
 ctx.syncGit = syncGit;
 }

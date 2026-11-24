@@ -35,6 +35,8 @@ import { statusOf, listChanges } from "./scm/domain/status";
 import { resolveAuthor } from "./scm/domain/author";
 import { isFlow } from "./scm/domain/gitflow";
 import { makeScmEngine } from "./scm/application/scm-engine";
+import type { CommitResult, MergeResult } from "./scm/application/ports";
+import { desktopPorts } from "../app/desktop";
 import { bindActions, type ActionTable } from "./scm/ui/actions";
 import {
   toast, log, rerender,
@@ -98,6 +100,18 @@ const { gitInit, commit, commitV2, checkout, gitMerge, gfStart, gfFinish, stage,
   clock: { now: () => Date.now() },
   ids: { next: () => Math.random().toString(16).slice(2, 9) },
 });
+
+/* ───── a parte desktop (ADR-0004, U4h2) ─────
+   As versões PUBLICADAS do commit (o v2 do botão), checkout, gitMerge e gfFinish consultam a
+   porta desktop (`desktopPorts.scm`, injectada por platform/desktop/git.ts na app Tauri) —
+   antes o desktop reatribuía-as no `window`. As chamadas internas deste ficheiro (acções do
+   pane, paleta de ramos, Ctrl+Enter, gfStart/gfFinish do motor) continuam no motor local,
+   como antes: desde a Fase 4 (f07dbc1) as acções do pane deixaram de passar pelo `window`
+   decorado, por isso no desktop não usam git real — bug pré-existente, reportado. */
+const commitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commitV2) : commitV2(msg); };
+const checkoutPublished = (b: string, create?: boolean): boolean => { const d = desktopPorts.scm; return d ? d.checkout(b, create, checkout) : checkout(b, create); };
+const gitMergePublished = (src: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gitMerge(src, author, gitMerge) : gitMerge(src, author); };
+const gfFinishPublished = (b?: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gfFinish(b, author, gfFinish) : gfFinish(b, author); };
 
 /* ───── UI que abre a paleta (prompts gitflow / mudar de ramo) — chama o motor ───── */
 function gfPrompt(kind: FlowKind): void {
@@ -170,7 +184,7 @@ bindActions(ACTIONS);
    (app.ts) delega em renderScmPane (lazy, no switch de pane). `commit` v2 (botão) e
    `commitGit` v4 git-aware ficam distintos (GOTCHA-commit). ── */
 publish({
-  commitGit: commit, commit: commitV2, checkout, gitMerge, gfFinish,
+  commitGit: commit, commit: commitPublished, checkout: checkoutPublished, gitMerge: gitMergePublished, gfFinish: gfFinishPublished,
   gitInit, authorOf, stOf, changes, isFlow, gfStart, gfPrompt, gfGuide,
   pickBranch, drawTimeline, graphLayout, openGraph, stage, discard,
   renderScmPane,
