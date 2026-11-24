@@ -3,14 +3,16 @@
    não mexer no `editor.ts`:
      • rato parado sobre um símbolo (~450 ms) → hover num cartão junto ao cursor;
      • F12, ou Ctrl/⌘+clique → definição do símbolo no cursor;
-     • Shift+F12 → lista de referências; F2 → caixa de rename (`ui/popups.ts`);
+     • Shift+F12 → lista de referências; F2 → caixa de rename; Ctrl+. → menu de code actions
+       para a selecção ou o cursor (`ui/popups.ts`);
      • Escape, escrever, deslocar ou sair da textarea → fecha o cartão.
    Dono do DOM do cartão (`#lsp-hover`). Não toca em `window`. */
 
 import { offsetAtPoint, pointOfOffset, type EditorMetrics } from "../domain/positions";
 import type { HoverBlock } from "../domain/results";
 import type { Reference, RenameResult, RenameTarget } from "../application/lsp-client";
-import { closePopup, showReferences, showRenameBox } from "./popups";
+import type { CodeActionItem } from "../domain/code-actions";
+import { closePopup, showActionMenu, showReferences, showRenameBox } from "./popups";
 
 export interface EditorHooksDeps {
   hoverAt(offset: number): Promise<HoverBlock[]>;
@@ -20,6 +22,9 @@ export interface EditorHooksDeps {
   renameAt(offset: number, newName: string): Promise<RenameResult | null>;
   /** Abre uma referência escolhida na lista. */
   openReference(r: Reference): void;
+  /** Code actions para a selecção (ou o cursor) e aplicar a escolhida (Ctrl+.). */
+  codeActionsAt(start: number, end: number): Promise<CodeActionItem[] | null>;
+  applyCodeAction(a: CodeActionItem): Promise<void>;
   /** Só activo com uma pasta real aberta (no workspace de exemplo não há servidor). */
   enabled(): boolean;
 }
@@ -130,6 +135,14 @@ export function bindEditorHooks(d: EditorHooksDeps): void {
         const p = screenPoint(ta, caret);
         showReferences(refs, p.x, p.y, (r) => d.openReference(r), () => ta.focus());
       });
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === "." || e.code === "Period")) {
+      e.preventDefault();
+      const start = ta.selectionStart, end = ta.selectionEnd;
+      void d.codeActionsAt(start, end).then((actions) => {
+        if (!actions) return;
+        const p = screenPoint(ta, start);
+        showActionMenu(actions, p.x, p.y, (a) => void d.applyCodeAction(a), () => ta.focus());
+      });
     } else if (e.key === "F2") {
       e.preventDefault();
       void d.prepareRenameAt(caret).then((t) => {
@@ -160,6 +173,7 @@ export function bindEditorHooks(d: EditorHooksDeps): void {
     cancel();
     closePopup("lsp-refs");
     closePopup("lsp-rename");
+    closePopup("lsp-actions");
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseout", onLeave);
     document.removeEventListener("keydown", onKey);

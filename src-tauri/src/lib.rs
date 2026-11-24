@@ -988,6 +988,8 @@ pub fn run() {
             lsp::lsp_hover,
             lsp::lsp_completion,
             lsp::lsp_signature_help,
+            lsp::lsp_code_action,
+            lsp::lsp_execute_command,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { vi } from "vitest";
+import { TR_SKIP } from "../src/features/i18n/skip";
 import { applySampleWorkspace } from "./fixtures/sample-workspace";
 import { applySampleHistory } from "./fixtures/sample-history";
 import { applySampleDesign } from "./fixtures/sample-design";
@@ -50,10 +51,20 @@ export async function bootApp(): Promise<typeof window> {
  * isso fica — nada mais é normalizado. */
 const STRIPPED_ATTRS = ["onclick", "onchange", "oninput", "data-action", "data-on"];
 
+/** O markup como o utilizador o vê em inglês (ADR-0004, U6b — decisão do dono): o clone passa pelo motor de
+ *  tradução (`trNode`) com `LOCALE='en'`, como na app depois do `i18nBoot`, salvo se um antepassado estiver no
+ *  `TR_SKIP` (o motor também não o traduziria). Assim, um texto que passa a `t("chave")` deixa os goldens iguais
+ *  — e o golden prova que o inglês da chave é o que o motor produzia. */
 export function golden(el: Element): string {
   const clone = el.cloneNode(true) as Element;
   for (const node of [clone, ...Array.from(clone.querySelectorAll("*"))]) {
     for (const attr of STRIPPED_ATTRS) node.removeAttribute(attr);
+  }
+  const w = window as unknown as { trNode?: (n: Node) => void; LOCALE?: string };
+  if (w.trNode && !el.parentElement?.closest(TR_SKIP)) {
+    const prev = w.LOCALE;
+    w.LOCALE = "en";
+    try { w.trNode(clone); } finally { w.LOCALE = prev; }
   }
   return clone.innerHTML;
 }

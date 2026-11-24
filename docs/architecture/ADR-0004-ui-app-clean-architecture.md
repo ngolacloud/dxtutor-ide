@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6b)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -964,3 +964,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   (2026-11-24):** a raiz do separador passou a `.hx-run` (`harness-view.ts`, `harness.css`, e2e); o `.hx` volta a
   ser só da página Team, e a linha «Detected context» fica com o `padding` 8px 12px do `.rowline` e sem as regras
   do separador.
+- **U6b (2026-11-24) — goldens em inglês e a fundação dos textos por chave (piloto: Source Control).**
+  (1) O `golden()` do harness passa o clone pelo motor de tradução (`trNode`, `LOCALE='en'`), salvo se um
+  antepassado estiver no `TR_SKIP` (que sai para o módulo puro `features/i18n/skip.ts`, partilhado com o harness).
+  Regeneraram-se, por decisão do dono, os 11 goldens que tinham texto por traduzir (board ×3, codev ×4, scm ×4):
+  provou-se que cada snapshot novo é exactamente o antigo passado pelo motor, e os outros ficaram iguais.
+  (2) `src/app/i18n.ts`: `translator(catálogo)` dá o `t` tipado de uma feature — o texto na língua actual (`LOCALE`,
+  do motor), `{nome}` → parâmetro, inglês como recurso. Os catálogos (`en` + `ptAO`) nascem do motor: os valores
+  são os que ele produzia para o texto que estava no markup. Convive com o motor: o texto já sai na língua certa e o
+  motor não tem par para o trocar. (3) Piloto: o pane Source Control (`features/scm/ui/messages.ts`, 15 chaves —
+  títulos, placeholder, botão de commit com `{staged}`/`{branch}`, grupos, linhas). Os 4 goldens do pane ficaram
+  iguais com as chaves (prova do inglês de cada uma); `tests/i18n.catalogs.test.ts` prova cada entrada contra os
+  pares do motor no sentido da origem (algumas regras só vão de português para inglês) e desenha o pane em `ptAO`.
+  (4) Métrica nova, só desce: pares de texto do motor (`PAIRS`), hoje 1005 — os textos novos nascem com chave e os
+  pares saem quando deixarem de ter quem os use. **Reportado, não migrado:** as duas mensagens do pane sem
+  repositório git («Esta pasta não é um repositório git…», «Nenhum repositório git aberto…») não têm par no motor e
+  aparecem em português na interface em inglês; dar-lhes inglês muda o que se vê, por isso ficam fora do piloto.
