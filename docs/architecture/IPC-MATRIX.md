@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 215 comandos, **131 são consumidos pela `ui-app`** e **84 não o são**: a UI
+Dos 218 comandos, **134 são consumidos pela `ui-app`** e **84 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -506,7 +506,7 @@ do `bridge.rs`).
 | `workspace_resolve` | `root: String`, `path: String` | `String` | String | — | — | R |
 | `workspace_action` | `root: String`, `op: String`, `path: String`, `content: Option<String>` | `String` | String | — | — | **W** |
 
-## 15. LSP — `lsp.rs` (16)
+## 15. LSP — `lsp.rs` (18)
 
 Todos usam `State<LspState>` + `AppHandle`. Na app desktop, a feature `features/lsp` liga o
 editor: `lsp_start` (uma vez por pasta aberta, que também passa a ser a raiz de reserva de um
@@ -521,7 +521,8 @@ backend emite como `lsp://apply-edit`) e `lsp_format` (Shift+Alt+F: o documento,
 sem servidor, ou se ele não formatar, fica o «Format Document» do dxtutor) e `lsp_document_symbols`
 (Ctrl+Shift+O / Go → Go to Symbol…, e o Outline das linguagens que o `file_outline` não cobre) e
 `lsp_workspace_symbols` (Ctrl+T / «Go to Symbol in Workspace…»: pergunta a cada servidor já a
-correr na pasta).
+correr na pasta) e `lsp_prepare_type_hierarchy` + `lsp_type_hierarchy` (Shift+Alt+T / «Show Type
+Hierarchy»: supertipos e subtipos; `supported: false` quando o servidor não a anuncia).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -538,6 +539,8 @@ correr na pasta).
 | `lsp_format` | `path: String`, `tab_size: u32`, `insert_spaces: bool`, `start_line`/`start_character`/`end_line`/`end_character: Option<u32>` | `Value` (TextEdit[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_document_symbols` | `path: String` | `Value` (DocumentSymbol[] \| SymbolInformation[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_workspace_symbols` | `root: String`, `query: String` | `Value` (`[{ language, result: SymbolInformation[] \| WorkspaceSymbol[] }]`) | String | — | `features/lsp` | R · S |
+| `lsp_prepare_type_hierarchy` | `path: String`, `line: u32`, `character: u32` | `Value` (`{ supported, items: TypeHierarchyItem[] }` \| null) | String | — | `features/lsp` | R · S |
+| `lsp_type_hierarchy` | `path: String`, `item: Value`, `direction: String` (`supertypes` \| `subtypes`) | `Value` (TypeHierarchyItem[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_server_status` | `path: String` | `Option<lsp::ServerStatus>` (`{ language, server, installed, problem }`) | String | — | `features/lsp` (aviso no editor quando falta o servidor) | R · async |

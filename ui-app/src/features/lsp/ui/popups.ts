@@ -5,10 +5,12 @@
      • rename (F2): caixa com o nome actual seleccionado; Enter aplica, Escape cancela;
      • code actions (Ctrl+.): menu de correcções e refactorings (`#lsp-actions`);
      • Go to Symbol (Ctrl+Shift+O): os símbolos do ficheiro com um campo de filtro (`#lsp-symbols`);
-     • Go to Symbol in Workspace (Ctrl+T): pesquisa nos servidores da pasta (`#lsp-wsymbols`).
+     • Go to Symbol in Workspace (Ctrl+T): pesquisa nos servidores da pasta (`#lsp-wsymbols`);
+     • Show Type Hierarchy (Shift+Alt+T): subtipos/supertipos em árvore, carregados a pedido (`#lsp-types`).
    Listeners ligados aos elementos (sem `onclick` inline). Não toca em `window`. */
 
-import type { Reference, WorkspaceSymbolResult, WorkspaceSymbolSearch } from "../application/lsp-client";
+import type { Reference, TypeEntry, WorkspaceSymbolResult, WorkspaceSymbolSearch } from "../application/lsp-client";
+import type { TypeDirection } from "../domain/type-hierarchy";
 import { kindLabel, type CodeActionItem } from "../domain/code-actions";
 import { filterSymbols, type SymbolEntry } from "../domain/symbols";
 
@@ -390,4 +392,175 @@ export function showWorkspaceSymbolPicker(
   status.textContent = "Searching…";
   input.focus();
   run();
+}
+
+interface TypeRow {
+  t: TypeEntry;
+  depth: number;
+  open: boolean;
+  /** `null` = ainda não pedidos. */
+  kids: TypeRow[] | null;
+  parent: TypeRow | null;
+}
+
+/** A hierarquia de tipos junto a (x, y): o tipo no topo e, por baixo, os subtipos ou os
+ *  supertipos (Tab ou os botões trocam), carregados a pedido ao abrir cada nó. ↑/↓ escolhem,
+ *  → abre (ou desce), ← fecha (ou sobe), Enter ou clique abrem o tipo, Escape fecha. */
+export function showTypeHierarchy(
+  root: TypeEntry,
+  x: number,
+  y: number,
+  children: (t: TypeEntry, direction: TypeDirection) => Promise<TypeEntry[]>,
+  onPick: (t: TypeEntry) => void,
+  onClose: () => void,
+  initial: TypeDirection = "subtypes",
+): void {
+  const el = floating("lsp-types", "lsp-pop lsp-refs lsp-types", x, y);
+  el.tabIndex = -1;
+  const head = document.createElement("div");
+  head.className = "lsp-pop-h lsp-types-h";
+  const dirBtn = (dir: TypeDirection, text: string): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "mini lsp-types-dir";
+    b.textContent = text;
+    b.dataset.dir = dir;
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", () => setDirection(dir));
+    return b;
+  };
+  const title = document.createElement("span");
+  title.className = "lsp-types-title";
+  const subBtn = dirBtn("subtypes", "Subtypes"), supBtn = dirBtn("supertypes", "Supertypes");
+  head.append(title, subBtn, supBtn);
+  const list = document.createElement("div");
+  list.className = "lsp-sym-list";
+  list.setAttribute("role", "tree");
+  el.append(head, list);
+  let direction = initial;
+  let top: TypeRow = { t: root, depth: 0, open: false, kids: null, parent: null };
+  let visible: TypeRow[] = [];
+  let sel = 0;
+  let done = false;
+  const finish = (pick: TypeEntry | null): void => {
+    if (done) return;
+    done = true;
+    closePopup("lsp-types");
+    if (pick) onPick(pick);
+    else onClose();
+  };
+  const flatten = (r: TypeRow, out: TypeRow[]): void => {
+    out.push(r);
+    if (r.open && r.kids) r.kids.forEach((k) => flatten(k, out));
+  };
+  const render = (): void => {
+    title.textContent = `${root.label} ${root.name}`;
+    subBtn.classList.toggle("on", direction === "subtypes");
+    supBtn.classList.toggle("on", direction === "supertypes");
+    visible = [];
+    flatten(top, visible);
+    sel = Math.min(sel, visible.length - 1);
+    list.textContent = "";
+    visible.forEach((r, i) => {
+      const row = document.createElement("div");
+      row.className = "lsp-ref lsp-sym lsp-type" + (i === sel ? " sel" : "") + (r.t.key ? "" : " off");
+      row.setAttribute("role", "treeitem");
+      row.setAttribute("aria-level", String(r.depth + 1));
+      row.style.paddingLeft = `${8 + r.depth * 16}px`;
+      const twisty = document.createElement("span");
+      twisty.className = "lsp-type-tw";
+      twisty.textContent = r.kids && !r.kids.length ? "·" : r.open ? "▾" : "▸";
+      if (r.open) row.setAttribute("aria-expanded", "true");
+      const kind = document.createElement("span");
+      kind.className = "lsp-act-kind";
+      kind.textContent = r.t.label;
+      const name = document.createElement("span");
+      name.className = "lsp-sym-n";
+      name.textContent = r.t.name;
+      const where = document.createElement("span");
+      where.className = "lsp-ref-t";
+      where.textContent = [r.t.detail, r.t.key ? `${r.t.file}:${r.t.line}` : "outside this folder"].filter(Boolean).join("  ");
+      row.append(twisty, kind, name, where);
+      row.addEventListener("mousedown", (e) => e.preventDefault());
+      twisty.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sel = i;
+        void toggle(r);
+      });
+      row.addEventListener("click", () => {
+        sel = i;
+        if (r.t.key) finish(r.t);
+        else render();
+      });
+      list.appendChild(row);
+      if (i === sel) row.scrollIntoView?.({ block: "nearest" });
+    });
+    if (top.kids && !top.kids.length) {
+      const none = document.createElement("div");
+      none.className = "lsp-pop-hint lsp-sym-none";
+      none.textContent = direction === "subtypes" ? "No subtypes" : "No supertypes";
+      list.appendChild(none);
+    }
+  };
+  const expand = async (r: TypeRow): Promise<void> => {
+    if (!r.kids) {
+      const dir = direction;
+      const got = await children(r.t, dir);
+      if (done || dir !== direction) return; // fechou, ou trocou de sentido entretanto
+      r.kids = got.map((t) => ({ t, depth: r.depth + 1, open: false, kids: null, parent: r }));
+    }
+    r.open = true;
+    render();
+  };
+  const toggle = async (r: TypeRow): Promise<void> => {
+    if (r.open) {
+      r.open = false;
+      render();
+    } else await expand(r);
+  };
+  const setDirection = (dir: TypeDirection): void => {
+    if (dir === direction) return;
+    direction = dir;
+    top = { t: root, depth: 0, open: false, kids: null, parent: null };
+    sel = 0;
+    render();
+    void expand(top);
+  };
+  el.addEventListener("keydown", (e) => {
+    const r = visible[sel];
+    if (["Escape", "Enter", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+      e.preventDefault();
+      e.stopPropagation(); // são do cartão, não dos atalhos globais
+    }
+    if (e.key === "Escape") finish(null);
+    else if (e.key === "Enter") {
+      if (r && r.t.key) finish(r.t);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const n = visible.length;
+      if (n) sel = (sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+      render();
+    } else if (e.key === "ArrowRight" && r) {
+      if (!r.open) void expand(r);
+      else if (r.kids && r.kids.length) {
+        sel += 1;
+        render();
+      }
+    } else if (e.key === "ArrowLeft" && r) {
+      if (r.open && r.kids && r.kids.length) {
+        r.open = false;
+        render();
+      } else if (r.parent) {
+        sel = visible.indexOf(r.parent);
+        render();
+      }
+    } else if (e.key === "Tab") setDirection(direction === "subtypes" ? "supertypes" : "subtypes");
+  });
+  const onDown = (e: MouseEvent): void => {
+    if (!el.contains(e.target as Node)) finish(null);
+  };
+  document.addEventListener("mousedown", onDown, true);
+  CLOSERS.set("lsp-types", () => document.removeEventListener("mousedown", onDown, true));
+  render();
+  el.focus();
+  void expand(top);
 }

@@ -18,6 +18,8 @@
 /* Go to Symbol (Ctrl+Shift+O) */
 .lsp-symbols{width:440px;padding:6px 0 4px}.lsp-symbols>.inp{display:block;width:calc(100% - 16px);margin:0 8px 4px;font-family:var(--font-mono)}
 .lsp-wsymbols{width:600px}.lsp-wsymbols .lsp-sym-none{margin:2px 0 4px}
+.lsp-types{width:560px;padding:4px 0}.lsp-types:focus{outline:0}.lsp-types-h{display:flex;align-items:center;gap:6px}.lsp-types-title{flex:1;color:var(--fg-bright);font-family:var(--font-mono)}
+.lsp-types-dir.on{background:rgba(74,158,255,.22);color:var(--fg-bright)}.lsp-type{cursor:pointer}.lsp-type.off{opacity:.6}.lsp-type-tw{flex:none;width:12px;color:var(--fg-muted)}
 .lsp-sym-list{max-height:300px;overflow:auto}.lsp-sym.sel{background:rgba(74,158,255,.22)}.lsp-sym-n{flex:none;color:var(--fg-bright)}.lsp-sym-none{padding:4px 12px}
 .lsp-rename{padding:8px;width:260px}.lsp-rename .inp{width:100%;font-family:var(--font-mono)}.lsp-pop-hint{margin-top:5px;color:var(--fg-muted);font-size:11px}
 /* completion (Ctrl+Espaço, depois de «.» ou ao escrever) */

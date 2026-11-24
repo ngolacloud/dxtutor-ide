@@ -40,6 +40,9 @@ struct Session {
     /// pedidos — um pedido antes do `initialize` viola o protocolo, e o jdtls ficava a responder
     /// listas vazias ao completion e ao signatureHelp durante a sessão inteira.
     initialized: bool,
+    /// As capacidades que o servidor anunciou no `initialize` (`ServerCapabilities`), para dizer
+    /// «este servidor não tem isto» em vez de um erro ou de uma lista vazia.
+    server_caps: Value,
     ready: bool,
     /// Human label of the backing server ("rust-analyzer", "gopls", …) for the pill.
     label: &'static str,
@@ -700,6 +703,8 @@ fn capabilities() -> Value {
             "rangeFormatting": {},
             // Ctrl+Shift+O (Go to Symbol) e o Outline do explorador — features/lsp.
             "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
+            // Show Type Hierarchy (Shift+Alt+T) — features/lsp
+            "typeHierarchy": { "dynamicRegistration": false },
             "publishDiagnostics": { "relatedInformation": true }
         },
         // `window.workDoneProgress` is MANDATORY for server-initiated progress: without it
@@ -765,6 +770,7 @@ fn get_or_start(
         pending: HashMap::new(),
         open: HashSet::new(),
         initialized: false,
+        server_caps: Value::Null,
         ready: false,
         label: lang.server_label,
         ready_signal: lang.ready_signal,
@@ -796,7 +802,7 @@ fn get_or_start(
         }
     });
     let uri = path_to_uri(root);
-    session_request(
+    let init = session_request(
         &session,
         "initialize",
         json!({
@@ -809,6 +815,7 @@ fn get_or_start(
     )?;
     session_notify(&session, "initialized", json!({}))?;
     if let Ok(mut g) = session.lock() {
+        g.server_caps = init.get("capabilities").cloned().unwrap_or(Value::Null);
         g.initialized = true;
     }
     // Servers with no end-of-index `$/progress` (empty `ready_signal`, e.g. pyright) answer
@@ -1347,6 +1354,78 @@ pub async fn lsp_workspace_symbols(
     .map_err(|e| e.to_string())?
 }
 
+/// O servidor anunciou a capacidade `name` (`true` ou um objecto de opções)?
+fn server_supports(session: &Arc<Mutex<Session>>, name: &str) -> bool {
+    session
+        .lock()
+        .map(|g| caps_support(&g.server_caps, name))
+        .unwrap_or(false)
+}
+
+fn caps_support(caps: &Value, name: &str) -> bool {
+    match caps.get(name) {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Object(_)) => true,
+        _ => false,
+    }
+}
+
+/// O tipo no cursor para a hierarquia de tipos (`textDocument/prepareTypeHierarchy`):
+/// `{ supported, items }`. Medido: o jdtls suporta-a; o kotlin-language-server não a anuncia e
+/// responde com erro (`UnsupportedOperationException`) — daí o `supported: false`, para a UI o dizer.
+#[tauri::command]
+pub async fn lsp_prepare_type_hierarchy(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        if !server_supports(&session, "typeHierarchyProvider") {
+            return Ok(json!({ "supported": false, "items": [] }));
+        }
+        let items = session_request(
+            &session,
+            "textDocument/prepareTypeHierarchy",
+            pos(&path, line, character),
+        )?;
+        Ok(json!({ "supported": true, "items": if items.is_null() { json!([]) } else { items } }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Os supertipos ou subtipos de um item da hierarquia (`typeHierarchy/supertypes|subtypes`). O
+/// `item` volta ao servidor tal como veio (com o `data` dele). `path` escolhe a sessão.
+#[tauri::command]
+pub async fn lsp_type_hierarchy(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    item: Value,
+    direction: String,
+) -> Result<Value, String> {
+    let method = match direction.as_str() {
+        "supertypes" => "typeHierarchy/supertypes",
+        "subtypes" => "typeHierarchy/subtypes",
+        other => return Err(format!("unknown direction: {other}")),
+    };
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        session_request(&session, method, json!({ "item": item }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn lsp_rename(
     app: AppHandle,
@@ -1661,6 +1740,29 @@ mod phase4_lang_tests {
         assert!(roots_overlap("/w/proj/app", "/w/proj"));
         assert!(!roots_overlap("/w/proj", "/w/project"));
         assert!(!roots_overlap("/w/proj", "/w/other"));
+    }
+
+    #[test]
+    fn type_hierarchy_is_asked_only_of_servers_that_announce_it() {
+        assert!(capabilities()["textDocument"]["typeHierarchy"].is_object());
+        // jdtls: `typeHierarchyProvider: true`; kotlin-language-server não o anuncia (medido)
+        assert!(caps_support(
+            &json!({ "typeHierarchyProvider": true }),
+            "typeHierarchyProvider"
+        ));
+        assert!(caps_support(
+            &json!({ "typeHierarchyProvider": { "workDoneProgress": false } }),
+            "typeHierarchyProvider"
+        ));
+        assert!(!caps_support(
+            &json!({ "typeHierarchyProvider": false }),
+            "typeHierarchyProvider"
+        ));
+        assert!(!caps_support(
+            &json!({ "hoverProvider": true }),
+            "typeHierarchyProvider"
+        ));
+        assert!(!caps_support(&Value::Null, "typeHierarchyProvider"));
     }
 
     #[test]
