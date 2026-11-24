@@ -7,7 +7,6 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "npm run ui:build && tauri dev",
-    "dev:seed": "VITE_SEED=1 npm run ui:build && tauri dev",
     "build": "tauri build",
     "test": "npm run ui:test && cargo test --workspace",
     "ui:build": "tsc --noEmit -p ui-app/tsconfig.json && vite build --config ui-app/vite.config.ts",

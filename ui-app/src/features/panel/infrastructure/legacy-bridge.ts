@@ -108,15 +108,6 @@ export const readStack = async (): Promise<void> => {
 export const composeUp = (): void => void G.dxRun();
 export const composeDown = (): void => void G.dxStop();
 
-/** Há uma sessão do «Run and Debug» (motor de cenários) a correr? */
-export const dbgSession = (): boolean => {
-  try {
-    return !!G.dbgState?.();
-  } catch {
-    return false;
-  }
-};
-
 /** Regista uma falha do painel onde o selftest do bridge a vê (DXR.errors). */
 export const reportError = (where: string, e: unknown): void => {
   const msg = `panel ${where}: ${e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e)}`;

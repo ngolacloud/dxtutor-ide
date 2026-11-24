@@ -444,3 +444,16 @@ test("F8: modelo sem tool calling nativo → send devolve false e esse modelo pa
   expect(t.calls).toContain("error HTTP 401: chave inválida");
   expect(isNoToolsError("[sem-ferramentas] x") && !isNoToolsError("HTTP 400")).toBe(true);
 });
+
+test("o uso de cada pedido do agente segue para o contador e o ctx (entrada com cache) — ADR-0006, R3c", async () => {
+  const t = setup();
+  const onUsage = vi.fn();
+  (t.deps as { onUsage?: (i: number, o: number) => void }).onUsage = onUsage;
+  t.setScript(() => {
+    t.emit({ kind: "usage", request: u(1000, 50, 200, 30), turn: u(1000, 50, 200, 30) });
+    t.emit({ kind: "usage", request: u(400, 20), turn: u(1400, 70, 200, 30) });
+    t.emit(done());
+  });
+  await t.chat.send("olá");
+  expect(onUsage.mock.calls).toEqual([[1230, 50], [400, 20]]); // por pedido, não o acumulado da volta
+});

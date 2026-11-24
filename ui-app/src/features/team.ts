@@ -19,8 +19,8 @@
    (DOM insertAdjacentHTML sobre o resultado de VIEW.team) passa a fazer parte do corpo único
    de renderTeamView — o wrapper `_team5`/`VIEW.team=` em v5.ts desapareceu. As políticas que
    o v5/v6 aplicavam com estes dados vivem agora nos donos das funções (U4g3/U4g4): o board.ts
-   (revisão/explicação/codeGuard no runner) e o codev.ts (tecto do setMode, direitos no doTool,
-   codeGuard no runMission); o `codeGuard` e o arranque do `explain` vivem aqui. O
+   (revisão/explicação/codeGuard no runner) e o codev.ts (tecto do setMode, direitos no doTool;
+   o codeGuard no runMission saiu com o motor de missões, ADR-0006 R1b); o `codeGuard` e o arranque do `explain` vivem aqui. O
    `applyTemplate` publica-se como `window.applyTemplate=` (base + o acerto do `explain`, que
    era a decoração do v6). ALWAYS/AG0 ficam léxicos (só usados
    aqui dentro). `RUN`/`DECS` não tinham contrato ambiente em pair.ts — acrescentados; `BL`
@@ -31,21 +31,27 @@ import { VIEW } from "../app/store/registry";
 import type { Tab } from "../app/store/editor";
 import { CAPL, CAP, TASKP, type Capability } from "./router/domain/model-routing";
 import { rankModels } from "./router";
+import { deriveScopes, parseTeamJson, teamJson } from "./team-scopes";
 
 interface Agent { n: string; d: string; col: string; paths: string[]; cmds: string[]; task: string; model: string; max: number }
 // cores em var(--token) do tema (theme.ts) em vez de hex fixo — mudam ao trocar de tema;
 // excepção: `be` fica no hex de marca do Rust (cor da linguagem no GitHub), não é um token de tema.
 const AGENTS: Record<string, Agent> = (window.AGENTS = {
-  lead:{n:'Co-Dev',d:'Orquestrador: decompõe, delega e integra',col:'var(--accent)',paths:['**'],cmds:['*'],task:'arch',model:'auto',max:20},
-  arq:{n:'Arquitecto',d:'Requisitos, arquitectura, ADRs e backlog',col:'var(--accent-hover)',paths:['.dxtutor/**','docs/**'],cmds:[],task:'arch',model:'auto',max:4},
-  be:{n:'Backend',d:'Crates Rust e comandos Tauri',col:'#dea584',paths:['crates/**'],cmds:['cargo build','cargo test','cargo clippy'],task:'code',model:'auto',max:6},
-  db:{n:'Base de dados',d:'Esquema, migrações e índices',col:'var(--green)',paths:['db/migrations/**'],cmds:['cargo test -p store'],task:'db',model:'auto',max:3},
-  fe:{n:'Frontend',d:'Interface e Design System',col:'var(--blue)',paths:['desktop/src/**'],cmds:['dx lint','npm run dev','npm run lint'],task:'ui',model:'auto',max:6},
-  qa:{n:'QA',d:'Testes automáticos',col:'var(--yellow)',paths:['crates/*/tests/**','tests/**'],cmds:['cargo test','dx lint','dx test'],task:'test',model:'auto',max:6},
-  ops:{n:'Plataforma',d:'Infra, CI/CD e deploy',col:'var(--purple)',paths:['deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','git push'],task:'ops',model:'auto',max:4},
+  lead:{n:'Co-Dev',d:'Orquestrador: decompõe, delega e integra',col:'var(--accent)',paths:[],cmds:[],task:'arch',model:'auto',max:20},
+  arq:{n:'Arquitecto',d:'Requisitos, arquitectura, ADRs e backlog',col:'var(--accent-hover)',paths:[],cmds:[],task:'arch',model:'auto',max:4},
+  be:{n:'Backend',d:'Serviços, APIs e lógica do backend',col:'#dea584',paths:[],cmds:[],task:'code',model:'auto',max:6},
+  db:{n:'Base de dados',d:'Esquema, migrações e índices',col:'var(--green)',paths:[],cmds:[],task:'db',model:'auto',max:3},
+  fe:{n:'Frontend',d:'Interface e Design System',col:'var(--blue)',paths:[],cmds:[],task:'ui',model:'auto',max:6},
+  qa:{n:'QA',d:'Testes automáticos',col:'var(--yellow)',paths:[],cmds:[],task:'test',model:'auto',max:6},
+  ops:{n:'Plataforma',d:'Infra, CI/CD e deploy',col:'var(--purple)',paths:[],cmds:[],task:'ops',model:'auto',max:4},
   tutor:{n:'Tutor',d:'Explica e orienta; nunca escreve por ti',col:'var(--cyan)',paths:[],cmds:[],task:'teach',model:'auto',max:0}});
-/* caminhos, comandos e limites da camada v4 (ADR-0004, U4j4a — eram um Object.assign no app.ts, que avaliava depois) */
-Object.assign(AGENTS.be,{paths:['crates/**','apps/*/src/**','apps/*/Cargo.toml','apps/*/go.mod','apps/*/package.json','apps/*/requirements.txt'],max:8});Object.assign(AGENTS.fe,{paths:['desktop/src/**','web/**']});Object.assign(AGENTS.ops,{paths:['docker-compose.yml','.env.example','Makefile','apps/*/Dockerfile','deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','docker compose','make','git push'],max:12});Object.assign(AGENTS.qa,{cmds:['cargo test','dx lint','dx test','sh tests/smoke.sh']});
+/* os escopos (onde escreve, que comandos corre) vêm do projecto (ADR-0006, R3c): sem pasta, os
+   padrões genéricos; ao abrir uma pasta, derivados da estrutura dela (applyProjectTeam) e o
+   `.dxtutor/team.json` do projecto por cima. Eram os do projecto de demonstração. */
+{ const D = deriveScopes([], null, null); Object.keys(AGENTS).forEach((k) => { if (D[k]) { AGENTS[k].paths = D[k].paths; AGENTS[k].cmds = D[k].cmds; } }); }
+/* os limites de ficheiros por tarefa da camada v4 (Backend 8, Plataforma 12) ficam — a R3c tirou-os sem
+   querer com os caminhos de demonstração */
+AGENTS.be.max = 8; AGENTS.ops.max = 12;
 window.AGENT='lead';
 const globRe=(g:string)=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=>x.replace(/[.+^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*')+'$');
 const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
@@ -54,7 +60,28 @@ const ownerOf=(p:string)=>Object.keys(AGENTS).find(k=>k!=='lead'&&inScope(k,p))|
 function harnessCheck(p:string){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(`fora do escopo do assistente ${AGENTS[AGENT].n}. Pode escrever em: ${AGENTS[AGENT].paths.join(', ')||'nada'}. Este caminho pertence a: ${AGENTS[o].n}.`);}}
 function harnessCmd(c:string){if(!canRun(AGENT,c))throw new Error(`o assistente ${AGENTS[AGENT].n} não tem permissão para correr "${c}".`);}
 const agentSys=()=>{const a=AGENTS[AGENT];return `\nÉs o assistente «${a.n}» (${a.d}). Harness: só podes escrever em [${a.paths.join(', ')||'nenhum caminho'}] e correr [${a.cmds.join(', ')||'nenhum comando'}]. Se a tarefa exigir sair deste escopo, não o faças: diz que assistente da equipa (${Object.values(AGENTS).map(x=>x.n).join(', ')}) deve tratar dessa parte.`+(AGENT==='tutor'?'\nComo Tutor: não dês a solução completa. Faz perguntas, explica o conceito, dá pistas graduais e pede ao aluno que tente.':'');};
-function saveTeam(){LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
+/** A equipa da pasta aberta: os escopos derivados da estrutura dela e dos comandos detectados, e
+ *  o `.dxtutor/team.json` por cima (ADR-0006, R3c). Passam a ser os defaults que os templates
+ *  de harness repõem (AG0). */
+function applyProjectTeam(): void {
+  const dxr = (window as unknown as { DXR?: { root?: string | null; projectCmd?: (k: string) => { cmd: string } | null } }).DXR;
+  if (!dxr || !dxr.root) return;
+  const files = Object.keys(FS).filter((k) => k.startsWith(ROOT)).map((k) => k.slice(ROOT.length));
+  const pc = (k: string) => (dxr.projectCmd ? dxr.projectCmd(k)?.cmd ?? null : null);
+  const D = deriveScopes(files, pc('test'), pc('lint'));
+  const tj = FS[ROOT + '.dxtutor/team.json'] ? parseTeamJson(FS[ROOT + '.dxtutor/team.json'].content) : null;
+  Object.keys(AGENTS).forEach((k) => {
+    const a = AGENTS[k], d = D[k], o = (tj && tj[k]) || {};
+    if (d) { a.paths = d.paths; a.cmds = d.cmds; }
+    if (o.paths) a.paths = o.paths; if (o.cmds) a.cmds = o.cmds; if (o.max != null) a.max = o.max; if (o.model) a.model = o.model;
+  });
+  Object.keys(AGENTS).forEach((k) => { AG0[k] = JSON.parse(JSON.stringify(AGENTS[k])); });
+  if (FS[ROOT + '.dxtutor/team.json'] && !tj) log('team', '.dxtutor/team.json não é JSON válido — fico com os escopos derivados da pasta');
+  try { agentPill(); rerender('team'); } catch { /* ainda sem UI */ }
+}
+document.addEventListener('dx:workspace', () => applyProjectTeam());
+/** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
+function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJson(AGENTS));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
 function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
 function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
 function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}

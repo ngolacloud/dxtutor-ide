@@ -771,7 +771,46 @@ fn semantic(session: &Arc<Mutex<Session>>, method: &str, params: Value) -> Resul
     Ok(res)
 }
 
+/// Se o servidor de linguagem de um ficheiro está instalado: sem servidor, `session_for` não abre
+/// sessão e não dá erro — o editor ficaria calado. A UI pergunta isto para avisar o que falta e
+/// como o instalar.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerStatus {
+    /// O id da linguagem (`java`, `kotlin`, …).
+    pub language: String,
+    /// O servidor que o dxtutor procura (`jdtls`, `kotlin-language-server`, …).
+    pub server: String,
+    pub installed: bool,
+    /// Porque não foi encontrado (a mensagem de `server_cmd`).
+    pub problem: Option<String>,
+}
+
+/// O estado do servidor da linguagem de `path` (`None` se o ficheiro não tem servidor conhecido).
+/// Resolve-o exactamente como uma sessão o resolveria (`server_cmd`: PATH aumentado + pistas).
+pub fn server_status(path: &str) -> Option<ServerStatus> {
+    let lang = lang_for_path(path)?;
+    let (installed, problem) = match server_cmd(lang.id) {
+        Ok(_) => (true, None),
+        Err(e) => (false, Some(e)),
+    };
+    Some(ServerStatus {
+        language: lang.id.into(),
+        server: lang.server_label.into(),
+        installed,
+        problem,
+    })
+}
+
 // ── Commands — all async: the blocking work runs on spawn_blocking, off the UI thread. ──
+
+/// Se o servidor de linguagem do ficheiro está instalado (para a UI avisar quando falta).
+#[tauri::command]
+pub async fn lsp_server_status(path: String) -> Result<Option<ServerStatus>, String> {
+    tauri::async_runtime::spawn_blocking(move || server_status(&path))
+        .await
+        .map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 pub async fn lsp_start(
@@ -1185,6 +1224,18 @@ mod phase4_lang_tests {
         );
         assert!(init_options("kotlin").is_null());
         assert!(capabilities()["textDocument"]["signatureHelp"].is_object());
+    }
+
+    #[test]
+    fn server_status_names_the_language_and_server() {
+        assert_eq!(server_status("/w/notes.txt"), None);
+        let st = server_status("/w/src/Main.java").unwrap();
+        assert_eq!(
+            (st.language.as_str(), st.server.as_str()),
+            ("java", "jdtls")
+        );
+        // instalado ou não depende da máquina; sem servidor, diz porquê
+        assert_eq!(st.installed, st.problem.is_none());
     }
 
     #[test]

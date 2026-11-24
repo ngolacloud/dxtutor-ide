@@ -92,6 +92,14 @@ function flushSave(): void {
     seen.add(r);
     if (R.disk[r] !== FS[k].content) { w.push([r, FS[k].content]); R.disk[r] = FS[k].content; }
   });
+  /* Rede de segurança (ADR-0006, R0): um FS esvaziado por inteiro (estado reposto, simulação a
+     limpar o workspace…) não é «o utilizador apagou tudo». Nesse caso não se apaga nada no
+     disco: relê-se a pasta. Apagar ficheiros um a um (até ao último) continua a funcionar. */
+  if (!seen.size && Object.keys(R.disk).length > 1) {
+    console.warn("flushSave: o workspace em memória ficou vazio — não apago a pasta no disco; a reler");
+    void reloadDisk();
+    return;
+  }
   Object.keys(R.disk).forEach(r => { if (!seen.has(r)) { d.push(r); delete R.disk[r]; } });
   if (!w.length && !d.length) return;
   const root = R.root;
@@ -111,7 +119,7 @@ window.addEventListener("beforeunload", () => flushSave());
 /* a raiz do explorador com o nome da pasta: porta `desktopPorts.explorer` (U4h5b; antes reatribuía o syncTree) */
 desktopPorts.explorer = { syncTree(_syncTree) {
   _syncTree();
-  if (R.root || R.remote) { const r = TREE.projects.children.dxtutor; TREE.projects.children = {}; TREE.projects.children[R.name!] = r; }
+  if (R.root || R.remote) { const r = TREE.projects.children.dxtutor || { dir: 1, children: {}, dpath: "dxtutor" }; TREE.projects.children = {}; TREE.projects.children[R.name!] = r; }
 } };
 /* o prompt real (utilizador/host/cwd/ramo) passou para a porta do terminal (platform/desktop/terminal.ts, U4h3) */
 function termBanner(): void {

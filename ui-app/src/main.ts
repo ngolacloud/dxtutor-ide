@@ -29,7 +29,7 @@ import "./features/remote";
 import "./features/account";
 import "./features/run";
 import "./features/stack";
-import "./features/test";
+import "./features/testing/index";
 import "./features/search";
 import "./features/debug";
 import "./features/codereview";

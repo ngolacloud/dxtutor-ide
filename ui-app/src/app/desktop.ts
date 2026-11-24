@@ -9,12 +9,11 @@ import type { TerminalDesktop } from "../features/terminal";
 import type { StackDesktop } from "../features/stack";
 import type { InfraDesktop } from "../features/infra/application/ports";
 import type { CodevDesktop } from "../features/codev/application/ports";
-import type { BoardDesktop } from "../features/board/application/ports";
 import type { ExplorerDesktop } from "../features/explorer";
 import type { WelcomeDesktop } from "../features/welcome";
 import type { ChangelogDesktop } from "../features/changelog";
 import type { ExtDesktop } from "../features/ext/application/ports";
-import type { TestsDesktop } from "../features/test";
+import type { RemoteDesktop } from "../features/remote";
 
 export interface DesktopPorts {
   /** git real no repositório aberto (platform/desktop/git.ts) — U4h2 */
@@ -28,7 +27,6 @@ export interface DesktopPorts {
   /** modelos reais (nota do agente, Test connection, provedores, Settings) e a guarda das missões — U4h5 */
   codev?: CodevDesktop;
   /** a guarda das corridas de sprint — U4h5 */
-  board?: BoardDesktop;
   /** o nome da pasta aberta na raiz do explorador — U4h5b */
   explorer?: ExplorerDesktop;
   /** «Open Folder…» e as pastas recentes na página de boas-vindas — U4h5b */
@@ -37,8 +35,8 @@ export interface DesktopPorts {
   changelog?: ChangelogDesktop;
   /** o JSZip embutido na app — U4h5b */
   ext?: ExtDesktop;
-  /** descoberta e execução reais dos testes do projecto (platform/desktop/tests.ts) — A0.5 */
-  tests?: TestsDesktop;
+  /** o ~/.ssh/config real, os terminais SSH e o teste de ligação — ADR-0006, R6c */
+  remote?: RemoteDesktop;
 }
 
 export const desktopPorts: DesktopPorts = {};

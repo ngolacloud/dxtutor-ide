@@ -25,17 +25,19 @@
        `RP`/`VIEW` nascem em app/store/registry.ts, antes das features (antes nasciam
        no app.ts e o v6 mantinha os shims);
    (4) o resíduo de v6 (decorações diagnostics/paintEd/keydown + arranque) lê o motor
-       por fachadas-alias sem o substring migrado: `window.vsxOn(id)` (=extOn),
+       por fachadas-alias sem o substring migrado (o `vsxOn` saiu na R6b do ADR-0006: o editor e os
+       diagnósticos lêem `window.builtinOn(key)`),
        `window.vsxFmt()` (=formatDoc), `window.vsxCmds()` (=extCmds). */
 
-import { $, hd, svg, esc, jsa } from "../core";
+import { $, hd, svg, esc } from "../core";
 import { RP, VIEW } from "../app/store/registry";
 import { type ExtItem, type ExsState } from "./ext/domain/types";
 import { sectionsFor } from "./ext/domain/policy";
+import { recommendationsFor, fromHit, BUILTINS, builtinOn, migrateExs } from "./ext/domain/recommend";
 import { makeExtEngine } from "./ext/application/ext-engine";
 import { makeContribEngine } from "./ext/application/contributions-engine";
 import { isDesktop } from "../platform/tauri/core";
-import { fetchOpenVsx } from "../platform/tauri/extensions";
+import { fetchOpenVsx, searchOpenVsx } from "../platform/tauri/extensions";
 import { bindActions } from "./ext/ui/actions";
 import { toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
 import {
@@ -55,43 +57,34 @@ import {
   refresh,
   rerender,
   toast,
-  doSearch,
-  goPane,
-  openGraph,
-  runTask,
-  dxRun,
-  dxStop,
-  dxDeploy,
   callLoadJSZip,
   publishJSZipLoader,
   publish,
 } from "./ext/infrastructure/legacy-bridge";
 
-/* ── catálogo de extensões (Open VSX) — os `cmds` com efeito usam arrows preguiçosas
-   que resolvem dxRun/dxStop/dxDeploy/runTask/openGraph/goPane/doSearch pelo bridge. ── */
-const EXT: ExtItem[] = [
- {id:'rust-lang.rust-analyzer',n:'rust-analyzer',pub:'rust-lang',d:'Rust language support: diagnostics, completion, go to definition.',ctx:['rust'],bundled:1},
- {id:'usernamehw.errorlens',n:'Error Lens',pub:'usernamehw',d:'Shows diagnostics inline at the end of the line.',ctx:['all'],eff:'errorlens'},
- {id:'esbenp.prettier-vscode',n:'Prettier',pub:'esbenp',d:'Opinionated code formatter.',ctx:['node'],eff:'prettier',cmds:[['Prettier: Format Document','Shift+Alt+F']]},
- {id:'redhat.vscode-yaml',n:'YAML',pub:'redhat',d:'YAML validation, including Kubernetes schemas.',ctx:['k8s','compose'],eff:'yaml'},
- {id:'ms-azuretools.vscode-docker',n:'Docker',pub:'ms-azuretools',d:'Build, manage and run containers.',ctx:['compose'],cmds:[['Docker: Compose Up','',()=>dxRun()],['Docker: Compose Down','',()=>dxStop()]]},
- {id:'ms-kubernetes-tools.vscode-kubernetes-tools',n:'Kubernetes',pub:'ms-kubernetes-tools',d:'Develop, deploy and debug Kubernetes applications.',ctx:['k8s'],cmds:[['Kubernetes: Apply','',()=>dxDeploy()],['Kubernetes: Get Pods','',()=>runTask('kubectl get pods')]]},
- {id:'eamodio.gitlens',n:'GitLens',pub:'eamodio',d:'Git blame, history and commit graph.',ctx:['all'],cmds:[['GitLens: Show Commit Graph','',()=>openGraph()]]},
- {id:'gruntfuggly.todo-tree',n:'Todo Tree',pub:'Gruntfuggly',d:'Lists TODO and FIXME comments in a tree.',ctx:['all'],cmds:[['Todo Tree: Show TODOs','',()=>{goPane('search');($('#s-q') as HTMLInputElement).value='TODO';doSearch();}]]},
- {id:'dbaeumer.vscode-eslint',n:'ESLint',pub:'dbaeumer',d:'JavaScript and TypeScript linting.',ctx:['node']},
- {id:'golang.go',n:'Go',pub:'golang',d:'Go language support.',ctx:['go']},
- {id:'ms-python.python',n:'Python',pub:'ms-python',d:'Python language support.',ctx:['python','odoo']},
- {id:'streetsidesoftware.code-spell-checker',n:'Code Spell Checker',pub:'streetsidesoftware',d:'Spelling checker for source code.',ctx:['all']},
- {id:'editorconfig.editorconfig',n:'EditorConfig',pub:'EditorConfig',d:'Applies .editorconfig settings.',ctx:['all']}];
+/* ── ADR-0006, R6b: já não há catálogo fixo. O que se conhece sem estar instalado vem do Open VSX
+   real (a pesquisa, na app desktop) e das recomendações pela pilha do projecto
+   (`ext/domain/recommend.ts`); as três extensões «com efeito» eram funcionalidades do dxtutor e
+   passam a dizer-se assim (`BUILTINS`). ── */
+const OVSX: { q: string; items: ExtItem[]; loading: boolean; err: string } = { q: "", items: [], loading: false, err: "" };
+let ovsxT: ReturnType<typeof setTimeout> | undefined, ovsxSeq = 0;
+const recs = (): ExtItem[] => recommendationsFor(projectContext().map(c => c[0]), id => !!EXS.inst[id]);
 
 /* ── estado instalado: window-backed (mutado por inline onclick no escopo global),
-   nasce com defaults e hidrata de LS preguiçosamente (app.ts ainda não correu). ── */
+   nasce vazio e hidrata de LS preguiçosamente (app.ts ainda não correu). A chave passa a
+   `ext7`: a `ext6` misturava o catálogo fixo com os VSIX reais — migra-se uma vez. ── */
 const EXS: ExsState = initExs();
 let _exsHydrated = false;
-/** Funde o estado persistido de `LS` sobre `EXS` uma única vez. Preguiçoso porque
- *  este módulo avalia antes de app.ts publicar `LS`; chamado pela porta `state.read()`
- *  (o motor só vê o `EXS` já hidratado). */
-function hydrateExs(){ if(_exsHydrated) return; _exsHydrated = true; try{ Object.assign(EXS, lsGet('ext6', {})); }catch{} }
+function hydrateExs(){
+  if(_exsHydrated) return; _exsHydrated = true;
+  try{
+    const v = lsGet<Partial<ExsState> | null>('ext7', null);
+    if (v && typeof v === 'object') Object.assign(EXS, { inst: v.inst || {}, vsix: v.vsix || [], builtin: v.builtin || {} });
+    else { const old = lsGet<unknown>('ext6', null); if (old) { Object.assign(EXS, migrateExs(old)); lsSet('ext7', EXS); lsSet('ext6', {}); } }
+  }catch{ /* LS inválido: fica vazio */ }
+}
+/** Uma funcionalidade do dxtutor está ligada? (lida pelo editor, pelos diagnósticos e pelos atalhos). */
+const isBuiltinOn = (key: string): boolean => { hydrateExs(); return builtinOn(EXS, key); };
 
 /** Filtro de pesquisa do pane «Extensions» — estado-folha, dono desta feature. */
 let EXQ = "";
@@ -195,9 +188,10 @@ function vsxApplyTheme(label: string | null) {
 /* ── raiz de composição: liga os adaptadores do bridge (infra) às portas do motor
    (application). O motor fica puro; o `window`/DOM ficam deste lado. ── */
 const engine = makeExtEngine({
-  catalogue: EXT,
+  catalogue: () => OVSX.items.concat(recs()),
+  remote: () => (isDesktop() ? { fetch: (id: string) => fetchOpenVsx(id) } : null),
   state: { read: () => { hydrateExs(); return EXS; } },
-  storage: { save: s => lsSet("ext6", s) },
+  storage: { save: s => lsSet("ext7", s) },
   palette: { entries: () => commands() },
   editor: {
     files: () => files(),
@@ -216,13 +210,20 @@ const { extAll, extOn, extCmds, saveExt, extInstall, extRemove, extToggle, loadV
 
 /* ── re-render da UI de extensões (dono do DOM): injectado no motor como `rerender`. ── */
 function rerExt(){ if(pane()==='ext')panes().ext();rerender('extd');refresh(true);const t=tabOf(cur());if(t&&t.kind==='file'&&t.path)paintEd(t.path); }
-function extRow(x: ExtItem){ const i=EXS.inst[x.id],col=`hsl(${[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%360} 45% 45%)`;return `<div class="ex-row" onclick="openTab({id:${jsa(`extd:${x.id}`)},title:${jsa(x.n)},kind:'extd',ext:${jsa(x.id)}})"><span class="ex-ic" style="background:${col}">${esc(x.n.charAt(0))}</span><div class="ex-t"><b class="notr">${esc(x.n)}</b><small class="notr">${esc(x.d)}</small><span class="notr">${esc(x.pub)}${x.vsix?' · VSIX':''}${x.bundled?' · bundled':''}</span></div>${i?(x.bundled?'':`<button class="mini" onclick="event.stopPropagation();extToggle(${jsa(x.id)})">${i.on?'Disable':'Enable'}</button>`):`<button class="mini pri" onclick="event.stopPropagation();extInstall(${jsa(x.id)})">Install</button>`}</div>`; }
+const extIcon = (x: ExtItem, big = false) => `<span class="ex-ic${big ? " big" : ""}" style="background:hsl(${[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%360} 45% 45%)">${esc(x.n.charAt(0))}</span>`;
+const nfmt = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n);
+function extRow(x: ExtItem){ const i=EXS.inst[x.id];
+  const meta=x.remote?` · ${nfmt(x.remote.downloads)} downloads${x.remote.verified?' · verified':''}`:x.vsix?' · VSIX':'';
+  return `<div class="ex-row" data-action="ext-open" data-on="${esc(x.id)}">${extIcon(x)}<div class="ex-t"><b class="notr">${esc(x.n)}</b><small class="notr">${esc(x.why || x.d)}</small><span class="notr">${esc(x.pub)}${meta}</span></div>${i?`<button class="mini" data-action="ext-toggle" data-on="${esc(x.id)}">${i.on?'Disable':'Enable'}</button>`:`<button class="mini pri" data-action="ext-install" data-on="${esc(x.id)}">Install</button>`}</div>`; }
 
 /* ── corpo do tab de detalhe (VIEW.extd) — publicado; v6 mantém o shim. ── */
-function renderExtd(t: { ext?: string }, host: HTMLElement){ hydrateExs(); const x=extAll().find(e=>e.id===t.ext);if(!x){host.innerHTML='<div class="empty">Extension removed.</div>';return;}const i=EXS.inst[x.id],live=({errorlens:'Diagnostics appear at the end of each line in the editor.',prettier:'Prettier: Format Document (Shift+Alt+F) trims trailing spaces, normalises indentation and the final newline.',yaml:'YAML files are validated: tabs, missing kind, and Deployments without resource requests show in Problems.'} as Record<string, string | undefined>)[x.eff??''];
-  host.innerHTML=`<div class="page" style="max-width:760px"><div style="display:flex;gap:16px;align-items:center"><span class="ex-ic big" style="background:hsl(${[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%360} 45% 45%)">${esc(x.n.charAt(0))}</span><div><h1 class="notr" style="margin:0">${esc(x.n)}</h1><div class="sub notr" style="margin:0">${esc(x.pub)} · <code>${esc(x.id)}</code>${x.ver?' · v'+esc(x.ver):''}</div></div></div>
-   <div class="sub" style="margin-top:12px">${esc(x.d)}</div><div style="display:flex;gap:8px;margin:12px 0">${i?(x.bundled?'<span class="tag live">bundled</span>':`<button class="mini" onclick="extToggle(${jsa(x.id)})">${i.on?'Disable':'Enable'}</button><button class="mini" onclick="extRemove(${jsa(x.id)})">Uninstall</button>`):`<button class="mini pri" onclick="extInstall(${jsa(x.id)})">Install</button>`}</div>
-   ${x.vsix&&x.contrib?contribSection(x):`<h2>In this prototype</h2><div class="adv ${live?'agent':'mix'}">${svg(live?'check':'bulb')}<div>${live||'Runs in the desktop app\'s VS Code–compatible extension host. Here its commands are listed in the palette but do not run.'}</div></div>`}
+function renderExtd(t: { ext?: string }, host: HTMLElement){ hydrateExs(); const x=extAll().find(e=>e.id===t.ext);if(!x){host.innerHTML='<div class="empty">Extension removed.</div>';return;}const i=EXS.inst[x.id];
+  const about = x.vsix && x.contrib ? contribSection(x)
+    : x.vsix ? `<h2>What this extension adds here</h2><div class="adv mix">${svg('bulb')}<div>Installed from a VSIX. Its own JavaScript does not run: there is no VS Code extension host in dxtutor.</div></div>`
+    : `<h2>Before you install</h2><div class="adv mix">${svg('bulb')}<div>${x.why ? `Recommended because of this project: ${esc(x.why)}. ` : ''}Installing downloads the VSIX from Open VSX${isDesktop() ? '' : ' (in the desktop app)'}. dxtutor applies what it contributes declaratively — colour themes, TextMate grammars, snippets, language settings, and a known language server when it is on your PATH; its JavaScript does not run.</div></div>`;
+  host.innerHTML=`<div class="page" style="max-width:760px"><div style="display:flex;gap:16px;align-items:center">${extIcon(x, true)}<div><h1 class="notr" style="margin:0">${esc(x.n)}</h1><div class="sub notr" style="margin:0">${esc(x.pub)} · <code>${esc(x.id)}</code>${x.ver?' · v'+esc(x.ver):''}${x.remote?` · ${nfmt(x.remote.downloads)} downloads${x.remote.verified?' · verified publisher':''}`:''}</div></div></div>
+   ${x.d?`<div class="sub" style="margin-top:12px">${esc(x.d)}</div>`:''}<div style="display:flex;gap:8px;margin:12px 0">${i?`<button class="mini" data-action="ext-toggle" data-on="${esc(x.id)}">${i.on?'Disable':'Enable'}</button><button class="mini" data-action="ext-remove" data-on="${esc(x.id)}">Uninstall</button>`:`<button class="mini pri" data-action="ext-install" data-on="${esc(x.id)}">Install</button>`}</div>
+   ${about}
    ${x.cmds&&x.cmds.length?`<h2>Commands</h2><div class="tbl-wrap">${x.cmds.map(c=>`<div class="rowline"><span class="notr">${esc(c[0])}</span><span class="sp"></span>${c[1]?`<kbd>${esc(c[1])}</kbd>`:''}</div>`).join('')}</div>`:''}
    ${x.cfg&&x.cfg.length?`<h2>Settings</h2><div class="tbl-wrap">${x.cfg.map(c=>`<div class="rowline"><code class="notr">${esc(c)}</code></div>`).join('')}</div>`:''}${x.engines?`<div class="sub" style="margin-top:12px">Requires VS Code API <code>${esc(x.engines)}</code>.</div>`:''}</div>`; }
 
@@ -249,35 +250,45 @@ function openVsxRow(): string {
   return `<div class="ovsx-row"><input class="inp notr" id="ovsx-id" placeholder="Install from Open VSX: publisher.name" spellcheck="false"><button class="mini" data-action="vsx-open-vsx">Install</button></div>`;
 }
 
-/** Descarrega o VSIX do Open VSX (backend) e instala-o pelo mesmo caminho de um VSIX do disco. */
+/** Instala pelo id escrito na caixa (o mesmo caminho do botão Install: descarrega o VSIX real). */
 async function vsxInstallOpenVsx(): Promise<void> {
   const input = $("#ovsx-id") as HTMLInputElement | null;
   const id = (input ? input.value : "").trim();
-  if (!id) {
-    toast("Type an extension id, e.g. llvm-vs-code-extensions.vscode-clangd");
-    return;
-  }
-  toast(`Downloading ${id} from Open VSX…`);
-  try {
-    const bytes = await fetchOpenVsx(id);
-    await loadVsix(new File([bytes], `${id}.vsix`));
-  } catch (e) {
-    toast(`Open VSX: ${e instanceof Error ? e.message : String(e)}`);
-  }
+  if (!id) { toast("Type an extension id, e.g. llvm-vs-code-extensions.vscode-clangd"); return; }
+  await extInstall(id);
 }
 
-/** Renderiza o pane «Extensions»: pesquisa, instaladas, recomendadas e catálogo. */
+/** Pesquisa no Open VSX (desktop), com debounce; uma resposta atrasada não pinta por cima. */
+function searchSoon(q: string): void {
+  clearTimeout(ovsxT);
+  const t = q.trim();
+  if (!isDesktop() || t.length < 2) { OVSX.q = ""; OVSX.items = []; OVSX.loading = false; OVSX.err = ""; return; }
+  OVSX.loading = true;
+  ovsxT = setTimeout(() => {
+    const seq = ++ovsxSeq;
+    searchOpenVsx(t).then(hits => { if (seq !== ovsxSeq) return; OVSX.q = t; OVSX.items = hits.map(fromHit); OVSX.err = ""; },
+      e => { if (seq !== ovsxSeq) return; OVSX.items = []; OVSX.err = e instanceof Error ? e.message : String(e); })
+      .finally(() => { if (seq !== ovsxSeq) return; OVSX.loading = false; if (pane() === "ext") renderExtPane(); });
+  }, 300);
+}
+
+/** Renderiza o pane «Extensions»: pesquisa, instaladas, recomendadas, Open VSX e as funcionalidades do dxtutor. */
 function renderExtPane(){
   hydrateExs();
-  const el = $("#pane-ext"), cx = projectContext().map(c => c[0]), q = EXQ.toLowerCase();
-  const { inst, rec, rest } = sectionsFor(extAll(), EXT, id => !!EXS.inst[id], cx, q);
+  const el = $("#pane-ext"), q = EXQ.toLowerCase(), desk = isDesktop();
+  const { inst, rec, rest } = sectionsFor(EXS.vsix, recs(), OVSX.items, id => !!EXS.inst[id], q);
   if (!el) return;
-  el.innerHTML = hd("Extensions", `<button title="Install from VSIX…" onclick="$('#vsix-in').click()">${svg("plus")}</button>`) + `<div class="sections"><input class="inp" id="ex-q" placeholder="Search extensions in Open VSX" value="${esc(EXQ)}"><input type="file" id="vsix-in" accept=".vsix" style="display:none">${openVsxRow()}
-   <div class="scm-grp">Installed<span class="cnt">${inst.length}</span></div>${inst.map(extRow).join("") || '<div class="sec-empty">None.</div>'}
-   ${rec.length ? `<div class="scm-grp">Recommended for this project<span class="cnt">${rec.length}</span></div>${rec.map(extRow).join("")}` : ""}${rest.length ? `<div class="scm-grp">Open VSX</div>${rest.map(extRow).join("")}` : ""}
-   <div class="sec-empty">Extensions come from Open VSX — the Microsoft Marketplace terms only allow Microsoft's own products. Availability varies by extension. In the browser only a few behave live (Error Lens, Prettier, YAML); the desktop app runs them all in a VS Code–compatible extension host.</div></div>`;
+  const results = !desk ? "" : OVSX.loading ? '<div class="sec-empty">Searching Open VSX…</div>' : OVSX.err ? `<div class="sec-empty" style="color:var(--red)">Open VSX: ${esc(OVSX.err)}</div>` : EXQ.trim().length >= 2 ? (rest.length ? rest.map(extRow).join("") : '<div class="sec-empty">No results on Open VSX.</div>') : '<div class="sec-empty">Type to search Open VSX.</div>';
+  const builtins = BUILTINS.map(b => `<div class="ex-row"><div class="ex-t"><b>${esc(b.n)}</b><small>${esc(b.d)}</small><span>dxtutor</span></div><button class="mini" data-action="builtin-toggle" data-on="${esc(b.key)}">${builtinOn(EXS, b.key) ? "Disable" : "Enable"}</button></div>`).join("")
+    + '<div class="ex-row"><div class="ex-t"><b>Format Document</b><small>Shift+Alt+F trims trailing spaces, normalises indentation and the final newline.</small><span>dxtutor · always on</span></div></div>';
+  el.innerHTML = hd("Extensions", `<button title="Install from VSIX…" data-action="vsix-pick">${svg("plus")}</button>`) + `<div class="sections"><input class="inp" id="ex-q" placeholder="${desk ? "Search extensions in Open VSX" : "Filter installed extensions"}" value="${esc(EXQ)}"><input type="file" id="vsix-in" accept=".vsix" style="display:none">${openVsxRow()}
+   <div class="scm-grp">Installed<span class="cnt">${inst.length}</span></div>${inst.map(extRow).join("") || '<div class="sec-empty">None. Install from Open VSX or from a .vsix file (+).</div>'}
+   ${rec.length ? `<div class="scm-grp">Recommended for this project<span class="cnt">${rec.length}</span></div>${rec.map(extRow).join("")}` : ""}
+   ${desk ? `<div class="scm-grp">Open VSX</div>${results}` : ""}
+   <div class="scm-grp">Built into dxtutor</div>${builtins}
+   <div class="sec-empty">Extensions come from Open VSX — the Microsoft Marketplace terms only allow Microsoft's own products. dxtutor applies what an extension contributes declaratively (themes, grammars, snippets, language settings, known language servers); there is no VS Code extension host, so extension code does not run.${desk ? "" : " Searching and installing from Open VSX needs the desktop app."}</div></div>`;
   const qi = $("#ex-q") as HTMLInputElement | null;
-  if (qi) qi.oninput = () => { EXQ = qi.value; renderExtPane(); const n = $("#ex-q") as HTMLInputElement | null; if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } };
+  if (qi) qi.oninput = () => { EXQ = qi.value; searchSoon(EXQ); renderExtPane(); const n = $("#ex-q") as HTMLInputElement | null; if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } };
   const vi = $("#vsix-in") as HTMLInputElement | null;
   if (vi) vi.onchange = e => { const fs = (e.target as HTMLInputElement).files; if (fs && fs[0]) loadVsix(fs[0]); };
 }
@@ -289,11 +300,11 @@ VIEW.extd = (t, host) => renderExtd(t as { ext?: string }, host);
 /* ── publicação no window (via bridge) ──
    Nomes reais (resolvem os onclick inline e as chamadas do resíduo @ts-nocheck de v6).
    Aliases sem o substring migrado p/ as decorações de v6 (diagnostics/paintEd/keydown/
-   arranque) lerem o motor: vsxOn=extOn, vsxFmt=formatDoc, vsxCmds=extCmds. */
+   arranque) lerem o motor: vsxFmt=formatDoc, vsxCmds=extCmds; builtinOn = as funcionalidades do dxtutor. */
 publish({
-  EXT, EXS, saveExt, extOn, extAll, extCmds, extInstall, extRemove, extToggle,
+  EXS, saveExt, extOn, extAll, extCmds, extInstall, extRemove, extToggle, builtinOn: isBuiltinOn,
   rerExt, extRow, loadVsix, formatDoc, renderExtPane, renderExtd,
-  vsxOn: extOn, vsxFmt: formatDoc, vsxCmds: extCmds,
+  vsxFmt: formatDoc, vsxCmds: extCmds,
   // Fase 4: contribuições declarativas — o editor (paintEd/Tab/Ctrl+/) chama-as por global.
   vsxHighlight, vsxSnippet, vsxToggleComment, vsxApplyTheme, vsxInstallOpenVsx,
 });
@@ -302,4 +313,11 @@ publish({
 bindActions({
   "vsx-theme": { on: "click", run: e => vsxApplyTheme(e.on) },
   "vsx-open-vsx": { on: "click", run: () => { void vsxInstallOpenVsx(); } },
+  /* ADR-0006, R6b: as linhas e o detalhe deixam os onclick inline */
+  "ext-open": { on: "click", run: e => { const x = extAll().find(y => y.id === e.on); openTab({ id: `extd:${e.on}`, title: x ? x.n : e.on, kind: "extd", ext: e.on }); } },
+  "ext-install": { on: "click", run: e => { void extInstall(e.on); } },
+  "ext-toggle": { on: "click", run: e => extToggle(e.on) },
+  "ext-remove": { on: "click", run: e => extRemove(e.on) },
+  "builtin-toggle": { on: "click", run: e => { hydrateExs(); EXS.builtin[e.on] = !builtinOn(EXS, e.on); saveExt(); rerExt(); } },
+  "vsix-pick": { on: "click", run: () => { ($("#vsix-in") as HTMLInputElement | null)?.click(); } },
 });

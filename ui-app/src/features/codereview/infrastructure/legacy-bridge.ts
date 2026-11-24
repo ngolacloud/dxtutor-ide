@@ -39,11 +39,6 @@ export const openTab = (...args: [t: ReviewTab & { id: string }, act?: boolean])
    `openPath(p, undefined)`. Consumido pela tabela de acções da Fase 4. */
 export const openPath = (...args: [p: string, line?: number]): void => G.openPath(...args);
 
-/* ───── caminhos do workspace-protótipo (donos de `app.ts`; só existem após o boot) ───── */
-export const pathLexer = (): string => G.P_LX;
-export const root = (): string => G.ROOT;
-export const pathHistory = (): string => G.P_HIST;
-
 /* ───── agente / conversa (publicados por `features/codev.ts`; resolvidos por `G`) ───── */
 export const focusAgent = (nofocus?: boolean): void => G.focusAgent(nofocus);
 export const user = (msg: string): void => G.user(msg);
@@ -55,27 +50,27 @@ export const setActiveProvider = (v: string): void => { G.ACTIVE = v; };
 /** Amostrador do Claude ao vivo; `null` quando não há backend ligado nesta vista. */
 export const sample = (): unknown => G.SAMPLE ?? null;
 
-/* ───── diagnósticos / lint / lexer-protótipo (tipados em `core.ts`) ───── */
+/* ───── diagnósticos (os reais do painel Problems no desktop; tipados em `core.ts`) ───── */
 export const diagnostics = (): { p: string; line: number; sev: string; msg: string }[] => window.diagnostics();
-export const dsLint = (): { p: string; line: number; hex: string }[] => window.dsLint();
-export const lexBug = (): boolean => window.lexBug();
-export const LXL = (re: RegExp): number => window.LXL(re);
-export const lexVariant = (): string => window.lexVariant();
 
-/* ───── símbolos do ficheiro / selecção do editor / sessão de debug (tipados em `core.ts`) ───── */
+/* ───── símbolos do ficheiro / selecção do editor (tipados em `core.ts`) ───── */
 export const symbols = (p: string): Array<{ k: string; n: string; line: number }> => window.symbols(p);
 export const selText = (): string => window.selText();
-export const dbgState = (): { end?: { t: string; b: string }; feed: Array<{ h: string }> } | null => window.dbgState();
 
 /* ───── serviços de um docker-compose (dono = `features/stack.ts`; tipado em `core.ts`) ───── */
 export interface Svc { name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }
 export const composeServices = (): Svc[] | null => window.composeServices();
 
+/* ───── a pasta aberta (desktop) e o prefixo das chaves do FS (ADR-0006, R2e2) ───── */
+/** A pasta aberta no desktop (null sem pasta e no browser). */
+export const desktopRoot = (): string | null => (G.DXR && G.DXR.root) || null;
+/** O prefixo das chaves do `FS` (`ROOT`): `ROOT + caminho relativo` = chave. */
+export const fsRoot = (): string => G.ROOT;
+
 /* ───── publicação da superfície pública da feature no `window` ─────
    `renderCreviewView`/`renderHoodView` são o alvo dos shims `VIEW.creview`/`VIEW.hood`
    (v6.ts); `curFile`/`explainCmd`/`reviewCmd`/`hoodCmd`/`reviewFindings` são lidos por
-   nome livre pelo resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus) e por
-   `features/debug.ts` (onclick "explainCmd(true)"). */
+   nome livre pelo resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus). */
 export const publish = (surface: Record<string, unknown>): void => {
   Object.assign(window, surface);
 };

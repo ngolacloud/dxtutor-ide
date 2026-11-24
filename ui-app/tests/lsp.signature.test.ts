@@ -62,10 +62,11 @@ describe("signatureHelp — cliente", () => {
       didOpen: async () => {},
       didChange: async (_p: string, t: string) => void calls.push(`change ${t}`),
       signatureHelp: async (_p: string, l: number, c: number, trig: string | null, re: boolean) => (calls.push(`sig ${l}:${c} ${trig} ${re}`), { signatures: [{ label: "add(int a)" }] }),
+      serverStatus: async () => ({ language: "java", server: "jdtls", installed: true }),
       onDiagnostics: () => {},
     } as unknown as LspPort;
     const workspace: WorkspacePort = { diskRoot: () => "/w", virtualPrefix: () => "p/", fileKeyOfTab: (id) => id, currentFileKey: () => "p/A.java", text: (k) => files[k] ?? null };
-    const client = makeLspClient({ lsp, workspace, editor: { repaint() {}, open() {}, notify() {}, writeFile() {}, reload() {} } as EditorPort, defer: (f) => f() });
+    const client = makeLspClient({ lsp, workspace, editor: { repaint() {}, open() {}, notify() {}, writeFile() {}, reload() {}, notice() {} } as EditorPort, defer: (f) => f() });
     await client.onTab("p/A.java");
     files["p/A.java"] = "class A { x = add( }";
     expect((await client.signatureHelpAt(18, "(", false))?.label).toBe("add(int a)");

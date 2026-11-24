@@ -16,8 +16,8 @@ import { bootApp, golden } from "./harness";
  * para que a extracção do domínio/aplicação se prove byte-a-byte idêntica.
  *
  * Determinismo: o relógio é FIXADO (`setSystemTime`) antes de `bootApp` (padrão do
- * scm/debug.golden); embora o markup do board não interpole tempo, `loadSeed()→
- * gitInit()` carimba `Date.now()` no DAG. Timers falsos só para neutralizar o
+ * scm/debug.golden); embora o markup do board não interpole tempo, o `gitInit()`
+ * do harness carimba `Date.now()` no DAG. Timers falsos só para neutralizar o
  * polling de arranque. Tudo o que `board.ts` precisa (BL/STAGES/AGENTS/PROV/RUN,
  * o design-semente `SD`, o catálogo `TECH` e os geradores) vive na cadeia do
  * harness — ao contrário do debug, não são precisos fixtures de v6/boot. */
@@ -30,13 +30,10 @@ let w: any;
  *  caminhos, que são lógica do produtor. As `tests[].fn` são predicados (corridos
  *  no autoTest), não os invocamos — guardamos só os nomes. */
 function projectIssue(it: any): any {
-  let genPaths: unknown;
-  try { genPaths = it.gen ? it.gen().map((f: any) => f.p) : null; }
-  catch (e: any) { genPaths = "ERR:" + e.message; }
   return {
     id: it.id, agent: it.agent, type: it.type, pts: it.pts, stage: it.stage,
     sprint: it.sprint, node: it.node ?? null, infra: !!it.infra, custom: !!it.custom,
-    title: it.title, tests: (it.tests || []).map((t: any) => t.n), genPaths,
+    title: it.title, note: it.note,
   };
 }
 
@@ -44,11 +41,11 @@ function projectIssue(it: any): any {
  *  cobrir todos os ramos), um backlog que exercita cada caminho de `cardH`. */
 function seedRichBoard(): void {
   w.BL.issues = [
-    { id: "DX-1", type: "feature", pts: 3, stage: "backlog", attempts: 0, tests: [], res: null, note: "", model: null, branch: null, agent: "be", sprint: 0 },
-    { id: "DX-2", type: "fix", pts: 2, stage: "dev", attempts: 1, tests: [], res: [{ n: "a::x", ok: false }], note: "reprovado em teste: a::x", model: "claude", branch: "fix/dx-2-corrige", agent: "fe", sprint: 0 },
-    { id: "DX-3", type: "feature", pts: 5, stage: "test", attempts: 0, tests: [], res: null, note: "", model: "gemini", branch: "feature/dx-3-skeleton", agent: "be", sprint: 1 },
-    { id: "DX-4", type: "feature", pts: 2, stage: "func", attempts: 0, tests: [], res: [{ n: "t::a", ok: true }, { n: "t::b", ok: true }], note: "passou à 1.ª tentativa", model: "codex", branch: "feature/dx-4-web", agent: "fe", sprint: 1 },
-    { id: "DX-5", type: "feature", pts: 3, stage: "done", attempts: 0, tests: [], res: [{ n: "t::ok", ok: true }], note: "", model: "claude", branch: "feature/dx-5", merged: "a1b2c3d", agent: "db", sprint: 0 },
+    { id: "DX-1", type: "feature", pts: 3, stage: "backlog", attempts: 0, res: null, note: "", model: null, branch: null, agent: "be", sprint: 0 },
+    { id: "DX-2", type: "fix", pts: 2, stage: "dev", attempts: 1, res: [{ n: "a::x", ok: false }], note: "reprovado em teste: a::x", model: "claude", branch: "fix/dx-2-corrige", agent: "fe", sprint: 0 },
+    { id: "DX-3", type: "feature", pts: 5, stage: "test", attempts: 0, res: null, note: "", model: "gemini", branch: "feature/dx-3-skeleton", agent: "be", sprint: 1 },
+    { id: "DX-4", type: "feature", pts: 2, stage: "func", attempts: 0, res: [{ n: "t::a", ok: true }, { n: "t::b", ok: true }], note: "passou à 1.ª tentativa", model: "codex", branch: "feature/dx-4-web", agent: "fe", sprint: 1 },
+    { id: "DX-5", type: "feature", pts: 3, stage: "done", attempts: 0, res: [{ n: "t::ok", ok: true }], note: "", model: "claude", branch: "feature/dx-5", merged: "a1b2c3d", agent: "db", sprint: 0 },
   ];
 }
 
@@ -113,13 +110,45 @@ describe("dispatch delegado (data-action) — Fase 4", () => {
     expect(w.BL.view).toBe(0);
   });
 
-  it("delegate (issue custom): clicar «Delegar» leva a issue a dev (sem runIssue)", () => {
-    const it = w.mkIssue({ title: "custom", agent: "lead", sprint: 0, stage: "todo", custom: true });
-    w.BL.view = -1; const host = renderInto();
-    const btn = host.querySelector(`[data-action="delegate"][data-on="${it.id}"]`)!;
-    expect(btn).toBeTruthy();
-    click(btn);
-    expect(it.stage).toBe("dev"); // caminho it.custom → setStage('dev'), sem o runner
+  /* ADR-0006, R3a: «Delegar» corre a issue com o agente real (aqui, falso): ramo gitflow →
+     o agente escreve → commit do que mudou → testes do projecto → validação funcional. */
+  it("delegate: com agente, cria o ramo, o agente implementa, commita e passa nos testes do projecto → func", async () => {
+    const it = w.mkIssue({ title: "Lista de encomendas", agent: "be", sprint: 0, stage: "todo" });
+    const story = vi.fn(async () => { w.writeFile(w.ROOT + "src/orders.rs", "pub fn list() {}\n"); });
+    w.codevAgentAvailable = () => true;
+    w.codevAgentStory = story;
+    w.DXR = { root: "/proj", git: true, projectCmd: (k: string) => (k === "test" ? { cmd: "cargo test" } : null), exec: vi.fn(async () => ({ ok: true })) };
+    try {
+      w.BL.view = -1; const host = renderInto();
+      click(host.querySelector(`[data-action="delegate"][data-on="${it.id}"]`)!);
+      await vi.waitFor(() => expect(it.stage).toBe("func"));
+      expect(story).toHaveBeenCalledWith({ id: it.id, title: "Lista de encomendas", type: "feature", pts: it.pts, note: "" });
+      expect(it.branch).toMatch(/^feature\/dx-\d+-lista-de-encomendas/);
+      expect(w.GIT.c[w.GIT.order[0]].m).toBe(`feat: Lista de encomendas (${it.id})`);
+      expect(w.GIT.c[w.GIT.order[0]].files).toEqual([w.ROOT + "src/orders.rs"]);
+      expect(w.DXR.exec).toHaveBeenCalledWith("cargo test");
+      expect(w.BRANCH).toBe("develop"); // volta a develop no fim
+    } finally { delete w.codevAgentAvailable; delete w.codevAgentStory; delete w.DXR; }
+  });
+
+  it("delegate: o agente não mudou nada → fica em dev com a nota, sem commit", async () => {
+    const it = w.mkIssue({ title: "nada", agent: "be", sprint: 0, stage: "todo" });
+    w.codevAgentAvailable = () => true;
+    w.codevAgentStory = async () => {};
+    const before = w.GIT.order.length;
+    try {
+      await w.delegate(it.id);
+      expect(it.stage).toBe("dev");
+      expect(it.note).toBe("o agente não alterou ficheiros");
+      expect(w.GIT.order.length).toBe(before);
+    } finally { delete w.codevAgentAvailable; delete w.codevAgentStory; }
+  });
+
+  it("delegate: sem agente (browser), di-lo e não mexe na issue", async () => {
+    const it = w.mkIssue({ title: "sem agente", agent: "be", sprint: 0, stage: "todo" });
+    await w.delegate(it.id);
+    expect(it.stage).toBe("todo");
+    expect(document.getElementById("ag-msgs")!.textContent).toMatch(/Não há um agente disponível/);
   });
 
   it("approve: clicar «Validar» numa issue func já revista → done (gfFinish + setStage)", () => {
@@ -164,7 +193,7 @@ describe("políticas compostas pelo board (ADR-0004, U4g3)", () => {
 });
 
 describe("caracterização do motor — produtor Studio→backlog (a extrair)", () => {
-  it("genBacklogIssues: decomposição do design-semente em issues/sprints", () => {
+  it("genBacklogIssues: uma issue por componente planeado (sem código: o contexto vai na nota)", () => {
     // O seed deixa os 8 componentes do design em estado `plan`. Decompomos todos.
     const plan = w.SD.nodes.filter((n: any) => n.st === "plan");
     expect(plan.length).toBe(8);

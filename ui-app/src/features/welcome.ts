@@ -15,7 +15,7 @@ const welcomeBase=(_t: unknown,host: HTMLElement): void=>{const w=(ic:string,a:s
   <div class="sub">You decide; the assistants accelerate. Learn a language, or design an architecture and take it to a running stack and a local cluster.</div>
   <h2>Build</h2><div class="wgrid">${w('cube','1 · Design','Studio with cloud and open-source components','openStudio()')}${w('account','2 · Set the harness','Templates, scopes and who decides','openTeam()')}${w('split','3 · Deliver','Board, sprints, automatic tests, your review','openBoard()')}${w('run','4 · RUN','Start the whole stack on your container runtime','dxRun()')}${w('rocket','5 · Deploy','One click to your local Kubernetes','dxDeploy()')}${w('container','Infra','Socket, dev container, KUBECONFIG',"goPane('infra')")}</div>
   <h2>Learn</h2><div class="wgrid">${w('book','Learning Track','Rust and Go, from zero to confident','ltResume()')}</div>
-  <h2>Co-Dev</h2><div class="wgrid">${w('sparkle','Mission: persistent chat history','Council, self-evaluation and correction',"demo('b')")}${w('graph','Mission manager','Decisions, checkpoints and usage','openManager()')}${w('settings','Settings','Models, autonomy, language','openSettings()')}</div></div>`;};
+  <h2>Co-Dev</h2><div class="wgrid">${w('graph','Mission manager','Decisions, checkpoints and usage','openManager()')}${w('settings','Settings','Models, autonomy, language','openSettings()')}</div></div>`;};
 /** A parte desktop da página (ADR-0004, U4h5b), injectada em `desktopPorts.welcome`: os botões
  *  «Open Folder…» e as pastas recentes. Recebe a página de base. */
 export interface WelcomeDesktop { welcome(t: unknown, host: HTMLElement, virtual: (t: unknown, host: HTMLElement) => void): void }

@@ -32,23 +32,21 @@
 
 import { $, esc, jsa, nfmt } from "../core";
 import { bus } from "../app/bus";
-import { desktopPorts } from "../app/desktop";
 import { VIEW } from "../app/store/registry";
 import type { Backlog, Issue } from "./board/domain/types";
 import { STAGES } from "./board/domain/issue";
 import { inView, points, autoSprint } from "./board/domain/kanban";
 import { makeBoardEngine } from "./board/application/board-engine";
+import { toBacklogDto, fromBacklogDto } from "./board/domain/persist";
+import { tauriBoard } from "./board/infrastructure/tauri";
 import { bindActions, type ActionTable } from "./board/ui/actions";
 import {
-  backlog, design, saveDesign, files, agents, provs, taskProfiles,
+  backlog, design, saveDesign, agents, provs, taskProfiles,
   run, setAuthor, branch, setAgent, pane, mode, panes, root, stopSignal,
   git, staged, gfStart, gfFinish, commitGit, checkout, stOf,
   validateDesign, tech, kindTable, cloudTable, isApp, nodeSlug, appDir,
-  composeYaml, appFiles, k8sYaml, k8sInfra, cloudMap, has,
   card, tl, ask, beat, sleep, user, note, runLabel, runState, focusAgent, agentPill, handlePrompt, scrollMsgs,
-  routeModel, use,
-  echo, echoCmd, newInput, setPanelTab, getVar, runTests, dsLint, doTool,
-  inScope, ownerOf, short,
+  echo, echoCmd, newInput, setPanelTab, getVar, projectTests, changes, settle, boardRoot,
   openTab, openStudio, palette, refresh,
   toast, log, rerender,
   decoratedRunIssue, decoratedApproveIssue, decoratedDelegate, decoratedRunSprint, publish,
@@ -57,21 +55,57 @@ import {
 } from "./board/infrastructure/legacy-bridge";
 
 /* estado — window-backed (publicado via bridge; onclick inline `BL.view=…` resolve em
-   window.BL no escopo global). BL é sessão em memória, não vem de LS. STAGES vem do
-   domínio puro e publica-se para o monólito/v6. */
+   window.BL no escopo global). STAGES vem do domínio puro e publica-se para o monólito/v6. */
 const BL: Backlog = { issues: [], seq: 11, mig: 3, adr: 4, view: -1 };
 publish({ BL, STAGES });
+
+/* ───── o backlog por pasta (ADR-0006, R3b) ─────
+   No desktop com pasta aberta, o quadro vem do backend (`board_load`, um backlog por pasta,
+   num SQLite da app) quando a pasta abre, e grava-se (`board_save`) quando muda: depois de cada
+   interacção no IDE (clique/alteração/largar) e de cada passo do runner, uma verificação com
+   debounce compara o backlog serializado com o último gravado e só grava se mudou — as
+   mutações vivem em vários sítios (motor, políticas, Tasks, revisão), por isso detecta-se a
+   mudança em vez de a perseguir. Nunca se grava o quadro de uma pasta sobre outra: só depois de
+   carregar a pasta actual. No browser o quadro fica em memória. */
+let boardLoadedFor: string | null = null, boardSaved = "", boardSaveT: ReturnType<typeof setTimeout> | undefined;
+async function loadBoardForFolder(): Promise<void> {
+  const r = boardRoot();
+  boardLoadedFor = null;
+  BL.issues.length = 0; BL.seq = 11;
+  if (!r) { rerender("board"); return; }
+  try {
+    const dto = await tauriBoard().load(r);
+    if (boardRoot() !== r) return; // a pasta mudou entretanto
+    if (dto) { const got = fromBacklogDto(dto); BL.issues.push(...got.issues); BL.seq = got.seq; }
+    boardSaved = JSON.stringify(toBacklogDto(BL));
+    boardLoadedFor = r;
+  } catch (e) { log("board", "não consegui ler o backlog desta pasta: " + (e instanceof Error ? e.message : String(e))); }
+  rerender("board");
+  if (pane() === "tasks" && panes().tasks) panes().tasks();
+}
+function saveBoardSoon(): void {
+  clearTimeout(boardSaveT);
+  boardSaveT = setTimeout(() => {
+    const r = boardRoot();
+    if (!r || r !== boardLoadedFor) return;
+    const dto = toBacklogDto(BL), json = JSON.stringify(dto);
+    if (json === boardSaved) return;
+    boardSaved = json;
+    tauriBoard().save(r, dto).catch((e) => { boardSaved = ""; log("board", "não consegui gravar o backlog: " + (e instanceof Error ? e.message : String(e))); });
+  }, 400);
+}
+document.addEventListener("dx:workspace", () => { void loadBoardForFolder(); });
+for (const ev of ["click", "change", "drop"]) document.addEventListener(ev, saveBoardSoon, true);
 
 /* ───── raiz de composição: liga os adaptadores do bridge (infra) às portas do motor
    (application). O motor fica puro (sem window/DOM); o `window`/DOM ficam deste lado. O
    estado BL é a MESMA referência que `backlog()` do bridge devolve (window.BL). ───── */
 const engine = makeBoardEngine({
   store: { backlog: () => backlog(), design: () => design(), saveDesign: () => saveDesign() },
-  workspace: { files: () => files() },
   catalog: { tech: () => tech(), kind: () => kindTable(), cloud: () => cloudTable(), isApp: (n) => isApp(n), nodeSlug: (n) => nodeSlug(n), appDir: (n) => appDir(n), root: () => root() },
-  generators: { compose: (d, h) => composeYaml(d, h), appFiles: (node, d, bad) => appFiles(node, d, bad), k8sYaml: (node) => k8sYaml(node), k8sInfra: (d) => k8sInfra(d), cloudMap: (d) => cloudMap(d), has: (p, re) => has(p, re), validateDesign: () => validateDesign() },
+  generators: { validateDesign: () => validateDesign() },
   directory: { agents: () => agents(), provs: () => provs(), taskProfiles: () => taskProfiles() },
-  scm: { gfStart: (k, n) => gfStart(k, n), gfFinish: (b, a) => gfFinish(b, a), commit: (m, a) => commitGit(m, a), checkout: (b) => checkout(b), branch: () => branch(), staged: () => staged(), statusOf: (p) => stOf(p), refs: () => git().refs },
+  scm: { gfStart: (k, n) => gfStart(k, n), gfFinish: (b, a) => gfFinish(b, a), commit: (m, a) => commitGit(m, a), checkout: (b) => checkout(b), branch: () => branch(), staged: () => staged(), statusOf: (p) => stOf(p), refs: () => git().refs, changes: () => changes(), settle: () => settle() },
   runctl: { active: () => run().active, setActive: (on, label) => runState(on, label), label: (text) => { run().label = text; runLabel(); }, setAuthor: (a) => setAuthor(a), setAgent: (a) => setAgent(a), mode: () => mode(), stop: () => stopSignal() },
   chat: {
     card: (label, html) => card(label, html),
@@ -83,10 +117,9 @@ const engine = makeBoardEngine({
     beat: (ms) => beat(ms), sleep: (ms) => sleep(ms), user: (t) => user(t),
     focusAgent: (nf) => focusAgent(nf), agentPill: () => agentPill(), handlePrompt: (q) => handlePrompt(q), scrollMsgs: () => scrollMsgs(),
   },
-  router: { route: (agent, title) => routeModel(agent, title), use: (p, tok) => use(p, tok) },
-  terminal: { echo: (h) => echo(h), echoCmd: (c) => echoCmd(c), newInput: (nf) => newInput(nf), setPanelTab: (t, nf) => setPanelTab(t, nf), getVar: (k) => getVar(k), runTests: () => runTests(), dsLint: () => dsLint(), doTool: (t, host) => doTool(t, host as HTMLElement) },
-  team: { inScope: (a, p) => inScope(a, p), ownerOf: (p) => ownerOf(p), short: (p) => short(p) },
-  view: { rerender: (k) => rerender(k), refresh: () => refresh(), rerenderCodev: () => { if (pane() === "codev" && panes().codev) panes().codev(); } },
+  agent: { available: () => agentAvailable(), story: (st) => agentStory(st) },
+  terminal: { echo: (h) => echo(h), echoCmd: (c) => echoCmd(c), newInput: (nf) => newInput(nf), setPanelTab: (t, nf) => setPanelTab(t, nf), getVar: (k) => getVar(k), projectTests: () => projectTests() },
+  view: { rerender: (k) => { rerender(k); if (k === "board") saveBoardSoon(); }, refresh: () => refresh(), rerenderCodev: () => { if (pane() === "codev" && panes().codev) panes().codev(); } },
   notifier: { toast: (m) => toast(m), note: (m) => note(m), log: (s, m) => log(s, m) },
   nav: { openTab: (t) => openTab(t), palette: (pre, cfg) => palette(pre, cfg) },
   orchestration: { runIssue: (it) => decoratedRunIssue(it), approveIssue: (id) => decoratedApproveIssue(id) },
@@ -119,18 +152,9 @@ function renderBoardView(_t: unknown, host: HTMLElement): void {
 const ACTIONS: ActionTable = {
   view: { on: "click", run: (e) => { BL.view = +e.on; rerender("board"); } },
   delegate: { on: "click", run: (e) => decoratedDelegate(e.on) },
-  /* opção 2 do ADR-0003: a issue vai ao agente Co-Dev (modo plano) e passa a «dev» */
-  "agent-story": {
-    on: "click",
-    run: (e) => {
-      const it = backlog().issues.find((x) => x.id === e.on);
-      if (!it) return;
-      if (agentStory({ id: it.id, title: it.title, type: it.type, pts: it.pts, note: it.note })) {
-        setStage(it, "dev");
-        rerender("board");
-      }
-    },
-  },
+  /* opção 2 do ADR-0003: o «⚡ Agente» é o mesmo que «Delegar» desde a R3a (ADR-0006) — o
+     runner corre a issue com o agente real, commita e corre os testes */
+  "agent-story": { on: "click", run: (e) => decoratedDelegate(e.on) },
   approve: { on: "click", run: (e) => decoratedApproveIssue(e.on) },
   reject: { on: "click", run: (e) => rejectIssue(e.on) },
   "new-issue": { on: "click", run: () => newIssue() },
@@ -202,10 +226,8 @@ function runSprintGuarded(s: number): ReturnType<typeof runSprint> | undefined {
   if (codeGuard("Run Sprint " + (s + 1) + ".")) return;
   return runSprint(s);
 }
-/* ADR-0004, U4h5: o runSprint PUBLICADO consulta a porta desktop (`desktopPorts.board`, injectada
-   por platform/desktop/demos.ts: com uma pasta real aberta a corrida é uma demo e não corre);
-   antes o desktop reatribuía-o no `window`. As arestas internas resolvem o `window` no acto. */
-function runSprintPublished(s: number): unknown { const d = desktopPorts.board; return d && d.runSprint ? d.runSprint(s, runSprintGuarded) : runSprintGuarded(s); }
+/* (a porta desktop do runSprint — ADR-0004 U4h5, «com pasta real a corrida é uma demo» — saiu: o
+   Sprint corre com o agente real também com pasta aberta; ADR-0006, R3a) */
 
 /** (v6) Mede o custo de cada corrida do runner (tokens por provedor, dólares, tempo). */
 async function runIssueCosted(it: Issue): Promise<void> {
@@ -252,5 +274,5 @@ VIEW.board = boardView;
    políticas acima. ── */
 publish({
   mkIssue, openBoard, setStage, autoTest, rejectIssue, dropIssue, newIssue, genBacklog, genBacklogIssues,
-  runIssue: runIssueCosted, delegate: delegateOwned, runSprint: runSprintPublished, approveIssue: approveExplained, renderBoardView,
+  runIssue: runIssueCosted, delegate: delegateOwned, runSprint: runSprintGuarded, approveIssue: approveExplained, renderBoardView,
 });

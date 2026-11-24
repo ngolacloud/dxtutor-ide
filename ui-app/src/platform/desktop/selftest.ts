@@ -1,9 +1,10 @@
 /* ═════════ dxtutor IDE — desktop: o auto-teste (ADR-0004, U4h1) ═════════
    O auto-teste da app real (`DXTUTOR_SELFTEST`, Xvfb): percorre o terminal, o PTY do painel,
    os modelos, a config dos providers, a pasta aberta, autosave, commit, gitflow, checkpoint,
-   grafo, changelog, scm, infra, termgit, codereview, a delegação isolada e o editor ligado
-   ao servidor de linguagem (Java e Kotlin: diagnósticos, hover e F12), e grava o
-   relatório. Era a função `selftest` do bridge.ts, verbatim (o passo `lsp-*` veio depois). */
+   grafo, changelog, scm, infra (contentores, dev container, ambientes), termgit, codereview, a
+   delegação isolada e o editor ligado ao servidor de linguagem (Java e Kotlin: diagnósticos,
+   hover e F12), e grava o relatório. Era a função `selftest` do bridge.ts, verbatim (os passos
+   `lsp-*` e os do ADR-0006 vieram depois). */
 
 import type { DesktopContext } from "./context";
 import { desktopPorts } from "../../app/desktop";
@@ -192,18 +193,17 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await git("branch", "-D", flow); await ctx.syncGit();
       return { committed, flowInGit, backViaRow, errBefore, errAfter: R.errors.length };
     });
-    // A0.5: the Testing pane lists the project's REAL tests (list_tests) on the desktop.
+    // A0.5: the Testing pane lists the project's REAL tests (list_tests) on the desktop — a Rust
+    // probe (descoberta pelo syn), redescoberta pelo «Refresh» do pane (features/testing, ADR-0006 R2a).
     await step("testsPane", async () => {
-      const d = desktopPorts.tests; if (!d) throw new Error("tests port not installed");
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
       const key = ROOT + "probe_tests.rs";
       writeFile(key, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_passes() {}\n}\n"); flushSave(); await idle();
-      const listed = (await d.list()).map(t => t.path);
-      window.renderTestPane();
-      await new Promise(r => setTimeout(r, 1500));
-      const pane = document.getElementById("pane-test");
-      const inPane = !!pane && (pane.textContent || "").includes("probe_passes");
+      PANE = "test"; window.renderTestPane();
+      document.querySelector<HTMLElement>('#pane-test [data-action="refresh"]')?.click();
+      const inPane = await wait(() => (document.getElementById("pane-test")?.textContent || "").includes("probe_passes"), 20000);
       delete FS[key]; flushSave(); await idle();
-      return { listed: listed.includes("tests::probe_passes"), inPane };
+      return { inPane };
     });
     // feature `infra` (migrada de v5.ts nesta sessão para features/infra.ts): prova que
     // o motor de runtime/K8s/dev-container ficou correctamente ligado depois da
@@ -221,10 +221,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const k8sNoThrow = typeof ENVS.k8sOn === "boolean";
       if (ENVS.k8sOn !== k8sBefore) await k8sConnect();
       ENVS.rtOn = true;
-      dcAttach();
-      const attached = !!FS[window.P_DC] && !!DEVC;
-      dcDetach();
-      const detached = DEVC === null;
+      /* o dev-container passou a ser real e assíncrono (R5b): tem o passo `devcontainer` próprio */
       ENVS.rtOn = false; ENVS.k8sOn = false;
       const deployNoRt = dxDeploy();
       ENVS.rtOn = true;
@@ -232,13 +229,14 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       ENVS.rtOn = rtBefore; ENVS.k8sOn = k8sBefore;
       drawRemote();
       const remoteBadgeWired = !!document.querySelector(".si.remote .rl");
-      return { rtNoThrow, k8sNoThrow, attached, detached, deployNoRt, deployNoK8s, remoteBadgeWired, errBefore, errAfter: R.errors.length };
+      return { rtNoThrow, k8sNoThrow, deployNoRt, deployNoK8s, remoteBadgeWired, errBefore, errAfter: R.errors.length };
     });
     await step("terminal", async () => { const lines: string[] = []; const code = await stream("echo hello-from-term; echo $DX_SELF", { env: { DX_SELF: "env-ok" }, line: l => lines.push(l) }); return { code, lines }; });
     await step("terminalUI", async () => { await realTerm("echo ui-line"); await new Promise(r => setTimeout(r, 300)); return [...document.querySelectorAll("#term .line")].some(d => d.textContent === "ui-line"); });
     // feature `termgit` (migrada de app.ts para features/termgit.ts nesta sessão): handler
     // `git` do terminal (XC.git). Só os sub-comandos de leitura — status/log/branch/diff/push
-    // não mutam estado, por isso o passo fica net-zero sem checkpoint/restore.
+    // não mutam estado, por isso o passo fica net-zero sem checkpoint/restore. O `push` do
+    // terminal emulado já não finge um push (ADR-0006, R1d): `pushOk` tem de ser false.
     await step("termgit", () => {
       const before = document.querySelectorAll("#term .line").length;
       gitCmd(["status"], "git status");
@@ -255,9 +253,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // (restaurado no fim) para exercitar o caminho determinístico sem chamada real ao LLM.
     await step("codereview", () => {
       const errBefore = R.errors.length;
-      // P_LX (o lexer-protótipo) só existe no projecto SIMULADO; num projecto desktop real
-      // qualquer ficheiro aberto do disco serve — por isso escolhe-se um que esteja mesmo em FS.
-      const p = Object.keys(FS).find(k => k.startsWith(ROOT)) || P_LX;
+      // qualquer ficheiro aberto do disco serve — escolhe-se um que esteja mesmo em FS.
+      const p = Object.keys(FS).find(k => k.startsWith(ROOT)) || "";
       const findings = reviewFindings(p);
       const claudeBefore = PROV.claude.on; PROV.claude.on = false;
       explainCmd();
@@ -302,6 +299,282 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const cancelled = await R.cancelTask!(id);
       return { status: res.status, patchHasFile, patchLen: res.patch.length, untouched, cancelled };
     });
+    // feature `testing` (ADR-0006, R2a): o pane Testing sobre os comandos reais. Escreve um
+    // teste Python (unittest: sem projecto cargo, corre depressa) com um caso verde e um
+    // vermelho, abre o pane (list_tests), carrega em «Run all» (run_all_tests) e lê o estado
+    // de cada teste e a barra de estado; depois corre um só (run_test) pelo ▶ da linha.
+    await step("testing", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      writeFile(ROOT + "test_dx_selftest.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_soma(self):\n        self.assertEqual(1 + 1, 2)\n\n    def test_falha(self):\n        self.assertEqual(1 + 1, 3)\n");
+      flushSave(); await idle();
+      PANE = "test";
+      window.renderTestPane();
+      document.querySelector<HTMLElement>('#pane-test [data-action="refresh"]')?.click(); // um ficheiro de testes novo: voltar a descobrir
+      const el = () => document.getElementById("pane-test");
+      const listed = await wait(() => /test_falha/.test(el()?.textContent || ""), 20000);
+      const runAll = el()?.querySelector<HTMLElement>('[data-action="run-all"]');
+      runAll?.click();
+      const st = () => document.getElementById("st-tests")?.textContent || "";
+      const suiteDone = await wait(() => st() === "✓ 1 ✗ 1", 60000);
+      const statusAfterSuite = st();
+      const one = el()?.querySelector<HTMLElement>('[data-action="run-test"][data-on="test_dx_selftest.py::test_soma"]');
+      one?.click();
+      await wait(() => st() !== "⟳ testes…" && !el()?.querySelector('[data-action="run-test"][disabled]'), 30000);
+      return { listed, suiteDone, statusAfterSuite, statusAfterOne: st(), suiteShown: /Última corrida da suíte/.test(el()?.textContent || "") };
+    });
+    // pesquisa (ADR-0006, R2b): o pane Search procura em toda a pasta pelo backend
+    // (search_project) — encontra o teste que o passo `testing` gravou no disco (o
+    // notes/selftest.txt do `autosave` ficou em main; o gitflow deixa o repo em develop).
+    await step("search", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      window.renderSearchPane();
+      const q = document.getElementById("s-q") as HTMLInputElement | null, res = () => document.getElementById("s-res");
+      if (q) { q.value = "ASSERTEQUAL(1 + 1, 3)"; q.dispatchEvent(new Event("input")); } // sem distinguir maiúsculas
+      const found = await wait(() => !!res()?.querySelector('[data-p$="test_dx_selftest.py"][data-l="9"]'), 10000);
+      return { found, summary: (res()?.querySelector(".sec-empty")?.textContent || "").trim() };
+    });
+    // outline (ADR-0006, R2c): o Outline do Explorer pelo backend (file_outline — servidor de
+    // língua se houver, senão o scanner sintáctico) para o teste Python gravado acima.
+    await step("outline", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      openPath(ROOT + "test_dx_selftest.py");
+      const names = () => [...document.querySelectorAll("#outline .s-hit span:last-child")].map(e => e.textContent || "");
+      const got = await wait(() => names().includes("test_falha"), 20000);
+      return { got, symbols: names() };
+    });
+    // run (ADR-0006, R2d): o pane Run lista os projectos da pasta pelo backend
+    // (detect_projects) e os comandos de cada um — um package.json com um script real.
+    await step("run", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      writeFile(ROOT + "package.json", JSON.stringify({ name: "selftest", scripts: { hello: "echo hello-from-run" } }, null, 2) + "\n");
+      flushSave(); await idle();
+      PANE = "run";
+      window.renderRunPane();
+      const el = () => document.getElementById("pane-run");
+      const listed = await wait(() => !!el()?.querySelector('[data-run-cmd="npm run hello"]'), 10000);
+      return { listed, kinds: [...(el()?.querySelectorAll(".scm-grp .cnt") || [])].map(e => e.textContent) };
+    });
+    // conta (ADR-0006, R2e1): o pane Conta mostra o utilizador e a máquina reais (whoami/
+    // hostname) e a identidade git, em vez de uma identidade fixa.
+    await step("account", () => {
+      window.renderAccountPane();
+      const t = document.getElementById("pane-account")?.textContent || "";
+      return { user: R.user, host: R.host, git: R.gitName || null, shown: !!R.user && t.includes(R.user), noFake: !/walter|Team SYS/.test(t) || R.user === "walter" };
+    });
+    // code review (ADR-0006, R2e2): a tab junta às regras locais os analisadores reais do
+    // projecto (review_code, âmbito file) para o teste Python gravado acima.
+    await step("review", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      renderCreviewView({ path: ROOT + "test_dx_selftest.py" }, host);
+      const sec = () => host.querySelector(".cr-analyzers");
+      const done = await wait(() => !!sec() && !/A correr os analisadores/.test(sec()!.textContent || ""), 120000);
+      const r = { done, analyzers: [...(sec()?.querySelectorAll(".tag") || [])].map(t => t.textContent).filter(t => t && t.includes("·")), findings: sec()?.querySelectorAll(".rv").length || 0, failed: /A revisão falhou/.test(sec()?.textContent || "") };
+      host.remove();
+      return r;
+    });
+    // board (ADR-0006, R3a): «Delegar» corre a issue com o agente — aqui um agente FALSO (o
+    // selftest não tem modelo) que escreve um ficheiro; o resto é real: ramo gitflow, commit
+    // pela porta do git, os testes do projecto (.dxtutor/commands.json → unittest) e a issue
+    // em «Validação funcional»; no fim o repositório volta a develop.
+    await step("board", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      writeFile(ROOT + ".dxtutor/commands.json", JSON.stringify({ test: "python3 -m unittest -k test_soma test_dx_selftest" }) + "\n");
+      commit("chore: comandos do projecto para o selftest"); await idle(); await idle();
+      const G = window as unknown as { mkIssue: (o: Record<string, unknown>) => { id: string; stage: string; branch: string | null; note: string }; delegate: (id: string) => Promise<void>; codevAgentAvailable?: unknown; codevAgentStory?: unknown };
+      const prevA = G.codevAgentAvailable, prevS = G.codevAgentStory;
+      G.codevAgentAvailable = () => true;
+      G.codevAgentStory = async () => { writeFile(ROOT + "src/board_selftest.py", "def ok():\n    return True\n"); flushSave(); await idle(); };
+      try {
+        const it = G.mkIssue({ title: "Selftest do board", agent: "be", sprint: 0, stage: "todo" });
+        await G.delegate(it.id);
+        await wait(() => it.stage === "func" || it.stage === "dev", 60000);
+        await idle(); await idle();
+        const log = (await git("log", "--all", "--format=%s")).stdout;
+        // R3b: o quadro grava-se no backend (board_save) e volta ao reabrir a pasta (board_load)
+        await new Promise(r => setTimeout(r, 900));
+        const inv = window.__TAURI__!.core.invoke as (c: string, a: Record<string, unknown>) => Promise<{ stories: Array<{ id: string; stage: string; meta?: { agent?: string } }> } | null>;
+        const saved = await inv("board_load", { root: R.root });
+        const st = saved?.stories.find(x => x.id === it.id);
+        const BLw = (window as unknown as { BL: { issues: Array<{ id: string; stage: string }> } }).BL;
+        BLw.issues.length = 0;
+        document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
+        await wait(() => BLw.issues.some(x => x.id === it.id), 5000);
+        return { stage: it.stage, note: it.note, branch: it.branch, committed: log.includes(`feat: Selftest do board (${it.id})`), head: (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim(),
+          persisted: st ? { stage: st.stage, agent: st.meta?.agent } : null, reloaded: BLw.issues.find(x => x.id === it.id)?.stage ?? null };
+      } finally { G.codevAgentAvailable = prevA; G.codevAgentStory = prevS; }
+    });
+    // equipa (ADR-0006, R3c): os escopos vêm da estrutura da pasta (o package.json do passo
+    // `run` dá um frontend na raiz) e o .dxtutor/team.json do projecto manda; gravar a equipa
+    // escreve-o no disco.
+    await step("team", async () => {
+      const G = window as unknown as { AGENTS: Record<string, { paths: string[]; cmds: string[] }>; saveTeam: () => void };
+      writeFile(ROOT + ".dxtutor/team.json", JSON.stringify({ agents: { qa: { paths: ["e2e/**"], cmds: ["npm run e2e"] } } }) + "\n");
+      flushSave(); await idle();
+      document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
+      await new Promise(r => setTimeout(r, 300));
+      const fe = G.AGENTS.fe.paths.slice(), qa = G.AGENTS.qa.paths.slice();
+      G.AGENTS.db.paths = ["sql/**"]; G.saveTeam(); flushSave(); await idle();
+      const onDisk = (await sh("cat", [".dxtutor/team.json"])).stdout;
+      return { fe, qa, savedToDisk: /"sql\/\*\*"/.test(onDisk) };
+    });
+    // depuração (ADR-0006, R4): o gdb do backend. Sem gdb no sistema, o pane di-lo (o caminho
+    // honesto); com gdb, uma sessão real sobre um binário Cargo pequeno com um breakpoint:
+    // pára na linha, lê as variáveis, dá um passo e corre até ao fim.
+    await step("debug", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const available = !!(await inv("debug_available"));
+      const G = window as unknown as { startDebug: () => Promise<void>; dbgStep: () => Promise<void>; dbgCurrent: () => { path: string; line: number } | null; toggleBp: (p: string, l: number) => void };
+      const pane = () => document.getElementById("pane-debug")?.textContent || "";
+      if (!available) { await G.startDebug(); return { available, saysNoGdb: /O gdb não está instalado/.test(pane()) }; }
+      writeFile(ROOT + "dbgself/Cargo.toml", '[package]\nname = "dbgself"\nversion = "0.1.0"\nedition = "2021"\n\n[workspace]\n');
+      writeFile(ROOT + "dbgself/src/main.rs", "fn main() {\n    let answer = 40 + 2;\n    println!(\"{answer}\");\n}\n");
+      writeFile(ROOT + "Cargo.toml", '[workspace]\nmembers = ["dbgself"]\nresolver = "2"\n');
+      flushSave(); await idle();
+      G.toggleBp(ROOT + "dbgself/src/main.rs", 3);
+      await G.startDebug();
+      const stoppedAt = G.dbgCurrent();
+      const vars = /answer/.test(pane());
+      await G.dbgStep();
+      await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 3, 20000);
+      const after = G.dbgCurrent();
+      if (after) await G.startDebug(); // continuar até ao fim
+      return { available, stoppedAt, vars, after, ended: /O programa terminou/.test(pane()) };
+    });
+    // contentores (ADR-0006, R5a): ligar o runtime real (docker info pelo socket) e o pane
+    // Containers lista os contentores e as imagens reais (ps/images em JSON).
+    await step("containers", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const W = window as unknown as { ENVS: { rt: string; rtOn: boolean }; rtConnect: () => Promise<void> };
+      W.ENVS.rt = "docker";
+      if (!W.ENVS.rtOn) await W.rtConnect();
+      await wait(() => W.ENVS.rtOn, 15000);
+      const host = () => document.getElementById("dk-containers"), imgs = () => document.getElementById("dk-images");
+      await R.drawContainers?.();
+      await wait(() => !/A ler os contentores/.test(host()?.textContent || ""), 20000);
+      return { connected: W.ENVS.rtOn, containers: host()?.querySelectorAll(".dk-row").length ?? -1, images: imgs()?.querySelectorAll(".dk-row").length ?? -1, text: (host()?.textContent || "").slice(0, 80) };
+    });
+    // dev-container (ADR-0006, R5b): a sessão real do backend (devcontainer_session_up/down) sobre
+    // um devcontainer.json com uma imagem que já existe nesta máquina (sem descarregar nada).
+    await step("devcontainer", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 200)); return f(); };
+      const W = window as unknown as { P_DC: string; DEVC: { name: string; image: string } | null; dcAttach: () => void; dcDetach: () => void; ENVS: { rtOn: boolean } };
+      const img = ((await sh("docker", ["images", "--format", "{{.Repository}}:{{.Tag}}"])).stdout.trim().split("\n").filter(x => x && !x.includes("<none>"))[0]) || "";
+      if (!img) return { skipped: "sem imagens locais" };
+      writeFile(W.P_DC, JSON.stringify({ name: "selftest", image: img }) + "\n"); flushSave(); await idle();
+      W.dcAttach();
+      const up = await wait(() => !!W.DEVC, 60000);
+      const name = W.DEVC ? W.DEVC.name : "", engine = (W.DEVC as unknown as { engine?: string } | null)?.engine || "docker";
+      const bin = engine === "host" ? "docker" : engine;
+      const inPs = name ? (await sh(bin, ["ps"])).stdout.includes(name) : false; /* o delonix ignora o --format: procura-se o nome na tabela */
+      W.dcDetach();
+      const down = await wait(() => W.DEVC === null, 30000);
+      const gone = name ? !(await sh(bin, ["ps", "-a"])).stdout.includes(name) : false;
+      return { image: img, engine, up, name, inPs, down, gone };
+    });
+    // observabilidade (ADR-0006, R5c2): uma stack de um serviço (nome de projecto único, a primeira
+    // imagem local, um entrypoint que escreve linhas conhecidas), observada pela porta real —
+    // `stats` e `compose logs` —, e depois `compose down`.
+    await step("observe", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 250)); return f(); };
+      const W = window as unknown as { ROOT: string; STACK: Array<{ name: string }> | null; OBS: Record<string, { polled: boolean; logs: Array<{ m: string }>; cpu: number[]; mem: number[]; sampleErr: string; logErr: string }>; dxRun: () => unknown; dxStop: () => unknown; openObserve: (e: string, n: string) => void; ENVS: { rtOn: boolean } };
+      const img = ((await sh("docker", ["images", "--format", "{{.Repository}}:{{.Tag}}"])).stdout.trim().split("\n").filter(x => x && !x.includes("<none>"))[0]) || "";
+      if (!img || !W.ENVS.rtOn) return { skipped: !img ? "sem imagens locais" : "runtime desligado" };
+      const proj = "dxtutor-selftest-" + Date.now().toString(36);
+      writeFile(W.ROOT + "docker-compose.yml", `name: ${proj}\nservices:\n  obs:\n    image: ${img}\n    entrypoint: ["sh", "-c", "echo dxtutor-selftest up; while true; do echo tick; sleep 1; done"]\n`);
+      flushSave(); await idle();
+      W.dxRun();
+      const up = await wait(() => !!W.STACK && W.STACK.some(x => x.name === "obs"), 120000);
+      W.openObserve("local", "obs");
+      const polled = await wait(() => { const o = W.OBS["local:obs"]; return !!o && o.polled && o.logs.some(l => /dxtutor-selftest up/.test(l.m)); }, 30000);
+      await wait(() => (W.OBS["local:obs"]?.mem.length || 0) >= 1, 15000);
+      const o = W.OBS["local:obs"];
+      const res = { image: img, up, polled, logLines: o ? o.logs.length : 0, firstLog: o?.logs[0]?.m || "", mem: o?.mem.slice(-1)[0], cpu: o?.cpu.slice(-1)[0], sampleErr: o?.sampleErr, logErr: o?.logErr };
+      W.dxStop();
+      const down = await wait(() => W.STACK === null, 60000);
+      const left = (await sh("docker", ["ps", "-a", "-q", "--filter", `label=com.docker.compose.project=${proj}`])).stdout.trim();
+      return { ...res, down, gone: !left };
+    });
+    // ambientes (ADR-0006, R5c1): o kubectl real, mas NUNCA contra os clusters do utilizador — um
+    // kubeconfig temporário com um contexto cujo servidor não responde. Prova a leitura real dos
+    // contextos, o erro de ler um namespace e o apply por stdin a falhar sem inventar nada.
+    await step("environments", async () => {
+      const W = window as unknown as { ENVS: { kube: string; ctx: string; ns: string; k8sOn: boolean }; ENVX: { ctx: Record<string, string>; ns: Record<string, string>; hist: unknown[] }; KCTX: string[]; k8sConnect: () => Promise<void>; envState: (e: string) => unknown; promote: (e: string) => void };
+      const kc = (await sh("mktemp", [])).stdout.trim();
+      const cfg = "apiVersion: v1\nkind: Config\nclusters:\n- name: dx-selftest\n  cluster:\n    server: https://127.0.0.1:9\n    insecure-skip-tls-verify: true\ncontexts:\n- name: dx-selftest\n  context:\n    cluster: dx-selftest\n    user: dx-selftest\n    namespace: dx\nusers:\n- name: dx-selftest\n  user:\n    token: x\ncurrent-context: dx-selftest\n";
+      await sh("sh", ["-c", 'cat > "$1"', "sh", kc], { stdin: cfg });
+      const prev = { kube: W.ENVS.kube, ctx: W.ENVS.ctx, on: W.ENVS.k8sOn };
+      W.ENVS.kube = kc; W.ENVS.k8sOn = false;
+      await W.k8sConnect();
+      const contexts = [...W.KCTX];
+      const cluster = desktopPorts.infra?.cluster;
+      let readErr = "";
+      try { await cluster!.read({ env: "staging", ctx: "dx-selftest", ns: "dx" }); } catch (e) { readErr = String((e as Error).message || e).slice(0, 120); }
+      const applied = await cluster!.apply({ env: "staging", ctx: "dx-selftest", ns: "dx" }, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: dx-selftest\n", "abc1234");
+      W.ENVX.ctx.staging = "dx-selftest";
+      const res = { contexts, connected: W.ENVS.k8sOn, readErr, applied, staging: W.envState("staging"), hist: W.ENVX.hist.length };
+      W.ENVS.kube = prev.kube; W.ENVS.ctx = prev.ctx; W.ENVS.k8sOn = prev.on; W.ENVX.ctx.staging = "";
+      await sh("rm", ["-f", kc]);
+      return res;
+    });
+    // Studio (ADR-0006, R6a): sem desenho semeado; o desenho guarda-se no projecto, em
+    // .dxtutor/studio.json (autosave para o disco), e volta ao reabrir a pasta.
+    await step("studio", async () => {
+      const W = window as unknown as { SD: { nodes: Array<{ n: string }> }; sdAdd: (t: string) => void; loadSD: () => { nodes: unknown[] } };
+      const key = ROOT + ".dxtutor/studio.json";
+      const emptyAtStart = W.SD.nodes.length === 0 && !FS[key];
+      W.sdAdd("rust-axum"); flushSave(); await idle();
+      const disk = (await sh("cat", [".dxtutor/studio.json"])).stdout;
+      let onDisk = 0; try { onDisk = JSON.parse(disk).nodes.length; } catch { /* não gravou */ }
+      W.SD = { nodes: [] } as never;
+      document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
+      const reloaded = W.SD.nodes.map(n => n.n);
+      delete FS[key]; flushSave(); await idle();
+      const removed = (await sh("test", ["-e", ".dxtutor/studio.json"])).code !== 0;
+      document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
+      return { emptyAtStart, onDisk, reloaded, removed, emptyAfter: W.SD.nodes.length === 0 };
+    });
+    // extensões (ADR-0006, R6b): o Open VSX real — pesquisa (vsix_search_open_vsx) e instalar um
+    // tema (só contribuições declarativas, VSIX pequeno), ver o tema aplicável e desinstalar. Sem
+    // rede, diz-se (não é uma falha da app).
+    await step("extensions", async () => {
+      const W = window as unknown as { EXS: { inst: Record<string, unknown>; vsix: Array<{ id: string; contrib?: { themes: string[] } }> }; extInstall: (id: string) => Promise<void>; extRemove: (id: string) => void; renderExtPane: () => void; PANE: string };
+      let hits: Array<{ id: string; downloads: number }> = [];
+      try { hits = await (await import("../tauri/extensions")).searchOpenVsx("rust-analyzer", 3); } catch (e) { return { offline: String((e as Error).message || e).slice(0, 120) }; }
+      const id = "dracula-theme.theme-dracula";
+      await W.extInstall(id);
+      const x = W.EXS.vsix.find(v => v.id === id);
+      const res = { searched: hits.map(h => h.id), firstHasDownloads: (hits[0]?.downloads || 0) > 0, installed: !!W.EXS.inst[id], themes: x?.contrib?.themes || [] };
+      W.extRemove(id);
+      return { ...res, removed: !W.EXS.inst[id] && !W.EXS.vsix.some(v => v.id === id) };
+    });
+    // Remote (ADR-0006, R6c): os hosts do ~/.ssh/config real. Só escreve um config temporário se
+    // NÃO houver nenhum (e apaga-o no fim) — nunca mexe no do utilizador. O host aponta para uma
+    // porta local fechada: o teste de ligação (ssh BatchMode) falha com a mensagem real do ssh.
+    await step("remote", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 150)); return f(); };
+      const home = R.info.home || "", cfg = home + "/.ssh/config";
+      const had = (await sh("test", ["-e", cfg])).code === 0, hadDir = (await sh("test", ["-d", home + "/.ssh"])).code === 0;
+      if (!had) { await sh("mkdir", ["-p", home + "/.ssh"]); await sh("sh", ["-c", 'cat > "$1"', "sh", cfg], { stdin: "Host dx-selftest\n  HostName 127.0.0.1\n  Port 9\n  User nobody\n" }); }
+      const side = document.querySelector(".side");
+      if (side && !document.getElementById("pane-remote")) side.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-remote"></div>');
+      window.renderRemotePane();
+      const el = () => document.getElementById("pane-remote")?.textContent || "";
+      const status = () => { const b = document.querySelector('#pane-remote [data-remote="test"][data-host="dx-selftest"]'); return b?.closest(".scm-row")?.querySelector(".pth")?.textContent || ""; };
+      const listed = await wait(() => had ? !/A ler o/.test(el()) : /nobody@127\.0\.0\.1:9/.test(status()), 10000);
+      let tested = "";
+      if (!had) {
+        document.querySelector<HTMLElement>('#pane-remote [data-remote="test"][data-host="dx-selftest"]')?.click();
+        await wait(() => /^[✖✓]/.test(status()), 20000);
+        tested = status().slice(0, 120);
+        await sh("rm", ["-f", cfg]);
+        if (!hadDir) await sh("rmdir", [home + "/.ssh"]);
+      }
+      const local = document.querySelector("#pane-remote .scm-row .nm")?.textContent || "";
+      return { hadConfig: had, listed, local, tested };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
     // feature `lsp`: o editor ligado ao servidor de linguagem, conduzido como um utilizador —
     // abrir o ficheiro (editor:tab → lsp_start + didOpen), esperar os diagnósticos no gutter,
@@ -342,8 +615,21 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     const main = ROOT + (lang === "java" ? "lsp-java/Main.java" : "lsp-kotlin/App.kt");
     const callLine = lang === "java" ? 2 : 3, callWord = lang === "java" ? "add" : "greet";
     const defKey = ROOT + (lang === "java" ? "lsp-java/Util.java" : "lsp-kotlin/App.kt"), defLine = lang === "java" ? 3 : 1;
+    /* O backend procura o servidor no PATH e, para o jdtls, em $HOME/.local/share/jdtls/bin; sem
+       servidor não abre sessão nenhuma (sem erro), e o passo esperaria 180 s em silêncio. Com o HOME
+       temporário do auto-teste, o jdtls instalado na pasta pessoal real não se encontra: diz-se já,
+       com o remédio (pôr a pasta dele no PATH). */
+    const server = lang === "java" ? "jdtls" : "kotlin-language-server";
+    const where = lang === "java" ? 'command -v jdtls || { test -x "$HOME/.local/share/jdtls/bin/jdtls" && echo "$HOME/.local/share/jdtls/bin/jdtls"; }' : "command -v kotlin-language-server";
+    const serverPath = (await sh("sh", ["-c", where], { cwd: R.info.home })).stdout.trim();
     for (const [rel, text] of Object.entries(files)) writeFile(ROOT + rel, text);
     flushSave(); await idle();
+    if (!serverPath) {
+      /* sem servidor: o editor tem de o dizer (o aviso no topo da vista do ficheiro) */
+      W.openPath(main);
+      const notice = await until(() => document.getElementById("lsp-missing")?.textContent, 15_000);
+      return { skipped: `${server} não encontrado no PATH${lang === "java" ? " nem em $HOME/.local/share/jdtls/bin" : ""} — com um HOME temporário, põe a pasta dele no PATH`, editorNotice: notice ? notice.replace(/\s+/g, " ").slice(0, 160) : null };
+    }
 
     const t0 = Date.now();
     W.openPath(main);
@@ -476,6 +762,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       probeRename = { cur: W.cur, abs, line: callLine, character, lineText: ls[callLine], res: JSON.stringify(res).slice(0, 300) };
     }
     return {
+      server: serverPath,
       diagnostic: diag ? `${diag.line}: ${diag.msg.slice(0, 90)}` : null, gutterErr, diagMs,
       hover: hoverText ? hoverText.replace(/\s+/g, " ").slice(0, 120) : null,
       definition: { jumped: !!jumped, file: defFile, caretLine, expectedLine: defLine },
