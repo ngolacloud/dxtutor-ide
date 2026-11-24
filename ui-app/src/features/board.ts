@@ -31,6 +31,7 @@
    `renderBoardView` (publicado) é o corpo base, que os goldens caracterizam. */
 
 import { esc, jsa, nfmt } from "../core";
+import { desktopPorts } from "../app/desktop";
 import { VIEW } from "../app/store/registry";
 import type { Backlog, Issue } from "./board/domain/types";
 import { STAGES } from "./board/domain/issue";
@@ -194,6 +195,10 @@ function runSprintGuarded(s: number): ReturnType<typeof runSprint> | undefined {
   if (codeGuard("Run Sprint " + (s + 1) + ".")) return;
   return runSprint(s);
 }
+/* ADR-0004, U4h5: o runSprint PUBLICADO consulta a porta desktop (`desktopPorts.board`, injectada
+   por platform/desktop/demos.ts: com uma pasta real aberta a corrida é uma demo e não corre);
+   antes o desktop reatribuía-o no `window`. As arestas internas resolvem o `window` no acto. */
+function runSprintPublished(s: number): unknown { const d = desktopPorts.board; return d && d.runSprint ? d.runSprint(s, runSprintGuarded) : runSprintGuarded(s); }
 
 /** (v6) Mede o custo de cada corrida do runner (tokens por provedor, dólares, tempo). */
 async function runIssueCosted(it: Issue): Promise<void> {
@@ -240,5 +245,5 @@ VIEW.board = boardView;
    políticas acima. ── */
 publish({
   mkIssue, openBoard, setStage, autoTest, rejectIssue, dropIssue, newIssue, genBacklog, genBacklogIssues,
-  runIssue: runIssueCosted, delegate: delegateOwned, runSprint: runSprintGuarded, approveIssue: approveExplained, renderBoardView,
+  runIssue: runIssueCosted, delegate: delegateOwned, runSprint: runSprintPublished, approveIssue: approveExplained, renderBoardView,
 });

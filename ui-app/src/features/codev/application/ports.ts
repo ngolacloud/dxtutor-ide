@@ -421,3 +421,19 @@ export interface DictationPort {
   stop(lang: string): Promise<string>;
   cancel(): Promise<void>;
 }
+
+/** A parte desktop do Co-Dev (ADR-0004, U4h5), injectada pela app Tauri em `desktopPorts.codev`.
+ *  Os membros são opcionais (preenchem-nos módulos desktop diferentes: os modelos reais e as
+ *  demos) e cada um recebe a versão simulada (`virtual`). */
+export interface CodevDesktop {
+  /** a nota «desktop» por baixo do painel do agente */
+  updateAgentUI?(virtual: () => void): void;
+  /** «Test connection» contra o modelo real */
+  testProv?(k: string, btn: HTMLElement, virtual: (k: string, btn: HTMLElement) => void): unknown;
+  /** estado de cada provedor (local / live / no key) */
+  provState?(k: string, virtual: (k: string) => string): string;
+  /** a página Settings com as chaves reais (providers.json) e as capacidades do backend */
+  settings?(t: unknown, host: HTMLElement, virtual: (t: unknown, host: HTMLElement) => void): void;
+  /** as missões são demos guionadas: com uma pasta real aberta, avisa e não corre */
+  runMission?<S>(scenario: S, text: string, virtual: (scenario: S, text: string) => unknown): unknown;
+}

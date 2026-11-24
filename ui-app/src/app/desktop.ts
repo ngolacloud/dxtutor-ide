@@ -8,6 +8,8 @@ import type { ScmDesktop } from "../features/scm/application/ports";
 import type { TerminalDesktop } from "../features/terminal";
 import type { StackDesktop } from "../features/stack";
 import type { InfraDesktop } from "../features/infra/application/ports";
+import type { CodevDesktop } from "../features/codev/application/ports";
+import type { BoardDesktop } from "../features/board/application/ports";
 
 export interface DesktopPorts {
   /** git real no repositório aberto (platform/desktop/git.ts) — U4h2 */
@@ -18,6 +20,10 @@ export interface DesktopPorts {
   stack?: StackDesktop;
   /** runtime, cluster, deploy e logs reais (platform/desktop/infra.ts) — U4h4 */
   infra?: InfraDesktop;
+  /** modelos reais (nota do agente, Test connection, provedores, Settings) e a guarda das missões — U4h5 */
+  codev?: CodevDesktop;
+  /** a guarda das corridas de sprint — U4h5 */
+  board?: BoardDesktop;
 }
 
 export const desktopPorts: DesktopPorts = {};

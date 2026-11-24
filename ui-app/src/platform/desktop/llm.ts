@@ -9,6 +9,8 @@ import { jsa } from "../../core";
 import { detectCommands, summarizeRun, type VerifyKind } from "../../features/codev/domain/project-commands";
 import type { ProvidersConfig, ProviderInfo } from "../tauri/providers";
 import type { Tool, SampleOpts, SampleMsg, VerifyOutcome } from "./types";
+import type { CodevDesktop } from "../../features/codev/application/ports";
+import { desktopPorts } from "../../app/desktop";
 import type { DesktopContext } from "./context";
 
 export function installLlm(ctx: DesktopContext): void {
@@ -207,14 +209,21 @@ async function desktopSample(input: string | SampleMsg[], o: SampleOpts = {}) {
 }
 SAMPLE = desktopSample;
 LIVE_OK = true;
-provState = k => PROV[k].local ? "local" : R.keys[k] ? "live" : "no key";
-const _updateAgentUI = updateAgentUI;
-updateAgentUI = function (this: unknown, ...args: any[]) {
-  _updateAgentUI.apply(this, args);
+/** UI prov-key → campo da config real (camelCase). Ollama não tem chave (é local). */
+const CFG_FIELD: Record<string, "anthropicKey" | "openaiKey" | "geminiKey"> = { claude: "anthropicKey", codex: "openaiKey", gemini: "geminiKey" };
+/* a porta desktop do Co-Dev (ADR-0004, U4h5): o codev.ts consulta-a no updateAgentUI/testProv que
+   publica e o app.ts no provState/VIEW.settings — antes eram reatribuídos no `window`. Corpos
+   iguais; a versão simulada chega como último argumento (o provState/testProv reais nunca a
+   usaram; o updateAgentUI real deixa de passar argumentos à base, que não os lê). O SAMPLE e o
+   LIVE_OK acima são estado que o desktop configura, não decorações. */
+const codevLlm: CodevDesktop = {
+provState(k) { return PROV[k].local ? "local" : R.keys[k] ? "live" : "no key"; },
+updateAgentUI(_updateAgentUI) {
+  _updateAgentUI();
   const n = $("#live-note");
   if (n) n.innerHTML = `<span class="tag live">desktop</span> free-form questions go to the selected model (${["claude", "codex", "gemini", "ollama"].filter(usable).map(k => PROV[k].name).join(", ") || "none configured — add a key in Settings"}), with access to the files of ${R.root ? "<b>" + escH(R.name) + "</b>" : "this workspace"}${R.root ? " and to the terminal" : ""}.`;
-};
-testProv = async function (k: string, btn: HTMLElement) {
+},
+async testProv(k, btn) {
   btn.textContent = "testing…";
   const o = btn.parentElement!.querySelector(".pd")!;
   const P = PROV[k];
@@ -223,11 +232,8 @@ testProv = async function (k: string, btn: HTMLElement) {
     o.innerHTML = `<span style="color:var(--green)">✓ ${escH(P.model)}</span> answered: ${escH(r.text.slice(0, 60))}`;
   } catch (e) { o.innerHTML = `<span style="color:var(--red)">✖</span> ${escH(String(e).slice(0, 240))}`; }
   btn.textContent = "Test connection";
-};
-/** UI prov-key → campo da config real (camelCase). Ollama não tem chave (é local). */
-const CFG_FIELD: Record<string, "anthropicKey" | "openaiKey" | "geminiKey"> = { claude: "anthropicKey", codex: "openaiKey", gemini: "geminiKey" };
-const _settings = VIEW.settings;
-VIEW.settings = (t: any, host: any) => {
+},
+settings(t, host, _settings) {
   _settings(t, host);
   /* A grelha dos provedores é a que tem campos de chave — NÃO a primeira .pgrid: o app.ts
      insere a secção «Language» (também .pgrid/.pcard) antes dela, e ligar pela posição
@@ -259,7 +265,9 @@ VIEW.settings = (t: any, host: any) => {
   });
   const sub = host.querySelector(".sub");
   if (sub) sub.textContent = `App desktop ${R.info.version || ""} · as chaves vivem em ~/.config/dxtutor/providers.json (só legível por ti, 0600), ou lidas de ANTHROPIC_API_KEY, OPENAI_API_KEY e GEMINI_API_KEY. O streaming e o tool-loop lêem a mesma config.`;
+},
 };
+Object.assign((desktopPorts.codev ??= {}), codevLlm);
 /* sensible real model ids instead of the prototype's placeholders */
 if (PROV.gemini.model === "gemini-pro") PROV.gemini.model = "gemini-2.5-flash";
 if (PROV.codex.model === "gpt-codex") PROV.codex.model = "gpt-4.1";

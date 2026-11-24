@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h4; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h4, U4h5a; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -587,3 +587,24 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   (`{ok:false, sum:"no runtime"}`) ao do caminho desktop (`{ok:false}`, o mesmo do Ctrl+F5);
   idênticos o `window.dxRun`/`dxDeploy`, o deploy, os logs reais na observabilidade e os
   outros 23 passos.
+- **U4h5a (2026-11-24) — o Co-Dev (modelos reais) e as guardas das demos.** Portas com membros
+  opcionais, porque as preenchem módulos desktop diferentes: `CodevDesktop`
+  (`codev/application/ports.ts`: `updateAgentUI`, `testProv`, `provState`, `settings` — preenchidos
+  pelo `llm.ts` — e `runMission` — pelo `demos.ts`) e `BoardDesktop` (`runSprint`, pelo
+  `demos.ts`). Os donos publicam as versões compostas: o `codev.ts` (`updateAgentUI`, `testProv`,
+  `runMission` — base `harnessRunMission`), o `board.ts` (`runSprint` — base `runSprintGuarded`) e
+  o `app.ts`, onde vivem o `provState` e o `VIEW.settings` composto (corpo do codev + secção
+  Language; a porta embrulha esse composto, como antes o desktop o embrulhava). O `SAMPLE` e o
+  `LIVE_OK` ficam como estado que o desktop configura — não são decorações. Os chamadores
+  internos do Co-Dev já usavam o `window.X` e os do board os `decorated*`, por isso continuam a
+  passar pelo desktop; dentro da `settings` desktop, o `updateAgentUI()` resolve para o global
+  composto (type checker); o `selftest` passa o `provState` por valor, mas depois da instalação.
+  Nenhuma captura por valor no arranque. **Nota:** a meio desta fatia, o `develop` recebeu o merge
+  do PR #1 (`feat/learning-plugins`, `2905a41`), feito por fora desta sessão; a compilação Rust
+  coincidiu com o merge e falhou uma vez (transitório), por isso a comparação foi refeita sobre
+  a base nova — worktree em `2905a41`, lint de referência 288 → 282 com esta fatia, 414 testes.
+  Lint −6 (saem `any` das decorações). Verificado: arranque no browser 4/4, auto-teste desktop
+  idêntico ao da HEAD `2905a41`; e uma sonda temporária na app real, HEAD vs árvore: nota
+  «desktop» do agente, `provState` de cada provedor, Settings (texto, placeholders das chaves,
+  capacidades, secção Language), «Test connection» real e as guardas de missões e sprints com
+  a pasta aberta — idênticos.

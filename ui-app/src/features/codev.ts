@@ -24,6 +24,7 @@ import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
 import { bus } from "../app/bus";
+import { desktopPorts } from "../app/desktop";
 import { agentStore } from "../app/store";
 import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
 import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/composer";
@@ -67,7 +68,7 @@ const DECS: any[] = window.DECS = DECS_ARR;
 const CKPT: any[] = window.CKPT = [];
 
 /* ───── interface do agente ───── */
-window.updateAgentUI = function () {
+function updateAgentUIBase(): void {
   const p = bridge.providers()[bridge.monolith.activeProvider];
   $('#ag-model-l')!.textContent = p.name + ' · ' + p.model;
   ($('#ag-model .live') as HTMLElement).style.background = p.on ? 'var(--green)' : 'var(--fg-muted)';
@@ -76,7 +77,11 @@ window.updateAgentUI = function () {
   const n = $('#live-note'); if (n) n.innerHTML = bridge.sample() ? '<span class="tag live">Claude ao vivo</span> perguntas livres são respondidas pelo Claude real, com acesso aos ficheiros deste workspace. Gemini, Codex e Ollama são simulados.' : '<span class="tag">simulado</span> nesta vista as missões são guionadas; a ligação ao vivo ao Claude activa-se quando o artefacto é aberto em claude.ai.';
   ctxPill();
   refreshComposer();
-};
+}
+/* ADR-0004, U4h5: o updateAgentUI, o testProv e o runMission PUBLICADOS consultam a porta desktop
+   (`desktopPorts.codev`, injectada por platform/desktop/llm.ts e demos.ts); antes o desktop
+   reatribuía-os no `window`. Os chamadores internos já usavam o `window.X`. */
+window.updateAgentUI = function () { const d = desktopPorts.codev; if (d && d.updateAgentUI) d.updateAgentUI(updateAgentUIBase); else updateAgentUIBase(); };
 /* U3b (ADR-0004): o Co-Dev reage às mudanças de estado pelo bus, venham de onde vierem
    (modebar, compositor, paleta, Definições, harness do projecto, restauro no arranque) —
    em vez de cada sítio que muda o modo/provedor/contexto chamar updateAgentUI/ctxPill. */
@@ -153,13 +158,14 @@ function SCN_(): Scenario[] {
   _SCN = buildScenarios(env);
   return _SCN;
 }
+const harnessRunMissionPublished = (S: Parameters<typeof codevEngine.runMission>[0], text: string): unknown => { const d = desktopPorts.codev; return d && d.runMission ? d.runMission(S, text, harnessRunMission) : harnessRunMission(S, text); };
 function demo(id: string) { const S = SCN_().find((s) => s.id === id)!; focusAgent(true); window.runMission(S, S.prompt); }
 
 /* publica o motor Co-Dev (já ligado em ./codev/index.ts) no window; os onclick inline,
    o resíduo app.ts e features/board.ts resolvem-nos por global */
 Object.assign(window, {
   doTool: harnessDoTool,
-  runMission: harnessRunMission,
+  runMission: harnessRunMissionPublished,
   dec: codevEngine.dec,
   decideQ: codevEngine.decideQ,
   council: codevEngine.council,
@@ -237,7 +243,8 @@ window.renderWelcomePage = (_t, host) => {
 function openSettings() { bridge.openTab({ id: 'settings', title: 'Definições', kind: 'settings' }); }
 function openManager() { bridge.openTab({ id: 'manager', title: 'Gestor de missões', kind: 'manager' }); }
 function openAnalysis() { bridge.openTab({ id: 'analysis', title: 'Análise', kind: 'analysis' }); }
-window.testProv = function (k, btn) { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> — respostas reais através do Claude deste artefacto.' : 'Ao vivo indisponível nesta vista; activa-se com o artefacto aberto em claude.ai.') : `<span style="color:var(--yellow)">simulado</span> — a página não pode chamar ${esc(PROV[k].ep)}; a chamada real é feita pelo backend da aplicação.`; }, 500); };
+function testProvBase(k: string, btn: HTMLElement): void { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> — respostas reais através do Claude deste artefacto.' : 'Ao vivo indisponível nesta vista; activa-se com o artefacto aberto em claude.ai.') : `<span style="color:var(--yellow)">simulado</span> — a página não pode chamar ${esc(PROV[k].ep)}; a chamada real é feita pelo backend da aplicação.`; }, 500); }
+window.testProv = function (k, btn) { const d = desktopPorts.codev; return d && d.testProv ? d.testProv(k, btn, testProvBase) : testProvBase(k, btn); };
 const POLICY = [['Responder a perguntas de clarificação', 'tu', 'Co-Dev se confiança ≥ 80%; senão pergunta', 'Co-Dev; abaixo de 80% assume a opção reversível e assinala'], ['Escolher entre propostas dos modelos', 'tu, com recomendação do juiz', 'juiz', 'juiz'], ['Aprovar o plano', 'tu', 'automático', 'automático'], ['Editar ficheiros', 'aprovas cada edição', 'automático, com diff', 'automático, com diff'], ['Terminal: testes, build, lint', 'aprovas', 'automático', 'automático'], ['Terminal: outros comandos', 'aprovas', 'aprovas', 'automático'], ['Corrigir depois de falhar a auto-avaliação', 'aprovas', 'automático (máx. 2)', 'automático (máx. 2)'], ['Commit local', 'aprovas', 'aprovas', 'automático'], ['Push e acções destrutivas', 'aprovas', 'aprovas', 'aprovas — sempre']];
 window.renderSettingsPage = (_t, host) => {
   const mi = Object.keys(MODES).indexOf(bridge.monolith.mode); const PROV = bridge.providers();

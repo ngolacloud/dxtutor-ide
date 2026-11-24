@@ -344,7 +344,9 @@ um global por acaso. A U4h1 só mudou o código de sítio; a partir da U4h2 cada
 registada em `app/desktop.ts` (`desktopPorts.<feature>`): o dono consulta-a no acto, nas
 versões que publica, e a porta recebe a versão simulada como último argumento. Já migrado:
 `scm` (commit/checkout/gitMerge/gfFinish — U4h2), `terminal` (run/termExec/promptHTML — U4h3), `stack` (dxRun/dxStop/drawStack) e `infra`
-(rtConnect/k8sConnect/dxDeploy/VIEW.observe) — U4h4.
+(rtConnect/k8sConnect/dxDeploy/VIEW.observe) — U4h4, `codev` (updateAgentUI/testProv/provState/
+VIEW.settings/runMission) e `board` (runSprint) — U4h5a. O `SAMPLE`/`LIVE_OK` são estado que o
+desktop configura (não decorações).
 
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 

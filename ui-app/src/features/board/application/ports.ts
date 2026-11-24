@@ -199,3 +199,9 @@ export interface BoardEngine {
   genBacklog(): Promise<void>;
   genBacklogIssues(plan: DesignNode[]): Issue[];
 }
+
+/** A parte desktop do board (ADR-0004, U4h5), injectada pela app Tauri em `desktopPorts.board`:
+ *  as corridas de sprint são demos guionadas — com uma pasta real aberta, avisa e não corre. */
+export interface BoardDesktop {
+  runSprint?(s: number, virtual: (s: number) => unknown): unknown;
+}
