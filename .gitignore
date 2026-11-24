@@ -21,3 +21,6 @@ providers.json
 /LICENSE.txt
 /swiftly-x86_64.tar.gz
 /.swift-version
+
+# Estado local do projecto escrito pela app (ex.: src-tauri/.dxtutor/studio.json quando corre a partir de src-tauri/)
+.dxtutor/
