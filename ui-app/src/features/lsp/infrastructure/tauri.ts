@@ -25,6 +25,16 @@ export const tauriLsp: LspPort = {
   codeAction: (path, startLine, startCharacter, endLine, endCharacter) =>
     invoke<unknown>("lsp_code_action", { path, startLine, startCharacter, endLine, endCharacter }),
   executeCommand: (path, command, args) => invoke<unknown>("lsp_execute_command", { path, command, arguments: args }),
+  format: (path, tabSize, insertSpaces, range) =>
+    invoke<unknown>("lsp_format", {
+      path,
+      tabSize,
+      insertSpaces,
+      startLine: range?.start.line ?? null,
+      startCharacter: range?.start.character ?? null,
+      endLine: range?.end.line ?? null,
+      endCharacter: range?.end.character ?? null,
+    }),
   onApplyEdit: (cb) => {
     void listen("lsp://apply-edit", (p) => {
       const e = p as { edit?: unknown };

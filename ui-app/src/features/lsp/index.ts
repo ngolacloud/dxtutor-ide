@@ -20,6 +20,7 @@ import { workspace, editor } from "./infrastructure/legacy-bridge";
 import { bindEditorHooks } from "./ui/editor-hooks";
 import { bindCompletionHooks } from "./ui/completion-hooks";
 import { bindSignatureHooks } from "./ui/signature-hooks";
+import { bindFormatHooks } from "./ui/format-hooks";
 
 if (isDesktop()) {
   const client = makeLspClient({ lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0) });
@@ -47,4 +48,6 @@ if (isDesktop()) {
   });
   bindCompletionHooks({ completionAt: client.completionAt, enabled: () => !!workspace.diskRoot() });
   bindSignatureHooks({ signatureHelpAt: client.signatureHelpAt, enabled: () => !!workspace.diskRoot() });
+  /* Shift+Alt+F: formata pelo servidor; sem ele, o «Format Document» do dxtutor */
+  bindFormatHooks({ formatAt: client.formatAt, builtinFormat: editor.builtinFormat, enabled: () => !!workspace.diskRoot() });
 }

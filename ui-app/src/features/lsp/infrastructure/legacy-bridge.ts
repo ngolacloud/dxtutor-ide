@@ -25,6 +25,7 @@ interface Globals {
   stPos?: () => void;
   writeFile?: (key: string, content: string) => void;
   show?: (id: string | null) => void;
+  vsxFmt?: () => void;
 }
 const G = window as unknown as Globals;
 
@@ -59,6 +60,18 @@ export const editor: EditorPort = {
   reload: (key) => {
     if (fileKeyOfTab(G.cur ?? null) === key) G.show?.(G.cur ?? null);
   },
+  replaceText: (key, text, caret) => {
+    const ta = document.getElementById("ed-ta") as HTMLTextAreaElement | null;
+    if (!ta || fileKeyOfTab(G.cur ?? null) !== key) {
+      G.writeFile?.(key, text);
+      return;
+    }
+    ta.value = text;
+    ta.setSelectionRange(caret, caret);
+    // como uma edição: o editor actualiza o FS, repinta, e o servidor recebe o didChange
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  },
+  builtinFormat: () => G.vsxFmt?.(),
   /* o aviso de servidor em falta: uma faixa no topo da vista do ficheiro (antes do `.ed`) */
   notice: (key, n, onDismiss) => {
     if (fileKeyOfTab(G.cur ?? null) !== key) return;

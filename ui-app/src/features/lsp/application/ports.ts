@@ -17,6 +17,8 @@ export interface LspPort {
   completion(path: string, line: number, character: number, triggerCharacter: string | null): Promise<unknown>;
   signatureHelp(path: string, line: number, character: number, triggerCharacter: string | null, isRetrigger: boolean): Promise<unknown>;
   codeAction(path: string, startLine: number, startCharacter: number, endLine: number, endCharacter: number): Promise<unknown>;
+  /** Formata o documento (`range` nulo) ou só o intervalo; `null` se o servidor não formatou. */
+  format(path: string, tabSize: number, insertSpaces: boolean, range: { start: { line: number; character: number }; end: { line: number; character: number } } | null): Promise<unknown>;
   executeCommand(path: string, command: string, args: unknown[] | null): Promise<unknown>;
   /** O servidor pediu para aplicar uma `WorkspaceEdit` (`workspace/applyEdit`). */
   onApplyEdit(cb: (edit: unknown) => void): void;
@@ -51,6 +53,11 @@ export interface EditorPort {
   writeFile(key: string, text: string): void;
   /** Volta a mostrar o ficheiro, se for o activo (o texto mudou por fora da textarea). */
   reload(key: string): void;
+  /** Troca o texto do ficheiro activo e põe o cursor em `caret` (como uma edição: o editor
+   *  actualiza o `FS` e o servidor recebe o `didChange`). */
+  replaceText(key: string, text: string, caret: number): void;
+  /** O «Format Document» do dxtutor (sem servidor, ou quando ele não formata). */
+  builtinFormat(): void;
   /** Mostra (ou tira, com `null`) o aviso de servidor em falta no ficheiro `key`, se estiver aberto;
    *  `onDismiss` corre quando o utilizador o fecha. */
   notice(key: string, notice: { title: string; detail: string; install: string } | null, onDismiss?: () => void): void;
