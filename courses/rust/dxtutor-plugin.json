@@ -6,7 +6,7 @@
   "description": "Rust: From Zero to Confident — from your first line of code to ownership, traits, concurrency, databases and data structures.",
   "authors": ["dxtutor"],
   "license": "MIT OR Apache-2.0",
-  "repository": "https://github.com/dxtutor-courses/rust",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-rust",
   "engine": ">=0.7.0",
   "kind": "course",
   "language": {

@@ -6,7 +6,7 @@
   "description": "A guided, hands-on {{name}} course for dxtutor.",
   "authors": ["Your Name <you@example.com>"],
   "license": "CC-BY-4.0",
-  "repository": "https://github.com/{{org}}/{{id}}",
+  "repository": "https://github.com/{{repo}}",
   "engine": ">={{engine}}",
   "kind": "course",
   "language": {
