@@ -266,6 +266,28 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const cancelled = await R.cancelTask!(id);
       return { status: res.status, patchHasFile, patchLen: res.patch.length, untouched, cancelled };
     });
+    // feature `testing` (ADR-0005, R2a): o pane Testing sobre os comandos reais. Escreve um
+    // teste Python (unittest: sem projecto cargo, corre depressa) com um caso verde e um
+    // vermelho, abre o pane (list_tests), carrega em «Run all» (run_all_tests) e lê o estado
+    // de cada teste e a barra de estado; depois corre um só (run_test) pelo ▶ da linha.
+    await step("testing", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      writeFile(ROOT + "test_dx_selftest.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_soma(self):\n        self.assertEqual(1 + 1, 2)\n\n    def test_falha(self):\n        self.assertEqual(1 + 1, 3)\n");
+      flushSave(); await idle();
+      PANE = "test";
+      window.renderTestPane();
+      const el = () => document.getElementById("pane-test");
+      const listed = await wait(() => /test_falha/.test(el()?.textContent || ""), 20000);
+      const runAll = el()?.querySelector<HTMLElement>('[data-action="run-all"]');
+      runAll?.click();
+      const st = () => document.getElementById("st-tests")?.textContent || "";
+      const suiteDone = await wait(() => st() === "✓ 1 ✗ 1", 60000);
+      const statusAfterSuite = st();
+      const one = el()?.querySelector<HTMLElement>('[data-action="run-test"][data-on="test_dx_selftest.py::test_soma"]');
+      one?.click();
+      await wait(() => st() !== "⟳ testes…" && !el()?.querySelector('[data-action="run-test"][disabled]'), 30000);
+      return { listed, suiteDone, statusAfterSuite, statusAfterOne: st(), suiteShown: /Última corrida da suíte/.test(el()?.textContent || "") };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

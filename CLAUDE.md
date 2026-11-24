@@ -36,7 +36,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn` e `arch`); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch` e `testing`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -410,6 +410,31 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
   `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
   goldens do catálogo ficam intactos.
+
+## Nona feature: Testing real (`ui-app/src/features/testing/`)
+
+Feature NOVA (ADR-0005, R2a) que substitui `features/test.ts`: o pane «Testing» e o
+`#st-tests` sobre os comandos reais do backend. Nasceu tipada e em camadas (governada por A7/A8):
+
+```
+features/testing/
+  domain/          types.ts (TestItem/TestRun/TestState), results.ts (testKey/groupByFile;
+                   parseSuiteOutput — estado de cada teste na saída de «Run all»: cargo
+                   `test x ... ok|FAILED|ignored`, go `--- PASS|FAIL|SKIP`, unittest -v;
+                   statesAfterSuite/countStates/statusBarText). PURO.
+  application/     ports.ts (TestsPort/WorkspacePort) + testing-service.ts (descoberta, uma
+                   corrida de cada vez, trocar de pasta descarta resultados em voo).
+  ui/              testing-view.ts (markup) + actions.ts (chave __testingActionHandler__).
+  infrastructure/  tauri.ts (list_tests/run_test/run_all_tests) + legacy-bridge.ts (ÚNICO com
+                   window: DXR.root/projectCmd, openPath, runTask, PANE; publica renderTestPane).
+  index.ts         raiz de composição; dona do `#st-tests` (o panel/diagnostics já não o limpam).
+```
+
+A descoberta do backend cobre Rust/Go/Python; para o resto (p.ex. `npm test`) o pane mostra o
+comando de testes detectado e corre-o num terminal de tarefa. Sem pasta (browser), o pane diz
+como abrir uma e nada chama o backend. Rede: `tests/testing.{domain,application,wiring}.test.ts`
+(o wiring arranca a cadeia real com um `__TAURI__` falso) + o passo `testing` do selftest
+desktop (teste Python real: list_tests → run_all_tests → run_test).
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 

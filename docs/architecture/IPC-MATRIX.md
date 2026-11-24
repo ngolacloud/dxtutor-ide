@@ -210,9 +210,9 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `list_tests` | `root: String` | `Vec<testnav::TestItem>` | String | — | — | R |
-| `run_test` | `root: String`, `path: String`, `lang: Option<String>` | `testnav::TestRun` | String | — | — | **X** |
-| `run_all_tests` | `root: String` | `testnav::TestRun` | String | — | — | **X** |
+| `list_tests` | `root: String` | `Vec<testnav::TestItem>` | String | — | `features/testing` | R |
+| `run_test` | `root: String`, `path: String`, `lang: Option<String>` | `testnav::TestRun` | String | — | `features/testing` | **X** |
+| `run_all_tests` | `root: String` | `testnav::TestRun` | String | — | `features/testing` | **X** |
 | `run_tests` | `root: String` | `SuiteRun` | String | — | `bridge.ts`, `features/codev.ts` | **X** |
 | `run_path` | `path: String`, `args: Option<String>` | `RunDto` | String | — | — | **X** |
 

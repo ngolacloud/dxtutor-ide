@@ -57,7 +57,7 @@ declare global {
     renderRemotePane: () => void;
     /* feature `run`: o residual delega o render do pane por nome (RP.run → window.renderRunPane) */
     renderRunPane: () => void;
-    /* feature `test`: delegação do pane (RP.test → window.renderTestPane) */
+    /* feature `testing` (features/testing/): delegação do pane (RP.test → window.renderTestPane) */
     renderTestPane: () => void;
     /* feature `account`: mapa vivo de provedores + estado por provedor (dono = monólito) + delegação do pane */
     PROV: Record<string, Prov>;

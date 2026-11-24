@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop), R2–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a feita, R2b–R2e e R3–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -212,3 +212,28 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   teste novo `scm.norepo` (modelo vazio, goldens do pane sem repo no browser e no desktop com
   pasta, recusas, `DXR.git` manda, terminal e changelog sem repo, push, e o gitflow pelas
   versões publicadas). Rebase prévio sobre a U4g6/U4g7. Métricas: handlers inline 155 → 149.
+- **Rebase sobre a U4h1 (2026-11-24).** A U4h1 mudou a parte desktop do `bridge.ts` para
+  `platform/desktop/` (um módulo por grupo, verbatim). As mudanças desta série no `bridge.ts`
+  foram re-aplicadas no módulo onde o código vive agora: a rede do `flushSave` (R0) e o
+  fallback do `syncTree` (R1a) em `workspace.ts`; o decorador do `runMission` (R1b) sai do
+  `demos.ts` e do `types.ts`; o tipo do `explainCmd` (R1c2) em `types.ts` e o fallback do
+  `P_LX` no `selftest.ts`; o `realCommit` (R1d) em `git.ts`. Selftest desktop idêntico ao da R1d.
+- **R2 em cinco passos.** R2a Testing; R2b Search (`search_project`); R2c Outline
+  (`file_outline`); R2d Run (`detect_projects`); R2e `ctx`, Account e Code review (`review_code`).
+- **R2a (2026-11-24) — Testing real.** Feature nova `features/testing/` (tipada, em camadas,
+  governada por A7/A8 — entra em `FEATURES`), que substitui `features/test.ts`. O pane
+  descobre os testes Rust/Go/Python da pasta aberta (`list_tests`), agrupados por ficheiro;
+  ▶ corre um (`run_test`, com a língua do teste) e «Run all» corre a suíte (`run_all_tests`);
+  o estado de cada teste lê-se da saída da suíte (cargo/go/unittest), e o que a saída não
+  nomeia numa suíte que falhou fica por decidir em vez de inventado; os testes que falham
+  mostram a saída real. O `#st-tests` passa a ser da feature (contagens reais; vazio sem
+  resultados) — o painel e o `diagnostics.ts` deixam de o limpar. O comando de testes
+  detectado (p.ex. `npm test`, que a descoberta não cobre) continua a correr num terminal de
+  tarefa. Sem pasta (browser), o pane diz como abrir uma. **Testes com IPC falso:**
+  `testing.domain` (parser das três línguas, regras de estado, barra), `testing.application`
+  (serviço contra uma `TestsPort` falsa: descoberta, erro de IPC, uma corrida de cada vez,
+  troca de pasta a meio) e `testing.wiring` (cadeia real com `__TAURI__` falso: pane via
+  `RP.test`, ▶, «Run all», abrir na linha, comando no terminal). **Selftest desktop:** passo
+  `testing` novo — escreve um teste Python com um caso verde e um vermelho, e o pane real
+  lista-os (list_tests), «Run all» dá `✓ 1 ✗ 1` (run_all_tests) e o ▶ corre um (run_test);
+  `errors: []`. IPC-MATRIX: os três comandos ganham consumidor. Métricas: globais 370 → 369.

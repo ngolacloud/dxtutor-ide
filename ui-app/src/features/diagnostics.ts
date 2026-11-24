@@ -36,7 +36,6 @@ function drawProblems() {
   const d = window.diagnostics(), e = d.filter(x => x.sev === 'e').length, w = d.length - e;
   $('#pc-problems')!.innerHTML = d.length ? d.map(x => `<div class="prob" onclick="openPath(${jsa(x.p)},${x.line})"><span class="pi ${x.sev}">${x.sev === 'e' ? '✖' : '⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join('') : '<div class="sec-empty">Sem problemas no workspace.</div>';
   $('#pb-prob')!.textContent = String(d.length); const s = $('#st-prob')!; s.innerHTML = `✖ ${e} ⚠ ${w}`; s.style.color = e ? 'var(--red)' : w ? 'var(--yellow)' : 'var(--git-u)';
-  $('#st-tests')!.textContent = ''; // sem resultados de testes inventados (ADR-0005, R1c1)
 }
 let NP = -1;
 function nextProblem() { const d = window.diagnostics(); if (!d.length) { toast('Sem problemas'); return; } NP = (NP + 1) % d.length; openPath(d[NP].p, d[NP].line); }
