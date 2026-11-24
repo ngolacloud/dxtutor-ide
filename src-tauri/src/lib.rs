@@ -977,6 +977,7 @@ pub fn run() {
             lsp::lsp_code_action,
             lsp::lsp_execute_command,
             lsp::lsp_format,
+            lsp::lsp_document_symbols,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,
