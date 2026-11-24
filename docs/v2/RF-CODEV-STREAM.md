@@ -213,6 +213,24 @@ streaming ──hunk_end──► proposed ──(Manual/Assist)──► review
 - Antes de cada turno a UI força o autosave (`ctx.flushSave`) para o backend ler o mesmo que o humano vê.
 - Ficheiro do hunk não aberto: abre-se num separador; com vários ficheiros, a UI segue o hunk activo.
 
+### 8.1 Implementação (A2.3–A2.5) e diferenças face a este contrato
+
+- O editor da app **não é o Monaco**: é uma `textarea` transparente sobre a camada de realce (`#ed-hl`).
+  O overlay é uma vista virtual do ficheiro (`features/codev/domain/hunk-overlay.ts`): as linhas antigas
+  de cada hunk riscadas e as novas a seguir, ao ritmo da escrita. O editor consulta um registo tipado
+  (`app/editor-overlay.ts`); sem overlay, o markup do editor não muda.
+- Só o intervalo do hunk fica só de leitura: uma edição humana fora dele vai para o ficheiro real; uma
+  edição que toca o hunk é recusada (§8 cumprido).
+- `write` de um **ficheiro novo**: o backend transmite os chunks, mas o editor não abre um ficheiro que
+  ainda não existe no disco (I1). "Ver no editor" mostra-o numa pré-visualização (diff vazio → proposto).
+- A linha que substitui um bloco de código longo no chat (§7) é **só texto**, ainda sem o botão que pede
+  a alteração via `edit`.
+- "Explain" usa `codev.ask` com intenção `explain`, respondido directamente pelo modelo (sem turno do
+  agente), por isso funciona enquanto o turno espera pela decisão do humano.
+- O campo `why` do `hunk_review` ainda vai vazio (o backend não o preenche).
+- `codev.ask` (A2.4) é o ponto único para o menu do editor, Ctrl+I, o painel e o "Explain" dos hunks; o
+  `ltAsk` do Learning Track e o `agentStory` do Board mantêm os caminhos actuais (D4 e as fases seguintes).
+
 ## 9. Persistência
 
 - O transcript JSONL da sessão (`~/.config/dxtutor/sessions/…`) regista os eventos `hunk_*` e as
