@@ -148,7 +148,7 @@ describe("dispatch delegado (data-action) — Fase 4", () => {
     const it = w.mkIssue({ title: "sem agente", agent: "be", sprint: 0, stage: "todo" });
     await w.delegate(it.id);
     expect(it.stage).toBe("todo");
-    expect(document.getElementById("ag-msgs")!.textContent).toMatch(/Não há um agente disponível/);
+    expect(document.getElementById("ag-msgs")!.textContent).toMatch(/There is no agent available/);
   });
 
   it("approve: clicar «Validar» numa issue func já revista → done (gfFinish + setStage)", () => {

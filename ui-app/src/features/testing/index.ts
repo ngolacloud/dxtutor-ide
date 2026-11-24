@@ -25,11 +25,14 @@ import { bindActions, type ActionTable } from "./ui/actions";
 import { tauriRunners, tauriTests } from "./infrastructure/tauri";
 import * as L from "./infrastructure/legacy-bridge";
 import { codevAsk } from "../../app/codev-ask";
+import { translator } from "../../app/i18n";
+import { RUNS_MESSAGES } from "./application/messages";
 
 const workspace = { root: L.root, save: L.save, currentFile: L.currentFile };
 /* as duas corridas excluem-se: o cargo/go/python não gostam de corridas sobrepostas na mesma pasta */
 const testing = makeTesting({ tests: tauriTests(), workspace, busy: () => runs.busy() });
 const runs = makeRuns({
+  copy: translator(RUNS_MESSAGES),
   runners: tauriRunners(),
   workspace,
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },

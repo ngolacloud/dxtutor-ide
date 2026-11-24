@@ -5,6 +5,8 @@
    issue keys) and Co-Dev (the agent works on an issue). Publishes nothing on `window`. */
 
 import { shellClient } from "../../../platform/tauri/shell";
+import { translator } from "../../../app/i18n";
+import { PROJECT_ENGINE_MESSAGES } from "../application/messages";
 import { isDesktop } from "../../../platform/tauri/core";
 import type { CodevPort, Commit, Dialog, Git, IssuePrompt, Notifier, Workspace } from "../application/ports";
 import { codevIssue } from "../../../app/codev-issue";
@@ -41,7 +43,7 @@ export async function loadMe(root: string): Promise<void> {
 export const git: Git = {
   available: () => !!G.DXR?.git,
   async branch(name) {
-    if (typeof G.checkout !== "function") throw new Error("Source Control não está disponível");
+    if (typeof G.checkout !== "function") throw new Error(translator(PROJECT_ENGINE_MESSAGES)("noScm"));
     await G.checkout(name, true);
   },
   async log(): Promise<Commit[]> {

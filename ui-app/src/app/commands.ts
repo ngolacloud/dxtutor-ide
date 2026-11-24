@@ -14,6 +14,10 @@ import { openOps } from "../features/ops/index";
 import { openAnalysis } from "../features/codev";
 import { edCmd } from "../features/editor";
 import { stepTab } from "../features/tabs";
+import { translator } from "./i18n";
+import { COMMANDS_MESSAGES, THEME_LABEL } from "./commands-messages";
+
+const tcm = translator(COMMANDS_MESSAGES);
 
 /* O global MENUS (declarado em pair.ts) não conhece os separadores/submenus que se constroem aqui:
    neste módulo vê-se com o tipo completo. Declaração só de tipo: continua a resolver o global no acto. */
@@ -29,7 +33,7 @@ export const CMD: AppCmd[]=[
   ['Co-Dev: Parar execução','',()=>agCtl('stop')],['Co-Dev: Restaurar último checkpoint','',()=>CKPT.length?restoreCkpt(CKPT[0].id):toast('Sem checkpoints')],
   ['Git: Commit…','',()=>{goPane('scm');$('#scm-msg')!.focus();}],['Git: Mudar de ramo…','',pickBranch],
   ['Run: Projectos e comandos…','',()=>goPane('run')],['Run: Testes do projecto','',()=>goPane('test')],/* eram cargo test/build e dx lint fixos do workspace de demonstração (ADR-0006, R2d) */
-  ['Preferências: Definições','Ctrl+,',()=>openSettings()],...Object.keys(THEMES).map((n): AppCmd=>['Preferências: Tema — '+n,'',()=>setTheme(n)]),
+  ['Preferências: Definições','Ctrl+,',()=>openSettings()],...Object.keys(THEMES).map((n): AppCmd=>[tcm('theme',{name:THEME_LABEL[n]?tcm(THEME_LABEL[n]):n}),'',()=>setTheme(n)]),
   ['Ajuda: Bem-vindo','',()=>openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'})],['Ajuda: O que mudou e porquê','',()=>openAnalysis()]];
 const cmd=(l: string)=>()=>CMD.find(c=>c[0]===l)![2]();
 export function buildMenus(){MENUS.length=0;MENUS.push(
@@ -41,7 +45,7 @@ export function buildMenus(){MENUS.length=0;MENUS.push(
   {t:'Run',items:[{l:'Run Project…',act:()=>goPane('run')},{l:'Run Tests',act:()=>goPane('test')}]},
   {t:'Co-Dev',get items(){return[{l:'Focar a conversa',k:'Ctrl+L',act:()=>focusAgent()},{l:'Nova conversa',act:newChat},{l:'Execução, checkpoints e permissões',act:openCodevRun},{l:'Escolher modelo…',act:pickModel},{sep:1},...Object.entries(MODES).map(([k,m])=>({l:'Modo '+m.l,on:k===MODE,act:()=>setMode(k)})),{sep:1},{l:'Gestor de missões',act:openManager},{l:'Conhecimento do projecto',act:()=>goPane('codev')},{l:'Definições do Co-Dev',act:openSettings}];}},
   {t:'Terminal',items:[{l:'Mostrar terminal',k:'Ctrl+`',act:()=>setPanelTab('terminal')},{l:'Limpar',act:()=>termClear()}]},
-  {t:'Help',items:[{l:'Bem-vindo',act:cmd('Ajuda: Bem-vindo')},{l:'O que mudou e porquê',act:openAnalysis},{l:'Atalhos de teclado',act:openSettings},{sep:1},{l:'Sobre',act:()=>toast('dxtutor IDE · protótipo v2')}]});}
+  {t:'Help',items:[{l:'Bem-vindo',act:cmd('Ajuda: Bem-vindo')},{l:'O que mudou e porquê',act:openAnalysis},{l:'Atalhos de teclado',act:openSettings},{sep:1},{l:'Sobre',act:()=>toast(tcm('about'))}]});}
 
 /* ───── Tutor ───── */
 export let LCUR: [string, string]=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */

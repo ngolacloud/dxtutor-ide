@@ -12,12 +12,14 @@
 import { approvalFor } from "../domain/policy";
 import type { Mode } from "../domain/types";
 import type { RuntimeTool, ToolDeps, ToolHost } from "./ports";
+import { ptCopy } from "./messages";
 
 /** A signal that never aborts — the default when a caller (a characterization
  *  test, or `board.ts`) invokes `doTool` without one. */
 const NEVER: AbortSignal = new AbortController().signal;
 
 export function makeDoTool(deps: ToolDeps) {
+  const copy = deps.copy ?? ptCopy;
   const { workspace, terminal, providers, notifier, presenter, gate, rules, clock } = deps;
 
   return async function doTool(t: RuntimeTool, host: ToolHost, role?: string, signal: AbortSignal = NEVER): Promise<unknown> {
@@ -52,7 +54,7 @@ export function makeDoTool(deps: ToolDeps) {
           { l: "Rejeitar", v: 0, done: "✗ rejeitada por ti" },
         ]);
         if (!v) {
-          notifier.log("humano", "rejeitou a edição de " + workspace.shortPath(t.p!));
+          notifier.log("humano", copy("rejectedEditLog", { path: workspace.shortPath(t.p!) }));
           return false;
         }
       }
@@ -74,7 +76,7 @@ export function makeDoTool(deps: ToolDeps) {
       if (need) {
         const v = await gate.ask(d, [
           { l: "Executar", v: 1, pri: 1, done: "✓ autorizado por ti" },
-          { l: "Saltar", v: 0, done: "✗ não executado" },
+          { l: "Saltar", v: 0, done: copy("notRun") },
         ]);
         if (!v) return null;
       }
@@ -85,7 +87,7 @@ export function makeDoTool(deps: ToolDeps) {
       const real = terminal.realRun?.() ?? null;
       const r = real
         ? await real(t.cmd!)
-        : terminal.exec(t.cmd!) || { ok: false, sum: "não executado: sem terminal disponível" };
+        : terminal.exec(t.cmd!) || { ok: false, sum: copy("notRunNoTerminal") };
       presenter.toolRunResult(d, r.ok, r.sum || "");
       notifier.log("terminal", t.cmd + " → " + (r.sum || "ok"));
       await clock.beat(420, signal);

@@ -21,6 +21,7 @@
    dropIssue→approveIssue) passam pela porta `orchestration`, backed pela versão
    DECORADA por window (decoratedRunIssue/decoratedApproveIssue do bridge). */
 import type { BoardEngineKey } from "./messages";
+import type { BoardDesktopKey } from "./desktop-messages";
 
 import type { Backlog, Issue, Design, DesignNode, TechSpec } from "../domain/types";
 
@@ -162,7 +163,7 @@ export interface Orchestration {
 export interface BoardDeps {
   /** Os textos que o motor emite, na língua da interface (ADR-0004, U6c): a composição injecta `translator(…)`;
    *  o motor não conhece o `window` nem o motor de tradução. */
-  copy: (key: BoardEngineKey, params?: Record<string, string | number>) => string;
+  copy: (key: BoardEngineKey | BoardDesktopKey, params?: Record<string, string | number>) => string;
   store: Store;
   catalog: Catalog;
   generators: Generators;

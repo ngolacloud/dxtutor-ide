@@ -85,6 +85,7 @@ fn toolset_versions_keep_old_sessions_byte_compatible() {
         provider: scripted(vec![]),
         model: "m".into(),
         effort: Effort::Low,
+        lang: tutor_agent::context::ReplyLang::Pt,
     };
     let v1 = names(&agent_tools(
         &ToolsetOptions::default(),
@@ -184,6 +185,7 @@ fn task_runs_a_read_only_subagent_and_returns_its_report() {
         provider: child.clone(),
         model: "claude-opus-5-5".into(),
         effort: Effort::Low,
+        lang: tutor_agent::context::ReplyLang::Pt,
     };
     let tools = agent_tools(
         &ToolsetOptions::default(),
@@ -394,6 +396,7 @@ fn toolset_5_adds_plan_steps_and_subagent_roles_and_keeps_4_as_it_was() {
         provider: scripted(vec![]),
         model: "m".into(),
         effort: Effort::Low,
+        lang: tutor_agent::context::ReplyLang::Pt,
     };
     let schema = |v: u32, name: &str| -> Value {
         agent_tools(

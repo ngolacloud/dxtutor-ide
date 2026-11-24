@@ -90,7 +90,7 @@ describe("sessão real (gdb, IPC falso)", () => {
   it("sem pasta, diz para abrir uma (e não chama o backend)", async () => {
     ipc({});
     await w.startDebug();
-    expect(msg()).toMatch(/Abre uma pasta/);
+    expect(msg()).toMatch(/Open a folder/);
     expect(calls).toEqual([]);
   });
 
@@ -98,7 +98,7 @@ describe("sessão real (gdb, IPC falso)", () => {
     w.DXR = { root: "/proj" };
     ipc({ debug_available: () => false });
     await w.startDebug();
-    expect(msg()).toMatch(/O gdb não está instalado/);
+    expect(msg()).toMatch(/gdb is not installed/);
     expect(document.querySelector("#pane-debug .dbg-ctl")).toBe(null);
   });
 
@@ -106,7 +106,7 @@ describe("sessão real (gdb, IPC falso)", () => {
     w.DXR = { root: "/proj", exec: vi.fn(async () => ({ ok: true })) };
     ipc({ debug_available: () => true });
     await w.startDebug();
-    expect(msg()).toMatch(/não tem binários/);
+    expect(msg()).toMatch(/has no binaries/);
     expect(w.DXR.exec).not.toHaveBeenCalled();
   });
 
@@ -155,7 +155,7 @@ describe("sessão real (gdb, IPC falso)", () => {
     w.DXR = { root: "/proj", exec: vi.fn(async () => ({ ok: true })) };
     ipc({ debug_available: () => true, debug_launch: () => { throw new Error("gdb not found on PATH"); }, debug_stop: () => null });
     await w.startDebug();
-    expect(msg()).toMatch(/A depuração falhou: gdb not found on PATH/);
+    expect(msg()).toMatch(/Debugging failed: gdb not found on PATH/);
     expect(document.querySelector("#pane-debug .dbg-ctl")).toBe(null);
   });
 });

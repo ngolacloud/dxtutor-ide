@@ -35,8 +35,10 @@ import { rankModels } from "./router";
 import { deriveScopes, parseTeamJson, teamJsonKeeping } from "./team-scopes";
 import { translator } from "../app/i18n";
 import { TEAM_MESSAGES } from "./team.messages";
+import { TEAM_DESKTOP_MESSAGES } from "./team.desktop-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const msg = translator(TEAM_MESSAGES);
+const mdk = translator(TEAM_DESKTOP_MESSAGES);
 
 interface Agent { n: string; d: string; col: string; paths: string[]; cmds: string[]; task: string; model: string; max: number }
 // cores em var(--token) do tema (theme.ts) em vez de hex fixo — mudam ao trocar de tema;
@@ -62,8 +64,8 @@ const globRe=(g:string)=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=
 export const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
 const canRun=(a:string,cmd:string)=>AGENTS[a].cmds.some(c=>c==='*'||cmd.startsWith(c));
 const ownerOf=(p:string)=>Object.keys(AGENTS).find(k=>k!=='lead'&&inScope(k,p))||'lead';
-function harnessCheck(p:string){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(`fora do escopo do assistente ${AGENTS[AGENT].n}. Pode escrever em: ${AGENTS[AGENT].paths.join(', ')||'nada'}. Este caminho pertence a: ${AGENTS[o].n}.`);}}
-function harnessCmd(c:string){if(!canRun(AGENT,c))throw new Error(`o assistente ${AGENTS[AGENT].n} não tem permissão para correr "${c}".`);}
+function harnessCheck(p:string){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(mdk('outOfScope',{name:AGENTS[AGENT].n,paths:AGENTS[AGENT].paths.join(', ')||mdk('nothing'),owner:AGENTS[o].n}));}}
+function harnessCmd(c:string){if(!canRun(AGENT,c))throw new Error(mdk('noPermission',{name:AGENTS[AGENT].n,cmd:c}));}
 const agentSys=()=>{const a=AGENTS[AGENT];return `\nÉs o assistente «${a.n}» (${a.d}). Harness: só podes escrever em [${a.paths.join(', ')||'nenhum caminho'}] e correr [${a.cmds.join(', ')||'nenhum comando'}]. Se a tarefa exigir sair deste escopo, não o faças: diz que assistente da equipa (${Object.values(AGENTS).map(x=>x.n).join(', ')}) deve tratar dessa parte.`+(AGENT==='tutor'?'\nComo Tutor: não dês a solução completa. Faz perguntas, explica o conceito, dá pistas graduais e pede ao aluno que tente.':'');};
 /** A equipa da pasta aberta: os escopos derivados da estrutura dela e dos comandos detectados, e
  *  o `.dxtutor/team.json` por cima (ADR-0006, R3c). Passam a ser os defaults que os templates
@@ -81,7 +83,7 @@ function applyProjectTeam(): void {
     if (o.paths) a.paths = o.paths; if (o.cmds) a.cmds = o.cmds; if (o.max != null) a.max = o.max; if (o.model) a.model = o.model;
   });
   Object.keys(AGENTS).forEach((k) => { AG0[k] = JSON.parse(JSON.stringify(AGENTS[k])); });
-  if (FS[ROOT + '.dxtutor/team.json'] && !tj) log('team', '.dxtutor/team.json não é JSON válido — fico com os escopos derivados da pasta');
+  if (FS[ROOT + '.dxtutor/team.json'] && !tj) log('team', mdk('teamJsonInvalid'));
   try { agentPill(); rerender('team'); } catch { /* ainda sem UI */ }
 }
 document.addEventListener('dx:workspace', () => applyProjectTeam());
@@ -90,7 +92,7 @@ function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).
 export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
 function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
 function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
-function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,norm(v)));o.innerHTML=who.length?'Pode escrever: '+who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', '):'Nenhum assistente especializado — só o orquestrador, com a tua aprovação.';}
+function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,norm(v)));o.innerHTML=who.length?mdk('canWrite',{who:who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', ')}):mdk('noSpecialist');}
 /* ───── harness de projecto: templates, decision rights, mode ceiling (migrado de
    v5.ts, fundido com renderTeamView) ─────
    A secção "Project harness"/"Who decides"/"Who did the work" que v5.ts inseria por

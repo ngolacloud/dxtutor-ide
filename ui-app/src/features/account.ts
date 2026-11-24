@@ -23,8 +23,10 @@ import { RP } from "../app/store/registry";
 import { registerActions, globalCalls } from "../app/actions";
 import { translator } from "../app/i18n";
 import { ACCOUNT_MESSAGES } from "./account.messages";
+import { ACCOUNT_DESKTOP_MESSAGES } from "./account.desktop-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(ACCOUNT_MESSAGES);
+const txd = translator(ACCOUNT_DESKTOP_MESSAGES);
 
 interface Identity { user?: string; host?: string; gitName?: string; gitEmail?: string }
 const dxr = (): Identity | undefined => (window as unknown as { DXR?: Identity }).DXR;
@@ -39,7 +41,7 @@ function renderAccountPane(): void {
   const who = id
     ? `<div class="kv"><span class="ic">${svg("account")}</span><b class="notr">${esc(id.user || "?")}</b><span class="v notr">${esc(id.host || "")}</span></div>` +
       `<div class="kv"><span class="ic">${svg("branch-sm")}</span>git<span class="v notr">${id.gitName ? esc(id.gitName) + (id.gitEmail ? " &lt;" + esc(id.gitEmail) + "&gt;" : "") : "sem user.name configurado"}</span></div>`
-    : '<div class="sec-empty">Sem sessão local: a conta (utilizador, máquina e identidade git) só existe na app desktop.</div>';
+    : `<div class="sec-empty">${txd('noSession')}</div>`;
   el.innerHTML =
     hd("Conta") +
     `<div class="sections">${who}<div class="scm-grp">${txt("providers")}</div>${Object.entries(PROV)

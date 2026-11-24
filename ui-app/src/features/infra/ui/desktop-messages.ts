@@ -6,9 +6,11 @@ export const INFRA_DESKTOP_MESSAGES = {
   en: {
     browserNote: "The socket and the KUBECONFIG connect the real container runtime and cluster in the desktop app; in the browser there is nothing to connect to.",
     noLogLines: "No log lines.", readingLogs: "Reading the logs…",
+    containersNote: "Containers and images come from the Docker or Podman connected in Infra, in the desktop app.",
   },
   ptAO: {
     browserNote: "O socket e o KUBECONFIG ligam o runtime de contentores e o cluster reais na app desktop; no browser não há a que ligar.",
     noLogLines: "Sem linhas de log.", readingLogs: "A ler os logs…",
+    containersNote: "Os contentores e as imagens vêm do Docker ou do Podman ligado em Infra, na app desktop.",
   },
 } satisfies Messages<string>;

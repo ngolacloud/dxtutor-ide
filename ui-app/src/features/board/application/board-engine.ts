@@ -44,7 +44,7 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
     /* os testes do projecto (comandos detectados, a correr a sério no desktop); sem nenhum, a
        issue não passa — nada de resultados inventados (ADR-0006, R1c1/R3a) */
     const res = await terminal.projectTests(), ok = res.length > 0 && res.every((r) => r.ok), f = res.filter((r) => !r.ok).length; it.res = res;
-    if (!res.length) notifier.log("auto-test", `${it.id}: sem testes — abre a pasta do projecto na app desktop (comando de testes detectado ou .dxtutor/commands.json)`);
+    if (!res.length) notifier.log("auto-test", copy("noTests", { id: it.id }));
     if (terminal.getVar("--panel-h") !== "0px") terminal.setPanelTab("terminal", true); terminal.echoCmd("dx test " + it.id); terminal.echo(`<span class="dim">running ${res.length} tests (${esc(it.branch || scm.branch())})</span>\n` + res.map((r) => `test ${r.n} ... ${r.ok ? '<span class="ok">ok</span>' : '<span class="er">FAILED</span>'}`).join("\n") + `\n\ntest result: ${ok ? '<span class="ok">ok</span>' : '<span class="er">FAILED</span>'}. ${res.length - f} passed; ${f} failed`); terminal.newInput(true);
     if (d) chat.toolResult(d, `<span class="${ok ? "okc" : "bad"}">${ok ? "✓" : "✖"} ${res.length - f}/${res.length}</span>`); notifier.log("auto-test", `${it.id}: ${res.length - f}/${res.length} ${ok ? "— passa para validação funcional" : "— volta a desenvolvimento"}`); return ok;
   }
@@ -56,7 +56,7 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
     runctl.setAuthor(it.agent); runctl.label(`${it.id} · ${ag.n}`);
     const c = chat.card(ag.n.toLowerCase(), `<p><code>${it.id}</code> <b>${esc(it.title)}</b></p>`);
     if (!agent.available()) {
-      chat.cardAppend(c.bd, "<p>Não há um agente disponível para implementar a issue: precisa da app desktop, com uma pasta aberta e um provedor com ferramentas (Definições).</p>");
+      chat.cardAppend(c.bd, `<p>${copy("noAgent")}</p>`);
       return;
     }
     const b = scm.gfStart(it.type === "fix" ? "fix" : "feature", it.id + "-" + slug(it.title).slice(0, 22));
@@ -67,7 +67,7 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
       await scm.settle(); /* o checkout do ramo tem de acontecer ANTES de o agente escrever */
       const before = new Set(scm.changes());
       const run = agent.story({ id: it.id, title: it.title, type: it.type, pts: it.pts, note: it.note });
-      if (!run) { chat.cardAppend(c.bd, "<p>O agente não aceitou o pedido.</p>"); return; }
+      if (!run) { chat.cardAppend(c.bd, `<p>${copy("agentRefused")}</p>`); return; }
       await run;
       await scm.settle();
       const changed = scm.changes().filter((p) => !before.has(p));

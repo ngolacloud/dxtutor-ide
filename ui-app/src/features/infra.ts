@@ -42,7 +42,11 @@ import {
   drawStack, note, rel, toast, log, rerender, writeFile, publish,
 } from "./infra/infrastructure/legacy-bridge";
 import { translator } from "../app/i18n";
-import { INFRA_ENGINE_MESSAGES } from "./infra/application/messages";
+import { INFRA_ENGINE_MESSAGES, type InfraEngineKey } from "./infra/application/messages";
+import { INFRA_DESKTOP_ENGINE_MESSAGES, type InfraDesktopKey } from "./infra/application/desktop-messages";
+
+/* o motor recebe uma só porta `copy`: os textos migrados (pares do motor) e os novos (desktop) */
+const txen = translator(INFRA_ENGINE_MESSAGES), txde = translator(INFRA_DESKTOP_ENGINE_MESSAGES);
 import { INFRA_MESSAGES } from "./infra/ui/messages";
 import { INFRA_DESKTOP_MESSAGES } from "./infra/ui/desktop-messages";
 import { EMULATED_TERMINAL_MESSAGES } from "./emulated-terminal-messages";
@@ -85,7 +89,7 @@ const OBS: Record<string, ObsData> = (window.OBS = {}); let OBST = null as Retur
    (application). O motor fica puro (sem window/DOM); window/DOM ficam deste lado. ENVS/
    ENVX são a MESMA referência que envs()/envx() do bridge devolvem (window.ENVS/ENVX). */
 const engine = makeInfraEngine({
-  copy: translator(INFRA_ENGINE_MESSAGES),
+  copy: (k, p) => (k in INFRA_DESKTOP_ENGINE_MESSAGES.en ? txde(k as InfraDesktopKey, p) : txen(k as InfraEngineKey, p)),
   state: { envs, envx, k8s, setK8s, stack, setStack, devc, setDevc, pDc, setPDc },
   catalog: { design, tech, kind, isApp, slug: nodeSlug },
   workspace: { files, writeFile, composeServices, root },

@@ -71,7 +71,7 @@ function renderRunPane(): void {
   else if (state.error) body = `<div class="sec-empty" style="color:var(--red)">${txr("detectError", { error: esc(state.error) })}</div>`;
   else if (!state.projects || !state.projects.length) body = `<div class="sec-empty">${txr("noProjects")}</div>`;
   else body = `<div class="sec-empty">${txr("eachCommand")}</div>` + state.projects.map((p) => {
-    const rel = relOf(r, p.path), cmds = commandsFor(p.kind, filesOf(rel));
+    const rel = relOf(r, p.path), cmds = commandsFor(p.kind, filesOf(rel), txr);
     return `<div class="scm-grp notr">${esc(p.name)}<span class="cnt">${esc(p.kind)}</span></div>${rel ? `<div class="sec-empty notr" style="padding-top:0">${esc(rel)}/</div>` : ""}` +
       (cmds.length
         ? cmds.map((c) => `<div class="scm-row" data-run-cmd="${esc(c.cmd)}" data-run-cwd="${esc(p.path)}" title="${esc(c.cmd)}"><span class="ic" style="color:var(--green)">${svg("run")}</span><span class="nm notr">${esc(c.cmd)}</span><span class="pth notr">${esc(c.label)}</span></div>`).join("")

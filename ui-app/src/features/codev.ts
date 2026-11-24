@@ -39,7 +39,8 @@ import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
 import { isDesktop } from "../platform/tauri/core";
-import { translator } from "../app/i18n";
+import { currentLocale, translator } from "../app/i18n";
+import { CODEV_ENGINE_MESSAGES } from "./codev/application/messages";
 import { CODEV_CHAT_MESSAGES } from "./codev/ui/chat-messages";
 import {
   codevEngine,
@@ -146,8 +147,8 @@ function drawCtx(): void {
   if (!st) return;
   st.textContent = CTX.turns && CTX.last ? 'ctx ' + fmtTok(CTX.last) : '';
   st.title = !CTX.turns ? 'Contexto usado na conversa' : CTX.last
-    ? `Última volta: ${CTX.last} tokens de entrada, ${CTX.lastOut} de saída · conversa: ${CTX.inTotal} de entrada, ${CTX.outTotal} de saída (${CTX.turns} volta(s))`
-    : 'O provider não reportou o uso de tokens';
+    ? tc('ctxLast', { in: CTX.last, out: CTX.lastOut, inTotal: CTX.inTotal, outTotal: CTX.outTotal, turns: CTX.turns })
+    : tc('ctxNoUsage');
 }
 document.addEventListener('dx:llm-usage', (e) => {
   const d = (e as CustomEvent<{ input?: number; output?: number }>).detail || {};
@@ -169,26 +170,26 @@ Object.assign(window, { doTool: harnessDoTool });
 
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
 function handlePrompt(q: string) {
-  if (bridge.run().active) { bridge.toast('Há uma execução em curso — pára-a ou espera'); return; } focusAgent(true);
+  if (bridge.run().active) { bridge.toast(tc('runActive')); return; } focusAgent(true);
   if (/^\/plano(\s|$)/.test(q)) {
     const pedido = q.replace(/^\/plano\s*/, '');
-    if (!pedido) { user(q); card('co-dev', 'Escreve o pedido a seguir: <code>/plano acrescenta paginação à API</code>. O agente investiga só com leitura e propõe o plano para aprovares.'); return; }
-    if (!codevEngine.agentPlan(pedido)) { user(q); card('co-dev', 'O modo plano precisa do app desktop, com uma pasta aberta e um provedor com agente seleccionado (Claude, Codex, Gemini ou Ollama).'); }
+    if (!pedido) { user(q); card('co-dev', tc('planUsage', { example: `<code>${esc(tc('planExample'))}</code>` })); return; }
+    if (!codevEngine.agentPlan(pedido)) { user(q); card('co-dev', tc('needsDesktopPlan')); }
     return;
   }
   if (q === '/comandos') {
     user(q);
-    if (!codevEngine.agentCommands()) card('co-dev', 'Os comandos do projecto precisam do app desktop, com uma pasta aberta e um provedor com agente seleccionado (Claude, Codex, Gemini ou Ollama).');
+    if (!codevEngine.agentCommands()) card('co-dev', tc('needsDesktopCommands'));
     return;
   }
   if (q === '/reverter') {
     user(q);
-    if (!codevEngine.agentRewind()) card('co-dev', 'Voltar atrás precisa do app desktop, com uma pasta aberta e um provedor com agente seleccionado (Claude, Codex, Gemini ou Ollama).');
+    if (!codevEngine.agentRewind()) card('co-dev', tc('needsDesktopRewind'));
     return;
   }
   if (q === '/retomar' || q === '/sessoes' || q === '/sessões') {
     user(q);
-    if (!codevEngine.agentResume()) card('co-dev', 'Retomar conversas precisa do app desktop, com uma pasta aberta e um provedor com agente seleccionado (Claude, Codex, Gemini ou Ollama).');
+    if (!codevEngine.agentResume()) card('co-dev', tc('needsDesktopResume'));
     return;
   }
   if (q === '/test' || q === '/lint') {
@@ -197,12 +198,12 @@ function handlePrompt(q: string) {
     if (real) {
       // pasta real: o comando detectado do projecto, a correr a sério
       const v = bridge.projectCommand(k);
-      if (!v) { card('co-dev', `Não detectei um comando de ${k === 'test' ? 'testes' : 'lint'} neste projecto. Define-o em <code>.dxtutor/commands.json</code>.`); return; }
+      if (!v) { card('co-dev', tc('noProjectCmd', { kind: tc(k === 'test' ? 'kindTests' : 'kindLint'), file: '<code>.dxtutor/commands.json</code>' })); return; }
       bridge.setPanelTab('terminal', true);
       void real(v.cmd).then(r => card('co-dev', `<code>${esc(v.cmd)}</code> → ${r.ok ? '✓' : '✖'} ${esc(r.sum)}`));
       return;
     }
-    card('co-dev', `Abre uma pasta (File → Open Folder…) para correr ${k === 'test' ? 'os testes' : 'o lint'} do projecto.`);
+    card('co-dev', tc('openFolderToRun', { what: tc(k === 'test' ? 'whatTests' : 'whatLint') }));
     return;
   }
   void codevEngine.chat(q);
@@ -225,9 +226,11 @@ Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvail
    `explain` answers straight away in the chat; the rest lands in the composer as chips +
    text (sent at once with `send`). Registered in app/codev-ask for the other features. */
 const codevAsk = makeAsk({
+  copy: translator(CODEV_ENGINE_MESSAGES),
+  replyLanguage: currentLocale,
   sample: () => bridge.sample() as unknown as Sampler | null,
   presenter,
-  speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · explicação",
+  speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · " + tc("explanation"),
   focus: () => focusAgent(true),
   compose: (text, context, send) => composerAsk(text, context, send),
 });
@@ -249,8 +252,8 @@ codevIssue.register((r) => codevEngine.agentIssue(r));
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
 function openSettings() { bridge.openTab({ id: 'settings', title: 'Definições', kind: 'settings' }); }
 function openManager() { bridge.openTab({ id: 'manager', title: 'Gestor de missões', kind: 'manager' }); }
-export function openAnalysis() { bridge.openTab({ id: 'analysis', title: 'Análise', kind: 'analysis' }); }
-function testProvBase(k: string, btn: HTMLElement): void { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> — respostas reais através do Claude deste artefacto.' : 'Ao vivo indisponível nesta vista; activa-se com o artefacto aberto em claude.ai.') : `<span style="color:var(--yellow)">simulado</span> — a página não pode chamar ${esc(PROV[k].ep)}; a chamada real é feita pelo backend da aplicação.`; }, 500); }
+export function openAnalysis() { bridge.openTab({ id: 'analysis', title: tc('analysisTitle'), kind: 'analysis' }); }
+function testProvBase(k: string, btn: HTMLElement): void { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> ' + tc('testLive') : tc('testLiveOff')) : `<span style="color:var(--yellow)">simulado</span> ${tc('testSimulated', { ep: esc(PROV[k].ep) })}`; }, 500); }
 window.testProv = function (k, btn) { const d = desktopPorts.codev; return d && d.testProv ? d.testProv(k, btn, testProvBase) : testProvBase(k, btn); };
 const POLICY = [['Responder a perguntas de clarificação', 'tu', 'Co-Dev se confiança ≥ 80%; senão pergunta', 'Co-Dev; abaixo de 80% assume a opção reversível e assinala'], ['Escolher entre propostas dos modelos', 'tu, com recomendação do juiz', 'juiz', 'juiz'], ['Aprovar o plano', 'tu', 'automático', 'automático'], ['Editar ficheiros', 'aprovas cada edição', 'automático, com diff', 'automático, com diff'], ['Terminal: testes, build, lint', 'aprovas', 'automático', 'automático'], ['Terminal: outros comandos', 'aprovas', 'aprovas', 'automático'], ['Corrigir depois de falhar a auto-avaliação', 'aprovas', 'automático (máx. 2)', 'automático (máx. 2)'], ['Commit local', 'aprovas', 'aprovas', 'automático'], ['Push e acções destrutivas', 'aprovas', 'aprovas', 'aprovas — sempre']];
 window.renderSettingsPage = (_t, host) => {

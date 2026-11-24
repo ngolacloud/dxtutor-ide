@@ -386,12 +386,3 @@ export interface BoardStory {
   note?: string;
 }
 
-/** O pedido ao agente para implementar uma issue do Board (começa em modo plano). */
-export function storyPrompt(s: BoardStory): string {
-  const note = s.note && s.note.trim() ? `\nNota da issue: ${s.note.trim()}` : "";
-  return (
-    `Implementa a issue ${s.id} do Board: «${s.title}» (${s.type === "fix" ? "correcção" : "funcionalidade"}, ${s.pts} pontos).${note}\n` +
-    "Começa por investigar o código e propõe o plano com exit_plan. Depois de aprovado, implementa, " +
-    "regista os passos com todo_write, verifica com os testes e resume o que mudou."
-  )
-}

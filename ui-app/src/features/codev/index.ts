@@ -44,6 +44,12 @@ import type {
   RuntimeTool,
 } from "./application/ports";
 import type { CommandRules } from "./domain/policy";
+import { currentLocale, translator } from "../../app/i18n";
+import { CODEV_ENGINE_MESSAGES } from "./application/messages";
+
+/* os textos dos casos de uso na língua da interface, e a língua em que o modelo responde (i18n dos motores) */
+const copy = translator(CODEV_ENGINE_MESSAGES);
+const replyLanguage = currentLocale;
 import type { Decision, Mode } from "./domain/types";
 
 /* ───── state owned by the composition root (published by codev.ts) ───── */
@@ -128,9 +134,10 @@ const clock: Clock = {
 
 const mode = (): Mode => bridge.monolith.mode as Mode;
 /* ───── wire the use cases ───── */
-const doTool = makeDoTool({ workspace, terminal, providers, notifier, presenter, gate, clock, rules, mode });
+const doTool = makeDoTool({ workspace, terminal, providers, notifier, presenter, gate, clock, rules, mode, copy });
 
 const liveChat = makeLiveChat({
+  replyLanguage,
   workspace,
   providers,
   notifier,
@@ -159,6 +166,7 @@ const relPath = (p: string): string => (p.startsWith(bridge.root()) ? p.slice(br
 let stopTurn: () => void = () => undefined;
 let reveal: (line: number) => void = () => undefined;
 export const hunkReview = makeHunkReview({
+  copy,
   applied: (path, before) => codevUndo.remember(path, before),
   // RF-P03: in a PairCode session the navigator's decisions are refusals
   review: (s, call, d) =>
@@ -211,6 +219,7 @@ const activeModel = (): string => {
   return (active && active.model) || "";
 };
 export const codevRun = makeHarness({
+  copy,
   gateway: agentGateway,
   session: () => sessionOf(),
   root: () => bridge.diskRoot() ?? "",
@@ -230,6 +239,7 @@ export function openCodevRun(): void {
 }
 
 const agentChat = makeAgentChat({
+  copy,
   gateway: agentGateway,
   presenter,
   gate,

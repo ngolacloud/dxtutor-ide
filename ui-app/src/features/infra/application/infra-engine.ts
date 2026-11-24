@@ -69,7 +69,7 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
   function k8sConnect(): void {
     hydrateEnvs(); const e = state.envs();
     if (e.k8sOn) { e.k8sOn = false; saveEnv(); state.setK8s(null); notifier.log("infra", "cluster disconnected"); view.redraw(); return; }
-    notifier.toast("Ligar o cluster precisa da app desktop (o kubectl real com o teu KUBECONFIG)");
+    notifier.toast(copy("k8sNeedsDesktop"));
   }
   const projectContext = (): Array<[string, string]> => domProjectContext(workspace.files());
   function devcontainerJson(): string {
@@ -105,7 +105,7 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
     /* o deploy a sério (compose build, carregar as imagens no cluster local, kubectl apply,
        rollout status) só existe na app desktop com a pasta aberta — a porta desktop faz isso; aqui
        já não se finge um cluster (ADR-0006, R5a) */
-    terminal.echo(`<span class="dim">${depsD.length} deployment(s) em deploy/k8s, prontos a aplicar em ${esc(e.ctx)}/${esc(e.ns)}.</span>\n<span class="er">O deploy precisa da app desktop com a pasta aberta (docker/podman e kubectl reais).</span>`);
+    terminal.echo(`<span class="dim">${copy("deployReady", { n: depsD.length, target: `${esc(e.ctx)}/${esc(e.ns)}` })}</span>\n<span class="er">${copy("deployNeedsDesktop")}</span>`);
     terminal.newInput(true); return { ok: false };
   }
   /* ADR-0006, R5b: escalar e apagar no cluster a sério é a porta desktop (o `kubectl` real); a versão
@@ -158,7 +158,7 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
     if (!t.ctx || !t.ns) { x.st[env] = null; return Promise.resolve(); }
     return reading[env] ??= c.read(t).then(
       (st) => { x.st[env] = st; },
-      (e) => { x.st[env] = null; notifier.log("environments", `${env}: não consegui ler ${t.ctx}/${t.ns} — ${e}`); },
+      (e) => { x.st[env] = null; notifier.log("environments", copy("readFail", { env, target: `${t.ctx}/${t.ns}`, error: String(e) })); },
     ).finally(() => { reading[env] = undefined; view.rerender("envs"); view.redraw(); });
   }
   function refreshEnvs(): Promise<void> {
@@ -180,8 +180,8 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
       after(ok);
       await refreshEnv(env);
       const bad = (envState(env)?.deps ?? []).filter((d) => d.status === "crash");
-      notifier.toast(!ok ? `${ENVL[env]}: o deploy falhou — vê o terminal` : bad.length ? `${ENVL[env]}: ${bad.length} workload(s) a falhar` : `${ENVL[env]} está em ${ver}`);
-      if (ok && bad.length) notifier.note(`${ENVL[env]}: ${bad[0].n} não arranca — ${bad[0].err}`);
+      notifier.toast(!ok ? copy("deployFailed", { env: ENVL[env] }) : bad.length ? copy("workloadsFailing", { env: ENVL[env], n: bad.length }) : copy("envAt", { env: ENVL[env], ver }));
+      if (ok && bad.length) notifier.note(copy("notStarting", { env: ENVL[env], name: bad[0].n, error: bad[0].err ?? "" }));
     });
   }
 

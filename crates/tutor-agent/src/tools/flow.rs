@@ -198,6 +198,8 @@ pub struct SubagentSpec {
     pub provider: Arc<dyn Provider>,
     pub model: String,
     pub effort: Effort,
+    /// Língua em que o sub-agente responde (a da sessão: a interface quando ela começou).
+    pub lang: crate::context::ReplyLang,
 }
 
 /// `task`: lança um sub-agente só de leitura, com contexto próprio, e devolve o relatório.
@@ -215,13 +217,13 @@ fn role_brief(role: &str) -> &'static str {
         "reviewer" => "És o revisor do Co-Dev do dxtutor IDE. Lê as alterações em curso (git_diff, git_status) e o \
 código à volta e procura defeitos reais: erros de lógica, casos limite, regressões, riscos de segurança, testes em falta. \
 Para cada achado dá o ficheiro e a linha, a gravidade (alta/média/baixa) e porquê. Não inventes problemas; se não encontras \
-nada relevante, diz isso. Só tens ferramentas de leitura. Responde em português.",
+nada relevante, diz isso. Só tens ferramentas de leitura.",
         "tester" => "És o testador do Co-Dev do dxtutor IDE. Mapeia os testes que existem para o que te pedem (onde estão, \
 o que cobrem) e o que fica por testar: casos limite, erros, integrações. Propõe os casos de teste em falta, com o ficheiro \
-onde iriam e o que verificam. Não corres comandos: só tens ferramentas de leitura. Responde em português.",
+onde iriam e o que verificam. Não corres comandos: só tens ferramentas de leitura.",
         "architect" => "És o arquitecto do Co-Dev do dxtutor IDE. Mapeia os módulos, as dependências e as fronteiras que \
 interessam ao pedido, com caminhos de ficheiros. Propõe até três opções de desenho com as suas consequências e recomenda \
-uma, explicando porquê. Não alteras nada: só tens ferramentas de leitura. Responde em português.",
+uma, explicando porquê. Não alteras nada: só tens ferramentas de leitura.",
         _ => SUBAGENT_PROMPT,
     }
 }
@@ -230,7 +232,7 @@ const SUBAGENT_PROMPT: &str = "És um sub-agente de investigação do Co-Dev do 
 Tens só ferramentas de leitura (read, glob, grep, git_status, git_diff). Investiga o que te \
 pedem no projecto e responde com um relatório curto e factual: o que encontraste, com \
 caminhos de ficheiros e números de linha, e o que não conseguiste confirmar. Não proponhas \
-alterações que não te pediram. Responde em português.";
+alterações que não te pediram.";
 
 impl Tool for Task {
     fn name(&self) -> &str {
@@ -285,7 +287,7 @@ impl Tool for Task {
             "explorer"
         };
         cfg.system = vec![SystemBlock {
-            text: role_brief(role).into(),
+            text: format!("{} {}", role_brief(role), self.spec.lang.reply_rule()),
             cache: true,
         }];
         let child_ctx = ToolCtx {
