@@ -38,5 +38,6 @@ Uma equipa a trabalhar no mesmo repo não partilha um SQLite local. Recomendaç�
 (o `tutor-board` já existe), com exportação/importação para `.dxtutor/board.json` e sincronização como
 passo futuro. Confirmar.
 
-**Q8 · Nome do produto nos textos.**
-O prompt e o protótipo dizem "delonix-ide"; a app e o código dizem "dxtutor IDE". Qual usar na UI?
+**Q8 · ~~Nome do produto nos textos~~ — respondida (2026-11-24): `dxtutor-ide`.**
+O prompt e o protótipo dizem "delonix-ide"; a app e o código dizem "dxtutor IDE". O dono decidiu
+`dxtutor-ide`: onde um prompt ou RF disser `delonix` (pasta `.delonix/`, trailers), usa-se `dxtutor`.
