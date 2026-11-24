@@ -12,13 +12,15 @@ import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { devcontainerClient } from "../tauri/devcontainer";
 import { parseClusterState, deploymentsIn, ANN_VER, ANN_AT } from "../../features/infra/domain/environments";
-import { parseDockerStats, parseKubectlTop } from "../../features/infra/domain/observability";
+import { parseDockerStats, parseKubectlTop, type ObsText } from "../../features/infra/domain/observability";
 import type { EnvState, ObsTarget } from "../../features/infra/domain/types";
 import type { DesktopContext } from "./context";
 import { translator } from "../../app/i18n";
 import { DESKTOP_MESSAGES } from "./desktop-messages";
 
 const tdk = translator(DESKTOP_MESSAGES);
+/** os erros das amostras de observabilidade na língua da interface (o domínio recebe-os por parâmetro) */
+const obsText = (): ObsText => ({ noSample: tdk("obsNoSample"), badStats: tdk("obsBadStats"), noCpuMem: tdk("obsNoCpuMem"), noPods: tdk("obsNoPods") });
 
 export function installInfra(ctx: DesktopContext): void {
 const { R, fsx, sh, escH, say, idle } = ctx;
@@ -41,7 +43,7 @@ async function readNs(ctxName: string, ns: string): Promise<EnvState | null> {
   const [dep, pods, ing] = await Promise.all([get("deploy"), get("pods"), get("ingress")]);
   /* a última linha é a mensagem do kubectl (as de cima são o registo do klog) */
   if (dep.code !== 0) throw new Error(String(dep.stderr || "kubectl falhou").trim().split("\n").pop());
-  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "");
+  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "", tdk("lastEnd"));
   if (!st.deps.length) return null;
   return { ver: st.ver, at: st.at, ingress: st.ingress, deps: st.deps.map(d => ({ n: d.n, rep: d.rep, ready: d.ready, status: d.err ? "crash" : "ok", err: d.err ?? null, restarts: d.restarts ?? 0, img: d.img })) };
 }
@@ -50,7 +52,7 @@ async function readK8s(): Promise<void> {
   const get = (what: string) => sh("kubectl", ["--context", ENVS.ctx, "-n", ENVS.ns, "get", what, "-o", "json"], { env: envFor(), timeout: 20000 });
   const [dep, pods, ing] = await Promise.all([get("deploy"), get("pods"), get("ingress")]);
   if (dep.code !== 0) return;
-  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "");
+  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "", tdk("lastEnd"));
   K8S = st.deps.length ? { docs: k8sDocs(), deps: st.deps, ver: st.ver, at: st.at, ingress: st.ingress } : null;
 }
 /* ───── ajudas da observabilidade (R5c2) ───── */
@@ -249,10 +251,10 @@ obs: {
       const id = ps.stdout.trim().split("\n")[0];
       if (ps.code !== 0 || !id) return { error: ps.code !== 0 ? lastLine(ps.stderr) : tdk("notRunning", { name: t.n }) };
       const r = await sh(rtBin(), ["stats", "--no-stream", "--format", "json", id], { env: envFor(), timeout: 15000 }).catch(fail);
-      return r.code === 0 ? parseDockerStats(r.stdout) : { error: lastLine(r.stderr) };
+      return r.code === 0 ? parseDockerStats(r.stdout, obsText()) : { error: lastLine(r.stderr) };
     }
     const r = await sh("kubectl", [...kns(t), "top", "pod", "-l", await selectorOf(t), "--no-headers"], { env: envFor(), timeout: 15000 }).catch(fail);
-    return r.code === 0 ? parseKubectlTop(r.stdout) : { error: lastLine(r.stderr) };
+    return r.code === 0 ? parseKubectlTop(r.stdout, obsText()) : { error: lastLine(r.stderr) };
   },
   async logs(t) {
     const r = t.via === "compose"

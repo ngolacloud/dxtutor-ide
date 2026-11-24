@@ -12,6 +12,8 @@ export const DESKTOP_MESSAGES = {
     delegation: "Isolated delegation: {title}", delegationRunning: "running…", cancel: "Cancel", patchReady: "✓ patch ready for review",
     discarded: "discarded — the isolated worktree did not touch your files",
     sshOk: "connection and authentication without prompts",
+    obsNoSample: "no sample", obsBadStats: "unexpected response from stats", obsNoCpuMem: "stats returned neither CPU nor memory", obsNoPods: "no pod with metrics",
+    lastEnd: "last exit",
   },
   ptAO: {
     noRuntime: "Sem runtime de contentores ligado. Liga o socket do Docker ou do Podman em Infra.", noContainers: "Nenhum contentor.", noImages: "Nenhuma imagem.",
@@ -22,5 +24,7 @@ export const DESKTOP_MESSAGES = {
     delegation: "Delegação isolada: {title}", delegationRunning: "a correr…", cancel: "Cancelar", patchReady: "✓ patch pronto para revisão",
     discarded: "descartado — o worktree isolado não tocou nos teus ficheiros",
     sshOk: "ligação e autenticação sem perguntas",
+    obsNoSample: "sem amostra", obsBadStats: "resposta inesperada do stats", obsNoCpuMem: "o stats não trouxe CPU nem memória", obsNoPods: "nenhum pod com métricas",
+    lastEnd: "último fim",
   },
 } satisfies Messages<string>;

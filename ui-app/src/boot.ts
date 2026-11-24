@@ -21,6 +21,8 @@
    globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE), o
    painel de contentores de demonstração e dois listeners. */
 export {};
+import { translator } from "./app/i18n";
+import { INFRA_DESKTOP_MESSAGES } from "./features/infra/ui/desktop-messages";
 
 declare global {
   interface Window {
@@ -145,7 +147,7 @@ window.OVERFLOW=[
 
 /* ═════════ MENUS ═════════ */
 window.MENUS=[
-  {t:'File',items:[{l:'New Text File',k:'Ctrl+N'},{l:'New File…',k:'Ctrl+Alt+N'},{l:'New Window',k:'Ctrl+Shift+N'},{sep:1},{l:'Open File…',k:'Ctrl+O'},{l:'Open Folder…'},{l:'Open Recent',sub:[{l:'Clear Recently Opened'}]},{sep:1},{l:'Save',k:'Ctrl+S'},{l:'Save As…',k:'Ctrl+Shift+S'},{l:'Save All'},{sep:1},{l:'Preferences',sub:[{l:'Settings',k:'Ctrl+,'},{l:'Keyboard Shortcuts'},{l:'Color Theme',sub:[{l:'Grafite laranja',on:1},{l:'Slate índigo'},{l:'Dark+ (clássico)'}]},{l:'Extensions'}]},{sep:1},{l:'Exit',k:'Ctrl+Q'}]},
+  {t:'File',items:[{l:'New Text File',k:'Ctrl+N'},{l:'New File…',k:'Ctrl+Alt+N'},{l:'New Window',k:'Ctrl+Shift+N'},{sep:1},{l:'Open File…',k:'Ctrl+O'},{l:'Open Folder…'},{l:'Open Recent',sub:[{l:'Clear Recently Opened'}]},{sep:1},{l:'Save',k:'Ctrl+S'},{l:'Save As…',k:'Ctrl+Shift+S'},{l:'Save All'},{sep:1},{l:'Preferences',sub:[{l:'Settings',k:'Ctrl+,'},{l:'Keyboard Shortcuts'},{l:'Color Theme',sub:[{l:'Grafite laranja',on:1},{l:'Slate índigo'},{l:'Papel claro'}]},{l:'Extensions'}]},{sep:1},{l:'Exit',k:'Ctrl+Q'}]},
   {t:'Edit',items:[{l:'Undo',k:'Ctrl+Z'},{l:'Redo',k:'Ctrl+Y'},{sep:1},{l:'Cut',k:'Ctrl+X'},{l:'Copy',k:'Ctrl+C'},{l:'Paste',k:'Ctrl+V'},{sep:1},{l:'Find',k:'Ctrl+F'},{l:'Replace',k:'Ctrl+H'},{l:'Find in Files',k:'Ctrl+Shift+F'}]},
   {t:'Selection',items:[{l:'Select All',k:'Ctrl+A'},{l:'Expand Selection',k:'Shift+Alt+→'},{sep:1},{l:'Add Cursor Above',k:'Ctrl+Alt+↑'},{l:'Add Cursor Below',k:'Ctrl+Alt+↓'},{l:'Select All Occurrences',k:'Ctrl+Shift+L'},{sep:1},{l:'Column Selection Mode'}]},
   {t:'View',items:[{l:'Command Palette…',k:'Ctrl+Shift+P'},{l:'Open View…'},{sep:1},{l:'Appearance',sub:[{l:'Full Screen',k:'F11'},{l:'Zen Mode',k:'Ctrl+K Z'},{sep:1},{l:'Menu Bar',on:1},{l:'Status Bar',on:1},{l:'Activity Bar',on:1}]},{l:'Editor Layout',sub:[{l:'Split Up'},{l:'Split Down'},{l:'Split Right'},{sep:1},{l:'Single'},{l:'Two Columns'}]},{sep:1},{l:'Explorer',k:'Ctrl+Shift+E',on:1},{l:'Search',k:'Ctrl+Shift+F'},{l:'Source Control',k:'Ctrl+Shift+G'},{sep:1},{l:'Terminal',k:'Ctrl+`',on:1},{l:'Problems',k:'Ctrl+Shift+M'},{l:'Assistant',k:'Ctrl+Shift+A',on:1}]},
@@ -172,7 +174,8 @@ window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-
 export function buildDocker(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
   /* sem dados inventados (ADR-0006, R1a): no desktop, o pane lista os contentores e as imagens reais do
      runtime ligado (platform/desktop/infra.ts regista o RP.containers — R5a); no browser não há runtime */
-  $('#dk-containers')!.innerHTML='<div class="sec-empty">Os contentores e as imagens vêm do Docker ou do Podman ligado em Infra, na app desktop.</div>';
+  /* #dk-containers está no TR_SKIP (os nomes dos contentores não se traduzem): o texto vem já na língua da interface */
+  $('#dk-containers')!.innerHTML=`<div class="sec-empty">${translator(INFRA_DESKTOP_MESSAGES)('containersNote')}</div>`;
   $('#dk-images')!.innerHTML='';
   wireSections(pane);hydrate();}
 

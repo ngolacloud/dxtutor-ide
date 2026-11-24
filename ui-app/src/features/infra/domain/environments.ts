@@ -61,9 +61,13 @@ const podDeploy = (p: KPod): string | null => {
   return rs?.name ? rs.name.replace(/-[a-z0-9]+$/, "") : null;
 };
 
+/** O rótulo do último fim de um contentor preso: o adaptador desktop passa o da língua da interface; por
+ *  omissão, o de sempre, em português. */
+export const LAST_END_PT = "último fim";
+
 /** O estado de um namespace a partir do JSON do kubectl (Deployments, pods e Ingresses). Os
  *  reinícios e o motivo de um contentor preso vêm dos pods; a versão e a hora, das anotações. */
-export function parseClusterState(deployJson: string, podsJson: string, ingressJson = ""): ClusterState {
+export function parseClusterState(deployJson: string, podsJson: string, ingressJson = "", lastEnd = LAST_END_PT): ClusterState {
   const pods = parseList<KPod>(podsJson);
   let ver: string | undefined, at: number | undefined;
   const deps: K8sDep[] = parseList<KDeploy>(deployJson).filter((d) => d.metadata?.name).map((d) => {
@@ -76,7 +80,7 @@ export function parseClusterState(deployJson: string, podsJson: string, ingressJ
       const w = cs.state?.waiting;
       if (!err && w?.reason && STUCK.test(w.reason)) {
         const last = cs.lastState?.terminated;
-        err = w.reason + (last ? ` (último fim: ${last.reason || "exit"} ${last.exitCode ?? ""})`.replace(/ \)$/, ")") : "") + (w.message ? `: ${w.message}` : "");
+        err = w.reason + (last ? ` (${lastEnd}: ${last.reason || "exit"} ${last.exitCode ?? ""})`.replace(/ \)$/, ")") : "") + (w.message ? `: ${w.message}` : "");
       }
     }));
     const port = c.ports?.[0]?.containerPort;

@@ -12,7 +12,7 @@ import { GIT_COMMANDS } from "../features/scm/extras";
 import { openAnalysis } from "../features/codev";
 import { edCmd } from "../features/editor";
 import { translator } from "./i18n";
-import { COMMANDS_MESSAGES } from "./commands-messages";
+import { COMMANDS_MESSAGES, THEME_LABEL } from "./commands-messages";
 
 const tcm = translator(COMMANDS_MESSAGES);
 
@@ -30,7 +30,7 @@ export const CMD: AppCmd[]=[
   ['Co-Dev: Parar execução','',()=>agCtl('stop')],['Co-Dev: Restaurar último checkpoint','',()=>CKPT.length?restoreCkpt(CKPT[0].id):toast('Sem checkpoints')],
   ['Git: Commit…','',()=>{goPane('scm');$('#scm-msg')!.focus();}],['Git: Mudar de ramo…','',pickBranch],
   ['Run: Projectos e comandos…','',()=>goPane('run')],['Run: Testes do projecto','',()=>goPane('test')],/* eram cargo test/build e dx lint fixos do workspace de demonstração (ADR-0006, R2d) */
-  ['Preferências: Definições','Ctrl+,',()=>openSettings()],...Object.keys(THEMES).map((n): AppCmd=>[tcm('theme',{name:n}),'',()=>setTheme(n)]),
+  ['Preferências: Definições','Ctrl+,',()=>openSettings()],...Object.keys(THEMES).map((n): AppCmd=>[tcm('theme',{name:THEME_LABEL[n]?tcm(THEME_LABEL[n]):n}),'',()=>setTheme(n)]),
   ['Ajuda: Bem-vindo','',()=>openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'})],['Ajuda: O que mudou e porquê','',()=>openAnalysis()]];
 const cmd=(l: string)=>()=>CMD.find(c=>c[0]===l)![2]();
 export function buildMenus(){MENUS.length=0;MENUS.push(

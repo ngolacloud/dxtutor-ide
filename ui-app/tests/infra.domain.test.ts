@@ -189,6 +189,10 @@ describe("parseClusterState — o JSON de kubectl get deploy/pods/ingress", () =
     expect(st.deps[0]).toEqual({ n: "api", rep: 2, ready: 1, img: "reg/api:1", port: "8080", restarts: 4, err: "CrashLoopBackOff (último fim: Error 1): back-off 40s restarting" });
     expect(st.deps[1]).toMatchObject({ n: "db", rep: 1, ready: 0, restarts: 0, err: null }); // a criar não é falha
   });
+  it("o rótulo do último fim vem na língua da interface (parâmetro do adaptador desktop)", () => {
+    const st = parseClusterState(deploy, pods, "", "last exit");
+    expect(st.deps[0].err).toBe("CrashLoopBackOff (last exit: Error 1): back-off 40s restarting");
+  });
   it("respostas vazias ou inválidas não rebentam", () => {
     expect(parseClusterState("", "", "")).toEqual({ deps: [], ver: undefined, at: undefined, ingress: false });
     expect(parseClusterState("{not json", "x").deps).toEqual([]);
@@ -244,6 +248,12 @@ describe("observability — as métricas e os logs reais (ADR-0006, R5c2)", () =
   it("parseKubectlTop: soma os pods, CPU em % de um núcleo", () => {
     expect(parseKubectlTop("api-1   250m   120Mi\napi-2   1   1Gi\n")).toEqual({ cpu: 125, mem: 1144 });
     expect(parseKubectlTop("").error).toMatch(/nenhum pod/);
+    // a língua da interface entra por parâmetro (o adaptador desktop passa os textos traduzidos)
+    const en = { noSample: "no sample", badStats: "unexpected response from stats", noCpuMem: "stats returned neither CPU nor memory", noPods: "no pod with metrics" };
+    expect(parseDockerStats("", en)).toEqual({ error: "no sample" });
+    expect(parseDockerStats("{oops", en).error).toBe("unexpected response from stats");
+    expect(parseDockerStats('{"Name":"db"}', en).error).toBe("stats returned neither CPU nor memory");
+    expect(parseKubectlTop("", en).error).toBe("no pod with metrics");
   });
   it("parseLogLines: carimbo, nível dito pela linha, prefixo do compose; o «Clear» esconde as anteriores", () => {
     const out = "db-1  | 2026-11-24T10:00:00.123456789Z LOG:  database system is ready\n2026-11-24T10:00:01.000Z level=error msg=boom\nlinha sem carimbo WARNING x\n\n";
