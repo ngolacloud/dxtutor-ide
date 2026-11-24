@@ -325,6 +325,8 @@ export interface HunkSink {
 
 /** What the live-hunk use case needs from the world. */
 export interface HunkReviewDeps {
+  /** RF-E07: a hunk was applied to `path`; `before` is the file's text it replaced (Ctrl+Z). */
+  applied?(path: string, before: string): void;
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
   flush(): Promise<void>;
   reloadFromDisk(): Promise<void>;
