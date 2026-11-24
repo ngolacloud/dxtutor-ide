@@ -119,6 +119,22 @@ async fn host_and_guest_exchange_over_loopback_through_the_facade() {
     guest.stop();
     wait_state(&hst, "disconnected");
     assert!(host.send("late").is_err(), "sem par, enviar falha");
+    // RF-P05: o token é de uso único — quando o convidado sai, a sessão do anfitrião acaba e
+    // o mesmo token já não deixa ninguém entrar
+    let ended = wait_state(&hst, "ended");
+    assert_eq!(ended["reason"], "used");
+    let (aev, _am, ast) = events();
+    let again = Pair::default();
+    let _ = again
+        .join(&token, Some(format!("127.0.0.1:{port}")), aev)
+        .await;
+    assert_ne!(
+        ast.recv_timeout(Duration::from_secs(8))
+            .map(|v| v["state"].as_str().unwrap_or("").to_string())
+            .unwrap_or_default(),
+        "connected",
+        "o token gasto não volta a abrir a sessão"
+    );
     host.stop();
 }
 

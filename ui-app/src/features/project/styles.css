@@ -68,3 +68,15 @@
   .pj-methodcard.on{border-color:var(--accent);background:var(--accent-soft)}
   .pj-rel{display:grid;grid-template-columns:90px 1fr 1.4fr 24px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px}
   .pj-relbar{height:8px;border-radius:4px;background:var(--bg-hover);overflow:hidden}.pj-relfill{height:100%;background:var(--accent)}
+  /* F4 (docs/v2/RF-DELONIX-PLANO.md): the story, the Definition of Ready, «View prompt», the criteria table */
+  .pj-wide{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--fg-dim);margin:6px 0}
+  .pj-missing{margin:4px 0 6px;font-size:12px}.pj-li.bad{color:var(--red)}
+  .pj-dev .pj-btn[disabled]{opacity:.5;cursor:not-allowed}
+  .pj-prompt{align-self:stretch;border:1px solid var(--border-strong);border-radius:6px;background:var(--bg-elevated);margin-top:4px}
+  .pj-prompt-head{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border-strong)}
+  .pj-prompt-text{margin:0;padding:8px;max-height:360px;overflow:auto;white-space:pre-wrap;font:11px/1.45 var(--font-mono)}
+  .pj-crit-table{width:100%;border-collapse:collapse;font-size:12px}.pj-crit-table th,.pj-crit-table td{border-bottom:1px solid var(--border);padding:3px 4px;text-align:left;vertical-align:top}
+  .pj-crit-table td.ok{color:var(--green)}.pj-crit-table td.bad{color:var(--red)}
+
+/* F6.1 (RF-T03): the sprint's Co-Dev budget */
+.pj-budget{width:90px;display:inline-block;margin-left:6px;padding:1px 4px}

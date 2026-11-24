@@ -18,7 +18,7 @@ pub mod reports;
 pub mod schema;
 pub mod testhist;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -76,6 +76,71 @@ pub struct Issue {
     pub updated: i64,
     /// When the issue entered its current state (from the activity log).
     pub since: i64,
+    /// The user story (RF-B01): «As {story_as} I want {story_want} so that {story_so}».
+    pub story_as: String,
+    pub story_want: String,
+    pub story_so: String,
+    /// Files and folders Co-Dev may change for this issue (RF-G03): `src/**`, `Cargo.toml`.
+    pub scope: Vec<String>,
+    /// Issues that must be Done first.
+    pub deps: Vec<String>,
+    /// Who approved the Definition of Ready (`ready`).
+    pub ready_by: Option<String>,
+    /// Test runs that failed after Co-Dev worked on it (RF-B07; 2 = it stops and asks).
+    pub attempts: u32,
+    /// The table Co-Dev answered at the end (`finish_issue`, RF-B06): criterion → met → proof.
+    pub criteria_report: Option<serde_json::Value>,
+    /// The prompt template version the last run used (RF-B04).
+    pub template_version: Option<String>,
+    /// What the issue still lacks to be Ready (RF-B02); empty: Co-Dev may work on it.
+    pub missing: Vec<String>,
+    /// The issue's Co-Dev budget in dollars (RF-T03); `None`: no limit.
+    pub budget_usd: Option<f64>,
+    /// What Co-Dev spent on it (real cost of the turns in the audit log, RF-T04).
+    pub spent_usd: f64,
+}
+
+/// Does a criterion read as Given/When/Then (or Dado/Quando/Então)?
+pub fn is_gwt(text: &str) -> bool {
+    let t = text.to_lowercase();
+    let has = |a: &[&str]| a.iter().any(|w| t.contains(w));
+    has(&["given", "dado"]) && has(&["when", "quando"]) && has(&["then", "então", "entao"])
+}
+
+/// What an issue still lacks to be Ready (RF-B02, docs/v2/RF-DELONIX-PLANO.md F4.2): criteria
+/// in Given/When/Then, the user story (for stories), a file scope, its dependencies Done, no
+/// open question — and, last, a human's approval (`ready`). `states`: every issue's state.
+pub fn readiness(i: &Issue, states: &HashMap<String, String>) -> Vec<String> {
+    let mut m = vec![];
+    if i.acceptance.is_empty() {
+        m.push("critérios de aceitação".to_string());
+    } else if let Some(c) = i.acceptance.iter().find(|c| !is_gwt(&c.text)) {
+        m.push(format!("critério em Dado/Quando/Então: «{}»", c.text));
+    }
+    if i.kind == "story"
+        && (i.story_as.trim().is_empty()
+            || i.story_want.trim().is_empty()
+            || i.story_so.trim().is_empty())
+    {
+        m.push("Como / Quero / Para".to_string());
+    }
+    if i.scope.iter().all(|s| s.trim().is_empty()) {
+        m.push("âmbito de ficheiros".to_string());
+    }
+    for d in &i.deps {
+        match states.get(d).map(String::as_str) {
+            Some("done") => {}
+            Some(_) => m.push(format!("dependência {d} em Done")),
+            None => m.push(format!("dependência {d} não existe")),
+        }
+    }
+    if let Some(b) = &i.blocked {
+        m.push(format!("bloqueio em aberto: {b}"));
+    }
+    if !i.ready {
+        m.push("aprovação humana (Ready)".to_string());
+    }
+    m
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -89,6 +154,10 @@ pub struct Sprint {
     /// `planned | active | closed`.
     pub state: String,
     pub capacity: Option<u32>,
+    /// The sprint's Co-Dev budget in dollars (RF-T03); `None`: no limit.
+    pub budget_usd: Option<f64>,
+    /// What Co-Dev spent on the sprint's issues (real cost of the turns, audit log).
+    pub spent_usd: f64,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -189,6 +258,48 @@ pub struct Artifact {
 }
 
 /// A change set to record (one accepted hunk), from the Co-Dev host.
+/// One row of the Co-Dev audit log (RF-T01). `event`: `call` (a decision on a tool call),
+/// `mode` (the human changed the mode) or `turn` (a turn ended: model and tokens).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEntry {
+    #[serde(default)]
+    pub id: i64,
+    pub at: i64,
+    pub session: String,
+    pub event: String,
+    /// `chat`, `editor`, `issue`, or `none` (an action with no human request: blocked).
+    pub origin: String,
+    pub issue_key: Option<String>,
+    /// Who made the request.
+    pub actor: String,
+    /// `manual`, `assist` or `auto`.
+    pub mode: String,
+    pub tool: Option<String>,
+    pub call: Option<String>,
+    pub path: Option<String>,
+    /// `40-52`, or the hunks' ranges.
+    pub lines: Option<String>,
+    pub command: Option<String>,
+    /// What the policy said: `allow`, `ask` or `deny`.
+    pub verdict: Option<String>,
+    /// What happened: `allowed`, `denied` or `blocked`.
+    pub outcome: Option<String>,
+    /// `policy` (the mode or a rule decided), `human:<name>`, `validation`, `cancel`.
+    pub decided_by: Option<String>,
+    pub decided_at: Option<i64>,
+    pub reason: Option<String>,
+    pub model: Option<String>,
+    pub tokens_in: Option<i64>,
+    pub tokens_out: Option<i64>,
+    /// Who was driving in a PairCode session (RF-P04; empty outside one).
+    pub driver: Option<String>,
+    /// The turn's cost in dollars from the provider's real tokens (RF-T04; `None`: model not
+    /// priced, or not a turn).
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct NewChangeSet {
@@ -285,6 +396,41 @@ pub enum Op {
         branch: Option<Option<String>>,
         #[serde(default)]
         dod_done: Option<Vec<bool>>,
+        #[serde(default)]
+        story_as: Option<String>,
+        #[serde(default)]
+        story_want: Option<String>,
+        #[serde(default)]
+        story_so: Option<String>,
+        #[serde(default)]
+        scope: Option<Vec<String>>,
+        #[serde(default)]
+        deps: Option<Vec<String>>,
+        /// RF-T03: the issue's budget in dollars (`null` removes it).
+        #[serde(default, deserialize_with = "double")]
+        budget_usd: Option<Option<f64>>,
+    },
+    /// RF-T03: the sprint's Co-Dev budget in dollars (`null` removes it).
+    SetSprintBudget {
+        id: String,
+        #[serde(default)]
+        budget_usd: Option<f64>,
+    },
+    /// Co-Dev answered every acceptance criterion (`finish_issue`, RF-B06): the table and the
+    /// template version are kept on the issue, which goes to Review. Done stays human.
+    CodevFinished {
+        key: String,
+        report: serde_json::Value,
+        #[serde(default)]
+        template_version: Option<String>,
+    },
+    /// The project's tests after Co-Dev worked on the issue (RF-B07): a failure sends it back
+    /// to In progress with the error; the second failure blocks it until a human helps.
+    TestsRun {
+        key: String,
+        passed: bool,
+        #[serde(default)]
+        summary: String,
     },
     SetAcceptance {
         key: String,
@@ -610,6 +756,64 @@ impl ProjectStore {
         Ok(())
     }
 
+    /// Appends one row to the audit log (the caller masks secrets first).
+    pub fn record_audit(&mut self, root: &str, e: &AuditEntry) -> Result<(), ProjectError> {
+        self.conn.execute(
+            "INSERT INTO audit (root, at, session, event, origin, issue_key, actor, mode, tool, call, path, lines, command,
+                                verdict, outcome, decided_by, decided_at, reason, model, tokens_in, tokens_out, driver, cost_usd)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+            params![
+                root, e.at, e.session, e.event, e.origin, e.issue_key, e.actor, e.mode, e.tool, e.call, e.path,
+                e.lines, e.command, e.verdict, e.outcome, e.decided_by, e.decided_at, e.reason, e.model,
+                e.tokens_in, e.tokens_out, e.driver, e.cost_usd
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The audit log of a folder, oldest first: of one issue (`Some`) or all of it.
+    pub fn audit(
+        &self,
+        root: &str,
+        issue_key: Option<&str>,
+    ) -> Result<Vec<AuditEntry>, ProjectError> {
+        let mut st = self.conn.prepare(
+            "SELECT id, at, session, event, origin, issue_key, actor, mode, tool, call, path, lines, command,
+                    verdict, outcome, decided_by, decided_at, reason, model, tokens_in, tokens_out, driver, cost_usd
+             FROM audit WHERE root = ?1 AND (?2 IS NULL OR issue_key = ?2) ORDER BY at, id",
+        )?;
+        let rows = st
+            .query_map(params![root, issue_key], |r| {
+                Ok(AuditEntry {
+                    id: r.get(0)?,
+                    at: r.get(1)?,
+                    session: r.get(2)?,
+                    event: r.get(3)?,
+                    origin: r.get(4)?,
+                    issue_key: r.get(5)?,
+                    actor: r.get(6)?,
+                    mode: r.get(7)?,
+                    tool: r.get(8)?,
+                    call: r.get(9)?,
+                    path: r.get(10)?,
+                    lines: r.get(11)?,
+                    command: r.get(12)?,
+                    verdict: r.get(13)?,
+                    outcome: r.get(14)?,
+                    decided_by: r.get(15)?,
+                    decided_at: r.get(16)?,
+                    reason: r.get(17)?,
+                    model: r.get(18)?,
+                    tokens_in: r.get(19)?,
+                    tokens_out: r.get(20)?,
+                    driver: r.get(21)?,
+                    cost_usd: r.get(22)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// The gutter's breakpoints of the project (DBG-03).
     pub fn breakpoints(&self, root: &str) -> Result<Vec<breakpoints::Breakpoint>, ProjectError> {
         breakpoints::load(&self.conn, root)
@@ -912,8 +1116,22 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             description,
             branch,
             dod_done,
+            story_as,
+            story_want,
+            story_so,
+            scope,
+            deps,
+            budget_usd,
         } => {
             issue_row(c, root, &key)?;
+            if let Some(b) = &budget_usd {
+                if b.is_some_and(|v| v.is_nan() || v < 0.0) {
+                    return Err(err(
+                        "invalid",
+                        "o orçamento é um valor em dólares, 0 ou mais",
+                    ));
+                }
+            }
             let mut changed: Vec<&str> = vec![];
             let set = |col: &str, v: &dyn rusqlite::ToSql| -> Result<(), ProjectError> {
                 c.execute(
@@ -976,8 +1194,62 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                     b.as_deref().unwrap_or(""),
                 )?;
             }
+            for (col, v, label) in [
+                ("story_as", &story_as, "como"),
+                ("story_want", &story_want, "quero"),
+                ("story_so", &story_so, "para"),
+            ] {
+                if let Some(v) = v {
+                    set(col, &v.trim())?;
+                    changed.push(label);
+                }
+            }
+            let clean = |v: &Vec<String>| -> Vec<String> {
+                v.iter()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            };
+            if let Some(v) = &scope {
+                set("scope", &json(&clean(v)))?;
+                changed.push("âmbito");
+            }
+            if let Some(b) = &budget_usd {
+                set("budget_usd", b)?;
+                changed.push("orçamento");
+            }
+            if let Some(v) = &deps {
+                let v = clean(v);
+                if v.contains(&key) {
+                    return Err(err("invalid", "uma issue não depende de si própria"));
+                }
+                set("deps", &json(&v))?;
+                changed.push("dependências");
+            }
             if let Some(r) = ready {
+                // RF-B02: Ready only with the rest of the Definition of Ready complete
+                if r {
+                    let p = read_project(c, root)?;
+                    let states: HashMap<String, String> = p
+                        .issues
+                        .iter()
+                        .map(|i| (i.key.clone(), i.state.clone()))
+                        .collect();
+                    if let Some(i) = p.issues.iter().find(|i| i.key == key) {
+                        let missing: Vec<String> = readiness(i, &states)
+                            .into_iter()
+                            .filter(|m| m != "aprovação humana (Ready)")
+                            .collect();
+                        if !missing.is_empty() {
+                            return Err(err(
+                                "dor",
+                                format!("ainda não está Ready — falta: {}", missing.join("; ")),
+                            ));
+                        }
+                    }
+                }
                 set("ready", &r)?;
+                set("ready_by", &r.then(|| actor.to_string()))?;
                 changed.push(if r { "pronta (DoR)" } else { "não pronta" });
             }
             if let Some(d) = &description {
@@ -1014,6 +1286,120 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                     None,
                     &changed.join(", "),
                 )?;
+            }
+        }
+        Op::SetSprintBudget { id, budget_usd } => {
+            sprint_exists(c, root, &id)?;
+            if budget_usd.is_some_and(|v| v.is_nan() || v < 0.0) {
+                return Err(err(
+                    "invalid",
+                    "o orçamento é um valor em dólares, 0 ou mais",
+                ));
+            }
+            c.execute(
+                "UPDATE sprints SET budget_usd = ?3 WHERE root = ?1 AND id = ?2",
+                params![root, id, budget_usd],
+            )?;
+        }
+        Op::CodevFinished {
+            key,
+            report,
+            template_version,
+        } => {
+            let row = issue_row(c, root, &key)?;
+            c.execute(
+                "UPDATE issues SET criteria_report = ?3, template_version = COALESCE(?4, template_version), updated = ?5 WHERE root = ?1 AND key = ?2",
+                params![root, key, json(&report), template_version, now],
+            )?;
+            log(
+                c,
+                root,
+                &key,
+                now,
+                actor,
+                "criteria",
+                None,
+                None,
+                "o Co-Dev respondeu aos critérios",
+            )?;
+            if row.state != "review" && row.state != "accept" && row.state != "done" {
+                c.execute(
+                    "UPDATE issues SET state = 'review', updated = ?3 WHERE root = ?1 AND key = ?2",
+                    params![root, key, now],
+                )?;
+                log(
+                    c,
+                    root,
+                    &key,
+                    now,
+                    actor,
+                    "moved",
+                    Some(&row.state),
+                    Some("review"),
+                    "critérios respondidos (RF-B06)",
+                )?;
+            }
+        }
+        Op::TestsRun {
+            key,
+            passed,
+            summary,
+        } => {
+            let row = issue_row(c, root, &key)?;
+            if passed {
+                c.execute(
+                    "UPDATE issues SET attempts = 0, updated = ?3 WHERE root = ?1 AND key = ?2",
+                    params![root, key, now],
+                )?;
+                log(
+                    c,
+                    root,
+                    &key,
+                    now,
+                    actor,
+                    "tests",
+                    None,
+                    None,
+                    "os testes passaram",
+                )?;
+            } else {
+                let attempts: u32 = c.query_row(
+                    "SELECT attempts FROM issues WHERE root = ?1 AND key = ?2",
+                    params![root, key],
+                    |r| r.get(0),
+                )?;
+                let attempts = attempts + 1;
+                let blocked = (attempts >= 2).then(|| {
+                    format!("precisa de ajuda: os testes falharam {attempts} vezes — {summary}")
+                });
+                c.execute(
+                    "UPDATE issues SET attempts = ?3, state = 'progress', blocked = COALESCE(?4, blocked), updated = ?5 WHERE root = ?1 AND key = ?2",
+                    params![root, key, attempts, blocked, now],
+                )?;
+                log(
+                    c,
+                    root,
+                    &key,
+                    now,
+                    actor,
+                    "tests",
+                    None,
+                    None,
+                    &format!("os testes falharam: {summary}"),
+                )?;
+                if row.state != "progress" {
+                    log(
+                        c,
+                        root,
+                        &key,
+                        now,
+                        actor,
+                        "moved",
+                        Some(&row.state),
+                        Some("progress"),
+                        "testes falharam (RF-B07)",
+                    )?;
+                }
             }
         }
         Op::SetAcceptance { key, items } => {
@@ -1562,7 +1948,8 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
         }
     }
     let mut st = c.prepare(
-        "SELECT key, title, kind, priority, points, assignee, pair, epic, cos, blocked, rank, state, sprint, ready, description, branch, dod_done, created, updated
+        "SELECT key, title, kind, priority, points, assignee, pair, epic, cos, blocked, rank, state, sprint, ready, description, branch, dod_done, created, updated,
+                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version, budget_usd
          FROM issues WHERE root = ?1 ORDER BY rank, key",
     )?;
     let issues = st
@@ -1593,12 +1980,51 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                 created,
                 updated: r.get(18)?,
                 since: since.get(&key).copied().unwrap_or(created),
+                story_as: r.get(19)?,
+                story_want: r.get(20)?,
+                story_so: r.get(21)?,
+                scope: serde_json::from_str(&r.get::<_, String>(22)?).unwrap_or_default(),
+                deps: serde_json::from_str(&r.get::<_, String>(23)?).unwrap_or_default(),
+                ready_by: r.get(24)?,
+                attempts: r.get(25)?,
+                criteria_report: r
+                    .get::<_, Option<String>>(26)?
+                    .and_then(|s| serde_json::from_str(&s).ok()),
+                template_version: r.get(27)?,
+                missing: vec![],
+                budget_usd: r.get(28)?,
+                spent_usd: 0.0,
                 key,
             })
         })?
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<Issue>, _>>()?;
+    let states: HashMap<String, String> = issues
+        .iter()
+        .map(|i| (i.key.clone(), i.state.clone()))
+        .collect();
+    // RF-T03/T04: what Co-Dev spent on each issue — the real cost of its turns
+    let mut spent: HashMap<String, f64> = HashMap::new();
+    {
+        let mut st = c.prepare(
+            "SELECT issue_key, SUM(cost_usd) FROM audit WHERE root = ?1 AND issue_key IS NOT NULL AND cost_usd IS NOT NULL GROUP BY issue_key",
+        )?;
+        for r in st.query_map(params![root], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+        })? {
+            let (k, v) = r?;
+            spent.insert(k, v);
+        }
+    }
+    let issues: Vec<Issue> = issues
+        .into_iter()
+        .map(|mut i| {
+            i.missing = readiness(&i, &states);
+            i.spent_usd = spent.get(&i.key).copied().unwrap_or(0.0);
+            i
+        })
+        .collect();
     let sprints = {
-        let mut st = c.prepare("SELECT id, name, goal, start, end, state, capacity FROM sprints WHERE root = ?1 ORDER BY start, id")?;
+        let mut st = c.prepare("SELECT id, name, goal, start, end, state, capacity, budget_usd FROM sprints WHERE root = ?1 ORDER BY start, id")?;
         let v = st
             .query_map(params![root], |r| {
                 Ok(Sprint {
@@ -1609,11 +2035,24 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                     end: r.get(4)?,
                     state: r.get(5)?,
                     capacity: r.get(6)?,
+                    budget_usd: r.get(7)?,
+                    spent_usd: 0.0,
                 })
             })?
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<Sprint>, _>>()?;
         v
     };
+    let sprints: Vec<Sprint> = sprints
+        .into_iter()
+        .map(|mut sp: Sprint| {
+            sp.spent_usd = issues
+                .iter()
+                .filter(|i| i.sprint.as_deref() == Some(sp.id.as_str()))
+                .map(|i| i.spent_usd)
+                .sum();
+            sp
+        })
+        .collect();
     let releases = {
         let mut st = c.prepare(
             "SELECT version, date, goal, epic FROM releases WHERE root = ?1 ORDER BY date",

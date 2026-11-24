@@ -11,6 +11,11 @@
    `window` by `codev.ts`. */
 
 import * as bridge from "./infrastructure/legacy-bridge";
+import { paceCps } from "./domain/composer";
+import { pairState } from "../../app/pair-state";
+import { parseAgentEvent } from "./domain/agent-events";
+/** The session id of the hunks mirrored from the PairCode host (RF-S09). */
+const MIRROR = "pair-mirror";
 import { presenter, gate, beat } from "./ui/chat-view";
 import { makeDoTool } from "./application/tool-executor";
 import { makeLiveChat } from "./application/live-chat";
@@ -153,7 +158,11 @@ const relPath = (p: string): string => (p.startsWith(bridge.root()) ? p.slice(br
 let stopTurn: () => void = () => undefined;
 let reveal: (line: number) => void = () => undefined;
 export const hunkReview = makeHunkReview({
-  review: (s, call, d) => agentGateway.review(s, call, d),
+  // RF-P03: in a PairCode session the navigator's decisions are refusals
+  review: (s, call, d) =>
+    s === MIRROR
+      ? Promise.reject(new Error("Estes hunks são do Co-Dev do anfitrião: decide-os quem conduz, do lado dele."))
+      : agentGateway.review(s, call, pairState.canDrive() ? d : d.map((x) => ({ hunk: x.hunk, accept: false, reason: "na sessão PairCode só quem conduz aceita" }))),
   flush: () => bridge.flushSave(),
   reloadFromDisk: () => bridge.reloadDisk(),
   editor: {
@@ -170,9 +179,16 @@ export const hunkReview = makeHunkReview({
     const id = setInterval(f, ms);
     return () => clearInterval(id);
   },
-  pace: () => 40,
+  // RF-S02: the pace the human chose (Lento 20 / Normal 40 / Rápido 120 / Instantâneo)
+  pace: () => paceCps(bridge.writePace()),
   notify: (m) => bridge.toast(m),
   cancel: () => stopTurn(),
+});
+/* RF-S09: in a PairCode session the guest mirrors the host's live hunks (read-only there: the
+   decisions belong to the host's agent session) */
+pairState.onCodev((e) => {
+  const ev = parseAgentEvent({ session: MIRROR, event: e });
+  if (ev) hunkReview.sink.event(MIRROR, ev.event);
 });
 hunkReview.readFrom((rel) => bridge.files()[bridge.root() + rel]?.content ?? null);
 const hunkView = makeHunkOverlayView(hunkReview, (el) => bridge.translate(el));
@@ -235,7 +251,14 @@ const agentChat = makeAgentChat({
     bridge.recordUsage(provider, input + output);
     document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output } }));
   },
-  hunks: hunkReview.sink,
+  // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
+  hunks: {
+    ...hunkReview.sink,
+    event: (s, e) => {
+      hunkReview.sink.event(s, e);
+      pairState.codevOut(e);
+    },
+  },
   flush: () => bridge.flushSave(),
   run: { event: (s, e) => codevRun.event(s, e), turnStarted: () => codevRun.turnStarted() },
 });
@@ -268,6 +291,9 @@ export const codevEngine = {
   agentStory: (s: { id: string; title: string; type: string; pts: number; note?: string }): Promise<void> | null =>
     agentChat.available() ? agentChat.story(s) : null,
   agentAvailable: (): boolean => agentChat.available(),
+  /** F4: «Work on it with Co-Dev» sends the issue's exact prompt (from `project_issue_prompt`). */
+  agentIssue: (r: { key: string; text: string; scope: string[]; template: string }): Promise<boolean> | null =>
+    agentChat.available() ? agentChat.issue(r) : null,
 };
 
 /* ───── low-level transcript/run-control helpers, shared with board.ts ───── */

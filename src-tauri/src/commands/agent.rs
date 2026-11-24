@@ -112,3 +112,12 @@ pub fn agent_task_status(id: String) -> Option<AgentTask> {
 pub fn agent_task_cancel(id: String) -> bool {
     agent::cancel(&id)
 }
+
+/// O drift das regras do arquitecto (RF-A05): o repositório contra `.dxtutor/architecture.toml`
+/// (camadas, bibliotecas, nomes), com o que nenhum ADR aceite desculpa. `null`: sem regras.
+#[tauri::command]
+pub fn arch_conformance(
+    root: String,
+) -> Result<Option<Vec<tutor_agent::conformance::Violation>>, String> {
+    tutor_agent::conformance::scan(std::path::Path::new(&root))
+}

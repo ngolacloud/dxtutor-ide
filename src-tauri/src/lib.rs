@@ -46,7 +46,7 @@ pub mod workspace;
 // para o registo de handlers abaixo continuar a referenciá-los sem prefixo de módulo.
 use commands::agent::{
     agent_isolated_patch, agent_task_cancel, agent_task_status, agent_task_submit,
-    arch_export_mermaid, arch_import_mermaid, arch_save_export, arch_scaffold,
+    arch_conformance, arch_export_mermaid, arch_import_mermaid, arch_save_export, arch_scaffold,
     arch_scaffold_preview, arch_validate,
 };
 use commands::assistant::{
@@ -890,6 +890,7 @@ pub fn run() {
             arch_export_mermaid,
             arch_import_mermaid,
             arch_save_export,
+            arch_conformance,
             run_tests,
             git_log,
             git_show,
@@ -1014,6 +1015,8 @@ pub fn run() {
             board::project_apply,
             board::project_issue,
             board::project_reports,
+            board::project_audit,
+            board::project_issue_prompt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dxtutor IDE");

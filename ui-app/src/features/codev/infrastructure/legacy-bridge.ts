@@ -123,6 +123,21 @@ export const pickPersona = (): void => G.pickAgent?.();
 export const refreshPersona = (): void => G.agentPill?.();
 
 /** A língua do ditado guardada (`dx2.dictationLang`); `null` = por escolher. */
+/** RF-S02: the editor's writing pace (`slow`/`normal`/`fast`/`instant`), kept between runs. */
+export const writePace = (): string | null => {
+  try {
+    return localStorage.getItem("dx2.writePace");
+  } catch {
+    return null;
+  }
+};
+export const setWritePace = (v: string): void => {
+  try {
+    localStorage.setItem("dx2.writePace", v);
+  } catch {
+    /* armazenamento indisponível: vale só nesta execução */
+  }
+};
 export const dictationLang = (): string | null => {
   try {
     return localStorage.getItem("dx2.dictationLang");

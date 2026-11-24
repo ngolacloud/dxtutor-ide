@@ -116,7 +116,7 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
     // the Project issue, when the conversation starts from one (A5)
     issue: null,
   });
-  expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá");
+  expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá", { kind: "chat" });
   expect(t.calls).toContain("reasoning vou ver");
   expect(t.calls).toContain("text Olá mundo");
   expect(t.calls.some((c) => c.startsWith("note usage 1.0k entrada · 50 saída · $"))).toBe(true);
@@ -271,7 +271,7 @@ test("/retomar: lista as conversas, abre a escolhida com resume (sem criar outra
   // a mensagem seguinte vai para a sessão retomada
   t.setScript(() => t.emit(done(), "sess-b"));
   await t.chat.send("e agora?");
-  expect(t.gateway.send).toHaveBeenLastCalledWith("sess-b", "e agora?");
+  expect(t.gateway.send).toHaveBeenLastCalledWith("sess-b", "e agora?", { kind: "chat" });
 });
 
 test("/retomar sem sessões ou cancelado não abre nada", async () => {
@@ -346,7 +346,7 @@ test("F6: /plano liga o modo plano antes de enviar; /reverter repõe e relê o d
   t.setScript(() => t.emit(done()));
   await t.chat.plan("acrescenta paginação");
   expect(t.gateway.setPlan).toHaveBeenCalledWith("S1", true);
-  expect(t.gateway.send).toHaveBeenCalledWith("S1", "acrescenta paginação");
+  expect(t.gateway.send).toHaveBeenCalledWith("S1", "acrescenta paginação", { kind: "chat" });
   expect((t.gateway.setPlan as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]).toBeLessThan(
     (t.gateway.send as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
   );
@@ -407,6 +407,9 @@ test("A5: a story opens a session that knows the issue (its accepted changes cou
   const starts = (t.gateway.start as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as { issue?: string | null }).issue);
   expect(starts).toEqual([null, "PRJ-7"]);
   expect(t.gateway.close).toHaveBeenCalledWith("S1");
+  // RF-G01: the chat message answers a chat request; the story's turn answers the issue
+  const origins = (t.gateway.send as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[2]);
+  expect(origins).toEqual([{ kind: "chat" }, { kind: "issue", issue: "PRJ-7" }]);
 });
 
 test("F7: parse do estado das extensões e pedido de uma correcção", () => {
@@ -514,4 +517,28 @@ test("live hunks: opens with reviewEdits, saves before sending, and shows the re
   expect(decided).toEqual([["c", true]]);
   settle!("✓ 1 alteração(ões) aplicada(s)");
   expect(t.calls).toContain("settled ✓ 1 alteração(ões) aplicada(s)");
+});
+
+test("RF-G06: a pergunta do Co-Dev aparece no chat e o evento é reconhecido", async () => {
+  expect(parseAgentEvent({ session: "S1", event: { kind: "question", text: "cursor ou página?" } })).not.toBeNull();
+  const t = setup();
+  t.setScript(() => {
+    t.emit({ kind: "question", text: "cursor ou página?" });
+    t.emit(done());
+  });
+  await t.chat.send("pagina a API");
+  expect(t.calls).toContain("note question Pergunta do Co-Dev (responde na próxima mensagem): cursor ou página?");
+});
+
+test("RF-P03: numa sessão PairCode, quem não conduz não aprova — o pedido é recusado com aviso", async () => {
+  const t = setup();
+  (t.deps as { canApprove?: () => boolean }).canApprove = () => false;
+  t.setScript(() => {
+    t.h().approval("S1", { call: { id: "c1", name: "bash", input: { command: "cargo build" }, read_only: false, command: "cargo build" }, reason: "modo Manual", dangerous: false, suggestedRule: "bash:cargo build" });
+    setTimeout(() => t.emit(done()), 5);
+  });
+  await t.chat.send("compila");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(t.gateway.approve).toHaveBeenCalledWith("S1", "c1", false, expect.stringContaining("só quem conduz"));
+  expect(t.calls.some((c) => c.startsWith("note pair Só quem conduz"))).toBe(true);
 });
