@@ -3,6 +3,7 @@
 // nenhuma das línguas. Os goldens (normalizados para inglês) provam o inglês no markup; este teste prova o par.
 import { beforeEach, describe, expect, it } from "vitest";
 import { bootApp } from "./harness";
+import PRUNED from "./fixtures/i18n-pruned-pairs.json";
 import { translator, type Messages } from "../src/app/i18n";
 import { SCM_MESSAGES } from "../src/features/scm/ui/messages";
 import { BOOT_MESSAGES } from "../src/app/boot-steps.messages";
@@ -37,6 +38,11 @@ type W = Window & { trText: (s: string, toEn?: boolean) => string | null; LOCALE
 let w: W;
 beforeEach(async () => { w = (await bootApp()) as unknown as W; w.LOCALE = "en"; });
 
+/* os pares que saíram do motor por já só servirem texto migrado (U6c lote 3) — continuam a provar os catálogos */
+const PRUNED_PT2EN = new Map((PRUNED as [string, string][]).map(([pt, en]) => [pt, en]));
+const PRUNED_EN2PT = new Map((PRUNED as [string, string][]).map(([pt, en]) => [en, pt]));
+const toEn = (s: string) => w.trText(s, true) ?? PRUNED_PT2EN.get(s) ?? s;
+const toPt = (s: string) => w.trText(s, false) ?? PRUNED_EN2PT.get(s) ?? s;
 /* parâmetros de exemplo para as entradas com {nome} */
 const SAMPLE: Record<string, Record<string, string>> = { commit: { staged: " (staged)", branch: "develop" } };
 /* os catálogos de texto MIGRADO (valores tirados do motor) — cada entrada tem de ser um par do motor */
@@ -110,7 +116,7 @@ describe("catálogos = o que o motor de tradução produzia", () => {
         const en = fill(cat.en[k]), pt = fill(cat.ptAO[k]);
         // o texto de origem estava numa das línguas: o motor traduzia-o para a outra. Algumas regras do motor só vão
         // de português para inglês (p.ex. «✓ Commit … em …»), por isso basta o sentido da origem.
-        const fromPt = (w.trText(pt, true) ?? pt) === en, fromEn = (w.trText(en, false) ?? en) === pt;
+        const fromPt = toEn(pt) === en, fromEn = toPt(en) === pt;
         expect(fromPt || fromEn, `${ns}.${k}: «${en}» / «${pt}» não é um par do motor`).toBe(true);
       }
     });
