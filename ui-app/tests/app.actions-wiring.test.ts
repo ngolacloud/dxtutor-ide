@@ -120,4 +120,25 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     click(document.getElementById("no"));
     expect(got).toEqual([["t1", true], ["t1", false]]);
   });
+
+  it("board (U5d): arrastar um cartão para outra coluna marca a coluna e chama o dropIssue com o id e o estágio", () => {
+    const drops: unknown[][] = [];
+    w.dropIssue = (...a: unknown[]) => drops.push(a);
+    document.body.insertAdjacentHTML("beforeend", `<div class="kcol" id="c1" data-action="board:col" data-on="dev"><div class="kc" id="k1" draggable="true" data-action="board:card" data-on="DX-7"><span id="kt">t</span></div></div>`);
+    const store: Record<string, string> = {};
+    const dt = { setData: (k: string, v: string) => { store[k] = v; }, getData: (k: string) => store[k] };
+    const fire = (el: Element, type: string) => { const e = new Event(type, { bubbles: true, cancelable: true }); Object.defineProperty(e, "dataTransfer", { value: dt }); el.dispatchEvent(e); return e; };
+    fire(document.getElementById("kt")!, "dragstart");
+    expect(store["text/plain"]).toBe("DX-7");
+    const over = fire(document.getElementById("kt")!, "dragover");
+    expect(over.defaultPrevented).toBe(true);
+    expect(document.getElementById("c1")!.classList.contains("over")).toBe(true);
+    fire(document.getElementById("c1")!, "dragleave");
+    expect(document.getElementById("c1")!.classList.contains("over")).toBe(false);
+    fire(document.getElementById("c1")!, "dragover");
+    const drop = fire(document.getElementById("k1")!, "drop");
+    expect(drop.defaultPrevented).toBe(true);
+    expect(document.getElementById("c1")!.classList.contains("over")).toBe(false);
+    expect(drops).toEqual([["DX-7", "dev"]]);
+  });
 });

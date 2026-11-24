@@ -30,7 +30,7 @@
    (decoratedRunIssue/decoratedApproveIssue). O VIEW.board regista-se aqui, composto;
    `renderBoardView` (publicado) é o corpo base, que os goldens caracterizam. */
 
-import { $, esc, jsa, nfmt } from "../core";
+import { $, esc, nfmt } from "../core";
 import { bus } from "../app/bus";
 import { registerActions, globalCalls, callGlobal } from "../app/actions";
 import { desktopPorts } from "../app/desktop";
@@ -100,10 +100,10 @@ function renderBoardView(_t: unknown, host: HTMLElement): void {
   const v = BL.view, list = inView(BL.issues, v), { total: pts, done } = points(list);
   const agentOn = agentAvailable();
   const cardH = (i: typeof BL.issues[number]): string => { const a = agents()[i.agent], tr = i.res ? `<span class="${i.res.every((r) => r.ok) ? "okc" : "bad"}">${i.res.every((r) => r.ok) ? "✓" : "✖"} ${i.res.filter((r) => r.ok).length}/${i.res.length} testes</span>` : "";
-    return `<div class="kc" draggable="true" ondragstart="event.dataTransfer.setData('text/plain',${jsa(i.id)})"><div class="kc-h"><span class="kc-id">${i.id}</span><span class="tag ${i.type === "fix" ? "bad" : ""}">${i.type}</span><span class="kc-p">${i.pts}</span></div><div class="kc-t">${esc(i.title)}</div><div class="kc-m"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${i.model ? ` · ${provs()[i.model].name}` : ""}<span class="tag" style="margin-left:auto">S${i.sprint + 1}</span></div>${i.branch && i.stage !== "done" ? `<div class="kc-b">⎇ ${esc(i.branch)}</div>` : ""}${i.merged ? `<div class="kc-b">merge ${i.merged} em develop</div>` : ""}${tr || i.note ? `<div class="kc-n">${tr}${i.note ? `<span>${esc(i.note)}</span>` : ""}</div>` : ""}
+    return `<div class="kc" draggable="true" data-action="board:card" data-on="${esc(i.id)}"><div class="kc-h"><span class="kc-id">${i.id}</span><span class="tag ${i.type === "fix" ? "bad" : ""}">${i.type}</span><span class="kc-p">${i.pts}</span></div><div class="kc-t">${esc(i.title)}</div><div class="kc-m"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${i.model ? ` · ${provs()[i.model].name}` : ""}<span class="tag" style="margin-left:auto">S${i.sprint + 1}</span></div>${i.branch && i.stage !== "done" ? `<div class="kc-b">⎇ ${esc(i.branch)}</div>` : ""}${i.merged ? `<div class="kc-b">merge ${i.merged} em develop</div>` : ""}${tr || i.note ? `<div class="kc-n">${tr}${i.note ? `<span>${esc(i.note)}</span>` : ""}</div>` : ""}
      ${agentOn && ["backlog", "todo", "dev"].includes(i.stage) ? `<button class="mini pri" data-action="agent-story" data-on="${esc(i.id)}" title="O agente investiga, propõe um plano para aprovares e implementa">⚡ Agente</button>` : ""}${i.stage === "backlog" || i.stage === "todo" ? `<button class="mini" data-action="delegate" data-on="${esc(i.id)}">▶ Delegar a ${a.n}</button>` : i.stage === "dev" && !run().active ? `<button class="mini" data-action="delegate" data-on="${esc(i.id)}">▶ Retomar</button>` : i.stage === "func" ? `<div class="kc-a"><button class="mini pri" data-action="approve" data-on="${esc(i.id)}">✓ Validar</button><button class="mini" data-action="reject" data-on="${esc(i.id)}">✗ Rejeitar</button></div>` : ""}</div>`; };
   host.innerHTML = `<div class="kb"><div class="kb-bar"><b style="font-size:15px">Quadro</b>${[-1, 0, 1].map((s) => `<button class="mini${v === s ? " pri" : ""}" data-action="view" data-on="${s}">${s < 0 ? "Tudo" : "Sprint " + (s + 1)}</button>`).join("")}<span class="kb-prog"><i style="width:${pts ? done / pts * 100 : 0}%"></i></span><span style="color:var(--fg-muted);font-size:11.5px">${done}/${pts} pts</span><span class="sp"></span><button class="mini" data-action="new-issue">+ Issue</button><button class="mini" data-action="open-studio">Studio</button><button class="mini pri" data-action="run-sprint" data-on="${v < 0 ? autoSprint(BL.issues) : v}">▶ Executar sprint</button></div>
-   ${BL.issues.length ? `<div class="kb-cols">${STAGES.map(([k, l]) => { const xs = list.filter((i) => i.stage === k); return `<div class="kcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="event.preventDefault();this.classList.remove('over');dropIssue(event.dataTransfer.getData('text/plain'),${jsa(k)})"><div class="kcol-h">${l}<span class="cnt">${xs.length}</span></div>${k === "test" ? '<div class="kcol-d">Ao entrar aqui os testes correm sozinhos. Falha → volta a desenvolvimento.</div>' : k === "func" ? '<div class="kcol-d">Só chega aqui o que passou nos testes. A validação é tua.</div>' : ""}${xs.map(cardH).join("")}</div>`; }).join("")}</div>`
+   ${BL.issues.length ? `<div class="kb-cols">${STAGES.map(([k, l]) => { const xs = list.filter((i) => i.stage === k); return `<div class="kcol" data-action="board:col" data-on="${esc(k)}"><div class="kcol-h">${l}<span class="cnt">${xs.length}</span></div>${k === "test" ? '<div class="kcol-d">Ao entrar aqui os testes correm sozinhos. Falha → volta a desenvolvimento.</div>' : k === "func" ? '<div class="kcol-d">Só chega aqui o que passou nos testes. A validação é tua.</div>' : ""}${xs.map(cardH).join("")}</div>`; }).join("")}</div>`
    : `<div class="empty" style="height:60%"><div><b style="color:var(--fg-dim);font-size:14px">Backlog vazio</b><br>Desenha a arquitectura no Studio e gera o backlog a partir dos componentes planeados.<br><button class="mini pri" style="margin-top:10px" data-action="open-studio">Abrir o Studio</button> <button class="mini" data-action="gen-backlog">Gerar a partir do desenho actual</button></div></div>`}</div>`;
 }
 
@@ -263,4 +263,16 @@ registerActions({
   ...globalCalls("board", ["openBoard", "openGraph"]),
   "board:runSprint": { click: (c) => void callGlobal("runSprint", Number(c.on)) },
   "board:reviewIssue": { click: (c) => void callGlobal("reviewIssue", c.on) },
+});
+
+/* arrastar os cartões entre colunas (ADR-0004, U5d): eram `ondragstart`/`ondragover`/`ondragleave`/`ondrop`
+   inline; o cartão põe o id no dataTransfer e a coluna marca-se ao passar e chama o dropIssue publicado. */
+const drag = (c: { ev: Event }): DataTransfer => (c.ev as DragEvent).dataTransfer!;
+registerActions({
+  "board:card": { dragstart: (c) => drag(c).setData("text/plain", c.on) },
+  "board:col": {
+    dragover: (c) => { c.ev.preventDefault(); c.el.classList.add("over"); },
+    dragleave: (c) => c.el.classList.remove("over"),
+    drop: (c) => { c.ev.preventDefault(); c.el.classList.remove("over"); callGlobal("dropIssue", drag(c).getData("text/plain"), c.on); },
+  },
 });

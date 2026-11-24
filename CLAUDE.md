@@ -207,9 +207,10 @@ resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`
 app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3), e
 o desktop (`platform/desktop/demos.ts`) ainda decora o `runSprint` — as arestas internas e os handlers data-action
 resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
-O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). Os handlers de ARRASTAR
-(`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
-`STRIPPED_ATTRS`, migrá-los partia o golden. Rede de segurança em
+O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). O ARRASTAR dos cartões
+(`board:card`/`board:col`) vai pelo despachante partilhado desde a U5d do ADR-0004 — os goldens do
+quadro foram regenerados nessa altura (decisão do dono; o diff foi só a remoção dos 44 atributos
+`ondrag*`/`ondrop`). Rede de segurança em
 `tests/board.golden.test.ts` (goldens do pane vazio/povoado, caracterização de
 genBacklogIssues/mkIssue, 3 testes de dispatch delegado) e `tests/board.domain.test.ts`
 (domínio puro). **BUG pré-existente reportado (não corrigido no refactor): `autoTest`

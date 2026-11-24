@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 em curso (U5a–U5c)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 em curso (U5a–U5d)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -906,3 +906,12 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   depois dos outros listeners do document (o `closeMenus`, o fecho das notificações), o que mudaria o
   efeito dos `event.stopPropagation()` da lista de extensões. Testes de cablagem acrescentados. Ficam
   os quatro handlers de arrastar do kanban (U5d) e a prosa do achado da revisão. Inline 31 → 5.
+- **U5d (2026-11-24) — o arrastar do kanban; goldens do quadro regenerados.** O cartão
+  (`board:card`, `dragstart`: põe o id no `dataTransfer`) e a coluna (`board:col`: `dragover` marca e
+  previne, `dragleave` desmarca, `drop` desmarca, previne e chama o `dropIssue` publicado com o id e o
+  estágio) passam ao despachante partilhado. Nenhum antepassado das colunas e dos cartões tem acção
+  da tabela do board, por isso o novo `data-action` não tapa nenhum clique. **Goldens regenerados por
+  decisão do dono (2026-11-24):** `board-all` e `board-sprint0` mostravam os atributos `ondrag*`/
+  `ondrop`, que o harness não tira; provou-se que o snapshot novo é o antigo com exactamente esses 44
+  atributos removidos e nada mais. Teste de cablagem do arrastar (com um `dataTransfer` falso — o
+  jsdom não tem). Inline 5 → 1 (a prosa do achado da revisão, que a U5e tira da métrica).
