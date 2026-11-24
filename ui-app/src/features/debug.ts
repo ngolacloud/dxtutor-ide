@@ -41,7 +41,7 @@ import { inlineValues } from "../app/inline-values";
 import { isDesktop } from "../platform/tauri/core";
 import {
   breakpoints, currentTab, pane, goPane, openPath, paintEd, setPanelTab, panes, lsGet, lsSet, publish,
-  root, fsRoot, content, fsKeys, exec, paletteChoose, paletteAsk,
+  root, fsRoot, content, fsKeys, exec, paletteChoose, paletteAsk, kubeTarget,
 } from "./debug/infrastructure/legacy-bridge";
 
 /* ───── estado (window-backed; o editor lê-o pela fachada `dbgBreaks`) ───── */
@@ -94,7 +94,7 @@ function renderDebugPane(): void {
   const dap = !!s && s.engine === "dap", x = engine.extra();
   const ctl = s
     ? `<div class="dbg-ctl"><button title="Continue (F5)" data-action="continue"${s.status !== "stopped" ? " disabled" : ""}>▶</button><button title="Step over (F10)" data-action="step"${s.status !== "stopped" ? " disabled" : ""}>↷</button><button title="Step into (F11)" data-action="step-into"${s.status !== "stopped" ? " disabled" : ""}>↓</button>${dap ? dapButtons(tD, s) : ""}<button title="Stop (Shift+F5)" data-action="stop">■</button><span class="notr">${esc(s.program.split("/").pop() || s.program)}</span>${dap ? dapExtras(tD, s.adapter || "lldb-dap", x.stopOnPanic) : ""}</div>`
-    : `<button class="btn" data-action="start">Start debugging (F5)</button>`;
+    : `<button class="btn" data-action="start">Start debugging (F5)</button>${isDesktop() ? `<button class="btn ghost" data-action="attach">${tD("attach")}</button>` : ""}`;
   const where = s
     ? s.status === "stopped" && st && dap
       ? `<div class="sec-empty notr">Parado em <b>${esc(st.func || "?")}</b> · ${esc((st.file || "").split("/").pop() || "")}:${st.line} (${esc(st.reason)})</div>` + dapStopped(tD, s, x, codevAsk.available(), !!projectDebug)
@@ -130,8 +130,11 @@ const engine = makeDebugEngine({
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
   bpMeta: BPMETA,
   say: sayD,
+  kubeTarget: () => kubeTarget(),
 });
 const { startDebug, dbgContinue, dbgStep, dbgStop, toggleBp } = engine;
+/** A10: «Debug: Attach to a Process…» (a paleta importa-o; não vai para o window). */
+export const dbgAttach = (): Promise<void> => engine.attach();
 const dbgStepInto = (): Promise<void> => dbgStep(true);
 
 /* clique no gutter do editor alterna o breakpoint da linha (índice do div na coluna) */
@@ -203,6 +206,7 @@ const ACTIONS: ActionTable = {
   "ask-explain": { on: "click", run: () => engine.askCodev("explain") },
   "ask-test": { on: "click", run: () => engine.askCodev("test") },
   snapshot: { on: "click", run: () => { void engine.snapshot(); } },
+  attach: { on: "click", run: () => { void engine.attach(); } },
   "bp-menu": { on: "click", run: (e) => { closeBpMenu(); void bpMenuRun(e.on); } },
 };
 bindActions(ACTIONS);

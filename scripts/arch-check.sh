@@ -207,7 +207,7 @@ fi
 # O resíduo strangler `features/<f>.ts` (publica os shims window.*) está FORA
 # desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
 # A7/A8 cobrem CADA feature nesta lista (codev + ext; a próxima acrescenta-se aqui).
-FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops"
+FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops codebase"
 FEAT_ROOT=ui-app/src/features
 
 echo "== A7 · domínio não importa application/ui/infrastructure =="

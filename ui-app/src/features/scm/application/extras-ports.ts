@@ -18,6 +18,13 @@ export interface GitExtrasPort {
   worktree(root: string, op: WorktreeOp): Promise<Worktree[]>;
   rebase(root: string, op: RebaseOp): Promise<RebasePlan>;
   amend(root: string, message: string | null, allowPublished: boolean): Promise<string>;
+  /* A10 — reviewing a change */
+  /** the working tree's changed files (`git_changes`) */
+  changes(root: string): Promise<Array<{ path: string; status: string }>>;
+  /** one file's working tree vs HEAD (`git_diff`) */
+  worktreeDiff(root: string, path: string): Promise<string>;
+  /** `base...target`, of one file or everything (`git_diff_range`) */
+  rangeDiff(root: string, base: string, target: string, path: string | null): Promise<string>;
 }
 
 export interface GitWorkspacePort {

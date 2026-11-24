@@ -44,3 +44,5 @@ import "../features/testing/styles.css";
 import "../features/hood/styles.css";
 /* A9: o separador Ops (prefixo ops-); a posição não decide nada */
 import "../features/ops/styles.css";
+/* A10: Dependencies e Onboarding (prefixo cb-); a posição não decide nada */
+import "../features/codebase/styles.css";

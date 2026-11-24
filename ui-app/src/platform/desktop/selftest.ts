@@ -583,6 +583,25 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         delete FS[tf]; delete FS[kc]; flushSave(); await idle();
       }
     });
+    // A10: as lacunas aprovadas, contra o repositório temporário e esta máquina — o mapa de onboarding,
+    // o diff de um ramo contra outro (git_diff_range), o relatório de dependências (sem rede), e onde
+    // anexar o depurador (os processos locais e o adaptador; a lista de contentores, só de leitura).
+    await step("gaps", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string;
+      const map = await inv("onboard_map", { root }) as { git: boolean; totalFiles: number; hot: Array<{ file: string }>; people: Array<{ name: string }>; languages: Array<{ name: string }> };
+      const range = await inv("git_diff_range", { root, base: "main", target: "develop", path: null }).catch((e) => "ERR " + String(e)) as string;
+      const deps = await inv("deps_report", { root, online: false }) as { ecosystems: unknown[] };
+      const local = await inv("debug_attach_targets", { target: { kind: "local", name: "", context: "", namespace: "", kubeconfig: "" } }) as { ok: boolean; processes: unknown[]; adapter: string | null };
+      const docker = await inv("debug_attach_targets", { target: { kind: "docker", name: "", context: "", namespace: "", kubeconfig: "" } }) as { ok: boolean; places: string[]; notes: string };
+      return {
+        mapGit: map.git, files: map.totalFiles, hot: map.hot.length, people: map.people.length, langs: map.languages.map((l) => l.name).join(","),
+        rangeDiff: range.startsWith("ERR") ? range.slice(0, 120) : range.includes("diff --git") ? "has diff" : "empty",
+        ecosystems: deps.ecosystems.length,
+        localProcs: local.processes.length > 0, localAdapter: !!local.adapter,
+        docker: docker.ok ? docker.places.length : docker.notes.slice(0, 80),
+      };
+    });
     // contentores (ADR-0006, R5a): ligar o runtime real (docker info pelo socket) e o pane
     // Containers lista os contentores e as imagens reais (ps/images em JSON).
     await step("containers", async () => {

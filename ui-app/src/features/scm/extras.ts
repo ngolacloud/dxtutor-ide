@@ -14,7 +14,7 @@ import { makeGitExtras } from "./application/git-extras";
 import { tauriGitExtras } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
 import { GIT_MESSAGES, type GitKey } from "./ui/git-messages";
-import { blameText, renderCompare, renderHistory, renderRebase, renderSide, renderText } from "./ui/git-views";
+import { blameText, renderCompare, renderHistory, renderRebase, renderReview, renderSide, renderText } from "./ui/git-views";
 import type { ActionTable } from "./ui/actions";
 import type { RebaseAction } from "./domain/git-extras";
 
@@ -58,12 +58,14 @@ const RENDER: Record<string, () => string> = {
   "git-compare": () => renderCompare(t, gitExtras.state().compare, Date.now()),
   "git-rebase": () => renderRebase(t, gitExtras.state().rebase),
   "git-text": () => renderText(gitExtras.state().text),
+  "git-review": () => renderReview(t, gitExtras.state().review, codevAsk.available()),
 };
 function paint(kind: string): void {
   const h = hosts[kind];
   if (!h || !h.isConnected) return;
   const a = document.activeElement;
-  if (a && h.contains(a) && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return; // never under the typing
+  // never under the typing (a checkbox or a select is not typing)
+  if (a && h.contains(a) && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && !["checkbox", "radio", "range"].includes((a as HTMLInputElement).type)))) return;
   h.innerHTML = RENDER[kind]();
 }
 for (const kind of Object.keys(RENDER)) VIEW[kind] = (_t, host) => { hosts[kind] = host; host.innerHTML = RENDER[kind](); };
@@ -112,6 +114,8 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
   ["Git: New Worktree…", guard(() => gitExtras.worktreeAdd())],
   ["Git: Amend Last Commit…", guard(() => gitExtras.amend())],
   ["Co-Dev: Write Commit Message", guard(() => gitExtras.askCommitMessage())],
+  ["Git: Review Changes (working tree)", guard(() => gitExtras.openReview("worktree"))],
+  ["Git: Review Branch…", guard(() => gitExtras.openReview("branch"))],
   ["Co-Dev: Review Staged Changes", guard(() => gitExtras.askReviewStaged())],
 ];
 
@@ -144,4 +148,10 @@ export const GIT_ACTIONS: ActionTable = {
   "gx-amend": { on: "click", run: () => { void gitExtras.amend(); } },
   "gx-ask-message": { on: "click", run: () => { void gitExtras.askCommitMessage(); } },
   "gx-ask-review": { on: "click", run: () => { void gitExtras.askReviewStaged(); } },
+  "gx-review": { on: "click", run: () => { void gitExtras.openReview("worktree"); } },
+  "gx-review-mode": { on: "click", run: (e) => { void gitExtras.openReview(e.on === "branch" ? "branch" : "worktree"); } },
+  "gx-review-file": { on: "click", run: (e) => { void gitExtras.toggleReviewFile(e.on); } },
+  "gx-review-mark": { on: "change", run: (e) => gitExtras.markReviewed(e.on, (e.el as HTMLInputElement).checked) },
+  "gx-review-group": { on: "click", run: (e) => { void gitExtras.askReviewGroup(e.on); } },
+  "gx-review-summary": { on: "click", run: () => gitExtras.askSummary() },
 };
