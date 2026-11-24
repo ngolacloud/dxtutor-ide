@@ -1,7 +1,8 @@
 # RF-CODEV-STREAM — o Co-Dev escreve no editor, ao vivo
 
-> Estado: **proposta, à espera de aprovação do dono** (Q1 de `QUESTIONS.md`: o dono pediu que este
-> contrato fosse escrito aqui, porque o `RF-backend.md` citado pelo prompt não existe).
+> Estado: **aprovado pelo dono em 2026-11-24** ("segue para a A2"), com as decisões abertas da §10
+> resolvidas pelas opções por omissão aí registadas. O dono pediu que este contrato fosse escrito aqui,
+> porque o `RF-backend.md` citado pelo prompt não existe.
 > Substitui a referência "RF-BK-S03" do prompt da Parte A.
 > Âmbito: fase A2 (UI-CODEV-01/02) e base dos artefactos do harness (A3) e dos change sets do Project (A5).
 
@@ -202,7 +203,16 @@ streaming ──hunk_end──► proposed ──(Manual/Assist)──► review
   (`change_sets(session, turn, call, path, start, end, added, removed, decided_by, decided_at, issue_key)`)
   para o Project os contar por issue. Até à A5 não se cria esta tabela.
 
-## 10. Decisões abertas
+## 10. Decisões (resolvidas por omissão em 2026-11-24; reversíveis)
+
+- **D1 → só o IDE.** A revisão obrigatória de hunks no Assistido é uma opção do anfitrião
+  (`review_edits`), ligada pelo IDE (`src-tauri`). `tutor_llm::policy` e a TUI/CLI não mudam.
+- **D2 → degradar.** Auto sem comandos de validação detectados comporta-se como Assistido nesse turno,
+  com aviso.
+- **D3 → `similar`.**
+- **D4 → depois.** O caminho legado `liveChat` sai quando a A2 estiver a funcionar e o dono confirmar.
+
+Texto original das decisões:
 
 - **D1** — a mudança do modo Assistido (§5) é de produto: confirmar que a TUI/CLI (que partilha
   `tutor_llm::policy`) também passa a pedir revisão no Assistido, ou só o IDE.
