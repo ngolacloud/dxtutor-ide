@@ -588,6 +588,16 @@ fn wait_ready(session: &Arc<Mutex<Session>>, budget: Duration) {
     }
 }
 
+/// Opções de arranque (`initializationOptions`) por linguagem. O jdtls tem o signatureHelp
+/// DESLIGADO por omissão: sem `java.signatureHelp.enabled` responde sempre sem assinaturas
+/// (medido directamente contra o jdtls 1.61). Os outros servidores não precisam de nada.
+fn init_options(lang: &str) -> Value {
+    match lang {
+        "java" => json!({ "settings": { "java": { "signatureHelp": { "enabled": true } } } }),
+        _ => Value::Null,
+    }
+}
+
 fn capabilities() -> Value {
     json!({
         "textDocument": {
@@ -602,6 +612,15 @@ fn capabilities() -> Value {
                     "snippetSupport": true,
                     "documentationFormat": ["markdown", "plaintext"],
                     "insertReplaceSupport": false
+                },
+                "contextSupport": true
+            },
+            // A UI (features/lsp) mostra a assinatura com o parâmetro activo realçado.
+            "signatureHelp": {
+                "signatureInformation": {
+                    "documentationFormat": ["markdown", "plaintext"],
+                    "parameterInformation": { "labelOffsetSupport": true },
+                    "activeParameterSupport": true
                 },
                 "contextSupport": true
             },
@@ -693,7 +712,8 @@ fn get_or_start(
             "processId": null,
             "rootUri": uri,
             "workspaceFolders": [{ "uri": uri, "name": "root" }],
-            "capabilities": capabilities()
+            "capabilities": capabilities(),
+            "initializationOptions": init_options(lang.id)
         }),
     )?;
     session_notify(&session, "initialized", json!({}))?;
@@ -968,6 +988,39 @@ pub async fn lsp_completion(
     .map_err(|e| e.to_string())?
 }
 
+/// A assinatura da chamada em que está o cursor (`textDocument/signatureHelp`). Como o hover,
+/// não espera pelo fim da indexação. `trigger_character` (`(` ou `,`) quando foi esse carácter
+/// que a pediu; `is_retrigger` quando a assinatura já estava à vista (o servidor pode manter a
+/// escolhida entre sobrecargas).
+#[tauri::command]
+pub async fn lsp_signature_help(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+    trigger_character: Option<String>,
+    is_retrigger: Option<bool>,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        let mut p = pos(&path, line, character);
+        let retrigger = is_retrigger.unwrap_or(false);
+        p["context"] = match trigger_character {
+            Some(c) if !c.is_empty() => {
+                json!({ "triggerKind": 2, "triggerCharacter": c, "isRetrigger": retrigger })
+            }
+            _ => json!({ "triggerKind": if retrigger { 3 } else { 1 }, "isRetrigger": retrigger }),
+        };
+        session_request(&session, "textDocument/signatureHelp", p)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn lsp_rename(
     app: AppHandle,
@@ -1162,6 +1215,16 @@ mod diag_tests {
 #[cfg(test)]
 mod phase4_lang_tests {
     use super::*;
+
+    #[test]
+    fn jdtls_starts_with_signature_help_enabled() {
+        assert_eq!(
+            init_options("java")["settings"]["java"]["signatureHelp"]["enabled"],
+            true
+        );
+        assert!(init_options("kotlin").is_null());
+        assert!(capabilities()["textDocument"]["signatureHelp"].is_object());
+    }
 
     #[test]
     fn server_status_names_the_language_and_server() {

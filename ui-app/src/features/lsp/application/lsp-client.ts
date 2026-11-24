@@ -17,6 +17,7 @@ import { allTargets, firstTarget, hoverBlocks, isIndexing, renameRange, uriToPat
 import { applyTextEdits } from "../domain/edits";
 import { missingServerNotice, type ServerStatus } from "../domain/server-status";
 import { completionItems, wordStartAt, type CompletionItem } from "../domain/completion";
+import { signatureView, type SignatureView } from "../domain/signature";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
@@ -50,6 +51,9 @@ export interface LspClient {
   /** As sugestões de completion no offset do ficheiro activo (`null` se não há servidor).
    *  `triggerCharacter` quando foi um carácter (ex. `.`) que abriu a lista. */
   completionAt(offset: number, triggerCharacter: string | null): Promise<CompletionResult | null>;
+  /** A assinatura da chamada no offset (`null` se o cursor não está numa chamada ou não há
+   *  servidor). `isRetrigger` quando a assinatura já estava à vista. */
+  signatureHelpAt(offset: number, triggerCharacter: string | null, isRetrigger: boolean): Promise<SignatureView | null>;
   /** O servidor publicou diagnósticos para `uri`. */
   onDiagnostics(uri: string): void;
   /** Ficheiros abertos no servidor (caminho absoluto → versão), para inspecção. */
@@ -180,6 +184,18 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   async function onEdit(): Promise<void> {
     const doc = docOf(d.workspace.currentFileKey());
     if (doc) await sync(doc);
+  }
+
+  async function signatureHelpAt(offset: number, triggerCharacter: string | null, isRetrigger: boolean): Promise<SignatureView | null> {
+    const doc = docOf(d.workspace.currentFileKey());
+    if (!doc || !(await ensureOpen(doc))) return null;
+    await sync(doc);
+    const pos = offsetToPosition(d.workspace.text(doc.key) ?? "", offset);
+    try {
+      return signatureView(await d.lsp.signatureHelp(doc.path, pos.line, pos.character, triggerCharacter, isRetrigger));
+    } catch {
+      return null;
+    }
   }
 
   async function completionAt(offset: number, triggerCharacter: string | null): Promise<CompletionResult | null> {
@@ -408,5 +424,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (doc) await serverOk(doc);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, onDiagnostics, opened: () => versions, onFileView };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, onDiagnostics, opened: () => versions, onFileView };
 }

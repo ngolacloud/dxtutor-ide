@@ -485,6 +485,11 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   `lsp_completion`): Ctrl+Espaço, depois de `.` ou com 2+ letras de um nome; ↑/↓, Enter/Tab, Esc
   apanhados na fase de captura (antes do Tab do editor). Aceitar expande o snippet e aplica os
   `additionalTextEdits`. Filtro: prefixo, depois início de palavra (camelCase), sem repetidos.
+- **Assinatura** (`domain/signature.ts`, `ui/signature-hooks.ts`, comando `lsp_signature_help`):
+  depois de `(`/`,` ou Ctrl+Shift+Espaço, um cartão por cima do cursor com o parâmetro activo a
+  negrito; acompanha a escrita e fecha quando o servidor deixa de responder (cursor fora da
+  chamada), com Esc ou ao sair. O jdtls traz o signatureHelp DESLIGADO por omissão: o `lsp.rs`
+  liga-o nas `initializationOptions` (`init_options`).
 - **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
   — o `didChange` normal só sai 180 ms depois da última tecla. Um rename que volta `null` (o jdtls
   logo após uma edição) é perguntado mais duas vezes.

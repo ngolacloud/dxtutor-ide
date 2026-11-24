@@ -15,6 +15,7 @@ export interface LspPort {
   prepareRename(path: string, line: number, character: number): Promise<unknown>;
   rename(path: string, line: number, character: number, newName: string): Promise<unknown>;
   completion(path: string, line: number, character: number, triggerCharacter: string | null): Promise<unknown>;
+  signatureHelp(path: string, line: number, character: number, triggerCharacter: string | null, isRetrigger: boolean): Promise<unknown>;
   /** Se o servidor da linguagem do ficheiro está instalado (`null` se o ficheiro não tem servidor). */
   serverStatus(path: string): Promise<ServerStatus | null>;
   /** Avisa quando o servidor publica diagnósticos de um ficheiro (URI). */
