@@ -14,6 +14,9 @@ const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", {
 beforeEach(async () => {
   vi.useFakeTimers();
   w = await bootApp();
+  // os textos verificados abaixo são os portugueses: desde a U6c do ADR-0004 o «resultados em» vem do catálogo,
+  // na língua da interface — este teste fixa o português
+  (w as unknown as { LOCALE: string }).LOCALE = "ptAO";
   calls = [];
   w.renderSearchPane();
 });

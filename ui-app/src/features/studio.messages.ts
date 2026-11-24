@@ -1,0 +1,48 @@
+/* Textos de Studio (catálogo cloud) (ADR-0004, U6c). Os valores são os que o motor de tradução produzia para o texto que estava
+   no markup; dados puros, sem DOM. */
+import type { Messages } from "../app/i18n";
+
+export const STUDIO_MESSAGES = {
+  en: {
+    connect: "⤳ Connect",
+    connect2: "Connect",
+    component: "Component",
+    name: "Name",
+    technology: "Technology",
+    status: "Status",
+    planned: "Planned",
+    inProgress: "In progress",
+    built: "Built",
+    connections: "Connections",
+    noConnections: "No connections.",
+    deleteComponent: "Delete component",
+    design: "Design",
+    eachComponentIsA: "Each component is a technology. Pick one from the catalogue, drag it, and use",
+    toDrawDependenciesApp: "to draw dependencies (app → resource). Double-click deletes.",
+    theAssistantsReadThis: "The assistants read this design to generate the project: source skeletons, Dockerfiles,",
+    kubernetesManifestsAndThe: ", Kubernetes manifests and the wiring between services.",
+    validation: "Validation",
+    theDesignIsConsistent: "The design is consistent.",
+  },
+  ptAO: {
+    connect: "⤳ Ligar",
+    connect2: "Ligar",
+    component: "Componente",
+    name: "Nome",
+    technology: "Tecnologia",
+    status: "Estado",
+    planned: "Planeado",
+    inProgress: "Em curso",
+    built: "Construído",
+    connections: "Ligações",
+    noConnections: "Sem ligações.",
+    deleteComponent: "Apagar componente",
+    design: "Desenho",
+    eachComponentIsA: "Cada componente é uma tecnologia. Escolhe uma no catálogo, arrasta-a e usa",
+    toDrawDependenciesApp: "para desenhar dependências (app → recurso). Duplo clique apaga.",
+    theAssistantsReadThis: "Os assistentes lêem este desenho para gerar o projecto: esqueletos de código, Dockerfiles,",
+    kubernetesManifestsAndThe: ", manifestos Kubernetes e as ligações entre serviços.",
+    validation: "Validação",
+    theDesignIsConsistent: "O desenho é consistente.",
+  },
+} satisfies Messages<string>;

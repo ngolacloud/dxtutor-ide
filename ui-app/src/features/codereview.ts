@@ -54,6 +54,10 @@ import {
   fsRoot,
   type Svc,
 } from "./codereview/infrastructure/legacy-bridge";
+import { translator } from "../app/i18n";
+import { CODEREVIEW_MESSAGES } from "./codereview/ui/messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(CODEREVIEW_MESSAGES);
 
 /* Presenter do cartão de Explain: a porta `view.explainCard` que o motor chama com
    dados simples. A view é dona do markup (o texto fixo `KNOW` dos ficheiros de demonstração
@@ -97,7 +101,7 @@ const SEVC: Record<string, string> = { bug: 'var(--red)', risk: 'var(--yellow)',
 function renderCreviewView(tab: unknown, host: HTMLElement): void {
   const t = tab as { path: string };
   const fs: Finding[] = reviewFindings(t.path), score = scoreFor(fs);
-  host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" data-action="open-file" data-on="${esc(t.path)}">Open file</button>${sample() && prov().claude.on ? `<button class="mini pri" data-action="deeper-review" data-on="${esc(t.path)}">Deeper review with Claude</button>` : ''}</div>
+  host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" data-action="open-file" data-on="${esc(t.path)}">${txt("openFile")}</button>${sample() && prov().claude.on ? `<button class="mini pri" data-action="deeper-review" data-on="${esc(t.path)}">Deeper review with Claude</button>` : ''}</div>
    <div class="sub" style="margin-top:12px">Rule-based checks for correctness, security, performance and the project rules. They point at evidence; you decide what to change.</div>
    ${fs.length ? fs.map(f => `<div class="rv"><div class="rv-h"><span class="tag" style="color:${SEVC[f.sev]};border-color:${SEVC[f.sev]}">${f.sev}</span><b>${f.t}</b><span class="sp"></span><button class="lnk" data-action="open-line" data-on="${f.l}:${esc(t.path)}">line ${f.l}</button></div><div class="rv-b"><p>${f.why}</p><p><b>Suggested:</b> ${f.fix}</p></div></div>`).join('') : '<div class="adv agent" style="margin-top:16px">' + svg('check') + '<div>No findings from the rule set. That is not proof of correctness — the tests are.</div></div>'}</div>`;
   analyzersSection(t.path, host);
@@ -171,7 +175,7 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
     sv.forEach(vis);
     h = `<h2>Start order</h2><div class="hood-p">${order.map((s, i) => stg(`${i + 1}. ${esc(s.name)}`, true, `${s.build ? 'build ./' + esc(s.build) : esc(s.image || '')}${s.deps.length ? ' · after ' + s.deps.map(esc).join(', ') : ''}${s.hc ? ' · healthcheck' : ''}`)).join('')}</div>`;
   } else h = `<div class="sub">${f.content.split('\n').length} lines · ${f.content.length} bytes. No deeper view for this file type yet.</div>`;
-  host.innerHTML = `<div class="page" style="max-width:860px"><h1>Under the hood</h1><div class="sub notr">${esc(short(p))}</div>${h}<div class="sub" style="margin-top:20px">Derived from the code in this workspace.</div></div>`;
+  host.innerHTML = `<div class="page" style="max-width:860px"><h1>${txt("underTheHood")}</h1><div class="sub notr">${esc(short(p))}</div>${h}<div class="sub" style="margin-top:20px">Derived from the code in this workspace.</div></div>`;
 }
 
 /* ── publicação no window (confinada ao bridge via `publish`): `renderCreviewView`/

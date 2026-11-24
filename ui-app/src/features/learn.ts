@@ -24,6 +24,10 @@ import { gradeStep, installPlugin, loadCatalog, msg, removePlugin } from "./lear
 import { tauriCourseGateway } from "./learn/infrastructure/legacy-bridge";
 import { bindActions } from "./learn/ui/actions";
 import { registerActions, callGlobal } from "../app/actions";
+import { translator } from "../app/i18n";
+import { LEARN_MESSAGES } from "./learn/ui/messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(LEARN_MESSAGES);
 
 /* ───── conteúdo dos cursos ───── */
 /* Conteúdo dos cursos: dados, não código. Rust e Go vêm embutidos (src/content/courses/*.json,
@@ -71,8 +75,8 @@ function ltOnboard(step:any){hydrateLT();let o=$('#onb');if(!o){document.body.in
   ONB_STEP=step===2?2:1;
   if(step===1||!step){ONB={lang:LTS.lang,levels:LTS.levels.slice()};if(CATALOG==='idle')refreshCatalog();
     const cards=languageCards(COURSES,PLUGINS).map(cd=>{const l=cd.language,ok=cd.state==='available';return `<button class="onb-lang${ok?'':' soon'}" ${ok?`data-action="lt-pick" data-on="${esc(l.id)}"`:'disabled'}><span class="g">${l.icon}</span><b>${esc(l.name)}</b>${ok?`<small class="notr">${esc(cd.summary.slice(0,58))}${cd.summary.length>58?'…':''}</small>`:''}<span class="tag ${ok?'live':''}">${ok?(cd.community?'Community':'Available'):'Coming soon'}</span></button>`;}).join('');
-    o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>What do you want to learn?</h2><p>Pick a language and we'll guide you through a hands-on track, one step at a time.</p><div class="onb-langs">${cards}</div>${ltPluginPanel()}</div>`;}
-  else o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>What's your level?</h2><p>Pick one or more. Your track loads only the levels you choose — mix Basic and Intermediate, go straight to Advanced, or take all three. You can change this later from the gear icon.</p>${LT_LEVELS.map(l=>`<button class="onb-lvl${ONB.levels.includes(l[0])?' on':''}" data-action="learn:level" data-on="${esc(l[0])}"><span><b>${l[1]}</b><small>${l[2]}</small></span><i>${ONB.levels.includes(l[0])?'✓':''}</i></button>`).join('')}<div class="onb-foot"><button class="lnk" data-action="learn:back">← Back</button><button class="mini pri" ${ONB.levels.length?'':'disabled'} data-action="learn:start">Start →</button></div></div>`;
+    o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>${txt("whatDoYouWant")}</h2><p>${txt("pickALanguageAnd")}</p><div class="onb-langs">${cards}</div>${ltPluginPanel()}</div>`;}
+  else o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>${txt("whatSYourLevel")}</h2><p>${txt("pickOneOrMore")}</p>${LT_LEVELS.map(l=>`<button class="onb-lvl${ONB.levels.includes(l[0])?' on':''}" data-action="learn:level" data-on="${esc(l[0])}"><span><b>${l[1]}</b><small>${l[2]}</small></span><i>${ONB.levels.includes(l[0])?'✓':''}</i></button>`).join('')}<div class="onb-foot"><button class="lnk" data-action="learn:back">${txt("back")}</button><button class="mini pri" ${ONB.levels.length?'':'disabled'} data-action="learn:start">${txt("start")}</button></div></div>`;
   o.classList.add('show');}
 /* ───── plugins de curso: carregar, instalar, remover (casos de uso em learn/application) ───── */
 let ONB_STEP=0;
@@ -90,7 +94,7 @@ function refreshCatalog(force=false):Promise<void>{
 }
 function ltPluginPanel():string{
   if(!tauriCourseGateway.available())return `<div class="onb-plug"><p class="onb-hint">More languages install as course plugins in the desktop app.</p></div>`;
-  const rows=PLUGINS.map(p=>`<div class="onb-prow"><span class="g">${p.language?p.language.icon:'⚠'}</span><span class="nm"><b>${esc(p.name)}</b> <small>${esc(p.version)}</small><small class="src notr">${esc(p.error||p.source)}</small></span><button class="lnk" data-action="lt-remove" data-on="${esc(p.id)}" ${LT_PLUG.busy?'disabled':''}>Remove</button></div>`).join('');
+  const rows=PLUGINS.map(p=>`<div class="onb-prow"><span class="g">${p.language?p.language.icon:'⚠'}</span><span class="nm"><b>${esc(p.name)}</b> <small>${esc(p.version)}</small><small class="src notr">${esc(p.error||p.source)}</small></span><button class="lnk" data-action="lt-remove" data-on="${esc(p.id)}" ${LT_PLUG.busy?'disabled':''}>${txt("remove")}</button></div>`).join('');
   return `<div class="onb-plug"><h3>Course plugins</h3><div class="onb-pin"><input id="onb-src" class="notr" placeholder="python · owner/repo · https://github.com/owner/repo · ./folder" spellcheck="false" ${LT_PLUG.busy?'disabled':''}><button class="mini pri" data-action="lt-install" ${LT_PLUG.busy?'disabled':''}>${LT_PLUG.busy?'Working…':'Install'}</button></div>${LT_PLUG.text?`<p class="onb-msg${LT_PLUG.bad?' bad':''}">${esc(LT_PLUG.text)}</p>`:''}${CATALOG==='loading'?'<p class="onb-hint">Loading installed courses…</p>':''}${rows?`<div class="onb-plist">${rows}</div>`:''}<p class="onb-hint">Anyone can publish a course: create one with <code>dxt plugin new</code> and push it to GitHub.</p></div>`;
 }
 async function ltInstall(source:string){
@@ -145,14 +149,14 @@ function openLesson(){ltResume();}function nextLesson(){return[0,0];}
 
 /* ───── corpo da vista (editor + painel do passo); app.ts mantém o shim VIEW.lt ───── */
 function renderLtView(t:any,host:HTMLElement){hydrateLT();const f=ltFind(LTS.cur);if(!f){host.innerHTML='<div class="empty">Open a step from the Learning Track.</div>';return;}const p=t.path;
-  host.innerHTML=`<div class="lt"><div class="lt-ed"><div class="lt-bar"><span class="lt-file notr">● ${esc(t.title)}</span><span class="sp"></span><button class="mini" data-action="learn:hood">Under the hood</button><button class="mini pri" id="lt-go" data-action="learn:go"></button></div><div class="lt-scroll"><div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div></div></div><div class="lt-res" id="lt-res"></div></div>`;
+  host.innerHTML=`<div class="lt"><div class="lt-ed"><div class="lt-bar"><span class="lt-file notr">● ${esc(t.title)}</span><span class="sp"></span><button class="mini" data-action="learn:hood">U${txt("underTheHood")}/button><button class="mini pri" id="lt-go" data-action="learn:go"></button></div><div class="lt-scroll"><div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div></div></div><div class="lt-res" id="lt-res"></div></div>`;
   const ta=$('#ed-ta') as HTMLTextAreaElement;ta.value=FS[p].content;paintEd(p);miniOff();ta.oninput=()=>{FS[p].content=ta.value;paintEd(p);miniOff();LT_SUB=null;ltRes();};
   ta.onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();const ind=findLanguage(LTS.lang!,PLUGINS)?.indent??'    ';if(!document.execCommand('insertText',false,ind))ta.setRangeText(ind,ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};ta.onkeyup=ta.onclick=()=>stPos();ltRes();}
 const tgt=(s:any)=>s.target.replace(/^\n/,'').replace(/\n+$/,'').split('\n');
 function drillState(s:any){const T=tgt(s),typed=(FS[ltPath(s)]?FS[ltPath(s)].content:'').replace(/\s+$/,'').split('\n'),ok=T.map((l:any,i:number)=>typed[i]!==undefined&&typed[i].trimEnd()===l.trimEnd());return{T,ok,n:ok.filter(Boolean).length,all:ok.every(Boolean)&&typed.length===T.length};}
 function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-go');if(!f||!el||!go)return;const{s}=f,done=ltDone(s.id);let h=`<div class="lt-kind"><span>${s.kind==='concept'?'Concept':s.kind==='drill'?'Drill':'Challenge'}</span><b>${done?'✓ ':''}+${s.points} pts</b></div>`;
   h+=ltReading(f);
-  if(LT_HOOD)h+=`<div class="lt-card hood"><h3>Under the hood</h3><div class="notr">${mdFull(s.intro)}</div><p class="lt-note">In the desktop app this view also compiles your code and shows measured CPU, memory and I/O. The browser prototype shows the explanation only.</p></div>`;
+  if(LT_HOOD)h+=`<div class="lt-card hood"><h3>U${txt("underTheHood")}/h3><div class="notr">${mdFull(s.intro)}</div><p class="lt-note">In the desktop app this view also compiles your code and shows measured CPU, memory and I/O. The browser prototype shows the explanation only.</p></div>`;
   if(s.kind==='concept'){h+=`<div class="lt-card notr"><h2>${esc(s.title)}</h2>${mdFull(s.body)}</div>`;go.textContent='Continue →';}
   else if(s.kind==='drill'){const d=drillState(s),hide=s.placeholder_policy!=='shown'&&!LTS.show[dk(s.id)]&&!done;if(d.all&&!done){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}const fin=ltDone(s.id);
     h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.prompt)}</div><div class="lt-prog"><span class="lp-bar" style="flex:1;margin:0"><i style="width:${d.n/d.T.length*100}%"></i></span><span>${d.n}/${d.T.length} lines</span>${hide?`<button class="mini" data-action="learn:showTarget" data-on="${esc(dk(s.id))}">Show target</button>`:''}</div>
@@ -169,15 +173,15 @@ function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-g
        Learning Track é em inglês, por isso o título é nosso e a saída crua mostra o detalhe. */
     if(g&&!g.passed)h+=`<div class="lt-card bad"><h3>✗ Not yet — the hidden tests did not pass</h3><pre class="notr">${esc(g.raw.slice(0,4000))}</pre></div>`;
     if(done){h+=`<div class="lt-card ok"><h3>✓ Passed</h3><p>The hidden tests passed.</p></div>`;
-      if(g&&g.gabarito)h+=`<div class="lt-card"><h3>Reference solution</h3><div class="lt-cx"><span>time <b>${esc(g.gabarito.time)}</b></span><span>space <b>${esc(g.gabarito.space)}</b></span></div><pre class="notr">${esc(g.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(g.gabarito.justification)}</div></div>`;}
+      if(g&&g.gabarito)h+=`<div class="lt-card"><h3>R${txt("referenceSolution")}/h3><div class="lt-cx"><span>time <b>${esc(g.gabarito.time)}</b></span><span>space <b>${esc(g.gabarito.space)}</b></span></div><pre class="notr">${esc(g.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(g.gabarito.justification)}</div></div>`;}
     go.textContent=done?'Continue →':LT_GRADING?'Grading…':'Submit ▷';}
   else{const tests=[...s.tests.matchAll(LTS.lang==='go'?/func (Test\w+)/g:/fn (\w+)\s*\(\)/g)].map(m=>m[1]);
     h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.instructions)}</div></div>`;
-    if(LT_SUB&&!LT_SUB.ok)h+=`<div class="lt-card bad"><h3>✗ Not yet</h3><p>${LT_SUB.why}</p></div>`;
-    if(done){h+=`<div class="lt-card ok"><h3>✓ Submitted</h3>${tests.map(n=>`<div class="chk ok"><span class="g">✓</span><span class="notr">${esc(n)}</span><span class="w">simulated</span></div>`).join('')}<p class="lt-note">Hidden tests decide correctness in the desktop app (<code>${LTS.lang==='go'?'go test':'cargo test'}</code>). The browser cannot compile, so this prototype only checks that you replaced the starter with a real implementation.</p></div>`;
-      if(s.gabarito)h+=`<div class="lt-card"><h3>Reference solution</h3><div class="lt-cx"><span>time <b>${esc(s.gabarito.time)}</b></span><span>space <b>${esc(s.gabarito.space)}</b></span></div><pre class="notr">${esc(s.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(s.gabarito.justification)}</div></div>`;}
+    if(LT_SUB&&!LT_SUB.ok)h+=`<div class="lt-card bad"><h3>✗${txt("notYet")}/h3><p>${LT_SUB.why}</p></div>`;
+    if(done){h+=`<div class="lt-card ok"><h3>✓${txt("submitted")}/h3>${tests.map(n=>`<div class="chk ok"><span class="g">✓</span><span class="notr">${esc(n)}</span><span class="w">s${txt("simulated")}/span></div>`).join('')}<p class="lt-note">H${txt("hiddenTestsDecideCorrectness")}code>${LTS.lang==='go'?'go test':'cargo test'}</code>)${txt("theBrowserCannotCompile")}/p></div>`;
+      if(s.gabarito)h+=`<div class="lt-card"><h3>R${txt("referenceSolution")}/h3><div class="lt-cx"><span>time <b>${esc(s.gabarito.time)}</b></span><span>space <b>${esc(s.gabarito.space)}</b></span></div><pre class="notr">${esc(s.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(s.gabarito.justification)}</div></div>`;}
     go.textContent=done?'Continue →':'Submit ▷';}
-  h+=`<div class="lt-help"><button class="mini" data-action="learn:ask">Ask the Tutor</button><span>The Tutor explains and hints; you write the final code.</span></div>`;const top=el.scrollTop;el.innerHTML=h;el.scrollTop=top;}
+  h+=`<div class="lt-help"><button class="mini" data-action="learn:ask">A${txt("askTheTutor")}/button><span>T${txt("theTutorExplainsAnd")}/span></div>`;const top=el.scrollTop;el.innerHTML=h;el.scrollTop=top;}
 function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:any)=>x.id===s.id)+1];
   if(s.kind==='concept'&&!ltDone(s.id)){LTS.done[dk(s.id)]=1;saveLT();}
   else if(s.kind==='drill'&&!ltDone(s.id)){const d=drillState(s);toast(`${d.n} of ${d.T.length} lines match — keep typing`);ltRes();return;}
@@ -190,7 +194,7 @@ function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:an
   if(nx)ltOpen(nx.id);else{toast('Track complete');if(PANE==='tutor')RP.tutor();}}
 function ltAsk(){const{s}=ltFind(LTS.cur)!;AGENT='tutor';agentPill();focusAgent(true);
   if(SAMPLE&&PROV.claude.on){ACTIVE='claude';updateAgentUI();liveChat(`I am on the ${s.kind} step "${s.title}" of the course "${course().title}". Help me move forward without giving me the solution.\nMy current code:\n${FS[ltPath(s)].content||'(empty)'}`);}
-  else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">With Claude live, the Tutor answers questions about your own code instead of showing the step's background.</p>`);}}
+  else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">W${txt("withClaudeLiveThe")}/p>`);}}
 
 /* ── publicar no window: tutor.ts/visualizer.ts/v5.ts e os shims de app.ts lêem por global ── */
 Object.assign(window, { LTS, saveLT, LT_LANGS, LT_LEVELS, LT_EXT, LT_BADGE, course, ltUnits, dk, ltDone, ltFind, ltPath, ltSeq, ltPts, stars, ltOnboard, ltStart, ltResume, ltOpen, openLesson, nextLesson, renderLtView, tgt, drillState, ltRes, ltGo, ltAsk });

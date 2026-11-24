@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6b)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -980,3 +980,22 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   pares saem quando deixarem de ter quem os use. **Reportado, não migrado:** as duas mensagens do pane sem
   repositório git («Esta pasta não é um repositório git…», «Nenhum repositório git aberto…») não têm par no motor e
   aparecem em português na interface em inglês; dar-lhes inglês muda o que se vê, por isso ficam fora do piloto.
+- **U6c (2026-11-24) — textos por chave nos módulos estáveis (lote 1).** 154 textos de 25 módulos passam a
+  catálogos (`features/<f>/ui/messages.ts` quando a feature tem pasta, senão `<ficheiro>.messages.ts`): team, studio,
+  learn, infra, tasks, tutor, checkpoint, search, welcome, ext, stack, account, terminal, visualizer, codereview,
+  palette, explorer, diagnostics, notifications, changelog, graph, board, o arranque e dois módulos do desktop. Uma
+  ferramenta sobre a AST do TypeScript encontra os textos estáticos (`>texto<` e `title`/`placeholder`) nos templates —
+  salta os que tocam num `${…}` e os que têm um antepassado no `TR_SKIP` dentro do mesmo template (o motor não os
+  traduzia) —, pede ao motor os valores `en`/`ptAO`, e só migra o que o motor traduz; o tradutor chama-se `txt` (o `t`
+  colide com variáveis locais) ou `msg` onde o nome já existe. **Prova:** os goldens ficam iguais; o
+  `i18n.catalogs.test.ts` cobre os 26 catálogos; e uma prova de paridade nas duas línguas — 31 panes e vistas
+  desenhados com `LOCALE=en` e `LOCALE=ptAO`, passados pelo motor como faria o observer, ~200 KB de HTML — dá
+  exactamente o mesmo antes e depois. Foi essa prova que apanhou o único caso de comportamento: o `teamView`
+  encontrava a linha «Review the diff…» pelo texto em inglês para inserir a linha «Explain…» a seguir; em `ptAO`, com
+  o texto já em português, deixava de a inserir — passa a procurar pelo texto da chave na língua actual. O teste
+  `search.r2b` verificava o português cru do harness («resultados em»): fixa agora `LOCALE='ptAO'` (o que verifica é
+  o português), e o `bootApp` repõe `LOCALE='en'` em cada arranque. **De fora neste lote** (em desenvolvimento noutras
+  sessões, para não colidir): o Project (A5), o Testing (A6), o separador «Co-Dev run», o Studio de arquitectura, o
+  pane Source Control (A4) e a UI do chat do Co-Dev; e `domain/`/`application/`, que não podem depender do `window`
+  (precisam de uma porta de textos). **Lacunas reportadas:** 558 textos estáticos que o motor nunca traduziu (aparecem
+  na língua de origem nas duas interfaces) ficam como estão — traduzi-los muda o que se vê.

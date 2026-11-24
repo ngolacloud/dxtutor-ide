@@ -21,6 +21,10 @@
 import { $, hd, svg, esc, prov, provState } from "../core";
 import { RP } from "../app/store/registry";
 import { registerActions, globalCalls } from "../app/actions";
+import { translator } from "../app/i18n";
+import { ACCOUNT_MESSAGES } from "./account.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(ACCOUNT_MESSAGES);
 
 interface Identity { user?: string; host?: string; gitName?: string; gitEmail?: string }
 const dxr = (): Identity | undefined => (window as unknown as { DXR?: Identity }).DXR;
@@ -38,12 +42,12 @@ function renderAccountPane(): void {
     : '<div class="sec-empty">Sem sessão local: a conta (utilizador, máquina e identidade git) só existe na app desktop.</div>';
   el.innerHTML =
     hd("Conta") +
-    `<div class="sections">${who}<div class="scm-grp">Provedores</div>${Object.entries(PROV)
+    `<div class="sections">${who}<div class="scm-grp">${txt("providers")}</div>${Object.entries(PROV)
       .map(
         ([k, p]) =>
           `<div class="kv"><span class="pdot${p.on ? "" : " off"}" style="background:${p.col}"></span>${p.name}<span class="v">${p.on ? provState(k) : "desligado"}</span></div>`,
       )
-      .join("")}<button class="btn ghost" data-action="account:openSettings">Abrir Definições</button><button class="btn ghost" data-action="account:openManager">Uso</button></div>`;
+      .join("")}<button class="btn ghost" data-action="account:openSettings">${txt("openSettings")}</button><button class="btn ghost" data-action="account:openManager">Uso</button></div>`;
 }
 
 /* ── publicação transitória no window (shim para o residual: RP.account delega aqui) ── */

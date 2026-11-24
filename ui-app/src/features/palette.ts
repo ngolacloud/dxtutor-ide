@@ -16,6 +16,10 @@
    openPath, closeMenus — globais dinâmicos do monólito, resolvidos por window em runtime
    (declarados no contrato ambiente de pair.ts; ficheiro já tipado, sem supressão de tipos). */
 import { $, esc } from "../core";
+import { translator } from "../app/i18n";
+import { PALETTE_MESSAGES } from "./palette.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(PALETTE_MESSAGES);
 
 /* ───── estado (window-backed; o resíduo boot/keydown de app.ts lê por window.*) ───── */
 window.PAL = window.PAL ?? null;
@@ -33,7 +37,7 @@ function palDraw(){const q=($('#pal-in') as HTMLInputElement|null)?.value||'';
   else if(q.startsWith(':')){const n=parseInt(q.slice(1))||1;window.PITEMS=[{l:'Ir para a linha '+n,run:()=>gotoLine(n)}];}
   else window.PITEMS=Object.keys(FS).filter(p=>fuzzy(q,short(p))).sort((a,b)=>(a.split('/').pop()||'').localeCompare(b.split('/').pop()||'')).map(p=>({l:p.split('/').pop(),d:short(p),ic:fIcon(p),run:()=>openPath(p)}));
   window.PIDX=Math.min(window.PIDX,Math.max(0,window.PITEMS.length-1));
-  $('#pal-list')!.innerHTML=window.PITEMS.length?window.PITEMS.map((it,i)=>`<div class="pi${i===window.PIDX?' on':''}" data-i="${i}">${it.ic||''}<span>${esc(it.l)}</span>${it.d?`<span class="d">${esc(it.d)}</span>`:''}${it.k?`<span class="key">${it.k}</span>`:''}</div>`).join(''):'<div class="pal-empty">Sem resultados.</div>';
+  $('#pal-list')!.innerHTML=window.PITEMS.length?window.PITEMS.map((it,i)=>`<div class="pi${i===window.PIDX?' on':''}" data-i="${i}">${it.ic||''}<span>${esc(it.l)}</span>${it.d?`<span class="d">${esc(it.d)}</span>`:''}${it.k?`<span class="key">${it.k}</span>`:''}</div>`).join(''):`<div class="pal-empty">${txt("noResults")}</div>`;
   const on=$('#pal-list .on');if(on&&on.scrollIntoView)on.scrollIntoView({block:'nearest'});}
 function palRun(i: number){const it=window.PITEMS[i];if(!it)return;if(window.PAL&&window.PAL.text)window.PAL_TEXT=window.PAL.text;closePal();it.run();}
 

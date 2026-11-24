@@ -23,6 +23,10 @@ import { $, esc } from "../core";
 import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
 import { registerActions, globalCalls, callGlobal } from "../app/actions";
+import { translator } from "../app/i18n";
+import { GRAPH_MESSAGES } from "./graph.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(GRAPH_MESSAGES);
 
 /* ───── corpo do renderer da tab `graph` (era VIEW.graph no monólito) ───── */
 function renderGraphView(_t: unknown, host: HTMLElement) {
@@ -61,7 +65,7 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
     dots += `<circle cx="${X(r.col)}" cy="${Y(i)}" r="${mg ? 4 : 5}" fill="${mg ? "var(--bg-editor)" : col}" stroke="${col}" stroke-width="2"/>`;
   });
   const refsAt = (h: string) => Object.keys(GIT.refs).filter((b) => GIT.refs[b] === h);
-  host.innerHTML = `<div class="gl"><div class="gl-bar"><button class="mini" data-action="graph:pickBranch">⎇ ${esc(BRANCH)} ▾</button>${BRANCH === "develop" ? `<button class="mini" data-action="graph:gfPrompt" data-on="feature">+ feature</button><button class="mini" data-action="graph:gfPrompt" data-on="fix">+ fix</button><button class="mini" data-action="graph:gfPrompt" data-on="release">+ release</button>` : isFlow(BRANCH) ? `<button class="mini pri" data-action="graph:gfFinish">Finalizar ${esc(BRANCH)}</button>` : `<button class="mini" data-action="graph:toDevelop">Ir para develop</button>`}<span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${GIT.order.length} commits · ${Object.keys(GIT.refs).length} ramos</span></div>
+  host.innerHTML = `<div class="gl"><div class="gl-bar"><button class="mini" data-action="graph:pickBranch">⎇ ${esc(BRANCH)} ▾</button>${BRANCH === "develop" ? `<button class="mini" data-action="graph:gfPrompt" data-on="feature">+ feature</button><button class="mini" data-action="graph:gfPrompt" data-on="fix">+ fix</button><button class="mini" data-action="graph:gfPrompt" data-on="release">+ release</button>` : isFlow(BRANCH) ? `<button class="mini pri" data-action="graph:gfFinish">Finalizar ${esc(BRANCH)}</button>` : `<button class="mini" data-action="graph:toDevelop">${txt("goToDevelop")}</button>`}<span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${GIT.order.length} commits · ${Object.keys(GIT.refs).length} ramos</span></div>
    <div class="gl-body" style="--gw:${gw}px"><svg class="gl-svg" width="${gw}" height="${L.rows.length * H}">${paths}${dots}</svg>${L.rows
      .map((r) => {
        const c = GIT.c[r.h],
