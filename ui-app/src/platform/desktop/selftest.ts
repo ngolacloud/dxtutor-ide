@@ -5,6 +5,8 @@
    relatório. Era a função `selftest` do bridge.ts, verbatim. */
 
 import type { DesktopContext } from "./context";
+import { desktopPorts } from "../../app/desktop";
+import { RP } from "../../app/store/registry";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -168,6 +170,39 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         backendLog: !!logTop && logTop.subject === msg, cleanAfter, backendClean,
         checkoutCreated: onNew === "feature/scm-probe", checkedBack: back === before,
         errBefore, errAfter: R.errors.length };
+    });
+    // A0.5 (docs/v2/UI-AUDIT.md): the pane's OWN buttons must reach real git (before, only the
+    // published globals did). Clicks the real Commit button and a branch row, and starts a
+    // gitflow branch through the published gfStart, then checks git itself.
+    await step("scmPaneButtons", async () => {
+      const errBefore = R.errors.length, click = (el: Element | null) => { if (!el) throw new Error("button not found"); el.dispatchEvent(new MouseEvent("click", { bubbles: true })); };
+      const rel = "notes/pane-button.txt", msg = "test: commit from the Source Control button";
+      writeFile(ROOT + rel, "pane button\n"); flushSave(); await idle();
+      RP.scm();
+      const input = document.getElementById("scm-msg") as HTMLInputElement; input.value = msg; input.dispatchEvent(new Event("input"));
+      click(document.querySelector('#pane-scm [data-action="commit"]')); await idle(); await idle();
+      const committed = (await git("log", "-1", "--format=%s")).stdout.trim() === msg;
+      const start = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim();
+      const flow = gfStart("fix", "pane-probe"); await idle(); await idle();
+      const flowInGit = (await git("branch", "--list", flow)).stdout.trim() !== "";
+      RP.scm();
+      click([...document.querySelectorAll('#pane-scm [data-action="checkout"]')].find(e => e.getAttribute("data-on") === start) || null); await idle(); await idle();
+      const backViaRow = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim() === start;
+      await git("branch", "-D", flow); await ctx.syncGit();
+      return { committed, flowInGit, backViaRow, errBefore, errAfter: R.errors.length };
+    });
+    // A0.5: the Testing pane lists the project's REAL tests (list_tests) on the desktop.
+    await step("testsPane", async () => {
+      const d = desktopPorts.tests; if (!d) throw new Error("tests port not installed");
+      const key = ROOT + "probe_tests.rs";
+      writeFile(key, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_passes() {}\n}\n"); flushSave(); await idle();
+      const listed = (await d.list()).map(t => t.path);
+      window.renderTestPane();
+      await new Promise(r => setTimeout(r, 1500));
+      const pane = document.getElementById("pane-test");
+      const inPane = !!pane && (pane.textContent || "").includes("probe_passes");
+      delete FS[key]; flushSave(); await idle();
+      return { listed: listed.includes("tests::probe_passes"), inPane };
     });
     // feature `infra` (migrada de v5.ts nesta sessão para features/infra.ts): prova que
     // o motor de runtime/K8s/dev-container ficou correctamente ligado depois da
