@@ -67,7 +67,6 @@ interface TreeEntry {
   children?: Record<string, TreeEntry>;
 }
 interface TerminalGlobals {
-  USER: string;
   XC: Record<string, (a: string[], v: string) => unknown>;
   run: (raw: string) => void;
   promptHTML: () => string;
@@ -77,7 +76,8 @@ const TG = window as unknown as TerminalGlobals;
 
 /* identidade neutra do terminal emulado do browser; no desktop o bridge põe o utilizador e a
    máquina reais (ADR-0006, R1c1 — era «walter@delonix») */
-TG.USER = "user";
+/* o utilizador do prompt emulado: só este módulo o lê (ADR-0004, U7o — era window.USER) */
+const USER = "user";
 /* a máquina do prompt emulado: só este módulo a lê (U7j — era window.HOST) */
 const HOST = "browser";
 
@@ -205,7 +205,7 @@ function run(raw: string): void {
       );
     },
     pwd() {
-      echo("/home/" + TG.USER + "/" + cwd.get().slice(1).join("/"));
+      echo("/home/" + USER + "/" + cwd.get().slice(1).join("/"));
     },
     cd() {
       const x = a[0] || "~";
@@ -245,7 +245,7 @@ function run(raw: string): void {
       echo(a.join(" ").replace(/</g, "&lt;"));
     },
     whoami() {
-      echo(TG.USER);
+      echo(USER);
     },
     date() {
       echo(new Date().toString());

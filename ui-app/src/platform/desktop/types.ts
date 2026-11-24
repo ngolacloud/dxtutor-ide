@@ -104,7 +104,6 @@ declare global {
   var gfStart: (kind: string, name: string) => string;
   var gfFinish: (b?: string, author?: string) => CommitNode | null;
   var updateAgentUI: (...a: any[]) => void;
-  var testProv: (k: string, btn: HTMLElement) => unknown;
   var rtConnect: () => unknown;
   var k8sConnect: () => unknown;
   var dxRun: (term?: unknown) => { ok: boolean; sum?: string };

@@ -218,7 +218,7 @@ function handlePrompt(q: string) {
 function agSend() { submit(); }
 
 /* ───── posicionamento do painel ───── */
-window.renderAgentView = (_t, host) => { host.innerHTML = `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Co-Dev</div><button class="ac-dock" data-action="assistant-dock">${svg('dock-right')} Fixar à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`; $('#agent-slot')!.appendChild($('#ag-body')!); bridge.setVar('--agent-w', '0px'); $('#tgl-agent')!.classList.remove('on'); scrollMsgs(); };
+const renderAgentView = (_t: unknown, host: HTMLElement): void => { host.innerHTML = `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Co-Dev</div><button class="ac-dock" data-action="assistant-dock">${svg('dock-right')} Fixar à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`; $('#agent-slot')!.appendChild($('#ag-body')!); bridge.setVar('--agent-w', '0px'); $('#tgl-agent')!.classList.remove('on'); scrollMsgs(); };
 function assistantCenter() { bridge.openTab({ id: 'agent', title: 'Co-Dev', kind: 'agent' }); }
 function assistantDock() { bridge.closeTab('agent'); }
 function toggleAgent() { if (bridge.tabOf('agent')) { bridge.closeTab('agent'); return; } const show = bridge.getVar('--agent-w') === '0px'; bridge.setVar('--agent-w', show ? '380px' : '0px'); $('#tgl-agent')!.classList.toggle('on', show); }
@@ -260,7 +260,7 @@ export function openSettings() { bridge.openTab({ id: 'settings', title: 'Defini
 function openManager() { bridge.openTab({ id: 'manager', title: 'Gestor de missões', kind: 'manager' }); }
 export function openAnalysis() { bridge.openTab({ id: 'analysis', title: tc('analysisTitle'), kind: 'analysis' }); }
 function testProvBase(k: string, btn: HTMLElement): void { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> ' + tc('testLive') : tc('testLiveOff')) : `<span style="color:var(--yellow)">simulado</span> ${tc('testSimulated', { ep: esc(PROV[k].ep) })}`; }, 500); }
-window.testProv = function (k, btn) { const d = desktopPorts.codev; return d && d.testProv ? d.testProv(k, btn, testProvBase) : testProvBase(k, btn); };
+const testProv = function (k: string, btn: HTMLElement): unknown { const d = desktopPorts.codev; return d && d.testProv ? d.testProv(k, btn, testProvBase) : testProvBase(k, btn); };
 const POLICY = [['Responder a perguntas de clarificação', 'tu', 'Co-Dev se confiança ≥ 80%; senão pergunta', 'Co-Dev; abaixo de 80% assume a opção reversível e assinala'], ['Escolher entre propostas dos modelos', 'tu, com recomendação do juiz', 'juiz', 'juiz'], ['Aprovar o plano', 'tu', 'automático', 'automático'], ['Editar ficheiros', 'aprovas cada edição', 'automático, com diff', 'automático, com diff'], ['Terminal: testes, build, lint', 'aprovas', 'automático', 'automático'], ['Terminal: outros comandos', 'aprovas', 'aprovas', 'automático'], ['Corrigir depois de falhar a auto-avaliação', 'aprovas', 'automático (máx. 2)', 'automático (máx. 2)'], ['Commit local', 'aprovas', 'aprovas', 'automático'], ['Push e acções destrutivas', 'aprovas', 'aprovas', 'aprovas — sempre']];
 export const renderSettingsPage = (_t: unknown, host: HTMLElement): void => {
   const mi = Object.keys(MODES).indexOf(bridge.monolith.mode); const PROV = bridge.providers();
@@ -306,7 +306,7 @@ export function renderCodevPane(): void {
 
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.codev = renderCodevPane;
-VIEW.agent = window.renderAgentView;
+VIEW.agent = renderAgentView;
 VIEW.manager = renderManagerPage;
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
@@ -323,7 +323,7 @@ const ACTIONS: ActionTable = {
   "set-mode": { on: "click", run: (e) => window.setMode(e.on) },
   "handle-prompt": { on: "click", run: (e) => handlePrompt(e.on) },
   "toggle-prov": { on: "click", run: (e) => toggleProv(e.on) },
-  "test-prov": { on: "click", run: (e) => window.testProv(e.on, e.el) },
+  "test-prov": { on: "click", run: (e) => testProv(e.on, e.el as HTMLElement) },
   "set-theme": { on: "click", run: (e) => bridge.setTheme(e.on) },
   "restore-ckpt": { on: "click", run: (e) => bridge.restoreCkpt(+e.on) },
   "open-path": { on: "click", run: (e) => bridge.openPath(e.on) },

@@ -73,9 +73,11 @@ function loadSD(): { nodes: any[]; edges: string[][] } {
 }
 
 /* estado do desenho (window-pure: residue+onclicks escrevem) + geometria dos nós */
-window.SD=emptyDesign();window.SSEL=null;/* o separador do catálogo e o modo «Connect»: com dono aqui (U7j — eram window.SCAT/SLINK) */
+window.SD=emptyDesign();/* o separador do catálogo e o modo «Connect»: com dono aqui (U7j — eram window.SCAT/SLINK) */
 export let SCAT='aws';
 export let SLINK:string|null=null;
+/* o nó seleccionado: só este módulo o lê (U7o — era window.SSEL) */
+let SSEL:string|null=null;
 let SCLICK:{id:string|null,t:number}={id:null,t:0};const NW=152,NH=58;
 const saveSD=()=>{ if (hasFolder()) writeFile(P_STUDIO(), JSON.stringify(SD, null, 2) + '\n'); else LS.set('studio4', SD); };
 /* outra pasta aberta: o desenho é o dela */

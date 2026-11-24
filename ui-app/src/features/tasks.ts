@@ -126,7 +126,6 @@ function renderIssueView(t: any, host: HTMLElement): void {
 RP.tasks = renderTasksPane;
 VIEW.issue = renderIssueView;
 
-window.renderTasksPane = renderTasksPane;
 Object.assign(window, { openIssue,});
 
 /* ── acções do pane e da vista (ADR-0004, U5b) ── eram `onclick="…"`/`onchange="…"` inline, que

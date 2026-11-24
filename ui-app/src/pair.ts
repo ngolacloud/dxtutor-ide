@@ -137,7 +137,6 @@ declare global {
   const sel: (row: HTMLElement) => void;
   const drawTimeline: () => void;
   const palette: (pre?: string, cfg?: any) => void;
-  const USER: string;
   const MISSIONS: any[];
   // `ask` (dono = features/codev.ts): porta de aprovação humana — lido por nome livre
   // pela feature `checkpoint` (gfAsk) e por v5.ts/board.ts. `v`/`pri` são polimórficos
@@ -163,7 +162,6 @@ declare global {
   // Estado do desenho do Studio (studio.ts), window-backed (var → também em window.X);
   // o resíduo/onclicks inline e generators.ts escrevem/lêem por global.
   var SD: { nodes: Array<{ id: string; tech: string; n: string; x: number; y: number; st: string }>; edges: string[][] };
-  var SSEL: string | null;
   var drawStudio: () => void;
   // Globais lidos pela feature Learning Track (learn.ts). mdFull/paintEd/miniOff/stPos/
   // user/liveChat/agentPill/focusAgent/RP/LF/PANE vivem em app.ts (@ts-nocheck) e são
@@ -175,7 +173,6 @@ declare global {
   const focusAgent: (x?: boolean) => void;
   const RP: Record<string, () => void>;
   var PANE: string;
-  var LT_HOOD: boolean;
   const has: (p: string, re: RegExp) => boolean;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.
   var refresh: (fromEd?: boolean, force?: boolean) => unknown;

@@ -95,7 +95,6 @@ declare global {
        `XC.git=(a,raw)=>window.gitCmd(a,raw)`. */
     gitCmd: (a: string[], raw: string) => { ok: boolean } | undefined;
     /* feature `diff`: corpo do renderer da tab `diff` (VIEW.diff → window.renderDiffView). */
-    renderDiffView: (t: unknown, host: HTMLElement) => void;
     /* feature `router`: amostragem ao vivo disponível (router inicializa; bridge põe a true). */
     LIVE_OK: boolean;
     /* feature `diagnostics`: `has` (o ficheiro casa a regex? — lido pelo board) e o desenho dos
@@ -108,7 +107,6 @@ declare global {
        (GIT.c/COMMITS, dono = scm.ts) pelo real (git_log/git_show) em desktop. O residual
        (menu Help + paleta) delega o render por nome (VIEW.analysis → renderChangelogPage). */
     COMMITS: Array<{ h: string; m: string }>;
-    renderChangelogPage: (t: unknown, host: HTMLElement) => void;
     clLog: () => Promise<ClCommit[]>;
     clShow: (hash: string) => Promise<string>;
     /* feature `tutor` (migrada de app.ts): pane «Learning Track» (v4). O curso e o
@@ -128,7 +126,6 @@ declare global {
     BL: any;
     AGENTS: Record<string, any>;
     STAGES: Array<[string, string]>;
-    renderTasksPane: () => void;
     /* feature `team` (motor do harness de projecto, migrado de v5.ts): `applyTemplate`
        é reatribuído por inteiro por v6.ts (como dxRun/dxStop/setMode em app.ts), por
        isso fica `window.applyTemplate=` directo em vez de `export`/`Object.assign`. */
@@ -162,8 +159,6 @@ declare global {
        papéis e o desenho (SD, window-backed) continuam donos do monólito. */
     MISSIONS: any[];
     SD: any;
-    renderAgentView: (t: unknown, host: HTMLElement) => void;
-    testProv: (k: string, btn: HTMLElement) => void;
     setMode: (m: string) => void;
     /* feature `infra` (migrada de v5.ts base + v6.ts decoração): pane «Infra» (runtime
        de contentores, dev container, Kubernetes, environments). Base v5 + decoração v6
@@ -198,9 +193,6 @@ declare global {
     /* feature `palette` (migrada de app.ts): paleta de comandos / quick open. O estado
        é window-backed porque o resíduo boot/keydown de app.ts o lê por nome livre:
        boot usa PIDX/PITEMS + palDraw/palRun, o keydown usa closePal. */
-    PAL: any;
-    PIDX: number;
-    PAL_TEXT: (q: string) => void;
     palette: (pre?: string, cfg?: any) => void;
     closePal: () => void;
     fuzzy: (q: string, s: string) => boolean;

@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7n, globais 286 → 154; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o, globais 286 → 130; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1207,11 +1207,17 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   | Lidos por e2e ou pelo harness | `toggleSide` (e2e do PairCode), `setMode` e `$$` (e2e de arranque), `setLocale` (e2e de língua), `connected` (e2e do PairCode), `checkpoint` (e2e do harness), `trNode` (harness dos goldens), `EXS` (testes da ext) | mudar o e2e/harness a ler pelo módulo |
   | Dinâmicos ou com contrato próprio | `boot`…`boot6`, `i18nBoot` (o `startup.ts` chama `window[passo]`); `openLesson`/`nextLesson` (stub de argumentos); `LIVE_OK` (dois escritores); `$` (o `boot.ts` é a base window-backed) | decisão própria (fora da U7) |
 
-  Ficam ainda 22 nomes publicados sem leitores fora do dono (`USER`, `openFile`, `SSEL`, `renderChangelogPage`,
-  `renderAgentView`, `testProv`, `LT_HOOD`, `toTimer`, `activeTab`, `wireSections`, `doSearch`, `replaceAll`,
-  `renderTasksPane`, `renderDiffView`, `PAL`, `PIDX`, `PAL_TEXT` e os `boot`…`boot6` acima): candidatos a uma limpeza
-  final, depois de confirmar que nenhum é lido por nome dinâmico (`replaceAll` e `openFile` aparecem como literais).
+  Os 22 nomes que só o dono lia saíram na U7o (abaixo), excepto os `boot`…`boot6` (dinâmicos).
   O método que serviu (U7e–U7n): o scanner de globais (leitores por nome livre, `window.X`/fachada, `callGlobal`,
   testes e e2e), a ordem de avaliação pelo DFS dos imports (o leitor que avalia depois importa; o que avalia antes
   usa `app/services.ts`), a verificação de acessos por literal exacto, e a prova por fatia (tsc, lint, testes,
   arch:check, build, e2e, paridade nas duas línguas e o auto-teste desktop).
+- **U7o (2026-11-24) — os nomes que só o dono lia.** Dezassete nomes publicados sem nenhum leitor fora do módulo
+  dono passam a valores ou funções do módulo: `USER` (constante do prompt emulado do terminal), `SSEL` (o nó
+  seleccionado do Studio), `LT_HOOD` (Learning Track), `toTimer`/`activeTab`/`wireSections` (`boot.ts`; o `activeTab`
+  nunca era escrito), `testProv` e `renderAgentView` (`features/codev.ts`), `renderChangelogPage`; e os que só se
+  publicavam sem leitor nenhum — `openFile` (separadores), `doSearch`/`replaceAll` (a acção `search:replaceAll` chama a
+  função), `renderTasksPane`, `renderDiffView`. O estado da paleta passa a ter dono no `features/palette.ts`: `PAL`,
+  `PAL_TEXT` (locais) e `palState.idx` (o item seleccionado, que o keydown do arranque move com as setas — era
+  `window.PIDX`, escrito pelos dois). Ficam os `boot`…`boot6` (o `startup.ts` chama `window[passo]`). Ordem de
+  avaliação igual. Globais publicadas 154 → 130.

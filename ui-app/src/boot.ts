@@ -31,12 +31,8 @@ declare global {
     $$: (s: string) => HTMLElement[];
     P: Record<string, string>;
     MENUS: unknown[];
-    wireSections: (scope: ParentNode) => void;
   }
-  var toTimer: ReturnType<typeof setTimeout> | undefined;
-  var activeTab: string | null;
   const svg: (name: string, cls?: string) => string;
-  const wireSections: (scope: ParentNode) => void;
   /* o String.replaceAll existe em runtime (ES2021, webview e browsers suportados) mas a lib
      do projecto é ES2020; declara-se só a assinatura que o buildDocker usa */
   interface String { replaceAll(searchValue: string, replaceValue: string): string }
@@ -46,7 +42,9 @@ declare global {
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
    Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
    livre em modo estrito (módulo). ── */
-Object.assign(window, { toTimer: undefined, activeTab: null });
+/* do toast e da barra do assistente: só este módulo os lê (U7o — eram window.toTimer/activeTab) */
+let toTimer: ReturnType<typeof setTimeout> | undefined;
+const activeTab: string | null = null;
 
 window.$=s=>document.querySelector<HTMLElement>(s);window.$$=s=>[...document.querySelectorAll<HTMLElement>(s)];
 
@@ -167,7 +165,7 @@ document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target 
   const open=getComputedStyle(document.body).getPropertyValue('--agent-w').trim()!=='0px'||(activeTab==='Assistant');if(!open)return;
   const rc=$('#ag-runctl');if(e.key==='Escape'){services.codev!.agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
   const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();services.codev!.agCtl(m[e.key]);}});
-window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
+const wireSections = function(scope: ParentNode): void {scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
 export function buildDocker(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
   /* sem dados inventados (ADR-0006, R1a): no desktop, o pane lista os contentores e as imagens reais do
      runtime ligado (platform/desktop/infra.ts regista o RP.containers — R5a); no browser não há runtime */

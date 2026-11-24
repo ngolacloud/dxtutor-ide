@@ -17,7 +17,7 @@ import { BOOT_MESSAGES } from "./boot-steps.messages";
 import { loadTeam, HT, HARN, MORD, applyTemplate, openTeam, agentPill } from "../features/team";
 import { ltResume, ltOnboard } from "../features/learn";
 import { loadSD, openStudio } from "../features/studio";
-import { closePal, palDraw, palRun, PITEMS } from "../features/palette";
+import { closePal, palDraw, palRun, PITEMS, palState } from "../features/palette";
 import { loadCfg } from "./store/config";
 import { resetWorkspace } from "../features/workspace";
 import { buildActivity } from "../features/shell";
@@ -39,7 +39,7 @@ function boot(){loadCfg();resetWorkspace();syncTree();
   $('#brand')!.innerHTML=svg('sparkle');buildMenus();buildMenubar();buildActivity();buildDocker();$('.act')!.classList.add('on');
   $$('.ptab').forEach(b=>b.onclick=()=>setPanelTab(b.dataset.pt!));
   mkRz($('#rsz-side')!,'--side-w',250,170,460);mkRz($('#rsz-agent')!,'--agent-w',380,300,640,true);
-  const pi=$('#pal-in');pi!.oninput=()=>{window.PIDX=0;palDraw();};pi!.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();window.PIDX=Math.min(PITEMS.length-1,window.PIDX+1);palDraw();}else if(e.key==='ArrowUp'){e.preventDefault();window.PIDX=Math.max(0,window.PIDX-1);palDraw();}else if(e.key==='Enter'){e.preventDefault();palRun(window.PIDX);}};
+  const pi=$('#pal-in');pi!.oninput=()=>{palState.idx=0;palDraw();};pi!.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();palState.idx=Math.min(PITEMS.length-1,palState.idx+1);palDraw();}else if(e.key==='ArrowUp'){e.preventDefault();palState.idx=Math.max(0,palState.idx-1);palDraw();}else if(e.key==='Enter'){e.preventDefault();palRun(palState.idx);}};
   $('#pal')!.onclick=e=>{const it=(e.target as Element).closest<HTMLElement>('.pi');if(it)palRun(+it.dataset.i!);else if(!(e.target as Element).closest('.pal-box'))closePal();};
   /* teclado do #ag-input: dono agora o compositor (features/codev/ui/composer.ts) */
   $('#pc-terminal')!.onclick=()=>{if(!String(getSelection())){const c=$('#cmd');if(c)c.focus({preventScroll:true});}};
