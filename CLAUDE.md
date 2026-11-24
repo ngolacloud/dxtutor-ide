@@ -555,7 +555,7 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   abre sessão (sem erro). Correndo o auto-teste com um HOME temporário, põe essa pasta no PATH
   (`PATH="$HOME/.local/share/jdtls/bin:$PATH" HOME=/tmp/… DXTUTOR_SELFTEST=…`) — senão o passo
   `lsp-java` diz que o servidor não foi encontrado (e verifica que o editor mostra o aviso).
-## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0006)
+## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0007)
 
 Feature NOVA e tipada (governada por A7/A8), separada do Studio do catálogo cloud
 (`features/studio.ts`, que continua a alimentar os geradores e o «Generate backlog»).
@@ -623,6 +623,7 @@ registada (mudança de UI aprovada), nunca para «fazer passar».
 - `docs/architecture/ADR-0002-codev-clean-architecture.md` — a decisão e as 6 fases.
 - `docs/architecture/ADR-0005-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
 - `docs/architecture/ADR-0006-ide-real.md` — o fim dos dados de demonstração e cada feature no backend real (R0–R6).
+- `docs/architecture/ADR-0007-studio-arquitectura-sistema.md` — o Studio de arquitectura de sistema (painéis, grupos, setas, Mermaid, o agente propõe).
 - `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.
