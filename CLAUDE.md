@@ -368,6 +368,17 @@ publicada. Handlers inline novos não: a métrica U5 do `ui-metrics.sh` está em
 CSP da app (`script-src 'self'`, sem `'unsafe-inline'`) bloqueava-os de qualquer forma. O passo `csp`
 do auto-teste desktop prova-o na app real.
 
+## CSS por feature (`ui-app/src/app/styles.ts`, ADR-0004 U6a)
+
+Não há `public/styles.css` (partiu-se na U6a). Os tokens estão em `app/styles/theme.css`, a base partilhada
+(reset, controlos, `.mini`/`.btn`/`.inp`/`.tag`/`.pcard`/`.tbl`/`.scm-row`, diálogo) em `app/styles/base.css`,
+a moldura (barra de título, menus, actividade, painel lateral e inferior, barra de estado) em
+`features/shell.css`, e cada feature no seu ficheiro (`features/<f>/styles.css` ou `features/<f>.css`).
+Uma regra nova vai para o ficheiro do dono. O `src/app/styles.ts` lista-os pela ORDEM DA CASCATA: só conta
+quando duas regras com a mesma especificidade em ficheiros diferentes disputam a mesma propriedade do mesmo
+elemento. Um ramo que ainda edite o `public/styles.css` dá conflito modificado/apagado ao juntar-se:
+mantém-se o apagado e as regras novas vão para o ficheiro do dono.
+
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com

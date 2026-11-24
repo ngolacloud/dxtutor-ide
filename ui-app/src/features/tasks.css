@@ -1,0 +1,16 @@
+/* estilos da feature tasks — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  /* tasks */
+  .tk-f{padding:6px 10px 2px}.tk-f .seg button{font-size:11.5px}
+  .tk-sum{margin:8px 10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated);font-size:12px}
+  .tk-sum>div:first-child{display:flex;align-items:center;gap:8px}.tk-sum .lp-bar{flex:1;margin:0}
+  .tk-k{display:flex;gap:10px;margin-top:6px;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted)}
+  .tk-wait{display:flex;align-items:center;gap:8px;margin:4px 10px 6px;padding:7px 10px;border-radius:8px;background:var(--accent-soft);border:1px solid var(--accent);color:var(--accent-hover);font-size:12px;cursor:pointer}
+  .tk-h{cursor:pointer;gap:6px}.tk-h .pdot{margin:0}
+  .tk-row{display:flex;align-items:center;gap:7px;height:26px;padding:0 10px 0 14px;font-size:12.5px;cursor:pointer}.tk-row:hover{background:var(--bg-hover)}
+  .tk-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tk-row .kc-id{font-size:10.5px;flex:none}
+  .tk-c{font-family:var(--font-mono);font-size:10px;color:var(--fg-muted);flex:none;margin-left:auto}
+  .iss-flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0 4px;font-size:11.5px;color:var(--fg-muted)}
+  .iss-flow span{padding:2px 8px;border-radius:10px;border:1px solid var(--border)}.iss-flow span.ok{color:var(--green);border-color:var(--green)}.iss-flow span.cur{color:#fff;background:var(--accent-grad);border-color:transparent}.iss-flow i{font-style:normal}
+  .adv{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:9px;border:1px solid var(--border);background:var(--bg-elevated);font-size:13px;line-height:1.55}
+  .adv svg{flex:none;width:16px;height:16px;margin-top:2px}.adv small{display:block;color:var(--fg-muted);font-size:11px;margin-top:4px}
+  .adv.agent{border-color:var(--green)}.adv.agent svg{color:var(--green)}.adv.you{border-color:var(--accent)}.adv.you svg{color:var(--accent-hover)}.adv.mix{border-color:var(--yellow)}.adv.mix svg{color:var(--yellow)}

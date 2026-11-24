@@ -103,10 +103,11 @@ crates/
   tutor-cli            prova ponta-a-ponta do cérebro (dxt demo)
 ui-app/index.html      interface que embarca (protótipo v7 componentizado)
 ui-app/src/boot.ts     arranque: globais no window que o resto consome por nome
-ui-app/src/app.ts      corpo da aplicação (painéis, editor, comandos)
+ui-app/src/app/        composição: estado (store), acções delegadas, comandos/menus, arranque, estilos (styles.ts)
+ui-app/src/features/   as features (cada uma com o seu CSS)
 ui-app/src/bridge.ts   liga a interface ao backend (só actua dentro da aplicação)
 ui-app/src/pair.ts     PairCode: sessão, sincronização, controlo, chamada
-ui-app/public/         estáticos servidos tal-e-qual (styles.css, jszip.min.js)
+ui-app/public/         estáticos servidos tal-e-qual (jszip.min.js)
 src-tauri/src/
   main.rs              entrada fina; lib.rs regista os 133 comandos IPC
   lib.rs               comandos ricos do dxtutor (estudo, git, debug, LSP, agent,

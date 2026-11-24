@@ -1,0 +1,7 @@
+/* estilos da feature ext — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  .ovsx-row{display:flex;gap:6px;margin:8px 0}.ovsx-row .inp{flex:1;min-width:0}
+  /* extensions */
+  .ex-row{display:flex;gap:9px;padding:7px 10px;cursor:pointer;align-items:flex-start}.ex-row:hover{background:var(--bg-hover)}
+  .ex-ic{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:#fff;font-weight:700;flex:none}.ex-ic.big{width:56px;height:56px;font-size:24px;border-radius:12px}
+  .ex-t{flex:1;min-width:0}.ex-t b{display:block;font-size:12.5px}.ex-t small{display:block;font-size:11.5px;color:var(--fg-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ex-t span{font-size:10.5px;color:var(--fg-muted)}
+  .ex-row .mini{flex:none;padding:2px 8px;font-size:11px}

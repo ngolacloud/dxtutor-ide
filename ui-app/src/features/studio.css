@@ -1,0 +1,29 @@
+/* estilos da feature studio — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  /* studio */
+  .studio{display:flex;flex-direction:column;height:100%}
+  .st-main{flex:1;min-height:0;display:flex}
+  .st-canvas{flex:1;overflow:auto;background:var(--bg-base)}
+  #st-svg{display:block;user-select:none;width:100%;min-width:560px;max-width:1150px;height:auto}
+  .st-insp{width:230px;flex:none;border-left:1px solid var(--seam);padding:14px;font-size:12.5px;line-height:1.55;overflow:auto;color:var(--fg-dim)}
+  .st-insp h3{font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--fg-dim);margin-bottom:10px}
+  .st-insp p{margin-bottom:9px}
+  .st-insp label{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--fg-muted);display:block;margin:8px 0 3px}
+  .st-insp select{width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;outline:none}
+  .st-e{display:flex;align-items:center;gap:7px;padding:3px 0;color:var(--fg)}
+  .st-e button{margin-left:auto;color:var(--fg-muted);width:18px}.st-e button:hover{color:var(--red)}
+  @media(max-width:900px){.st-insp{display:none}}
+  .studio #st-svg{min-width:640px}
+  /* studio catalogue */
+  .st-cat{width:196px;flex:none;border-right:1px solid var(--seam);overflow:auto;padding:8px}
+  .st-tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin-bottom:8px}
+  .st-tabs button{font-family:var(--font-mono);font-size:9px;font-weight:700;padding:5px 0;border-radius:5px;border:1px solid var(--border);color:var(--fg-muted)}
+  .st-tabs button.on{border-color:var(--c);color:var(--c);background:var(--bg-input)}
+  .st-ct{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--fg-muted);padding:2px 3px 6px}
+  .st-tech{display:flex;align-items:center;gap:7px;width:100%;text-align:left;font-size:12px;padding:5px 7px;border-radius:6px;border:1px solid transparent}
+  .st-tech:hover{background:var(--bg-hover);border-color:var(--border)}.st-tech i{margin-left:auto;font-style:normal;color:var(--fg-muted)}
+  .st-kv{display:flex;gap:8px;align-items:baseline;font-size:11.5px;margin-top:6px;color:var(--fg-muted)}
+  .st-kv code{margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--fg);text-align:right;word-break:break-all}
+  .st-f{display:flex;gap:7px;font-size:11.5px;line-height:1.45;padding:4px 0;color:var(--fg)}
+  .st-f span{flex:none}.st-f.e span{color:var(--red)}.st-f.w span{color:var(--yellow)}.st-f.ok span{color:var(--green)}
+  .st-insp code{font-family:var(--font-mono);font-size:11px}
+  @media(max-width:1000px){.st-cat{width:150px}}

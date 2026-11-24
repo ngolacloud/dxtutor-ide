@@ -20,10 +20,14 @@
    U3: os proprietários de estado (`app/store`) vêm PRIMEIRO — publicam as globais de
    estado como acessores antes de o monólito as escrever, e cada mudança sai no bus.
 
+   U6a: os estilos (`app/styles` — a lista ordenada dos CSS por dono) vêm à cabeça; não avaliam
+   código, só fixam a ordem da cascata.
+
    U5: o despachante das acções delegadas partilhadas (`app/actions`) vem antes de tudo — o
    seu listener tem de ser o primeiro do document, como um handler inline (que corria no
    elemento, antes de o evento chegar ao document). */
 
+import "./app/styles";
 import "./app/actions";
 import "./app/store";
 import "./boot";
