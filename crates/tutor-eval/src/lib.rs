@@ -32,6 +32,7 @@ pub mod js_runner;
 pub mod lang;
 pub mod lsp;
 pub mod measured;
+pub mod ops;
 pub mod plugin;
 pub mod review;
 pub mod runner;

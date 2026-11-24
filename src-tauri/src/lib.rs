@@ -86,6 +86,10 @@ use commands::git::{
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
+use commands::ops::{
+    ops_cloud_inventory, ops_cloud_status, ops_iac_dirs, ops_iac_plan, ops_kube_history,
+    ops_kube_state,
+};
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
 use commands::panel::{ports_list, problems_scan};
 use commands::plugins::{plugin_install, plugin_list, plugin_remove};
@@ -978,6 +982,12 @@ pub fn run() {
             hood_line_asm,
             hood_python_bytecode,
             measure_growth,
+            ops_iac_dirs,
+            ops_iac_plan,
+            ops_kube_state,
+            ops_kube_history,
+            ops_cloud_status,
+            ops_cloud_inventory,
             devcontainer_info,
             devcontainer_up,
             devcontainer_exec,

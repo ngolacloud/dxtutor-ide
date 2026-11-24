@@ -18,6 +18,7 @@ pub mod dictation;
 pub mod git;
 pub mod hood;
 pub mod missions;
+pub mod ops;
 pub mod pair;
 pub mod panel;
 pub mod plugins;
