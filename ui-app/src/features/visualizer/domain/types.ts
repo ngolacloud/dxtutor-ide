@@ -148,12 +148,12 @@ export interface VzNote {
 export interface VzSlotRef { fi: number; si: number; idx?: number | null; mut: boolean; fat?: boolean }
 
 /** O retrato de uma variável numa frame (o que o overlay desenha). `ptr` é o id do bloco
- *  de heap (Vec/String), `ro` o id do literal em dados só-de-leitura, `arr` as células de
+ *  de heap (Vec/String, `h1`, `h2`…), `ro` o id do literal em dados só-de-leitura, `arr` as células de
  *  um array, `hdr` o cabeçalho (ptr/cap/len) de um Vec/String. */
 export interface VzSlot {
   name: string; ty: string; val: string; addr: number; size: number;
   st?: string; mvAt?: number; mvTo?: string | null; mut?: boolean; fi: number; si: number;
-  ptr: number | null; hdr: { addr: number; cap: number; len: number } | null;
+  ptr: string | null; hdr: { addr: number; cap: number; len: number } | null;
   ro: number | null; ref: VzSlotRef | null; arr: string[] | null; aes: number;
 }
 
@@ -161,7 +161,7 @@ export interface VzSlot {
 export interface VzFrame { fn: string; line: number; sp: number; base: number; slots: VzSlot[] }
 
 /** O retrato de um bloco de heap (buffer de Vec ou bytes de String). */
-export interface VzHeapBlock { id: number; kind: string; addr: number; cap: number; es: number; len: number; cells: string[]; freed?: boolean; label?: string }
+export interface VzHeapBlock { id: string; kind: string; addr: number; cap: number; es: number; len: number; cells: string[]; freed?: boolean; label?: string }
 
 /** Um literal em dados só-de-leitura (`&'static str`). */
 export interface VzRoData { id: number; s: string; addr: number; len: number }

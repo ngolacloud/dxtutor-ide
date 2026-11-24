@@ -38,9 +38,9 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
   `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn` e `arch`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
-  é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
-  o único `@ts-nocheck` dentro de uma subárvore — ver abaixo). A `infra` nasceu com a
-  subárvore inteiramente TIPADA (decisão do dono): nenhum `@ts-nocheck` novo, A6 fica 8.
+  é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
+  feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
+  foram tipados); só restam os dois do monólito, `app.ts` e `boot.ts`.
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
@@ -224,9 +224,9 @@ features/visualizer/
   domain/          lexer.ts (vzLex+vzErr), parser.ts (vzParse→AST {fns}), hints.ts
                    (vzHints), narrate.ts (vzTell+VZSEEN, importa esc do core),
                    samples.ts (VZS), constants.ts (VZSZ/VZR/hex), types.ts. PURO.
-                   interpreter.ts (vzRun + modelo de memória) — ÚNICO @ts-nocheck da
-                   subárvore (decisão do dono: AST polimórfico + objectos-valor densos;
-                   tipagem fica p/ passagem futura). É PURO à mesma (A7/A8 verdes).
+                   interpreter.ts (vzRun + modelo de memória) — tipado desde a U4i3 do
+                   ADR-0004 (o escalar `v` do valor fica `VzScalar = any`, o único any
+                   deliberado). PURO (A7/A8 verdes).
   application/     ports.ts (VisualizePorts {run,narrate,resetSeen}) + visualize.ts
                    (buildVisualization: resetSeen→run→constrói notas; deps injectadas).
   ui/              actions.ts (bindActions: 1 listener delegado; guard no document, não

@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4h, U4i1–U4i2; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i; o v5/v6 já não existem; só app.ts/boot.ts com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -658,3 +658,30 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   testes). `@ts-nocheck` 4 → 3. Verificado na worktree limpa: tsc, 438 testes (snapshots
   sem diff — os goldens do overlay incluídos), arch:check, build, arranque no browser 5/5 e
   auto-teste desktop idêntico ao da U4i1.
+- **U4i3 (2026-11-24) — o interpretador `vzRun` tipado.** Era o `@ts-nocheck` deliberado da
+  ADR-0002 (AST polimórfico + objectos-valor densos). Tipos internos: `VzVal` (o valor; `t`
+  discrimina as ~13 variantes), `VzLoc`/`VzPlace`, `VzSlotState`/`VzFrameState`, `VzHeapObj`,
+  `VzRoEntry`, o estado `S`, `VzThrow` (panic/compilação/limite/`ret`/`brk`/`cont`) e `VzFmt`;
+  as 48 funções com assinatura; `panic`/`comp` com tipo `never` explícito (o que corrige o
+  fluxo de controlo dos `switch`). **Decisão:** o escalar `v` do valor fica `VzScalar = any` —
+  o único `any` deliberado, documentado no ficheiro — porque a variante `t` decide em runtime
+  se é número, booleano ou carácter e o TypeScript não segue esse estreitamento através do
+  `dz()`; os ~60 casts `as number` que a alternativa exigia seriam tão pouco verificados como
+  o `any`. Os `!` dos «possibly undefined/null» (≈270) foram inseridos por um script sobre os
+  diagnósticos do TypeScript. **Apanhado pela prova de equivalência:** em dois erros de
+  atribuição o TypeScript aponta o alvo, e o script pôs o `!` antes do `=` —
+  `caller.callLine!=l` e `line0.v!=s.line`, que sem espaços se lêem como o operador `!=` e
+  apagavam a atribuição; o diff do JavaScript emitido mostrou-os, corrigiram-se para
+  `= l!`/`= s.line!`, e as contagens de `!=`/`!==`/`==`/`===` ficaram iguais às do original.
+  O JavaScript emitido final só difere do original em código morto removido (`STOP = {}` e
+  um `const s = …` sem uso nem efeitos) e em quatro parâmetros/variáveis não usados
+  renomeados com `_`. Corrigidos dois tipos da U4i2: os ids de heap são strings (`h1`), por
+  isso `VzSlot.ptr`/`VzHeapBlock.id` passam a `string`. As sentinelas U+0000/U+0001 do `fmt`
+  ficaram intactas (verificado em cada passo). **Bug pré-existente reportado (não
+  corrigido):** `println!()` sem argumentos escreve `undefined` — o `fmt` devolve `''` quando
+  não há argumentos e o `mac` lê `.s` disso (confirmado a correr o `vzRun`: `"a\nundefined\nb\n"`).
+  `@ts-nocheck` 3 → 2 (só `app.ts` e `boot.ts`); lint do ficheiro 21 → 17. Verificado na
+  worktree limpa sobre a HEAD `c9d8290`: tsc, 438 testes (os goldens que pinam a saída do
+  `vzRun` byte-a-byte sem diff), arch:check, build, arranque no browser 5/5 (numa corrida
+  anterior o `arch.e2e.ts` da outra sessão falhou uma vez; na HEAD sem estas alterações e na
+  repetição com elas passou — transitório) e auto-teste desktop idêntico ao da U4i2.
