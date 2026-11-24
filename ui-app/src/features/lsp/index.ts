@@ -6,7 +6,8 @@
    definição (F12), referências (Shift+F12) e rename (F2); e pelo completion (`ui/completion-hooks`:
    Ctrl+Espaço, depois de `.` ou ao escrever um nome) e pela assinatura da chamada
    (`ui/signature-hooks`: depois de `(`/`,` ou Ctrl+Shift+Espaço); pela formatação (Shift+Alt+F) e
-   pelo Go to Symbol (`ui/symbol-hooks`: Ctrl+Shift+O e a paleta). Os mesmos símbolos dão o Outline
+   pelo Go to Symbol (`ui/symbol-hooks`: Ctrl+Shift+O e a paleta) e pelo Go to Symbol in Workspace
+   (`ui/workspace-symbol-hooks`: Ctrl+T e a paleta). Os mesmos símbolos dão o Outline
    das linguagens que o `file_outline` não cobre (`desktopPorts.outline`, consultada pelo explorador).
    Os diagnósticos já chegam ao Problems e ao gutter pelo painel (`features/panel`); aqui
    só se volta a pintar o ficheiro aberto quando os dele mudam. Quando o servidor da linguagem
@@ -26,6 +27,7 @@ import { bindCompletionHooks } from "./ui/completion-hooks";
 import { bindSignatureHooks } from "./ui/signature-hooks";
 import { bindFormatHooks } from "./ui/format-hooks";
 import { bindSymbolHooks } from "./ui/symbol-hooks";
+import { bindWorkspaceSymbolHooks } from "./ui/workspace-symbol-hooks";
 
 if (isDesktop()) {
   const client = makeLspClient({ lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0) });
@@ -64,6 +66,13 @@ if (isDesktop()) {
     enabled: () => !!workspace.diskRoot(),
   });
   addPaletteCommand("Go to Symbol in Editor…", "Ctrl+Shift+O", goToSymbol);
+  /* Ctrl+T (e a paleta): os símbolos da pasta, de cada servidor que já corre nela */
+  const goToWorkspaceSymbol = bindWorkspaceSymbolHooks({
+    workspaceSymbolsFor: client.workspaceSymbolsFor,
+    openWorkspaceSymbol: client.openWorkspaceSymbol,
+    enabled: () => !!workspace.diskRoot(),
+  });
+  addPaletteCommand("Go to Symbol in Workspace…", "Ctrl+T", goToWorkspaceSymbol);
   /* o Outline das linguagens que o file_outline não cobre: os símbolos do servidor */
   desktopPorts.outline = {
     covers: (p) => !!workspace.diskRoot() && !!languageIdFor(p),

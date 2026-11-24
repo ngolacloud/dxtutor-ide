@@ -555,6 +555,15 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   jdtls respondia vazio ao completion/signatureHelp a sessão inteira (o kotlin-language-server
   perdia as referências). Agora o backend só usa uma sessão do mapa depois de `initialized`
   (`Session::initialized`, `wait_initialized`) e o cliente espera pelo `lsp_start`/`didOpen` em curso.
+- **Símbolos da pasta** (`domain/workspace-symbols.ts`, `ui/workspace-symbol-hooks.ts` +
+  `showWorkspaceSymbolPicker`, comando `lsp_workspace_symbols(root, query)`): Ctrl+T (no editor, ou
+  fora de campos de texto e do terminal) ou «Go to Symbol in Workspace…» na paleta abre `#lsp-wsymbols`;
+  cada tecla (pausa de 150 ms) pergunta o `workspace/symbol` a CADA servidor que já corre na pasta
+  (em paralelo, até 5 s cada; não arranca servidores — sem nenhum, o cartão diz para abrir um
+  ficheiro). GOTCHAs medidos: o jdtls só devolve TIPOS sem `java.symbols.includeSourceMethodDeclarations`
+  (ligado no `init_options`) e nada a uma consulta vazia; o kotlin-language-server manda só o URI
+  (sem linha) e `containerName: "null"` — abrir um desses abre o ficheiro e procura a posição pelo
+  `documentSymbol` (`locateInFile`).
 - **Pedidos do servidor ao cliente:** o `id` pode ser número ou TEXTO (o jdtls usa texto); o
   `dispatch` responde a ambos. Sem resposta ao `workspace/configuration`, o jdtls bloqueava.
 - **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
@@ -570,7 +579,7 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   linguagem na sessão.
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
-- **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, `lsp.symbols.test.ts`, e o passo
+- **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, `lsp.symbols.test.ts`, `lsp.workspace-symbols.test.ts`, e o passo
   `lsp-java`/`lsp-kotlin` do auto-teste desktop (`DXTUTOR_SELFTEST`, Xvfb), que conduz o editor real.
   GOTCHA: o backend procura o `jdtls` no PATH e em `$HOME/.local/share/jdtls/bin`; sem servidor não
   abre sessão (sem erro). Correndo o auto-teste com um HOME temporário, põe essa pasta no PATH
