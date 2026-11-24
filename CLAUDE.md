@@ -274,7 +274,7 @@ features/infra/
   ui/              actions.ts (1 listener delegado: data-action + data-on; chave própria
                    __infraActionHandler__).
   infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
-features/infra.ts  RESÍDUO strangler (@ts-nocheck, FORA da subárvore) + raiz de composição:
+features/infra.ts  RESÍDUO strangler (tipado desde a U4i1 do ADR-0004; FORA da subárvore) + raiz de composição:
                    DONO do estado (ENVS/ENVX/K8S/DEVC/OBS window-backed) e do DOM
                    (renderInfraPane base v5+decoração v6 dobradas, renderEnvsView,
                    renderObserveView, drawRemote/infraDraw, cache OBS/polling); compõe o

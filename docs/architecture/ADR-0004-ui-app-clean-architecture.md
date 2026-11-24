@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h5; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4h, U4i1; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -627,3 +627,20 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   da HEAD `fcdc98a`; e uma sonda temporária na app real, HEAD vs árvore — raiz do explorador,
   botões de pasta nas boas-vindas, changelog sobre git real (`git show`), JSZip carregado do
   ficheiro embutido — idênticos.
+- **U4i — plano (2026-11-24).** Tirar o `@ts-nocheck` aos três ficheiros que restam fora do
+  monólito: `features/infra.ts` (86 erros sem a directiva), `features/visualizer.ts` (129) e
+  `visualizer/domain/interpreter.ts` (376) — um commit cada, do menor para o maior. Regra: só
+  anotações, `as`, `!` e declarações; a prova é que o JavaScript emitido (tipos retirados,
+  comentários fora, parênteses canonizados pela AST) é o mesmo antes e depois, e qualquer
+  desvio aparece nessa comparação. As verificações correm numa worktree limpa da HEAD com só
+  as alterações da fatia, porque outra sessão está a criar `features/arch/` na mesma árvore e
+  o código dela ainda não compila.
+- **U4i1 (2026-11-24) — o `features/infra.ts` tipado.** As globais que o resíduo publica e lê e
+  que o contrato ainda não declarava (`saveEnv`, `saveEnvx`, `SHOWSEC`, `DRIFT`, `OBS`, `XC`,
+  `ctlLogs`, `promote`, `redeployEnv`, `openEnvs`, `k8sScale`, `k8sDown`, `startDebug`) entram
+  por `declare global`; os parâmetros e o estado ganham os tipos do domínio (`ActionTable`,
+  `ObsData`, `ObserveTab`, `SecretSets`, `EnvDep`, `K8sDep`); os acessos que podem dar `null`
+  levam `!`/`as`. JavaScript emitido idêntico, à excepção de um parâmetro não usado (`t` →
+  `_t`, exigido pelo `noUnusedParameters`). `@ts-nocheck` 5 → 4; lint 276 → 275. Verificado
+  na worktree limpa: tsc, 414 testes (snapshots sem diff), arch:check, build, arranque no
+  browser 4/4 e auto-teste desktop idêntico ao da HEAD.

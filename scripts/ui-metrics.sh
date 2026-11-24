@@ -21,7 +21,7 @@ count() { wc -l | tr -d ' '; }
 
 metric "tags <script> no index.html (U1)" 1 1 \
   "$(grep -c '<script' "$UI/index.html")"
-metric "ficheiros com // @ts-nocheck (U4)" 5 0 \
+metric "ficheiros com // @ts-nocheck (U4)" 4 0 \
   "$(grep -rlE '^// @ts-nocheck' "$SRC" | count)"
 # nomes publicados em Object.assign(window, { … }) — mede o que o monólito ainda resolve
 # por global; mover uma função de módulo não muda o número (U4), deixar de a publicar sim
