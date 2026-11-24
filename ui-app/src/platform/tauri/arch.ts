@@ -18,7 +18,7 @@ export type ArchSystemKindDto =
 export type ArchKindDto = ArchEventKindDto | ArchSystemKindDto;
 export type ArchRelationDto = "writes" | "reads" | "publishes" | "consumes" | "routes-to";
 export type ArchProtocolDto = "grpc" | "http" | "unix-socket" | "fork-exec" | "syscall" | "fs" | "ssh" | "event";
-export type ArchEdgeStyleDto = "control" | "data" | "optional";
+export type ArchEdgeStyleDto = "control" | "data" | "optional" | "depends";
 export type ArchGroupKindDto = "host" | "plane" | "node" | "module" | "layer" | "boundary";
 
 export interface ArchComponentDto {

@@ -8,7 +8,7 @@
 export type AskIntent = "chat" | "explain" | "fix" | "change" | "review" | "plan";
 
 export interface AskContext {
-  kind: "selection" | "file" | "hunk" | "problem" | "test" | "lesson" | "issue" | "terminal";
+  kind: "selection" | "file" | "hunk" | "problem" | "test" | "lesson" | "issue" | "terminal" | "comment";
   /** Short label for the chip (e.g. `lib.rs:12–18`). */
   label: string;
   /** The text the context carries (a selection, a diff, an error). */

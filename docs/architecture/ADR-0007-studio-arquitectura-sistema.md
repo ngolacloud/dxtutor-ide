@@ -1,4 +1,4 @@
-# ADR-0006 — Studio de arquitectura de sistema
+# ADR-0007 — Studio de arquitectura de sistema
 
 - **Estado:** aceite (2026-11-24), implementado nas fases F0–F7.
 - **Contexto de origem:** pedido para o Studio conseguir desenhar os diagramas de

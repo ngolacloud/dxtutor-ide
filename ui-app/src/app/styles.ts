@@ -40,3 +40,5 @@ import "../features/visualizer/styles.css";
 import "../features/panel/styles.css";
 /* A6: o pane Testing (runners, resultados, histórico); tudo sob #pane-test, a posição não decide nada */
 import "../features/testing/styles.css";
+/* feature comments: o botão de comentar na margem do editor e a caixa «Start discussion» (só classes cmt-*, a posição não decide nada) */
+import "../features/comments/styles.css";

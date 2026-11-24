@@ -392,3 +392,25 @@ describe("vista", () => {
     expect(host.querySelector("script")).toBeNull();
   });
 });
+
+describe("legenda «depende de»", () => {
+  test("aparece com setas de dependência, com o aspecto real de cada estilo, e alarga os limites", () => {
+    const d = emptyDesign();
+    for (const [k, n] of [["adapter", "interface"], ["socket", "facade"], ["process", "server"]] as const) addComponent(d, k, n);
+    connect(d, "server", "interface");
+    connect(d, "interface", "facade");
+    d.connections[1].style = "depends";
+    const without = canvasSvg({ ...d, connections: [d.connections[0]] }, {}, null);
+    const withDeps = canvasSvg(d, {}, null);
+    expect(without.svg).not.toContain("data-legend");
+    expect(withDeps.svg).toContain("data-legend");
+    expect(withDeps.svg).toContain(">depende de</text>");
+    expect(withDeps.svg).toContain(">controlo (cor do painel)</text>");
+    expect(withDeps.svg).not.toContain(">dados e pedidos</text>"); // só os estilos em uso
+    expect(withDeps.bounds.h).toBe(without.bounds.h + 34);
+    // a seta de dependência: cheia e neutra (não tracejada)
+    const dep = withDeps.svg.match(/<g data-e="1"[^]*?<\/g>/)![0];
+    expect(dep).toContain('stroke="var(--fg-dim)"');
+    expect(dep).not.toContain("stroke-dasharray");
+  });
+});
