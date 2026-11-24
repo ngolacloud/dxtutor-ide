@@ -86,6 +86,12 @@ existir ou ser ligado no Rust para cumprir a regra "nasce com backend real".
 Persistência: nenhuma (sessão efémera, correcto). O protótipo HTML anexo já mostra estes três requisitos
 a funcionar; servem de referência visual.
 
+**Estado após a A1 (2026-11-24):** feito. UI-PAIR-01 com o filtro no envio (snapshot, sync, vista, separadores
+e escritas do convidado), `.env` e chaves sempre privados, clique direito num separador ou pasta do explorador
+para tornar privado; UI-PAIR-02 com a legenda e a mensagem `tabs` (o convidado espelha só os separadores
+partilhados); UI-PAIR-03 com a chamada encaixada no fundo da barra lateral (36 px minimizada) e no item de
+estado quando a lateral está escondida. Os caminhos privados duram a sessão (não são gravados).
+
 ### Item 12 + 6 · Co-Dev escreve no editor, ao vivo, e está em todos os ecrãs
 
 **Estado actual (mais avançado do que o protótipo no motor):**
