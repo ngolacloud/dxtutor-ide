@@ -11,7 +11,7 @@
 import { languageIdFor } from "../domain/languages";
 import { keyToAbsolute, absoluteToKey } from "../domain/paths";
 import { offsetToPosition, positionToOffset, wordAt } from "../domain/positions";
-import { allTargets, firstTarget, hoverBlocks, isIndexing, renameRange, uriToPath, workspaceEditFiles, type HoverBlock } from "../domain/results";
+import { allTargets, firstTarget, hoverBlocks, isIndexing, renameRange, uriToPath, workspaceEditFiles, type HoverBlock, type Target } from "../domain/results";
 import { applyTextEdits } from "../domain/edits";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
@@ -190,9 +190,23 @@ export function makeLspClient(d: LspClientDeps): LspClient {
       d.editor.notify("No language server for this file");
       return null;
     }
+    // Pergunta na DECLARAÇÃO, não no uso: alguns servidores (o kotlin-language-server) num uso
+    // devolvem as referências da declaração que o envolve (em `val m = greet()`, as de `m`).
+    // Na declaração todos respondem bem; e a declaração entra na lista se o servidor a omitir.
+    let decl: Target | null = null;
+    try {
+      const def = await d.lsp.definition(p.doc.path, p.line, p.character);
+      decl = isIndexing(def) ? null : firstTarget(def);
+    } catch {
+      decl = null;
+    }
+    const declKey = decl ? keyOf(decl.path) : null;
+    const declDoc = declKey ? docOf(declKey) : null;
+    if (declDoc) await ensureOpen(declDoc);
+    const q = decl && declDoc ? { path: declDoc.path, line: decl.line, character: decl.character } : { path: p.doc.path, line: p.line, character: p.character };
     let result: unknown;
     try {
-      result = await d.lsp.references(p.doc.path, p.line, p.character);
+      result = await d.lsp.references(q.path, q.line, q.character);
     } catch (e) {
       d.editor.notify(`Language server: ${String(e)}`);
       return null;
@@ -201,8 +215,11 @@ export function makeLspClient(d: LspClientDeps): LspClient {
       d.editor.notify("The language server is still indexing — try again in a moment");
       return null;
     }
+    const targets = allTargets(result);
+    const at0 = decl;
+    if (at0 && declDoc && !targets.some((t) => t.path === at0.path && t.line === at0.line)) targets.unshift(at0);
     const prefix = d.workspace.virtualPrefix();
-    return allTargets(result).map((t) => {
+    return targets.map((t) => {
       const key = keyOf(t.path);
       const text = key ? d.workspace.text(key) : null;
       return {

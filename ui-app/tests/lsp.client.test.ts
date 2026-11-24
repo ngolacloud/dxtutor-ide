@@ -148,6 +148,16 @@ describe("referências e rename no cliente", () => {
     ]);
   });
 
+  it("referências pedidas na declaração (não no uso) e a declaração acrescentada se o servidor a omitir", async () => {
+    // como o kotlin-language-server: na declaração devolve só os usos, sem a própria declaração
+    const t = setup({ files: files(), definition: [loc("src/Util.java", 1, 13)], references: [loc("src/Main.java", 1, 15)] });
+    await t.activate("proj/src/Main.java");
+    const refs = await t.client.referencesAt(MAIN.indexOf("add"));
+    expect(t.calls).toContain("refs /home/u/proj/src/Util.java 1:13");
+    expect(t.calls).toContain("open /home/u/proj/src/Util.java java"); // a declaração abre-se no servidor
+    expect(refs!.map((r) => `${r.label}:${r.line}`)).toEqual(["src/Util.java:2", "src/Main.java:2"]);
+  });
+
   it("prepareRename: usa o intervalo do servidor; sem prepareRename, a palavra no cursor; recusa avisa", async () => {
     const at = MAIN.indexOf("add") + 1;
     const ranged = setup({ files: files(), prepare: { start: { line: 1, character: 15 }, end: { line: 1, character: 18 } } });
