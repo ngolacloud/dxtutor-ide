@@ -69,10 +69,10 @@ it("refresh() emite workspace:changed (quem decorava o refresh subscreve agora)"
   expect(seen.length).toBe(3);
 });
 
-it("runState emite agent:run e o compositor troca enviar↔parar sem ser chamado", () => {
-  w.runState(true, "teste");
+it("runState emite agent:run e o compositor troca enviar↔parar sem ser chamado", async () => {
+  (await import("../src/features/codev")).runState(true, "teste");
   expect($("#cc-send").classList.contains("stop")).toBe(true);
-  w.runState(false);
+  (await import("../src/features/codev")).runState(false);
   expect($("#cc-send").classList.contains("stop")).toBe(false);
 });
 

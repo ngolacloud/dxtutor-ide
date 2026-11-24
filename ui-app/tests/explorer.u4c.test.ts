@@ -14,7 +14,7 @@ beforeEach(async () => {
 it("syncTree reconstrói a árvore a partir do FS: pastas primeiro, por nome", async () => {
   w.FS["dxtutor/zz/novo.rs"] = { content: "", orig: null };
   w.FS["dxtutor/aa.md"] = { content: "", orig: null };
-  w.syncTree();
+  EM.syncTree();
   const root = (await import("../src/boot")).TREE.projects.children.dxtutor;
   const keys = Object.keys(root.children);
   const dirs = keys.filter((k) => root.children[k].dir);
@@ -41,7 +41,7 @@ it("sel deixa uma só linha seleccionada", () => {
 
 it("sem pasta aberta: a árvore fica vazia e o explorador mostra o estado vazio (sem pastas inventadas)", async () => {
   WSM.resetWorkspace();
-  w.syncTree();
+  EM.syncTree();
   expect((await import("../src/boot")).TREE.projects.children).toEqual({});
   w.buildExplorer();
   const tree = document.querySelector("#exp-sections .tree")!;
@@ -55,7 +55,7 @@ it("sem pasta aberta no desktop: «Abrir pasta…» chama o DXR.open", () => {
   w.DXR = { open: () => opened++ };
   try {
     WSM.resetWorkspace();
-    w.syncTree();
+    EM.syncTree();
     w.buildExplorer();
     const btn = document.querySelector("#exp-sections .tree button") as HTMLButtonElement;
     expect(btn.textContent).toBe("Abrir pasta…");

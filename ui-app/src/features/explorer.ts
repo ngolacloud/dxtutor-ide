@@ -29,6 +29,7 @@ import { EXPLORER_DESKTOP_MESSAGES } from "./explorer.desktop-messages";
 import { SECOPEN, norm } from "./workspace";
 import { workspaceStore } from "../app/store";
 import { TREE } from "../boot";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(EXPLORER_MESSAGES);
 const txd = translator(EXPLORER_DESKTOP_MESSAGES);
@@ -192,5 +193,8 @@ export interface ExplorerDesktop { syncTree(virtual: () => void): void }
 export interface OutlineDesktop { covers(p: string): boolean; symbols(p: string): Promise<OutSym[] | null> }
 /* o syncTree PUBLICADO consulta a porta (antes o desktop reatribuía-o no `window`); só o app.ts o chama, pelo global */
 const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) d.syncTree(syncTree); else syncTree(); };
-Object.assign(window, { buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, syncTree: syncTreePublished, fIcon });
+/* a versão com a porta (U4h5b) é a que se exporta e regista: o arranque importa-a; os separadores e o workspace (avaliam antes) usam o registo (ADR-0004, U7l) */
+export { syncTreePublished as syncTree, drawOutline, markActive };
+services.explorer = { syncTree: syncTreePublished, drawOutline, markActive };
+Object.assign(window, { buildExplorer, collapseAll, symbols, newFile, newFolder, fIcon });
 

@@ -48,7 +48,6 @@ declare global {
   const pickModel: () => void;
   const promote: (to: string) => void;
   const reviewCmd: () => void;
-  const runLabel: () => void;
   const runSprint: (s: number) => unknown;
   const runTask: (c: string) => unknown;
   const resetWorkspace: () => void;

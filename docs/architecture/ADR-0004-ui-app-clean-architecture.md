@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7k)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7l)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1160,3 +1160,12 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   (`features/tutor.ts`) e o `loadJSZip` (a ponte da ext guarda o carregador num valor do módulo e consulta a porta
   `desktopPorts.ext` no acto; o golden da ext deixa de trocar o `window.loadJSZip` e injecta o JSZip falso pela porta,
   como o desktop). Os testes lêem os módulos da cadeia do `bootApp`. Globais publicadas 197 → 192.
+- **U7l (2026-11-24) — os helpers do Co-Dev e do explorador.** Dos 23 nomes destes dois donos ficam publicados os
+  dos botões do chrome (`cycleMode`, `pickModel`, `newChat`, `agCtl`, `assistantCenter`, `toggleAgent`, `openManager`,
+  `collapseAll`, `newFile`, `newFolder` — `callGlobal` por nome, trocados pelo teste das acções), o `ask` e o
+  `buildExplorer` (testes de outras sessões lêem-nos) e o `setMode` (a lista de globais obrigatórios do e2e de
+  arranque). Saem dez: `ctxPill`, `scrollMsgs`, `beat`, `runState`, `runLabel`, `tl` (re-exportados pelo
+  `features/codev.ts`; a ponte do board, os separadores e o arranque importam-nos), `provState` (exportado; o `core`,
+  que avalia antes, lê-o pelo registo), e `syncTree` (a versão com a porta desktop), `drawOutline`, `markActive`
+  (exportados pelo `features/explorer.ts`; os separadores e o workspace, que avaliam antes, usam o registo
+  `services.explorer`; o arranque importa). Ordem de avaliação igual. Globais publicadas 192 → 182.

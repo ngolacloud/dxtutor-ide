@@ -20,17 +20,15 @@ import { editorStore, type Tab } from "../app/store/editor";
 import { VIEW } from "../app/store/registry";
 import { registerActions, globalCalls } from "../app/actions";
 import { services } from "../app/services";
+import { ctxPill } from "./codev";
 
 interface LegacyGlobals {
   FS: Record<string, { content: string; orig: string | null }>;
   short: (p: string) => string;
   fIcon: (name: string) => string;
   gotoLine: (line: number) => void;
-  drawOutline: () => void;
-  markActive: () => void;
   stLang: () => void;
   show: (id: string | null) => void;
-  ctxPill: () => void;
 }
 const G = window as unknown as LegacyGlobals;
 
@@ -138,7 +136,7 @@ function show(id: string | null): void {
     miniOff();
     ($("#breadcrumbs") as HTMLElement).innerHTML = "";
     host.innerHTML = `<div class="empty"><div><b style="color:var(--fg-dim);font-size:14px">dxtutor IDE</b><br><kbd>Ctrl+P</kbd> ir para ficheiro &nbsp; <kbd>Ctrl+Shift+P</kbd> comandos<br><kbd>Ctrl+L</kbd> falar com o Co-Dev &nbsp; <kbd>Ctrl+\`</kbd> terminal</div></div>`;
-    G.drawOutline();
+    services.explorer!.drawOutline();
     G.stLang();
     return;
   }
@@ -152,10 +150,10 @@ function show(id: string | null): void {
   if (t.kind !== "file") miniOff();
   VIEW[t.kind](t, host);
   services.shell!.hydrate();
-  G.drawOutline();
-  G.markActive();
+  services.explorer!.drawOutline();
+  services.explorer!.markActive();
   G.stLang();
-  G.ctxPill();
+  ctxPill();
 }
 
 function closeTab(id: string): void {

@@ -19,6 +19,7 @@
  *  DTO real `tutor_eval::git::GitCommit` do backend — a fonte simulada (GIT.c) é
  *  mapeada para esta mesma forma, para a vista não distinguir real de simulado. */
 import { agentStore, editorStore, layoutStore } from "./app/store";
+import { services } from "./app/services";
 
 export interface ClCommit {
   hash: string;
@@ -58,7 +59,6 @@ declare global {
     renderTestPane: () => void;
     /* feature `account`: mapa vivo de provedores + estado por provedor (dono = monólito) + delegação do pane */
     PROV: Record<string, Prov>;
-    provState: (k: string) => string;
     renderAccountPane: () => void;
     /* feature `search`: sistema de ficheiros virtual + ícone/refresh (dono = monólito),
        leaves migrados (resolvidos por nome livre: `onclick="replaceAll()"` e o comando
@@ -236,7 +236,8 @@ export const prov = (): Record<string, Prov> => window.PROV;
 
 /** Rótulo do estado de um provedor ligado (ex. «ao vivo», «local · simulado»).
  *  Corpo no monólito; fachada resolve `window.provState` no acto. */
-export const provState = (k: string): string => window.provState(k);
+/* o provState é do features/codev.ts, que avalia depois do core: pelo registo, no acto (ADR-0004, U7l) */
+export const provState = (k: string): string => services.codev!.provState(k);
 
 /* ───── estado partilhado ───── */
 export interface SharedState {

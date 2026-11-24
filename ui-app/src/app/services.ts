@@ -14,6 +14,7 @@ import type * as Checkpoint from "../features/checkpoint";
 import type * as Studio from "../features/studio";
 import type * as Shell from "../features/shell";
 import type * as Menus from "../features/menus";
+import type * as Explorer from "../features/explorer";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -21,7 +22,7 @@ export interface Services {
   /** o harness do projecto (features/team.ts): o Co-Dev (o resíduo e a ponte) e as tarefas lêem-no (U7h) */
   team: Pick<typeof Team, "HARN" | "MORD" | "RIGHTS" | "RIGHT_RE" | "isHuman" | "harnessCheck" | "harnessCmd" | "agentSys">;
   /** a sentinela e as regras de comandos, o routing e as Definições (features/codev.ts): a ponte do Co-Dev e a conta (U7h) */
-  codev: Pick<typeof Codev, "STOP" | "SAFE" | "DANGER" | "provFor" | "who" | "openSettings" | "MODES" | "ROUTE">;
+  codev: Pick<typeof Codev, "STOP" | "SAFE" | "DANGER" | "provFor" | "who" | "openSettings" | "MODES" | "ROUTE" | "provState">;
   /** as línguas da interface (features/i18n.ts), lidas pela secção Language das Definições (U7h) */
   i18n: Pick<typeof I18n, "LOCALES">;
   /** os caminhos do workspace (features/workspace.ts): a ponte do Co-Dev, a equipa e o Learning Track (U7h) */
@@ -36,6 +37,8 @@ export interface Services {
   shell: Pick<typeof Shell, "hydrate" | "setVar" | "badges">;
   /** fechar os menus (features/menus.ts): o boot, a paleta e o shell (U7h) */
   menus: Pick<typeof Menus, "closeMenus">;
+  /** a árvore e o Outline (features/explorer.ts): os separadores e o workspace, que avaliam antes (U7l) */
+  explorer: Pick<typeof Explorer, "syncTree" | "drawOutline" | "markActive">;
 }
 
 export const services: Partial<Services> = {};

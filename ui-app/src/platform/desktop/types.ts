@@ -92,13 +92,11 @@ declare global {
   let K8S: unknown;
   let SAMPLE: ((input: string | SampleMsg[], o?: SampleOpts) => Promise<any>) | null;
   let LIVE_OK: boolean;
-  let provState: (k: string) => string;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.
   var termRefreshPrompt: () => void;
   var echoCmd: (v?: string) => void;
   var rerender: (k: string) => void;
   var card: (w: string, html: string) => { el: HTMLElement; bd: HTMLElement; tools: HTMLElement };
-  var syncTree: (...a: any[]) => void;
   var commit: (msg?: string, author?: string) => unknown;
   var checkout: (b: string, create?: boolean) => boolean;
   var stage: (p: string) => void;

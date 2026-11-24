@@ -18,8 +18,8 @@ afterEach(() => {
 });
 
 describe("ctx: o uso real da conversa", () => {
-  it("antes de qualquer volta fica vazio (sem percentagem inventada)", () => {
-    w.ctxPill();
+  it("antes de qualquer volta fica vazio (sem percentagem inventada)", async () => {
+    (await import("../src/features/codev")).ctxPill();
     expect(ctx().textContent).toBe("");
   });
 

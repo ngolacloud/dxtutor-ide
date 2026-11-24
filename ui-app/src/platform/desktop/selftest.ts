@@ -18,7 +18,7 @@ import { gfAsk } from "../../features/checkpoint";
 import { sdAdd } from "../../features/studio";
 import { saveTeam } from "../../features/team";
 import { restoreCkpt } from "../../features/checkpoint";
-import { STOP } from "../../features/codev";
+import { STOP, provState } from "../../features/codev";
 import { agentStore } from "../../app/store";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
