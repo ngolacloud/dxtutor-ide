@@ -162,6 +162,15 @@ releases nem cerimónias. Sem migrações (`CREATE IF NOT EXISTS`, sem `user_ver
 | PROJ-05 | Vistas Backlog, Planning (capacidade, objectivo, planning poker), Releases, Reports (burndown, velocity, CFD, cycle time **calculados do histórico em `activity`**, não inventados), Daily, Retro, Team & pairs, Settings. | L |
 | PROJ-06 | Commits com `DX-123` actualizam a issue (hook pós-commit ou leitura do `git log`); contagem de change sets; sprint na barra de estado. | M |
 
+**Estado após a A5 (2026-11-24):** feito — store SQLite com migrações e regras no Rust (backend), os comandos
+`project_load/apply/issue/reports`, a actividade "Project" (PROJ-01) com quadro, backlog + caixa de entrada,
+planning (sprints e capacidade), releases, reports do histórico, retro e settings (PROJ-02/03/05), o painel da
+issue com Development real (PROJ-04: ramo pelo comando git exacto, commits que citam a chave, change sets do
+Co-Dev) e a ligação dos commits por "Sync commits" (PROJ-06). Por fazer: sprint na barra de estado e ligação
+automática dos commits (hook pós-commit) (PROJ-06), as vistas Daily e Team & pairs e o planning poker
+(PROJ-05), exportar/importar `.dxtutor/board.json` (Q7). O painel "Tasks" (o quadro simulado antigo) continua
+como estava, à espera da Q3.
+
 Nota: o protótipo HTML (`project.js`) é uma boa referência visual, mas os relatórios dele usam séries
 fixas marcadas "sample". Aqui só se desenha o que se consegue calcular; com pouco histórico, os gráficos
 mostram estado vazio em vez de números inventados.
