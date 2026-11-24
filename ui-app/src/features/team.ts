@@ -240,8 +240,8 @@ function codeGuard(what: string): boolean {
 }
 
 Object.assign(window, {
-  codeGuard, openTeam, globRe, inScope, canRun, ownerOf, harnessCheck, harnessCmd, agentSys, saveTeam, loadTeam, pickAgent, agentPill, scopeProbe, renderTeamView,
-  RIGHTS, RIGHT_RE, HT, HARN, MORD, isHuman, harnessToml, toggleRight, authorship, reviewIssue, hydrateHarn,
+  codeGuard, openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, loadTeam, pickAgent, agentPill, scopeProbe,
+  RIGHTS, RIGHT_RE, HT, HARN, MORD, isHuman, toggleRight, reviewIssue,
 });
 
 /* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê

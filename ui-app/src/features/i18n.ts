@@ -238,4 +238,4 @@ function hydrateLocale() {
 
 /* ── publicação no window: nomes que o resíduo (app.ts VIEW.settings/CMD),
    os onclick inline e `startup.ts` resolvem como globais. ── */
-Object.assign(window, { setLocale, trText, trNode, trAttrs, i18nBoot, LOCALES });
+Object.assign(window, { setLocale, trText, trNode, i18nBoot, LOCALES });

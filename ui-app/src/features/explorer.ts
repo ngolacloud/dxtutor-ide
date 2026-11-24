@@ -173,5 +173,5 @@ function fIcon(p: string): string {
 export interface ExplorerDesktop { syncTree(virtual: () => void): void }
 /* o syncTree PUBLICADO consulta a porta (antes o desktop reatribuía-o no `window`); só o app.ts o chama, pelo global */
 const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) d.syncTree(syncTree); else syncTree(); };
-Object.assign(window, { renderLevel, buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });
+Object.assign(window, { buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });
 

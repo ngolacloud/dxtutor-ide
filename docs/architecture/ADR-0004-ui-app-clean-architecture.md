@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1024,3 +1024,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   do motor e dos catálogos, no index.html, no Rust e nos cursos; os pares com números (`#`) ficam. Os pares que saíram
   vão para `tests/fixtures/i18n-pruned-pairs.json`, e o `i18n.catalogs.test.ts` continua a provar cada entrada
   contra o motor ∪ esses pares. Prova de paridade nas duas línguas igual antes e depois; goldens iguais.
+- **U7 — plano (2026-11-24).** O fim dos globais publicados no `window` (324 depois da U7a) e das 17 fachadas de
+  estado (`ownedGlobal`). Um *scanner* sobre o *type checker* do TypeScript lista, para cada nome, quem o publica
+  (`Object.assign(window, …)`, `window.X =`, `ownedGlobal`) e quem o lê (nome livre que resolve para a declaração
+  global, `window.X` ou uma fachada `G.X`, `callGlobal("X")`, testes, e2e). Fatias: **U7a** as publicações mortas;
+  **U7b…** por feature, os nomes lidos só por nome livre noutros módulos passam a `import` (quando ninguém decora a
+  versão publicada — o `callGlobal` existe precisamente para os que são decorados ou trocados pelo desktop) e a
+  publicação sai; no fim, as fachadas `ownedGlobal` dão lugar aos stores e o `arch-check` ganha a regra final (nenhum
+  `Object.assign(window, …)` fora de uma lista explícita de pontes). Como na U6, os módulos em desenvolvimento noutras
+  sessões entram por último.
+- **U7a (2026-11-24) — 31 publicações mortas.** Critério conservador: o nome não aparece (como palavra) em nenhum
+  outro ficheiro — código da UI, testes, e2e, index.html, Rust — e o próprio módulo não o lê pelo `window`. Saem das
+  chamadas `Object.assign(window, …)` de 13 módulos (`toggleProv`, `assistantDock`, `renderLevel`, `renderFileView`,
+  `trAttrs`, `showMenu`, `openOverflow`, `tabIc`, `parkAgent`, `renderIssueView`, `globRe`/`canRun`/`ownerOf`/…,
+  `NW`/`NH`/`mkT`, `LT_LEVELS`/`LT_EXT`/`drillState`, `curDir`/`dirAt`, …). Cinco definições ficaram sem uso nenhum e
+  saíram como código morto: `toggleAgentOn`, `LT_LANGS`, `NT`, `termNew` e o `routeModel` do router (com a sua cache
+  `ROUTE_CACHE`) — o escolhedor de modelo por LLM que já ninguém chamava. Globais publicadas 355 → 324.
