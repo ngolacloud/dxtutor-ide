@@ -33,6 +33,7 @@ pub mod problems;
 mod procs;
 mod pty;
 pub mod review;
+pub mod roles;
 pub mod sandbox;
 pub mod search;
 mod shell_integration;
@@ -84,7 +85,12 @@ use commands::git::{
     git_commit, git_compare, git_create_branch, git_diff, git_history, git_log, git_rebase,
     git_show, git_show_path, git_stage, git_stage_all, git_stash, git_unstage, git_worktree,
 };
+use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
+use commands::ops::{
+    ops_cloud_inventory, ops_cloud_status, ops_iac_dirs, ops_iac_plan, ops_kube_history,
+    ops_kube_state,
+};
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
 use commands::panel::{ports_list, problems_scan};
 use commands::plugins::{plugin_install, plugin_list, plugin_remove};
@@ -975,6 +981,15 @@ pub fn run() {
             debug_snapshot,
             breakpoints_load,
             breakpoints_save,
+            hood_line_asm,
+            hood_python_bytecode,
+            measure_growth,
+            ops_iac_dirs,
+            ops_iac_plan,
+            ops_kube_state,
+            ops_kube_history,
+            ops_cloud_status,
+            ops_cloud_inventory,
             devcontainer_info,
             devcontainer_up,
             devcontainer_exec,
@@ -1005,6 +1020,7 @@ pub fn run() {
             lsp::lsp_execute_command,
             lsp::lsp_format,
             lsp::lsp_document_symbols,
+            lsp::lsp_workspace_symbols,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,

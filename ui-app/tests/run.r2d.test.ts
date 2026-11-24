@@ -32,6 +32,7 @@ describe("commandsFor — os comandos habituais de cada ecossistema", () => {
 });
 
 let w: any;
+let CMM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7f)
 let calls: Array<[string, Record<string, unknown>]>;
 const pane = (): HTMLElement => document.getElementById("pane-run")!;
 const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -39,6 +40,7 @@ const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", {
 describe("o pane Run na cadeia real", () => {
   beforeEach(async () => {
     w = await bootApp();
+    CMM = await import("../src/app/commands");
     calls = [];
   });
   afterEach(() => {
@@ -49,12 +51,12 @@ describe("o pane Run na cadeia real", () => {
 
   it("sem pasta, diz como abrir uma (e já não mostra a lista fixa)", () => {
     w.renderRunPane();
-    expect(pane().textContent).toMatch(/Abre uma pasta/);
+    expect(pane().textContent).toMatch(/Open a folder/);
     expect(pane().textContent).not.toMatch(/dx lint|cargo test -p lexer/);
   });
 
   it("menus e paleta abrem o pane em vez de correrem comandos fixos", () => {
-    w.buildMenus(); // o que o arranque monta (o boot não corre no harness)
+    CMM.buildMenus(); // o que o arranque monta (o boot não corre no harness)
     const run = w.MENUS.find((m: any) => m.t === "Run");
     const labels = run.items.map((i: any) => i.l);
     expect(labels).toContain("Run Project…");
@@ -114,7 +116,7 @@ describe("o pane Run na cadeia real", () => {
       w.__TAURI__.core.invoke = async () => { throw new Error("detect failed"); };
       w.PANE = "run";
       w.renderRunPane();
-      await vi.waitFor(() => expect(pane().textContent).toMatch(/Não consegui detectar os projectos: detect failed/));
+      await vi.waitFor(() => expect(pane().textContent).toMatch(/Could not detect the projects: detect failed/));
     });
   });
 });

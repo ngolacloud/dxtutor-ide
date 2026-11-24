@@ -21,6 +21,7 @@ import { signatureView, type SignatureView } from "../domain/signature";
 import { clientSideEdit, codeActionItems, type CodeActionItem } from "../domain/code-actions";
 import { caretAfterFormatting, formattingEdits } from "../domain/formatting";
 import { flattenSymbols, type SymbolEntry } from "../domain/symbols";
+import { locateInFile, rankWorkspaceSymbols, workspaceSymbolHits, type WorkspaceSymbolHit } from "../domain/workspace-symbols";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
@@ -68,6 +69,11 @@ export interface LspClient {
   /** Os símbolos do ficheiro `key`, pela ordem do ficheiro (Go to Symbol e Outline); `null` se não
    *  há servidor para ele. */
   symbolsFor(key: string): Promise<SymbolEntry[] | null>;
+  /** Os símbolos da pasta que servem para `query` (Go to Symbol in Workspace), de cada servidor
+   *  que já corre nela; `null` sem pasta real. */
+  workspaceSymbolsFor(query: string): Promise<WorkspaceSymbolSearch | null>;
+  /** Abre o símbolo escolhido; sem posição (kotlin-language-server), procura-a no ficheiro. */
+  openWorkspaceSymbol(s: WorkspaceSymbolResult): Promise<void>;
   /** O servidor publicou diagnósticos para `uri`. */
   onDiagnostics(uri: string): void;
   /** Ficheiros abertos no servidor (caminho absoluto → versão), para inspecção. */
@@ -85,6 +91,19 @@ export interface Reference {
   line: number;
   character: number;
   preview: string;
+}
+
+/** Um símbolo da pasta: onde abri-lo (`key` nula se não está na pasta aberta) e o caminho a mostrar. */
+export interface WorkspaceSymbolResult extends WorkspaceSymbolHit {
+  key: string | null;
+  /** Caminho relativo à pasta (ou o absoluto, se estiver fora dela). */
+  file: string;
+}
+
+export interface WorkspaceSymbolSearch {
+  items: WorkspaceSymbolResult[];
+  /** Quantos servidores responderam (0: nenhum a correr na pasta — abre um ficheiro primeiro). */
+  servers: number;
 }
 
 export interface RenameTarget {
@@ -544,6 +563,36 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     }
   }
 
+  async function workspaceSymbolsFor(query: string): Promise<WorkspaceSymbolSearch | null> {
+    const root = d.workspace.diskRoot();
+    if (!root) return null;
+    const cur = docOf(d.workspace.currentFileKey());
+    if (cur && versions.has(cur.path)) await sync(cur); // as edições por enviar contam
+    let res: unknown;
+    try {
+      res = await d.lsp.workspaceSymbols(root, query);
+    } catch {
+      return { items: [], servers: 0 };
+    }
+    const prefix = d.workspace.virtualPrefix();
+    const items = rankWorkspaceSymbols(workspaceSymbolHits(res), query).map((h) => {
+      const key = keyOf(h.path);
+      return { ...h, key: key && d.workspace.text(key) != null ? key : null, file: key ? key.slice(prefix.length) : h.path };
+    });
+    return { items, servers: Array.isArray(res) ? res.length : 0 };
+  }
+
+  async function openWorkspaceSymbol(s: WorkspaceSymbolResult): Promise<void> {
+    if (!s.key) return;
+    if (s.line !== null) {
+      d.editor.open(s.key, s.line, s.character ?? 0);
+      return;
+    }
+    d.editor.open(s.key, 1, 0);
+    const at = locateInFile(s, (await symbolsFor(s.key)) ?? []);
+    if (at) d.editor.open(s.key, at.line, at.character);
+  }
+
   async function onApplyEdit(edit: unknown): Promise<void> {
     await applyEdit(edit);
   }
@@ -562,5 +611,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (doc) await serverOk(doc);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, onDiagnostics, opened: () => versions, onFileView };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, onDiagnostics, opened: () => versions, onFileView };
 }

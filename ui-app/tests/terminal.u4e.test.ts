@@ -19,7 +19,7 @@ beforeEach(async () => {
 });
 
 it("termClear desenha o cabeçalho e um prompt com o utilizador e a máquina", () => {
-  expect(term()).toContain("terminal emulado");
+  expect(term()).toContain("emulated terminal");
   expect(document.querySelector("#inputwrap .pr")!.textContent).toContain("user@browser:");
 });
 
@@ -30,9 +30,9 @@ it("cd/pwd/ls navegam na árvore; comando desconhecido avisa", () => {
   enter("ls");
   expect(term()).toMatch(/crates\//);
   enter("cd nao-existe");
-  expect(term()).toContain("cd: nao-existe: não é um directório");
+  expect(term()).toContain("cd: nao-existe: not a directory");
   enter("xyz");
-  expect(term()).toContain("xyz: comando não encontrado");
+  expect(term()).toContain("xyz: command not found");
 });
 
 it("o histórico: Enter guarda, ↑/↓ percorre, history lista", () => {

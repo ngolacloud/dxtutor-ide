@@ -25,9 +25,11 @@ import { desktopPorts } from "../app/desktop";
 import { codeintelClient, type SymbolRange } from "../platform/tauri/codeintel";
 import { translator } from "../app/i18n";
 import { EXPLORER_MESSAGES } from "./explorer.messages";
+import { EXPLORER_DESKTOP_MESSAGES } from "./explorer.desktop-messages";
 import { SECOPEN } from "./workspace";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(EXPLORER_MESSAGES);
+const txd = translator(EXPLORER_DESKTOP_MESSAGES);
 
 function renderLevel(obj:Record<string,any>,host:HTMLElement,depth:number,path:string[]){Object.keys(obj).forEach(name=>{const node=obj[name],pad=8+depth*12,row=document.createElement('div');
   let g=node.git||'';if(node.path)g=(stOf(node.path) as string).toLowerCase();else if(node.dpath)g=changes().some(p=>p.startsWith(node.dpath+'/'))?'m':'';
@@ -39,7 +41,7 @@ function renderLevel(obj:Record<string,any>,host:HTMLElement,depth:number,path:s
     const expand=(o:boolean)=>{row.classList.toggle('open',o);kids.style.display=o?'block':'none';(row.querySelector('.ic') as HTMLElement).innerHTML=svg(o?'folderOpen':'folder');
       if(node.dpath){o?OPEN.add(node.dpath):OPEN.delete(node.dpath);}else node.open=o;
       if(o&&!built){built=true;if(node.children&&Object.keys(node.children).length)renderLevel(node.children,kids,depth+1,path.concat(name));
-        else kids.insertAdjacentHTML('beforeend',`<div class="sec-empty" style="padding:2px 0 2px ${pad+28}px">pasta vazia</div>`);}};
+        else kids.insertAdjacentHTML('beforeend',`<div class="sec-empty" style="padding:2px 0 2px ${pad+28}px">${txd("emptyFolder")}</div>`);}};
     kids.style.display='none';row.onclick=e=>{e.stopPropagation();sel(row);expand(!row.classList.contains('open'));};if(open)expand(true);
   }else row.onclick=e=>{e.stopPropagation();if(node.path)openPath(node.path);};});}
 function buildExplorer(){const host=$('#exp-sections');if(!host)return;host.innerHTML='';
@@ -49,7 +51,7 @@ function buildExplorer(){const host=$('#exp-sections');if(!host)return;host.inne
   if(!Object.keys(TREE.projects.children).length)noFolder(tree);
   sec('Outline',SECOPEN.Outline!==false).id='outline';sec('Timeline',!!SECOPEN.Timeline).id='timeline';drawOutline();drawTimeline();markActive();}
 /** Sem pasta aberta: o estado vazio (como o VS Code), com «Abrir pasta…» quando há desktop (`DXR`). */
-function noFolder(host:HTMLElement){const d=document.createElement('div');d.className='sec-empty';d.textContent='Nenhuma pasta aberta.';host.appendChild(d);
+function noFolder(host:HTMLElement){const d=document.createElement('div');d.className='sec-empty';d.textContent=txd('noFolder');host.appendChild(d);
   const dxr=(window as unknown as {DXR?:{open?:()=>void}}).DXR;if(!dxr||!dxr.open)return;
   const b=document.createElement('button');b.className='mini pri';b.style.margin='4px 0 0 12px';b.textContent='Abrir pasta…';b.addEventListener('click',()=>dxr.open!());host.appendChild(b);}
 function markActive(){$$('#exp-sections .row.sel').forEach(x=>x.classList.remove('sel'));const t=tabOf(cur);if(t&&t.path){const r=$(`#exp-sections .row[data-path="${esc(t.path)}"]`);if(r)r.classList.add('sel');}}
@@ -112,7 +114,7 @@ function outlineOf(p: string): OutSym[] | null {
   return c ? c.syms : null;
 }
 function drawOutline(){const o=$('#outline');if(!o)return;const t=tabOf(cur),sy=t&&t.path?outlineOf(t.path):[];
-  o.innerHTML=sy===null?'<div class="sec-empty">A ler os símbolos…</div>':sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:${16+(s.d??0)*12}px" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):t&&t.path?'<div class="sec-empty">Sem símbolos neste ficheiro.</div>':`<div class="sec-empty">${txt("openAFileTo")}</div>`;}
+  o.innerHTML=sy===null?`<div class="sec-empty">${txd('readingSymbols')}</div>`:sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:${16+(s.d??0)*12}px" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):t&&t.path?'<div class="sec-empty">Sem símbolos neste ficheiro.</div>':`<div class="sec-empty">${txt("openAFileTo")}</div>`;}
 /* clicar num símbolo vai para a linha (sem onclick inline; o #outline é recriado pelo buildExplorer) */
 document.addEventListener('click',(e)=>{const h=(e.target as HTMLElement|null)?.closest<HTMLElement>('#outline .s-hit[data-on]');if(h)gotoLine(+(h.dataset.on as string));});
 function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/) — ex.: desktop/src/novo.ts',verb:'Criar',text:(q:string)=>{q=q.trim();if(!q)return;const p=norm(q);if(FS[p]){toast('Já existe');openPath(p);return;}writeFile(p,'');openPath(p);}});}
@@ -125,7 +127,7 @@ function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',v
    do FS e do ícone por extensão (eram do app.ts). O syncTree publicado consulta a porta
    desktop (`desktopPorts.explorer`, U4h5b). ── */
 /** Marca a linha `r` da árvore como seleccionada (só uma de cada vez). */
-function sel(r: Element): void {
+export function sel(r: Element): void {
   $$(".row.sel").forEach((x) => x.classList.remove("sel"));
   r.classList.add("sel");
 }
@@ -188,5 +190,5 @@ export interface ExplorerDesktop { syncTree(virtual: () => void): void }
 export interface OutlineDesktop { covers(p: string): boolean; symbols(p: string): Promise<OutSym[] | null> }
 /* o syncTree PUBLICADO consulta a porta (antes o desktop reatribuía-o no `window`); só o app.ts o chama, pelo global */
 const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) d.syncTree(syncTree); else syncTree(); };
-Object.assign(window, { buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });
+Object.assign(window, { buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, syncTree: syncTreePublished, fIcon });
 

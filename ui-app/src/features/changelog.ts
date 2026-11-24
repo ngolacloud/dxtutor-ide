@@ -17,8 +17,10 @@ import { VIEW } from "../app/store/registry";
 import { desktopPorts } from "../app/desktop";
 import { translator } from "../app/i18n";
 import { CHANGELOG_MESSAGES } from "./changelog.messages";
+import { CHANGELOG_DESKTOP_MESSAGES } from "./changelog.desktop-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(CHANGELOG_MESSAGES);
+const txd = translator(CHANGELOG_DESKTOP_MESSAGES);
 
 /* estado da vista (módulo-local; persiste entre reaberturas do separador) */
 const CL: {
@@ -75,8 +77,8 @@ function draw(): void {
   const host = CL.host;
   if (!host) return;
   if (CL.error) {
-    host.innerHTML = `<div class="page"><h1>O que mudou e porquê</h1>
-      <div class="sub">A linha temporal real do repositório (git). Não consegui lê-la:</div>
+    host.innerHTML = `<div class="page"><h1>${txd("title")}</h1>
+      <div class="sub">${txd("readError")}</div>
       <div class="sec-empty cl-error"></div></div>`;
     ($(".cl-error") as HTMLElement).textContent = CL.error;
     return;
@@ -92,9 +94,9 @@ function draw(): void {
           </div>`,
         )
         .join("")
-    : `<div class="sec-empty">Sem commits para mostrar. Abre uma pasta com um repositório git.</div>`;
-  host.innerHTML = `<div class="page"><h1>O que mudou e porquê</h1>
-    <div class="sub">A linha temporal real deste repositório: cada linha é um commit, e o «porquê» é a mensagem que quem mudou escreveu — nada é resumido nem reescrito. Clica para ver o diff.</div>
+    : `<div class="sec-empty">${txd("none")}</div>`;
+  host.innerHTML = `<div class="page"><h1>${txd("title")}</h1>
+    <div class="sub">${txd("sub")}</div>
     <div class="scm-grp">Commits<span class="cnt">${CL.commits.length}</span>
       <button class="mini" id="cl-refresh" style="margin-left:8px">${txt("refresh")}</button></div>
     <div class="sections">${rows}</div>

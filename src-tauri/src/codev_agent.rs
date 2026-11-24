@@ -1067,6 +1067,7 @@ pub fn send(
             &metas.borrow(),
         );
         let verdict = conformance_gate(verdict, call, &session.agent.ctx.root, &metas.borrow());
+        let verdict = role_gate(verdict, call, &session.agent.ctx.root);
         asked_human.set(false);
         let d = decide_call(call, verdict.clone());
         let mut e = audit_entry(&session, "call");
@@ -1215,6 +1216,40 @@ fn audit(s: &Session, mut e: tutor_board::project::AuditEntry) {
     let root = s.agent.ctx.root.display().to_string();
     if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
         let _ = st.record_audit(&root, &e);
+    }
+}
+
+/// RF-A06/A04 (docs/v2/RF-DELONIX-PLANO.md F5.7): a change to the architect's rules or to an
+/// ADR is approved only by an architect, and to a prompt template by an architect or the tech
+/// lead (`.dxtutor/team.json`). Such a change always asks — in Auto too, so the agent never
+/// accepts an ADR on its own — and when the person here lacks the role it is refused.
+fn role_gate(verdict: Verdict, call: &PendingCall, root: &Path) -> Verdict {
+    if matches!(verdict, Verdict::Deny { .. }) {
+        return verdict;
+    }
+    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+        return verdict;
+    };
+    let rel = path
+        .strip_prefix(&format!("{}/", root.display()))
+        .unwrap_or(path);
+    let Some(need) = crate::roles::approvers_of(rel) else {
+        return verdict;
+    };
+    if let Err(reason) =
+        crate::roles::require(root, need, &format!("aprovar uma alteração a {rel}"))
+    {
+        return Verdict::Deny { reason };
+    }
+    match verdict {
+        Verdict::Allow => Verdict::Ask {
+            reason: format!(
+                "{rel}: alteração às regras, a um ADR ou ao template — aprovação humana"
+            ),
+            dangerous: true,
+            suggested_rule: None,
+        },
+        v => v,
     }
 }
 
@@ -3419,5 +3454,65 @@ mod tests {
         assert_eq!(audit_entry(&s, "call").driver.as_deref(), Some("guest"));
         set_driver(&id, Some("someone".into()));
         assert_eq!(audit_entry(&s, "call").driver, None, "only host or guest");
+    }
+
+    #[test]
+    fn rules_and_adrs_need_the_architect_and_never_pass_alone() {
+        let d = tempfile::tempdir().unwrap();
+        let call = |path: &str| PendingCall {
+            id: "c".into(),
+            name: "edit_lines".into(),
+            input: serde_json::json!({ "path": path }),
+            read_only: false,
+            command: None,
+            hunks: vec![],
+        };
+        // no people defined: an ADR change still asks (never accepted by Auto alone)
+        assert!(matches!(
+            role_gate(Verdict::Allow, &call("docs/adr/ADR-0001.md"), d.path()),
+            Verdict::Ask {
+                dangerous: true,
+                ..
+            }
+        ));
+        assert_eq!(
+            role_gate(Verdict::Allow, &call("src/lib.rs"), d.path()),
+            Verdict::Allow
+        );
+        // with people: a developer at the keyboard cannot approve the rules
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "rui@x.pt"])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/team.json"),
+            r#"{"people": [{"email": "rui@x.pt", "roles": ["developer"]}, {"email": "ana@x.pt", "roles": ["architect"]}]}"#,
+        )
+        .unwrap();
+        let ask = Verdict::Ask {
+            reason: "protegido".into(),
+            dangerous: true,
+            suggested_rule: None,
+        };
+        match role_gate(ask.clone(), &call(".dxtutor/architecture.toml"), d.path()) {
+            Verdict::Deny { reason } => assert!(reason.contains("Arquitecto"), "{reason}"),
+            v => panic!("{v:?}"),
+        }
+        std::process::Command::new("git")
+            .args(["config", "user.email", "ana@x.pt"])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        assert_eq!(
+            role_gate(ask.clone(), &call(".dxtutor/architecture.toml"), d.path()),
+            ask
+        );
     }
 }

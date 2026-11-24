@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=200
+EXPECT_TOTAL=210
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -86,10 +86,15 @@ EXPECT_TSNOCHECK=0
 # A7 (debug DAP): commands/debug_cmds.rs ganha debug_set_breakpoints, debug_stop_on_panic,
 # debug_threads, debug_variables, debug_evaluate, debug_pause, debug_snapshot, breakpoints_load e
 # breakpoints_save (10→19): 187 + 9 = 196.
-# Símbolos do ficheiro (lsp_document_symbols, PR #21): lsp.rs 14→15: 196 + 1 = 197.
+# A8 (under the hood): commands/hood.rs novo com hood_line_asm, hood_python_bytecode e
+# measure_growth: 196 + 3 = 199.
+# A9 (devops): commands/ops.rs novo com ops_iac_dirs, ops_iac_plan, ops_kube_state, ops_kube_history,
+# ops_cloud_status e ops_cloud_inventory: 199 + 6 = 205.
+# Símbolos do ficheiro (lsp_document_symbols, PR #21): lsp.rs 14→15: 205 + 1 = 206.
 # RF do Co-Dev (docs/v2/RF-DELONIX-PLANO.md): board.rs ganha project_audit e project_issue_prompt (6→8) e
-# commands/agent.rs ganha arch_conformance (10→11): 197 + 3 = 200.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=21 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=11 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=19 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=15 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=8 )
+# commands/agent.rs ganha arch_conformance (10→11): 206 + 3 = 209.
+# Símbolos da pasta (lsp_workspace_symbols, PR #28): lsp.rs 15→16: 209 + 1 = 210.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=21 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=11 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=19 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=16 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=8 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -108,7 +113,7 @@ fi
 
 echo "== A2 · #[tauri::command] por ficheiro =="
 sum=0
-for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/devcontainer.rs commands/sandbox.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs board.rs; do
+for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/hood.rs commands/ops.rs commands/devcontainer.rs commands/sandbox.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs board.rs; do
   # `grep -c` imprime 0 E sai com status 1 quando não há matches (ex. lib.rs após o 13º
   # grupo sair), por isso NÃO encadeamos `|| echo 0` (duplicaria para "0\n0" e partia a
   # aritmética); normalizamos o vazio para 0 à parte.
@@ -204,7 +209,7 @@ fi
 # O resíduo strangler `features/<f>.ts` (publica os shims window.*) está FORA
 # desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
 # A7/A8 cobrem CADA feature nesta lista (codev + ext; a próxima acrescenta-se aqui).
-FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project comments"
+FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops comments"
 FEAT_ROOT=ui-app/src/features
 
 echo "== A7 · domínio não importa application/ui/infrastructure =="

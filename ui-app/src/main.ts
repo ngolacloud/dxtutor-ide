@@ -42,6 +42,7 @@ import "./features/testing/index";
 import "./features/search";
 import "./features/debug";
 import "./features/codereview";
+import "./features/hood/index"; /* A8: decora o VIEW.hood que o codereview acabou de registar */
 import "./features/scm";
 import "./features/changelog";
 import "./features/tutor";
@@ -52,6 +53,7 @@ import "./features/checkpoint";
 /* o terminal (dono do XC) avalia antes do infra, que lhe regista comandos (ADR-0004, U4g2) */
 import "./features/terminal";
 import "./features/infra";
+import "./features/ops/index"; /* A9: decora o RP.infra que o infra acabou de registar */
 import "./features/visualizer";
 import "./features/router";
 import "./features/team";

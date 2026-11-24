@@ -13,6 +13,7 @@
 import * as bridge from "./infrastructure/legacy-bridge";
 import { paceCps } from "./domain/composer";
 import { pairState } from "../../app/pair-state";
+import { codevUndo } from "../../app/codev-undo";
 import { parseAgentEvent } from "./domain/agent-events";
 /** The session id of the hunks mirrored from the PairCode host (RF-S09). */
 const MIRROR = "pair-mirror";
@@ -158,6 +159,7 @@ const relPath = (p: string): string => (p.startsWith(bridge.root()) ? p.slice(br
 let stopTurn: () => void = () => undefined;
 let reveal: (line: number) => void = () => undefined;
 export const hunkReview = makeHunkReview({
+  applied: (path, before) => codevUndo.remember(path, before),
   // RF-P03: in a PairCode session the navigator's decisions are refusals
   review: (s, call, d) =>
     s === MIRROR
@@ -190,6 +192,7 @@ pairState.onCodev((e) => {
   const ev = parseAgentEvent({ session: MIRROR, event: e });
   if (ev) hunkReview.sink.event(MIRROR, ev.event);
 });
+codevUndo.setRel(relPath);
 hunkReview.readFrom((rel) => bridge.files()[bridge.root() + rel]?.content ?? null);
 const hunkView = makeHunkOverlayView(hunkReview, (el) => bridge.translate(el));
 reveal = hunkView.reveal;

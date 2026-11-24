@@ -8,11 +8,13 @@ import { sampleDesign } from "./fixtures/sample-design";
  * (tests/fixtures/sample-design.ts); aqui parte-se do que a app tem sem ele. */
 
 let w: any;
+let SM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
 const P = () => w.ROOT + ".dxtutor/studio.json";
 
 beforeEach(async () => {
   localStorage.clear();
   w = await bootApp();
+  SM = await import("../src/features/studio");
 });
 
 afterEach(() => {
@@ -22,7 +24,7 @@ afterEach(() => {
 
 describe("sem pasta (browser)", () => {
   it("sem nada guardado, o desenho é vazio e o canvas di-lo", () => {
-    w.SD = w.loadSD();
+    w.SD = SM.loadSD();
     expect(w.SD).toEqual({ nodes: [], edges: [] });
     const host = document.createElement("div"); document.body.appendChild(host);
     w.VIEW.studio({}, host);
@@ -33,15 +35,15 @@ describe("sem pasta (browser)", () => {
 
   it("guarda no localStorage (studio4) e lê de volta; o studio3 antigo (semeado) é ignorado", () => {
     localStorage.setItem("dx2.studio3", JSON.stringify(sampleDesign()));
-    expect(w.loadSD().nodes).toEqual([]);
+    expect(SM.loadSD().nodes).toEqual([]);
     w.SD = { nodes: [{ id: "a", tech: "rust-axum", n: "API", x: 10, y: 10, st: "plan" }], edges: [] };
-    w.saveSD();
-    expect(w.loadSD().nodes.map((n: any) => n.n)).toEqual(["API"]);
+    SM.saveSD();
+    expect(SM.loadSD().nodes.map((n: any) => n.n)).toEqual(["API"]);
   });
 
   it("um desenho guardado com tecnologia desconhecida não abre (fica vazio)", () => {
     localStorage.setItem("dx2.studio4", JSON.stringify({ nodes: [{ id: "a", tech: "nada", n: "x" }], edges: [] }));
-    expect(w.loadSD()).toEqual({ nodes: [], edges: [] });
+    expect(SM.loadSD()).toEqual({ nodes: [], edges: [] });
   });
 });
 
@@ -50,7 +52,7 @@ describe("com pasta (desktop)", () => {
 
   it("guarda no projecto, em .dxtutor/studio.json (e não no localStorage)", () => {
     w.SD = sampleDesign();
-    w.saveSD();
+    SM.saveSD();
     expect(JSON.parse(w.FS[P()].content).nodes.length).toBe(8);
     expect(localStorage.getItem("dx2.studio4")).toBe(null);
   });
@@ -67,7 +69,7 @@ describe("com pasta (desktop)", () => {
   it("um studio.json inválido abre vazio e diz porquê", () => {
     w.FS[P()] = { content: "{oops", orig: null };
     const log = vi.spyOn(w, "log");
-    expect(w.loadSD()).toEqual({ nodes: [], edges: [] });
+    expect(SM.loadSD()).toEqual({ nodes: [], edges: [] });
     expect(log).toHaveBeenCalledWith("studio", expect.stringMatching(/não é um desenho válido/));
   });
 

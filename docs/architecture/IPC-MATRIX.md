@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (197 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (210 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -141,9 +141,9 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 | `get_glossary` | `language: String` | `GlossaryDto` | String | — | — | R |
 | `get_study_guide` | `language: String`, `unit_id: String` | `StudyGuideDto` | String | — | — | R |
 | `run_drill` | `code: String`, `language: String`, `dependencies: Vec<String>` | `RunDto` (Rust/Go nativos; Python/C/drop-ins pelo descritor de `tutor_eval::plugin`) | String | — | — | **X** |
-| `run_measured` | `code: String` | `MeasuredRunDto` | String | — | — | **X** |
-| `compile_pipeline` | `code: String` | `PipelineDto` | String | — | — | **X** |
-| `trace_execution` | `language: String`, `code: String` | `ExecutionTraceDto` | String | — | — | **X** |
+| `run_measured` | `code: String` | `MeasuredRunDto` | String | — | `features/hood` (A8) | **X** |
+| `compile_pipeline` | `code: String` | `PipelineDto` | String | — | `features/hood` (A8) | **X** |
+| `trace_execution` | `language: String`, `code: String` | `ExecutionTraceDto` | String | — | `features/hood` (A8) | **X** |
 | `study_policy` | `mode: String`, `step_id: Option<String>` | `StudyPolicy` | — | — | — | R |
 
 ## 4. Review de código — `commands/review.rs` (3)
@@ -413,6 +413,33 @@ variáveis com diff, watch, pause, breakpoints guardados, snapshot) — a saída
 | `breakpoints_load` | `root: String` | `Vec<project::breakpoints::Breakpoint>` | String | — | `features/debug` (A7) | R |
 | `breakpoints_save` | `root`, `file`, `breakpoints: Vec<Breakpoint>` | `()` | String | — | `features/debug` (A7) | W |
 
+## 23. Under the hood real — `commands/hood.rs` (3)
+
+A8 (docs/v2/UI-AUDIT.md item 7): passagens directas para `tutor_eval::hood`, num worker bloqueante. Com os
+já existentes `compile_pipeline`, `run_measured` e `trace_execution` (secção dos missions), alimentam o
+separador «Under the hood (real)» e o «Execution trace» (`features/hood`).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `hood_line_asm` | `code: String`, `release: bool` | `hood::LineAsm` (por linha do `main.rs`: funções e instruções; `rustc -C debuginfo=2` + `objdump -d -l`) | String | — | `features/hood` (A8) | **X** |
+| `hood_python_bytecode` | `code: String` | `hood::Bytecode` (por linha e por função: as operações do `dis`) | String | — | `features/hood` (A8) | **X** |
+| `measure_growth` | `code: String`, `sizes: Vec<u64>` | `hood::Growth` (tempo por N, linha de base descontada, classe de complexidade, R², confiança) | String | — | `features/hood` (A8) | **X** |
+
+## 24. DevOps em só leitura — `commands/ops.rs` (6)
+
+A9 (docs/v2/UI-AUDIT.md item 10): passagens directas para `tutor_eval::ops`, num worker bloqueante. Nada
+muda infraestrutura: aplicar, fazer rollback, escalar ou apagar são comandos que o humano aprova e corre
+num terminal (`features/ops` mostra-os por extenso).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `ops_iac_dirs` | `root: String` | `Vec<String>` (pastas com `.tf`) | String | — | `features/ops` (A9) | R |
+| `ops_iac_plan` | `root`, `dir`, `refresh_only: bool` | `ops::IacPlan` (diff por recurso/atributo, drift, o comando de apply) | String | — | `features/ops` (A9) | **X** · R |
+| `ops_kube_state` | `context`, `namespace`, `kubeconfig: Option<String>` | `ops::KubeState` (pods, serviços, deployments, eventos) | String | — | `features/ops` (A9) | **X** · R |
+| `ops_kube_history` | `context`, `namespace`, `deployment`, `kubeconfig: Option<String>` | `Vec<ops::Revision>` | String | — | `features/ops` (A9) | **X** · R |
+| `ops_cloud_status` | — | `Vec<ops::CloudCli>` (aws/gcloud/az: instalado, versão, perfil local) | String | — | `features/ops` (A9) | **X** · R |
+| `ops_cloud_inventory` | `provider: String` | `ops::CloudInventory` (recursos e os comandos só de leitura corridos) | String | — | `features/ops` (A9) | **X** · R |
+
 ## 12. Devcontainers — `commands/devcontainer.rs` (8)
 
 Todos lançam processos de container (no motor do sandbox do backend: delonix/docker/podman). A sessão (`up`/`status`/`down`) é consumida pelo pane Infra no desktop (ADR-0006, R5b); os outros não são consumidos pela `ui-app`.
@@ -462,7 +489,7 @@ do `bridge.rs`).
 | `workspace_resolve` | `root: String`, `path: String` | `String` | String | — | — | R |
 | `workspace_action` | `root: String`, `op: String`, `path: String`, `content: Option<String>` | `String` | String | — | — | **W** |
 
-## 15. LSP — `lsp.rs` (15)
+## 15. LSP — `lsp.rs` (16)
 
 Todos usam `State<LspState>` + `AppHandle`. Na app desktop, a feature `features/lsp` liga o
 editor: `lsp_start` (uma vez por pasta aberta, que também passa a ser a raiz de reserva de um
@@ -475,7 +502,9 @@ não está instalado) e `lsp_code_action` + `lsp_execute_command` (Ctrl+.: corre
 refactorings; as edições de um comando voltam do servidor por `workspace/applyEdit`, que o
 backend emite como `lsp://apply-edit`) e `lsp_format` (Shift+Alt+F: o documento, ou só a selecção;
 sem servidor, ou se ele não formatar, fica o «Format Document» do dxtutor) e `lsp_document_symbols`
-(Ctrl+Shift+O / Go → Go to Symbol…, e o Outline das linguagens que o `file_outline` não cobre).
+(Ctrl+Shift+O / Go → Go to Symbol…, e o Outline das linguagens que o `file_outline` não cobre) e
+`lsp_workspace_symbols` (Ctrl+T / «Go to Symbol in Workspace…»: pergunta a cada servidor já a
+correr na pasta).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -491,6 +520,7 @@ sem servidor, ou se ele não formatar, fica o «Format Document» do dxtutor) e 
 | `lsp_execute_command` | `path: String`, `command: String`, `arguments: Option<Value>` | `Value` | String | `lsp://apply-edit` | `features/lsp` | W · S |
 | `lsp_format` | `path: String`, `tab_size: u32`, `insert_spaces: bool`, `start_line`/`start_character`/`end_line`/`end_character: Option<u32>` | `Value` (TextEdit[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_document_symbols` | `path: String` | `Value` (DocumentSymbol[] \| SymbolInformation[] \| null) | String | — | `features/lsp` | R · S |
+| `lsp_workspace_symbols` | `root: String`, `query: String` | `Value` (`[{ language, result: SymbolInformation[] \| WorkspaceSymbol[] }]`) | String | — | `features/lsp` | R · S |
 | `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_server_status` | `path: String` | `Option<lsp::ServerStatus>` (`{ language, server, installed, problem }`) | String | — | `features/lsp` (aviso no editor quando falta o servidor) | R · async |

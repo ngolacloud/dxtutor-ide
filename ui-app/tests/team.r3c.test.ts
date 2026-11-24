@@ -40,7 +40,8 @@ describe(".dxtutor/team.json", () => {
 
 describe("na cadeia real", () => {
   let w: any;
-  beforeEach(async () => { w = await bootApp(); });
+  let TMod: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
+  beforeEach(async () => { w = await bootApp(); TMod = await import("../src/features/team"); });
   afterEach(() => { delete w.DXR; });
 
   const open = () => document.dispatchEvent(new window.CustomEvent("dx:workspace", { detail: { root: "/proj" } }));
@@ -53,13 +54,13 @@ describe("na cadeia real", () => {
     expect(w.AGENTS.be.cmds).toEqual(["cargo test"]);
     expect(w.AGENTS.qa.paths).toEqual(["e2e/**"]);
     expect(w.AGENTS.qa.cmds).toEqual(["npm run e2e"]);
-    expect(w.inScope("qa", w.ROOT + "e2e/login.spec.ts")).toBe(true);
+    expect(TMod.inScope("qa", w.ROOT + "e2e/login.spec.ts")).toBe(true);
   });
 
   it("com pasta, gravar a equipa escreve .dxtutor/team.json no projecto", () => {
     w.DXR = { root: "/proj" };
     w.AGENTS.db.paths = ["sql/**"];
-    w.saveTeam();
+    TMod.saveTeam();
     const saved = parseTeamJson(w.FS[w.ROOT + ".dxtutor/team.json"].content)!;
     expect(saved.db.paths).toEqual(["sql/**"]);
   });
@@ -80,4 +81,15 @@ describe("na cadeia real", () => {
     expect(t).toMatch(/no measured cost for Backend in this project yet/);
     expect(t).not.toMatch(/≈1\.2k tokens|≈\d[\d.]*k? tokens · ~\$/);
   });
+});
+
+it("RF-A06: gravar os escopos dos assistentes mantém as pessoas e os papéis do team.json", async () => {
+  const { teamJsonKeeping } = await import("../src/features/team-scopes");
+  const prev = JSON.stringify({ agents: { be: { paths: ["old/**"], cmds: [] } }, people: [{ email: "ana@x.pt", roles: ["architect"] }] });
+  const out = JSON.parse(teamJsonKeeping({ be: { paths: ["src/**"], cmds: ["cargo"] } } as never, prev));
+  expect(out.agents.be.paths).toEqual(["src/**"]);
+  expect(out.people).toEqual([{ email: "ana@x.pt", roles: ["architect"] }]);
+  // no previous file, or not JSON: only the agents
+  expect(Object.keys(JSON.parse(teamJsonKeeping({} as never, undefined)))).toEqual(["agents"]);
+  expect(Object.keys(JSON.parse(teamJsonKeeping({} as never, "{nope")))).toEqual(["agents"]);
 });

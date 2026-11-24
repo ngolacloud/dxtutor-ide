@@ -14,17 +14,17 @@
 
 import { $, hd, svg, esc } from "../core";
 import { RP } from "../app/store/registry";
-import { registerActions, callGlobal } from "../app/actions";
+import { registerActions } from "../app/actions";
 import { translator } from "../app/i18n";
 import { TUTOR_MESSAGES } from "./tutor.messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(TUTOR_MESSAGES);
 
 /** Renderiza o pane «Learning Track»: onboarding se não houver língua escolhida,
  *  senão o curso com progresso, unidades expansíveis e passos. */
 function renderTutorPane(): void {
-  const LTS = window.LTS, course = window.course, ltSeq = window.ltSeq, ltPts = window.ltPts,
-    ltUnits = window.ltUnits, ltDone = window.ltDone, stars = window.stars, LT_BADGE = window.LT_BADGE;
+  const { LTS, course, ltSeq, ltPts, ltUnits, ltDone, stars, LT_BADGE } = services.learn!;
   const el = $("#pane-tutor");
   if (!el) return;
   if (LTS.lang && !course()) {
@@ -53,7 +53,7 @@ RP.tutor = renderTutorPane;
 /* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
 const UA = window as unknown as { LTS: { open: Record<string, boolean> }; RP: Record<string, () => void> };
 registerActions({
-  "tutor:onboard": { click: () => void callGlobal("ltOnboard", 1) },
-  "tutor:unit": { click: (c) => { UA.LTS.open[c.on] = !UA.LTS.open[c.on]; callGlobal("saveLT"); UA.RP.tutor(); } },
-  "tutor:open": { click: (c) => void callGlobal("ltOpen", c.on) },
+  "tutor:onboard": { click: () => void services.learn!.ltOnboard(1) },
+  "tutor:unit": { click: (c) => { UA.LTS.open[c.on] = !UA.LTS.open[c.on]; services.learn!.saveLT(); UA.RP.tutor(); } },
+  "tutor:open": { click: (c) => void services.learn!.ltOpen(c.on) },
 });
