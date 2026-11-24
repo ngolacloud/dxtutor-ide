@@ -100,6 +100,84 @@ export function firstTarget(result: unknown): Target | null {
   return null;
 }
 
+/** Todos os destinos de uma resposta de `references` (Location[]), pela ordem do servidor,
+ *  sem repetidos. */
+export function allTargets(result: unknown): Target[] {
+  const items = Array.isArray(result) ? result : [result];
+  const seen = new Set<string>();
+  const out: Target[] = [];
+  for (const it of items) {
+    const t = asTarget(it);
+    if (!t) continue;
+    const id = `${t.uri}#${t.line}:${t.character}`;
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+export interface Range {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}
+export interface TextEdit {
+  range: Range;
+  newText: string;
+}
+/** As edições de um ficheiro numa `WorkspaceEdit`. */
+export interface FileEdits {
+  uri: string;
+  path: string | null;
+  edits: TextEdit[];
+}
+
+function asRange(v: unknown): Range | null {
+  if (!isObj(v) || !isObj(v.start) || !isObj(v.end)) return null;
+  const n = [v.start.line, v.start.character, v.end.line, v.end.character].map(Number);
+  if (!n.every(Number.isFinite)) return null;
+  return { start: { line: n[0], character: n[1] }, end: { line: n[2], character: n[3] } };
+}
+
+function asEdits(v: unknown): TextEdit[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((e) => {
+    const range = isObj(e) ? asRange(e.range) : null;
+    return range && isObj(e) && typeof e.newText === "string" ? [{ range, newText: e.newText }] : [];
+  });
+}
+
+/** Uma `WorkspaceEdit` (forma `changes` ou `documentChanges`) por ficheiro. As operações de
+ *  ficheiro (criar/mudar o nome/apagar) não são aplicadas: contam-se em `fileOps`. */
+export function workspaceEditFiles(result: unknown): { files: FileEdits[]; fileOps: number } {
+  const byUri = new Map<string, TextEdit[]>();
+  let fileOps = 0;
+  const add = (uri: string, edits: TextEdit[]) => {
+    if (edits.length) byUri.set(uri, [...(byUri.get(uri) ?? []), ...edits]);
+  };
+  if (isObj(result) && Array.isArray(result.documentChanges)) {
+    for (const dc of result.documentChanges) {
+      if (isObj(dc) && isObj(dc.textDocument) && typeof dc.textDocument.uri === "string") add(dc.textDocument.uri, asEdits(dc.edits));
+      else if (isObj(dc) && typeof dc.kind === "string") fileOps++;
+    }
+  } else if (isObj(result) && isObj(result.changes)) {
+    for (const [uri, edits] of Object.entries(result.changes)) add(uri, asEdits(edits));
+  }
+  return { files: [...byUri].map(([uri, edits]) => ({ uri, path: uriToPath(uri), edits })), fileOps };
+}
+
+/** O intervalo de `prepareRename`: `Range`, `{range, placeholder}`, ou `{defaultBehavior}`
+ *  (o cliente escolhe a palavra). `null` quando o símbolo não se pode mudar de nome. */
+export function renameRange(result: unknown): { range: Range | null; placeholder: string | null } | null {
+  if (!isObj(result)) return null;
+  const direct = asRange(result);
+  if (direct) return { range: direct, placeholder: null };
+  if (asRange(result.range)) return { range: asRange(result.range), placeholder: typeof result.placeholder === "string" ? result.placeholder : null };
+  if (result.defaultBehavior === true) return { range: null, placeholder: null };
+  return null;
+}
+
 /** O backend responde `{indexing: true}` quando a resposta veio vazia com o índice por fazer. */
 export function isIndexing(result: unknown): boolean {
   return isObj(result) && result.indexing === true;

@@ -1,8 +1,9 @@
 // feature `lsp` — domínio puro: linguagens, posições/geometria, respostas e caminhos.
 import { describe, expect, it } from "vitest";
 import { languageIdFor } from "../src/features/lsp/domain/languages";
-import { offsetAtPoint, offsetToPosition, positionToOffset } from "../src/features/lsp/domain/positions";
-import { firstTarget, hoverBlocks, isIndexing, plainMarkdown, uriToPath } from "../src/features/lsp/domain/results";
+import { offsetAtPoint, offsetToPosition, pointOfOffset, positionToOffset, wordAt } from "../src/features/lsp/domain/positions";
+import { allTargets, firstTarget, hoverBlocks, isIndexing, plainMarkdown, renameRange, uriToPath, workspaceEditFiles } from "../src/features/lsp/domain/results";
+import { applyTextEdits } from "../src/features/lsp/domain/edits";
 import { absoluteToKey, keyToAbsolute } from "../src/features/lsp/domain/paths";
 
 describe("languageIdFor", () => {
@@ -89,6 +90,59 @@ describe("chave do editor ↔ caminho no disco", () => {
     expect(keyToAbsolute("proj/../x", "proj/", "/home/u/proj")).toBeNull();
     expect(absoluteToKey("/home/u/proj/src/A.java", "proj/", "/home/u/proj/")).toBe("proj/src/A.java");
     expect(absoluteToKey("/home/u/project/A.java", "proj/", "/home/u/proj")).toBeNull();
+  });
+});
+
+describe("referências e rename (domínio)", () => {
+  it("allTargets: todas as localizações, sem repetidos", () => {
+    const a = { uri: "file:///w/A.java", range: { start: { line: 1, character: 2 } } };
+    const b = { uri: "file:///w/B.java", range: { start: { line: 3, character: 4 } } };
+    expect(allTargets([a, b, a]).map((t) => `${t.path}:${t.line}`)).toEqual(["/w/A.java:1", "/w/B.java:3"]);
+    expect(allTargets(null)).toEqual([]);
+  });
+
+  it("workspaceEditFiles: forma changes e forma documentChanges (operações de ficheiro contadas)", () => {
+    const r = (l: number, c1: number, c2: number) => ({ start: { line: l, character: c1 }, end: { line: l, character: c2 } });
+    expect(workspaceEditFiles({ changes: { "file:///w/A.kt": [{ range: r(0, 4, 9), newText: "salute" }] } })).toEqual({
+      files: [{ uri: "file:///w/A.kt", path: "/w/A.kt", edits: [{ range: r(0, 4, 9), newText: "salute" }] }],
+      fileOps: 0,
+    });
+    const dc = workspaceEditFiles({
+      documentChanges: [
+        { textDocument: { uri: "file:///w/A.java", version: 2 }, edits: [{ range: r(2, 1, 4), newText: "sum" }] },
+        { kind: "rename", oldUri: "file:///w/A.java", newUri: "file:///w/B.java" },
+        { textDocument: { uri: "file:///w/A.java", version: 2 }, edits: [{ range: r(5, 0, 3), newText: "sum" }] },
+      ],
+    });
+    expect(dc.files).toHaveLength(1);
+    expect(dc.files[0].edits).toHaveLength(2);
+    expect(dc.fileOps).toBe(1);
+    expect(workspaceEditFiles(null)).toEqual({ files: [], fileOps: 0 });
+  });
+
+  it("renameRange: Range, {range, placeholder}, {defaultBehavior} e recusa", () => {
+    const range = { start: { line: 0, character: 4 }, end: { line: 0, character: 9 } };
+    expect(renameRange(range)).toEqual({ range, placeholder: null });
+    expect(renameRange({ range, placeholder: "greet" })).toEqual({ range, placeholder: "greet" });
+    expect(renameRange({ defaultBehavior: true })).toEqual({ range: null, placeholder: null });
+    expect(renameRange(null)).toBeNull();
+  });
+
+  it("applyTextEdits: do fim para o princípio, em várias linhas; sobrepostas lançam", () => {
+    const text = "fun greet() {}\nval a = greet()\nval b = greet()\n";
+    const at = (line: number, ch: number) => ({ start: { line, character: ch }, end: { line, character: ch + 5 } });
+    const out = applyTextEdits(text, [at(1, 8), at(0, 4), at(2, 8)].map((range) => ({ range, newText: "salute" })));
+    expect(out).toBe("fun salute() {}\nval a = salute()\nval b = salute()\n");
+    expect(() => applyTextEdits(text, [{ range: at(0, 4), newText: "x" }, { range: at(0, 6), newText: "y" }])).toThrow();
+  });
+
+  it("wordAt e pointOfOffset", () => {
+    const text = "\tint total = Util.add(1, 2);";
+    const add = text.indexOf("add");
+    expect(wordAt(text, add + 1)).toEqual({ start: add, end: add + 3, word: "add" });
+    expect(wordAt(text, text.indexOf("("))?.word).toBe("add"); // logo a seguir ao nome
+    expect(wordAt(text, text.indexOf(" = ") + 1)).toBeNull();
+    expect(pointOfOffset(text, 1, { lineHeight: 22, charWidth: 8, tabSize: 4 })).toEqual({ x: 32, y: 0 });
   });
 });
 

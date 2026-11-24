@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { makeLspClient } from "../src/features/lsp/application/lsp-client";
 import type { EditorPort, LspPort, WorkspacePort } from "../src/features/lsp/application/ports";
 
-function setup(opts: { root?: string | null; files?: Record<string, string>; hover?: unknown; definition?: unknown; missing?: string[] } = {}) {
+function setup(opts: { root?: string | null; files?: Record<string, string>; hover?: unknown; definition?: unknown; references?: unknown; prepare?: unknown; prepareThrows?: boolean; rename?: unknown; missing?: string[] } = {}) {
   const calls: string[] = [];
   let diagCb: (uri: string) => void = () => {};
   const files: Record<string, string> = opts.files ?? { "proj/src/Main.java": "class Main {\n  int x;\n}\n" };
@@ -14,6 +14,13 @@ function setup(opts: { root?: string | null; files?: Record<string, string>; hov
     didChange: async (path, text, v) => void calls.push(`change ${path} v${v} ${text.length}`),
     hover: async (path, l, c) => (calls.push(`hover ${path} ${l}:${c}`), opts.hover ?? null),
     definition: async (path, l, c) => (calls.push(`def ${path} ${l}:${c}`), opts.definition ?? null),
+    references: async (path, l, c) => (calls.push(`refs ${path} ${l}:${c}`), opts.references ?? null),
+    prepareRename: async (path, l, c) => {
+      calls.push(`prepare ${path} ${l}:${c}`);
+      if (opts.prepareThrows) throw new Error("method not found");
+      return opts.prepare ?? null;
+    },
+    rename: async (path, l, c, n) => (calls.push(`rename ${path} ${l}:${c} ${n}`), opts.rename ?? null),
     onDiagnostics: (cb) => (diagCb = cb),
     serverStatus: async (path) => {
       const language = path.endsWith(".kt") ? "kotlin" : path.endsWith(".java") ? "java" : null;
@@ -37,6 +44,11 @@ function setup(opts: { root?: string | null; files?: Record<string, string>; hov
     repaint: (k) => void shown.push(`repaint ${k}`),
     open: (k, line, ch) => void shown.push(`open ${k} ${line}:${ch}`),
     notify: (m) => void shown.push(`notify ${m}`),
+    writeFile: (k, text) => {
+      files[k] = text;
+      shown.push(`write ${k}`);
+    },
+    reload: (k) => void shown.push(`reload ${k}`),
     notice: (k, n, onDismiss) => { notices.set(k, n ? n.title : null); dismiss = onDismiss; },
   };
   const deferred: (() => void)[] = [];
@@ -149,5 +161,76 @@ describe("cliente LSP do editor", () => {
     await t.activate("proj/App.kt");
     expect(t.notices.get("proj/App.kt")).toBe(null);
     expect(t.calls).toContain("open /home/u/proj/App.kt kotlin");
+  });
+});
+
+describe("referências e rename no cliente", () => {
+  const MAIN = "class Main {\n  int t = Util.add(1, 2);\n}\n";
+  const UTIL = "class Util {\n  static int add(int a, int b) { return a + b; }\n}\n";
+  const loc = (file: string, line: number, ch: number) => ({ uri: `file:///home/u/proj/${file}`, range: { start: { line, character: ch }, end: { line, character: ch + 3 } } });
+  const files = () => ({ "proj/src/Main.java": MAIN, "proj/src/Util.java": UTIL });
+
+  it("referências com ficheiro, linha (1-based) e o texto da linha; fora da pasta sem chave", async () => {
+    const t = setup({ files: files(), references: [loc("src/Util.java", 1, 13), loc("src/Main.java", 1, 15), { uri: "jdt://x/String.class", range: { start: { line: 0, character: 0 } } }] });
+    await t.activate("proj/src/Main.java");
+    const refs = await t.client.referencesAt(MAIN.indexOf("add"));
+    expect(t.calls).toContain("refs /home/u/proj/src/Main.java 1:15");
+    expect(refs).toEqual([
+      { key: "proj/src/Util.java", label: "src/Util.java", line: 2, character: 13, preview: "static int add(int a, int b) { return a + b; }" },
+      { key: "proj/src/Main.java", label: "src/Main.java", line: 2, character: 15, preview: "int t = Util.add(1, 2);" },
+      { key: null, label: "jdt://x/String.class", line: 1, character: 0, preview: "" },
+    ]);
+  });
+
+  it("referências pedidas na declaração (não no uso) e a declaração acrescentada se o servidor a omitir", async () => {
+    // como o kotlin-language-server: na declaração devolve só os usos, sem a própria declaração
+    const t = setup({ files: files(), definition: [loc("src/Util.java", 1, 13)], references: [loc("src/Main.java", 1, 15)] });
+    await t.activate("proj/src/Main.java");
+    const refs = await t.client.referencesAt(MAIN.indexOf("add"));
+    expect(t.calls).toContain("refs /home/u/proj/src/Util.java 1:13");
+    expect(t.calls).toContain("open /home/u/proj/src/Util.java java"); // a declaração abre-se no servidor
+    expect(refs!.map((r) => `${r.label}:${r.line}`)).toEqual(["src/Util.java:2", "src/Main.java:2"]);
+  });
+
+  it("prepareRename: usa o intervalo do servidor; sem prepareRename, a palavra no cursor; recusa avisa", async () => {
+    const at = MAIN.indexOf("add") + 1;
+    const ranged = setup({ files: files(), prepare: { start: { line: 1, character: 15 }, end: { line: 1, character: 18 } } });
+    await ranged.activate("proj/src/Main.java");
+    expect(await ranged.client.prepareRenameAt(at)).toEqual({ placeholder: "add", start: MAIN.indexOf("add"), end: MAIN.indexOf("add") + 3 });
+
+    const unsupported = setup({ files: files(), prepareThrows: true });
+    await unsupported.activate("proj/src/Main.java");
+    expect((await unsupported.client.prepareRenameAt(at))?.placeholder).toBe("add");
+
+    const refused = setup({ files: files(), prepare: { neither: true } });
+    await refused.activate("proj/src/Main.java");
+    expect(await refused.client.prepareRenameAt(at)).toBeNull();
+    expect(refused.shown).toEqual(["notify This symbol can't be renamed"]);
+  });
+
+  it("rename aplica as edições aos dois ficheiros, avisa o servidor dos abertos e salta o que está fora", async () => {
+    const edit = (file: string, line: number, ch: number) => ({ textDocument: { uri: `file:///home/u/proj/${file}`, version: 1 }, edits: [{ range: { start: { line, character: ch }, end: { line, character: ch + 3 } }, newText: "sum" }] });
+    const t = setup({ files: files(), rename: { documentChanges: [edit("src/Main.java", 1, 15), edit("src/Util.java", 1, 13), { textDocument: { uri: "file:///elsewhere/X.java" }, edits: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "z" }] }] } });
+    await t.activate("proj/src/Main.java");
+    const res = await t.client.renameAt(MAIN.indexOf("add"), "  sum ");
+    expect(res).toEqual({ files: 2, edits: 2, skipped: ["/elsewhere/X.java"] });
+    expect(t.files["proj/src/Main.java"]).toBe(MAIN.replace("add", "sum"));
+    expect(t.files["proj/src/Util.java"]).toBe(UTIL.replace("add", "sum"));
+    expect(t.calls).toContain("rename /home/u/proj/src/Main.java 1:15 sum");
+    // o Main.java estava aberto no servidor: didChange com a versão seguinte; o Util.java não
+    expect(t.calls.filter((c) => c.startsWith("change"))).toEqual([`change /home/u/proj/src/Main.java v2 ${MAIN.length}`]);
+    expect(t.shown).toContain("reload proj/src/Main.java");
+    expect(t.shown.at(-1)).toBe("notify Renamed to sum: 2 change(s) in 2 file(s) — 1 file(s) skipped");
+  });
+
+  it("rename sem edições ou ainda a indexar avisa e não grava nada", async () => {
+    const none = setup({ files: files(), rename: { changes: {} } });
+    await none.activate("proj/src/Main.java");
+    expect(await none.client.renameAt(5, "x")).toBeNull();
+    expect(none.shown).toEqual(["notify Nothing to rename here"]);
+    const idx = setup({ files: files(), rename: { indexing: true } });
+    await idx.activate("proj/src/Main.java");
+    expect(await idx.client.renameAt(5, "x")).toBeNull();
+    expect(idx.shown[0]).toMatch(/still indexing/);
   });
 });
