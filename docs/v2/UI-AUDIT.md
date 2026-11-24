@@ -271,6 +271,26 @@ de comandos falhados enviados ao Co-Dev.
 **Retirar:** os traços guionados (`lexer-trace.ts`, `crash-trace.ts`, lançadores falsos). Ver Q4 (há
 golden de debug sobre eles).
 
+**Estado após a A7 (2026-11-24):** os traços guionados já tinham saído na R1c2, e a R4 do ADR-0006 ligou o gdb/MI.
+A A7 acrescenta o DAP:
+- **DBG-01:** `tutor_eval::dapc` é um cliente DAP em Rust sobre o `lldb-dap` (LLVM; Rust, C, C++), por stdio. Uma thread
+  leitora encaminha respostas e eventos, por isso o pause segue enquanto o programa corre. O `debug_launch` usa-o quando há
+  adaptador e os comandos `debug_*` de sempre seguem por ele; sem adaptador, fica o gdb/MI. Testado contra o `lldb-dap`
+  real.
+- **DBG-02:** variáveis em árvore, reabertas pelo caminho em cada paragem e com o que mudou desde a anterior assinalado
+  (o backend guarda a paragem anterior); valores inline no editor junto às linhas acima da paragem; watch; threads e
+  frames seleccionáveis; step out e pause; a saída do programa (o evento `debug://output`).
+- **DBG-03:** menu do gutter no clique direito: condição, contagem, logpoint, activar/desactivar, remover. «Parar em panic»
+  é um breakpoint de função em `rust_panic`. Os breakpoints ficam guardados por workspace em SQLite (migração 4).
+- **DBG-05:** «Guardar snapshot…» guarda a paragem (onde, pilha, variáveis, watch, saída) como artefacto da issue escolhida.
+- **DBG-06:** «Perguntar ao Co-Dev sobre esta paragem» e «Transformar isto num teste» levam os frames reais como contexto.
+- **Por fazer:**
+  - DBG-04: time travel com `rr`, que não está instalado nesta máquina;
+  - os adaptadores debugpy, Delve, js-debug e java-debug, e o attach a pid/contentor/`kubectl` (não se podem verificar
+    aqui);
+  - data breakpoints e excepções com cadeia causal para C++/Python;
+  - atalhos de teclado para step out e pause (exigiriam globais novos no `window`).
+
 ### Item 7 · Visualize e Under the hood
 
 **Estado actual:** o visualizer é um interpretador TS de um subconjunto de Rust, com memória simulada

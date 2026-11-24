@@ -166,6 +166,18 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX idx_test_cases_run ON test_cases(run_id);
     CREATE INDEX idx_test_cases_case ON test_cases(case_id);",
+    // 4 — the gutter's breakpoints per workspace (docs/v2/UI-AUDIT.md item 4, DBG-03): line,
+    //     condition, hit count, log message (logpoint), on/off — kept across restarts
+    "CREATE TABLE breakpoints (
+        root           TEXT NOT NULL,
+        file           TEXT NOT NULL,
+        line           INTEGER NOT NULL,
+        condition      TEXT,
+        hit_condition  TEXT,
+        log_message    TEXT,
+        enabled        INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (root, file, line)
+    );",
 ];
 
 /// The schema version this code expects.

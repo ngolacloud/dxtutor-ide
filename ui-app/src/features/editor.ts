@@ -27,6 +27,7 @@ import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
 import { editorOverlay, type OverlayView } from "../app/editor-overlay";
 import { lineAnnotation } from "../app/line-annotation";
+import { inlineValues } from "../app/inline-values";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -106,6 +107,8 @@ function paintEdFull(p: string): void {
   /* a linha onde o gdb parou (ADR-0006, R4) */
   const cur = PE.dbgCurrent ? PE.dbgCurrent() : null;
   if (cur && cur.path === p && ls[cur.line - 1]) { ls[cur.line - 1].classList.add('dbg-cur'); if (gs[cur.line - 1]) gs[cur.line - 1].classList.add('dbg-cur'); }
+  /* A7: os valores das variáveis no fim das linhas acima da paragem (app/inline-values.ts) */
+  const iv = inlineValues.of(p); if (iv) Object.entries(iv).forEach(([n, txt]) => { const l = ls[+n - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="dv-inline">${esc(txt)}</span>`); });
   if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 
