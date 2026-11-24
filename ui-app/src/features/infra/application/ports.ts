@@ -127,6 +127,12 @@ export interface InfraDesktop {
   k8sConnect(virtual: () => void): unknown;
   dxDeploy(virtual: () => { ok: boolean; sum?: string }): { ok: boolean; sum?: string };
   observe(t: ObserveTab, host: HTMLElement, virtual: (t: ObserveTab, host: HTMLElement) => void): void;
+  /** O dev-container real (`devcontainer_session_up`/`down`, ADR-0006 R5b). */
+  dcAttach?(virtual: () => void): unknown;
+  dcDetach?(virtual: () => void): unknown;
+  /** O scale e o delete do Kubernetes com o `kubectl` real (ADR-0006, R5b). */
+  k8sScale?(n: string, d: number, virtual: (n: string, d: number) => void): unknown;
+  k8sDown?(virtual: () => void): unknown;
 }
 
 /** A superfície que o motor devolve (os dois motores da Infra). */

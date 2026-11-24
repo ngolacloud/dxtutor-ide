@@ -233,6 +233,11 @@ VIEW.observe = (t, host) => { const d = desktopPorts.infra; if (d) d.observe(t a
 const rtConnectPublished = () => { const d = desktopPorts.infra; return d ? d.rtConnect(rtConnect) : rtConnect(); };
 const k8sConnectPublished = () => { const d = desktopPorts.infra; return d ? d.k8sConnect(k8sConnect) : k8sConnect(); };
 const dxDeployPublished = () => { const d = desktopPorts.infra; return d ? d.dxDeploy(dxDeployPrimed) : dxDeployPrimed(); };
+/* o dev-container e o scale/delete do K8s reais (ADR-0006, R5b) entram pela mesma porta */
+const dcAttachPublished = () => { const d = desktopPorts.infra; return d && d.dcAttach ? d.dcAttach(dcAttach) : dcAttach(); };
+const dcDetachPublished = () => { const d = desktopPorts.infra; return d && d.dcDetach ? d.dcDetach(dcDetach) : dcDetach(); };
+const k8sScalePublished = (n: string, dlt: number) => { const d = desktopPorts.infra; return d && d.k8sScale ? d.k8sScale(n, dlt, k8sScale) : k8sScale(n, dlt); };
+const k8sDownPublished = () => { const d = desktopPorts.infra; return d && d.k8sDown ? d.k8sDown(k8sDown) : k8sDown(); };
 function dxDeployPrimed() { const r = dxDeploy(); const K8S = window.K8S; if (r && r.ok && K8S) { K8S.ver = window.GIT.refs.develop; K8S.at = Date.now(); initSecrets(); } return r; }
 
 /* ── publicação transitória no window (shim para o residual) ──
@@ -240,8 +245,8 @@ function dxDeployPrimed() { const r = dxDeploy(); const K8S = window.K8S; if (r 
    estes nomes como globais. (As decorações de v6 — dxDeploy/drawStudio — já não lêem
    initSecrets/driftReport/DSTY por global: importam-nos por porta tipada; ADR-0002 passo 6.) */
 publish({
-  rtConnect: rtConnectPublished, k8sConnect: k8sConnectPublished, dxDeploy: dxDeployPublished, needRt, projectContext, devcontainerJson, dcAttach, dcDetach,
-  drawRemote, infraDraw, appEnv, k8sInfra, k8sDocs, k8sScale, k8sDown, runTaskQuiet, ctlLogs,
+  rtConnect: rtConnectPublished, k8sConnect: k8sConnectPublished, dxDeploy: dxDeployPublished, needRt, projectContext, devcontainerJson, dcAttach: dcAttachPublished, dcDetach: dcDetachPublished,
+  drawRemote, infraDraw, appEnv, k8sInfra, k8sDocs, k8sScale: k8sScalePublished, k8sDown: k8sDownPublished, runTaskQuiet, ctlLogs,
   saveEnv, cli, hydrateEnvs,
   ENVL, ENVX, saveEnvx, designApps, localSecrets, urlHosts, envDeps, envState,
   envHealth, secretCheck, commitsBetween, promote, redeployEnv, openEnvs,

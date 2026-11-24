@@ -383,18 +383,18 @@ são `async` (esperam pelo gdb; síncronos congelavam a thread principal).
 
 ## 12. Devcontainers — `commands/devcontainer.rs` (8)
 
-Todos lançam processos de container (docker/podman). Não consumidos pela `ui-app`.
+Todos lançam processos de container (no motor do sandbox do backend: delonix/docker/podman). A sessão (`up`/`status`/`down`) é consumida pelo pane Infra no desktop (ADR-0006, R5b); os outros não são consumidos pela `ui-app`.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `devcontainer_info` | `root: String` | `DevcontainerInfo` | String | — | — | R |
 | `devcontainer_up` | `root: String` | `DevcontainerUp` | String | — | — | **X** |
 | `devcontainer_exec` | `root: String`, `cmd: String` | `DevcontainerUp` | String | — | — | **X** |
-| `devcontainer_session_up` | `root: String` | `DevcontainerUp` | String | — | — | **X** |
+| `devcontainer_session_up` | `root: String` | `DevcontainerUp` | String | — | `platform/tauri/devcontainer.ts` (via `platform/desktop/infra.ts`) | **X** |
 | `devcontainer_session_exec` | `root: String`, `cmd: String` | `DevcontainerUp` | String | — | — | **X** |
 | `devcontainer_session_run` | `root: String`, `file: String` | `DevcontainerUp` | String | — | — | **X** |
-| `devcontainer_session_status` | `root: String` | `SessionStatus` | String | — | — | R |
-| `devcontainer_session_down` | `root: String` | `()` | String | — | — | **X** |
+| `devcontainer_session_status` | `root: String` | `SessionStatus` | String | — | `platform/tauri/devcontainer.ts` (via `platform/desktop/infra.ts`) | R |
+| `devcontainer_session_down` | `root: String` | `()` | String | — | `platform/tauri/devcontainer.ts` (via `platform/desktop/infra.ts`) | **X** |
 
 ## 13. Projecto / sandbox / run — `commands/sandbox.rs` (3)
 
@@ -409,7 +409,7 @@ Todos lançam processos de container (docker/podman). Não consumidos pela `ui-a
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `compose_ps` | `root: String` | `Vec<ComposeService>` | String | — | — | **X** |
-| `get_sandbox_engine` | — | `String` | — | — | — | R |
+| `get_sandbox_engine` | — | `String` | — | — | `platform/tauri/devcontainer.ts` (via `platform/desktop/infra.ts`) | R |
 | `set_sandbox_engine` | `engine: String` | `String` | String | — | — | W (config) |
 
 ## 14. Sistema de ficheiros — `fsops.rs` (9)

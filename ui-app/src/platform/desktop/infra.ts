@@ -11,6 +11,7 @@ import type { StackDesktop } from "../../features/stack";
 import type { InfraDesktop } from "../../features/infra/application/ports";
 import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
+import { devcontainerClient } from "../tauri/devcontainer";
 import type { DesktopContext } from "./context";
 
 export function installInfra(ctx: DesktopContext): void {
@@ -136,6 +137,48 @@ dxDeploy(_dxDeploy) {
   void idle().then(async () => { const code = await runInTerm(script, { env: envFor() }); if (code === 0) { await readK8s(); toast("Deployed to " + ctx); goPane("infra"); } infraDraw(); });
   return { ok: true, sum: "deploying" };
 },
+/* ───── o dev-container real (ADR-0006, R5b): a sessão do backend sobre o devcontainer.json ───── */
+dcAttach(_dcAttach) {
+  if (!R.root) return _dcAttach();
+  if (!needRt()) return;
+  const root = R.root, pDc = (window as unknown as { P_DC: string }).P_DC;
+  if (!FS[pDc]) writeFile(pDc, (window as unknown as { devcontainerJson: () => string }).devcontainerJson());
+  flushSave();
+  setPanelTab("terminal", true); echoCmd("devcontainer up (sessão do projecto)");
+  void idle().then(async () => {
+    try {
+      const up = await devcontainerClient().sessionUp(root);
+      const out = [up.ran ? `$ ${up.ran}` : "", up.stdout.trim(), up.stderr.trim()].filter(Boolean).join("\n");
+      if (out) echo(`<span class="dim">${escH(out.slice(-4000))}</span>`);
+      if (!up.ok) { echo('<span class="er">o dev container não arrancou</span>'); toast("O dev container não arrancou — vê o terminal"); newInput(true); return; }
+      const st = await devcontainerClient().sessionStatus(root).catch(() => ({ running: true, name: "" }));
+      /* a sessão corre no motor de sandbox do backend (o mesmo da Learning Track), que pode não ser o
+         runtime escolhido acima: diz-se qual, em vez de o trocar às escondidas */
+      const engine = await devcontainerClient().engine().catch(() => "");
+      const dv = { name: st.name || "dev container", image: up.image, engine };
+      DEVC = dv;
+      echo(`<span class="ok">dev container ${escH(dv.name)} a correr em ${escH(engine || "?")} (${escH(up.image)}${up.built ? ", construída" : ""})</span>`); newInput(true);
+      say(`dev container ${dv.name} up`); toast("Projecto ligado ao dev container");
+    } catch (e) { echo(`<span class="er">${escH(String(e))}</span>`); newInput(true); toast("O dev container não arrancou"); }
+    infraDraw();
+  });
+},
+dcDetach(_dcDetach) {
+  if (!R.root) return _dcDetach();
+  const root = R.root;
+  void devcontainerClient().sessionDown(root).then(() => { DEVC = null; say("dev container parado"); toast("Dev container parado"); infraDraw(); }, (e) => { toast("Não consegui parar o dev container: " + e); });
+},
+/* ───── o scale e o delete do Kubernetes com o kubectl real (ADR-0006, R5b) ───── */
+k8sScale(n, d, _k8sScale) {
+  if (!ENVS.k8sOn || !K8S) return _k8sScale(n, d);
+  const x = (K8S as { deps: Array<{ n: string; rep: number }> }).deps.find(y => y.n === n); if (!x) return;
+  const rep = Math.max(0, x.rep + d);
+  void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} scale deploy/${n} --replicas=${rep}`, { env: envFor() }).then(async () => { await readK8s(); infraDraw(); });
+},
+k8sDown(_k8sDown) {
+  if (!ENVS.k8sOn || !R.root) return _k8sDown();
+  void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} delete -f deploy/k8s`, { env: envFor() }).then(async () => { K8S = null; await readK8s(); infraDraw(); });
+},
 observe(t, host, _observe) {
   _observe(t, host);
   if (!R.root) return;
@@ -145,6 +188,11 @@ observe(t, host, _observe) {
   pg.insertAdjacentHTML("afterbegin", `<div class="sec-empty" style="margin:0 0 10px"><b>Real logs:</b> <code>${escH(cmd)}</code> <button class="mini pri" onclick="DXR.logs(${jsa(cmd)})">Stream in terminal</button> <span class="dim">(the charts below are modelled)</span></div>`);
 },
 };
+/* ao abrir uma pasta, um dev container já a correr para ela volta a aparecer ligado */
+document.addEventListener("dx:workspace", () => {
+  const root = R.root; if (!root) { DEVC = null; return; }
+  void devcontainerClient().sessionStatus(root).then((st) => { DEVC = st.running ? { name: st.name, image: (DEVC as { image?: string } | null)?.image || "" } : null; infraDraw(); }, () => undefined);
+});
 desktopPorts.stack = stackDesktop;
 desktopPorts.infra = infraDesktop;
 R.logs = cmd => runInTerm(cmd, { env: envFor() });

@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5a feita, R5b–R5c e R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5a e R5b feitas, R5c e R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -472,3 +472,21 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   teste do «Connect socket» passa ao comportamento honesto. **Selftest desktop:** passo
   `containers` novo — liga o Docker real e o pane lista o contentor e as 2 imagens desta máquina
   (`backend-postgres-1 · postgres:16-alpine · Up 2 days (healthy)`); `errors: []`.
+- **R5b (2026-11-24) — o dev container e o scale/delete do K8s reais.** **Desktop** (porta
+  `desktopPorts.infra`, métodos novos opcionais `dcAttach`/`dcDetach`/`k8sScale`/`k8sDown`; cliente
+  `platform/tauri/devcontainer.ts`): «Attach» escreve o `.devcontainer/devcontainer.json` se falta,
+  grava, e arranca a sessão do projecto (`devcontainer_session_up`, saída no terminal); o `DEVC`
+  vem do `devcontainer_session_status` real e diz o motor (`get_sandbox_engine`); «Detach» faz
+  `devcontainer_session_down`; ao abrir uma pasta, uma sessão que já corre é reposta. **O motor é o
+  do sandbox do backend** (aqui o delonix, o mesmo da Learning Track), não o runtime ligado no
+  pane: diz-se qual é em vez de o trocar em silêncio (`set_sandbox_engine` é global e mudaria a
+  avaliação dos cursos). Scale/delete correm o `kubectl … scale deploy/N --replicas=X` / `delete
+  -f deploy/k8s` reais num terminal de tarefa e relêem o cluster. **Browser** (versões de base):
+  «Attach» só escreve o `devcontainer.json` e diz que arrancá-lo precisa da app desktop (já não
+  inventa um `DEVC`); scale/delete dizem que precisam do kubectl real e não mexem no `K8S` (antes
+  ecoavam «scaled»/«deleted» e alteravam as réplicas em memória). **Testes:** `infra.r5b` (attach
+  com e sem runtime, detach, scale/delete sem mexer no cluster, as versões publicadas passam pela
+  porta e uma porta sem os métodos novos cai na base). **Selftest desktop:** passo
+  `devcontainer` novo — um `devcontainer.json` com uma imagem local (`postgres:16-alpine`),
+  attach → o contentor `dxtutor-sess-…` aparece no `ps` do motor (delonix) → detach → desaparece;
+  `errors: []`. Sem goldens tocados.

@@ -185,10 +185,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const k8sNoThrow = typeof ENVS.k8sOn === "boolean";
       if (ENVS.k8sOn !== k8sBefore) await k8sConnect();
       ENVS.rtOn = true;
-      dcAttach();
-      const attached = !!FS[window.P_DC] && !!DEVC;
-      dcDetach();
-      const detached = DEVC === null;
+      /* o dev-container passou a ser real e assíncrono (R5b): tem o passo `devcontainer` próprio */
       ENVS.rtOn = false; ENVS.k8sOn = false;
       const deployNoRt = dxDeploy();
       ENVS.rtOn = true;
@@ -196,7 +193,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       ENVS.rtOn = rtBefore; ENVS.k8sOn = k8sBefore;
       drawRemote();
       const remoteBadgeWired = !!document.querySelector(".si.remote .rl");
-      return { rtNoThrow, k8sNoThrow, attached, detached, deployNoRt, deployNoK8s, remoteBadgeWired, errBefore, errAfter: R.errors.length };
+      return { rtNoThrow, k8sNoThrow, deployNoRt, deployNoK8s, remoteBadgeWired, errBefore, errAfter: R.errors.length };
     });
     await step("terminal", async () => { const lines: string[] = []; const code = await stream("echo hello-from-term; echo $DX_SELF", { env: { DX_SELF: "env-ok" }, line: l => lines.push(l) }); return { code, lines }; });
     await step("terminalUI", async () => { await realTerm("echo ui-line"); await new Promise(r => setTimeout(r, 300)); return [...document.querySelectorAll("#term .line")].some(d => d.textContent === "ui-line"); });
@@ -421,6 +418,24 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await R.drawContainers?.();
       await wait(() => !/A ler os contentores/.test(host()?.textContent || ""), 20000);
       return { connected: W.ENVS.rtOn, containers: host()?.querySelectorAll(".dk-row").length ?? -1, images: imgs()?.querySelectorAll(".dk-row").length ?? -1, text: (host()?.textContent || "").slice(0, 80) };
+    });
+    // dev-container (ADR-0006, R5b): a sessão real do backend (devcontainer_session_up/down) sobre
+    // um devcontainer.json com uma imagem que já existe nesta máquina (sem descarregar nada).
+    await step("devcontainer", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 200)); return f(); };
+      const W = window as unknown as { P_DC: string; DEVC: { name: string; image: string } | null; dcAttach: () => void; dcDetach: () => void; ENVS: { rtOn: boolean } };
+      const img = ((await sh("docker", ["images", "--format", "{{.Repository}}:{{.Tag}}"])).stdout.trim().split("\n").filter(x => x && !x.includes("<none>"))[0]) || "";
+      if (!img) return { skipped: "sem imagens locais" };
+      writeFile(W.P_DC, JSON.stringify({ name: "selftest", image: img }) + "\n"); flushSave(); await idle();
+      W.dcAttach();
+      const up = await wait(() => !!W.DEVC, 60000);
+      const name = W.DEVC ? W.DEVC.name : "", engine = (W.DEVC as unknown as { engine?: string } | null)?.engine || "docker";
+      const bin = engine === "host" ? "docker" : engine;
+      const inPs = name ? (await sh(bin, ["ps"])).stdout.includes(name) : false; /* o delonix ignora o --format: procura-se o nome na tabela */
+      W.dcDetach();
+      const down = await wait(() => W.DEVC === null, 30000);
+      const gone = name ? !(await sh(bin, ["ps", "-a"])).stdout.includes(name) : false;
+      return { image: img, engine, up, name, inPs, down, gone };
     });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }

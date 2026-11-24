@@ -66,16 +66,17 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
     const ports = (workspace.composeServices() || []).filter((s) => s.port).map((s) => +(s.port as number | string));
     return domDevcontainerJson(ctx, ports, state.envs().sock[state.envs().rt]);
   }
+  /* ADR-0006, R5b: o dev-container a sério (o `devcontainer_session_up` do backend) só existe na app
+     desktop — a porta faz isso. A versão de base escreve o `.devcontainer/devcontainer.json` (o
+     gerador é real: o ficheiro serve a qualquer ferramenta Dev Containers) e diz que arrancar o
+     contentor precisa da app desktop — já não finge um «devcontainer up» nem um contentor ligado. */
   function dcAttach(): void {
     if (!needRt()) return;
-    if (!workspace.files()[state.pDc()]) workspace.writeFile(state.pDc(), devcontainerJson());
-    terminal.setPanelTab("terminal", true); terminal.echoCmd("devcontainer up --workspace-folder .");
-    const e = state.envs();
-    terminal.echo(`<span class="dim">[+] ${RTN[e.rt]} via ${esc(e.sock[e.rt])}\n[+] Pulling</span> mcr.microsoft.com/devcontainers/base:bookworm <span class="ok">done</span>\n` + Object.keys(JSON.parse(workspace.files()[state.pDc()].content).features || {}).map((x) => `<span class="dim">[+] Feature</span> ${esc(x.split("/").pop() as string)} <span class="ok">installed</span>`).join("\n") + `\n <span class="ok">✔</span> Container dxtutor-dev  <span class="ok">Started</span>\n<span class="ac">Workspace attached to dxtutor-dev</span> <span class="dim">· simulated in the browser</span>`);
-    terminal.newInput(true);
-    state.setDevc({ name: "dxtutor-dev", image: "devcontainers/base:bookworm" }); notifier.log("infra", "project attached to dev container dxtutor-dev"); notifier.toast("Project attached to the dev container"); view.redraw();
+    if (!workspace.files()[state.pDc()]) { workspace.writeFile(state.pDc(), devcontainerJson()); notifier.log("infra", ".devcontainer/devcontainer.json escrito a partir do projecto"); }
+    notifier.toast("devcontainer.json pronto — arrancar o dev container precisa da app desktop");
+    view.redraw();
   }
-  function dcDetach(): void { state.setDevc(null); notifier.toast("Detached from the dev container"); view.redraw(); }
+  function dcDetach(): void { state.setDevc(null); view.redraw(); }
   const appEnv = (n: DesignNode, D: Design): string[] => domAppEnv(n, D, cat());
   const k8sInfra = (D: Design): string => domK8sInfra(D, cat());
   const k8sDocs = (): K8sDoc[] => domK8sDocs(workspace.files());
@@ -96,14 +97,10 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
     terminal.echo(`<span class="dim">${depsD.length} deployment(s) em deploy/k8s, prontos a aplicar em ${esc(e.ctx)}/${esc(e.ns)}.</span>\n<span class="er">O deploy precisa da app desktop com a pasta aberta (docker/podman e kubectl reais).</span>`);
     terminal.newInput(true); return { ok: false };
   }
-  function k8sScale(n: string, d: number): void {
-    const cur = state.k8s()!; const x = cur.deps.find((y) => y.n === n)!; x.rep = Math.max(0, x.rep + d); x.ready = x.rep;
-    runTaskQuiet(`kubectl -n ${state.envs().ns} scale deploy/${n} --replicas=${x.rep}`, `deployment.apps/${n} scaled`); view.redraw();
-  }
-  function k8sDown(): void {
-    const cur = state.k8s()!;
-    runTaskQuiet(`kubectl -n ${state.envs().ns} delete -f deploy/k8s/`, cur.docs.map((d) => `${d.k.toLowerCase()}/${d.n} deleted`).join("\n")); state.setK8s(null); view.redraw();
-  }
+  /* ADR-0006, R5b: escalar e apagar no cluster a sério é a porta desktop (o `kubectl` real); a versão
+     de base já não ecoa um «scaled»/«deleted» inventado nem mexe no estado do cluster. */
+  function k8sScale(_n: string, _d: number): void { notifier.toast("Escalar no cluster precisa da app desktop (o kubectl real)"); }
+  function k8sDown(): void { notifier.toast("Apagar do cluster precisa da app desktop (o kubectl real)"); }
   function runTaskQuiet(c: string, out: string): void {
     if (terminal.getVar("--panel-h") !== "0px") terminal.setPanelTab("terminal", true); terminal.echoCmd(c); terminal.echo(`<span class="dim">${esc(out)}</span>`); terminal.newInput(true);
   }
