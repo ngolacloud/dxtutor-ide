@@ -18,6 +18,7 @@ import { applyTextEdits } from "../domain/edits";
 import { missingServerNotice, type ServerStatus } from "../domain/server-status";
 import { completionItems, wordStartAt, type CompletionItem } from "../domain/completion";
 import { signatureView, type SignatureView } from "../domain/signature";
+import { clientSideEdit, codeActionItems, type CodeActionItem } from "../domain/code-actions";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
@@ -54,6 +55,12 @@ export interface LspClient {
   /** A assinatura da chamada no offset (`null` se o cursor não está numa chamada ou não há
    *  servidor). `isRetrigger` quando a assinatura já estava à vista. */
   signatureHelpAt(offset: number, triggerCharacter: string | null, isRetrigger: boolean): Promise<SignatureView | null>;
+  /** As code actions para o intervalo `[start, end)` do ficheiro activo (`null` se não há servidor). */
+  codeActionsAt(start: number, end: number): Promise<CodeActionItem[] | null>;
+  /** Aplica a acção escolhida: a sua edição e/ou o comando (executado no servidor). */
+  applyCodeAction(item: CodeActionItem): Promise<void>;
+  /** O servidor pediu para aplicar uma edição (`workspace/applyEdit`, de um comando). */
+  onApplyEdit(edit: unknown): Promise<void>;
   /** O servidor publicou diagnósticos para `uri`. */
   onDiagnostics(uri: string): void;
   /** Ficheiros abertos no servidor (caminho absoluto → versão), para inspecção. */
@@ -373,11 +380,27 @@ export function makeLspClient(d: LspClientDeps): LspClient {
       d.editor.notify("The language server is still indexing — try again in a moment");
       return null;
     }
-    const { files, fileOps } = workspaceEditFiles(result);
-    if (!files.length) {
+    const applied = await applyEdit(result);
+    if (!applied) {
       d.editor.notify("Nothing to rename here");
       return null;
     }
+    const { out, fileOps } = applied;
+    d.editor.notify(`Renamed to ${name}: ${editSummary(out, fileOps)}`);
+    return out;
+  }
+
+  /** «N change(s) in M file(s)», mais o que saltou. */
+  function editSummary(out: RenameResult, fileOps: number): string {
+    const extra = [out.skipped.length ? `${out.skipped.length} file(s) skipped` : "", fileOps ? `${fileOps} file operation(s) not applied` : ""].filter(Boolean).join(", ");
+    return `${out.edits} change(s) in ${out.files} file(s)${extra ? ` — ${extra}` : ""}`;
+  }
+
+  /** Aplica uma `WorkspaceEdit` aos ficheiros da pasta (rename, code actions e o
+   *  `workspace/applyEdit` do servidor). `null` se não traz edições de texto. */
+  async function applyEdit(result: unknown): Promise<{ out: RenameResult; fileOps: number } | null> {
+    const { files, fileOps } = workspaceEditFiles(result);
+    if (!files.length) return null;
     const out: RenameResult = { files: 0, edits: 0, skipped: [] };
     for (const f of files) {
       const key = keyOf(f.path);
@@ -405,9 +428,53 @@ export function makeLspClient(d: LspClientDeps): LspClient {
       }
       d.editor.reload(key);
     }
-    const extra = [out.skipped.length ? `${out.skipped.length} file(s) skipped` : "", fileOps ? `${fileOps} file operation(s) not applied` : ""].filter(Boolean).join(", ");
-    d.editor.notify(`Renamed to ${name}: ${out.edits} change(s) in ${out.files} file(s)${extra ? ` — ${extra}` : ""}`);
-    return out;
+    return { out, fileOps };
+  }
+
+  async function codeActionsAt(start: number, end: number): Promise<CodeActionItem[] | null> {
+    const doc = docOf(d.workspace.currentFileKey());
+    if (!doc || !(await ensureOpen(doc))) {
+      d.editor.notify("No language server for this file");
+      return null;
+    }
+    await sync(doc);
+    const text = d.workspace.text(doc.key) ?? "";
+    const s = offsetToPosition(text, start), e = offsetToPosition(text, end);
+    try {
+      return codeActionItems(await d.lsp.codeAction(doc.path, s.line, s.character, e.line, e.character));
+    } catch (err) {
+      d.editor.notify(`Language server: ${String(err)}`);
+      return null;
+    }
+  }
+
+  async function applyCodeAction(item: CodeActionItem): Promise<void> {
+    if (item.disabled) {
+      d.editor.notify(`${item.title}: ${item.disabled}`);
+      return;
+    }
+    let changed: { out: RenameResult; fileOps: number } | null = null;
+    if (item.edit) changed = await applyEdit(item.edit);
+    // um comando que só traz a edição (java.apply.workspaceEdit): aplica-a aqui
+    const local = clientSideEdit(item.command);
+    if (local) changed = await applyEdit(local);
+    else if (item.command) {
+      const doc = docOf(d.workspace.currentFileKey());
+      if (doc) {
+        try {
+          // as edições do comando, se houver, chegam por `onApplyEdit` (workspace/applyEdit)
+          await d.lsp.executeCommand(doc.path, item.command.command, item.command.arguments);
+        } catch (err) {
+          d.editor.notify(`${item.title} failed: ${String(err)}`);
+          return;
+        }
+      }
+    }
+    d.editor.notify(changed ? `${item.title}: ${editSummary(changed.out, changed.fileOps)}` : item.title);
+  }
+
+  async function onApplyEdit(edit: unknown): Promise<void> {
+    await applyEdit(edit);
   }
 
   function onDiagnostics(uri: string): void {
@@ -424,5 +491,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (doc) await serverOk(doc);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, onDiagnostics, opened: () => versions, onFileView };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, onDiagnostics, opened: () => versions, onFileView };
 }

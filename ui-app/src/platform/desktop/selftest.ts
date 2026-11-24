@@ -722,6 +722,32 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     const el1 = ta()!; el1.value = original; el1.setSelectionRange(0, 0); el1.dispatchEvent(new Event("input", { bubbles: true }));
     el1.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     await until(() => FS[main].content === original, 5_000, 100);
+    // 3d) code actions: Ctrl+. na linha com o erro de tipo abre o menu; em Java a 1.ª é a
+    //     correcção do jdtls, e aplicá-la muda o ficheiro. O ficheiro volta ao que era.
+    const brokenLine = original.split("\n").findIndex(l => /\bbroken\b/.test(l) && l.includes("="));
+    const actionTitles = await until(() => {
+      const rows = [...document.querySelectorAll("#lsp-actions .lsp-act-title")].map(r => r.textContent ?? "");
+      if (rows.length || document.querySelector("#lsp-actions .lsp-pop-h")?.textContent === "No code actions here") return rows.length ? rows : ["(nenhuma)"];
+      const el = ta()!; el.focus();
+      const o = original.split("\n").slice(0, brokenLine).join("\n").length + 1 + original.split("\n")[brokenLine].indexOf("broken");
+      el.setSelectionRange(o, o);
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: ".", ctrlKey: true, bubbles: true, cancelable: true }));
+      return null;
+    }, 60_000, 3000);
+    let actionApplied: string | null = null;
+    // aplica a CORRECÇÃO (tipo «fix»), não a primeira acção qualquer
+    const fixAction = [...document.querySelectorAll<HTMLButtonElement>("#lsp-actions .lsp-action:not([disabled])")]
+      .find(b => b.querySelector(".lsp-act-kind")?.textContent === "fix");
+    if (lang === "java" && fixAction) {
+      fixAction.click();
+      const changed = await until(() => FS[main].content !== original && FS[main].content.split("\n")[brokenLine], 20_000, 250);
+      actionApplied = changed ? changed.trim() : null;
+    }
+    document.getElementById("lsp-actions")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    if (FS[main].content !== original) {
+      const el2 = ta()!; el2.value = original; el2.setSelectionRange(0, 0); el2.dispatchEvent(new Event("input", { bubbles: true }));
+      await until(() => FS[main].content === original, 5_000, 100);
+    }
     // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
     const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
     const refRows = await until(() => {
@@ -768,6 +794,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       definition: { jumped: !!jumped, file: defFile, caretLine, expectedLine: defLine },
       completion: { suggestions: suggestions ? suggestions.slice(0, 6) : null, accepted: insertedLine.trim(), completed },
       signature: { first: firstSig, ...(lang === "java" ? { afterComma: secondSig } : {}) },
+      codeActions: { titles: actionTitles ? actionTitles.slice(0, 5) : null, ...(lang === "java" ? { applied: actionApplied } : {}) },
       references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
       rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk, ...(probeRename ? { probe: probeRename } : {}) },
       toasts,
