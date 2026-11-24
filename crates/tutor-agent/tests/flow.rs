@@ -428,7 +428,136 @@ fn toolset_5_adds_plan_steps_and_subagent_roles_and_keeps_4_as_it_was() {
         schema(5, "task")["properties"]["role"]["enum"],
         json!(["explorer", "reviewer", "tester", "architect"])
     );
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 5);
+}
+
+#[test]
+fn toolset_6_adds_ask_human_and_suggest_at_the_end_and_keeps_5_as_it_was() {
+    let fs = FlowState::default();
+    let tools = |v: u32| agent_tools(&ToolsetOptions::default(), v, &fs, None, vec![]);
+    let n5 = names(&tools(5));
+    let n6 = names(&tools(6));
+    // the toolset 5 prefix stays byte for byte; the new tools come last
+    assert_eq!(&n6[..n5.len()], &n5[..]);
+    assert_eq!(
+        &n6[n5.len()..],
+        &["ask_human".to_string(), "suggest".to_string()]
+    );
+    let desc = |v: u32| {
+        tools(v)
+            .into_iter()
+            .find(|t| t.name() == "exit_plan")
+            .unwrap()
+            .description()
+            .to_string()
+    };
+    assert!(
+        desc(5).starts_with("No modo plano"),
+        "toolset 5 keeps its description"
+    );
+    assert!(desc(6).contains("Manual e Assistido"));
+    let c = ctx(std::path::Path::new("/tmp"));
+    let t6 = tools(6);
+    let find = |n: &str| t6.iter().find(|t| t.name() == n).unwrap().clone();
+    // exit_plan outside plan mode: an approved plan for the turn (not an error any more)
+    assert!(!find("exit_plan").run(&json!({"plan": "p"}), &c).is_error);
+    assert!(fs.plan_approved.load(Ordering::SeqCst));
+    // ask_human records the question (with the options); suggest goes to the list
+    assert!(find("ask_human").read_only());
+    assert!(
+        !find("ask_human")
+            .run(&json!({"question": "A ou B?", "options": ["A", "B"]}), &c)
+            .is_error
+    );
+    assert_eq!(
+        fs.question.lock().unwrap().as_deref(),
+        Some("A ou B? (A / B)")
+    );
+    assert!(
+        find("ask_human")
+            .run(&json!({"question": " "}), &c)
+            .is_error
+    );
+    assert!(
+        !find("suggest")
+            .run(&json!({"title": "Renomear go()", "why": "src/p.rs:12"}), &c)
+            .is_error
+    );
+    assert_eq!(
+        fs.suggestions.lock().unwrap().as_slice(),
+        &[("Renomear go()".to_string(), "src/p.rs:12".to_string())]
+    );
+}
+
+#[test]
+fn toolset_7_finish_issue_answers_every_criterion_and_keeps_6_as_it_was() {
+    let fs = FlowState::default();
+    let tools = |v: u32| agent_tools(&ToolsetOptions::default(), v, &fs, None, vec![]);
+    let (n6, n7) = (names(&tools(6)), names(&tools(7)));
+    assert_eq!(&n7[..n6.len()], &n6[..]);
+    assert_eq!(&n7[n6.len()..], &["finish_issue".to_string()]);
+    let c = ctx(std::path::Path::new("/tmp"));
+    let t7 = tools(7);
+    let finish = t7.iter().find(|t| t.name() == "finish_issue").unwrap();
+    // not an issue: nothing to close
+    assert!(finish.run(&json!({"criteria": []}), &c).is_error);
+    *fs.criteria.lock().unwrap() = vec![
+        "Dado A quando B então C".into(),
+        "Dado D quando E então F".into(),
+    ];
+    let r = finish.run(
+        &json!({"criteria": [{"index": 1, "met": true, "evidence": "test a"}]}),
+        &c,
+    );
+    assert!(
+        r.is_error && r.content.contains("faltam 2"),
+        "{}",
+        r.content
+    );
+    assert!(finish.run(&json!({"criteria": [{"index": 1, "met": true, "evidence": " "}, {"index": 2, "met": true, "evidence": "x"}]}), &c).is_error);
+    let r = finish.run(&json!({"criteria": [{"index": 2, "met": false, "evidence": "falta o caso E"}, {"index": 1, "met": true, "evidence": "test a"}], "summary": "s"}), &c);
+    assert!(!r.is_error && r.content.contains("1/2"), "{}", r.content);
+    let done = fs.finished.lock().unwrap().clone().unwrap();
+    assert_eq!(done["criteria"][0]["criterion"], "Dado A quando B então C");
+    assert_eq!(done["criteria"][1]["met"], false);
+}
+
+#[test]
+fn toolset_8_adds_edit_lines_at_the_end_and_it_writes_only_its_lines() {
+    let fs = FlowState::default();
+    let tools = |v: u32| agent_tools(&ToolsetOptions::default(), v, &fs, None, vec![]);
+    let (n7, n8) = (names(&tools(7)), names(&tools(8)));
+    assert_eq!(&n8[..n7.len()], &n7[..]);
+    assert_eq!(&n8[n7.len()..], &["edit_lines".to_string()]);
+    // without live hunks (TUI/CLI) it writes directly, after a read, with the anchor
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("a.rs"), "fn a() {}\nfn b() {}\nfn c() {}\n").unwrap();
+    let c = ctx(d.path());
+    let t8 = tools(8);
+    let find = |n: &str| t8.iter().find(|t| t.name() == n).unwrap().clone();
+    assert!(!find("read").run(&json!({"path": "a.rs"}), &c).is_error);
+    let r = find("edit_lines").run(&json!({"path": "a.rs", "start": 2, "end": 2, "new_text": "fn b() { todo!() }", "anchor": "fn b() {}"}), &c);
+    assert!(!r.is_error, "{}", r.content);
+    assert_eq!(
+        std::fs::read_to_string(d.path().join("a.rs")).unwrap(),
+        "fn a() {}\nfn b() { todo!() }\nfn c() {}\n"
+    );
+    // the file changed since the read: refused
+    let r = find("edit_lines").run(
+        &json!({"path": "a.rs", "start": 1, "end": 1, "new_text": "x", "anchor": "fn a() {}"}),
+        &c,
+    );
+    assert!(
+        !r.is_error,
+        "the tool's own write keeps the state fresh: {}",
+        r.content
+    );
+    std::fs::write(d.path().join("a.rs"), "changed by the human\n").unwrap();
+    let r = find("edit_lines").run(
+        &json!({"path": "a.rs", "start": 1, "end": 1, "new_text": "y", "anchor": "x"}),
+        &c,
+    );
+    assert!(r.is_error);
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 8);
 }
 
 #[test]

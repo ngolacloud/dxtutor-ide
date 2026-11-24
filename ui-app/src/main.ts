@@ -86,3 +86,4 @@ import "./bridge";
 import "./pair";
 import "./features/panel/index";
 import "./features/lsp/index";
+import "./features/comments/index";

@@ -106,6 +106,7 @@ export const SLASH_ACTIONS: SlashAction[] = [
   { id: "dictlang", group: "Contexto", label: "Língua do ditado…" },
   { id: "model", group: "Modelo", label: "Mudar de modelo…" },
   { id: "effort", group: "Modelo", label: "Esforço" },
+  { id: "pace", group: "Agente", label: "Velocidade de escrita no editor…" },
   { id: "mode", group: "Agente", label: "Mudar de modo…", hint: "⇧Tab" },
   { id: "plan", group: "Agente", label: "Planear antes de editar", hint: "/plano" },
   { id: "persona", group: "Agente", label: "Assistente da conversa…" },
@@ -197,4 +198,18 @@ export function buildPrompt(text: string, atts: Attachment[]): string {
 export function exportMarkdown(title: string, turns: Array<{ who: string; text: string }>, when: string): string {
   const body = turns.map((t) => `### ${t.who}\n\n${t.text.trim()}`).join("\n\n");
   return `# ${title}\n\n_${when}_\n\n${body}\n`;
+}
+
+/** How fast Co-Dev's code appears in the editor (RF-S02, docs/v2/RF-DELONIX-PLANO.md F3.1): the
+ *  model may answer faster; the editor buffers and types at this pace (characters per second). */
+export const WRITE_PACES = [
+  { id: "slow", label: "Lento", cps: 20 },
+  { id: "normal", label: "Normal", cps: 40 },
+  { id: "fast", label: "Rápido", cps: 120 },
+  { id: "instant", label: "Instantâneo", cps: 1_000_000 },
+] as const;
+
+/** Characters per second of a pace id (unknown → Normal, 40/s). */
+export function paceCps(id: string | null | undefined): number {
+  return (WRITE_PACES.find((p) => p.id === id) ?? WRITE_PACES[1]).cps;
 }

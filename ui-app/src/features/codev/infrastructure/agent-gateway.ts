@@ -5,6 +5,7 @@
    único sítio da feature que toca no window (regra A8). */
 
 import * as ipc from "../../../platform/tauri/codev-agent";
+import { pairState } from "../../../app/pair-state";
 import { isDesktop } from "../../../platform/tauri/core";
 import type { AgentGateway } from "../application/ports";
 import { isAgentProvider, parseAgentError, parseAgentEvent, parseApproval, parseCheckpoints, parseExtensions, parseHistory, parsePermissions, parseSessions } from "../domain/agent-events";
@@ -26,7 +27,7 @@ export const agentGateway: AgentGateway = {
       reviewEdits: o.reviewEdits ?? false,
       issue: o.issue ?? null,
     }),
-  review: (s, call, decisions) => ipc.reviewAgentHunks(s, call, decisions),
+  review: (s, call, decisions) => ipc.reviewAgentHunks(s, call, decisions, pairState.driver()),
   sessions: async (root) => parseSessions(await ipc.listAgentSessions(root)),
   history: async (s) => parseHistory(await ipc.agentHistory(s)),
   setPlan: (s, on) => ipc.setAgentPlan(s, on),
@@ -36,8 +37,8 @@ export const agentGateway: AgentGateway = {
   savePermissions: (root, rules) => ipc.saveAgentPermissions(root, rules),
   extensions: async (root) => parseExtensions(await ipc.agentExtensions(root)),
   trust: (root, kind) => ipc.trustAgentFile(root, kind),
-  send: (s, text) => ipc.sendAgent(s, text),
-  approve: (s, id, allow, reason, remember) => ipc.approveAgent(s, id, allow, reason, remember),
+  send: (s, text, origin) => ipc.sendAgent(s, text, origin),
+  approve: (s, id, allow, reason, remember) => ipc.approveAgent(s, id, allow, reason, remember, pairState.driver()),
   cancel: (s) => ipc.cancelAgent(s),
   setMode: (s, mode) => ipc.setAgentMode(s, mode),
   close: (s) => ipc.closeAgent(s),

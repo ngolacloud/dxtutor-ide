@@ -315,14 +315,11 @@ pub fn session_deliver(root: &Path, slug: &str, message: &str) -> Result<Deliver
         .and_then(|s| s.trim().parse::<u32>().ok())
         .unwrap_or(0);
     let (merged, commit_short, note) = if ahead > 0 {
+        require_identity(root)?;
         let out = Command::new("git")
             .arg("-C")
             .arg(root)
             .args([
-                "-c",
-                "user.name=dxtutor",
-                "-c",
-                "user.email=dxtutor@localhost",
                 "merge",
                 "--no-ff",
                 "-m",
@@ -447,24 +444,35 @@ pub fn stage_all(root: &Path) -> Result<(), String> {
     git_mutate(root, &["add", "-A"])
 }
 
-/// Commit the staged changes with `message`. Uses `-c` identity flags so a commit still
-/// succeeds in a repo without a configured user, without mutating global git config.
+/// The author of every commit is the human (RF-T02, docs/v2/RF-DELONIX-PLANO.md F4.8): the
+/// repository's (or the global) git identity. Without one, the commit is refused with how to set
+/// it — never signed by a made-up `dxtutor` user.
+fn require_identity(root: &Path) -> Result<(), String> {
+    let get = |k: &str| {
+        git(root, &["config", k])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    match (get("user.name"), get("user.email")) {
+        (Some(_), Some(_)) => Ok(()),
+        _ => Err(
+            "o git não tem user.name/user.email: os commits são de quem trabalha \
+                  (git config user.name «Nome»; git config user.email «email»)"
+                .into(),
+        ),
+    }
+}
+
+/// Commit the staged changes with `message`, as the human (the git identity of the repo).
 pub fn commit(root: &Path, message: &str) -> Result<(), String> {
     if message.trim().is_empty() {
         return Err("empty commit message".into());
     }
+    require_identity(root)?;
     let out = Command::new("git")
         .arg("-C")
         .arg(root)
-        .args([
-            "-c",
-            "user.name=dxtutor",
-            "-c",
-            "user.email=dxtutor@localhost",
-            "commit",
-            "-m",
-            message,
-        ])
+        .args(["commit", "-m", message])
         .output()
         .map_err(|e| format!("could not start git: {e}"))?;
     if out.status.success() {
@@ -650,9 +658,23 @@ mod tests {
             "{staged:?}"
         );
 
-        // Commit the staged change → tree is clean.
+        // RF-T02: with no identity the commit is refused (no made-up author)…
+        if git(root, &["config", "user.email"]).map_or(true, |s| s.trim().is_empty()) {
+            assert!(commit(root, "add a")
+                .unwrap_err()
+                .contains("user.name/user.email"));
+        }
+        run(root, &["config", "user.email", "ana@example.com"]);
+        run(root, &["config", "user.name", "Ana"]);
+        // Commit the staged change → tree is clean, and the author is the human.
         commit(root, "add a").unwrap();
         assert!(changed_files(root).is_empty(), "clean after commit");
+        assert_eq!(
+            git(root, &["log", "-1", "--format=%an <%ae>"])
+                .unwrap()
+                .trim(),
+            "Ana <ana@example.com>"
+        );
 
         // Unstage after a new staged change returns it to the worktree.
         std::fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();

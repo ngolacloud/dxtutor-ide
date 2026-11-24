@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 210 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 214 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -37,7 +37,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   pode voltar a ter a directiva: código novo nasce tipado.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 — e `codebase` — Dependencies e Onboarding da A10); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 — e `comments`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -542,6 +542,19 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   atalho global do «Format Document» do dxtutor (`features/shortcuts.ts`), que continua a correr
   quando não há servidor ou ele não formata o documento. O kotlin-language-server (ktfmt) não
   formata selecções: a UI avisa e não mexe no texto.
+- **Símbolos do ficheiro** (`domain/symbols.ts`, `ui/symbol-hooks.ts` + `showSymbolPicker` em
+  `ui/popups.ts`, comando `lsp_document_symbols`): Ctrl+Shift+O no editor, ou «Go to Symbol in Editor…»
+  na paleta (o menu Go sai no `boot5`, por isso não há item de menu), abre `#lsp-symbols` com um campo de filtro;
+  ↑/↓ e Enter levam ao nome do símbolo. A árvore `DocumentSymbol` (ou a lista `SymbolInformation`)
+  é achatada com a profundidade. Os mesmos símbolos dão o **Outline** das linguagens que o
+  `file_outline` não cobre (Java, Kotlin, C#, C++, Swift, SQL…): porta `desktopPorts.outline`
+  (`OutlineDesktop`, definida no `features/explorer.ts`, registada pelo `lsp/index.ts`), com a cache
+  por conteúdo do explorador; sem resposta do servidor fica a extracção local `symbols()`.
+  GOTCHA-arranque: o Outline foi o primeiro a pedir em PARALELO com a abertura do ficheiro, e
+  apanhou uma corrida antiga — o pedido saía antes do `initialize` do servidor e do `didOpen`, e o
+  jdtls respondia vazio ao completion/signatureHelp a sessão inteira (o kotlin-language-server
+  perdia as referências). Agora o backend só usa uma sessão do mapa depois de `initialized`
+  (`Session::initialized`, `wait_initialized`) e o cliente espera pelo `lsp_start`/`didOpen` em curso.
 - **Pedidos do servidor ao cliente:** o `id` pode ser número ou TEXTO (o jdtls usa texto); o
   `dispatch` responde a ambos. Sem resposta ao `workspace/configuration`, o jdtls bloqueava.
 - **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
@@ -557,13 +570,13 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   linguagem na sessão.
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
-- **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, e o passo
+- **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, `lsp.symbols.test.ts`, e o passo
   `lsp-java`/`lsp-kotlin` do auto-teste desktop (`DXTUTOR_SELFTEST`, Xvfb), que conduz o editor real.
   GOTCHA: o backend procura o `jdtls` no PATH e em `$HOME/.local/share/jdtls/bin`; sem servidor não
   abre sessão (sem erro). Correndo o auto-teste com um HOME temporário, põe essa pasta no PATH
   (`PATH="$HOME/.local/share/jdtls/bin:$PATH" HOME=/tmp/… DXTUTOR_SELFTEST=…`) — senão o passo
   `lsp-java` diz que o servidor não foi encontrado (e verifica que o editor mostra o aviso).
-## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0006)
+## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0007)
 
 Feature NOVA e tipada (governada por A7/A8), separada do Studio do catálogo cloud
 (`features/studio.ts`, que continua a alimentar os geradores e o «Generate backlog»).
@@ -603,6 +616,31 @@ features/arch/
   várias sessões partilham `ui-app/dist` e a porta 4179 — para verificar, construir para
   uma pasta própria e servir noutra porta (ou `CI=1`).
 
+## Comentários de linha para o Co-Dev (`ui-app/src/features/comments/`)
+
+Feature nova e tipada (governada por A7/A8), ao estilo do «Start discussion» do Antigravity: com o
+ponteiro no editor, um botão na margem da linha abre uma caixa por baixo dela; «Add Comment to Chat»
+(ou Ctrl+Enter) põe o comentário no compositor do Co-Dev como um chip com o código dessas linhas,
+pelo `codev.ask` partilhado (`intent: "chat"`, `send: false`, contexto `kind: "comment"`) — juntam-se
+vários e o humano escreve o pedido. Uma selecção que contém a linha alarga o comentário a ela toda.
+
+```
+features/comments/
+  domain/comment.ts          linhas (offset/ponteiro → linha), intervalo pela selecção, rótulo e o
+                             contexto para o agente. PURO.
+  application/               ports.ts (EditorPort, AskPort) + line-comments.ts (abrir/descartar/juntar).
+  ui/                        view.ts (botão e caixa DENTRO da .ed-wrap, fora do #ed-gut/#ed-hl que o
+                             paintEd redesenha — e longe dos cliques de breakpoint da margem),
+                             hooks.ts (rato, teclado, acções `comments:*` no despachante partilhado),
+                             messages.ts (en/ptAO: o `.ed` está no TR_SKIP do motor de tradução).
+  infrastructure/editor.ts   a textarea `#ed-ta` e a raiz do workspaceStore (sem window).
+  index.ts                   raiz de composição (corre no browser e na app).
+```
+
+Não comenta por cima de uma proposta do Co-Dev (os números de linha não seriam os do ficheiro).
+Testes: `tests/comments.domain.test.ts` (domínio + caso de uso) e `tests/comments.editor.test.ts`
+(no editor real do harness: posição do botão, caixa, Ctrl+Enter/Esc/lixo, o pedido ao `codev.ask`).
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,
@@ -631,6 +669,7 @@ registada (mudança de UI aprovada), nunca para «fazer passar».
 - `docs/architecture/ADR-0002-codev-clean-architecture.md` — a decisão e as 6 fases.
 - `docs/architecture/ADR-0005-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
 - `docs/architecture/ADR-0006-ide-real.md` — o fim dos dados de demonstração e cada feature no backend real (R0–R6).
+- `docs/architecture/ADR-0007-studio-arquitectura-sistema.md` — o Studio de arquitectura de sistema (painéis, grupos, setas, Mermaid, o agente propõe).
 - `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.

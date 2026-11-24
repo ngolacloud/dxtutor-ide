@@ -102,6 +102,9 @@ pub struct ExitPlan {
     /// Toolset 5: the plan also lists its steps with the files and lines each one touches
     /// (the Run view draws them, A3 HARNESS-01).
     pub steps: bool,
+    /// Toolset 6 (RF-G08): the plan can be proposed in any mode, and an approved plan lets
+    /// the turn change files in Manual and Assist. `None`: toolset ≤ 5 (plan mode only).
+    pub approved: Option<Arc<AtomicBool>>,
 }
 
 impl Tool for ExitPlan {
@@ -109,6 +112,13 @@ impl Tool for ExitPlan {
         "exit_plan"
     }
     fn description(&self) -> &str {
+        if self.approved.is_some() {
+            return "Apresenta o plano ao humano para aprovação (markdown: objectivo, passos \
+                    concretos, como vais verificar, riscos; e em `steps` cada ficheiro com o \
+                    intervalo de linhas que vais mexer). Nos modos Manual e Assistido é \
+                    obrigatório antes de alterar ficheiros; no modo plano termina-o. Aprovado, \
+                    executas só o plano.";
+        }
         "No modo plano, apresenta o plano ao humano para aprovação (markdown: objectivo, \
          passos concretos com os ficheiros a mexer, como vais verificar, riscos). Se for \
          aprovado, o modo plano termina e executas o plano."
@@ -163,6 +173,15 @@ impl Tool for ExitPlan {
         false
     }
     fn run(&self, _input: &Value, _ctx: &ToolCtx) -> ToolOutput {
+        // runs only after the human approved it (the policy always asks for exit_plan)
+        if let Some(a) = &self.approved {
+            a.store(true, Ordering::SeqCst);
+            self.plan_mode.store(false, Ordering::SeqCst);
+            return ToolOutput::ok(
+                "Plano aprovado pelo humano: executa-o, regista-o com todo_write e verifica cada \
+                 passo. O que não estiver no plano não o faças: sugere-o com suggest.",
+            );
+        }
         if !self.plan_mode.swap(false, Ordering::SeqCst) {
             return ToolOutput::err("não estás em modo plano: executa directamente");
         }
@@ -300,5 +319,201 @@ impl Tool for Task {
             Ok(o) => ToolOutput::err(format!("o sub-agente terminou sem relatório ({o:?})")),
             Err(e) => ToolOutput::err(format!("o sub-agente falhou: {e}")),
         }
+    }
+}
+
+/// Toolset 6 (RF-G06): when the request is ambiguous or contradicts the architect's rules,
+/// the agent asks instead of choosing. Read-only: it records the question; the policy then
+/// refuses any change until the human answers in the next message.
+pub struct AskHuman {
+    pub question: Arc<Mutex<Option<String>>>,
+}
+
+impl Tool for AskHuman {
+    fn name(&self) -> &str {
+        "ask_human"
+    }
+    fn description(&self) -> &str {
+        "Quando o pedido é ambíguo, contradiz as regras do projecto/arquitecto, ou falta uma \
+         decisão que é do humano (âmbito, prioridade, abordagem), pergunta em vez de escolher. \
+         Depois desta ferramenta não alteres mais nada: termina a resposta; o humano responde \
+         na próxima mensagem."
+    }
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "a pergunta, curta e concreta"},
+                "options": {"type": "array", "items": {"type": "string"}, "description": "as opções, se as houver"}
+            },
+            "required": ["question"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn mutates_files(&self) -> bool {
+        false
+    }
+    fn run(&self, input: &Value, _ctx: &ToolCtx) -> ToolOutput {
+        let q = input["question"].as_str().unwrap_or("").trim().to_string();
+        if q.is_empty() {
+            return ToolOutput::err("a pergunta está vazia");
+        }
+        let opts: Vec<&str> = input["options"]
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let text = if opts.is_empty() {
+            q
+        } else {
+            format!("{q} ({})", opts.join(" / "))
+        };
+        *self.question.lock().unwrap() = Some(text);
+        ToolOutput::ok(
+            "Pergunta entregue ao humano. Pára aqui: termina a resposta sem mais ferramentas; \
+             nada muda até ele responder.",
+        )
+    }
+}
+
+/// Toolset 6 (RF-G02/B05): something outside the request is suggested, never done; the host
+/// puts it in the Project inbox, where a human accepts or rejects it.
+pub struct Suggest {
+    pub suggestions: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl Tool for Suggest {
+    fn name(&self) -> &str {
+        "suggest"
+    }
+    fn description(&self) -> &str {
+        "Algo que reparaste fora do pedido (outra correcção, uma melhoria, uma issue nova): não \
+         o faças nem o metas neste trabalho — sugere-o. Vai para a caixa de entrada do Project e \
+         o humano decide."
+    }
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "a sugestão numa linha"},
+                "why": {"type": "string", "description": "porquê, e onde (ficheiro e linhas)"}
+            },
+            "required": ["title"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn mutates_files(&self) -> bool {
+        false
+    }
+    fn run(&self, input: &Value, _ctx: &ToolCtx) -> ToolOutput {
+        let title = input["title"].as_str().unwrap_or("").trim().to_string();
+        if title.is_empty() {
+            return ToolOutput::err("a sugestão não tem título");
+        }
+        let why = input["why"].as_str().unwrap_or("").trim().to_string();
+        self.suggestions.lock().unwrap().push((title, why));
+        ToolOutput::ok("Sugestão registada na caixa de entrada do Project. Não a implementes.")
+    }
+}
+
+/// Toolset 7 (RF-B06/G04): the end of an issue. Co-Dev answers every acceptance criterion
+/// with met / not met and the proof (a test, a line, an output); the host keeps the table on
+/// the issue and sends it to Review. After it the agent changes nothing more — in Auto too.
+pub struct FinishIssue {
+    pub criteria: Arc<Mutex<Vec<String>>>,
+    pub finished: Arc<Mutex<Option<Value>>>,
+}
+
+impl Tool for FinishIssue {
+    fn name(&self) -> &str {
+        "finish_issue"
+    }
+    fn description(&self) -> &str {
+        "No fim de uma issue, responde a cada critério de aceitação: cumprido ou não, com a \
+         prova (teste, ficheiro:linha, saída de um comando). A issue passa a Review (o Done é \
+         sempre do humano) e não alteras mais nada a seguir."
+    }
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "criteria": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {"type": "integer", "minimum": 1, "description": "o número do critério (1, 2, …)"},
+                            "met": {"type": "boolean"},
+                            "evidence": {"type": "string", "description": "a prova: teste, ficheiro:linha, saída"}
+                        },
+                        "required": ["index", "met", "evidence"],
+                        "additionalProperties": false
+                    }
+                },
+                "summary": {"type": "string"}
+            },
+            "required": ["criteria"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn mutates_files(&self) -> bool {
+        false
+    }
+    fn run(&self, input: &Value, _ctx: &ToolCtx) -> ToolOutput {
+        let criteria = self.criteria.lock().unwrap().clone();
+        if criteria.is_empty() {
+            return ToolOutput::err(
+                "este pedido não é uma issue com critérios: não há nada para fechar",
+            );
+        }
+        let given = input["criteria"].as_array().cloned().unwrap_or_default();
+        let mut rows: Vec<Option<Value>> = vec![None; criteria.len()];
+        for g in &given {
+            let i = g["index"].as_u64().unwrap_or(0) as usize;
+            if i == 0 || i > criteria.len() {
+                return ToolOutput::err(format!("critério {i} não existe (há {})", criteria.len()));
+            }
+            let evidence = g["evidence"].as_str().unwrap_or("").trim();
+            if evidence.is_empty() {
+                return ToolOutput::err(format!("o critério {i} precisa de uma prova"));
+            }
+            rows[i - 1] = Some(json!({
+                "index": i,
+                "criterion": criteria[i - 1],
+                "met": g["met"].as_bool().unwrap_or(false),
+                "evidence": evidence,
+            }));
+        }
+        let missing: Vec<String> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.is_none())
+            .map(|(i, _)| (i + 1).to_string())
+            .collect();
+        if !missing.is_empty() {
+            return ToolOutput::err(format!(
+                "responde a todos os critérios: faltam {}",
+                missing.join(", ")
+            ));
+        }
+        let table: Vec<Value> = rows.into_iter().flatten().collect();
+        let met = table.iter().filter(|r| r["met"] == true).count();
+        *self.finished.lock().unwrap() = Some(json!({
+            "criteria": table,
+            "summary": input["summary"].as_str().unwrap_or(""),
+        }));
+        ToolOutput::ok(format!(
+            "Registado: {met}/{} critérios cumpridos. A issue passa a Review e o Done é do humano. \
+             Termina aqui, sem mais alterações.",
+            criteria.len()
+        ))
     }
 }

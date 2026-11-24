@@ -15,7 +15,7 @@ import type { AppCmd, AppMenu } from "./ide-globals";
 import { translator } from "./i18n";
 import { BOOT_MESSAGES } from "./boot-steps.messages";
 import { loadTeam, HT } from "../features/team";
-import { ltResume } from "../features/learn";
+import { ltResume, ltOnboard } from "../features/learn";
 import { loadSD } from "../features/studio";
 import { closePal, palDraw, palRun } from "../features/palette";
 import { loadCfg } from "./store/config";

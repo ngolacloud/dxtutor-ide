@@ -202,4 +202,80 @@ describe("the Project markup", () => {
     expect(html).toContain("Appears once issues reach Done");
     expect(html).not.toContain("<svg");
   });
+
+  it("RF-T01: exports the Co-Dev audit log of an issue as JSON, or says there is none", async () => {
+    const files: Array<[string, string]> = [];
+    const rows = [{ event: "call", tool: "bash", command: "git push", outcome: "denied", decidedBy: "human:Ana" }];
+    const audit = vi.fn(async (_r: string, k: string | null) => (k === "PRJ-1" ? rows : []));
+    const { d, toasts } = deps({ gateway: { ...deps().d.gateway, audit }, download: (n, t) => files.push([n, t]) });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.exportAudit("PRJ-1");
+    expect(audit).toHaveBeenCalledWith("/proj", "PRJ-1");
+    expect(files[0][0]).toBe("audit-PRJ-1.json");
+    expect(JSON.parse(files[0][1])).toEqual(rows);
+    await s.exportAudit("PRJ-3");
+    expect(files).toHaveLength(1);
+    expect(toasts.at(-1)).toContain("Ainda não há registo do Co-Dev para PRJ-3");
+  });
+
+  it("F4: Co-Dev works on an issue only when Ready, with the exact prompt; «View prompt» shows it", async () => {
+    const snap = raw();
+    const issues = snap.issues as Array<Record<string, unknown>>;
+    issues[0].scope = ["src/**"];
+    issues[2].missing = ["âmbito de ficheiros", "aprovação humana (Ready)"];
+    const prompt = { text: "# Papel\nÉs o Co-Dev deste projecto.", lang: "pt", source: "builtin", version: "abc123", tokens: 42 };
+    const issuePrompt = vi.fn(async () => prompt);
+    const workWith = vi.fn();
+    const { d, toasts } = deps({ gateway: { ...deps().d.gateway, load: vi.fn(async () => snap), issuePrompt }, codev: { available: () => true, work: vi.fn(), workWith } });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.work("PRJ-3");
+    expect(workWith).not.toHaveBeenCalled();
+    expect(toasts.at(-1)).toContain("PRJ-3 ainda não está Ready — falta: âmbito de ficheiros");
+    await s.work("PRJ-1");
+    expect(issuePrompt).toHaveBeenCalledWith("/proj", "PRJ-1");
+    expect(workWith).toHaveBeenCalledWith(expect.objectContaining({ key: "PRJ-1", scope: ["src/**"] }), prompt);
+    // the panel: what is missing, the button off, and the prompt as it is sent
+    await s.select("PRJ-3");
+    let html = renderProject(s.state(), NOW);
+    expect(html).toContain("Missing for Ready");
+    expect(html).toMatch(/data-action="pj-work" disabled/);
+    await s.select("PRJ-1");
+    await s.viewPrompt("PRJ-1");
+    html = renderProject(s.state(), NOW);
+    expect(html).toContain("≈ 42 tokens");
+    expect(html).toContain("# Papel");
+    s.closePrompt();
+    expect(renderProject(s.state(), NOW)).not.toContain("≈ 42 tokens");
+  });
+
+  it("RF-T03: o orçamento e o gasto do Co-Dev na issue e no sprint", async () => {
+    const snap = raw();
+    (snap.issues as Array<Record<string, unknown>>)[0].budgetUsd = 1;
+    (snap.issues as Array<Record<string, unknown>>)[0].spentUsd = 0.75;
+    (snap.sprints as Array<Record<string, unknown>>)[0].budgetUsd = 5;
+    (snap.sprints as Array<Record<string, unknown>>)[0].spentUsd = 5.2;
+    const { d } = deps({ gateway: { ...deps().d.gateway, load: vi.fn(async () => snap) } });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.select("PRJ-1");
+    expect(renderProject(s.state(), NOW)).toContain("spent $0.75 of $1.00");
+    s.setView("planning");
+    const html = renderProject(s.state(), NOW);
+    expect(html).toContain("Co-Dev $5.20 of $5.00 budget");
+    expect(html).toContain('pj-dim bad"><span>Co-Dev $5.20');
+  });
+
+  it("RF-P03: numa sessão PairCode, quem não conduz não executa a issue com o Co-Dev", async () => {
+    const workWith = vi.fn();
+    const issuePrompt = vi.fn(async () => ({ text: "p", lang: "pt", source: "builtin", version: "v", tokens: 1 }));
+    const { d, toasts } = deps({ gateway: { ...deps().d.gateway, issuePrompt }, codev: { available: () => true, work: vi.fn(), workWith }, canDrive: () => false, navigatorMessage: "só quem conduz" });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.work("PRJ-1");
+    expect(workWith).not.toHaveBeenCalled();
+    expect(issuePrompt).not.toHaveBeenCalled();
+    expect(toasts.at(-1)).toBe("só quem conduz");
+  });
 });

@@ -17,6 +17,7 @@ export interface LspPort {
   completion(path: string, line: number, character: number, triggerCharacter: string | null): Promise<unknown>;
   signatureHelp(path: string, line: number, character: number, triggerCharacter: string | null, isRetrigger: boolean): Promise<unknown>;
   codeAction(path: string, startLine: number, startCharacter: number, endLine: number, endCharacter: number): Promise<unknown>;
+  documentSymbols(path: string): Promise<unknown>;
   /** Formata o documento (`range` nulo) ou só o intervalo; `null` se o servidor não formatou. */
   format(path: string, tabSize: number, insertSpaces: boolean, range: { start: { line: number; character: number }; end: { line: number; character: number } } | null): Promise<unknown>;
   executeCommand(path: string, command: string, args: unknown[] | null): Promise<unknown>;

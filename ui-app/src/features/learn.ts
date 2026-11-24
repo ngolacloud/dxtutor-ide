@@ -23,9 +23,10 @@ import type { Grade } from "./learn/application/ports";
 import { gradeStep, installPlugin, loadCatalog, msg, removePlugin } from "./learn/application/catalog-service";
 import { tauriCourseGateway } from "./learn/infrastructure/legacy-bridge";
 import { bindActions } from "./learn/ui/actions";
-import { registerActions, callGlobal } from "../app/actions";
+import { registerActions } from "../app/actions";
 import { translator } from "../app/i18n";
 import { LEARN_MESSAGES } from "./learn/ui/messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(LEARN_MESSAGES);
 
@@ -69,7 +70,7 @@ export const ltFind=(id:string|null)=>{for(const u of course().units)for(const s
 export const ltPath=(s:any)=>LF(`${LTS.lang}/${s.id}.${LT_EXT[LTS.lang!]}`);
 const ltSeq=()=>ltUnits().flatMap((u:any)=>u.steps);
 const ltPts=()=>ltSeq().reduce((a:number,s:any)=>a+(ltDone(s.id)?s.points:0),0);
-function stars(d:number,kind:string){if(kind==='concept'||!d)return'';const n=d<=3?1:d<=7?2:d<=12?3:d<=18?4:5;return `<span class="lt-stars" title="Challenge ${n}/5">${'★'.repeat(n)}<i>${'★'.repeat(5-n)}</i></span>`;}
+function stars(d:number,kind?:string){if(kind==='concept'||!d)return'';const n=d<=3?1:d<=7?2:d<=12?3:d<=18?4:5;return `<span class="lt-stars" title="Challenge ${n}/5">${'★'.repeat(n)}<i>${'★'.repeat(5-n)}</i></span>`;}
 function ltOnboard(step:any){hydrateLT();let o=$('#onb');if(!o){document.body.insertAdjacentHTML('beforeend','<div id="onb"></div>');o=$('#onb')!;o.onclick=e=>{if(e.target===o&&LTS.lang)o!.classList.remove('show');};}
   ONB_STEP=step===2?2:1;
   if(step===1||!step){ONB={lang:LTS.lang,levels:LTS.levels.slice()};if(CATALOG==='idle')refreshCatalog();
@@ -196,7 +197,10 @@ function ltAsk(){const{s}=ltFind(LTS.cur)!;AGENT='tutor';agentPill();focusAgent(
   else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">W${txt("withClaudeLiveThe")}/p>`);}}
 
 /* ── publicar no window: tutor.ts/visualizer.ts/v5.ts e os shims de app.ts lêem por global ── */
-Object.assign(window, { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltSeq, ltPts, stars, ltOnboard, ltOpen, openLesson, nextLesson });
+Object.assign(window, { LTS, openLesson, nextLesson });
+/* a API que o pane do tutor lê (ADR-0004, U7g): o tutor avalia antes deste módulo, por isso não o importa — usa o registo */
+services.learn = { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltSeq, ltPts, stars, ltOnboard, ltOpen };
+export { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltSeq, ltPts, stars, ltOnboard, ltOpen };
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts; o visualizer decora-a no boot7) */
 VIEW.lt = renderLtView;
 
@@ -205,11 +209,11 @@ VIEW.lt = renderLtView;
    despachante partilhado, que faz o mesmo no acto. */
 const LW = window as unknown as { ONB: { levels: string[] }; LT_HOOD: boolean; LTS: { show: Record<string, number> } };
 registerActions({
-  "learn:level": { click: (c) => { const o = LW.ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); callGlobal("ltOnboard", 2); } },
-  "learn:back": { click: () => void callGlobal("ltOnboard", 1) },
+  "learn:level": { click: (c) => { const o = LW.ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); ltOnboard(2); } },
+  "learn:back": { click: () => void ltOnboard(1) },
   "learn:start": { click: () => void ltStart() },
   "learn:hood": { click: () => { LW.LT_HOOD = !LW.LT_HOOD; ltRes(); } },
-  "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; callGlobal("saveLT"); ltRes(); } },
+  "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; saveLT(); ltRes(); } },
   "learn:ask": { click: () => void ltAsk() },
   "learn:go": { click: () => void ltGo() },
 });

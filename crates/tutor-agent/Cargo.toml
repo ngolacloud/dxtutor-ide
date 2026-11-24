@@ -17,6 +17,7 @@ tutor-llm = { path = "../tutor-llm" }
 # glob/grep das ferramentas: o motor do ripgrep (respeita .gitignore) e regex
 ignore = "0.4"
 regex = "1"
+toml = { workspace = true }
 # line diff for `write` over an existing file: only the changed lines become hunks
 # (docs/v2/RF-CODEV-STREAM.md, D3)
 similar = "2.7"

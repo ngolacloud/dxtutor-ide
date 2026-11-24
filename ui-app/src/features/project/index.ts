@@ -13,6 +13,7 @@ import { codev, dialog, git, loadMe, notify, openTab, workspace } from "./infras
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { State } from "./domain/types";
 import { projectInbox } from "../../app/project-inbox";
+import { NAVIGATOR_MESSAGE, pairState } from "../../app/pair-state";
 
 export const projectService = makeProjectService({
   gateway: tauriProjectGateway,
@@ -22,6 +23,15 @@ export const projectService = makeProjectService({
   dialog,
   notify,
   now: () => Date.now(),
+  canDrive: () => pairState.canDrive(),
+  navigatorMessage: NAVIGATOR_MESSAGE,
+  download: (name, text) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  },
 });
 const view = makeProjectView(projectService, () => Date.now());
 
@@ -84,6 +94,8 @@ function field(e: ActionEvent): void {
   let value: unknown = e.value;
   if (f === "points") value = e.value === "" ? null : Math.max(0, Math.round(Number(e.value)));
   if (f === "blocked") value = e.value.trim() ? e.value.trim() : null;
+  if (f === "scope" || f === "deps") value = e.value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+  if (f === "budget_usd") value = e.value.trim() === "" ? null : Math.max(0, Number(e.value));
   void projectService.update(key, { [f]: value });
 }
 
@@ -128,7 +140,11 @@ const table: ActionTable = {
   "pj-ready": { change: (e) => { const k = sel(); if (k) void projectService.update(k, { ready: e.checked }); } },
   "pj-dod": { change: (e) => { const k = sel(); if (k) void projectService.toggleDod(k, Number(e.on)); } },
   "pj-branch": { click: () => { const k = sel(); if (k) void projectService.createBranch(k); } },
-  "pj-work": { click: () => { const k = sel(); if (k) projectService.work(k); } },
+  "pj-work": { click: () => { const k = sel(); if (k) void projectService.work(k); } },
+  "pj-prompt": { click: () => { const k = sel(); if (k) void projectService.viewPrompt(k); } },
+  "pj-prompt-close": { click: () => projectService.closePrompt() },
+  "pj-sprint-budget": { change: (e) => void projectService.apply({ op: "set_sprint_budget", id: e.on, budget_usd: e.value.trim() === "" ? null : Math.max(0, Number(e.value)) }) },
+  "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-delete": { click: (e) => void projectService.remove(e.on) },
   "pj-comment": { keydown: enter((e) => { const k = sel(); if (k) void projectService.comment(k, e.value); }) },
   "pj-submit": { click: submit },

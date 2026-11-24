@@ -8,6 +8,8 @@ import type { CommitNode } from "./types";
 import type { ScmDesktop } from "../../features/scm/application/ports";
 import { slug } from "../../features/scm/domain/gitflow";
 import { desktopPorts } from "../../app/desktop";
+import { agentStore } from "../../app/store/agent";
+import { assistTrailers } from "../../features/scm/domain/trailers";
 import type { DesktopContext } from "./context";
 
 export function installGit(ctx: DesktopContext): void {
@@ -93,7 +95,10 @@ commit(msg, author, _commit) {
   enqueue(async () => {
     await gitOk("add", "-A", "--", ...rels);
     const a = ["commit", "-m", m];
-    if (by) a.push("-m", `Assisted-by: ${by} (dxtutor Co-Dev)`);
+    // RF-T02: the model that helped and the issue, as trailers; the author is the human
+    const model = by ? agentStore.providers[agentStore.provider]?.model || by : null;
+    const trailers = assistTrailers(m, model);
+    if (trailers.length) a.push("-m", trailers.join("\n"));
     const c = await gitOk(...a);
     await syncGit();
     say(c.stdout.split("\n")[0]);
