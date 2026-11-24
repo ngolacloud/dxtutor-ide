@@ -66,3 +66,5 @@
   @media(max-width:1300px){.ed-acts span{display:none}}
   .op-l{white-space:pre-wrap;word-break:break-word}.op-l.error{color:var(--red)}.op-l.warn{color:var(--yellow)}
   .op-t{color:var(--fg-muted);margin-right:10px;user-select:none}
+  /* A4: o blame da linha do cursor, no fim da linha (features/editor.ts annotateLine — app/line-annotation.ts) */
+  .ed-hl .bl-inline{color:var(--fg-muted);opacity:.75;font-style:italic;margin-left:2.5em;white-space:pre;pointer-events:none}

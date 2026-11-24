@@ -47,6 +47,7 @@ import { desktopPorts } from "../app/desktop";
 import { bindActions, type ActionTable } from "./scm/ui/actions";
 import { translator } from "../app/i18n";
 import { SCM_MESSAGES } from "./scm/ui/messages";
+import { GIT_ACTIONS, sideSections } from "./scm/extras";
 import {
   toast, log, rerender,
   files, agents, fIcon, short, rel,
@@ -163,7 +164,7 @@ function renderScmPane(): void {
     ${st.length ? `<div class="scm-grp">${t("staged")}<span class="cnt">${st.length}</span></div>` + st.map((p) => row(p, 1)).join("") : ""}<div class="scm-grp">${t("changes")}<span class="cnt">${un.length}</span></div>${un.map((p) => row(p, 0)).join("") || `<div class="sec-empty">${t("clean")}</div>`}
     <div class="scm-grp">${t("gitflowNext")}</div>${gfGuide()}
     <div class="scm-grp">${t("branches")}<span class="cnt">${Object.keys(GIT.refs).length}</span></div>${Object.keys(GIT.refs).map((rb) => { const r = lay.rows.find((x) => x.h === GIT.refs[rb]); return `<div class="scm-row" data-action="checkout" data-on="${esc(rb)}"><span class="pdot" style="background:${LANE[(r ? r.col : 0) % LANE.length]}"></span><span class="nm" style="max-width:none${rb === b ? ";font-weight:600" : ""}">${esc(rb)}</span>${rb === b ? '<span class="tag acc" style="margin-left:auto">HEAD</span>' : ""}</div>`; }).join("")}
-    <div class="scm-grp">${t("commits")}</div>${GIT.order.slice(0, 7).map((h) => { const c = GIT.c[h], a = authorOf(c.a); return `<div class="s-hit" style="padding-left:12px" data-action="open-graph-sel" data-on="${esc(h)}" title="${esc(a.n)} · ${rel(c.t)}"><span class="pdot" style="background:${a.col}"></span><span style="color:var(--accent-hover)">${h}</span><span>${esc(c.m)}</span></div>`; }).join("")}<button class="btn ghost" data-action="open-graph">${t("openGraph")}</button></div>`;
+    <div class="scm-grp">${t("commits")}</div>${GIT.order.slice(0, 7).map((h) => { const c = GIT.c[h], a = authorOf(c.a); return `<div class="s-hit" style="padding-left:12px" data-action="open-graph-sel" data-on="${esc(h)}" title="${esc(a.n)} · ${rel(c.t)}"><span class="pdot" style="background:${a.col}"></span><span style="color:var(--accent-hover)">${h}</span><span>${esc(c.m)}</span></div>`; }).join("")}<button class="btn ghost" data-action="open-graph">${t("openGraph")}</button>${sideSections()}</div>`;
   const i = $("#scm-msg") as HTMLInputElement | null;
   if (i) { i.oninput = () => { setCommitMsg(i.value); }; i.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) commitGitPublished(); }; }
 }
@@ -201,7 +202,8 @@ const ACTIONS: ActionTable = {
   "gf-finish-release": { on: "click", run: () => { if (gfFinishPublished()) toast("Release publicada em main"); } },
   "git-init": { on: "click", run: () => gitInitFolder() },
 };
-bindActions(ACTIONS);
+/* A4 (docs/v2/UI-AUDIT.md item 9): as acções `gx-*` do trabalho git novo (features/scm/extras.ts) */
+bindActions({ ...ACTIONS, ...GIT_ACTIONS });
 
 /* ── publicação no window (via bridge): nomes que o resíduo (app.ts/v5/v6/bridge/
    pair) e os consumidores VIEW.graph/XC.git/checkpoint resolvem como globais. RP.scm

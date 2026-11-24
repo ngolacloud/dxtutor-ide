@@ -26,6 +26,7 @@ import { $, esc, toast, rel } from "../core";
 import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
 import { editorOverlay, type OverlayView } from "../app/editor-overlay";
+import { lineAnnotation } from "../app/line-annotation";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -71,11 +72,11 @@ function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.
   $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?tm[i]:hlLine(l,ext))||' '}</div>`).join('');
   const mm=$('#minimap')!;mm.classList.remove('hidden');$('#ebody')!.classList.add('with-mm');
   mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');
-  const ov=editorOverlay.get(),wrap=$('#ed-hl')!.parentElement;if(v&&ov&&wrap)ov.decorate(p,{wrap,hl:$('#ed-hl')!,gut:$('#ed-gut')!},v);}
+  const ov=editorOverlay.get(),wrap=$('#ed-hl')!.parentElement;if(v&&ov&&wrap)ov.decorate(p,{wrap,hl:$('#ed-hl')!,gut:$('#ed-gut')!},v);annotateLine();}
 
 /* ───── ajudantes da barra de estado ───── */
 function gotoLine(n:number){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta)return;const ls=ta.value.split('\n');n=Math.max(1,Math.min(ls.length,n|0));let o=0;for(let i=0;i<n-1;i++)o+=ls[i].length+1;ta.focus({preventScroll:true});ta.setSelectionRange(o,o+ls[n-1].length);$('#ebody')!.scrollTop=Math.max(0,(n-1)*22-90);stPos();}
-function stPos(){const ta=$('#ed-ta') as HTMLTextAreaElement|null,el=$('#st-pos');if(!el)return;if(!ta){el.textContent='';return;}const b=ta.value.slice(0,ta.selectionStart).split('\n');el.textContent=`Ln ${b.length}, Col ${b[b.length-1].length+1}`;}
+function stPos(){const ta=$('#ed-ta') as HTMLTextAreaElement|null,el=$('#st-pos');if(!el)return;if(!ta){el.textContent='';return;}const b=ta.value.slice(0,ta.selectionStart).split('\n');el.textContent=`Ln ${b.length}, Col ${b[b.length-1].length+1}`;annotateLine();}
 function stLang(){const t=tabOf(cur);$('#st-lang')!.textContent=t&&t.path?(LANG[extOf(t.path)]||'Texto'):'';stPos();}
 function edCmd(c:string){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta){toast('Abre um ficheiro primeiro');return;}ta.focus();if(c==='selectAll')ta.select();else if(c==='line'){const b=ta.value.slice(0,ta.selectionStart).split('\n').length;gotoLine(b);}else{document.execCommand(c);(ta.oninput as any)();}}
 function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta.value.slice(ta.selectionStart,ta.selectionEnd):'';}
@@ -112,7 +113,20 @@ function paintEdFull(p: string): void {
 const LANG: Record<string, string>={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
 /* o último commit que tocou no ficheiro activo, na barra de estado (ADR-0004, U4j4a — era do app.ts). O stLang
    PUBLICADO acrescenta-o, como a decoração do app.ts fazia; as chamadas internas ao stLang local continuam sem ele. */
-function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,authorOf=BG.authorOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:null;if(!c){/* nenhum commit do espelho toca o ficheiro (o syncGit dá files:[]; sem repo não há commits): só o estado local — ADR-0006, R1d */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
+/* A4 (docs/v2/UI-AUDIT.md item 9): o que o blame diz da linha do cursor, no fim dessa linha (o registo
+   app/line-annotation.ts; sem anotador — no browser — não há nada). Não se mostra sobre uma proposta do Co-Dev. */
+function annotateLine(): void {
+  const hl = $('#ed-hl'), ta = $('#ed-ta') as HTMLTextAreaElement | null;
+  if (!hl) return;
+  hl.querySelectorAll('.bl-inline').forEach((x) => x.remove());
+  const la = lineAnnotation.get(), p = ta?.dataset.path;
+  if (!la || !ta || !p || VIEWS.get(p)) return;
+  const ln = ta.value.slice(0, ta.selectionStart).split('\n').length, txt = la.inline(p, ln), row = hl.children[ln - 1];
+  if (txt && row) row.insertAdjacentHTML('beforeend', `<span class="bl-inline">${esc(txt)}</span>`);
+  blame();
+}
+lineAnnotation.onRedraw(() => annotateLine());
+function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,authorOf=BG.authorOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const la=lineAnnotation.get();if(la){const ta=$('#ed-ta') as HTMLTextAreaElement|null,ln=ta&&ta.dataset.path===t.path?ta.value.slice(0,ta.selectionStart).split('\n').length:1,st=la.status(t.path,ln);if(st){el.textContent=st.text;el.title=st.title;el.onclick=st.open;return;}}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:null;if(!c){/* nenhum commit do espelho toca o ficheiro (o syncGit dá files:[]; sem repo não há commits): só o estado local — ADR-0006, R1d */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 function stLangWithBlame(): void { stLang(); blame(); }
 /* e corre a cada mudança do workspace (era o fim do subscritor do app.ts) */
 bus.on('workspace:changed',()=>{blame();});

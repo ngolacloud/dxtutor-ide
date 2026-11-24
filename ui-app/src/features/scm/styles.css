@@ -1,3 +1,51 @@
 /* estilos da feature scm — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
   .gf-s{display:flex;gap:8px;padding:3px 14px;font-size:12px;color:var(--fg-muted);line-height:1.45}
   .gf-s>span{flex:none;width:12px}.gf-s.ok{color:var(--fg-dim)}.gf-s.ok>span{color:var(--green)}
+  /* ═════════ A4 (docs/v2/UI-AUDIT.md item 9): stashes, worktrees, histórico, comparar, rebase (features/scm/ui/git-views.ts) ═════════ */
+  #pane-scm .gx-bar{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 6px}
+  #pane-scm .gx-bar .btn{display:inline-block;width:auto;margin:0;padding:4px 10px;font-size:12px}
+  #pane-scm .gx-row .pth{flex:none;max-width:45%}
+  .gx{height:100%;overflow:auto;padding:14px 20px 28px;box-sizing:border-box;font-family:var(--font-ui);color:var(--fg);font-size:12.5px}
+  .gx-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}.gx-top b{font-size:15px;color:var(--fg-bright)}
+  .gx-sp{flex:1}
+  .gx .btn{display:inline-block;width:auto;margin:0;padding:4px 10px;font-size:12px}
+  .gx .btn.gx-ai,#pane-scm .btn.gx-ai{color:var(--accent-hover)}
+  .gx-chip{padding:1px 8px;border-radius:9px;background:var(--bg-input);border:1px solid var(--border);font-family:var(--font-mono);font-size:11.5px}
+  .gx-cols{display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,2fr) minmax(220px,1fr);gap:14px;align-items:start}
+  .gx-col{min-width:0}
+  .gx-commit{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;padding:6px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .gx-commit:hover{background:var(--bg-hover)}.gx-commit.cur{background:var(--bg-input);border-color:var(--border)}
+  .gx-commit .gx-meta{grid-column:2}
+  .gx-hash{font-family:var(--font-mono);font-size:11.5px;color:var(--accent-hover)}
+  .gx-subj{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gx-meta{color:var(--fg-muted);font-size:11.5px}
+  .gx-dhd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .gx-diff{font-family:var(--font-mono);font-size:11.5px;line-height:1.5;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:6px 0;overflow:auto;max-height:70vh}
+  .gx-diff>div{padding:0 10px;white-space:pre}
+  .gx-da{background:rgba(92,201,167,.12);color:var(--green)}.gx-dd{background:rgba(241,112,122,.12);color:var(--red)}.gx-dk{color:var(--accent-hover)}.gx-dh{color:var(--fg-muted)}
+  .gx-card{border:1px solid var(--seam);border-radius:8px;padding:8px 10px;background:var(--bg-panel);margin-bottom:10px}
+  .gx-ct{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);margin:6px 0}
+  .gx-who-row{display:grid;grid-template-columns:minmax(60px,auto) 1fr auto;gap:8px;align-items:center;margin-top:6px}
+  .gx-who{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gx-meter{height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden}.gx-meter>div{height:6px;background:var(--accent);border-radius:3px}
+  .gx-legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--fg-muted);margin-bottom:6px}
+  .gx-ramp{flex:1;height:6px;border-radius:3px;background:linear-gradient(90deg,rgba(110,168,255,.15),rgba(224,138,91,.85))}
+  .gx-blame{max-height:50vh;overflow:auto}
+  .gx-blk{display:grid;grid-template-columns:auto auto 1fr;gap:0 8px;padding:4px 6px 4px 9px;border-left:3px solid color-mix(in srgb,rgb(224,138,91) calc(var(--gx-heat)*100%),rgba(110,168,255,.35));margin-bottom:2px;border-radius:3px;cursor:pointer}
+  .gx-blk:hover{background:var(--bg-hover)}
+  .gx-blk .gx-subj{grid-column:1/-1;color:var(--fg-muted);font-size:11.5px}
+  .gx-lines{font-family:var(--font-mono);font-size:11px;color:var(--fg-muted)}
+  .gx-file{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:5px;cursor:pointer}.gx-file:hover{background:var(--bg-hover)}
+  .gx-st{font-family:var(--font-mono);font-size:11px;width:14px;text-align:center;color:var(--fg-muted)}.gx-st.s-A{color:var(--green)}.gx-st.s-D{color:var(--red)}.gx-st.s-M{color:var(--yellow)}
+  .gx-add{color:var(--green);font-family:var(--font-mono);font-size:11px}.gx-del{color:var(--red);font-family:var(--font-mono);font-size:11px}
+  .gx-steps{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+  .gx-step{display:grid;grid-template-columns:22px auto 92px auto 1fr;gap:8px;align-items:center;padding:5px 8px;border:1px solid var(--seam);border-radius:6px;background:var(--bg-panel)}
+  .gx-step.a-drop{opacity:.55}.gx-step.a-drop .gx-subj{text-decoration:line-through}
+  .gx-step .gx-msg{grid-column:3/-1}
+  .gx-n{color:var(--fg-muted);font-size:11px;text-align:right}
+  .gx-mv{display:flex;gap:2px}.gx-mv button{background:none;border:1px solid var(--border);border-radius:4px;color:var(--fg-muted);cursor:pointer;padding:0 5px}.gx-mv button:disabled{opacity:.35;cursor:default}
+  .gx-act{background:var(--bg-input);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:2px 4px;font-family:var(--font-mono);font-size:11.5px}
+  .gx-cmd{font-family:var(--font-mono);font-size:11.5px;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:8px 10px;white-space:pre-wrap;margin:0 0 10px}
+  .gx-warn{border-left:3px solid var(--yellow);background:rgba(224,182,74,.1);padding:6px 10px;border-radius:4px;margin-bottom:6px}
+  .gx .gx-bar{display:flex;gap:8px;flex-wrap:wrap}
+  @media (max-width:1100px){.gx-cols{grid-template-columns:1fr}}
