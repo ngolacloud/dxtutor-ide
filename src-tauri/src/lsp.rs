@@ -475,12 +475,37 @@ fn read_message<R: Read>(r: &mut R) -> Option<Value> {
     serde_json::from_slice(&buf).ok()
 }
 
+/// O `id` de um PEDIDO do servidor ao cliente (tem `method` e `id`). O id pode ser número OU
+/// texto: o jdtls (lsp4j) envia-o como texto (`"id": "13"`). Só se aceitava número, por isso
+/// nenhum pedido do jdtls era respondido — e o `workspace/configuration` que ele faz durante
+/// um code action deixava-o à espera para sempre (bloqueando os pedidos seguintes).
+fn server_request_id(msg: &Value) -> Option<Value> {
+    let id = msg.get("id")?;
+    (msg.get("method").is_some_and(Value::is_string)
+        && (id.is_i64() || id.is_u64() || id.is_string()))
+    .then(|| id.clone())
+}
+
 fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &str, msg: Value) {
-    if let Some(id) = msg.get("id").and_then(Value::as_i64) {
-        if let Some(method) = msg.get("method").and_then(Value::as_str) {
+    if let Some(id) = server_request_id(&msg) {
+        let method = msg["method"].as_str().unwrap_or_default();
+        {
             let result = if method == "workspace/configuration" {
                 let n = msg["params"]["items"].as_array().map_or(0, Vec::len);
                 Value::Array(vec![Value::Null; n])
+            } else if method == "workspace/applyEdit" {
+                // Um comando executado no servidor (code action) quer mudar ficheiros: a UI
+                // (features/lsp) aplica a WorkspaceEdit pelo mesmo caminho do rename.
+                let _ = app.emit(
+                    "lsp://apply-edit",
+                    json!({
+                        "root": root,
+                        "server": label,
+                        "label": msg["params"]["label"],
+                        "edit": msg["params"]["edit"],
+                    }),
+                );
+                json!({ "applied": true })
             } else {
                 Value::Null
             };
@@ -490,8 +515,11 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
                     let _ = write_msg(si, &reply);
                 }
             }
-        } else if let Ok(mut g) = session.lock() {
-            if let Some(tx) = g.pending.remove(&id) {
+        }
+    } else if let Some(rid) = msg.get("id").and_then(Value::as_i64) {
+        // resposta a um pedido nosso (os nossos ids são números)
+        if let Ok(mut g) = session.lock() {
+            if let Some(tx) = g.pending.remove(&rid) {
                 let _ = tx.send(msg.get("result").cloned().unwrap_or(Value::Null));
             }
         }
@@ -615,6 +643,19 @@ fn capabilities() -> Value {
                 },
                 "contextSupport": true
             },
+            // Code actions como objectos (com `edit`), não só comandos; `isPreferred` põe a
+            // correcção principal primeiro no menu da UI.
+            "codeAction": {
+                "codeActionLiteralSupport": {
+                    "codeActionKind": {
+                        "valueSet": [
+                            "", "quickfix", "refactor", "refactor.extract", "refactor.inline",
+                            "refactor.rewrite", "source", "source.organizeImports"
+                        ]
+                    }
+                },
+                "isPreferredSupport": true
+            },
             // A UI (features/lsp) mostra a assinatura com o parâmetro activo realçado.
             "signatureHelp": {
                 "signatureInformation": {
@@ -632,7 +673,14 @@ fn capabilities() -> Value {
         // `$/progress` "end" — leave the session permanently "not ready", disabling hover /
         // prepareRename and forcing every navigation to burn the full `wait_ready` budget.
         "window": { "workDoneProgress": true },
-        "workspace": { "workspaceEdit": { "documentChanges": true }, "configuration": true }
+        "workspace": {
+            "workspaceEdit": { "documentChanges": true },
+            "configuration": true,
+            // comandos das code actions: executados no servidor, que devolve as edições por
+            // `workspace/applyEdit` (ver `dispatch`)
+            "applyEdit": true,
+            "executeCommand": {}
+        }
     })
 }
 
@@ -884,6 +932,11 @@ pub async fn lsp_did_change(
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let Some(session) = session_for(&map, &app, &path)? else { return Ok(()); };
         let uri = path_to_uri(&path);
+        diag_stamps()
+            .lock()
+            .unwrap()
+            .0
+            .insert(uri.clone(), Instant::now());
         session_notify(
             &session,
             "textDocument/didChange",
@@ -1021,6 +1074,90 @@ pub async fn lsp_signature_help(
     .map_err(|e| e.to_string())?
 }
 
+/// Os diagnósticos publicados (`diagnostics`, a lista de um ficheiro) nas LINHAS do intervalo
+/// `sl..=el` — o contexto que o servidor quer para propor correcções. Por linha, não pela
+/// posição exacta (como o VS Code): com o cursor em `broken` e o erro marcado no `42` da mesma
+/// linha, sem isto o jdtls não recebia o diagnóstico e não propunha a correcção.
+fn diagnostics_in_range(diagnostics: &Value, sl: u32, el: u32) -> Vec<Value> {
+    let line = |v: &Value| v["line"].as_u64().unwrap_or(0);
+    let (s, e) = (sl as u64, el as u64);
+    diagnostics
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|d| line(&d["range"]["start"]) <= e && s <= line(&d["range"]["end"]))
+        .cloned()
+        .collect()
+}
+
+/// As code actions (correcções e refactorings) para o intervalo, com os diagnósticos já
+/// publicados que o tocam (`textDocument/codeAction`). Não espera pela indexação.
+#[tauri::command]
+pub async fn lsp_code_action(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    start_line: u32,
+    start_character: u32,
+    end_line: u32,
+    end_character: u32,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        let uri = path_to_uri(&path);
+        // logo depois de uma edição, os diagnósticos em cache são do texto antigo
+        wait_fresh_diagnostics(&uri, Duration::from_secs(2));
+        let diagnostics = diag_cache()
+            .lock()
+            .unwrap()
+            .get(&uri)
+            .map(|d| diagnostics_in_range(d, start_line, end_line))
+            .unwrap_or_default();
+        session_request(
+            &session,
+            "textDocument/codeAction",
+            json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": start_line, "character": start_character },
+                    "end": { "line": end_line, "character": end_character }
+                },
+                "context": { "diagnostics": diagnostics, "triggerKind": 1 }
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Executa no servidor o comando de uma code action (`workspace/executeCommand`). As
+/// edições que daí resultem chegam à UI pelo evento `lsp://apply-edit`.
+#[tauri::command]
+pub async fn lsp_execute_command(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    command: String,
+    arguments: Option<Value>,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        let mut params = json!({ "command": command });
+        if let Some(a) = arguments.filter(|a| !a.is_null()) {
+            params["arguments"] = a;
+        }
+        session_request(&session, "workspace/executeCommand", params)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn lsp_rename(
     app: AppHandle,
@@ -1082,8 +1219,47 @@ fn active_roots() -> &'static Mutex<HashSet<String>> {
     A.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
+/// Quando cada ficheiro mudou pela última vez (`didChange`) e quando o servidor publicou
+/// diagnósticos dele pela última vez. Um code action pedido logo depois de uma edição tem de
+/// esperar pelos diagnósticos do texto novo: com os antigos, o contexto vem vazio ou errado e o
+/// servidor não propõe a correcção (medido: o jdtls publica ~0,8 s depois do didChange).
+fn diag_stamps() -> &'static Mutex<(HashMap<String, Instant>, HashMap<String, Instant>)> {
+    static S: OnceLock<Mutex<(HashMap<String, Instant>, HashMap<String, Instant>)>> =
+        OnceLock::new();
+    S.get_or_init(|| Mutex::new((HashMap::new(), HashMap::new())))
+}
+
+/// Os diagnósticos em cache são de um texto mais antigo do que o actual?
+fn diagnostics_stale(changed: Option<Instant>, published: Option<Instant>) -> bool {
+    match (changed, published) {
+        (Some(c), Some(p)) => p < c,
+        (Some(_), None) => true,
+        _ => false,
+    }
+}
+
+/// Espera (até `max`) que o servidor publique os diagnósticos do texto actual de `uri`.
+fn wait_fresh_diagnostics(uri: &str, max: Duration) {
+    let t0 = Instant::now();
+    loop {
+        let stale = {
+            let s = diag_stamps().lock().unwrap();
+            diagnostics_stale(s.0.get(uri).copied(), s.1.get(uri).copied())
+        };
+        if !stale || t0.elapsed() >= max {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn cache_diagnostics(params: &Value) {
     if let Some(uri) = params["uri"].as_str() {
+        diag_stamps()
+            .lock()
+            .unwrap()
+            .1
+            .insert(uri.to_string(), Instant::now());
         let diags = params["diagnostics"].clone();
         let mut c = diag_cache().lock().unwrap();
         if diags.as_array().is_some_and(|a| a.is_empty()) {
@@ -1215,6 +1391,39 @@ mod diag_tests {
 #[cfg(test)]
 mod phase4_lang_tests {
     use super::*;
+
+    #[test]
+    fn code_actions_get_the_diagnostics_that_touch_the_range() {
+        let r = |l: u32, c1: u32, c2: u32| json!({ "range": { "start": { "line": l, "character": c1 }, "end": { "line": l, "character": c2 } }, "message": format!("{l}:{c1}") });
+        let diags = json!([r(3, 8, 30), r(5, 0, 4), r(3, 40, 44)]);
+        // o cursor em qualquer ponto da linha 3 apanha os dois diagnósticos dela, não o da 5
+        let got = diagnostics_in_range(&diags, 3, 3);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0]["message"], "3:8");
+        assert_eq!(diagnostics_in_range(&diags, 4, 6).len(), 1);
+        assert!(diagnostics_in_range(&Value::Null, 0, 9).is_empty());
+        // diagnósticos de um texto mais antigo do que a última edição → esperar pelos novos
+        let t = Instant::now();
+        let later = t + Duration::from_millis(5);
+        assert!(diagnostics_stale(Some(later), Some(t)));
+        assert!(diagnostics_stale(Some(t), None));
+        assert!(!diagnostics_stale(Some(t), Some(later)));
+        assert!(!diagnostics_stale(None, Some(t)));
+        // pedidos do servidor: id número OU texto (o jdtls usa texto); respostas não são pedidos
+        assert_eq!(
+            server_request_id(&json!({ "id": "13", "method": "workspace/configuration" })),
+            Some(json!("13"))
+        );
+        assert_eq!(
+            server_request_id(&json!({ "id": 7, "method": "window/workDoneProgress/create" })),
+            Some(json!(7))
+        );
+        assert_eq!(server_request_id(&json!({ "id": 7, "result": null })), None);
+        assert_eq!(server_request_id(&json!({ "method": "$/progress" })), None);
+        let caps = capabilities();
+        assert_eq!(caps["workspace"]["applyEdit"], true);
+        assert!(caps["textDocument"]["codeAction"]["codeActionLiteralSupport"].is_object());
+    }
 
     #[test]
     fn jdtls_starts_with_signature_help_enabled() {

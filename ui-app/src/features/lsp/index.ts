@@ -24,6 +24,8 @@ import { bindSignatureHooks } from "./ui/signature-hooks";
 if (isDesktop()) {
   const client = makeLspClient({ lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0) });
   tauriLsp.onDiagnostics((uri) => client.onDiagnostics(uri));
+  /* um comando de code action executado no servidor devolve as edições por workspace/applyEdit */
+  tauriLsp.onApplyEdit((edit) => void client.onApplyEdit(edit));
   bus.on("editor:tab", ({ id }) => void client.onTab(id));
   /* a vista do ficheiro foi refeita: repõe o aviso de servidor em falta, se for o caso */
   bus.on("editor:file-view", ({ path }) => void client.onFileView(path));
@@ -36,6 +38,8 @@ if (isDesktop()) {
     referencesAt: client.referencesAt,
     prepareRenameAt: client.prepareRenameAt,
     renameAt: client.renameAt,
+    codeActionsAt: client.codeActionsAt,
+    applyCodeAction: client.applyCodeAction,
     openReference: (r) => {
       if (r.key) editor.open(r.key, r.line, r.character);
     },

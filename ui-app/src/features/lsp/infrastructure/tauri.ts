@@ -2,8 +2,8 @@
    Implementa a `LspPort` sobre o cliente IPC tipado (`platform/tauri/core`): os comandos
    `lsp_start` / `lsp_did_open` / `lsp_did_change` / `lsp_hover` / `lsp_definition` /
    `lsp_references` / `lsp_prepare_rename` / `lsp_rename` / `lsp_completion` /
-   `lsp_signature_help` / `lsp_server_status` e o evento
-   `lsp://diagnostics`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
+   `lsp_signature_help` / `lsp_server_status` / `lsp_code_action` / `lsp_execute_command` e
+   os eventos `lsp://diagnostics` e `lsp://apply-edit`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, listen } from "../../../platform/tauri/core";
 import type { LspPort } from "../application/ports";
@@ -22,6 +22,15 @@ export const tauriLsp: LspPort = {
   signatureHelp: (path, line, character, triggerCharacter, isRetrigger) =>
     invoke<unknown>("lsp_signature_help", { path, line, character, triggerCharacter, isRetrigger }),
   serverStatus: (path) => invoke<ServerStatus | null>("lsp_server_status", { path }),
+  codeAction: (path, startLine, startCharacter, endLine, endCharacter) =>
+    invoke<unknown>("lsp_code_action", { path, startLine, startCharacter, endLine, endCharacter }),
+  executeCommand: (path, command, args) => invoke<unknown>("lsp_execute_command", { path, command, arguments: args }),
+  onApplyEdit: (cb) => {
+    void listen("lsp://apply-edit", (p) => {
+      const e = p as { edit?: unknown };
+      if (e && typeof e.edit === "object" && e.edit) cb(e.edit);
+    });
+  },
   onDiagnostics: (cb) => {
     void listen("lsp://diagnostics", (p) => {
       const e = p as { uri?: unknown };
