@@ -65,6 +65,11 @@ function fakeBackend(): void {
         return [{ path: "/proj", head: "dddddddd", branch: "develop", locked: false, prunable: false, current: true }, { path: "/proj-feature-parser", head: "eeeeeeee", branch: "feature/parser", locked: false, prunable: false, current: false }];
       case "git_rebase":
         return (args.op as { op: string }).op === "run" ? { ...plan, commits: [commits[1]] } : plan;
+      // RF-E08: the working tree has a Co-Dev block of PRJ-3 not committed yet
+      case "git_changes":
+        return [{ path: "src/lib.rs", status: "M" }];
+      case "project_change_sets":
+        return [{ issueKey: "PRJ-3", title: "Lex the digits", rows: [{ path: "src/lib.rs", start: 3, end: 4, added: 2, removed: 1, decidedBy: "human", decidedAt: now * 1000 }] }];
       default:
         return null;
     }
@@ -132,4 +137,24 @@ test("blame on the caret line, the line's history, stashes, worktrees and the in
   await rb.locator('[data-action="gx-rb-run"]').click();
   await expect.poll(async () => (await calls(page, "git_rebase")).map((a) => a.op).find((o) => (o as { op: string }).op === "run")).toEqual({ op: "run", onto: "main", steps: [{ action: "pick", hash: "c".repeat(40) }, { action: "fixup", hash: "d".repeat(40) }] });
   expect(asked).toContain("git rebase -i main");
+});
+
+test("RF-E08: the Co-Dev change sets of the working tree, by issue — Stage suggests the message with the key", async ({ page }) => {
+  await boot(page);
+  await page.locator('#activity .act[data-pane="scm"]').first().click();
+  const pane = page.locator("#pane-scm");
+  await expect(pane).toContainText("Co-Dev change sets");
+  const head = pane.locator(".gx-cs-head");
+  await expect(head).toContainText("PRJ-3");
+  await expect(head).toContainText("Lex the digits");
+  await expect(pane.locator(".gx-cs-file")).toContainText("3–4");
+  await page.screenshot({ path: test.info().outputPath("f27-change-sets.png") });
+  await head.hover(); // the row's actions show on hover, as in the other rows
+  await pane.locator('[data-action="gx-cs-stage"][data-on="PRJ-3"]').click();
+  await expect(page.locator("#scm-msg")).toHaveValue("Lex the digits (PRJ-3)");
+  // the editor's file keys are ROOT + the project path
+  await expect.poll(() => page.evaluate(() => { const w = window as unknown as { STAGED: Set<string>; ROOT: string }; return [...w.STAGED].map((k) => k.replace(w.ROOT, "")); })).toEqual(["src/lib.rs"]);
+  // the file opens its diff
+  await page.locator('#pane-scm [data-action="gx-cs-open"]').click();
+  await expect(page.locator(".tab.active")).toContainText("lib.rs");
 });

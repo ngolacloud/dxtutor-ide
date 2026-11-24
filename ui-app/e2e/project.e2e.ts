@@ -68,7 +68,14 @@ function fakeBackend(): void {
       case "project_apply":
         return apply(args.op as Record<string, unknown>);
       case "project_issue":
-        return { activity: activity[String(args.key)] ?? [], changeSets: [] };
+        // RF-B08: PRJ-2 had Co-Dev turns and an accepted block
+        return String(args.key) === "PRJ-2"
+          ? {
+              activity: activity["PRJ-2"] ?? [],
+              changeSets: [{ session: "", call: "c1", hunk: "c1:1", path: "src/iter.rs", start: 12, end: 14, added: 3, removed: 1, decidedBy: "human", decidedAt: 1 }],
+              usage: { turns: 2, sessions: 1, models: ["claude-sonnet-5-5"], tokensIn: 5400, tokensOut: 900, costUsd: 0.12, unpriced: 0 },
+            }
+          : { activity: activity[String(args.key)] ?? [], changeSets: [] };
       case "project_reports":
         return { cycle: [], cycleMedian: null, cycleP85: null, throughput: [], cfd: [], burndown: null, velocity: [] };
       default:
@@ -132,7 +139,12 @@ test("the Project activity: create, drag a card one step, the issue panel and th
   await page.locator('.pj-card[data-on="PRJ-2"]').click();
   await expect(page.locator(".pj-issue")).toBeVisible();
   await expect(page.locator(".pj-issue .pj-act").first()).toContainText("production is down");
+  // RF-B08: what Co-Dev used on it, and its change set opens the diff
+  await expect(page.locator(".pj-issue .pj-usage")).toContainText("2 turns in 1 session");
+  await expect(page.locator(".pj-issue .pj-usage")).toContainText("5.4k in / 900 out tokens · $0.12");
   await page.screenshot({ path: test.info().outputPath("a5-issue.png") });
+  await page.locator('.pj-issue [data-action="pj-diff"][data-on="src/iter.rs"]').click();
+  await expect(page.locator(".tab.active")).toContainText("iter.rs");
 });
 
 test("reports without history say what they need; Studio proposals wait in the inbox", async ({ page }) => {

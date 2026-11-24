@@ -422,6 +422,106 @@ fn change_sets_are_linked_to_their_issue() {
 }
 
 #[test]
+fn the_source_control_groups_the_change_sets_since_the_last_commit_by_issue() {
+    let mut s = store();
+    let k = create(&mut s, "Paginate the list", T0);
+    let cs = |path: &str, issue: Option<&str>| NewChangeSet {
+        session: "cda-1".into(),
+        call: "toolu_1".into(),
+        hunk: format!("toolu_1:{path}"),
+        path: path.into(),
+        start: 3,
+        end: 4,
+        added: 2,
+        removed: 1,
+        decided_by: "human".into(),
+        issue_key: issue.map(str::to_string),
+    };
+    s.record_change_set(ROOT, &cs("src/old.rs", Some(&k)), T0)
+        .unwrap();
+    s.record_change_set(ROOT, &cs("src/a.rs", Some(&k)), T0 + H)
+        .unwrap();
+    s.record_change_set(ROOT, &cs("src/chat.rs", None), T0 + 2 * H)
+        .unwrap();
+    s.record_change_set(ROOT, &cs("src/b.rs", Some(&k)), T0 + 3 * H)
+        .unwrap();
+    s.record_change_set("/other", &cs("src/x.rs", Some(&k)), T0 + 3 * H)
+        .unwrap();
+    // the commit at T0 + 30 min took `src/old.rs`: only what came after it is shown
+    let g = s.change_sets_since(ROOT, T0 + H / 2).unwrap();
+    assert_eq!(g.len(), 2);
+    assert_eq!(g[0].issue_key.as_deref(), Some(k.as_str()));
+    assert_eq!(g[0].title, "Paginate the list");
+    assert_eq!(
+        g[0].rows
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["src/b.rs", "src/a.rs"]
+    );
+    assert_eq!((g[1].issue_key.clone(), g[1].title.as_str()), (None, ""));
+    assert_eq!(g[1].rows[0].path, "src/chat.rs");
+    assert_eq!(s.change_sets_since(ROOT, 0).unwrap()[0].rows.len(), 3);
+    let j = serde_json::to_value(&g[0]).unwrap();
+    assert_eq!(j["issueKey"], serde_json::json!(k));
+}
+
+#[test]
+fn the_issue_panel_sums_the_turns_of_its_issue() {
+    let mut s = store();
+    let k = create(&mut s, "x", T0);
+    assert_eq!(s.detail(ROOT, &k).unwrap().usage, IssueUsage::default());
+    let turn =
+        |at: i64, session: &str, issue: Option<&str>, model: &str, cost: Option<f64>| AuditEntry {
+            at,
+            session: session.into(),
+            event: "turn".into(),
+            origin: "issue".into(),
+            issue_key: issue.map(str::to_string),
+            actor: "ana".into(),
+            mode: "assist".into(),
+            model: Some(model.into()),
+            tokens_in: Some(1000),
+            tokens_out: Some(200),
+            cost_usd: cost,
+            ..Default::default()
+        };
+    s.record_audit(
+        ROOT,
+        &turn(T0 + 1, "cda-1", Some(&k), "claude-sonnet-5-5", Some(0.25)),
+    )
+    .unwrap();
+    s.record_audit(
+        ROOT,
+        &turn(T0 + 2, "cda-1", Some(&k), "claude-opus-5-5", Some(0.5)),
+    )
+    .unwrap();
+    s.record_audit(ROOT, &turn(T0 + 3, "cda-2", Some(&k), "llama3", None))
+        .unwrap();
+    s.record_audit(
+        ROOT,
+        &turn(T0 + 4, "cda-2", Some(&k), "claude-sonnet-5-5", Some(0.25)),
+    )
+    .unwrap();
+    // other issues, the chat and the calls do not count
+    s.record_audit(ROOT, &turn(T0 + 5, "cda-3", None, "gpt", Some(9.0)))
+        .unwrap();
+    s.record_audit(
+        ROOT,
+        &AuditEntry {
+            event: "call".into(),
+            ..turn(T0 + 6, "cda-1", Some(&k), "x", Some(9.0))
+        },
+    )
+    .unwrap();
+    let u = s.detail(ROOT, &k).unwrap().usage;
+    assert_eq!((u.turns, u.sessions, u.unpriced), (4, 2, 1));
+    assert_eq!((u.tokens_in, u.tokens_out), (4000, 800));
+    assert!((u.cost_usd - 1.0).abs() < 1e-9, "{}", u.cost_usd);
+    assert_eq!(u.models, ["claude-sonnet-5-5", "claude-opus-5-5", "llama3"]);
+}
+
+#[test]
 fn reports_come_from_the_history_and_are_empty_without_it() {
     let mut s = store();
     let r = s.reports(ROOT, T0).unwrap();

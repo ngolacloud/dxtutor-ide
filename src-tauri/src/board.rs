@@ -14,7 +14,8 @@ use std::sync::{Mutex, OnceLock};
 
 use tauri::{AppHandle, Manager};
 use tutor_board::project::{
-    reports::Reports, AuditEntry, IssueDetail, Op, Project, ProjectError, ProjectStore,
+    reports::Reports, AuditEntry, ChangeSetGroup, IssueDetail, Op, Project, ProjectError,
+    ProjectStore,
 };
 use tutor_board::{Backlog, BoardStore};
 
@@ -137,6 +138,35 @@ pub fn project_issue(
     open(&app)?.detail(&root, &key)
 }
 
+/// Os change sets do Co-Dev ainda por commitar, agrupados por issue (RF-E08): os aceites depois
+/// do último commit do `HEAD` (sem `HEAD` — repositório novo ou sem git — todos). O painel
+/// Source Control cruza-os com os ficheiros alterados e oferece Stage/Discard por conjunto.
+#[tauri::command]
+pub fn project_change_sets(
+    app: AppHandle,
+    root: String,
+) -> Result<Vec<ChangeSetGroup>, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.change_sets_since(&root, head_commit_ms(Path::new(&root)))
+}
+
+/// A hora do commit do `HEAD` em ms (0 sem git, sem repositório ou sem commits).
+fn head_commit_ms(root: &Path) -> i64 {
+    std::process::Command::new("git")
+        .args(["log", "-1", "--format=%ct", "HEAD"])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<i64>()
+                .ok()
+        })
+        .map_or(0, |s| s * 1000)
+}
+
 /// Os relatórios calculados do histórico (vazios sem histórico).
 #[tauri::command]
 pub fn project_reports(app: AppHandle, root: String) -> Result<Reports, ProjectError> {
@@ -257,4 +287,40 @@ pub fn board_save(app: AppHandle, root: Option<String>, backlog: Backlog) -> Res
     store
         .save_board(&tasks_key(root), &backlog, now_ms())
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_last_commit_time_bounds_the_change_sets_and_is_zero_without_one() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(head_commit_ms(d.path()), 0, "not a repository");
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(args)
+                .current_dir(d.path())
+                .env("GIT_COMMITTER_DATE", "1763000000 +0000")
+                .env("GIT_AUTHOR_DATE", "1763000000 +0000")
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        assert_eq!(head_commit_ms(d.path()), 0, "no commits yet");
+        git(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@x",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "x",
+        ]);
+        assert_eq!(head_commit_ms(d.path()), 1_763_000_000_000);
+    }
 }

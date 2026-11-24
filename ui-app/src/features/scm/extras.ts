@@ -9,6 +9,7 @@
 import { VIEW } from "../../app/store/registry";
 import { lineAnnotation } from "../../app/line-annotation";
 import { codevAsk } from "../../app/codev-ask";
+import { changeSetsSignal } from "../../app/change-sets-signal";
 import { translator } from "../../app/i18n";
 import { makeGitExtras } from "./application/git-extras";
 import { tauriGitExtras } from "./infrastructure/tauri";
@@ -35,6 +36,9 @@ export const gitExtras = makeGitExtras({
     current: () => B.branch(),
     cursor: () => B.editorCursor(),
     commitMessage: () => B.commitMsg(),
+    setCommitMessage: (m) => B.setCommitMsg(m),
+    stage: (paths) => { const r = B.rootKey(), s = B.staged(); paths.forEach((p) => s.add(r + p)); B.panes().scm?.(); },
+    discard: (paths) => { const r = B.rootKey(), fs = B.files(); paths.forEach((p) => { if (fs[r + p]) B.decoratedDiscard(r + p); }); },
     open: (p, l) => B.openRel(p, l),
   },
   human: {
@@ -93,12 +97,24 @@ document.addEventListener("dx:saved", (e) => {
   lineAnnotation.redraw();
 });
 document.addEventListener("dx:workspace", () => { gitExtras.invalidate(); });
+/* RF-E08: Co-Dev recorded change sets (a block applied, Auto's validation ended) */
+changeSetsSignal.subscribe(() => { if (active()) void gitExtras.refreshChangeSets(); });
+
+/** RF-E08: what the changed files of the editor look like (path and size) — when it changes (a
+ *  Co-Dev block applied, a save, a discard, a commit), the change sets are asked again. Cheap, and
+ *  it cannot loop: the answer repaints the pane with the same signature. */
+const dirtySignature = (): string => {
+  const r = B.rootKey(), fs = B.files();
+  return Object.keys(fs).filter((k) => k.startsWith(r) && fs[k].content !== fs[k].orig).sort().map((k) => `${k}:${fs[k].content.length}`).join("|");
+};
+let csSig: string | null = null;
 
 /** The Source Control pane's extra sections (empty outside the desktop with a repository). */
 let sideAsked = false;
 export function sideSections(): string {
-  if (!active()) { sideAsked = false; return ""; }
-  if (!sideAsked) { sideAsked = true; void gitExtras.refreshSide(); }
+  if (!active()) { sideAsked = false; csSig = null; return ""; }
+  if (!sideAsked) { sideAsked = true; csSig = dirtySignature(); void gitExtras.refreshSide(); }
+  else { const sig = dirtySignature(); if (sig !== csSig) { csSig = sig; void gitExtras.refreshChangeSets(); } }
   return renderSide(t, gitExtras.state(), codevAsk.available(), Date.now());
 }
 
@@ -154,4 +170,8 @@ export const GIT_ACTIONS: ActionTable = {
   "gx-review-mark": { on: "change", run: (e) => gitExtras.markReviewed(e.on, (e.el as HTMLInputElement).checked) },
   "gx-review-group": { on: "click", run: (e) => { void gitExtras.askReviewGroup(e.on); } },
   "gx-review-summary": { on: "click", run: () => gitExtras.askSummary() },
+  /* RF-E08: a Co-Dev change set (data-on = the issue key, empty without one) and its files */
+  "gx-cs-stage": { on: "click", run: (e) => gitExtras.stageSet(e.on) },
+  "gx-cs-discard": { on: "click", run: (e) => { void gitExtras.discardSet(e.on); } },
+  "gx-cs-open": { on: "click", run: (e) => B.openDiffRel(e.on) },
 };

@@ -244,6 +244,35 @@ pub struct IssueDetail {
     pub change_sets: Vec<ChangeSetRow>,
     /// Reports of the Co-Dev turns that worked on the issue (HARNESS-07).
     pub reports: Vec<Artifact>,
+    /// What Co-Dev used on the issue, summed from the turns in the audit log (RF-B08/T04).
+    pub usage: IssueUsage,
+}
+
+/// The sum of the Co-Dev turns of one issue (the `turn` rows of the audit log).
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueUsage {
+    pub turns: u32,
+    pub sessions: u32,
+    /// The real model ids the provider reported, in the order they were first used.
+    pub models: Vec<String>,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    /// The real cost of the priced turns, in dollars.
+    pub cost_usd: f64,
+    /// Turns with no price (a model not in the table): their cost is not in `cost_usd`.
+    pub unpriced: u32,
+}
+
+/// The Co-Dev change sets of one issue (`issue_key: None`: of turns that came from the chat
+/// or the editor), for the Source Control pane (RF-E08). Newest first.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeSetGroup {
+    pub issue_key: Option<String>,
+    /// The issue's title (empty without an issue, or when the issue was deleted).
+    pub title: String,
+    pub rows: Vec<ChangeSetRow>,
 }
 
 /// The report of a Co-Dev turn.
@@ -706,7 +735,84 @@ impl ProjectStore {
             activity,
             change_sets,
             reports,
+            usage: self.usage(root, key)?,
         })
+    }
+
+    /// The sum of the issue's Co-Dev turns (RF-B08/T04).
+    fn usage(&self, root: &str, key: &str) -> Result<IssueUsage, ProjectError> {
+        let mut u = self.conn.query_row(
+            "SELECT COUNT(*), COUNT(DISTINCT session), COALESCE(SUM(tokens_in), 0), COALESCE(SUM(tokens_out), 0),
+                    COALESCE(SUM(cost_usd), 0), SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END)
+             FROM audit WHERE root = ?1 AND issue_key = ?2 AND event = 'turn'",
+            params![root, key],
+            |r| {
+                Ok(IssueUsage {
+                    turns: r.get(0)?,
+                    sessions: r.get(1)?,
+                    models: Vec::new(),
+                    tokens_in: r.get(2)?,
+                    tokens_out: r.get(3)?,
+                    cost_usd: r.get(4)?,
+                    unpriced: r.get::<_, Option<u32>>(5)?.unwrap_or(0),
+                })
+            },
+        )?;
+        let mut st = self.conn.prepare(
+            "SELECT model FROM audit WHERE root = ?1 AND issue_key = ?2 AND event = 'turn' AND model IS NOT NULL AND model <> ''
+             GROUP BY model ORDER BY MIN(at), MIN(id)",
+        )?;
+        u.models = st
+            .query_map(params![root, key], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(u)
+    }
+
+    /// The Co-Dev change sets decided at or after `since` (ms), grouped by issue, the most
+    /// recent group first (RF-E08). The Source Control pane passes the time of the last commit:
+    /// what was accepted before it is, as a rule, already committed.
+    pub fn change_sets_since(
+        &self,
+        root: &str,
+        since: i64,
+    ) -> Result<Vec<ChangeSetGroup>, ProjectError> {
+        let mut st = self.conn.prepare(
+            "SELECT c.session, c.call, c.hunk, c.path, c.start, c.end_line, c.added, c.removed, c.decided_by, c.decided_at,
+                    c.issue_key, COALESCE(i.title, '')
+             FROM change_sets c LEFT JOIN issues i ON i.root = c.root AND i.key = c.issue_key
+             WHERE c.root = ?1 AND c.decided_at >= ?2
+             ORDER BY c.decided_at DESC, c.id DESC LIMIT 2000",
+        )?;
+        let mut groups: Vec<ChangeSetGroup> = Vec::new();
+        for r in st.query_map(params![root, since], |r| {
+            Ok((
+                ChangeSetRow {
+                    session: r.get(0)?,
+                    call: r.get(1)?,
+                    hunk: r.get(2)?,
+                    path: r.get(3)?,
+                    start: r.get(4)?,
+                    end: r.get(5)?,
+                    added: r.get(6)?,
+                    removed: r.get(7)?,
+                    decided_by: r.get(8)?,
+                    decided_at: r.get(9)?,
+                },
+                r.get::<_, Option<String>>(10)?,
+                r.get::<_, String>(11)?,
+            ))
+        })? {
+            let (row, key, title) = r?;
+            match groups.iter_mut().find(|g| g.issue_key == key) {
+                Some(g) => g.rows.push(row),
+                None => groups.push(ChangeSetGroup {
+                    issue_key: key,
+                    title,
+                    rows: vec![row],
+                }),
+            }
+        }
+        Ok(groups)
     }
 
     /// Records the report of a Co-Dev turn, linked to its issue when it has one.
