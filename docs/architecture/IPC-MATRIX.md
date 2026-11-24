@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 178 comandos, **92 são consumidos pela `ui-app`** e **86 não o são**: a UI
+Dos 186 comandos, **100 são consumidos pela `ui-app`** e **86 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -232,7 +232,7 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 > `run_tests` (o único consumido) coexiste com `run_test`/`run_all_tests`
 > (dedicados, não consumidos) — sobreposição a resolver na Etapa 3.
 
-## 8. Git — `commands/git.rs` (13)
+## 8. Git — `commands/git.rs` (21)
 
 Só `git_changes/git_log/git_show` são consumidos; os mutantes correm por
 `exec("git", …)` no `bridge.ts` (ver nota de arquitectura). **Etapa 3**:
@@ -254,6 +254,14 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `git_commit` | `root: String`, `message: String` | `()` | String | — | — (via `exec`) | **G** |
 | `git_checkout` | `root: String`, `branch: String` | `()` | String | — | — (via `exec`) | **G** |
 | `git_create_branch` | `root: String`, `name: String` | `()` | String | — | — (via `exec`) | **G** |
+| `git_blame` | `root: String`, `path: String` | `gitx::Blame` (por linha: commit, autor, data, assunto; autores com linhas/percentagem/última) | String | — | `features/scm` (A4) | R |
+| `git_history` | `root: String`, `path: String`, `start/end: Option<u32>`, `max: Option<usize>` | `Vec<gitx::HistCommit>` (`--follow`, ou `-L` com linhas) | String | — | `features/scm` (A4) | R |
+| `git_show_path` | `root: String`, `hash: String`, `path: String` | `String` (mensagem + diff desse ficheiro) | String | — | `features/scm` (A4) | R |
+| `git_compare` | `root: String`, `base: String`, `target: String` | `gitx::Compare` (à frente, atrás, ficheiros desde a base comum) | String | — | `features/scm` (A4) | R |
+| `git_stash` | `root: String`, `op: StashOp` (`list` \| `push {message, untracked}` \| `apply {index, pop}` \| `drop {index}` \| `show {index}`) | `gitx::StashResult` | String (o do git) | — | `features/scm` (A4) | **G** · W |
+| `git_worktree` | `root: String`, `op: WorktreeOp` (`list` \| `add {path, branch, create}` \| `remove {path}`) | `Vec<gitx::Worktree>` | String | — | `features/scm` (A4) | **G** · W |
+| `git_rebase` | `root: String`, `op: RebaseOp` (`plan {onto}` \| `run {onto, steps}`) | `gitx::RebasePlan` | String (o rebase é desfeito se parar) | — | `features/scm` (A4) | **G** · W |
+| `git_amend` | `root: String`, `message: Option<String>`, `allow_published: Option<bool>` | `String` (o hash curto novo) | String (`published: …` se já está num remoto) | — | `features/scm` (A4) | **G** · W |
 
 ## 9. Agente / arquitectura — `commands/agent.rs` (10)
 
@@ -537,9 +545,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **178** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 13 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
-| Consumidos pela `ui-app` | **92** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 13 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history`) |
+| Comandos registados | **186** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 21 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 13 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
+| Consumidos pela `ui-app` | **100** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 13 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend`) |
 | Não consumidos pela `ui-app` | **86** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
