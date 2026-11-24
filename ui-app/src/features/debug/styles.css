@@ -21,3 +21,25 @@
   .dbg-p{display:block;width:100%;text-align:left;font-size:12px;padding:6px 9px;margin-bottom:5px;border:1px solid var(--border);border-radius:7px;background:var(--bg-elevated)}.dbg-p:hover{border-color:var(--accent)}
   .dbg-empty{display:flex;gap:16px;padding:18px 22px;max-width:700px;font-size:12.5px;line-height:1.6;color:var(--fg-dim)}.dbg-empty>svg{width:30px;height:30px;flex:none;color:var(--accent-hover)}.dbg-empty b{color:var(--fg);font-size:14px}.dbg-empty p{margin:4px 0 10px}
   .dbgx{padding:6px 14px 14px;max-width:1000px}
+  /* ═════════ A7 (docs/v2/UI-AUDIT.md item 4): a sessão DAP — árvore de variáveis com o que mudou, threads,
+     watch, saída, menu de breakpoints do gutter (features/debug/ui/dap-view.ts) ═════════ */
+  .dbg-ctl{flex-wrap:wrap}
+  .dbg-ctl .dbg-panic{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--fg-dim);margin-left:auto;cursor:pointer}
+  .dbg-ctl .dbg-panic span{margin:0}
+  .dbg-ctl .dbg-engine{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted);margin-left:6px}
+  .dv.dvx,.dv.dvs{cursor:default;padding-right:10px}.dv[data-action]{cursor:pointer}.dv[data-action]:hover{background:var(--bg-hover)}
+  .dv .dvt{width:10px;flex:none;color:var(--fg-muted);font-size:10px}
+  .dv.dvs .k{color:var(--fg-dim);font-family:var(--font-ui);text-transform:uppercase;font-size:10.5px;letter-spacing:.05em}
+  .dv.chg .v{color:var(--yellow)}.dv.chg .k::after{content:" ●";color:var(--yellow);font-size:8px}
+  .dv .v i{color:var(--red);font-style:normal}
+  .dv .dvw-x{flex:none;margin-left:6px}
+  .dbg-watch-in{margin:4px 10px 6px;width:calc(100% - 20px);font-family:var(--font-mono);font-size:11.5px}
+  .dbg-out{font-family:var(--font-mono);font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word;background:var(--bg-panel);border:1px solid var(--seam);border-radius:6px;padding:6px 8px;margin:4px 10px 8px;max-height:200px;overflow:auto;color:var(--fg)}
+  .dbg-acts{display:flex;flex-wrap:wrap;gap:6px;padding:4px 10px 6px}
+  .dbg-acts .btn{display:inline-block;width:auto;margin:0;padding:4px 10px;font-size:12px}.dbg-acts .btn.dbg-ai{color:var(--accent-hover)}
+  .dbg-why{color:var(--red)}
+  .bpm{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted);margin-left:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .scm-row.bp-off .bpd{background:transparent;border:1.5px solid var(--fg-muted)}.scm-row.bp-off .nm{color:var(--fg-muted)}
+  .bpd.k-cond{border-radius:2px}.bpd.k-log{border-radius:1px;transform:rotate(45deg) scale(.85)}
+  .menu-pop.bp-menu{display:block;z-index:210;min-width:200px}
+  .bp-menu .mi{cursor:pointer}

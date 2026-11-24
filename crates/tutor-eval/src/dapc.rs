@@ -345,6 +345,8 @@ pub struct DapSession {
     thread: Mutex<Option<i64>>,
     frames: Mutex<Vec<DapFrame>>,
     snaps: Mutex<Snapshots>,
+    /// the folder the program runs in (relative breakpoint paths are resolved against it)
+    cwd: Option<PathBuf>,
     pub adapter: String,
 }
 
@@ -407,6 +409,7 @@ impl DapSession {
             thread: Mutex::new(None),
             frames: Mutex::default(),
             snaps: Mutex::default(),
+            cwd: cwd.map(PathBuf::from),
             adapter: adapter
                 .file_name()
                 .map(|f| f.to_string_lossy().to_string())
@@ -460,8 +463,18 @@ impl DapSession {
             .collect())
     }
 
+    /// A path the adapter can match against the debug info: relative ones join the session's folder.
+    fn absolute(&self, file: &str) -> String {
+        match &self.cwd {
+            Some(d) if !Path::new(file).is_absolute() => d.join(file).display().to_string(),
+            _ => file.to_string(),
+        }
+    }
+
     /// Adds a plain breakpoint on `line` of `file`, keeping the file's others.
     pub fn add_breakpoint(&self, file: &str, line: u32) -> Result<BreakpointState, String> {
+        let abs = self.absolute(file);
+        let file = abs.as_str();
         let mut list = self
             .breakpoints
             .lock()

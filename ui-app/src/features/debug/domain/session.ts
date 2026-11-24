@@ -12,6 +12,9 @@ export interface Stop {
   line: number;
   exited: boolean;
   exitCode: number | null;
+  /** DAP: the thread that stopped, and the adapter's explanation (an exception's text) */
+  thread?: number;
+  description?: string;
 }
 
 export interface Var { name: string; value: string }
@@ -27,6 +30,14 @@ export interface Session {
   stop: Stop | null;
   locals: Var[];
   stack: Frame[];
+  /** A7: the engine (DAP when an adapter is installed; gdb/MI otherwise) */
+  engine?: "dap" | "gdb";
+  adapter?: string;
+  /** DAP: the selected frame, the threads, the frame's scopes and the expanded children */
+  frame?: number;
+  threads?: Array<{ id: number; name: string; current: boolean }>;
+  scopes?: Array<{ name: string; value: string; type: string; reference: number; changed: boolean; path: string }>;
+  children?: Record<number, Array<{ name: string; value: string; type: string; reference: number; changed: boolean; path: string }>>;
 }
 
 /** Os binários de um Cargo.toml: os `[[bin]] name = "…"`, senão o `[package] name`. */

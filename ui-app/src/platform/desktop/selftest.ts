@@ -516,11 +516,14 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await G.startDebug();
       const stoppedAt = G.dbgCurrent();
       const vars = /answer/.test(pane());
+      // A7: over DAP (lldb-dap) when it is installed — the engine, the variables tree and the values inline
+      const engine = document.querySelector("#pane-debug .dbg-engine")?.textContent || "gdb";
+      const inline = [...document.querySelectorAll("#ed-hl .dv-inline")].map(e => e.textContent).join(" | ");
       await G.dbgStep();
       await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 3, 20000);
       const after = G.dbgCurrent();
       if (after) await G.startDebug(); // continuar até ao fim
-      return { available, stoppedAt, vars, after, ended: /O programa terminou/.test(pane()) };
+      return { available, engine, stoppedAt, vars, inline, after, ended: /O programa terminou/.test(pane()) };
     });
     // contentores (ADR-0006, R5a): ligar o runtime real (docker info pelo socket) e o pane
     // Containers lista os contentores e as imagens reais (ps/images em JSON).
