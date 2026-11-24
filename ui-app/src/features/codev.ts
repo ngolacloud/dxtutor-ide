@@ -20,11 +20,12 @@
    fica aqui é a cola da UI do agente (modos/providers), as páginas e o pane — alvo da
    Phase 4. */
 
-import { $, hd, svg, esc, jsa } from "../core";
+import { $, hd, svg, esc } from "../core";
 import { RP, VIEW } from "../app/store/registry";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
 import { bus } from "../app/bus";
+import { registerActions, callGlobal } from "../app/actions";
 import { desktopPorts } from "../app/desktop";
 import { agentStore } from "../app/store";
 import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
@@ -427,6 +428,8 @@ const provFor=(r: string): string=>PROV[CW.ROUTE[r]].on?CW.ROUTE[r]:(CW.connecte
 const who=(r: string): string=>`${CW.ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
 const provStateBase=(k: string): string=>k==='claude'?(CW.SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
 window.provState=(k: string): string=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
-const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${CW.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" onclick="setLocale(${jsa(l[0])})"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
+const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${CW.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
 VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
 Object.assign(window, { provFor, who });
+/* a escolha da língua nas Definições chama o setLocale publicado, no acto (era `onclick` inline — ADR-0004, U5c) */
+registerActions({ "codev:setLocale": { click: (c) => void callGlobal("setLocale", c.on) } });

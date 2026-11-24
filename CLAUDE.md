@@ -355,6 +355,16 @@ desktop configura (não decorações). `explorer` (syncTree), `welcome` (VIEW.we
 os itens do menu File, as entradas da paleta e o Ctrl+O — dissolvem-se quando as features
 registarem os seus comandos (U7).
 
+## Acções delegadas partilhadas (`ui-app/src/app/actions.ts`, ADR-0004 U5)
+
+Os módulos sem despachante próprio emitem `data-action="dono:nome"` (+ `data-on`, o único payload —
+os goldens tiram exactamente `data-action`/`data-on`) e registam a tabela com `registerActions`. O
+despachante é o PRIMEIRO listener do document (primeiro import do `main.ts`) e imita o handler
+inline: corre os antepassados com acção pela ordem da borbulha, `c.stop()` = `event.stopPropagation()`,
+cede a um `el.onclick = f` posterior e a controlos desactivados. As acções chamam as funções
+publicadas no acto (`callGlobal`) — não troques por ligações locais sem ver se alguém decora a
+publicada. Handlers inline novos não: a métrica U5 do `ui-metrics.sh` só desce.
+
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
@@ -400,8 +410,8 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
   editor. O resíduo `ext.ts` publica `vsxHighlight` (usado pelo `paintEd`), `vsxSnippet`
   (Tab), `vsxToggleComment` (Ctrl+/), `vsxApplyTheme` e `vsxInstallOpenVsx`.
 - **`ui/actions.ts`:** listener delegado da `ext` (chave `__extActionHandler__`). Os botões da
-  Fase 4 (`vsx-theme`, `vsx-open-vsx`) usam `data-action`; o resto do markup das extensões
-  ainda tem `onclick` inline (a métrica U5 do `ui-metrics.sh` não pode subir).
+  Fase 4 (`vsx-theme`, `vsx-open-vsx`) usam `data-action`; a lista e a página de detalhe passaram ao
+  despachante partilhado (`ext:*`, `app/actions.ts` — ADR-0004, U5c).
 - **Backend:** `vsix_fetch_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
   em `lsp.rs`.
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e

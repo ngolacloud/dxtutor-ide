@@ -5,12 +5,13 @@
    connection» e da página Settings. Eram as secções «LLM providers» (e a parte de UI que
    vinha depois da delegação) do bridge.ts, verbatim. */
 
-import { jsa } from "../../core";
 import { detectCommands, summarizeRun, type VerifyKind } from "../../features/codev/domain/project-commands";
 import type { ProvidersConfig, ProviderInfo } from "../tauri/providers";
 import type { Tool, SampleOpts, SampleMsg, VerifyOutcome } from "./types";
 import type { CodevDesktop } from "../../features/codev/application/ports";
 import { desktopPorts } from "../../app/desktop";
+import { registerActions } from "../../app/actions";
+import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
 
 export function installLlm(ctx: DesktopContext): void {
@@ -50,7 +51,7 @@ R.approve = (id, ok) => {
 function askApproval(cmd: string): Promise<boolean> {
   const id = "a" + Date.now();
   return new Promise(ok => {
-    const c = card("approval", `Run in <b>${escH(R.name)}</b>?<pre style="white-space:pre-wrap;margin:6px 0">${escH(cmd)}</pre><span><button class="mini pri" onclick="DXR.approve(${jsa(id)},true)">Allow</button> <button class="mini" onclick="DXR.approve(${jsa(id)},false)">Deny</button></span>`);
+    const c = card("approval", `Run in <b>${escH(R.name)}</b>?<pre style="white-space:pre-wrap;margin:6px 0">${escH(cmd)}</pre><span><button class="mini pri" data-action="desktop:approve" data-on="${escH(JSON.stringify([id, true]))}">Allow</button> <button class="mini" data-action="desktop:approve" data-on="${escH(JSON.stringify([id, false]))}">Deny</button></span>`);
     approvals[id] = { ok, el: (c.bd.querySelector("span:last-child") as HTMLElement | null) || c.bd };
   });
 }
@@ -273,3 +274,7 @@ if (PROV.gemini.model === "gemini-pro") PROV.gemini.model = "gemini-2.5-flash";
 if (PROV.codex.model === "gpt-codex") PROV.codex.model = "gpt-4.1";
 ctx.loadKeys = loadKeys; ctx.desktopSample = desktopSample; ctx.provCaps = () => PROVCAPS;
 }
+
+const DX = (): Desktop => window.DXR as unknown as Desktop;
+/* os botões que o desktop acrescenta chamam o `DXR` no acto (eram `onclick="DXR.…"` inline — ADR-0004, U5c) */
+registerActions({ "desktop:approve": { click: (c) => { const [id, ok] = JSON.parse(c.on) as [string, boolean]; DX().approve!(id, ok); } } });

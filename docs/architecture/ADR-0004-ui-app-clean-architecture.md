@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 em curso (U5a–U5b)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 em curso (U5a–U5c)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -896,3 +896,13 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   teus procurando `delegate` no atributo `onclick` — mas esse botão usa `data-action="delegate"` desde
   a extracção do board (Fase 4 do ADR-0002), por isso a procura nunca encontra nada e o botão fica.
   Inline 121 → 31.
+- **U5c (2026-11-24) — as features com despachante próprio e o desktop.** O ext (7: a linha da
+  lista, os botões da linha com `event.stopPropagation()`, a página de detalhe e o «Install from
+  VSIX»), o learn (7: onboarding e editor de exercícios, sobre o `ONB`/`LT_HOOD`/`LTS` do window), o
+  codev (a escolha da língua), o board (o «Review diff» do cartão e os três botões dos cartões do
+  Co-Dev que o motor emite) e o desktop (`DXR.logs`/`approve`/`gitInit`/`open`) passam a
+  `data-action`. Vão pelo **despachante partilhado** (`ext:*`, `learn:*`, `codev:*`, `board:*`,
+  `desktop:*`), não pelas tabelas das features: estas só vêem o `[data-action]` mais próximo e correm
+  depois dos outros listeners do document (o `closeMenus`, o fecho das notificações), o que mudaria o
+  efeito dos `event.stopPropagation()` da lista de extensões. Testes de cablagem acrescentados. Ficam
+  os quatro handlers de arrastar do kanban (U5d) e a prosa do achado da revisão. Inline 31 → 5.

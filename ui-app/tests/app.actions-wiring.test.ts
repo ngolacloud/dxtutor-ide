@@ -77,4 +77,47 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     click(document.querySelector(".gl-row"));
     expect(w.GSEL).toBe("abc");
   });
+
+  it("ext (U5c): a linha abre a página da extensão; o botão da linha pára a borbulha (não abre)", () => {
+    const tabs: unknown[] = [], toggled: unknown[] = [];
+    w.openTab = (t: unknown) => tabs.push(t);
+    w.extToggle = (id: unknown) => toggled.push(id);
+    document.body.insertAdjacentHTML("beforeend", `<div class="ex-row" data-action="ext:open" data-on='["pub.x","X ext"]'><button id="xt" data-action="ext:rowToggle" data-on="pub.x">Disable</button></div>`);
+    click(document.getElementById("xt"));
+    expect(toggled).toEqual(["pub.x"]);
+    expect(tabs).toEqual([]);
+    click(document.querySelector(".ex-row"));
+    expect(tabs).toEqual([{ id: "extd:pub.x", title: "X ext", kind: "extd", ext: "pub.x" }]);
+  });
+
+  it("learn (U5c): o nível alterna no ONB.levels do window e volta ao passo 2", () => {
+    const steps: unknown[] = [];
+    w.ONB = { lang: "rust", levels: ["beginner"] };
+    w.ltOnboard = (s: unknown) => steps.push(s);
+    document.body.insertAdjacentHTML("beforeend", `<button id="lv" data-action="learn:level" data-on="advanced"></button><button id="lv2" data-action="learn:level" data-on="beginner"></button>`);
+    click(document.getElementById("lv"));
+    click(document.getElementById("lv2"));
+    expect(w.ONB.levels).toEqual(["advanced"]);
+    expect(steps).toEqual([2, 2]);
+  });
+
+  it("board (U5c): os botões que o motor emite chamam a função publicada, com o sprint como número", () => {
+    const calls: unknown[][] = [];
+    w.runSprint = (...a: unknown[]) => calls.push(["runSprint", ...a]);
+    w.openGraph = (...a: unknown[]) => calls.push(["openGraph", ...a]);
+    document.body.insertAdjacentHTML("beforeend", `<div class="gate"><button id="rs" class="gb" data-action="board:runSprint" data-on="0"></button><button id="og" class="gb" data-action="board:openGraph"></button></div>`);
+    click(document.getElementById("rs"));
+    click(document.getElementById("og"));
+    expect(calls).toEqual([["runSprint", 0], ["openGraph"]]);
+  });
+
+  it("desktop (U5c): a aprovação de um comando chega ao DXR com o id e o booleano", async () => {
+    await import("../src/platform/desktop/llm");
+    const got: unknown[][] = [];
+    w.DXR = { approve: (...a: unknown[]) => got.push(a) };
+    document.body.insertAdjacentHTML("beforeend", `<button id="ok" data-action="desktop:approve" data-on='["t1",true]'></button><button id="no" data-action="desktop:approve" data-on='["t1",false]'></button>`);
+    click(document.getElementById("ok"));
+    click(document.getElementById("no"));
+    expect(got).toEqual([["t1", true], ["t1", false]]);
+  });
 });

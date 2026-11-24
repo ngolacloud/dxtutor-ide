@@ -32,6 +32,7 @@
 
 import { $, esc, jsa, nfmt } from "../core";
 import { bus } from "../app/bus";
+import { registerActions, globalCalls, callGlobal } from "../app/actions";
 import { desktopPorts } from "../app/desktop";
 import { VIEW } from "../app/store/registry";
 import type { Backlog, Issue } from "./board/domain/types";
@@ -229,7 +230,7 @@ function boardView(t: unknown, host: HTMLElement): void {
   if (harness().review) {
     host.querySelectorAll(".kc-a").forEach((a) => {
       const m = (a.innerHTML.match(/approveIssue\('([^']+)'\)/) || [])[1], it = BL.issues.find((i) => i.id === m);
-      if (it && !it.reviewed) a.innerHTML = `<button class="mini pri" onclick="reviewIssue(${jsa(it.id)})">Review diff</button>`;
+      if (it && !it.reviewed) a.innerHTML = `<button class="mini pri" data-action="board:reviewIssue" data-on="${esc(it.id)}">Review diff</button>`;
     });
   }
   host.querySelectorAll(".kc").forEach((k) => {
@@ -253,4 +254,13 @@ VIEW.board = boardView;
 publish({
   mkIssue, openBoard, setStage, autoTest, rejectIssue, dropIssue, newIssue, genBacklog, genBacklogIssues,
   runIssue: runIssueCosted, delegate: delegateOwned, runSprint: runSprintPublished, approveIssue: approveExplained, renderBoardView,
+});
+
+/* o «Review diff» dos cartões e os botões dos cartões do Co-Dev que o motor emite (abrir o quadro/o grafo,
+   correr o sprint) chamam a função publicada, no acto (eram `onclick` inline — ADR-0004, U5c). Vão pelo
+   despachante partilhado, não pela tabela do board. */
+registerActions({
+  ...globalCalls("board", ["openBoard", "openGraph"]),
+  "board:runSprint": { click: (c) => void callGlobal("runSprint", Number(c.on)) },
+  "board:reviewIssue": { click: (c) => void callGlobal("reviewIssue", c.on) },
 });

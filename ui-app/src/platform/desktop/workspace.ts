@@ -5,11 +5,12 @@
    o Ctrl+O e os botões da página de boas-vindas. Eram as secções «folders and autosave» e
    «menus, palette, welcome» do bridge.ts, verbatim. */
 
-import { jsa } from "../../core";
 import { bus } from "../../app/bus";
 import { loadWorkspace } from "../tauri/workspace";
 import type { Workspace } from "./types";
 import { desktopPorts } from "../../app/desktop";
+import { registerActions } from "../../app/actions";
+import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
 
 export function installWorkspace(ctx: DesktopContext): void {
@@ -40,7 +41,7 @@ async function openFolder(path?: string): Promise<boolean> {
   say(`opened ${R.root} · ${L.files.length} files${L.skipped ? ` · ${L.skipped} skipped (binary, large or ignored)` : ""}${L.truncated ? " · file limit reached" : ""}`);
   toast(`${R.name}: ${L.files.length} files${R.git ? " · git " + BRANCH : " · not a git repository"}`);
   document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
-  if (!R.git) { try { card("desktop", `<b>${escH(R.name)}</b> is not a git repository. The graph, gitflow and commits need one.<div style="margin-top:8px"><button class="mini pri" onclick="DXR.gitInit()">git init</button></div>`); } catch { /* sem chat */ } }
+  if (!R.git) { try { card("desktop", `<b>${escH(R.name)}</b> is not a git repository. The graph, gitflow and commits need one.<div style="margin-top:8px"><button class="mini pri" data-action="desktop:gitInit">git init</button></div>`); } catch { /* sem chat */ } }
   return true;
 }
 async function reloadDisk(): Promise<void> {
@@ -157,6 +158,14 @@ desktopPorts.welcome = { welcome(t, host, _welcome) {
   const sub = host.querySelector(".sub");
   if (!sub) return;
   const rec = LS.get("dx-recent", []) as string[];
-  sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" onclick="DXR.open()">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" onclick="DXR.open(${jsa(p)})">${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
+  sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" data-action="desktop:open">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" data-action="desktop:openRecent" data-on="${escH(p)}">${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
 } };
 }
+
+const DX = (): Desktop => window.DXR as unknown as Desktop;
+/* os botões que o desktop acrescenta chamam o `DXR` no acto (eram `onclick="DXR.…"` inline — ADR-0004, U5c) */
+registerActions({
+  "desktop:gitInit": { click: () => void DX().gitInit!() },
+  "desktop:open": { click: () => void DX().open!() },
+  "desktop:openRecent": { click: (c) => void DX().open!(c.on) },
+});
