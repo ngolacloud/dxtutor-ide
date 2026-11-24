@@ -199,7 +199,9 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
         : ""
     }
     ${
-      p.method !== "kanban" || p.dor.length
+      // RF-B02: the Definition of Ready holds in every method (Co-Dev needs a Ready issue), so the
+      // section is always there — not only for Scrum or a project with its own DoR list
+      true
         ? `<div class="pj-sec"><span>Definition of Ready</span></div><div class="pj-check"><input type="checkbox"${i.ready ? " checked" : ""} data-action="pj-ready"><span>Ready to start${i.readyBy ? ` <span class="pj-dim">(${esc(i.readyBy)})</span>` : ""}</span></div>${missingList(i)}${p.dor
             .map((t) => `<div class="pj-dim pj-li">· ${esc(t)}</div>`)
             .join("")}`

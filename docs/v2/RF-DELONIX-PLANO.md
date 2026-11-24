@@ -261,6 +261,23 @@ Cada ferramenta nova sobe o `TOOLSET_VERSION`. Combinar a ordem antes da F1.
 
 ### F7 — Aceitação ponta a ponta
 
+**Feita (2026-11-24): `ui-app/e2e/acceptance.e2e.ts`** — a app real contra um backend com guião (store do Project e agente do Co-Dev), e as regras provadas nos testes do Rust. A lista do RF, item a item:
+
+| Item da lista do RF | Prova |
+|---|---|
+| A story não grava (não fica Ready) sem critérios e âmbito | e2e passo 1–2; `tutor-board` `scrum_needs_ready…`, `readiness_lists_what_is_missing…` |
+| O prompt montado pelo template, com as regras do arquitecto; modo Assistido | e2e passo 3–4 (texto exacto, origem `issue` + âmbito + versão do template); `tutor-agent` `issue_prompt::*` |
+| Plano (ficheiro + linhas) e escrita no editor a ~40 car/s com a linha activa realçada; o chat sem código | e2e passo 5; `codev.composer` RF-S02 (400 car = 10 s); `toolset_6_gates_plan_first…` |
+| O diff só com as linhas necessárias; reescrever o ficheiro pede aprovação | `hunks::edit_lines_changes_only_its_lines…` (3 em 400); `a_write_that_rewrites_most_of_a_file…` |
+| Um import proibido bloqueia a aceitação | `conformance::forbidden_libraries…`; `a_change_that_breaks_the_architects_rules…` |
+| Os testes correm sozinhos; a tabela de critérios; Done humano | `the_criteria_table_sends_the_issue_to_review…`; `codev_answers_the_criteria_then_tests…`; e2e passo 6 |
+| Commit com autor humano e trailers; o registo com custo e aprovações | `git::stage_commit_roundtrip` (autor humano, recusa sem identidade); `scm.domain` trailers; `the_ide_requires_a_request_and_logs_turns…`; `budgets_per_issue_and_sprint…` |
+| Os testes existentes continuam a passar (`cargo test`, `selftest.sh`, `pairtest.sh`) | `cargo test --workspace` 628/0, selftest desktop `errors []` em 45 passos, pairtest de duas instâncias sem erros |
+
+O e2e encontrou um bug da F4, corrigido: num projecto Kanban sem lista de DoR a secção «Definition of Ready» não aparecia, por isso nem o «Ready» nem o que faltava — e o «Work on it with Co-Dev» ficava desactivado para sempre. A secção aparece agora em todos os métodos.
+
+**Não coberto ponta a ponta:** uma corrida com o modelo real (não há modelo nesta máquina) e duas máquinas reais no PairCode; cada peça está provada à parte.
+
 Teste Playwright (`ui-app/e2e/`) mais o passo correspondente do selftest desktop, que reproduz a lista de verificação do RF:
 story sem critérios não grava → prompt visto com as regras → Assistido com plano (ficheiro+linhas) → escrita a
 40 car/s com realce e chat sem código → diff mínimo; `write` inteiro pede aprovação → import proibido bloqueia →
