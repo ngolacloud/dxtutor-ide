@@ -24,6 +24,7 @@ export const agentGateway: AgentGateway = {
       mode: o.mode,
       resume: o.resume ?? null,
       reviewEdits: o.reviewEdits ?? false,
+      issue: o.issue ?? null,
     }),
   review: (s, call, decisions) => ipc.reviewAgentHunks(s, call, decisions),
   sessions: async (root) => parseSessions(await ipc.listAgentSessions(root)),

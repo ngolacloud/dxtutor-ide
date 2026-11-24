@@ -349,6 +349,8 @@ export interface AgentGateway {
     resume?: string | null;
     /** Live hunks: edits stream into the editor and are decided hunk by hunk. */
     reviewEdits?: boolean;
+    /** The Project issue this conversation works on (accepted changes are linked to it). */
+    issue?: string | null;
   }): Promise<string>;
   /** Decides the hunks of a `hunk_review` (hunks without a decision count as rejected). */
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;

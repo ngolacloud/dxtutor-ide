@@ -113,6 +113,8 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
     root: "/proj", provider: "claude", model: "claude-opus-5-5", effort: "high", testCmd: "cargo test", lintCmd: null, mode: "assist",
     // live hunks only when the chat has somewhere to draw them (deps.hunks)
     reviewEdits: false,
+    // the Project issue, when the conversation starts from one (A5)
+    issue: null,
   });
   expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá");
   expect(t.calls).toContain("reasoning vou ver");
@@ -394,6 +396,17 @@ test("F7: Board opção 2 — a issue vai ao agente em modo plano com o pedido d
   expect(sent).toContain("Implementa a issue DX-12 do Board: «Paginação na API» (funcionalidade, 3 pontos).");
   expect(sent).toContain("Nota da issue: usar cursor");
   expect(sent).toContain("exit_plan");
+});
+
+test("A5: a story opens a session that knows the issue (its accepted changes count for it)", async () => {
+  const t = setup();
+  t.setScript(() => t.emit(done()));
+  await t.chat.send("olá");
+  t.setScript(() => t.emit(done()));
+  await t.chat.story({ id: "PRJ-7", title: "x", type: "feature", pts: 1 });
+  const starts = (t.gateway.start as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as { issue?: string | null }).issue);
+  expect(starts).toEqual([null, "PRJ-7"]);
+  expect(t.gateway.close).toHaveBeenCalledWith("S1");
 });
 
 test("F7: parse do estado das extensões e pedido de uma correcção", () => {

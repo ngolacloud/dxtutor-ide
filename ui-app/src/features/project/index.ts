@@ -12,6 +12,7 @@ import { tauriProjectGateway } from "./infrastructure/tauri";
 import { codev, dialog, git, loadMe, notify, openTab, workspace } from "./infrastructure/legacy-bridge";
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { State } from "./domain/types";
+import { projectInbox } from "../../app/project-inbox";
 
 export const projectService = makeProjectService({
   gateway: tauriProjectGateway,
@@ -163,6 +164,14 @@ const table: ActionTable = {
   "pj-reload": { click: () => void projectService.open() },
 };
 bindActions(table);
+
+/* other features send proposals to the inbox (PROJ-01): never issues straight into the project */
+projectInbox.register(async (items) => {
+  if (!tauriProjectGateway.available() || !workspace.root()) return 0;
+  let n = 0;
+  for (const it of items) if (await projectService.apply({ op: "propose", ...it })) n++;
+  return n;
+});
 
 /* another folder opened in the desktop app: the project is that folder's */
 document.addEventListener("dx:workspace", () => {

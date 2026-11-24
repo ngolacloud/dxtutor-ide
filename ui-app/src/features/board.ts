@@ -34,6 +34,7 @@ import { $, esc, nfmt } from "../core";
 import { bus } from "../app/bus";
 import { registerActions, globalCalls, callGlobal } from "../app/actions";
 import { desktopPorts } from "../app/desktop";
+import { projectInbox } from "../app/project-inbox";
 import { VIEW } from "../app/store/registry";
 import type { Backlog, Issue } from "./board/domain/types";
 import { STAGES } from "./board/domain/issue";
@@ -92,7 +93,26 @@ const engine = makeBoardEngine({
   nav: { openTab: (t) => openTab(t), palette: (pre, cfg) => palette(pre, cfg) },
   orchestration: { runIssue: (it) => decoratedRunIssue(it), approveIssue: (id) => decoratedApproveIssue(id) },
 });
-const { mkIssue, setStage, autoTest, runIssue, delegate, runSprint, approveIssue, rejectIssue, dropIssue, newIssue, openBoard, genBacklog, genBacklogIssues } = engine;
+const { mkIssue, setStage, autoTest, runIssue, delegate, runSprint, approveIssue, rejectIssue, dropIssue, newIssue, openBoard, genBacklog: genBacklogBase, genBacklogIssues } = engine;
+
+/* A5 (PROJ-01): what the Studio generates also goes, as proposals, to the inbox of the real
+   Project (desktop, folder open), where a human accepts or dismisses each one. The board
+   above keeps working as before. */
+async function genBacklog(): Promise<void> {
+  const before = new Set(BL.issues.map((i) => i.id));
+  await genBacklogBase();
+  const made = BL.issues.filter((i) => !before.has(i.id));
+  const n = await projectInbox.propose(
+    made.map((i) => ({
+      title: i.title,
+      kind: i.type === "fix" ? "bug" : i.infra ? "task" : "story",
+      points: i.pts,
+      source: "studio",
+      detail: `Proposed by the Studio's «Generate backlog» (${i.agent}).`,
+    })),
+  );
+  if (n) toast(`${n} proposals sent to the Project inbox`);
+}
 
 /* corpo da vista — era `VIEW.board=(t,host)=>{…}` eager; aqui como função + shim em app.ts.
    DOM puro sobre BL/STAGES + selectores do domínio + catálogo de agentes/provedores. */

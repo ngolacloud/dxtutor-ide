@@ -338,7 +338,7 @@
   .ed-ta{position:absolute;inset:0;width:100%;height:100%;background:transparent;color:transparent;caret-color:var(--fg-bright);border:0;outline:0;resize:none;overflow:hidden;font:inherit;line-height:22px;white-space:pre;padding:0;tab-size:4;user-select:text}
   .ed-ta::selection{background:rgba(74,158,255,.3)}
   /* Project: Kanban, Scrum, XP or Scrum + XP (docs/v2/UI-AUDIT.md item 5, phase A5) */
-  .pj{display:flex;height:100%;min-height:0;font-family:var(--font-ui);color:var(--fg)}
+  .pj{display:flex;position:relative;height:100%;min-height:0;font-family:var(--font-ui);color:var(--fg)}
   .pj-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
   .pj-body{flex:1;overflow:auto;padding:0 20px 24px}
   .pj-head{display:flex;align-items:flex-start;gap:14px;padding:16px 20px 8px}
@@ -358,8 +358,8 @@
   .pj-btn{background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:6px;color:var(--fg);font:12px var(--font-ui);padding:4px 10px;cursor:pointer}
   .pj-btn:hover{border-color:var(--accent)}.pj-btn.pri{background:var(--accent-grad);border-color:transparent;color:#fff;font-weight:600}
   .pj-icon{background:none;border:0;color:var(--fg-muted);cursor:pointer;padding:0 4px;font-size:12px}.pj-icon:hover{color:var(--fg-bright)}.pj-icon:disabled{opacity:.3;cursor:default}
-  .pj-board{min-width:900px}
-  .pj-cols{display:grid;grid-template-columns:repeat(5,minmax(160px,1fr));gap:8px}
+  .pj-board{min-width:740px}
+  .pj-cols{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:8px}
   .pj-colhead{display:flex;justify-content:space-between;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-muted);padding:8px 10px;background:var(--bg-panel);border:1px solid var(--border);border-radius:8px 8px 0 0}
   .pj-colhead.over{color:var(--red);border-color:var(--red)}
   .pj-lane{display:flex;align-items:center;gap:6px;margin:14px 0 6px;font-size:12.5px}.pj-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
@@ -384,13 +384,14 @@
   .pj-state{font-size:11px;color:var(--fg-muted)}.pj-state.on{color:var(--fg-bright);font-weight:600}
   .pj-card-box{background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px}.pj-card-box.accent{border-color:var(--accent)}
   .pj-form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}.pj-form label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--fg-muted)}.pj-form label.wide{flex-basis:100%}
-  .pj-issue{width:400px;flex:none;border-left:1px solid var(--border);overflow:auto;padding:12px 16px 24px;background:var(--bg-side)}
+  .pj-issue{position:absolute;top:0;right:0;bottom:0;width:420px;border-left:1px solid var(--border-strong);overflow:auto;padding:12px 16px 24px;background:var(--bg-side);box-shadow:var(--sh-pop);box-sizing:border-box}
+  .pj-issue .pj-input,.pj-issue .pj-select{width:100%;box-sizing:border-box}
   .pj-issue-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}.pj-issue-title{width:100%;font-size:14px;font-weight:600}
   .pj-move{display:flex;align-items:center;gap:8px;margin:10px 0}
   .pj-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pj-grid2 label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--fg-muted)}
   .pj-desc{width:100%;min-height:70px;resize:vertical}
   .pj-check{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0}.pj-check span{flex:1}
-  .pj-li{font-size:12px;padding:2px 0}.pj-dev{display:flex;flex-direction:column;gap:6px;font-size:12px}
+  .pj-li{font-size:12px;padding:2px 0}.pj-dev{display:flex;flex-direction:column;align-items:flex-start;gap:6px;font-size:12px}
   .pj-act{font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)}
   .pj .ok{color:var(--green)}.pj .bad{color:var(--red)}
   .pj-reports{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px}

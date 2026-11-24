@@ -49,6 +49,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
   const noTools = new Set<string>();
   const key = (): string => `${deps.provider()}|${deps.model()}`;
   let turn: Turn | null = null;
+  /** The Project issue the session works on (set when the conversation starts from one). */
+  let issueKey: string | null = null;
   let unsubscribe: (() => void) | null = null;
 
   // the chat keeps prose: long code blocks go to the editor, not the reply (RF-CODEV-STREAM §7)
@@ -212,6 +214,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         lintCmd: deps.verify.command("lint")?.cmd ?? null,
         mode: deps.mode(),
         reviewEdits: !!deps.hunks,
+        issue: issueKey,
       });
     }
     return session;
@@ -383,6 +386,9 @@ export function makeAgentChat(deps: AgentChatDeps) {
 
   /** Opção 2 do Board: abrir uma issue lança o agente, em modo plano, com o pedido dela. */
   function story(s: BoardStory): Promise<void> {
+    // a new session that knows the issue: its accepted changes count for it (A5)
+    reset();
+    issueKey = s.id;
     return plan(storyPrompt(s));
   }
 
@@ -390,6 +396,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     if (session) void gateway.close(session);
     session = null;
     sessionKey = null;
+    issueKey = null;
   }
 
   return {
