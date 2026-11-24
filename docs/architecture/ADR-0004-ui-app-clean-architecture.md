@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7d)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7f)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1075,3 +1075,29 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   chamada directa: `saveTK`, `scopeProbe`, `toggleRight`, `sdDel`, `ltStart`/`ltRes`/`ltGo`/`ltAsk`. E a ponte do board
   importa o `TASKP` do domínio do router. O `router.ts` e o `generators.ts` deixam de publicar o que quer que seja.
   Globais publicadas 311 → 286. Paridade nas duas línguas igual.
+- **U7e (2026-11-24) — learn, team, studio, explorer e tabs: os testes e o desktop passam a import.** Os testes que liam
+  um global (`w.X`) passam a importar o módulo fresco da cadeia do `bootApp` (`M = await import(…)` no `beforeEach`, a
+  mesma instância que o arranque carregou); o auto-teste desktop importa o `sdAdd`; as pontes e o workspace importam em
+  vez de ler pela fachada; as chamadas do próprio módulo pelo `callGlobal` (`saveSD`, `sdAdd`) passam a directas; e o
+  `drawStudio` deixa de ir ao `window` (só o Studio o chamava). Saem 14: `ltFind`, `ltPath`, `renderLtView`, `ltResume`
+  (a página de boas-vindas importa-o), `inScope`, `loadSD`, `saveSD`, `appDir`, `sdAdd`, `drawStudio`, `sel`,
+  `setActive`, `stepTab`, `drawTabs`. O `nextLesson` fica publicado, como o `openLesson` (U7b): é o par desse resto —
+  devolve sempre `[0, 0]` e os leitores espalham-no nos argumentos do `openLesson`, que os ignora. Globais publicadas
+  286 → 272. **O que trava o resto destas features** é sobretudo o `core.ts`: avalia primeiro e lê muitos globais no
+  acto (`LTS`, `course`, `stars`, `tabOf`, `show`…); trocá-los por import faz um ciclo (as features importam o core).
+  Fica para quando esses helpers do core passarem para as features donas.
+- **U7f (2026-11-24) — os «helpers do core» eram um erro do scanner; mais 14 saem.** Ao ir mover os helpers do
+  `core.ts`, viu-se que ele não lê global nenhum por nome livre: o scanner contava como leitura os nomes das
+  propriedades declaradas no `interface Window` (96 nomes «lidos pelo core» eram declarações). Corrigido (nenhum
+  identificador que seja o nome da sua própria declaração conta), o mapa muda: o que trava de verdade são os leitores
+  que avaliam antes do publicador (51), os nomes publicados mais do que uma vez ou por `window.X =` (112) e os de
+  outras sessões (46). Com o mapa certo, saem 14: `fuzzy` (morta), `scrollTerm`, `closePal`/`palDraw`/`palRun` (o
+  arranque e os atalhos importam), `loadCfg`, `resetWorkspace` (também o `bootApp` do harness), `TK`, `saveTeam`,
+  `trText`, `setPane`, `buildActivity`, `renderPop`, `buildMenus` — os testes importam o módulo fresco e as fachadas
+  (`G.scrollTerm`, `TW.TK`) e o `callGlobal('saveTeam')` do próprio Team passam a import/chamada directa. **Ficam
+  publicados de propósito:** os nomes que os botões da moldura chamam pelo `callGlobal` (o `app.actions.test` verifica
+  cada botão trocando a função publicada), os que são string literal exacta (acesso dinâmico: `i18nBoot`, `use`,
+  `connected`, `checkpoint`), o `openIssue` (o golden do quadro neutraliza-o pelo `window`) e os que têm leitores em
+  testes de outras sessões (`save`, `blame`, `complete`). Os testes apanharam duas leituras pela fachada que a
+  conversão tinha deixado (`G.scrollTerm`, `TW.TK`); corrigidas, e uma busca final não encontra mais nenhuma
+  referência (nem em strings) aos 14. Globais publicadas 272 → 258.

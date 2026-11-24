@@ -3,8 +3,12 @@ import { beforeEach, expect, it } from "vitest";
 import { bootApp } from "./harness";
 
 let w: Window & Record<string, any>;
+let WSM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7f)
+let EM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
+  EM = await import("../src/features/explorer");
+  WSM = await import("../src/features/workspace");
 });
 
 it("syncTree reconstrói a árvore a partir do FS: pastas primeiro, por nome", () => {
@@ -30,13 +34,13 @@ it("fIcon escolhe o ícone pela extensão", () => {
 
 it("sel deixa uma só linha seleccionada", () => {
   document.body.insertAdjacentHTML("beforeend", '<div class="row" id="r1"></div><div class="row sel" id="r2"></div>');
-  w.sel(document.getElementById("r1"));
+  EM.sel(document.getElementById("r1"));
   expect(document.querySelectorAll(".row.sel").length).toBe(1);
   expect(document.getElementById("r1")!.classList.contains("sel")).toBe(true);
 });
 
 it("sem pasta aberta: a árvore fica vazia e o explorador mostra o estado vazio (sem pastas inventadas)", () => {
-  w.resetWorkspace();
+  WSM.resetWorkspace();
   w.syncTree();
   expect(w.TREE.projects.children).toEqual({});
   w.buildExplorer();
@@ -50,7 +54,7 @@ it("sem pasta aberta no desktop: «Abrir pasta…» chama o DXR.open", () => {
   let opened = 0;
   w.DXR = { open: () => opened++ };
   try {
-    w.resetWorkspace();
+    WSM.resetWorkspace();
     w.syncTree();
     w.buildExplorer();
     const btn = document.querySelector("#exp-sections .tree button") as HTMLButtonElement;

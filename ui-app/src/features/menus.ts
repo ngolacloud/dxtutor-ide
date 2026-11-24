@@ -108,6 +108,6 @@ function renderPop(items: MenuItem[], x: number, y: number): HTMLElement {
 }
 
 /* publicação transitória no window (o monólito e as camadas chamam por nome) */
-Object.assign(window, { buildMenubar, closeMenus, renderPop });
+Object.assign(window, { buildMenubar, closeMenus });
 
 export { buildMenubar, closeMenus, showMenu, renderPop };

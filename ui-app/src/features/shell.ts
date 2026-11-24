@@ -16,6 +16,7 @@ import { $, $$, hd, svg, toast, esc, hhmm } from "../core";
 import { agentStore } from "../app/store/agent";
 import { layoutStore } from "../app/store/layout";
 import { RP } from "../app/store/registry";
+import { scrollTerm } from "./terminal";
 
 interface Act {
   ic: string;
@@ -117,7 +118,7 @@ function setPanelTab(pt: string, nofocus?: boolean): void {
   const el = $("#pc-" + pt);
   if (el) el.classList.add("show");
   if (pt === "terminal") {
-    G.scrollTerm();
+    scrollTerm();
     if (!nofocus) {
       const c = $("#cmd") as HTMLElement | null;
       if (c) c.focus({ preventScroll: true });
@@ -204,6 +205,6 @@ function mkRz(el: HTMLElement, v: string, base: number, min: number, max: number
 }
 
 /* publicação transitória no window (o monólito, o v6 e os onclick inline usam por nome) */
-Object.assign(window, { hd, setVar, getVar, hydrate, log, badges, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity });
+Object.assign(window, { hd, setVar, getVar, hydrate, log, badges, goPane, toggleSide, togglePanel, setPanelTab });
 
 export { RP, setVar, getVar, hydrate, log, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz };

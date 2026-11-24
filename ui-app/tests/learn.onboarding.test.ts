@@ -6,11 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
 
 let w: any;
+let LM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
 
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
   w = await bootApp();
+  LM = await import("../src/features/learn");
   w.LTS.lang = null;
   w.LTS.levels = [];
   w.LTS.cur = null;
@@ -51,7 +53,7 @@ describe("leitura: apresentação do curso e conceitos do tópico", () => {
     w.ltOpen(id);
     const host = document.createElement("div");
     document.body.appendChild(host);
-    w.renderLtView({ id: "lt", title, path: w.ltPath(w.ltFind(id).s) }, host);
+    LM.renderLtView({ id: "lt", title, path: LM.ltPath(LM.ltFind(id).s) }, host);
     return host;
   }
   const card = (key: string) => document.querySelector<HTMLButtonElement>(`#lt-res [data-action="lt-read"][data-on="${key}"]`)?.closest(".lt-read") ?? null;

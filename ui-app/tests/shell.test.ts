@@ -3,11 +3,13 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
 
 let w: Window & Record<string, any>;
+let SHM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7f)
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
 
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
-  w.buildActivity();
+  SHM = await import("../src/features/shell");
+  SHM.buildActivity();
 });
 
 it("setPane mostra o painel, marca o botão, chama o renderer de RP e actualiza o dono", async () => {
@@ -16,13 +18,13 @@ it("setPane mostra o painel, marca o botão, chama o renderer de RP e actualiza 
   w.RP.__teste = spy;
   document.body.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-__teste"></div>');
   w.setVar("--side-w", "250px");
-  w.setPane("__teste");
+  SHM.setPane("__teste");
   expect(spy).toHaveBeenCalledTimes(1);
   expect($("#pane-__teste").classList.contains("show")).toBe(true);
   expect(layoutStore.pane).toBe("__teste");
   expect(w.PANE).toBe("__teste");
   // clicar no activo com tgl recolhe a barra lateral
-  w.setPane("__teste", true);
+  SHM.setPane("__teste", true);
   expect(w.getVar("--side-w")).toBe("0px");
   // e abrir outro painel volta a abri-la
   w.goPane("scm");
@@ -42,7 +44,7 @@ it("togglePanel/setPanelTab: abre o painel inferior e mostra o separador pedido"
 it("badges conta as alterações por commitar e marca a execução do Co-Dev", () => {
   // o botão do Co-Dev entra no ACTS pelo boot6 (que não corre no harness)
   w.ACTS.push({ ic: "sparkle", pane: "codev", title: "Co-Dev" });
-  w.buildActivity();
+  SHM.buildActivity();
   w.RUN.active = true;
   w.badges();
   expect($('.act[data-pane="codev"] .badge').textContent).toBe("●");
