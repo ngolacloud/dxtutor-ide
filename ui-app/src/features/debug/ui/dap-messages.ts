@@ -16,6 +16,10 @@ export const DAP_MESSAGES = {
     noIssue: "(no issue)", snapshotPick: "Keep the snapshot with which issue?", snapshotSaved: "Snapshot saved in the project.", snapshotSavedIssue: "Snapshot saved with {issue}.",
     askExplainStop: "The program stopped here. Explain why these variables have these values, the likely cause of the problem, and suggest the next breakpoint.",
     askTestFromStop: "Write a test that reproduces this state (the inputs that lead to these values) and fails while the bug exists. Propose it as a change.",
+    assistRunning: "Running…", assistIdle: "No debugging session. Put breakpoints in the gutter (F9) and press F5: gdb runs the program and stops at them.",
+    assistDesktop: "With a folder open in the desktop app, this panel also shows the commands that failed and the workspace errors.",
+    startingGdb: "Starting gdb…", runningWait: "Running — waiting for a breakpoint or for the program to end…",
+    intro: "Step-by-step debugging with gdb (Rust, C, C++): in a Cargo project it builds and runs the binary; otherwise it asks for the executable. Put breakpoints in the gutter or with F9.",
   },
   ptAO: {
     stepOut: "Sair da função", pause: "Pausar", stopOnPanic: "Parar em panic", engineDap: "DAP · {adapter}", engineGdb: "gdb/MI",
@@ -30,6 +34,10 @@ export const DAP_MESSAGES = {
     noIssue: "(sem issue)", snapshotPick: "Guardar o snapshot com que issue?", snapshotSaved: "Snapshot guardado no projecto.", snapshotSavedIssue: "Snapshot guardado com a {issue}.",
     askExplainStop: "O programa parou aqui. Explica porque é que estas variáveis têm estes valores, a causa provável do problema, e sugere o próximo breakpoint.",
     askTestFromStop: "Escreve um teste que reproduza este estado (as entradas que levam a estes valores) e falhe enquanto o bug existir. Propõe-o como alteração.",
+    assistRunning: "A executar…", assistIdle: "Sem sessão de depuração. Põe breakpoints no gutter (F9) e carrega em F5: o gdb corre o programa e pára neles.",
+    assistDesktop: "Com uma pasta aberta na app desktop, este painel mostra também os comandos que falharam e os erros do workspace.",
+    startingGdb: "A arrancar o gdb…", runningWait: "A executar — à espera de um breakpoint ou do fim do programa…",
+    intro: "Depuração passo-a-passo com o gdb (Rust, C, C++): num projecto Cargo constrói e corre o binário; noutro, pergunta pelo executável. Põe breakpoints no gutter ou com F9.",
   },
 } satisfies Messages<string>;
 export type DapKey = keyof typeof DAP_MESSAGES.en;

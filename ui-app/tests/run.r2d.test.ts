@@ -49,7 +49,7 @@ describe("o pane Run na cadeia real", () => {
 
   it("sem pasta, diz como abrir uma (e já não mostra a lista fixa)", () => {
     w.renderRunPane();
-    expect(pane().textContent).toMatch(/Abre uma pasta/);
+    expect(pane().textContent).toMatch(/Open a folder/);
     expect(pane().textContent).not.toMatch(/dx lint|cargo test -p lexer/);
   });
 
@@ -114,7 +114,7 @@ describe("o pane Run na cadeia real", () => {
       w.__TAURI__.core.invoke = async () => { throw new Error("detect failed"); };
       w.PANE = "run";
       w.renderRunPane();
-      await vi.waitFor(() => expect(pane().textContent).toMatch(/Não consegui detectar os projectos: detect failed/));
+      await vi.waitFor(() => expect(pane().textContent).toMatch(/Could not detect the projects: detect failed/));
     });
   });
 });

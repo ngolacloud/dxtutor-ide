@@ -21,7 +21,11 @@ import { $, esc } from "../../../core";
 import * as bridge from "../infrastructure/legacy-bridge";
 import { composerContext, trackSubagent } from "./composer";
 import { bus } from "../../../app/bus";
-import { explainProviderError } from "../domain/provider-errors";
+import { explainProviderError, type ProviderError } from "../domain/provider-errors";
+import { translator } from "../../../app/i18n";
+import { CODEV_CHAT_MESSAGES } from "./chat-messages";
+
+const tc = translator(CODEV_CHAT_MESSAGES);
 import type {
   ApprovalGate,
   CardRef,
@@ -64,16 +68,24 @@ export function userHtml(t: string): string {
   return esc(t).replace(/\n?```[^\n]*\n([\s\S]*?)\n?```\n?/g, (_m, code: string) => `<pre>${code}</pre>`);
 }
 
+/** O título e o passo seguinte de um erro de provedor reconhecido, na língua da interface. */
+export function providerErrorText(e: ProviderError): { title: string; hint: string } {
+  const who = e.provider ?? tc("theProvider"), alt = tc("alt");
+  const hint = e.kind === "network" ? tc(e.local ? "networkHintLocal" : "networkHint") : tc(`${e.kind}Hint`, { alt });
+  return { title: tc(`${e.kind}Title`, { who }), hint };
+}
+
 /** Erro de um provedor → HTML do cartão: explicação e passo seguinte quando o caso é
  *  reconhecido (sem créditos, chave recusada, limite, …), com o erro original em detalhe;
  *  senão a mensagem tal-e-qual. */
 export function providerErrorHtml(msg: string, active?: string | null): string {
   const e = explainProviderError(msg, active);
-  if (!e) return "Não consegui obter resposta do modelo (" + esc(msg) + ").";
+  if (!e) return tc("noAnswer", { msg: esc(msg) });
+  const { title, hint } = providerErrorText(e);
   const actions = e.kind === "credit" || e.kind === "auth" || e.kind === "nokey" || e.kind === "model"
-    ? `<div style="margin-top:8px"><button class="mini" data-action="open-settings">Abrir Definições</button></div>`
+    ? `<div style="margin-top:8px"><button class="mini" data-action="open-settings">${tc("openSettings")}</button></div>`
     : "";
-  return `<b>${esc(e.title)}</b><div style="margin-top:4px">${esc(e.hint)}</div>${e.url ? `<div style="margin-top:6px">Resolve aqui: <code>${esc(e.url)}</code></div>` : ""}${actions}<details style="margin-top:8px;color:var(--fg-muted)"><summary>Detalhes</summary><code style="white-space:pre-wrap;word-break:break-word">${esc(e.detail)}</code></details>`;
+  return `<b>${esc(title)}</b><div style="margin-top:4px">${esc(hint)}</div>${e.url ? `<div style="margin-top:6px">${tc("fixHere")} <code>${esc(e.url)}</code></div>` : ""}${actions}<details style="margin-top:8px;color:var(--fg-muted)"><summary>${tc("details")}</summary><code style="white-space:pre-wrap;word-break:break-word">${esc(e.detail)}</code></details>`;
 }
 
 export function user(t: string): void {
@@ -290,16 +302,16 @@ export const presenter: ChatPresenter = {
   /* mission cards */
   /* live chat */
   providerOff(name: string) {
-    card("sistema", `<b>${name}</b> está desligado. Liga-o nas Definições ou escolhe outro modelo.`);
+    card("sistema", tc("providerOff", { name: `<b>${name}</b>` }));
   },
   providerNeedsDesktop(name: string, ep: string) {
     card(
       "sistema",
-      `<b>${name}</b> só responde na app desktop: esta página não pode chamar ${esc(ep)}. Abre o dxtutor IDE desktop, ou muda para Claude.`,
+      tc("providerNeedsDesktop", { name: `<b>${name}</b>`, ep: esc(ep) }),
     );
   },
   liveUnavailable() {
-    card("sistema", "A ligação ao vivo ao Claude não está disponível nesta vista. Abre o dxtutor IDE desktop e configura um provedor nas Definições.");
+    card("sistema", tc("liveUnavailable"));
   },
   thinking(speaker: string): CardRef {
     return card(speaker, '<span class="spin"></span> a pensar…');
@@ -313,9 +325,9 @@ export const presenter: ChatPresenter = {
       bridge.run().stop || aborted
         ? "Resposta interrompida."
         : code === "not_granted"
-          ? "O acesso ao Claude não foi autorizado nesta página."
+          ? tc("notGranted")
           : code === "rate_limited"
-            ? "Limite de pedidos atingido — tenta daqui a pouco."
+            ? tc("rateLimited")
             : providerErrorHtml(msg, bridge.monolith.activeProvider);
     scrollMsgs();
   },
@@ -328,7 +340,7 @@ export const presenter: ChatPresenter = {
     if (!box) {
       box = document.createElement("details");
       box.className = "agent-reason";
-      box.innerHTML = `<summary>raciocínio</summary><div class="ar-b"></div>`;
+      box.innerHTML = `<summary>${tc("reasoning")}</summary><div class="ar-b"></div>`;
       c.bd.before(box);
     }
     (box.querySelector(".ar-b") as HTMLElement).innerHTML = md(text);
@@ -418,7 +430,7 @@ export const presenter: ChatPresenter = {
     const lead = document.createElement("span");
     lead.className = "hk-lead";
     const n = document.createElement("span");
-    n.textContent = `${info.count} alteração(ões) no editor`;
+    n.textContent = tc("editorChanges", { n: info.count });
     lead.appendChild(n);
     bar.appendChild(lead);
     const btn = (label: string, pri: boolean, run: () => void) => {

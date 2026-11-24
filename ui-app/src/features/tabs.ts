@@ -145,8 +145,10 @@ function show(id: string | null): void {
   }
   editorStore.currentTabId = id;
   drawTabs();
+  /* os segmentos de um caminho não se traduzem (`.crumb` está no TR_SKIP); o título de um separador sem caminho
+     («Bem-vindo», «Quadro», …) sim, como no separador — por isso vai fora da classe `.crumb` */
   ($("#breadcrumbs") as HTMLElement).innerHTML = (t.path ? t.path.split("/") : ["dxtutor", t.title])
-    .map((s, i, a) => `<span class="crumb"${i === a.length - 1 ? ' style="color:var(--fg)"' : ""}>${esc(s)}</span>`)
+    .map((s, i, a) => `<span class="${t.path || i === 0 ? "crumb" : "crumb-t"}"${i === a.length - 1 ? ' style="color:var(--fg)"' : ""}>${esc(s)}</span>`)
     .join('<span class="sep">›</span>');
   if (t.kind !== "file") miniOff();
   VIEW[t.kind](t, host);

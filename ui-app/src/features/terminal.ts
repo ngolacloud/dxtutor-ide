@@ -15,8 +15,10 @@
 import { esc } from "../core";
 import { translator } from "../app/i18n";
 import { TERMINAL_MESSAGES } from "./terminal.messages";
+import { EMULATED_TERMINAL_MESSAGES } from "./emulated-terminal-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(TERMINAL_MESSAGES);
+const txe = translator(EMULATED_TERMINAL_MESSAGES);
 import { desktopPorts } from "../app/desktop"; // marca o ficheiro como MÓDULO (não script) — mantém newInput/termRefreshPrompt com
            // escopo de módulo, sem colidir com os `declare global { var … }` de bridge.ts/pair.ts.
 
@@ -28,11 +30,11 @@ function promptBase(): string {return `<span class="pr"><span>${USER}</span><spa
 window.promptHTML = function(){const d=desktopPorts.terminal;return d?d.promptHTML(promptBase):promptBase();};
 function newInput(nofocus?:boolean){const t=$('#term'),old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';if(!t)return;t.appendChild(w);const c=$('#cmd');if(c){c.onkeydown=onKey;if(!nofocus)c.focus({preventScroll:true});}scrollTerm();}
 function termRefreshPrompt(){const c=$('#cmd') as HTMLInputElement|null,v=c?c.value:'';newInput(true);const n=$('#cmd') as HTMLInputElement|null;if(n)n.value=v;}
-function termExecBase(v: string): unknown {echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if((XC as any)[cmd])r=(XC as any)[cmd](a,v);else echo('<span class="er">'+esc(cmd)+': comando não encontrado</span> <span class="dim">— este terminal emulado só navega nos ficheiros e no git; o terminal real está na app desktop</span>');newInput(true);return r;}
+function termExecBase(v: string): unknown {echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if((XC as any)[cmd])r=(XC as any)[cmd](a,v);else echo('<span class="er">'+txe('notFound',{cmd:esc(cmd)})+'</span> <span class="dim">'+txe('notFoundNote')+'</span>');newInput(true);return r;}
 window.termExec = function(v){const d=desktopPorts.terminal;return d?d.termExec(v,termExecBase):termExecBase(v);};
 const XC={
   help(){echo(`<span class="ac">${txt("files")}</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff\n<span class="ac">co-dev</span>     <span class="ok">dx</span> status | modo manual|assist|auto\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
-  cat(a:string[]){if(!a[0]){echo('<span class="er">cat: falta o ficheiro</span>');return;}const rel=CWD.slice(4).concat(a[0].split('/')).join('/');const p=FS[rel]?rel:Object.keys(FS).find(k=>k.endsWith('/'+a[0].split('/').pop()));if(!p){echo('<span class="er">cat: '+esc(a[0])+': não encontrado</span>');return;}echo(FS[p].content.split('\n').map(l=>hlLine(l,extOf(p))).join('\n'));},
+  cat(a:string[]){if(!a[0]){echo('<span class="er">'+txe('catMissing')+'</span>');return;}const rel=CWD.slice(4).concat(a[0].split('/')).join('/');const p=FS[rel]?rel:Object.keys(FS).find(k=>k.endsWith('/'+a[0].split('/').pop()));if(!p){echo('<span class="er">'+txe('catNotFound',{file:esc(a[0])})+'</span>');return;}echo(FS[p].content.split('\n').map(l=>hlLine(l,extOf(p))).join('\n'));},
   /* `git`: o handler é o features/termgit.ts (`XC.git=(a,raw)=>window.gitCmd(a,raw)` no app.ts); a
      base simulada que vivia aqui (lista fixa BRANCHES, log do COMMITS) era código morto e saiu (ADR-0006, R1d). */
   dx(a:string[]){const s=a[0];
@@ -83,7 +85,7 @@ let hidx = 0;
 function termClear(): void {
   const t = $("#term") as HTMLElement;
   t.innerHTML = "";
-  echo(`<span class="ac">terminal emulado</span> <span class="dim">· só os ficheiros e o git deste workspace · o terminal real está na app desktop · </span><span class="ok">help</span>`);
+  echo(`<span class="ac">${txe("banner")}</span> <span class="dim">${txe("bannerNote")}</span><span class="ok">help</span>`);
   newInput();
 }
 
@@ -215,7 +217,7 @@ function run(raw: string): void {
         }
         const nd = dirAt(t.slice(4).concat(p));
         if (!nd || !nd.dir) {
-          echo('<span class="er">cd: ' + x + ": não é um directório</span>");
+          echo('<span class="er">' + txe("notADir", { dir: x }) + "</span>");
           return;
         }
         t.push(p);
@@ -251,7 +253,7 @@ function run(raw: string): void {
   let r: unknown;
   if (TG.XC[cmd]) r = TG.XC[cmd](a, v);
   else if (C[cmd]) r = C[cmd]();
-  else echo('<span class="er">' + cmd + ': comando não encontrado</span> <span class="dim">(help)</span>');
+  else echo('<span class="er">' + txe("notFound", { cmd }) + '</span> <span class="dim">(help)</span>');
   if (r !== "skip" && r !== "async") newInput();
 }
 

@@ -60,7 +60,7 @@ describe("no desktop (porta obs falsa)", () => {
   it("um serviço do compose a correr: lê o stats e os logs dele e mostra-os", async () => {
     w.STACK = [{ name: "db", src: "postgres:16", url: "internal", state: "running" }];
     open("local", "db");
-    expect(host.textContent).toMatch(/A ler os logs/);
+    expect(host.textContent).toMatch(/Reading the logs/);
     await vi.waitFor(() => expect(host.querySelectorAll(".ll").length).toBe(2));
     expect(obs.sample).toHaveBeenCalledWith({ via: "compose", env: "local", n: "db" });
     expect([...host.querySelectorAll(".ll")].map((l) => l.className)).toEqual(["ll INFO", "ll ERROR"]);
