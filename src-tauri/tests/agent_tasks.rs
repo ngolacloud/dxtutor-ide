@@ -53,25 +53,16 @@ fn repo_with_one_commit() -> tempfile::TempDir {
 fn valid_design() -> agent::Architecture {
     agent::Architecture {
         components: vec![
-            agent::Component {
-                id: "svc".into(),
-                name: "Svc".into(),
-                kind: agent::Kind::Service,
-                outbox: false,
-            },
-            agent::Component {
-                id: "db".into(),
-                name: "Db".into(),
-                kind: agent::Kind::Store,
-                outbox: false,
-            },
+            agent::Component::new("svc", "Svc", agent::Kind::Service),
+            agent::Component::new("db", "Db", agent::Kind::Store),
         ],
-        connections: vec![agent::Connection {
-            from: "svc".into(),
-            to: "db".into(),
-            relation: agent::Relation::Writes,
-            event: String::new(),
-        }],
+        connections: vec![agent::Connection::new(
+            "svc",
+            "db",
+            agent::Relation::Writes,
+            "",
+        )],
+        ..Default::default()
     }
 }
 
@@ -113,13 +104,13 @@ fn scaffold_writes_a_valid_design_and_rejects_an_invalid_one() {
     // Desenho inválido (ligação a partir de um componente inexistente = dangling-edge) →
     // erro tipado com a mensagem preservada de `lib.rs`.
     let invalid = agent::Architecture {
-        components: Vec::new(),
-        connections: vec![agent::Connection {
-            from: "ghost".into(),
-            to: "void".into(),
-            relation: agent::Relation::Writes,
-            event: String::new(),
-        }],
+        connections: vec![agent::Connection::new(
+            "ghost",
+            "void",
+            agent::Relation::Writes,
+            "",
+        )],
+        ..Default::default()
     };
     let err = agent::scaffold(root, &invalid).unwrap_err();
     assert!(matches!(err, agent::ScaffoldError::InvalidDesign));

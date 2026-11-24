@@ -180,25 +180,11 @@ mod tests {
     fn valid_design() -> Architecture {
         Architecture {
             components: vec![
-                Component {
-                    id: "svc".into(),
-                    name: "Svc".into(),
-                    kind: Kind::Service,
-                    outbox: false,
-                },
-                Component {
-                    id: "db".into(),
-                    name: "Db".into(),
-                    kind: Kind::Store,
-                    outbox: false,
-                },
+                Component::new("svc", "Svc", Kind::Service),
+                Component::new("db", "Db", Kind::Store),
             ],
-            connections: vec![Connection {
-                from: "svc".into(),
-                to: "db".into(),
-                relation: Relation::Writes,
-                event: String::new(),
-            }],
+            connections: vec![Connection::new("svc", "db", Relation::Writes, "")],
+            ..Default::default()
         }
     }
 
@@ -242,13 +228,8 @@ mod tests {
     /// = achado de gravidade Error), que torna `is_valid()` falso → scaffold vazio.
     fn invalid_design() -> Architecture {
         Architecture {
-            components: Vec::new(),
-            connections: vec![Connection {
-                from: "ghost".into(),
-                to: "void".into(),
-                relation: Relation::Writes,
-                event: String::new(),
-            }],
+            connections: vec![Connection::new("ghost", "void", Relation::Writes, "")],
+            ..Default::default()
         }
     }
 

@@ -992,13 +992,8 @@ mod tests {
     fn scaffold_preview_payload_has_compose() {
         use tutor_eval::arch::{Architecture, Component, Kind};
         let arch = Architecture {
-            components: vec![Component {
-                id: "api".into(),
-                name: "api".into(),
-                kind: Kind::Service,
-                outbox: false,
-            }],
-            connections: vec![],
+            components: vec![Component::new("api", "api", Kind::Service)],
+            ..Default::default()
         };
         let files = arch.scaffold(); // exactamente o que arch_scaffold_preview devolve
         assert!(
