@@ -46,17 +46,19 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
     if (state.envs().rtOn) return true;
     nav.goPane("infra"); notifier.toast("Point the container socket first"); return false;
   }
+  /* ADR-0006, R5a: fora da app desktop não há runtime de contentores nem cluster a que ligar —
+     as versões de base deixam de fingir a ligação (eram um interruptor com «(simulated)» no log).
+     No desktop, a porta `desktopPorts.infra` liga-os a sério (docker/podman info, kubectl). Uma
+     ligação «presa» de uma sessão antiga (LS) ainda se pode desligar. */
   function rtConnect(): void {
-    hydrateEnvs(); const e = state.envs(); e.rtOn = !e.rtOn; saveEnv();
-    if (!e.rtOn) { state.setStack(null); state.setDevc(null); view.drawStack(); }
-    notifier.log("infra", e.rtOn ? `${RTN[e.rt]} connected at ${e.sock[e.rt]} (simulated)` : "container runtime disconnected");
-    view.redraw();
+    hydrateEnvs(); const e = state.envs();
+    if (e.rtOn) { e.rtOn = false; saveEnv(); state.setStack(null); state.setDevc(null); view.drawStack(); notifier.log("infra", "container runtime disconnected"); view.redraw(); return; }
+    notifier.toast(`Ligar o ${RTN[e.rt]} precisa da app desktop (o socket real em ${e.sock[e.rt]})`);
   }
   function k8sConnect(): void {
-    hydrateEnvs(); const e = state.envs(); e.k8sOn = !e.k8sOn; saveEnv();
-    if (!e.k8sOn) state.setK8s(null);
-    notifier.log("infra", e.k8sOn ? `cluster ${e.ctx} reachable via ${e.kube} (simulated)` : "cluster disconnected");
-    view.redraw();
+    hydrateEnvs(); const e = state.envs();
+    if (e.k8sOn) { e.k8sOn = false; saveEnv(); state.setK8s(null); notifier.log("infra", "cluster disconnected"); view.redraw(); return; }
+    notifier.toast("Ligar o cluster precisa da app desktop (o kubectl real com o teu KUBECONFIG)");
   }
   const projectContext = (): Array<[string, string]> => domProjectContext(workspace.files());
   function devcontainerJson(): string {
@@ -83,17 +85,16 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
     const e = state.envs();
     if (!e.k8sOn) { nav.goPane("infra"); notifier.toast("Point KUBECONFIG and connect the cluster first"); return { ok: false }; }
     terminal.setPanelTab("terminal", true);
-    const docs = k8sDocs(), kc = `kubectl --context ${e.ctx} -n ${e.ns}`;
+    const docs = k8sDocs();
     terminal.echoCmd(`dx deploy --context ${e.ctx}`);
     if (!docs.length) { terminal.echo(`<span class="er">error: the path "deploy/k8s" does not exist</span>\n<span class="dim">Generate the backlog from the Studio and validate the platform issue — the manifests arrive with the merge into develop.</span>`); terminal.newInput(true); return { ok: false }; }
     const depsD = docs.filter((d) => d.k === "Deployment"), built = depsD.filter((d) => /registry\.example\.com/.test(d.img || "")), miss = built.filter((d) => !Object.keys(workspace.files()).some((p) => p.endsWith("/" + d.n + "/Dockerfile")));
     if (miss.length) { terminal.echo(miss.map((d) => `<span class="er">unable to prepare context: no Dockerfile for ${d.n}</span>`).join("\n")); terminal.newInput(true); return { ok: false }; }
-    const cur = state.k8s();
-    terminal.echo(built.map((d) => `<span class="dim">$ ${cli()} build -t ${esc(d.img)}</span> ${d.n} <span class="ok">built</span>`).join("\n") + (/^kind-/.test(e.ctx) ? "\n" + built.map((d) => `<span class="dim">$ kind load docker-image ${esc(d.img)}</span> <span class="ok">loaded</span>`).join("\n") : "") + `\n<span class="dim">$ ${kc} apply -f deploy/k8s/</span>\n` + docs.map((d) => `${d.k.toLowerCase()}${d.k === "Deployment" ? ".apps" : d.k === "Ingress" ? ".networking.k8s.io" : ""}/${d.n} <span class="ok">${cur && cur.docs.some((x) => x.k === d.k && x.n === d.n) ? "configured" : "created"}</span>`).join("\n"));
-    state.setK8s({ docs, deps: depsD.map((d) => ({ n: d.n, rep: d.rep, ready: d.rep, img: d.img, port: d.port })) });
-    const ing = docs.find((d) => d.k === "Ingress");
-    terminal.echo(`\n<span class="ac">${depsD.length} deployments ready in ${esc(e.ctx)}/${esc(e.ns)}</span> <span class="dim">· simulated: the browser has no cluster. The desktop app runs these exact commands.</span>${ing ? `\n  ➜  ingress ${ing.n}  <span class="ac">http://localhost/</span>` : ""}`);
-    terminal.newInput(true); notifier.log("infra", `deployed ${depsD.length} workloads to ${e.ctx}/${e.ns}`); notifier.toast(`Deployed to ${e.ctx}`); nav.goPane("infra"); return { ok: true };
+    /* o deploy a sério (compose build, carregar as imagens no cluster local, kubectl apply,
+       rollout status) só existe na app desktop com a pasta aberta — a porta desktop faz isso; aqui
+       já não se finge um cluster (ADR-0006, R5a) */
+    terminal.echo(`<span class="dim">${depsD.length} deployment(s) em deploy/k8s, prontos a aplicar em ${esc(e.ctx)}/${esc(e.ns)}.</span>\n<span class="er">O deploy precisa da app desktop com a pasta aberta (docker/podman e kubectl reais).</span>`);
+    terminal.newInput(true); return { ok: false };
   }
   function k8sScale(n: string, d: number): void {
     const cur = state.k8s()!; const x = cur.deps.find((y) => y.n === n)!; x.rep = Math.max(0, x.rep + d); x.ready = x.rep;

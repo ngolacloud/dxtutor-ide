@@ -31,7 +31,7 @@ import { seeded, spark, buildObs, obsLine as domObsLine } from "./infra/domain/o
 import { urlHosts } from "./infra/domain/secrets";
 import { makeInfraEngine } from "./infra/application/infra-engine";
 import { bindActions, type ActionTable } from "./infra/ui/actions";
-import type { DesignNode, EnvDep, K8sDep, ObsData, SecretSets } from "./infra/domain/types";
+import type { DesignNode, EnvDep, ObsData, SecretSets } from "./infra/domain/types";
 import type { ObserveTab } from "./infra/application/ports";
 import {
   envs, envx, k8s, setK8s, stack, setStack, devc, setDevc, pDc, setPDc,
@@ -121,7 +121,7 @@ function renderInfraPane(): void {
    <button class="btn${ENVS.k8sOn ? " ghost" : ""}" data-action="k8s-connect">${ENVS.k8sOn ? "Disconnect" : "Connect cluster"}</button>
    ${ENVS.k8sOn ? (K8S ? K8S.deps.map((d: any) => `<div class="scm-row" style="cursor:default"><span class="pdot" style="background:${d.ready ? "var(--green)" : "var(--fg-muted)"}"></span><span class="nm notr">${esc(d.n)}</span><span class="pth">${d.ready}/${d.rep}</span><span class="ra" style="display:flex"><button title="Scale down" data-action="k8s-scale" data-on="${esc(d.n)}|-1">−</button><button title="Scale up" data-action="k8s-scale" data-on="${esc(d.n)}|1">+</button></span></div>`).join("") + `<button class="btn" data-action="dx-deploy">⎈ Redeploy</button><button class="btn ghost" data-action="k8s-down">Delete from cluster</button>` : `<div class="sec-empty">${docs ? `${docs} resources ready in <code>deploy/k8s</code>.` : "No manifests yet — the platform issue from the Studio creates them."}</div><button class="btn" data-action="dx-deploy">⎈ Deploy to ${esc(ENVS.ctx)}</button>`) : ""}
    <div class="scm-grp">Remote hosts<span class="cnt">${ENVS.ssh.length}</span></div>${ENVS.ssh.map((h: string, i: number) => `<div class="scm-row" data-action="ssh-toast"><span class="ic">${svg("remote")}</span><span class="nm notr">${esc(h)}</span><span class="ra" style="display:flex"><button title="Remove" data-action="ssh-del" data-on="${esc(i)}">×</button></span></div>`).join("")}<input class="inp notr" placeholder="user@host" data-action="ssh-add">
-   <div class="sec-empty">Everything here is simulated in the browser. In the desktop app the same two settings — socket and KUBECONFIG — drive the real runtime and cluster.</div></div>`;
+   ${(window as unknown as { DXR?: unknown }).DXR ? "" : '<div class="sec-empty">O socket e o KUBECONFIG ligam o runtime de contentores e o cluster reais na app desktop; no browser não há a que ligar.</div>'}</div>`;
   // ── decoração v6 (environments / observabilidade) ──
   const sec = $("#pane-infra .sections");
   if (!sec) return;
@@ -254,7 +254,9 @@ publish({
    app.ts acrescenta depois (test/sprint, run/stop) são disjuntos de `deploy`, por isso
    decorar antes deles não muda o resultado de nenhum. */
 const XC = window.XC;
-XC.kubectl = (a: string[]) => { const ENVS = window.ENVS, K8S = window.K8S; if (!ENVS.k8sOn) { echo('<span class="er">The connection to the server was refused — connect the cluster in Infra.</span>'); return; } if (a[0] === 'get') { echo(K8S ? (/^po/.test(a[1] || '') ? K8S.deps.flatMap((d: K8sDep) => Array.from({ length: d.rep }, (_, i) => `${(d.n + '-' + (i + 1)).padEnd(28)} 1/1   Running`)).join('\n') : K8S.deps.map((d: K8sDep) => `${d.n.padEnd(22)} ${d.ready}/${d.rep}   ${d.img}`).join('\n')) : '<span class="dim">No resources found in ' + esc(ENVS.ns) + ' namespace.</span>'); return; } echo('<span class="dim">kubectl get deploy | get pods</span>'); };
-XC.devcontainer = (a: string[]) => { if (a[0] === 'up') dcAttach(); else echo('<span class="dim">devcontainer up</span>'); };
+/* o terminal emulado não fala com o cluster nem com o runtime (respondia com o estado K8S/DEVC
+   simulado — ADR-0006, R5a): o kubectl/devcontainer reais correm no terminal da app desktop */
+XC.kubectl = () => { echo('<span class="dim">o terminal emulado não fala com o cluster — o kubectl real corre no terminal da app desktop</span>'); };
+XC.devcontainer = () => { echo('<span class="dim">o terminal emulado não arranca contentores — usa «Attach» em Infra na app desktop</span>'); };
 const _dx5 = XC.dx;
 XC.dx = (a: string[]) => { if (a[0] === 'deploy') return window.dxDeploy(); return _dx5(a); };

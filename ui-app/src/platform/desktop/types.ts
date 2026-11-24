@@ -42,6 +42,8 @@ export interface Desktop {
   projectCmd?: (kind: VerifyKind) => VerifyCommand | null;
   delegateReview?: (title: string, writes: [string, string][]) => Promise<void>;
   readStack?: () => Promise<void>;
+  /** Redesenha o pane Containers com os contentores e as imagens reais (ADR-0006, R5a). */
+  drawContainers?: () => Promise<void>;
   /** Terminais reais (features/panel): tarefas num PTY + canais do Output. Só no desktop. */
   term?: {
     runTask: (line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string }) => Promise<number>;

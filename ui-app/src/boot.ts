@@ -170,8 +170,9 @@ document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target 
   const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
 window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
 window.buildDocker = function(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
-  /* sem dados inventados (ADR-0006, R1a): os contentores e as imagens reais chegam com a R5 (runtime ligado em Infra) */
-  $('#dk-containers')!.innerHTML='<div class="sec-empty">Sem runtime de contentores ligado. Liga o socket do Docker ou do Podman em Infra.</div>';
+  /* sem dados inventados (ADR-0006, R1a): no desktop, o pane lista os contentores e as imagens reais do
+     runtime ligado (platform/desktop/infra.ts regista o RP.containers — R5a); no browser não há runtime */
+  $('#dk-containers')!.innerHTML='<div class="sec-empty">Os contentores e as imagens vêm do Docker ou do Podman ligado em Infra, na app desktop.</div>';
   $('#dk-images')!.innerHTML='';
   wireSections(pane);hydrate();}
 

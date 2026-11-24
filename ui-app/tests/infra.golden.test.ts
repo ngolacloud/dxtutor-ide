@@ -236,11 +236,19 @@ describe("dispatch delegado (data-action) — Fase 4", () => {
   const change = (el: Element) => el.dispatchEvent(new window.Event("change", { bubbles: true }));
   const q = (sel: string) => document.querySelector("#pane-infra " + sel)!;
 
-  it("rt-connect: clicar «Connect socket» liga o runtime", () => {
+  /* ADR-0006, R5a: no browser não há runtime a que ligar — o clique diz que precisa da app desktop
+     (era um interruptor «simulated»); uma ligação presa de uma sessão antiga desliga-se */
+  it("rt-connect: no browser não finge a ligação; uma ligação presa desliga-se", () => {
+    const toast = vi.spyOn(w, "toast");
     w.renderInfraPane();
     expect(w.ENVS.rtOn).toBe(false);
     click(q('[data-action="rt-connect"]'));
-    expect(w.ENVS.rtOn).toBe(true);
+    expect(w.ENVS.rtOn).toBe(false);
+    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/precisa da app desktop/));
+    w.ENVS.rtOn = true;
+    w.renderInfraPane();
+    click(q('[data-action="rt-connect"]'));
+    expect(w.ENVS.rtOn).toBe(false);
   });
 
   it("rt-set: clicar «Podman» troca o runtime e desliga a ligação", () => {

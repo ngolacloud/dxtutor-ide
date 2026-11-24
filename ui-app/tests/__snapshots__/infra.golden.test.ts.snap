@@ -1027,7 +1027,7 @@ exports[`golden de DOM — pane Infra (renderInfraPane) > desligado: runtime/clu
    <button class="btn">Connect cluster</button>
    
    <div class="scm-grp">Remote hosts<span class="cnt">0</span></div><input class="inp notr" placeholder="user@host">
-   <div class="sec-empty">Everything here is simulated in the browser. In the desktop app the same two settings — socket and KUBECONFIG — drive the real runtime and cluster.</div></div>"
+   <div class="sec-empty">O socket e o KUBECONFIG ligam o runtime de contentores e o cluster reais na app desktop; no browser não há a que ligar.</div></div>"
 `;
 
 exports[`golden de DOM — pane Infra (renderInfraPane) > ligado: runtime + dev container + stack a correr + cluster deployado > pane-connected-deployed 1`] = `
@@ -1040,7 +1040,7 @@ exports[`golden de DOM — pane Infra (renderInfraPane) > ligado: runtime + dev 
    <button class="btn ghost">Disconnect</button>
    <div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">order-events</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-db</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">session-cache</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">invoices-bucket</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><button class="btn">⎈ Redeploy</button><button class="btn ghost">Delete from cluster</button>
    <div class="scm-grp">Remote hosts<span class="cnt">1</span></div><div class="scm-row"><span class="ic"><svg class="ico" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="8" rx="1.2"></rect><path d="M6 13.6h4M8 11v2.6"></path></svg></span><span class="nm notr">dev@edge-01</span><span class="ra" style="display:flex"><button title="Remove">×</button></span></div><input class="inp notr" placeholder="user@host">
-   <div class="sec-empty">Everything here is simulated in the browser. In the desktop app the same two settings — socket and KUBECONFIG — drive the real runtime and cluster.</div></div>"
+   <div class="sec-empty">O socket e o KUBECONFIG ligam o runtime de contentores e o cluster reais na app desktop; no browser não há a que ligar.</div></div>"
 `;
 
 exports[`golden de DOM — pane Infra (renderInfraPane) > staging seleccionado: chips de ambiente + deps promovidos (crash + ok) > pane-staging-selected 1`] = `
@@ -1053,5 +1053,5 @@ exports[`golden de DOM — pane Infra (renderInfraPane) > staging seleccionado: 
    <button class="btn">Connect cluster</button>
    
    <div class="scm-grp">Remote hosts<span class="cnt">0</span></div><input class="inp notr" placeholder="user@host">
-   <div class="sec-empty">Everything here is simulated in the browser. In the desktop app the same two settings — socket and KUBECONFIG — drive the real runtime and cluster.</div></div>"
+   <div class="sec-empty">O socket e o KUBECONFIG ligam o runtime de contentores e o cluster reais na app desktop; no browser não há a que ligar.</div></div>"
 `;

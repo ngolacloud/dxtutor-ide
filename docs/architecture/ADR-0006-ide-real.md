@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5a feita, R5b–R5c e R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -450,3 +450,25 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   elas próprias (`features/testing` → `RP.test`, `run.ts` → `RP.run`, `account.ts` → `RP.account`;
   o `search.ts` já o fazia). Selftest desktop completo: `errors: []`. Métricas: handlers inline
   152 → 143.
+- **R5 em três passos.** R5a runtime, stack e Containers; R5b o dev-container (`devcontainer_*`) e
+  o scale/delete do K8s reais; R5c os ambientes e a observabilidade a partir do cluster e do
+  runtime reais.
+- **R5a (2026-11-24) — a Infra sem fingir no browser; o pane Containers real.** No desktop, a
+  ligação ao runtime (`docker`/`podman info` pelo socket), ao cluster (`kubectl`), o deploy (com a
+  pasta aberta) e a stack (`compose up/down/ps`) já eram reais (portas `desktopPorts.infra`/
+  `stack`). As versões de base — as que o browser corre, e o desktop sem pasta — deixam de fingir:
+  ligar o runtime/cluster diz que precisa da app desktop (era um interruptor com «(simulated)» no
+  log; uma ligação presa de uma sessão antiga ainda se desliga); o deploy mantém os erros reais
+  (falta `deploy/k8s`, faltam Dockerfiles) mas já não fabrica um cluster com «N deployments
+  ready»; o ▶ RUN mantém os erros reais do compose mas já não inventa builds, pulls e serviços a
+  correr; o terminal emulado deixa de responder `kubectl get …`/`devcontainer up` com o estado
+  simulado; o rodapé «Everything here is simulated in the browser» dá lugar a uma frase honesta
+  (só no browser). A etiqueta da stack passa a «live» (o `STACK` só vem do `compose ps` real).
+  **Pane Containers real (desktop):** `docker`/`podman ps -a` e `images` em JSON pelo socket do
+  pane Infra (`platform/desktop/infra.ts`, regista o `RP.containers`; redesenha ao ligar/desligar o
+  runtime e depois da stack); sem runtime ligado, di-lo; no browser, diz de onde vêm.
+  **Goldens (decisão deste ADR):** os três do pane Infra mudam só no rodapé. **Testes:**
+  `infra.r5a` (cluster, ▶ RUN com e sem compose, deploy com manifestos, terminal emulado) e o
+  teste do «Connect socket» passa ao comportamento honesto. **Selftest desktop:** passo
+  `containers` novo — liga o Docker real e o pane lista o contentor e as 2 imagens desta máquina
+  (`backend-postgres-1 · postgres:16-alpine · Up 2 days (healthy)`); `errors: []`.

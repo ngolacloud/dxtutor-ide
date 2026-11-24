@@ -10,6 +10,7 @@ import type { ExecResult } from "./context";
 import type { StackDesktop } from "../../features/stack";
 import type { InfraDesktop } from "../../features/infra/application/ports";
 import { desktopPorts } from "../../app/desktop";
+import { RP } from "../../app/store/registry";
 import type { DesktopContext } from "./context";
 
 export function installInfra(ctx: DesktopContext): void {
@@ -34,6 +35,32 @@ async function readK8s(): Promise<void> {
     K8S = items.length ? { docs: k8sDocs(), deps: items.map((d: any) => { const c = (d.spec.template.spec.containers || [])[0] || {}; return { n: d.metadata.name, rep: d.spec.replicas || 0, ready: (d.status && d.status.readyReplicas) || 0, img: c.image, port: ((c.ports || [])[0] || {}).containerPort }; }) } : null;
   } catch { /* resposta inválida */ }
 }
+/* ───── o pane Containers (ADR-0006, R5a): os contentores e as imagens reais do runtime ligado ─────
+   `docker`/`podman ps -a` e `images` em JSON (o docker escreve um objecto por linha; o podman um
+   array), com o socket do pane Infra. Sem runtime ligado, di-lo. */
+const jsonRows = (s: string): any[] => { const t = s.trim(); if (!t) return []; try { return t.startsWith("[") ? JSON.parse(t) : t.split("\n").filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
+const human = (n: unknown): string => { if (typeof n !== "number") return String(n ?? ""); const u = ["B", "KB", "MB", "GB"]; let v = n, i = 0; while (v >= 1000 && i < 3) { v /= 1000; i++; } return v.toFixed(v < 10 && i ? 1 : 0) + " " + u[i]; };
+async function drawContainers(): Promise<void> {
+  const host = document.getElementById("dk-containers"), imgs = document.getElementById("dk-images");
+  if (!host || !imgs) return;
+  if (!ENVS.rtOn) { host.innerHTML = '<div class="sec-empty">Sem runtime de contentores ligado. Liga o socket do Docker ou do Podman em Infra.</div>'; imgs.innerHTML = ""; return; }
+  host.innerHTML = '<div class="sec-empty">A ler os contentores…</div>';
+  const [ps, im] = await Promise.all([
+    sh(rtBin(), ["ps", "-a", "--format", "json"], { env: envFor(), timeout: 20000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) })),
+    sh(rtBin(), ["images", "--format", "json"], { env: envFor(), timeout: 20000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) })),
+  ]);
+  if (ps.code !== 0) { host.innerHTML = `<div class="sec-empty" style="color:var(--red)">${escH(String(ps.stderr || "o runtime não respondeu").trim().split("\n")[0])}</div>`; imgs.innerHTML = ""; return; }
+  const rows = jsonRows(ps.stdout).map((c: any) => ({ name: Array.isArray(c.Names) ? c.Names[0] : String(c.Names || c.Name || c.ID || ""), image: String(c.Image || ""), state: String(c.State || "").toLowerCase(), status: String(c.Status || c.State || "") }));
+  host.innerHTML = rows.length
+    ? rows.map(c => `<div class="row dk-row sub" title="${escH(c.image)}"><span class="ct-dot" style="background:${c.state === "running" ? "var(--green)" : "var(--fg-muted)"}"></span><span class="nm dk-fixed notr">${escH(c.name)}</span><span class="pth dk-path notr">${escH(c.image)} · ${escH(c.status)}</span></div>`).join("")
+    : '<div class="sec-empty">Nenhum contentor.</div>';
+  const irows = im.code === 0 ? jsonRows(im.stdout).map((x: any) => ({ name: x.Repository ? `${x.Repository}:${x.Tag}` : Array.isArray(x.Names) && x.Names[0] ? x.Names[0] : String(x.Id || x.ID || "").slice(0, 19), size: human(x.Size) })) : [];
+  imgs.innerHTML = irows.length
+    ? irows.map(x => `<div class="row dk-row"><span class="nm notr">${escH(x.name)}</span><span class="pth notr">${escH(x.size)}</span></div>`).join("")
+    : '<div class="sec-empty">Nenhuma imagem.</div>';
+}
+RP.containers = () => { void drawContainers(); };
+R.drawContainers = () => drawContainers();
 R.readStack = () => readStack();
 async function readStack(): Promise<void> {
   const r = await sh(rtBin(), ["compose", "ps", "--format", "json"], { env: envFor(), timeout: 30000 });
@@ -42,7 +69,7 @@ async function readStack(): Promise<void> {
   const s = r.stdout.trim();
   try { rows = s.startsWith("[") ? JSON.parse(s) : s.split("\n").filter(Boolean).map(l => JSON.parse(l)); } catch { /* formato inesperado */ }
   STACK = rows.length ? rows.map(x => { const pub = (x.Publishers || []).find((p: any) => p.PublishedPort); return { name: x.Service || x.Name, src: x.Image || "", url: pub ? `http://localhost:${pub.PublishedPort}` : "internal", state: x.Health || x.State || "" }; }) : null;
-  drawStack();
+  drawStack(); void drawContainers();
 }
 /* as portas desktop do stack e da infra (ADR-0004, U4h4): o features/stack.ts consulta
    `desktopPorts.stack` no dxRun/dxStop/drawStack que publica e o features/infra.ts consulta
@@ -69,13 +96,13 @@ drawStack(_drawStack) {
 const infraDesktop: InfraDesktop = {
 async rtConnect() {
   hydrateEnvs();
-  if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); STACK = null; DEVC = null; drawStack(); say("container runtime disconnected"); infraDraw(); return; }
+  if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); STACK = null; DEVC = null; drawStack(); say("container runtime disconnected"); infraDraw(); void drawContainers(); return; }
   R.sock = await fsx.expandPath(ENVS.sock[ENVS.rt]);
   const env = { DOCKER_HOST: "unix://" + R.sock, CONTAINER_HOST: "unix://" + R.sock };
   const r = await sh(rtBin(), ["info", "--format", ENVS.rt === "podman" ? "{{.Version.Version}}" : "{{.ServerVersion}}"], { env, timeout: 15000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) }));
   if (r.code === 0) { ENVS.rtOn = true; saveEnv(); say(`${RTN[ENVS.rt]} ${r.stdout.trim()} connected at ${R.sock}`); toast(`${RTN[ENVS.rt]} ${r.stdout.trim()} connected`); }
   else { toast(`${RTN[ENVS.rt]} not reachable at ${R.sock}`); say(String(r.stderr || "").trim().split("\n")[0]); }
-  infraDraw();
+  infraDraw(); void drawContainers();
 },
 async k8sConnect() {
   hydrateEnvs();

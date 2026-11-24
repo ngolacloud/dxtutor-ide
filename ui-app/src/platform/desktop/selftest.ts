@@ -409,6 +409,19 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       if (after) await G.startDebug(); // continuar até ao fim
       return { available, stoppedAt, vars, after, ended: /O programa terminou/.test(pane()) };
     });
+    // contentores (ADR-0006, R5a): ligar o runtime real (docker info pelo socket) e o pane
+    // Containers lista os contentores e as imagens reais (ps/images em JSON).
+    await step("containers", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const W = window as unknown as { ENVS: { rt: string; rtOn: boolean }; rtConnect: () => Promise<void> };
+      W.ENVS.rt = "docker";
+      if (!W.ENVS.rtOn) await W.rtConnect();
+      await wait(() => W.ENVS.rtOn, 15000);
+      const host = () => document.getElementById("dk-containers"), imgs = () => document.getElementById("dk-images");
+      await R.drawContainers?.();
+      await wait(() => !/A ler os contentores/.test(host()?.textContent || ""), 20000);
+      return { connected: W.ENVS.rtOn, containers: host()?.querySelectorAll(".dk-row").length ?? -1, images: imgs()?.querySelectorAll(".dk-row").length ?? -1, text: (host()?.textContent || "").slice(0, 80) };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;
