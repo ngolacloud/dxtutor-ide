@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j3, U4j4a; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j4; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -779,3 +779,18 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   mesma verificação, como referência. Verificado na worktree limpa sobre a HEAD `b700732` (a
   outra sessão commitou o arch F3 a meio, sem tocar nestes ficheiros): tsc, lint 266 (igual),
   458 testes, arch:check, build, e2e 6/6 isolado, auto-teste desktop idêntico ao da HEAD.
+- **U4j4b (2026-11-24) — o estado do Co-Dev sai do `app.ts`.** O `PROV`, o `CHAT`, o `RUN`, o
+  `SAMPLE`, o `STOP`/`SAFE`/`DANGER`, o `provFor`/`who`, o `provState` com a porta desktop e o
+  `VIEW.settings` composto (página do codev + secção Language do i18n + porta desktop) vão para
+  o fim do `features/codev.ts`. **Porquê no fim:** o compositor do Co-Dev monta-se no eval do
+  codev.ts e lê os provedores tolerando-os por definir; criá-los no `agentStore` (que avalia
+  primeiro) mudaria essa montagem inicial. Depois do `mountComposer` a ordem é a mesma que com
+  o app.ts, e entre o codev e o app.ts ninguém lê estes nomes no eval (varredura pela AST, e o
+  `hydrateHarn` que o team.ts chama no eval não lhes toca). O `MODE`/`ACTIVE`/`THRESH`/`CTX_ON`
+  nascem no `agentStore` com os mesmos valores que o app.ts lhes voltava a atribuir, e ninguém
+  os escreve antes — as quatro atribuições saem sem efeito. Globais publicadas 388 → 383 (as
+  quatro, e o `SAMPLE = null` deixa de ser um `window.X =`). Verificado na worktree limpa sobre
+  a HEAD `0aa95b6`: tsc, lint 266 (igual), 458 testes (goldens do Co-Dev sem diff — a montagem
+  inicial do compositor ficou igual), arch:check, build, e2e 6/6 isolado, auto-teste desktop
+  idêntico ao da HEAD. O app.ts fica com o arranque (`boot`…`boot6`), os menus/paleta/atalhos,
+  o `refresh`, o `resetAll` e o `LCUR` — a U4j5.

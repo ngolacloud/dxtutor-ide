@@ -6,12 +6,10 @@
    Object.assign no fim + window.* nas mutáveis partilhadas). @ts-nocheck: tipar a
    sério fica para fase posterior — esta fase só componentiza. */
 export {};
-import { jsa } from "./core";
 import { setVar, getVar, hydrate, log } from "./features/shell";
 import { short, P_LX } from "./features/workspace";
 import { LANG } from "./features/editor";
 import { bus } from "./app/bus";
-import { desktopPorts } from "./app/desktop";
 import { openArch } from "./features/arch/index";
 
 /* O seed de demonstração (SEED.base) só é carregado quando a build foi feita com
@@ -92,22 +90,9 @@ window.refresh = function(fromEd,force){const sig=Object.keys(FS).map(p=>p+stOf(
 
 /* ═════════ dxtutor IDE v2 — Co-Dev ═════════ */
 // cores em var(--token) do tema (theme.ts) em vez de hex fixo — mudam ao trocar de tema
-const PROV={
-  claude:{name:'Claude',vendor:'Anthropic',model:'claude-opus-5-5',ep:'https://api.anthropic.com',on:true,col:'var(--accent-hover)'},
-  gemini:{name:'Gemini',vendor:'Google',model:'gemini-pro',ep:'https://generativelanguage.googleapis.com',on:true,col:'var(--blue)'},
-  codex:{name:'Codex',vendor:'OpenAI',model:'gpt-codex',ep:'https://api.openai.com',on:true,col:'var(--green)'},
-  ollama:{name:'Ollama',vendor:'local',model:'qwen2.5-coder:14b',ep:'http://localhost:11434',on:true,local:true,col:'var(--purple)'},
-};
+/* PROV/CHAT/RUN/SAMPLE, STOP/SAFE/DANGER, provFor/who, o provState e o VIEW.settings composto passaram para o fim do
+   features/codev.ts (ADR-0004, U4j4b); o MODE/ACTIVE/THRESH/CTX_ON nascem no agentStore com os mesmos valores. */
 /* ROLE/ROLE_D/ROUTE/MODES/CRIT/MISSIONS/DECS/CKPT + SPEED/MID: motor Co-Dev migrado p/ features/codev.ts (window-backed); aqui lê-se por global. */
-window.MODE='assist';window.ACTIVE='claude';window.THRESH=85;window.CTX_ON=true;window.SAMPLE=null;
-const CHAT=[];/* USAGE com dono no agentStore (ADR-0004, U4f) */
-const RUN={active:false,paused:false,stop:false,pend:null,abort:null,label:'',t0:0};
-const STOP='__STOP__',SAFE=/^(cargo (test|build|clippy)|dx lint|npm run lint)/,DANGER=/git push|rm -rf|drop table|--force/i;
-const provFor=r=>PROV[ROUTE[r]].on?ROUTE[r]:(connected()[0]||ROUTE[r]);
-const who=r=>`${ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
-const provStateBase=k=>k==='claude'?(SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
-/* ADR-0004, U4h5: o provState e o VIEW.settings consultam a porta desktop do Co-Dev (desktopPorts.codev, platform/desktop/llm.ts); antes o desktop reatribuía-os */
-window.provState=k=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
 
 /* checkpoints: checkpoint$dup0/restoreCkpt$dup0/resetAll$dup0 (duplicados mortos) removidos; o checkpoint git-aware vivo está na secção git (~629). */
 
@@ -123,7 +108,6 @@ window.provState=k=>{const d=desktopPorts.codev;return d&&d.provState?d.provStat
 /* páginas Co-Dev (welcome/settings/manager/analysis + openSettings/openManager/openAnalysis/testProv + POLICY/GAPS/NEXT): migradas p/ features/codev.ts.
    Os VIEW.* ficam shims: */
 /* VIEW.welcome: dono features/welcome.ts (ADR-0004, U4g7). */
-VIEW.settings=(t,host)=>window.renderSettingsPage(t,host);
 /* ───── menus e comandos ───── */
 const CMD=[
   ['Ir para ficheiro…','Ctrl+P',()=>palette('')],['Mostrar todos os comandos','Ctrl+Shift+P',()=>palette('>')],['Ir para a linha…','Ctrl+G',()=>palette(':')],['Ir para o próximo problema','F8',()=>nextProblem()],
@@ -246,8 +230,6 @@ function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray
 
 /* ───── wiring ───── */
 /* (página de boas-vindas desta camada: código morto — sobreposta antes de ser chamada; ADR-0004, U4g7) */
-const _settings=VIEW.settings;const settingsWithLanguage=(t,host)=>{_settings(t,host);host.querySelector('.sub').insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${LOCALES.map(l=>`<button class="pcard${LOCALE===l[0]?' sel':''}" onclick="setLocale(${jsa(l[0])})"><div class="ph notr">${l[1]}${LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
-VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
 function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mudou e porquê');if(ci>=0)CMD.splice(ci,1);
   CMD.push(['Learning Track: Continue','',ltResume],['Learning Track: Change language or level…','',()=>ltOnboard(1)],['Project: RUN the whole stack','Ctrl+F5',dxRun],['Project: Stop the stack','',dxStop],['Preferences: Language — English','',()=>setLocale('en')],['Preferences: Language — Português (Angola)','',()=>setLocale('ptAO')]);
   const hm=MENUS.find(m=>m.t==='Help');if(hm)hm.items=hm.items.filter(i=>i.l!=='O que mudou e porquê');const pm=MENUS.find(m=>m.t==='Projecto');if(pm){pm.t='Project';pm.items.unshift({l:'▶ RUN the whole stack',k:'Ctrl+F5',act:dxRun},{l:'Stop the stack',act:dxStop},{sep:1});const ti=pm.items.findIndex(i=>i.l==='Tutor');if(ti>=0)pm.items[ti]={l:'Learning Track',act:ltResume};}
@@ -290,13 +272,10 @@ function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX'
 /* esc/hhmm/rel/mdFull (app/globals.ts), setVar/getVar/hydrate/log (shell), extOf/short/norm/P_…/LF/SECOPEN/FS/ROOT/OPEN
    (workspace), LANG (editor), runTask (terminal) e rerender (tabs) passaram a ser publicados pelos donos (ADR-0004, U4j3). */
 Object.assign(window, {
-  CMD, PANE, PROV, RUN, STOP,
+  CMD, PANE,
   boot, boot3, boot4, boot5, boot6, buildMenus,
   resetAll,
-  who, // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
-  CHAT, SAFE, DANGER,
   // fachadas que as features migradas (features/*.ts) consomem por window:
-  provFor,
 });
 /* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — corre depois de
    todos os donos publicarem os seus bootN (app.ts, visualizer, i18n). */
