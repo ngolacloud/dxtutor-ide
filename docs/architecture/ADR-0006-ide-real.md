@@ -490,3 +490,9 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   `devcontainer` novo — um `devcontainer.json` com uma imagem local (`postgres:16-alpine`),
   attach → o contentor `dxtutor-sess-…` aparece no `ps` do motor (delonix) → detach → desaparece;
   `errors: []`. Sem goldens tocados.
+- **Rebase sobre a U4j3 e o Studio F3 (2026-11-24).** A U4j3 levou os helpers e o estado do
+  `app.ts` para os donos: os caminhos `P_*` do projecto de demonstração (que a R1c2 tirou)
+  tinham ido para o `features/workspace.ts` — saem de lá; o `resetWorkspace` (R1a) junta-se ao
+  `writeFile`/`extOf`/`short`/`norm`/`LF` publicados pelo `workspace.ts`; as pastas abertas que
+  nascem só com a raiz (R3c) passam ao `app/store/workspace.ts` (o novo dono do `OPEN`).
+  Selftest desktop completo (34 passos): `errors: []`. Métricas: globais 389 → 363.
