@@ -29,7 +29,7 @@ import type { Catalog, Design, DesignNode, EnvDep, EnvState, K8sDoc, SecretSets 
 import type { InfraDeps, InfraEngine, DeployResult, EnvTarget } from "./ports";
 
 export function makeInfraEngine(deps: InfraDeps): InfraEngine {
-  const { state, catalog, workspace, scm, persist, terminal, nav, notifier, view, clock, envCluster } = deps;
+  const { state, catalog, workspace, scm, persist, terminal, nav, notifier, view, clock, envCluster, copy } = deps;
   const cat = (): Catalog => ({ tech: catalog.tech(), kind: catalog.kind(), isApp: catalog.isApp, slug: catalog.slug });
 
   /* ───── hidratação preguiçosa (guard-once) ───── */
@@ -203,7 +203,7 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
       body: `<div class="pr-row"><span>Version</span><code class="notr">${esc(ver || "?")}</code><span class="notr">${esc((commits[ver] || {}).m || "")}</span></div><div class="pr-row"><span>Target now runs</span><code class="notr">${cur ? esc(cur.ver || "?") : "nothing"}</code></div>
      <div class="pr-row"><span>Cluster</span><code class="notr">${esc(t.ctx)} / ${esc(t.ns)}</code></div><h3>${cs.length} commit(s) in this promotion</h3>${cs.slice(0, 6).map((c) => `<div class="pr-c notr"><code>${c.h}</code> ${esc(c.m)}</div>`).join("")}
      <h3>Secrets</h3>${sc.miss.length ? `<div class="fixl"><b>✖ ${sc.miss.length} key(s) missing in ${ENVL[to]}</b><span class="notr">${sc.miss.slice(0, 6).join(", ")}</span></div>` : ""}${sc.empty.length ? `<div class="fixl"><b>${to === "production" ? "✖" : "⚠"} ${sc.empty.length} empty value(s)</b><span class="notr">${sc.empty.slice(0, 6).join(", ")}</span></div>` : ""}${!sc.miss.length && !sc.empty.length ? '<p style="color:var(--green)">✓ Every key the design needs is set.</p>' : ""}
-     <p class="pr-note">This applies <code>deploy/k8s</code> from your working tree with ${ENVL[to]}'s secrets (<code>kubectl apply</code>); the images must be in a registry that cluster can pull from. Keys are checked here; values are not — a wrong value only shows up when the workload starts. Deploying is always your decision.</p>${to === "production" ? "<p>Type <b>production</b> to confirm.</p>" : ""}`,
+     <p class="pr-note">This applies <code>deploy/k8s</code> from your working tree with ${ENVL[to]}'s secrets (<code>kubectl apply</code>); the images must be in a registry that cluster can pull from. Keys are checked here; values are not — a wrong value only shows up when the workload starts. Deploying is always your decision.</p>${to === "production" ? `<p>${copy("type")} <b>production</b> to confirm.</p>` : ""}`,
       input: to === "production" ? "production" : null, rows: 1, ok: `Approve and promote to ${ENVL[to]}`, validate: (v) => to === "production" && v !== "production" ? "Type production to confirm." : "",
       onOk: () => {
         applyTo(to, ver, (ok) => {

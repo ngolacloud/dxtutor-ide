@@ -42,6 +42,7 @@ import {
   drawStack, note, rel, toast, log, rerender, writeFile, publish,
 } from "./infra/infrastructure/legacy-bridge";
 import { translator } from "../app/i18n";
+import { INFRA_ENGINE_MESSAGES } from "./infra/application/messages";
 import { INFRA_MESSAGES } from "./infra/ui/messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(INFRA_MESSAGES);
@@ -80,6 +81,7 @@ const OBS: Record<string, ObsData> = (window.OBS = {}); let OBST = null as Retur
    (application). O motor fica puro (sem window/DOM); window/DOM ficam deste lado. ENVS/
    ENVX são a MESMA referência que envs()/envx() do bridge devolvem (window.ENVS/ENVX). */
 const engine = makeInfraEngine({
+  copy: translator(INFRA_ENGINE_MESSAGES),
   state: { envs, envx, k8s, setK8s, stack, setStack, devc, setDevc, pDc, setPDc },
   catalog: { design, tech, kind, isApp, slug: nodeSlug },
   workspace: { files, writeFile, composeServices, root },
