@@ -3,6 +3,7 @@
 // «Docker vs Kubernetes» e sobre um desenho do tamanho do diagrama de crates do Delonix.
 import { describe, test, expect } from "vitest";
 import delonixJson from "../../crates/tutor-eval/tests/fixtures/arch/delonix-vs-docker.json";
+import seivaJson from "../../crates/tutor-eval/tests/fixtures/arch/seiva-o-mesmo-modulo.json";
 import { addComponent, addGroup, connect, emptyDesign, fromArchitecture } from "../src/features/arch/domain/design";
 import { groupPills, intersects, layout } from "../src/features/arch/domain/geometry";
 import { autoLayout } from "../src/features/arch/domain/autolayout";
@@ -313,5 +314,26 @@ describe("equilíbrio e setas opcionais (encontrado ao desenhar o Delonix)", () 
     const across: Route = { points: [{ x: -50, y: 50 }, { x: 50, y: 50 }], straight: true };
     expect(lineCrossings([trunk(0), trunk(0), across])).toBe(1);
     expect(lineCrossings([trunk(0), trunk(20), across])).toBe(2);
+  });
+});
+
+describe("Seiva — o mesmo módulo (diagrama real)", () => {
+  test("arrumado sem cruzamentos nenhuns, painéis iguais e o mesmo módulo com a mesma forma", () => {
+    const d = autoLayout(fromArchitecture(JSON.parse(JSON.stringify(seivaJson)) as Architecture));
+    const { l, routes, pills } = routed(d);
+    expect(crossings(l.nodes, d.connections, routes)).toEqual([]);
+    expect(crossings(new Map(pills.map((p, i) => [`pill-${i}`, p])), d.connections, routes)).toEqual([]);
+    // uma recta só ganha se não cruzar setas que um caminho ortogonal evita (antes: 1)
+    expect(lineCrossings(routes)).toBe(0);
+    const [mono, svc] = [l.panels.get("monolito")!, l.panels.get("servico")!];
+    expect(Math.max(mono.w, svc.w) / Math.min(mono.w, svc.w)).toBeLessThan(1.1);
+    expect(Math.max(mono.h, svc.h) / Math.min(mono.h, svc.h)).toBeLessThan(1.1);
+    const [m, s] = [l.groups.get("mono-mod")!, l.groups.get("svc-mod")!];
+    expect([m.w, m.h]).toEqual([s.w, s.h]);
+    // e os cinco crates na mesma posição relativa dentro do módulo
+    for (const c of ["interface", "application", "facade", "domain", "infrastructure"]) {
+      const a = l.nodes.get(`m-${c}`)!, b = l.nodes.get(`s-${c}`)!;
+      expect([a.x - m.x, a.y - m.y]).toEqual([b.x - s.x, b.y - s.y]);
+    }
   });
 });
