@@ -39,7 +39,9 @@
   .pj-meta.ok{color:var(--green)}.pj-pri.p-high{color:var(--red)}
   .pj-av{width:18px;height:18px;border-radius:50%;background:var(--blue);color:#fff;font-size:9.5px;display:inline-flex;align-items:center;justify-content:center;margin-left:-4px;border:1px solid var(--bg-elevated)}
   .pj-new{margin:12px 0}.pj-new .pj-input{width:100%;max-width:520px}
-  .pj-empty{padding:40px 20px;max-width:560px}.pj-empty b{color:var(--fg-bright);font-size:14px}.pj-pad{padding:8px 4px}
+  .pj-empty{padding:40px 20px;max-width:560px}.pj-empty b{color:var(--fg-bright);font-size:14px}.pj-empty p{margin:6px 0 0;color:var(--fg-muted);font-size:12.5px;line-height:1.55}.pj-empty p+button,.pj-empty p+.pj-btn{margin-top:12px}
+  /* estado do separador inteiro (sem pasta, erro, a abrir): centrado como o vazio do quadro */
+  .pj>.pj-empty{margin:auto;padding:0 24px 8vh;text-align:center}.pj-pad{padding:8px 4px}
   .pj-sec{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-muted);margin:14px 0 6px}
   .pj-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12.5px;cursor:pointer}.pj-row:hover{background:var(--bg-hover)}
   .pj-row-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-bright)}

@@ -19,13 +19,20 @@
   .scm-grp .cnt{margin-left:auto;background:var(--bg-sel-inactive);border-radius:9px;padding:0 7px;font-family:var(--font-mono);font-size:10px}
   .scm-row{display:flex;align-items:center;gap:8px;height:23px;padding:0 12px;font-size:12.5px;color:var(--fg)}
   .scm-row:hover{background:var(--bg-hover)}
-  .scm-row .pth{color:var(--fg-muted);font-size:11px;overflow:hidden;text-overflow:ellipsis}
+  .scm-row .pth{color:var(--fg-muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .scm-row.del .nm{text-decoration:line-through;color:var(--fg-muted)}
   .scm-row .g{margin-left:auto;font-family:var(--font-mono);font-weight:700;flex:none}
   .scm-row .g.M{color:var(--git-m)} .scm-row .g.U{color:var(--git-u)} .scm-row .g.D{color:var(--git-d)}
   /* ═════════ v2 ═════════ */
   kbd{font-family:var(--font-mono);background:var(--bg-base);border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--fg-dim);font-size:10.5px}
   input,textarea,select{font:inherit;color:var(--fg)}
+  /* select desenhado pela app, igual em Chromium e WebKitGTK (sem appearance:none, a app desktop
+     mostrava o menulist nativo do GTK: caixa cinzenta clara com seta branca). A seta vai em longhands
+     !important para sobreviver ao `background:` abreviado das classes (.mini, .inp, .pj-select, ...). */
+  select{-webkit-appearance:none;appearance:none;background-color:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer;outline:none}
+  select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%238a8a90' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right 7px center!important;background-size:10px 10px!important;padding-right:24px!important}
+  select:focus-visible{border-color:var(--accent)} select:disabled{opacity:.5;cursor:default}
+  select option{background:var(--bg-panel);color:var(--fg)}
   .x-rs{color:#dea584}.x-ts{color:var(--blue)}.x-css{color:var(--purple)}.x-json,.x-toml{color:var(--yellow)}.x-md{color:var(--cyan)}.x-sql{color:var(--green)}.x-html{color:var(--accent-hover)}.tab,.scm-row,.prob,.sec-hd{cursor:pointer}
 
   /* inputs de painel */
