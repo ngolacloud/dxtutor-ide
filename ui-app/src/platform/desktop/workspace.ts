@@ -112,11 +112,7 @@ syncTree = function (this: unknown, ...args: any[]) {
   _syncTree.apply(this, args);
   if (R.root || R.remote) { const r = TREE.projects.children.dxtutor; TREE.projects.children = {}; TREE.projects.children[R.name!] = r; }
 };
-const _promptHTML = promptHTML;
-promptHTML = function () {
-  if (!R.root) return _promptHTML();
-  return `<span class="pr"><span>${escH(R.user || "you")}</span><span class="at">@</span><span>${escH(R.host || "local")}</span><span class="at">:</span><span class="pth">${escH(CWD.join("/"))}</span>${R.git ? `<span class="br"> (${escH(BRANCH)})</span>` : ""}<span class="at">$</span></span> `;
-};
+/* o prompt real (utilizador/host/cwd/ramo) passou para a porta do terminal (platform/desktop/terminal.ts, U4h3) */
 function termBanner(): void {
   const t = $("#term");
   if (!t) return;

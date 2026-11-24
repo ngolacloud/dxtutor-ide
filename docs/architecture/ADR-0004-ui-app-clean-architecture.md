@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h2; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h3; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -542,3 +542,22 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   ramo, e o `checkpoint` com `finishedViaAsk: false`, desde a primeira medição da sessão.
   Métricas sem mudança; lint 280. Verificado: 367 testes, arranque no browser 4/4, auto-teste
   desktop idêntico ao da U4h1 (os passos `commit` e `scm` confirmam o git real pela porta).
+- **U4h3 (2026-11-24) — o terminal.** Porta `TerminalDesktop` (definida no
+  `features/terminal.ts`, registada em `desktopPorts.terminal`): `run`, `termExec` e
+  `promptHTML`, cada um com a versão emulada como último argumento. O terminal publica os três
+  compostos com a porta (as bases passam a `promptBase`/`termExecBase`/`run`); o
+  `platform/desktop/terminal.ts` deixa de reatribuir o `window.run` e o `termExec` e instala a
+  porta com os mesmos corpos — e o prompt real, que vivia na secção «folders» do bridge (agora
+  `workspace.ts`), passa para a mesma porta, porque é do terminal. **Equivalência:** os
+  chamadores são os mesmos (o Enter pelo `TG.run`, o `newInput`/`echoCmd` pelo `promptHTML`
+  global, o codev e o `runTask` pelo `termExec` global); ninguém os captura por valor antes do
+  bridge; o pair.ts, que avalia depois, continua a decorar o `run`/`promptHTML` por cima — a
+  cadeia passa de pair → desktop → base a pair → publicado → porta → base, pela mesma ordem.
+  Globais publicadas 412 → 411 (sai o `window.run =` do desktop); lint 280. Verificado: 367
+  testes, arranque no browser 4/4, auto-teste desktop idêntico ao da U4h2; e, como o auto-teste
+  chama o `realTerm`/`stream` directamente, uma sonda temporária (fora do commit) na app real
+  com a UI da HEAD e com a desta árvore — `run` (devolve a promessa, eco real, linha vazia),
+  `termExec` (tarefa no PTY do painel, devolve `null`) e a estrutura do prompt real com o nome
+  da pasta — idênticos. Nota de ambiente: entre corridas o `providers.json` real ganhou e
+  perdeu uma chave OpenAI por fora destas corridas, e um `terminalUI` saiu `false` uma vez
+  (repetido duas vezes: `true`) — sinais de outra sessão a usar o mesmo HOME.

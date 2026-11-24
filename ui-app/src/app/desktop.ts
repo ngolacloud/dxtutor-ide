@@ -5,10 +5,13 @@
    versão simulada. Cada interface é definida pela feature dona (application/ports.ts). */
 
 import type { ScmDesktop } from "../features/scm/application/ports";
+import type { TerminalDesktop } from "../features/terminal";
 
 export interface DesktopPorts {
   /** git real no repositório aberto (platform/desktop/git.ts) — U4h2 */
   scm?: ScmDesktop;
+  /** shell e prompt reais na pasta aberta (platform/desktop/terminal.ts) — U4h3 */
+  terminal?: TerminalDesktop;
 }
 
 export const desktopPorts: DesktopPorts = {};
