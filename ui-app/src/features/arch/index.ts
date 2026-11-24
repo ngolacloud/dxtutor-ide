@@ -14,16 +14,19 @@ import { makeArchView } from "./ui/view";
 import { bindActions } from "./ui/actions";
 import { archActions } from "./ui/table";
 import { tauriArchGateway } from "./infrastructure/tauri";
-import { designStore, openTab, workspace } from "./infrastructure/legacy-bridge";
+import { designStore, files, openTab, themeVars, workspace } from "./infrastructure/legacy-bridge";
+import { THEME_VARS, makeRenderer } from "./ui/export";
 
 let view: ReturnType<typeof makeArchView> | null = null;
 const studio = makeArchStudio({
   gateway: tauriArchGateway,
   store: designStore,
   workspace,
+  renderer: makeRenderer(() => themeVars(THEME_VARS)),
+  files,
   repaint: (scope: Repaint) => view?.repaint(scope),
 });
-view = makeArchView({ studio, root: workspace.root });
+view = makeArchView({ studio, root: workspace.root, savesToProject: () => tauriArchGateway.available() && !!workspace.root() });
 
 VIEW.arch = (_t, host) => view!.mount(host);
 

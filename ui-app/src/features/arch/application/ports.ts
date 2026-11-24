@@ -2,7 +2,7 @@
    O que o caso de uso precisa do mundo, injectado por argumento. Os adaptadores vivem em
    `infrastructure/` (o gateway sobre os comandos Tauri; o resto sobre o `window`). */
 
-import type { Architecture, ArchFinding } from "../domain/types";
+import type { Architecture, ArchFinding, Design } from "../domain/types";
 
 /** A validação e o scaffold do backend (`tutor_eval::arch`). */
 export interface ArchGateway {
@@ -13,6 +13,27 @@ export interface ArchGateway {
   preview(arch: Architecture): Promise<[string, string][]>;
   /** Escreve o scaffold em `root` (nunca sobrepõe). Devolve os caminhos escritos. */
   scaffold(root: string, arch: Architecture): Promise<string[]>;
+  /** Mermaid `graph TB` do desenho (parse e geração no Rust). */
+  exportMermaid(arch: Architecture): Promise<string>;
+  /** Um `graph`/`flowchart` Mermaid → desenho (sem posições) + avisos. */
+  importMermaid(source: string): Promise<{ design: Design; warnings: string[] }>;
+  /** Escreve uma exportação DENTRO de `root`. Devolve o caminho relativo escrito. */
+  saveExport(root: string, rel: string, bytes: Uint8Array): Promise<string>;
+  /** Lê um ficheiro de texto de dentro de `root`. */
+  readFile(root: string, rel: string): Promise<string>;
+}
+
+/** Desenha o desenho como imagem (precisa do DOM: vive na vista). */
+export interface Renderer {
+  /** SVG autónomo, fiel ao canvas (cores do tema resolvidas). */
+  svg(design: Design): string;
+  /** PNG do mesmo SVG (2×). */
+  png(design: Design): Promise<Uint8Array>;
+}
+
+/** Ficheiros fora do desktop: o browser descarrega. */
+export interface Files {
+  download(name: string, bytes: Uint8Array, mime: string): void;
 }
 
 /** Persistência do desenho (estado de cliente), por chave. */
@@ -37,5 +58,7 @@ export interface ArchStudioDeps {
   gateway: ArchGateway;
   store: DesignStore;
   workspace: Workspace;
+  renderer: Renderer;
+  files: Files;
   repaint(scope: Repaint): void;
 }

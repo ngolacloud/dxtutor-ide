@@ -10,6 +10,7 @@ import type { Design, Rect } from "../src/features/arch/domain/types";
 import { edgeLook } from "../src/features/arch/ui/view";
 import { makeArchStudio } from "../src/features/arch/application/studio";
 import { reference } from "./fixtures/arch-reference";
+import { fakeFiles, fakeRenderer, ioGateway } from "./fixtures/arch-fakes";
 
 const inside = (inner: Rect, outer: Rect): boolean =>
   inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
@@ -207,7 +208,9 @@ describe("caso de uso: ⇅ Arrange", () => {
   function studio(confirm: boolean) {
     const saved: Record<string, unknown> = {};
     const st = makeArchStudio({
-      gateway: { available: () => false, validate: async () => [], preview: async () => [], scaffold: async () => [] },
+      gateway: { available: () => false, validate: async () => [], preview: async () => [], scaffold: async () => [], ...ioGateway },
+      renderer: fakeRenderer,
+      files: fakeFiles(),
       store: { load: () => reference(), save: (k, d) => { saved[k] = d; } },
       workspace: { root: () => null, confirm: () => confirm, prompt: () => null },
       repaint: () => {},

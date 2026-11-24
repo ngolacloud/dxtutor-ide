@@ -86,3 +86,24 @@ export const archScaffoldPreview = (arch: ArchitectureDto): Promise<[string, str
 
 export const archScaffold = (root: string, arch: ArchitectureDto): Promise<string[]> =>
   invoke<string[]>("arch_scaffold", { root, arch });
+
+/** O resultado de importar Mermaid: o modelo e o que não veio tal e qual. */
+export interface MermaidImportDto {
+  arch: ArchitectureDto;
+  warnings: string[];
+}
+
+/** Mermaid `graph TB` do desenho (com as linhas `%% dxt:` que tornam a ida e volta exacta). */
+export const archExportMermaid = (arch: ArchitectureDto): Promise<string> =>
+  invoke<string>("arch_export_mermaid", { arch });
+
+/** Parse no Rust de um `graph`/`flowchart`; erro só quando não é um flowchart. */
+export const archImportMermaid = (source: string): Promise<MermaidImportDto> =>
+  invoke<MermaidImportDto>("arch_import_mermaid", { source });
+
+/** Escreve uma exportação (bytes) DENTRO da pasta do projecto. Devolve o caminho relativo. */
+export const archSaveExport = (root: string, rel: string, bytes: Uint8Array): Promise<string> =>
+  invoke<string>("arch_save_export", { root, rel, bytes: Array.from(bytes) });
+
+/** Lê um ficheiro de texto (o Studio só pede caminhos dentro da pasta do projecto). */
+export const readTextFile = (path: string): Promise<string> => invoke<string>("read_text_file", { path });

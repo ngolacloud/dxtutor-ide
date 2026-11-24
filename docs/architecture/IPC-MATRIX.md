@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (161 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (162 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 161 comandos, **64 são consumidos pela `ui-app`** e **97 não o são**: a UI
+Dos 162 comandos, **68 são consumidos pela `ui-app`** e **94 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -251,7 +251,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `git_checkout` | `root: String`, `branch: String` | `()` | String | — | — (via `exec`) | **G** |
 | `git_create_branch` | `root: String`, `name: String` | `()` | String | — | — (via `exec`) | **G** |
 
-## 9. Agente / arquitectura — `commands/agent.rs` (9)
+## 9. Agente / arquitectura — `commands/agent.rs` (10)
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/agent.rs` (adaptadores finos)
 > sobre o caso de uso Tauri-free `agent` — regra do scaffold com erro tipado
@@ -267,8 +267,9 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `arch_validate` | `arch: arch::Architecture` | `Vec<arch::Finding>` | String | — | `platform/tauri/arch.ts` (`features/arch`) | R |
 | `arch_scaffold` | `root: String`, `arch: arch::Architecture` | `Vec<String>` | String | — | `platform/tauri/arch.ts` (`features/arch`) | **W** |
 | `arch_scaffold_preview` | `arch: arch::Architecture` | `Vec<(String,String)>` | — | — | `platform/tauri/arch.ts` (`features/arch`) | R |
-| `arch_export_mermaid` | `arch: arch::Architecture` | `String` | — | — | — | R |
-| `arch_import_mermaid` | `source: String` | `arch::mermaid::MermaidImport` (`{ arch, warnings }`) | String | — | — | R |
+| `arch_export_mermaid` | `arch: arch::Architecture` | `String` | — | — | `platform/tauri/arch.ts` (`features/arch`) | R |
+| `arch_import_mermaid` | `source: String` | `arch::mermaid::MermaidImport` (`{ arch, warnings }`) | String | — | `platform/tauri/arch.ts` (`features/arch`) | R |
+| `arch_save_export` | `root: String`, `rel: String`, `bytes: Vec<u8>` | `String` (caminho relativo escrito) | String | — | `platform/tauri/arch.ts` (`features/arch`) | **W** (só dentro de `root`, só svg/png/mmd/md/json) |
 
 ## 10. Co-Dev — `commands/codev.rs` (5)
 
@@ -419,7 +420,7 @@ do `bridge.rs`).
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `list_dir` | `path: String` | `Vec<EntryDto>` | String | — | — | R |
-| `read_text_file` | `path: String` | `String` | String | — | — | R |
+| `read_text_file` | `path: String` | `String` | String | — | `platform/tauri/arch.ts` (`features/arch`: abrir do projecto) | R |
 | `write_text_file` | `path: String`, `contents: String` | `()` | String | — | — | **W** |
 | `create_path` | `path: String`, `is_dir: bool` | `()` | String | — | — | **W** |
 | `delete_path` | `path: String` | `()` | String | — | — | **W** |
@@ -503,10 +504,10 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **161** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 9 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **64** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1 · `features/panel` 8 · `platform/tauri/arch.ts` 3) |
-| Não consumidos pela `ui-app` | **97** |
+| Comandos registados | **162** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
+| Consumidos pela `ui-app` | **68** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1 · `features/panel` 8 · `platform/tauri/arch.ts` 7) |
+| Não consumidos pela `ui-app` | **94** |
 | Eventos distintos | **15** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |

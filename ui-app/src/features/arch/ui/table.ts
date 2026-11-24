@@ -23,6 +23,23 @@ export function archActions(studio: ArchStudio, prompt: (message: string, initia
     },
     "arch-add-group": { on: "click", run: () => { const l = ask("Group label (e.g. Host, Control Plane, Node 1):"); if (l) studio.addGroup(l); } },
     "arch-arrange": { on: "click", run: () => studio.arrange() },
+    "arch-io": { on: "click", run: () => studio.toggleIo() },
+    "arch-export": { on: "click", run: ({ on }) => { if (on === "svg" || on === "png" || on === "mermaid" || on === "json") void studio.exportAs(on); } },
+    "arch-import-mermaid": {
+      on: "click",
+      run: ({ el }) => {
+        const src = el.closest("[data-arch-insp]")?.querySelector<HTMLTextAreaElement>("[data-arch-mermaid]")?.value ?? "";
+        if (src.trim()) void studio.importMermaid(src);
+      },
+    },
+    "arch-open": {
+      on: "click",
+      run: ({ el }) => {
+        const rel = el.closest("[data-arch-insp]")?.querySelector<HTMLInputElement>("[data-arch-open]")?.value ?? "";
+        void studio.openFromProject(rel);
+      },
+    },
+    "arch-import-block": { on: "click", run: ({ on }) => void studio.importBlock(idx(on)) },
     "arch-add-view": { on: "click", run: () => { const t = ask("Panel title (e.g. Docker, Delonix):"); if (t) studio.addView(t); } },
 
     // componente

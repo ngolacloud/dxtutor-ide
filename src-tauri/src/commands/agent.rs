@@ -62,6 +62,16 @@ pub fn arch_import_mermaid(source: String) -> Result<agent::MermaidImport, Strin
     agent::import_mermaid(&source)
 }
 
+/// Write a Studio export (SVG, PNG, Mermaid, design file) as raw bytes to `rel` INSIDE
+/// `root`: same confinement as `write_file`, and only the export extensions. The UI asks
+/// for confirmation first. Returns the relative path written.
+#[tauri::command]
+pub async fn arch_save_export(root: String, rel: String, bytes: Vec<u8>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || agent::save_export(Path::new(&root), &rel, &bytes))
+        .await
+        .map_err(|e| format!("export task failed: {e}"))?
+}
+
 /// Run a delegated task in an isolated git worktree of HEAD: apply `writes` ([relPath,
 /// content] pairs) there and return the unified diff, WITHOUT touching the working tree
 /// (RF-AG-01/05). The caller reviews the patch before anything lands.

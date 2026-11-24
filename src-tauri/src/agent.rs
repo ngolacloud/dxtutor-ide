@@ -56,6 +56,37 @@ pub fn import_mermaid(source: &str) -> Result<MermaidImport, String> {
     tutor_eval::arch::mermaid::from_mermaid(source)
 }
 
+/// Extensões que o Studio pode exportar para a pasta do projecto.
+pub const EXPORT_EXTENSIONS: &[&str] = &["svg", "png", "mmd", "md", "json"];
+
+/// Escreve uma exportação do Studio (SVG, PNG, Mermaid, ficheiro do desenho) em `rel`,
+/// DENTRO de `root` (o mesmo confinamento do `write_file`: sem `..`, sem caminhos
+/// absolutos, sem sair por symlinks) e só com uma das [`EXPORT_EXTENSIONS`]. Cria as
+/// pastas que faltarem e substitui um ficheiro existente (a UI confirma antes). Devolve o
+/// caminho relativo escrito.
+pub fn save_export(root: &Path, rel: &str, bytes: &[u8]) -> Result<String, String> {
+    let ext = Path::new(rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if !EXPORT_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!(
+            "`{rel}`: the Studio only exports {}",
+            EXPORT_EXTENSIONS.join(", ")
+        ));
+    }
+    // confinamento ANTES de criar pastas (como `workspace::write`): um symlink dentro do
+    // projecto não pode servir para criar nada fora dele
+    let p = crate::workspace::safe_join(root, rel)?;
+    crate::workspace::ensure_within(root, &p)?;
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{rel}: {e}"))?;
+    }
+    std::fs::write(&p, bytes).map_err(|e| format!("{rel}: {e}"))?;
+    Ok(rel.to_string())
+}
+
 /// Pré-visualiza o scaffold de um desenho SEM escrever: os pares `(relPath, content)` que
 /// [`scaffold`] escreveria. Vazio se o desenho for inválido (mesma regra do scaffold).
 /// Delega a `Architecture::scaffold`.
@@ -200,6 +231,31 @@ mod tests {
             connections: vec![Connection::new("svc", "db", Relation::Writes, "")],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn save_export_writes_inside_the_project_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let rel = save_export(root, "docs/architecture/d.png", &[0x89, b'P', b'N', b'G'])
+            .expect("escreve dentro da pasta");
+        assert_eq!(rel, "docs/architecture/d.png");
+        assert_eq!(
+            std::fs::read(root.join("docs/architecture/d.png")).unwrap(),
+            [0x89, b'P', b'N', b'G']
+        );
+        // substitui (a UI confirma antes)
+        save_export(root, "docs/architecture/d.png", b"x").unwrap();
+        assert_eq!(
+            std::fs::read(root.join("docs/architecture/d.png")).unwrap(),
+            b"x"
+        );
+        // fora da pasta, absoluto, ou extensão que não é de exportação: recusado
+        assert!(save_export(root, "../fora.svg", b"x").is_err());
+        assert!(save_export(root, "/tmp/abs.svg", b"x").is_err());
+        assert!(save_export(root, "docs/run.sh", b"x").is_err());
+        assert!(save_export(root, "docs/noext", b"x").is_err());
+        assert!(!root.join("docs/run.sh").exists());
     }
 
     #[test]
