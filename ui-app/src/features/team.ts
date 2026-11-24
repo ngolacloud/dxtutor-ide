@@ -59,7 +59,7 @@ const AGENTS: Record<string, Agent> = (window.AGENTS = {
 AGENTS.be.max = 8; AGENTS.ops.max = 12;
 window.AGENT='lead';
 const globRe=(g:string)=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=>x.replace(/[.+^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*')+'$');
-const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
+export const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
 const canRun=(a:string,cmd:string)=>AGENTS[a].cmds.some(c=>c==='*'||cmd.startsWith(c));
 const ownerOf=(p:string)=>Object.keys(AGENTS).find(k=>k!=='lead'&&inScope(k,p))||'lead';
 function harnessCheck(p:string){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(`fora do escopo do assistente ${AGENTS[AGENT].n}. Pode escrever em: ${AGENTS[AGENT].paths.join(', ')||'nada'}. Este caminho pertence a: ${AGENTS[o].n}.`);}}
@@ -239,7 +239,7 @@ export function codeGuard(what: string): boolean {
   return true;
 }
 
-Object.assign(window, { openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill,
+Object.assign(window, { openTeam, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill,
   RIGHTS, RIGHT_RE, HARN, MORD, isHuman, reviewIssue,
 });
 

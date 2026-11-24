@@ -20,6 +20,7 @@ import { bus } from "./app/bus";
 import { registerActions } from "./app/actions";
 import { tabMarks } from "./app/tab-marks";
 import { editorStore } from "./app/store/editor";
+import { drawTabs } from "./features/tabs";
 
 export {};
 

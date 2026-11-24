@@ -15,6 +15,8 @@ import type { AppCmd, AppMenu } from "./ide-globals";
 import { translator } from "./i18n";
 import { BOOT_MESSAGES } from "./boot-steps.messages";
 import { loadTeam, HT } from "../features/team";
+import { ltResume } from "../features/learn";
+import { loadSD } from "../features/studio";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 

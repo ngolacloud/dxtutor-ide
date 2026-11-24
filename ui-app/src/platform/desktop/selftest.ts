@@ -14,6 +14,7 @@ import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
+import { sdAdd } from "../../features/studio";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -639,7 +640,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const W = window as unknown as { SD: { nodes: Array<{ n: string }> }; sdAdd: (t: string) => void; loadSD: () => { nodes: unknown[] } };
       const key = ROOT + ".dxtutor/studio.json";
       const emptyAtStart = W.SD.nodes.length === 0 && !FS[key];
-      W.sdAdd("rust-axum"); flushSave(); await idle();
+      sdAdd("rust-axum"); flushSave(); await idle();
       const disk = (await sh("cat", [".dxtutor/studio.json"])).stdout;
       let onDisk = 0; try { onDisk = JSON.parse(disk).nodes.length; } catch { /* não gravou */ }
       W.SD = { nodes: [] } as never;
