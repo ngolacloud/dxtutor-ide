@@ -45,8 +45,9 @@ export const listAgentSessions = (root: string): Promise<unknown> => invoke<unkn
 export const agentHistory = (sessionId: string): Promise<unknown> => invoke<unknown>("codev_agent_history", { sessionId });
 
 /** Envia uma mensagem (`text: null` repete a partir do histórico). Responde por eventos. */
-export const sendAgent = (sessionId: string, text: string | null): Promise<void> =>
-  invoke<void>("codev_agent_send", { sessionId, text });
+/** `origin`: the human request the turn answers (`{kind, issue?, scope?}`, RF-G01). */
+export const sendAgent = (sessionId: string, text: string | null, origin?: { kind: string; issue?: string; scope?: string[] }): Promise<void> =>
+  invoke<void>("codev_agent_send", { sessionId, text, origin: origin ?? null });
 
 export const approveAgent = (sessionId: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean> =>
   invoke<boolean>("codev_agent_approve", { sessionId, toolUseId, allow, reason: reason ?? null, remember: remember ?? false });

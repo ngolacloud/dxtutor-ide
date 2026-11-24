@@ -145,6 +145,8 @@ pub struct SessionLog {
     path: PathBuf,
     persisted: usize,
     meta: SessionMeta,
+    /// Masks secrets in the messages (RF-T05); `None` writes them as they are.
+    redactor: Option<crate::redact::Redactor>,
 }
 
 fn open_append(path: &Path, create: bool) -> std::io::Result<std::fs::File> {
@@ -161,8 +163,21 @@ fn open_append(path: &Path, create: bool) -> std::io::Result<std::fs::File> {
     o.open(path)
 }
 
-fn write_line(f: &mut std::fs::File, line: &Line) -> std::io::Result<()> {
-    let mut s = serde_json::to_string(line).map_err(std::io::Error::other)?;
+/// One line of the file, with the secrets masked when there is a redactor (RF-T05).
+fn write_line(
+    f: &mut std::fs::File,
+    line: &Line,
+    redactor: Option<&crate::redact::Redactor>,
+) -> std::io::Result<()> {
+    let mut s = match redactor {
+        Some(r) => {
+            let mut v = serde_json::to_value(line).map_err(std::io::Error::other)?;
+            r.mask_json(&mut v);
+            serde_json::to_string(&v)
+        }
+        None => serde_json::to_string(line),
+    }
+    .map_err(std::io::Error::other)?;
     s.push('\n');
     f.write_all(s.as_bytes())
 }
@@ -173,11 +188,12 @@ impl SessionLog {
         let path = session_path(dir, &meta.id)?;
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let mut f = open_append(&path, true).map_err(|e| format!("{}: {e}", path.display()))?;
-        write_line(&mut f, &Line::Meta { meta: meta.clone() }).map_err(|e| e.to_string())?;
+        write_line(&mut f, &Line::Meta { meta: meta.clone() }, None).map_err(|e| e.to_string())?;
         Ok(SessionLog {
             path,
             persisted: 0,
             meta: meta.clone(),
+            redactor: None,
         })
     }
 
@@ -215,6 +231,7 @@ impl SessionLog {
                 path,
                 persisted,
                 meta,
+                redactor: None,
             },
         ))
     }
@@ -227,7 +244,12 @@ impl SessionLog {
         }
         let mut f = open_append(&self.path, false).map_err(|e| e.to_string())?;
         for m in new {
-            write_line(&mut f, &Line::Message { message: m.clone() }).map_err(|e| e.to_string())?;
+            write_line(
+                &mut f,
+                &Line::Message { message: m.clone() },
+                self.redactor.as_ref(),
+            )
+            .map_err(|e| e.to_string())?;
         }
         self.persisted = t.len();
         Ok(())
@@ -235,6 +257,13 @@ impl SessionLog {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Masks secrets in the messages written from now on (RF-T05). The header (system prompt,
+    /// tool definitions) is written as is: it is the request prefix a resume must send again
+    /// byte for byte.
+    pub fn set_redactor(&mut self, r: crate::redact::Redactor) {
+        self.redactor = Some(r);
     }
 
     /// Replaces the file with the header and `t` ("Rewind to here" cuts the conversation back
@@ -250,11 +279,16 @@ impl SessionLog {
                 &Line::Meta {
                     meta: self.meta.clone(),
                 },
+                None,
             )
             .map_err(|e| e.to_string())?;
             for m in t.messages() {
-                write_line(&mut f, &Line::Message { message: m.clone() })
-                    .map_err(|e| e.to_string())?;
+                write_line(
+                    &mut f,
+                    &Line::Message { message: m.clone() },
+                    self.redactor.as_ref(),
+                )
+                .map_err(|e| e.to_string())?;
             }
             f.sync_all().map_err(|e| e.to_string())?;
         }

@@ -480,6 +480,151 @@ const PUBLISH: &[(&str, &str)] = &[
     ("podman", "push"),
 ];
 
+/// The current branch of the repository at `root` (from `.git/HEAD`, also in a worktree).
+fn current_branch(root: &Path) -> Option<String> {
+    let git = root.join(".git");
+    let head = if git.is_dir() {
+        std::fs::read_to_string(git.join("HEAD")).ok()?
+    } else {
+        // a worktree: `.git` is a file `gitdir: <path>`
+        let dir = std::fs::read_to_string(&git).ok()?;
+        let dir = dir.trim().strip_prefix("gitdir:")?.trim().to_string();
+        std::fs::read_to_string(Path::new(&dir).join("HEAD")).ok()?
+    };
+    head.trim()
+        .strip_prefix("ref: refs/heads/")
+        .map(str::to_string)
+}
+
+/// The shared branches: a merge into one of them always asks (RF-G05).
+const SHARED_BRANCHES: &[&str] = &["main", "master", "develop", "staging", "production"];
+
+/// Operations that are irreversible or reach shared systems, whatever tool runs them
+/// (RF-G05, docs/v2/RF-DELONIX-PLANO.md F1.5): deploys, database migrations, cluster and
+/// release changes. Looks at the whole command line (`npm run deploy`, `npx prisma migrate
+/// deploy`, `bin/rails db:migrate`…). `None`: nothing of the kind.
+fn irreversible(words: &[String]) -> Option<String> {
+    let w: Vec<String> = words.iter().map(|x| x.to_ascii_lowercase()).collect();
+    let has = |x: &str| w.iter().any(|a| a == x);
+    let after = |x: &str| -> Option<&str> {
+        w.iter()
+            .position(|a| a == x || a.ends_with(&format!("/{x}")))
+            .and_then(|i| w[i + 1..].iter().find(|a| !a.starts_with('-')))
+            .map(String::as_str)
+    };
+    let name = w.first().map(|n| base(n)).unwrap_or_default();
+    // deploys
+    if has("deploy")
+        || w.iter()
+            .any(|a| a == "deploy:prod" || a.starts_with("deploy:"))
+    {
+        return Some("faz deploy".into());
+    }
+    if (name == "vercel" && has("--prod"))
+        || (name == "pulumi" && matches!(after("pulumi"), Some("up" | "destroy")))
+    {
+        return Some(format!("{name}: deploy/alteração de infraestrutura"));
+    }
+    if let Some(sub) = after("helm") {
+        if matches!(
+            sub,
+            "install" | "upgrade" | "uninstall" | "delete" | "rollback"
+        ) {
+            return Some(format!("helm {sub}: altera o cluster"));
+        }
+    }
+    if let Some(sub) = after("kubectl") {
+        if matches!(
+            sub,
+            "apply"
+                | "create"
+                | "patch"
+                | "set"
+                | "scale"
+                | "rollout"
+                | "edit"
+                | "annotate"
+                | "label"
+                | "cordon"
+                | "uncordon"
+                | "taint"
+                | "run"
+                | "expose"
+                | "autoscale"
+        ) {
+            return Some(format!("kubectl {sub}: altera o cluster"));
+        }
+    }
+    // releases and merges on the forge
+    if let Some(sub) = after("gh") {
+        let next = w
+            .iter()
+            .position(|a| a == sub)
+            .and_then(|i| w.get(i + 1))
+            .map(String::as_str);
+        match (sub, next) {
+            ("pr", Some("merge")) => return Some("gh pr merge: funde no ramo partilhado".into()),
+            ("release", Some("create" | "delete" | "upload" | "edit")) => {
+                return Some("gh release: publica uma versão".into())
+            }
+            ("repo", Some("delete" | "archive" | "rename")) => {
+                return Some("gh repo: altera o repositório remoto".into())
+            }
+            _ => {}
+        }
+    }
+    // database migrations
+    let migration = w.iter().any(|a| {
+        let a = a.trim_start_matches("npm:").trim_start_matches("yarn:");
+        a.starts_with("db:migrate")
+            || matches!(
+                a,
+                "db:drop"
+                    | "db:reset"
+                    | "db:rollback"
+                    | "db:schema:load"
+                    | "db:setup"
+                    | "db:seed"
+                    | "db:push"
+                    | "migrate:latest"
+                    | "migrate:rollback"
+                    | "migrate:up"
+                    | "migrate:down"
+                    | "migrate:reset"
+                    | "migrate:fresh"
+                    | "migrate:refresh"
+            )
+    }) || (has("prisma")
+        && (matches!(
+            after("migrate"),
+            Some("deploy" | "reset" | "dev" | "resolve")
+        ) || (has("db") && (has("push") || has("execute")))))
+        || matches!(after("alembic"), Some("upgrade" | "downgrade" | "stamp"))
+        || ((has("manage.py") || name == "django-admin") && (has("migrate") || has("flush")))
+        || (has("sqlx")
+            && ((has("migrate") && (has("run") || has("revert")))
+                || (has("database") && (has("drop") || has("reset") || has("setup")))))
+        || (has("diesel")
+            && ((has("migration") && (has("run") || has("revert") || has("redo")))
+                || (has("database") && (has("reset") || has("setup")))))
+        || matches!(
+            after("flyway"),
+            Some("migrate" | "clean" | "repair" | "undo")
+        )
+        || matches!(after("liquibase"), Some("update" | "rollback" | "drop-all"))
+        || matches!(after("goose"), Some("up" | "down" | "reset" | "redo"))
+        || (name == "migrate"
+            && w.iter()
+                .any(|a| matches!(a.as_str(), "up" | "down" | "drop" | "force" | "goto")))
+        || (name == "psql"
+            && w.iter()
+                .any(|a| a == "-f" || a == "--file" || a.starts_with("--file=")));
+    if migration {
+        return Some("migração/escrita numa base de dados".into());
+    }
+    None
+}
+
 fn assess_simple(words: &[String], redirects: &[String], root: &Path, out: &mut Assessment) {
     for r in redirects {
         if touches_control_files(r) {
@@ -547,6 +692,16 @@ fn assess_simple(words: &[String], redirects: &[String], root: &Path, out: &mut 
     if PUBLISH.iter().any(|(n, s)| name == *n && sub == *s) {
         return out.raise(Risk::Dangerous, format!("{name} {sub}: publica para fora"));
     }
+    if let Some(why) = irreversible(&w) {
+        return out.raise(Risk::Dangerous, why);
+    }
+    // `--force` (and `--force-with-lease`) overrides a safety check of the tool itself
+    if args
+        .iter()
+        .any(|a| a == "--force" || a.starts_with("--force-") || a.starts_with("--force="))
+    {
+        return out.raise(Risk::Dangerous, format!("{name} com --force"));
+    }
 
     // comandos que mexem em ficheiros com caminhos fora do projecto
     if matches!(
@@ -587,10 +742,12 @@ fn assess_simple(words: &[String], redirects: &[String], root: &Path, out: &mut 
             } else if args.iter().any(|a| a == "*" || a == "." || a == "..") {
                 out.raise(Risk::Dangerous, "rm de tudo na pasta");
             } else {
-                out.raise(Risk::Unknown, "apaga ficheiros");
+                // RF-G05: deleting files always asks, in every mode
+                out.raise(Risk::Dangerous, "apaga ficheiros");
             }
         }
-        "git" => assess_git(args, out),
+        "unlink" => out.raise(Risk::Dangerous, "apaga um ficheiro"),
+        "git" => assess_git(args, root, out),
         "find" => {
             if args
                 .iter()
@@ -690,7 +847,7 @@ fn assess_simple(words: &[String], redirects: &[String], root: &Path, out: &mut 
     }
 }
 
-fn assess_git(args: &[String], out: &mut Assessment) {
+fn assess_git(args: &[String], root: &Path, out: &mut Assessment) {
     // opções globais antes do subcomando (`git -C dir …`, `git -c k=v …`)
     let mut i = 0;
     while i < args.len() && args[i].starts_with('-') {
@@ -706,6 +863,20 @@ fn assess_git(args: &[String], out: &mut Assessment) {
         |out: &mut Assessment, why: &str| out.raise(Risk::Dangerous, format!("git {sub}: {why}"));
     match sub {
         "push" => danger(out, "publica no remoto"),
+        // RF-G05: a merge into a shared branch (the one checked out, or one named with
+        // `git merge … --into`-like tools) always asks; elsewhere it is a normal change
+        "merge" | "pull"
+            if current_branch(root).is_some_and(|b| SHARED_BRANCHES.contains(&b.as_str())) =>
+        {
+            danger(
+                out,
+                &format!(
+                    "funde em {} (ramo partilhado)",
+                    current_branch(root).unwrap_or_default()
+                ),
+            )
+        }
+        "rm" => danger(out, "apaga ficheiros do repositório"),
         "reset" if has("--hard") || has("--merge") || has("--keep") => {
             danger(out, "descarta alterações")
         }

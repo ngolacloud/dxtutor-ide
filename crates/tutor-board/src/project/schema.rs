@@ -139,6 +139,36 @@ const MIGRATIONS: &[&str] = &[
         markdown   TEXT NOT NULL
     );
     CREATE INDEX idx_artifacts_issue ON artifacts(root, issue_key, at);",
+    // 3 — the audit log of Co-Dev (RF-T01, docs/v2/RF-DELONIX-PLANO.md F1.2): one row per
+    //     decision on an action, per mode change and per turn, with the human request it
+    //     answered. Secrets are masked by the writer (RF-T05).
+    "CREATE TABLE audit (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        at          INTEGER NOT NULL,
+        session     TEXT NOT NULL,
+        event       TEXT NOT NULL,
+        origin      TEXT NOT NULL,
+        issue_key   TEXT,
+        actor       TEXT NOT NULL,
+        mode        TEXT NOT NULL,
+        tool        TEXT,
+        call        TEXT,
+        path        TEXT,
+        lines       TEXT,
+        command     TEXT,
+        verdict     TEXT,
+        outcome     TEXT,
+        decided_by  TEXT,
+        decided_at  INTEGER,
+        reason      TEXT,
+        model       TEXT,
+        tokens_in   INTEGER,
+        tokens_out  INTEGER,
+        driver      TEXT
+    );
+    CREATE INDEX idx_audit_issue ON audit(root, issue_key, at);
+    CREATE INDEX idx_audit_session ON audit(session, at);",
 ];
 
 /// The schema version this code expects.

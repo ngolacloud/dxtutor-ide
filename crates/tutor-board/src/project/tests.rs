@@ -520,5 +520,50 @@ fn turn_reports_are_kept_with_their_issue() {
         .conn()
         .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(n, 2);
+    assert!(n >= 2, "the reports migration ran");
+}
+
+#[test]
+fn the_audit_log_keeps_every_decision_in_order_and_by_issue() {
+    let mut s = store();
+    let k = create(&mut s, "x", T0);
+    let call = |at: i64, issue: Option<&str>, outcome: &str| AuditEntry {
+        at,
+        session: "cda-1".into(),
+        event: "call".into(),
+        origin: if issue.is_some() { "issue" } else { "chat" }.into(),
+        issue_key: issue.map(str::to_string),
+        actor: "ana".into(),
+        mode: "auto".into(),
+        tool: Some("bash".into()),
+        call: Some("toolu_1".into()),
+        command: Some("git push".into()),
+        verdict: Some("ask".into()),
+        outcome: Some(outcome.into()),
+        decided_by: Some("human:ana".into()),
+        decided_at: Some(at + 5),
+        ..Default::default()
+    };
+    s.record_audit(ROOT, &call(T0 + 2, Some(&k), "denied"))
+        .unwrap();
+    s.record_audit(ROOT, &call(T0 + 1, Some(&k), "allowed"))
+        .unwrap();
+    s.record_audit(ROOT, &call(T0 + 3, None, "allowed"))
+        .unwrap();
+    s.record_audit("/other", &call(T0, Some(&k), "allowed"))
+        .unwrap();
+    let of_issue = s.audit(ROOT, Some(&k)).unwrap();
+    assert_eq!(
+        of_issue
+            .iter()
+            .map(|e| e.outcome.clone().unwrap())
+            .collect::<Vec<_>>(),
+        ["allowed", "denied"]
+    );
+    assert_eq!(of_issue[0].decided_by.as_deref(), Some("human:ana"));
+    assert_eq!(s.audit(ROOT, None).unwrap().len(), 3);
+    // the export is JSON, camelCase
+    let j = serde_json::to_value(&of_issue[0]).unwrap();
+    assert_eq!(j["issueKey"], serde_json::json!(k));
+    assert_eq!(j["decidedBy"], "human:ana");
 }

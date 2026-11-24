@@ -376,3 +376,13 @@ test("língua do ditado: português por omissão, escolhida no «/», vai ao whi
   await flush();
   expect(t.dict.calls.at(-1)).toBe("stop:en");
 });
+
+test("RF-G07: Esc na caixa pára o Co-Dev a correr; parado, não faz nada", () => {
+  const t = setup();
+  const esc = () => t.$("#ag-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  esc();
+  expect(t.sent).toEqual([]);
+  t.state.running = true;
+  esc();
+  expect(t.sent).toEqual(["<stop>"]);
+});

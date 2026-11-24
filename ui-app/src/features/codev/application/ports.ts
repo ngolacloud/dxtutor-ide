@@ -23,7 +23,7 @@ import type {
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
-import type { AgentEvent, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
+import type { AgentEvent, AgentOrigin, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -266,7 +266,8 @@ export interface AgentGateway {
   savePermissions(root: string, rules: { allow: string[]; deny: string[] }): Promise<void>;
   extensions(root: string): Promise<ExtensionsStatus>;
   trust(root: string, kind: "hooks" | "mcp"): Promise<void>;
-  send(session: string, text: string | null): Promise<void>;
+  /** `origin`: the human request (RF-G01); `text: null` («try again») keeps the last one. */
+  send(session: string, text: string | null, origin?: AgentOrigin): Promise<void>;
   approve(session: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean>;
   cancel(session: string): Promise<boolean>;
   setMode(session: string, mode: string): Promise<boolean>;

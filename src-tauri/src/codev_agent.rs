@@ -25,7 +25,8 @@ use tutor_agent::hooks::{Hooks, HOOKS_FILE};
 use tutor_agent::hunks::{self, Check, RejectedBy, ValidationStatus};
 use tutor_agent::mcp::{self, McpTool};
 use tutor_agent::openai::{self, OpenAiCompat};
-use tutor_agent::permissions::{Mode, Policy, Rules, Verdict};
+use tutor_agent::permissions::{Mode, Origin, Policy, Rules, Verdict, NO_REQUEST};
+use tutor_agent::redact::Redactor;
 use tutor_agent::session::{self, HistoryItem, SessionLog, SessionMeta, SessionSummary};
 use tutor_agent::tools::flow::SubagentSpec;
 use tutor_agent::tools::{agent_tools, FileState, FlowState, ToolsetOptions, TOOLSET_VERSION};
@@ -282,6 +283,10 @@ struct Session {
     /// "Rewind to here" can take the conversation back too (A3, HARNESS-03). Only for the
     /// turns of this run of the app: a resumed session rewinds the files only.
     cp_marks: Mutex<HashMap<u32, usize>>,
+    /// The human request of the current turn (RF-G01); «try again» keeps the last one.
+    origin: Mutex<Option<Origin>>,
+    /// Masks secrets in what is written to disk: session log and audit log (RF-T05).
+    redactor: Redactor,
 }
 
 /// A checkpoint as the UI lists it: whether the conversation can go back with the files.
@@ -573,6 +578,13 @@ pub fn start(
         root.clone(),
     );
     policy.plan = flow.plan_mode.clone();
+    // RF-G01: in the IDE every action answers a human request (the UI sends its origin)
+    policy.require_origin = true;
+    let redactor = Redactor::for_root(&root);
+    let mut log = log;
+    if let Some(l) = log.as_mut() {
+        l.set_redactor(redactor.clone());
+    }
     let checkpoints = Checkpoints::new(&root, &meta.id).map(Arc::new);
     // live hunks: the read/edit/write state is shared between the tools and the loop
     let files = spec.review_edits.then(|| Arc::new(FileState::default()));
@@ -649,6 +661,8 @@ pub fn start(
         change_log: spec.change_log.clone(),
         issue_key: Mutex::new(spec.issue_key.clone().filter(|k| !k.trim().is_empty())),
         cp_marks: Mutex::new(HashMap::new()),
+        origin: Mutex::new(None),
+        redactor,
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -678,6 +692,7 @@ fn get(id: &str) -> Result<Arc<Session>, String> {
 pub fn send(
     id: &str,
     text: Option<String>,
+    origin: Option<Origin>,
     on_event: &mut dyn FnMut(AgentEvent),
     on_approval: &mut dyn FnMut(&ApprovalRequest),
 ) -> Result<TurnOutcome, String> {
@@ -685,6 +700,20 @@ pub fn send(
     if s.busy.swap(true, Ordering::SeqCst) {
         return Err("a sessão já está a correr um turno".into());
     }
+    // RF-G01: the turn's human request. A new message brings its own (none → its actions are
+    // blocked); «try again» (`text: None`) answers the same request as before.
+    if text.is_some() {
+        let o = origin.map(|mut o| {
+            o.by = crate::board::actor(&s.agent.ctx.root.display().to_string());
+            o.scope.retain(|p| !p.trim().is_empty());
+            o
+        });
+        if let Some(k) = o.as_ref().and_then(|o| o.issue.clone()) {
+            *s.issue_key.lock().unwrap() = Some(k);
+        }
+        *s.origin.lock().unwrap() = o;
+    }
+    s.policy.lock().unwrap().origin = s.origin.lock().unwrap().clone();
     s.agent.ctx.cancel.store(false, Ordering::Relaxed);
     let session = s.clone();
     // one sink for the loop's events and the host's own (hunk_review, validation): one
@@ -702,8 +731,16 @@ pub fn send(
     let auto = RefCell::new(AutoTurn::default());
     let held_done: RefCell<Option<AgentEvent>> = RefCell::new(None);
     let metas: RefCell<HashMap<String, HunkMeta>> = RefCell::new(HashMap::new());
+    // the turn's tokens and model, for the audit log
+    let turn_usage = std::cell::Cell::new((0u64, 0u64));
+    let served_by: RefCell<Option<String>> = RefCell::new(None);
     let mut on_loop_event = |e: AgentEvent| {
         match &e {
+            AgentEvent::Usage { turn, .. } => turn_usage.set((
+                turn.input_tokens + turn.cache_read_input_tokens + turn.cache_creation_input_tokens,
+                turn.output_tokens,
+            )),
+            AgentEvent::ServedBy { model } => *served_by.borrow_mut() = Some(model.clone()),
             AgentEvent::Checkpoint { id, .. } => {
                 auto.borrow_mut().checkpoint = Some(*id);
                 session
@@ -757,8 +794,9 @@ pub fn send(
         }
         emit(e);
     };
-    let mut approve = |call: &PendingCall| -> Decision {
-        let verdict = session.policy.lock().unwrap().decide(call);
+    // did the last decision wait for the human? (who decided, for the audit log)
+    let asked_human = std::cell::Cell::new(false);
+    let mut decide_call = |call: &PendingCall, verdict: Verdict| -> Decision {
         if session.review_edits && !call.hunks.is_empty() {
             let mode = session.policy.lock().unwrap().mode;
             let can_validate = !session.checks.is_empty() && session.agent.checkpoints.is_some();
@@ -807,6 +845,7 @@ pub fn send(
                 reason,
                 why: None,
             });
+            asked_human.set(true);
             let d = wait_decision(&rx, &session.agent.ctx.cancel);
             session.pending.lock().unwrap().remove(&call.id);
             session.review.lock().unwrap().remove(&call.id);
@@ -833,8 +872,56 @@ pub fn send(
             dangerous,
             suggested_rule,
         });
+        asked_human.set(true);
         let d = wait_decision(&rx, &session.agent.ctx.cancel);
         session.pending.lock().unwrap().remove(&call.id);
+        d
+    };
+    // every decision on an action goes to the audit log (RF-T01)
+    let mut approve = |call: &PendingCall| -> Decision {
+        let verdict = session.policy.lock().unwrap().decide(call);
+        asked_human.set(false);
+        let d = decide_call(call, verdict.clone());
+        let mut e = audit_entry(&session, "call");
+        e.tool = Some(call.name.clone());
+        e.call = Some(call.id.clone());
+        e.path = call
+            .input
+            .get("path")
+            .and_then(|p| p.as_str())
+            .map(str::to_string);
+        let ranges: Vec<String> = call
+            .hunks
+            .iter()
+            .filter_map(|h| {
+                metas
+                    .borrow()
+                    .get(h)
+                    .map(|m| format!("{}-{}", m.start, m.end))
+            })
+            .collect();
+        e.lines = (!ranges.is_empty()).then(|| ranges.join(","));
+        e.command = call.command.clone();
+        let (verdict_s, reason) = match &verdict {
+            Verdict::Allow => ("allow", None),
+            Verdict::Ask { reason, .. } => ("ask", Some(reason.clone())),
+            Verdict::Deny { reason } => ("deny", Some(reason.clone())),
+        };
+        e.verdict = Some(verdict_s.into());
+        e.outcome = Some(outcome_of(&d).into());
+        e.decided_by = Some(if session.agent.ctx.cancel.load(Ordering::Relaxed) {
+            "cancel".to_string()
+        } else if asked_human.get() {
+            format!("human:{}", e.actor)
+        } else {
+            "policy".to_string()
+        });
+        e.decided_at = Some(now_ms());
+        e.reason = match &d {
+            Decision::Deny(r) => Some(r.clone()),
+            _ => reason,
+        };
+        audit(&session, e);
         d
     };
     let mut t = s.transcript.lock().unwrap();
@@ -887,6 +974,26 @@ pub fn send(
     if let Some(log) = turn_log.take() {
         report_turn(&s, log, &emit);
     }
+    let (tin, tout) = turn_usage.get();
+    let mut e = audit_entry(&s, "turn");
+    e.model = Some(
+        served_by
+            .take()
+            .unwrap_or_else(|| s.agent.cfg.model.clone()),
+    );
+    e.tokens_in = Some(tin as i64);
+    e.tokens_out = Some(tout as i64);
+    e.outcome = Some(
+        match &r {
+            Ok(TurnOutcome::Done { .. }) => "done",
+            Ok(TurnOutcome::Cancelled) => "cancelled",
+            Ok(TurnOutcome::Refused { .. }) => "refused",
+            Ok(TurnOutcome::IterationLimit) => "iteration_limit",
+            Err(_) => "error",
+        }
+        .into(),
+    );
+    audit(&s, e);
     if let Some(done) = held_done.take() {
         emit(done);
     }
@@ -895,6 +1002,73 @@ pub fn send(
         AgentError::Provider(p) if openai::is_tools_unsupported(p) => format!("{NO_TOOLS_MARK}{e}"),
         _ => e.to_string(),
     })
+}
+
+/// Appends one row to the project's audit log (RF-T01), with the secrets masked (RF-T05).
+/// Without a project database (tests, no folder) nothing is recorded.
+fn audit(s: &Session, mut e: tutor_board::project::AuditEntry) {
+    let Some(db) = &s.change_log else { return };
+    let mask = |v: &mut Option<String>| {
+        if let Some(x) = v.as_mut() {
+            *x = s.redactor.mask(x);
+        }
+    };
+    mask(&mut e.command);
+    mask(&mut e.path);
+    mask(&mut e.reason);
+    let root = s.agent.ctx.root.display().to_string();
+    if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
+        let _ = st.record_audit(&root, &e);
+    }
+}
+
+/// A new audit row with the session, the current request and the mode filled in.
+fn audit_entry(s: &Session, event: &str) -> tutor_board::project::AuditEntry {
+    let origin = s.origin.lock().unwrap().clone();
+    tutor_board::project::AuditEntry {
+        at: now_ms(),
+        session: s
+            .log
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|l| {
+                l.path()
+                    .file_stem()
+                    .map(|x| x.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default(),
+        event: event.into(),
+        origin: origin
+            .as_ref()
+            .map(|o| o.kind.as_str())
+            .unwrap_or("none")
+            .into(),
+        issue_key: origin
+            .as_ref()
+            .and_then(|o| o.issue.clone())
+            .or_else(|| s.issue_key.lock().unwrap().clone()),
+        actor: origin.map(|o| o.by).unwrap_or_default(),
+        mode: s.policy.lock().unwrap().mode.as_str().into(),
+        ..Default::default()
+    }
+}
+
+/// How a decision on a call ended, for the audit log.
+fn outcome_of(d: &Decision) -> &'static str {
+    match d {
+        Decision::Allow => "allowed",
+        Decision::Deny(r) if r == NO_REQUEST => "blocked",
+        Decision::Deny(_) => "denied",
+        Decision::Hunks {
+            accepted, rejected, ..
+        } => match (accepted.is_empty(), rejected.is_empty()) {
+            (true, _) => "denied",
+            (false, true) => "allowed",
+            (false, false) => "partial",
+        },
+    }
 }
 
 fn now_ms() -> i64 {
@@ -1139,7 +1313,17 @@ pub fn review(id: &str, call: &str, decisions: &[HunkVerdict]) -> Result<(), Str
 pub fn set_mode(id: &str, mode: &str) -> bool {
     match get(id) {
         Ok(s) => {
-            s.policy.lock().unwrap().mode = Mode::parse(mode);
+            let new = Mode::parse(mode);
+            let old = std::mem::replace(&mut s.policy.lock().unwrap().mode, new);
+            if old != new {
+                // RF-G04: the mode change is in the audit log
+                let mut e = audit_entry(&s, "mode");
+                e.actor = crate::board::actor(&s.agent.ctx.root.display().to_string());
+                e.reason = Some(format!("{} → {}", old.as_str(), new.as_str()));
+                e.decided_by = Some(format!("human:{}", e.actor));
+                e.decided_at = Some(e.at);
+                audit(&s, e);
+            }
             true
         }
         Err(_) => false,
@@ -1521,6 +1705,17 @@ mod tests {
         assert!(!cancel(&id));
     }
 
+    /// The tests that call the policy directly answer a chat request (RF-G01: in the IDE an
+    /// action with no request is blocked).
+    fn chat_request(s: &Session) {
+        s.policy.lock().unwrap().origin = Some(Origin {
+            kind: tutor_agent::permissions::OriginKind::Chat,
+            issue: None,
+            by: "t".into(),
+            scope: vec![],
+        });
+    }
+
     #[test]
     fn remember_persists_the_suggested_rule_and_the_floor_never_remembers() {
         let dir = tempfile::tempdir().unwrap();
@@ -1532,6 +1727,7 @@ mod tests {
         };
         let id = start(spec, &key("sk-test"), None).unwrap();
         let s = get(&id).unwrap();
+        chat_request(&s);
         let bash = |cmd: &str| PendingCall {
             id: "x".into(),
             name: "bash".into(),
@@ -1750,6 +1946,7 @@ mod tests {
         };
         let id = start(spec, &key("sk"), None).unwrap();
         let s = get(&id).unwrap();
+        chat_request(&s);
         let edit = PendingCall {
             id: "e".into(),
             name: "edit".into(),
@@ -2255,9 +2452,101 @@ mod tests {
         let r = send(
             "cda-nada",
             Some("olá".into()),
+            None,
             &mut |_| {},
             &mut |_: &ApprovalRequest| {},
         );
         assert!(r.unwrap_err().contains("desconhecida"));
+    }
+
+    #[test]
+    fn the_ide_requires_a_request_and_logs_turns_and_mode_changes() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("board.sqlite3");
+        std::fs::write(d.path().join(".env"), "API_TOKEN=tok_9f8e7d6c5b\n").unwrap();
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            mode: Some("manual".into()),
+            provider: Some("ollama".into()),
+            ollama_host: Some("http://127.0.0.1:9".into()),
+            change_log: Some(db.clone()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert!(s.policy.lock().unwrap().require_origin);
+        let root = s.agent.ctx.root.display().to_string();
+        // an issue request: the provider is unreachable, the turn fails, but it is logged
+        let o = Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some("DX-3".into()),
+            by: "forged by the UI".into(),
+            scope: vec!["src/**".into(), " ".into()],
+        };
+        let _ = send(
+            &id,
+            Some("usa tok_9f8e7d6c5b".into()),
+            Some(o),
+            &mut |_| {},
+            &mut |_| {},
+        );
+        let held = s.origin.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            held.by,
+            crate::board::actor(&root),
+            "who asked comes from the host"
+        );
+        assert_eq!(held.scope, vec!["src/**"]);
+        assert_eq!(s.issue_key.lock().unwrap().as_deref(), Some("DX-3"));
+        // «try again» keeps the request; a new message without one has none
+        let _ = send(&id, None, None, &mut |_| {}, &mut |_| {});
+        assert!(s.policy.lock().unwrap().origin.is_some());
+        let _ = send(&id, Some("outra".into()), None, &mut |_| {}, &mut |_| {});
+        assert!(s.policy.lock().unwrap().origin.is_none());
+        assert!(set_mode(&id, "auto"));
+        assert!(
+            set_mode(&id, "auto"),
+            "the same mode again is not logged twice"
+        );
+        let st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let rows = st.audit(&root, None).unwrap();
+        let kinds: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|e| (e.event.as_str(), e.origin.as_str()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("turn", "issue"),
+                ("turn", "issue"),
+                ("turn", "none"),
+                ("mode", "none")
+            ]
+        );
+        assert_eq!(rows[0].issue_key.as_deref(), Some("DX-3"));
+        assert_eq!(rows[0].outcome.as_deref(), Some("error"));
+        assert_eq!(rows[3].reason.as_deref(), Some("manual → auto"));
+        // the session log masks the project's .env secrets (RF-T05)
+        let log = std::fs::read_to_string(s.log.lock().unwrap().as_ref().unwrap().path()).unwrap();
+        assert!(
+            log.contains("usa ••••") && !log.contains("tok_9f8e7d6c5b"),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn outcomes_for_the_audit_log() {
+        assert_eq!(outcome_of(&Decision::Allow), "allowed");
+        assert_eq!(outcome_of(&Decision::Deny(NO_REQUEST.into())), "blocked");
+        assert_eq!(outcome_of(&Decision::Deny("não".into())), "denied");
+        let h = |a: &[&str], r: &[&str]| Decision::Hunks {
+            accepted: a.iter().map(|x| x.to_string()).collect(),
+            rejected: r.iter().map(|x| (x.to_string(), String::new())).collect(),
+            provisional: false,
+        };
+        assert_eq!(outcome_of(&h(&["1"], &[])), "allowed");
+        assert_eq!(outcome_of(&h(&["1"], &["2"])), "partial");
+        assert_eq!(outcome_of(&h(&[], &["2"])), "denied");
     }
 }

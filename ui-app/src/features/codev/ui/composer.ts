@@ -776,6 +776,12 @@ function onKey(ev: KeyboardEvent): void {
     close();
     return;
   }
+  // RF-G07: with nothing to close, Esc in the box stops a running turn (like the Stop button)
+  if (ev.key === "Escape" && host.running()) {
+    ev.preventDefault();
+    host.stop();
+    return;
+  }
   if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
     ev.preventDefault();
     submit();

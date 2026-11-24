@@ -125,12 +125,104 @@ fn starts_with_words(cmd: &[String], prefix: &str) -> bool {
     !pre.is_empty() && cmd.len() >= pre.len() && cmd.iter().zip(&pre).all(|(a, b)| a == b)
 }
 
+/// Where a turn comes from (RF-G01): every action of the agent answers a human request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OriginKind {
+    /// A message the human typed in the Co-Dev chat.
+    Chat,
+    /// A command the human gave in the editor (Explain, Fix, Ctrl+I…).
+    Editor,
+    /// An issue the human sent to Co-Dev from the board.
+    Issue,
+}
+
+impl OriginKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OriginKind::Chat => "chat",
+            OriginKind::Editor => "editor",
+            OriginKind::Issue => "issue",
+        }
+    }
+}
+
+/// The human request a turn answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Origin {
+    pub kind: OriginKind,
+    /// The issue (`DX-12`) when the request is an issue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue: Option<String>,
+    /// Who asked (filled by the host from the project's git user, never trusted from the UI).
+    #[serde(default)]
+    pub by: String,
+    /// Files and folders the request may change (RF-G03): `src/**`, `docs/`, `Cargo.toml`.
+    /// Empty: the whole project. A change outside asks, in every mode.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
+}
+
+/// The reason recorded and returned for an action with no human request (RF-G01).
+pub const NO_REQUEST: &str = "bloqueada: sem pedido";
+
+/// Does `path` (relative to the project) match the scope pattern `pat`? `dir/` and `dir/**`
+/// match everything under `dir`; `*` stays inside one folder, `**` crosses folders; a plain
+/// name matches that file or that folder.
+pub fn scope_matches(pat: &str, path: &str) -> bool {
+    let pat = pat.trim().trim_start_matches("./").replace('\\', "/");
+    let path = path.trim().trim_start_matches("./").replace('\\', "/");
+    if pat.is_empty() {
+        return false;
+    }
+    if let Some(dir) = pat.strip_suffix("/**").or_else(|| pat.strip_suffix('/')) {
+        if !dir.contains(['*', '?']) {
+            return path == dir || path.starts_with(&format!("{dir}/"));
+        }
+    }
+    if !pat.contains(['*', '?']) {
+        return path == pat || path.starts_with(&format!("{}/", pat.trim_end_matches('/')));
+    }
+    let mut re = String::from("^");
+    let mut chars = pat.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '*' if chars.peek() == Some(&'*') => {
+                chars.next();
+                if chars.peek() == Some(&'/') {
+                    chars.next();
+                    re.push_str("(?:.*/)?");
+                } else {
+                    re.push_str(".*");
+                }
+            }
+            '*' => re.push_str("[^/]*"),
+            '?' => re.push_str("[^/]"),
+            c => re.push_str(&regex::escape(&c.to_string())),
+        }
+    }
+    re.push('$');
+    regex::Regex::new(&re).is_ok_and(|r| r.is_match(&path))
+}
+
+impl Origin {
+    /// Is `path` (relative to the project) inside the request's scope?
+    pub fn in_scope(&self, path: &str) -> bool {
+        self.scope.is_empty() || self.scope.iter().any(|p| scope_matches(p, path))
+    }
+}
+
 pub struct Policy {
     pub mode: Mode,
     pub rules: Rules,
     pub root: PathBuf,
     /// Modo plano (partilhado com a ferramenta `exit_plan`): só leitura até o plano ser aprovado.
     pub plan: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The IDE requires a human request for every action (RF-G01); the TUI and the CLI, where
+    /// every turn is typed by the human, leave it off.
+    pub require_origin: bool,
+    /// The request the current turn answers.
+    pub origin: Option<Origin>,
 }
 
 impl Policy {
@@ -140,6 +232,18 @@ impl Policy {
             rules,
             root: root.into(),
             plan: Default::default(),
+            require_origin: false,
+            origin: None,
+        }
+    }
+
+    /// The path of `path` relative to the project root (tools accept both forms).
+    fn relative<'a>(&self, path: &'a str) -> std::borrow::Cow<'a, str> {
+        let root = self.root.to_string_lossy();
+        let root = root.trim_end_matches('/');
+        match path.strip_prefix(root).and_then(|p| p.strip_prefix('/')) {
+            Some(rel) if !root.is_empty() => std::borrow::Cow::Owned(rel.to_string()),
+            _ => std::borrow::Cow::Borrowed(path),
         }
     }
 
@@ -226,6 +330,12 @@ impl Policy {
                 suggested_rule: None,
             };
         }
+        // RF-G01: no human request, no action (reads and proposing a plan are not actions)
+        if self.require_origin && self.origin.is_none() {
+            return Verdict::Deny {
+                reason: NO_REQUEST.into(),
+            };
+        }
         if self.plan.load(std::sync::atomic::Ordering::SeqCst) {
             return Verdict::Deny {
                 reason: "modo plano: só investigação (leitura). Propõe o plano com exit_plan \
@@ -249,6 +359,20 @@ impl Policy {
                     dangerous: true,
                     suggested_rule: None,
                 };
+            }
+            // RF-G03: outside the request's scope asks, in every mode (no «allow always»)
+            if let Some(o) = &self.origin {
+                let rel = self.relative(path);
+                if !o.in_scope(&rel) {
+                    return Verdict::Ask {
+                        reason: format!(
+                            "{rel} está fora do âmbito do pedido ({})",
+                            o.scope.join(", ")
+                        ),
+                        dangerous: true,
+                        suggested_rule: None,
+                    };
+                }
             }
         }
         if let Some(a) = &a {
@@ -274,8 +398,10 @@ impl Policy {
             (Some(a), Mode::Assist) if a.risk == Risk::Unknown => {
                 Self::ask(a.reason.clone(), suggested)
             }
-            // ferramentas de servidores MCP: código externo, o Assistido pergunta
-            (None, Mode::Assist) if call.name.starts_with("mcp__") => {
+            // ferramentas de servidores MCP: código externo que pode mudar o mundo lá fora
+            // (criar issues, enviar mensagens…). O Assistido e o Auto perguntam (RF-G02/G05);
+            // uma regra «permitir sempre» do humano dispensa-o.
+            (None, Mode::Assist | Mode::Auto) if call.name.starts_with("mcp__") => {
                 Self::ask("ferramenta de um servidor MCP externo", suggested)
             }
             _ => Verdict::Allow,
@@ -451,10 +577,8 @@ mod tests {
             kind(&pol(Mode::Assist, Rules::default()).decide(&mcp)),
             "ask"
         );
-        assert_eq!(
-            kind(&pol(Mode::Auto, Rules::default()).decide(&mcp)),
-            "allow"
-        );
+        // RF-G02/G05 (F1.5): Auto asks too — an MCP tool may create issues or send messages
+        assert_eq!(kind(&pol(Mode::Auto, Rules::default()).decide(&mcp)), "ask");
         assert_eq!(
             kind(&pol(Mode::Manual, Rules::default()).decide(&mcp)),
             "ask"
@@ -463,7 +587,11 @@ mod tests {
             allow: vec!["mcp__github__create_issue".into()],
             deny: vec![],
         };
-        assert_eq!(kind(&pol(Mode::Assist, rules).decide(&mcp)), "allow");
+        assert_eq!(
+            kind(&pol(Mode::Assist, rules.clone()).decide(&mcp)),
+            "allow"
+        );
+        assert_eq!(kind(&pol(Mode::Auto, rules).decide(&mcp)), "allow");
     }
 
     #[test]
@@ -487,6 +615,98 @@ mod tests {
             "dxtutor/a",
         ] {
             assert!(!is_protected(p), "{p}");
+        }
+    }
+
+    fn origin(kind: OriginKind, scope: &[&str]) -> Origin {
+        Origin {
+            kind,
+            issue: None,
+            by: "ana".into(),
+            scope: scope.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn without_a_human_request_nothing_changes_but_reads_and_plans_go_on() {
+        let mut p = Policy::new(Mode::Auto, Rules::default(), "/p");
+        p.require_origin = true;
+        let edit = call("edit", false, json!({"path": "src/a.rs"}), None);
+        assert_eq!(
+            p.decide(&edit),
+            Verdict::Deny {
+                reason: NO_REQUEST.into()
+            }
+        );
+        let bash = call("bash", false, json!({}), Some("cargo build"));
+        assert!(matches!(p.decide(&bash), Verdict::Deny { reason } if reason == NO_REQUEST));
+        assert_eq!(
+            p.decide(&call("read", true, json!({"path": "a"}), None)),
+            Verdict::Allow
+        );
+        assert!(matches!(
+            p.decide(&call("exit_plan", false, json!({}), None)),
+            Verdict::Ask { .. }
+        ));
+        // with a request, Auto applies as before
+        p.origin = Some(origin(OriginKind::Chat, &[]));
+        assert_eq!(p.decide(&edit), Verdict::Allow);
+        // the TUI/CLI never require one
+        let q = Policy::new(Mode::Auto, Rules::default(), "/p");
+        assert_eq!(q.decide(&edit), Verdict::Allow);
+    }
+
+    #[test]
+    fn outside_the_scope_asks_even_in_auto_and_cannot_be_always_allowed() {
+        let mut p = Policy::new(
+            Mode::Auto,
+            Rules {
+                allow: vec!["edit".into()],
+                deny: vec![],
+            },
+            "/p",
+        );
+        p.require_origin = true;
+        p.origin = Some(origin(OriginKind::Issue, &["src/**", "Cargo.toml"]));
+        let at = |path: &str| call("edit", false, json!({ "path": path }), None);
+        assert_eq!(p.decide(&at("src/lexer/mod.rs")), Verdict::Allow);
+        assert_eq!(p.decide(&at("/p/src/lib.rs")), Verdict::Allow);
+        assert_eq!(p.decide(&at("Cargo.toml")), Verdict::Allow);
+        match p.decide(&at("docs/README.md")) {
+            Verdict::Ask {
+                reason,
+                dangerous,
+                suggested_rule,
+            } => {
+                assert!(
+                    reason.contains("docs/README.md") && reason.contains("fora do âmbito"),
+                    "{reason}"
+                );
+                assert!(dangerous && suggested_rule.is_none());
+            }
+            v => panic!("{v:?}"),
+        }
+    }
+
+    #[test]
+    fn scope_patterns() {
+        for (pat, path, ok) in [
+            ("src/**", "src/a/b.rs", true),
+            ("src/**", "src", true),
+            ("src/", "src/x.rs", true),
+            ("src", "src/x.rs", true),
+            ("src", "srcx/x.rs", false),
+            ("Cargo.toml", "Cargo.toml", true),
+            ("Cargo.toml", "crates/a/Cargo.toml", false),
+            ("*.md", "README.md", true),
+            ("*.md", "docs/a.md", false),
+            ("**/*.md", "docs/a.md", true),
+            ("**/*.md", "README.md", true),
+            ("crates/*/src/**", "crates/core/src/lib.rs", true),
+            ("crates/*/src/**", "crates/core/tests/a.rs", false),
+            ("./ui/", "ui/app.ts", true),
+        ] {
+            assert_eq!(scope_matches(pat, path), ok, "{pat} vs {path}");
         }
     }
 }

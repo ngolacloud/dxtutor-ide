@@ -14,7 +14,7 @@ use std::sync::{Mutex, OnceLock};
 
 use tauri::{AppHandle, Manager};
 use tutor_board::project::{
-    reports::Reports, IssueDetail, Op, Project, ProjectError, ProjectStore,
+    reports::Reports, AuditEntry, IssueDetail, Op, Project, ProjectError, ProjectStore,
 };
 use tutor_board::{Backlog, BoardStore};
 
@@ -123,6 +123,18 @@ pub fn project_issue(
 pub fn project_reports(app: AppHandle, root: String) -> Result<Reports, ProjectError> {
     let root = root_of(&root)?;
     open(&app)?.reports(&root, now_ms())
+}
+
+/// O registo de auditoria do Co-Dev (RF-T01): de uma issue (`issue`) ou da pasta toda, por
+/// ordem, com os segredos já mascarados. É o que «Exportar registo» grava em JSON.
+#[tauri::command]
+pub fn project_audit(
+    app: AppHandle,
+    root: String,
+    issue: Option<String>,
+) -> Result<Vec<AuditEntry>, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.audit(&root, issue.as_deref().filter(|k| !k.trim().is_empty()))
 }
 
 // ── O quadro Tasks (ADR-0006, R3b) ─────────────────────────────────────────────────────────

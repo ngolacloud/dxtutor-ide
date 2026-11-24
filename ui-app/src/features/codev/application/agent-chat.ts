@@ -7,7 +7,7 @@
 
 import type { AgentChatDeps, CardRef, ToolRef } from "./ports";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
-import { ago, callDiff, describeCall, describeSession, isNoToolsError, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
+import { ago, callDiff, describeCall, describeSession, isNoToolsError, originFor, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
 import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 import { proseOnly } from "../domain/prose";
@@ -253,7 +253,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         // the backend reads the disk: save what the editor shows first
         (deps.flush ? deps.flush() : Promise.resolve())
           .catch(() => undefined)
-          .then(() => gateway.send(id, q))
+          .then(() => gateway.send(id, q, originFor(issueKey)))
           .catch((e: unknown) => {
           presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
           resolve();

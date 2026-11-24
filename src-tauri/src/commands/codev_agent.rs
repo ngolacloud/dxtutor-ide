@@ -69,14 +69,22 @@ pub async fn codev_agent_start(
 }
 
 /// Envia uma mensagem (ou, com `text: null`, repete a partir do histórico). Devolve logo;
-/// o turno corre numa thread e responde por eventos.
+/// o turno corre numa thread e responde por eventos. `origin`: o pedido humano a que o turno
+/// responde (`{kind: "chat"|"editor"|"issue", issue?, scope?}`, RF-G01); sem ele, as acções
+/// do turno são bloqueadas («bloqueada: sem pedido»). Quem pediu vem do git do projecto.
 #[tauri::command]
-pub fn codev_agent_send(app: tauri::AppHandle, session_id: String, text: Option<String>) {
+pub fn codev_agent_send(
+    app: tauri::AppHandle,
+    session_id: String,
+    text: Option<String>,
+    origin: Option<tutor_agent::permissions::Origin>,
+) {
     std::thread::spawn(move || {
         let (a1, a2, sid) = (app.clone(), app.clone(), session_id.clone());
         let r = codev_agent::send(
             &session_id,
             text,
+            origin,
             &mut |event| {
                 let _ = a1.emit(
                     "codev-agent://event",

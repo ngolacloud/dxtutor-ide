@@ -187,6 +187,44 @@ pub struct Artifact {
 }
 
 /// A change set to record (one accepted hunk), from the Co-Dev host.
+/// One row of the Co-Dev audit log (RF-T01). `event`: `call` (a decision on a tool call),
+/// `mode` (the human changed the mode) or `turn` (a turn ended: model and tokens).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEntry {
+    #[serde(default)]
+    pub id: i64,
+    pub at: i64,
+    pub session: String,
+    pub event: String,
+    /// `chat`, `editor`, `issue`, or `none` (an action with no human request: blocked).
+    pub origin: String,
+    pub issue_key: Option<String>,
+    /// Who made the request.
+    pub actor: String,
+    /// `manual`, `assist` or `auto`.
+    pub mode: String,
+    pub tool: Option<String>,
+    pub call: Option<String>,
+    pub path: Option<String>,
+    /// `40-52`, or the hunks' ranges.
+    pub lines: Option<String>,
+    pub command: Option<String>,
+    /// What the policy said: `allow`, `ask` or `deny`.
+    pub verdict: Option<String>,
+    /// What happened: `allowed`, `denied` or `blocked`.
+    pub outcome: Option<String>,
+    /// `policy` (the mode or a rule decided), `human:<name>`, `validation`, `cancel`.
+    pub decided_by: Option<String>,
+    pub decided_at: Option<i64>,
+    pub reason: Option<String>,
+    pub model: Option<String>,
+    pub tokens_in: Option<i64>,
+    pub tokens_out: Option<i64>,
+    /// Who was driving in a PairCode session (RF-P04; empty outside one).
+    pub driver: Option<String>,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct NewChangeSet {
@@ -606,6 +644,63 @@ impl ProjectStore {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Appends one row to the audit log (the caller masks secrets first).
+    pub fn record_audit(&mut self, root: &str, e: &AuditEntry) -> Result<(), ProjectError> {
+        self.conn.execute(
+            "INSERT INTO audit (root, at, session, event, origin, issue_key, actor, mode, tool, call, path, lines, command,
+                                verdict, outcome, decided_by, decided_at, reason, model, tokens_in, tokens_out, driver)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+            params![
+                root, e.at, e.session, e.event, e.origin, e.issue_key, e.actor, e.mode, e.tool, e.call, e.path,
+                e.lines, e.command, e.verdict, e.outcome, e.decided_by, e.decided_at, e.reason, e.model,
+                e.tokens_in, e.tokens_out, e.driver
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The audit log of a folder, oldest first: of one issue (`Some`) or all of it.
+    pub fn audit(
+        &self,
+        root: &str,
+        issue_key: Option<&str>,
+    ) -> Result<Vec<AuditEntry>, ProjectError> {
+        let mut st = self.conn.prepare(
+            "SELECT id, at, session, event, origin, issue_key, actor, mode, tool, call, path, lines, command,
+                    verdict, outcome, decided_by, decided_at, reason, model, tokens_in, tokens_out, driver
+             FROM audit WHERE root = ?1 AND (?2 IS NULL OR issue_key = ?2) ORDER BY at, id",
+        )?;
+        let rows = st
+            .query_map(params![root, issue_key], |r| {
+                Ok(AuditEntry {
+                    id: r.get(0)?,
+                    at: r.get(1)?,
+                    session: r.get(2)?,
+                    event: r.get(3)?,
+                    origin: r.get(4)?,
+                    issue_key: r.get(5)?,
+                    actor: r.get(6)?,
+                    mode: r.get(7)?,
+                    tool: r.get(8)?,
+                    call: r.get(9)?,
+                    path: r.get(10)?,
+                    lines: r.get(11)?,
+                    command: r.get(12)?,
+                    verdict: r.get(13)?,
+                    outcome: r.get(14)?,
+                    decided_by: r.get(15)?,
+                    decided_at: r.get(16)?,
+                    reason: r.get(17)?,
+                    model: r.get(18)?,
+                    tokens_in: r.get(19)?,
+                    tokens_out: r.get(20)?,
+                    driver: r.get(21)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     pub fn reports(&self, root: &str, now: i64) -> Result<reports::Reports, ProjectError> {

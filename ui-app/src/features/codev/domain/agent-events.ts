@@ -362,6 +362,19 @@ export function parseExtensions(v: unknown): ExtensionsStatus {
   };
 }
 
+/** The human request a turn answers (RF-G01, docs/v2/RF-DELONIX-PLANO.md F1.1): without one the
+ *  backend blocks the turn's actions («bloqueada: sem pedido»). Who asked is filled by the backend
+ *  from the project's git user. `scope`: the files the request may change (RF-G03). */
+export interface AgentOrigin {
+  kind: "chat" | "editor" | "issue";
+  issue?: string;
+  scope?: string[];
+}
+
+/** The origin of a message typed in a conversation: the issue it was opened for, or the chat. */
+export const originFor = (issueKey: string | null): AgentOrigin =>
+  issueKey ? { kind: "issue", issue: issueKey } : { kind: "chat" };
+
 /** Uma issue do Board, na forma mínima que o agente precisa. */
 export interface BoardStory {
   id: string;
