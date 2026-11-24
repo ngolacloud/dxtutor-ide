@@ -4,7 +4,7 @@
 //!
 //! | Escrito                                   | Origem                                        |
 //! |-------------------------------------------|-----------------------------------------------|
-//! | `python`                                  | repo oficial `dxtutor-courses/python`         |
+//! | `python`                                  | repo oficial `ngolacloud/dxtutor-course-python` |
 //! | `owner/repo` ou `github:owner/repo`       | GitHub, branch por omissão                    |
 //! | `owner/repo@v1.2.0`                       | GitHub, tag ou branch                         |
 //! | `https://github.com/owner/repo[/tree/ref]`| GitHub                                        |
@@ -14,7 +14,14 @@
 use std::path::PathBuf;
 
 /// Organização GitHub dos cursos oficiais.
-pub const OFFICIAL_ORG: &str = "dxtutor-courses";
+pub const OFFICIAL_ORG: &str = "ngolacloud";
+/// Prefixo dos repositórios dos cursos oficiais: `python` → `ngolacloud/dxtutor-course-python`.
+pub const OFFICIAL_REPO_PREFIX: &str = "dxtutor-course-";
+
+/// `owner/repo` do curso oficial `id` (ex.: `ngolacloud/dxtutor-course-python`).
+pub fn official_repo(id: &str) -> String {
+    format!("{OFFICIAL_ORG}/{OFFICIAL_REPO_PREFIX}{id}")
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -93,7 +100,11 @@ impl Source {
         };
         match path.split_once('/') {
             Some((owner, repo)) => github(owner, repo, git_ref),
-            None => github(OFFICIAL_ORG, path, git_ref),
+            None => github(
+                OFFICIAL_ORG,
+                &format!("{OFFICIAL_REPO_PREFIX}{path}"),
+                git_ref,
+            ),
         }
     }
 
@@ -198,7 +209,11 @@ mod tests {
 
     #[test]
     fn formas_aceites() {
-        assert_eq!(p("python").unwrap(), gh("dxtutor-courses", "python", None));
+        assert_eq!(
+            p("python").unwrap(),
+            gh("ngolacloud", "dxtutor-course-python", None)
+        );
+        assert_eq!(official_repo("go"), "ngolacloud/dxtutor-course-go");
         assert_eq!(
             p("acme/kotlin@v1.0.0").unwrap(),
             gh("acme", "kotlin", Some("v1.0.0"))
@@ -247,12 +262,12 @@ mod tests {
 
     #[test]
     fn url_de_download_e_forma_canonica() {
-        let s = gh("dxtutor-courses", "go", Some("v1"));
+        let s = gh("ngolacloud", "dxtutor-course-go", Some("v1"));
         assert_eq!(
             s.download_url().unwrap(),
-            "https://github.com/dxtutor-courses/go/archive/v1.zip"
+            "https://github.com/ngolacloud/dxtutor-course-go/archive/v1.zip"
         );
-        assert_eq!(s.canonical(), "github:dxtutor-courses/go@v1");
+        assert_eq!(s.canonical(), "github:ngolacloud/dxtutor-course-go@v1");
         assert_eq!(
             gh("a", "b", None).download_url().unwrap(),
             "https://github.com/a/b/archive/HEAD.zip"

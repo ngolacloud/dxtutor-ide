@@ -358,12 +358,12 @@ registarem os seus comandos (U7).
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
 `dxtutor-plugin.json` + cursos no formato `tutor_core::Course` (TOML/JSON), com
 `Course.overview` e `Unit.concepts` (o texto de leitura de cada tópico). Os oficiais vivem em
-`github.com/dxtutor-courses/<id>`. O catálogo oficial tem no máximo 10 linguagens
+`github.com/ngolacloud/dxtutor-course-<id>`. O catálogo oficial tem no máximo 10 linguagens
 (`learn/domain/catalog.ts`): rust, go, python, typescript, java, kotlin, swift, csharp,
 cpp, sql.
 
 - **Fonte única dos cursos Rust/Go: `courses/<id>/`** (plugin oficial completo, publicado em
-  `dxtutor-courses/<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
+  `ngolacloud/dxtutor-course-<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
   da UI (`ui-app/src/content/courses/*.json`) é **gerado**: editar só o TOML e correr
   `python3 scripts/sync-ui-courses.py`. O teste `crates/tutor-core/tests/ui_json.rs` falha se
   divergirem.

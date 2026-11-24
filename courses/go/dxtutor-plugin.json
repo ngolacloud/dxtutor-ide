@@ -6,7 +6,7 @@
   "description": "Go: From Zero to Backend — from your first line of code to interfaces, errors, databases, concurrency and data structures.",
   "authors": ["dxtutor"],
   "license": "MIT OR Apache-2.0",
-  "repository": "https://github.com/dxtutor-courses/go",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-go",
   "engine": ">=0.7.0",
   "kind": "course",
   "language": {
