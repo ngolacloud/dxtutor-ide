@@ -232,15 +232,14 @@ VIEW.review = reviewView;
 function openTeam(): void { openTab({ id: 'team', title: 'Team & harness', kind: 'team' }); }
 
 const CG = window as unknown as { focusAgent: (nofocus?: boolean) => void; user: (t: string) => void; card: (who: string, html: string) => unknown };
-function codeGuard(what: string): boolean {
+export function codeGuard(what: string): boolean {
   if (!isHuman('code')) return false;
   CG.focusAgent(true); CG.user(what);
   CG.card('co-dev', `<p>In this project <b>writing code is yours</b> (harness: ${HT[HARN.tpl].n}). I will not edit files.</p><p>I can explain the problem, review what you write, and run the tests when you are ready. Ask in the box below, or change the harness in <b>Team &amp; harness</b>.</p><div class="gate"><button class="gb" data-action="team:runTests">${msg("runTheTests")}</button><button class="gb" data-action="team:openTeam">Open the harness</button></div>`);
   return true;
 }
 
-Object.assign(window, {
-  codeGuard, openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill, scopeProbe,
+Object.assign(window, { openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill, scopeProbe,
   RIGHTS, RIGHT_RE, HARN, MORD, isHuman, toggleRight, reviewIssue,
 });
 

@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7b)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7c)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1053,3 +1053,13 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   apanhar a versão decorada ou trocada pelo desktop; 114 são publicados por `window.X =`, mais do que uma vez, ou são
   fachadas de estado; 26 aparecem em testes. Cada um destes pede uma decisão por nome (é ponto de decoração? a porta
   desktop cobre-o?), por isso a U7 continua por feature, a começar pelas fachadas dos `legacy-bridge`.
+- **U7c (2026-11-24) — as fachadas dos `legacy-bridge`: o que dá para trocar sem decidir nada.** Mesmo critério da U7b,
+  agora para leituras pelas fachadas das pontes: o nome tem um único publicador que ninguém decora, avalia antes da
+  ponte, e TODOS os seus leitores podem passar a import (nenhum em testes/e2e, nenhum `callGlobal`, nenhuma leitura
+  pelo `window` fora das pontes, nenhum em módulos de outras sessões — incluindo agora o `lsp` e o `panel`, ainda a
+  receber trabalho). Só quatro passam, todos lidos pela ponte do board: `usd` (tasks), `codeGuard` (team), `CLOUD` e
+  `validateDesign` (studio) — a ponte importa-os e a publicação sai. Globais publicadas 315 → 311. **O resto não sai
+  sem decisões:** das leituras pelas pontes, 62 têm o publicador a avaliar DEPOIS da ponte (a leitura tardia pelo
+  `window` é o que evita a dependência circular/ordem trocada — trocar por import pede mover código), 40 são de nomes
+  publicados mais do que uma vez ou por `window.X =`, e os outros têm leitores em testes, no desktop ou em módulos de
+  outras sessões. Ver o plano a seguir.
