@@ -123,6 +123,10 @@ pub struct LanguagePlugin {
     /// Host binary probed for availability on the host path (e.g. `"cc"`). Optional.
     #[serde(default)]
     pub host_bin: Option<String>,
+    /// Extra directories where `host_bin` may live outside the system `PATH` (`~/` and a `*`
+    /// version segment are expanded, e.g. `"~/.nvm/versions/node/*/bin"`). Optional.
+    #[serde(default)]
+    pub host_path_hints: Vec<String>,
     /// Give the container network access (needed for package managers). Default `false`.
     #[serde(default)]
     pub network: bool,
@@ -189,13 +193,75 @@ impl LanguagePlugin {
     }
 
     /// `true` if this plugin can run on the host right now — i.e. `host_bin` is resolvable on the
-    /// `PATH` (or no `host_bin` was declared). Used by gated tests.
+    /// `PATH` or in one of the `host_path_hints` (or no `host_bin` was declared).
     pub fn host_available(&self) -> bool {
         match &self.host_bin {
             None => true,
-            Some(bin) => bin_on_path(bin),
+            Some(bin) => bin_on_path(bin) || self.hint_dirs().iter().any(|d| d.join(bin).is_file()),
         }
     }
+
+    /// The `host_path_hints` expanded: `~/` → home, and a `*` path segment → the directory with
+    /// the highest version-like name (so `~/.nvm/versions/node/*/bin` picks the newest Node).
+    fn hint_dirs(&self) -> Vec<PathBuf> {
+        self.host_path_hints
+            .iter()
+            .filter_map(|h| expand_hint(h))
+            .filter(|d| d.is_dir())
+            .collect()
+    }
+
+    /// The `PATH` for a host run: the hardened base, plus the hint directories, plus the directory
+    /// where `host_bin` was found on the caller's `PATH` (a toolchain installed in a user location
+    /// — nvm, Volta, Homebrew — must still be reachable after `env_clear`).
+    ///
+    /// The hint directories come FIRST: some installers put a *proxy* on the PATH that needs the
+    /// real `$HOME` (swiftly's `swift` reads `~/.local/share/swiftly/config.json`), while the
+    /// evaluator runs with `HOME` set to the work dir — so the real toolchain dir must win.
+    fn host_path(&self) -> String {
+        let mut dirs: Vec<PathBuf> = self.hint_dirs();
+        if let Some(bin) = &self.host_bin {
+            if let Some(found) = find_on_path(bin) {
+                if let Some(parent) = found.parent() {
+                    dirs.push(parent.to_path_buf());
+                }
+            }
+        }
+        let mut parts: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
+        parts.push("/usr/local/bin:/usr/bin:/bin".to_string());
+        parts.join(":")
+    }
+}
+
+/// Expand one `host_path_hints` entry (see [`LanguagePlugin::hint_dirs`]).
+fn expand_hint(hint: &str) -> Option<PathBuf> {
+    let path = match hint.strip_prefix("~/") {
+        Some(rest) => PathBuf::from(std::env::var_os("HOME")?).join(rest),
+        None => PathBuf::from(hint),
+    };
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        if comp.as_os_str() == "*" {
+            let mut names: Vec<String> = std::fs::read_dir(&out)
+                .ok()?
+                .flatten()
+                .filter(|e| e.path().is_dir())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort_by_key(|n| version_key(n));
+            out.push(names.pop()?);
+        } else {
+            out.push(comp);
+        }
+    }
+    Some(out)
+}
+
+/// `v24.14.1` → `[24, 14, 1]`, so versions compare numerically (`v10` > `v9`).
+fn version_key(name: &str) -> Vec<u64> {
+    name.split(|c: char| !c.is_ascii_digit())
+        .filter_map(|p| p.parse().ok())
+        .collect()
 }
 
 /// Lightweight, UI-facing view of a registered language (for a future language picker).
@@ -274,7 +340,7 @@ impl PluginRunner {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(script).current_dir(dir);
         cmd.env_clear();
-        cmd.env("PATH", "/usr/local/bin:/usr/bin:/bin");
+        cmd.env("PATH", self.plugin.host_path());
         cmd.env("HOME", dir);
         cmd.env("LANG", "C");
         let timeout = self.plugin.host_timeout();
@@ -443,18 +509,845 @@ diag_cmd = "cc -std=c11 -fsyntax-only {file}"
 timeout_secs = 30
 "##;
 
+/// The built-in **Python** descriptor (the official Python course, ADR-0005 Phase 3). Hidden tests
+/// are standard-library `unittest` cases — no pytest dependency — run with `python3 -m unittest`,
+/// which exits non-zero on any failure or error (and on "no tests ran"). Diagnostics compile the
+/// student file and print a `SyntaxError` in the `file:line:col: error: msg` shape the parser reads.
+const BUILTIN_PYTHON_TOML: &str = r##"
+id = "python"
+aliases = ["py", "python3"]
+display_name = "Python"
+monaco_id = "python"
+extensions = ["py"]
+image = "python:3.12-alpine"
+host_bin = "python3"
+network = false
+
+code_file = "student.py"
+test_file = "test_student.py"
+test_prelude = "import unittest\nfrom student import *\n\n"
+
+run_cmd  = "python3 -B {file}"
+test_cmd = "python3 -B -m unittest -q test_student"
+diag_cmd = '''python3 -B -c 'import sys
+try:
+    compile(open("student.py").read(), "student.py", "exec")
+except SyntaxError as e:
+    print("student.py:%d:%d: error: %s" % (e.lineno or 0, e.offset or 0, e.msg))' '''
+
+timeout_secs = 30
+"##;
+
+/// The built-in **C++** descriptor (the official C++ course). There is no test framework to
+/// install: the test prelude ships a tiny one. Hidden tests are written as
+///
+/// ```cpp
+/// TEST(adds_small_numbers) { CHECK_EQ(add(2, 3), 5); CHECK(add(-1, 1) == 0); }
+/// ```
+///
+/// Each `TEST` registers itself at static-initialisation time, and the prelude's `main` runs them
+/// all (an uncaught exception fails that test), prints a summary and exits non-zero on any failure
+/// — or when no test ran. The student file is `#include`d, so challenge code must not define
+/// `main`. Links `-pthread` (threads units), and `-lsqlite3` only when the code includes
+/// `sqlite3.h` (database units: needs the SQLite development files — on the host, or in a
+/// container image that has them; the stock `gcc:13` image does not).
+const BUILTIN_CPP_TOML: &str = r##"
+id = "cpp"
+aliases = ["c++", "cxx"]
+display_name = "C++"
+monaco_id = "cpp"
+extensions = ["cpp", "cc", "cxx", "hpp"]
+image = "gcc:13"
+host_bin = "g++"
+network = false
+
+code_file = "student.cpp"
+test_file = "student_test.cpp"
+test_prelude = '''
+#include "student.cpp"
+#include <exception>
+#include <iostream>
+#include <utility>
+#include <vector>
+namespace dxt {
+inline int failures = 0;
+inline const char* current = "";
+using TestFn = void (*)();
+inline std::vector<std::pair<const char*, TestFn>>& registry() {
+    static std::vector<std::pair<const char*, TestFn>> tests;
+    return tests;
+}
+struct Register {
+    Register(const char* name, TestFn fn) { registry().emplace_back(name, fn); }
+};
+}  // namespace dxt
+#define TEST(name)                                               \
+    static void dxt_test_##name();                               \
+    static dxt::Register dxt_register_##name(#name, dxt_test_##name); \
+    static void dxt_test_##name()
+#define CHECK(cond)                                                                  \
+    do {                                                                             \
+        if (!(cond)) {                                                               \
+            std::cerr << "FAILED " << dxt::current << ": " #cond " (line " << __LINE__ \
+                      << ")\n";                                                      \
+            ++dxt::failures;                                                         \
+        }                                                                            \
+    } while (0)
+#define CHECK_EQ(a, b)                                                                     \
+    do {                                                                                   \
+        const auto& dxt_a = (a);                                                           \
+        const auto& dxt_b = (b);                                                           \
+        if (!(dxt_a == dxt_b)) {                                                           \
+            std::cerr << "FAILED " << dxt::current << ": " #a " == " #b " (line " << __LINE__ \
+                      << ")\n";                                                            \
+            ++dxt::failures;                                                               \
+        }                                                                                  \
+    } while (0)
+int main() {
+    for (auto& [name, fn] : dxt::registry()) {
+        dxt::current = name;
+        try {
+            fn();
+        } catch (const std::exception& e) {
+            std::cerr << "FAILED " << name << ": threw " << e.what() << "\n";
+            ++dxt::failures;
+        } catch (...) {
+            std::cerr << "FAILED " << name << ": threw an exception\n";
+            ++dxt::failures;
+        }
+    }
+    std::cout << dxt::registry().size() << " tests, " << dxt::failures << " failures\n";
+    return (dxt::failures || dxt::registry().empty()) ? 1 : 0;
+}
+'''
+
+run_cmd  = "g++ -std=c++20 -O2 -pthread {file} -o prog $(grep -qs sqlite3.h {file} && echo -lsqlite3) && ./prog"
+test_cmd = "g++ -std=c++20 -O2 -pthread {test_file} -o testbin $(grep -qs sqlite3.h {file} {test_file} && echo -lsqlite3) && ./testbin"
+diag_cmd = "g++ -std=c++20 -fsyntax-only {file}"
+
+timeout_secs = 60
+"##;
+
+/// The built-in **TypeScript** descriptor (the official TypeScript course). Runs on Node.js ≥ 22.18
+/// with its built-in type stripping (`--experimental-transform-types` also covers `enum` and
+/// `namespace`), so grading needs no `tsc`. The student file and the tests are concatenated into
+/// one ES module, after a tiny harness: hidden tests are written as
+///
+/// ```ts
+/// dxt.test("adds small numbers", () => { dxt.equal(add(2, 3), 5); dxt.check(add(-1, 1) === 0); });
+/// ```
+///
+/// (`dxt.equal` is a deep equality that understands arrays, objects, `Map` and `Set`; tests may be
+/// `async`; `dxt.throws(fn)` expects an exception.) Diagnostics use `tsc` only when it is
+/// installed, ignoring the errors that come solely from missing Node type definitions.
+const BUILTIN_TS_TOML: &str = r##"
+id = "typescript"
+aliases = ["ts"]
+display_name = "TypeScript"
+monaco_id = "typescript"
+extensions = ["ts", "mts"]
+image = "node:22-alpine"
+host_bin = "node"
+host_path_hints = ["~/.nvm/versions/node/*/bin", "~/.volta/bin", "~/.local/share/fnm/aliases/default/bin", "/opt/homebrew/bin"]
+network = false
+
+code_file = "student.ts"
+test_file = "student.test.ts"
+test_prelude = '''
+
+// ── dxtutor test harness ───────────────────────────────────────────────────────────────
+const dxt = (() => {
+  type Fn = () => void | Promise<void>;
+  const tests: Array<[string, Fn]> = [];
+  let failures = 0;
+  let current = "";
+  const show = (v: unknown): string => {
+    try {
+      return JSON.stringify(v, (_k, x) => (x instanceof Map ? [...x] : x instanceof Set ? [...x] : x)) ?? String(v);
+    } catch {
+      return String(v);
+    }
+  };
+  const deepEqual = (a: unknown, b: unknown): boolean => {
+    if (Object.is(a, b)) return true;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    if (a instanceof Map && b instanceof Map) {
+      if (a.size !== b.size) return false;
+      for (const [k, v] of a) if (!b.has(k) || !deepEqual(v, b.get(k))) return false;
+      return true;
+    }
+    if (a instanceof Set && b instanceof Set) {
+      if (a.size !== b.size) return false;
+      for (const v of a) if (!b.has(v)) return false;
+      return true;
+    }
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    const ka = Object.keys(a as object);
+    const kb = Object.keys(b as object);
+    if (ka.length !== kb.length) return false;
+    return ka.every((k) => deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+  };
+  const fail = (msg: string) => {
+    failures++;
+    console.error(`FAILED ${current}: ${msg}`);
+  };
+  setTimeout(async () => {
+    for (const [name, fn] of tests) {
+      current = name;
+      try {
+        await fn();
+      } catch (e) {
+        fail(`threw ${e instanceof Error ? e.message : show(e)}`);
+      }
+    }
+    console.log(`${tests.length} tests, ${failures} failures`);
+    (globalThis as unknown as { process: { exitCode: number } }).process.exitCode =
+      failures || tests.length === 0 ? 1 : 0;
+  }, 0);
+  return {
+    test(name: string, fn: Fn) {
+      tests.push([name, fn]);
+    },
+    check(cond: unknown, msg = "check failed") {
+      if (!cond) fail(msg);
+    },
+    equal(actual: unknown, expected: unknown) {
+      if (!deepEqual(actual, expected)) fail(`expected ${show(expected)}, got ${show(actual)}`);
+    },
+    throws(fn: () => unknown, msg = "expected an exception") {
+      try {
+        fn();
+      } catch {
+        return;
+      }
+      fail(msg);
+    },
+  };
+})();
+// ── end of harness ─────────────────────────────────────────────────────────────────────
+'''
+
+run_cmd  = "printf '{\"type\":\"module\"}' > package.json && node --experimental-transform-types --no-warnings {file}"
+test_cmd = "printf '{\"type\":\"module\"}' > package.json && cat {file} {test_file} > run.ts && node --experimental-transform-types --no-warnings run.ts"
+diag_cmd = '''if command -v tsc >/dev/null 2>&1; then tsc --noEmit --pretty false --strict --target es2022 --module nodenext --allowImportingTsExtensions --skipLibCheck {file} | grep -v -e TS2307 -e TS2580 -e TS2591 | sed -E 's/^([^(]+)\(([0-9]+),([0-9]+)\): error (TS[0-9]+): (.*)$/\1:\2:\3: error: \5 (\4)/'; fi'''
+
+timeout_secs = 30
+"##;
+
+/// The built-in **SQL** descriptor (the official SQL course, SQLite dialect). The engine is the
+/// SQLite inside Python's standard library (`sqlite3`), so it needs only `python3`, not the
+/// `sqlite3` CLI.
+///
+/// - **Run** (drills): the `.sql` script runs statement by statement on a fresh in-memory database
+///   in autocommit mode (explicit `BEGIN`/`COMMIT` work), printing each result set like the
+///   `sqlite3` CLI with headers: `col1|col2`, then one `a|b` line per row, `NULL` for nulls. The
+///   first error stops the run with its line number.
+/// - **Tests** (challenges): standard-library `unittest`, after a prelude that reads the student's
+///   SQL into `STUDENT_SQL` and offers `connect(setup)`, `query(setup)` → `(columns, rows)` for a
+///   single statement, and `script(setup)` → the open connection after the whole script ran.
+/// - **Diagnostics**: the first SQLite error, at the line of the statement that raised it.
+const BUILTIN_SQL_TOML: &str = r##"
+id = "sql"
+aliases = ["sqlite"]
+display_name = "SQL"
+monaco_id = "sql"
+extensions = ["sql"]
+image = "python:3.12-alpine"
+host_bin = "python3"
+network = false
+
+code_file = "student.sql"
+test_file = "test_student.py"
+test_prelude = '''
+import sqlite3
+import unittest
+
+STUDENT_SQL = open("student.sql", encoding="utf-8").read()
+
+
+def connect(setup=""):
+    """A fresh in-memory database (autocommit mode) with the `setup` script already run."""
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.executescript(setup)
+    return conn
+
+
+def query(setup="", sql=None):
+    """Run ONE statement (the student's SQL by default) after `setup`.
+    Returns (column_names, rows) with rows as tuples."""
+    conn = connect(setup)
+    cur = conn.execute(STUDENT_SQL if sql is None else sql)
+    cols = [d[0] for d in cur.description or []]
+    rows = [tuple(r) for r in cur.fetchall()]
+    conn.close()
+    return cols, rows
+
+
+def script(setup="", sql=None):
+    """Run the whole script (the student's SQL by default) after `setup`; return the open
+    connection so the test can inspect the resulting tables."""
+    conn = connect(setup)
+    conn.executescript(STUDENT_SQL if sql is None else sql)
+    return conn
+
+
+'''
+
+run_cmd = '''python3 -B -c 'import sqlite3, sys
+src = open("student.sql", encoding="utf-8").read()
+conn = sqlite3.connect(":memory:", isolation_level=None)
+buf, start = "", 1
+for n, line in enumerate(src.splitlines(True), 1):
+    if not buf.strip():
+        start = n
+    buf += line
+    if sqlite3.complete_statement(buf):
+        stmt, buf = buf.strip(), ""
+        try:
+            cur = conn.execute(stmt)
+        except sqlite3.Error as e:
+            sys.exit("Error on line %d: %s" % (start, e))
+        if cur.description:
+            print("|".join(d[0] for d in cur.description))
+            for row in cur.fetchall():
+                print("|".join("NULL" if v is None else str(v) for v in row))
+rest = "\n".join(l for l in buf.splitlines() if not l.strip().startswith("--")).strip()
+if rest:
+    sys.exit("Error: incomplete statement (missing ;?): " + rest[:80])' '''
+test_cmd = "python3 -B -m unittest -q test_student"
+diag_cmd = '''python3 -B -c 'import sqlite3
+src = open("student.sql", encoding="utf-8").read()
+conn = sqlite3.connect(":memory:", isolation_level=None)
+buf, start = "", 1
+for n, line in enumerate(src.splitlines(True), 1):
+    if not buf.strip():
+        start = n
+    buf += line
+    if sqlite3.complete_statement(buf):
+        stmt, buf = buf.strip(), ""
+        try:
+            conn.execute(stmt).fetchall()
+        except sqlite3.Error as e:
+            print("student.sql:%d:1: error: %s" % (start, e))
+            break' '''
+
+timeout_secs = 30
+"##;
+
+/// The built-in **Java** descriptor (the official Java course, Java 21). Uses the single-file
+/// *source launcher* (`java File.java` compiles in memory), so no build tool is involved.
+///
+/// - **Run** (drills): `Main.java` is a complete program; `java Main.java` runs its first class.
+/// - **Tests** (challenges): the hidden tests are the body of `define()` in a test class, written
+///   with a tiny harness:
+///
+///   ```java
+///   test("adds small numbers", () -> equal(Calc.add(2, 3), 5));
+///   test("rejects negatives", () -> assertThrows(IllegalArgumentException.class, () -> Calc.sqrt(-1)));
+///   ```
+///
+///   `test_cmd` assembles one `Run.java`: every `import` line of the tests and of the student file,
+///   hoisted and de-duplicated; the harness (whose first class holds `main`, as the launcher
+///   requires); the tests; the closing braces; then the student's classes. Student code therefore
+///   has no `main`-holding first class requirement and no `package` line. `check`/`equal` record a
+///   failure and continue; an exception escaping a test fails it; no tests ⇒ failure.
+/// - **Diagnostics**: `javac` on the student file, its `File.java:LINE: error: msg` lines reshaped
+///   to the `file:line:col: sev: msg` form the parser reads (column 0 = unknown).
+const BUILTIN_JAVA_TOML: &str = r##"
+id = "java"
+aliases = ["jdk"]
+display_name = "Java"
+monaco_id = "java"
+extensions = ["java"]
+image = "eclipse-temurin:21-jdk"
+host_bin = "java"
+host_path_hints = ["/usr/lib/jvm/*/bin", "~/.sdkman/candidates/java/current/bin", "/opt/homebrew/opt/openjdk/bin"]
+network = false
+
+code_file = "Main.java"
+test_file = "DxtTests.java"
+test_prelude = '''
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+public class DxtMain {
+    public static void main(String[] args) {
+        DxtTests suite = new DxtTests();
+        suite.define();
+        for (DxtBase.Case c : suite.cases) {
+            suite.current = c.name();
+            try {
+                c.body().run();
+            } catch (Throwable e) {
+                suite.fail("threw " + e);
+            }
+        }
+        System.out.println(suite.cases.size() + " tests, " + suite.failures + " failures");
+        System.exit(suite.failures > 0 || suite.cases.isEmpty() ? 1 : 0);
+    }
+}
+
+abstract class DxtBase {
+    interface Body {
+        void run() throws Exception;
+    }
+
+    record Case(String name, Body body) {}
+
+    final List<Case> cases = new ArrayList<>();
+    String current = "";
+    int failures = 0;
+
+    void fail(String msg) {
+        failures++;
+        System.err.println("FAILED " + current + ": " + msg);
+    }
+
+    void test(String name, Body body) {
+        cases.add(new Case(name, body));
+    }
+
+    void check(boolean cond) {
+        check(cond, "check failed");
+    }
+
+    void check(boolean cond, String msg) {
+        if (!cond) fail(msg);
+    }
+
+    void equal(Object actual, Object expected) {
+        if (!Objects.deepEquals(actual, expected)) {
+            fail("expected " + show(expected) + ", got " + show(actual));
+        }
+    }
+
+    void near(double actual, double expected, double epsilon) {
+        if (Math.abs(actual - expected) > epsilon) fail("expected " + expected + " ± " + epsilon + ", got " + actual);
+    }
+
+    void assertThrows(Class<? extends Throwable> type, Body body) {
+        try {
+            body.run();
+        } catch (Throwable e) {
+            if (!type.isInstance(e)) fail("expected " + type.getSimpleName() + ", got " + e);
+            return;
+        }
+        fail("expected " + type.getSimpleName() + " to be thrown");
+    }
+
+    static String show(Object o) {
+        if (o instanceof Object[] a) return java.util.Arrays.deepToString(a);
+        if (o instanceof int[] a) return java.util.Arrays.toString(a);
+        if (o instanceof long[] a) return java.util.Arrays.toString(a);
+        if (o instanceof double[] a) return java.util.Arrays.toString(a);
+        if (o instanceof char[] a) return java.util.Arrays.toString(a);
+        if (o instanceof boolean[] a) return java.util.Arrays.toString(a);
+        if (o instanceof String s) return '"' + s + '"';
+        return String.valueOf(o);
+    }
+}
+
+class DxtTests extends DxtBase {
+    void define() {
+'''
+
+run_cmd  = "java -Xss16m {file}"
+test_cmd = "{ grep -h '^import ' {test_file} {file} | sort -u; grep -v '^import ' {test_file}; printf '\\n    }\\n}\\n\\n'; grep -v '^import ' {file}; } > Run.java && java -Xss16m Run.java"
+diag_cmd = "javac -Xlint:none -d .dxt-out {file} 2>&1 | sed -nE 's/^([^:]+[.]java):([0-9]+): (error|warning): (.*)$/\\1:\\2:0: \\3: \\4/p'"
+
+timeout_secs = 60
+"##;
+
+/// The built-in **Kotlin** descriptor (the official Kotlin course, Kotlin 2.x on the JVM).
+/// `kotlinc … -include-runtime -d x.jar && java -jar x.jar` — no Gradle.
+///
+/// - **Run** (drills): `Main.kt` is a complete program with `fun main()`.
+/// - **Tests** (challenges): written as the body of an extension function on a harness class, so
+///   `test("name") { equal(actual, expected) }`, `expect(cond)`, `near(a, b)` and
+///   `assertThrows<IllegalArgumentException> { … }` resolve to **members** and can never clash
+///   with the student's top-level functions nor shadow the stdlib `check`/`require`. `test_cmd`
+///   assembles one `Run.kt`: all `import` lines hoisted and de-duplicated, the student's code, the
+///   harness (with its own `main`), the tests, and the closing brace. Student code therefore has
+///   no `main` and no `package` line.
+/// - **Diagnostics**: `kotlinc` already prints `File.kt:LINE:COL: error: msg`.
+///
+/// `kotlinc` is found on the PATH, in `/snap/bin` (the snap) or in SDKMAN. A cold compile takes a
+/// few seconds (a fresh compiler JVM each time); the C1-only JIT (`-XX:TieredStopAtLevel=1`)
+/// roughly halves that for such short-lived JVMs. Hence also the longer timeout.
+const BUILTIN_KOTLIN_TOML: &str = r##"
+id = "kotlin"
+aliases = ["kt"]
+display_name = "Kotlin"
+monaco_id = "kotlin"
+extensions = ["kt", "kts"]
+image = "zenika/kotlin:latest"
+host_bin = "kotlinc"
+host_path_hints = ["/snap/bin", "~/.sdkman/candidates/kotlin/current/bin", "/opt/homebrew/bin", "/usr/lib/jvm/*/bin"]
+network = false
+
+code_file = "Main.kt"
+test_file = "DxtTests.kt"
+test_prelude = '''
+import kotlin.system.exitProcess
+
+class DxtSuite {
+    private val cases = mutableListOf<Pair<String, () -> Unit>>()
+    private var current = ""
+    var failures = 0
+
+    fun fail(msg: String) {
+        failures++
+        System.err.println("FAILED $current: $msg")
+    }
+
+    fun test(name: String, body: () -> Unit) {
+        cases += name to body
+    }
+
+    fun expect(cond: Boolean, msg: String = "expectation failed") {
+        if (!cond) fail(msg)
+    }
+
+    fun equal(actual: Any?, expected: Any?) {
+        if (!deepEq(actual, expected)) fail("expected ${show(expected)}, got ${show(actual)}")
+    }
+
+    fun near(actual: Double, expected: Double, epsilon: Double = 1e-9) {
+        if (kotlin.math.abs(actual - expected) > epsilon) fail("expected $expected ± $epsilon, got $actual")
+    }
+
+    inline fun <reified T : Throwable> assertThrows(body: () -> Unit) {
+        try {
+            body()
+        } catch (e: Throwable) {
+            if (e !is T) fail("expected ${T::class.simpleName}, got $e")
+            return
+        }
+        fail("expected ${T::class.simpleName} to be thrown")
+    }
+
+    private fun deepEq(a: Any?, b: Any?): Boolean = when {
+        a is Array<*> && b is Array<*> -> a.contentDeepEquals(b)
+        a is IntArray && b is IntArray -> a.contentEquals(b)
+        a is LongArray && b is LongArray -> a.contentEquals(b)
+        a is DoubleArray && b is DoubleArray -> a.contentEquals(b)
+        a is CharArray && b is CharArray -> a.contentEquals(b)
+        a is BooleanArray && b is BooleanArray -> a.contentEquals(b)
+        else -> a == b
+    }
+
+    private fun show(v: Any?): String = when (v) {
+        is Array<*> -> v.contentDeepToString()
+        is IntArray -> v.contentToString()
+        is LongArray -> v.contentToString()
+        is DoubleArray -> v.contentToString()
+        is CharArray -> v.contentToString()
+        is BooleanArray -> v.contentToString()
+        is String -> "\"$v\""
+        else -> v.toString()
+    }
+
+    fun run(): Int {
+        for ((name, body) in cases) {
+            current = name
+            try {
+                body()
+            } catch (e: Throwable) {
+                fail("threw $e")
+            }
+        }
+        println("${cases.size} tests, $failures failures")
+        return if (failures > 0 || cases.isEmpty()) 1 else 0
+    }
+}
+
+fun main() {
+    val suite = DxtSuite()
+    suite.dxtDefine()
+    exitProcess(suite.run())
+}
+
+fun DxtSuite.dxtDefine() {
+'''
+
+run_cmd  = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} {file} -include-runtime -d prog.jar 2>&1 && java -Xss16m -cp "prog.jar${CO:+:$CO}" MainKt'''
+test_cmd = '''{ grep -h '^import ' {test_file} {file} | sort -u; grep -v '^import ' {file}; grep -v '^import ' {test_file}; printf '\n}\n'; } > Run.kt && CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} Run.kt -include-runtime -d run.jar 2>&1 && java -Xss16m -cp "run.jar${CO:+:$CO}" RunKt'''
+diag_cmd = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} {file} -d .dxt-out 2>&1'''
+
+timeout_secs = 120
+"##;
+
+/// The built-in **C#** descriptor (the official C# course, C# 12 on .NET 8). Compiles with the
+/// Roslyn compiler that ships inside the SDK (`dotnet <sdk>/Roslyn/bincore/csc.dll`) against the
+/// `Microsoft.NETCore.App.Ref` reference assemblies, then runs with `dotnet prog.dll` — no MSBuild,
+/// no project, no NuGet, about a second per compile. A generated `GlobalUsings.cs` mirrors the SDK's
+/// implicit usings (System, Collections.Generic, IO, Linq, Threading, Threading.Tasks).
+///
+/// - **Run** (drills): `Program.cs` is a complete program (top-level statements are fine).
+/// - **Tests** (challenges): the student's `Program.cs` holds only types (no top-level statements,
+///   no `Main`); the hidden tests are the body of `Define()` in a partial harness class compiled as
+///   a second file, so `Test("name", () => Equal(actual, expected))`, `Check`, `Near` and
+///   `Throws<T>(() => …)` are members and never clash with the student's names. `async` test
+///   lambdas bind to a `Func<Task>` overload and are awaited. Any `using` lines the tests start with
+///   are hoisted to the top of the test file.
+/// - **Diagnostics**: `csc` errors `File.cs(L,C): error CSxxxx: msg`, reshaped to
+///   `file:line:col: error: msg (CSxxxx)`; "no entry point" (CS5001) is ignored.
+const BUILTIN_CSHARP_TOML: &str = r##"
+id = "csharp"
+aliases = ["c#", "cs", "dotnet"]
+display_name = "C#"
+monaco_id = "csharp"
+extensions = ["cs"]
+image = "mcr.microsoft.com/dotnet/sdk:8.0"
+host_bin = "dotnet"
+host_path_hints = ["/usr/lib/dotnet", "/usr/share/dotnet", "~/.dotnet", "/usr/local/share/dotnet"]
+network = false
+
+code_file = "Program.cs"
+test_file = "DxtTests.cs"
+test_prelude = '''
+public static class DxtProgram
+{
+    public static int Main()
+    {
+        var suite = new DxtSuite();
+        suite.Define();
+        return suite.RunAll();
+    }
+}
+
+public partial class DxtSuite
+{
+    private readonly List<(string Name, Func<Task> Body)> _cases = new();
+    private string _current = "";
+    private int _failures;
+
+    public void Fail(string msg)
+    {
+        _failures++;
+        Console.Error.WriteLine($"FAILED {_current}: {msg}");
+    }
+
+    public void Test(string name, Action body) => _cases.Add((name, () => { body(); return Task.CompletedTask; }));
+    public void Test(string name, Func<Task> body) => _cases.Add((name, body));
+
+    public void Check(bool cond, string msg = "check failed")
+    {
+        if (!cond) Fail(msg);
+    }
+
+    public void Equal(object? actual, object? expected)
+    {
+        if (!DeepEqual(actual, expected)) Fail($"expected {Show(expected)}, got {Show(actual)}");
+    }
+
+    public void Near(double actual, double expected, double epsilon = 1e-9)
+    {
+        if (Math.Abs(actual - expected) > epsilon) Fail($"expected {expected} ± {epsilon}, got {actual}");
+    }
+
+    public void Throws<T>(Action body) where T : Exception
+    {
+        try { body(); }
+        catch (Exception e)
+        {
+            if (e is not T) Fail($"expected {typeof(T).Name}, got {e.GetType().Name}: {e.Message}");
+            return;
+        }
+        Fail($"expected {typeof(T).Name} to be thrown");
+    }
+
+    private static bool DeepEqual(object? a, object? b)
+    {
+        if (Equals(a, b)) return true;
+        if (a is null || b is null || a is string || b is string) return false;
+        if (a is System.Collections.IDictionary da && b is System.Collections.IDictionary db)
+        {
+            if (da.Count != db.Count) return false;
+            foreach (System.Collections.DictionaryEntry e in da)
+                if (!db.Contains(e.Key) || !DeepEqual(e.Value, db[e.Key])) return false;
+            return true;
+        }
+        var setEquals = a.GetType().GetMethod("SetEquals");
+        if (setEquals is not null && b.GetType().GetMethod("SetEquals") is not null)
+            return (bool)setEquals.Invoke(a, new[] { b })!;
+        if (a is System.Collections.IEnumerable ea && b is System.Collections.IEnumerable eb)
+        {
+            var la = ea.Cast<object?>().ToList();
+            var lb = eb.Cast<object?>().ToList();
+            return la.Count == lb.Count && la.Zip(lb).All(p => DeepEqual(p.First, p.Second));
+        }
+        return false;
+    }
+
+    private static string Show(object? v) => v switch
+    {
+        null => "null",
+        string s => $"\"{s}\"",
+        System.Collections.IDictionary d => "{" + string.Join(", ", Entries(d).Select(e => $"{Show(e.Key)}: {Show(e.Value)}")) + "}",
+        System.Collections.IEnumerable e => "[" + string.Join(", ", e.Cast<object?>().Select(Show)) + "]",
+        _ => v.ToString() ?? "",
+    };
+
+    // The non-generic IDictionary enumerator yields DictionaryEntry; Cast<DictionaryEntry>() would
+    // use IEnumerable instead, which for Dictionary<K,V> yields KeyValuePair and throws.
+    private static IEnumerable<System.Collections.DictionaryEntry> Entries(System.Collections.IDictionary d)
+    {
+        var it = d.GetEnumerator();
+        while (it.MoveNext()) yield return it.Entry;
+    }
+
+    public int RunAll()
+    {
+        foreach (var (name, body) in _cases)
+        {
+            _current = name;
+            try { body().GetAwaiter().GetResult(); }
+            catch (Exception e) { Fail($"threw {e.GetType().Name}: {e.Message}"); }
+        }
+        Console.WriteLine($"{_cases.Count} tests, {_failures} failures");
+        return _failures > 0 || _cases.Count == 0 ? 1 : 0;
+    }
+}
+
+public partial class DxtSuite
+{
+    public void Define()
+    {
+'''
+
+run_cmd  = '''ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); FW=$(ls "$ROOT"/shared/Microsoft.NETCore.App | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; printf '{"runtimeOptions":{"tfm":"net8.0","framework":{"name":"Microsoft.NETCore.App","version":"%s"}}}' "$FW" > prog.runtimeconfig.json; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -optimize+ -nowarn:CS8321 -out:prog.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} && dotnet prog.dll'''
+test_cmd = '''{ grep -h '^using ' {test_file}; grep -v '^using ' {test_file}; printf '\n    }\n}\n'; } > Tests.cs && ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); FW=$(ls "$ROOT"/shared/Microsoft.NETCore.App | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; printf '{"runtimeOptions":{"tfm":"net8.0","framework":{"name":"Microsoft.NETCore.App","version":"%s"}}}' "$FW" > run.runtimeconfig.json; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -optimize+ -nowarn:CS8321 -main:DxtProgram -out:run.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} Tests.cs && dotnet run.dll'''
+diag_cmd = '''ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -out:diag.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} 2>&1 | grep -v CS5001 | sed -nE 's/^([^(]+)[(]([0-9]+),([0-9]+)[)]: (error|warning) (CS[0-9]+): (.*)$/\1:\2:\3: \4: \6 (\5)/p' '''
+
+timeout_secs = 60
+"##;
+
+/// The built-in **Swift** descriptor (the official Swift course, Swift 6 language mode with strict
+/// concurrency checking). `swiftc -O -swift-version 6`, no SwiftPM package.
+///
+/// - **Run** (drills): `main.swift` is a complete program (top-level code).
+/// - **Tests** (challenges): the student's code is renamed to `Student.swift`, which in Swift may
+///   hold only declarations (no top-level statements); a new `main.swift` holds the harness — a
+///   `@MainActor` class whose `test`/`equal`/`expect`/`near`/`assertThrows` are members — the
+///   top-level code that runs it (with `await`, so tests may be `async`), and the hidden tests
+///   inside `extension DxtSuite { func define() { … } }`. Members win over the student's global
+///   functions, so names never clash. A runtime trap (`fatalError`, out-of-bounds, a `!` on nil)
+///   ends the process non-zero, which fails the run — the starter uses `fatalError`.
+/// - **Diagnostics**: `swiftc -typecheck` already prints `file:line:col: error: msg`.
+///
+/// `swiftc` is found on the PATH or in swiftly's real toolchain folder: swiftly's own `swift` on
+/// the PATH is a proxy that needs the real `$HOME`, which the evaluator replaces.
+const BUILTIN_SWIFT_TOML: &str = r##"
+id = "swift"
+aliases = ["swiftlang"]
+display_name = "Swift"
+monaco_id = "swift"
+extensions = ["swift"]
+image = "swift:6.0"
+host_bin = "swiftc"
+host_path_hints = ["~/.local/share/swiftly/toolchains/*/usr/bin", "/opt/swift/usr/bin", "/usr/share/swift/usr/bin"]
+network = false
+
+code_file = "main.swift"
+test_file = "DxtTests.swift"
+test_prelude = '''
+import Foundation
+
+@MainActor
+final class DxtSuite {
+    private var cases: [(String, @MainActor () async throws -> Void)] = []
+    private var current = ""
+    var failures = 0
+
+    func fail(_ msg: String) {
+        failures += 1
+        FileHandle.standardError.write("FAILED \(current): \(msg)\n".data(using: .utf8)!)
+    }
+
+    func test(_ name: String, _ body: @escaping @MainActor () async throws -> Void) {
+        cases.append((name, body))
+    }
+
+    func equal<T: Equatable>(_ actual: T, _ expected: T) {
+        if actual != expected { fail("expected \(expected), got \(actual)") }
+    }
+
+    func expect(_ cond: Bool, _ msg: String = "expectation failed") {
+        if !cond { fail(msg) }
+    }
+
+    func near(_ actual: Double, _ expected: Double, _ epsilon: Double = 1e-9) {
+        if abs(actual - expected) > epsilon { fail("expected \(expected) ± \(epsilon), got \(actual)") }
+    }
+
+    func assertThrows(_ body: () throws -> Void) {
+        do { try body() } catch { return }
+        fail("expected an error to be thrown")
+    }
+
+    func run() async -> Int32 {
+        for (name, body) in cases {
+            current = name
+            do { try await body() } catch { fail("threw \(error)") }
+        }
+        print("\(cases.count) tests, \(failures) failures")
+        return failures > 0 || cases.isEmpty ? 1 : 0
+    }
+}
+
+let dxtSuite = DxtSuite()
+dxtSuite.define()
+exit(await dxtSuite.run())
+
+extension DxtSuite {
+    func define() {
+'''
+
+run_cmd  = "swiftc -O -swift-version 6 {file} -o prog 2>&1 && ./prog"
+test_cmd = "mv {file} Student.swift && { cat {test_file}; printf '\\n    }\\n}\\n'; } > main.swift && swiftc -O -swift-version 6 Student.swift main.swift -o testbin 2>&1 && ./testbin"
+diag_cmd = "swiftc -swift-version 6 -typecheck {file} 2>&1"
+
+timeout_secs = 120
+"##;
+
 /// Parse and return the built-in descriptors. Panics only on a programmer error (a malformed
 /// embedded TOML), which a unit test guards against.
 pub fn builtin_plugins() -> Vec<LanguagePlugin> {
     let mut out = Vec::new();
-    match toml::from_str::<LanguagePlugin>(BUILTIN_C_TOML) {
-        Ok(p) => out.push(p),
-        Err(e) => {
+    for (name, raw) in [
+        ("C", BUILTIN_C_TOML),
+        ("Python", BUILTIN_PYTHON_TOML),
+        ("C++", BUILTIN_CPP_TOML),
+        ("TypeScript", BUILTIN_TS_TOML),
+        ("SQL", BUILTIN_SQL_TOML),
+        ("Java", BUILTIN_JAVA_TOML),
+        ("Kotlin", BUILTIN_KOTLIN_TOML),
+        ("C#", BUILTIN_CSHARP_TOML),
+        ("Swift", BUILTIN_SWIFT_TOML),
+    ] {
+        match toml::from_str::<LanguagePlugin>(raw) {
+            Ok(p) => out.push(p),
             // Never crash the evaluator over a built-in; a test catches this in CI.
-            eprintln!("[dxtutor] built-in C plugin failed to parse: {e}");
+            Err(e) => eprintln!("[dxtutor] built-in {name} plugin failed to parse: {e}"),
         }
     }
     out
+}
+
+/// Run a **complete** program in any supported language — the drill path. Native runners for Rust
+/// and Go (with their extra dependency lines), a registered declarative plugin for everything else
+/// (Python, C, user drop-ins), and Rust as the historical fallback.
+pub fn run_program(language: &str, code: &str, deps: &[String]) -> Result<RunOutput> {
+    match language.trim().to_ascii_lowercase().as_str() {
+        "go" | "golang" => crate::go_runner::run_go_program_with_deps(code, deps),
+        "rust" | "rs" => crate::runner::run_rust_snippet_with_deps(code, deps),
+        other => match find_plugin(other) {
+            Some(p) => PluginRunner::new(p).run_program(code),
+            None => crate::runner::run_rust_snippet_with_deps(code, deps),
+        },
+    }
 }
 
 /// The user plugin directory: `$XDG_CONFIG_HOME/dxtutor/plugins/` if set, else
@@ -531,18 +1424,19 @@ pub fn available_languages() -> Vec<LanguageInfo> {
 
 /// `true` if `bin` resolves on the `PATH` (absolute path tested directly).
 fn bin_on_path(bin: &str) -> bool {
+    find_on_path(bin).is_some()
+}
+
+/// Where `bin` resolves on the caller's `PATH` (or itself, if absolute and present).
+fn find_on_path(bin: &str) -> Option<PathBuf> {
     let p = Path::new(bin);
     if p.is_absolute() {
-        return p.is_file();
+        return p.is_file().then(|| p.to_path_buf());
     }
-    if let Some(paths) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&paths) {
-            if dir.join(bin).is_file() {
-                return true;
-            }
-        }
-    }
-    false
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths)
+        .map(|dir| dir.join(bin))
+        .find(|f| f.is_file())
 }
 
 #[cfg(test)]
@@ -577,7 +1471,11 @@ mod tests {
     #[test]
     fn builtin_c_plugin_parses() {
         let plugins = builtin_plugins();
-        assert_eq!(plugins.len(), 1, "exactly the C built-in");
+        assert_eq!(
+            plugins.len(),
+            9,
+            "the C, Python, C++, TypeScript, SQL, Java, Kotlin, C# and Swift built-ins"
+        );
         let c = &plugins[0];
         assert_eq!(c.id, "c");
         assert!(c.matches("C"));
@@ -585,6 +1483,474 @@ mod tests {
         assert!(c.matches("h"), "extension should match");
         assert_eq!(c.test_file.as_deref(), Some("student_test.c"));
         assert!(c.run_cmd.contains("{file}"));
+    }
+
+    #[test]
+    fn builtin_python_plugin_parses() {
+        let py = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "python")
+            .expect("python");
+        assert!(py.matches("py") && py.matches("python3"));
+        assert_eq!(py.code_file, "student.py");
+        assert!(py.test_prelude.contains("from student import *"));
+        assert!(py.diag_cmd.as_deref().unwrap_or("").contains("SyntaxError"));
+    }
+
+    /// Real end-to-end on the host's `python3` (skipped where it is missing): the reference solution
+    /// passes the hidden unittest cases, a wrong one fails, a program runs, and a syntax error is
+    /// reported at its line.
+    #[test]
+    fn python_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let py = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "python")
+            .unwrap();
+        if !py.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(py);
+        let mut phase = c_add_phase();
+        phase.language = "python".into();
+        phase.entry = "add".into();
+        phase.tests = "class T(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(2, 3), 5)\n".into();
+        let ok = runner
+            .check_correctness(&phase, "def add(a, b):\n    return a + b\n")
+            .unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+        let bad = runner
+            .check_correctness(&phase, "def add(a, b):\n    return a - b\n")
+            .unwrap();
+        assert!(!bad.passed);
+        let starter = runner
+            .check_correctness(&phase, "def add(a, b):\n    raise NotImplementedError\n")
+            .unwrap();
+        assert!(!starter.passed);
+        let out = run_program("python", "print('hi', 6 * 7)\n", &[]).unwrap();
+        assert!(out.ok && out.stdout.trim() == "hi 42", "{out:?}");
+        let d = runner.diagnostics("x = 1\ndef f(:\n    pass\n").unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    /// Real end-to-end on the host's `g++` (skipped where it is missing): the mini test harness
+    /// passes a correct solution, fails a wrong one, fails a throwing one, fails "no tests", and a
+    /// compile error is reported at its line.
+    #[test]
+    fn cpp_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let cpp = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "cpp")
+            .unwrap();
+        assert!(cpp.matches("c++") && cpp.matches("cpp"));
+        if !cpp.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(cpp);
+        let mut phase = c_add_phase();
+        phase.language = "cpp".into();
+        phase.tests = "TEST(adds) { CHECK_EQ(add(2, 3), 5); CHECK(add(-1, 1) == 0); }\n".into();
+        let ok = runner
+            .check_correctness(&phase, "int add(int a, int b) { return a + b; }\n")
+            .unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+        assert!(ok.raw.contains("1 tests, 0 failures"), "{}", ok.raw);
+        let bad = runner
+            .check_correctness(&phase, "int add(int a, int b) { return a - b; }\n")
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(
+                &phase,
+                "#include <stdexcept>\nint add(int, int) { throw std::logic_error(\"todo\"); }\n",
+            )
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("threw todo"),
+            "{}",
+            throws.raw
+        );
+        phase.tests = String::new();
+        let none = runner
+            .check_correctness(&phase, "int add(int a, int b) { return a + b; }\n")
+            .unwrap();
+        assert!(!none.passed, "no tests must not pass");
+        let out = run_program(
+            "c++",
+            "#include <iostream>\nint main() { std::cout << 6 * 7 << \"\\n\"; }\n",
+            &[],
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner.diagnostics("int f() {\n  return x;\n}\n").unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    /// Real end-to-end on Node.js (found on the PATH or through the nvm/Volta hints; skipped where
+    /// it is missing): async tests, deep equality, `enum`, failure, throw and "no tests".
+    #[test]
+    fn typescript_plugin_grades_and_runs_on_the_host() {
+        let ts = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "typescript")
+            .unwrap();
+        assert!(ts.matches("ts") && !ts.matches("javascript"));
+        if !ts.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(ts);
+        let mut phase = c_add_phase();
+        phase.language = "typescript".into();
+        phase.tests = "dxt.test(\"adds\", async () => {\n  dxt.equal(add(2, 3), 5);\n  dxt.equal(new Map([[\"k\", [1]]]), new Map([[\"k\", [1]]]));\n});\n".into();
+        let good = "enum Op { Plus }\nexport function add(a: number, b: number): number {\n  return Op.Plus === 0 ? a + b : 0;\n}\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("1 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(
+                &phase,
+                "export function add(a: number, b: number): number { return a - b; }\n",
+            )
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(&phase, "export function add(a: number, b: number): number { throw new Error(\"todo\"); }\n")
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("threw todo"),
+            "{}",
+            throws.raw
+        );
+        phase.tests = String::new();
+        assert!(
+            !runner.check_correctness(&phase, good).unwrap().passed,
+            "no tests must not pass"
+        );
+        let out = run_program("ts", "const n: number = 6 * 7;\nconsole.log(n);\n", &[]).unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+    }
+
+    /// Real end-to-end with python3's SQLite (skipped where python3 is missing): a script runs and
+    /// prints CLI-style results, a query challenge passes/fails, a script challenge is inspected,
+    /// and an error is reported at its statement's line.
+    #[test]
+    fn sql_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let sql = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "sql")
+            .unwrap();
+        assert!(sql.matches("sqlite") && sql.matches("SQL"));
+        if !sql.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let out = run_program(
+            "sql",
+            "-- a comment\nCREATE TABLE t(x INTEGER, y TEXT);\nINSERT INTO t VALUES (1, 'a'), (2, NULL);\nBEGIN;\nUPDATE t SET x = x * 10;\nCOMMIT;\nSELECT x, y\nFROM t ORDER BY x;\n",
+            &[],
+        )
+        .unwrap();
+        assert!(out.ok, "{out:?}");
+        assert_eq!(out.stdout, "x|y\n10|a\n20|NULL\n");
+        let err = run_program("sql", "SELECT 1;\n\nSELECT * FROM missing;\n", &[]).unwrap();
+        assert!(!err.ok && err.stderr.contains("line 3"), "{err:?}");
+
+        let runner = PluginRunner::new(sql);
+        let mut phase = c_add_phase();
+        phase.language = "sql".into();
+        phase.tests = "SETUP = \"CREATE TABLE t(x); INSERT INTO t VALUES (3), (1), (2);\"\n\nclass T(unittest.TestCase):\n    def test_sorted(self):\n        cols, rows = query(SETUP)\n        self.assertEqual(cols, [\"x\"])\n        self.assertEqual(rows, [(1,), (2,), (3,)])\n".into();
+        let ok = runner
+            .check_correctness(&phase, "SELECT x FROM t ORDER BY x;\n")
+            .unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+        let bad = runner
+            .check_correctness(&phase, "SELECT x FROM t;\n")
+            .unwrap();
+        assert!(!bad.passed);
+        let starter = runner
+            .check_correctness(&phase, "-- write your query here\n")
+            .unwrap();
+        assert!(!starter.passed);
+        phase.tests = "class T(unittest.TestCase):\n    def test_table(self):\n        conn = script()\n        self.assertEqual(conn.execute(\"SELECT count(*) FROM p\").fetchone()[0], 2)\n".into();
+        let ok = runner
+            .check_correctness(&phase, "CREATE TABLE p(id INTEGER PRIMARY KEY);\nINSERT INTO p DEFAULT VALUES;\nINSERT INTO p DEFAULT VALUES;\n")
+            .unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+        let d = runner.diagnostics("SELECT 1;\nSELEC 2;\n").unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    /// Real end-to-end on the host's JDK (skipped where `java` is missing): imports from both files
+    /// are hoisted, a public student class works, failures/throws/"no tests" fail, a program runs,
+    /// and a compile error is reported at its line.
+    #[test]
+    fn java_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let java = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "java")
+            .unwrap();
+        assert!(java.matches("Java") && java.matches("java"));
+        if !java.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(java);
+        let mut phase = c_add_phase();
+        phase.language = "java".into();
+        phase.tests = "import java.util.Map;\ntest(\"adds\", () -> equal(Calc.add(2, 3), 5));\ntest(\"lists\", () -> equal(Calc.pair(1), List.of(1, 1)));\ntest(\"map\", () -> equal(Map.of(\"k\", 1).get(\"k\"), 1));\n".into();
+        let good = "import java.util.List;\n\npublic class Calc {\n    static int add(int a, int b) { return a + b; }\n    static List<Integer> pair(int x) { return List.of(x, x); }\n}\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("3 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(&phase, &good.replace("a + b", "a - b"))
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(
+                &phase,
+                &good.replace(
+                    "return a + b;",
+                    "throw new UnsupportedOperationException(\"todo\");",
+                ),
+            )
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("todo"),
+            "{}",
+            throws.raw
+        );
+        phase.tests = String::new();
+        assert!(
+            !runner.check_correctness(&phase, good).unwrap().passed,
+            "no tests must not pass"
+        );
+        let out = run_program(
+            "java",
+            "public class Main {\n    public static void main(String[] args) {\n        System.out.println(6 * 7);\n    }\n}\n",
+            &[],
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner
+            .diagnostics("class A {\n    int f() {\n        return x;\n    }\n}\n")
+            .unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(3), "{d:?}");
+    }
+
+    /// Real end-to-end with `kotlinc` (found on the PATH or in /snap/bin, SDKMAN; skipped where it
+    /// is missing): members-based harness, hoisted imports, failure/throw/"no tests", a program
+    /// runs, and a compile error is reported at its line.
+    #[test]
+    fn kotlin_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let kt = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "kotlin")
+            .unwrap();
+        assert!(kt.matches("kt") && kt.matches("Kotlin"));
+        if !kt.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(kt);
+        let mut phase = c_add_phase();
+        phase.language = "kotlin".into();
+        // A student top-level `test` function must not clash with the harness's `test`.
+        phase.tests = "import kotlin.math.max\ntest(\"adds\") { equal(add(2, 3), 5) }\ntest(\"data\") { equal(listOf(Point(1, 2)), listOf(Point(1, 2))); expect(max(1, 2) == 2) }\ntest(\"throws\") { assertThrows<IllegalArgumentException> { require(false) } }\n".into();
+        let good = "import kotlin.math.abs\n\ndata class Point(val x: Int, val y: Int)\n\nfun add(a: Int, b: Int): Int = abs(a) + b\n\nfun test(): String = \"student helper\"\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("3 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(&phase, &good.replace("abs(a) + b", "a - b"))
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let throws = runner
+            .check_correctness(
+                &phase,
+                &good.replace("abs(a) + b", "TODO(\"not implemented\")"),
+            )
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("not implemented"),
+            "{}",
+            throws.raw
+        );
+        let out = run_program(
+            "kotlin",
+            "import kotlinx.coroutines.*\n\nfun main() = runBlocking {\n    val a = async { delay(5); 6 }\n    println(a.await() * 7)\n}\n",
+            &[],
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner
+            .diagnostics("fun f(): Int {\n    return 1\n}\nfun g(): Int = missing\n")
+            .unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(4), "{d:?}");
+    }
+
+    /// Real end-to-end on the host's .NET SDK (skipped where `dotnet` is missing): Roslyn compile,
+    /// member-based harness (a student `Test` method must not clash), async tests, deep equality of
+    /// lists/dictionaries/sets/records, hoisted `using`, failure/throw/"no tests", a top-level
+    /// program runs, and a compile error is reported at its line.
+    #[test]
+    fn csharp_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let cs = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "csharp")
+            .unwrap();
+        assert!(cs.matches("c#") && cs.matches("cs") && cs.matches("CSharp"));
+        if !cs.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(cs);
+        let mut phase = c_add_phase();
+        phase.language = "csharp".into();
+        phase.tests = "using System.Text;\nTest(\"adds\", () => Equal(Calc.Add(2, 3), 5));\nTest(\"collections\", () => {\n    Equal(Calc.Words(\"b a\"), new List<string> { \"a\", \"b\" });\n    Equal(new Dictionary<string, int> { [\"k\"] = 1 }, new Dictionary<string, int> { [\"k\"] = 1 });\n    Equal(new HashSet<int> { 2, 1 }, new HashSet<int> { 1, 2 });\n    Equal(new Point(1, 2), new Point(1, 2));\n    Check(new StringBuilder(\"x\").Length == 1);\n});\nTest(\"async\", async () => Equal(await Calc.LaterAsync(7), 7));\nTest(\"throws\", () => Throws<ArgumentException>(() => Calc.Sqrt(-1)));\n".into();
+        let good = "public record Point(int X, int Y);\n\npublic static class Calc\n{\n    public static int Add(int a, int b) => a + b;\n    public static List<string> Words(string s) => s.Split(' ').OrderBy(w => w).ToList();\n    public static async Task<int> LaterAsync(int v) { await Task.Delay(5); return v; }\n    public static double Sqrt(double x) => x < 0 ? throw new ArgumentException(\"negative\") : Math.Sqrt(x);\n    public static string Test() => \"student helper\";\n}\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("4 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(&phase, &good.replace("=> a + b", "=> a - b"))
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        // A failing dictionary comparison shows both dictionaries, not an InvalidCastException
+        // from the message formatter (regression: Cast<DictionaryEntry> on Dictionary<K,V>).
+        let mut dict_phase = phase.clone();
+        dict_phase.tests = "Test(\"dict\", () => Equal(new Dictionary<string, int> { [\"a\"] = 1 }, new Dictionary<string, int> { [\"a\"] = 2 }));\n".into();
+        let dict = runner.check_correctness(&dict_phase, good).unwrap();
+        assert!(
+            !dict.passed
+                && dict.raw.contains("expected {\"a\": 2}, got {\"a\": 1}")
+                && !dict.raw.contains("InvalidCastException"),
+            "{}",
+            dict.raw
+        );
+        let throws = runner
+            .check_correctness(
+                &phase,
+                &good.replace(
+                    "=> a + b;",
+                    "=> throw new NotImplementedException(\"todo\");",
+                ),
+            )
+            .unwrap();
+        assert!(
+            !throws.passed && throws.raw.contains("todo"),
+            "{}",
+            throws.raw
+        );
+        phase.tests = String::new();
+        assert!(
+            !runner.check_correctness(&phase, good).unwrap().passed,
+            "no tests must not pass"
+        );
+        let out = run_program("c#", "var n = 6 * 7;\nConsole.WriteLine(n);\n", &[]).unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner
+            .diagnostics("public static class A\n{\n    public static int F() => missing;\n}\n")
+            .unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(3), "{d:?}");
+    }
+
+    /// Real end-to-end with swiftc (found on the PATH or in swiftly's toolchain folder; skipped where
+    /// it is missing): Swift 6 strict concurrency, member harness (a student global `test()` must
+    /// not clash), async tests with an actor, failure, a `fatalError` starter, "no tests", a program
+    /// runs, and a compile error is reported at its line.
+    #[test]
+    fn swift_plugin_grades_runs_and_diagnoses_on_the_host() {
+        let sw = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "swift")
+            .unwrap();
+        assert!(sw.matches("Swift"));
+        if !sw.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(sw);
+        let mut phase = c_add_phase();
+        phase.language = "swift".into();
+        phase.tests = "test(\"adds\") { self.equal(add(2, 3), 5) }\ntest(\"async\") {\n    let c = Counter()\n    await withTaskGroup(of: Void.self) { group in\n        for _ in 0..<50 { group.addTask { await c.increment() } }\n    }\n    self.equal(await c.value(), 50)\n}\n".into();
+        let good = "func add(_ a: Int, _ b: Int) -> Int { a + b }\n\nactor Counter {\n    private var n = 0\n    func increment() { n += 1 }\n    func value() -> Int { n }\n}\n\nfunc test() -> String { \"student helper\" }\n";
+        let ok = runner.check_correctness(&phase, good).unwrap();
+        assert!(
+            ok.passed && ok.raw.contains("2 tests, 0 failures"),
+            "{}",
+            ok.raw
+        );
+        let bad = runner
+            .check_correctness(&phase, &good.replace("{ a + b }", "{ a - b }"))
+            .unwrap();
+        assert!(
+            !bad.passed && bad.raw.contains("FAILED adds"),
+            "{}",
+            bad.raw
+        );
+        let starter = runner
+            .check_correctness(
+                &phase,
+                &good.replace("{ a + b }", "{ fatalError(\"not implemented\") }"),
+            )
+            .unwrap();
+        assert!(!starter.passed, "{}", starter.raw);
+        phase.tests = String::new();
+        assert!(
+            !runner.check_correctness(&phase, good).unwrap().passed,
+            "no tests must not pass"
+        );
+        let out = run_program("swift", "let n = 6 * 7\nprint(n)\n", &[]).unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+        let d = runner.diagnostics("let a = 1\nlet b = missing\n").unwrap();
+        assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    #[test]
+    fn expand_hint_picks_the_newest_version() {
+        let dir = tempfile::tempdir().unwrap();
+        for v in ["v9.1.0", "v10.0.0", "v24.14.1"] {
+            std::fs::create_dir_all(dir.path().join(v).join("bin")).unwrap();
+        }
+        let got = expand_hint(&format!("{}/*/bin", dir.path().display())).unwrap();
+        assert!(got.ends_with("v24.14.1/bin"), "{got:?}");
+    }
+
+    #[test]
+    fn language_supported_knows_native_and_descriptor_languages_only() {
+        for l in ["rust", "Go", "javascript", "python", "py", "c"] {
+            assert!(crate::language_supported(l), "{l}");
+        }
+        for l in ["cobol", "fortran", ""] {
+            assert!(!crate::language_supported(l), "{l}");
+        }
     }
 
     #[test]

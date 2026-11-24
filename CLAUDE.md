@@ -36,7 +36,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra` e `panel`); cada nova extracção
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel` e `learn`); cada nova extracção
   acrescenta-se lá. Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
   o único `@ts-nocheck` dentro de uma subárvore — ver abaixo). A `infra` nasceu com a
   subárvore inteiramente TIPADA (decisão do dono): nenhum `@ts-nocheck` novo, A6 fica 8.
@@ -346,6 +346,59 @@ versões que publica, e a porta recebe a versão simulada como último argumento
 `scm` (commit/checkout/gitMerge/gfFinish — U4h2), `terminal` (run/termExec/promptHTML — U4h3), `stack` (dxRun/dxStop/drawStack) e `infra`
 (rtConnect/k8sConnect/dxDeploy/VIEW.observe) — U4h4.
 
+## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
+
+ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
+`dxtutor-plugin.json` + cursos no formato `tutor_core::Course` (TOML/JSON), com
+`Course.overview` e `Unit.concepts` (o texto de leitura de cada tópico). Os oficiais vivem em
+`github.com/dxtutor-courses/<id>`. O catálogo oficial tem no máximo 10 linguagens
+(`learn/domain/catalog.ts`): rust, go, python, typescript, java, kotlin, swift, csharp,
+cpp, sql.
+
+- **Fonte única dos cursos Rust/Go: `courses/<id>/`** (plugin oficial completo, publicado em
+  `dxtutor-courses/<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
+  da UI (`ui-app/src/content/courses/*.json`) é **gerado**: editar só o TOML e correr
+  `python3 scripts/sync-ui-courses.py`. O teste `crates/tutor-core/tests/ui_json.rs` falha se
+  divergirem.
+- A avaliação procura o passo por **(linguagem, id)** (`submit_step` com `language`), porque Rust e
+  Go repetem ids de passo. Um plugin com o mesmo id de curso de um embutido substitui-o.
+- As 8 linguagens novas (**Python**, **C++**, **TypeScript**, **SQL**, **Java**, **Kotlin**, **C#** e **Swift**, em `courses/<id>/`) estão embutidas só no backend: o browser não traz o JSON. São avaliados
+  pelos descritores embutidos em `crates/tutor-eval/src/plugin.rs` (Python com `unittest`; C++ com um mini-framework `TEST`/`CHECK`; TypeScript no Node com `dxt.test`; SQL no SQLite do Python com `query`/`script`; Java no source launcher do JDK 21 com `test(...)`; Kotlin com `kotlinc` e coroutines; C# com o Roslyn do SDK do .NET 8; Swift com `swiftc` em modo Swift 6). As linguagens novas
+  seguem a mesma receita: um descritor ou runner, um curso, e `dxt plugin test courses/<id>`
+  com 0 falhas antes de commitar.
+- `crates/tutor-plugins` — manifesto, validação, origem, instalação e registo. É partilhado
+  pelos comandos Tauri `plugin_*` (`commands/plugins.rs`) e pelo `dxt plugin …` (tutor-cli).
+- `src-tauri/src/study.rs::all_courses()` — fonte única de cursos (embutidos + plugins, em
+  cache pelo mtime do registo). Nunca chamar `tutor_core::builtin_courses()` directamente no
+  backend.
+- `features/learn/` (governada por A7/A8, tipada): `domain/` (catalog, course-adapter), `application/`
+  (CourseGateway + catalog-service), `ui/actions.ts`, `infrastructure/legacy-bridge.ts`. O
+  resíduo `features/learn.ts` é dono do DOM e do motor. Rust/Go embutidos continuam com
+  avaliação simulada no browser; os cursos do backend usam `submit_step` real.
+- Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
+  `learn.onboarding.test.ts`. Guia de autoria: `docs/plugins/README.md`.
+
+## Extensões VS Code — contribuições declarativas (ADR-0005, Fase 4)
+
+Não há extension host: o JavaScript de uma extensão nunca corre. O que um VSIX contribui de
+forma declarativa é aplicado por código tipado em `features/ext/`, governado por A7/A8.
+
+- **`domain/`:** `jsonc.ts`, `theme.ts` (tema → CSS confinado a `.ed`), `snippets.ts`,
+  `textmate.ts` (tokenizador TextMate «lite», sem Oniguruma: traduz as regex para JS e
+  ignora as que não compilam) e `contributions.ts` (ficheiros a ler, linguagens, toggle de
+  comentário, `KNOWN_LANGUAGE_SERVERS`).
+- **`application/contributions-engine.ts`:** lê o VSIX, guarda (LS `vsx-contrib`) e serve ao
+  editor. O resíduo `ext.ts` publica `vsxHighlight` (usado pelo `paintEd`), `vsxSnippet`
+  (Tab), `vsxToggleComment` (Ctrl+/), `vsxApplyTheme` e `vsxInstallOpenVsx`.
+- **`ui/actions.ts`:** listener delegado da `ext` (chave `__extActionHandler__`). Os botões da
+  Fase 4 (`vsx-theme`, `vsx-open-vsx`) usam `data-action`; o resto do markup das extensões
+  ainda tem `onclick` inline (a métrica U5 do `ui-metrics.sh` não pode subir).
+- **Backend:** `vsix_fetch_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
+  em `lsp.rs`.
+- **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
+  `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
+  goldens do catálogo ficam intactos.
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,
@@ -370,6 +423,8 @@ registada (mudança de UI aprovada), nunca para «fazer passar».
 ## Referências
 
 - `docs/architecture/ADR-0002-codev-clean-architecture.md` — a decisão e as 6 fases.
+- `docs/architecture/ADR-0005-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
+- `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.
 - `docs/architecture/IPC-MATRIX.md` / `MIGRATION.md` — backend (comandos Tauri).

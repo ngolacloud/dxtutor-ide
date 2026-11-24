@@ -1,0 +1,20 @@
+[package]
+name = "tutor-plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Plugins de curso do dxtutor: manifesto, validação, instalação (GitHub/zip/pasta) e registo local."
+
+[dependencies]
+tutor-core = { path = "../tutor-core" }
+serde.workspace = true
+serde_json = "1"
+semver = "1"
+sha2 = "0.10"
+dirs = "7"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+ureq = { version = "2.12" }
+
+[dev-dependencies]
+tempfile.workspace = true

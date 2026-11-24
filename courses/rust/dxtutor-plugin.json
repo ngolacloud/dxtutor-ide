@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "rust",
+  "name": "Rust",
+  "version": "1.0.0",
+  "description": "Rust: From Zero to Confident — from your first line of code to ownership, traits, concurrency, databases and data structures.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/dxtutor-courses/rust",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "language": {
+    "id": "rust",
+    "name": "Rust",
+    "icon": "🦀",
+    "extension": "rs",
+    "indent": "4",
+    "testCommand": "cargo test"
+  },
+  "courses": ["courses/rust.toml"]
+}

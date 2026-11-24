@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "swift",
+  "name": "Swift",
+  "version": "1.0.0",
+  "description": "Swift: From Zero to Confident — Swift 6 from your first program to optionals, value types, protocols, Codable, async/await, actors and data structures.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/dxtutor-courses/swift",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "language": {
+    "id": "swift",
+    "name": "Swift",
+    "icon": "🐦",
+    "extension": "swift",
+    "indent": "4",
+    "testCommand": "swiftc"
+  },
+  "courses": ["courses/swift.toml"]
+}

@@ -46,13 +46,34 @@ fn ctx(root: &Path) -> ToolCtx {
     }
 }
 
+/// Identidade dos commits de checkpoint. São commits internos (só uma ref oculta os vê),
+/// por isso não usam a identidade do utilizador — e assim o `commit-tree` funciona numa
+/// máquina sem `user.name`/`user.email` configurados, onde o git recusaria o commit.
+const CHECKPOINT_IDENTITY: [(&str, &str); 4] = [
+    ("GIT_AUTHOR_NAME", "dxtutor checkpoint"),
+    ("GIT_AUTHOR_EMAIL", "dxtutor@localhost"),
+    ("GIT_COMMITTER_NAME", "dxtutor checkpoint"),
+    ("GIT_COMMITTER_EMAIL", "dxtutor@localhost"),
+];
+
 /// Corre `git` na raiz; com `index`, usa esse ficheiro de index em vez do do utilizador.
 fn git(root: &Path, args: &[&str], index: Option<&Path>) -> Result<String, String> {
+    git_env(root, args, index, &[])
+}
+
+/// Como [`git`], com variáveis de ambiente extra.
+fn git_env(
+    root: &Path,
+    args: &[&str],
+    index: Option<&Path>,
+    env: &[(&str, &str)],
+) -> Result<String, String> {
     let mut c = Command::new("git");
     c.args(args);
     if let Some(i) = index {
         c.env("GIT_INDEX_FILE", i);
     }
+    c.envs(env.iter().copied());
     let r = run_process(c, root, Duration::from_secs(120), &ctx(root));
     if r.ok() {
         Ok(r.stdout.trim_end().to_string())
@@ -101,7 +122,12 @@ impl Checkpoints {
     pub fn snapshot(&self, label: &str) -> Result<Checkpoint, String> {
         let tree = self.worktree_tree()?;
         let msg = format!("dxtutor checkpoint: {label}");
-        let commit = git(&self.root, &["commit-tree", &tree, "-m", &msg], None)?;
+        let commit = git_env(
+            &self.root,
+            &["commit-tree", &tree, "-m", &msg],
+            None,
+            &CHECKPOINT_IDENTITY,
+        )?;
         let mut list = self.list.lock().unwrap();
         let id = list.last().map(|c| c.id + 1).unwrap_or(1);
         git(
@@ -188,6 +214,10 @@ mod tests {
                 .success())
         };
         g(&["init", "-q", "-b", "main"]);
+        // Identidade local: o `snapshot` usa `git commit-tree`, que precisa dela, e uma
+        // máquina sem `user.name`/`user.email` globais (o runner do CI) não a tem.
+        g(&["config", "user.name", "t"]);
+        g(&["config", "user.email", "t@t"]);
         std::fs::write(d.path().join("a.txt"), "um\n").unwrap();
         std::fs::write(d.path().join(".gitignore"), "target/\n").unwrap();
         g(&["add", "."]);
@@ -201,6 +231,46 @@ mod tests {
             "init",
         ]);
         d
+    }
+
+    /// Sem identidade git utilizável o checkpoint funciona à mesma (usa a sua). A config
+    /// local vazia sobrepõe-se à global de quem corre os testes e faz o git recusar um
+    /// commit normal — o mesmo que numa máquina sem `user.name`/`user.email`.
+    #[test]
+    fn snapshot_works_without_a_git_identity() {
+        let d = repo();
+        let root = d.path();
+        let g = |args: &[&str]| {
+            assert!(Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .status()
+                .unwrap()
+                .success())
+        };
+        g(&["config", "user.name", ""]);
+        g(&["config", "user.email", ""]);
+        g(&["config", "user.useConfigOnly", "true"]);
+        // confirma o cenário: um commit normal é recusado nesta config
+        let plain = Command::new("git")
+            .args(["commit", "--allow-empty", "-qm", "x"])
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(!plain.status.success());
+
+        std::fs::write(root.join("a.txt"), "mudado\n").unwrap();
+        let cps = Checkpoints::new(root, "sem-id").unwrap();
+        let cp = cps.snapshot("sem identidade").unwrap();
+        assert_eq!(cp.id, 1);
+        let who = git(root, &["log", "-1", "--format=%an <%ae>", &cp.commit], None).unwrap();
+        assert_eq!(who, "dxtutor checkpoint <dxtutor@localhost>");
+        std::fs::write(root.join("a.txt"), "estragado\n").unwrap();
+        cps.restore(1).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            "mudado\n"
+        );
     }
 
     #[test]

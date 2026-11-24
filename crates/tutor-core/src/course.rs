@@ -33,8 +33,45 @@ pub struct Course {
     /// [`Step::as_phase`].
     pub level: String,
     pub summary: String,
-    #[serde(rename = "unit")]
+    /// Visão geral da LINGUAGEM (markdown): o que é, onde se usa, o modelo mental que o
+    /// curso vai construir. Lida antes da primeira unidade. Vazia no conteúdo antigo.
+    #[serde(default)]
+    pub overview: String,
+    /// `unit` no TOML (`[[unit]]`); `units` também é aceite (JSON dos plugins).
+    #[serde(rename = "unit", alias = "units")]
     pub units: Vec<Unit>,
+}
+
+/// Formato de origem de um ficheiro de curso.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CourseFormat {
+    Toml,
+    Json,
+}
+
+impl CourseFormat {
+    /// Deduz o formato pela extensão do ficheiro (`.toml` / `.json`).
+    pub fn from_path(path: &str) -> Option<Self> {
+        let lower = path.to_ascii_lowercase();
+        if lower.ends_with(".toml") {
+            Some(Self::Toml)
+        } else if lower.ends_with(".json") {
+            Some(Self::Json)
+        } else {
+            None
+        }
+    }
+}
+
+impl Course {
+    /// Lê um curso de texto, sem panic: o erro descreve o problema para o autor do conteúdo
+    /// (é o caminho dos plugins, onde o conteúdo vem de fora e pode estar mal formado).
+    pub fn parse(raw: &str, format: CourseFormat) -> Result<Course, String> {
+        match format {
+            CourseFormat::Toml => toml::from_str(raw).map_err(|e| e.to_string()),
+            CourseFormat::Json => serde_json::from_str(raw).map_err(|e| e.to_string()),
+        }
+    }
 }
 
 impl Course {
@@ -54,6 +91,11 @@ pub struct Unit {
     pub title: String,
     #[serde(default)]
     pub intro: String,
+    /// Texto de leitura do TÓPICO (markdown): explica os conceitos da unidade e como a
+    /// linguagem os exprime, para o leitor perceber antes de praticar. Mais longo que o
+    /// `intro` (que é um resumo de uma ou duas frases). Vazio no conteúdo antigo.
+    #[serde(default)]
+    pub concepts: String,
     /// Dificuldade crescente (0 = sem marca). Puramente de apresentação — o
     /// frontend pode usá-la para desenhar uma escala. `#[serde(default)]` para o
     /// conteúdo que ainda não a declara.
@@ -64,7 +106,8 @@ pub struct Unit {
     /// devolve `"basic"` para o conteúdo que ainda não o declara.
     #[serde(default = "default_unit_level")]
     pub level: String,
-    #[serde(rename = "step")]
+    /// `step` no TOML (`[[unit.step]]`); `steps` também é aceite (JSON dos plugins).
+    #[serde(rename = "step", alias = "steps")]
     pub steps: Vec<Step>,
 }
 
@@ -212,14 +255,41 @@ fn default_placeholder_policy() -> String {
     "shown".to_string()
 }
 
-const RUST_BEGINNER: &str = include_str!("../content/rust-beginner.toml");
-const GO_BASICS: &str = include_str!("../content/go-basics.toml");
+// Os cursos embutidos são os plugins oficiais (courses/<id>/), a mesma fonte publicada em
+// github.com/dxtutor-courses/<id> — ver courses/README.md.
+const RUST_BEGINNER: &str = include_str!("../../../courses/rust/courses/rust.toml");
+const GO_BASICS: &str = include_str!("../../../courses/go/courses/go.toml");
+/// Python: embutido só no BACKEND (o protótipo de browser não traz o JSON, para manter o
+/// bundle pequeno) — no desktop aparece pelo `get_course`, avaliado pelo descritor Python.
+const PYTHON_BASICS: &str = include_str!("../../../courses/python/courses/python.toml");
+/// C++: também só no backend; avaliado pelo descritor C++ (g++ C++20 + mini-harness TEST/CHECK).
+const CPP_BASICS: &str = include_str!("../../../courses/cpp/courses/cpp.toml");
+/// TypeScript: também só no backend; avaliado pelo descritor TypeScript (Node com type stripping).
+const TYPESCRIPT_BASICS: &str = include_str!("../../../courses/typescript/courses/typescript.toml");
+/// SQL: também só no backend; avaliado pelo descritor SQL (o SQLite do Python + unittest).
+const SQL_BASICS: &str = include_str!("../../../courses/sql/courses/sql.toml");
+/// Java: também só no backend; avaliado pelo descritor Java (source launcher do JDK 21).
+const JAVA_BASICS: &str = include_str!("../../../courses/java/courses/java.toml");
+/// Kotlin: também só no backend; avaliado pelo descritor Kotlin (kotlinc + java, coroutines).
+const KOTLIN_BASICS: &str = include_str!("../../../courses/kotlin/courses/kotlin.toml");
+/// C#: também só no backend; avaliado pelo descritor C# (Roslyn do SDK do .NET 8).
+const CSHARP_BASICS: &str = include_str!("../../../courses/csharp/courses/csharp.toml");
+/// Swift: também só no backend; avaliado pelo descritor Swift (swiftc em modo Swift 6).
+const SWIFT_BASICS: &str = include_str!("../../../courses/swift/courses/swift.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
     vec![
         parse("rust-beginner", RUST_BEGINNER),
         parse("go-basics", GO_BASICS),
+        parse("python-basics", PYTHON_BASICS),
+        parse("cpp-basics", CPP_BASICS),
+        parse("typescript-basics", TYPESCRIPT_BASICS),
+        parse("sql-basics", SQL_BASICS),
+        parse("java-basics", JAVA_BASICS),
+        parse("kotlin-basics", KOTLIN_BASICS),
+        parse("csharp-basics", CSHARP_BASICS),
+        parse("swift-basics", SWIFT_BASICS),
     ]
 }
 
@@ -229,7 +299,8 @@ pub fn load_course(id: &str) -> Option<Course> {
 }
 
 fn parse(name: &str, raw: &str) -> Course {
-    toml::from_str(raw).unwrap_or_else(|e| panic!("curso inválido em {name}.toml: {e}"))
+    Course::parse(raw, CourseFormat::Toml)
+        .unwrap_or_else(|e| panic!("curso inválido em {name}.toml: {e}"))
 }
 
 #[cfg(test)]
@@ -746,5 +817,119 @@ mod tests {
         .expect("step mínimo");
         assert!(probe.install_commands.is_empty());
         assert!(probe.run_command.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod python_tests {
+    use super::*;
+
+    #[test]
+    fn python_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("python-basics", "python");
+    }
+
+    #[test]
+    fn typescript_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("typescript-basics", "typescript");
+    }
+
+    #[test]
+    fn sql_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("sql-basics", "sql");
+    }
+
+    #[test]
+    fn java_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("java-basics", "java");
+    }
+
+    #[test]
+    fn kotlin_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("kotlin-basics", "kotlin");
+    }
+
+    #[test]
+    fn csharp_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("csharp-basics", "csharp");
+    }
+
+    #[test]
+    fn swift_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("swift-basics", "swift");
+    }
+
+    #[test]
+    fn cpp_basics_tem_a_forma_do_curso_oficial() {
+        forma_oficial("cpp-basics", "cpp");
+    }
+
+    /// A forma comum dos cursos oficiais escritos na Fase 3: 34 unidades (6 básicas, 15
+    /// intermédias incl. 6 de bases de dados, 13 avançadas), cada uma conceito + 3 drills +
+    /// desafio, com texto de conceitos e gabarito.
+    fn forma_oficial(id: &str, language: &str) {
+        let c = load_course(id).unwrap_or_else(|| panic!("curso {id}"));
+        assert_eq!(c.language, language);
+        assert!(c.overview.len() > 500, "overview");
+        assert_eq!(c.units.len(), 34);
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            let kinds: Vec<StepKind> = u.steps.iter().map(|s| s.kind).collect();
+            assert_eq!(
+                kinds,
+                [
+                    StepKind::Concept,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Drill,
+                    StepKind::Challenge
+                ],
+                "{}",
+                u.id
+            );
+            let ch = u.steps.last().unwrap();
+            let phase = ch
+                .as_phase("python", Level::Basico)
+                .expect("desafio com gabarito");
+            assert!(phase.starter.contains(&phase.entry), "{}", ch.id);
+        }
+        // Níveis por blocos: 6 básicas, depois intermédias (incl. as 6 de bases de dados),
+        // depois avançadas.
+        let levels: Vec<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        assert!(levels[..6].iter().all(|l| *l == "basic"));
+        assert!(levels[6..21].iter().all(|l| *l == "intermediate"));
+        assert!(levels[21..].iter().all(|l| *l == "advanced"));
+    }
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    #[test]
+    fn json_aceita_units_e_steps_e_os_campos_novos() {
+        let raw = r#"{
+          "id": "demo", "language": "python", "title": "Demo", "level": "beginner",
+          "summary": "s", "overview": "Python é…",
+          "units": [{ "id": "u1", "title": "U1", "concepts": "Variáveis são nomes.",
+                      "steps": [{ "kind": "concept", "id": "c1", "title": "C1", "body": "b" }] }]
+        }"#;
+        let c = Course::parse(raw, CourseFormat::Json).expect("json válido");
+        assert_eq!(c.overview, "Python é…");
+        assert_eq!(c.units[0].concepts, "Variáveis são nomes.");
+        assert_eq!(c.units[0].level, "basic");
+        assert_eq!(c.step("c1").unwrap().kind, StepKind::Concept);
+    }
+
+    #[test]
+    fn parse_devolve_erro_em_vez_de_panic() {
+        assert!(Course::parse("id = 1", CourseFormat::Toml).is_err());
+        assert!(Course::parse("{", CourseFormat::Json).is_err());
+        assert_eq!(
+            CourseFormat::from_path("a/B.TOML"),
+            Some(CourseFormat::Toml)
+        );
+        assert_eq!(CourseFormat::from_path("x.yaml"), None);
     }
 }

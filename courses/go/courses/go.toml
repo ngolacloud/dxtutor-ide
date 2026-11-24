@@ -35,8 +35,79 @@ way every real Go project does. No prior Go needed.
 # ═════════════════════════════════════════════════════════════════════════════
 # UNIT 1 — Hello & fmt
 # ═════════════════════════════════════════════════════════════════════════════
+overview = '''
+## What Go is
+
+Go is a statically typed, compiled programming language created at Google and released as open source in 2009. It was designed for large teams building networked software: the syntax is small, the compiler is fast, and a program compiles to a single native binary that you can copy to a server and run. The standard library ships with what a backend needs out of the box, from HTTP servers to JSON encoding.
+
+## Where it is used
+
+Go is a mainstay of cloud infrastructure. Docker, Kubernetes, Terraform and Prometheus are all written in Go, and many companies use it for backend services and APIs, command-line tools and developer tooling. If you work near containers, DevOps or web backends, you will meet Go code.
+
+## The mental model this course builds
+
+- **Simplicity.** Go has few keywords and usually one obvious way to do something: one loop keyword, no classes, no inheritance.
+- **Composition through interfaces.** You describe behaviour with small interfaces, and any type that has the right methods fits them automatically.
+- **Errors as values.** There are no exceptions. A function that can fail returns an `error`, and you check it with `if err != nil`.
+- **Goroutines and channels.** Concurrency is built in: you start lightweight goroutines with `go` and let them communicate over channels.
+
+## How the course is organised
+
+The **Basic** units cover printing with `fmt`, variables and types, `if`/`switch`, the `for` loop and functions with multiple returns. The **Intermediate** units add structs and methods, interfaces, slices and maps, errors, a first look at goroutines and the module system (`go get`), then a database track on SQLite using `database/sql`: queries, transactions, the connection pool and WAL mode, the N+1 problem, pagination and indexes. The **Advanced** units go deep into concurrency (`sync.WaitGroup`, channels, `select` with timeouts, mutexes and worker pools) and then data structures and algorithms: stacks, queues, linked lists, sets, binary search trees, sorting, searching, recursion and dynamic programming.
+
+## How each unit works
+
+Every unit has three kinds of step. A **concept** step explains one idea in a few paragraphs. A **drill** has you retype a short, complete program line by line, with each line explained, so the shape of the code goes into your fingers. A **challenge** asks you to implement a function on your own; hidden tests, run with `go test`, decide whether it is correct.
+'''
+
 [[unit]]
 id = "u1-hello"
+concepts = '''
+## The idea
+
+A computer does not understand English; it executes machine instructions, one after another. A **programming language** is a precise notation that humans can read and that a tool can translate into those instructions. Go is a **compiled** language: the Go toolchain reads your source code, checks it, and produces a native program (a **binary**) that the operating system can run directly.
+
+Every program needs an agreed starting point, called the **entry point**. It also needs a way to talk to the outside world. The simplest channel is **standard output** (stdout): a stream of text that the terminal displays. Printing to stdout is how your first programs show their results.
+
+Programs are also built from reusable pieces. Code that someone else has already written and organised under a name is a **package**. Go comes with a large **standard library** of packages, and `fmt` (short for "format") is the one for printing text.
+
+## How Go does it
+
+A runnable program lives in `package main` and starts at `func main()`. You `import` the packages you use and call their functions with the `package.Function` notation.
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("first line")
+    fmt.Println("second line", 42)
+}
+```
+
+`fmt.Println` prints its arguments separated by spaces and adds a newline. `fmt.Printf` gives you control: its first argument is a **format string** with **verbs** that are replaced, in order, by the remaining arguments. `%s` takes a string, `%d` an integer, and `%v` takes any value in its default form.
+
+```go
+city := "Luanda"
+fmt.Printf("%s has %d letters\n", city, 6)
+```
+
+Text in double quotes is a **string**. You can join two strings with `+`: `"Good " + "morning"` produces `"Good morning"`. A function can also take input (parameters) and hand a value back with `return`; you will write one in the challenge and study functions properly in unit 5.
+
+## What is special or tricky
+
+- **Go is strict about unused things.** Importing `fmt` and never using it is a compile error: `"fmt" imported and not used`. The same applies to local variables you declare but never read.
+- **Exported names start with a capital letter.** It is `fmt.Println`, never `fmt.println`; the lowercase spelling does not compile, because lowercase names are private to their package.
+- **`Printf` adds no newline.** Forget the `\n` and the next output continues on the same line.
+- **A missing argument is not a compile error.** `fmt.Printf("%d\n")` still builds, then prints `%!d(MISSING)`. Run `go vet` and it will catch this.
+- **The opening brace stays on the same line** as `func main()`. Go inserts semicolons automatically at line ends, so a `{` on its own line breaks the code.
+- **Use `gofmt`.** Go has one official layout, and editors apply it automatically, so all Go code looks alike.
+
+## What you will practise
+
+You will type the classic first program and a `Printf` line with `%s` and `%d`, then write your first function, one that builds a greeting string from a name it receives.
+'''
 title = "Hello & fmt"
 difficulty = 1
 level = "basic"
@@ -262,6 +333,48 @@ result once.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u2-variables"
+concepts = '''
+## The idea
+
+A program works with **values**: numbers, pieces of text, true or false. To keep a value around and refer to it later, you give it a name. That named storage location is a **variable**. Each value also has a **type**, which says what kind of data it is and which operations make sense on it. You can add two numbers, but adding a number to the word "hello" means nothing.
+
+Languages differ in when they check types. Go is **statically typed**: every variable has one type that is fixed at **compile time**, before the program runs. If you misuse a type, the compiler refuses to build the program, so many bugs never reach your users. The trade-off is that you must sometimes say exactly what you mean, for example when mixing whole and fractional numbers.
+
+## How Go does it
+
+The basic types you will use most are `int` (whole numbers), `float64` (numbers with a fractional part), `string` (text) and `bool` (`true` or `false`). There are two ways to declare a variable:
+
+```go
+var score int = 90       // explicit type
+var name string          // no value: gets the zero value ""
+ratio := 0.75            // short form: type inferred as float64
+```
+
+The short form `:=` works only inside functions and infers the type from the value: `7` becomes an `int`, `2.5` a `float64`. You change an existing variable with plain `=`.
+
+Every type has a **zero value** that a variable gets when you don't initialise it: `0` for numbers, `""` for strings, `false` for booleans. Go never leaves memory uninitialised.
+
+Converting between numeric types is always explicit, written like a function call:
+
+```go
+km := 42
+miles := float64(km) * 0.621371
+whole := int(miles)      // drops the fraction: 26
+```
+
+## What is special or tricky
+
+- **No implicit conversion.** If `rate` is a `float64` variable, `km * rate` fails with `invalid operation: km * rate (mismatched types int and float64)`. Go makes you choose the conversion so the rounding behaviour is visible.
+- **Integer division truncates.** `7 / 2` is `3`, not `3.5`. This includes constants: `1 / 2` is `0`, while `1.0 / 2` is `0.5`. Watch the order of operations in a formula when integers are involved.
+- **Converting to `int` truncates toward zero**; it does not round. `int(2.9)` is `2`.
+- **`:=` declares, `=` assigns.** Using `:=` again for a name that already exists in the same scope gives `no new variables on left side of :=`. Assigning with `=` to a name never declared gives `undefined`.
+- **Unused variables are errors**: `declared and not used: x`.
+- **A variable's type never changes.** Assigning a string to an `int` variable is a compile error.
+
+## What you will practise
+
+You will declare variables with both `var` and `:=`, convert an `int` to `float64` before multiplying, and then write a function that applies a temperature formula entirely in `float64`.
+'''
 title = "Variables & types"
 difficulty = 2
 level = "basic"
@@ -477,6 +590,54 @@ that grows with the input, so both the time and the space are **O(1)** (constant
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u3-control-flow"
+concepts = '''
+## The idea
+
+So far, programs ran every line from top to bottom. Real programs must **decide**: grant access or refuse it, charge shipping or not. **Control flow** is the order in which statements execute, and a **branch** is a point where the program picks one path out of several based on a **condition**.
+
+A condition is a **boolean expression**: an expression whose result is either `true` or `false`. You build them with comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) and combine them with logical operators: `&&` (and), `||` (or), `!` (not). `&&` and `||` **short-circuit**: if the left side already decides the answer, the right side is not evaluated.
+
+## How Go does it
+
+`if` runs a block when its condition is `true`. An optional `else if` chain tests further conditions in order, and `else` catches everything left over. Exactly one block runs.
+
+```go
+if temp > 30 {
+    fmt.Println("hot")
+} else if temp > 15 {
+    fmt.Println("mild")
+} else {
+    fmt.Println("cold")
+}
+```
+
+`switch` compares one value against several `case` labels. A case can list several values, and `default` handles the rest. A `switch` with no value after the keyword tests a boolean expression in each case and takes the first one that is true, a tidy replacement for a long `else if` chain:
+
+```go
+switch {
+case score >= 90:
+    fmt.Println("A")
+case score >= 75:
+    fmt.Println("B")
+default:
+    fmt.Println("keep practising")
+}
+```
+
+An `if` can also start with a short statement whose variable lives only inside the `if`/`else`. For example, `if r := n % 3; r == 0 { ... }` computes `r` and tests it in one line.
+
+## What is special or tricky
+
+- **The condition must be a real `bool`.** Some languages treat `0` or an empty string as false; Go does not. `if n { }` with an `int` fails with `non-boolean condition in if statement`.
+- **No parentheses, but braces are mandatory.** Even a one-line body needs `{ }`, and `else` must sit on the same line as the closing `}` of the `if`. Otherwise the automatically inserted semicolon ends the `if` early and you get a syntax error.
+- **No fall-through in `switch`.** After the first matching case runs, the `switch` ends. You rarely need `break`; the `fallthrough` keyword exists but is seldom used.
+- **Case order matters** in a tagless `switch` and in `else if` chains: the first true condition wins, so test the narrowest condition first.
+- **`=` is not `==`.** Writing `if x = 5` is rejected by the compiler, which saves you from a classic bug.
+
+## What you will practise
+
+You will branch on whether a number is even with `if`/`else` and `%`, map numbers to day names with a `switch`, and then write a function that classifies an integer into one of three categories.
+'''
 title = "Control flow (if / switch)"
 difficulty = 3
 level = "basic"
@@ -724,6 +885,59 @@ so both time and space are **O(1)**.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u4-loops"
+concepts = '''
+## The idea
+
+**Iteration** means repeating a block of code: once per item in a list, until a condition changes, or a fixed number of times. A **loop** has a body, which is the code being repeated, and a rule for when to stop. Each pass through the body is one iteration.
+
+A common pattern inside a loop is the **accumulator**: a variable that starts with a neutral value (`0` for a sum, `1` for a product, an empty string for text) and is updated on every iteration. When the loop ends, the accumulator holds the answer.
+
+Loops also introduce **cost**. A loop that runs once per item does work proportional to the input size; in **Big-O** notation that is **O(n)**. A loop nested inside another loop over the same data is **O(n²)**. This tells you how a program slows down as the data grows.
+
+## How Go does it
+
+Go has a single loop keyword, `for`, used in several shapes:
+
+```go
+for i := 10; i > 0; i -= 2 {   // init; condition; post
+    fmt.Println(i)              // 10 8 6 4 2
+}
+
+n := 100
+for n > 1 {                     // while-style: condition only
+    n = n / 2
+}
+```
+
+With no condition at all, `for { ... }` loops forever until a `break` (leave the loop) or a `return`. `continue` skips the rest of the current iteration and moves on to the next one.
+
+`range` walks a collection and gives you the index and a copy of the element. Since Go 1.22 you can also range over an integer to repeat something a fixed number of times:
+
+```go
+names := []string{"Ana", "Bo"}
+for i, name := range names {
+    fmt.Println(i, name)
+}
+for i := range 3 {              // i = 0, 1, 2
+    fmt.Println("lap", i)
+}
+```
+
+Use the blank identifier `_` to ignore a value you don't need: `for _, name := range names`.
+
+## What is special or tricky
+
+- **There is no `while` keyword** and no `do`/`while`; `for` covers both.
+- **Off-by-one errors** are the classic loop bug. Decide whether the bound is inclusive (`<=`) or exclusive (`<`), and test the smallest inputs, such as zero and one.
+- **Edge cases:** if the condition is false at the start, the body runs zero times. That is often exactly what you want for empty or non-positive input.
+- **Infinite loops** happen when the condition never becomes false, for example when you forget to change the loop variable.
+- **`range` gives copies.** Assigning to `v` inside `for _, v := range nums` does not change the slice.
+- **Unused loop variables are errors.** If you don't need the index, write `_` instead of `i`, or the compiler reports `declared and not used`.
+
+## What you will practise
+
+You will add up a fixed range with a classic counting loop, walk a slice with `range`, and then write a function that accumulates a total over a range whose end comes from its argument, including what happens when that argument is zero or negative.
+'''
 title = "Loops (for)"
 difficulty = 4
 level = "basic"
@@ -956,6 +1170,56 @@ regardless of `n`, so the extra space is **O(1)**.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u5-functions"
+concepts = '''
+## The idea
+
+A **function** is a named, reusable piece of work. It receives inputs through **parameters**, runs its body, and hands results back to the **caller** with `return`. Functions let you break a big problem into small pieces you can understand and test one at a time, a principle called **decomposition**. The function's **signature** (its name, parameter types and result types) is a contract: callers only need to know the signature, not how the body works.
+
+When you call a function, Go evaluates the **arguments** and copies them into the parameters. This is **pass by value**: the function works on its own copies, so changing a parameter inside the function does not change the caller's variable.
+
+Many languages let a function return only one value. Go lets a function return **several**, which removes the need for special wrapper objects and makes the result of an operation easy to read at the call site.
+
+## How Go does it
+
+Parameters are written `name type`, and adjacent parameters of the same type can share it: `(a, b int)`. Result types follow the parameter list; several results go in parentheses.
+
+```go
+func area(w, h float64) float64 {
+    return w * h
+}
+
+func sumAndProduct(a, b int) (int, int) {
+    return a + b, a * b
+}
+
+s, p := sumAndProduct(3, 4)   // s = 7, p = 12
+_, p2 := sumAndProduct(2, 5)  // ignore the first result
+```
+
+Results can also be **named**, which documents what each one means. Named results start at their zero values, and a bare `return` sends back their current values:
+
+```go
+func split(total int) (half, rest int) {
+    half = total / 2
+    rest = total - half
+    return
+}
+```
+
+Functions can be declared in any order in a file; `main` can call a helper defined below it.
+
+## What is special or tricky
+
+- **The caller must take every result.** `x := sumAndProduct(1, 2)` fails with `assignment mismatch: 1 variable but sumAndProduct returns 2 values`. Use `_` to discard a result you don't need.
+- **Every path must return.** If a function has results and some path can reach the closing brace without a `return`, the compiler reports `missing return`.
+- **Integer `/` and `%` truncate toward zero.** `7 / 2` is `3` and `7 % 2` is `1`; with negatives, `-7 / 2` is `-3` and `-7 % 2` is `-1`. Dividing an integer by zero causes a runtime **panic**: `integer divide by zero`.
+- **Bare returns hurt readability** in long functions. Use them only in very short ones.
+- **The `(value, error)` shape** you see across the standard library is simply a two-result function. You will build on it in the errors unit.
+
+## What you will practise
+
+You will write and call a one-result helper, unpack a function that returns two values in order, and then implement a function that returns two related results of integer arithmetic at once.
+'''
 title = "Functions & multiple returns"
 difficulty = 5
 level = "basic"
@@ -1188,6 +1452,58 @@ allocation, so both time and space are **O(1)**.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u6-structs"
+concepts = '''
+## The idea
+
+Real programs model things: a user, an order, a rectangle. Each thing has several pieces of data that belong together. A **composite type** bundles those pieces into one value. In Go that type is the **struct**: a fixed set of named, typed **fields**.
+
+Data is only half of the model; the other half is **behaviour**, the operations that make sense for that data. A **method** is a function attached to a type. It receives the value it operates on as a special parameter called the **receiver**. Keeping data and its behaviour together is the core idea of **encapsulation**, and Go gets it without classes or inheritance.
+
+## How Go does it
+
+You declare a struct with `type Name struct { ... }`, build values with a **composite literal**, and read or change fields with the dot operator. A method is declared with the receiver in parentheses before its name.
+
+```go
+type Book struct {
+    Title string
+    Pages int
+}
+
+func (b Book) IsLong() bool {
+    return b.Pages > 400
+}
+
+b := Book{Title: "Dune", Pages: 612}
+fmt.Println(b.Title, b.IsLong())   // Dune true
+```
+
+Fields you leave out of a literal get their zero values, so `Book{}` has an empty title and zero pages. You can also define a named type over a basic type (`type Celsius float64`) and give it methods.
+
+A receiver can be a **value** (`b Book`), in which case the method gets a copy, or a **pointer** (`c *Counter`), in which case the method can modify the original:
+
+```go
+type Counter struct{ n int }
+
+func (c *Counter) Inc() { c.n++ }
+
+var c Counter
+c.Inc()          // Go takes &c for you
+fmt.Println(c.n) // 1
+```
+
+## What is special or tricky
+
+- **Capital letters control visibility.** `Title` and `IsLong` are **exported** and visible from other packages; a lowercase `n` is private to its package. There are no `public` or `private` keywords.
+- **Value receivers work on a copy.** A method with a value receiver that assigns to a field changes only the copy, and the caller sees no change. That is a silent bug, not a compile error. Use a pointer receiver when a method must modify the value.
+- **Structs are copied on assignment.** `b2 := b` creates an independent copy; changing `b2.Pages` leaves `b` alone.
+- **Mistyped fields are caught.** A typo such as `b.Pagez` gives `b.Pagez undefined (type Book has no field or method Pagez)`. In a literal, an unknown field name gives `unknown field`.
+- **Positional literals** like `Book{"Dune", 612}` must list every field in order. Prefer named fields: they survive field reordering and are self-documenting.
+- **Methods must be declared in the same package as the type.** You cannot add methods to `int` or to types from another package.
+
+## What you will practise
+
+You will define a struct and read its fields, attach a method to a named numeric type, and then define a struct of your own with a method that computes a value from its fields.
+'''
 title = "Structs & methods"
 difficulty = 6
 level = "intermediate"
@@ -1433,6 +1749,56 @@ space are **O(1)**.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u7-interfaces"
+concepts = '''
+## The idea
+
+Often you want one piece of code to work with many different types: a function that can save to a file or to the network, or that can draw any shape. This is **polymorphism**: one interface, many implementations. The key insight is to depend on **behaviour** (what a value can do) rather than on its concrete type (what it is).
+
+An **interface** is a type that names a set of method signatures. Any value whose type has all of those methods can be used wherever the interface is expected. Code that uses an interface is **decoupled** from the concrete types, so you can add new types later without touching it.
+
+## How Go does it
+
+You declare an interface with `type Name interface { ... }`. Go uses **implicit satisfaction**: a type satisfies an interface simply by having the methods. There is no `implements` keyword.
+
+```go
+type Notifier interface {
+    Notify(msg string) string
+}
+
+type Email struct{ To string }
+type SMS struct{ Phone string }
+
+func (e Email) Notify(msg string) string { return "mail " + e.To + ": " + msg }
+func (s SMS) Notify(msg string) string   { return "sms " + s.Phone + ": " + msg }
+
+func alert(n Notifier) {
+    fmt.Println(n.Notify("server down"))
+}
+```
+
+Both `alert(Email{To: "ops@example.com"})` and `alert(SMS{Phone: "555"})` work. At run time, an interface value holds two things: the **concrete value** and its **dynamic type**. A method call is **dynamically dispatched** to the right implementation. A slice of an interface type can hold values of different concrete types side by side.
+
+Small interfaces are idiomatic in Go. The standard library is full of one-method interfaces such as `fmt.Stringer` (`String() string`), `io.Reader` and `error`. The empty interface `any` (an alias for `interface{}`) is satisfied by every type. A **type assertion** gets the concrete value back out:
+
+```go
+var n Notifier = SMS{Phone: "555"}
+if s, ok := n.(SMS); ok {
+    fmt.Println(s.Phone)
+}
+```
+
+## What is special or tricky
+
+- **Signatures must match exactly.** A method `Area() int` does not satisfy an interface asking for `Area() float64`. The compiler explains, for example: `Square does not implement Shape (missing method Area)` or `(wrong type for method Area)`.
+- **Pointer receivers change the method set.** If a method is declared on `*T`, only a `*T` satisfies the interface, not a plain `T`. The error says `(method X has pointer receiver)`.
+- **A missing method is reported where the value is used** as the interface, not at the type declaration, because satisfaction is never written down.
+- **The zero value of an interface is `nil`.** Calling a method on a nil interface panics at run time.
+- **Don't reach for `any` by default.** You lose type checking; prefer a small interface that names the behaviour you need.
+
+## What you will practise
+
+You will declare an interface and satisfy it implicitly, loop over a slice that mixes two concrete types behind one interface, and then define an interface with two shapes that satisfy it and a function that works over any of them.
+'''
 title = "Interfaces"
 difficulty = 7
 level = "intermediate"
@@ -1725,6 +2091,52 @@ is stored, independent of `n`, so the extra space is **O(1)**.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u8-slices-maps"
+concepts = '''
+## The idea
+
+Most programs handle collections of data. Two **data structures** cover the vast majority of cases.
+
+A **dynamic array** stores elements of one type in a **contiguous** block of memory, in order. Reading element `i` is **O(1)** because its address can be computed directly. When the array is full, a bigger block is allocated and the elements are copied over. Because the capacity grows geometrically, adding at the end is **amortised O(1)**.
+
+A **hash table** stores **key→value** pairs. A **hash function** turns each key into a bucket position, so looking up, inserting or deleting a key takes **O(1) on average**, no matter how many entries there are. Hash tables are the standard tool for counting, grouping, caching and removing duplicates.
+
+## How Go does it
+
+Go's dynamic array is the **slice**. A slice is a small header that points to an underlying **backing array** and records a length (`len`) and a capacity (`cap`). You grow a slice with `append` and take sub-slices with `s[low:high]`, where `high` is exclusive:
+
+```go
+fruits := []string{"apple", "pear"}
+fruits = append(fruits, "fig", "kiwi")
+fmt.Println(len(fruits), fruits[1:3])   // 4 [pear fig]
+```
+
+Go's hash table is the **map**, written `map[KeyType]ValueType`. Reading a missing key returns the value type's zero value. The **comma-ok** form tells you whether the key was really present, and `delete` removes a key:
+
+```go
+capitals := make(map[string]string)
+capitals["Angola"] = "Luanda"
+city, ok := capitals["Peru"]          // city == "", ok == false
+delete(capitals, "Angola")
+for country, c := range capitals {   // order is not specified
+    fmt.Println(country, c)
+}
+```
+
+`make(map[K]V)` creates an empty, ready-to-use map; a literal like `map[string]int{"a": 1}` creates and fills one.
+
+## What is special or tricky
+
+- **Always assign `append` back.** `append` may allocate a new backing array and return a new header. Calling `append(s, x)` as a bare statement is a compile error (`is not used`), and dropping the result loses the element.
+- **Sub-slices share memory.** `t := s[0:2]` points into the same backing array, so writing `t[0]` changes `s[0]` too.
+- **Out-of-range indexes panic** at run time: `index out of range [5] with length 3`.
+- **A nil map can be read but not written.** `var m map[string]int` declares a nil map; `m["x"] = 1` panics with `assignment to entry in nil map`. Create maps with `make` or a literal.
+- **Map iteration order is randomised** and differs between runs. Never rely on it; sort the keys if you need a stable order.
+- **A missing key is not an error.** `m[k]` quietly returns the zero value, which is handy for counters but can hide typos. Use comma-ok when you need to tell absent from zero.
+
+## What you will practise
+
+You will grow a slice with `append` and check its `len`, build and query a map, and then combine the two: walk a slice once and build a map that summarises it.
+'''
 title = "Slices & maps"
 difficulty = 8
 level = "intermediate"
@@ -1949,6 +2361,57 @@ word, so the space is **O(k)** where `k` is the number of distinct words
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u9-errors"
+concepts = '''
+## The idea
+
+Things go wrong: a file is missing, the input is invalid, the network is down. A language needs a way to signal **failure** and let the caller decide what to do. Many languages use **exceptions**, which jump out of the current function and unwind the call stack until some handler catches them. That is convenient, but the failure path is invisible at the call site.
+
+Go takes another approach: **errors are values**. A function that can fail returns an extra result of type `error`, and the caller checks it right away. Every failure path is visible in the code, and handling an error is ordinary control flow with `if`, nothing magical.
+
+## How Go does it
+
+`error` is a built-in interface with a single method, `Error() string`. By convention it is the **last** result, and `nil` means success. When there is an error, the other results are usually zero values that the caller should ignore.
+
+```go
+var ErrInsufficient = errors.New("insufficient funds")
+
+func withdraw(balance, amount int) (int, error) {
+    if amount > balance {
+        return balance, ErrInsufficient
+    }
+    return balance - amount, nil
+}
+
+left, err := withdraw(50, 80)
+if err != nil {
+    fmt.Println("cannot withdraw:", err)
+    return
+}
+fmt.Println("left:", left)
+```
+
+`errors.New` builds a simple error. A package-level error variable like `ErrInsufficient` is called a **sentinel error**: a known value that callers can compare against.
+
+As an error travels up the call stack, each layer can add context by **wrapping** it with `fmt.Errorf` and the `%w` verb. `errors.Is` then searches the whole chain:
+
+```go
+err := fmt.Errorf("pay invoice 42: %w", ErrInsufficient)
+fmt.Println(err)                             // pay invoice 42: insufficient funds
+fmt.Println(errors.Is(err, ErrInsufficient)) // true
+```
+
+## What is special or tricky
+
+- **Check the error first, then use the value.** Using a result before testing `err` is a common bug; when `err != nil`, the other results are not meaningful.
+- **Don't ignore errors.** Writing `v, _ := f()` throws the error away. The compiler allows it, but it hides failures. If you assign `err` and never read it, the compiler reports `declared and not used`.
+- **`%w` versus `%v`.** `%v` only copies the message text; `%w` keeps the original error inside, so `errors.Is` can still find it. Compare with `==` only when you know the error was not wrapped.
+- **Error strings are lowercase with no final punctuation**, because they are often embedded in longer messages: `"open config: file not found"`.
+- **`panic` is not for ordinary failures.** It is reserved for truly unexpected states, such as a program bug. Dividing an integer by zero triggers a runtime panic, which is why code that divides by user input should check the divisor first and return an error instead.
+
+## What you will practise
+
+You will return an error or `nil` from a validation function, wrap a sentinel error with `%w` and detect it with `errors.Is`, and then write a function with the canonical `(result, error)` signature that refuses a bad input instead of crashing.
+'''
 title = "Errors"
 difficulty = 9
 level = "intermediate"
@@ -2226,6 +2689,44 @@ both time and space are **O(1)**.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u10-concurrency"
+concepts = '''
+## The idea
+
+**Concurrency** means structuring a program as several tasks that make progress independently, such as serving many requests at once or downloading files while the interface stays responsive. **Parallelism** is running tasks at literally the same instant on several CPU cores. Concurrency is about structure; parallelism is one possible outcome of it.
+
+Concurrent tasks need to **communicate** and **synchronise**, which means waiting for one another at the right moment. Go follows the idea of **communicating sequential processes**: rather than many tasks poking at the same memory, they pass values to one another through channels. A Go proverb puts it this way: do not communicate by sharing memory; share memory by communicating.
+
+Programs also build on code written by others. A **dependency manager** records which external **modules** a project uses and at which exact versions, so builds are reproducible.
+
+## How Go does it
+
+A **goroutine** is a function running concurrently, started with the `go` keyword. Goroutines are scheduled by the Go runtime onto OS threads and are cheap enough to start by the thousands. A **channel**, made with `make(chan T)`, is a typed pipe: `ch <- v` sends, `<-ch` receives. On an unbuffered channel the sender blocks until a receiver is ready, and the receiver blocks until a value is sent.
+
+```go
+results := make(chan string)
+for _, name := range []string{"db", "cache"} {
+    go func() { results <- name + " ok" }()
+}
+fmt.Println(<-results)
+fmt.Println(<-results)  // two sends, two receives
+```
+
+A `sync.WaitGroup` waits for a group of goroutines: `Add(1)` before starting each one, `defer wg.Done()` inside it, and `Wait()` to block until all are done. A sender can `close(ch)` to signal that no more values are coming; then `for v := range ch` receives until the channel is closed and empty.
+
+Modules: `go get github.com/google/uuid` adds a dependency to `go.mod` and records checksums in `go.sum`; then you `import` it and `go run .` as usual. `go mod tidy` adds missing requirements and removes unused ones.
+
+## What is special or tricky
+
+- **When `main` returns, the program exits**, even if goroutines are still running. You must wait for them with a channel receive or a `WaitGroup`.
+- **Deadlock.** Receiving from a channel that no one will ever send on, or sending with no receiver, blocks forever. If every goroutine is stuck, the runtime stops with `fatal error: all goroutines are asleep - deadlock!`.
+- **Scheduling order is not deterministic.** Output from several goroutines can appear in any order. Design results that do not depend on order.
+- **Data races.** Several goroutines writing the same variable without synchronisation corrupt it; concurrent map writes crash with `fatal error: concurrent map writes`. `go run -race` detects races. Prefer channels here; mutexes come in a later unit.
+- **Loop variables.** Since Go 1.22 each iteration gets its own copy, so closures capture the right value. Passing it as an argument, as older code does, is still correct.
+
+## What you will practise
+
+You will hand a value from a goroutine to `main` over a channel, wait for several workers with a `WaitGroup`, install and use two external packages with `go get`, and then compute a result using goroutines whose answer must not depend on scheduling.
+'''
 title = "Goroutines, channels & packages"
 difficulty = 10
 level = "intermediate"
@@ -2611,6 +3112,58 @@ which keeps the result deterministic.
 
 [[unit]]
 id = "udb1-connect-query"
+concepts = '''
+## The idea
+
+A relational database stores data in **tables**: rows of records that all share the same named columns. You talk to it in **SQL**, a declarative language: you describe *what* you want (`SELECT name FROM users WHERE age > 30`) and the database's query planner decides *how* to get it. Statements come in two families: those that change things and return no rows (`CREATE TABLE`, `INSERT`, `UPDATE`, `DELETE`), and queries that return a **result set** of rows.
+
+SQLite is an **embedded** database: there is no server process. The whole engine is a library inside your program, and a database is a single file, or with `:memory:` a scratch database in RAM.
+
+The most important habit is how values get into SQL. Gluing input into the query text, as in `"... WHERE name = '" + name + "'"`, lets the input change the *structure* of the query: a name like `x' OR 1=1 --` turns a lookup into "return every row". That is **SQL injection**. A **placeholder** (`?`) fixes the shape of the statement first and sends the values separately, as data that is never parsed as SQL.
+
+## How Go does it
+
+Go splits the job in two. The standard package `database/sql` defines one API, and a **driver** implements it for a particular database. This course uses `modernc.org/sqlite`, a pure-Go driver that registers itself under the name `sqlite` when it is imported. You import it only for that side effect, with a blank import (`_`).
+
+Three calls cover most work: `Exec` for statements without rows, `QueryRow` for exactly one row, and `Query` for many rows. Arguments after the SQL fill the `?` placeholders in order.
+
+```go
+// Safe: title is bound to ?, never parsed as SQL.
+db.Exec(`INSERT INTO books (title, year) VALUES (?, ?)`, title, 1999)
+```
+
+`Query` returns a `*sql.Rows` cursor. You advance it with `Next` and copy columns into variables with `Scan`, passing pointers:
+
+```go
+rows, err := db.Query(`SELECT title FROM books WHERE year < ?`, 2000)
+if err != nil {
+    return err
+}
+defer rows.Close()
+for rows.Next() {
+    var title string
+    if err := rows.Scan(&title); err != nil {
+        return err
+    }
+    fmt.Println(title)
+}
+return rows.Err()
+```
+
+## What is special or tricky
+
+- Forget the blank import and you get, at run time, `sql: unknown driver "sqlite" (forgotten import?)`. Import it without `_` and the compiler says it is imported and not used.
+- `sql.Open` does not necessarily connect; it prepares a handle. Problems such as a bad path often surface at the first `Exec` or `Query`.
+- `Scan` wants pointers, one per selected column. A mismatch gives `sql: expected 2 destination arguments in Scan, not 1`.
+- When `QueryRow` finds no row, `Scan` returns `sql.ErrNoRows` and leaves your variable untouched.
+- Always `defer rows.Close()`: an unclosed cursor keeps hold of a connection. Check `rows.Err()` after the loop.
+- Placeholders stand for values only. `SELECT * FROM ?` cannot choose a table.
+- The drills discard errors with `_` to stay short; real code checks every one.
+
+## What you will practise
+
+You will open an in-memory database, insert rows with placeholders, read a single value with `QueryRow` and loop over results with `Query`. The challenge asks you to let SQL, not a Go loop, do the counting.
+'''
 title = "Databases: connect & query"
 difficulty = 10
 level = "intermediate"
@@ -3022,6 +3575,64 @@ inside SQLite; the boundary `age >= 18` is handled by the database, not Go.
 
 [[unit]]
 id = "udb2-transactions"
+concepts = '''
+## The idea
+
+Many real operations need several writes that only make sense together. Moving money is the classic case: subtract from one account, add to the other. If the program crashes or hits an error between the two, money has vanished. A **transaction** groups statements into one unit of work with the **ACID** properties:
+
+- **Atomicity**: all the statements take effect, or none do.
+- **Consistency**: the database moves from one valid state to another.
+- **Isolation**: other connections never see the half-finished work, only the state before or after.
+- **Durability**: once committed, the change survives a crash or power loss.
+
+You **begin** a transaction, run statements, then either **commit** (publish everything at once) or **roll back** (discard everything). Without an explicit transaction, SQLite runs each statement in its own tiny transaction, a mode called **autocommit**.
+
+A side benefit: the commit is the expensive part, because the database must flush to disk. A thousand inserts in one transaction are far faster than a thousand autocommits.
+
+## How Go does it
+
+`db.Begin()` reserves one connection from the pool and returns a `*sql.Tx`. A `Tx` has the same `Exec`, `Query` and `QueryRow` methods as `*sql.DB`, but they all run on that reserved connection, inside the transaction. `Commit` or `Rollback` ends it and hands the connection back.
+
+The idiomatic shape defers a rollback right after `Begin`. If the function returns early with an error, the deferred call undoes the work. If `Commit` ran first, the later `Rollback` does nothing except return `sql.ErrTxDone`, which you ignore.
+
+```go
+func addOrder(db *sql.DB, customer string, items []string) error {
+    tx, err := db.Begin()
+    if err != nil {
+        return err
+    }
+    defer tx.Rollback()
+
+    res, err := tx.Exec(`INSERT INTO orders (customer) VALUES (?)`, customer)
+    if err != nil {
+        return err
+    }
+    orderID, _ := res.LastInsertId()
+    for _, it := range items {
+        _, err := tx.Exec(`INSERT INTO lines (order_id, item) VALUES (?, ?)`, orderID, it)
+        if err != nil {
+            return err
+        }
+    }
+    return tx.Commit()
+}
+```
+
+Either the order and all of its lines exist, or none of them does.
+
+## What is special or tricky
+
+- Run the statements on `tx`, not on `db`. A call on `db` borrows a *different* connection outside the transaction: it does not see the uncommitted work and is not undone by a rollback.
+- With `:memory:` this bites harder: every SQLite connection to `:memory:` gets its own private database. While a transaction holds one connection, a query on `db` may open a second one and find no tables at all.
+- Rolling back is not only for errors. Your code may decide that a business rule was broken and roll back on purpose. Inside the transaction, its own uncommitted changes are visible to its own queries.
+- `Commit` returns an error; check it. A failed commit means nothing was saved.
+- After `Commit` or `Rollback` the `Tx` is finished; further calls fail with `sql: transaction has already been committed or rolled back`.
+- Forgetting to end a transaction leaks its connection and can hold a lock that blocks other writers.
+
+## What you will practise
+
+You will commit a row, roll another back and watch it vanish, and move money between two accounts in a single transaction. The challenge adds a rule that makes your code choose between `Commit` and `Rollback` at run time.
+'''
 title = "Transactions: all or nothing"
 difficulty = 10
 level = "intermediate"
@@ -3439,6 +4050,52 @@ unchanged.
 
 [[unit]]
 id = "udb3-wal-pool"
+concepts = '''
+## The idea
+
+Opening a database connection is relatively costly, and one connection can serve only one statement at a time. Services therefore keep a **connection pool**: a set of open connections lent to whoever needs one and returned afterwards. The pool reuses idle connections, opens new ones on demand, and can cap how many exist.
+
+Concurrency also raises a storage question: how do readers and writers share one file safely? SQLite's default **rollback journal** copies each page's original content to a side file before changing it, so a crash can be undone. While a writer commits, readers are locked out.
+
+**Write-Ahead Logging (WAL)** flips this around. Changes are appended to a separate `-wal` file instead of overwriting the main database. A reader looks at the main file plus the WAL up to the moment its read began, a consistent **snapshot**, so readers do not block the writer and the writer does not block readers. Now and then a **checkpoint** copies the logged pages back into the main file. There is still only **one writer at a time**: a second writer must wait for the lock.
+
+## How Go does it
+
+`*sql.DB` *is* the pool. It is safe for concurrent use by many goroutines: each `Exec` or `Query` borrows a connection, runs, and gives it back. You create one `*sql.DB` for the whole program and share it.
+
+```go
+db, err := sql.Open("sqlite", "file:app.db?_pragma=busy_timeout(5000)")
+if err != nil {
+    log.Fatal(err)
+}
+db.SetMaxOpenConns(4) // never more than 4 connections
+db.SetMaxIdleConns(4) // keep them around for reuse
+db.SetConnMaxLifetime(time.Hour)
+```
+
+The `modernc.org/sqlite` driver reads `_pragma=` options from the DSN (the connection string) and applies them to every new connection it opens. `busy_timeout(5000)` makes a connection wait up to five seconds for a lock instead of failing at once.
+
+WAL is switched on with a pragma, which also returns the resulting mode:
+
+```go
+var mode string
+db.QueryRow(`PRAGMA journal_mode=WAL`).Scan(&mode) // "wal"
+```
+
+## What is special or tricky
+
+- Most pragmas affect only the **connection** that runs them. `db.Exec` of `PRAGMA busy_timeout=5000` configures one pooled connection, and the next statement may run on another. That is why per-connection settings belong in the DSN. `journal_mode=WAL` is the exception: it is stored in the database file and persists.
+- WAL needs a real file. On `:memory:` the pragma reports `memory`, and each pooled connection would get its own separate in-memory database anyway.
+- Without a busy timeout, concurrent writers fail with `database is locked` (`SQLITE_BUSY`).
+- `SetMaxOpenConns(0)`, the default, means unlimited. With a cap, a goroutine that asks for a connection while all are busy simply waits.
+- Never open a pool per goroutine or per request: you lose reuse and multiply file handles.
+- Wait for the workers (a `sync.WaitGroup` is the usual tool) before reading the result, and try `go run -race .` to catch data races in your own Go code.
+- A WAL database keeps `-wal` and `-shm` files beside it. They are part of the database; do not delete them while it is in use.
+
+## What you will practise
+
+You will switch a file-backed database to WAL, cap the pool, and have several goroutines insert through one shared `*sql.DB`. The challenge asks for a result that is the same however the goroutines happen to be scheduled.
+'''
 title = "WAL mode & the connection pool"
 difficulty = 10
 level = "intermediate"
@@ -3910,6 +4567,54 @@ covers the whole range, and addition is commutative, so the final `SUM` is
 
 [[unit]]
 id = "udb4-n-plus-one"
+concepts = '''
+## The idea
+
+Every statement sent to a database has a fixed cost on top of the actual work: the request travels to the server, the SQL is parsed and planned, and the result travels back. That is a **round trip**. Over a network it often costs around a millisecond, far more than finding a few rows in an index.
+
+The **N+1 problem** appears when code first runs one query to get a list (the "1"), then loops over the list and runs one more query per item (the "N"). With 3 items nobody notices. With 10 000 items, a page that runs 10 001 queries takes seconds, and the database spends most of its time on overhead. It often hides inside helper functions or ORMs that load related records lazily, so each query looks innocent on its own.
+
+The fix is to think in **sets**. SQL is built to process many rows per statement: `WHERE id IN (...)` filters by a list, `JOIN` combines related tables, and aggregates such as `SUM` and `COUNT` (with `GROUP BY`) summarise inside the database. One statement, one round trip, whatever N is.
+
+## How Go does it
+
+`database/sql` does not batch or hide your queries: each `QueryRow` or `Query` call is a separate statement. So the shape of your Go code *is* the shape of your database traffic, and a query inside a `for` loop is the warning sign.
+
+Here is N+1 on a blog: one query per post to fetch its author.
+
+```go
+for i := range posts {
+    db.QueryRow(`SELECT name FROM authors WHERE id = ?`, posts[i].AuthorID).
+        Scan(&posts[i].Author)
+}
+```
+
+The set-based version lets a `JOIN` pair every post with its author in one statement:
+
+```go
+rows, err := db.Query(`
+    SELECT p.title, a.name
+    FROM posts p JOIN authors a ON a.id = p.author_id
+    ORDER BY p.id`)
+```
+
+The `rows.Next()` loop that follows is fine: it reads results already produced by that single query, not N more queries.
+
+When the list comes from Go, an `IN` clause needs one `?` per element and the values go in the arguments after the SQL. The SQL text then depends on how long the list is, but the values still never enter it.
+
+## What is special or tricky
+
+- A placeholder binds one scalar value. `WHERE id IN (?)` given a whole slice does not expand into a list.
+- The arguments parameter of `Exec`, `Query` and `QueryRow` is `...any`. You can spread a `[]any` with `slice...`, but a `[]int` is not a `[]any`: the compiler rejects it with `cannot use ids (variable of type []int) as []any value`.
+- An empty `IN ()` list is a syntax error in most databases, so decide what an empty input means before building the query.
+- `SUM` over zero matching rows returns `NULL`, not 0, and scanning `NULL` into an `int` fails. `COALESCE(SUM(x), 0)` turns it into 0.
+- SQLite runs in-process, so its round trips are cheap and N+1 hurts less there. Code that feels fast against SQLite on a laptop can crawl against a database server across a network; the habit matters more than the local timing.
+- When unsure, count statements: a counter or a log line per query makes N+1 visible.
+
+## What you will practise
+
+You will run the N+1 loop on purpose and count its queries, then fold the same work into one `IN (...)` query and into one streamed `Query`. The challenge checks that you compute a total with exactly one query.
+'''
 title = "The N+1 query problem"
 difficulty = 10
 level = "intermediate"
@@ -4336,6 +5041,48 @@ the point: the whole set is summed in one statement instead of one query per id.
 
 [[unit]]
 id = "udb5-pagination"
+concepts = '''
+## The idea
+
+No screen shows a million rows at once. **Pagination** splits a sorted result into pages, and two techniques dominate.
+
+**OFFSET pagination** numbers the pages: page 3 with size 20 means "skip 40 rows, return 20". It is easy to understand and can jump to any page. But the database cannot teleport to row 40 000: it must produce and discard every skipped row, so the cost grows with the offset, roughly O(offset + size). Deep pages get slower and slower.
+
+**Keyset pagination** (also called seek or cursor pagination) remembers *where you stopped* instead of *how many you skipped*. The client sends back the sort key of the last row it saw, and the next query asks for rows after that key. If the key is indexed, the database walks its B-tree straight to that point, an O(log n) seek, and then reads `size` rows. Page 1 and page 5 000 cost about the same.
+
+Keyset also copes better with changing data. With OFFSET, a row inserted or deleted before the current position shifts everything, so the reader sees a row twice or misses one. A keyset cursor is anchored to a value, not to a position.
+
+The trade-offs: keyset needs a **unique, stable sort order**, cannot jump to an arbitrary page number, and moves one page at a time.
+
+## How Go does it
+
+Both are plain SQL with bound parameters; `LIMIT` and `OFFSET` accept `?` like any other value. You read the page with the usual `Query` and `rows.Next()` loop, collecting values into a slice.
+
+When the sort column is not unique, add a tie-breaker so the order is total. SQLite supports **row values**, which compare tuples left to right, so a two-column cursor stays tidy:
+
+```go
+rows, err := db.Query(`
+    SELECT id, created_at, title FROM posts
+    WHERE (created_at, id) > (?, ?)
+    ORDER BY created_at, id
+    LIMIT ?`, lastCreated, lastID, 20)
+```
+
+An index on `(created_at, id)` lets this seek directly. After reading the page, the last row's `created_at` and `id` become the cursor for the next request, often wrapped in an opaque token for the client.
+
+## What is special or tricky
+
+- Without `ORDER BY`, SQL promises no order at all, and pages can overlap or skip rows. Always order by the same key you filter on.
+- Use `>` (strictly greater), not `>=`, or the last row of one page comes back as the first row of the next.
+- The first page has no last key yet. With positive integer ids, starting from 0 works; in general you need a sentinel value or a separate first-page query.
+- A slice declared as `var page []int` is `nil` until you append to it. A `nil` slice and an empty one both have length 0, but they encode differently in JSON (`null` versus `[]`), which matters when an API returns the page.
+- In SQLite a negative `LIMIT` means "no limit", so validate the page size before querying.
+- Check `rows.Err()` after the loop; otherwise a page cut short by an error looks like a normal short page.
+
+## What you will practise
+
+You will fetch the same page with `LIMIT/OFFSET` and with a keyset query, then advance a keyset cursor to the following page. The challenge asks you to build a small keyset pager that handles its edge cases.
+'''
 title = "Pagination: OFFSET vs keyset"
 difficulty = 10
 level = "intermediate"
@@ -4791,6 +5538,50 @@ sits. That flat cost is the whole advantage of keyset over a large `OFFSET`.
 
 [[unit]]
 id = "udb6-indexes"
+concepts = '''
+## The idea
+
+Without help, finding the rows where `email = 'b@x'` means reading every row and testing it: a **full table scan**, O(n). An **index** is a separate, sorted structure holding the values of one or more columns, each entry pointing back to its row. Because it is sorted, the database can find a value the way you find a word in a dictionary.
+
+SQLite, like most databases, stores indexes as **B-trees**: wide, shallow trees whose nodes each hold many sorted keys. Finding a key takes O(log n) node visits, and with hundreds of keys per node even millions of rows need only a few. The leaves are in order, so ranges (`BETWEEN`, `>`, `ORDER BY`) are cheap too. The table itself is also a B-tree, keyed by its `rowid` (or its `INTEGER PRIMARY KEY`).
+
+A typical indexed lookup finds the matching rowids in the index, then fetches each row from the table. If every column the query needs is already in the index, that second step is skipped: a **covering index**.
+
+Indexes are not free. Each one takes space, and every `INSERT`, `UPDATE` and `DELETE` must update every index on the table. Index the columns your queries actually filter, join or sort on.
+
+The **query planner** decides whether to use an index. **`EXPLAIN QUERY PLAN`** asks it to describe its choice without running the query.
+
+## How Go does it
+
+Indexes are plain SQL, run with `Exec`, and your queries do not change at all: the planner picks the index on its own.
+
+```go
+db.Exec(`CREATE INDEX idx_orders_cust_date ON orders(customer_id, created_at)`)
+db.Exec(`CREATE UNIQUE INDEX idx_users_email ON users(email)`)
+```
+
+A `UNIQUE` index also enforces a rule: inserting a duplicate email fails with a constraint error.
+
+To Go, `EXPLAIN QUERY PLAN` is an ordinary query. In SQLite it returns rows of four columns (`id`, `parent`, `notused`, `detail`), and `detail` is the text to read. Typical details:
+
+- `SCAN users`: a full table scan.
+- `SEARCH users USING INDEX idx_users_email (email=?)`: a seek through the index, then a fetch of each row.
+- `SEARCH users USING COVERING INDEX idx_users_email (email=?)`: the index alone answers the query.
+- `SEARCH users USING INTEGER PRIMARY KEY (rowid=?)`: a lookup by the table's own key.
+
+## What is special or tricky
+
+- A composite index on `(customer_id, created_at)` helps queries that filter on `customer_id`, or on both columns, but not on `created_at` alone, because it is sorted by the first column first (the **leftmost prefix** rule).
+- Wrapping the column in a function, as in `WHERE lower(email) = ?`, hides it from a plain index on `email`. So does a leading wildcard such as `LIKE '%x'`.
+- The wording of `detail` varies between SQLite versions (older ones printed `SCAN TABLE users`). Match stable words like `SCAN` or `USING INDEX`, never the whole string.
+- `USING COVERING INDEX` contains the word `INDEX` but not the exact phrase `USING INDEX`.
+- `Scan` needs one destination per column, so reading a plan row takes four variables even if you only want the last one.
+- Plain `EXPLAIN`, without `QUERY PLAN`, is different: it lists the low-level bytecode program, not the strategy.
+
+## What you will practise
+
+You will watch a `SCAN` become `USING INDEX` once an index exists, and use an index for a real lookup. The challenge asks you to confirm from Go, by reading the plan, that a lookup really uses its index.
+'''
 title = "Indexes & EXPLAIN QUERY PLAN"
 difficulty = 10
 level = "intermediate"
@@ -5232,6 +6023,59 @@ why the detail contains `USING INDEX`.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u11-goroutines-waitgroup"
+concepts = '''
+## The idea
+
+**Concurrency** means structuring a program as several independent activities whose lifetimes overlap. **Parallelism** means those activities really execute at the same instant on different CPU cores. Concurrency is about *structure*; parallelism is about *execution*. A well-structured concurrent program runs in parallel whenever the hardware allows it.
+
+Most systems express concurrency with **threads**: flows of control scheduled by the operating system, each with its own large stack. Threads are costly to create and to switch between, because every switch goes through the kernel. Go uses **goroutines** instead: tasks with tiny stacks (a few kilobytes that grow on demand), scheduled by the Go runtime onto a small pool of OS threads. This is called **M:N scheduling**: many goroutines, few threads.
+
+Starting work concurrently is a **fork**. Sooner or later you must **join**: wait until the forked work has finished before you use its results or exit. A `sync.WaitGroup` is a counting join: a counter of outstanding tasks plus a way to block until it reaches zero.
+
+## How Go does it
+
+Prefix any function call with `go`. The arguments are evaluated immediately, in the calling goroutine; the function body runs later, concurrently.
+
+```go
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func greet(name string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	fmt.Println("hello,", name)
+}
+
+func main() {
+	var wg sync.WaitGroup
+	for _, name := range []string{"ana", "rui", "eva"} {
+		wg.Add(1)
+		go greet(name, &wg)
+	}
+	wg.Wait()
+}
+```
+
+Notice that `greet` receives a **pointer** to the WaitGroup. The zero value of `sync.WaitGroup` is ready to use; you never call a constructor.
+
+Since Go 1.22, each iteration of a `for` loop gets a fresh loop variable, so a closure that captures `name` sees its own value. Before 1.22 all closures shared one variable and often saw only the last value, which is why passing the value as an argument, as the drills do, is a common and explicit habit.
+
+## What is special or tricky
+
+- **`main` does not wait.** When `main` returns, the program exits and running goroutines are simply dropped. `time.Sleep` is not synchronisation; it only makes the bug rarer.
+- **Call `Add` before the `go` statement**, not inside the goroutine. Otherwise `Wait` may run first, see zero, and return early.
+- **Never copy a WaitGroup.** Passing it by value gives the goroutine its own counter, so `Wait` never sees the `Done`. `go vet` reports this as passing a lock by value.
+- More `Done` calls than `Add` panics with `sync: negative WaitGroup counter`. A `Wait` that nobody will ever release ends with `fatal error: all goroutines are asleep - deadlock!`.
+- **Output order is not deterministic.** Prints from goroutines interleave differently each run. If you need a reproducible *result*, design for it: let each goroutine write to its own slot, then combine the slots after `Wait`.
+- Two goroutines writing the same variable without synchronisation is a **data race**. Run `go run -race .` to have the race detector look for it.
+
+## What you will practise
+
+You will launch goroutines with a WaitGroup, collect results into disjoint slots, and split a slice across a fixed number of workers. The challenge asks you to combine those ideas into a parallel computation whose answer is the same on every run.
+'''
 title = "Goroutines & WaitGroup"
 difficulty = 11
 level = "advanced"
@@ -5654,6 +6498,69 @@ first. That is what makes the result deterministic.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u12-channels"
+concepts = '''
+## The idea
+
+Goroutines need a way to exchange data. One option is shared memory guarded by locks. Go favours another model, **CSP** (Communicating Sequential Processes, Tony Hoare, 1978): independent processes share nothing and talk by passing messages over **channels**. The Go proverb sums it up: *do not communicate by sharing memory; share memory by communicating.*
+
+A channel is a typed, goroutine-safe **FIFO queue** with blocking behaviour. Sending a value hands it from one goroutine to another, so only one side works on it at a time. Two shapes matter:
+
+- **Unbuffered**: a synchronous handoff. Sender and receiver must meet (a *rendezvous*), so the exchange also synchronises them.
+- **Buffered**: a bounded queue. A fast producer can run ahead by up to the capacity, then it is slowed down. That automatic slowing is called **back-pressure**.
+
+The classic pattern built on this is **producer/consumer**, and chaining several stages gives a **pipeline**.
+
+## How Go does it
+
+The type is `chan T`. You create a channel with `make`, send with `ch <- v` and receive with `<-ch`. The zero value of a channel type is `nil`, which is not usable.
+
+A channel is a natural way to return a result from a goroutine:
+
+```go
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	done := make(chan string)
+	go func() {
+		done <- strings.ToUpper("finished")
+	}()
+	fmt.Println(<-done) // waits for the goroutine, no WaitGroup needed
+}
+```
+
+`close(ch)` means "no more values". Values already in the buffer survive the close:
+
+```go
+ch := make(chan int, 1)
+ch <- 5
+close(ch)
+v, ok := <-ch // 5 true: a buffered value is still delivered
+v, ok = <-ch  // 0 false: closed and drained
+```
+
+`for v := range ch` keeps receiving until the channel is closed and drained. `len(ch)` and `cap(ch)` report how full the buffer is.
+
+Directional types restrict a channel's use: `chan<- T` can only send, `<-chan T` can only receive. A bidirectional channel converts to either one implicitly when you pass it to a function.
+
+## What is special or tricky
+
+- **Deadlock.** An unbuffered send with no receiver blocks forever. If every goroutine is blocked, the runtime stops with `fatal error: all goroutines are asleep - deadlock!`. The classic case is sending and receiving in the same goroutine.
+- **Close from the sending side only.** Sending on a closed channel panics with `send on closed channel`, and closing twice panics with `close of closed channel`.
+- **Receiving from a closed channel never blocks.** It returns the zero value at once. Use `v, ok` when a real zero must be told apart from "closed".
+- **A `range` over a channel that is never closed never ends.** Forgetting `close` turns into a deadlock or a goroutine stuck forever.
+- A `nil` channel blocks forever on both send and receive, so always `make` your channels.
+- Using a channel against its direction is a compile error, for example "cannot send to receive-only channel".
+- Closing is a signal, not cleanup. Unreachable channels are garbage collected whether or not they were closed.
+
+## What you will practise
+
+You will meet the rendezvous, fill and drain a buffered channel, and wire a producer to a consumer with directional types. The challenge asks you to build that same producer/consumer shape yourself.
+'''
 title = "Channels"
 difficulty = 12
 level = "advanced"
@@ -5997,6 +6904,68 @@ deterministic.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u13-select-timeouts"
+concepts = '''
+## The idea
+
+A goroutine often has several possible events to wait for: a result on one channel, a message on another, a deadline passing. Waiting on just one of them in sequence can hang the program while the other is ready. **Multiplexing** means waiting on all of them at once and reacting to whichever is ready first, much like the Unix `select`/`poll` calls for files and sockets.
+
+A **timeout** is one of those events: "stop waiting after *d*". Timeouts keep a slow or dead partner from blocking you forever.
+
+When several events are ready at the same moment, the choice between them is **non-deterministic**. A correct concurrent program does not depend on the order of arrivals. Instead it maintains an **invariant**, a fact that stays true for any interleaving, such as "the total equals the sum of everything received".
+
+## How Go does it
+
+`select` looks like a `switch`, but each `case` is a channel send or receive. It blocks until one case can proceed and runs exactly that case. If several are ready, it picks one at random. A `default` case makes the `select` non-blocking.
+
+`time.After(d)` returns a channel that delivers one value after `d`, so a deadline becomes just another case:
+
+```go
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	slow := make(chan string, 1) // buffered: the late sender can still finish
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		slow <- "done"
+	}()
+	select {
+	case msg := <-slow:
+		fmt.Println(msg)
+	case <-time.After(10 * time.Millisecond):
+		fmt.Println("gave up waiting")
+	}
+}
+```
+
+With `default`, you can try an operation without blocking:
+
+```go
+select {
+case jobs <- task:
+	fmt.Println("queued")
+default:
+	fmt.Println("queue full, dropping task")
+}
+```
+
+## What is special or tricky
+
+- **A closed channel is always ready.** Its receive case fires again and again with zero values, so a `select` loop over a closed channel spins and miscounts. Use the two-value receive to notice the close and retire that case.
+- **A `nil` channel is never ready.** Its case is effectively switched off. That is why setting a variable to `nil` disables a case. A `select` where every channel is `nil` and there is no `default` blocks forever. So does an empty `select {}`.
+- **`break` inside a `select` leaves only the `select`**, not the surrounding `for`. To exit the loop, use a labelled `break`, `return`, or a loop condition.
+- **`time.After` in a loop creates a new timer on every iteration.** That gives you a per-iteration idle timeout. For one overall deadline, call it once before the loop and keep the channel.
+- **Goroutine leaks.** In the timeout example, an unbuffered `slow` would leave the sleeping goroutine blocked on its send forever, because nobody receives any more. A buffer of one lets it finish.
+- If your output depends on which ready case runs first, your program is flaky. Make the result depend only on the invariant.
+
+## What you will practise
+
+You will use `select` over two ready channels, add a `time.After` timeout, and merge two channels until both close. The challenge asks you to merge two producers with a `select` loop and compute a total that does not depend on arrival order.
+'''
 title = "Select & timeouts"
 difficulty = 13
 level = "advanced"
@@ -6426,6 +7395,57 @@ streams in any order, but summation is commutative, so the total is deterministi
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u14-shared-state"
+concepts = '''
+## The idea
+
+When goroutines share memory, a **race condition** can appear: the result depends on how their steps interleave. The most dangerous form is a **data race**: two goroutines access the same memory location at the same time, at least one of them writes, and nothing orders the accesses. `counter++` looks atomic but is really three steps (read, add, write), so two goroutines can both read the same old value and one increment is lost.
+
+The fix is **mutual exclusion**. You protect a **critical section** so that only one goroutine runs it at a time. Locks also establish a **happens-before** order: everything done before an `Unlock` is visible to the goroutine that takes the lock next. Without such synchronisation, one goroutine may not see another's writes at all.
+
+**Atomic operations** are the smallest tool: single read-modify-write steps that the hardware makes indivisible. **Worker pools** add *bounded concurrency*: a fixed number N of workers drain a shared job queue, so a million jobs never means a million simultaneous goroutines. Spreading jobs out is called *fan-out*, and gathering results back into one stream is *fan-in*.
+
+## How Go does it
+
+`sync.Mutex` has `Lock` and `Unlock`, and its zero value is an unlocked mutex. The idiom is to keep the mutex next to the data it guards and to unlock with `defer`:
+
+```go
+type Inventory struct {
+	mu    sync.Mutex
+	stock map[string]int
+}
+
+func (inv *Inventory) Add(item string, n int) {
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	inv.stock[item] += n
+}
+```
+
+`sync.RWMutex` lets many readers in at once (`RLock`/`RUnlock`) but only one writer. For a lone counter, `sync/atomic` offers `atomic.AddInt64(&n, 1)` and `atomic.LoadInt64(&n)`, and since Go 1.19 the typed `atomic.Int64`, with `Add` and `Load` methods.
+
+A worker pool in Go has four parts:
+
+- a jobs channel that every worker ranges over;
+- a results channel that every worker sends to;
+- a `sync.WaitGroup` that counts the workers;
+- a small extra goroutine that waits on the group and then closes the results channel.
+
+That extra goroutine matters. If the collecting goroutine itself called `Wait` before reading results, the workers would block on their sends and the program would deadlock.
+
+## What is special or tricky
+
+- **Maps are not safe for concurrent writes.** The runtime often catches it and crashes with `fatal error: concurrent map writes`.
+- **Go mutexes are not reentrant.** Calling `Lock` twice in the same goroutine deadlocks it.
+- **Do not copy a mutex.** A struct holding a `sync.Mutex` must be used through a pointer, with pointer receivers. `go vet` flags copies.
+- **Forgetting `Unlock` on an early return** freezes every other goroutine. `defer` prevents it.
+- **Mixing atomic and plain access is still a race.** If you write with `atomic.AddInt64`, read with `atomic.LoadInt64`.
+- The race detector (`go run -race .`) reports `WARNING: DATA RACE`, but only for races that actually occur during that run. A silent run is evidence, not proof.
+- Choose N on purpose. For CPU-bound work, `runtime.NumCPU()` is a sensible start.
+
+## What you will practise
+
+You will guard a counter with a `Mutex`, build a three-worker pool, and replace the lock with `sync/atomic`. The challenge asks you to answer a counting question with a worker pool, deterministically.
+'''
 title = "Shared state: Mutex & worker pools"
 difficulty = 14
 level = "advanced"
@@ -6872,6 +7892,57 @@ number — deterministic.
 
 [[unit]]
 id = "u15-stacks-queues"
+concepts = '''
+## The idea
+
+An **abstract data type** is defined by its operations, not by how it is stored. Two of the most useful ones restrict *where* elements enter and leave:
+
+- A **stack** is **LIFO** (last in, first out), with `push`, `pop` and `peek` at one end. It models anything nested or reversible: the call stack of a running program, undo history, depth-first search, and nested structure in text, where whatever opened most recently must close first.
+- A **queue** is **FIFO** (first in, first out): `enqueue` at the back, `dequeue` at the front. It models fairness and waiting: task scheduling, buffers, breadth-first search.
+
+A good implementation makes every one of these operations **O(1)**, meaning constant time no matter how many elements are stored.
+
+## How Go does it
+
+Go has no built-in stack or queue type, because a **slice** already does the job. A slice is a small header (pointer, length, capacity) over a backing array:
+
+- `append` adds at the end in **amortised O(1)**. When capacity runs out, it allocates a bigger array and copies, but that happens rarely enough that the average cost per push stays constant.
+- Reslicing (`s[:len(s)-1]` or `s[1:]`) is O(1). It only moves the header and never copies elements.
+
+Wrapping the slice in a type gives a safer API. With generics (Go 1.18+), one definition serves every element type:
+
+```go
+type Stack[T any] struct {
+	items []T
+}
+
+func (s *Stack[T]) Push(v T) { s.items = append(s.items, v) }
+
+func (s *Stack[T]) Pop() (T, bool) {
+	var zero T
+	if len(s.items) == 0 {
+		return zero, false
+	}
+	v := s.items[len(s.items)-1]
+	s.items = s.items[:len(s.items)-1]
+	return v, true
+}
+```
+
+The methods use a **pointer receiver** because `append` and reslicing produce a new header that must be stored back. Returning `(T, bool)` is the comma-ok style: the caller learns about an empty stack without a crash.
+
+## What is special or tricky
+
+- **Popping an empty slice panics**: `panic: runtime error: index out of range [-1]`. Always check `len` first.
+- **`append` returns the new slice.** Writing `append(stack, x)` on its own line is a compile error ("value ... is not used"). Always assign: `stack = append(stack, x)`.
+- **Slices share backing arrays.** After `b := a`, both point to the same memory. Popping from one and pushing to it can overwrite elements the other still sees. Keep one owner per stack.
+- **Dequeuing with `q[1:]` keeps the dropped elements in memory** until `append` reallocates. That is fine for short-lived queues. For long-lived ones, use a ring buffer or `container/list`. Between goroutines, a buffered channel is already a FIFO queue.
+- **Strings are bytes; ranging gives runes.** `s[i]` is a `byte`, while `for _, r := range s` yields `rune` values (Unicode code points). A character literal like `'('` is an untyped rune constant that compares with either.
+
+## What you will practise
+
+You will push and pop a stack, serve a queue in order, and reverse a slice by draining a stack. The challenge applies the LIFO idea to checking nested structure in a string.
+'''
 title = "Stacks & queues with slices"
 difficulty = 15
 level = "advanced"
@@ -7223,6 +8294,61 @@ ignored.
 
 [[unit]]
 id = "u16-linked-list"
+concepts = '''
+## The idea
+
+A **linked list** stores a sequence as a chain of **nodes**. Each node holds a value and a **reference** to the next node, and the last node's reference is empty. The list itself is just a reference to the first node, the **head**. Nothing is contiguous: the nodes can live anywhere in memory, connected only by pointers.
+
+That layout trades one set of costs for another. Compared with an array or slice:
+
+- **Insert or remove at the head: O(1).** You only rewire a pointer. A slice must shift every element to insert at the front, which is O(n).
+- **Insert after a node you already hold: O(1)**, for the same reason.
+- **Access by index, search, length: O(n).** You must walk from the head, because there is no arithmetic that jumps to element *i*. Length is O(n) unless you store a counter.
+- **Append at the tail: O(n)**, unless you also keep a tail pointer.
+
+Slices are also friendlier to CPU caches, so in everyday Go code they usually win. Linked lists still matter: they teach pointer-based structures, and trees and graphs are built from the same kind of nodes. A **doubly linked list** adds a `prev` pointer so you can walk both ways. The standard library ships one as `container/list`.
+
+## How Go does it
+
+A node type refers to itself through a **pointer**, `Next *Node`. The pointer's zero value, `nil`, marks both the end of the list and the empty list. `&Node{...}` allocates a node and gives you its address. Go's escape analysis places it on the heap when needed, and the garbage collector frees nodes that become unreachable, so there is no `free`.
+
+Inserting after a known node is a single rewiring:
+
+```go
+func insertAfter(n *Node, v int) {
+	n.Next = &Node{Val: v, Next: n.Next}
+}
+```
+
+Because a function receives the head pointer **by value**, anything that may change the head returns the new one. Here is a recursive delete of the first match:
+
+```go
+func remove(head *Node, v int) *Node {
+	if head == nil {
+		return nil
+	}
+	if head.Val == v {
+		return head.Next
+	}
+	head.Next = remove(head.Next, v)
+	return head
+}
+```
+
+The caller writes `head = remove(head, 7)`, and that one line covers every case: an empty list, a match at the head, or a match deeper down.
+
+## What is special or tricky
+
+- **`nil` dereference.** Reading `head.Val` on an empty list, or `n.Next.Val` at the last node, crashes with `panic: runtime error: invalid memory address or nil pointer dereference`. Check for `nil` before you follow a pointer.
+- **A struct cannot contain itself by value.** Writing `Next Node` is a compile error ("invalid recursive type"). It must be `*Node`.
+- **Reassigning a parameter does not affect the caller.** Setting `head = ...` inside a function changes only the local copy. Return the new head, or use a wrapper struct with a pointer receiver.
+- **Order of rewiring matters.** If you overwrite `n.Next` before saving the old value, the rest of the list becomes unreachable. A composite literal like the one above reads the old pointer before replacing it.
+- Methods with pointer receivers may be called on a `nil` pointer. That is legal Go, and a method can treat `nil` as "empty list".
+
+## What you will practise
+
+You will build a list by pushing to the front, pop the head, and count nodes by walking to `nil`. The challenge uses the list's front-insertion behaviour to transform a slice.
+'''
 title = "Singly linked lists"
 difficulty = 16
 level = "advanced"
@@ -7590,6 +8716,60 @@ avoids re-allocations during the collecting walk.
 
 [[unit]]
 id = "u17-maps-sets"
+concepts = '''
+## The idea
+
+A **hash table** is an associative array: it maps **keys** to **values**. A **hash function** turns each key into a number that selects a bucket. Lookups, inserts and deletes then touch one bucket instead of scanning everything. That makes them **O(1) on average**. In the worst case, when many keys collide in one bucket, they degrade to O(n), but good hash functions make that rare. The price is memory and the loss of any meaningful **order**.
+
+Several classic techniques rest on this:
+
+- **Frequency counting** (a histogram): key = item, value = how many times it was seen.
+- **Sets**: only the keys matter. They answer "have I seen this?" and drop duplicates.
+- **Indexing what you have seen**: remembering earlier elements by value lets you answer later questions in O(1). This is the general trade of memory for time that turns many O(n²) searches into O(n).
+
+## How Go does it
+
+Go's built-in `map[K]V` is a hash table. Create one with `make(map[K]V)` or a literal. Reading a missing key returns the value type's **zero value**. The comma-ok form `v, ok := m[k]` tells "absent" apart from "present but zero". You also get `delete(m, k)` and `len(m)`, and `range` yields key and value pairs.
+
+A set is `map[T]struct{}`, because the empty struct takes zero bytes. Here is the intersection of two sets:
+
+```go
+a := map[string]struct{}{"go": {}, "rust": {}, "zig": {}}
+b := map[string]struct{}{"rust": {}, "zig": {}, "c": {}}
+common := map[string]struct{}{}
+for k := range a {
+	if _, ok := b[k]; ok {
+		common[k] = struct{}{}
+	}
+}
+fmt.Println(len(common)) // 2
+```
+
+`map[T]bool` also works and reads nicely (`if seen[x]`), at the cost of a byte per entry.
+
+Keys must be **comparable**: numbers, strings, pointers, arrays, and structs whose fields are all comparable. A small struct makes a good composite key:
+
+```go
+type point struct{ x, y int }
+
+visited := map[point]bool{}
+visited[point{1, 2}] = true
+fmt.Println(visited[point{1, 2}], visited[point{0, 0}]) // true false
+```
+
+## What is special or tricky
+
+- **A `nil` map can be read but not written.** `var m map[string]int` followed by `m["a"] = 1` panics with `assignment to entry in nil map`. Initialise with `make` or `{}`.
+- **Slices, maps and functions cannot be keys.** `map[[]int]bool` is a compile error ("invalid map key type"). Use an array such as `[2]int`, a struct, or a string instead.
+- **Iteration order is randomised on purpose.** For reproducible output, collect the keys, sort them (`sort.Strings`, `sort.Ints`), then iterate.
+- **Maps behave like references.** Passing a map to a function lets the function modify the caller's map, with no pointer needed.
+- **Map elements are not addressable.** `&m[k]` does not compile, and neither does assigning to a field of a struct stored in a map, `m[k].f = 1`. Read the value, modify it, and store it back.
+- Deleting keys while ranging over the same map is allowed. Concurrent writes from several goroutines are not: they crash with `fatal error: concurrent map writes`.
+
+## What you will practise
+
+You will count word frequencies with sorted output, remove duplicates with a set, and test membership with comma-ok. The challenge asks you to use a map as a memory of earlier values, turning a quadratic search into a single pass.
+'''
 title = "Maps, frequencies & sets"
 difficulty = 17
 level = "advanced"
@@ -7962,6 +9142,71 @@ complement before inserting `v` prevents using one element twice.
 
 [[unit]]
 id = "u18-binary-search-tree"
+concepts = '''
+## The idea
+
+A **tree** is a hierarchical structure. A **root** node has children, those children have their own children, and nodes with no children are **leaves**. In a **binary tree**, every node has at most two children, left and right.
+
+A **binary search tree** (BST) adds an **ordering invariant**: for every node, *all* values in its left subtree are smaller and *all* values in its right subtree are larger. The rule applies to whole subtrees, not just immediate children. Because of it, each comparison discards one subtree, just as binary search discards half a sorted array.
+
+The cost of search and insert is **O(h)**, where *h* is the tree's **height**:
+
+- **Balanced**: h is about log₂ n, so a million values need roughly 20 steps.
+- **Degenerate**: inserting already sorted data builds a chain where every node has only a right child. Then h = n, and the tree is no faster than a linked list. Self-balancing trees (AVL, red-black) restructure themselves to guarantee O(log n).
+
+The three depth-first **traversals** differ only in when the node itself is visited:
+
+- **in-order** (left, node, right) produces values in sorted order;
+- **pre-order** (node first) suits copying or serialising a tree;
+- **post-order** (node last) suits computing sizes or heights from the children up.
+
+A hash map beats a BST for plain lookups. A BST wins when you need **order**: minimum, maximum, sorted iteration, or every value within a range.
+
+## How Go does it
+
+A node holds two `*Node` pointers. `nil` means "empty subtree", so an empty tree is just a `nil` root. Recursion follows the shape of the data directly. Searching does not need recursion, though. A loop that moves a pointer down the tree is enough, and a `switch` with no condition keeps the three-way comparison readable:
+
+```go
+func contains(root *Node, v int) bool {
+	for root != nil {
+		switch {
+		case v < root.Val:
+			root = root.Left
+		case v > root.Val:
+			root = root.Right
+		default:
+			return true
+		}
+	}
+	return false
+}
+```
+
+Height is the natural post-order computation. The built-in `max` exists since Go 1.21:
+
+```go
+func height(root *Node) int {
+	if root == nil {
+		return 0
+	}
+	return 1 + max(height(root.Left), height(root.Right))
+}
+```
+
+To gather values during a traversal, either pass a `*[]int` (as the drills do) or return the grown slice from each call. A plain `[]int` parameter would lose the elements that `append` adds after it reallocates.
+
+## What is special or tricky
+
+- **Pointer parameters are copies.** An `insert` that only assigns `root = &Node{...}` changes its local variable, and the caller's tree stays empty. That is why insert returns the subtree root, and the caller writes `root.Left = insert(root.Left, v)`. Forgetting that assignment silently drops the new node.
+- **Decide your duplicate policy.** Send equal values right, count them, or ignore them. Inconsistent choices break the invariant or the expected output.
+- Reading `root.Left.Val` when the left child is missing crashes with a `nil pointer dereference`. Check before you descend.
+- Checking only parent against child does not prove a tree is a valid BST. The invariant is about whole subtrees.
+- Go stacks grow on demand, so deep recursion on a degenerate tree is usually fine. Unbounded recursion still ends in `fatal error: stack overflow`.
+
+## What you will practise
+
+You will build a tree by hand, insert recursively, and read it back with an in-order walk. The challenge combines insertion and traversal into a small sorting tool.
+'''
 title = "Binary search trees"
 difficulty = 18
 level = "advanced"
@@ -8410,6 +9655,56 @@ returns a non-nil empty slice.
 
 [[unit]]
 id = "u19-sorting-searching"
+concepts = '''
+## The idea
+
+**Searching** an unsorted sequence means checking every element: **linear search**, O(n). Sorting first makes **binary search** possible: compare with the middle element and discard the half that cannot contain the target. That costs **O(log n)**, so a million elements take about 20 comparisons. Its correctness rests on a **loop invariant**: if the target is present, it lies within the current range `[lo, hi]`.
+
+**Sorting** algorithms differ in time, extra space and stability:
+
+- **Insertion sort** grows a sorted prefix, sliding each new element into place. It is O(n²) in the worst case but O(n) on nearly sorted input, works **in place**, and is excellent for small slices.
+- **Merge sort** is **divide and conquer**: split in half, sort each half recursively, then merge the two sorted halves in linear time. Its recurrence, T(n) = 2T(n/2) + O(n), solves to **O(n log n)** in every case. It needs O(n) extra space.
+- A sort is **stable** if equal elements keep their original relative order. Stability matters when you sort records by one field after another.
+
+No comparison-based sort can beat O(n log n) in the worst case, so merge sort is asymptotically optimal.
+
+## How Go does it
+
+Slicing makes "split in half" cheap. `v[:mid]` and `v[mid:]` are new headers over the **same** backing array: O(1), with nothing copied. That is both the power and the danger:
+
+```go
+v := []int{1, 2, 3, 4}
+left := v[:2]
+left = append(left, 99) // fits in v's spare capacity...
+fmt.Println(v)          // [1 2 99 4]: v was overwritten
+```
+
+When a function must leave its input untouched, make a real copy (`copy` into a fresh `make`, or `slices.Clone` from Go 1.21) before writing.
+
+In production code you rarely write sorts by hand. The standard library has `sort.Ints`, `sort.Slice(v, less)` and, since Go 1.21, the generic `slices` package:
+
+```go
+names := []string{"eva", "ana", "rui"}
+slices.Sort(names) // [ana eva rui]
+i, found := slices.BinarySearch(names, "eva")
+fmt.Println(i, found) // 1 true
+```
+
+`slices.Sort` is not guaranteed stable. Use `slices.SortStableFunc` or `sort.SliceStable` when order among equal elements matters. Writing the algorithms yourself is still how you learn the invariants they rely on.
+
+## What is special or tricky
+
+- **Off-by-one errors.** Pick one convention and stick to it: closed `[lo, hi]` with `hi = len(v)-1` and `lo <= hi`, or half-open `[lo, hi)` with `hi = len(v)` and `lo < hi`. Mixing them skips elements or loops forever.
+- **Midpoint overflow.** With huge indices, `(lo + hi) / 2` can overflow. `lo + (hi-lo)/2` cannot.
+- **Binary search on unsorted data** does not fail loudly. It just returns wrong answers.
+- **Every recursion needs a base case.** Without one, merge sort recurses until `fatal error: stack overflow`.
+- **`<` versus `<=` decides stability** when merging: on ties, taking from the left half keeps equal elements in order.
+- Sorting in place mutates the caller's slice, because the caller and the function share the backing array.
+
+## What you will practise
+
+You will binary-search a sorted slice, merge two sorted slices, and insertion-sort in place. The challenge asks you to build a full divide-and-conquer sort without the `sort` package, keeping the input untouched.
+'''
 title = "Sorting & searching by hand"
 difficulty = 19
 level = "advanced"
@@ -8820,6 +10115,57 @@ uses `<=`, keeping equal elements in order — a stable sort — and duplicates 
 
 [[unit]]
 id = "u20-recursion-dp"
+concepts = '''
+## The idea
+
+**Recursion** solves a problem by reducing it to smaller instances of the same problem. Every recursive definition needs a **base case** that is answered directly and a **recursive case** that moves toward it. At run time, each pending call occupies a **stack frame**, so recursion depth costs memory.
+
+Some recursions repeat themselves. Naive Fibonacci calls `fib(n-2)` from two different branches, and the repetition compounds into exponential time, roughly O(2ⁿ). **Dynamic programming** (DP) applies when a problem has two properties:
+
+- **overlapping subproblems**: the same smaller question is asked again and again;
+- **optimal substructure**: the best answer is built from the best answers to smaller questions.
+
+DP solves each subproblem **once** and stores the answer. There are two styles:
+
+- **Top-down memoisation**: keep the recursion, but cache results in a map or slice, and check the cache before computing.
+- **Bottom-up tabulation**: fill a table from the smallest subproblem upward, with no recursion at all.
+
+Both turn naive Fibonacci into O(n). The recipe is always the same: define the subproblem, write the **recurrence**, fix the base cases, choose the evaluation order. DP also explains why **greedy** strategies, which always take the locally best step, can fail. DP compares every choice at every subproblem instead of committing early.
+
+## How Go does it
+
+Recursion is ordinary function calls. A memo is usually a map. An array key is comparable, so `[2]int` works for two-dimensional subproblems. This counts the paths through a grid that move only right or down:
+
+```go
+func paths(r, c int, memo map[[2]int]int) int {
+	if r == 0 || c == 0 {
+		return 1
+	}
+	key := [2]int{r, c}
+	if v, ok := memo[key]; ok {
+		return v
+	}
+	v := paths(r-1, c, memo) + paths(r, c-1, memo)
+	memo[key] = v
+	return v
+}
+```
+
+`paths(2, 2, map[[2]int]int{})` returns `6`. Maps behave like references, so every recursive call shares the same memo.
+
+For bottom-up tables, `make([]int, n+1)` gives a slice of zeros with index `n` included. For two dimensions, make the outer slice and then `make` each row in a loop. A recursive anonymous function must be declared first (`var walk func(int) int`) and assigned afterwards. Writing `walk := func...` cannot refer to itself, and the compiler reports `undefined: walk`.
+
+## What is special or tricky
+
+- **Go does not optimise tail calls.** Goroutine stacks grow on demand, but runaway recursion still dies with `goroutine stack exceeds 1000000000-byte limit` followed by `fatal error: stack overflow`. A missing or unreachable base case is the usual cause.
+- **Table bounds.** With `dp := make([]int, n+1)` and `n == 0`, touching `dp[1]` panics with `index out of range [1] with length 1`. Handle the small cases first.
+- **Integer overflow is silent.** Fibonacci overflows `int` around n = 93, and the result just wraps negative. The same happens if you use `math.MaxInt` as "infinity" and then add to it. Guard such sentinels before doing arithmetic with them.
+- **Base cases carry meaning.** An answer for 0 is usually not "nothing". It is the identity the recurrence builds on.
+
+## What you will practise
+
+You will write a recursive factorial, watch naive Fibonacci waste work, and rebuild it as a bottom-up table. The challenge asks you to design a DP table for an optimisation problem where the greedy choice is not always right.
+'''
 title = "Recursion & dynamic programming"
 difficulty = 20
 level = "advanced"
