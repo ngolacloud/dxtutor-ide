@@ -40,3 +40,5 @@ import "../features/visualizer/styles.css";
 import "../features/panel/styles.css";
 /* A6: o pane Testing (runners, resultados, histórico); tudo sob #pane-test, a posição não decide nada */
 import "../features/testing/styles.css";
+/* A8: o «Under the hood» e o traço reais (prefixo hd-); a posição não decide nada */
+import "../features/hood/styles.css";

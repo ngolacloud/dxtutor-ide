@@ -42,6 +42,7 @@ import "./features/testing/index";
 import "./features/search";
 import "./features/debug";
 import "./features/codereview";
+import "./features/hood/index"; /* A8: decora o VIEW.hood que o codereview acabou de registar */
 import "./features/scm";
 import "./features/changelog";
 import "./features/tutor";
