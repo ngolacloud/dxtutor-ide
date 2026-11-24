@@ -121,3 +121,23 @@ fn delonix_vs_docker_is_confirmed_and_round_trips_without_a_duplicate_title() {
     assert!(w.is_empty(), "{w:?}");
     assert_eq!(json(&back), json(&a));
 }
+
+/// O diagrama real «Seiva — o mesmo módulo» (os dois painéis strict, cada elemento com a
+/// fonte nos geradores do `seiva`, commit 26592bd).
+const SEIVA: &str = include_str!("fixtures/arch/seiva-o-mesmo-modulo.json");
+
+#[test]
+fn seiva_same_module_is_confirmed_and_round_trips() {
+    let a: Architecture = serde_json::from_str(SEIVA).unwrap();
+    assert!(a.validate().is_empty(), "{:?}", a.validate());
+    let m = to_mermaid(&a);
+    for title in [
+        "Monólito modular · um processo",
+        "seiva module split · um serviço",
+    ] {
+        assert_eq!(m.matches(&format!("[\"{title}\"]")).count(), 1, "{m}");
+    }
+    let (back, w) = import(&m);
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(json(&back), json(&a));
+}
