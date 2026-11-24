@@ -33,14 +33,15 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
   para `ui-next`.
 - **A6** — baseline de `@ts-nocheck` (**directiva** `// @ts-nocheck`, não a palavra
-  em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
+  em prosa): **0 ficheiros** desde a U4j5b do ADR-0004 (era 11). Nenhum ficheiro da UI
+  pode voltar a ter a directiva: código novo nasce tipado.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
   `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn` e `arch`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
-  foram tipados) e o `boot.ts` também (U4j1); só resta o `app.ts`.
+  foram tipados), o `boot.ts` também (U4j1) e, por fim, o `app.ts` (U4j5b).
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 

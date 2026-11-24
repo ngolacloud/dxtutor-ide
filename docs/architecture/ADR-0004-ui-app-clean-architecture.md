@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j4, U4j5a; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j4, U4j5a–U4j5b; o v5/v6 já não existem; nenhum ficheiro com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -798,7 +798,10 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   autocontidas (o `refresh` e o `resetAll` para o workspace, os atalhos globais para o
   `shortcuts.ts`, o fecho das notificações para o `notifications.ts`, o `cur`/`PANE` que já nascem
   nos stores); **U4j5b** o conteúdo dos menus/paleta (`CMD`/`buildMenus`/`LCUR`) e o arranque
-  (`boot`…`boot6`) para módulos tipados — e o app.ts deixa de existir.
+  (`boot`…`boot6`) para módulos tipados — e o app.ts deixa de existir. *Revisto na execução:* a
+  U4j5b tipa o app.ts no próprio sítio (só tipos, JS emitido idêntico) e a **U4j5c** divide-o
+  em módulos de comandos e de arranque (mover sem mudar) — separar as duas coisas mantém cada
+  prova simples.
 - **U4j5a (2026-11-24) — refresh, resetAll, atalhos e notificações para os donos.** O `refresh`
   (o sinal «o workspace mudou») e o `resetAll` vão para o `features/workspace.ts`, tipados por uma
   fachada que lê as funções publicadas no acto (o `show` da barra de acções, o `paintEd` com
@@ -819,3 +822,18 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   cada arranque começa limpo. Globais publicadas 383 → 381. Verificado na worktree limpa sobre a
   HEAD `187e36e`: tsc, lint 266 (igual), 458 testes, arch:check, build, e2e 6/6 isolado,
   auto-teste desktop idêntico ao da HEAD.
+- **U4j5b (2026-11-24) — o app.ts tipado; nenhum ficheiro com `@ts-nocheck`.** O último ficheiro
+  com a directiva passa a ser verificado pelo tsc sem mudar de sítio nem de comportamento: só
+  entram tipos. Os nomes livres que o app.ts usa continuam a resolver o global no acto (a versão
+  publicada, eventualmente decorada): os que ainda não tinham tipo global declaram-se num bloco
+  `declare global` no próprio ficheiro, em vez de se importarem — um import trocaria a resolução
+  tardia pela função local do módulo. O `MENUS` vê-se, neste módulo, com o tipo completo dos itens
+  (separadores, submenus, `on`) por uma declaração só de tipo; o `CMD` é uma lista de tuplos
+  `[rótulo, atalho, acção]`; o resto são asserções não-nulas (`!`, inseridas pela posição exacta
+  de cada diagnóstico do tsc) e casts de elementos (`HTMLTextAreaElement`, `Element`). **Prova:**
+  o JS emitido (tipos e comentários fora, parênteses canonizados) é idêntico ao da HEAD, à parte
+  os parênteses à volta de um parâmetro único de arrow; as contagens de `!=`/`!==`/`==`/`===` não
+  mudam. O baseline do A6 (`arch-check.sh`) desce de 11 para 0 e o da métrica do
+  `ui-metrics.sh` de 1 para 0. Verificado na worktree limpa sobre a HEAD `f973a74`: tsc, lint
+  266 (267 na HEAD), 470 testes, arch:check, build, e2e 6/6 isolado, auto-teste desktop idêntico
+  ao da HEAD (25 passos). Falta a U4j5c: dividir o app.ts em módulos e apagá-lo.

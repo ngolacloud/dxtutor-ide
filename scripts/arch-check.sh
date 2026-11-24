@@ -44,11 +44,11 @@ strip_comments() {
 EXPECT_TOTAL=161
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
-# ficheiros que só a mencionam em prosa/JSDoc). Baseline = 11 (ceiling); actual
-# hoje = 5 (app.ts, boot.ts + features/infra.ts, features/visualizer.ts e
-# visualizer/domain/interpreter.ts; o startup foi tipado na U4a e o v5/v6 dissolveram-se
-# na U4g — ADR-0004). O baseline real (ratchet) está em scripts/ui-metrics.sh. Não pode crescer acima do baseline; baixar é bom.
-EXPECT_TSNOCHECK=11
+# ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
+# (o app.ts foi o último: era 11 na Etapa 0; o startup foi tipado na U4a, o v5/v6
+# dissolveram-se na U4g, infra/visualizer/interpreter na U4i e o boot.ts na U4j1).
+# Todo o código da UI é tipado: nenhum ficheiro pode voltar a ter a directiva.
+EXPECT_TSNOCHECK=0
 # Etapa 3: o grupo `review` (3 cmd) saiu de lib.rs (95→92) para commands/review.rs;
 # depois o grupo `code-intel` (10 cmd) saiu de lib.rs (92→82) para commands/codeintel.rs;
 # depois o grupo `testes`/execução (5 cmd) saiu de lib.rs (82→77) para commands/tests.rs;
