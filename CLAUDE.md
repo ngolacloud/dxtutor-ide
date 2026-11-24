@@ -414,6 +414,10 @@ Texto novo da interface nasce com chave: um catálogo tipado por feature (`en` +
 motor (`features/i18n.ts`, `PAIRS`): a métrica U6 do `ui-metrics.sh` só desce. Ao migrar texto existente, os
 valores do catálogo são os que o motor produzia (gera-os com `trText`); `tests/i18n.catalogs.test.ts` confirma-os
 e os goldens provam o inglês. Parâmetros entram tal e qual — escapa-os (`esc`) se forem para HTML.
+Texto emitido por `domain/`/`application/` não importa o `translator` (lê o `window`): o motor recebe uma porta
+`copy(chave)` declarada no seu `ports.ts`, com o catálogo em `application/messages.ts`, e a composição injecta
+`translator(CATÁLOGO)` (é assim no quadro e na infra). Catálogos de texto NOVO (sem par no motor) ficam num
+ficheiro à parte (p.ex. `git-messages.ts`): o teste verifica-lhes só a estrutura.
 
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 

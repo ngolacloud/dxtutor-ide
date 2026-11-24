@@ -999,3 +999,17 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   pane Source Control (A4) e a UI do chat do Co-Dev; e `domain/`/`application/`, que não podem depender do `window`
   (precisam de uma porta de textos). **Lacunas reportadas:** 558 textos estáticos que o motor nunca traduziu (aparecem
   na língua de origem nas duas interfaces) ficam como estão — traduzi-los muda o que se vê.
+- **U6c lote 2 (2026-11-24) — textos nos motores puros e a estrutura de todos os catálogos.** (1) Os motores da
+  camada `application/` não podem ler a língua (vem do `window`): o do quadro (9 textos dos cartões do Co-Dev —
+  «Validar no quadro», «Ver o grafo»…) e o da infra (1) recebem uma porta `copy(chave)` declarada nos seus
+  `ports.ts`, com o catálogo em `application/messages.ts` (dados puros); o resíduo que compõe o motor injecta
+  `translator(CATÁLOGO)`. A7/A8 verdes. (2) O `i18n.catalogs.test.ts` descobre todos os catálogos pelo nome do
+  ficheiro (`messages.ts`, `*.messages.ts`, `*-messages.ts`) e verifica a estrutura de cada um — as mesmas chaves nas
+  duas línguas, nenhum valor vazio, os mesmos `{parâmetros}` —, incluindo os de texto NOVO, que não têm par no motor
+  (como o `features/scm/ui/git-messages.ts` da A4); a verificação contra os pares do motor fica para os catálogos de
+  texto migrado (os que dizem que os valores vêm do motor). (3) **Os pares do motor ainda não saem:** o
+  `setLocale` traduz no sítio o texto que já está no ecrã, com os mesmos pares — o texto com chave que não for
+  redesenhado (separadores inactivos, cartões do chat, panes laterais) ficaria na língua anterior até ao próximo
+  redesenho. Tirar pares pede que mudar de língua redesenhe tudo (ou recarregue a interface): é uma decisão de
+  produto, não de refactor. A métrica dos pares fica em 1005 e só desce. Prova de paridade nas duas línguas igual
+  antes e depois; goldens iguais.

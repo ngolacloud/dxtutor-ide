@@ -4,8 +4,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { bootApp } from "./harness";
 import { translator, type Messages } from "../src/app/i18n";
+import { SCM_MESSAGES } from "../src/features/scm/ui/messages";
 import { BOOT_MESSAGES } from "../src/app/boot-steps.messages";
 import { ACCOUNT_MESSAGES } from "../src/features/account.messages";
+import { BOARD_ENGINE_MESSAGES } from "../src/features/board/application/messages";
 import { BOARD_MESSAGES } from "../src/features/board/ui/messages";
 import { CHANGELOG_MESSAGES } from "../src/features/changelog.messages";
 import { CHECKPOINT_MESSAGES } from "../src/features/checkpoint.messages";
@@ -14,11 +16,11 @@ import { DIAGNOSTICS_MESSAGES } from "../src/features/diagnostics.messages";
 import { EXPLORER_MESSAGES } from "../src/features/explorer.messages";
 import { EXT_MESSAGES } from "../src/features/ext/ui/messages";
 import { GRAPH_MESSAGES } from "../src/features/graph.messages";
+import { INFRA_ENGINE_MESSAGES } from "../src/features/infra/application/messages";
 import { INFRA_MESSAGES } from "../src/features/infra/ui/messages";
 import { LEARN_MESSAGES } from "../src/features/learn/ui/messages";
 import { NOTIFICATIONS_MESSAGES } from "../src/features/notifications.messages";
 import { PALETTE_MESSAGES } from "../src/features/palette.messages";
-import { SCM_MESSAGES } from "../src/features/scm/ui/messages";
 import { SEARCH_MESSAGES } from "../src/features/search.messages";
 import { STACK_MESSAGES } from "../src/features/stack.messages";
 import { STUDIO_MESSAGES } from "../src/features/studio.messages";
@@ -37,9 +39,12 @@ beforeEach(async () => { w = (await bootApp()) as unknown as W; w.LOCALE = "en";
 
 /* parâmetros de exemplo para as entradas com {nome} */
 const SAMPLE: Record<string, Record<string, string>> = { commit: { staged: " (staged)", branch: "develop" } };
+/* os catálogos de texto MIGRADO (valores tirados do motor) — cada entrada tem de ser um par do motor */
 const CATALOGS: Record<string, Messages<string>> = {
+  scm: SCM_MESSAGES,
   boot: BOOT_MESSAGES,
   account: ACCOUNT_MESSAGES,
+  board_engine: BOARD_ENGINE_MESSAGES,
   board: BOARD_MESSAGES,
   changelog: CHANGELOG_MESSAGES,
   checkpoint: CHECKPOINT_MESSAGES,
@@ -48,11 +53,11 @@ const CATALOGS: Record<string, Messages<string>> = {
   explorer: EXPLORER_MESSAGES,
   ext: EXT_MESSAGES,
   graph: GRAPH_MESSAGES,
+  infra_engine: INFRA_ENGINE_MESSAGES,
   infra: INFRA_MESSAGES,
   learn: LEARN_MESSAGES,
   notifications: NOTIFICATIONS_MESSAGES,
   palette: PALETTE_MESSAGES,
-  scm: SCM_MESSAGES,
   search: SEARCH_MESSAGES,
   stack: STACK_MESSAGES,
   studio: STUDIO_MESSAGES,
@@ -75,6 +80,25 @@ describe("translator", () => {
     expect(t("hi", { name: "Ana" })).toBe("Olá Ana");
     expect(t("hi")).toBe("Olá {name}");
   });
+});
+
+/* TODOS os catálogos (os migrados e os de texto novo, p.ex. features/scm/ui/git-messages.ts), descobertos pelo nome do
+   ficheiro: as duas línguas com as mesmas chaves, nenhum valor vazio, e os mesmos {parâmetros} nas duas */
+const ALL = import.meta.glob(["../src/**/messages.ts", "../src/**/*.messages.ts", "../src/**/*-messages.ts"], { eager: true }) as Record<string, Record<string, unknown>>;
+describe("estrutura de todos os catálogos", () => {
+  const cats = Object.entries(ALL).flatMap(([file, mod]) => Object.entries(mod).filter(([k]) => k.endsWith("_MESSAGES")).map(([k, v]) => [`${file}:${k}`, v as Messages<string>] as const));
+  it("há catálogos para verificar", () => expect(cats.length).toBeGreaterThanOrEqual(Object.keys(CATALOGS).length));
+  for (const [name, cat] of cats) {
+    it(`${name}: mesmas chaves, sem vazios, mesmos parâmetros`, () => {
+      expect(Object.keys(cat.ptAO).sort()).toEqual(Object.keys(cat.en).sort());
+      const params = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+      for (const k of Object.keys(cat.en)) {
+        expect(cat.en[k].trim().length, `${name}.${k} (en) vazio`).toBeGreaterThan(0);
+        expect(cat.ptAO[k].trim().length, `${name}.${k} (ptAO) vazio`).toBeGreaterThan(0);
+        expect(params(cat.ptAO[k]), `${name}.${k}: parâmetros`).toEqual(params(cat.en[k]));
+      }
+    });
+  }
 });
 
 describe("catálogos = o que o motor de tradução produzia", () => {

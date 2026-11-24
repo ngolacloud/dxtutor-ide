@@ -56,6 +56,7 @@ import {
   agentAvailable, agentStory,
 } from "./board/infrastructure/legacy-bridge";
 import { translator } from "../app/i18n";
+import { BOARD_ENGINE_MESSAGES } from "./board/application/messages";
 import { BOARD_MESSAGES } from "./board/ui/messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOARD_MESSAGES);
@@ -107,6 +108,7 @@ for (const ev of ["click", "change", "drop"]) document.addEventListener(ev, save
    (application). O motor fica puro (sem window/DOM); o `window`/DOM ficam deste lado. O
    estado BL é a MESMA referência que `backlog()` do bridge devolve (window.BL). ───── */
 const engine = makeBoardEngine({
+  copy: translator(BOARD_ENGINE_MESSAGES),
   store: { backlog: () => backlog(), design: () => design(), saveDesign: () => saveDesign() },
   catalog: { tech: () => tech(), kind: () => kindTable(), cloud: () => cloudTable(), isApp: (n) => isApp(n), nodeSlug: (n) => nodeSlug(n), appDir: (n) => appDir(n), root: () => root() },
   generators: { validateDesign: () => validateDesign() },
