@@ -143,14 +143,12 @@ pub async fn git_clone(url: String, parent_dir: String) -> Result<String, String
 // Passagens directas para `tutor_eval::gitx` (que valida os argumentos e lê a saída de máquina
 // do git), num worker bloqueante; o erro do git chega à UI tal-e-qual.
 
-fn blocking<T: Send + 'static>(
+async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> impl std::future::Future<Output = Result<T, String>> {
-    async move {
-        tauri::async_runtime::spawn_blocking(f)
-            .await
-            .map_err(|e| format!("git task failed: {e}"))?
-    }
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("git task failed: {e}"))?
 }
 
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
