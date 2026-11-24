@@ -12,6 +12,7 @@ export interface LspPort {
   references(path: string, line: number, character: number): Promise<unknown>;
   prepareRename(path: string, line: number, character: number): Promise<unknown>;
   rename(path: string, line: number, character: number, newName: string): Promise<unknown>;
+  completion(path: string, line: number, character: number, triggerCharacter: string | null): Promise<unknown>;
   /** Avisa quando o servidor publica diagnósticos de um ficheiro (URI). */
   onDiagnostics(cb: (uri: string) => void): void;
 }

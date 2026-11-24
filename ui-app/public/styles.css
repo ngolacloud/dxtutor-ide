@@ -600,6 +600,14 @@
   .lsp-ref:hover,.lsp-ref:focus{background:rgba(74,158,255,.14);outline:0}.lsp-ref:disabled{opacity:.5;cursor:default}
   .lsp-ref-w{flex:none;color:var(--fg-bright)}.lsp-ref-t{overflow:hidden;text-overflow:ellipsis;white-space:pre;color:var(--fg-dim)}
   .lsp-rename{padding:8px;width:260px}.lsp-rename .inp{width:100%;font-family:var(--font-mono)}.lsp-pop-hint{margin-top:5px;color:var(--fg-muted);font-size:11px}
+  /* completion (Ctrl+Espaço, depois de «.» ou ao escrever) */
+  .lsp-complete{width:420px;max-width:calc(100vw - 16px);font-family:var(--font-mono);font-size:12px;overflow:hidden}
+  .lsp-c-list{max-height:220px;overflow-y:auto;overflow-x:hidden;padding:3px 0}
+  .lsp-c-row{display:flex;align-items:center;gap:8px;padding:2px 10px;cursor:pointer;white-space:nowrap}
+  .lsp-c-row.on{background:rgba(74,158,255,.18)}.lsp-c-row:hover{background:rgba(74,158,255,.1)}
+  .lsp-c-kind{flex:none;width:14px;text-align:center;color:var(--accent,#e8834d);font-size:11px}
+  .lsp-c-label{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg-bright)}.lsp-c-detail{flex:0 2 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg-muted);margin-left:auto;padding-left:12px}
+  .lsp-c-doc{border-top:1px solid var(--border);padding:5px 10px;color:var(--fg-dim);font-family:var(--font-ui);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lsp-c-doc:empty{display:none}
   .onb-plug{margin-top:22px;padding-top:18px;border-top:1px solid var(--border)}.onb-plug h3{font-size:13.5px;font-weight:600;margin-bottom:10px}
   .onb-pin{display:flex;gap:8px}.onb-pin input{flex:1;min-width:0;background:var(--bg-editor);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--fg);font-family:var(--font-mono);font-size:12px}.onb-pin input:focus{outline:none;border-color:var(--accent)}
   .onb-msg{font-size:12px;color:var(--green);margin:8px 0 0;word-break:break-word;white-space:pre-wrap}.onb-msg.bad{color:var(--red)}
