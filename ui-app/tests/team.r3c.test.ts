@@ -81,3 +81,14 @@ describe("na cadeia real", () => {
     expect(t).not.toMatch(/≈1\.2k tokens|≈\d[\d.]*k? tokens · ~\$/);
   });
 });
+
+it("RF-A06: gravar os escopos dos assistentes mantém as pessoas e os papéis do team.json", async () => {
+  const { teamJsonKeeping } = await import("../src/features/team-scopes");
+  const prev = JSON.stringify({ agents: { be: { paths: ["old/**"], cmds: [] } }, people: [{ email: "ana@x.pt", roles: ["architect"] }] });
+  const out = JSON.parse(teamJsonKeeping({ be: { paths: ["src/**"], cmds: ["cargo"] } } as never, prev));
+  expect(out.agents.be.paths).toEqual(["src/**"]);
+  expect(out.people).toEqual([{ email: "ana@x.pt", roles: ["architect"] }]);
+  // no previous file, or not JSON: only the agents
+  expect(Object.keys(JSON.parse(teamJsonKeeping({} as never, undefined)))).toEqual(["agents"]);
+  expect(Object.keys(JSON.parse(teamJsonKeeping({} as never, "{nope")))).toEqual(["agents"]);
+});

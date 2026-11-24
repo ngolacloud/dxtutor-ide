@@ -32,7 +32,7 @@ import { registerActions, callGlobal } from "../app/actions";
 import type { Tab } from "../app/store/editor";
 import { CAPL, CAP, TASKP, type Capability } from "./router/domain/model-routing";
 import { rankModels } from "./router";
-import { deriveScopes, parseTeamJson, teamJson } from "./team-scopes";
+import { deriveScopes, parseTeamJson, teamJsonKeeping } from "./team-scopes";
 import { translator } from "../app/i18n";
 import { TEAM_MESSAGES } from "./team.messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
@@ -86,7 +86,7 @@ function applyProjectTeam(): void {
 }
 document.addEventListener('dx:workspace', () => applyProjectTeam());
 /** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
-function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJson(AGENTS));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
+function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJsonKeeping(AGENTS,FS[ROOT+'.dxtutor/team.json']?.content));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
 export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
 function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
 function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
