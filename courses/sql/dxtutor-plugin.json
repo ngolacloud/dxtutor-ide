@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "sql",
+  "name": "SQL",
+  "version": "1.0.0",
+  "description": "SQL: From Zero to Confident — from your first SELECT to joins, subqueries, transactions, indexes, CTEs, window functions and real analytics, on SQLite.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/dxtutor-courses/sql",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "language": {
+    "id": "sql",
+    "name": "SQL",
+    "icon": "🗄️",
+    "extension": "sql",
+    "indent": "2",
+    "testCommand": "python3 -m unittest"
+  },
+  "courses": ["courses/sql.toml"]
+}

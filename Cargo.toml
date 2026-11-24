@@ -13,6 +13,7 @@ members = [
     "crates/tutor-track",
     "crates/tutor-board",
     "crates/tutor-agent",
+    "crates/tutor-plugins",
     "src-tauri",
 ]
 

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "typescript",
+  "name": "TypeScript",
+  "version": "1.0.0",
+  "description": "TypeScript: From Zero to Confident — from your first typed program to unions and narrowing, generics, async code, SQLite with node:sqlite, type-level programming and data structures.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/dxtutor-courses/typescript",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "language": {
+    "id": "typescript",
+    "name": "TypeScript",
+    "icon": "🔷",
+    "extension": "ts",
+    "indent": "2",
+    "testCommand": "node --experimental-transform-types"
+  },
+  "courses": ["courses/typescript.toml"]
+}

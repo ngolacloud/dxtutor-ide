@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "cpp",
+  "name": "C++",
+  "version": "1.0.0",
+  "description": "C++: From Zero to Confident — modern C++20 from your first program to RAII, smart pointers, templates and concepts, threads, SQLite and data structures.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/dxtutor-courses/cpp",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "language": {
+    "id": "cpp",
+    "name": "C++",
+    "icon": "⚙️",
+    "extension": "cpp",
+    "indent": "4",
+    "testCommand": "g++ -std=c++20"
+  },
+  "courses": ["courses/cpp.toml"]
+}

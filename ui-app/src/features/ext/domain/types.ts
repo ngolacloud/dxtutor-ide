@@ -7,6 +7,19 @@
    o motor (`features/ext.ts`) e o bridge consomem estas formas, o domínio nunca
    vai buscar nada ao mundo. (Antes viviam no legacy-bridge; mudaram-se para cá.) */
 
+import type { Contributes } from "./contributions";
+
+/** Resumo do que uma extensão instalada por VSIX contribui e o dxtutor aplica (Fase 4). */
+export interface ContribSummary {
+  themes: string[];
+  grammars: string[];
+  snippets: number;
+  languages: string[];
+  /** Servidor LSP conhecido que substitui a extensão (ex.: `clangd`). */
+  lsp?: string;
+  warnings: string[];
+}
+
 /** Uma entrada de comando: rótulo, atalho e (opcional) acção. Os comandos do
  *  catálogo com efeito trazem a acção; os do VSIX trazem só rótulo+atalho. */
 export type ExtCmd = [string, string, (() => void)?];
@@ -26,6 +39,7 @@ export interface ExtItem {
   engines?: string;
   cfg?: string[];
   act?: string[];
+  contrib?: ContribSummary;
 }
 
 /** Estado instalado (`EXS`): mapa id→{on} + lista de VSIX. */
@@ -43,7 +57,7 @@ export interface VsixManifest {
   version?: string;
   engines?: { vscode?: string };
   activationEvents?: string[];
-  contributes?: {
+  contributes?: Contributes & {
     keybindings?: Array<{ command?: string; key?: string }>;
     commands?: Array<{ category?: string; title: string; command?: string }>;
     configuration?: { properties?: Record<string, unknown> };

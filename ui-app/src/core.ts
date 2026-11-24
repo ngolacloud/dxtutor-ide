@@ -233,6 +233,12 @@ declare global {
        o diff, o `cat` do terminal e o outline — em app.ts e em v5.ts/v6.ts —
        resolvem-no por nome livre. */
     hlLine: (s: string, ext: string) => string;
+    /* feature `ext`, Fase 4 (ADR-0005): contribuições declarativas de extensões VS Code.
+       O editor pede o realce TextMate do documento, a expansão de snippets (Tab) e o
+       toggle de comentário (Ctrl+/); ausentes no harness, por isso opcionais. */
+    vsxHighlight?: (ext: string, lines: string[]) => string[] | null;
+    vsxSnippet?: (ta: HTMLTextAreaElement, path: string) => boolean;
+    vsxToggleComment?: (ta: HTMLTextAreaElement, path: string) => boolean;
     /* feature `palette` (migrada de app.ts): paleta de comandos / quick open. O estado
        é window-backed porque o resíduo boot/keydown de app.ts o lê por nome livre:
        boot usa PIDX/PITEMS + palDraw/palRun, o keydown usa closePal. */

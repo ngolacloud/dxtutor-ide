@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "{{id}}",
+  "name": "{{name}}",
+  "version": "0.1.0",
+  "description": "A guided, hands-on {{name}} course for dxtutor.",
+  "authors": ["Your Name <you@example.com>"],
+  "license": "CC-BY-4.0",
+  "repository": "https://github.com/{{org}}/{{id}}",
+  "engine": ">={{engine}}",
+  "kind": "course",
+  "language": {
+    "id": "{{id}}",
+    "name": "{{name}}",
+    "icon": "📘",
+    "extension": "{{ext}}",
+    "indent": "4",
+    "testCommand": ""
+  },
+  "courses": ["courses/{{id}}.toml"]
+}

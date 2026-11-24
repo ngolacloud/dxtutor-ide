@@ -57,6 +57,74 @@ fn grading_an_unknown_target_errors_before_compiling() {
     );
 }
 
+/// Os cursos embutidos das linguagens novas são avaliados de verdade pelos seus descritores:
+/// o gabarito do 1.º desafio passa, o starter falha. Salta a linguagem cujo toolchain falte.
+#[test]
+fn new_language_challenges_are_graded_for_real() {
+    for (language, tool) in [
+        ("python", "python3"),
+        ("cpp", "g++"),
+        ("typescript", "node"),
+        ("sql", "python3"),
+        ("java", "java"),
+        ("kotlin", "kotlinc"),
+        ("csharp", "dotnet"),
+        ("swift", "swiftc"),
+    ] {
+        if std::process::Command::new(tool)
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            continue;
+        }
+        let course = study::course(language).expect("curso embutido");
+        let step = course
+            .units
+            .iter()
+            .flat_map(|u| u.steps.iter())
+            .find(|s| s.gabarito.is_some())
+            .expect("um desafio");
+        let solution = &step.gabarito.as_ref().unwrap().solution;
+        let (good, _) = study::grade_step_in(&step.id, Some(language), solution).unwrap();
+        assert!(
+            good.correctness.passed,
+            "{language}: {}",
+            good.correctness.raw
+        );
+        let (bad, _) = study::grade_step_in(&step.id, Some(language), &step.starter).unwrap();
+        assert!(
+            !bad.correctness.passed,
+            "{language}: o starter não pode passar"
+        );
+    }
+}
+
+#[test]
+fn grading_an_unsupported_language_is_an_honest_error() {
+    // Nenhum curso embutido é de uma linguagem sem avaliador; a regra prova-se pela fachada:
+    // passos desconhecidos continuam StepNotFound (não compila nada como Rust).
+    assert!(matches!(
+        study::grade_step_in("py-u01-x1-nope", Some("kotlin"), ""),
+        Err(StudyError::StepNotFound(_))
+    ));
+}
+
+#[test]
+fn grading_with_a_language_only_looks_at_that_languages_courses() {
+    // `ch1-greet` existe em Rust E em Go (ids repetidos entre linguagens). Com a linguagem,
+    // a procura fica restrita: numa linguagem sem esse passo, não é encontrado.
+    assert_eq!(
+        study::grade_step_in("ch1-greet", Some("klingon"), "").unwrap_err(),
+        StudyError::StepNotFound("ch1-greet".to_string())
+    );
+    // Um passo conceito do curso Go resolve-se no curso Go (e não é avaliável), sem compilar.
+    assert_eq!(
+        study::grade_step_in("c1-what-is-a-program", Some("go"), "").unwrap_err(),
+        StudyError::NotAChallenge("c1-what-is-a-program".to_string())
+    );
+}
+
 #[test]
 fn step_classification_and_policy_hold_the_contract() {
     // Id desconhecido → autónomo (falha fechada) e linguagem por omissão "rust".

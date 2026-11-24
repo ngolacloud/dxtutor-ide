@@ -21,6 +21,11 @@ function renderTutorPane(): void {
     ltUnits = window.ltUnits, ltDone = window.ltDone, stars = window.stars, LT_BADGE = window.LT_BADGE;
   const el = $("#pane-tutor");
   if (!el) return;
+  if (LTS.lang && !course()) {
+    // Língua escolhida mas sem curso carregado: plugin ainda a carregar (desktop) ou removido.
+    el.innerHTML = hd("Learning Track") + `<div class="sections"><div class="sec-empty">The ${esc(LTS.lang)} course is loading or is no longer installed.</div><button class="btn" data-action="lt-onboard">Choose what to learn</button></div>`;
+    return;
+  }
   if (!LTS.lang) {
     el.innerHTML = hd("Learning Track") + `<div class="sections"><div class="sec-empty">Pick a language and a level to load your guided track.</div><button class="btn" onclick="ltOnboard(1)">Choose what to learn</button></div>`;
     return;

@@ -998,6 +998,7 @@ dependencies = [
  "tutor-core",
  "tutor-eval",
  "tutor-llm",
+ "tutor-plugins",
  "webkit2gtk",
  "zip",
 ]
@@ -4990,6 +4991,7 @@ dependencies = [
  "anyhow",
  "tutor-core",
  "tutor-eval",
+ "tutor-plugins",
  "tutor-tui",
 ]
 
@@ -4998,6 +5000,7 @@ name = "tutor-core"
 version = "0.7.0"
 dependencies = [
  "serde",
+ "serde_json",
  "toml 0.8.2",
 ]
 
@@ -5026,6 +5029,21 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+]
+
+[[package]]
+name = "tutor-plugins"
+version = "0.7.0"
+dependencies = [
+ "dirs",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tutor-core",
+ "ureq",
+ "zip",
 ]
 
 [[package]]

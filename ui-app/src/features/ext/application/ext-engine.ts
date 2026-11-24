@@ -31,7 +31,7 @@ export interface ExtEngine {
 }
 
 export function makeExtEngine(deps: ExtDeps): ExtEngine {
-  const { catalogue, state, storage, palette, editor, tabs, vsix, notifier, rerender } = deps;
+  const { catalogue, state, storage, palette, editor, tabs, vsix, notifier, rerender, contrib } = deps;
 
   /** Catálogo + VSIX instalados — a base de «todas as extensões». */
   const extAll = (): ExtItem[] => catalogue.concat(state.read().vsix);
@@ -66,6 +66,17 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
           ]),
         ),
       );
+    // Fase 4: os temas de cor das extensões instaladas por VSIX, como no VS Code.
+    if (contrib) {
+      const themes = contrib.themes().filter(t => extOn(t.extId));
+      const apply = (label: string | null) => () => {
+        contrib.applyTheme(label);
+        notifier.toast(label ? `Color theme: ${label}` : "Color theme: dxtutor default");
+        rerender();
+      };
+      themes.forEach(t => CMD.push([`Color Theme: ${t.label}`, "", apply(t.label), "ext"]));
+      if (themes.length) CMD.push(["Color Theme: dxtutor default", "", apply(null), "ext"]);
+    }
   }
 
   /** Persiste o estado instalado e re-regista os comandos. */
@@ -86,7 +97,10 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
     const x = extAll().find(e => e.id === id);
     if (x && x.bundled) return;
     delete s.inst[id];
-    if (x && x.vsix) s.vsix = s.vsix.filter(v => v.id !== id);
+    if (x && x.vsix) {
+      s.vsix = s.vsix.filter(v => v.id !== id);
+      if (contrib) contrib.remove(id);
+    }
     saveExt();
     rerender();
   }
@@ -127,6 +141,19 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
         cfg: Object.keys(((m.contributes || {}).configuration || {}).properties || {}).slice(0, 20),
         act: (m.activationEvents || []).slice(0, 8),
       };
+      // Fase 4: o que a extensão contribui de forma declarativa passa a ser aplicado.
+      if (contrib) {
+        const c = await contrib.readFromVsix(zip, id, m.contributes);
+        if (!contrib.install(c)) c.warnings.push("not enough local storage to keep this extension's grammars/themes");
+        x.contrib = {
+          themes: c.themes.map(t => t.label),
+          grammars: c.grammars.map(g => g.language),
+          snippets: c.snippets.reduce((n, s) => n + s.snippets.length, 0),
+          languages: c.languages.map(l => l.id),
+          lsp: (contrib.languageServerFor(id) || {}).server,
+          warnings: c.warnings,
+        };
+      }
       const s = state.read();
       s.vsix = s.vsix.filter(v => v.id !== id);
       s.vsix.push(x);

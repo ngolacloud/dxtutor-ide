@@ -30,8 +30,13 @@ pub async fn run_drill(
     // async + spawn_blocking: compiling/running is long blocking work — keep it off the
     // webview's main thread so the app never freezes while a drill runs.
     tauri::async_runtime::spawn_blocking(move || -> Result<RunDto, String> {
+        // Rust/Go pelos runners nativos (como antes: `drill_language`); qualquer outra
+        // linguagem com descritor registado (Python, C, drop-ins) pelo runner declarativo.
         let out = match missions::drill_language(&language) {
             DrillLang::Go => tutor_eval::run_go_program_with_deps(&code, &dependencies),
+            DrillLang::Rust if tutor_eval::find_plugin(&language).is_some() => {
+                tutor_eval::run_program(&language, &code, &dependencies)
+            }
             DrillLang::Rust => tutor_eval::run_rust_snippet_with_deps(&code, &dependencies),
         }
         .map_err(|e| format!("run failed: {e}"))?;

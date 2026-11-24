@@ -1,0 +1,84 @@
+# {{name}} course for dxtutor. Format reference: docs/plugins/README.md
+#
+# A course is a list of units (topics). Each unit has a `concepts` reading text and an
+# ordered list of steps: `concept` (read), `drill` (retype a complete program) and
+# `challenge` (implement a function, judged by hidden tests).
+#
+# Step ids must be unique across ALL installed courses, so prefix them with the course id.
+
+id = "{{id}}-basics"
+language = "{{id}}"
+title = "{{name}} from zero"
+level = "beginner"
+summary = "A guided, hands-on course that takes you from your very first {{name}} program to writing real code."
+overview = """
+What {{name}} is, where it is used in industry, and the mental model this course builds.
+Write two or three short paragraphs: the reader sees this before the first unit.
+"""
+
+[[unit]]
+id = "{{id}}-u1-first-program"
+title = "Your first program"
+level = "basic"
+difficulty = 1
+intro = "One or two sentences: what this unit is about."
+concepts = """
+## What a program is
+
+The reading text for this topic. Explain the concepts first, in plain language, then how
+{{name}} expresses them. Use short paragraphs, `inline code` and fenced examples:
+
+```{{ext}}
+// a small, complete example
+```
+
+## Why it matters
+
+Connect the concept to real code the reader will write later.
+"""
+
+[[unit.step]]
+kind = "concept"
+id = "{{id}}-c1-hello"
+title = "Programs are instructions"
+points = 5
+intro = "A short briefing shown before the step."
+body = """
+A concept step is a focused explanation (markdown) the reader reads before practising.
+"""
+
+[[unit.step]]
+kind = "drill"
+id = "{{id}}-d1-hello"
+title = "Hello, world"
+points = 10
+placeholder_policy = "shown"
+prompt = "Type the program exactly as shown, line by line."
+target = """
+// TODO: replace with a complete, runnable {{name}} program
+"""
+line_comments = ["Explain what this line does."]
+explanation = "Shown after the program matches: what just happened when it ran."
+
+[[unit.step]]
+kind = "challenge"
+id = "{{id}}-x1-add"
+title = "Add two numbers"
+points = 20
+difficulty = 2
+instructions = "Implement `add` so that it returns the sum of its two arguments."
+entry = "add"
+starter = """
+// TODO: write the function `add` here
+"""
+tests = """
+// Hidden tests: the evaluator runs these against the student's code.
+"""
+
+[unit.step.gabarito]
+solution = """
+// The reference solution for `add`.
+"""
+time = "O(1)"
+space = "O(1)"
+justification = "One addition, no allocation."

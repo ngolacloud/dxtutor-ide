@@ -3,6 +3,8 @@
 //! Ainda não é o editor TUI; é o arnês que prova, ponta-a-ponta, que o avaliador
 //! julga correcção pelos testes e estima a complexidade empiricamente.
 
+mod plugin;
+
 use anyhow::{bail, Result};
 use tutor_core::{load_project, Phase, Project};
 use tutor_eval::{assess, Assessment, Class, Confidence};
@@ -25,11 +27,15 @@ fn main() -> Result<()> {
         }
         "demo" => demo(),
         "list" => list(),
+        "plugin" | "plugins" => {
+            let rest: Vec<String> = std::env::args().skip(2).collect();
+            plugin::run(&rest)
+        }
         "-h" | "--help" | "help" => {
-            println!("dxt — editor-tutor\n\n  dxt          abre o editor TUI\n  dxt demo     prova o avaliador no terminal\n  dxt list     lista as fases do projecto");
+            println!("dxt — editor-tutor\n\n  dxt          abre o editor TUI\n  dxt demo     prova o avaliador no terminal\n  dxt list     lista as fases do projecto\n  dxt plugin   gere plugins de curso (dxt plugin help)");
             Ok(())
         }
-        other => bail!("comando desconhecido: {other} (usa: tui | demo | list)"),
+        other => bail!("comando desconhecido: {other} (usa: tui | demo | list | plugin)"),
     }
 }
 

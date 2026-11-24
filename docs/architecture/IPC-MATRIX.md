@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (155 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (159 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 155 comandos, **54 são consumidos pela `ui-app`** e **101 não o são**: a UI
+Dos 159 comandos, **61 são consumidos pela `ui-app`** e **98 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -87,7 +87,7 @@ Exclusivo do dxtutor-ide. Sessão de colaboração; emite estado/mensagens.
 > `pair_events`, migrado de `lib.rs`). Nomes, args, contratos serde, eventos e mensagens
 > preservados (consumido por `pair.ts`).
 
-## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (14)
+## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (16)
 
 Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 
@@ -106,6 +106,7 @@ Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 | `llm_chat` | `req: llm::ChatReq`, `mode: Option<String>` | `llm::ChatResp` | String | — | `platform/tauri/providers.ts` (via `bridge.ts`) | **N** · K · S |
 | `llm_plan` | `req: llm::ChatReq`, `mode: Option<String>` | `serde_json::Value` | — | — | — | N · K |
 | `vsix_manifest` | `b64: String` | `serde_json::Value` | String | — | — | R |
+| `vsix_fetch_open_vsx` | `id: String` (`publisher.name`) | `String` (VSIX em base64) | String | — | `platform/tauri/extensions.ts` | **N** (só open-vsx.org; valida que é um VSIX; ≤ 100 MiB) · async |
 | `app_info` | — | `serde_json::Value` | — | — | `platform/tauri/app.ts` (via `bridge.ts`) | R · S |
 | `selftest_report` | `report: serde_json::Value` | `()` | — | — | `platform/tauri/app.ts` (via `bridge.ts`, `pair.ts`) | W · S |
 
@@ -130,15 +131,15 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 |---|---|---|---|---|---|---|
 | `list_phases` | — | `ProjectDto` | String | — | — | R |
 | `submit` | `phase_id: String`, `code: String` | `AssessmentDto` | String | — | — | R |
-| `submit_step` | `step_id: String`, `code: String` | `AssessmentDto` | String | — | — | R |
+| `submit_step` | `step_id: String`, `code: String`, `language: Option<String>` (procura só nos cursos dessa linguagem: Rust e Go repetem ids de passo) | `AssessmentDto` | String | — | `platform/tauri/learn.ts` | R |
 | `request_hint` | `phase_id: String`, `code: String`, `level: u8` | `HintDto` | String | — | — | R |
 | `request_plan` | `phase_id: String`, `comment: String`, `code: String` | `PlanDto` | String | — | — | R |
 | `request_fix` | `phase_id: String`, `code: String`, `line: u32`, `message: String` | `String` | String | — | — | R |
-| `get_course` | `language: String` | `CourseDto` | String | — | — | R |
-| `list_courses` | — | `Vec<CourseSummaryDto>` | — | — | — | R |
+| `get_course` | `language: String` | `CourseDto` (+ `overview`, unidade + `concepts`) | String | — | `platform/tauri/learn.ts` | R |
+| `list_courses` | — | `Vec<CourseSummaryDto>` (embutidos + plugins) | — | — | `platform/tauri/learn.ts` | R |
 | `get_glossary` | `language: String` | `GlossaryDto` | String | — | — | R |
 | `get_study_guide` | `language: String`, `unit_id: String` | `StudyGuideDto` | String | — | — | R |
-| `run_drill` | `code: String`, `language: String`, `dependencies: Vec<String>` | `RunDto` | String | — | — | **X** |
+| `run_drill` | `code: String`, `language: String`, `dependencies: Vec<String>` | `RunDto` (Rust/Go nativos; Python/C/drop-ins pelo descritor de `tutor_eval::plugin`) | String | — | — | **X** |
 | `run_measured` | `code: String` | `MeasuredRunDto` | String | — | — | **X** |
 | `compile_pipeline` | `code: String` | `PipelineDto` | String | — | — | **X** |
 | `trace_execution` | `language: String`, `code: String` | `ExecutionTraceDto` | String | — | — | **X** |
@@ -337,6 +338,22 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `dictation_stop` | `lang: Option<String>` | `String` (texto) | String | — | `platform/tauri/dictation.ts` | **X** · S (async: whisper numa thread de bloqueio) |
 | `dictation_cancel` | — | `()` | — | — | `platform/tauri/dictation.ts` | S |
 
+## 10d. Plugins de curso — `commands/plugins.rs` (3)
+
+> Adaptador fino sobre o crate `tutor-plugins` (manifesto `dxtutor-plugin.json`, validação,
+> origem GitHub/zip/pasta, registo `installed.json`), partilhado com o CLI `dxt plugin`.
+> Os plugins ficam em `$DXTUTOR_PLUGINS_DIR` ou na pasta de dados do utilizador
+> (`~/.local/share/dxtutor/plugins`). Plugins são **dados**: a instalação não executa nada
+> do plugin. Os cursos instalados entram em `list_courses`/`get_course`/`submit_step` via
+> `study::all_courses` (cache invalidada pelo mtime do registo). Guia de autoria:
+> `docs/plugins/README.md`.
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `plugin_list` | — | `Vec<tutor_plugins::Installed>` (`entry`, `manifest`, `error`) | String | — | `platform/tauri/learn.ts` | R |
+| `plugin_install` | `source: String` | `tutor_plugins::Outcome` (`entry`, `language`, `courseIds`, `replaced`, `warnings`) | String | — | `platform/tauri/learn.ts` | **N** (HTTPS GitHub/zip) · W (pasta de plugins) · async |
+| `plugin_remove` | `id: String` | `String` (id removido) | String | — | `platform/tauri/learn.ts` | W (pasta de plugins) |
+
 ## 11. Debug (DAP) — `commands/debug_cmds.rs` (10)
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/debug_cmds.rs` (adaptadores finos)
@@ -484,10 +501,10 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **155** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **54** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `features/panel` 8) |
-| Não consumidos pela `ui-app` | **101** |
+| Comandos registados | **159** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
+| Consumidos pela `ui-app` | **61** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1 · `features/panel` 8) |
+| Não consumidos pela `ui-app` | **98** |
 | Eventos distintos | **15** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |

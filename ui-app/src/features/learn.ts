@@ -15,11 +15,33 @@
 import { $, esc, svg, jsa } from "../core";
 import rustCourse from "../content/courses/rust.json";
 import goCourse from "../content/courses/go.json";
+import { LANGUAGE_CATALOG, findLanguage, languageCards } from "./learn/domain/catalog";
+import { fromEmbedded } from "./learn/domain/course-adapter";
+import type { Course, PluginRow } from "./learn/domain/types";
+import type { Grade } from "./learn/application/ports";
+import { gradeStep, installPlugin, loadCatalog, msg, removePlugin } from "./learn/application/catalog-service";
+import { tauriCourseGateway } from "./learn/infrastructure/legacy-bridge";
+import { bindActions } from "./learn/ui/actions";
 
 /* ───── conteúdo dos cursos ───── */
-/* Conteúdo dos cursos: dados, não código — vive em src/content/courses/<lang>.json
-   (era um literal de 533 KB nesta linha). Para acrescentar uma língua: novo JSON + entrada aqui. */
-const COURSES: Record<string, any> = { rust: rustCourse, go: goCourse };
+/* Conteúdo dos cursos: dados, não código. Rust e Go vêm embutidos (src/content/courses/*.json,
+   o protótipo de browser só tem estes); as outras linguagens chegam como PLUGINS
+   (github.com/dxtutor-courses/<id>, ver docs/plugins/README.md), servidos pelo backend no
+   desktop. COURSES é mutado em sítio por `refreshCatalog` (nunca reatribuído). */
+const EMBEDDED: Record<string, Course> = { rust: fromEmbedded(rustCourse as any), go: fromEmbedded(goCourse as any) };
+const COURSES: Record<string, any> = { ...EMBEDDED };
+/** Plugins instalados (desktop). */
+let PLUGINS: PluginRow[] = [];
+/** Estado do catálogo: carregado do backend uma vez por sessão (ou após instalar/remover). */
+let CATALOG: 'idle'|'loading'|'ready' = 'idle';
+let CATALOG_P: Promise<void>|null = null;
+/** Mensagem da caixa «Install a course plugin» no selector. */
+let LT_PLUG: {busy:boolean; text:string; bad:boolean} = {busy:false,text:'',bad:false};
+/** Resultado da última avaliação real (backend) do desafio aberto. */
+let LT_GRADE: (Grade & {step:string})|null = null;
+let LT_GRADING = false;
+/** Leitura dos conceitos do tópico aberta/fechada por unidade (por omissão aberta no 1.º passo). */
+const LT_READ: Record<string, boolean> = {};
 
 /* ───── estado + motor do Learning Track ───── */
 /* LTS window-backed; hidrata de LS PREGUIÇOSAMENTE (como hydrateBps no debug.ts): a
@@ -31,9 +53,11 @@ const LTS: LTState = {lang:null,levels:[],done:{},open:{},show:{},cur:null};
 let _ltHyd=false;
 function hydrateLT(){if(_ltHyd)return;_ltHyd=true;try{const s=LS.get('lt3',null);if(s&&typeof s==='object')Object.assign(LTS,s);}catch(e){}}
 const saveLT=()=>LS.set('lt3',LTS);
-const LT_LANGS=[{id:'rust',n:'Rust',g:'🦀'},{id:'go',n:'Go',g:'💪'},{id:'python',n:'Python',g:'🐍'},{id:'javascript',n:'JavaScript',g:'⚡'},{id:'c',n:'C',g:'🔧'}];
+/* LT_LANGS (forma antiga {id,n,g}) deriva do catálogo oficial de 10 linguagens; LT_EXT é
+   preenchido do catálogo + manifestos dos plugins (mutado em sítio, como COURSES). */
+const LT_LANGS=LANGUAGE_CATALOG.map(l=>({id:l.id,n:l.name,g:l.icon}));
 const LT_LEVELS=[['basic','Basic','Start from the ground up — syntax and first programs.'],['intermediate','Intermediate','Build on the basics with real-world patterns.'],['advanced','Advanced','Deep dives, performance and the tricky corners.']];
-const LT_EXT:Record<string,string>={rust:'rs',go:'go'},LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
+const LT_EXT:Record<string,string>=Object.fromEntries(LANGUAGE_CATALOG.map(l=>[l.id,l.extension])),LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
 let LT_SUB:{ok:boolean;why:string}|null=null;window.ONB={lang:null,levels:[]};window.LT_HOOD=false;
 const course=()=>{hydrateLT();return COURSES[LTS.lang!];},ltUnits=()=>{hydrateLT();return course().units.filter((u:any)=>LTS.levels.includes(u.level));},dk=(id:string)=>LTS.lang+':'+id,ltDone=(id:string)=>!!LTS.done[dk(id)];
 const ltFind=(id:string|null)=>{for(const u of course().units)for(const s of u.steps)if(s.id===id)return{u,s};return null;};
@@ -42,13 +66,77 @@ const ltSeq=()=>ltUnits().flatMap((u:any)=>u.steps);
 const ltPts=()=>ltSeq().reduce((a:number,s:any)=>a+(ltDone(s.id)?s.points:0),0);
 function stars(d:number,kind:string){if(kind==='concept'||!d)return'';const n=d<=3?1:d<=7?2:d<=12?3:d<=18?4:5;return `<span class="lt-stars" title="Challenge ${n}/5">${'★'.repeat(n)}<i>${'★'.repeat(5-n)}</i></span>`;}
 function ltOnboard(step:any){hydrateLT();let o=$('#onb');if(!o){document.body.insertAdjacentHTML('beforeend','<div id="onb"></div>');o=$('#onb')!;o.onclick=e=>{if(e.target===o&&LTS.lang)o!.classList.remove('show');};}
-  if(step===1||!step){ONB={lang:LTS.lang,levels:LTS.levels.slice()};o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>What do you want to learn?</h2><p>Pick a language and we'll guide you through a hands-on track, one step at a time.</p><div class="onb-langs">${LT_LANGS.map(l=>{const c=COURSES[l.id];return `<button class="onb-lang${c?'':' soon'}" ${c?`onclick="ONB.lang=${jsa(l.id)};ltOnboard(2)"`:'disabled'}><span class="g">${l.g}</span><b>${l.n}</b>${c?`<small class="notr">${esc(c.summary.slice(0,58))}…</small>`:''}<span class="tag ${c?'live':''}">${c?'Available':'Coming soon'}</span></button>`;}).join('')}</div></div>`;}
+  ONB_STEP=step===2?2:1;
+  if(step===1||!step){ONB={lang:LTS.lang,levels:LTS.levels.slice()};if(CATALOG==='idle')refreshCatalog();
+    const cards=languageCards(COURSES,PLUGINS).map(cd=>{const l=cd.language,ok=cd.state==='available';return `<button class="onb-lang${ok?'':' soon'}" ${ok?`data-action="lt-pick" data-on="${esc(l.id)}"`:'disabled'}><span class="g">${l.icon}</span><b>${esc(l.name)}</b>${ok?`<small class="notr">${esc(cd.summary.slice(0,58))}${cd.summary.length>58?'…':''}</small>`:''}<span class="tag ${ok?'live':''}">${ok?(cd.community?'Community':'Available'):'Coming soon'}</span></button>`;}).join('');
+    o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>What do you want to learn?</h2><p>Pick a language and we'll guide you through a hands-on track, one step at a time.</p><div class="onb-langs">${cards}</div>${ltPluginPanel()}</div>`;}
   else o.innerHTML=`<div class="onb-box"><div class="onb-brand">${svg('sparkle')} Delonix Tutor</div><h2>What's your level?</h2><p>Pick one or more. Your track loads only the levels you choose — mix Basic and Intermediate, go straight to Advanced, or take all three. You can change this later from the gear icon.</p>${LT_LEVELS.map(l=>`<button class="onb-lvl${ONB.levels.includes(l[0])?' on':''}" onclick="ONB.levels.includes(${jsa(l[0])})?ONB.levels.splice(ONB.levels.indexOf(${jsa(l[0])}),1):ONB.levels.push(${jsa(l[0])});ltOnboard(2)"><span><b>${l[1]}</b><small>${l[2]}</small></span><i>${ONB.levels.includes(l[0])?'✓':''}</i></button>`).join('')}<div class="onb-foot"><button class="lnk" onclick="ltOnboard(1)">← Back</button><button class="mini pri" ${ONB.levels.length?'':'disabled'} onclick="ltStart()">Start →</button></div></div>`;
   o.classList.add('show');}
+/* ───── plugins de curso: carregar, instalar, remover (casos de uso em learn/application) ───── */
+let ONB_STEP=0;
+const onbOpenAt1=()=>{const o=$('#onb');return !!o&&o.classList.contains('show')&&ONB_STEP===1;};
+function refreshCatalog(force=false):Promise<void>{
+  if(CATALOG_P&&!force)return CATALOG_P;
+  CATALOG='loading';
+  CATALOG_P=loadCatalog(tauriCourseGateway,EMBEDDED).then(st=>{
+    for(const k of Object.keys(COURSES))if(!(k in st.courses))delete COURSES[k];
+    Object.assign(COURSES,st.courses);PLUGINS=st.plugins;
+    for(const p of PLUGINS)if(p.language&&!LT_EXT[p.language.id])LT_EXT[p.language.id]=p.language.extension;
+    if(st.problems.length)console.warn('[learn] '+st.problems.join('\n'));
+  }).catch(e=>console.warn('[learn] catalog: '+msg(e))).finally(()=>{CATALOG='ready';if(onbOpenAt1())ltOnboard(1);if(typeof PANE!=='undefined'&&PANE==='tutor')RP.tutor();});
+  return CATALOG_P;
+}
+function ltPluginPanel():string{
+  if(!tauriCourseGateway.available())return `<div class="onb-plug"><p class="onb-hint">More languages install as course plugins in the desktop app.</p></div>`;
+  const rows=PLUGINS.map(p=>`<div class="onb-prow"><span class="g">${p.language?p.language.icon:'⚠'}</span><span class="nm"><b>${esc(p.name)}</b> <small>${esc(p.version)}</small><small class="src notr">${esc(p.error||p.source)}</small></span><button class="lnk" data-action="lt-remove" data-on="${esc(p.id)}" ${LT_PLUG.busy?'disabled':''}>Remove</button></div>`).join('');
+  return `<div class="onb-plug"><h3>Course plugins</h3><div class="onb-pin"><input id="onb-src" class="notr" placeholder="python · owner/repo · https://github.com/owner/repo · ./folder" spellcheck="false" ${LT_PLUG.busy?'disabled':''}><button class="mini pri" data-action="lt-install" ${LT_PLUG.busy?'disabled':''}>${LT_PLUG.busy?'Working…':'Install'}</button></div>${LT_PLUG.text?`<p class="onb-msg${LT_PLUG.bad?' bad':''}">${esc(LT_PLUG.text)}</p>`:''}${CATALOG==='loading'?'<p class="onb-hint">Loading installed courses…</p>':''}${rows?`<div class="onb-plist">${rows}</div>`:''}<p class="onb-hint">Anyone can publish a course: create one with <code>dxt plugin new</code> and push it to GitHub.</p></div>`;
+}
+async function ltInstall(source:string){
+  LT_PLUG={busy:true,text:`Installing ${source.trim()}…`,bad:false};if(onbOpenAt1())ltOnboard(1);
+  try{const r=await installPlugin(tauriCourseGateway,source);
+    LT_PLUG={busy:false,bad:false,text:`${r.replaced?`Updated ${r.languageName} ${r.replaced} → ${r.version}`:`Installed ${r.languageName} ${r.version}`}${r.warnings.length?` · ${r.warnings.length} content warning(s)`:''}`};
+    await refreshCatalog(true);
+  }catch(e){LT_PLUG={busy:false,bad:true,text:msg(e)};}
+  if(onbOpenAt1())ltOnboard(1);
+}
+async function ltRemove(id:string){
+  LT_PLUG={busy:true,text:`Removing ${id}…`,bad:false};if(onbOpenAt1())ltOnboard(1);
+  try{await removePlugin(tauriCourseGateway,id);LT_PLUG={busy:false,bad:false,text:`Removed ${id}. Your progress is kept if you install it again.`};await refreshCatalog(true);}
+  catch(e){LT_PLUG={busy:false,bad:true,text:msg(e)};}
+  if(onbOpenAt1())ltOnboard(1);
+}
+bindActions({
+  'lt-onboard':{on:'click',run:()=>{ltOnboard(1);}},
+  'lt-pick':{on:'click',run:e=>{ONB.lang=e.on;ltOnboard(2);}},
+  'lt-install':{on:'click',run:()=>{const i=$('#onb-src') as HTMLInputElement|null;if(i)ltInstall(i.value);}},
+  'lt-remove':{on:'click',run:e=>{ltRemove(e.on);}},
+  'lt-read':{on:'click',run:e=>{const f=ltFind(LTS.cur);LT_READ[e.on]=!ltReadOpen(e.on,f);ltRes();}},
+});
+/** A leitura (visão geral da linguagem / conceitos do tópico) abre sozinha no 1.º passo. */
+function ltReadOpen(key:string,f:{u:any;s:any}|null):boolean{
+  if(key in LT_READ)return LT_READ[key];
+  if(!f)return false;
+  return key==='__overview'?ltSeq()[0]===f.s:f.u.id===key&&f.u.steps[0]===f.s;
+}
+
+/** Cartões de leitura: a visão geral da linguagem (1.º passo do curso) e os conceitos do
+ *  tópico (unidade). Abrem sozinhos no 1.º passo; o aluno pode abrir/fechar a qualquer altura. */
+function ltReading(f:{u:any;s:any}):string{
+  const c=course(),card=(key:string,title:string,body:string)=>{const open=ltReadOpen(key,f);
+    return `<div class="lt-card lt-read"><button class="lt-read-h" data-action="lt-read" data-on="${esc(key)}"><span>📖 ${esc(title)}</span><small>${open?'Hide':'Read'}</small></button>${open?`<div class="notr lt-read-b">${mdFull(body)}</div>`:''}</div>`;};
+  let h='';
+  if(c.overview&&ltSeq()[0]===f.s)h+=card('__overview',`About ${c.title}`,c.overview);
+  if(f.u.concepts)h+=card(f.u.id,`Concepts: ${f.u.title}`,f.u.concepts);
+  return h;
+}
+
 function ltStart(){hydrateLT();LTS.lang=ONB.lang;LTS.levels=LT_LEVELS.map(l=>l[0]).filter(l=>ONB.levels.includes(l));LTS.cur=null;saveLT();const o=$('#onb');if(o)o.classList.remove('show');goPane('tutor');ltResume();}
-function ltResume(){hydrateLT();if(!LTS.lang){goPane('tutor');ltOnboard(1);return;}const s=ltSeq(),id=LTS.cur&&ltFind(LTS.cur)&&s.some((x:any)=>x.id===LTS.cur)?LTS.cur:(s.find((x:any)=>!ltDone(x.id))||s[0]).id;ltOpen(id);}
+function ltResume(){hydrateLT();if(!LTS.lang){goPane('tutor');ltOnboard(1);return;}
+  if(!COURSES[LTS.lang]){if(CATALOG!=='ready'){refreshCatalog().then(()=>{if(COURSES[LTS.lang!])ltResume();else{goPane('tutor');ltOnboard(1);}});return;}
+    toast(`The ${findLanguage(LTS.lang,PLUGINS)?.name||LTS.lang} course is not installed`);goPane('tutor');ltOnboard(1);return;}
+  const s=ltSeq(),id=LTS.cur&&ltFind(LTS.cur)&&s.some((x:any)=>x.id===LTS.cur)?LTS.cur:(s.find((x:any)=>!ltDone(x.id))||s[0]).id;ltOpen(id);}
 function ltOpen(id:string){hydrateLT();const f=ltFind(id);if(!f)return;const{u,s}=f,i=u.steps.indexOf(s);if(i>0&&!ltDone(u.steps[i-1].id)){toast('Finish the previous step to unlock this one');return;}
-  LTS.cur=id;LTS.open[u.id]=true;saveLT();LT_HOOD=false;LT_SUB=null;const p=ltPath(s);
+  LTS.cur=id;LTS.open[u.id]=true;saveLT();LT_HOOD=false;LT_SUB=null;LT_GRADE=null;const p=ltPath(s);
   if(!FS[p])FS[p]={content:s.kind==='concept'?`// ${s.title}\n//\n// Read the concept on the right, then press Continue.\n`:s.kind==='challenge'?s.starter.replace(/^\n/,''):'',orig:null};
   const old=tabOf('lt');if(old&&cur==='lt'){Object.assign(old,{title:`${s.id}.${LT_EXT[LTS.lang!]}`,path:p});show('lt');}else openTab({id:'lt',title:`${s.id}.${LT_EXT[LTS.lang!]}`,kind:'lt',path:p});if(PANE==='tutor')RP.tutor();}
 function openLesson(){ltResume();}function nextLesson(){return[0,0];}
@@ -57,16 +145,30 @@ function openLesson(){ltResume();}function nextLesson(){return[0,0];}
 function renderLtView(t:any,host:HTMLElement){hydrateLT();const f=ltFind(LTS.cur);if(!f){host.innerHTML='<div class="empty">Open a step from the Learning Track.</div>';return;}const p=t.path;
   host.innerHTML=`<div class="lt"><div class="lt-ed"><div class="lt-bar"><span class="lt-file notr">● ${esc(t.title)}</span><span class="sp"></span><button class="mini" onclick="LT_HOOD=!LT_HOOD;ltRes()">Under the hood</button><button class="mini pri" id="lt-go" onclick="ltGo()"></button></div><div class="lt-scroll"><div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div></div></div><div class="lt-res" id="lt-res"></div></div>`;
   const ta=$('#ed-ta') as HTMLTextAreaElement;ta.value=FS[p].content;paintEd(p);miniOff();ta.oninput=()=>{FS[p].content=ta.value;paintEd(p);miniOff();LT_SUB=null;ltRes();};
-  ta.onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();const ind=LTS.lang==='go'?'\t':'    ';if(!document.execCommand('insertText',false,ind))ta.setRangeText(ind,ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};ta.onkeyup=ta.onclick=()=>stPos();ltRes();}
+  ta.onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();const ind=findLanguage(LTS.lang!,PLUGINS)?.indent??'    ';if(!document.execCommand('insertText',false,ind))ta.setRangeText(ind,ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};ta.onkeyup=ta.onclick=()=>stPos();ltRes();}
 const tgt=(s:any)=>s.target.replace(/^\n/,'').replace(/\n+$/,'').split('\n');
 function drillState(s:any){const T=tgt(s),typed=(FS[ltPath(s)]?FS[ltPath(s)].content:'').replace(/\s+$/,'').split('\n'),ok=T.map((l:any,i:number)=>typed[i]!==undefined&&typed[i].trimEnd()===l.trimEnd());return{T,ok,n:ok.filter(Boolean).length,all:ok.every(Boolean)&&typed.length===T.length};}
 function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-go');if(!f||!el||!go)return;const{s}=f,done=ltDone(s.id);let h=`<div class="lt-kind"><span>${s.kind==='concept'?'Concept':s.kind==='drill'?'Drill':'Challenge'}</span><b>${done?'✓ ':''}+${s.points} pts</b></div>`;
+  h+=ltReading(f);
   if(LT_HOOD)h+=`<div class="lt-card hood"><h3>Under the hood</h3><div class="notr">${mdFull(s.intro)}</div><p class="lt-note">In the desktop app this view also compiles your code and shows measured CPU, memory and I/O. The browser prototype shows the explanation only.</p></div>`;
   if(s.kind==='concept'){h+=`<div class="lt-card notr"><h2>${esc(s.title)}</h2>${mdFull(s.body)}</div>`;go.textContent='Continue →';}
   else if(s.kind==='drill'){const d=drillState(s),hide=s.placeholder_policy!=='shown'&&!LTS.show[dk(s.id)]&&!done;if(d.all&&!done){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}const fin=ltDone(s.id);
     h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.prompt)}</div><div class="lt-prog"><span class="lp-bar" style="flex:1;margin:0"><i style="width:${d.n/d.T.length*100}%"></i></span><span>${d.n}/${d.T.length} lines</span>${hide?`<button class="mini" onclick="LTS.show[${jsa(dk(s.id))}]=1;saveLT();ltRes()">Show target</button>`:''}</div>
       <div class="lt-target notr">${d.T.map((l:any,i:number)=>{const cur=!d.ok[i]&&d.ok.slice(0,i).every(Boolean);return `<div class="tl${d.ok[i]?' ok':cur?' cur':''}"><span class="n">${d.ok[i]?'✓':i+1}</span><div><code>${hide&&!d.ok[i]?'· · ·':hlLine(l,LT_EXT[LTS.lang!])||'&nbsp;'}</code>${(d.ok[i]||cur)&&s.line_comments&&s.line_comments[i]?`<small>${mdFull(s.line_comments[i]).replace(/^<p>|<\/p>$/g,'')}</small>`:''}</div></div>`;}).join('')}</div></div>`;
     if(fin)h+=`<div class="lt-card ok"><h3>✓ It matches</h3><div class="notr">${mdFull(s.explanation)}</div><p class="lt-note">The desktop app now runs the program and shows its real output.</p></div>`;go.textContent=fin?'Continue →':'Check ▷';}
+  else if(course().origin==='backend'){
+    /* Curso servido pelo backend (plugin): os testes ocultos ficam no backend e a avaliação
+       é real (`submit_step`). Sem simulação: se a linguagem ainda não tiver avaliador, o
+       erro do backend aparece tal como vem. */
+    const g=LT_GRADE&&LT_GRADE.step===s.id?LT_GRADE:null;
+    h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.instructions)}</div></div>`;
+    if(LT_SUB&&!LT_SUB.ok)h+=`<div class="lt-card bad"><h3>✗ Could not grade</h3><p class="notr">${LT_SUB.why}</p></div>`;
+    /* O resumo do avaliador vem em português (`testes falharam`, de todos os runners); a UI do
+       Learning Track é em inglês, por isso o título é nosso e a saída crua mostra o detalhe. */
+    if(g&&!g.passed)h+=`<div class="lt-card bad"><h3>✗ Not yet — the hidden tests did not pass</h3><pre class="notr">${esc(g.raw.slice(0,4000))}</pre></div>`;
+    if(done){h+=`<div class="lt-card ok"><h3>✓ Passed</h3><p>The hidden tests passed.</p></div>`;
+      if(g&&g.gabarito)h+=`<div class="lt-card"><h3>Reference solution</h3><div class="lt-cx"><span>time <b>${esc(g.gabarito.time)}</b></span><span>space <b>${esc(g.gabarito.space)}</b></span></div><pre class="notr">${esc(g.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(g.gabarito.justification)}</div></div>`;}
+    go.textContent=done?'Continue →':LT_GRADING?'Grading…':'Submit ▷';}
   else{const tests=[...s.tests.matchAll(LTS.lang==='go'?/func (Test\w+)/g:/fn (\w+)\s*\(\)/g)].map(m=>m[1]);
     h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.instructions)}</div></div>`;
     if(LT_SUB&&!LT_SUB.ok)h+=`<div class="lt-card bad"><h3>✗ Not yet</h3><p>${LT_SUB.why}</p></div>`;
@@ -77,6 +179,10 @@ function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-g
 function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:any)=>x.id===s.id)+1];
   if(s.kind==='concept'&&!ltDone(s.id)){LTS.done[dk(s.id)]=1;saveLT();}
   else if(s.kind==='drill'&&!ltDone(s.id)){const d=drillState(s);toast(`${d.n} of ${d.T.length} lines match — keep typing`);ltRes();return;}
+  else if(s.kind==='challenge'&&!ltDone(s.id)&&course().origin==='backend'){if(LT_GRADING)return;const code=FS[ltPath(s)].content;
+    LT_GRADING=true;LT_SUB=null;LT_GRADE=null;ltRes();
+    gradeStep(tauriCourseGateway,s.id,code,LTS.lang!).then(g=>{LT_GRADE={...g,step:s.id};if(g.passed){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}})
+      .catch(e=>{LT_SUB={ok:false,why:esc(msg(e))};}).finally(()=>{LT_GRADING=false;ltRes();});return;}
   else if(s.kind==='challenge'&&!ltDone(s.id)){const c=FS[ltPath(s)].content,same=c.trim()===s.starter.trim(),todo=/todo!\(|unimplemented!\(|panic\("(TODO|todo|not implemented)|\/\/\s*TODO/.test(c),has=!s.entry||c.includes(s.entry);
     LT_SUB={ok:!same&&!todo&&has,why:same?'The file still equals the starter. Write your implementation first.':todo?'The implementation still has a TODO placeholder.':`The function <code>${esc(s.entry||'')}</code> is missing.`};if(LT_SUB.ok){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}ltRes();return;}
   if(nx)ltOpen(nx.id);else{toast('Track complete');if(PANE==='tutor')RP.tutor();}}

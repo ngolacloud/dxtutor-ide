@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "kotlin",
+  "name": "Kotlin",
+  "version": "1.0.0",
+  "description": "Kotlin: From Zero to Confident — from your first program to null safety, data and sealed classes, extensions, coroutines, Flow and channels, DSLs, and data structures.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/dxtutor-courses/kotlin",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "language": {
+    "id": "kotlin",
+    "name": "Kotlin",
+    "icon": "🟣",
+    "extension": "kt",
+    "indent": "4",
+    "testCommand": "kotlinc"
+  },
+  "courses": ["courses/kotlin.toml"]
+}

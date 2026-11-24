@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "java",
+  "name": "Java",
+  "version": "1.0.0",
+  "description": "Java: From Zero to Confident — modern Java 21 from your first program to OOP, generics, streams, records and sealed types, concurrency with virtual threads, and data structures.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/dxtutor-courses/java",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "language": {
+    "id": "java",
+    "name": "Java",
+    "icon": "☕",
+    "extension": "java",
+    "indent": "4",
+    "testCommand": "java Main.java"
+  },
+  "courses": ["courses/java.toml"]
+}

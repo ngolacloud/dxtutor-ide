@@ -31,8 +31,81 @@ Database track pulls in the `rusqlite` crate. No prior Rust needed.
 # ═════════════════════════════════════════════════════════════════════════════
 # UNIT 1 — Hello & printing
 # ═════════════════════════════════════════════════════════════════════════════
+overview = '''
+## What Rust is
+
+Rust is a compiled, statically typed systems programming language. It gives you the speed and low-level control of C and C++ — no garbage collector, no heavy runtime, direct control over memory layout — while the compiler rules out whole classes of bugs, such as use-after-free, dangling pointers and data races, before your program ever runs.
+
+## Where it is used
+
+Rust started at Mozilla, and parts of Firefox are written in it. Today it runs in places where both performance and reliability matter:
+
+- **Operating systems and platforms:** the Linux kernel accepts Rust code, and Android uses Rust for new low-level components.
+- **Infrastructure and cloud:** AWS built Firecracker, the microVM technology behind Lambda, in Rust; many network proxies, databases and storage engines use it too.
+- **Command-line tools:** popular tools such as `ripgrep` are written in Rust, because it produces a single fast binary.
+- **The web:** Rust compiles to WebAssembly, so the same code can run in a browser.
+
+## The mental model you will build
+
+Three ideas run through the whole course. **Ownership**: every value has exactly one owner, and memory is freed when that owner goes away; other code can *borrow* a value under strict rules. **Types**: the compiler knows the type of every value and checks every operation, so many mistakes become compile errors instead of crashes. **Errors as values**: there is no `null` and there are no exceptions — "might be missing" is an `Option`, "might fail" is a `Result`, and the compiler makes you handle both cases.
+
+## How the course is organised
+
+- **Basic:** printing, variables and types, decisions, loops and functions.
+- **Intermediate:** ownership and borrowing, `Vec` and `HashMap`, structs and enums, error handling, then a Database track with SQLite through the `rusqlite` crate: queries, transactions, WAL mode and connection pools, the N+1 problem, pagination and indexes.
+- **Advanced:** the type system (traits, generics, bounds, associated types, dispatch, lifetimes, `Send`/`Sync`), concurrency (threads, channels, shared state, parallelism) and data structures and algorithms.
+
+## How each unit works
+
+Every unit has three kinds of steps. A **concept** step explains one idea. In a **drill** you type a complete, small program line by line, with each line explained, to build muscle memory. In a **challenge** you implement a function on your own, and hidden tests — not the screen — decide whether it is correct.
+'''
+
 [[unit]]
 id = "u1-hello"
+concepts = '''
+## The idea: a program is a list of instructions
+
+A computer does nothing on its own. A **program** is a precise list of instructions, and the computer carries them out one after another, in order. That order — top to bottom — is called **sequential execution**, and it is the first mental model you need.
+
+Rust is a **compiled** language. You write **source code** (text in a `.rs` file), and a tool called the **compiler** (`rustc`, usually driven by `cargo`) checks it and translates it into **machine code** your processor can run. If the compiler finds a mistake, it refuses to build the program and prints an error that explains what went wrong. That sounds strict, but it is helpful: problems are caught before the program ever runs.
+
+Every program also needs an **entry point**, the place where execution begins. Anything a program prints goes to **standard output** (stdout), a stream of text that your terminal displays.
+
+## How Rust does it
+
+In Rust the entry point is a function named `main`. A **function** is a named block of instructions; `fn` declares one, and the curly braces `{ }` hold its body. Each instruction inside ends with a semicolon.
+
+To print, you use `println!`. The `!` marks it as a **macro**: code that the compiler expands into more code before compiling. You can put placeholders in the text: `{}` is filled by the next argument, and `{name}` is filled by the variable called `name`.
+
+```rust
+fn main() {
+    let city = "Luanda";
+    let year = 2024;
+    println!("{city} in {}", year);
+}
+```
+
+`let` gives a value a name — a **variable**. Text written between double quotes is a **string literal**.
+
+When you need the text itself rather than printing it, the `format!` macro uses exactly the same placeholder rules but returns a new `String` value:
+
+```rust
+let count = 3;
+let label = format!("{count} items");
+```
+
+## What is special or tricky
+
+- **Forgetting the `!`.** Writing `println("hi")` gives `expected function, found macro println`. Printing in Rust is always a macro call.
+- **Missing semicolons or braces.** The compiler reports `expected ;` or an unclosed delimiter, and points at the line. Read the message slowly: it usually tells you exactly what to add.
+- **Misspelled names.** `{nme}` in a format string, when the variable is `name`, produces `cannot find value nme in this scope`. Placeholders are checked at compile time, so a typo never slips through to the output.
+- **Two kinds of text.** `&str` (like `"Luanda"`) is a borrowed view of text that already exists; `String` is text your program owns and can build at run time. You will meet this difference again and again — for now, notice that `format!` produces a `String`.
+- **Exact output matters.** Tests compare characters exactly, so a missing comma or space makes a result wrong even when it looks almost right.
+
+## What you will practise
+
+You will type the classic first program, print lines in order and splice a variable into text. Then you will write a small function that takes a name as `&str` and builds a greeting as a `String`, and hidden tests will check every character.
+'''
 title = "Hello & printing"
 difficulty = 1
 level = "basic"
@@ -278,6 +351,52 @@ single pass that builds the result once.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u2-variables"
+concepts = '''
+## The idea: values, names and types
+
+Programs work with **data**: numbers, true-or-false answers, pieces of text. A **variable** is a name attached to a value stored in memory, so you can refer to it later. A **type** describes what kind of value it is — and therefore what operations make sense. You can add two numbers, but adding a number to a sentence is meaningless.
+
+Rust is **statically typed**: the compiler knows the type of every value before the program runs, and rejects operations that do not fit. Most of the time you do not write types yourself — the compiler **infers** them from the values — but they are always there.
+
+A second idea is **mutability**: whether a value is allowed to change after it is created. Code is much easier to reason about when most values never change, so Rust makes that the default.
+
+## How Rust does it
+
+```rust
+let width = 8;          // i32, inferred
+let ratio: f64 = 0.75;  // f64, written explicitly
+let ready = width > 5;  // bool: true
+let mut total = 0;      // mut: allowed to change
+total += width;
+```
+
+The common types are:
+
+- **`i32`** — a signed 32-bit whole number, the default for integers. Unsigned types like `u32` cannot be negative; `i64` and `u64` hold bigger values.
+- **`f64`** — a 64-bit floating-point number, for values with a fractional part.
+- **`bool`** — `true` or `false`, usually produced by comparisons such as `>`, `<=` or `==`.
+- **`&str`** and **`String`** — text, borrowed or owned.
+
+Arithmetic uses `+`, `-`, `*`, `/` and `%` (remainder). The type of the operands decides how it behaves:
+
+```rust
+let a = 7 / 2;          // 3   (integer division drops the fraction)
+let b = 7.0 / 2.0;      // 3.5 (floating-point division)
+let c = 7 as f64 / 2.0; // 3.5 (`as` converts explicitly)
+```
+
+## What is special or tricky
+
+- **Immutable by default.** Assigning to a variable you did not mark `mut` gives `cannot assign twice to immutable variable`. Add `mut` only where the value really must change.
+- **No silent mixing of types.** `width + ratio` (an `i32` plus an `f64`) is an error such as `cannot add f64 to i32`. Rust never converts between number types behind your back; use `as` to convert on purpose.
+- **Integer division truncates.** `7 / 2` is `3`, not `3.5`. If you want a fraction, make sure the numbers are floating-point — write `2.0`, not `2`.
+- **Overflow.** Every integer type has a range. In a debug build, going past it stops the program with `attempt to add with overflow`, instead of silently producing a wrong number.
+- **Shadowing.** You may write `let x = x + 1;` to create a *new* variable with the same name. This is different from `mut`: the old value is not changed, a new binding hides it.
+
+## What you will practise
+
+You will add integers with positional `{}` slots, update a `mut` counter and store the result of a comparison in a `bool`. The challenge asks you to apply a formula in `f64`, where choosing the right kind of number literal decides whether the answer is exact.
+'''
 title = "Variables & types"
 difficulty = 2
 level = "basic"
@@ -521,6 +640,50 @@ keeps `9.0 / 5.0` as `1.8` instead of truncating to `1`.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u3-control-flow"
+concepts = '''
+## The idea: programs that decide
+
+So far every line ran, in order. Real programs must **branch**: look at some data and choose what to do next. A branch depends on a **condition**, an expression that is either true or false. "If the password is correct, log in; otherwise, show an error" is a branch.
+
+There are two common shapes. A **conditional** asks yes-or-no questions one at a time. A **pattern match** compares one value against a list of possible shapes and picks the first that fits. A match is **exhaustive** when every possible value is covered by some case — a property Rust checks for you, so a forgotten case becomes a compile error rather than a bug.
+
+## How Rust does it
+
+`if` takes a `bool` condition, with no parentheses needed. `else if` adds more questions, and `else` catches the rest. Exactly one block runs.
+
+In Rust `if` is an **expression**: it produces a value. The last expression of each block, written without a semicolon, is that block's value, so you can bind the result directly:
+
+```rust
+let temp = 31;
+let advice = if temp > 30 { "stay inside" } else { "go out" };
+```
+
+`match` compares a value against **patterns**, top to bottom. Patterns can be single values, alternatives with `|`, or ranges with `..=`. A **guard** (`if ...` after a pattern) adds an extra condition, and `_` matches anything:
+
+```rust
+let day = 6;
+let kind = match day {
+    1..=5 => "weekday",
+    6 | 7 => "weekend",
+    _ => "not a day",
+};
+```
+
+`match` is an expression too, so the chosen arm's value becomes `kind`.
+
+## What is special or tricky
+
+- **Conditions must be `bool`.** Some languages treat `0` as false; Rust does not. `if count { ... }` with an integer fails with `mismatched types: expected bool, found integer`. Write the comparison you mean: `if count > 0`.
+- **Both arms must agree.** When `if` produces a value, every branch must have the same type and there must be an `else`. Otherwise you get `if and else have incompatible types`, or an error that an `if` without `else` evaluates to `()`.
+- **Semicolons change meaning.** `{ "go out" }` yields text; `{ "go out"; }` yields `()`, the empty "unit" value. A stray semicolon inside a branch is a common cause of type errors.
+- **Exhaustiveness.** A `match` on an integer without a `_` arm fails with `non-exhaustive patterns`, because the compiler cannot prove you handled every number. Arms are tried in order, so put specific patterns before general ones.
+- **`=` versus `==`.** `=` assigns; `==` compares. Using `=` inside a condition does not compile.
+- **Fixed answers.** A function that returns one of a few literal words can return `&'static str`: a view of text stored inside the program, so no `String` needs to be built.
+
+## What you will practise
+
+You will branch with `if`/`else`, use `if` as an expression and turn a number into a word with `match`. The challenge asks you to classify an integer into one of three categories, using either an `if` chain or a `match` with guards.
+'''
 title = "Control flow: if/else & match"
 difficulty = 3
 level = "basic"
@@ -794,6 +957,57 @@ the returned text lives for the whole program, so nothing is created or copied.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u4-loops"
+concepts = '''
+## The idea: repetition
+
+Computers are good at doing the same thing many times without getting tired. A **loop** repeats a block of code; each repetition is called an **iteration**. There are two broad kinds:
+
+- **Definite iteration** — you know in advance what to walk through: "for each number from 1 to 10", "for each item in this list".
+- **Indefinite iteration** — you repeat until something changes: "while the user has not typed quit", "until the value is big enough".
+
+Every loop needs a way to **stop**. A loop whose stopping condition never becomes true is an **infinite loop**, and the program hangs. Another classic bug is the **off-by-one error**: running one iteration too many or too few, usually because of confusion about whether an end point is included.
+
+A very common pattern is the **accumulator**: a variable defined before the loop that each iteration updates, so that when the loop ends it holds a combined result such as a count, a total or a maximum.
+
+## How Rust does it
+
+`for` walks over anything that can be iterated — a range, an array or a collection. `a..b` is a **range** from `a` up to but *not including* `b`; `a..=b` includes `b`. `.rev()` walks a range backwards.
+
+```rust
+for word in ["red", "green", "blue"] {
+    println!("{word}");
+}
+for i in (1..=3).rev() {
+    println!("{i}"); // 3, 2, 1
+}
+```
+
+`while` repeats as long as its condition is `true`. `loop` repeats forever until a `break`; `break value` makes the whole `loop` an expression that produces that value. `continue` skips to the next iteration.
+
+```rust
+let mut x = 1;
+let first_big = loop {
+    x *= 2;
+    if x > 100 {
+        break x;
+    }
+};
+// first_big is 128
+```
+
+## What is special or tricky
+
+- **Prefer `for`.** With `for` over a range, Rust manages the loop variable for you, so you cannot forget to update it or get the condition wrong. Reach for `while` or `loop` when the number of iterations is not known in advance.
+- **Exclusive ranges.** `1..5` yields 1, 2, 3, 4 — not 5. When the end point should be included, write `1..=5`. This one character is the most common source of off-by-one errors.
+- **Empty ranges are fine.** `1..=0` yields nothing, so the loop body simply does not run. Think about what your code returns in that case.
+- **Mutation needs `mut`.** An accumulator or a `while` counter must be declared with `let mut`; otherwise the update inside the loop fails with `cannot assign twice to immutable variable`.
+- **Unsigned underflow.** Counting a `u32` down past zero (`n -= 1` when `n` is `0`) stops a debug build with `attempt to subtract with overflow`. Check the condition before subtracting.
+- **Loop variables are fresh each time.** In `for i in 0..3`, `i` is a new immutable binding on every iteration; you do not (and cannot) change it yourself.
+
+## What you will practise
+
+You will count up with `for` over an inclusive range, count down with `while` and keep a running total in an accumulator. The challenge asks you to combine numbers from a range into a single result, and to make sure the edge case of an empty range comes out right.
+'''
 title = "Loops"
 difficulty = 4
 level = "basic"
@@ -1049,6 +1263,53 @@ O(1) time, but the loop version is what this unit teaches and is plenty fast.)
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u5-functions"
+concepts = '''
+## The idea: naming a piece of work
+
+As programs grow, repeating the same calculation in several places becomes error-prone. A **function** gives a piece of work a name, so you write it once and **call** it wherever you need it. This is **abstraction**: the caller only needs to know *what* the function does, not *how*.
+
+A function receives inputs called **parameters**; the actual values passed in a call are the **arguments**. It may send back a **return value**. The first line describing the name, parameters and return type is the function's **signature** — a small contract. Functions can call other functions, so the output of one feeds the input of the next; this is **composition**, and it is how big programs are built from small, testable parts.
+
+## How Rust does it
+
+```rust
+fn square(n: i32) -> i32 {
+    n * n
+}
+
+fn sum_of_squares(a: i32, b: i32) -> i32 {
+    square(a) + square(b)
+}
+```
+
+- Each parameter has a name and a type: `n: i32`. Types in signatures are **required** — Rust infers types inside a function body, never in its signature.
+- `-> i32` declares the return type. A function with no `->` returns `()`, the empty "unit" value.
+- The body is a block. Its **final expression, without a semicolon**, is the return value. `return` exists, but it is used to leave a function early:
+
+```rust
+fn ticket_price(age: u32) -> u32 {
+    if age < 12 {
+        return 5;
+    }
+    10
+}
+```
+
+Many values also have **methods**, functions called with a dot: `x.abs()`, `a.min(b)`. A method call is just a function call where the value before the dot is the first argument, and calls can be chained: `x.abs().min(100)`.
+
+## What is special or tricky
+
+- **The semicolon trap.** Writing `n * n;` as the last line turns the expression into a statement, so the body produces `()`. The compiler reports `mismatched types: expected i32, found ()`, and often suggests removing the semicolon.
+- **Arguments must match exactly.** Passing a value of the wrong type, or the wrong number of arguments, is a compile error that names the expected signature. There are no default or optional parameters.
+- **Small values are copied.** Passing an `i32` copies it into the parameter; changing the parameter inside the function does not affect the caller's variable.
+- **Order of definition does not matter.** A function can call another one defined further down the file.
+- **Naming.** Rust uses `snake_case` for function names; the compiler warns if you do not.
+- **`pub` and `todo!`.** `pub` makes a function visible outside its module, which is why challenge functions are `pub`. The `todo!()` macro in a starter compiles but stops the program with `not yet implemented` when called — replace it with real code.
+
+## What you will practise
+
+You will define a function and call it from `main`, then compose existing methods into a new named function. The challenge asks you to write a function of three parameters that returns one of them, built by combining smaller operations.
+'''
 title = "Functions"
 difficulty = 5
 level = "basic"
@@ -1268,6 +1529,53 @@ the third.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u6-ownership"
+concepts = '''
+## The idea: who cleans up memory?
+
+Every running program uses memory. Small values of known size, like an `i32`, live on the **stack** and disappear automatically when a function returns. Data that can grow, like text built at run time, lives on the **heap**, and someone must eventually **free** it.
+
+Languages traditionally choose between two approaches. In C, the programmer frees memory by hand — forget and you **leak** memory; free too early and you get a **dangling pointer** to memory that is no longer yours, a source of crashes and security holes. Java, Python and Go use a **garbage collector**, a runtime component that finds unused memory automatically, at some cost in speed and predictability.
+
+Rust takes a third path: **ownership**, checked at compile time.
+
+- Every value has exactly one **owner** (a variable).
+- When the owner goes out of **scope** (its block ends), the value is freed — Rust calls this being **dropped**.
+- Other code can **borrow** the value through a **reference** without taking ownership.
+
+## How Rust does it
+
+Assigning or passing a `String` **moves** ownership; the old variable can no longer be used. Simple values like integers implement `Copy`, so they are duplicated instead. If you really want two independent copies of heap data, ask for it with `.clone()`:
+
+```rust
+let a = 5;
+let b = a;           // i32 is Copy: a and b both usable
+let s = String::from("hi");
+let t = s.clone();   // explicit deep copy: s and t both usable
+```
+
+A reference `&T` is a **shared borrow**: read-only, and many may exist at once. `&mut T` is an **exclusive borrow** that may modify the value, and only one may exist at a time, with no shared borrows alongside it. In short: **many readers or one writer**. This rule makes data races impossible and keeps references from pointing at data that has moved or been freed:
+
+```rust
+let mut s = String::from("hi");
+let r = &s;
+s.push_str("!");     // error: s is borrowed by r
+println!("{r}");
+```
+
+Text has two forms: `String` owns its contents, while `&str` is a borrowed **slice** — a view into text stored elsewhere, such as a literal or part of a `String`. Functions that only read text usually take `&str`, so they accept both.
+
+## What is special or tricky
+
+- **`borrow of moved value`** (E0382): you used a variable after its value moved. Borrow with `&` instead, or `.clone()` if you truly need a copy.
+- **`cannot borrow as mutable because it is also borrowed as immutable`** (E0502), and **`cannot borrow as mutable more than once at a time`** (E0499): the many-readers-or-one-writer rule at work.
+- **`cannot borrow as mutable, as it is not declared as mutable`**: a `&mut` borrow needs the owner to be `let mut`.
+- **Bytes are not characters.** Rust strings are UTF-8, where one character can take several bytes. `len()` counts **bytes**: `"é".len()` is `2`. Think about which you need.
+- **The borrow checker is not your enemy.** Its errors point at real hazards; read which borrow is still alive and where.
+
+## What you will practise
+
+You will lend a `String` with `&`, modify one through `&mut` and return a slice that points into borrowed text. The challenge asks you to count the characters of a `&str` correctly, including accented letters, without taking ownership.
+'''
 title = "Ownership & borrowing"
 difficulty = 6
 level = "intermediate"
@@ -1543,6 +1851,52 @@ copied.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u7-collections"
+concepts = '''
+## The idea: many values at once
+
+Most programs handle groups of data: a list of scores, a table of users by name. A **collection** is a data structure that holds many values, and each kind trades off different operations.
+
+- A **dynamic array** stores elements side by side in memory. Reading by position (an **index**) is instant, and adding at the end is fast on average: when space runs out the array moves to a bigger block, which is rare enough that each push costs **amortized constant time**.
+- A **hash map** stores **key → value** pairs. A **hash function** turns each key into a number that says where to look, so lookups, inserts and removals take constant time on average, no matter how many entries there are. The price: entries have no meaningful order.
+
+Collections go together with **iteration**. An **iterator** produces elements one at a time; **adapters** such as `map` and `filter` build a pipeline, and a **consumer** such as `collect` or `sum` runs it.
+
+## How Rust does it
+
+`Vec<T>` is the growable list (`vec![...]` builds one, `push` appends) and `HashMap<K, V>` lives in `std::collections`. Both are **generic**: `T`, `K` and `V` stand for the element types. A function that only reads a list usually takes a **slice** `&[T]`, a borrowed view that accepts a `&Vec<T>` or an array alike.
+
+```rust
+use std::collections::HashMap;
+
+let mut counts: HashMap<&str, u32> = HashMap::new();
+for word in "to be or not to be".split(' ') {
+    *counts.entry(word).or_insert(0) += 1;
+}
+println!("{:?}", counts.get("be")); // Some(2)
+```
+
+`entry(...).or_insert(0)` gets the value for a key, inserting `0` first if it is missing.
+
+Iterator methods take **closures**, small anonymous functions written `|x| expression`. Adapters are **lazy**: nothing happens until a consumer pulls the values through:
+
+```rust
+let prices = vec![3, 5, 2];
+let total: i32 = prices.iter().map(|p| p * 2).sum(); // 20
+```
+
+## What is special or tricky
+
+- **Three ways to iterate.** `iter()` (or `for x in &v`) borrows each element as `&T`; `iter_mut()` borrows them mutably; `into_iter()` (or `for x in v`) consumes the vector and gives owned values, after which `v` is gone.
+- **References in pipelines.** `iter()` yields references, and a filtering closure receives a reference to *that*, so you may meet `&&i32`. `.copied()` turns `&i32` items into plain `i32` values for `Copy` types.
+- **Indexing can panic.** `v[10]` on a three-element vector stops the program with `index out of bounds: the len is 3 but the index is 10`. `v.get(10)` returns `None` instead.
+- **`get` returns `Option`.** `HashMap::get` gives `Some(&value)` or `None`, so a missing key can never be mistaken for a real value.
+- **`collect` needs a target.** Without an annotation such as `let v: Vec<i32>`, the compiler says `type annotations needed`, because `collect` can build many kinds of collection.
+- **No order in a `HashMap`.** Iterating it may print entries in any order, and that order can differ between runs.
+
+## What you will practise
+
+You will build and walk a `Vec`, look up entries in a `HashMap` and transform a list with `iter().map(...).collect()`. The challenge asks you to build a new vector from a slice, keeping only some of its elements in their original order.
+'''
 title = "Collections: Vec & HashMap"
 difficulty = 7
 level = "intermediate"
@@ -1808,6 +2162,69 @@ borrowed slice, so nothing of the caller's is consumed; `copied()` turns each
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u8-structs-enums"
+concepts = '''
+## The idea: modelling your own data
+
+Built-in types like numbers and strings are not enough to describe a real problem. A shop has products; a game has players; a drawing has shapes. **Data modelling** means defining your own types that match the concepts of your problem.
+
+There are two fundamental ways to combine types:
+
+- A **product type** groups several values that exist *together*: a product has a name **and** a price **and** a stock count.
+- A **sum type** says a value is exactly *one of* several alternatives: a payment is cash **or** card **or** transfer, each possibly carrying different data.
+
+Together these are called **algebraic data types**. Using them well lets you **make invalid states unrepresentable**: if a value can only be built in valid shapes, whole categories of bugs disappear.
+
+## How Rust does it
+
+A `struct` is a product type with named **fields**. An `impl` block attaches **methods** to it. A method's first parameter says how it uses the value: `&self` reads it, `&mut self` modifies it, and `self` consumes it. A function in `impl` without `self` is an **associated function**, called with `::` — conventionally `new` acts as a constructor.
+
+```rust
+struct Rect {
+    w: u32,
+    h: u32,
+}
+
+impl Rect {
+    fn new(w: u32, h: u32) -> Rect {
+        Rect { w, h } // shorthand for w: w, h: h
+    }
+    fn area(&self) -> u32 {
+        self.w * self.h
+    }
+}
+```
+
+You would write `let r = Rect::new(2, 3);` and then `r.area()`.
+
+An `enum` is a sum type. Each **variant** can carry its own data, and `match` both picks the variant and **destructures** it, binding the data to names:
+
+```rust
+enum Shape {
+    Circle(f64),
+    Square(f64),
+}
+
+fn area(s: &Shape) -> f64 {
+    match s {
+        Shape::Circle(r) => std::f64::consts::PI * r * r,
+        Shape::Square(side) => side * side,
+    }
+}
+```
+
+## What is special or tricky
+
+- **Exhaustive matching.** Add a variant to an enum and every `match` that does not handle it stops compiling with `non-exhaustive patterns`. This is a feature: the compiler lists every place you must update.
+- **Printing your types.** `println!("{:?}", r)` fails with `Rect doesn't implement Debug` until you put `#[derive(Debug)]` above the struct.
+- **Privacy.** Fields are private to their module by default. Code outside, such as a test, can only build or read a struct if the type and its fields are marked `pub`.
+- **Moves apply to your types too.** Passing a struct by value moves it, just like a `String`, so the caller cannot use it afterwards — unless the method borrows with `&self`, or the type derives `Clone` and `Copy`.
+- **Variants are namespaced.** You write `Shape::Circle`, not just `Circle`.
+- **Mutation needs both sides.** Calling a `&mut self` method requires the variable to be `let mut`.
+
+## What you will practise
+
+You will define a `Point` struct, give it a method in an `impl` block and `match` on every variant of an enum. The challenge asks you to write a public function that takes two values of your own struct type and computes a number from their fields.
+'''
 title = "Structs & enums"
 difficulty = 8
 level = "intermediate"
@@ -2126,6 +2543,55 @@ on `Point` let the tests construct values directly.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u9-error-handling"
+concepts = '''
+## The idea: absence and failure are normal
+
+Things go wrong in every program: a list is empty, a user types letters where a number was expected, a file is missing. A language needs a way to say "there is no value" and "this operation failed".
+
+Many languages use a special **null** value for "nothing". Its inventor, Tony Hoare, later called it his "billion-dollar mistake": any reference might secretly be null, and forgetting to check crashes the program. Many languages also use **exceptions**, which jump out of the normal flow of code; nothing in a function's signature warns you that it can throw.
+
+Rust takes a different approach: **errors as values**. A possibly missing value, or a possible failure, is represented by an ordinary type that appears in the function's signature. The compiler will not let you use the value inside until you have dealt with the other case. Failures become visible, explicit and checked.
+
+## How Rust does it
+
+Two enums from the standard library do the work:
+
+- **`Option<T>`** is either `Some(value)` or `None` — for "might be missing".
+- **`Result<T, E>`** is either `Ok(value)` or `Err(error)` — for "might fail", with an error value describing what went wrong.
+
+You handle them with `match`, or with `if let` when you only care about one case:
+
+```rust
+let word = "hello";
+if let Some(c) = word.chars().next() {
+    println!("starts with {c}");
+}
+```
+
+Helper methods cover common needs: `unwrap_or(default)` supplies a fallback, while `unwrap()` and `expect("message")` take the value or stop the program.
+
+Inside a function that itself returns `Result` (or `Option`), the `?` operator unwraps a success or returns the failure to the caller immediately:
+
+```rust
+fn add_strs(a: &str, b: &str) -> Result<i32, std::num::ParseIntError> {
+    let x: i32 = a.parse()?;
+    let y: i32 = b.parse()?;
+    Ok(x + y)
+}
+```
+
+## What is special or tricky
+
+- **Wrap your values.** A function returning `Option<i32>` must return `Some(5)`, not `5`; otherwise the compiler reports `mismatched types: expected Option<i32>, found integer`.
+- **`?` needs a matching return type.** Using it in a `main` that returns nothing fails with an error saying `?` can only be used in a function that returns `Result` or `Option`.
+- **`unwrap` is a promise.** Calling it on `None` stops the program with `called Option::unwrap() on a None value`. That is a **panic**: an unrecoverable error that ends the program. Use it only when absence would be a bug; otherwise handle both cases.
+- **Some operations panic on their own.** Integer division by zero, for example, stops the program with `attempt to divide by zero`. Returning an `Option` or `Result` instead lets the caller decide what to do.
+- **Panics versus errors.** Panics are for bugs; `Result` is for failures that a correct program should expect and handle, such as bad input.
+
+## What you will practise
+
+You will write a function that returns `Option<i32>` and handle both arms with `match`, then parse text into a number and handle `Ok` and `Err`. The challenge asks you to turn an operation that could crash into one that reports the problem as `None`.
+'''
 title = "Error handling: Option & Result"
 difficulty = 9
 level = "intermediate"
@@ -2396,6 +2862,59 @@ Rust.
 
 [[unit]]
 id = "udb1-connect-query"
+concepts = '''
+## The idea
+
+A **database** stores data so it outlives your program and can be searched efficiently. A *relational* database organises it into **tables**: each **row** is one record and each **column** has a name and a type. You talk to it in **SQL**, a *declarative* language: you describe the result you want (`SELECT name FROM person WHERE age > 30`) and the database's query planner decides how to fetch it.
+
+**SQLite** is an *embedded* database. There is no server process: the whole engine is a library linked into your program, and a database is a single file (or a temporary region of memory).
+
+One rule matters from day one: **never build SQL by pasting values into the text**. If you write `format!("... WHERE name = '{name}'")` and a user types `x' OR '1'='1`, the quote ends your string early and the rest becomes SQL. That attack is **SQL injection**. The cure is a **parameter** (a placeholder such as `?1`): the SQL text is compiled first, and values are bound afterwards as pure data, so they can never change the meaning of the query.
+
+## How Rust does it
+
+The `rusqlite` crate wraps SQLite. With the `bundled` feature, Cargo compiles SQLite itself into your binary, so nothing needs to be installed. The central type is `Connection`:
+
+- `execute(sql, params)` runs a statement that returns no rows and gives back how many rows it changed.
+- `query_row(sql, params, |row| ...)` runs a query and maps its first row with a closure.
+- `prepare(sql)` compiles a statement once; `query_map` then yields one typed result per row.
+
+Parameters can be an array (`[1, 250]`) when all values share a type, a tuple, or the `params!` macro when they differ:
+
+```rust
+use rusqlite::{params, Connection, Result};
+
+fn add_book(conn: &Connection, title: &str, year: i64) -> Result<usize> {
+    conn.execute(
+        "INSERT INTO book (title, year) VALUES (?1, ?2)",
+        params![title, year],
+    )
+}
+```
+
+`rusqlite::Result<T>` is the crate's result alias, so `?` works inside your own functions. Reading converts a column into whichever Rust type you request:
+
+```rust
+let title: String = conn.query_row(
+    "SELECT title FROM book WHERE year = ?1",
+    [1954],
+    |row| row.get(0),
+)?;
+```
+
+## What is special or tricky
+
+- `row.get(0)` is generic over its return type. If Rust cannot infer it, you get *type annotations needed*. Annotate the variable, or use the turbofish `row.get::<_, i64>(0)`.
+- An array of parameters must be homogeneous. `[name, age]` with a `&str` and an `i64` is a *mismatched types* error. Use `params![name, age]` or a tuple instead.
+- `query_row` expects at least one row. If none comes back you get `Err(QueryReturnedNoRows)`, and `.unwrap()` turns that into a panic.
+- Placeholders are numbered from `?1`, not `?0`. Column indexes in `get` start at `0`.
+- Columns can hold `NULL`. Reading a `NULL` into `i64` fails; read it into `Option<i64>` instead.
+- An in-memory database belongs to one `Connection` and disappears when that connection is dropped.
+
+## What you will practise
+
+The drills walk through the basic loop: open an in-memory database, create a table, insert with bound parameters, then read one value with `query_row` and many with `prepare` plus `query_map`. In the challenge, you load a slice of records into a table and let SQL do the counting.
+'''
 title = "Database: connect & query"
 difficulty = 9
 level = "intermediate"
@@ -2709,6 +3228,52 @@ Inserting the `n` rows is linear work, and the `COUNT(*) ... WHERE age >= 18` sc
 
 [[unit]]
 id = "udb2-transactions"
+concepts = '''
+## The idea
+
+A **transaction** groups several statements into one logical unit of work. The classic example is a transfer: subtract from one account and add to another. If the program crashes between the two updates, money vanishes. Transactions rule that out. Databases describe their guarantees with **ACID**:
+
+- **Atomicity**: all of the changes happen, or none do.
+- **Consistency**: a transaction moves the database from one valid state to another.
+- **Isolation**: other connections never see your half-finished work.
+- **Durability**: once committed, the change survives a crash or a power cut.
+
+A transaction ends in one of two ways. **Commit** makes every pending change permanent at once. **Rollback** discards them all, as if the transaction never started.
+
+Without an explicit transaction, SQLite runs in *autocommit* mode: every statement is its own tiny transaction. That is safe for single statements but not for multi-step changes. It is also slow for bulk inserts into a file, because each commit waits for the disk.
+
+## How Rust does it
+
+`Connection::transaction()` starts a transaction and returns a `Transaction`. It takes `&mut self`, so the connection must be declared `mut`. A `Transaction` dereferences to a `Connection`, so you call the same `execute` and `query_row` on it:
+
+```rust
+use rusqlite::{Connection, Result};
+
+fn add_tags(conn: &mut Connection, tags: &[&str]) -> Result<()> {
+    let tx = conn.transaction()?;
+    for t in tags {
+        tx.execute("INSERT INTO tag (name) VALUES (?1)", [t])?;
+    }
+    tx.commit()
+}
+```
+
+Look at what happens on failure. If any insert fails, `?` returns early, `tx` is dropped without being committed, and `rusqlite` **rolls it back automatically**. So either every tag is stored or none is. You can also roll back explicitly with `tx.rollback()`, for example when a business rule fails even though every SQL statement worked.
+
+## What is special or tricky
+
+Rust's ownership rules enforce the transaction's lifecycle:
+
+- Forgetting `mut` on the connection gives *cannot borrow `conn` as mutable, as it is not declared as mutable*.
+- While `tx` is alive, it holds a mutable borrow of the connection. Calling `conn.query_row(...)` at that point fails with *cannot borrow `conn` as immutable because it is also borrowed as mutable*. Run the query through `tx` instead, or after the transaction ends.
+- `commit` and `rollback` take `self` by value, so they consume the transaction. Using `tx` afterwards is a *use of moved value* error. A finished transaction cannot be reused by accident.
+- Dropping a transaction means undo, not save. If you forget `commit`, the program compiles and runs but your changes are silently discarded. When a write "didn't stick", check this first.
+- Reads inside a transaction see its own pending changes. That is how you can check a condition, such as a negative balance, before you decide whether to commit.
+
+## What you will practise
+
+The drills show the three ways a transaction can end: `commit`, explicit `rollback`, and the automatic rollback when a `Transaction` is dropped at the end of a scope. The challenge asks you to make a two-account transfer atomic, committing only when the result is valid.
+'''
 title = "Database: transactions & atomicity"
 difficulty = 9
 level = "intermediate"
@@ -3029,6 +3594,49 @@ The work is a fixed handful of statements regardless of the numbers — two upda
 
 [[unit]]
 id = "udb3-wal-pool"
+concepts = '''
+## The idea
+
+When many threads share one database, two questions come up: who may read while someone writes, and how each thread gets a connection.
+
+**Journaling** is how a database survives a crash in the middle of a write. SQLite's default *rollback journal* copies the original pages aside, then overwrites the database file in place. While that happens, readers have to wait. **WAL** (*write-ahead logging*) turns this around. New changes are appended to a separate `-wal` file, and readers keep using the last committed snapshot. Periodically a *checkpoint* copies the logged pages back into the main file. As a result, many readers and one writer can run at the same time. Writes are still **serialized**: SQLite allows only one writer at a time.
+
+A **connection pool** solves the second question. Opening a connection costs time, and one connection should not be used by several threads at once. A pool keeps a fixed set of open connections. A thread *checks one out*, uses it, and returns it. The pool's maximum size also caps how many connections hit the database at once.
+
+## How Rust does it
+
+WAL is turned on with a pragma. `PRAGMA journal_mode=WAL` returns the resulting mode as a row, so you read it with `query_row`. Several setup statements can run together with `execute_batch`.
+
+Pooling comes from two crates. `r2d2` is a generic pool, and `r2d2_sqlite` provides `SqliteConnectionManager`, which tells the pool how to open SQLite connections. `with_init` runs a closure on every new connection, which is the right place for per-connection pragmas such as `busy_timeout`:
+
+```rust
+use r2d2_sqlite::SqliteConnectionManager;
+
+let manager = SqliteConnectionManager::file("jobs.db")
+    .with_init(|c| c.execute_batch("PRAGMA busy_timeout=5000;"));
+let pool = r2d2::Pool::builder().max_size(2).build(manager).unwrap();
+
+let worker = pool.clone();
+std::thread::spawn(move || {
+    let conn = worker.get().unwrap();
+    conn.execute("UPDATE job SET done = 1 WHERE id = ?1", [7]).unwrap();
+});
+```
+
+`Pool` is cheap to clone, because every clone shares the same set of connections, so each thread gets its own handle. `pool.get()` returns a pooled connection that dereferences to a `rusqlite::Connection`, so the API you already know works on it. When it is dropped, it goes back to the pool.
+
+## What is special or tricky
+
+- A `rusqlite::Connection` is `Send` but not `Sync`. Sharing one connection across threads through an `Arc` fails to compile with an error saying a `RefCell` *cannot be shared between threads safely*. This is the compiler telling you to use one connection per thread, which is exactly what a pool provides.
+- WAL needs a real file. On an in-memory database the pragma reports `memory`.
+- `SqliteConnectionManager::memory()` gives every pooled connection its own private, empty in-memory database. A table created through one connection is invisible to the others. Use a file for shared state.
+- A connection that finds the database locked waits up to its busy timeout, then fails with a *database is locked* error. Setting `busy_timeout` on every connection makes that wait deliberate instead of relying on defaults.
+- WAL creates `-wal` and `-shm` files next to the database. Use a fresh path per run when tests must not interfere with each other.
+
+## What you will practise
+
+You will enable WAL and read back the mode, check a connection out of a pool, and have several threads write through a shared pool. The challenge combines all three into a concurrent computation whose result never depends on the order the threads run in.
+'''
 title = "Database: WAL & connection pools"
 difficulty = 9
 level = "intermediate"
@@ -3384,6 +3992,49 @@ Every number from 1 to `upto` is inserted exactly once across the threads, so th
 
 [[unit]]
 id = "udb4-n-plus-one"
+concepts = '''
+## The idea
+
+Every query has a fixed cost on top of the actual work. The database has to parse or look up the statement, plan it, and hand back results. With a networked database, every query also pays a **round-trip** over the network. The **N+1 problem** happens when code fetches a list with one query, then runs one more query *per item*. With N items, that makes N+1 queries. It looks innocent in a loop over ten items and becomes the bottleneck at ten thousand. ORMs often produce it silently through *lazy loading*.
+
+The fix is to describe the whole set in **one** query and let the database do the looping, in optimized native code:
+
+- `WHERE id IN (...)` fetches many rows by key at once.
+- A `JOIN` relates rows across tables. For example, `orders JOIN products ON orders.pid = products.id` pairs each order with its product without a lookup per order.
+- **Aggregates** like `SUM`, `COUNT` and `GROUP BY` combine rows inside the database, so only the answer crosses the boundary.
+
+SQLite is embedded, so each round-trip is just a function call. The cost is far smaller than with a server, but it still grows linearly with N. The habit carries over to every database you will use.
+
+## How Rust does it
+
+A fixed list can be written into the SQL directly. When the list comes from your program, you need one placeholder per value and a way to bind a variable number of parameters. `rusqlite::params_from_iter` turns any iterator of values into parameters:
+
+```rust
+use rusqlite::params_from_iter;
+
+let ids = [4, 9];
+let mut stmt = conn.prepare("SELECT name FROM user WHERE id IN (?1, ?2)")?;
+let names: Vec<String> = stmt
+    .query_map(params_from_iter(ids.iter()), |r| r.get(0))?
+    .collect::<rusqlite::Result<_>>()?;
+```
+
+When the length is only known at runtime, you generate the placeholder text from the count, never from the values. Using `format!` on `?` markers is safe. Using it on the data itself brings back SQL injection.
+
+A `JOIN` needs no Rust-side machinery at all. It is just a different SQL string passed to the same `query_row` or `query_map`.
+
+## What is special or tricky
+
+- An aggregate over zero matching rows returns `NULL`, not `0`. `SUM(price)` with no matches makes `r.get::<_, i64>(0)` fail with an invalid column type error. Read into `Option<i64>`, or ask SQL for a default with `COALESCE(SUM(price), 0)`.
+- `IN ()` with an empty list is not valid SQL. Handle the empty case before you build the query.
+- SQLite caps the number of parameters in one statement (32766 in modern versions). Huge lists need batching or a temporary table.
+- The `?NNN` numbers must match the values you bind. A wrong count gives an error about an invalid parameter count.
+- Counting queries, as the drills do, is a good way to make a hidden cost visible and to test for it.
+
+## What you will practise
+
+You will write the N+1 loop with a query counter, collapse it into one `IN` query, and do the same across two tables with a `JOIN`. The challenge asks for a total computed in exactly one query, built from a list whose length is only known at runtime.
+'''
 title = "Database: the N+1 problem"
 difficulty = 9
 level = "intermediate"
@@ -3725,6 +4376,42 @@ Building the `IN` clause and binding the ids is linear in `k`, the number of ids
 
 [[unit]]
 id = "udb5-pagination"
+concepts = '''
+## The idea
+
+**Pagination** splits a large, ordered result into pages so a screen or an API response stays small. There are two families of techniques.
+
+**Offset pagination** says "skip k rows, then take n": `LIMIT n OFFSET k`. It is easy to explain and lets users jump to page 37. But the database cannot teleport to row k. It has to produce and throw away the first k rows, so deep pages cost O(k). It is also *unstable*. If a row is inserted before the current position between two requests, every later row shifts by one, so the next page repeats an item. A deletion makes you skip one.
+
+**Keyset pagination**, also called *seek* or *cursor* pagination, remembers the sort key of the last row you showed and asks for the rows *after* it: `WHERE id > ? ORDER BY id LIMIT n`. With an index on the key (an `INTEGER PRIMARY KEY` is the table's own B-tree key), the database seeks to the cursor in O(log n) and reads only the page. Page 5 and page 50 000 cost the same. Because the cursor is a value and not a position, inserts and deletes elsewhere cannot make you skip or repeat a row. The trade-off is that you can move to the next or previous page, but you cannot jump to an arbitrary page number.
+
+## How Rust does it
+
+Both are just SQL, so in `rusqlite` the difference is the query text and what you bind. SQLite accepts parameters in `LIMIT`, so the page size and the cursor can both be bound:
+
+```rust
+let mut stmt = conn.prepare(
+    "SELECT title FROM post WHERE id < ?1 ORDER BY id DESC LIMIT ?2",
+)?;
+let older: Vec<String> = stmt
+    .query_map((cursor, 20), |r| r.get(0))?
+    .collect::<rusqlite::Result<_>>()?;
+```
+
+This example walks *backwards* through a feed (newest first), using `<` and `DESC`. The cursor for the next request is the last row's id. Your program has to carry it from one call to the next, usually in a variable, or as a token in an API response.
+
+## What is special or tricky
+
+- The sort key must be **unique** and **stable**. If you order by a non-unique column like `created_at`, add a tie-breaker: SQLite supports row values, so `WHERE (created_at, id) > (?1, ?2) ORDER BY created_at, id` works.
+- Without `ORDER BY`, SQL guarantees no order at all. A query that happens to come back sorted today can change when an index is added.
+- The comparison must be strict (`>`, not `>=`), or the last row of one page is repeated as the first row of the next.
+- In SQLite a negative `LIMIT` means **no limit**: `LIMIT -1` returns every row. Validate page sizes before binding them.
+- Past the end, a keyset query simply returns zero rows. With `query_map` that is an empty `Vec`. With `query_row` it is an `Err(QueryReturnedNoRows)`, which `unwrap` turns into a panic.
+
+## What you will practise
+
+You will page with `LIMIT` and `OFFSET`, then with a keyset `WHERE id > ?1`, then walk a table by feeding each page's last id back in as the cursor. The challenge asks you to implement keyset paging with careful edge cases.
+'''
 title = "Database: pagination done right"
 difficulty = 9
 level = "intermediate"
@@ -4054,6 +4741,48 @@ The seek uses the primary-key order to jump straight to the first id after `last
 
 [[unit]]
 id = "udb6-indexes"
+concepts = '''
+## The idea
+
+A table without an index is like a book without a table of contents: to find every row where `email = 'x'`, the database must read *every* row. That is a **full table scan**, O(n). An **index** is an extra data structure, kept sorted by one or more columns, that points back to the rows. SQLite stores both tables and indexes as **B-trees**. These are balanced trees with many keys per node, so even millions of entries are only a few levels deep. A lookup by an indexed value walks down the tree in O(log n).
+
+Indexes are not free. Each one takes disk space, and every `INSERT`, `UPDATE` and `DELETE` must update it too. You add an index for the columns you actually filter, join or sort on, not for every column.
+
+Whether an index is used is the **query planner**'s decision, not yours. So you verify it with `EXPLAIN QUERY PLAN`, which describes the strategy without running the query:
+
+- `SCAN u` means it reads the whole table.
+- `SEARCH u USING INDEX idx_email (email=?)` means it walks the index to the matching rows, then fetches each row.
+- `USING COVERING INDEX` means the index alone holds every column the query needs, so the table is never touched.
+- `USING INTEGER PRIMARY KEY (rowid=?)` means it looks the row up directly by its key in the table's own B-tree.
+
+## How Rust does it
+
+An index is created with ordinary SQL through `execute`. The plan is a normal result set: each row has the columns `id`, `parent`, `notused` and `detail`, and the human-readable text is in column `3`:
+
+```rust
+conn.execute("CREATE INDEX idx_order_customer ON orders (customer_id)", [])?;
+
+let mut stmt = conn.prepare(
+    "EXPLAIN QUERY PLAN SELECT total FROM orders WHERE customer_id = ?1",
+)?;
+for detail in stmt.query_map([42], |r| r.get::<_, String>(3))? {
+    println!("{}", detail?);
+}
+```
+
+## What is special or tricky
+
+- A plan can have **several rows**, for example one per table in a join, or for a subquery. `query_row` silently returns only the first, so iterate with `query_map` when you need the full picture.
+- Selecting only indexed columns turns `USING INDEX` into `USING COVERING INDEX`. A test that checks for the exact substring can be surprised by that.
+- An index stops helping when the column is wrapped in an expression. `WHERE lower(email) = ?1` cannot use an index on `email`, and neither can a leading-wildcard `LIKE '%gmail.com'`.
+- A multi-column index on `(a, b)` helps with filters on `a`, or on `a` and `b`, but not on `b` alone. This is the *leftmost prefix* rule.
+- The exact wording of plan text has changed across SQLite versions (older ones printed `SCAN TABLE u`). Match stable keywords like `SCAN` and `USING INDEX`, not whole lines.
+- On a tiny table, an index makes no measurable difference. The plan, not a timer, is how you prove it is used.
+
+## What you will practise
+
+You will compare the plan for the same lookup with and without an index, then do an indexed lookup among a hundred rows. The challenge asks you to collect a plan's details in code and confirm that the index is really used.
+'''
 title = "Database: indexes & query plans"
 difficulty = 9
 level = "intermediate"
@@ -4365,6 +5094,65 @@ The function builds a tiny fixed table, adds one index, and inspects a single qu
 
 [[unit]]
 id = "u10-traits"
+concepts = '''
+## The idea
+
+Many unrelated types share a behaviour: a file, a network socket and a byte buffer can all be "written to"; a number, a date and a user can all be "displayed". Instead of copying that logic into each type, or forcing the types into a family tree, we name the behaviour once as an **interface**: a contract listing the operations a type must offer. Code written against the contract then works with any type that signs it.
+
+This is **polymorphism**: one piece of code, many concrete types. Object-oriented languages often get it through **inheritance** (a subclass is-a parent class). Rust has no inheritance between structs. Data lives in structs and enums; shared behaviour lives in **traits**, and the two meet in `impl` blocks.
+
+## How Rust does it
+
+A trait lists method signatures. Each type opts in with its own `impl Trait for Type` block, and may rely on default bodies the trait provides:
+
+```rust
+trait Summary {
+    fn headline(&self) -> String;
+    fn teaser(&self) -> String {
+        format!("{}...", self.headline())
+    }
+}
+
+struct Post { title: String }
+
+impl Summary for Post {
+    fn headline(&self) -> String {
+        self.title.clone()
+    }
+}
+```
+
+`Post` supplied only the required method, `headline`, and got `teaser` for free. It could still override `teaser` by writing its own version inside the `impl`.
+
+Traits also work on types you did not write. You can implement your own trait for a standard type:
+
+```rust
+trait Shout {
+    fn shout(&self) -> String;
+}
+
+impl Shout for str {
+    fn shout(&self) -> String {
+        self.to_uppercase() + "!"
+    }
+}
+```
+
+Now `"hi".shout()` returns `"HI!"`. The standard library is built the same way: `Display`, `Debug`, `Clone`, `PartialEq` and `Iterator` are all ordinary traits.
+
+## What is special or tricky
+
+- **Implement every required method.** Leaving one out gives error `E0046`: "not all trait items implemented, missing: ...". Default methods are optional.
+- **Signatures must match exactly.** Writing `fn headline(self)` where the trait says `&self` is a mismatch, not an overload.
+- **The trait must be in scope to call its methods.** If `Summary` lives in another module and you forget `use`, the compiler reports "no method named `teaser` found" and suggests the import.
+- **The orphan rule.** You may implement a trait for a type only if the trait or the type belongs to your crate. Your trait for `str` is fine, and so is `Display` for your own struct. Implementing `Display` for `Vec<i32>` is rejected (`E0117`), because both come from the standard library. This stops two crates from giving conflicting implementations.
+- **A trait cannot require a field.** If a default method needs data, it reaches it through a required method, the way `teaser` calls `headline`.
+- **`self` is the implementing type.** Inside the `impl`, `&self` is a `&Post`, so you can read its fields directly.
+
+## What you will practise
+
+The drills have you declare a trait, implement it for one type and then for two, and lean on a default method that calls a required one. The challenge asks you to implement a small trait for a struct and use it from a free function.
+'''
 title = "Traits & impl: behaviour as a contract"
 difficulty = 10
 level = "advanced"
@@ -4739,6 +5527,59 @@ the cost: behaviour lives in the `Greet` trait, `Person` implements it, and
 
 [[unit]]
 id = "u11-generics"
+concepts = '''
+## The idea
+
+Some algorithms do not care what kind of value they handle. Reversing a list, wrapping a value in a container or swapping two items works the same for integers, strings and structs. Writing a separate copy per type is tedious and error-prone. Taking "any value" with no type information gives up the compiler's checks.
+
+**Parametric polymorphism**, or **generics**, solves this. A function or type takes a **type parameter**, a variable that stands for a type the same way an ordinary parameter stands for a value. The caller, or the compiler's inference, decides what the parameter is at each use, and the code is still fully type-checked.
+
+## How Rust does it
+
+Type parameters go in angle brackets after the name. By convention they are single capital letters such as `T`, `U` or `K`:
+
+```rust
+fn wrap<T>(x: T) -> Vec<T> {
+    vec![x]
+}
+
+struct Stack<T> {
+    items: Vec<T>,
+}
+
+impl<T> Stack<T> {
+    fn push(&mut self, x: T) {
+        self.items.push(x);
+    }
+    fn peek(&self) -> Option<&T> {
+        self.items.last()
+    }
+}
+```
+
+`wrap(5)` makes `T = i32`, and `wrap("hi")` makes `T = &str`. Note the `impl<T>`: you declare the parameter on the `impl` before using it in `Stack<T>`. You have already used generic types from the standard library: `Vec<T>`, `Option<T>`, `Result<T, E>` and `HashMap<K, V>`.
+
+A generic `T` is opaque. The body may only move it, store it, or hand out references to it. To do anything more, such as compare, print, copy or add, the parameter needs a **bound** naming a trait:
+
+```rust
+fn show_twice<T: std::fmt::Display>(x: T) -> String {
+    format!("{x} {x}")
+}
+```
+
+Rust compiles generics by **monomorphization**. For every concrete type you actually use, the compiler stamps out a specialised copy. So `wrap::<i32>` and `wrap::<&str>` become two ordinary functions in the binary. The cost is more compile time and code size, not run time.
+
+## What is special or tricky
+
+- **Bounds are required up front.** Classic C++ templates are checked only when instantiated. Rust checks the generic body once, against its bounds. Writing `a > b` on a bare `T` fails with `E0369` ("binary operation `>` cannot be applied to type `T`"). The fix is to add `T: PartialOrd`, not to change the call site.
+- **Moving out of a slice.** Returning `xs[0]` for a `T` that is not `Copy` gives "cannot move out of type `[T]`, a non-copy slice". You can require `T: Copy`, return a reference (`&T`), or clone.
+- **Inference needs a clue.** If nothing fixes `T`, for example with an empty collection, the compiler says "type annotations needed". Supply the type with the **turbofish**, as in `Vec::<i32>::new()` or `wrap::<u8>(0)`.
+- **`Option` is natural for "maybe nothing".** A generic function that can find nothing, such as on an empty input, usually returns `Option<T>` instead of panicking.
+
+## What you will practise
+
+The drills cover a generic function, a generic struct with a bounded `impl` block, and a `Display`-bounded formatter. The challenge combines two bounds, `PartialOrd + Copy`, with an `Option<T>` result over a slice.
+'''
 title = "Generics: write it once, for every type"
 difficulty = 11
 level = "advanced"
@@ -5042,6 +5883,65 @@ serves `i32`, `f64` and `char` alike.
 
 [[unit]]
 id = "u12-trait-bounds"
+concepts = '''
+## The idea
+
+A generic parameter on its own promises nothing, so the code can do almost nothing with it. A **trait bound** is a constraint: "`T` may be any type, *provided it implements these traits*." In type-theory terms this is **bounded** (or constrained) polymorphism. The bound plays two roles at once:
+
+- For the **body**, it is a permission. Each bound unlocks a set of operations: `PartialEq` allows `==`, `Debug` allows `{:?}`, `Clone` allows `.clone()`.
+- For the **caller**, it is an obligation. Only types that satisfy every bound may be passed in.
+
+Because both sides are checked, a generic function that compiles is correct for *every* type it accepts. There are no surprises at instantiation time.
+
+## How Rust does it
+
+Bounds can be written inline, combined with `+`, or moved to a `where` clause. These two signatures mean exactly the same:
+
+```rust
+use std::fmt::Debug;
+
+fn report<T: Debug + PartialOrd>(a: T, b: T) {
+    if a < b { println!("{:?} < {:?}", a, b); }
+}
+
+fn report2<T>(a: T, b: T)
+where
+    T: Debug + PartialOrd,
+{
+    if a < b { println!("{:?} < {:?}", a, b); }
+}
+```
+
+Prefer `where` once there are several parameters or long bounds. It keeps the name, arguments and return type readable.
+
+Bounds also go on `impl` blocks, so a method exists only when the type parameter qualifies:
+
+```rust
+struct Wrapper<T>(T);
+
+impl<T: std::fmt::Display> Wrapper<T> {
+    fn render(&self) -> String {
+        format!("[{}]", self.0)
+    }
+}
+```
+
+`Wrapper(3).render()` works, while a `Wrapper` holding a type without `Display` simply has no `render` method.
+
+A useful habit is to ask for the *weakest* bound that does the job. `PartialEq` is enough for equality tests, and `Copy` would rule out `String`. Every extra bound shrinks the set of types your function accepts.
+
+## What is special or tricky
+
+- **The canonical error.** Calling a bounded function with an unsuitable type gives `E0277`: "the trait bound `MyType: Debug` is not satisfied". For your own structs, `#[derive(Debug)]` (or `Clone`, `PartialEq`, `PartialOrd`) is usually the fix.
+- **Missing bound inside the body.** Using `==` on a bare `T` fails with "binary operation `==` cannot be applied to type `T`". The compiler often suggests the exact bound to add.
+- **Comparing through references.** With `xs: &[T]`, iterating yields `&T`. `PartialEq` is implemented between references whose targets are comparable, so `&T == &T` works. Comparing a `&T` with a `T` does not, so keep both sides at the same level of indirection.
+- **`where` is mostly a layout choice.** It becomes necessary only for bounds that cannot be written inline, such as a bound on `T::Item`.
+- **Bounds on struct definitions are rarely needed.** Put them on the `impl` blocks and functions that actually use the capability.
+
+## What you will practise
+
+You will write an inline `Debug` bound, rewrite a bound as a `where` clause, and combine `Display + Clone`. The challenge uses a `where T: PartialEq` bound to compare elements of a slice against a target.
+'''
 title = "Trait bounds: spelling out what a type can do"
 difficulty = 12
 level = "advanced"
@@ -5338,6 +6238,61 @@ comparable.
 
 [[unit]]
 id = "u13-associated-types"
+concepts = '''
+## The idea
+
+Some traits involve more than one type. An iterator produces *items*; a parser produces *output*; adding two values yields a *result*. The trait needs a way to talk about that secondary type without fixing it in advance.
+
+One option is a generic parameter on the trait itself, like `trait Convert<T>`. That allows *many* implementations per type: `Convert<i32>`, `Convert<String>`, and so on. The other option is an **associated type**: a type slot declared inside the trait that each implementation fills in *exactly once*. It works like a **type-level function**: given the implementing type, it determines the related type. An iterator over a `Vec<u8>` yields `u8`, and nobody has to repeat that at every use site.
+
+## How Rust does it
+
+Declare the slot with `type Name;` and refer to it as `Self::Name` in signatures. Each `impl` assigns it with `type Name = Concrete;`:
+
+```rust
+trait Source {
+    type Output;
+    fn produce(&mut self) -> Self::Output;
+}
+
+struct Ticker { count: u32 }
+
+impl Source for Ticker {
+    type Output = u32;
+    fn produce(&mut self) -> u32 {
+        self.count += 1;
+        self.count
+    }
+}
+```
+
+The standard `Iterator` trait has the same shape: `type Item` plus `next(&mut self) -> Option<Self::Item>`. Its adaptors, such as `map`, `filter`, `take`, `sum` and `collect`, are provided methods built on `next`. Implementing `next` buys you the whole toolbox, and any `Iterator` works directly in a `for` loop.
+
+To constrain an associated type in a bound, use the `Name = Type` syntax inside the angle brackets:
+
+```rust
+fn total<I>(it: I) -> u64
+where
+    I: Iterator<Item = u64>,
+{
+    it.sum()
+}
+```
+
+The two mechanisms can coexist. `std::ops::Add<Rhs = Self>` takes a generic `Rhs`, so a type may be added to several right-hand types, and each of those impls fixes a single `type Output`.
+
+## What is special or tricky
+
+- **One impl, one choice.** You cannot implement `Iterator` twice for the same type with different `Item`s; the compiler reports conflicting implementations. If you really need several, the trait needs a generic parameter instead.
+- **Mismatched signatures.** If you write `type Item = u32;` but `fn next(&mut self) -> Option<i64>`, you get `E0053` (incompatible type for trait). Writing `Option<Self::Item>` avoids the slip.
+- **Forgetting the assignment.** Omitting `type Item = ...;` is a missing trait item (`E0046`), just like forgetting a method.
+- **Iterators are lazy and stateful.** `next` takes `&mut self` because it advances internal state. An adaptor like `map` does nothing until something pulls values, such as a `for` loop, `sum` or `collect`. A `collect` usually needs a type annotation on the target, like `Vec<u32>`.
+- **Infinite is fine.** An iterator that never returns `None` is legal, as long as a consumer such as `take(n)` limits it. Otherwise a `for` loop over it never ends.
+
+## What you will practise
+
+You will implement `Iterator` for a countdown, declare your own trait with an associated type, and use `sum`, `filter` and `collect`. The challenge asks for an iterator whose `next` carries its own state, consumed through the standard adaptors.
+'''
 title = "Associated types: a type the trait names"
 difficulty = 13
 level = "advanced"
@@ -5698,6 +6653,57 @@ hand-written `next` defines the sequence, and `take`/`collect` — generic over 
 
 [[unit]]
 id = "u14-dispatch"
+concepts = '''
+## The idea
+
+When code calls a method through an abstraction, something has to decide *which* implementation runs. That decision is called **dispatch**, and it can happen at two times.
+
+- **Static dispatch:** the compiler knows the concrete type, so it emits a direct call and can **inline** it. This is what monomorphized generics give you. It is fast, but each use is fixed to one type.
+- **Dynamic dispatch:** the concrete type is only known at run time. The value carries a pointer to a **vtable**, a table of function pointers for that type's implementation, and each call jumps through it. It costs an indirect call and blocks inlining, but one variable can hold different types.
+
+This is the classic trade-off between compile-time and run-time polymorphism. Virtual methods in C++ or Java use dynamic dispatch.
+
+## How Rust does it
+
+Static dispatch is spelled with generics, or with the shorter `impl Trait`. In argument position it is an anonymous generic. In return position it means "some single concrete type I will not name":
+
+```rust
+fn evens(limit: u32) -> impl Iterator<Item = u32> {
+    (0..limit).filter(|n| n % 2 == 0)
+}
+```
+
+Dynamic dispatch uses a **trait object**, `dyn Trait`, always behind a pointer such as `&dyn Trait`, `Box<dyn Trait>` or `Arc<dyn Trait>`. The pointer is **fat**: one word for the data and one for the vtable.
+
+```rust
+use std::fmt::Display;
+
+fn main() {
+    let items: Vec<Box<dyn Display>> =
+        vec![Box::new(3), Box::new("three"), Box::new(3.5)];
+    for it in &items {
+        println!("{it}");
+    }
+}
+```
+
+An `i32`, a `&str` and an `f64` sit in one vector, because every element has the same type, `Box<dyn Display>`. Method calls auto-dereference through the box.
+
+## What is special or tricky
+
+- **`dyn Trait` is unsized.** Different implementers have different sizes, so a bare `dyn Shape` cannot be a local variable or a `Vec` element. The error is `E0277`: "the size for values of type `dyn Shape` cannot be known at compilation time". Put it behind `&` or `Box`.
+- **The `dyn` keyword is mandatory** in the 2021 edition. Writing `Box<Shape>` is an error that asks you to add `dyn`.
+- **`impl Trait` is still one type.** A function returning `impl Shape` cannot return a `Square` in one branch and a `Circle` in another; you get a mismatched-types error. Return `Box<dyn Shape>` instead.
+- **A generic `Vec<T>` is homogeneous.** `T` is fixed once per instantiation, so a `Square` and a `Circle` cannot share a `Vec<T>`.
+- **Annotate the boxed vector.** Without `Vec<Box<dyn Trait>>`, the compiler infers `Box<Square>` from the first element and rejects the second.
+- **Not every trait can be `dyn`.** Unit 16 covers the object-safety rules.
+
+Rule of thumb: default to generics or `impl Trait`. Choose `dyn` for mixed collections, plugin-style registries, or to keep compile times and binary size down.
+
+## What you will practise
+
+You will use `impl Trait` in argument and return position, build a `Vec<Box<dyn Shape>>`, and pass values as `&dyn Display`. The challenge works over a slice of boxed trait objects of different concrete types.
+'''
 title = "Static vs dynamic dispatch"
 difficulty = 14
 level = "advanced"
@@ -6143,6 +7149,53 @@ Shape>` erases it.
 
 [[unit]]
 id = "u15-lifetimes"
+concepts = '''
+## The idea
+
+A reference is only safe while the value it points to is alive. If the value is dropped or moved and the reference survives, you have a **dangling pointer**. That is the use-after-free bug behind many crashes and security holes in C and C++. Garbage-collected languages avoid it by keeping data alive as long as anything points to it.
+
+Rust takes a third route. Every reference has a **lifetime**: the region of the program during which it is valid. The **borrow checker** proves, at compile time, that no reference outlives its **referent**. Lifetimes are a static proof, not a run-time mechanism. They generate no code and never change *when* a value is dropped. They only describe constraints the compiler must verify.
+
+## How Rust does it
+
+Inside a function body the compiler infers lifetimes itself. Annotations are needed only at boundaries, in function signatures and struct definitions. A lifetime parameter is written `'a` and declared like a generic:
+
+```rust
+fn pick_first<'a>(a: &'a str, _b: &str) -> &'a str {
+    a
+}
+```
+
+This says the result borrows from `a` only, so the caller may drop the second argument and keep the result. Annotations describe relationships between inputs and outputs; they never extend how long anything lives.
+
+**Elision rules** let you skip most annotations:
+
+1. Each reference parameter gets its own lifetime.
+2. If there is exactly one input lifetime, every output reference gets it.
+3. In a method with `&self` or `&mut self`, the output borrows from `self`.
+
+If none of these settles an output lifetime, you must write it. A struct that stores a reference also declares the lifetime, so it can never outlive the data it borrows:
+
+```rust
+struct Token<'a> {
+    text: &'a str,
+}
+```
+
+The special lifetime `'static` means "valid for the whole program". String literals are `&'static str`, because they are stored in the binary.
+
+## What is special or tricky
+
+- **`E0106` "missing lifetime specifier".** You will see this when a function returns a reference but has two reference inputs, or none. The compiler cannot tell which input the output borrows from.
+- **Returning a reference to a local.** Building a `String` inside a function and returning a `&str` to it is rejected (`E0515`, "cannot return reference to local variable"). Return the owned `String` instead.
+- **`E0597` "does not live long enough".** This appears when a value is dropped at the end of an inner block while a reference to it is still used later. Move the value to an outer scope.
+- **Slices borrow from their source.** Methods like `split`, `lines` and `split_whitespace` return `&str` pieces pointing into the original string, not copies. That is why a function can return one of those pieces without allocating, and why its lifetime is tied to the input.
+- **`'static` is not a fix-all.** Marking everything `'static` only works for data that truly lives forever. Usually it just moves the error elsewhere.
+
+## What you will practise
+
+The drills cover a function with a named `'a`, a struct holding `&'a str`, and an elided signature. The challenge has you return a slice borrowed from the input string, relying on elision to tie the two together.
+'''
 title = "Lifetimes: how long a reference is valid"
 difficulty = 15
 level = "advanced"
@@ -6447,6 +7500,55 @@ pick the last` because `max_by_key` keeps the later of equal maxima.
 
 [[unit]]
 id = "u16-send-sync"
+concepts = '''
+## The idea
+
+Running code on several threads at once creates the risk of **data races**. A data race happens when two threads access the same memory at the same time, at least one of them writes, and nothing orders the accesses. The result is undefined behaviour, and the bugs appear only under unlucky timing. Most languages leave race prevention to programmer discipline, locks and testing.
+
+Rust makes thread safety a **type property**. Two **marker traits**, which have no methods and only record facts about a type, describe what may cross a thread boundary. Threading APIs require them, so race-prone code fails to compile. This is often called **fearless concurrency**.
+
+## How Rust does it
+
+- **`Send`**: ownership of the value can be transferred to another thread.
+- **`Sync`**: the value can be referenced from several threads at once. Formally, `T` is `Sync` exactly when `&T` is `Send`.
+
+Both are **auto traits**: the compiler implements them for your struct automatically when all its fields have them. `thread::spawn` requires its closure to be `Send + 'static`, so it may only capture data it owns. That is why you write `move`:
+
+```rust
+use std::thread;
+
+fn main() {
+    let name = String::from("worker");
+    let h = thread::spawn(move || name.len());
+    println!("{}", h.join().unwrap());
+}
+```
+
+`join` returns a `Result`, which is `Err` if the thread panicked. To give several threads read access to the same data, wrap it in `Arc<T>` (atomically reference counted) and give each thread its own `Arc::clone`. Cloning an `Arc` copies a pointer and bumps a thread-safe counter; the data is not duplicated.
+
+**Object safety**, which newer compiler versions call *dyn compatibility*, decides whether a trait can be used as `dyn Trait`. A vtable needs one fixed entry per method, so methods must not be generic and must not return `Self`, unless they opt out of `dyn` with `where Self: Sized`:
+
+```rust
+trait Shape {
+    fn area(&self) -> f64;
+    fn scaled(&self, k: f64) -> Self where Self: Sized;
+}
+```
+
+`Box<dyn Shape>` still works, but you cannot call `scaled` through it.
+
+## What is special or tricky
+
+- **Forgetting `move`** gives `E0373`: "closure may outlive the current function, but it borrows `name`". The thread might run longer than the function that owns the data.
+- **`Rc` is not `Send`.** Its counter is not atomic, so capturing an `Rc` in `thread::spawn` fails with `E0277`: "`Rc<...>` cannot be sent between threads safely". Use `Arc` for cross-thread sharing.
+- **`Arc` gives shared, read-only access.** Mutating through it requires a lock such as `Mutex`, which is a topic for later.
+- **Using a value after moving it** into a closure is `E0382` (borrow of moved value). Clone first, for example with `Arc::clone`, then move the clone.
+- **A non-dyn-compatible trait** gives `E0038` when used as `dyn`, and the message names the offending method.
+
+## What you will practise
+
+The drills move a vector into a thread, share one through `Arc` across several threads, and store object-safe trait objects in a `Vec<Box<dyn Draw>>`. The challenge has you split work among threads and combine their results, using only `std::thread` and `Arc`.
+'''
 title = "Send, Sync & object safety"
 difficulty = 16
 level = "advanced"
@@ -6831,6 +7933,48 @@ the compiler would reject the code otherwise.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u17-threads"
+concepts = '''
+## The idea
+
+A **process** is a running program with its own memory. Inside it, a **thread** is one line of execution: a program counter, a stack of function calls, and its local variables. Every program starts with one thread, the one running `main`. Starting more lets one program make progress on several tasks at once. On a multi-core machine they truly run in parallel; on one core the operating system's **scheduler** switches between them.
+
+Threads in one process share the heap. That makes cooperation cheap, but it brings two hazards. A **data race** happens when two threads touch the same memory at once and at least one writes. **Nondeterminism** means the order in which threads run changes from one run to the next. A correct concurrent program gives the same answer whatever the scheduler does.
+
+## How Rust does it
+
+`std::thread::spawn` takes a closure, starts it on a new thread and returns a `JoinHandle<T>`, where `T` is what the closure returns. Calling `join` blocks until that thread ends and hands back its result inside a `Result`:
+
+```rust
+use std::thread;
+
+fn main() {
+    let words = vec!["alpha", "beta", "gamma"];
+    let handle = thread::spawn(move || words.len());
+    let n = handle.join().unwrap();
+    println!("{n} words");
+}
+```
+
+The `move` keyword makes the closure take ownership of everything it captures. Here `words` now belongs to the new thread, and the thread passes back a plain `usize`. Returning a value through `join` is the simplest way to get a result out of a thread, because no memory is shared at all.
+
+## What is special or tricky
+
+The rules come from the type system. `spawn` requires the closure to be `'static` and `Send`:
+
+- **`'static`** means the closure may not borrow short-lived locals, because the new thread might outlive the function that spawned it. Forget `move` and you get `error[E0373]: closure may outlive the current function, but it borrows ...`. The compiler even suggests adding `move`.
+- **`Send`** marks types that are safe to move to another thread. `String`, `Vec<T>` and numbers are `Send`. `Rc<T>` is not, so moving one into a thread fails with ``error[E0277]: `Rc<...>` cannot be sent between threads safely``.
+- After a `move`, the original variable is gone. Using it again on the spawning thread gives `error[E0382]: borrow of moved value`. Clone first if both sides need a copy.
+
+Some runtime behaviour to know:
+
+- When `main` returns, the whole process exits and any unjoined threads are killed mid-work. Keep every `JoinHandle` and join it.
+- `join` returns `Err` if the thread panicked. That is why we call `unwrap`: it passes the panic on to the joining thread.
+- Output from several threads can interleave in any order. Never rely on which thread "goes first". Combine results after joining instead.
+
+## What you will practise
+
+You will spawn and join a thread, move an owned `String` into one, and combine values returned by two threads. The challenge asks you to split some owned data so that each of two threads gets its own part. Think about how each half can become an owned value the thread can take with `move`.
+'''
 title = "Threads"
 difficulty = 17
 level = "advanced"
@@ -7137,6 +8281,56 @@ there is no data race.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u18-channels"
+concepts = '''
+## The idea
+
+Threads can cooperate in two ways: they can share memory and coordinate access to it, or they can **pass messages**. A **channel** is a thread-safe queue with two ends. Producers put values in at one end and a consumer takes them out at the other, in the order they were sent (FIFO).
+
+This is the **producer–consumer** pattern. It splits a job into stages that talk only through the queue, so no stage needs to know how the others work. Because each message changes hands rather than being shared, there is nothing for two threads to fight over.
+
+## How Rust does it
+
+`std::sync::mpsc` gives a *multi-producer, single-consumer* channel. `mpsc::channel()` returns a `(Sender<T>, Receiver<T>)` pair, and the element type `T` is usually inferred from the first `send`.
+
+```rust
+use std::sync::mpsc;
+use std::thread;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        for word in ["red", "green", "blue"] {
+            tx.send(word.to_uppercase()).unwrap();
+        }
+    });
+    let all: Vec<String> = rx.iter().collect();
+    println!("{all:?}");
+}
+```
+
+- `send` **moves** the value into the channel. Once sent, the producer no longer owns it.
+- `recv` blocks until a message arrives. It returns `Err` once the channel is empty and every `Sender` has been dropped.
+- `rx.iter()`, or `for msg in rx`, keeps receiving until that same point. That is why the loop above ends by itself when the producer thread finishes and drops `tx`.
+- `try_recv` checks for a message without blocking.
+
+For several producers, clone the sender: each `tx.clone()` is another handle feeding the same receiver.
+
+## What is special or tricky
+
+Ownership is what makes channels safe in Rust. After `tx.send(s)`, using `s` again is a compile error, `error[E0382]: borrow of moved value`. You simply cannot keep a reference to data another thread now owns. The value type must be `Send`, so an `Rc` cannot go down a channel either.
+
+The classic runtime bug is a **hang**. The receiving loop only ends when *all* senders are gone. If `main` creates `tx`, moves only clones into worker threads, and keeps the original, then `for msg in rx` waits forever, because `main` still holds a live sender. Fix it by moving the original into a thread too, or by calling `drop(tx)` before the loop.
+
+Other points to remember:
+
+- `send` returns `Err` if the receiver has already been dropped. `unwrap` turns that into a panic, which is fine in small programs.
+- `mpsc::channel()` is unbounded: `send` never blocks, so a fast producer can pile up memory. `mpsc::sync_channel(n)` gives a bounded queue that makes the producer wait once it is full.
+- With several producers, the order *between* producers is not fixed. Only messages from the same sender keep their relative order.
+
+## What you will practise
+
+The drills send a single value, iterate a receiver until it closes, and merge two producers into one consumer. In the challenge you build a full producer–consumer pipeline. Pay attention to who owns the `Sender`, so that the consumer's loop really does end.
+'''
 title = "Channels"
 difficulty = 18
 level = "advanced"
@@ -7459,6 +8653,54 @@ so every element is accounted for, including zero elements for an empty input.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u19-shared-state"
+concepts = '''
+## The idea
+
+Sometimes several threads really do need the same piece of data: a counter, a log, a cache. Two problems have to be solved together. One is **ownership**: who keeps the value alive while several threads use it? The other is **synchronisation**: how do we stop two threads from writing it at the same moment?
+
+The classic answer to the second is a **mutex** (mutual exclusion lock). The code that touches the shared data is the **critical section**. A thread must acquire the lock before entering it, and only one thread can hold the lock at a time, so updates happen one after another instead of colliding. The price is **contention**: threads queue for the lock, so a lock held for a long time throws away parallelism.
+
+## How Rust does it
+
+Rust has one type for each problem:
+
+- `Arc<T>` (atomically reference-counted) gives shared ownership across threads. `Arc::clone` makes a new handle and bumps a counter, and the value is freed when the last handle drops. On its own it gives only shared, read-only access.
+- `Mutex<T>` **contains** the data it protects. The only way to reach the value is `lock()`, which returns a `MutexGuard`. The guard derefs to the value, and dropping it releases the lock.
+
+```rust
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn main() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let handles: Vec<_> = ["load", "save"].into_iter().map(|job| {
+        let log = Arc::clone(&log);
+        thread::spawn(move || {
+            log.lock().unwrap().push(format!("{job} done"));
+        })
+    }).collect();
+    for h in handles { h.join().unwrap(); }
+    println!("{} entries", log.lock().unwrap().len());
+}
+```
+
+Because the data lives *inside* the mutex, you cannot forget to lock it. That is a design choice: in many languages the lock and the data are separate, and nothing checks that you use them together.
+
+## What is special or tricky
+
+The compiler enforces most of this. Using `Rc` instead of `Arc` is rejected with an `E0277` error saying the type cannot be sent between threads safely. Mutating through a bare `Arc`, with no `Mutex` inside, is rejected too, because an `Arc` only hands out shared references. The marker traits behind it are `Send`, which means safe to move to another thread, and `Sync`, which means safe to share by reference. Wrapping a `Send` type in a `Mutex` makes it `Sync`.
+
+What the compiler cannot catch:
+
+- **Deadlock.** Locking the same `Mutex` twice in one thread, while the first guard is still alive, never returns (or panics). Two threads that each hold one lock and wait for the other also freeze.
+- **Guard lifetime.** The lock is held until the guard drops. A guard stored in a `let` lives until the end of its block, so wrap short updates in their own `{ }` scope. A temporary guard, as in `*m.lock().unwrap() += 1;`, drops at the end of that statement.
+- **Poisoning.** If a thread panics while holding the lock, the mutex becomes poisoned and later `lock()` calls return `Err`. That is the reason for the `unwrap`.
+- Join every thread **before** reading the final value, or you will see a partial result.
+
+## What you will practise
+
+The drills lock a `Mutex` inside a scope, share a counter with `Arc<Mutex<_>>`, and fill a shared vector from several threads. The challenge scales the counter pattern up. Decide where each `Arc::clone` happens and how long each lock is held.
+'''
 title = "Shared state"
 difficulty = 19
 level = "advanced"
@@ -7812,6 +9054,49 @@ either factor is `0`.
 # ═════════════════════════════════════════════════════════════════════════════
 [[unit]]
 id = "u20-parallelism"
+concepts = '''
+## The idea
+
+**Concurrency** means structuring a program as tasks that can make progress independently. **Parallelism** means actually running them at the same time on several cores to finish sooner. This unit is about **data parallelism**: apply the same work to different pieces of the data.
+
+The recipe is **split, compute, combine**. Cut the input into disjoint **chunks**, process each on its own thread, then **reduce** the partial results into one answer. Because the chunks do not overlap, threads never write the same memory, so you need no locks and there are no races. For this to work, the combining step must be **associative**: summing or counting chunk by chunk gives the same total as one long pass.
+
+Speed-up has limits. Starting threads costs time, and any part that stays sequential caps the gain (this is *Amdahl's law*). Tiny inputs are often faster on one thread.
+
+## How Rust does it
+
+With plain `thread::spawn`, every thread must own its data, which pushes you towards cloning or `Arc`. The standard library has a lighter tool for borrowed data: `std::thread::scope`. Threads started with `s.spawn` inside the scope may borrow local variables, because `scope` does not return until all of them have finished. No external crate is involved.
+
+```rust
+use std::thread;
+
+fn main() {
+    let temps = [12, 31, 7, 25, 19, 28, 3];
+    let maxima: Vec<i32> = thread::scope(|s| {
+        let handles: Vec<_> = temps
+            .chunks(3)
+            .map(|part| s.spawn(move || *part.iter().max().unwrap()))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    println!("{:?}", maxima.iter().max());
+}
+```
+
+`slice.chunks(n)` yields consecutive sub-slices of length `n`, and the last one may be shorter. Joining the handles in the order they were created keeps the reduction **deterministic**, whatever order the threads actually finish in.
+
+## What is special or tricky
+
+- **`move` with borrowed slices.** In the example, `part` is a reference that lives only for one step of `map`. The closure needs `move` so that it *copies the reference* into the thread instead of borrowing a short-lived local. The data itself is still borrowed from `temps`.
+- **Remainders.** Giving each worker exactly `len / k` elements silently drops the leftover items when `len` is not a multiple of `k`. Either give the last chunk the rest, or use a rounded-up chunk size.
+- **Zero.** `chunks(0)` panics, and so does dividing by zero workers. Handle zero and empty inputs before you split.
+- **Panics.** If a scoped thread panics and you did not join it yourself, `scope` panics too, after all its threads have finished.
+- **How many threads?** `std::thread::available_parallelism()` reports how many threads can usefully run at once. Spawning far more than that adds overhead without speed.
+
+## What you will practise
+
+The drills borrow data in a scoped thread, sum chunks and reduce them by index, and count matches across two halves. The challenge asks you to spread an expensive test across several workers. Make sure every candidate lands in exactly one chunk and that the edge cases are handled before splitting.
+'''
 title = "Parallelism"
 difficulty = 20
 level = "advanced"
@@ -8191,6 +9476,53 @@ same total as a single-threaded scan, for any number of workers.
 
 [[unit]]
 id = "u21-stacks-queues"
+concepts = '''
+## The idea
+
+Stacks and queues are **abstract data types**. They are defined by what they let you do, not by how they are stored.
+
+- A **stack** is last in, first out (LIFO). You push onto the top and pop from the top, like a pile of plates. Stacks fit work where the most recent item matters first: undo history, nested structures, depth-first search, and the call stack your program runs on.
+- A **queue** is first in, first out (FIFO). You enqueue at the back and dequeue from the front, like a line at a counter. Queues give fair, in-order processing: task schedulers, buffers, breadth-first search.
+
+The key requirement is that the core operations run in **O(1)** time, meaning constant time regardless of how many items are stored.
+
+## How Rust does it
+
+There is no separate stack type, because `Vec<T>` already is one. `push` and `pop` work at the end of the buffer. `pop` is O(1), and `push` is **amortised** O(1): when the buffer is full, `Vec` grows its capacity (roughly doubling it) and copies everything once, and over many pushes that copying averages out to a constant per push. `last()` lets you look at the top without removing it.
+
+```rust
+let mut history: Vec<String> = Vec::new();
+history.push("type hello".to_string());
+history.push("delete word".to_string());
+if let Some(action) = history.pop() {
+    println!("undo: {action}");
+}
+println!("next undo: {:?}", history.last());
+```
+
+For queues, use `std::collections::VecDeque<T>`. It is a **ring buffer**: a growable array whose start index moves, so `push_back`, `push_front`, `pop_back` and `pop_front` are all O(1) (amortised for pushes). `front()` and `back()` peek without removing.
+
+```rust
+use std::collections::VecDeque;
+
+let mut jobs = VecDeque::from(vec!["compile", "test"]);
+jobs.push_back("deploy");
+while let Some(job) = jobs.pop_front() {
+    println!("running {job}");
+}
+```
+
+## What is special or tricky
+
+- **Emptiness is a value, not a crash.** `pop` and `pop_front` return `Option<T>`, which is `None` when the container is empty. The compiler makes you deal with that, usually with `while let`, `match` or `if let`.
+- **Owned or borrowed.** `pop` *moves* the element out to you, as an `Option<T>`. `last()` and `front()` only lend it, as an `Option<&T>`. While such a borrow is alive you cannot push or pop, and the borrow checker reports `error[E0502]: cannot borrow ... as mutable because it is also borrowed as immutable`. Copy or clone the peeked value first, or finish using it.
+- **Do not fake a queue with `Vec`.** `vec.remove(0)` shifts every remaining element, which is O(n) per dequeue and O(n²) over a whole run. `VecDeque` exists precisely to avoid that.
+- Printing a `VecDeque` with `{:?}` shows its items in logical order, front first, whatever the internal layout.
+
+## What you will practise
+
+You will use a `Vec` as a stack, a `VecDeque` as a queue, and drain a stack to reverse a sequence. The challenge uses a stack to check that nested structure is well formed. Think about what each closing symbol should find on top of the stack, and what the stack should look like at the very end.
+'''
 title = "Stacks and Queues"
 difficulty = 21
 level = "advanced"
@@ -8514,6 +9846,56 @@ empty stack.
 
 [[unit]]
 id = "u22-linked-list"
+concepts = '''
+## The idea
+
+An array stores its elements side by side in one block of memory. A **linked list** stores each element in its own **node**, scattered anywhere on the heap, and each node holds a **pointer** to the next one. The list is just a pointer to the first node, the **head**. The last node points to nothing.
+
+This layout gives a particular cost profile:
+
+- Push or pop at the head: **O(1)**. You only rewire one pointer, and nothing is shifted.
+- Find the length, reach the k-th element, or append at the tail (without a tail pointer): **O(n)**, because you must follow the links one at a time.
+- No resizing ever happens. In exchange, every node costs a separate allocation, and following pointers is unfriendly to the CPU cache. In practice a `Vec` is usually faster, even for jobs that look like a list's specialty.
+
+A singly linked list is still the best place to learn how pointer-based structures work, and in Rust it is also the best place to learn how ownership shapes data.
+
+## How Rust does it
+
+In Rust each node **owns** the rest of the list. "Maybe a next node" is an `Option`, and the node itself lives on the heap behind a `Box`, so the link is `Option<Box<Node>>`. Here is why the `Box` is required:
+
+```rust
+struct Node {
+    val: i32,
+    next: Option<Node>, // error[E0072]: recursive type `Node` has infinite size
+}
+```
+
+A `Node` that contains a `Node` directly would need infinite space. A `Box` is just a pointer with a known size, which breaks the cycle. The compiler's help note says the same thing: it suggests adding indirection, such as a `Box`.
+
+With the correct type, `Option<Box<Node>>`, recursion follows the shape of the data naturally:
+
+```rust
+fn sum(list: &Option<Box<Node>>) -> i32 {
+    match list {
+        None => 0,
+        Some(node) => node.val + sum(&node.next),
+    }
+}
+```
+
+Taking `&Option<Box<Node>>` borrows the list, so the caller still owns it afterwards.
+
+## What is special or tricky
+
+- **Single ownership means a chain, not a web.** Each node has exactly one owner, the node before it. A doubly linked list, where each node is also pointed to by the next one, does not fit that rule. It needs `Rc`/`RefCell`, `Weak` or `unsafe`, which is why the standard library supplies `std::collections::LinkedList` ready-made.
+- **Moving out of a borrow.** Given `list: &mut Option<Box<Node>>`, writing `*list = list.unwrap().next` fails with `error[E0507]: cannot move out of ... which is behind a mutable reference`. The fix is `Option::take()`, which moves the value out and leaves `None` in its place, so nothing is ever half-moved.
+- **Peeking without consuming.** `head.as_ref()` turns `&Option<Box<Node>>` into `Option<&Box<Node>>`, so you can read the first value without taking it.
+- **Drop cascades.** Dropping the head drops the whole chain automatically. The default drop is recursive, though, so a list of millions of nodes can overflow the stack. Production lists add a loop-based `Drop`.
+
+## What you will practise
+
+You will build a list by pushing to the front, measure its length by walking borrowed links, and pop the head with `take`. In the challenge you combine push-front and a walk. Notice what push-front does to the order of the items.
+'''
 title = "Linked Lists"
 difficulty = 22
 level = "advanced"
@@ -8872,6 +10254,50 @@ order — walking from the head collects the input reversed.
 
 [[unit]]
 id = "u23-maps-sets"
+concepts = '''
+## The idea
+
+A **map** (dictionary, associative array) stores **key → value** pairs and answers "what is stored under this key?". A **set** stores keys alone and answers "have I seen this?". Both are usually built as **hash tables**.
+
+A **hash function** turns a key into a number, and that number picks a **bucket** in an array. Looking up a key means hashing it, jumping to its bucket, and comparing only the few keys there. That is why insert, lookup and remove take **O(1) on average**. When different keys land in the same bucket you get a **collision**. Many collisions push the cost towards O(n), and the table grows (rehashing everything) as it fills up.
+
+The general trick is **trading memory for time**. Remembering what you have already seen in a hash table turns many "search the whole list again" algorithms from O(n²) into a single O(n) pass.
+
+## How Rust does it
+
+`std::collections::HashMap<K, V>` and `HashSet<T>` are the hash-based types. Keys must implement `Eq` and `Hash`. Most built-in types do, and `#[derive(PartialEq, Eq, Hash)]` adds both to your own types.
+
+```rust
+use std::collections::HashMap;
+
+let mut by_letter: HashMap<char, Vec<&str>> = HashMap::new();
+for w in ["apple", "avocado", "banana"] {
+    let first = w.chars().next().unwrap();
+    by_letter.entry(first).or_insert_with(Vec::new).push(w);
+}
+match by_letter.get(&'b') {
+    Some(words) => println!("{words:?}"),
+    None => println!("nothing under b"),
+}
+```
+
+- `get(&k)` returns `Option<&V>`, so a missing key is a value you handle, not a crash.
+- `insert(k, v)` returns the *previous* value as `Option<V>`. For a set, `insert` returns a `bool`: `false` means the item was already there.
+- `entry(k)` gives one handle for "update if present, insert otherwise", and it hashes the key only once.
+- `contains_key` and `contains` test membership.
+
+## What is special or tricky
+
+- **Ownership of keys and values.** `insert` *moves* its arguments into the map. A `HashMap<String, _>` owns its keys. A `HashMap<&str, _>` only borrows them, so the original strings must outlive the map.
+- **Indexing can panic.** `map[&k]` panics if the key is absent. Prefer `get` when the key might be missing.
+- **Not every type can be a key.** `f64` implements neither `Eq` nor `Hash` (because `NaN != NaN`), so calling `insert` on a `HashMap<f64, _>` fails to compile, with an error saying the trait bounds `f64: Eq` and `f64: Hash` are not satisfied.
+- **Order is unspecified.** The default hasher is randomly seeded to resist denial-of-service attacks, so iteration order can change between runs. Sort the collected pairs before printing, or use `BTreeMap`/`BTreeSet`, which keep keys sorted at O(log n) per operation.
+- Mutating a map while iterating over it is rejected by the borrow checker. Collect the changes first, then apply them.
+
+## What you will practise
+
+The drills count frequencies with `entry`, remove duplicates with a `HashSet`, and test membership in constant time. The challenge is a classic single-pass lookup. Decide what to remember about each element you pass, and what question to ask the map before you store it.
+'''
 title = "Maps and Sets"
 difficulty = 23
 level = "advanced"
@@ -9183,6 +10609,61 @@ returned smaller-index-first and is the first such pair in scan order.
 
 [[unit]]
 id = "u24-binary-search-tree"
+concepts = '''
+## The idea
+
+A **binary tree** is made of nodes, each with at most two children, left and right. A node with no children is a **leaf**. A **binary search tree** (BST) adds an **ordering invariant**: for every node, every value in its left subtree is smaller and every value in its right subtree is larger.
+
+That invariant turns a tree into a search structure. At each node one comparison tells you which side the value must be on, so you discard the other subtree completely. Search, insert and finding the minimum all follow a single path from the root, so they cost **O(h)**, where *h* is the tree's **height**.
+
+The height depends on insertion order:
+
+- A **balanced** tree has height about log₂ n, so a million values need around 20 steps.
+- Inserting already-sorted data gives a **degenerate** tree where every node has only a right child. It is really a linked list, and operations drop to **O(n)**.
+
+**Self-balancing** trees (AVL, red–black, B-trees) rearrange themselves to keep the height logarithmic. An **in-order traversal** (left subtree, node, right subtree) visits every node once, in O(n), and emits the values in ascending order.
+
+## How Rust does it
+
+Each node owns its two children, and each child slot is `Option<Box<Node>>`, the same pattern as the linked list but twice. Functions that only read the tree take `&Option<Box<Node>>`. Functions that change it take `&mut Option<Box<Node>>`, which lets them overwrite an empty `None` slot with a new node.
+
+Because smaller values always go left, the minimum is simply the leftmost node, and a borrowed cursor can walk down to it:
+
+```rust
+struct Node { val: i32, left: Option<Box<Node>>, right: Option<Box<Node>> }
+
+fn min(root: &Option<Box<Node>>) -> Option<i32> {
+    let mut node = root.as_ref()?;
+    while let Some(next) = node.left.as_ref() {
+        node = next;
+    }
+    Some(node.val)
+}
+```
+
+Height, on the other hand, needs both subtrees, so a recursive definition fits best:
+
+```rust
+fn height(root: &Option<Box<Node>>) -> usize {
+    match root {
+        None => 0,
+        Some(n) => 1 + height(&n.left).max(height(&n.right)),
+    }
+}
+```
+
+## What is special or tricky
+
+- **Recursion matches ownership.** Passing `&mut n.left` down one level hands the callee a unique borrow of exactly that subtree. Iterative insertion with a moving `&mut` cursor is possible, but it fights the borrow checker more, so recursion is the usual choice for beginners.
+- **Do not unwrap the tree away.** `root.unwrap()` *moves* the root out of its `Option`. To look without taking, use `root.as_ref()`, or match on a reference.
+- **Duplicates are a policy.** You must decide what an equal value does: ignore it (the tree becomes a set), count it, or send it to one side.
+- **Depth limits.** On a degenerate tree, recursive functions go n calls deep and can overflow the stack.
+- In real code, `std::collections::BTreeMap` and `BTreeSet` give balanced, ordered collections ready-made.
+
+## What you will practise
+
+You will insert into a BST, walk it in order, and search it. The challenge combines building and traversal. Ask yourself why the in-order walk comes out sorted, and what the equal case should do.
+'''
 title = "Binary Search Trees"
 difficulty = 24
 level = "advanced"
@@ -9583,6 +11064,49 @@ is sorted and unique.
 
 [[unit]]
 id = "u25-sorting-searching"
+concepts = '''
+## The idea
+
+**Sorting** puts data in order. **Searching** finds an element in it. The two are linked: one sort, paid once, makes every later search much cheaper.
+
+On unsorted data the only option is **linear search**, which may look at every element and costs O(n). On sorted data, **binary search** compares against the middle element and throws away half of the remaining range each step, so it costs **O(log n)**. A million elements take about 20 comparisons.
+
+Simple sorts such as insertion sort cost O(n²) in the worst case. Any algorithm that sorts by comparing elements needs at least on the order of n log n comparisons in the worst case. **Merge sort** reaches that bound using **divide and conquer**: split the input in half, solve each half recursively, and combine the halves with a linear-time **merge**. There are log₂ n levels of splitting with O(n) merge work per level, giving **O(n log n)** time and O(n) extra memory.
+
+A sort is **stable** if equal elements keep their original relative order. Stability matters when you sort records by one field after another.
+
+## How Rust does it
+
+The standard library already provides tuned versions. `slice::sort` is stable, while `sort_unstable` is usually faster, sorts in place and does not allocate. `sort_by_key` sorts by a key you compute:
+
+```rust
+let mut people = vec![("Ana", 30), ("Rui", 25), ("Eva", 30)];
+people.sort_by_key(|&(_, age)| age); // stable: Ana stays before Eva
+println!("{people:?}"); // [("Rui", 25), ("Ana", 30), ("Eva", 30)]
+```
+
+`slice::binary_search` returns a `Result`. `Ok(i)` means found at index `i`. `Err(i)` means not found, and `i` is where the value *would* be inserted to keep the slice sorted:
+
+```rust
+let v = [10, 20, 30, 40];
+assert_eq!(v.binary_search(&30), Ok(2));
+assert_eq!(v.binary_search(&25), Err(2)); // would go between 20 and 30
+```
+
+Writing these algorithms yourself, as this unit does, shows what the library is doing for you.
+
+## What is special or tricky
+
+- **Ownership choices.** A function that takes a `Vec<i32>` by value owns it and can split it into owned halves, for example with `split_off`. One that takes `&[i32]` only reads. Slicing with `v[..mid].to_vec()` *copies* that part into a new allocation, which is simple but costs memory.
+- **Index arithmetic is `usize`.** Indices cannot go negative. A closed-interval binary search that does `hi = mid - 1` when `mid` is `0` panics in debug builds with "attempt to subtract with overflow". The half-open window `[lo, hi)` avoids this.
+- **The midpoint.** `lo + (hi - lo) / 2` cannot overflow, while `(lo + hi) / 2` can for huge indices.
+- **Binary search needs sorted input.** On unsorted data it does not panic. It silently returns a wrong answer.
+- **Termination.** Every recursive sort needs a base case (length 0 or 1), and every loop must shrink its window, or it runs forever.
+
+## What you will practise
+
+The drills merge two sorted slices, binary-search by hand, and split a `Vec` with `split_off`. The challenge assembles these pieces into a full sort. Think about where the recursion stops and how a tie keeps the result stable.
+'''
 title = "Sorting and Searching"
 difficulty = 25
 level = "advanced"
@@ -9959,6 +11483,49 @@ equal elements, so the sort is stable; the base case (length 0 or 1) is already 
 
 [[unit]]
 id = "u26-recursion-dp"
+concepts = '''
+## The idea
+
+A **recursive** function solves a problem by calling itself on smaller versions of it. It needs a **base case** that answers directly, and a **recursive case** that moves towards the base case. Each call gets its own **stack frame**, so very deep recursion runs out of stack.
+
+Recursion becomes expensive when the same subproblem is solved again and again. Naive Fibonacci branches twice per call, so its running time grows exponentially (roughly 1.6ⁿ calls). **Dynamic programming** (DP) fixes this by solving each distinct subproblem once and storing the answer. It applies when a problem has:
+
+- **Overlapping subproblems**: the same smaller cases keep coming up.
+- **Optimal substructure**: the best answer for the whole is built from the best answers to its parts.
+
+There are two ways to do it. **Memoisation** is top-down: keep the recursion and cache each result. **Tabulation** is bottom-up: fill a table from the base cases upward with a loop. The cost of DP is easy to estimate: *number of states × work per state*.
+
+## How Rust does it
+
+Rust needs no special support. A table is a `Vec` indexed by the state, and a memo is passed as `&mut Vec<Option<T>>` (or a `HashMap` when the states are sparse). Here is a bottom-up count of the paths through a grid, moving only right or down. Each cell is reached from the cell above it or the cell to its left:
+
+```rust
+fn grid_paths(rows: usize, cols: usize) -> u64 {
+    // assumes rows >= 1 and cols >= 1
+    let mut dp = vec![vec![1u64; cols]; rows];
+    for r in 1..rows {
+        for c in 1..cols {
+            dp[r][c] = dp[r - 1][c] + dp[r][c - 1];
+        }
+    }
+    dp[rows - 1][cols - 1]
+}
+```
+
+There are `rows × cols` states with O(1) work each, so this runs in O(rows × cols) time, where plain recursion would grow exponentially. When a step only needs the previous row, you can keep just that row and cut memory to O(cols).
+
+## What is special or tricky
+
+- **Stack overflow.** Rust does not guarantee tail-call optimisation. Recursion thousands of levels deep can abort with `thread 'main' has overflowed its stack`. Bottom-up tables avoid the problem entirely.
+- **Memo ownership.** A recursive helper cannot capture a local cache and also call itself as a closure, so pass the memo as an explicit `&mut` argument. Global mutable state is awkward in Rust on purpose.
+- **Unsigned arithmetic.** `n - 1` on a `usize` of `0` panics in debug builds ("attempt to subtract with overflow"), so check base cases first. The same is true of `n + 1` at the type's maximum. If you use `u32::MAX` as an "unreachable" marker, test for it before adding, or use `checked_add` or `saturating_add`.
+- **Off-by-one tables.** To answer for size `n`, the table usually needs `n + 1` entries, because index `0` is a real state.
+- **Choose the type for the answer.** DP results grow quickly: `fib(50)` already needs a `u64`.
+
+## What you will practise
+
+You will write naive Fibonacci, memoise it, and fill a bottom-up table of fewest coins. The challenge asks for the general version of that table. Define what `dp[a]` means, decide on its base case, and decide how to represent amounts that cannot be formed.
+'''
 title = "Recursion and Dynamic Programming"
 difficulty = 26
 level = "advanced"
