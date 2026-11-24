@@ -21,6 +21,7 @@
    Phase 4. */
 
 import { $, hd, svg, esc } from "../core";
+import { RP, VIEW } from "../app/store/registry";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
 import { bus } from "../app/bus";
@@ -298,6 +299,10 @@ function renderCodevPane(): void {
 /* ── publicação transitória no window (shim para o residual) ──
    RP.codev (app.ts) delega em renderCodevPane. */
 window.renderCodevPane = renderCodevPane;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+RP.codev = renderCodevPane;
+VIEW.agent = window.renderAgentView;
+VIEW.manager = window.renderManagerPage;
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
    O único sítio que liga o nome de acção (emitido como `data-action` pelos

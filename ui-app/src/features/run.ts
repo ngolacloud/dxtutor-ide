@@ -15,6 +15,7 @@
    de pane). Mesmo padrão de `features/remote.ts`. */
 
 import { $, hd, svg, jsa } from "../core";
+import { RP } from "../app/store/registry";
 
 /** Configurações de arranque do workspace: [comando, descrição]. Cada linha
  *  corre no terminal integrado via `runTask` (window-resolved no clique). */
@@ -41,3 +42,5 @@ function renderRunPane(): void {
 
 /* ── publicação transitória no window (shim para o residual: RP.run delega aqui) ── */
 window.renderRunPane = renderRunPane;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+RP.run = renderRunPane;

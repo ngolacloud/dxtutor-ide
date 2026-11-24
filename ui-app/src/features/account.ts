@@ -19,6 +19,7 @@
    switch de pane). Quando o próprio registo `RP` migrar, o espelho cai. */
 
 import { $, hd, svg, prov, provState } from "../core";
+import { RP } from "../app/store/registry";
 
 /** Renderiza o pane «Conta»: identidade do utilizador + estado de cada provedor de
  *  LLM (ao vivo/simulado/desligado), com atalhos para Definições e gestor de uso. */
@@ -38,3 +39,5 @@ function renderAccountPane(): void {
 
 /* ── publicação transitória no window (shim para o residual: RP.account delega aqui) ── */
 window.renderAccountPane = renderAccountPane;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+RP.account = renderAccountPane;

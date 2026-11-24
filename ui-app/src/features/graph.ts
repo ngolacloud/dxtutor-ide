@@ -20,6 +20,7 @@
    não entram no grafo de tipos. Do core importa-se só o que é dono de lá (`esc`). */
 
 import { esc, jsa } from "../core";
+import { VIEW } from "../app/store/registry";
 
 /* ───── corpo do renderer da tab `graph` (era VIEW.graph no monólito) ───── */
 function renderGraphView(_t: unknown, host: HTMLElement) {
@@ -80,3 +81,5 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
 /* ── publicação no window: `VIEW.graph` (app.ts) delega em renderGraphView (shim, no
    registo de kinds de tab). ── */
 window.renderGraphView = renderGraphView;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+VIEW.graph = renderGraphView;

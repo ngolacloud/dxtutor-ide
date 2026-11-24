@@ -15,6 +15,7 @@
    cai. Este é o padrão para migrar qualquer render de pane do `RP`. */
 
 import { $, hd, jsa } from "../core";
+import { RP } from "../app/store/registry";
 
 /** Renderiza o pane «Remote Explorer»: ligação local do protótipo + hosts SSH
  *  (desligados — ligações remotas reais dependem do backend da aplicação). */
@@ -33,3 +34,5 @@ function renderRemotePane(): void {
 
 /* ── publicação transitória no window (shim para o residual: RP.remote delega aqui) ── */
 window.renderRemotePane = renderRemotePane;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+RP.remote = renderRemotePane;

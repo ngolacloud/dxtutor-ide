@@ -23,6 +23,7 @@
    em runtime. Do core importa-se só o que é dono de lá (`$`, `toast`). */
 
 import { $, esc, toast } from "../core";
+import { VIEW } from "../app/store/registry";
 
 /* ───── corpo do renderer da tab `file` (era VIEW.file no monólito) ───── */
 function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];host.innerHTML=`<div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div>`;
@@ -76,3 +77,5 @@ function paintEdFull(p: string): void {
 }
 
 Object.assign(window, { renderFileView, paintEd: paintEdFull, gotoLine, stPos, stLang, edCmd, selText });
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+VIEW.file = (t, host) => renderFileView(t as { path: string }, host);

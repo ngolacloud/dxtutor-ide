@@ -13,6 +13,7 @@
    `RP.tutor=()=>window.renderTutorPane()` (lazy, no switch de pane). */
 
 import { $, hd, svg, esc, jsa } from "../core";
+import { RP } from "../app/store/registry";
 
 /** Renderiza o pane «Learning Track»: onboarding se não houver língua escolhida,
  *  senão o curso com progresso, unidades expansíveis e passos. */
@@ -41,3 +42,5 @@ function renderTutorPane(): void {
 /* ── publicação transitória no window (shim para o residual) ──
    RP.tutor (app.ts) delega em renderTutorPane. */
 window.renderTutorPane = renderTutorPane;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+RP.tutor = renderTutorPane;

@@ -18,6 +18,7 @@
    monólito (`app.ts`), logo tocar `window.GIT` no eval do módulo seria ReferenceError. */
 
 import { $, type ClCommit } from "../core";
+import { VIEW } from "../app/store/registry";
 import { desktopPorts } from "../app/desktop";
 
 /* estado da vista (módulo-local; persiste entre reaberturas do separador) */
@@ -174,3 +175,5 @@ window.renderChangelogPage = (_t: unknown, host: HTMLElement): void => {
   draw();
   if (!CL.loaded) void load();
 };
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+VIEW.analysis = window.renderChangelogPage;

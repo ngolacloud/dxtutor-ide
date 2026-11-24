@@ -50,10 +50,10 @@ window.cur=null;window.PANE='explorer';/* VIEW com dono em app/store/registry.ts
 /* separadores do editor (tabOf/openTab/openPath/openFile/setActive/drawTabs/parkAgent/miniOff/show/closeTab/stepTab/tabIc) migrados p/ features/tabs.ts (ADR-0004, U4b); a lista TB tem dono em app/store/editor. */
 
 /* editor: renderFileView/paintEd/gotoLine/stPos/stLang/edCmd/selText migrados p/ features/editor.ts; lidos por global, pane delega no shim abaixo */
-VIEW.file=(t,host)=>window.renderFileView(t,host);
+/* VIEW.file: registado pela features/editor.ts (ADR-0004, U4j2). */
 
 /* diff: diffLines/diffStat/openDiff + corpo de VIEW.diff migrados p/ features/diff.ts; lidos por global, pane delega no shim abaixo */
-VIEW.diff=(t,host)=>window.renderDiffView(t,host);
+/* VIEW.diff: registado pela features/diff.ts (ADR-0004, U4j2). */
 
 /* ───── actualização global ───── */
 let SIG='';
@@ -70,25 +70,13 @@ window.refresh = function(fromEd,force){const sig=Object.keys(FS).map(p=>p+stOf(
 
 /* ───── activity bar e painéis laterais ───── */
 
-RP.search=()=>window.renderSearchPane();/* corpo + leaves doSearch/replaceAll migrados p/ features/search.ts; shim delega (lazy, no switch de pane) */
+/* RP.search/RP.run/RP.test/RP.remote/RP.account/RP.codev/RP.tutor/RP.scm: registados pelas próprias features (ADR-0004, U4j2). */
 
-RP.scm=()=>{const el=$('#pane-scm'),ch=changes(),st=ch.filter(p=>STAGED.has(p)),un=ch.filter(p=>!STAGED.has(p));
-  const row=(p,staged)=>`<div class="scm-row" onclick="openDiff(${jsa(p)})">${fIcon(p)}<span class="nm">${esc(p.split('/').pop())}</span><span class="pth">${esc(short(p).split('/').slice(0,-1).join('/'))}</span><span class="ra"><button title="Abrir ficheiro" onclick="event.stopPropagation();openPath(${jsa(p)})">↗</button><button title="Descartar alterações" onclick="event.stopPropagation();discard(${jsa(p)})">↶</button><button title="${staged?'Retirar do stage':'Stage'}" onclick="event.stopPropagation();stage(${jsa(p)})">${staged?'−':'+'}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
-  el.innerHTML=hd('Source Control',`<button title="Actualizar" onclick="refresh()">${svg('refresh')}</button>`)+`<div class="sections"><div class="scm-grp">dxtutor · ${esc(BRANCH)}<span class="cnt">${ch.length}</span></div>
-    <input class="inp" id="scm-msg" placeholder="Mensagem de commit" value="${esc(COMMIT_MSG)}"><button class="btn" onclick="commit()">✓ Commit${st.length?' (staged)':''} em ${esc(BRANCH)}</button>
-    ${st.length?`<div class="scm-grp">Staged<span class="cnt">${st.length}</span></div>`+st.map(p=>row(p,1)).join(''):''}
-    <div class="scm-grp">Alterações<span class="cnt">${un.length}</span></div>${un.map(p=>row(p,0)).join('')||'<div class="sec-empty">Área de trabalho limpa.</div>'}
-    <div class="scm-grp">Commits</div>${COMMITS.slice(0,6).map(c=>`<div class="s-hit" style="padding-left:12px;cursor:default"><span style="color:var(--accent-hover)">${c.h}</span><span>${esc(c.m)}</span></div>`).join('')}</div>`;
-  const i=$('#scm-msg');i.oninput=()=>COMMIT_MSG=i.value;i.onkeydown=e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))commit();};};
+/* (o RP.scm antigo que vivia aqui era código morto: sobreposto no mesmo eval pelo shim mais abaixo; saiu na U4j2) */
 /* stage/discard + commit v2 (window.commit, botão) migrados p/ features/scm.ts; pickBranch$dup0 morto removido */
 
-RP.run=()=>window.renderRunPane();/* corpo migrado p/ features/run.ts; shim delega (lazy, no switch de pane) */
 function runTask(c){setPanelTab('terminal');return termExec(c);}
-RP.test=()=>window.renderTestPane();/* corpo migrado p/ features/test.ts; shim delega (lazy, no switch de pane) */
 /* RP.ext antigo (provedores de LLM) eliminado — código morto: o v6 sobrepunha-o ao carregar; o painel é da features/ext.ts (ADR-0004, U4g1). */
-RP.remote=()=>window.renderRemotePane();/* corpo migrado p/ features/remote.ts; shim delega (lazy, no switch de pane) */
-RP.account=()=>window.renderAccountPane();/* corpo migrado p/ features/account.ts; shim delega (lazy, no switch de pane) */
-RP.codev=()=>window.renderCodevPane();/* base v3 + decoração v4 migradas p/ features/codev.ts; shim delega (lazy, no switch de pane) */
 
 /* ───── painel inferior ───── */
 function log(src,msg){const o=$('#pc-output');o.insertAdjacentHTML('beforeend',`<div>[${hhmm()}] <span class="r">${esc(src)}</span> ${esc(msg)}</div>`);o.scrollTop=o.scrollHeight;}
@@ -142,13 +130,11 @@ window.provState=k=>{const d=desktopPorts.codev;return d&&d.provState?d.provStat
 
 /* conversa livre (handlePrompt/agSend/liveChat) + posicionamento (assistantCenter/Dock/toggleAgent/toggleAgentOn/focusAgent): migrados p/ features/codev.ts.
    VIEW.agent fica como shim: */
-VIEW.agent=(t,host)=>window.renderAgentView(t,host);
+/* VIEW.agent/VIEW.manager/VIEW.analysis: registados pelas features codev/changelog (ADR-0004, U4j2). */
 /* páginas Co-Dev (welcome/settings/manager/analysis + openSettings/openManager/openAnalysis/testProv + POLICY/GAPS/NEXT): migradas p/ features/codev.ts.
    Os VIEW.* ficam shims: */
 /* VIEW.welcome: dono features/welcome.ts (ADR-0004, U4g7). */
 VIEW.settings=(t,host)=>window.renderSettingsPage(t,host);
-VIEW.manager=(t,host)=>window.renderManagerPage(t,host);
-VIEW.analysis=(t,host)=>window.renderChangelogPage(t,host);/* harvest ui-next: timeline git real (features/changelog.ts) no lugar da página estática */
 /* ───── menus e comandos ───── */
 const CMD=[
   ['Ir para ficheiro…','Ctrl+P',()=>palette('')],['Mostrar todos os comandos','Ctrl+Shift+P',()=>palette('>')],['Ir para a linha…','Ctrl+G',()=>palette(':')],['Ir para o próximo problema','F8',()=>nextProblem()],
@@ -212,9 +198,8 @@ function rerender(kind){const t=tabOf(cur);if(t&&t.kind===kind){const top=$('#eb
 /* ───── git: motor (GIT/LANE/gitInit + DAG/merge/gitflow/graphLayout) migrado p/ features/scm.ts; checkpoint/restoreCkpt/gfAsk migrados p/ features/checkpoint.ts; aqui só consumidor (loadSeed) que lê por global ───── */
 /* authorOf + AUTHOR + commit v4 (window.commitGit) migrados p/ features/scm.ts; lidos por global (AUTHOR é window-puro, escrito aqui em runIssue/co-dev) */
 /* checkout/gitMerge/isFlow/gfStart/gfFinish/gfPrompt/gfGuide/pickBranch/drawTimeline migrados p/ features/scm.ts; lidos por global */
-RP.scm=()=>window.renderScmPane();/* corpo v4 migrado p/ features/scm.ts; shim delega (lazy, no switch de pane) */
 /* graphLayout/openGraph migrados p/ features/scm.ts; VIEW.graph (abaixo) consome-os por global */
-VIEW.graph=(t,host)=>window.renderGraphView(t,host);/* corpo (DAG de commits) migrado p/ features/graph.ts; shim delega (registo de kinds de tab) */
+/* VIEW.graph: registado pela features/graph.ts (ADR-0004, U4j2). */
 /* corpo (sub-comandos status/add/commit/log/branch/checkout/merge/flow/diff/push) migrado p/ features/termgit.ts; shim delega (registo XC de features/terminal.ts) */
 XC.git=(a,raw)=>window.gitCmd(a,raw);
 /* checkpoint/restoreCkpt/gfAsk migrados p/ features/checkpoint.ts (strict, window-backed); aqui lidos por global (CMD acima, codev.ts). */
@@ -271,8 +256,7 @@ function mdFull(s){const out=[],inl=x=>esc(x).replace(/`([^`]+)`/g,'<code>$1</co
       else out.push(`<p>${inl(b.replace(/\n/g,' '))}</p>`);});});return out.join('');}
 
 /* ───── Learning Track: COURSES + motor (LTS, course, ltUnits, drillState, ltRes, ltGo, ltAsk, onboarding) + corpo da vista migrados p/ features/learn.ts; aqui so os shims RP.tutor e VIEW.lt que delegam ───── */
-RP.tutor=()=>window.renderTutorPane();/* corpo v4 (Learning Track) migrado p/ features/tutor.ts; shim delega (lazy, no switch de pane) */
-VIEW.lt=(t,host)=>window.renderLtView(t,host);/* corpo migrado p/ features/learn.ts; visualizer.ts decora este VIEW.lt */
+/* RP.tutor/VIEW.lt: registados pelas features tutor/learn (ADR-0004, U4j2). */
 
 /* ───── Studio: catálogo cloud (CLOUD/TECH/KIND/mkT/isApp/sl/appDir) + validateDesign + corpo da vista migrados p/ features/studio.ts; aqui só consumidores (geradores, genBacklog, resetAll, boot) que lêem por global ───── */
 

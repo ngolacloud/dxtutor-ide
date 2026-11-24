@@ -29,6 +29,7 @@
    terminal, agentes) usam o commit v4 git-aware → publicado como `window.commitGit`. */
 
 import { $, hd, svg, esc } from "../core";
+import { RP } from "../app/store/registry";
 import type { GitState, Status, GraphLayout, Author, FlowKind } from "./scm/domain/types";
 import { computeGraphLayout } from "./scm/domain/graph";
 import { statusOf, listChanges } from "./scm/domain/status";
@@ -189,3 +190,5 @@ publish({
   pickBranch, drawTimeline, graphLayout, openGraph, stage, discard,
   renderScmPane,
 });
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+RP.scm = renderScmPane;

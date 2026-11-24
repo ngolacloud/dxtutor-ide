@@ -17,6 +17,7 @@
    switch de pane). Mesmo padrão de `features/run.ts`. */
 
 import { $, hd, svg, esc } from "../core";
+import { RP } from "../app/store/registry";
 
 /** Renderiza o pane «Testing»: estado do build + lista de testes passados/falhados. */
 function renderTestPane(): void {
@@ -54,3 +55,5 @@ function renderTestPane(): void {
 
 /* ── publicação transitória no window (shim para o residual: RP.test delega aqui) ── */
 window.renderTestPane = renderTestPane;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+RP.test = renderTestPane;

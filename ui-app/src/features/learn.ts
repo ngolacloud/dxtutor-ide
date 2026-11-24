@@ -13,6 +13,7 @@
    onclicks inline); LTS é const mutado em sítio; LT_SUB é local (só a feature o escreve). */
 
 import { $, esc, svg, jsa } from "../core";
+import { VIEW } from "../app/store/registry";
 import rustCourse from "../content/courses/rust.json";
 import goCourse from "../content/courses/go.json";
 import { LANGUAGE_CATALOG, findLanguage, languageCards } from "./learn/domain/catalog";
@@ -192,3 +193,5 @@ function ltAsk(){const{s}=ltFind(LTS.cur)!;AGENT='tutor';agentPill();focusAgent(
 
 /* ── publicar no window: tutor.ts/visualizer.ts/v5.ts e os shims de app.ts lêem por global ── */
 Object.assign(window, { LTS, saveLT, LT_LANGS, LT_LEVELS, LT_EXT, LT_BADGE, course, ltUnits, dk, ltDone, ltFind, ltPath, ltSeq, ltPts, stars, ltOnboard, ltStart, ltResume, ltOpen, openLesson, nextLesson, renderLtView, tgt, drillState, ltRes, ltGo, ltAsk });
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts; o visualizer decora-a no boot7) */
+VIEW.lt = renderLtView;

@@ -21,6 +21,7 @@
    `Object.assign(window,…)` do `app.ts` (senão ReferenceError travava o chunk). */
 
 import { $, hd, esc, toast, jsa } from "../core";
+import { RP } from "../app/store/registry";
 
 /** Tupla de ocorrência numa linha: [nº da linha (1-based), linha, offset do match]. */
 type Hit = [number, string, number];
@@ -115,5 +116,7 @@ function renderSearchPane(): void {
    RP.search delega em renderSearchPane; o botão «Substituir tudo» (onclick inline)
    e o comando Todo Tree de v6.ts resolvem replaceAll/doSearch por nome livre. */
 window.renderSearchPane = renderSearchPane;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+RP.search = renderSearchPane;
 window.doSearch = doSearch;
 window.replaceAll = replaceAll;

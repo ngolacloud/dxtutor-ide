@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j2; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -710,3 +710,21 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   1; globais publicadas 409 → 392; handlers inline 160 → 158; lint 270 → 269. Verificado na
   worktree limpa: tsc, 438 testes, arch:check, build, arranque no browser 5/5, auto-teste
   desktop idêntico ao da U4i3.
+- **U4j2 (2026-11-24) — cada feature regista as suas vistas.** Os 15 shims do `app.ts` que
+  delegavam num `window.renderX` passam a registos na feature dona: `VIEW.file` (editor),
+  `VIEW.diff`, `VIEW.graph`, `VIEW.lt` (learn), `VIEW.agent`/`VIEW.manager` (codev),
+  `VIEW.analysis` (changelog), `RP.search`, `RP.scm`, `RP.run`, `RP.test`, `RP.remote`,
+  `RP.account`, `RP.codev`, `RP.tutor`; sai também o `RP.scm` antigo (corpo completo do pane),
+  código morto — sobreposto no mesmo eval pelo shim. **Equivalência:** nenhum desses
+  `window.renderX` é reatribuído depois de publicado (o `renderTutorPane` só é publicado pelo
+  `tutor.ts`), por isso o registo directo chama a mesma função que o shim; as leituras por
+  valor do registo são todas tardias (o pair.ts decora o `VIEW.file` depois; o visualizer o
+  `VIEW.lt` no `boot7`); e os testes chamam os `renderX` directamente. O `VIEW.settings` fica
+  no `app.ts` até à U4j3, porque é composto lá com a secção Language do i18n e a porta
+  desktop. Handlers inline 158 → 152 (os do `RP.scm` morto). Verificado na worktree limpa:
+  tsc, lint 269, 438 testes, arch:check, build, auto-teste desktop idêntico ao da U4j1; o
+  arranque no browser passou 4/5 — falhou o `arch.e2e.ts` da outra sessão (a paleta responde
+  «No results» a «>System architecture»). Medido à parte: o comando está sempre no `CMD`
+  depois do arranque (8/8 nas duas builds) e o teste falha também na HEAD sem estas
+  alterações (1 em 10; no total, 1/17 na HEAD e 3/16 com elas) — instabilidade do próprio
+  teste (uma corrida entre a paleta e a escrita do Playwright), reportada, não corrigida aqui.

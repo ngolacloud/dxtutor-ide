@@ -18,6 +18,7 @@
    runtime. Do core importa-se só o que é dono de lá (`esc`). */
 
 import { esc, jsa } from "../core";
+import { VIEW } from "../app/store/registry";
 import { diffLines, diffStat } from "./diff/domain/diff";
 
 /* ───── matemática do diff: dona é domain/diff.ts (pura, testada); aqui só se consome ───── */
@@ -34,3 +35,5 @@ function openDiff(p: string, a?: string, b?: string, label?: string){const fixed
    renderDiffView (shim, no registo de kinds de tab). ── */
 Object.assign(window, { diffLines, diffStat, openDiff });
 window.renderDiffView = renderDiffView;
+/* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
+VIEW.diff = renderDiffView;
