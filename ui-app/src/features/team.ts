@@ -35,6 +35,8 @@ import { rankModels } from "./router";
 import { deriveScopes, parseTeamJson, teamJson } from "./team-scopes";
 import { translator } from "../app/i18n";
 import { TEAM_MESSAGES } from "./team.messages";
+import { services } from "../app/services";
+import { diffLines } from "./diff/domain/diff";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const msg = translator(TEAM_MESSAGES);
 
@@ -62,9 +64,9 @@ const globRe=(g:string)=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=
 export const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
 const canRun=(a:string,cmd:string)=>AGENTS[a].cmds.some(c=>c==='*'||cmd.startsWith(c));
 const ownerOf=(p:string)=>Object.keys(AGENTS).find(k=>k!=='lead'&&inScope(k,p))||'lead';
-function harnessCheck(p:string){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(`fora do escopo do assistente ${AGENTS[AGENT].n}. Pode escrever em: ${AGENTS[AGENT].paths.join(', ')||'nada'}. Este caminho pertence a: ${AGENTS[o].n}.`);}}
-function harnessCmd(c:string){if(!canRun(AGENT,c))throw new Error(`o assistente ${AGENTS[AGENT].n} não tem permissão para correr "${c}".`);}
-const agentSys=()=>{const a=AGENTS[AGENT];return `\nÉs o assistente «${a.n}» (${a.d}). Harness: só podes escrever em [${a.paths.join(', ')||'nenhum caminho'}] e correr [${a.cmds.join(', ')||'nenhum comando'}]. Se a tarefa exigir sair deste escopo, não o faças: diz que assistente da equipa (${Object.values(AGENTS).map(x=>x.n).join(', ')}) deve tratar dessa parte.`+(AGENT==='tutor'?'\nComo Tutor: não dês a solução completa. Faz perguntas, explica o conceito, dá pistas graduais e pede ao aluno que tente.':'');};
+export function harnessCheck(p:string){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(`fora do escopo do assistente ${AGENTS[AGENT].n}. Pode escrever em: ${AGENTS[AGENT].paths.join(', ')||'nada'}. Este caminho pertence a: ${AGENTS[o].n}.`);}}
+export function harnessCmd(c:string){if(!canRun(AGENT,c))throw new Error(`o assistente ${AGENTS[AGENT].n} não tem permissão para correr "${c}".`);}
+export const agentSys=()=>{const a=AGENTS[AGENT];return `\nÉs o assistente «${a.n}» (${a.d}). Harness: só podes escrever em [${a.paths.join(', ')||'nenhum caminho'}] e correr [${a.cmds.join(', ')||'nenhum comando'}]. Se a tarefa exigir sair deste escopo, não o faças: diz que assistente da equipa (${Object.values(AGENTS).map(x=>x.n).join(', ')}) deve tratar dessa parte.`+(AGENT==='tutor'?'\nComo Tutor: não dês a solução completa. Faz perguntas, explica o conceito, dá pistas graduais e pede ao aluno que tente.':'');};
 /** A equipa da pasta aberta: os escopos derivados da estrutura dela e dos comandos detectados, e
  *  o `.dxtutor/team.json` por cima (ADR-0006, R3c). Passam a ser os defaults que os templates
  *  de harness repõem (AG0). */
@@ -90,7 +92,7 @@ export function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|n
 export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
 function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
 function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
-function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,norm(v)));o.innerHTML=who.length?'Pode escrever: '+who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', '):'Nenhum assistente especializado — só o orquestrador, com a tua aprovação.';}
+function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,services.workspace!.norm(v)));o.innerHTML=who.length?'Pode escrever: '+who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', '):'Nenhum assistente especializado — só o orquestrador, com a tua aprovação.';}
 /* ───── harness de projecto: templates, decision rights, mode ceiling (migrado de
    v5.ts, fundido com renderTeamView) ─────
    A secção "Project harness"/"Who decides"/"Who did the work" que v5.ts inseria por
@@ -101,10 +103,10 @@ function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim())
    (boot5/CMD.push em v5.ts) continuar a lê-los por nome livre. ALWAYS/AG0
    ficam léxicos (só usados aqui dentro). RUN/DECS não tinham contrato ambiente
    (pair.ts) — acrescentados; BL lê-se via `window.BL` como tasks.ts já fazia. */
-const RIGHTS: Record<string, string> = { code: 'Writing code', arch: 'Architecture decisions (ADRs)', schema: 'Database schema changes', deps: 'Adding dependencies', merge: 'Merge into develop', release: 'Release to main', deploy: 'Deploy to Kubernetes', push: 'Push to remote' };
-const RIGHT_RE: Record<string, RegExp> = { arch: /\.dxtutor\/arquitectura\//, schema: /db\/migrations\/|\/migrations\//, deps: /(Cargo\.toml|package\.json|go\.mod|requirements\.txt)$/ };
+export const RIGHTS: Record<string, string> = { code: 'Writing code', arch: 'Architecture decisions (ADRs)', schema: 'Database schema changes', deps: 'Adding dependencies', merge: 'Merge into develop', release: 'Release to main', deploy: 'Deploy to Kubernetes', push: 'Push to remote' };
+export const RIGHT_RE: Record<string, RegExp> = { arch: /\.dxtutor\/arquitectura\//, schema: /db\/migrations\/|\/migrations\//, deps: /(Cargo\.toml|package\.json|go\.mod|requirements\.txt)$/ };
 const ALWAYS = ['merge', 'release', 'deploy', 'push'];
-const MORD = ['manual', 'assist', 'auto'];
+export const MORD = ['manual', 'assist', 'auto'];
 export const HT: Record<string, any> = {
   study: { n: 'Study', d: 'You write every line. The assistants explain, hint and review — they never edit files.', ceiling: 'manual', mode: 'manual', thresh: 85, human: ['code', 'arch', 'schema', 'deps'] },
   pair: { n: 'Pair programming', d: 'The assistants propose and edit inside their scope; you decide architecture, schema and dependencies.', ceiling: 'assist', mode: 'assist', thresh: 85, human: ['arch', 'schema', 'deps'] },
@@ -112,7 +114,7 @@ export const HT: Record<string, any> = {
   critical: { n: 'Critical systems', d: 'For regulated or safety-relevant code. Every edit is approved one by one, the bar is higher and nothing runs unattended.', ceiling: 'manual', mode: 'manual', thresh: 95, human: ['arch', 'schema', 'deps'] },
   erp: { n: 'ERP module (Odoo)', d: 'One module at a time: models, views, security and migrations each have an owner; upgrades are yours to run.', ceiling: 'assist', mode: 'assist', thresh: 90, human: ['arch', 'schema', 'deps'], agents: { be: { paths: ['addons/*/models/**', 'addons/*/controllers/**', 'addons/*/wizard/**'], cmds: ['pytest'] }, fe: { paths: ['addons/*/views/**', 'addons/*/static/**', 'addons/*/report/**'] }, db: { paths: ['addons/*/migrations/**', 'addons/*/security/**', 'addons/*/data/**'] }, qa: { paths: ['addons/*/tests/**'], cmds: ['pytest'] }, ops: { paths: ['docker-compose.yml', 'deploy/**', '.devcontainer/**'] } } },
 };
-const HARN: Record<string, any> = { tpl: 'pair', ceiling: 'assist', human: ['arch', 'schema', 'deps'], review: true };
+export const HARN: Record<string, any> = { tpl: 'pair', ceiling: 'assist', human: ['arch', 'schema', 'deps'], review: true };
 const AG0 = JSON.parse(JSON.stringify(AGENTS));
 /* HARN nasce com os defaults; `LS.get` só é chamado DENTRO de hydrateHarn (guard-once),
    porque team.ts avalia ANTES de app.ts — que é quem define `LS` (padrão hidratação
@@ -124,7 +126,7 @@ function hydrateHarn() {
      systems (era o arranque do v6.ts — ADR-0004, U4g4) */
   if (HARN.explain == null) HARN.explain = ['study', 'critical'].includes(HARN.tpl);
 }
-function isHuman(r: string): boolean { hydrateHarn(); return ALWAYS.includes(r) || HARN.human.includes(r); }
+export function isHuman(r: string): boolean { hydrateHarn(); return ALWAYS.includes(r) || HARN.human.includes(r); }
 function harnessToml(): string {
   hydrateHarn();
   return `# Project harness — the contract between this project's humans and its assistants.
@@ -218,13 +220,12 @@ function teamView(t: unknown, host: HTMLElement): void {
 const RV = window as unknown as {
   BL: { issues: { id: string; title: string; branch?: string | null; stage: string }[] };
   GIT: { trees: Record<string, Record<string, string>> };
-  diffLines: (a: string, b: string) => [string, string, unknown, unknown][];
   extOf: (p: string) => string; hlLine: (l: string, ext: string) => string; short: (p: string) => string;
 };
 /** A revisão de uma issue: o diff do ramo contra o develop, com «Validate and merge». */
 function reviewView(t: Tab, host: HTMLElement): void {
   const it = RV.BL.issues.find((i) => i.id === t.issue), GIT = RV.GIT, tr = it && GIT.trees[it.branch as string], dv = GIT.trees.develop, files = tr ? Object.keys(tr).filter((p) => tr[p] !== dv[p]) : [];
-  host.innerHTML = `<div class="diff"><div class="diff-h"><b style="color:var(--fg)" class="notr">${it ? esc(it.id + ' · ' + it.title) : ''}</b><span class="tag notr">${it ? esc(it.branch || '') : ''} → develop</span><span class="sp" style="flex:1"></span>${it && it.stage === 'func' ? `<button class="mini pri" data-action="team:approve" data-on="${esc(it.id)}">${msg("validateAndMerge")}</button><button class="mini" data-action="team:reject" data-on="${esc(it.id)}">${msg("reject")}</button>` : ''}</div>${files.length ? files.map((p) => { const d = RV.diffLines(dv[p] || '', (tr as Record<string, string>)[p]), ext = RV.extOf(p); return `<div class="diff-h" style="padding-top:14px"><b style="color:var(--accent-hover)">${esc(RV.short(p))}</b><span style="color:var(--green)">+${d.filter((x) => x[0] === '+').length}</span><span style="color:var(--red)">−${d.filter((x) => x[0] === '-').length}</span></div>` + d.map((x) => `<div class="dl ${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : ''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${RV.hlLine(x[1], ext) || ' '}</span></div>`).join(''); }).join('') : '<div class="sec-empty">Nothing to review: the branch was already merged or has no changes.</div>'}</div>`;
+  host.innerHTML = `<div class="diff"><div class="diff-h"><b style="color:var(--fg)" class="notr">${it ? esc(it.id + ' · ' + it.title) : ''}</b><span class="tag notr">${it ? esc(it.branch || '') : ''} → develop</span><span class="sp" style="flex:1"></span>${it && it.stage === 'func' ? `<button class="mini pri" data-action="team:approve" data-on="${esc(it.id)}">${msg("validateAndMerge")}</button><button class="mini" data-action="team:reject" data-on="${esc(it.id)}">${msg("reject")}</button>` : ''}</div>${files.length ? files.map((p) => { const d = diffLines(dv[p] || '', (tr as Record<string, string>)[p]), ext = RV.extOf(p); return `<div class="diff-h" style="padding-top:14px"><b style="color:var(--accent-hover)">${esc(RV.short(p))}</b><span style="color:var(--green)">+${d.filter((x) => x[0] === '+').length}</span><span style="color:var(--red)">−${d.filter((x) => x[0] === '-').length}</span></div>` + d.map((x) => `<div class="dl ${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : ''}"><span class="n">${x[2]}</span><span class="n">${x[3]}</span><span class="s">${x[0]}</span><span>${RV.hlLine(x[1], ext) || ' '}</span></div>`).join(''); }).join('') : '<div class="sec-empty">Nothing to review: the branch was already merged or has no changes.</div>'}</div>`;
 }
 VIEW.team = teamView;
 VIEW.review = reviewView;
@@ -239,9 +240,10 @@ export function codeGuard(what: string): boolean {
   return true;
 }
 
-Object.assign(window, { openTeam, harnessCheck, harnessCmd, agentSys, pickAgent, agentPill,
-  RIGHTS, RIGHT_RE, HARN, MORD, isHuman, reviewIssue,
+Object.assign(window, { openTeam, pickAgent, agentPill, reviewIssue,
 });
+/* o harness que o Co-Dev e as tarefas lêem (ADR-0004, U7h): avaliam antes deste módulo, por isso usam o registo */
+services.team = { HARN, MORD, RIGHTS, RIGHT_RE, isHuman, harnessCheck, harnessCmd, agentSys };
 
 /* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê
    directamente — o tecto no setMode, o boot5, as políticas do board — vê já os valores
@@ -252,7 +254,7 @@ hydrateHarn();
    handlers inline, que resolviam o HARN/LS/AGENT/AGENTS/ROOT/cur e as funções no window ao clicar;
    as acções fazem o mesmo, no acto. */
 const TA = window as unknown as {
-  HARN: { review: boolean; explain: boolean }; LS: { set: (k: string, v: unknown) => void }; AGENT: string; ROOT: string; cur: unknown;
+  LS: { set: (k: string, v: unknown) => void }; AGENT: string; ROOT: string; cur: unknown;
   AGENTS: Record<string, { paths: string[]; cmds: string[]; model: string; max: number }>;
 };
 const lines = (v: string): string[] => v.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -260,15 +262,15 @@ registerActions({
   "team:openHarness": { click: () => void callGlobal('openPath', TA.ROOT + '.dxtutor/harness.toml') },
   "team:applyTemplate": { click: (c) => void callGlobal('applyTemplate', c.on) },
   "team:toggleRight": { click: (c) => void toggleRight(c.on) },
-  "team:review": { click: () => { TA.HARN.review = !TA.HARN.review; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
-  "team:explain": { click: () => { TA.HARN.explain = !TA.HARN.explain; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
+  "team:review": { click: () => { HARN.review = !HARN.review; TA.LS.set('harn5', HARN); callGlobal('rerender', 'team'); } },
+  "team:explain": { click: () => { HARN.explain = !HARN.explain; TA.LS.set('harn5', HARN); callGlobal('rerender', 'team'); } },
   "team:probe": { input: (c) => void scopeProbe(c.value) },
   "team:talk": { click: (c) => { TA.AGENT = c.on; callGlobal('agentPill'); callGlobal('show', TA.cur); } },
   "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); saveTeam(); } },
   "team:cmds": { change: (c) => { TA.AGENTS[c.on].cmds = lines(c.value); saveTeam(); } },
   "team:model": { change: (c) => { TA.AGENTS[c.on].model = c.value; saveTeam(); } },
   "team:max": { change: (c) => { TA.AGENTS[c.on].max = +c.value; saveTeam(); } },
-  "team:approve": { click: (c) => { callGlobal('approveIssue', c.on); callGlobal('closeTab', 'review'); } },
+  "team:approve": { click: (c) => { callGlobal('approveIssue', c.on); services.tabs!.closeTab('review'); } },
   "team:reject": { click: (c) => void callGlobal('rejectIssue', c.on) },
   "team:runTests": { click: () => void callGlobal('handlePrompt', '/test') },
   "team:openTeam": { click: () => void callGlobal('openTeam') },

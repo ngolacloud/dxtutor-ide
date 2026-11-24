@@ -23,6 +23,7 @@ import { bootApp, golden } from "./harness";
  * harness — ao contrário do debug, não são precisos fixtures de v6/boot. */
 
 let w: any;
+let TMod: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7h)
 
 /** Projecção serializável de uma issue: os campos que a LÓGICA DO BOARD decide
  *  (agente/pts/sprint/stage/testes) + os caminhos que `gen()` constrói. O CONTEÚDO
@@ -57,6 +58,7 @@ beforeEach(async () => {
   // repomos por segurança para cada teste arrancar com um backlog vazio.
   (window as any).BL = undefined;
   w = await bootApp();
+  TMod = await import("../src/features/team");
   w.RUN.active = false;
 });
 
@@ -174,7 +176,7 @@ describe("políticas compostas pelo board (ADR-0004, U4g3)", () => {
 
   it("revisão antes de validar: «Validar» sem revisão abre a revisão e a issue fica em func", () => {
     const it = w.mkIssue({ title: "rev", agent: "be", sprint: 0, stage: "func", res: [{ n: "t", ok: true }] });
-    expect(w.HARN.review).toBe(true);
+    expect(TMod.HARN.review).toBe(true);
     w.BL.view = -1; const host = renderInto();
     click(host.querySelector(`[data-action="approve"][data-on="${it.id}"]`)!);
     expect(it.stage).toBe("func");

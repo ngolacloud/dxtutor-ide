@@ -28,8 +28,9 @@ import type {
   Backlog, Stage, Issue, Design, TechSpec,
 } from "../domain/types";
 /* U7c do ADR-0004: estes quatro deixaram de ser lidos pelo window — o publicador avalia antes desta ponte, ninguém os decora */
-import { validateDesign as validateDesignImpl, CLOUD, saveSD as saveSDImpl, appDir as appDirImpl } from "../../studio";
-import { codeGuard as codeGuardImpl } from "../../team";
+import { validateDesign as validateDesignImpl, CLOUD, saveSD as saveSDImpl, appDir as appDirImpl, openStudio as openStudioImpl } from "../../studio";
+import { codeGuard as codeGuardImpl, HARN } from "../../team";
+import { STOP } from "../../codev";
 import { usd as usdImpl } from "../../tasks";
 import { TASKP } from "../../router/domain/model-routing";
 export { toast, log, rerender };
@@ -86,7 +87,7 @@ export const mode = (): string => G.MODE;
 export const panes = (): Record<string, () => void> => G.RP;
 export const root = (): string => G.ROOT;
 /** A sentinela de cancelamento do co-dev (`throw STOP` / `e === STOP`). */
-export const stopSignal = (): unknown => G.STOP;
+export const stopSignal = (): unknown => STOP;
 
 /* ───── git/scm (motor da feature scm, lido por global) ───── */
 export const git = (): GitRefs => G.GIT;
@@ -146,7 +147,7 @@ export const projectTests = async (): Promise<Array<{ n: string; ok: boolean }>>
 /* ───── navegação / separadores / paleta de comandos / refresh ───── */
 export const openTab = (t: OpenTabArg): void => G.openTab(t);
 export const openGraph = (sel?: string): void => G.openGraph(sel);
-export const openStudio = (): void => G.openStudio();
+export const openStudio = (): void => openStudioImpl();
 export const palette = (pre: string, cfg?: PalCfg): void => G.palette(pre, cfg);
 export const refresh = (): void => G.refresh();
 
@@ -172,7 +173,7 @@ export interface DlgOpts {
   title: string; body: string; input?: string; ok?: string;
   validate?: (v: string) => string; onOk?: (v: string) => void;
 }
-export const harness = (): Harness => G.HARN;
+export const harness = (): Harness => HARN as Harness;
 export const reviewIssue = (id: string): void => G.reviewIssue(id);
 export const codeGuard = (what: string): boolean => codeGuardImpl(what);
 export const openIssue = (id: string): void => G.openIssue(id);

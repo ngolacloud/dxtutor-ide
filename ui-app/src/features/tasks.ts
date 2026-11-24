@@ -28,6 +28,7 @@ import { RP, VIEW } from "../app/store/registry";
 import { registerActions, globalCalls, callGlobal, args } from "../app/actions";
 import { translator } from "../app/i18n";
 import { TASKS_MESSAGES } from "./tasks.messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(TASKS_MESSAGES);
 
@@ -59,7 +60,7 @@ function costAvg(agent: string): { tok: number; usd: number; att: number } | nul
 /** Conselho de delegação ("tu"/"mistura"/"agente") para uma issue, com custo estimado. */
 function advice(it: any): [string, string] {
   const AGENTS = window.AGENTS;
-  if (isHuman("code")) return ["you", "In this project code stays with you."];
+  if (services.team!.isHuman("code")) return ["you", "In this project code stays with you."];
   if (it.agent === "arq" || /ADR/.test(it.title)) return ["you", "Architecture is your call: let the Architect draft, you decide."];
   const a = costAvg(it.agent), h = it.pts * MIN_PER_PT;
   /* sem corridas medidas deste assistente, não se inventa um custo (era «1200 tokens por ponto»
@@ -133,7 +134,8 @@ Object.assign(window, { openIssue,});
 const TW = window as unknown as { TK: TaskFilter; RP: Record<string, () => void>; BL: { issues: { id: string; owner: string | null }[] }; cur: unknown; PANE: string };
 const issue = (id: string) => TW.BL.issues.find((x) => x.id === id)!;
 registerActions({
-  ...globalCalls("tasks", ["newIssue", "openBoard", "openStudio"]),
+  ...globalCalls("tasks", ["newIssue", "openBoard"]),
+  "tasks:openStudio": { click: () => services.studio!.openStudio() },
   "tasks:sprint": { click: (c) => { TK.sprint = Number(c.on); saveTK(); TW.RP.tasks(); } },
   "tasks:who": { change: (c) => { TK.who = c.value; saveTK(); TW.RP.tasks(); } },
   "tasks:group": { click: (c) => { const [k, v] = args<[string, boolean]>(c); TK.open[k] = v; saveTK(); TW.RP.tasks(); } },

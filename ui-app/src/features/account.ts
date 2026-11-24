@@ -23,6 +23,7 @@ import { RP } from "../app/store/registry";
 import { registerActions, globalCalls } from "../app/actions";
 import { translator } from "../app/i18n";
 import { ACCOUNT_MESSAGES } from "./account.messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(ACCOUNT_MESSAGES);
 
@@ -56,4 +57,5 @@ window.renderAccountPane = renderAccountPane;
 RP.account = renderAccountPane;
 
 /* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
-registerActions(globalCalls("account", ["openSettings", "openManager"]));
+/* as Definições pelo registo — o features/codev.ts avalia depois (ADR-0004, U7h) */
+registerActions({ "account:openSettings": { click: () => services.codev!.openSettings() }, ...globalCalls("account", ["openManager"]) });

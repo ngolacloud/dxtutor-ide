@@ -29,7 +29,7 @@ it("openPath abre e activa; o ecrã vazio volta quando se fecha o último", () =
   expect(titles()).toEqual(["lib.rs"]);
   expect($("#tabs .tab.active .nm").textContent).toBe("lib.rs");
   expect($("#breadcrumbs").textContent).toContain("lib.rs");
-  w.closeTab(p);
+  TM.closeTab(p);
   expect(w.cur).toBe(null);
   expect(titles()).toEqual([]);
   expect($("#ebody .empty").textContent).toContain("dxtutor IDE");
@@ -43,9 +43,9 @@ it("fechar o activo passa ao anterior; stepTab percorre em ciclo; ficheiro inexi
   expect(w.cur).toBe(files[0]);
   TM.stepTab(-1);
   expect(w.cur).toBe(files[2]);
-  w.closeTab(files[2]);
+  TM.closeTab(files[2]);
   expect(w.cur).toBe(files[1]);
-  w.closeTab("nao-existe"); // sem efeito
+  TM.closeTab("nao-existe"); // sem efeito
   expect(w.TB.length).toBe(2);
   w.openPath("dxtutor/nao/existe.rs");
   expect(w.TB.length).toBe(2);

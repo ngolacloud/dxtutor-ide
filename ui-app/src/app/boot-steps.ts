@@ -4,7 +4,7 @@
    depois de todos os donos publicarem os seus. Ajustam ACTS/MENUS/CMD/LANG, que se dissolvem quando
    cada feature registar os seus comandos (U7). O CMD, o buildMenus e o LCUR importam-se do
    app/commands.ts: são as mesmas ligações locais que estes passos usavam no app.ts. */
-import { setVar, hydrate, log, mkRz } from "../features/shell";
+import { setVar, hydrate, log, mkRz, badges } from "../features/shell";
 import { LANG } from "../features/editor";
 import { openArch } from "../features/arch/index";
 import { openProject } from "../features/project/index";
@@ -14,13 +14,14 @@ import { buildDocker } from "../boot";
 import type { AppCmd, AppMenu } from "./ide-globals";
 import { translator } from "./i18n";
 import { BOOT_MESSAGES } from "./boot-steps.messages";
-import { loadTeam, HT } from "../features/team";
+import { loadTeam, HT, HARN, MORD } from "../features/team";
 import { ltResume, ltOnboard } from "../features/learn";
-import { loadSD } from "../features/studio";
+import { loadSD, openStudio } from "../features/studio";
 import { closePal, palDraw, palRun } from "../features/palette";
 import { loadCfg } from "./store/config";
 import { resetWorkspace } from "../features/workspace";
 import { buildActivity } from "../features/shell";
+import { openSettings } from "../features/codev";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 

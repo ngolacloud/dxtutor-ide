@@ -423,6 +423,16 @@ Texto emitido por `domain/`/`application/` não importa o `translator` (lê o `w
 `translator(CATÁLOGO)` (é assim no quadro e na infra). Catálogos de texto NOVO (sem par no motor) ficam num
 ficheiro à parte (p.ex. `git-messages.ts`): o teste verifica-lhes só a estrutura.
 
+## Globais e o registo de serviços (`ui-app/src/app/services.ts`, ADR-0004 U7)
+
+Função ou estado de outro módulo lê-se por **import**, não pelo `window`; nada de `Object.assign(window, …)` novo
+(a métrica U7 do `ui-metrics.sh` só desce). A ordem de avaliação do `main.ts` conta: um import puxa a avaliação do
+dono para mais cedo e troca a ordem dos efeitos. Se o dono avalia DEPOIS do leitor, o dono regista a sua API em
+`services` (tipada por `import type`, que não muda a ordem) e o leitor chama-a no acto (`services.team!.isHuman(…)`),
+nunca ao avaliar. Nos testes, o módulo vem fresco da cadeia do `bootApp` (`M = await import(…)` depois dele), não do
+`window`. Antes de despublicar um nome, procura também os acessos dinâmicos (`callGlobal("x")`, `globalCalls`,
+`window[nome]`) e os testes de outras sessões que o troquem.
+
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com

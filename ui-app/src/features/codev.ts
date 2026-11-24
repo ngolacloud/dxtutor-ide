@@ -57,6 +57,7 @@ import {
   hunkReview,
   codevRun,
 } from "./codev/index";
+import { services } from "../app/services";
 
 /* ───── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ───── */
 const ROLE: Record<string, string> = window.ROLE = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
@@ -101,22 +102,22 @@ bus.on('editor:tab', () => ctxPill());
    preservado): só o doTool PUBLICADO leva o gate de direitos — o chat usa o doTool local
    do motor (codev/index.ts), que nunca teve o gate do v5. */
 interface HarnessGlobals {
-  HARN: { ceiling: string }; MORD: string[]; RIGHTS: Record<string, string>; RIGHT_RE: Record<string, RegExp>;
-  isHuman: (r: string) => boolean;
   MODE: string; short: (p: string) => string; log: (s: string, m: string) => void;
 }
 const HG = window as unknown as HarnessGlobals;
+/* o harness do features/team.ts, que avalia depois deste módulo: pelo registo, no acto (ADR-0004, U7h) */
+const HS = () => services.team!;
 type DoToolArgs = Parameters<typeof codevEngine.doTool>;
 async function harnessDoTool(t: DoToolArgs[0], host: DoToolArgs[1], role?: DoToolArgs[2]): Promise<unknown> {
   if (t.t === 'edit') {
     const p = String((t as { p?: unknown }).p);
-    if (HG.isHuman('code') && !/\/learn\//.test(p)) { (tl(host, 'harness', HG.short(p)).querySelector('.tr') as HTMLElement).innerHTML = '<span class="bad">✖ writing code is yours in this project</span>'; HG.log('harness', 'edit blocked: code is human-only'); return false; }
-    const r = Object.keys(HG.RIGHT_RE).find((k) => HG.isHuman(k) && HG.RIGHT_RE[k].test(p));
-    if (r && HG.MODE !== 'manual') { const d = tl(host, 'your call', HG.RIGHTS[r] + ' · ' + HG.short(p)); const v = await ask(d, [{ l: 'Approve', v: 1, pri: 1, done: '✓ approved by you' }, { l: 'Reject', v: 0, done: '✗ rejected by you' }]); if (!v) { HG.log('humano', 'rejected ' + HG.short(p)); return false; } }
+    if (HS().isHuman('code') && !/\/learn\//.test(p)) { (tl(host, 'harness', HG.short(p)).querySelector('.tr') as HTMLElement).innerHTML = '<span class="bad">✖ writing code is yours in this project</span>'; HG.log('harness', 'edit blocked: code is human-only'); return false; }
+    const r = Object.keys(HS().RIGHT_RE).find((k) => HS().isHuman(k) && HS().RIGHT_RE[k].test(p));
+    if (r && HG.MODE !== 'manual') { const d = tl(host, 'your call', HS().RIGHTS[r] + ' · ' + HG.short(p)); const v = await ask(d, [{ l: 'Approve', v: 1, pri: 1, done: '✓ approved by you' }, { l: 'Reject', v: 0, done: '✗ rejected by you' }]); if (!v) { HG.log('humano', 'rejected ' + HG.short(p)); return false; } }
   }
   return codevEngine.doTool(t, host, role);
 }
-window.setMode = function (m) { if (HG.MORD.indexOf(m) > HG.MORD.indexOf(HG.HARN.ceiling)) { bridge.toast(`This project's harness caps autonomy at ${MODES[HG.HARN.ceiling].l}`); return; } bridge.monolith.mode = m; bridge.save(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
+window.setMode = function (m) { if (HS().MORD.indexOf(m) > HS().MORD.indexOf(HS().HARN.ceiling)) { bridge.toast(`This project's harness caps autonomy at ${MODES[HS().HARN.ceiling].l}`); return; } bridge.monolith.mode = m; bridge.save(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
 function cycleMode() { const k = Object.keys(MODES); window.setMode(k[(k.indexOf(bridge.monolith.mode) + 1) % k.length]); }
 function pickModel() { bridge.palette('', { ph: 'Modelo para a conversa…', items: Object.entries(bridge.providers()).map(([k, p]: [string, any]) => ({ l: `${p.name} — ${p.model}`, d: p.on ? bridge.provState(k) : 'desligado', run: () => { if (!p.on) { bridge.toast(p.name + ' está desligado — liga-o nas Definições'); return; } bridge.monolith.activeProvider = k; bridge.save(); } })) }); }
 function toggleProv(k: string) { const p = bridge.providers(); p[k].on = !p[k].on; bridge.save(); agentStore.providerChanged(k); const panes = bridge.panes(); if (panes[bridge.monolith.pane]) panes[bridge.monolith.pane](); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); }
@@ -243,7 +244,7 @@ codevAskRegistry.register((r: AskRequest) => codevAsk(r), codevAskFromEditor);
 codevIssue.register((r) => codevEngine.agentIssue(r));
 
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
-function openSettings() { bridge.openTab({ id: 'settings', title: 'Definições', kind: 'settings' }); }
+export function openSettings() { bridge.openTab({ id: 'settings', title: 'Definições', kind: 'settings' }); }
 function openManager() { bridge.openTab({ id: 'manager', title: 'Gestor de missões', kind: 'manager' }); }
 export function openAnalysis() { bridge.openTab({ id: 'analysis', title: 'Análise', kind: 'analysis' }); }
 function testProvBase(k: string, btn: HTMLElement): void { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> — respostas reais através do Claude deste artefacto.' : 'Ao vivo indisponível nesta vista; activa-se com o artefacto aberto em claude.ai.') : `<span style="color:var(--yellow)">simulado</span> — a página não pode chamar ${esc(PROV[k].ep)}; a chamada real é feita pelo backend da aplicação.`; }, 500); }
@@ -273,7 +274,7 @@ window.renderManagerPage = (_t, host) => {
    `features/changelog.ts` (timeline git real). `openAnalysis` (o ponto de entrada do
    menu Help + paleta) mantém-se e passa a abrir o changelog. */
 /* publica openManager/openSettings/openAnalysis (testProv é window.* acima); os VIEW.* ficam shims em app.ts */
-Object.assign(window, { openManager, openSettings });
+Object.assign(window, { openManager });
 
 /** Renderiza o pane «Co-Dev»: base (conhecimento, checkpoints, routing) e,
  *  por cima, a camada v4 (equipa, backlog, studio). */
@@ -422,7 +423,7 @@ mountComposer(composerHost);
    fim); o agentStore adopta os objectos ao publicá-los. O MODE/ACTIVE/THRESH/CTX_ON nascem no agentStore
    com os mesmos valores que o app.ts lhes voltava a atribuir. Seguem o STOP/SAFE/DANGER, o provFor/who, o
    provState com a porta desktop e o VIEW.settings composto (página + secção Language do i18n + porta). */
-const CW = window as unknown as { ROUTE: Record<string, string>; ROLE: Record<string, string>; connected: () => string[]; LOCALES: string[][]; LOCALE: string; SAMPLE: unknown };
+const CW = window as unknown as { ROUTE: Record<string, string>; ROLE: Record<string, string>; connected: () => string[]; LOCALE: string; SAMPLE: unknown };
 const PROV: Record<string, { name: string; vendor: string; model: string; ep: string; on: boolean; local?: boolean; col: string }>={
   claude:{name:'Claude',vendor:'Anthropic',model:'claude-opus-5-5',ep:'https://api.anthropic.com',on:true,col:'var(--accent-hover)'},
   gemini:{name:'Gemini',vendor:'Google',model:'gemini-pro',ep:'https://generativelanguage.googleapis.com',on:true,col:'var(--blue)'},
@@ -431,15 +432,16 @@ const PROV: Record<string, { name: string; vendor: string; model: string; ep: st
 };
 const CHAT: unknown[]=[];
 const RUN={active:false,paused:false,stop:false,pend:null,abort:null,label:'',t0:0};
-const STOP='__STOP__',SAFE=/^(cargo (test|build|clippy)|dx lint|npm run lint)/,DANGER=/git push|rm -rf|drop table|--force/i;
-Object.assign(window, { PROV, CHAT, RUN, STOP, SAFE, DANGER });
+export const STOP='__STOP__',SAFE=/^(cargo (test|build|clippy)|dx lint|npm run lint)/,DANGER=/git push|rm -rf|drop table|--force/i;
+Object.assign(window, { PROV, CHAT, RUN,});
 CW.SAMPLE = null;
-const provFor=(r: string): string=>PROV[CW.ROUTE[r]].on?CW.ROUTE[r]:(CW.connected()[0]||CW.ROUTE[r]);
-const who=(r: string): string=>`${CW.ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
+export const provFor=(r: string): string=>PROV[CW.ROUTE[r]].on?CW.ROUTE[r]:(CW.connected()[0]||CW.ROUTE[r]);
+export const who=(r: string): string=>`${CW.ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
 const provStateBase=(k: string): string=>k==='claude'?(CW.SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
 window.provState=(k: string): string=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
-const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${CW.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
+const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${services.i18n!.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
 VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
-Object.assign(window, { provFor, who });
+/* o que a ponte do Co-Dev e a conta lêem (ADR-0004, U7h): avaliam antes deste módulo, por isso usam o registo */
+services.codev = { STOP, SAFE, DANGER, provFor, who, openSettings };
 /* a escolha da língua nas Definições chama o setLocale publicado, no acto (era `onclick` inline — ADR-0004, U5c) */
 registerActions({ "codev:setLocale": { click: (c) => void callGlobal("setLocale", c.on) } });

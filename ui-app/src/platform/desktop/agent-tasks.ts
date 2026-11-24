@@ -7,6 +7,7 @@ import type { DelegateResult } from "./types";
 import type { DesktopContext } from "./context";
 import { translator } from "../../app/i18n";
 import { AGENT_TASKS_MESSAGES } from "./agent-tasks.messages";
+import { STOP } from "../../features/codev";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(AGENT_TASKS_MESSAGES);
 

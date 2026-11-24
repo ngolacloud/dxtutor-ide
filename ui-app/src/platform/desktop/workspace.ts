@@ -14,6 +14,7 @@ import { registerActions } from "../../app/actions";
 import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
 import { changedFromDisk, withDiskEol } from "./eol";
+import { closeTab } from "../../features/tabs";
 
 export function installWorkspace(ctx: DesktopContext): void {
 const { R, fsx, git, enqueue, escH, isReal, relOf, say } = ctx;

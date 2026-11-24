@@ -35,6 +35,7 @@ import { registerActions, globalCalls } from "../app/actions";
 import { driftReport, DSTY, ENVL } from "./infra";
 import { translator } from "../app/i18n";
 import { STUDIO_MESSAGES } from "./studio.messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(STUDIO_MESSAGES);
 
@@ -74,7 +75,7 @@ window.SD=emptyDesign();window.SSEL=null;window.SLINK=null;window.SCAT='aws';let
 const saveSD=()=>{ if (hasFolder()) writeFile(P_STUDIO(), JSON.stringify(SD, null, 2) + '\n'); else LS.set('studio4', SD); };
 /* outra pasta aberta: o desenho é o dela */
 document.addEventListener('dx:workspace', () => { SD = loadSD(); SSEL = null; SLINK = null; rerender('studio'); });
-function openStudio(){openTab({id:'studio',title:'Studio',kind:'studio'});}
+export function openStudio(){openTab({id:'studio',title:'Studio',kind:'studio'});}
 
 /* ───── catálogo de tecnologias cloud ───── */
 export const CLOUD:Record<string,any>={app:{l:'APP',col:'#dea584',t:'Application runtimes'},oss:{l:'OSS',col:'#5cc9a7',t:'Open source'},aws:{l:'AWS',col:'#ff9900',t:'Amazon Web Services'},azure:{l:'AZURE',col:'#3a96dd',t:'Microsoft Azure'},gcp:{l:'GCP',col:'#ea4335',t:'Google Cloud'}};
@@ -166,7 +167,9 @@ VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { TECH, KIND, isApp, sl, openStudio });
+Object.assign(window, { TECH, KIND, isApp, sl });
+/* a ponte do Co-Dev e as tarefas (avaliam antes) abrem o Studio pelo registo (ADR-0004, U7h) */
+services.studio = { openStudio };
 
 /* lidos por import (ADR-0004, U7e): o arranque, os geradores, a ponte do board e o auto-teste desktop */
 export { loadSD, saveSD, appDir, sdAdd };

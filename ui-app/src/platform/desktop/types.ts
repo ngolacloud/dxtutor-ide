@@ -71,7 +71,6 @@ declare global {
   const RTN: Record<string, string>;
   const KCTX: string[];
   const AGENTS: Record<string, { n: string }>;
-  const STOP: unknown;
   let MODE: string; // mutável — o boot5 (app.ts) reatribui (MODE=HARN.ceiling) e o auto-teste também
   var ACTIVE: string;
   const COMMIT_MSG: string;
@@ -127,7 +126,6 @@ declare global {
   var JSZip: unknown;
   // Donas de features/checkpoint.ts, lidas por nome livre pelo selftest (passo `checkpoint`).
   var checkpoint: (label: string) => number;
-  var restoreCkpt: (id: number, silent?: boolean) => void;
   var gfAsk: (host: HTMLElement, M: { files: Set<string> }) => Promise<void>;
   // Dona de features/graph.ts, lida pelo selftest (passo `graph`).
   var renderGraphView: (tab: unknown, host: HTMLElement) => void;

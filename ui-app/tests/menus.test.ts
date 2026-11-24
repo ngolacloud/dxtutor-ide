@@ -49,7 +49,7 @@ it("acção por função, por nome no window e sem acção (toast); submenus abr
   const rec = Array.from(pop2.querySelectorAll<HTMLElement>(".mi")).find((m) => m.textContent!.includes("Recentes"))!;
   rec.dispatchEvent(new MouseEvent("mouseenter"));
   expect(pop2.querySelectorAll(".menu-pop").length).toBe(1);
-  w.closeMenus();
+  MNM.closeMenus();
   const pop3 = MNM.renderPop(w.MENUS[1].items, 0, 0) as HTMLElement;
   (pop3.querySelector(".mi") as HTMLElement).click();
   expect(w.__acaoMenuTeste).toHaveBeenCalledTimes(1);

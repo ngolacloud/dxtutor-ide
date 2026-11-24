@@ -25,7 +25,7 @@ import { desktopPorts } from "../app/desktop";
 import { codeintelClient, type SymbolRange } from "../platform/tauri/codeintel";
 import { translator } from "../app/i18n";
 import { EXPLORER_MESSAGES } from "./explorer.messages";
-import { SECOPEN } from "./workspace";
+import { SECOPEN, norm } from "./workspace";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(EXPLORER_MESSAGES);
 

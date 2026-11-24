@@ -5,10 +5,37 @@
    (`services.learn!.course()`). Os tipos vêm por `import type`, que não muda a ordem de avaliação. Este módulo é
    puro (sem efeitos) e pode ser importado por qualquer um. */
 import type * as Learn from "../features/learn";
+import type * as Team from "../features/team";
+import type * as Codev from "../features/codev";
+import type * as I18n from "../features/i18n";
+import type * as Workspace from "../features/workspace";
+import type * as Tabs from "../features/tabs";
+import type * as Checkpoint from "../features/checkpoint";
+import type * as Studio from "../features/studio";
+import type * as Shell from "../features/shell";
+import type * as Menus from "../features/menus";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
   learn: Pick<typeof Learn, "LTS" | "saveLT" | "LT_BADGE" | "course" | "ltUnits" | "ltDone" | "ltSeq" | "ltPts" | "stars" | "ltOnboard" | "ltOpen">;
+  /** o harness do projecto (features/team.ts): o Co-Dev (o resíduo e a ponte) e as tarefas lêem-no (U7h) */
+  team: Pick<typeof Team, "HARN" | "MORD" | "RIGHTS" | "RIGHT_RE" | "isHuman" | "harnessCheck" | "harnessCmd" | "agentSys">;
+  /** a sentinela e as regras de comandos, o routing e as Definições (features/codev.ts): a ponte do Co-Dev e a conta (U7h) */
+  codev: Pick<typeof Codev, "STOP" | "SAFE" | "DANGER" | "provFor" | "who" | "openSettings">;
+  /** as línguas da interface (features/i18n.ts), lidas pela secção Language das Definições (U7h) */
+  i18n: Pick<typeof I18n, "LOCALES">;
+  /** os caminhos do workspace (features/workspace.ts): a ponte do Co-Dev, a equipa e o Learning Track (U7h) */
+  workspace: Pick<typeof Workspace, "norm" | "LF">;
+  /** os separadores (features/tabs.ts): a ponte do Co-Dev, a equipa e o Learning Track (U7h) */
+  tabs: Pick<typeof Tabs, "miniOff" | "closeTab">;
+  /** restaurar um checkpoint (features/checkpoint.ts), da ponte do Co-Dev (U7h) */
+  checkpoint: Pick<typeof Checkpoint, "restoreCkpt">;
+  /** abrir o Studio (features/studio.ts), da ponte do Co-Dev e das tarefas (U7h) */
+  studio: Pick<typeof Studio, "openStudio">;
+  /** o layout (features/shell.ts): o boot, os separadores e a ponte do Co-Dev (U7h) */
+  shell: Pick<typeof Shell, "hydrate" | "setVar" | "badges">;
+  /** fechar os menus (features/menus.ts): o boot, a paleta e o shell (U7h) */
+  menus: Pick<typeof Menus, "closeMenus">;
 }
 
 export const services: Partial<Services> = {};

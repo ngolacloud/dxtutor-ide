@@ -165,7 +165,7 @@ export interface ChatPresenter {
   trackFile(path: string): void;
   phase(n: number, label: string): void;
   revealTerminal(): void;
-  /** The shared stop sentinel (`window.STOP`); thrown to unwind a run the human
+  /** The shared stop sentinel (`STOP` of features/codev.ts); thrown to unwind a run the human
    *  stopped. Shared with `features/board.ts`, so it stays a value rather than an
    *  `AbortError`. */
   stopValue(): unknown;

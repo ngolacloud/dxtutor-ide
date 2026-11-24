@@ -19,19 +19,18 @@ import { $, esc, svg, toast } from "../core";
 import { editorStore, type Tab } from "../app/store/editor";
 import { VIEW } from "../app/store/registry";
 import { registerActions, globalCalls } from "../app/actions";
+import { services } from "../app/services";
 
 interface LegacyGlobals {
   FS: Record<string, { content: string; orig: string | null }>;
   short: (p: string) => string;
   fIcon: (name: string) => string;
   gotoLine: (line: number) => void;
-  hydrate: () => void;
   drawOutline: () => void;
   markActive: () => void;
   stLang: () => void;
   show: (id: string | null) => void;
   ctxPill: () => void;
-  setVar: (k: string, v: string) => void;
 }
 const G = window as unknown as LegacyGlobals;
 
@@ -150,7 +149,7 @@ function show(id: string | null): void {
     .join('<span class="sep">›</span>');
   if (t.kind !== "file") miniOff();
   VIEW[t.kind](t, host);
-  G.hydrate();
+  services.shell!.hydrate();
   G.drawOutline();
   G.markActive();
   G.stLang();
@@ -164,7 +163,7 @@ function closeTab(id: string): void {
   TB().splice(i, 1);
   if (t.kind === "agent") {
     parkAgent();
-    G.setVar("--agent-w", "380px");
+    services.shell!.setVar("--agent-w", "380px");
     ($("#tgl-agent") as HTMLElement).classList.add("on");
   }
   if (editorStore.currentTabId === id) G.show(TB().length ? TB()[Math.max(0, i - 1)].id : null);
@@ -199,6 +198,8 @@ function showWithActions(id: string | null): void {
  *  ADR-0004 U4j3; como lá, usa o `show` publicado — o da barra de acções). */
 function rerender(kind: string): void { const t=tabOf(editorStore.currentTabId);if(t&&t.kind===kind){const top=$('#ebody')!.scrollTop;G.show(editorStore.currentTabId);$('#ebody')!.scrollTop=top;} }
 
-Object.assign(window, { rerender, tabOf, openTab, openPath, openFile, miniOff, show: showWithActions, closeTab, EACT });
+Object.assign(window, { rerender, tabOf, openTab, openPath, openFile, show: showWithActions, EACT });
 
 export { rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };
+/* o que a ponte do Co-Dev, a equipa e o Learning Track lêem — avaliam antes (ADR-0004, U7h) */
+services.tabs = { miniOff, closeTab };

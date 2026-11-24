@@ -11,9 +11,11 @@ import { openCodevRun } from "../features/codev/index";
 import { GIT_COMMANDS } from "../features/scm/extras";
 import { openHoodReal, openTrace } from "../features/hood/index";
 import { openOps } from "../features/ops/index";
-import { openAnalysis } from "../features/codev";
+import { openAnalysis, openSettings } from "../features/codev";
 import { edCmd } from "../features/editor";
-import { stepTab } from "../features/tabs";
+import { stepTab, closeTab } from "../features/tabs";
+import { restoreCkpt } from "../features/checkpoint";
+import { openStudio } from "../features/studio";
 
 /* O global MENUS (declarado em pair.ts) não conhece os separadores/submenus que se constroem aqui:
    neste módulo vê-se com o tipo completo. Declaração só de tipo: continua a resolver o global no acto. */

@@ -176,12 +176,10 @@ declare global {
     MISSIONS: any[];
     DECS: any[];
     CKPT: any[];
-    badges: () => void;
     ROUTE: Record<string, string>;
     ROLE: Record<string, string>;
     ROLE_D: Record<string, string>;
     MODES: Record<string, { l: string; d: string }>;
-    provFor: (r: string) => string;
     SD: any;
     renderCodevPane: () => void;
     renderSettingsPage: (t: unknown, host: HTMLElement) => void;

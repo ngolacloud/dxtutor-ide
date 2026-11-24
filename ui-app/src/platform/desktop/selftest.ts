@@ -17,6 +17,8 @@ import { tauriOps } from "../../features/ops/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
 import { sdAdd } from "../../features/studio";
 import { saveTeam } from "../../features/team";
+import { restoreCkpt } from "../../features/checkpoint";
+import { STOP } from "../../features/codev";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;

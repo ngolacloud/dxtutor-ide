@@ -10,6 +10,7 @@
    feature registar os seus comandos. Lê-se em runtime pela fachada `G`. */
 
 import { $, $$, toast } from "../core";
+import { services } from "../app/services";
 
 export interface MenuItem {
   l?: string;
@@ -108,6 +109,8 @@ function renderPop(items: MenuItem[], x: number, y: number): HTMLElement {
 }
 
 /* publicação transitória no window (o monólito e as camadas chamam por nome) */
-Object.assign(window, { buildMenubar, closeMenus });
+Object.assign(window, { buildMenubar });
 
 export { buildMenubar, closeMenus, showMenu, renderPop };
+/* o boot, a paleta e o shell (avaliam antes) fecham os menus pelo registo (ADR-0004, U7h) */
+services.menus = { closeMenus };

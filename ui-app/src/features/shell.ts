@@ -17,6 +17,8 @@ import { agentStore } from "../app/store/agent";
 import { layoutStore } from "../app/store/layout";
 import { RP } from "../app/store/registry";
 import { scrollTerm } from "./terminal";
+import { services } from "../app/services";
+import { openSettings } from "./codev";
 
 interface Act {
   ic: string;
@@ -37,11 +39,7 @@ interface LegacyGlobals {
   ACTS: Act[];
   OVERFLOW: OverflowItem[];
   getVar: (k: string) => string;
-  setVar: (k: string, v: string) => void;
-  hydrate: () => void;
-  closeMenus: () => void;
   scrollTerm: () => void;
-  openSettings: () => void;
   changes: () => string[];
   BL: { issues: { stage: string }[] };
 }
@@ -79,7 +77,7 @@ function badges(): void {
 /** Abre o painel lateral `p`; com `tgl === true`, clicar no activo recolhe a barra. */
 function setPane(p: string, tgl?: boolean): void {
   if (p === "settings") {
-    G.openSettings();
+    openSettings();
     return;
   }
   if (tgl === true && layoutStore.pane === p && sideOpen()) {
@@ -93,20 +91,20 @@ function setPane(p: string, tgl?: boolean): void {
   const pe = $("#pane-" + p);
   if (pe) pe.classList.add("show");
   if (RP[p]) RP[p]();
-  G.hydrate();
+  hydrate();
 }
 
 const goPane = (p: string): void => setPane(p);
 
 function toggleSide(): void {
   const o = sideOpen();
-  G.setVar("--side-w", o ? "0px" : "250px");
+  setVar("--side-w", o ? "0px" : "250px");
   ($("#tgl-side") as HTMLElement).classList.toggle("on", !o);
 }
 
 function togglePanel(): void {
   const o = G.getVar("--panel-h") !== "0px";
-  G.setVar("--panel-h", o ? "0px" : "230px");
+  setVar("--panel-h", o ? "0px" : "230px");
   ($("#tgl-panel") as HTMLElement).classList.toggle("on", !o);
 }
 
@@ -147,7 +145,7 @@ function buildActivity(): void {
 
 /** O menu «Additional Views» do botão «…» da barra de actividade. */
 function openOverflow(btn: HTMLElement): void {
-  G.closeMenus();
+  services.menus!.closeMenus();
   const r = btn.getBoundingClientRect();
   const pop = document.createElement("div");
   pop.className = "menu-pop show";
@@ -168,7 +166,7 @@ function openOverflow(btn: HTMLElement): void {
     mi.innerHTML = `<span>${it.l}</span>` + (it.pane ? "" : '<span class="key">plugin</span>');
     mi.onclick = (e) => {
       e.stopPropagation();
-      G.closeMenus();
+      services.menus!.closeMenus();
       if (it.pane) setPane(it.pane);
       else toast(it.l + " — requer o plugin instalado");
     };
@@ -205,6 +203,8 @@ function mkRz(el: HTMLElement, v: string, base: number, min: number, max: number
 }
 
 /* publicação transitória no window (o monólito, o v6 e os onclick inline usam por nome) */
-Object.assign(window, { hd, setVar, getVar, hydrate, log, badges, goPane, toggleSide, togglePanel, setPanelTab });
+Object.assign(window, { hd, getVar, log, goPane, toggleSide, togglePanel, setPanelTab });
 
 export { RP, setVar, getVar, hydrate, log, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz };
+/* o que o boot, os separadores e a ponte do Co-Dev lêem — avaliam antes (ADR-0004, U7h) */
+services.shell = { hydrate, setVar, badges };

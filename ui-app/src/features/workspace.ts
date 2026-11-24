@@ -10,6 +10,8 @@ import { $ } from "../core";
 import { bus } from "../app/bus";
 import { RP } from "../app/store/registry";
 import { drawTabs } from "./tabs";
+import { services } from "../app/services";
+import { badges, hydrate } from "./shell";
 
 const G = window as unknown as {
   refresh: (fromEd?: boolean, force?: boolean) => void;
@@ -50,7 +52,7 @@ interface RefreshTab { id: string; kind: string; path?: string }
 const RW = window as unknown as {
   TB: RefreshTab[]; cur: string | null; PANE: string;
   stOf: (p: string) => unknown; syncTree: () => void; buildExplorer: () => void; drawProblems: () => void;
-  badges: () => void; hydrate: () => void; tabOf: (id: string | null) => RefreshTab | undefined;
+  tabOf: (id: string | null) => RefreshTab | undefined;
   show: (id: string | null) => void; paintEd: (p: string) => void; drawTabs: () => void; drawOutline: () => void;
 };
 let SIG='';
@@ -60,7 +62,7 @@ let SIG='';
 function refresh(fromEd?: boolean, force?: boolean): void {const FS=workspaceStore.files,TB=RW.TB;const sig=Object.keys(FS).map(p=>p+RW.stOf(p)).join('|');
   TB.filter(t=>t.kind==='file'&&!FS[t.path as string]).forEach(t=>{TB.splice(TB.indexOf(t),1);if(RW.cur===t.id)RW.cur=null;});
   if(sig!==SIG||force){SIG=sig;RW.syncTree();RW.buildExplorer();}
-  RW.drawProblems();RW.badges();if(RP[RW.PANE]&&RW.PANE!=='search')RP[RW.PANE]();RW.hydrate();
+  RW.drawProblems();badges();if(RP[RW.PANE]&&RW.PANE!=='search')RP[RW.PANE]();hydrate();
   if(!fromEd){const t=RW.tabOf(RW.cur);if(!t)RW.show(TB.length?TB[TB.length-1].id:null);else if(t.kind==='file'){const ta=$('#ed-ta') as HTMLTextAreaElement|null,top=$('#ebody')!.scrollTop;if(ta&&ta.value!==FS[t.path as string].content){ta.value=FS[t.path as string].content;}if(ta){RW.paintEd(t.path as string);$('#ebody')!.scrollTop=top;}drawTabs();}else if(t.kind==='diff'||t.kind==='manager'){const top=$('#ebody')!.scrollTop;RW.show(RW.cur);$('#ebody')!.scrollTop=top;}else drawTabs();}
   else if(RW.tabOf(RW.cur)&&RW.tabOf(RW.cur)!.kind==='file')RW.paintEd(RW.tabOf(RW.cur)!.path as string);RW.drawOutline();
   /* U3c (ADR-0004): o fim do refresh é o sinal «o workspace mudou» — quem reagia
@@ -79,6 +81,8 @@ const LF = (p: string): string => ROOT + 'learn/' + p;
 /** As secções do explorador abertas/fechadas (sem dono próprio; lido por nome livre). */
 export const SECOPEN: Record<string, boolean> = {};
 
-Object.assign(window, { writeFile, refresh, extOf, short, norm, LF });
+Object.assign(window, { writeFile, refresh, extOf, short,});
 
 export { writeFile, resetWorkspace, refresh, extOf, short, norm, LF };
+/* os caminhos que a ponte do Co-Dev, a equipa e o Learning Track lêem — avaliam antes (ADR-0004, U7h) */
+services.workspace = { norm, LF };

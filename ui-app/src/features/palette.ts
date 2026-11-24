@@ -18,6 +18,7 @@
 import { $, esc } from "../core";
 import { translator } from "../app/i18n";
 import { PALETTE_MESSAGES } from "./palette.messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(PALETTE_MESSAGES);
 
@@ -28,7 +29,7 @@ window.PITEMS = window.PITEMS ?? [];
 window.PAL_TEXT = window.PAL_TEXT ?? (() => {});
 
 interface PalCfg { ph?: string; verb?: string; items?: { l: string }[]; text?: (q: string) => void }
-function palette(pre: string, cfg?: PalCfg){closeMenus();window.PAL=cfg||null;const inp=$('#pal-in') as HTMLInputElement|null;$('#pal')!.classList.add('show');if(inp){inp.value=pre||'';inp.placeholder=cfg?(cfg.ph||''):'Nome do ficheiro  ·  > comandos  ·  : linha';}window.PIDX=0;palDraw();setTimeout(()=>inp&&inp.focus(),0);}
+function palette(pre: string, cfg?: PalCfg){services.menus!.closeMenus();window.PAL=cfg||null;const inp=$('#pal-in') as HTMLInputElement|null;$('#pal')!.classList.add('show');if(inp){inp.value=pre||'';inp.placeholder=cfg?(cfg.ph||''):'Nome do ficheiro  ·  > comandos  ·  : linha';}window.PIDX=0;palDraw();setTimeout(()=>inp&&inp.focus(),0);}
 export function closePal(){$('#pal')!.classList.remove('show');window.PAL=null;}
 function fuzzy(q: string,s: string){q=q.toLowerCase();s=s.toLowerCase();let i=0;for(const c of s){if(c===q[i])i++;if(i===q.length)return true;}return!q.length;}
 export function palDraw(){const q=($('#pal-in') as HTMLInputElement|null)?.value||'';

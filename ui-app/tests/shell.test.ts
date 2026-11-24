@@ -17,7 +17,7 @@ it("setPane mostra o painel, marca o botão, chama o renderer de RP e actualiza 
   const spy = vi.fn();
   w.RP.__teste = spy;
   document.body.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-__teste"></div>');
-  w.setVar("--side-w", "250px");
+  SHM.setVar("--side-w", "250px");
   SHM.setPane("__teste");
   expect(spy).toHaveBeenCalledTimes(1);
   expect($("#pane-__teste").classList.contains("show")).toBe(true);
@@ -33,7 +33,7 @@ it("setPane mostra o painel, marca o botão, chama o renderer de RP e actualiza 
 });
 
 it("togglePanel/setPanelTab: abre o painel inferior e mostra o separador pedido", () => {
-  w.setVar("--panel-h", "0px");
+  SHM.setVar("--panel-h", "0px");
   w.setPanelTab("problems", true);
   expect(w.getVar("--panel-h")).toBe("230px");
   expect($("#pc-problems").classList.contains("show")).toBe(true);
@@ -46,10 +46,10 @@ it("badges conta as alterações por commitar e marca a execução do Co-Dev", (
   w.ACTS.push({ ic: "sparkle", pane: "codev", title: "Co-Dev" });
   SHM.buildActivity();
   w.RUN.active = true;
-  w.badges();
+  SHM.badges();
   expect($('.act[data-pane="codev"] .badge').textContent).toBe("●");
   w.RUN.active = false;
-  w.badges();
+  SHM.badges();
   expect($('.act[data-pane="codev"] .badge').style.display).toBe("none");
   const n = w.changes().length;
   expect($('.act[data-pane="scm"] .badge').textContent).toBe(n ? String(n) : "");

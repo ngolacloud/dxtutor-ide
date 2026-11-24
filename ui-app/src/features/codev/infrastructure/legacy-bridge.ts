@@ -26,6 +26,9 @@ export { prov, provState, show, toast, log, writeFile, rerender, hhmm };
 
 import type { RealRun } from "../application/ports";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
+/* donos que avaliam depois desta ponte: lidos pelo registo, no acto (ADR-0004, U7h) */
+import { services } from "../../../app/services";
+import { diffStat } from "../../diff/domain/diff";
 
 const G = window as unknown as Record<string, any>;
 
@@ -36,8 +39,6 @@ declare global {
     CTX_ON: boolean;
     AUTHOR: string;
     AGENT: string;
-    SAFE: RegExp;
-    DANGER: RegExp;
   }
 }
 
@@ -78,9 +79,9 @@ export const commands = (): Array<[string, string, () => unknown]> => G.CMD;
 export const usage = (): Record<string, { calls: number; tok: number }> => G.USAGE;
 export const panes = (): Record<string, () => void> => G.RP;
 export const files = (): Record<string, { content: string; orig: string | null }> => window.FS;
-export const danger = (): RegExp => window.DANGER;
-export const safe = (): RegExp => window.SAFE;
-export const stopSignal = (): unknown => G.STOP;
+export const danger = (): RegExp => services.codev!.DANGER;
+export const safe = (): RegExp => services.codev!.SAFE;
+export const stopSignal = (): unknown => services.codev!.STOP;
 
 export const root = (): string => G.ROOT;
 /** Caminho absoluto da pasta real aberta no desktop (`null` no protótipo). */
@@ -188,7 +189,7 @@ export const tabOf = (id: string | null): CodevTab | undefined => G.tabOf(id);
    the monolith as exactly one argument, not `fn(a, undefined)` — some callees branch on
    `arguments.length`, and the Phase 0 characterization tests assert exact call arity. */
 export const openTab = (...args: [t: Partial<CodevTab> & { id: string }, act?: boolean]): void => G.openTab(...args);
-export const closeTab = (id: string): void => G.closeTab(id);
+export const closeTab = (id: string): void => services.tabs!.closeTab(id);
 export const openDiff = (...args: [p: string, a?: string, b?: string, label?: string]): void => G.openDiff(...args);
 export const openPath = (...args: [p: string, line?: number]): void => G.openPath(...args);
 /** A yes/no question to the human (the harness: rewind, trust). */
@@ -196,9 +197,9 @@ export const confirm = (message: string): boolean => window.confirm(message);
 
 /* ───── workspace / diagnostics / tests ───── */
 export const shortPath = (p: string): string => window.short(p);
-export const normalizePath = (p: string): string => G.norm(p);
+export const normalizePath = (p: string): string => services.workspace!.norm(p);
 export const fIcon = (p: string): string => window.fIcon(p);
-export const fileDiffStat = (a: string | null, b: string): { add: number; del: number } => G.diffStat(a, b);
+export const fileDiffStat = (a: string | null, b: string): { add: number; del: number } => diffStat(a, b);
 export const termExec = (v: string): { ok: boolean; sum?: string } | undefined => G.termExec(v);
 /** Desktop com pasta real: corre o comando a sério (bridge `DXR.exec`) — o `ok` vem do
  *  exit code. `null` no protótipo/sem pasta, onde vale o terminal simulado. */
@@ -209,32 +210,32 @@ export const projectCommand = (kind: VerifyKind): VerifyCommand | null =>
   G.DXR && G.DXR.root && typeof G.DXR.projectCmd === "function" ? G.DXR.projectCmd(kind) : null;
 
 /* ───── SCM / checkpoints ───── */
-export const restoreCkpt = (...args: [id: number, silent?: boolean]): void => G.restoreCkpt(...args);
+export const restoreCkpt = (...args: [id: number, silent?: boolean]): void => services.checkpoint!.restoreCkpt(...args);
 
 /* ───── team / harness ───── */
-export const harnessCheck = (p: string): void => G.harnessCheck(p);
+export const harnessCheck = (p: string): void => services.team!.harnessCheck(p);
 /** Regista tokens gastos no contador de uso do provedor (`window.use`, app/store/agent.ts). */
 export const recordUsage = (p: string, tok: number): void => G.use(p, tok);
-export const harnessCmd = (c: string): void => G.harnessCmd(c);
-export const agentSys = (): string => G.agentSys();
+export const harnessCmd = (c: string): void => services.team!.harnessCmd(c);
+export const agentSys = (): string => services.team!.agentSys();
 export const openTeam = (): void => G.openTeam();
 export const openBoard = (): void => G.openBoard();
-export const openStudio = (): void => G.openStudio();
+export const openStudio = (): void => services.studio!.openStudio();
 
 /* ───── misc monolith helpers ───── */
 export const connected = (): string[] => G.connected();
-export const speakerLabel = (role: string): string => G.who(role);
+export const speakerLabel = (role: string): string => services.codev!.who(role);
 export const trackUsage = (providerKey: string, tok: number): void => G.use(providerKey, tok);
 export const save = (): void => window.save();
 export const setTheme = (n: string): void => window.setTheme(n);
-export const provFor = (role: string): string => window.provFor(role);
+export const provFor = (role: string): string => services.codev!.provFor(role);
 export const setPanelTab = (...args: [pt: string, nofocus?: boolean]): void => G.setPanelTab(...args);
 export const goToPane = (p: string): void => G.goPane(p);
 export const palette = (...args: [pre?: string, cfg?: unknown]): void => G.palette(...args);
 export const getVar = (k: string): string => G.getVar(k);
-export const setVar = (k: string, v: string): void => G.setVar(k, v);
+export const setVar = (k: string, v: string): void => services.shell!.setVar(k, v);
 export const note = (m: string): void => window.note(m);
-export const badges = (): void => window.badges();
+export const badges = (): void => services.shell!.badges();
 export const refresh = (...args: [fromEd?: boolean, force?: boolean]): unknown => window.refresh(...args);
 export const isDesktop = (): boolean => !!window.__TAURI__;
 export const delegateIsolated = (): ((writes: [string, string][]) => Promise<{ status: string; patch?: string; error?: string }>) | undefined =>

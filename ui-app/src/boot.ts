@@ -20,7 +20,7 @@
    do agente que o features/codev.ts redefine antes de alguém as ler). O que resta são as
    globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE), o
    painel de contentores de demonstração e dois listeners. */
-export {};
+import { services } from "./app/services";
 
 declare global {
   interface Window {
@@ -37,7 +37,6 @@ declare global {
   var activeTab: string | null;
   const agCtl: (a: string) => void;
   const svg: (name: string, cls?: string) => string;
-  const hydrate: () => void;
   const wireSections: (scope: ParentNode) => void;
   /* o String.replaceAll existe em runtime (ES2021, webview e browsers suportados) mas a lib
      do projecto é ES2020; declara-se só a assinatura que o buildDocker usa */
@@ -156,7 +155,7 @@ window.MENUS=[
 ];
 /* fecha os menus a cada clique — registado aqui (primeiro, como sempre) mas resolvido na hora: o
    closeMenus é da features/menus.ts, que avalia depois (ADR-0004, U4d2) */
-document.addEventListener('click',()=>closeMenus());
+document.addEventListener('click',()=>services.menus!.closeMenus());
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
 /* a árvore nasce vazia: o syncTree (features/explorer.ts) preenche-a com a pasta aberta (ADR-0006, R1a) */
@@ -174,7 +173,7 @@ export function buildDocker(){const pane=$('#pane-containers')!;pane.innerHTML=p
      runtime ligado (platform/desktop/infra.ts regista o RP.containers — R5a); no browser não há runtime */
   $('#dk-containers')!.innerHTML='<div class="sec-empty">Os contentores e as imagens vêm do Docker ou do Podman ligado em Infra, na app desktop.</div>';
   $('#dk-images')!.innerHTML='';
-  wireSections(pane);hydrate();}
+  wireSections(pane);services.shell!.hydrate();}
 
 /* ═════════ RESIZE ═════════ */
 

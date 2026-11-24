@@ -20,7 +20,7 @@ import { bus } from "./app/bus";
 import { registerActions } from "./app/actions";
 import { tabMarks } from "./app/tab-marks";
 import { editorStore } from "./app/store/editor";
-import { drawTabs } from "./features/tabs";
+import { drawTabs, closeTab } from "./features/tabs";
 import { scrollTerm } from "./features/terminal";
 import { pairState } from "./app/pair-state";
 
@@ -129,17 +129,14 @@ declare global {
   const extOf: (p: string) => string;
   const hlLine: (s: string, ext: string) => string;
   const fIcon: (p: string) => string;
-  const isHuman: (r: string) => boolean;
   var openTab: (t: Partial<Tab> & { id: string }, act?: boolean) => void;
   var drawTabs: () => void;
-  var closeMenus: () => void;
   var gotoLine: (n: number) => void;
   var connected: () => string[];
   // Globais lexicais/helpers do monólito usados pelas features-folha tipadas (explorer/...).
   const SECOPEN: Record<string, boolean>;
   var AGENT: string;
   const sel: (row: HTMLElement) => void;
-  const norm: (p: string) => string;
   const drawTimeline: () => void;
   const palette: (pre?: string, cfg?: any) => void;
   const USER: string;
@@ -154,7 +151,6 @@ declare global {
   // (número 0/1 ou o próprio candidato escolhido), por isso ficam `any`.
   const ask: (host: HTMLElement, btns: Array<{ l: string; v: any; pri?: any; done?: string }>) => Promise<any>;
   var commitGit: (msg?: string, author?: string) => { h: string; n: number } | null; // var: o bridge.ts liga-o ao git real (ADR-0006, R1d)
-  const diffStat: (a: string | null, b: string) => { add: number; del: number };
   const setMode: (m: string) => void;
   var onKey: (e: KeyboardEvent) => void;
   const LANG: Record<string, string>;
@@ -183,14 +179,12 @@ declare global {
   // publicados no window; ONB/LT_HOOD são donos de learn.ts (window-backed → var).
   const mdFull: (s: string) => string;
   const paintEd: (p: string) => void;
-  const miniOff: () => void;
   const stPos: () => void;
   const user: (msg: string) => void;
   const liveChat: (msg: string) => void;
   const agentPill: () => void;
   const focusAgent: (x?: boolean) => void;
   const RP: Record<string, () => void>;
-  var LF: (p: string) => string;
   var PANE: string;
   var ONB: { lang: string | null; levels: string[] };
   var LT_HOOD: boolean;
@@ -199,7 +193,6 @@ declare global {
   var refresh: (fromEd?: boolean, force?: boolean) => unknown;
   var promptHTML: () => string;
   var show: (id: string | null) => void;
-  var closeTab: (id: string) => void;
   var openPath: (p: string, line?: number) => void;
   var newInput: (nofocus?: boolean) => void;
   var echo: (h: string) => void;

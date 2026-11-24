@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7g)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7h)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1113,3 +1113,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `ltUnits`, `ltDone`, `ltSeq`, `ltPts`, `stars`, `ltOnboard`, `ltOpen`); o `LTS` fica publicado (o visualizer, de
   outra sessão, ainda o lê). O teste de cablagem do `learn:level` deixa de trocar o `ltOnboard` publicado e verifica o
   efeito (o onboarding volta ao passo dos níveis). Globais publicadas 258 → 248.
+- **U7h (2026-11-24) — o registo de serviços nos restantes casos de ordem de avaliação.** Nove donos registam a sua API
+  em `app/services.ts`, no acto em que a publicavam: `team` (HARN/MORD/RIGHTS/RIGHT_RE/isHuman/harnessCheck/harnessCmd/
+  agentSys), `codev` (STOP/SAFE/DANGER/provFor/who/openSettings), `i18n` (LOCALES), `workspace` (norm/LF), `tabs`
+  (miniOff/closeTab), `checkpoint` (restoreCkpt), `studio` (openStudio), `shell` (hydrate/setVar/badges) e `menus`
+  (closeMenus). Lêem pelo registo só os módulos que avaliam ANTES do dono: a ponte e o resíduo do Co-Dev, as tarefas, a
+  conta, o Learning Track, a equipa (norm/closeTab), os separadores (hydrate/setVar), a paleta, o shell (closeMenus) e o
+  `boot.ts` (hydrate/closeMenus — o late-binding que o cabeçalho do boot descreve mantém-se: resolve no acto). Os que
+  avaliam depois importam: o arranque, os comandos, os atalhos, as boas-vindas, o workspace, o explorador, o PairCode, a
+  ponte do board e os módulos desktop (STOP/restoreCkpt/closeTab). O `diffLines`/`diffStat` são do domínio puro
+  `features/diff/domain/diff.ts`, que os leitores importam directamente. As acções `tasks:openStudio`,
+  `account:openSettings`, `welcome:openStudio` e `welcome:openSettings` deixam o `globalCalls` e chamam a função (os
+  outros nomes dessas tabelas ficam). As declarações globais destes nomes saem (`pair.ts`, `ide-globals.d.ts`,
+  `platform/desktop/types.ts`, `core.ts`, `boot.ts`): o tsc apanha quem os lesse por nome livre. Ordem de avaliação:
+  igual, excepto dois módulos sem efeitos (o registo e o domínio do diff) que avaliam mais cedo. Ficam publicados de
+  propósito: o `openDiff` (a ponte do scm, de outra sessão), o `setLocale`/`trNode` (o arranque, o harness dos goldens),
+  e os nomes das tabelas `globalCalls` dos botões do chrome. Globais publicadas 248 → 221.

@@ -19,6 +19,7 @@
 import { $, esc, hhmm, log, toast } from "../core";
 import { translator } from "../app/i18n";
 import { CHECKPOINT_MESSAGES } from "./checkpoint.messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(CHECKPOINT_MESSAGES);
 
@@ -33,7 +34,7 @@ function checkpoint(label: string): number {
 }
 
 /** Restaura a fotografia `id`; `silent` evita o toast (usado em correcções internas). */
-function restoreCkpt(id: number, silent?: boolean): void {
+export function restoreCkpt(id: number, silent?: boolean): void {
   const c = CKPT.find((x) => x.id === id);
   if (!c) return;
   Object.keys(FS).forEach((k) => delete FS[k]);
@@ -73,4 +74,6 @@ export async function gfAsk(host: HTMLElement, M: GfAskMission): Promise<void> {
   }
 }
 
-Object.assign(window, { checkpoint, restoreCkpt });
+Object.assign(window, { checkpoint });
+/* a ponte do Co-Dev (avalia antes) restaura pelo registo (ADR-0004, U7h) */
+services.checkpoint = { restoreCkpt };

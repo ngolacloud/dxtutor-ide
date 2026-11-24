@@ -12,16 +12,13 @@ declare global {
   const $$: (s: string) => HTMLElement[];
   const ACTS: AppAct[];
   const OVERFLOW: { l: string; pane?: string; sep?: number }[];
-  const HARN: { ceiling: string };
   const HT: Record<string, { n: string }>;
-  const MORD: string[];
   const THEMES: Record<string, unknown>;
   var THEME: string;
   var TB: { id: string; title: string; kind: string; path?: string }[];
   var DRIFT: string | null;
   const applyTemplate: (k: string) => void;
   const assistantCenter: () => void;
-  const badges: () => void;
   const buildActivity: () => void;
   const dbgStep: () => void;
   const dbgStepInto: () => void;
@@ -49,8 +46,6 @@ declare global {
   const openGraph: (h?: string) => void;
   const openLesson: (lang: string, id: string) => void;
   const openManager: () => void;
-  const openSettings: () => void;
-  const openStudio: () => void;
   const openTeam: () => void;
   const pickAgent: () => void;
   const pickBranch: () => void;

@@ -34,7 +34,7 @@ function openDiff(p: string, a?: string, b?: string, label?: string){const fixed
 /* ── publicação no window: nomes que o resíduo (app.ts terminal/v5.ts/codev.ts) e
    os onclick inline resolvem como globais. VIEW.diff (app.ts) delega em
    renderDiffView (shim, no registo de kinds de tab). ── */
-Object.assign(window, { diffLines, diffStat, openDiff });
+Object.assign(window, { openDiff });
 window.renderDiffView = renderDiffView;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.diff = renderDiffView;
