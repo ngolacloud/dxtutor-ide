@@ -45,7 +45,9 @@ export const nodeColor = (d: Design, n: DesignNode): string =>
 /** Cor, tracejado e rótulo de uma seta. */
 export function edgeLook(d: Design, c: ArchConnection): { color: string; dash: string; label: string } {
   if (c.relation) return { color: MUTED, dash: "", label: c.event ? `${c.relation} · ${c.event}` : c.relation };
-  const label = c.label ?? (c.protocol ? PROTOCOL_LABEL[c.protocol] : "");
+  // só o rótulo escrito: o protocolo é do modelo (inspector, Mermaid), não se desenha
+  // sozinho — o guia pede rótulo só quando o significado não é óbvio
+  const label = c.label ?? "";
   if (c.style === "data") return { color: DATA, dash: "6 4", label };
   if (c.style === "optional") return { color: MUTED, dash: "2 4", label };
   const from = findNode(d, c.from);
@@ -134,7 +136,8 @@ export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?
   const pills = groupPills(d, l);
   // a meio de um arrasto: rectas de borda a borda (o encaminhamento faz-se ao largar)
   const routes = fast ? straightRoutes(l.nodes, d.connections) : routeAll(l.nodes, d.connections, pills);
-  const labels = placeLabels([...l.nodes.values(), ...pills], routes, d.connections.map((c) => edgeLook(d, c).label || null));
+  const labels = placeLabels([...l.nodes.values(), ...pills], routes, d.connections.map((c) => edgeLook(d, c).label || null),
+    [...l.panels.values(), ...l.groups.values()]);
   d.connections.forEach((c, i) => { body += edgeSvg(d, c, i, routes[i], labels[i], sel.edge === i, marker); });
   for (const n of d.components) body += nodeSvg(d, n, l.nodes.get(n.id)!, sel.node === n.id || linking === n.id, linking !== null);
   const defs = `<defs>${colors.map((c, k) => `<marker id="arch-ar-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`).join("")}` +

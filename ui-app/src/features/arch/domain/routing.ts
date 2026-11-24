@@ -403,11 +403,16 @@ export const labelRect = (text: string, c: Point): Rect => {
   return { x: c.x - s.w / 2, y: c.y - s.h / 2, w: s.w, h: s.h };
 };
 
+const insideRect = (a: Rect, b: Rect): boolean =>
+  a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+
 const rectsOverlap = (a: Rect, b: Rect): boolean =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 /** Coloca os rótulos (centro de cada um) em espaço livre. `null` para setas sem rótulo. */
-export function placeLabels(cards: Rect[], routes: Route[], labels: (string | null)[]): (Point | null)[] {
+/** `frames`: os rectângulos dos painéis e dos grupos — um rótulo que fica a meio de uma
+ *  borda (metade dentro, metade fora) perde para um que fica todo de um lado. */
+export function placeLabels(cards: Rect[], routes: Route[], labels: (string | null)[], frames: Rect[] = []): (Point | null)[] {
   const placed: Rect[] = [];
   const segs: [Point, Point][] = [];
   for (const r of routes)
@@ -449,6 +454,7 @@ export function placeLabels(cards: Rect[], routes: Route[], labels: (string | nu
             for (const card of cards) if (rectsOverlap(pad, card)) score += 100;
             for (const s of segs) if (segmentHitsRect(s[0], s[1], pad)) score += 10;
             for (const p of placed) if (rectsOverlap(pad, p)) score += 50;
+            for (const f of frames) if (rectsOverlap(pad, f) && !insideRect(pad, f)) score += 20;
             if (score < bestScore) {
               bestScore = score;
               best = c;
