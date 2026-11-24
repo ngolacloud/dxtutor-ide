@@ -1221,3 +1221,9 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `PAL_TEXT` (locais) e `palState.idx` (o item seleccionado, que o keydown do arranque move com as setas — era
   `window.PIDX`, escrito pelos dois). Ficam os `boot`…`boot6` (o `startup.ts` chama `window[passo]`). Ordem de
   avaliação igual. Globais publicadas 154 → 130.
+- **U7 — regras finais e documentos (2026-11-25).** Os dois critérios de saída da U7 que faltavam: (1) o
+  `arch-check` ganha o **A9** — só os 44 ficheiros da lista `A9_ALLOW` publicam no `window` (`Object.assign(window,
+  …)` ou `window.X = …`, depois do strip de comentários); um ficheiro novo que publique reprova, e um da lista que
+  deixe de publicar também (tem de sair da lista, que só encolhe) — e os «shims de estado» do `ui-metrics.sh`
+  passam de informativos a métrica que só desce (7); (2) o `ARCHITECTURE.md` (a secção da UI e a inicialização do
+  frontend) e o `MIGRATION.md` (a etapa 4 e a §24, com a comparação com a baseline) ficam coerentes com o código.

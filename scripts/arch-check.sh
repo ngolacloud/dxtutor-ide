@@ -267,6 +267,44 @@ else
   printf '%s' "$a8bad" | sed 's/^/       /'
 fi
 
+echo "== A9 · só os ficheiros da lista publicam no window (fecho da U7) =="
+# ADR-0004, fecho da U7: o que fica no window está inventariado no ADR, e só estes ficheiros ainda publicam
+# (`Object.assign(window, …)` ou `window.X = …`, depois do strip de comentários). Código novo não publica: lê por
+# import, pelo store ou pelo registo `app/services.ts`. A lista só encolhe — quando um ficheiro deixa de publicar,
+# sai daqui (o A9 avisa).
+A9_ALLOW="
+  app/boot-steps.ts app/commands.ts app/globals.ts app/store/agent.ts app/store/config.ts
+  app/store/registry.ts app/store/storage.ts boot.ts features/board/infrastructure/legacy-bridge.ts
+  features/changelog.ts features/checkpoint.ts features/codereview/infrastructure/legacy-bridge.ts
+  features/codev/infrastructure/legacy-bridge.ts features/codev.ts
+  features/debug/infrastructure/legacy-bridge.ts features/diagnostics.ts features/diff.ts features/editor.ts
+  features/explorer.ts features/ext/infrastructure/legacy-bridge.ts features/i18n.ts
+  features/infra/infrastructure/legacy-bridge.ts features/infra.ts features/learn.ts features/menus.ts
+  features/notifications.ts features/palette.ts features/router.ts
+  features/scm/infrastructure/legacy-bridge.ts features/shell.ts features/stack.ts features/studio.ts
+  features/syntax.ts features/tabs.ts features/tasks.ts features/team.ts features/termgit.ts
+  features/terminal.ts features/testing/infrastructure/legacy-bridge.ts
+  features/visualizer/infrastructure/legacy-bridge.ts features/visualizer.ts features/workspace.ts pair.ts
+  platform/desktop/context.ts
+"
+a9bad=""; a9stale=""
+while IFS= read -r f; do
+  rel=${f#ui-app/src/}
+  if strip_comments "$f" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]'; then
+    printf '%s\n' $A9_ALLOW | grep -qxF "$rel" || a9bad="$a9bad       $rel"$'\n'
+  fi
+done < <(find ui-app/src -name '*.ts' -not -name '*.d.ts' | sort)
+for rel in $A9_ALLOW; do
+  f="ui-app/src/$rel"
+  if [ ! -f "$f" ] || ! strip_comments "$f" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]'; then a9stale="$a9stale       $rel"$'\n'; fi
+done
+if [ -z "$a9bad" ] && [ -z "$a9stale" ]; then
+  pass "só os $(printf '%s\n' $A9_ALLOW | grep -c .) ficheiros da lista publicam no window"
+else
+  [ -n "$a9bad" ] && { bad "ficheiro novo a publicar no window (lê por import, store ou app/services.ts):"; printf '%s' "$a9bad"; }
+  [ -n "$a9stale" ] && { bad "já não publica no window — tira-o da lista A9_ALLOW em scripts/arch-check.sh:"; printf '%s' "$a9stale"; }
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
   printf '\033[32march-check: TODAS AS VERIFICAÇÕES VERDES\033[0m\n'

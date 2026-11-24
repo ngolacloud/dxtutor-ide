@@ -57,7 +57,9 @@ metric "invoke cru inv(\"…\") fora de platform/ (U2)" 0 0 \
 # informativas (não falham): crescem durante a U3 e vão a 0 na U7
 declare -a INFO
 info() { INFO+=("$1|$2|$3"); }
-info "shims de estado no window (ownedGlobal, U3→U7)" 0 \
+# os shims de estado que ainda vão ao window (ownedGlobal, U3): os que outras sessões lêem; os outros já são
+# ownedValue (U7i). Desde o fecho da U7 é uma métrica que só desce (era informativa)
+metric "shims de estado no window (ownedGlobal, U3→U7)" 7 0 \
   "$(grep -rhoE '= ownedGlobal<' "$SRC" --include=*.ts | count)"
 
 printf '\n== Métricas da migração da ui-app (ADR-0004) ==\n'
