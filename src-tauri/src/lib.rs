@@ -78,8 +78,9 @@ use commands::devcontainer::{
 };
 use commands::dictation::{dictation_cancel, dictation_start, dictation_status, dictation_stop};
 use commands::git::{
-    git_branch, git_branches, git_changes, git_checkout, git_clone, git_commit, git_create_branch,
-    git_diff, git_log, git_show, git_stage, git_stage_all, git_unstage,
+    git_amend, git_blame, git_branch, git_branches, git_changes, git_checkout, git_clone,
+    git_commit, git_compare, git_create_branch, git_diff, git_history, git_log, git_rebase,
+    git_show, git_show_path, git_stage, git_stage_all, git_stash, git_unstage, git_worktree,
 };
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
@@ -861,6 +862,14 @@ pub fn run() {
             git_changes,
             git_diff,
             git_clone,
+            git_blame,
+            git_history,
+            git_show_path,
+            git_compare,
+            git_stash,
+            git_worktree,
+            git_rebase,
+            git_amend,
             git_stage,
             git_unstage,
             git_stage_all,

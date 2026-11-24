@@ -138,3 +138,102 @@ pub async fn git_clone(url: String, parent_dir: String) -> Result<String, String
         .map_err(|e| format!("git task failed: {e}"))?
         .map_err(|e| e.to_string())
 }
+
+// ───── A4 (docs/v2/UI-AUDIT.md item 9): blame, histórico, comparar, stash, worktrees, rebase, amend ─────
+// Passagens directas para `tutor_eval::gitx` (que valida os argumentos e lê a saída de máquina
+// do git), num worker bloqueante; o erro do git chega à UI tal-e-qual.
+
+fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> impl std::future::Future<Output = Result<T, String>> {
+    async move {
+        tauri::async_runtime::spawn_blocking(f)
+            .await
+            .map_err(|e| format!("git task failed: {e}"))?
+    }
+}
+
+/// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
+#[tauri::command]
+pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {
+    blocking(move || tutor_eval::gitx::blame(Path::new(&root), &path)).await
+}
+
+/// Os commits que tocaram `path` (segue renomeações); com `start`/`end`, só os que mudaram
+/// essas linhas (`git log -L`) — SCM-04.
+#[tauri::command]
+pub async fn git_history(
+    root: String,
+    path: String,
+    start: Option<u32>,
+    end: Option<u32>,
+    max: Option<usize>,
+) -> Result<Vec<tutor_eval::gitx::HistCommit>, String> {
+    blocking(move || {
+        let lines = start.map(|s| (s, end.unwrap_or(s)));
+        tutor_eval::gitx::history(Path::new(&root), &path, lines, max.unwrap_or(100))
+    })
+    .await
+}
+
+/// O que um commit fez a um ficheiro (mensagem completa + diff só desse ficheiro).
+#[tauri::command]
+pub async fn git_show_path(root: String, hash: String, path: String) -> Result<String, String> {
+    blocking(move || tutor_eval::gitx::show_path(Path::new(&root), &hash, &path)).await
+}
+
+/// Compara duas refs: commits à frente/atrás e os ficheiros que `target` mudou (SCM-05).
+#[tauri::command]
+pub async fn git_compare(
+    root: String,
+    base: String,
+    target: String,
+) -> Result<tutor_eval::gitx::Compare, String> {
+    blocking(move || tutor_eval::gitx::compare(Path::new(&root), &base, &target)).await
+}
+
+/// Stashes: `{op:"list"|"push"|"apply"|"drop"|"show", …}` → a lista e a mensagem do git.
+#[tauri::command]
+pub async fn git_stash(
+    root: String,
+    op: tutor_eval::gitx::StashOp,
+) -> Result<tutor_eval::gitx::StashResult, String> {
+    blocking(move || tutor_eval::gitx::stash(Path::new(&root), &op)).await
+}
+
+/// Worktrees: `{op:"list"|"add"|"remove", …}` → a lista (nunca remove a aberta nem a principal).
+#[tauri::command]
+pub async fn git_worktree(
+    root: String,
+    op: tutor_eval::gitx::WorktreeOp,
+) -> Result<Vec<tutor_eval::gitx::Worktree>, String> {
+    blocking(move || tutor_eval::gitx::worktree(Path::new(&root), &op)).await
+}
+
+/// Rebase interactivo: `{op:"plan", onto}` dá os commits; `{op:"run", onto, steps}` corre o
+/// plano que o humano aprovou (e desfaz-se se parar).
+#[tauri::command]
+pub async fn git_rebase(
+    root: String,
+    op: tutor_eval::gitx::RebaseOp,
+) -> Result<tutor_eval::gitx::RebasePlan, String> {
+    blocking(move || tutor_eval::gitx::rebase(Path::new(&root), &op)).await
+}
+
+/// Emenda o último commit (o que está staged e, se vier, a mensagem nova). Um commit já num
+/// ramo remoto é recusado (`published: …`) a não ser com `allowPublished`.
+#[tauri::command]
+pub async fn git_amend(
+    root: String,
+    message: Option<String>,
+    allow_published: Option<bool>,
+) -> Result<String, String> {
+    blocking(move || {
+        tutor_eval::gitx::amend(
+            Path::new(&root),
+            message.as_deref(),
+            allow_published.unwrap_or(false),
+        )
+    })
+    .await
+}
