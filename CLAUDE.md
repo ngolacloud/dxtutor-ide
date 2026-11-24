@@ -421,6 +421,46 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
   `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
   goldens do catálogo ficam intactos.
 
+## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0006)
+
+Feature NOVA e tipada (governada por A7/A8), separada do Studio do catálogo cloud
+(`features/studio.ts`, que continua a alimentar os geradores e o «Generate backlog»).
+Desenha diagramas de arquitectura interna: painéis comparativos (até 2), grupos
+tracejados aninhados com pílula, cartões com ícone (Tabler, `ui/icons.ts`, gerado) e
+mini-bloco de código, setas por estilo (controlo/dados/opcional) com protocolo e rótulo.
+
+```
+features/arch/
+  domain/          types, design (ops, toArchitecture, parseDesign retrocompatível),
+                   geometry (cartões, grupos que crescem, painéis, pílulas), routing
+                   (setas que nunca atravessam cartões, rótulos livres), autolayout
+                   (camadas, recursivo por grupo), files (.arch.json, Mermaid de um .md). PURO.
+  application/     ports.ts + studio.ts (caso de uso: edição, largadas, validação,
+                   scaffold, exportar/importar, propostas do agente).
+  ui/              view.ts (DOM/SVG), export.ts (SVG autónomo, PNG), table.ts (acções),
+                   actions.ts (listener delegado, chave __archActionHandler__), icons.ts.
+  infrastructure/  tauri.ts (comandos + evento) e legacy-bridge.ts (ÚNICO com window).
+  index.ts         raiz de composição; quem abre o separador importa `openArch`.
+```
+
+- **O modelo e as regras são do Rust:** `crates/tutor-eval/src/arch.rs` (Kind de eventos e
+  de sistema, `groups`, `views`, `source`; regras com testes) e `arch/mermaid.rs` (ida e
+  volta exacta via linhas `%% dxt:`). Nunca validar nem fazer parse de Mermaid no cliente.
+- **Comandos:** `arch_validate`, `arch_scaffold(_preview)`, `arch_export_mermaid`,
+  `arch_import_mermaid`, `arch_save_export` (escreve SÓ dentro da pasta do projecto, só
+  svg/png/mmd/md/json) — em `commands/agent.rs`. Evento `arch://proposal`.
+- **Harness:** a ferramenta do agente `arch_propose` (só leitura, `src-tauri/src/agent.rs`)
+  valida e mostra a proposta por cima do desenho actual; só muda com «Accept». Entra no
+  conjunto de ferramentas versão 4 (`StartSpec.host_tools_v4`): sessões antigas retomam
+  sem ela.
+- **Sem dados de demonstração:** o desenho nasce vazio; a referência «Docker vs Kubernetes»
+  vive só em `ui-app/tests/fixtures/arch-reference.ts` (testes e e2e).
+- **Testes:** `cargo test -p tutor-eval` (regras, Mermaid, fixtures do Delonix),
+  `ui-app/tests/arch.*.test.ts` e os e2e `ui-app/e2e/arch*.e2e.ts` (o `arch-recreate` recria
+  a referência só pela UI e verifica que nenhuma seta atravessa um cartão). GOTCHA-e2e:
+  várias sessões partilham `ui-app/dist` e a porta 4179 — para verificar, construir para
+  uma pasta própria e servir noutra porta (ou `CI=1`).
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,
