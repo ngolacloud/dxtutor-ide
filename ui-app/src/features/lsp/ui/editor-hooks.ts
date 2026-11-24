@@ -31,7 +31,7 @@ const isEditor = (t: EventTarget | null): t is HTMLTextAreaElement =>
   t instanceof HTMLTextAreaElement && t.id === "ed-ta";
 
 /** Altura de linha e largura de carácter da textarea (fonte monoespaçada). */
-function metricsOf(ta: HTMLTextAreaElement): EditorMetrics {
+export function metricsOf(ta: HTMLTextAreaElement): EditorMetrics {
   const cs = getComputedStyle(ta);
   const lineHeight = parseFloat(cs.lineHeight) || 22;
   const probe = document.createElement("span");

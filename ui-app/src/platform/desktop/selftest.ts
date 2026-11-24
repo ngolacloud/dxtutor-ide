@@ -319,7 +319,13 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     const W = window as unknown as {
       cur: string | null; openPath: (k: string, line?: number) => void;
       diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
+      toast: (m: string) => void;
     };
+    // os avisos da feature (rename aplicado, «still indexing», erros) entram no relatório
+    const toasts: string[] = [], realToast = W.toast;
+    W.toast = (m: string) => { toasts.push(m); realToast(m); };
+    try { return await probe(); } finally { W.toast = realToast; }
+    async function probe(): Promise<unknown> {
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
     const until = async <T>(f: () => T | null | undefined | false, ms: number, every = 250): Promise<T | null> => {
       const t0 = Date.now();
@@ -375,6 +381,38 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       return null;
     }, 90_000, 3000);
     const caretLine = caretLineNow(), defFile = W.cur;
+    // 3b) completion: numa linha nova escreve `Util.` (Java) / `gre` (Kotlin), a lista abre
+    //     sozinha, Enter aceita a sugestão; no fim o ficheiro volta ao que era.
+    if (W.cur !== main) W.openPath(main);
+    const original = ta()!.value;
+    const typed = lang === "java" ? "\n        int again = Util." : "\n    val again = gre";
+    const lineEnd = original.split("\n").slice(0, callLine + 1).join("\n").length;
+    const type = () => {
+      const el = ta()!; el.focus();
+      el.value = original.slice(0, lineEnd) + typed + original.slice(lineEnd);
+      el.setSelectionRange(lineEnd + typed.length, lineEnd + typed.length);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    type();
+    const suggestions = await until(() => {
+      const labels = [...document.querySelectorAll("#lsp-complete .lsp-c-label")].map(l => l.textContent ?? "");
+      if (labels.some(l => l.startsWith(callWord))) return labels;
+      ta()!.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", ctrlKey: true, bubbles: true, cancelable: true }));
+      return null;
+    }, 90_000, 3000);
+    // escolhe a sugestão do símbolo e aceita com Enter
+    if (suggestions) {
+      for (let k = 0; k < suggestions.length; k++) {
+        const on = document.querySelector("#lsp-complete .lsp-c-row.on .lsp-c-label")?.textContent ?? "";
+        if (on.startsWith(callWord)) break;
+        ta()!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+      }
+      ta()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    }
+    const insertedLine = ta()!.value.split("\n")[callLine + 1] ?? "";
+    const completed = insertedLine.includes(callWord + "(");
+    const el0 = ta()!; el0.value = original; el0.setSelectionRange(0, 0); el0.dispatchEvent(new Event("input", { bubbles: true }));
+    await until(() => FS[main].content === original, 5_000, 100);
     // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
     const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
     const refRows = await until(() => {
@@ -386,23 +424,43 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     document.getElementById("lsp-refs")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     // 5) F2 na chamada → caixa com o nome → escrever o nome novo + Enter → todos os ficheiros
     const newName = lang === "java" ? "sum" : "salute";
-    const box = await until(() => {
+    // um F2 de cada vez (o prepareRename pode demorar): dois F2 seguidos abririam duas caixas e a
+    // segunda substitui a primeira — escrever-se-ia numa caixa que já não está no ecrã
+    let lastF2 = 0;
+    const found = await until(() => {
       const input = document.querySelector<HTMLInputElement>("#lsp-rename input");
       if (input) return input;
-      caretOn(callLine, callWord).dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true }));
+      if (Date.now() - lastF2 > 8000) {
+        lastF2 = Date.now();
+        caretOn(callLine, callWord).dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true }));
+      }
       return null;
-    }, 30_000, 2000);
+    }, 40_000, 500);
+    if (found) await sleep(800);
+    const box = document.querySelector<HTMLInputElement>("#lsp-rename input"); // a caixa que está no ecrã
     const placeholder = box ? box.value : null;
     if (box) { box.value = newName; box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); }
     const renamed = await until(() => Object.keys(files).every(rel => !FS[ROOT + rel].content.includes(callWord + "(")) && Object.keys(files).some(rel => FS[ROOT + rel].content.includes(newName + "(")), 60_000, 500);
     flushSave(); await idle();
     const onDisk = renamed ? (await sh("cat", Object.keys(files))).stdout.split(newName + "(").length - 1 : 0;
+    // diagnóstico se falhou: o que o servidor responde AGORA ao rename na posição esperada
+    let probeRename: unknown = null;
+    if (!renamed) {
+      const abs = `${R.root}/${main.slice(ROOT.length)}`, text = FS[main].content, ls = text.split("\n");
+      const character = ls[callLine].indexOf(callWord) + 1;
+      const inv = (window as unknown as { __TAURI__: { core: { invoke: (c: string, a: unknown) => Promise<unknown> } } }).__TAURI__.core.invoke;
+      const res = await inv("lsp_rename", { path: abs, line: callLine, character, newName }).catch(e => `ERR ${e}`);
+      probeRename = { cur: W.cur, abs, line: callLine, character, lineText: ls[callLine], res: JSON.stringify(res).slice(0, 300) };
+    }
     return {
       diagnostic: diag ? `${diag.line}: ${diag.msg.slice(0, 90)}` : null, gutterErr, diagMs,
       hover: hoverText ? hoverText.replace(/\s+/g, " ").slice(0, 120) : null,
       definition: { jumped: !!jumped, file: defFile, caretLine, expectedLine: defLine },
+      completion: { suggestions: suggestions ? suggestions.slice(0, 6) : null, accepted: insertedLine.trim(), completed },
       references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
-      rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk },
+      rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk, ...(probeRename ? { probe: probeRename } : {}) },
+      toasts,
     };
+    }
   }
 }

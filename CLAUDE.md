@@ -421,6 +421,13 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
 - **`ui/editor-hooks.ts`:** rato parado → cartão `#lsp-hover`; F12 ou Ctrl+clique → definição;
   Shift+F12 → lista de referências; F2 → caixa de rename (`ui/popups.ts`: `#lsp-refs`,
   `#lsp-rename`). Listeners delegados no `document`, sem mexer no `editor.ts`; não publica globais.
+- **Completion** (`domain/completion.ts`, `ui/completion-hooks.ts` + `ui/completion-view.ts`, comando
+  `lsp_completion`): Ctrl+Espaço, depois de `.` ou com 2+ letras de um nome; ↑/↓, Enter/Tab, Esc
+  apanhados na fase de captura (antes do Tab do editor). Aceitar expande o snippet e aplica os
+  `additionalTextEdits`. Filtro: prefixo, depois início de palavra (camelCase), sem repetidos.
+- **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
+  — o `didChange` normal só sai 180 ms depois da última tecla. Um rename que volta `null` (o jdtls
+  logo após uma edição) é perguntado mais duas vezes.
 - **Rename:** o cliente aplica a `WorkspaceEdit` (`changes` ou `documentChanges`; `domain/edits.ts`)
   aos ficheiros da pasta pelo `writeFile` (o autosave leva-as ao disco), envia `didChange` dos que o
   servidor tem abertos e conta o que salta (fora da pasta, operações de ficheiro).
