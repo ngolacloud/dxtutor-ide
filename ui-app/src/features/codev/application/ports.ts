@@ -278,6 +278,9 @@ export interface AgentChatDeps {
   nowSecs(): number;
   /** Abre um diff (antes/depois) numa tab do editor. */
   openDiff(path: string, before: string, after: string, label: string): void;
+  /** O uso real de cada pedido do agente (tokens de entrada — com os de cache — e de saída):
+   *  alimenta o contador de uso (custo das issues no Board) e o `ctx` (ADR-0006, R3c). */
+  onUsage?(input: number, output: number): void;
 }
 
 export interface LiveDeps {

@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3a e R3b feitas, R3c e R4–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop), R4–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -381,3 +381,28 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   trocar de pasta sem misturar) + o teste Rust da coluna `meta`. **Selftest desktop:** o passo
   `board` confirma que a issue ficou gravada no SQLite real (`func`, agente `be`) e que reabrir a
   pasta a carrega de volta; `errors: []`. IPC-MATRIX: `board_load`/`board_save` ganham consumidor.
+- **R3c (2026-11-24) — a equipa do projecto e Tasks reais.** Os escopos dos assistentes deixam
+  de ser os do projecto de demonstração (`crates/**`, `desktop/src/**`, `db/migrations/**`,
+  `crates/*/tests/**`, mais os `apps/APP/…` que o `app.ts` acrescentava para o layout que os
+  geradores do Board produziam): a regra pura nova `features/team-scopes.ts` deriva-os da
+  estrutura real da pasta aberta (as pastas com manifestos de backend, as com package.json, as
+  migrações, os testes, o deploy; `node_modules`/`target`/… não contam) e dos comandos de
+  testes/lint detectados, e o `.dxtutor/team.json` do projecto manda por cima (entradas
+  inválidas ignoram-se; JSON inválido diz-se no log). Aplicam-se ao abrir a pasta e passam a
+  ser os defaults que os templates de harness repõem; gravar a equipa escreve o
+  `.dxtutor/team.json` no projecto (versionável; sem pasta, no LS como antes). Sem pasta, os
+  especialistas de backend/frontend ficam «só leitura» (não há projecto de onde derivar). A
+  descrição do Backend deixa «Crates Rust e comandos Tauri» (o repositório de demonstração).
+  **Tasks:** os filtros de sprint vêm do backlog (eram «Sprint 1/2» fixos) e, sem custo medido,
+  o conselho de delegação já não inventa «1200 tokens por ponto» ao preço do Claude — diz que a
+  primeira corrida o mede. **Custo e `ctx` reais do agente:** o agente v2 só mostrava o uso numa
+  nota; a porta nova `onUsage` envia o uso de cada pedido (entrada com cache, saída) para o
+  contador de uso (que o custo medido das issues lê) e para o `ctx` (`dx:llm-usage`). Também:
+  as pastas abertas do explorador nasciam com as do projecto de demonstração
+  (`dxtutor/crates/lexer/src`, …) — nascem só com a raiz. **Goldens (decisão deste ADR):** o do
+  `#pane-codev` muda só na lista de escopos da equipa (sem pasta). **Testes:** `team.r3c`
+  (derivação em vários layouts, nada do demo, `team.json` válido/inválido e ida e volta, aplicar
+  ao abrir a pasta com o `team.json` a mandar, gravar no projecto, sprints e conselho do Tasks)
+  e um teste novo no `codev.agent-chat` (uso por pedido, com cache). **Selftest desktop:** passo
+  `team` novo — o frontend derivado do package.json real, o QA do `team.json`, e gravar a equipa
+  escreve-a no disco; `errors: []`. **Com isto a R3 fica feita.**

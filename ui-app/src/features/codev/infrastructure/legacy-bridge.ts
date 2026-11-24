@@ -184,6 +184,8 @@ export const restoreCkpt = (...args: [id: number, silent?: boolean]): void => G.
 
 /* ───── team / harness ───── */
 export const harnessCheck = (p: string): void => G.harnessCheck(p);
+/** Regista tokens gastos no contador de uso do provedor (`window.use`, app/store/agent.ts). */
+export const recordUsage = (p: string, tok: number): void => G.use(p, tok);
 export const harnessCmd = (c: string): void => G.harnessCmd(c);
 export const agentSys = (): string => G.agentSys();
 export const openTeam = (): void => G.openTeam();

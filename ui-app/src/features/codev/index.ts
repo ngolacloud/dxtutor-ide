@@ -159,6 +159,13 @@ const agentChat = makeAgentChat({
   speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
   nowSecs: () => Math.floor(Date.now() / 1000),
   openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
+  /* o uso de cada pedido do agente: o contador de uso (o custo medido das issues do Board) e o
+     `ctx` da barra de estado, como as voltas do chat ao vivo (ADR-0006, R3c) */
+  onUsage: (input, output) => {
+    const provider = bridge.monolith.activeProvider;
+    bridge.recordUsage(provider, input + output);
+    document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output } }));
+  },
 });
 
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/

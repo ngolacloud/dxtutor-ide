@@ -371,6 +371,20 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
           persisted: st ? { stage: st.stage, agent: st.meta?.agent } : null, reloaded: BLw.issues.find(x => x.id === it.id)?.stage ?? null };
       } finally { G.codevAgentAvailable = prevA; G.codevAgentStory = prevS; }
     });
+    // equipa (ADR-0006, R3c): os escopos vêm da estrutura da pasta (o package.json do passo
+    // `run` dá um frontend na raiz) e o .dxtutor/team.json do projecto manda; gravar a equipa
+    // escreve-o no disco.
+    await step("team", async () => {
+      const G = window as unknown as { AGENTS: Record<string, { paths: string[]; cmds: string[] }>; saveTeam: () => void };
+      writeFile(ROOT + ".dxtutor/team.json", JSON.stringify({ agents: { qa: { paths: ["e2e/**"], cmds: ["npm run e2e"] } } }) + "\n");
+      flushSave(); await idle();
+      document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
+      await new Promise(r => setTimeout(r, 300));
+      const fe = G.AGENTS.fe.paths.slice(), qa = G.AGENTS.qa.paths.slice();
+      G.AGENTS.db.paths = ["sql/**"]; G.saveTeam(); flushSave(); await idle();
+      const onDisk = (await sh("cat", [".dxtutor/team.json"])).stdout;
+      return { fe, qa, savedToDisk: /"sql\/\*\*"/.test(onDisk) };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

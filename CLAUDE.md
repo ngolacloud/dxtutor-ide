@@ -226,7 +226,11 @@ encenadas — e com eles o bug do `sleep(380)` global. O «Gerar backlog» do St
 só com o enunciado e o contexto do desenho na nota. **Backlog por pasta (R3b):** no desktop com pasta, o
 quadro carrega-se do backend ao abrir a pasta (`board_load`) e grava-se quando muda
 (`board_save`, por detecção de mudança com debounce — `board/domain/persist.ts` mapeia
-Issue ↔ Story, o que não tem coluna vai em `meta`); no browser fica em memória.
+Issue ↔ Story, o que não tem coluna vai em `meta`); no browser fica em memória. **Equipa do
+projecto (R3c):** os escopos dos assistentes (onde escrevem, que comandos correm) derivam-se
+da estrutura da pasta aberta (`features/team-scopes.ts`, pura) e o `.dxtutor/team.json` do
+projecto manda; gravar a equipa escreve-o lá (sem pasta, no LS). O custo das issues vem do uso
+real do agente (porta `onUsage` do agente v2 → contador de uso e `ctx`).
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 

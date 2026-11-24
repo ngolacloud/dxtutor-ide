@@ -237,7 +237,7 @@ function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray
 /* genBacklog/genBacklogIssues (produtor Studio→backlog) migrados p/ features/board.ts;
    lêem os geradores (composeYaml/dockerfile/appFiles/k8sYaml/cloudMap, em features/generators.ts) por global. */
 /* decoração de approveIssue (fecha componentes do Studio) composta em features/board.ts (ADR-0004, U4g3). */
-Object.assign(AGENTS.be,{paths:['crates/**','apps/*/src/**','apps/*/Cargo.toml','apps/*/go.mod','apps/*/package.json','apps/*/requirements.txt'],max:8});Object.assign(AGENTS.fe,{paths:['desktop/src/**','web/**']});Object.assign(AGENTS.ops,{paths:['docker-compose.yml','.env.example','Makefile','apps/*/Dockerfile','deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','docker compose','make','git push'],max:12});Object.assign(AGENTS.qa,{cmds:['cargo test','dx lint','dx test','sh tests/smoke.sh']});
+/* os escopos da equipa vêm do projecto (features/team.ts + team-scopes.ts, ADR-0006 R3c); saíram os do layout que os geradores do Board produziam (apps/APP/…) */
 
 /* ───── RUN: one command for the whole stack ───── */
 /* ───── RUN: motor (STACK/composeServices/dxRun/dxStop/drawStack) migrado p/ features/stack.ts (inversão @ts-nocheck, window-backed);
