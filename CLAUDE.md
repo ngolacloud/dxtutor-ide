@@ -209,17 +209,21 @@ features/board.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BL
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm/debug, o markup vive no
 resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`/`runSprint`/
 `approveIssue` publicam-se já COMPOSTAS com as políticas que antes eram decorações do
-app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3), e
-o desktop (`platform/desktop/demos.ts`) ainda decora o `runSprint` — as arestas internas e os handlers data-action
+app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3) — as arestas internas e os handlers data-action
 resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
 O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). Os handlers de ARRASTAR
 (`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
 `STRIPPED_ATTRS`, migrá-los partia o golden. Rede de segurança em
 `tests/board.golden.test.ts` (goldens do pane vazio/povoado, caracterização de
-genBacklogIssues/mkIssue, 3 testes de dispatch delegado) e `tests/board.domain.test.ts`
-(domínio puro). **BUG pré-existente reportado (não corrigido no refactor): `autoTest`
-chama `sleep(380)` como global, mas `sleep` nunca é publicado no `window` (é `const` local
-em `codev/ui/chat-view.ts`) → o runner lança ao entrar em Teste. Preservado tal e qual.**
+genBacklogIssues/mkIssue, testes de dispatch delegado — o «Delegar» com agente falso) e
+`tests/board.domain.test.ts` (domínio puro). **Sem runner guionado (ADR-0006, R3a):** correr
+uma issue (Delegar, Sprint, ⚡ Agente) é ramo gitflow → o agente real implementa-a (porta
+`agent`, `codevAgentStory`, modo plano) → commit do que mudou → os testes do projecto
+(`projectTests`) → «Validação funcional» ou volta a desenvolvimento; a porta `scm.settle()`
+espera pela fila git/disco do desktop entre os passos. Sem agente, di-lo. Saíram os
+produtores `gen`/`fix` (templates dos geradores), os testes-predicado, o router e as pausas
+encenadas — e com eles o bug do `sleep(380)` global. O «Gerar backlog» do Studio cria issues
+só com o enunciado e o contexto do desenho na nota.
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 

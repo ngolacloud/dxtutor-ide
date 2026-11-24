@@ -9,7 +9,6 @@ import type { TerminalDesktop } from "../features/terminal";
 import type { StackDesktop } from "../features/stack";
 import type { InfraDesktop } from "../features/infra/application/ports";
 import type { CodevDesktop } from "../features/codev/application/ports";
-import type { BoardDesktop } from "../features/board/application/ports";
 import type { ExplorerDesktop } from "../features/explorer";
 import type { WelcomeDesktop } from "../features/welcome";
 import type { ChangelogDesktop } from "../features/changelog";
@@ -27,7 +26,6 @@ export interface DesktopPorts {
   /** modelos reais (nota do agente, Test connection, provedores, Settings) e a guarda das missões — U4h5 */
   codev?: CodevDesktop;
   /** a guarda das corridas de sprint — U4h5 */
-  board?: BoardDesktop;
   /** o nome da pasta aberta na raiz do explorador — U4h5b */
   explorer?: ExplorerDesktop;
   /** «Open Folder…» e as pastas recentes na página de boas-vindas — U4h5b */

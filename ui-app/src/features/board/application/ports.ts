@@ -6,9 +6,10 @@
    `infrastructure/legacy-bridge.ts`.
 
    É isto que torna o motor testável e livre de `window`: dá-se-lhe acesso ao backlog,
-   ao design do Studio, ao catálogo/geradores, ao git/scm, ao chat do Co-Dev, ao router,
-   ao terminal e a um punhado de portas (notificações/vista/navegação/execução) e o
-   runner corre sem browser. A regra de dependências aponta para dentro: as portas
+   ao design do Studio, ao catálogo, ao git/scm, ao chat do Co-Dev, ao agente real, ao
+   terminal e a um punhado de portas (notificações/vista/navegação/execução) e o runner
+   corre sem browser (ADR-0006, R3a: sem geradores de templates, router nem predicados
+   sobre o FS — quem implementa é o agente). A regra de dependências aponta para dentro: as portas
    importam `domain/`, nunca o contrário. (Verificado por A7/A8 do `arch-check`.)
 
    Handles opacos (`Host`): o motor constrói as STRINGS de HTML (dados, com `esc`) mas
@@ -20,15 +21,13 @@
    dropIssue→approveIssue) passam pela porta `orchestration`, backed pela versão
    DECORADA por window (decoratedRunIssue/decoratedApproveIssue do bridge). */
 
-import type { Backlog, Issue, IssueFile, Design, DesignNode, TechSpec } from "../domain/types";
+import type { Backlog, Issue, Design, DesignNode, TechSpec } from "../domain/types";
 
 /** Um elemento do DOM que o motor segura como token opaco (um cartão, uma linha de
  *  ferramenta, um corpo de cartão). O motor nunca o inspecciona. */
 export type Host = unknown;
 /** Um cartão de conversa: o contentor das ferramentas e o corpo (ambos opacos). */
 export interface Card { tools: Host; bd: Host }
-/** Resultado leve do encaminhamento de modelo (router). */
-export interface Route { p: string; why: string; by: string }
 /** Configuração da paleta de comandos (prompt de texto). */
 export interface PalCfg { ph?: string; verb?: string; text?: (q: string) => void }
 
@@ -55,14 +54,8 @@ export interface Catalog {
   root(): string;
 }
 
-/** Geradores de projecto (ficam donos do monólito; o produtor lê-os por aqui). */
+/** A validação do desenho do Studio (o «Gerar backlog» não gera a partir de um desenho com erros). */
 export interface Generators {
-  compose(d: Design, healthy: boolean): string;
-  appFiles(node: unknown, d: Design, bad: boolean): IssueFile[];
-  k8sYaml(node: unknown): string;
-  k8sInfra(d: Design): string;
-  cloudMap(d: Design): string;
-  has(p: string, re: RegExp): boolean;
   validateDesign(): Array<[string, string]>;
 }
 
@@ -83,6 +76,11 @@ export interface Scm {
   staged(): Set<string>;
   statusOf(p: string): string;
   refs(): Record<string, string>;
+  /** Os ficheiros com alterações por commitar (para commitar o que o agente mudou). */
+  changes(): string[];
+  /** Espera que as operações git/disco em fila terminem (no desktop o checkout, o commit e a
+   *  gravação são assíncronos); no browser resolve logo. */
+  settle(): Promise<void>;
 }
 
 /** Controlo de execução/autoria (RUN/AUTHOR/AGENT + sentinela de paragem). */
@@ -113,13 +111,15 @@ export interface Chat {
   scrollMsgs(): void;
 }
 
-/** Encaminhamento de modelo + contabilização de uso. */
-export interface Router {
-  route(agent: string, title: string): Promise<Route>;
-  use(p: string, tok: number): void;
+/** O agente real do Co-Dev (desktop, pasta aberta, provedor com ferramentas). `story` lança-o em
+ *  modo plano sobre a issue e resolve no fim da volta (o humano aprova o plano pelo meio);
+ *  `null` se não aceitou o pedido. */
+export interface Agent {
+  available(): boolean;
+  story(s: { id: string; title: string; type: string; pts: number; note?: string }): Promise<void> | null;
 }
 
-/** Terminal + testes + variáveis CSS + aplicação de uma ferramenta a um ficheiro. */
+/** Terminal + testes + variáveis CSS. */
 export interface Terminal {
   echo(html: string): void;
   echoCmd(cmd: string): void;
@@ -129,14 +129,6 @@ export interface Terminal {
   /** Os comandos de testes/lint detectados no projecto aberto, corridos a sério (desktop);
    *  `[]` sem pasta ou sem comandos detectados. */
   projectTests(): Promise<Array<{ n: string; ok: boolean }>>;
-  doTool(t: { t: string; p: string; content: string }, host: Host): Promise<void>;
-}
-
-/** Escopo/autores (team) + caminho curto. */
-export interface Team {
-  inScope(a: string, p: string): boolean;
-  ownerOf(p: string): string;
-  short(p: string): string;
 }
 
 /** Re-render/refresh da UI após mudança de estado. */
@@ -168,16 +160,14 @@ export interface Orchestration {
 /* ───────── pacote de dependências entregue ao motor ───────── */
 export interface BoardDeps {
   store: Store;
-  workspace: Workspace;
   catalog: Catalog;
   generators: Generators;
   directory: Directory;
   scm: Scm;
   runctl: Runctl;
   chat: Chat;
-  router: Router;
+  agent: Agent;
   terminal: Terminal;
-  team: Team;
   view: View;
   notifier: Notifier;
   nav: Nav;
@@ -197,12 +187,7 @@ export interface BoardEngine {
   dropIssue(id: string, st: string): Promise<void>;
   newIssue(): void;
   openBoard(): void;
-  genBacklog(): Promise<void>;
+  genBacklog(): void;
   genBacklogIssues(plan: DesignNode[]): Issue[];
 }
 
-/** A parte desktop do board (ADR-0004, U4h5), injectada pela app Tauri em `desktopPorts.board`:
- *  as corridas de sprint são demos guionadas — com uma pasta real aberta, avisa e não corre. */
-export interface BoardDesktop {
-  runSprint?(s: number, virtual: (s: number) => unknown): unknown;
-}

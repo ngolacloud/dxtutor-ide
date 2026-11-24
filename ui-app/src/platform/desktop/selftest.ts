@@ -340,6 +340,27 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       host.remove();
       return r;
     });
+    // board (ADR-0006, R3a): «Delegar» corre a issue com o agente — aqui um agente FALSO (o
+    // selftest não tem modelo) que escreve um ficheiro; o resto é real: ramo gitflow, commit
+    // pela porta do git, os testes do projecto (.dxtutor/commands.json → unittest) e a issue
+    // em «Validação funcional»; no fim o repositório volta a develop.
+    await step("board", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      writeFile(ROOT + ".dxtutor/commands.json", JSON.stringify({ test: "python3 -m unittest -k test_soma test_dx_selftest" }) + "\n");
+      commit("chore: comandos do projecto para o selftest"); await idle(); await idle();
+      const G = window as unknown as { mkIssue: (o: Record<string, unknown>) => { id: string; stage: string; branch: string | null; note: string }; delegate: (id: string) => Promise<void>; codevAgentAvailable?: unknown; codevAgentStory?: unknown };
+      const prevA = G.codevAgentAvailable, prevS = G.codevAgentStory;
+      G.codevAgentAvailable = () => true;
+      G.codevAgentStory = async () => { writeFile(ROOT + "src/board_selftest.py", "def ok():\n    return True\n"); flushSave(); await idle(); };
+      try {
+        const it = G.mkIssue({ title: "Selftest do board", agent: "be", sprint: 0, stage: "todo" });
+        await G.delegate(it.id);
+        await wait(() => it.stage === "func" || it.stage === "dev", 60000);
+        await idle(); await idle();
+        const log = (await git("log", "--all", "--format=%s")).stdout;
+        return { stage: it.stage, note: it.note, branch: it.branch, committed: log.includes(`feat: Selftest do board (${it.id})`), head: (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim() };
+      } finally { G.codevAgentAvailable = prevA; G.codevAgentStory = prevS; }
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

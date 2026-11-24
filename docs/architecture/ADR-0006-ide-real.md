@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop), R3–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3a feita, R3b–R3c e R4–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -331,3 +331,35 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   (desde f07dbc1) que no desktop iam ao motor local sem git real; corrigido aqui por ser «git só
   real» (R1d). Selftest desktop completo (todos os passos da R1 e da R2): `errors: []`; o gitflow
   acaba em `develop` com merges reais. Métricas: globais 411 → 368.
+- **R3 em três passos.** R3a o runner só com o agente real; R3b o backlog por workspace
+  (`board_load`/`board_save`); R3c a equipa e os escopos do projecto, e Tasks com sprints e
+  custos reais.
+- **R3a (2026-11-24) — o Board sem runner guionado.** Correr uma issue («Delegar», «Executar
+  Sprint», «⚡ Agente» — os três passam a ser o mesmo) é: ramo gitflow (git real) → o agente
+  real implementa-a (`codevAgentStory`, modo plano: o humano aprova o plano) → commit do que o
+  agente mudou (`commitGit`, pela porta do git) → os testes do projecto (`projectTests`:
+  comandos detectados / `.dxtutor/commands.json`, código de saída real) → «Validação
+  funcional» se passam, volta a desenvolvimento com a nota se não; o agente sem alterações
+  deixa a issue em desenvolvimento com essa nota. Sem agente (browser, sem pasta, provedor sem
+  ferramentas), o runner di-lo e não mexe na issue. Saem: os produtores `gen`/`fix` das issues
+  (os templates dos geradores — Dockerfiles, compose, k8s, esqueletos — que o «Delegar»
+  escrevia no disco de uma pasta real), os testes-predicado sobre o FS (`tests`), o
+  encaminhamento de modelo e as contagens de tokens inventadas (`router.route`/`use(…, 2600)`),
+  as pausas encenadas e as sub-issues «fora do escopo»; o guarda desktop do `runSprint`
+  (`platform/desktop/demos.ts`, «Sprint runs are scripted demos») sai com o ficheiro. O
+  «Gerar backlog» do Studio mantém a decomposição (ADR do arquitecto, serviço/aplicação
+  web/esquema por componente, artefactos de execução, teste de fumo) mas só com o enunciado e
+  o contexto do desenho na nota (que segue para o agente) — sem código e sem o teatro do
+  «arquitecto a ler o desenho». **Encontrado e corrigido:** (1) o `autoTest` chamava um
+  `sleep(380)` global nunca publicado — o runner rebentava ao entrar em Teste (bug registado
+  como pré-existente); sai com as pausas; (2) no desktop o checkout do ramo é assíncrono e o
+  runner lançava o agente sem esperar — os ficheiros podiam cair no ramo errado; a porta nova
+  `scm.settle()` (`DXR.idle()`) espera pela fila entre o ramo, o agente, o commit e os testes.
+  **Goldens (decisão deste ADR):** `genBacklogIssues-seed` e `mkIssue-default` regenerados (as
+  mesmas issues, agentes e sprints, sem `genPaths`/`tests` e com a nota); o teste «delegate de
+  issue custom → dev» dá lugar a três (com agente falso: ramo, commit do que o agente escreveu,
+  testes do projecto, «func» e volta a develop; agente sem alterações; sem agente). **Selftest
+  desktop:** passo `board` novo — com um agente falso (o selftest não tem modelo) e o resto
+  real: ramo `feature/dx-11-…`, commit `feat: Selftest do board (DX-11)` no git, os testes do
+  projecto (unittest via `.dxtutor/commands.json`) passam, a issue fica em «Validação
+  funcional» e o repositório volta a `develop`; `errors: []`. Métricas: handlers inline 145 → 143.

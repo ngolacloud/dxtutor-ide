@@ -25,10 +25,10 @@
 
 import { toast, log, rerender, dlg as coreDlg } from "../../../core";
 import type {
-  Backlog, Stage, Issue, IssueFile, Design, TechSpec,
+  Backlog, Stage, Issue, Design, TechSpec,
 } from "../domain/types";
 export { toast, log, rerender };
-export type { Backlog, Stage, Issue, IssueFile, Design, TechSpec };
+export type { Backlog, Stage, Issue, Design, TechSpec };
 
 const G = window as unknown as Record<string, any>;
 
@@ -38,9 +38,7 @@ export interface Prov { name: string }
 export interface Run { active: boolean; label: string }
 export interface GitRefs { refs: Record<string, string> }
 export interface FileEntry { content: string }
-export interface Route { p: string; why: string; by: string }
 export interface Card { tools: HTMLElement; bd: HTMLElement }
-export interface ToolSpec { t: string; p: string; content: string }
 export interface AskBtn { l: string; v: number; pri?: number; done?: string }
 export interface PalItem { l: string; d?: string; run?: () => void }
 export interface PalCfg { ph?: string; verb?: string; text?: (q: string) => void; items?: PalItem[] }
@@ -52,9 +50,16 @@ export interface OpenTabArg { id: string; title?: string; kind?: string }
 export const backlog = (): Backlog => G.BL;
 /** Opção 2 (ADR-0003): o agente Co-Dev v2 está disponível (desktop + pasta real + provedor com agente, F8)? */
 export const agentAvailable = (): boolean => typeof G.codevAgentAvailable === "function" && !!G.codevAgentAvailable();
-/** Lança o agente Co-Dev, em modo plano, com o pedido de uma issue. `false` se não está disponível. */
-export const agentStory = (s: { id: string; title: string; type: string; pts: number; note?: string }): boolean =>
-  typeof G.codevAgentStory === "function" && G.codevAgentStory(s) !== null;
+/** Lança o agente Co-Dev, em modo plano, com o pedido de uma issue: a promessa resolve no fim da
+ *  volta (ADR-0006, R3a — o runner espera por ela para commitar e testar). `null` se não está
+ *  disponível ou não aceitou. */
+export const agentStory = (s: { id: string; title: string; type: string; pts: number; note?: string }): Promise<void> | null =>
+  typeof G.codevAgentStory === "function" ? ((G.codevAgentStory(s) as Promise<void> | null) ?? null) : null;
+/** Os ficheiros com alterações por commitar (motor scm). */
+export const changes = (): string[] => G.changes();
+/** Espera pela fila de operações do desktop (git, gravação no disco): `DXR.idle()`, duas vezes
+ *  para apanhar o que a primeira volta acrescentou (ex.: o reread depois do checkout). */
+export const settle = async (): Promise<void> => { const d = G.DXR; if (d && typeof d.idle === "function") { await d.idle(); await d.idle(); } };
 export const stages = (): Stage[] => G.STAGES;
 
 /* ───── sistema de ficheiros virtual + catálogo de agentes/provedores/tarefas ───── */
@@ -96,12 +101,6 @@ export const cloudTable = (): Record<string, { l: string }> => G.CLOUD;
 export const isApp = (n: unknown): boolean => G.isApp(n);
 export const nodeSlug = (n: unknown): string => G.sl(n);
 export const appDir = (n: unknown): string => G.appDir(n);
-export const composeYaml = (d: Design, healthy: boolean): string => G.composeYaml(d, healthy);
-export const appFiles = (node: unknown, d: Design, bad: boolean): IssueFile[] => G.appFiles(node, d, bad);
-export const k8sYaml = (node: unknown): string => G.k8sYaml(node);
-export const k8sInfra = (d: Design): string => G.k8sInfra(d);
-export const cloudMap = (d: Design): string => G.cloudMap(d);
-export const has = (p: string, re: RegExp): boolean => G.has(p, re);
 
 /* ───── helpers de conversa do Co-Dev (cartões, passos, perguntas, ritmo) ───── */
 export const card = (label: string, html: string): Card => G.card(label, html);
@@ -117,10 +116,6 @@ export const focusAgent = (nofocus?: boolean): void => G.focusAgent(nofocus);
 export const agentPill = (): void => G.agentPill();
 export const handlePrompt = (q: string): void => G.handlePrompt(q);
 export const scrollMsgs = (): void => G.scrollMsgs();
-
-/* ───── encaminhamento de modelo (router) ───── */
-export const routeModel = (agent: string, title: string): Promise<Route> => G.routeModel(agent, title);
-export const use = (p: string, tok: number): void => G.use(p, tok);
 
 /* ───── terminal + testes + variáveis CSS + aplicação de uma ferramenta ───── */
 export const echo = (html: string): void => G.echo(html);
@@ -140,12 +135,6 @@ export const projectTests = async (): Promise<Array<{ n: string; ok: boolean }>>
   }
   return out;
 };
-export const doTool = (t: ToolSpec, host: HTMLElement): Promise<void> => G.doTool(t, host);
-
-/* ───── escopo/autores (team) + caminho curto ───── */
-export const inScope = (a: string, p: string): boolean => G.inScope(a, p);
-export const ownerOf = (p: string): string => G.ownerOf(p);
-export const short = (p: string): string => G.short(p);
 
 /* ───── navegação / separadores / paleta de comandos / refresh ───── */
 export const openTab = (t: OpenTabArg): void => G.openTab(t);
