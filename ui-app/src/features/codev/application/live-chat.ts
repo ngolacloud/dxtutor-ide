@@ -31,9 +31,16 @@ export function makeLiveChat(deps: LiveDeps) {
     }
     const fs = workspace.files();
     const af = chat.activeTabPath();
+    /* pasta real (desktop): run_tests/design_lint correm os comandos DETECTADOS do projecto
+       (domain/project-commands). Sem pasta (browser) não há onde correr testes nem lint: as duas
+       ferramentas não se oferecem (eram o `cargo test -p lexer|store` e o `dx lint` do workspace
+       de demonstração, que o terminal emulado já não conhece — ADR-0005, R2d). */
+    const REAL = !!deps.verify?.real();
+    const TESTC = REAL ? deps.verify!.command("test") : null;
+    const LINTC = REAL ? deps.verify!.command("lint") : null;
     const sys = `És o Co-Dev do dxtutor IDE: um co-programador sénior que entende requisitos, arquitectura, design system, padrões de projecto e base de dados. Trabalhas orientado por um programador humano.
 Modo de autonomia actual: ${deps.modeLabel()}. Em modo Manual as tuas edições e comandos podem ser rejeitados pelo humano.
-Tens ferramentas para listar, ler e escrever ficheiros do workspace, correr os testes e o lint do Design System. Lê antes de editar. write_file recebe o conteúdo COMPLETO do ficheiro. Depois de editar, corre run_tests e design_lint, avalia o teu próprio resultado e corrige se falhar (no máximo 2 tentativas).
+${REAL ? "Tens ferramentas para listar, ler e escrever ficheiros do workspace e para correr os testes e o lint do projecto. Lê antes de editar. write_file recebe o conteúdo COMPLETO do ficheiro. Depois de editar, corre run_tests e design_lint, avalia o teu próprio resultado e corrige se falhar (no máximo 2 tentativas)." : "Tens ferramentas para listar, ler e escrever ficheiros do workspace. Lê antes de editar. write_file recebe o conteúdo COMPLETO do ficheiro. Nesta vista não há onde correr testes nem lint (só na app desktop com uma pasta aberta): não digas que os correste."}
 Responde em português (ortografia pré-AO90), de forma curta e concreta. Usa markdown simples.
 
 Regras do projecto:
@@ -51,11 +58,6 @@ ${af ? `\nFicheiro activo (${workspace.shortPath(af)}):\n${fs[af].content.slice(
     presenter.beginRun("Claude ao vivo");
     const signal = presenter.startAbort();
     const h: ToolHost = c.tools;
-    /* pasta real (desktop): run_tests/design_lint correm os comandos DETECTADOS do
-       projecto (domain/project-commands), não o `cargo test` do workspace de exemplo */
-    const REAL = !!deps.verify?.real();
-    const TESTC = REAL ? deps.verify!.command("test") : null;
-    const LINTC = REAL ? deps.verify!.command("lint") : null;
     type RunResult = { ok: boolean; sum?: string; out?: string } | null;
     const tools = [
       {
@@ -90,38 +92,32 @@ ${af ? `\nFicheiro activo (${workspace.shortPath(af)}):\n${fs[af].content.slice(
           return "ok";
         },
       },
-      {
+      ...(REAL ? [{
         name: "run_tests",
-        description: REAL
-          ? TESTC
-            ? `Corre os testes do projecto (${TESTC.cmd}) e devolve o código de saída e a saída real.`
-            : "Não foi detectado comando de testes neste projecto; usa run_command."
-          : 'Corre cargo test. Parâmetro opcional package: "lexer" ou "store".',
-        inputSchema: { type: "object", properties: REAL ? {} : { package: { type: "string" } } },
-        execute: async (i: { package?: string }) => {
-          if (REAL && !TESTC) return 'nenhum comando de testes detectado (define "test" em .dxtutor/commands.json ou usa run_command)';
-          const cmd = REAL ? TESTC!.cmd : "cargo test" + (i && i.package ? " -p " + i.package : "");
-          harness.cmd(cmd);
-          const r = (await tool({ t: "run", cmd } as RuntimeTool, h, undefined, signal)) as RunResult;
+        description: TESTC
+          ? `Corre os testes do projecto (${TESTC.cmd}) e devolve o código de saída e a saída real.`
+          : "Não foi detectado comando de testes neste projecto; usa run_command.",
+        inputSchema: { type: "object", properties: {} },
+        execute: async () => {
+          if (!TESTC) return 'nenhum comando de testes detectado (define "test" em .dxtutor/commands.json ou usa run_command)';
+          harness.cmd(TESTC.cmd);
+          const r = (await tool({ t: "run", cmd: TESTC.cmd } as RuntimeTool, h, undefined, signal)) as RunResult;
           return r ? r.out || r.sum : "o humano não autorizou o comando";
         },
       },
       {
         name: "design_lint",
-        description: REAL
-          ? LINTC
-            ? `Corre o lint do projecto (${LINTC.cmd}) e devolve o código de saída e a saída real.`
-            : "Não foi detectado comando de lint neste projecto; usa run_command."
-          : "Corre o lint do Design System (cores fixas fora dos tokens).",
+        description: LINTC
+          ? `Corre o lint do projecto (${LINTC.cmd}) e devolve o código de saída e a saída real.`
+          : "Não foi detectado comando de lint neste projecto; usa run_command.",
         inputSchema: { type: "object", properties: {} },
         execute: async () => {
-          if (REAL && !LINTC) return 'nenhum comando de lint detectado (define "lint" em .dxtutor/commands.json ou usa run_command)';
-          const cmd = REAL ? LINTC!.cmd : "dx lint";
-          harness.cmd(cmd);
-          const r = (await tool({ t: "run", cmd } as RuntimeTool, h, undefined, signal)) as RunResult;
+          if (!LINTC) return 'nenhum comando de lint detectado (define "lint" em .dxtutor/commands.json ou usa run_command)';
+          harness.cmd(LINTC.cmd);
+          const r = (await tool({ t: "run", cmd: LINTC.cmd } as RuntimeTool, h, undefined, signal)) as RunResult;
           return r ? r.out || r.sum : "o humano não autorizou o comando";
         },
-      },
+      }] : []),
       {
         name: "delegate_task",
         description:

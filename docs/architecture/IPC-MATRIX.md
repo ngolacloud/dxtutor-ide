@@ -495,7 +495,7 @@ ferramenta LLM** local, não o comando IPC).
 | `search_project` | `root: String`, `query: String`, `max: Option<usize>`, `ignore_case: Option<bool>` | `Vec<search::SearchHit>` | String | — | `features/search.ts` | R |
 | `list_files` | `root: String`, `max: Option<usize>` | `Vec<String>` | String | — | — | R |
 | `read_folder_sources` | `dir: String`, `max_files: Option<usize>`, `max_bytes: Option<usize>` | `Vec<FolderSource>` | String | — | — | R |
-| `detect_projects` | `root: String` | `Vec<ProjectInfo>` | String | — | — | R |
+| `detect_projects` | `root: String` | `Vec<ProjectInfo>` | String | — | `features/run.ts` | R |
 
 ---
 

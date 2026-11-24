@@ -286,7 +286,7 @@ export interface LiveDeps {
   notifier: Notifier;
   presenter: ChatPresenter;
   harness: Harness;
-  /** Opcional: sem ele, run_tests/design_lint mantêm o comportamento do exemplo. */
+  /** Opcional: sem ele (browser, sem pasta), o chat não oferece run_tests/design_lint (ADR-0005, R2d). */
   verify?: Verify;
   chat: ChatStore;
   modeLabel(): string;

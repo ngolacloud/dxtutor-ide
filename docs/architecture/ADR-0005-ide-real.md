@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a, R2b e R2c feitas, R2d–R2e e R3–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a–R2d feitas, R2e e R3–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -266,3 +266,22 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   `outline` novo — o teste Python gravado dá `T`, `test_soma`, `test_falha` (a extracção local
   não lê Python, logo vieram do backend); `errors: []`. IPC-MATRIX: `file_outline` ganha
   consumidor.
+- **R2d (2026-11-24) — Run real.** Sai a lista fixa do pane Run (`cargo test -p lexer`,
+  `cargo test -p store`, `dx lint`, `npm run dev`…). No desktop com pasta, o pane lista os
+  projectos da pasta pelo backend (`detect_projects`: a raiz e as sub-pastas de primeiro nível,
+  pelo ficheiro-marca) e os comandos de cada um pela regra pura nova `features/run-commands.ts`
+  (Rust/Go/Python/Java/PHP/Ruby com os comandos habituais; Node com os `scripts` reais do
+  package.json e o gestor do lockfile; tipo desconhecido diz «sem comandos conhecidos» em vez de
+  inventar); cada comando corre num terminal de tarefa (PTY) na pasta do projecto. Sem pasta, o
+  pane diz como abrir uma. O pane passa a abrir-se pelo menu Run («Run Project…», «Run Tests») e
+  pela paleta («Run: Projectos e comandos…»), que deixam de correr `cargo test`/`cargo build`/
+  `dx lint` fixos; os menus v1 do `boot.ts` perdem os recentes inventados (`delonix-runtime`,
+  `DORM`) e o «Run Task…» fixo. O chat ao vivo do Co-Dev no browser deixa de oferecer as
+  ferramentas `run_tests`/`design_lint` (eram `cargo test -p lexer|store` e `dx lint`, que o
+  terminal emulado já não conhece desde a R1c1) e o prompt diz que ali não há onde correr testes;
+  no desktop continuam com os comandos detectados. Cliente IPC novo `platform/tauri/projects.ts`.
+  **Testes com IPC falso:** `run.r2d` (regra dos comandos por ecossistema, pane sem pasta, menus
+  e paleta, projectos e comandos do backend, terminal de tarefa com `cwd`, `cd` sem PTY, erro).
+  **Selftest desktop:** passo `run` novo — um package.json com um script dá o projecto `node` e o
+  comando `npm run hello`; `errors: []`. IPC-MATRIX: `detect_projects` ganha consumidor.
+  Métricas: handlers inline 146 → 145 (os comandos correm por um listener, sem `onclick`).

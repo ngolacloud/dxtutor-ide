@@ -308,6 +308,18 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const got = await wait(() => names().includes("test_falha"), 20000);
       return { got, symbols: names() };
     });
+    // run (ADR-0005, R2d): o pane Run lista os projectos da pasta pelo backend
+    // (detect_projects) e os comandos de cada um — um package.json com um script real.
+    await step("run", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      writeFile(ROOT + "package.json", JSON.stringify({ name: "selftest", scripts: { hello: "echo hello-from-run" } }, null, 2) + "\n");
+      flushSave(); await idle();
+      PANE = "run";
+      window.renderRunPane();
+      const el = () => document.getElementById("pane-run");
+      const listed = await wait(() => !!el()?.querySelector('[data-run-cmd="npm run hello"]'), 10000);
+      return { listed, kinds: [...(el()?.querySelectorAll(".scm-grp .cnt") || [])].map(e => e.textContent) };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;
