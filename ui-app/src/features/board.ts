@@ -30,7 +30,8 @@
    (decoratedRunIssue/decoratedApproveIssue). O VIEW.board regista-se aqui, composto;
    `renderBoardView` (publicado) é o corpo base, que os goldens caracterizam. */
 
-import { esc, jsa, nfmt } from "../core";
+import { $, esc, jsa, nfmt } from "../core";
+import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
 import type { Backlog, Issue } from "./board/domain/types";
 import { STAGES } from "./board/domain/issue";
@@ -162,6 +163,12 @@ const ACTIONS: ActionTable = {
   "gen-backlog": { on: "click", run: () => genBacklog() },
 };
 bindActions(ACTIONS);
+/* `dx test <ISSUE>` e `dx sprint <n>` no terminal (ADR-0004, U4j4a — eram do app.ts): chamam o dropIssue/runSprint
+   PUBLICADOS (o runSprint com as guardas e a porta desktop), como o app.ts chamava pelo global. */
+const XCB=(window as unknown as { XC: Record<string, (a: string[], v?: string) => unknown> }).XC;
+const _dx=XCB.dx;XCB.dx=(a: string[])=>{if(a[0]==='test'&&a[1]){const it=(window as unknown as { BL: Backlog }).BL.issues.find(i=>i.id.toLowerCase()===a[1].toLowerCase());if(!it){(window as unknown as { echo: (h: string) => void }).echo('<span class="er">issue desconhecida</span>');return;}(window as unknown as { dropIssue: (id: string, st: string) => void }).dropIssue(it.id,'test');return;}if(a[0]==='sprint'){(window as unknown as { runSprint: (s: number) => unknown }).runSprint((+a[1]||1)-1);return;}return _dx(a);};
+/* redesenha o quadro aberto quando o workspace muda (ADR-0004, U4j4a — era um subscritor do app.ts) */
+bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=(window as unknown as { tabOf: (id: string | null) => { kind?: string } | undefined; cur: string | null }).tabOf((window as unknown as { cur: string | null }).cur);if(t&&t.kind==='board'){const top=$('#ebody')!.scrollTop;(window as unknown as { show: (id: string | null) => void }).show((window as unknown as { cur: string | null }).cur);$('#ebody')!.scrollTop=top;}}});
 
 /* ═══════════ políticas que decoram o runner e o quadro (ADR-0004, U4g3) ═══════════
    Viviam como decorações no app.ts, v5.ts e v6.ts, por esta ordem (de dentro para fora);

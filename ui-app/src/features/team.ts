@@ -49,6 +49,9 @@ const AGENTS: Record<string, Agent> = (window.AGENTS = {
    padrões genéricos; ao abrir uma pasta, derivados da estrutura dela (applyProjectTeam) e o
    `.dxtutor/team.json` do projecto por cima. Eram os do projecto de demonstração. */
 { const D = deriveScopes([], null, null); Object.keys(AGENTS).forEach((k) => { if (D[k]) { AGENTS[k].paths = D[k].paths; AGENTS[k].cmds = D[k].cmds; } }); }
+/* os limites de ficheiros por tarefa da camada v4 (Backend 8, Plataforma 12) ficam — a R3c tirou-os sem
+   querer com os caminhos de demonstração */
+AGENTS.be.max = 8; AGENTS.ops.max = 12;
 window.AGENT='lead';
 const globRe=(g:string)=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=>x.replace(/[.+^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*')+'$');
 const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));

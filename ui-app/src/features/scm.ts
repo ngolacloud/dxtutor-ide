@@ -107,24 +107,27 @@ const { gitInit, commit, commitV2, checkout, gitMerge, gfStart, gfFinish, stage,
 });
 
 /* ───── a parte desktop (ADR-0004, U4h2) ─────
-   As versões PUBLICADAS do commit (o v2 do botão), checkout, gitMerge e gfFinish consultam a
-   porta desktop (`desktopPorts.scm`, injectada por platform/desktop/git.ts na app Tauri) —
-   antes o desktop reatribuía-as no `window`. As chamadas internas deste ficheiro (acções do
-   pane, paleta de ramos, Ctrl+Enter) passam também pelas versões publicadas — desde a Fase 4
-   (f07dbc1) iam ao motor local e no desktop não usavam git real; corrigido no ADR-0006 (R1d,
-   «git só real»). O gfStart/gfFinish do motor encadeiam checkout/merge pela porta `flow`,
-   ligada às mesmas versões publicadas. */
+   As versões PUBLICADAS do commit (o v2 do botão e o v4 `commitGit`), checkout, gitMerge,
+   gfStart e gfFinish consultam a porta desktop (`desktopPorts.scm`, injectada por
+   platform/desktop/git.ts na app Tauri) — antes o desktop reatribuía-as no `window`.
+   A0.5 (docs/v2/UI-AUDIT.md): as acções do pane, a paleta de ramos, o prompt de gitflow e o
+   Ctrl+Enter passam a usar estas versões, por isso no desktop vão ao git real (era o bug
+   aberto desde f07dbc1). Dentro do motor, gfStart/gfFinish chamam o checkout/merge locais;
+   no desktop a porta refaz a operação com os globais publicados. Desde o ADR-0006 (R1d, «git
+   só real») o motor encadeia esse checkout/merge pela porta `flow`, ligada às versões
+   publicadas, e sem repositório recusa em vez de inventar commits. */
 const commitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commitV2) : commitV2(msg); };
 /* o commit v4 git-aware (board, terminal, agentes) passa pela MESMA porta que o botão: no
    desktop com repo, commit real (antes ficava só no espelho em memória — ADR-0006, R1d). */
 const commitGitPublished = (msg?: string, author?: string): CommitResult | null => { const d = desktopPorts.scm; return d ? d.commit(msg, author, commit) : commit(msg, author); };
 const checkoutPublished = (b: string, create?: boolean): boolean => { const d = desktopPorts.scm; return d ? d.checkout(b, create, checkout) : checkout(b, create); };
 const gitMergePublished = (src: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gitMerge(src, author, gitMerge) : gitMerge(src, author); };
+const gfStartPublished = (kind: string, name: string): string => { const d = desktopPorts.scm; return d ? d.gfStart(kind, name, gfStart) : gfStart(kind, name); };
 const gfFinishPublished = (b?: string, author?: string): MergeResult | null => { const d = desktopPorts.scm; return d ? d.gfFinish(b, author, gfFinish) : gfFinish(b, author); };
 
 /* ───── UI que abre a paleta (prompts gitflow / mudar de ramo) — chama o motor ───── */
 function gfPrompt(kind: FlowKind): void {
-  palette("", { ph: kind === "release" ? "Versão da release (ex.: 0.3.0)" : `Nome da ${kind} (ex.: exportar-relatorio)`, verb: "Iniciar " + kind, text: (q: string) => { if (!q.trim()) return; if (!gfStart(kind, q.trim())) return; toast("Ramo criado: " + branch()); rerender("graph"); } });
+  palette("", { ph: kind === "release" ? "Versão da release (ex.: 0.3.0)" : `Nome da ${kind} (ex.: exportar-relatorio)`, verb: "Iniciar " + kind, text: (q: string) => { if (!q.trim()) return; if (!gfStartPublished(kind, q.trim())) return; toast("Ramo criado: " + branch()); rerender("graph"); } });
 }
 function pickBranch(): void {
   if (!repo()) { toast(NO_REPO); return; }
@@ -202,7 +205,7 @@ bindActions(ACTIONS);
    `commitGit` v4 git-aware ficam distintos (GOTCHA-commit). ── */
 publish({
   commitGit: commitGitPublished, commit: commitPublished, checkout: checkoutPublished, gitMerge: gitMergePublished, gfFinish: gfFinishPublished,
-  gitInit, authorOf, stOf, changes, isFlow, gfStart, gfPrompt, gfGuide,
+  gitInit, authorOf, stOf, changes, isFlow, gfStart: gfStartPublished, gfPrompt, gfGuide,
   pickBranch, drawTimeline, graphLayout, openGraph, stage, discard,
   renderScmPane,
 });

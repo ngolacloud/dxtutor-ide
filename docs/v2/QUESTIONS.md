@@ -15,10 +15,10 @@ Missões guionadas, "conselho de modelos", Debug assistant guionado, métricas P
 painel Testing por regex contrariam "nada de demo data". Recomendação: removê-los fase a fase, à medida
 que a versão real de cada um entra, e nunca deixar um ecrã vazio sem explicar porquê.
 
-**Q4 · Goldens.**
-Quase todos os itens mudam markup de features com golden (codev, scm, debug, board, visualizer, infra,
-codereview). Regras do CLAUDE.md: só se regenera com decisão deliberada. Recomendação: em cada fase listo
-os goldens afectados e o diff, e o dono aprova a regeneração no fecho da fase.
+**Q4 · ~~Goldens~~ — respondida (2026-11-24).**
+Em cada fase listo os goldens afectados com o diff, e só regenero com o "sim" do dono. Primeira aplicação:
+o dono aprovou os 8 goldens da A0.5 (visualizer e Under the hood sem as frases "The desktop app traces
+real binaries." e "The desktop app adds measured CPU, memory and I/O from a real run.").
 
 **Q5 · Debug: DAP substitui o driver gdb/MI3?**
 Recomendação: cliente DAP único (CodeLLDB/lldb-dap, debugpy, Delve, js-debug, java-debug); o gdb/MI3

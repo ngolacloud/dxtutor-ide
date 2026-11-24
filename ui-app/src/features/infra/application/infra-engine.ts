@@ -37,10 +37,18 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
   function hydrateEnvs(): void { if (envsHyd) return; envsHyd = true; Object.assign(state.envs(), persist.get("env5", {})); state.setPDc(workspace.root() + ".devcontainer/devcontainer.json"); }
   /* ADR-0006, R5c1: a chave passa a `envx7` — a `envx6` guardava estado inventado (versões
      «deployadas» em staging/production, segredos torcidos, promoções simuladas). O estado de cada
-     ambiente lê-se do cluster e não se guarda. */
-  function hydrateEnvx(): void { if (envxHyd) return; envxHyd = true; const saved = persist.get<Record<string, unknown>>("envx7", {}); delete saved.st; Object.assign(state.envx(), saved); }
+     ambiente lê-se do cluster e não se guarda. A0.5 (docs/v2/UI-AUDIT.md): os valores dos segredos
+     (`sec`) também nunca são gravados — ficam em memória durante a sessão; a `envx6` antiga (que os
+     tinha em texto simples) é esvaziada na primeira hidratação. */
+  function hydrateEnvx(): void {
+    if (envxHyd) return; envxHyd = true;
+    if (Object.keys(persist.get<Record<string, unknown>>("envx6", {}) || {}).length) persist.set("envx6", {});
+    const saved = { ...(persist.get<Record<string, unknown>>("envx7", {}) || {}) };
+    delete saved.st; delete saved.sec;
+    Object.assign(state.envx(), saved);
+  }
   const saveEnv = (): void => persist.set("env5", state.envs());
-  const saveEnvx = (): void => { const { st: _st, ...keep } = state.envx(); persist.set("envx7", keep); };
+  const saveEnvx = (): void => { const { st: _st, sec: _secrets, ...keep } = state.envx(); persist.set("envx7", keep); };
   const cli = (): string => state.envs().rt;
 
   /* ═══════════ motor runtime / dev-container / Kubernetes ═══════════ */

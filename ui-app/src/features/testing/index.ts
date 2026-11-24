@@ -17,7 +17,7 @@ import { bindActions, type ActionTable } from "./ui/actions";
 import { tauriTests } from "./infrastructure/tauri";
 import * as L from "./infrastructure/legacy-bridge";
 
-const testing = makeTesting({ tests: tauriTests(), workspace: { root: L.root } });
+const testing = makeTesting({ tests: tauriTests(), workspace: { root: L.root, save: L.save } });
 
 /** Renderiza o pane «Testing» (e dispara a descoberta na primeira vez para a pasta aberta). */
 function renderTestPane(): void {

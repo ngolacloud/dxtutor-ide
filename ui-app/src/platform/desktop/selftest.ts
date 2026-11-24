@@ -7,6 +7,7 @@
 
 import type { DesktopContext } from "./context";
 import { desktopPorts } from "../../app/desktop";
+import { RP } from "../../app/store/registry";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -171,6 +172,38 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         checkoutCreated: onNew === "feature/scm-probe", checkedBack: back === before,
         errBefore, errAfter: R.errors.length };
     });
+    // A0.5 (docs/v2/UI-AUDIT.md): the pane's OWN buttons must reach real git (before, only the
+    // published globals did). Clicks the real Commit button and a branch row, and starts a
+    // gitflow branch through the published gfStart, then checks git itself.
+    await step("scmPaneButtons", async () => {
+      const errBefore = R.errors.length, click = (el: Element | null) => { if (!el) throw new Error("button not found"); el.dispatchEvent(new MouseEvent("click", { bubbles: true })); };
+      const rel = "notes/pane-button.txt", msg = "test: commit from the Source Control button";
+      writeFile(ROOT + rel, "pane button\n"); flushSave(); await idle();
+      RP.scm();
+      const input = document.getElementById("scm-msg") as HTMLInputElement; input.value = msg; input.dispatchEvent(new Event("input"));
+      click(document.querySelector('#pane-scm [data-action="commit"]')); await idle(); await idle();
+      const committed = (await git("log", "-1", "--format=%s")).stdout.trim() === msg;
+      const start = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim();
+      const flow = gfStart("fix", "pane-probe"); await idle(); await idle();
+      const flowInGit = (await git("branch", "--list", flow)).stdout.trim() !== "";
+      RP.scm();
+      click([...document.querySelectorAll('#pane-scm [data-action="checkout"]')].find(e => e.getAttribute("data-on") === start) || null); await idle(); await idle();
+      const backViaRow = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim() === start;
+      await git("branch", "-D", flow); await ctx.syncGit();
+      return { committed, flowInGit, backViaRow, errBefore, errAfter: R.errors.length };
+    });
+    // A0.5: the Testing pane lists the project's REAL tests (list_tests) on the desktop — a Rust
+    // probe (descoberta pelo syn), redescoberta pelo «Refresh» do pane (features/testing, ADR-0006 R2a).
+    await step("testsPane", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const key = ROOT + "probe_tests.rs";
+      writeFile(key, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_passes() {}\n}\n"); flushSave(); await idle();
+      PANE = "test"; window.renderTestPane();
+      document.querySelector<HTMLElement>('#pane-test [data-action="refresh"]')?.click();
+      const inPane = await wait(() => (document.getElementById("pane-test")?.textContent || "").includes("probe_passes"), 20000);
+      delete FS[key]; flushSave(); await idle();
+      return { inPane };
+    });
     // feature `infra` (migrada de v5.ts nesta sessão para features/infra.ts): prova que
     // o motor de runtime/K8s/dev-container ficou correctamente ligado depois da
     // migração — rtConnect/k8sConnect (reais aqui, pela via REAL deste ficheiro) não
@@ -275,6 +308,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       flushSave(); await idle();
       PANE = "test";
       window.renderTestPane();
+      document.querySelector<HTMLElement>('#pane-test [data-action="refresh"]')?.click(); // um ficheiro de testes novo: voltar a descobrir
       const el = () => document.getElementById("pane-test");
       const listed = await wait(() => /test_falha/.test(el()?.textContent || ""), 20000);
       const runAll = el()?.querySelector<HTMLElement>('[data-action="run-all"]');

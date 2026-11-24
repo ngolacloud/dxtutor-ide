@@ -5299,7 +5299,7 @@ exports[`visualizer · overlay #viz (golden) > avança o exemplo \`sum\` até ao
         <div class="vz-col"><div class="vz-t">Heap</div><div class="vz-mute" style="padding:6px 2px">Nothing on the heap.</div>
         </div></div><div class="vz-sec"><div class="vz-t">Output</div><pre class="vz-out">sum = 66
 </pre></div></div></div>
-   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output. The desktop app traces real binaries.</div></div>"
+   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output.</div></div>"
 `;
 
 exports[`visualizer · overlay #viz (golden) > mostra o cartão de erro do use-after-move (\`moved\`) 1`] = `
@@ -5314,7 +5314,7 @@ exports[`visualizer · overlay #viz (golden) > mostra o cartão de erro do use-a
       <div class="vz-ask"><button class="mini">Ask why</button><div id="vz-askout"></div></div></div><div class="vz-mem" id="vz-mem"><svg id="vz-arrows"></svg><div class="vz-col"><div class="vz-t">Stack <span class="vz-mute">grows ↓</span></div><div class="vz-frame on"><div class="vz-fh"><b>main</b><span>line 5</span></div><div class="vz-mute" style="padding:6px 8px">No locals yet.</div></div></div>
         <div class="vz-col"><div class="vz-t">Heap</div><div class="vz-mute" style="padding:6px 2px">Nothing on the heap.</div>
         </div></div><div class="vz-sec"><div class="vz-t">Output</div><pre class="vz-out"></pre></div></div></div>
-   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output. The desktop app traces real binaries.</div></div>"
+   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output.</div></div>"
 `;
 
 exports[`visualizer · overlay #viz (golden) > profundidade \`basic\` — variáveis + call stack 1`] = `
@@ -5327,7 +5327,7 @@ exports[`visualizer · overlay #viz (golden) > profundidade \`basic\` — variá
       <div class="vz-ins"><svg class="ico" viewBox="0 0 16 16"><path d="M8 1.8a4.2 4.2 0 0 0-2.4 7.6c.5.4.8.9.8 1.5V12h3.2v-1.1c0-.6.3-1.1.8-1.5A4.2 4.2 0 0 0 8 1.8z"></path><path d="M6.4 14h3.2"></path></svg><span>Every <b>stack frame</b> holds the local variables of one call. Heap memory is separate and is only used when something asks for it (a Vec, a String, a Box).</span></div>
       
       <div class="vz-ask"><button class="mini">Ask why</button><div id="vz-askout"></div></div></div><div class="vz-sec"><div class="vz-t">Variables</div><div class="vz-mute">No locals in this frame yet.</div></div><div class="vz-sec"><div class="vz-t">Call stack</div><div class="vz-cs on"><span>0</span>main<small>line 9</small></div></div><div class="vz-sec"><div class="vz-t">Output</div><pre class="vz-out"></pre></div></div></div>
-   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output. The desktop app traces real binaries.</div></div>"
+   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output.</div></div>"
 `;
 
 exports[`visualizer · overlay #viz (golden) > profundidade \`machine\` — memória + contadores + endereços 1`] = `
@@ -5348,7 +5348,7 @@ exports[`visualizer · overlay #viz (golden) > profundidade \`machine\` — mem�
         </div></div></div>
         <div class="vz-col"><div class="vz-t">Heap</div><div class="vz-blk" id="vh-h1"><div class="vz-sh"><b>Vec buffer</b><span class="ty">len 2 · cap 4</span><span class="ad">0x55d1c2b4e010 · 16 B</span></div><div class="vz-cells heap"><span id="vh-h1-0"><i>0</i>0</span><span id="vh-h1-1"><i>1</i>10</span><span class="spare"><i>2</i>·</span><span class="spare"><i>3</i>·</span></div></div>
         </div></div><div class="vz-sec"><div class="vz-t">Output</div><pre class="vz-out"></pre></div><div class="vz-sec"><div class="vz-t">Counters so far</div><div class="vz-cnt"><div><span>calls</span><b>0</b></div><div><span>max stack depth</span><b>1</b></div><div><span>heap allocations</span><b>1</b></div><div><span>reallocations</span><b>0</b></div><div><span>frees</span><b>0</b></div><div><span>live heap</span><b>16 B</b></div><div><span>peak heap</span><b>16 B</b></div><div><span>bytes copied</span><b>0 B</b></div><div><span>moves</span><b>0</b></div><div><span>bounds checks</span><b>0</b></div><div><span>overflow checks</span><b>2</b></div><div><span>write syscalls</span><b>0</b></div></div><p class="vz-mute">Counted by the model as a debug build would do them; the optimiser removes many checks and frames in release.</p></div></div></div>
-   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output. The desktop app traces real binaries.</div></div>"
+   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output.</div></div>"
 `;
 
 exports[`visualizer · overlay #viz (golden) > renderiza o exemplo \`sum\` no passo 0 1`] = `
@@ -5363,5 +5363,5 @@ exports[`visualizer · overlay #viz (golden) > renderiza o exemplo \`sum\` no pa
       <div class="vz-ask"><button class="mini">Ask why</button><div id="vz-askout"></div></div></div><div class="vz-mem" id="vz-mem"><svg id="vz-arrows"></svg><div class="vz-col"><div class="vz-t">Stack <span class="vz-mute">grows ↓</span></div><div class="vz-frame on"><div class="vz-fh"><b>main</b><span>line 9</span></div><div class="vz-mute" style="padding:6px 8px">No locals yet.</div></div></div>
         <div class="vz-col"><div class="vz-t">Heap</div><div class="vz-mute" style="padding:6px 2px">Nothing on the heap.</div>
         </div></div><div class="vz-sec"><div class="vz-t">Output</div><pre class="vz-out"></pre></div></div></div>
-   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output. The desktop app traces real binaries.</div></div>"
+   <div class="vz-foot"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2z"></path><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"></path></svg> A model of a debug build, run in your browser: values and control flow are exact for this Rust subset; addresses are illustrative and the machine notes describe typical x86-64 output.</div></div>"
 `;

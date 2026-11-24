@@ -124,3 +124,5 @@ function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
 }
 
 window.gitCmd = gitCmd;
+/* o comando `git` do terminal emulado é este (ADR-0004, U4j4a — era um shim no app.ts) */
+(window as unknown as { XC: Record<string, (a: string[], raw: string) => unknown> }).XC.git = gitCmd;

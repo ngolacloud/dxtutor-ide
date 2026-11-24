@@ -6,6 +6,7 @@
 
 import type { CommitNode } from "./types";
 import type { ScmDesktop } from "../../features/scm/application/ports";
+import { slug } from "../../features/scm/domain/gitflow";
 import { desktopPorts } from "../../app/desktop";
 import type { DesktopContext } from "./context";
 
@@ -118,6 +119,16 @@ gitMerge(src, author, _gitMerge) {
   if (!GIT.refs[src] || src === BRANCH) return null;
   flushSave();
   return realMerge(src, author);
+},
+gfStart(kind, name, _gfStart) {
+  if (!R.git) return _gfStart(kind, name);
+  /* the same branch name and base as the simulated engine, created in the real repository;
+     `checkout(…)` is the published global, so it goes back through this port */
+  const b = kind + "/" + slug(name), base = kind === "hotfix" ? (GIT.refs.main ? "main" : GIT.refs.master ? "master" : "main") : "develop";
+  if (BRANCH !== base) checkout(base);
+  if (GIT.refs[b]) checkout(b); else checkout(b, true);
+  say(`gitflow: started ${b} from ${base}`);
+  return b;
 },
 gfFinish(b, author, _gfFinish) {
   if (!R.git) return _gfFinish(b, author);

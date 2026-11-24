@@ -4,7 +4,7 @@
    acto as funções do monólito que a feature chama (abrir ficheiro, correr no terminal,
    pane activo). Tudo é lido NO ACTO (a feature avalia antes de `app.ts` publicar). */
 
-interface Dxr { root?: string | null; projectCmd?: (kind: "test" | "lint") => { cmd: string } | null }
+interface Dxr { root?: string | null; projectCmd?: (kind: "test" | "lint") => { cmd: string } | null; flush?: () => void; idle?: () => Promise<unknown> }
 /** Os globais do monólito/desktop que a feature lê, tipados (sem `any`). */
 interface Globals {
   DXR?: Dxr;
@@ -20,6 +20,9 @@ const dxr = (): Dxr | undefined => G.DXR;
 export const root = (): string | null => dxr()?.root ?? null;
 /** O comando de testes detectado no projecto aberto (null se nenhum). */
 export const projectTestCmd = (): string | null => dxr()?.projectCmd?.("test")?.cmd ?? null;
+
+/** Grava o editor no disco (autosave do desktop) e espera pela fila de escrita. */
+export const save = async (): Promise<void> => { const d = dxr(); d?.flush?.(); await d?.idle?.(); };
 
 /** Abre o ficheiro `rel` (relativo à pasta) na linha `line`: o FS do monólito usa
  *  chaves `ROOT + caminho relativo`. */

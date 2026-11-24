@@ -141,12 +141,14 @@ desktop com pasta); com repo, o motor é o espelho optimista e o git real vem da
 `desktopPorts.scm` (platform/desktop/git.ts; o `syncGit` reconstrói o DAG do `git log`).
 GOTCHA-commit: o botão «Commit» usa o commit v2 (`window.commit`); o Ctrl+Enter e os
 auto-commits (board, terminal, agentes) usam o v4 git-aware (`window.commitGit`); no desktop
-OS DOIS passam pela porta (commit real). As acções do pane (commit, ramos, Ctrl+Enter,
-finalizar gitflow) chamam as versões PUBLICADAS, e o gitflow do motor (`gfStart`/`gfFinish`)
+OS DOIS passam pela porta (commit real), tal como checkout/gitMerge/gfStart/gfFinish. As
+acções do pane (commit, ramos, Ctrl+Enter, prompt e fim do gitflow) chamam as versões
+PUBLICADAS (A0.5, docs/v2/UI-AUDIT.md: o bug aberto desde f07dbc1 está fechado), e o gitflow do motor (`gfStart`/`gfFinish`)
 encadeia checkout/merge pela porta `flow`, ligada às mesmas — nunca às locais. Rede
 de segurança em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor sobre
 o histórico da fixture `tests/fixtures/sample-history.ts`, que o harness aplica com
-`REPO=true`), `tests/scm.norepo.test.ts` (sem repositório + ligação do gitflow) e
+`REPO=true`), `tests/scm.norepo.test.ts` (sem repositório + ligação do gitflow),
+`tests/scm.desktop-port.test.ts` (cada entrada do pane consulta a porta desktop) e
 `tests/scm.domain.test.ts` (domínio puro).
 
 ## Quarta feature extraída: Run and Debug (`ui-app/src/features/debug/`)

@@ -20,7 +20,7 @@
    fica aqui é a cola da UI do agente (modos/providers), as páginas e o pane — alvo da
    Phase 4. */
 
-import { $, hd, svg, esc } from "../core";
+import { $, hd, svg, esc, jsa } from "../core";
 import { RP, VIEW } from "../app/store/registry";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
@@ -354,3 +354,29 @@ const composerHost: ComposerHost = {
   localModels: () => (isDesktop() ? ollamaModels() : Promise.resolve([])),
 };
 mountComposer(composerHost);
+
+/* ═════════ o estado do Co-Dev que vivia no app.ts (ADR-0004, U4j4b) ═════════
+   Os provedores (`PROV`), a conversa (`CHAT`), a execução (`RUN`) e o sampler (`SAMPLE`) criam-se aqui, DEPOIS
+   do `mountComposer` acima: o compositor monta com eles ainda por definir, como antes (o app.ts avaliava no
+   fim); o agentStore adopta os objectos ao publicá-los. O MODE/ACTIVE/THRESH/CTX_ON nascem no agentStore
+   com os mesmos valores que o app.ts lhes voltava a atribuir. Seguem o STOP/SAFE/DANGER, o provFor/who, o
+   provState com a porta desktop e o VIEW.settings composto (página + secção Language do i18n + porta). */
+const CW = window as unknown as { ROUTE: Record<string, string>; ROLE: Record<string, string>; connected: () => string[]; LOCALES: string[][]; LOCALE: string; SAMPLE: unknown };
+const PROV: Record<string, { name: string; vendor: string; model: string; ep: string; on: boolean; local?: boolean; col: string }>={
+  claude:{name:'Claude',vendor:'Anthropic',model:'claude-opus-5-5',ep:'https://api.anthropic.com',on:true,col:'var(--accent-hover)'},
+  gemini:{name:'Gemini',vendor:'Google',model:'gemini-pro',ep:'https://generativelanguage.googleapis.com',on:true,col:'var(--blue)'},
+  codex:{name:'Codex',vendor:'OpenAI',model:'gpt-codex',ep:'https://api.openai.com',on:true,col:'var(--green)'},
+  ollama:{name:'Ollama',vendor:'local',model:'qwen2.5-coder:14b',ep:'http://localhost:11434',on:true,local:true,col:'var(--purple)'},
+};
+const CHAT: unknown[]=[];
+const RUN={active:false,paused:false,stop:false,pend:null,abort:null,label:'',t0:0};
+const STOP='__STOP__',SAFE=/^(cargo (test|build|clippy)|dx lint|npm run lint)/,DANGER=/git push|rm -rf|drop table|--force/i;
+Object.assign(window, { PROV, CHAT, RUN, STOP, SAFE, DANGER });
+CW.SAMPLE = null;
+const provFor=(r: string): string=>PROV[CW.ROUTE[r]].on?CW.ROUTE[r]:(CW.connected()[0]||CW.ROUTE[r]);
+const who=(r: string): string=>`${CW.ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
+const provStateBase=(k: string): string=>k==='claude'?(CW.SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
+window.provState=(k: string): string=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
+const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${CW.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" onclick="setLocale(${jsa(l[0])})"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
+VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
+Object.assign(window, { provFor, who });

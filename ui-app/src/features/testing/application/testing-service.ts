@@ -59,6 +59,7 @@ export function makeTesting(deps: { tests: TestsPort; workspace: WorkspacePort }
     if (!root || st.loading || st.running) return;
     st.loading = true; st.error = null; emit();
     try {
+      await workspace.save?.();
       const items = await tests.list(root);
       if (st.root !== root) return; // a pasta mudou entretanto
       st.items = items;
@@ -84,6 +85,7 @@ export function makeTesting(deps: { tests: TestsPort; workspace: WorkspacePort }
     if (!root || !t || st.running) return;
     st.running = true; st.error = null; st.states[key] = { status: "running" }; emit();
     try {
+      await workspace.save?.();
       const r = await tests.run(root, t.path, t.lang);
       if (st.root !== root) return;
       st.states[key] = { status: r.ran ? (r.passed ? "passed" : "failed") : "failed", output: r.output };
@@ -102,6 +104,7 @@ export function makeTesting(deps: { tests: TestsPort; workspace: WorkspacePort }
     for (const t of st.items) st.states[testKey(t)] = { status: "running" };
     emit();
     try {
+      await workspace.save?.();
       const r = await tests.runAll(root);
       if (st.root !== root) return;
       st.suite = r;

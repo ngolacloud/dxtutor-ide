@@ -19,7 +19,8 @@
    reatribuição de `GSEL`) são strings HTML resolvidas no window em tempo de clique —
    não entram no grafo de tipos. Do core importa-se só o que é dono de lá (`esc`). */
 
-import { esc, jsa } from "../core";
+import { $, esc, jsa } from "../core";
+import { bus } from "../app/bus";
 import { VIEW } from "../app/store/registry";
 
 /* ───── corpo do renderer da tab `graph` (era VIEW.graph no monólito) ───── */
@@ -81,5 +82,7 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
 /* ── publicação no window: `VIEW.graph` (app.ts) delega em renderGraphView (shim, no
    registo de kinds de tab). ── */
 window.renderGraphView = renderGraphView;
+/* redesenha o grafo aberto quando o workspace muda (ADR-0004, U4j4a — era um subscritor do app.ts) */
+bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=(window as unknown as { tabOf: (id: string | null) => { kind?: string } | undefined }).tabOf((window as unknown as { cur: string | null }).cur);if(t&&t.kind==='graph'){const top=$('#ebody')!.scrollTop;(window as unknown as { show: (id: string | null) => void }).show((window as unknown as { cur: string | null }).cur);$('#ebody')!.scrollTop=top;}}});
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.graph = renderGraphView;

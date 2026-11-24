@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j3; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j4; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -753,3 +753,44 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   arranque no browser 5/5, auto-teste desktop idêntico ao da U4j2. O `arch.e2e.ts` falhou numa
   verificação intermédia; medido de novo, 10 corridas: HEAD 1 falha, com estas alterações 0
   (no total, 2/27 contra 3/26) — a instabilidade já reportada.
+- **U4j4a (2026-11-24) — comandos de terminal, blame, redesenhos, GAPS e AGENTS vão para os donos.**
+  O `XC.git` passa a ser o `gitCmd` registado pelo `termgit.ts`; o `docker compose up|down|ps`, o
+  `make run|stop` e o `dx run|stop` vão para a `infra.ts` (já dona dos comandos de contentores e a
+  primeira, depois do terminal, que os pode registar — o `stack.ts` avalia antes de o `XC`
+  existir); o `dx test|sprint` vai para o `board.ts`. Os dois chamam as versões PUBLICADAS
+  (`window.dxRun`/`dxStop` com a porta do stack; `window.runSprint`/`dropIssue` com as guardas),
+  como o app.ts fazia pelo global. A cadeia do `XC.dx` muda de ordem (antes run/stop → test/sprint
+  → deploy → base; agora test/sprint → run/stop → deploy → base), mas os subcomandos são
+  disjuntos entre si e da base (lint/status/modo/missao), por isso nenhum muda de resultado. O
+  `blame` e a decoração do `stLang` vão para o `editor.ts`: o `stLang` publicado é `stLang` +
+  `blame`, e as chamadas internas ao `stLang` local continuam sem ele, como antes. O subscritor do
+  `workspace:changed` que redesenhava o grafo/board e chamava o `blame` divide-se pelos donos
+  (board, graph, editor — por esta ordem de avaliação, o redesenho continua antes do `blame`; a
+  diferença é que, com o isolamento de erros do bus, um redesenho que lance já não impede o
+  `blame`). O `GAPS.push` vai para o `codev.ts`, logo a seguir ao `GAPS`, e o
+  `Object.assign(AGENTS.*)` para o `team.ts`, logo a seguir ao `AGENTS`. **Provas:** nenhum
+  módulo entre o novo dono e o app.ts lê estes nomes no eval (varredura pela AST). Globais
+  publicadas 389 → 388. **Correcção ao método de verificação:** o `ui:e2e` local reutiliza
+  qualquer servidor na porta 4179 (`reuseExistingServer` fora do CI), e outra sessão verifica
+  commits com um `vite preview` nessa porta — por isso, nas verificações desta sessão até à
+  U4j3, o arranque no browser pode ter testado a build dela; o auto-teste desktop, o tsc, os
+  testes e as comparações no browser com portas próprias são independentes disso. A partir
+  daqui o e2e corre com `CI=1` numa porta própria, e o auto-teste desktop da HEAD corre na
+  mesma verificação, como referência. Verificado na worktree limpa sobre a HEAD `b700732` (a
+  outra sessão commitou o arch F3 a meio, sem tocar nestes ficheiros): tsc, lint 266 (igual),
+  458 testes, arch:check, build, e2e 6/6 isolado, auto-teste desktop idêntico ao da HEAD.
+- **U4j4b (2026-11-24) — o estado do Co-Dev sai do `app.ts`.** O `PROV`, o `CHAT`, o `RUN`, o
+  `SAMPLE`, o `STOP`/`SAFE`/`DANGER`, o `provFor`/`who`, o `provState` com a porta desktop e o
+  `VIEW.settings` composto (página do codev + secção Language do i18n + porta desktop) vão para
+  o fim do `features/codev.ts`. **Porquê no fim:** o compositor do Co-Dev monta-se no eval do
+  codev.ts e lê os provedores tolerando-os por definir; criá-los no `agentStore` (que avalia
+  primeiro) mudaria essa montagem inicial. Depois do `mountComposer` a ordem é a mesma que com
+  o app.ts, e entre o codev e o app.ts ninguém lê estes nomes no eval (varredura pela AST, e o
+  `hydrateHarn` que o team.ts chama no eval não lhes toca). O `MODE`/`ACTIVE`/`THRESH`/`CTX_ON`
+  nascem no `agentStore` com os mesmos valores que o app.ts lhes voltava a atribuir, e ninguém
+  os escreve antes — as quatro atribuições saem sem efeito. Globais publicadas 388 → 383 (as
+  quatro, e o `SAMPLE = null` deixa de ser um `window.X =`). Verificado na worktree limpa sobre
+  a HEAD `0aa95b6`: tsc, lint 266 (igual), 458 testes (goldens do Co-Dev sem diff — a montagem
+  inicial do compositor ficou igual), arch:check, build, e2e 6/6 isolado, auto-teste desktop
+  idêntico ao da HEAD. O app.ts fica com o arranque (`boot`…`boot6`), os menus/paleta/atalhos,
+  o `refresh`, o `resetAll` e o `LCUR` — a U4j5.

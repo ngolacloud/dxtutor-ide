@@ -15,4 +15,7 @@ export interface TestsPort {
 /** A pasta aberta (null sem pasta, ou no browser). */
 export interface WorkspacePort {
   root(): string | null;
+  /** Grava o que o editor tem no disco e espera pela fila de escrita: o backend lê o disco, e
+   *  tem de testar o que o editor mostra (vindo da porta de testes do A0.5). */
+  save?(): Promise<void>;
 }

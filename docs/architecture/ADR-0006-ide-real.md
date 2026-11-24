@@ -551,3 +551,22 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   único, a primeira imagem local, um entrypoint que escreve linhas conhecidas) arranca com o ▶ RUN
   real, a vista lê `dxtutor-selftest up` dos logs e CPU/memória do `docker stats`
   (0.1 %, 1.08 MiB), e o ■ Stop deixa o runtime sem contentores do projecto; `errors: []`.
+- **Merge do develop (2026-11-24): U4j4a/b e a A0.5 de outra sessão.** Em vez de mais um rebase,
+  um merge: o develop trouxe trabalho que se sobrepõe a esta série (o pane Testing real, todas as
+  acções do Source Control pela porta do git real, os segredos dos ambientes fora do
+  localStorage), e resolver uma vez contra o estado final evita refazer a mesma escolha em 28
+  commits. **Testing:** fica a feature `features/testing` (R2a, governada por A7/A8); saem o
+  `features/test.ts` com a porta `desktopPorts.tests`, o `platform/desktop/tests.ts`, o
+  `platform/tauri/tests.ts` e o `test.desktop-port.test.ts` do develop. Do develop fica a ideia
+  que faltava: gravar o editor no disco (autosave + fila) antes de descobrir ou correr testes (a
+  porta `WorkspacePort.save`); o passo `testsPane` do selftest passa a usar o pane (com Refresh).
+  **SCM:** ficam os dois caminhos, compatíveis — o `gfStart` publicado com a porta desktop
+  (develop) e o motor a encadear checkout/merge pela porta `flow` (R1d). **Segredos:** a chave
+  `envx7` (R5c1) sem `st` nem `sec`; a `envx6` antiga é esvaziada (tinha segredos em texto simples
+  e estado inventado); o `infra.secrets.test.ts` passa à chave nova. **Equipa:** os limites de
+  ficheiros da camada v4 (Backend 8, Plataforma 12), que a R3c tinha tirado sem querer com os
+  caminhos de demonstração, voltam. O `blame` (agora no `editor.ts`) perde o fallback para o
+  commit semente `1a2b3c4` (R1d). **Reportado (não corrigido aqui):** a mensagem de erro do
+  visualizer ficou com um resto «…common methods.<code>rust_tracer</code>).» da edição do
+  develop (e45f18d). Selftest desktop completo (38 passos): `errors: []`. Métricas: globais
+  383 → 357.
