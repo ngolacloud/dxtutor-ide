@@ -21,6 +21,7 @@
    globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE), o
    painel de contentores de demonstração e dois listeners. */
 import { services } from "./app/services";
+import type { AppAct } from "./app/ide-globals";
 import { translator } from "./app/i18n";
 import { INFRA_DESKTOP_MESSAGES } from "./features/infra/ui/desktop-messages";
 
@@ -29,10 +30,7 @@ declare global {
     $: (s: string) => HTMLElement | null;
     $$: (s: string) => HTMLElement[];
     P: Record<string, string>;
-    ACTS: unknown[];
-    OVERFLOW: unknown[];
     MENUS: unknown[];
-    TREE: unknown;
     wireSections: (scope: ParentNode) => void;
   }
   var toTimer: ReturnType<typeof setTimeout> | undefined;
@@ -49,7 +47,7 @@ declare global {
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
    Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
    livre em modo estrito (módulo). ── */
-Object.assign(window, { toTimer: undefined, activeTab: null, CWD: ['~','dxtutor','workspace','projects'] });
+Object.assign(window, { toTimer: undefined, activeTab: null });
 
 window.$=s=>document.querySelector<HTMLElement>(s);window.$$=s=>[...document.querySelectorAll<HTMLElement>(s)];
 
@@ -125,7 +123,7 @@ window.toast = function(m){const t=$('#toast')!;t.textContent=m;t.classList.add(
 /* ═════════ ACTIVITY BAR ═════════ */
 // Activity bar NATIVA (VS Code core) + o Assistant próprio do dxtutor.
 // Ícones contribuídos por plugins NÃO entram aqui — vão para o overflow "…".
-window.ACTS=[
+export const ACTS: AppAct[]=[
   {ic:'explorer',pane:'explorer',title:'Explorer'},
   {ic:'search',pane:'search',title:'Search'},
   {ic:'scm',pane:'scm',title:'Source Control',badge:'3'},
@@ -138,7 +136,7 @@ window.ACTS=[
   {ic:'settings',pane:'settings',title:'Settings'},
 ];
 // Vistas de plugin (só aparecem se o plugin estiver instalado) — vivem no overflow.
-window.OVERFLOW=[
+export const OVERFLOW: { l?: string; pane?: string; sep?: number }[]=[
   {l:'Remote Explorer',pane:'remote'},{l:'Containers',pane:'containers'},{l:'GitLens'},{l:'Python'},{l:'Launchpad'},
   {sep:1},
   {l:'Colab'},{l:'Cloud Code'},{l:'Google Cloud Data Agent Kit'},{l:'Firebase SQL Connect'},{l:'Kubernetes'},{l:'Makefile'},{l:'Prisma'},{l:'Ansible'},{l:'SonarQube Setup'},{l:'Trunk'},
@@ -161,7 +159,8 @@ document.addEventListener('click',()=>services.menus!.closeMenus());
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
 /* a árvore nasce vazia: o syncTree (features/explorer.ts) preenche-a com a pasta aberta (ADR-0006, R1a) */
-window.TREE={projects:{dir:1,open:1,children:{}}};
+/* lidos por import (ADR-0004, U7j — eram window.ACTS/OVERFLOW/TREE) */
+export const TREE: { projects: { dir?: number; open?: number; children: Record<string, any> } }={projects:{dir:1,open:1,children:{}}};
 
 /* o editor de demonstração v1 (DOCS, renderTabs/renderDocs/renderMinimap, agentShell, welcome) saiu: as
    features tabs/editor/codev são as donas (ADR-0006, R1a). Fica o atalho de teclado dos controlos de execução. */

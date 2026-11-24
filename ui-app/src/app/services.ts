@@ -21,7 +21,7 @@ export interface Services {
   /** o harness do projecto (features/team.ts): o Co-Dev (o resíduo e a ponte) e as tarefas lêem-no (U7h) */
   team: Pick<typeof Team, "HARN" | "MORD" | "RIGHTS" | "RIGHT_RE" | "isHuman" | "harnessCheck" | "harnessCmd" | "agentSys">;
   /** a sentinela e as regras de comandos, o routing e as Definições (features/codev.ts): a ponte do Co-Dev e a conta (U7h) */
-  codev: Pick<typeof Codev, "STOP" | "SAFE" | "DANGER" | "provFor" | "who" | "openSettings">;
+  codev: Pick<typeof Codev, "STOP" | "SAFE" | "DANGER" | "provFor" | "who" | "openSettings" | "MODES" | "ROUTE">;
   /** as línguas da interface (features/i18n.ts), lidas pela secção Language das Definições (U7h) */
   i18n: Pick<typeof I18n, "LOCALES">;
   /** os caminhos do workspace (features/workspace.ts): a ponte do Co-Dev, a equipa e o Learning Track (U7h) */

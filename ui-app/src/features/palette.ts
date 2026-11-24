@@ -25,7 +25,8 @@ const txt = translator(PALETTE_MESSAGES);
 /* ───── estado (window-backed; o resíduo boot/keydown de app.ts lê por window.*) ───── */
 window.PAL = window.PAL ?? null;
 window.PIDX = window.PIDX ?? 0;
-window.PITEMS = window.PITEMS ?? [];
+/* os itens da paleta: com dono aqui; o arranque lê-os por import (ligação viva — U7j, era PITEMS) */
+export let PITEMS: any[] = [];
 window.PAL_TEXT = window.PAL_TEXT ?? (() => {});
 
 interface PalCfg { ph?: string; verb?: string; items?: { l: string }[]; text?: (q: string) => void }
@@ -33,14 +34,14 @@ function palette(pre: string, cfg?: PalCfg){services.menus!.closeMenus();window.
 export function closePal(){$('#pal')!.classList.remove('show');window.PAL=null;}
 function fuzzy(q: string,s: string){q=q.toLowerCase();s=s.toLowerCase();let i=0;for(const c of s){if(c===q[i])i++;if(i===q.length)return true;}return!q.length;}
 export function palDraw(){const q=($('#pal-in') as HTMLInputElement|null)?.value||'';
-  if(window.PAL){window.PITEMS=window.PAL.items?window.PAL.items.filter((i: {l: string})=>fuzzy(q,i.l)):[{l:`${window.PAL.verb||'Confirmar'}: ${q||'…'}`,run:()=>window.PAL_TEXT(q)}];}
-  else if(q.startsWith('>')){const f=q.slice(1).trim();window.PITEMS=CMD.filter(c=>fuzzy(f,c[0])).map(c=>({l:c[0],k:c[1],run:c[2]}));}
-  else if(q.startsWith(':')){const n=parseInt(q.slice(1))||1;window.PITEMS=[{l:'Ir para a linha '+n,run:()=>gotoLine(n)}];}
-  else window.PITEMS=Object.keys(FS).filter(p=>fuzzy(q,short(p))).sort((a,b)=>(a.split('/').pop()||'').localeCompare(b.split('/').pop()||'')).map(p=>({l:p.split('/').pop(),d:short(p),ic:fIcon(p),run:()=>openPath(p)}));
-  window.PIDX=Math.min(window.PIDX,Math.max(0,window.PITEMS.length-1));
-  $('#pal-list')!.innerHTML=window.PITEMS.length?window.PITEMS.map((it,i)=>`<div class="pi${i===window.PIDX?' on':''}" data-i="${i}">${it.ic||''}<span>${esc(it.l)}</span>${it.d?`<span class="d">${esc(it.d)}</span>`:''}${it.k?`<span class="key">${it.k}</span>`:''}</div>`).join(''):`<div class="pal-empty">${txt("noResults")}</div>`;
+  if(window.PAL){PITEMS=window.PAL.items?window.PAL.items.filter((i: {l: string})=>fuzzy(q,i.l)):[{l:`${window.PAL.verb||'Confirmar'}: ${q||'…'}`,run:()=>window.PAL_TEXT(q)}];}
+  else if(q.startsWith('>')){const f=q.slice(1).trim();PITEMS=CMD.filter(c=>fuzzy(f,c[0])).map(c=>({l:c[0],k:c[1],run:c[2]}));}
+  else if(q.startsWith(':')){const n=parseInt(q.slice(1))||1;PITEMS=[{l:'Ir para a linha '+n,run:()=>gotoLine(n)}];}
+  else PITEMS=Object.keys(FS).filter(p=>fuzzy(q,short(p))).sort((a,b)=>(a.split('/').pop()||'').localeCompare(b.split('/').pop()||'')).map(p=>({l:p.split('/').pop(),d:short(p),ic:fIcon(p),run:()=>openPath(p)}));
+  window.PIDX=Math.min(window.PIDX,Math.max(0,PITEMS.length-1));
+  $('#pal-list')!.innerHTML=PITEMS.length?PITEMS.map((it,i)=>`<div class="pi${i===window.PIDX?' on':''}" data-i="${i}">${it.ic||''}<span>${esc(it.l)}</span>${it.d?`<span class="d">${esc(it.d)}</span>`:''}${it.k?`<span class="key">${it.k}</span>`:''}</div>`).join(''):`<div class="pal-empty">${txt("noResults")}</div>`;
   const on=$('#pal-list .on');if(on&&on.scrollIntoView)on.scrollIntoView({block:'nearest'});}
-export function palRun(i: number){const it=window.PITEMS[i];if(!it)return;if(window.PAL&&window.PAL.text)window.PAL_TEXT=window.PAL.text;closePal();it.run();}
+export function palRun(i: number){const it=PITEMS[i];if(!it)return;if(window.PAL&&window.PAL.text)window.PAL_TEXT=window.PAL.text;closePal();it.run();}
 
 /* ── publicação no window ──
    palette/closePal/palDraw/palRun são chamados por nome livre de muitos pontos

@@ -8,7 +8,7 @@ import type { RunOpts } from "./context";
 import type { TerminalDesktop } from "../../features/terminal";
 import { desktopPorts } from "../../app/desktop";
 import type { DesktopContext } from "./context";
-import { scrollTerm } from "../../features/terminal";
+import { scrollTerm, cwd } from "../../features/terminal";
 
 export function installTerminal(ctx: DesktopContext): void {
 const { R, shell, fsx, sh, stream, escH, ansi } = ctx;
@@ -58,7 +58,7 @@ async function realTerm(raw: string): Promise<void> {
     const r = R.info.os === "windows" ? await sh("cmd", ["/C", `cd /d "${tp}" && cd`], { cwd: R.cwd }) : await sh("sh", ["-c", 'cd -- "$1" && pwd', "sh", tp], { cwd: R.cwd });
     if (r.code === 0) {
       R.cwd = r.stdout.trim();
-      CWD = [R.name!].concat(R.cwd.startsWith(R.root!) ? R.cwd.slice(R.root!.length).split(/[\\/]/).filter(Boolean) : [R.cwd]);
+      cwd.set([R.name!].concat(R.cwd.startsWith(R.root!) ? R.cwd.slice(R.root!.length).split(/[\\/]/).filter(Boolean) : [R.cwd]));
     } else termLine(r.stderr.trim(), true);
     newInput();
     return;
@@ -80,7 +80,7 @@ termExec(v, _termExec) {
 },
 promptHTML(_promptHTML) {
   if (!R.root) return _promptHTML();
-  return `<span class="pr"><span>${escH(R.user || "you")}</span><span class="at">@</span><span>${escH(R.host || "local")}</span><span class="at">:</span><span class="pth">${escH(CWD.join("/"))}</span>${R.git ? `<span class="br"> (${escH(BRANCH)})</span>` : ""}<span class="at">$</span></span> `;
+  return `<span class="pr"><span>${escH(R.user || "you")}</span><span class="at">@</span><span>${escH(R.host || "local")}</span><span class="at">:</span><span class="pth">${escH(cwd.get().join("/"))}</span>${R.git ? `<span class="br"> (${escH(BRANCH)})</span>` : ""}<span class="at">$</span></span> `;
 },
 };
 desktopPorts.terminal = terminalDesktop;

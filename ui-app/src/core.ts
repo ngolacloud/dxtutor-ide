@@ -171,12 +171,6 @@ declare global {
        Equipa/Backlog/Studio dobradas num só render). Missões, checkpoints, routing,
        papéis e o desenho (SD, window-backed) continuam donos do monólito. */
     MISSIONS: any[];
-    DECS: any[];
-    CKPT: any[];
-    ROUTE: Record<string, string>;
-    ROLE: Record<string, string>;
-    ROLE_D: Record<string, string>;
-    MODES: Record<string, { l: string; d: string }>;
     SD: any;
     renderCodevPane: () => void;
     renderSettingsPage: (t: unknown, host: HTMLElement) => void;
@@ -220,7 +214,6 @@ declare global {
        boot usa PIDX/PITEMS + palDraw/palRun, o keydown usa closePal. */
     PAL: any;
     PIDX: number;
-    PITEMS: any[];
     PAL_TEXT: (q: string) => void;
     palette: (pre?: string, cfg?: any) => void;
     closePal: () => void;

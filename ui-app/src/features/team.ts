@@ -39,6 +39,7 @@ import { services } from "../app/services";
 import { diffLines } from "./diff/domain/diff";
 import { TEAM_DESKTOP_MESSAGES } from "./team.desktop-messages";
 import { agentStore } from "../app/store";
+import { MODES, DECS } from "./codev";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const msg = translator(TEAM_MESSAGES);
 const mdk = translator(TEAM_DESKTOP_MESSAGES);

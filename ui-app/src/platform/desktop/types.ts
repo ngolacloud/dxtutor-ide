@@ -65,7 +65,6 @@ declare global {
   const GIT: GitState;
   const COMMITS: { h: string; m: string }[];
   const LS: { get: (k: string, d?: any) => any; set: (k: string, v: unknown) => void };
-  const TREE: { projects: { children: Record<string, unknown> } };
   const PROV: Record<string, Prov>;
   const ENVS: Envs;
   const RTN: Record<string, string>;

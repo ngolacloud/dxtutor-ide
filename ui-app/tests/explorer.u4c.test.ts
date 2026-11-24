@@ -11,11 +11,11 @@ beforeEach(async () => {
   WSM = await import("../src/features/workspace");
 });
 
-it("syncTree reconstrói a árvore a partir do FS: pastas primeiro, por nome", () => {
+it("syncTree reconstrói a árvore a partir do FS: pastas primeiro, por nome", async () => {
   w.FS["dxtutor/zz/novo.rs"] = { content: "", orig: null };
   w.FS["dxtutor/aa.md"] = { content: "", orig: null };
   w.syncTree();
-  const root = w.TREE.projects.children.dxtutor;
+  const root = (await import("../src/boot")).TREE.projects.children.dxtutor;
   const keys = Object.keys(root.children);
   const dirs = keys.filter((k) => root.children[k].dir);
   const files = keys.filter((k) => !root.children[k].dir);
@@ -39,10 +39,10 @@ it("sel deixa uma só linha seleccionada", () => {
   expect(document.getElementById("r1")!.classList.contains("sel")).toBe(true);
 });
 
-it("sem pasta aberta: a árvore fica vazia e o explorador mostra o estado vazio (sem pastas inventadas)", () => {
+it("sem pasta aberta: a árvore fica vazia e o explorador mostra o estado vazio (sem pastas inventadas)", async () => {
   WSM.resetWorkspace();
   w.syncTree();
-  expect(w.TREE.projects.children).toEqual({});
+  expect((await import("../src/boot")).TREE.projects.children).toEqual({});
   w.buildExplorer();
   const tree = document.querySelector("#exp-sections .tree")!;
   expect(tree.textContent).toContain("No folder open.");

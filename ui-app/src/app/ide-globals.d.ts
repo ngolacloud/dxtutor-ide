@@ -10,8 +10,6 @@ export interface AppMenu { t: string; items?: AppMenuItem[] }
 declare global {
   interface Window { claude?: { use: (k: string) => Promise<typeof SAMPLE> }; vsxCmds: () => void }
   const $$: (s: string) => HTMLElement[];
-  const ACTS: AppAct[];
-  const OVERFLOW: { l: string; pane?: string; sep?: number }[];
   const HT: Record<string, { n: string }>;
   const THEMES: Record<string, unknown>;
   var DRIFT: string | null;

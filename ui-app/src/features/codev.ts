@@ -65,17 +65,18 @@ import type { ChatMessage } from "../app/store/agent";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
 
-/* ───── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ───── */
-const ROLE: Record<string, string> = window.ROLE = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
-const ROLE_D: Record<string, string> = window.ROLE_D = { plan: 'requisitos, arquitectura, plano', code: 'escreve e edita código', review: 'testes, lint, auto-avaliação', judge: 'escolhe entre propostas', local: 'autocomplete e dados sensíveis' };
-const ROUTE: Record<string, string> = window.ROUTE = { plan: 'claude', code: 'codex', review: 'gemini', judge: 'claude', local: 'ollama' };
-const MODES: Record<string, { l: string; d: string }> = window.MODES = {
+/* ───── dados de config/estado do Co-Dev: exportados; o config e a ponte (avaliam antes) lêem-nos pelo registo (U7j) ───── */
+export const ROLE: Record<string, string> = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
+export const ROLE_D: Record<string, string> = { plan: 'requisitos, arquitectura, plano', code: 'escreve e edita código', review: 'testes, lint, auto-avaliação', judge: 'escolhe entre propostas', local: 'autocomplete e dados sensíveis' };
+export const ROUTE: Record<string, string> = { plan: 'claude', code: 'codex', review: 'gemini', judge: 'claude', local: 'ollama' };
+export const MODES: Record<string, { l: string; d: string }> = {
   manual: { l: 'Manual', d: 'Tu decides tudo: respostas, proposta, plano, cada edição e cada comando.' },
   assist: { l: 'Assistido', d: 'O Co-Dev decide o que é seguro e reversível; pergunta-te quando a confiança é baixa.' },
   auto: { l: 'Auto', d: 'Autónomo de ponta a ponta, com auto-avaliação e correcção. Só pára para push e acções destrutivas.' },
 };
-window.DECS = DECS_ARR;
-const CKPT: any[] = window.CKPT = [];
+/* as decisões e os checkpoints: lidos por import (ADR-0004, U7j — eram window.DECS/window.CKPT) */
+export const DECS = DECS_ARR;
+export const CKPT: any[] = [];
 
 /* ───── interface do agente ───── */
 function updateAgentUIBase(): void {
@@ -431,7 +432,7 @@ mountComposer(composerHost);
    fim); o agentStore adopta os objectos ao publicá-los. O MODE/ACTIVE/THRESH/CTX_ON nascem no agentStore
    com os mesmos valores que o app.ts lhes voltava a atribuir. Seguem o STOP/SAFE/DANGER, o provFor/who, o
    provState com a porta desktop e o VIEW.settings composto (página + secção Language do i18n + porta). */
-const CW = window as unknown as { ROUTE: Record<string, string>; ROLE: Record<string, string>; connected: () => string[]; LOCALE: string; SAMPLE: unknown };
+const CW = window as unknown as { connected: () => string[]; LOCALE: string; SAMPLE: unknown };
 const PROV: Record<string, { name: string; vendor: string; model: string; ep: string; on: boolean; local?: boolean; col: string }>={
   claude:{name:'Claude',vendor:'Anthropic',model:'claude-opus-5-5',ep:'https://api.anthropic.com',on:true,col:'var(--accent-hover)'},
   gemini:{name:'Gemini',vendor:'Google',model:'gemini-pro',ep:'https://generativelanguage.googleapis.com',on:true,col:'var(--blue)'},
@@ -446,13 +447,13 @@ Object.assign(window, { PROV });
 agentStore.chat = CHAT as ChatMessage[];
 agentStore.run = RUN;
 CW.SAMPLE = null;
-export const provFor=(r: string): string=>PROV[CW.ROUTE[r]].on?CW.ROUTE[r]:(CW.connected()[0]||CW.ROUTE[r]);
-export const who=(r: string): string=>`${CW.ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
+export const provFor=(r: string): string=>PROV[ROUTE[r]].on?ROUTE[r]:(CW.connected()[0]||ROUTE[r]);
+export const who=(r: string): string=>`${ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
 const provStateBase=(k: string): string=>k==='claude'?(CW.SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
 window.provState=(k: string): string=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
 const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${services.i18n!.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
 VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
 /* o que a ponte do Co-Dev e a conta lêem (ADR-0004, U7h): avaliam antes deste módulo, por isso usam o registo */
-services.codev = { STOP, SAFE, DANGER, provFor, who, openSettings };
+services.codev = { STOP, SAFE, DANGER, provFor, who, openSettings, MODES, ROUTE };
 /* a escolha da língua nas Definições chama o setLocale publicado, no acto (era `onclick` inline — ADR-0004, U5c) */
 registerActions({ "codev:setLocale": { click: (c) => void callGlobal("setLocale", c.on) } });

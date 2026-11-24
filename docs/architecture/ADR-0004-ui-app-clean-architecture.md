@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7i)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7j)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1142,3 +1142,13 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `bootApp`. Ficam como shims os sete que módulos de outras sessões ainda lêem ou escrevem: `PANE`, `LOCALE`, `cur`,
   `FS`, `ROOT` (várias pontes), `PROV` (o visualizer) e `ACTIVE` (a ponte do codereview escreve-o). Globais
   publicadas 221 → 216; shims de estado 17 → 7.
+- **U7j (2026-11-24) — o estado simples dos meus módulos deixa o window.** Dezanove nomes passam a ter dono por
+  módulo: os catálogos e o estado do Co-Dev (`ROLE`, `ROLE_D`, `ROUTE`, `MODES`, `DECS`, `CKPT`) são exportados pelo
+  `features/codev.ts` — o config e a ponte do Co-Dev, que avaliam antes, lêem `MODES`/`ROUTE` pelo registo; a barra de
+  actividades, o overflow e a árvore (`ACTS`, `OVERFLOW`, `TREE`) são exportados pelo `boot.ts` (que avalia primeiro);
+  a pasta actual do terminal (`CWD`) passa a `cwd` (um `ownedValue` do `features/terminal.ts`, que o PairCode e o
+  desktop mudam por `cwd.set`) e a máquina do prompt (`HOST`) a constante local; os itens da paleta (`PITEMS`), a
+  escolha do onboarding (`ONB`) e o separador/modo de ligar do Studio (`SCAT`/`SLINK`) são `export let` dos donos
+  (ligação viva para quem os importa). Saem as declarações globais. O teste de caracterização que exigia os
+  catálogos do Co-Dev no window passa a exigi-los exportados e fora do window. Ordem de avaliação igual, excepto o
+  registo (sem efeitos). Globais publicadas 216 → 197.

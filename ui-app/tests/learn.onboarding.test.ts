@@ -43,7 +43,7 @@ describe("selector de linguagens", () => {
   it("clicar num cartão disponível (data-action) passa ao passo do nível", () => {
     LM.ltOnboard(1);
     document.querySelector<HTMLButtonElement>('#onb [data-action="lt-pick"][data-on="go"]')!.click();
-    expect(w.ONB.lang).toBe("go");
+    expect(LM.ONB.lang).toBe("go");
     expect(document.querySelector("#onb h2")!.textContent).toBe("What's your level?");
   });
 });

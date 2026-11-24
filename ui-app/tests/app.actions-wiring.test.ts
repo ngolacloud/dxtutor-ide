@@ -51,12 +51,13 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     expect(document.querySelector('#pane-tasks [data-action="tasks:sprint"][data-on="0"]')!.classList.contains("on")).toBe(true);
   });
 
-  it("studio: o separador do catálogo escreve SCAT e o «Connect» alterna SLINK", () => {
+  it("studio: o separador do catálogo escreve SCAT e o «Connect» alterna SLINK", async () => {
     const h = host(); w.VIEW.studio({ id: "studio", kind: "studio" }, h);
     click(h.querySelector('[data-action="studio:cat"][data-on="gcp"]'));
-    expect(w.SCAT).toBe("gcp");
+    const SM = await import("../src/features/studio");
+    expect(SM.SCAT).toBe("gcp");
     click(h.querySelector('[data-action="studio:link"]'));
-    expect(w.SLINK).toBe("");
+    expect(SM.SLINK).toBe("");
   });
 
   it("os payloads de várias partes chegam com os mesmos tipos (caminho + linha numérica)", () => {
@@ -86,12 +87,13 @@ describe("cablagem das acções partilhadas (U5b)", () => {
   /* ext: a lista e o detalhe usam o despachante da própria feature desde o ADR-0006 (R6b: ext-open,
      ext-install, ext-toggle, builtin-toggle…), cujos cliques o ext.golden.test.ts prova. */
 
-  it("learn (U5c): o nível alterna no ONB.levels do window e volta ao passo 2", () => {
-    w.ONB = { lang: "rust", levels: ["beginner"] };
+  it("learn (U5c): o nível alterna no ONB.levels do window e volta ao passo 2", async () => {
+    const LMod = await import("../src/features/learn");
+    Object.assign(LMod.ONB, { lang: "rust", levels: ["beginner"] });
     document.body.insertAdjacentHTML("beforeend", `<button id="lv" data-action="learn:level" data-on="advanced"></button><button id="lv2" data-action="learn:level" data-on="beginner"></button>`);
     click(document.getElementById("lv"));
     click(document.getElementById("lv2"));
-    expect(w.ONB.levels).toEqual(["advanced"]);
+    expect(LMod.ONB.levels).toEqual(["advanced"]);
     // volta ao passo 2 do onboarding (o dos níveis) — desde a U7g o learn chama o seu ltOnboard directamente
     expect(document.querySelectorAll('#onb [data-action="learn:level"]').length).toBeGreaterThan(0);
   });

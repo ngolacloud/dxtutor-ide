@@ -158,14 +158,16 @@ describe("4. janela de histórico do live chat (últimas 9, sem líder não-user
   });
 });
 
-describe("5. ordem/altura de publicação dos globais do motor Co-Dev no window", () => {
-  it("ROLE/ROUTE/MODES/DECS/CKPT já existem logo após a avaliação do módulo", () => {
-    for (const k of ["ROLE", "ROUTE", "MODES", "DECS", "CKPT"]) {
-      expect(w[k], `window.${k}`).toBeDefined();
+describe("5. ordem/altura de publicação dos dados do motor Co-Dev", () => {
+  it("ROLE/ROUTE/MODES/DECS/CKPT existem logo após a avaliação do módulo, exportados e já sem o window (U7j)", async () => {
+    const CM = await import("../src/features/codev");
+    for (const k of ["ROLE", "ROUTE", "MODES", "DECS", "CKPT"] as const) {
+      expect(CM[k], k).toBeDefined();
+      expect(w[k], `window.${k}`).toBeUndefined();
     }
-    expect(Array.isArray(w.DECS)).toBe(true);
-    expect(Array.isArray(w.CKPT)).toBe(true);
-    expect(w.DECS.length).toBe(0);
+    expect(Array.isArray(CM.DECS)).toBe(true);
+    expect(Array.isArray(CM.CKPT)).toBe(true);
+    expect(CM.DECS.length).toBe(0);
     // sem missões guionadas (ADR-0006, R1b): o motor e os cenários deixaram de existir
     for (const k of ["runMission", "demo", "CRIT", "MISSIONS", "GAPS", "council", "execSteps"]) {
       expect(w[k], `window.${k}`).toBeUndefined();

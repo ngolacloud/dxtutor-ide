@@ -21,7 +21,7 @@ import { registerActions } from "./app/actions";
 import { tabMarks } from "./app/tab-marks";
 import { editorStore } from "./app/store/editor";
 import { drawTabs, closeTab } from "./features/tabs";
-import { scrollTerm } from "./features/terminal";
+import { scrollTerm, cwd } from "./features/terminal";
 import { pairState } from "./app/pair-state";
 import { workspaceStore } from "./app/store";
 
@@ -115,7 +115,6 @@ interface PairState {
 declare global {
   // Globais lexicais (let/const top-level em boot.js/app.js): visíveis por nome, não no window.
   let BRANCH: string;
-  let CWD: string[];
   const cur: string | null;
   const FS: Record<string, FsEntry>;
   const ROOT: string;
@@ -139,11 +138,7 @@ declare global {
   const drawTimeline: () => void;
   const palette: (pre?: string, cfg?: any) => void;
   const USER: string;
-  const HOST: string;
-  const MODES: Record<string, { l: string }>;
   const MISSIONS: any[];
-  const DECS: any[];
-  const CKPT: any[];
   // `ask` (dono = features/codev.ts): porta de aprovação humana — lido por nome livre
   // pela feature `checkpoint` (gfAsk) e por v5.ts/board.ts. `v`/`pri` são polimórficos
   // (número 0/1 ou o próprio candidato escolhido), por isso ficam `any`.
@@ -169,8 +164,6 @@ declare global {
   // o resíduo/onclicks inline e generators.ts escrevem/lêem por global.
   var SD: { nodes: Array<{ id: string; tech: string; n: string; x: number; y: number; st: string }>; edges: string[][] };
   var SSEL: string | null;
-  var SLINK: string | null;
-  var SCAT: string;
   var drawStudio: () => void;
   // Globais lidos pela feature Learning Track (learn.ts). mdFull/paintEd/miniOff/stPos/
   // user/liveChat/agentPill/focusAgent/RP/LF/PANE vivem em app.ts (@ts-nocheck) e são
@@ -184,7 +177,6 @@ declare global {
   const focusAgent: (x?: boolean) => void;
   const RP: Record<string, () => void>;
   var PANE: string;
-  var ONB: { lang: string | null; levels: string[] };
   var LT_HOOD: boolean;
   const has: (p: string, re: RegExp) => boolean;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.
@@ -456,7 +448,7 @@ function sendSnapshot(): void {
 function enterRemote(m: Msg): void {
   if (!P.backup) {
     try { R.flush && R.flush(); } catch { /* */ }
-    P.backup = { fs: Object.assign({}, FS), root: R.root, name: R.name, git: R.git, branch: BRANCH, cwd: CWD.slice() };
+    P.backup = { fs: Object.assign({}, FS), root: R.root, name: R.name, git: R.git, branch: BRANCH, cwd: cwd.get().slice() };
   }
   R.root = null; R.git = false; R.remote = true; R.name = m.name;
   try { openTabs().filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* */ }
@@ -465,7 +457,7 @@ function enterRemote(m: Msg): void {
   P.sent = Object.assign({}, m.files);
   BRANCH = m.branch || "remote";
   try { $("#st-branch-l")!.textContent = BRANCH; } catch { /* */ }
-  CWD = [m.name]; workspaceStore.openDirs.clear(); workspaceStore.openDirs.add("dxtutor"); P.driver = m.driver || "host";
+  cwd.set([m.name]); workspaceStore.openDirs.clear(); workspaceStore.openDirs.add("dxtutor"); P.driver = m.driver || "host";
   document.title = `${m.name} (PairCode with ${P.peerName}) — dxtutor IDE`;
   const t = $("#term");
   if (t) {
@@ -485,7 +477,7 @@ function leaveRemote(): void {
   try { openTabs().filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* */ }
   Object.keys(FS).forEach(k => delete FS[k]);
   Object.assign(FS, b.fs);
-  R.root = b.root; R.name = b.name; R.git = b.git; BRANCH = b.branch; CWD = b.cwd;
+  R.root = b.root; R.name = b.name; R.git = b.git; BRANCH = b.branch; cwd.set(b.cwd);
   try { $("#st-branch-l")!.textContent = BRANCH; } catch { /* */ }
   document.title = (R.name ? R.name + " — " : "") + "dxtutor IDE";
   refresh(false, true);
@@ -675,7 +667,7 @@ function mirrorLine(m: Msg): void {
 const _promptHTML = promptHTML;
 promptHTML = function () {
   if (!R.remote) return _promptHTML();
-  return `<span class="pr"><span>${escH(P.peerName || "host")}</span><span class="at">:</span><span class="pth">${escH(CWD.join("/"))}</span><span class="br"> (${escH(BRANCH)})</span><span class="at">$</span></span> `;
+  return `<span class="pr"><span>${escH(P.peerName || "host")}</span><span class="at">:</span><span class="pth">${escH(cwd.get().join("/"))}</span><span class="br"> (${escH(BRANCH)})</span><span class="at">$</span></span> `;
 };
 const _run = window.run;
 window.run = function (raw?: string) {

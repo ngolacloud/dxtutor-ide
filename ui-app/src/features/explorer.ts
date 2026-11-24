@@ -28,6 +28,7 @@ import { EXPLORER_MESSAGES } from "./explorer.messages";
 import { EXPLORER_DESKTOP_MESSAGES } from "./explorer.desktop-messages";
 import { SECOPEN, norm } from "./workspace";
 import { workspaceStore } from "../app/store";
+import { TREE } from "../boot";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(EXPLORER_MESSAGES);
 const txd = translator(EXPLORER_DESKTOP_MESSAGES);

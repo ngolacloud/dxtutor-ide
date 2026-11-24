@@ -16,6 +16,8 @@ import type { DesktopContext } from "./context";
 import { changedFromDisk, withDiskEol } from "./eol";
 import { closeTab } from "../../features/tabs";
 import { workspaceStore } from "../../app/store";
+import { TREE } from "../../boot";
+import { cwd } from "../../features/terminal";
 
 export function installWorkspace(ctx: DesktopContext): void {
 const { R, fsx, git, enqueue, escH, isReal, relOf, say } = ctx;
@@ -31,7 +33,7 @@ async function openFolder(path?: string): Promise<boolean> {
   L.files.forEach(f => { FS[ROOT + f.path] = { content: f.content, orig: f.content }; R.disk[f.path] = f.content; });
   /* fecha os separadores da pasta anterior (o antigo global TABS estava sempre vazio: não fechava nada) */
   try { editorStore.tabs.filter(t => t.kind === "file" || t.path).map(t => t.id).forEach(id => closeTab(id)); } catch { /* sem tabs */ }
-  STAGED.clear(); workspaceStore.openDirs.clear(); workspaceStore.openDirs.add("dxtutor"); CWD = [R.name!];
+  STAGED.clear(); workspaceStore.openDirs.clear(); workspaceStore.openDirs.add("dxtutor"); cwd.set([R.name!]);
   R.git = (await git("rev-parse", "--is-inside-work-tree")).code === 0;
   if (R.git) { R.prefix = (await git("rev-parse", "--show-prefix")).stdout.trim(); await markChanged(); await syncGit(); }
   else { Object.assign(GIT, { c: {}, order: [], refs: {}, trees: {}, base: {}, tags: {} }); COMMITS.length = 0; BRANCH = "no git"; }

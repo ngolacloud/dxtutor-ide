@@ -13,7 +13,7 @@ import { openHoodReal, openTrace } from "../features/hood/index";
 import { openOps } from "../features/ops/index";
 import { openDeps, openOnboarding } from "../features/codebase/index";
 import { dbgAttach } from "../features/debug";
-import { openAnalysis, openSettings } from "../features/codev";
+import { openAnalysis, openSettings, MODES, CKPT } from "../features/codev";
 import { edCmd } from "../features/editor";
 import { stepTab, closeTab } from "../features/tabs";
 import { restoreCkpt } from "../features/checkpoint";
