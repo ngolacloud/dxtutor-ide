@@ -320,6 +320,24 @@ cpp, sql.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`. Guia de autoria: `docs/plugins/README.md`.
 
+## Extensões VS Code — contribuições declarativas (ADR-0004, Fase 4)
+
+Não há extension host: o JavaScript de uma extensão nunca corre. O que um VSIX contribui de
+forma declarativa é aplicado por código tipado em `features/ext/`, governado por A7/A8.
+
+- **`domain/`:** `jsonc.ts`, `theme.ts` (tema → CSS confinado a `.ed`), `snippets.ts`,
+  `textmate.ts` (tokenizador TextMate «lite», sem Oniguruma: traduz as regex para JS e
+  ignora as que não compilam) e `contributions.ts` (ficheiros a ler, linguagens, toggle de
+  comentário, `KNOWN_LANGUAGE_SERVERS`).
+- **`application/contributions-engine.ts`:** lê o VSIX, guarda (LS `vsx-contrib`) e serve ao
+  editor. O resíduo `ext.ts` publica `vsxHighlight` (usado pelo `paintEd`), `vsxSnippet`
+  (Tab), `vsxToggleComment` (Ctrl+/), `vsxApplyTheme` e `vsxInstallOpenVsx`.
+- **Backend:** `vsix_fetch_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
+  em `lsp.rs`.
+- **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
+  `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
+  goldens do catálogo ficam intactos.
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,

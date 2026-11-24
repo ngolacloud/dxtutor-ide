@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (153 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (154 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 153 comandos, **52 são consumidos pela `ui-app`** e **101 não o são**: a UI
+Dos 154 comandos, **53 são consumidos pela `ui-app`** e **101 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -106,6 +106,7 @@ Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 | `llm_chat` | `req: llm::ChatReq`, `mode: Option<String>` | `llm::ChatResp` | String | — | `bridge.ts` | **N** · K · S |
 | `llm_plan` | `req: llm::ChatReq`, `mode: Option<String>` | `serde_json::Value` | — | — | — | N · K |
 | `vsix_manifest` | `b64: String` | `serde_json::Value` | String | — | — | R |
+| `vsix_fetch_open_vsx` | `id: String` (`publisher.name`) | `String` (VSIX em base64) | String | — | `platform/tauri/extensions.ts` | **N** (só open-vsx.org; valida que é um VSIX; ≤ 100 MiB) · async |
 | `app_info` | — | `serde_json::Value` | — | — | `bridge.ts` | R · S |
 | `selftest_report` | `report: serde_json::Value` | `()` | — | — | `bridge.ts`, `pair.ts` | W · S |
 
@@ -484,9 +485,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **153** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 14 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **52** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6) |
+| Comandos registados | **154** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
+| Consumidos pela `ui-app` | **53** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1) |
 | Não consumidos pela `ui-app` | **101** |
 | Eventos distintos | **12** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

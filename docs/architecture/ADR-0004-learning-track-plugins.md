@@ -1,6 +1,6 @@
 # ADR-0004 — Learning Track em plugins de curso (10 linguagens, texto de conceitos, VS Code)
 
-- **Estado:** aceite; Fases 1, 2 e 3 implementadas (branch `feat/learning-plugins`); Fase 4 em curso
+- **Estado:** aceite; Fases 1–4 implementadas (branch `feat/learning-plugins`)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0002` (Clean Architecture das features), `IPC-MATRIX.md` §10d,
@@ -203,11 +203,41 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
      até a linha ser guardada com `[ -n "$BASH_VERSION" ] && …`.
    - **Melhoria futura:** o manifesto do plugin de curso poder trazer o seu próprio descritor de
      avaliador (hoje um descritor da comunidade vai para `~/.config/dxtutor/plugins/`).
-4. **Extensões VS Code.** Contribuições declarativas: temas → tokens CSS, gramáticas TextMate
-   (`vscode-textmate` + `vscode-oniguruma`), snippets, language-configuration. Mais as
-   extensões que só arrancam um servidor LSP: uma tabela de servidores conhecidos ligada ao
-   `lsp.rs`, porque o arranque do LSP numa extensão VS Code é código JS, não manifesto. Fica
-   fora um extension host Node completo.
+4. **Extensões VS Code.** Feito. Fica de fora um extension host Node completo: o JavaScript das
+   extensões não corre, e a página de detalhe di-lo com clareza.
+   - **Contribuições declarativas** (`features/ext/domain/` + `application/contributions-engine.ts`,
+     tipado, governado por A7/A8):
+     - **JSONC:** comentários e vírgulas finais, nos ficheiros das extensões.
+     - **Temas:** `colors` e `tokenColors` passam a CSS confinado ao editor (`.ed`), com a
+       regra de prefixo mais específica do VS Code. Os selectores descendentes ou com
+       exclusões ficam de fora, porque só valem num contexto (regressão do Dracula). Também
+       segue o `include` entre ficheiros. Só aceita cores `#hex`, e o tema escolhe-se na
+       paleta (`Color Theme: …`).
+     - **Gramáticas TextMate «lite»:** não usam `vscode-textmate` nem Oniguruma (seria uma
+       dependência wasm). Um tokenizador próprio traduz regex Oniguruma para JavaScript,
+       com `match`, `begin`/`end` com estado entre linhas e retro-referências, capturas
+       (incluindo capturas com `patterns`), `#repository` e `$self`. Os padrões que não
+       compilam são ignorados. Medido com gramáticas reais: 90–100% dos padrões compilam
+       (falham as classes aninhadas do Oniguruma), em cerca de 2 ms por documento.
+     - **Snippets:** tabstops, padrões aninhados, escolhas, `$0`, variáveis `TM_*` e
+       `CURRENT_*`, escapes e indentação. Expandem com o Tab no editor.
+     - **language-configuration:** o `lineComment` do Ctrl+/, com marcadores por omissão
+       quando nenhuma extensão o declara.
+     - O `loadVsix` lê estes ficheiros, guarda-os em LS e mostra na página de detalhe o que a
+       extensão aplica e os avisos (gramática plist, ficheiro em falta).
+   - **LSP:**
+     - Tabela `KNOWN_LANGUAGE_SERVERS` (id da extensão → servidor).
+     - O `lsp.rs` ganhou `clangd`, `sourcekit-lsp` (vem na toolchain do swiftly), `csharp-ls`,
+       `jdtls`, `kotlin-language-server` e `sqls`, cada um resolvido no PATH ou em pastas
+       conhecidas, com um erro legível se faltar.
+   - **Open VSX:**
+     - `vsix_fetch_open_vsx` (bridge.rs, 153→154) descarrega o VSIX mais recente de
+       `publisher.name`. Só fala com open-vsx.org, valida o ficheiro e limita-o a 100 MiB.
+     - No desktop, o painel de extensões ganha «Install from Open VSX». Testado ao vivo com
+       `editorconfig.editorconfig` (teste `#[ignore]`).
+   - **Verificação com extensões reais** do Open VSX: tema Dracula (cores certas para fundo,
+     keywords, strings, números, funções e tipos) e Even Better TOML (comentários, strings
+     multi-linha, números, booleanos, chaves e tabelas).
 
 ## Consequências
 

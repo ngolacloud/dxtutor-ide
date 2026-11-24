@@ -104,4 +104,7 @@ export interface ExtDeps {
   vsix: Vsix;
   notifier: Notifier;
   rerender: Rerender;
+  /** Contribuições declarativas (temas, gramáticas, snippets…) — Fase 4. Opcional: sem
+   *  ela o VSIX instala-se só com o manifesto, como antes. */
+  contrib?: import("./contributions-engine").ContribEngine;
 }

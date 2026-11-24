@@ -107,7 +107,106 @@ const LANGS: &[Lang] = &[
         // tokens) and answers immediately. Empty signal ⇒ ready as soon as `initialized`.
         ready_signal: "",
     },
+    // ── ADR-0004, Fase 4: as linguagens novas do Learning Track. Os servidores arrancam quando
+    // estão instalados; até haver medição, ficam prontos logo após `initialized`. ──
+    Lang {
+        id: "cpp",
+        exts: &["cpp", "cc", "cxx", "hpp", "hh", "hxx", "c", "h"],
+        markers: &[
+            "compile_commands.json",
+            "CMakeLists.txt",
+            ".clangd",
+            "Makefile",
+        ],
+        server_label: "clangd",
+        ready_signal: "",
+    },
+    Lang {
+        id: "swift",
+        exts: &["swift"],
+        markers: &["Package.swift"],
+        server_label: "sourcekit-lsp",
+        ready_signal: "",
+    },
+    Lang {
+        id: "csharp",
+        exts: &["cs"],
+        markers: &["global.json", "Directory.Build.props"],
+        server_label: "csharp-ls",
+        ready_signal: "",
+    },
+    Lang {
+        id: "java",
+        exts: &["java"],
+        markers: &["pom.xml", "build.gradle"],
+        server_label: "jdtls",
+        ready_signal: "",
+    },
+    Lang {
+        id: "kotlin",
+        exts: &["kt", "kts"],
+        markers: &["settings.gradle.kts", "build.gradle.kts"],
+        server_label: "kotlin-language-server",
+        ready_signal: "",
+    },
+    Lang {
+        id: "sql",
+        exts: &["sql"],
+        markers: &[],
+        server_label: "sqls",
+        ready_signal: "",
+    },
 ];
+
+/// Resolve um servidor nativo: primeiro o PATH (aumentado), depois pastas conhecidas —
+/// `~/` é a pasta do utilizador e um segmento `*` escolhe a versão mais recente (ex.: a
+/// toolchain do swiftly, que traz o `sourcekit-lsp`). Erro legível se não estiver instalado.
+fn native_server(name: &str, hints: &[&str]) -> Result<String, String> {
+    for dir in std::env::split_paths(&augmented_path()) {
+        let p = dir.join(name);
+        if p.is_file() {
+            return Ok(p.to_string_lossy().into_owned());
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    for hint in hints {
+        let expanded = match hint.strip_prefix("~/") {
+            Some(rest) => format!("{home}/{rest}"),
+            None => hint.to_string(),
+        };
+        if let Some(dir) = newest_glob(&expanded) {
+            let p = dir.join(name);
+            if p.is_file() {
+                return Ok(p.to_string_lossy().into_owned());
+            }
+        }
+    }
+    Err(format!(
+        "servidor de linguagem `{name}` não encontrado — instala-o e põe-no no PATH"
+    ))
+}
+
+/// Expande um único segmento `*` para a entrada com a versão mais alta (`6.4.3` > `6.10.0`
+/// comparado numericamente, segmento a segmento).
+fn newest_glob(path: &str) -> Option<std::path::PathBuf> {
+    let Some((before, after)) = path.split_once('*') else {
+        return Some(std::path::PathBuf::from(path));
+    };
+    let key = |s: &str| -> Vec<u64> {
+        s.split(|c: char| !c.is_ascii_digit())
+            .filter_map(|p| p.parse().ok())
+            .collect()
+    };
+    let mut names: Vec<String> = std::fs::read_dir(before)
+        .ok()?
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort_by_key(|n| key(n));
+    let newest = names.pop()?;
+    Some(std::path::PathBuf::from(format!("{before}{newest}{after}")))
+}
 
 fn lang_for_path(path: &str) -> Option<&'static Lang> {
     let ext = std::path::Path::new(path).extension()?.to_str()?;
@@ -256,6 +355,25 @@ fn server_cmd(lang_id: &str) -> Result<(String, Vec<String>), String> {
             vec!["--stdio".into()],
         )),
         "python" => Ok((node_server("pyright-langserver")?, vec!["--stdio".into()])),
+        "cpp" => Ok((native_server("clangd", &[])?, vec![])),
+        "swift" => Ok((
+            native_server(
+                "sourcekit-lsp",
+                &[
+                    "~/.local/share/swiftly/toolchains/*/usr/bin",
+                    "/usr/share/swift/usr/bin",
+                    "/opt/swift/usr/bin",
+                ],
+            )?,
+            vec![],
+        )),
+        "csharp" => Ok((native_server("csharp-ls", &["~/.dotnet/tools"])?, vec![])),
+        "java" => Ok((
+            native_server("jdtls", &["~/.local/share/jdtls/bin"])?,
+            vec![],
+        )),
+        "kotlin" => Ok((native_server("kotlin-language-server", &[])?, vec![])),
+        "sql" => Ok((native_server("sqls", &["~/go/bin"])?, vec![])),
         other => Err(format!("linguagem sem servidor LSP: {other}")),
     }
 }
@@ -935,5 +1053,46 @@ mod diag_tests {
             ]
         );
         assert!(format_diagnostics(root, Some(std::path::Path::new("/p/src/z.rs")), &c).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod phase4_lang_tests {
+    use super::*;
+
+    #[test]
+    fn the_new_learning_track_languages_map_to_their_servers() {
+        for (path, id, label) in [
+            ("src/main.cpp", "cpp", "clangd"),
+            ("lib/util.h", "cpp", "clangd"),
+            ("Sources/App/main.swift", "swift", "sourcekit-lsp"),
+            ("Program.cs", "csharp", "csharp-ls"),
+            ("src/Main.java", "java", "jdtls"),
+            ("App.kt", "kotlin", "kotlin-language-server"),
+            ("schema.sql", "sql", "sqls"),
+        ] {
+            let lang = lang_for_path(path).unwrap_or_else(|| panic!("{path}"));
+            assert_eq!((lang.id, lang.server_label), (id, label), "{path}");
+        }
+        assert!(lang_for_path("notes.txt").is_none());
+    }
+
+    #[test]
+    fn newest_glob_picks_the_highest_version_numerically() {
+        let dir = tempfile::tempdir().unwrap();
+        for v in ["6.4.3", "6.10.0", "5.9.2"] {
+            std::fs::create_dir_all(dir.path().join(v).join("usr/bin")).unwrap();
+        }
+        let got = newest_glob(&format!("{}/*/usr/bin", dir.path().display())).unwrap();
+        assert!(got.ends_with("6.10.0/usr/bin"), "{got:?}");
+        assert!(newest_glob("/no/such/dir/*/bin").is_none());
+    }
+
+    #[test]
+    fn a_missing_server_is_a_readable_error_and_a_known_one_resolves() {
+        let err = native_server("dxtutor-no-such-language-server", &[]).unwrap_err();
+        assert!(err.contains("não encontrado"), "{err}");
+        // A shell existe em qualquer máquina: prova o caminho do PATH.
+        assert!(native_server("sh", &[]).is_ok());
     }
 }

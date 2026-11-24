@@ -163,6 +163,16 @@ pub fn vsix_manifest(b64: String) -> Result<serde_json::Value, String> {
     vsix::manifest_b64(&b64)
 }
 
+/// Descarrega do Open VSX o VSIX mais recente de `id` (`publisher.name`) e devolve-o em
+/// base64, para a UI o instalar pelo mesmo caminho de um VSIX escolhido no disco (ADR-0004,
+/// Fase 4). Só fala com open-vsx.org; valida que o ficheiro é mesmo um VSIX.
+#[tauri::command]
+pub async fn vsix_fetch_open_vsx(id: String) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = vsix::fetch_open_vsx(id.trim()).await?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 #[tauri::command]
 pub fn app_info(app: AppHandle) -> serde_json::Value {
     serde_json::json!({

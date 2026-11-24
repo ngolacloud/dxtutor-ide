@@ -28,13 +28,20 @@ import { $, toast } from "../core";
 function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];host.innerHTML=`<div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div>`;
   const ta=$('#ed-ta') as (HTMLTextAreaElement & { _t?: any })|null;if(!ta)return;ta.value=f.content;paintEd(t.path);
   ta.oninput=()=>{f.content=ta.value;paintEd(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
-  ta.onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();if(!document.execCommand('insertText',false,'    '))ta.setRangeText('    ',ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};
+  ta.onkeydown=e=>{
+    /* Fase 4: snippets e toggle de comentário das extensões VS Code instaladas (feature `ext`). */
+    if(e.key==='Tab'&&!e.shiftKey&&window.vsxSnippet&&window.vsxSnippet(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
+    if((e.ctrlKey||e.metaKey)&&e.key==='/'&&window.vsxToggleComment&&window.vsxToggleComment(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
+    if(e.key==='Tab'){e.preventDefault();if(!document.execCommand('insertText',false,'    '))ta.setRangeText('    ',ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};
   ta.onkeyup=ta.onclick=ta.onfocus=()=>stPos();}
 
 /* ───── pintor do editor (gutter + realce + minimapa a partir dos diagnósticos) ───── */
 function paintEd(p:string){const f=FS[p],lines=f.content.split('\n'),dg:Record<number,string>={},ext=extOf(p);diagnostics().forEach(d=>{if(d.p===p&&dg[d.line]!=='e')dg[d.line]=d.sev;});
   $('#ed-gut')!.innerHTML=lines.map((_,i)=>`<div${dg[i+1]?` class="g-${dg[i+1]}"`:''}>${i+1}</div>`).join('');
-  $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}">${hlLine(l,ext)||' '}</div>`).join('');
+  /* Fase 4: se uma extensão VS Code instalada traz a gramática TextMate da linguagem, o
+     realce é do documento inteiro (com estado entre linhas); senão, o realce de sempre. */
+  const tm=window.vsxHighlight?window.vsxHighlight(ext,lines):null;
+  $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}">${(tm?tm[i]:hlLine(l,ext))||' '}</div>`).join('');
   const mm=$('#minimap')!;mm.classList.remove('hidden');$('#ebody')!.classList.add('with-mm');
   mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');}
 
