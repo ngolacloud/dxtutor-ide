@@ -615,9 +615,14 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     const server = lang === "java" ? "jdtls" : "kotlin-language-server";
     const where = lang === "java" ? 'command -v jdtls || { test -x "$HOME/.local/share/jdtls/bin/jdtls" && echo "$HOME/.local/share/jdtls/bin/jdtls"; }' : "command -v kotlin-language-server";
     const found = (await sh("sh", ["-c", where], { cwd: R.info.home })).stdout.trim();
-    if (!found) return { skipped: `${server} não encontrado no PATH${lang === "java" ? " nem em $HOME/.local/share/jdtls/bin" : ""} — com um HOME temporário, põe a pasta dele no PATH` };
     for (const [rel, text] of Object.entries(files)) writeFile(ROOT + rel, text);
     flushSave(); await idle();
+    if (!found) {
+      /* sem servidor: o editor tem de o dizer (o aviso no topo da vista do ficheiro) */
+      W.openPath(main);
+      const notice = await until(() => document.getElementById("lsp-missing")?.textContent, 15_000);
+      return { skipped: `${server} não encontrado no PATH${lang === "java" ? " nem em $HOME/.local/share/jdtls/bin" : ""} — com um HOME temporário, põe a pasta dele no PATH`, editorNotice: notice ? notice.replace(/\s+/g, " ").slice(0, 160) : null };
+    }
 
     const t0 = Date.now();
     W.openPath(main);

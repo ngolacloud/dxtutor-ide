@@ -91,3 +91,18 @@ describe("chave do editor ↔ caminho no disco", () => {
     expect(absoluteToKey("/home/u/project/A.java", "proj/", "/home/u/proj")).toBeNull();
   });
 });
+
+import { missingServerNotice, languageName } from "../src/features/lsp/domain/server-status";
+
+describe("aviso de servidor em falta", () => {
+  it("diz a linguagem, o servidor e como o instalar; instalado ou sem servidor não avisa", () => {
+    const n = missingServerNotice({ language: "java", server: "jdtls", installed: false, problem: "x" })!;
+    expect(n.title).toBe("No Java language server");
+    expect(n.detail).toMatch(/jdtls/);
+    expect(n.install).toMatch(/~\/\.local\/share\/jdtls\/bin/);
+    expect(missingServerNotice({ language: "rust", server: "rust-analyzer", installed: false })!.install).toBe("rustup component add rust-analyzer");
+    expect(missingServerNotice({ language: "java", server: "jdtls", installed: true })).toBe(null);
+    expect(missingServerNotice(null)).toBe(null);
+    expect(languageName("csharp")).toBe("C#");
+  });
+});

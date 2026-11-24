@@ -2,6 +2,8 @@
    O que o cliente LSP precisa do mundo, injectado pela raiz de composição (`index.ts`):
    o backend (comandos `lsp_*` + evento `lsp://diagnostics`), o workspace aberto e o editor. */
 
+import type { ServerStatus } from "../domain/server-status";
+
 /** Os comandos `lsp_*` do backend (caminhos absolutos; posições 0-based). */
 export interface LspPort {
   start(root: string): Promise<void>;
@@ -9,6 +11,8 @@ export interface LspPort {
   didChange(path: string, text: string, version: number): Promise<void>;
   hover(path: string, line: number, character: number): Promise<unknown>;
   definition(path: string, line: number, character: number): Promise<unknown>;
+  /** Se o servidor da linguagem do ficheiro está instalado (`null` se o ficheiro não tem servidor). */
+  serverStatus(path: string): Promise<ServerStatus | null>;
   /** Avisa quando o servidor publica diagnósticos de um ficheiro (URI). */
   onDiagnostics(cb: (uri: string) => void): void;
 }
@@ -34,6 +38,9 @@ export interface EditorPort {
   /** Abre o ficheiro na linha (1-based) e põe o cursor na coluna (0-based). */
   open(key: string, line: number, character: number): void;
   notify(message: string): void;
+  /** Mostra (ou tira, com `null`) o aviso de servidor em falta no ficheiro `key`, se estiver aberto;
+   *  `onDismiss` corre quando o utilizador o fecha. */
+  notice(key: string, notice: { title: string; detail: string; install: string } | null, onDismiss?: () => void): void;
 }
 
 /** Adiar uma acção (o relógio, injectado para os testes). */

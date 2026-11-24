@@ -969,6 +969,7 @@ pub fn run() {
             lsp::lsp_hover,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
+            lsp::lsp_server_status,
             board::board_load,
             board::board_save,
         ])

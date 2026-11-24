@@ -5,7 +5,7 @@
    publicado (`paintEd`) e o `openPath`. Não publica nada no `window`. Acessores lêem
    `window` NO ACTO (a pasta abre de forma assíncrona). */
 
-import { toast } from "../../../core";
+import { toast, esc } from "../../../core";
 import { positionToOffset } from "../domain/positions";
 import type { EditorPort, WorkspacePort } from "../application/ports";
 
@@ -52,4 +52,17 @@ export const editor: EditorPort = {
     G.stPos?.();
   },
   notify: (message) => toast(message),
+  /* o aviso de servidor em falta: uma faixa no topo da vista do ficheiro (antes do `.ed`) */
+  notice: (key, n, onDismiss) => {
+    if (fileKeyOfTab(G.cur ?? null) !== key) return;
+    const ed = document.getElementById("ed-ta")?.closest(".ed");
+    if (!ed || !ed.parentElement) return;
+    ed.parentElement.querySelector(":scope > #lsp-missing")?.remove();
+    if (!n) return;
+    const el = document.createElement("div");
+    el.id = "lsp-missing"; el.className = "lsp-missing"; el.setAttribute("role", "status");
+    el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span><span>To install: <code>${esc(n.install)}</code></span><button class="mini" type="button">Dismiss</button>`;
+    el.querySelector("button")!.addEventListener("click", () => { el.remove(); onDismiss?.(); });
+    ed.parentElement.insertBefore(el, ed);
+  },
 };

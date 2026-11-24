@@ -35,7 +35,8 @@ function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];hos
     if(e.key==='Tab'&&!e.shiftKey&&window.vsxSnippet&&window.vsxSnippet(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='/'&&window.vsxToggleComment&&window.vsxToggleComment(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
     if(e.key==='Tab'){e.preventDefault();if(!document.execCommand('insertText',false,'    '))ta.setRangeText('    ',ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};
-  ta.onkeyup=ta.onclick=ta.onfocus=()=>stPos();}
+  ta.onkeyup=ta.onclick=ta.onfocus=()=>stPos();
+  bus.emit('editor:file-view',{path:t.path});/* quem decora a vista do ficheiro (p.ex. o aviso de servidor de linguagem em falta) repõe-se aqui */}
 
 /* ───── pintor do editor (gutter + realce + minimapa a partir dos diagnósticos) ───── */
 function paintEd(p:string){const f=FS[p],lines=f.content.split('\n'),dg:Record<number,string>={},ext=extOf(p);diagnostics().forEach(d=>{if(d.p===p&&dg[d.line]!=='e')dg[d.line]=d.sev;});

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { makeLspClient } from "../src/features/lsp/application/lsp-client";
 import type { EditorPort, LspPort, WorkspacePort } from "../src/features/lsp/application/ports";
 
-function setup(opts: { root?: string | null; files?: Record<string, string>; hover?: unknown; definition?: unknown } = {}) {
+function setup(opts: { root?: string | null; files?: Record<string, string>; hover?: unknown; definition?: unknown; missing?: string[] } = {}) {
   const calls: string[] = [];
   let diagCb: (uri: string) => void = () => {};
   const files: Record<string, string> = opts.files ?? { "proj/src/Main.java": "class Main {\n  int x;\n}\n" };
@@ -15,6 +15,13 @@ function setup(opts: { root?: string | null; files?: Record<string, string>; hov
     hover: async (path, l, c) => (calls.push(`hover ${path} ${l}:${c}`), opts.hover ?? null),
     definition: async (path, l, c) => (calls.push(`def ${path} ${l}:${c}`), opts.definition ?? null),
     onDiagnostics: (cb) => (diagCb = cb),
+    serverStatus: async (path) => {
+      const language = path.endsWith(".kt") ? "kotlin" : path.endsWith(".java") ? "java" : null;
+      if (!language) return null;
+      calls.push(`status ${language}`);
+      const missing = (opts.missing ?? []).includes(language);
+      return { language, server: language === "java" ? "jdtls" : "kotlin-language-server", installed: !missing, problem: missing ? "não encontrado" : null };
+    },
   };
   const workspace: WorkspacePort = {
     diskRoot: () => (opts.root === undefined ? "/home/u/proj" : opts.root),
@@ -24,10 +31,13 @@ function setup(opts: { root?: string | null; files?: Record<string, string>; hov
     text: (k) => files[k] ?? null,
   };
   const shown: string[] = [];
+  const notices = new Map<string, string | null>();
+  let dismiss: (() => void) | undefined;
   const editor: EditorPort = {
     repaint: (k) => void shown.push(`repaint ${k}`),
     open: (k, line, ch) => void shown.push(`open ${k} ${line}:${ch}`),
     notify: (m) => void shown.push(`notify ${m}`),
+    notice: (k, n, onDismiss) => { notices.set(k, n ? n.title : null); dismiss = onDismiss; },
   };
   const deferred: (() => void)[] = [];
   const client = makeLspClient({ lsp, workspace, editor, defer: (f) => deferred.push(f) });
@@ -36,7 +46,7 @@ function setup(opts: { root?: string | null; files?: Record<string, string>; hov
     current = k;
     return client.onTab(k);
   };
-  return { client, calls, shown, files, activate, deferred, diag: (u: string) => diagCb(u) };
+  return { client, calls, shown, files, activate, deferred, diag: (u: string) => diagCb(u), notices, dismiss: () => dismiss?.() };
 }
 
 describe("cliente LSP do editor", () => {
@@ -45,11 +55,12 @@ describe("cliente LSP do editor", () => {
     await t.activate("proj/src/Main.java");
     await t.activate("proj/App.kt");
     await t.activate("proj/src/Main.java");
-    expect(t.calls).toEqual([
+    expect(t.calls.filter((c) => !c.startsWith("status "))).toEqual([
       "start /home/u/proj",
       "open /home/u/proj/src/Main.java java",
       "open /home/u/proj/App.kt kotlin",
     ]);
+    expect(t.calls.filter((c) => c.startsWith("status "))).toEqual(["status java", "status kotlin"]); // uma vez por linguagem
   });
 
   it("depois de editar envia didChange com versões crescentes", async () => {
@@ -58,7 +69,7 @@ describe("cliente LSP do editor", () => {
     t.files["proj/src/Main.java"] += "// a";
     await t.client.onEdit();
     await t.client.onEdit();
-    expect(t.calls.slice(2)).toEqual([
+    expect(t.calls.filter((c) => c.startsWith("change "))).toEqual([
       `change /home/u/proj/src/Main.java v2 ${t.files["proj/src/Main.java"].length}`,
       `change /home/u/proj/src/Main.java v3 ${t.files["proj/src/Main.java"].length}`,
     ]);
@@ -115,5 +126,28 @@ describe("cliente LSP do editor", () => {
     expect(t.shown).toEqual([]);
     t.deferred.forEach((f) => f());
     expect(t.shown).toEqual(["repaint proj/src/Main.java"]);
+  });
+
+  it("servidor em falta: aviso no editor com o que falta, e nada é enviado ao backend", async () => {
+    const t = setup({ missing: ["java"] });
+    await t.activate("proj/src/Main.java");
+    expect(t.notices.get("proj/src/Main.java")).toBe("No Java language server");
+    expect(t.calls).toEqual(["status java"]); // nem lsp_start nem didOpen
+    await t.client.hoverAt(3);
+    expect(t.calls.filter((c) => c.startsWith("hover"))).toEqual([]);
+  });
+
+  it("o aviso volta a cada desenho da vista até ser fechado; servidor instalado não avisa", async () => {
+    const t = setup({ missing: ["java"], files: { "proj/src/Main.java": "class Main {}", "proj/App.kt": "fun main() {}" } });
+    await t.activate("proj/src/Main.java");
+    t.notices.clear();
+    await t.client.onFileView("proj/src/Main.java");
+    expect(t.notices.get("proj/src/Main.java")).toBe("No Java language server");
+    t.dismiss();
+    await t.client.onFileView("proj/src/Main.java");
+    expect(t.notices.get("proj/src/Main.java")).toBe(null);
+    await t.activate("proj/App.kt");
+    expect(t.notices.get("proj/App.kt")).toBe(null);
+    expect(t.calls).toContain("open /home/u/proj/App.kt kotlin");
   });
 });

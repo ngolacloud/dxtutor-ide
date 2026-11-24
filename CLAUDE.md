@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 162 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 163 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -478,6 +478,11 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   definição, e repinta o editor quando chegam diagnósticos do ficheiro aberto.
 - **`ui/editor-hooks.ts`:** rato parado → cartão `#lsp-hover`; F12 ou Ctrl+clique → definição.
   Listeners delegados no `document`, sem mexer no `editor.ts`; não publica globais.
+- **Servidor em falta:** sem servidor instalado o backend não abre sessão nem dá erro; o cliente
+  pergunta `lsp_server_status` (uma vez por linguagem) e o editor mostra uma faixa
+  (`#lsp-missing`, `domain/server-status.ts`) com o servidor que falta e como o instalar, reposta
+  a cada desenho da vista pelo evento `editor:file-view` do bus; «Dismiss» fecha-a para essa
+  linguagem na sessão.
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
 - **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, e o passo
@@ -485,7 +490,7 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   GOTCHA: o backend procura o `jdtls` no PATH e em `$HOME/.local/share/jdtls/bin`; sem servidor não
   abre sessão (sem erro). Correndo o auto-teste com um HOME temporário, põe essa pasta no PATH
   (`PATH="$HOME/.local/share/jdtls/bin:$PATH" HOME=/tmp/… DXTUTOR_SELFTEST=…`) — senão o passo
-  `lsp-java` diz que o servidor não foi encontrado.
+  `lsp-java` diz que o servidor não foi encontrado (e verifica que o editor mostra o aviso).
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
