@@ -518,6 +518,23 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await sh("rm", ["-f", kc]);
       return res;
     });
+    // Studio (ADR-0006, R6a): sem desenho semeado; o desenho guarda-se no projecto, em
+    // .dxtutor/studio.json (autosave para o disco), e volta ao reabrir a pasta.
+    await step("studio", async () => {
+      const W = window as unknown as { SD: { nodes: Array<{ n: string }> }; sdAdd: (t: string) => void; loadSD: () => { nodes: unknown[] } };
+      const key = ROOT + ".dxtutor/studio.json";
+      const emptyAtStart = W.SD.nodes.length === 0 && !FS[key];
+      W.sdAdd("rust-axum"); flushSave(); await idle();
+      const disk = (await sh("cat", [".dxtutor/studio.json"])).stdout;
+      let onDisk = 0; try { onDisk = JSON.parse(disk).nodes.length; } catch { /* não gravou */ }
+      W.SD = { nodes: [] } as never;
+      document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
+      const reloaded = W.SD.nodes.map(n => n.n);
+      delete FS[key]; flushSave(); await idle();
+      const removed = (await sh("test", ["-e", ".dxtutor/studio.json"])).code !== 0;
+      document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
+      return { emptyAtStart, onDisk, reloaded, removed, emptyAfter: W.SD.nodes.length === 0 };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

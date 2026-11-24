@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5 feita (R5a–R5c2; verificada no desktop — os ambientes com um kubeconfig temporário, nunca os clusters do utilizador); R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5 feita (R5a–R5c2; verificada no desktop — os ambientes com um kubeconfig temporário, nunca os clusters do utilizador); R6 em curso (R6a feita; R6b Extensões e R6c Remote por fazer)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -570,3 +570,19 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   visualizer ficou com um resto «…common methods.<code>rust_tracer</code>).» da edição do
   develop (e45f18d). Selftest desktop completo (38 passos): `errors: []`. Métricas: globais
   383 → 357.
+- **R6 em três passos.** R6a o Studio do catálogo cloud; R6b as Extensões; R6c os hosts remotos.
+  O Studio de arquitectura novo (`features/arch`, separador «Architecture») já usa o
+  `arch_validate`/`arch_scaffold` e é trabalho activo de outra sessão: não se mexe nele aqui.
+- **R6a (2026-11-24) — o desenho do Studio é do projecto.** Sai o desenho semeado (`ST_SEED`:
+  Gateway, Orders API, Billing Worker… de um projecto de demonstração), que aparecia em qualquer
+  pasta e no browser. O desenho nasce vazio (o canvas di-lo) e guarda-se no PROJECTO, em
+  `.dxtutor/studio.json` (versionável, ao lado do `team.json`), com uma pasta aberta; ao abrir
+  outra pasta, o desenho é o dela. Sem pasta (browser), no localStorage numa chave nova
+  (`studio4` — a `studio3` guardava o desenho semeado). Um desenho inválido abre vazio e diz-se
+  no log. «Reset design» (repunha o semeado) passa a «Clear design», ligado em código (handlers
+  inline 142 → 141). O desenho do projecto-exemplo passa a dado de teste
+  (`tests/fixtures/sample-design.ts`, aplicado pelo harness): nenhum golden muda. **Testes:**
+  `studio.r6a` (7: vazio no browser, `studio4` e `studio3` ignorado, tecnologia desconhecida,
+  grava no projecto e não no LS, reabrir a pasta, `studio.json` inválido, Clear design).
+  **Selftest desktop:** passo `studio` — abre vazio, um componente novo vai para
+  `.dxtutor/studio.json` no disco e volta ao reabrir a pasta; `errors: []`.

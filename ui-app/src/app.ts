@@ -178,7 +178,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#notes')&&!e.target.
 
 /* ───── router: motor (CAPL/CAP/TASKP/ROUTE_CACHE/LIVE_OK/rankModels/routeModel) migrado p/ features/router.ts; aqui só consumidores (VIEW.team, genBacklog, runIssue) que lêem por global ───── */
 
-/* ───── Studio: estado + motor de desenho (NT/ST_SEED/SD/SSEL/SLINK/SCAT/NW/NH/saveSD/openStudio/sdAdd/sdDel/drawStudio) migrado p/ features/studio.ts ───── */
+/* ───── Studio: estado + motor de desenho (NT/SD/SSEL/SLINK/SCAT/NW/NH/saveSD/openStudio/sdAdd/sdDel/drawStudio) migrado p/ features/studio.ts ───── */
 
 /* ───── backlog, sprints e kanban: estado (BL/STAGES) + motor (mkIssue/setStage/
    runIssue/delegate/runSprint/approveIssue/autoTest/dropIssue/rejectIssue/newIssue/
@@ -198,7 +198,7 @@ let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/
 /* (página de boas-vindas desta camada: código morto — sobreposta antes de ser chamada; ADR-0004, U4g7) */
 CMD.push(['Projecto: Studio de arquitectura','',openStudio],['Projecto: Quadro (kanban)','',openBoard],['Projecto: Gerar backlog a partir do Studio','',genBacklog],['Projecto: Executar Sprint 1','',()=>runSprint(0)],['Projecto: Executar Sprint 2','',()=>runSprint(1)],['Projecto: Nova issue…','',newIssue],['Equipa: Assistentes e harness','',()=>openTeam()],['Equipa: Escolher assistente da conversa…','',pickAgent],
   ['Git: Grafo de commits','',()=>openGraph()],['Gitflow: Iniciar feature…','',()=>gfPrompt('feature')],['Gitflow: Iniciar fix…','',()=>gfPrompt('fix')],['Gitflow: Iniciar release…','',()=>gfPrompt('release')],['Gitflow: Finalizar ramo actual','',()=>gfFinish()?toast('Ramo finalizado'):toast('Não estás num ramo de gitflow')],['Tutor: Continuar a aprender','',()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}]);
-function boot3(){loadTeam();const sd=LS.get('studio3',null);if(sd&&Array.isArray(sd.nodes)&&Array.isArray(sd.edges))SD=sd;
+function boot3(){loadTeam();SD=loadSD();
   const i=ACTS.findIndex(a=>a.pane==='codev');ACTS.splice(i+1,0,{ic:'book',pane:'tutor',title:'Tutor'},{ic:'cube',run:openStudio,title:'Studio de arquitectura'},{ic:'split',run:openBoard,title:'Quadro'});ACTS[i].sep=1;buildActivity();$('.act').classList.add('on');
   $('.side').insertAdjacentHTML('beforeend','<div class="pane" id="pane-tutor"></div>');
   /* o #pill-agent nasce no compositor (features/codev/ui/composer.ts); só se cria aqui se faltar */
@@ -234,7 +234,7 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
   const ta=ACTS.find(a=>a.pane==='tutor');if(ta){ta.title='Learning Track';buildActivity();$('.act').classList.add('on');}
   $('.panel-tabs .panel-tools').insertAdjacentHTML('beforebegin','<button class="ptab" data-pt="services">Services</button>');$('.panel-body').insertAdjacentHTML('beforeend','<div class="pcontent" id="pc-services"></div>');$$('.ptab').forEach(b=>b.onclick=()=>setPanelTab(b.dataset.pt));
   $('#st-tests').insertAdjacentHTML('afterend','<button class="si" id="st-stack" style="display:none;color:var(--green)" title="Running stack" onclick="setPanelTab(\'services\')"></button>');
-  const sd=LS.get('studio3',null);SD=sd&&Array.isArray(sd.nodes)&&sd.nodes.every(n=>TECH[n.tech])?sd:JSON.parse(JSON.stringify(ST_SEED));
+  SD=loadSD();/* o desenho do projecto (ou vazio) — o semeado saiu (ADR-0006, R6a) */
   drawStack();refresh(false,true);show(cur);}
 /* boot5/boot6: os passos de arranque das camadas v5/v6 (ADR-0004, U4g7), verbatim, junto do
    boot/boot3/boot4 — a mesma natureza: ajustam ACTS/MENUS/CMD/LANG, que dissolvem quando cada

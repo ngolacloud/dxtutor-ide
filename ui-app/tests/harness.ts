@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { vi } from "vitest";
 import { applySampleWorkspace } from "./fixtures/sample-workspace";
 import { applySampleHistory } from "./fixtures/sample-history";
+import { applySampleDesign } from "./fixtures/sample-design";
 
 // A ordem de arranque vem do src/main.ts (o ponto de entrada único — ADR-0004, U1),
 // até app.ts inclusive: uma só fonte de verdade, em vez de uma cópia da lista aqui.
@@ -37,6 +38,7 @@ export async function bootApp(): Promise<typeof window> {
   applySampleWorkspace(w); // o projecto-exemplo é dado de teste (ADR-0006, R1a)
   w.gitInit(); // o modelo git de um workspace sem repositório (vazio)
   applySampleHistory(w); // o histórico do projecto-exemplo + espelho ligado, como se a pasta fosse um repo (ADR-0006, R1d)
+  applySampleDesign(w); // o desenho do Studio do projecto-exemplo é dado de teste (ADR-0006, R6a)
   return window;
 }
 
