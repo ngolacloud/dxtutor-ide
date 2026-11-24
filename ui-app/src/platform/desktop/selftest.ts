@@ -210,6 +210,36 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       delete FS[key]; flushSave(); await idle();
       return { inPane };
     });
+    // A6: the Testing pane's real runners (features/testing): a cargo crate in a sub-folder is
+    // detected (test_runners), «Run all» of that runner gives per-test results (one pass, one
+    // fail — test_run), «Run this test» re-runs one, and the history card shows the kept runs
+    // (test_history, SQLite). The probe files are removed at the end.
+    await step("testRuns", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const toml = ROOT + "probe_crate/Cargo.toml", lib = ROOT + "probe_crate/src/lib.rs";
+      writeFile(toml, "[package]\nname = \"probe_crate\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n");
+      writeFile(lib, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_ok() {}\n    #[test]\n    fn probe_bad() { assert_eq!(1, 2, \"probe\"); }\n}\n");
+      flushSave(); await idle();
+      const el = () => document.getElementById("pane-test");
+      const q = <T extends Element>(sel: string) => el()?.querySelector<T>(sel) ?? null;
+      try {
+        PANE = "test"; window.renderTestPane();
+        q<HTMLElement>('[data-action="refresh"]')?.click();
+        const detected = await wait(() => !!q('[data-action="runner-all"][data-on="cargo:probe_crate"]'), 20000);
+        q<HTMLElement>('[data-action="runner-all"][data-on="cargo:probe_crate"]')?.click();
+        const ran = await wait(() => (el()?.querySelectorAll(".tr-case").length || 0) >= 2, 120000);
+        const row = (n: string) => [...(el()?.querySelectorAll(".tr-case") || [])].find(r => (r.textContent || "").includes(n))?.textContent || "";
+        const ok = row("tests::probe_ok").startsWith("✓"), bad = row("tests::probe_bad").startsWith("✖");
+        const idOk = 'cargo:probe_crate|cargo:' ;
+        const one = [...(el()?.querySelectorAll<HTMLElement>('[data-action="case-run"]') || [])].find(b => (b.dataset.on || "").startsWith(idOk) && (b.dataset.on || "").endsWith("::tests::probe_ok"));
+        one?.click();
+        const single = await wait(() => !q('[data-action="case-run"][disabled]') && !q('[data-action="runner-all"][disabled]'), 60000);
+        const kept = await wait(() => /Pass rate/.test(q(".tr-cards")?.textContent || "") || /Taxa de sucesso/.test(q(".tr-cards")?.textContent || ""), 10000);
+        return { detected, ran, ok, bad, single: single && !!one, kept };
+      } finally {
+        delete FS[toml]; delete FS[lib]; flushSave(); await idle();
+      }
+    });
     // A5: the Project store through the real Tauri commands and SQLite — create, move one
     // step, a skipped step refused by the Rust rules (code `step`, overridable), and the
     // issue's activity. The issue is deleted at the end (the temp folder's project stays empty).

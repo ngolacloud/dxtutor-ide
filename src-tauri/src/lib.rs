@@ -92,7 +92,9 @@ use commands::study::{
     get_course, get_glossary, get_study_guide, list_courses, list_phases, request_fix,
     request_hint, request_plan, study_policy, submit, submit_step,
 };
-use commands::tests::{list_tests, run_all_tests, run_path, run_test, run_tests};
+use commands::tests::{
+    list_tests, run_all_tests, run_path, run_test, run_tests, test_history, test_run, test_runners,
+};
 
 use serde::Serialize;
 use tutor_core::{Level, Phase, StepKind};
@@ -851,6 +853,9 @@ pub fn run() {
             list_tests,
             run_test,
             run_all_tests,
+            test_runners,
+            test_run,
+            test_history,
             search_project,
             list_files,
             git_changes,

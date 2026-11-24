@@ -960,7 +960,10 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   para o `.rowline`, que vinha depois; com o separador junto do resto do Co-Dev, depois da base, o `.rowline.hx`
   ganhava 14px 20px 28px em vez de 8px 12px. **Reportado, não corrigido:** o nome `.hx` colide entre o
   separador «Co-Dev run» e a página Team (`team.ts`), por isso o `.hx` do separador aplica `height:100%`,
-  `overflow:auto` e a fonte à linha «Detected context» da página Team.
+  `overflow:auto` e a fonte à linha «Detected context» da página Team. **Corrigido no merge da A6
+  (2026-11-24):** a raiz do separador passou a `.hx-run` (`harness-view.ts`, `harness.css`, e2e); o `.hx` volta a
+  ser só da página Team, e a linha «Detected context» fica com o `padding` 8px 12px do `.rowline` e sem as regras
+  do separador.
 - **U6b (2026-11-24) — goldens em inglês e a fundação dos textos por chave (piloto: Source Control).**
   (1) O `golden()` do harness passa o clone pelo motor de tradução (`trNode`, `LOCALE='en'`), salvo se um
   antepassado estiver no `TR_SKIP` (que sai para o módulo puro `features/i18n/skip.ts`, partilhado com o harness).

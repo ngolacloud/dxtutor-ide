@@ -6,9 +6,9 @@
    propriedade em comum e sujeito que pode coincidir) e os estilos computados de todos os elementos, em 44
    estados da app, ficaram iguais aos do styles.css. Uma regra nova vai para o ficheiro do dono; se depender
    de ganhar a outra regra com a mesma especificidade noutro ficheiro, a ordem daqui conta.
-   O codev/harness.css (separador «Co-Dev run») vem logo a seguir aos tokens, ANTES da base: o seu `.hx`
-   também apanha o `<div class="rowline hx">` da página Team (o nome colide — reportado no ADR-0004, U6a)
-   e tem de continuar a perder para o `.rowline` da base, como no styles.css. */
+   O codev/harness.css (separador «Co-Dev run») vem logo a seguir aos tokens, ANTES da base: a raiz do
+   separador era `.hx` e apanhava o `<div class="rowline hx">` da página Team (reportado no ADR-0004, U6a).
+   Desde o merge da A6 a raiz é `.hx-run` e a colisão acabou; a posição fica onde estava (já não decide nada). */
 import "./styles/theme.css";
 import "../features/codev/harness.css";
 import "./styles/base.css";
@@ -38,3 +38,5 @@ import "../features/debug/styles.css";
 import "../features/codereview/styles.css";
 import "../features/visualizer/styles.css";
 import "../features/panel/styles.css";
+/* A6: o pane Testing (runners, resultados, histórico); tudo sob #pane-test, a posição não decide nada */
+import "../features/testing/styles.css";

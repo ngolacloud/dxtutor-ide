@@ -1,6 +1,6 @@
 /* estilos do separador «Co-Dev run» (feature codev, A3) — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
   /* Co-Dev run: the harness tab (docs/v2/UI-AUDIT.md item 11, phase A3) */
-  .hx{height:100%;overflow:auto;padding:14px 20px 28px;font-family:var(--font-ui);color:var(--fg);box-sizing:border-box}
+  .hx-run{height:100%;overflow:auto;padding:14px 20px 28px;font-family:var(--font-ui);color:var(--fg);box-sizing:border-box}
   .hx-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}.hx-top b{font-size:15px;color:var(--fg-bright)}.hx-sp{flex:1}
   .hx-live{padding:1px 8px;border-radius:9px;font-size:11px;background:rgba(92,201,167,.16);color:var(--green)}
   .hx-cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:14px}

@@ -22,7 +22,7 @@ export function groupByFile(items: TestItem[]): FileGroup[] {
 type Verdict = "passed" | "failed" | "ignored";
 
 /** Um caminho de teste do cargo (`crate::tests::x` ou só `x`) corresponde ao `path` descoberto? */
-const rustMatch = (printed: string, path: string): boolean =>
+export const rustMatch = (printed: string, path: string): boolean =>
   printed === path || printed.endsWith("::" + path) || path.endsWith("::" + printed);
 
 /** Lê o estado de cada teste na saída combinada de «Run all»:

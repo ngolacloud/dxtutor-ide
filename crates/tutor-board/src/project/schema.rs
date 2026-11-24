@@ -139,6 +139,33 @@ const MIGRATIONS: &[&str] = &[
         markdown   TEXT NOT NULL
     );
     CREATE INDEX idx_artifacts_issue ON artifacts(root, issue_key, at);",
+    // 3 — test runs with per-test results (docs/v2/UI-AUDIT.md item 3, TEST-03): the history
+    //     the Testing pane computes trends and flaky tests from
+    "CREATE TABLE test_runs (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        root         TEXT NOT NULL,
+        at           INTEGER NOT NULL,
+        runner       TEXT NOT NULL,
+        command      TEXT NOT NULL,
+        scope        TEXT NOT NULL,
+        ok           INTEGER NOT NULL,
+        duration_ms  INTEGER NOT NULL,
+        passed       INTEGER NOT NULL,
+        failed       INTEGER NOT NULL,
+        skipped      INTEGER NOT NULL
+    );
+    CREATE INDEX idx_test_runs_root ON test_runs(root, at);
+    CREATE TABLE test_cases (
+        run_id       INTEGER NOT NULL,
+        case_id      TEXT NOT NULL,
+        name         TEXT NOT NULL,
+        suite        TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        duration_ms  INTEGER,
+        message      TEXT
+    );
+    CREATE INDEX idx_test_cases_run ON test_cases(run_id);
+    CREATE INDEX idx_test_cases_case ON test_cases(case_id);",
 ];
 
 /// The schema version this code expects.

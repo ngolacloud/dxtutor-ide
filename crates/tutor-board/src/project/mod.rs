@@ -15,6 +15,7 @@
 
 pub mod reports;
 pub mod schema;
+pub mod testhist;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -606,6 +607,28 @@ impl ProjectStore {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Keeps a test run with its per-test results (TEST-03).
+    pub fn record_test_run(
+        &mut self,
+        root: &str,
+        run: &testhist::NewRun,
+        now: i64,
+    ) -> Result<i64, ProjectError> {
+        let tx = self.conn.transaction()?;
+        let id = testhist::record(&tx, root, run, now)?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// The recent runs and each test's recent results, flips and flakiness.
+    pub fn test_history(
+        &self,
+        root: &str,
+        limit: usize,
+    ) -> Result<testhist::TestHistory, ProjectError> {
+        testhist::history(&self.conn, root, limit)
     }
 
     pub fn reports(&self, root: &str, now: i64) -> Result<reports::Reports, ProjectError> {

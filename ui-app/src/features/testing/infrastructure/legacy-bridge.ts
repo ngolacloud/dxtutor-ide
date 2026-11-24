@@ -4,6 +4,8 @@
    acto as funções do monólito que a feature chama (abrir ficheiro, correr no terminal,
    pane activo). Tudo é lido NO ACTO (a feature avalia antes de `app.ts` publicar). */
 
+import { editorStore } from "../../../app/store/editor";
+
 interface Dxr { root?: string | null; projectCmd?: (kind: "test" | "lint") => { cmd: string } | null; flush?: () => void; idle?: () => Promise<unknown> }
 /** Os globais do monólito/desktop que a feature lê, tipados (sem `any`). */
 interface Globals {
@@ -12,6 +14,7 @@ interface Globals {
   PANE: string;
   openPath: (p: string, line?: number) => void;
   runTask: (cmd: string) => unknown;
+  FS: Record<string, { content: string } | undefined>;
 }
 const G = window as unknown as Globals;
 const dxr = (): Dxr | undefined => G.DXR;
@@ -29,6 +32,13 @@ export const save = async (): Promise<void> => { const d = dxr(); d?.flush?.(); 
 export const openFile = (rel: string, line: number): void => G.openPath(G.ROOT + rel, line);
 /** Corre um comando num terminal de tarefa (no desktop, um PTY real). */
 export const runTask = (cmd: string): void => { G.runTask(cmd); };
+/** O ficheiro activo no editor, relativo à pasta (A6, «Write a missing test»); null sem ficheiro do projecto. */
+export const currentFile = (): { path: string; text: string } | null => {
+  const t = editorStore.tabs.find((x) => x.id === editorStore.currentTabId);
+  const p = t ? (typeof t.path === "string" ? t.path : t.id) : "";
+  const f = p ? G.FS[p] : undefined;
+  return f && G.ROOT && p.startsWith(G.ROOT) ? { path: p.slice(G.ROOT.length), text: f.content } : null;
+};
 /** O pane lateral activo (para só redesenhar quando o Testing está à vista). */
 export const activePane = (): string => G.PANE;
 

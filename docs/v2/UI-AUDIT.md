@@ -208,6 +208,25 @@ verdade `unittest`. Há ainda `measured.rs` (wall, CPU, RSS de pico, I/O — rea
 | TEST-05 | Testes afectados a partir do grafo de dependências (crates/módulos tocados pelo diff). | M |
 | TEST-06 | Pelo contrato do item 6: explicar falha, hunk de correcção no editor, escrever teste em falta, causa provável de flaky. | M |
 
+**Estado após a A6 (2026-11-24):** feito — `tutor_eval::testrun` detecta os runners que o projecto tem de facto
+(cargo, go, pytest, unittest, vitest/jest só se instalados em `node_modules/.bin`, maven, gradle; na raiz e nas
+pastas filhas; um runner sem a ferramenta aparece com o motivo) e lê a saída estruturada de cada um (`go test
+-json`, JUnit XML do pytest/maven/gradle, JSON do vitest/jest; no cargo, a saída libtest estável — o JSON do
+libtest exige nightly). Comandos `test_runners`, `test_run` (âmbito todos / um teste / afectados — os crates ou
+pacotes que os ficheiros alterados tocam, pelo `git diff HEAD` ou pelos ficheiros gravados) e `test_history`.
+Cada execução fica em SQLite (migração 3: `test_runs`, `test_cases`) e dá os cartões do pane: última execução,
+tendência da taxa de sucesso, testes instáveis (mudanças de resultado nas últimas 10 execuções) e mais lentos.
+O pane mostra os runners, os resultados por suite com duração, o detalhe da falha (mensagem e saída), correr um
+teste só, «Watch» (os afectados a cada gravação), e pede ao Co-Dev pelo `codev.ask`: explicar a falha, corrigir
+(o agente propõe os hunks no editor, como no item 6), escrever o teste em falta do ficheiro aberto e a causa
+provável de um teste instável. Vive na feature `features/testing/` (PR #6, ADR-0006 R2a): `domain/runs.ts`,
+`application/runs-service.ts` (uma corrida de cada vez, também contra as da descoberta), `ui/runs-view.ts`,
+`styles.css`; a lista sintáctica (`list_tests`) fica por baixo como «Tests in the code» e acende-se com os
+resultados dos runners. Sem runners (ou com um backend sem os comandos), o pane fica exactamente como antes. Por fazer: TEST-02 (registo de comandos e snapshots dos artefactos do Playwright/Cypress),
+cobertura (`cargo llvm-cov`/`c8`/`coverage.py`/`go test -cover`) e latências (`criterion`/`k6`/`-bench`) do
+TEST-03, `cargo nextest`, `odoo --test-tags`, tags, e o watch pelo watcher de ficheiros do backend (hoje é pelas
+gravações do editor).
+
 ### Item 4 · Debug que resolve as maiores dores
 
 Dores alvo (a registar como critério): reproduzir o bug; "porque é que esta variável tem este valor";
