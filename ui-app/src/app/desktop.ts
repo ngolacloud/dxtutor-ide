@@ -14,6 +14,7 @@ import type { ExplorerDesktop } from "../features/explorer";
 import type { WelcomeDesktop } from "../features/welcome";
 import type { ChangelogDesktop } from "../features/changelog";
 import type { ExtDesktop } from "../features/ext/application/ports";
+import type { TestsDesktop } from "../features/test";
 
 export interface DesktopPorts {
   /** git real no repositório aberto (platform/desktop/git.ts) — U4h2 */
@@ -36,6 +37,8 @@ export interface DesktopPorts {
   changelog?: ChangelogDesktop;
   /** o JSZip embutido na app — U4h5b */
   ext?: ExtDesktop;
+  /** descoberta e execução reais dos testes do projecto (platform/desktop/tests.ts) — A0.5 */
+  tests?: TestsDesktop;
 }
 
 export const desktopPorts: DesktopPorts = {};

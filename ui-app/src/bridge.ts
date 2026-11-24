@@ -19,6 +19,7 @@ import { installAgentTasks } from "./platform/desktop/agent-tasks";
 import { installInfra } from "./platform/desktop/infra";
 import { installDemos } from "./platform/desktop/demos";
 import { installExt } from "./platform/desktop/ext";
+import { installTests } from "./platform/desktop/tests";
 import { selftest } from "./platform/desktop/selftest";
 
 (() => {
@@ -33,6 +34,7 @@ installAgentTasks(ctx);
 installInfra(ctx);
 installDemos(ctx);
 installExt();
+installTests(ctx);
 installFolderUi(ctx);
 
 /* ───── start ───── */
