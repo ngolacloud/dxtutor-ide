@@ -10,7 +10,7 @@ exports[`goldens de DOM — estados estáticos > #pane-codev (conhecimento, chec
 exports[`goldens de DOM — estados estáticos > chat depois de newChat() 1`] = `
 "<div class="intro" id="ag-intro"><div class="i-t">Co-Dev</div><div class="i-s">I understand requirements, propose architecture, write, test, evaluate my own work and fix it — with you steering.</div>
   <button class="chip"><b>Explain the active file</b><small>Free question — answered by Claude live.</small></button>
-  <div class="i-n" id="live-note"><span class="tag">sem ligação</span> abre o dxtutor IDE desktop para conversar com um modelo sobre os ficheiros do projecto.</div></div>"
+  <div class="i-n" id="live-note"><span class="tag">not connected</span> open the dxtutor IDE desktop to talk to a model about the project's files.</div></div>"
 `;
 
 exports[`goldens de DOM — estados estáticos > página Definições (renderSettingsPage) 1`] = `

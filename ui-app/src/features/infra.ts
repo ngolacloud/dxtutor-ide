@@ -44,8 +44,12 @@ import {
 import { translator } from "../app/i18n";
 import { INFRA_ENGINE_MESSAGES } from "./infra/application/messages";
 import { INFRA_MESSAGES } from "./infra/ui/messages";
+import { INFRA_DESKTOP_MESSAGES } from "./infra/ui/desktop-messages";
+import { EMULATED_TERMINAL_MESSAGES } from "./emulated-terminal-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(INFRA_MESSAGES);
+const txd = translator(INFRA_DESKTOP_MESSAGES);
+const txe = translator(EMULATED_TERMINAL_MESSAGES);
 
 /* globais que este resíduo publica/lê e que o resto do contrato (core.ts) ainda não declara */
 declare global {
@@ -129,7 +133,7 @@ function renderInfraPane(): void {
    <button class="btn${ENVS.k8sOn ? " ghost" : ""}" data-action="k8s-connect">${ENVS.k8sOn ? "Disconnect" : "Connect cluster"}</button>
    ${ENVS.k8sOn ? (K8S ? K8S.deps.map((d: any) => `<div class="scm-row" style="cursor:default"><span class="pdot" style="background:${d.ready ? "var(--green)" : "var(--fg-muted)"}"></span><span class="nm notr">${esc(d.n)}</span><span class="pth">${d.ready}/${d.rep}</span><span class="ra" style="display:flex"><button title="Scale down" data-action="k8s-scale" data-on="${esc(d.n)}|-1">−</button><button title="Scale up" data-action="k8s-scale" data-on="${esc(d.n)}|1">+</button></span></div>`).join("") + `<button class="btn" data-action="dx-deploy">${txt("redeploy")}</button><button class="btn ghost" data-action="k8s-down">${txt("deleteFromCluster")}</button>` : `<div class="sec-empty">${docs ? `${docs} resources ready in <code>deploy/k8s</code>.` : "No manifests yet — the platform issue from the Studio creates them."}</div><button class="btn" data-action="dx-deploy">⎈ Deploy to ${esc(ENVS.ctx)}</button>`) : ""}
    <div class="scm-grp">${txt("remoteHosts")}<span class="cnt">${ENVS.ssh.length}</span></div>${ENVS.ssh.map((h: string, i: number) => `<div class="scm-row" data-action="ssh-open" data-on="${esc(h)}"><span class="ic">${svg("remote")}</span><span class="nm notr">${esc(h)}</span><span class="ra" style="display:flex"><button title="${txt("remove")}" data-action="ssh-del" data-on="${esc(i)}">×</button></span></div>`).join("")}<input class="inp notr" placeholder="user@host" data-action="ssh-add">
-   ${(window as unknown as { DXR?: unknown }).DXR ? "" : '<div class="sec-empty">O socket e o KUBECONFIG ligam o runtime de contentores e o cluster reais na app desktop; no browser não há a que ligar.</div>'}</div>`;
+   ${(window as unknown as { DXR?: unknown }).DXR ? "" : `<div class="sec-empty">${txd("browserNote")}</div>`}</div>`;
   // ── decoração v6 (environments / observabilidade) ──
   const sec = $("#pane-infra .sections");
   if (!sec) return;
@@ -196,7 +200,7 @@ export function renderObserveView(t: ObserveTab, host: HTMLElement) {
   const chart = (l: string, u: string, a: number[], c: string) => { const v = last(a); return `<div class="obs-c"><div class="obs-h"><span>${l}</span><b>${v == null ? '—' : v.toFixed(u === '%' ? 1 : 0) + ' ' + u}</b></div>${a.length > 1 ? spark(a, c) : `<div class="sub notr" style="padding:8px 0">${esc(o.sampleErr || (o.polled ? 'a recolher…' : 'a ler…'))}</div>`}</div>`; };
   host.innerHTML = `<div class="obs">${bar(true)}<div class="sub notr" style="margin:6px 12px 0"><code>${esc(src.command(target))}</code></div>
    <div class="obs-m">${chart('CPU', '%', o.cpu, 'var(--accent)')}${chart('Memory', 'MiB', o.mem, 'var(--blue)')}</div>
-   <div class="obs-l" id="obs-l">${o.logErr ? `<div class="ll ERROR"><span class="notr">${esc(o.logErr)}</span></div>` : ''}${o.logs.map(x => `<div class="ll ${x.lv}"><span class="ts">${x.ts}</span><span class="lv">${x.lv}</span><span class="notr">${esc(x.m)}</span></div>`).join('')}${!o.logs.length && !o.logErr ? `<div class="ll"><span class="notr">${o.polled ? 'Sem linhas de log.' : 'A ler os logs…'}</span></div>` : ''}</div></div>`;
+   <div class="obs-l" id="obs-l">${o.logErr ? `<div class="ll ERROR"><span class="notr">${esc(o.logErr)}</span></div>` : ''}${o.logs.map(x => `<div class="ll ${x.lv}"><span class="ts">${x.ts}</span><span class="lv">${x.lv}</span><span class="notr">${esc(x.m)}</span></div>`).join('')}${!o.logs.length && !o.logErr ? `<div class="ll"><span class="notr">${txd(o.polled ? "noLogLines" : "readingLogs")}</span></div>` : ''}</div></div>`;
   const lg = $('#obs-l'); if (lg) lg.scrollTop = lg.scrollHeight;
   const still = () => { const tt = tabOf(cur) as unknown as (ObserveTab & { kind?: string }) | null; return !!tt && tt.kind === 'observe' && tt.env === env && tt.name === t.name; };
   const tick = () => {
@@ -309,8 +313,8 @@ publish({
 const XC = window.XC;
 /* o terminal emulado não fala com o cluster nem com o runtime (respondia com o estado K8S/DEVC
    simulado — ADR-0006, R5a): o kubectl/devcontainer reais correm no terminal da app desktop */
-XC.kubectl = () => { echo('<span class="dim">o terminal emulado não fala com o cluster — o kubectl real corre no terminal da app desktop</span>'); };
-XC.devcontainer = () => { echo('<span class="dim">o terminal emulado não arranca contentores — usa «Attach» em Infra na app desktop</span>'); };
+XC.kubectl = () => { echo(`<span class="dim">${txe("noCluster")}</span>`); };
+XC.devcontainer = () => { echo(`<span class="dim">${txe("noContainers")}</span>`); };
 const _dx5 = XC.dx;
 XC.dx = (a: string[]) => { if (a[0] === 'deploy') return window.dxDeploy(); return _dx5(a); };
 /* `docker compose up|down|ps`, `make run|stop` e `dx run|stop` (ADR-0004, U4j4a — eram do app.ts): chamam o

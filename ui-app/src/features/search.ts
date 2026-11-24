@@ -29,8 +29,10 @@ import { searchClient, type SearchHit } from "../platform/tauri/search";
 import { registerActions, globalCalls } from "../app/actions";
 import { translator } from "../app/i18n";
 import { SEARCH_MESSAGES } from "./search.messages";
+import { SEARCH_DESKTOP_MESSAGES } from "./search.desktop-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(SEARCH_MESSAGES);
+const txd = translator(SEARCH_DESKTOP_MESSAGES);
 
 /** Uma ocorrência numa linha: nº da linha (1-based), a linha, o offset do match nela. */
 interface Hit { line: number; text: string; at: number }
@@ -51,18 +53,18 @@ function paint(res: HTMLElement, q: string, groups: FileHits[], capped: boolean)
   const n = groups.reduce((a, g) => a + g.hits.length, 0);
   const h = groups.map((g) => {
     /* sem handlers inline: a linha leva o destino em data-*; um só listener em #s-res abre-a */
-    const open = (line?: number): string => g.key ? `data-p="${esc(g.key)}"${line ? ` data-l="${line}"` : ""}` : 'data-unloaded="1" title="não carregado na IDE"';
+    const open = (line?: number): string => g.key ? `data-p="${esc(g.key)}"${line ? ` data-l="${line}"` : ""}` : `data-unloaded="1" title="${esc(txd("notLoadedTitle"))}"`;
     return `<div class="row" style="padding-left:8px${g.key ? "" : ";opacity:.6"}" ${open()}>${window.fIcon(g.label)}<span class="nm">${esc(g.label.split("/").pop())}</span><span class="deco" style="color:var(--fg-muted)">${g.hits.length}</span></div>` +
       g.hits.slice(0, 30).map((x) => `<div class="s-hit" ${open(x.line)}><span class="n">${x.line}</span><span>${esc(x.text.slice(Math.max(0, x.at - 18), x.at))}<mark>${esc(x.text.substr(x.at, q.length))}</mark>${esc(x.text.slice(x.at + q.length, x.at + q.length + 60))}</span></div>`).join("");
   }).join("");
-  res.innerHTML = `<div class="sec-empty"><b style="color:var(--accent-hover)">${n}</b> ${txt("resultsIn")} <b style="color:var(--accent-hover)">${groups.length}</b> ficheiros${capped ? ` (os primeiros ${MAX_HITS})` : ""}</div><div class="tree">${h}</div>`;
+  res.innerHTML = `<div class="sec-empty"><b style="color:var(--accent-hover)">${n}</b> ${txt("resultsIn")} <b style="color:var(--accent-hover)">${groups.length}</b> ${txd("files")}${capped ? txd("capped", { n: MAX_HITS }) : ""}</div><div class="tree">${h}</div>`;
 }
 
 /** Clicar num resultado abre o ficheiro (na linha); um ficheiro não carregado explica-se. */
 function onResultClick(e: Event): void {
   const row = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-p],[data-unloaded]");
   if (!row) return;
-  if (row.dataset.unloaded) { toast("Este ficheiro não está carregado na IDE (grande, binário ou além do limite de ficheiros)"); return; }
+  if (row.dataset.unloaded) { toast(txd("notLoaded")); return; }
   window.openPath(row.dataset.p as string, row.dataset.l ? +row.dataset.l : undefined);
 }
 
@@ -102,11 +104,11 @@ function doSearch(): void {
   const q = qel.value, my = ++seq, root = dxr()?.root ?? null;
   clearTimeout(timer);
   if (!q) {
-    res.innerHTML = `<div class="sec-empty">${root ? "Escreve para procurar em toda a pasta aberta." : "Escreve para procurar nos ficheiros abertos."}</div>`;
+    res.innerHTML = `<div class="sec-empty">${txd(root ? "typeFolder" : "typeOpen")}</div>`;
     return;
   }
   if (!root) { paint(res, q, searchLoaded(q), false); return; }
-  res.innerHTML = '<div class="sec-empty">A procurar…</div>';
+  res.innerHTML = `<div class="sec-empty">${txd("searching")}</div>`;
   timer = setTimeout(() => {
     searchClient().project(root, q, MAX_HITS, true).then(
       (hits) => { if (my === seq) paint(res, q, groupHits(hits, q), hits.length >= MAX_HITS); },
@@ -136,7 +138,7 @@ function replaceAll(): void {
   });
   window.refresh();
   doSearch();
-  toast(n ? `${n} ocorrências substituídas` : "Nada para substituir");
+  toast(n ? txd("replaced", { n }) : "Nada para substituir");
 }
 
 /** Renderiza o pane «Pesquisa»: monta os inputs uma vez (`dataset.b`) e procura. */

@@ -45,7 +45,7 @@ it("sem pasta aberta: a árvore fica vazia e o explorador mostra o estado vazio 
   expect(w.TREE.projects.children).toEqual({});
   w.buildExplorer();
   const tree = document.querySelector("#exp-sections .tree")!;
-  expect(tree.textContent).toContain("Nenhuma pasta aberta.");
+  expect(tree.textContent).toContain("No folder open.");
   expect(tree.querySelector(".row")).toBeNull();
   expect(tree.querySelector("button")).toBeNull(); // no browser não há DXR: sem «Abrir pasta…»
 });

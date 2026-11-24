@@ -9,6 +9,10 @@ import { hd, svg, esc } from "../../../core";
 import { countStates, groupByFile, testKey } from "../domain/results";
 import type { TestStatus } from "../domain/types";
 import type { TestingState } from "../application/testing-service";
+import { translator } from "../../../app/i18n";
+import { TESTING_MESSAGES } from "./messages";
+
+const tx = translator(TESTING_MESSAGES);
 
 export interface TestingViewModel {
   /** Há pasta aberta (no desktop). */
@@ -36,13 +40,13 @@ export function renderTesting(m: TestingViewModel): string {
   const acts = m.open
     ? `<button title="Correr todos os testes" data-action="run-all"${dis || (st.items.length ? "" : " disabled")}>${svg("run")}</button><button title="Voltar a descobrir os testes" data-action="refresh"${dis}>${svg("refresh")}</button>`
     : "";
-  if (!m.open) return hd("Testing", "") + '<div class="sections"><div class="sec-empty">Abre uma pasta (File → Open Folder…) para descobrir e correr os testes do projecto.</div></div>';
+  if (!m.open) return hd("Testing", "") + `<div class="sections"><div class="sec-empty">${tx("noFolder")}</div></div>`;
 
   const parts: string[] = [];
   if (m.runs) parts.push(m.runs);
   if (st.error) parts.push(`<div class="sec-empty" style="color:var(--red)">Erro: ${esc(st.error)}</div>`);
-  if (st.loading && !st.items.length) parts.push('<div class="sec-empty">A procurar testes…</div>');
-  else if (st.loaded && !st.items.length && !st.error) parts.push('<div class="sec-empty">Não encontrei testes Rust, Go ou Python nesta pasta.</div>');
+  if (st.loading && !st.items.length) parts.push(`<div class="sec-empty">${tx("searching")}</div>`);
+  else if (st.loaded && !st.items.length && !st.error) parts.push(`<div class="sec-empty">${tx("noTests")}</div>`);
 
   if (st.items.length) {
     const c = countStates(st.items, st.states);
@@ -66,7 +70,7 @@ export function renderTesting(m: TestingViewModel): string {
   if (m.projectCmd) {
     parts.push(`<div class="scm-grp">Comando de testes do projecto</div><div class="sec-empty"><code class="notr">${esc(m.projectCmd)}</code></div><button class="btn ghost" data-action="run-project-cmd">Correr no terminal</button>`);
   } else if (st.loaded && !st.items.length) {
-    parts.push('<div class="sec-empty">Também não detectei um comando de testes. Define-o em <code>.dxtutor/commands.json</code>.</div>');
+    parts.push(`<div class="sec-empty">${tx("noCommand", { file: "<code>.dxtutor/commands.json</code>" })}</div>`);
   }
 
   return hd("Testing", acts) + `<div class="sections">${parts.join("")}</div>`;

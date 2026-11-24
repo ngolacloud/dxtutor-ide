@@ -39,6 +39,8 @@ import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
 import { isDesktop } from "../platform/tauri/core";
+import { translator } from "../app/i18n";
+import { CODEV_CHAT_MESSAGES } from "./codev/ui/chat-messages";
 import {
   codevEngine,
   decisions as DECS_ARR,
@@ -57,6 +59,8 @@ import {
   hunkReview,
   codevRun,
 } from "./codev/index";
+
+const tc = translator(CODEV_CHAT_MESSAGES);
 
 /* ───── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ───── */
 const ROLE: Record<string, string> = window.ROLE = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
@@ -77,7 +81,7 @@ function updateAgentUIBase(): void {
   ($('#ag-model .live') as HTMLElement).style.background = p.on ? 'var(--green)' : 'var(--fg-muted)';
   $('#st-model-l')!.textContent = p.name; $('#st-mode')!.textContent = 'Co-Dev: ' + MODES[bridge.monolith.mode].l;
   $('#modebar')!.innerHTML = `<div class="seg">${Object.entries(MODES).map(([k, m]) => `<button class="${k === bridge.monolith.mode ? 'on' : ''}" data-action="set-mode" data-on="${esc(k)}">${m.l}</button>`).join('')}</div><div class="mode-d">${MODES[bridge.monolith.mode].d}</div>`;
-  const n = $('#live-note'); if (n) n.innerHTML = bridge.sample() ? '<span class="tag live">Claude ao vivo</span> perguntas livres são respondidas pelo Claude real, com acesso aos ficheiros deste workspace. Os outros provedores só respondem na app desktop.' : '<span class="tag">sem ligação</span> abre o dxtutor IDE desktop para conversar com um modelo sobre os ficheiros do projecto.';
+  const n = $('#live-note'); if (n) n.innerHTML = bridge.sample() ? `<span class="tag live">${tc('liveTag')}</span> ${tc('liveNote')}` : `<span class="tag">${tc('offTag')}</span> ${tc('offNote')}`;
   ctxPill();
   refreshComposer();
 }

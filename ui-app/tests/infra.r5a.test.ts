@@ -53,8 +53,8 @@ describe("no browser", () => {
   it("o terminal emulado não responde com um cluster/contentor inventado", () => {
     w.XC.kubectl(["get", "pods"]);
     w.XC.devcontainer(["up"]);
-    expect(term()).toMatch(/não fala com o cluster/);
-    expect(term()).toMatch(/não arranca contentores/);
+    expect(term()).toMatch(/does not talk to the cluster/);
+    expect(term()).toMatch(/does not start containers/);
     expect(w.DEVC == null).toBe(true);
   });
 });
