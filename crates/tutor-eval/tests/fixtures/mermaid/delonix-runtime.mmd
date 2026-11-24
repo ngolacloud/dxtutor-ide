@@ -1,0 +1,33 @@
+graph TB
+    subgraph HOST["Host Linux"]
+        CLI["delonix — CLI efémera<br>clone, pivot_root, cgroups, nft<br>termina após cada comando"]
+        CRIBIN["delonix-cri — servidor gRPC<br>socket unix p/ o kubelet<br>o único processo-servidor, e é opcional"]
+        STATE["Estado em JSON — DELONIX_ROOT<br>containers, vms, volumes, images CAS,<br>networks, ingress, cri, clusters"]
+
+        subgraph INFRA["Infra rootless do ingress — só quando ha rede custom"]
+            HOLDER["holder netns<br>unshare --user --map-auto --map-root-user --net --mount<br>re-exec delonix netns holder<br>bridge delonix0 + nft + DHCP + DNS dentro do netns"]
+            SLIRP1["slirp4netns unico<br>tap0 host para infra, api-socket p/ hostfwd"]
+        end
+
+        subgraph PERCONT["Por container — quando aplicavel"]
+            CONT["processo do container<br>PID 1 proprio apos clone + exec"]
+            SLIRPN["slirp4netns por container<br>default (--net private) e com -p"]
+            SHIM["log shim<br>fork; escreve o log com rotacao<br>formato cru ou CRI"]
+            WATCH["watcher --rm<br>fork; espera o fim e limpa"]
+        end
+
+        VM["microVM<br>cloud-hypervisor ou qemu via libvirt"]
+    end
+
+    KUBELET2["kubelet"]
+
+    CLI -- "lê e escreve" --> STATE
+    CRIBIN -- "lê e escreve" --> STATE
+    KUBELET2 -- "gRPC runtime.v1" --> CRIBIN
+    CLI -- "arranca e configura" --> CONT
+    CLI -- "arranca sob procura" --> HOLDER
+    HOLDER --- SLIRP1
+    CLI -- "hook on_started" --> SLIRPN
+    CLI -- "fork" --> SHIM
+    CLI -- "fork" --> WATCH
+    CLI -- "VmBackend" --> VM

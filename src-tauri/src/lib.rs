@@ -45,8 +45,8 @@ pub mod workspace;
 // Comandos extraídos para `commands/<feature>.rs` (Etapa 3). Importados por nome
 // para o registo de handlers abaixo continuar a referenciá-los sem prefixo de módulo.
 use commands::agent::{
-    agent_isolated_patch, agent_task_cancel, agent_task_status, agent_task_submit, arch_scaffold,
-    arch_scaffold_preview, arch_validate,
+    agent_isolated_patch, agent_task_cancel, agent_task_status, agent_task_submit,
+    arch_export_mermaid, arch_import_mermaid, arch_scaffold, arch_scaffold_preview, arch_validate,
 };
 use commands::assistant::{
     assistant_cancel, assistant_chat, assistant_chat_stream, assistant_models, get_diagnostics,
@@ -868,6 +868,8 @@ pub fn run() {
             agent_task_cancel,
             arch_validate,
             arch_scaffold,
+            arch_export_mermaid,
+            arch_import_mermaid,
             run_tests,
             git_log,
             git_show,

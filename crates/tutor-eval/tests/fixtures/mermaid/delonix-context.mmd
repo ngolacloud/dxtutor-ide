@@ -1,0 +1,16 @@
+graph TB
+    OP["Operador / utilizador<br>terminal"]
+    KUBELET["kubelet<br>nó Kubernetes"]
+    REG["Registos OCI<br>Docker Hub, ghcr.io, registos privados"]
+    SSHHOSTS["Hosts SSH remotos<br>cluster apply via ssh e scp"]
+    HV["Hipervisores locais<br>Cloud Hypervisor sobre KVM ou libvirt"]
+    UBU["cloud-images.ubuntu.com<br>imagens base p/ imagem VM dourada"]
+
+    DLX["Delonix Engine<br>motor de containers e microVMs<br>daemonless, rootless-first"]
+
+    OP -- "delonix container / image / build / vm / volumes / network / stack / cluster" --> DLX
+    KUBELET -- "CRI runtime.v1 gRPC<br>socket unix" --> DLX
+    DLX -- "pull e push de imagens<br>HTTP, verificação de digest" --> REG
+    DLX -- "kubeadm init e join idempotentes<br>sudo -n remoto" --> SSHHOSTS
+    DLX -- "arranque de microVMs<br>VmBackend" --> HV
+    DLX -- "download validado por SHA256SUMS" --> UBU

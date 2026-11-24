@@ -17,6 +17,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+pub mod mermaid;
+
 /// Tipo de um componente no diagrama.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -885,7 +887,7 @@ impl Architecture {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn comp(id: &str, kind: Kind, outbox: bool) -> Component {
@@ -899,7 +901,7 @@ mod tests {
     }
 
     /// The order-flow from the reference image: service → outbox → relay → broker → consumer.
-    fn ok_arch() -> Architecture {
+    pub(crate) fn ok_arch() -> Architecture {
         Architecture {
             components: vec![
                 comp("svc", Kind::Service, false),
@@ -1118,7 +1120,7 @@ mod tests {
     }
 
     /// A imagem de referência «Docker vs Kubernetes», modelada com os Kind novos.
-    fn docker_vs_k8s() -> Architecture {
+    pub(crate) fn docker_vs_k8s() -> Architecture {
         let mut c = vec![
             in_group("docker-cli", Kind::Cli, "host"),
             in_group("dockerd", Kind::Daemon, "host"),

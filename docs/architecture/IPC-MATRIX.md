@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (159 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (161 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 159 comandos, **61 são consumidos pela `ui-app`** e **98 não o são**: a UI
+Dos 161 comandos, **64 são consumidos pela `ui-app`** e **97 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -251,7 +251,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `git_checkout` | `root: String`, `branch: String` | `()` | String | — | — (via `exec`) | **G** |
 | `git_create_branch` | `root: String`, `name: String` | `()` | String | — | — (via `exec`) | **G** |
 
-## 9. Agente / arquitectura — `commands/agent.rs` (7)
+## 9. Agente / arquitectura — `commands/agent.rs` (9)
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/agent.rs` (adaptadores finos)
 > sobre o caso de uso Tauri-free `agent` — regra do scaffold com erro tipado
@@ -264,9 +264,11 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `agent_task_submit` | `root: String`, `writes: Vec<(String,String)>` | `String` (id) | String | — | `platform/tauri/agent-tasks.ts` (via `bridge.ts`) | **W** · S |
 | `agent_task_status` | `id: String` | `Option<AgentTask>` | — | — | `platform/tauri/agent-tasks.ts` (via `bridge.ts`) | R · S |
 | `agent_task_cancel` | `id: String` | `bool` | — | — | `platform/tauri/agent-tasks.ts` (via `bridge.ts`) | S |
-| `arch_validate` | `arch: arch::Architecture` | `Vec<arch::Finding>` | String | — | — | R |
-| `arch_scaffold` | `root: String`, `arch: arch::Architecture` | `Vec<String>` | String | — | — | **W** |
-| `arch_scaffold_preview` | `arch: arch::Architecture` | `Vec<(String,String)>` | — | — | — | R |
+| `arch_validate` | `arch: arch::Architecture` | `Vec<arch::Finding>` | String | — | `platform/tauri/arch.ts` (`features/arch`) | R |
+| `arch_scaffold` | `root: String`, `arch: arch::Architecture` | `Vec<String>` | String | — | `platform/tauri/arch.ts` (`features/arch`) | **W** |
+| `arch_scaffold_preview` | `arch: arch::Architecture` | `Vec<(String,String)>` | — | — | `platform/tauri/arch.ts` (`features/arch`) | R |
+| `arch_export_mermaid` | `arch: arch::Architecture` | `String` | — | — | — | R |
+| `arch_import_mermaid` | `source: String` | `arch::mermaid::MermaidImport` (`{ arch, warnings }`) | String | — | — | R |
 
 ## 10. Co-Dev — `commands/codev.rs` (5)
 
@@ -501,10 +503,10 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **159** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **61** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1 · `features/panel` 8) |
-| Não consumidos pela `ui-app` | **98** |
+| Comandos registados | **161** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 9 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
+| Consumidos pela `ui-app` | **64** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1 · `features/panel` 8 · `platform/tauri/arch.ts` 3) |
+| Não consumidos pela `ui-app` | **97** |
 | Eventos distintos | **15** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |

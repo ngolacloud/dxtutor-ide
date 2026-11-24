@@ -30,6 +30,7 @@ use std::sync::{Mutex, OnceLock};
 // Mecanismos puros re-exportados como fachada da fatia (sem Tauri). Os tipos de
 // arquitectura acompanham para que o adaptador IPC e o teste integrado atravessem a
 // mesma fronteira `crate::agent` sem `tutor_eval` exposto.
+pub use tutor_eval::arch::mermaid::MermaidImport;
 pub use tutor_eval::arch::{Architecture, Component, Connection, Finding, Kind, Relation};
 pub use tutor_eval::git::worktree_patch;
 
@@ -40,6 +41,19 @@ pub use tutor_eval::git::worktree_patch;
 /// `Architecture::validate` (o mecanismo).
 pub fn validate(arch: &Architecture) -> Vec<Finding> {
     arch.validate()
+}
+
+/// Exporta um desenho para Mermaid `graph TB` (com os metadados `%% dxt:` que tornam a
+/// ida e volta exacta). Puro — delega a `arch::mermaid::to_mermaid`.
+pub fn export_mermaid(arch: &Architecture) -> String {
+    tutor_eval::arch::mermaid::to_mermaid(arch)
+}
+
+/// Importa um `graph`/`flowchart` Mermaid para o modelo, com os avisos do que não veio tal
+/// e qual. Erro só quando a fonte não é um flowchart. Puro — delega a
+/// `arch::mermaid::from_mermaid`.
+pub fn import_mermaid(source: &str) -> Result<MermaidImport, String> {
+    tutor_eval::arch::mermaid::from_mermaid(source)
 }
 
 /// Pré-visualiza o scaffold de um desenho SEM escrever: os pares `(relPath, content)` que
@@ -186,6 +200,19 @@ mod tests {
             connections: vec![Connection::new("svc", "db", Relation::Writes, "")],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn mermaid_facade_round_trips_and_rejects_non_flowcharts() {
+        // O que arch_export_mermaid devolve, arch_import_mermaid traz de volta tal e qual.
+        let arch = valid_design();
+        let back = import_mermaid(&export_mermaid(&arch)).expect("o export é um flowchart");
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        assert_eq!(
+            serde_json::to_string(&back.arch).unwrap(),
+            serde_json::to_string(&arch).unwrap()
+        );
+        assert!(import_mermaid("sequenceDiagram\n  A->>B: hi").is_err());
     }
 
     #[test]

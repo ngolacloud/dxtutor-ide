@@ -46,6 +46,22 @@ pub fn arch_scaffold_preview(arch: tutor_eval::arch::Architecture) -> Vec<(Strin
     agent::scaffold_preview(&arch)
 }
 
+/// Export a design to Mermaid (`graph TB`, one subgraph per panel and group). The trailing
+/// `%% dxt:` comment lines carry what Mermaid cannot (kinds, protocols, panels), so
+/// importing the result gives the same design back. Pure; no I/O.
+#[tauri::command]
+pub fn arch_export_mermaid(arch: tutor_eval::arch::Architecture) -> String {
+    agent::export_mermaid(&arch)
+}
+
+/// Import a Mermaid `graph`/`flowchart` (with `subgraph`) into a design, plus warnings for
+/// what could not be brought over exactly. Errors only when the source is not a flowchart.
+/// Parsed in Rust, never in the client. Pure; no I/O.
+#[tauri::command]
+pub fn arch_import_mermaid(source: String) -> Result<agent::MermaidImport, String> {
+    agent::import_mermaid(&source)
+}
+
 /// Run a delegated task in an isolated git worktree of HEAD: apply `writes` ([relPath,
 /// content] pairs) there and return the unified diff, WITHOUT touching the working tree
 /// (RF-AG-01/05). The caller reviews the patch before anything lands.

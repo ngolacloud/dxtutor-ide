@@ -1,0 +1,196 @@
+graph TB
+    BIN["delonix-bin<br>CLI delonix — um modulo por grupo em src/cmd<br>manifesto e apply, cluster kubeadm, imagens VM douradas"]
+    CRI["delonix-cri<br>servidor CRI runtime.v1 — ImageService e RuntimeService<br>modulos: runtime_svc, lifecycle, streaming, spdy"]
+    RT["delonix-linux<br>motor de containers: clone e namespaces, setup_rootfs,<br>cgroups v2, seccomp, caps, exec, log shim, reconcile_status"]
+    NET["delonix-sdn<br>SDN rootless: modulo infra — holder netns, slirp unico,<br>publish e DNAT, DNS e DHCP; cni, wg WireGuard, discover"]
+    IMG["delonix-oci<br>imagens OCI: registry pull e push, cas, overlay,<br>build Dockerfile, buildpack CNB, sign, internal_registry"]
+    VM2["delonix-vm<br>raiz de composicao das VMs ate a P5:<br>semeia o registo e monta o VmEngine"]
+    VOL["delonix-volume<br>volumes nomeados e bind mounts, sintaxe -v Docker,<br>driver local ou nfs"]
+    NODECTX["delonix-node<br>contexto do no: eventos, verificacoes do host,<br>peer_cred, dispatch e as perguntas ao host e aos processos"]
+    STATECRATE["delonix-state<br>estado persistido: Store e JsonStore com flock,<br>escrita atomica, SecretStore e CredVault cifrados"]
+    MGMT["delonix-mgmt<br>API de gestao LOCAL (HTTP+JSON num socket unix, so o proprio uid)<br>expoe as metricas partilhadas em /metrics"]
+    TEL["delonix-telemetry<br>observabilidade: logging estruturado, spans OpenTelemetry/OTLP<br>e o registo Prometheus partilhado (saiu do core na P3)"]
+    SCAN["delonix-scanner<br>SBOM e varredura de CVE — image scan<br>e a imposicao de scan-on-pull"]
+    SEC["delonix-security<br>decisoes de seguranca do no: politica, admissao<br>unica (container E VM), evento, score, redaccao<br>(ADR-0026) — puro, sem sensores e sem inquilino"]
+    RULES["delonix-net-rules<br>regras de rede PURAS, ZERO dependencias — Cidr, nome de bridge,<br>IPAM dentro de um prefixo, leitura de taxas, o PolicyIr (ADR-0059 D6); partilhado com o PaaS"]
+    SPIFFE["delonix-spiffe<br>SPIFFE identity of the node as rustls material (ADR-0102, H0):<br>X.509-SVID chain, key and trust bundle (PEM) into a rustls ServerConfig/ClientConfig;<br>external authority (SPIRE) or the engine's own CA via self_signed.<br>NO consumer in the workspace yet — hence no inbound edge"]
+    CHV["delonix-provider-cloud-hypervisor<br>backend VmBackend Cloud Hypervisor (microVM por processo, api-socket)<br>(ADR-0044 P4b.4c) — saiu do delonix-vm, que o regista"]
+    LVIRT["delonix-provider-libvirt<br>backend VmBackend libvirt/KVM (QEMU via virsh)<br>(ADR-0044 P4b.4b) — saiu do delonix-vm, que o regista"]
+    PVE["delonix-provider-proxmox<br>backend VmBackend REMOTO contra a API de UM no Proxmox VE<br>(ADR-0008) — fora do delonix-vm por trazer cliente HTTP"]
+    NAS["delonix-provider-truenas<br>provisiona dataset, quota, permissoes e export numa NAS<br>pela API do TrueNAS (ADR-0009) — mesma razao de crate a parte"]
+    OPN["delonix-provider-opnsense<br>GatewayProvider REMOTO contra a API REST de UMA appliance OPNsense<br>(ADR-0051) — fora do delonix-sdn por trazer cliente HTTP"]
+    PDNS["delonix-provider-powerdns<br>cliente minimo da API de UM servidor PowerDNS, com a credencial<br>do PROPRIO motor (ADR-0064 D6) — remove os registos de gateway que o no deixa"]
+    MODEL["delonix-model<br>modelo partilhado PURO (foundation, ADR-0040) —<br>o Error e o dicionario DX-CDNN, Status, ContainerFw,<br>typestate, o modelo do segredo e os nomes gerados"]
+    STACK["delonix-stack<br>contexto Stack (ADR-0040): tabela de Kinds,<br>reconciliador de 3 vias, Condition, revisões"]
+    COMPUTE["delonix-compute<br>contexto Compute (ADR-0040): a especificacao<br>de execucao unica (RunOpts) que as entradas traduzem"]
+    NETCTX["delonix-networking<br>contexto Networking (ADR-0059 D7): as portas de rede por papel<br>(GatewayProvider, NetworkZoneProvider), os registos e as marcas de posse"]
+    STORCTX["delonix-storage<br>contexto Storage (ADR-0067): a porta de um driver de pool,<br>o registo de drivers, a allowlist do administrador e a marca de posse"]
+    MGMTBIN["delonix-mgmt-bin<br>o executavel delonix-mgmt, que `delonix serve api` executa (P3m)"]
+    MCPBIN["delonix-mcp-bin<br>o executavel delonix-mcp, que `delonix mcp` executa (P3l)"]
+    NODEAPI["delonix-node-api<br>o contrato de no delonix.node.v1 SERVIDO: gRPC e HTTP/JSON<br>dos mesmos .proto num socket unix, so o proprio uid;<br>hoje NodeService (info, health, capacity, providers) e openapi.json"]
+    NODEAPIBIN["delonix-node-api-bin<br>o executavel delonix-node-api, que `delonix serve node-api` executa"]
+    BTRFS["delonix-provider-btrfs<br>driver de pool btrfs (ADR-0067 P2): um volume e uma subvolume<br>feita pelo proprio processo do motor; a quota qgroup so como root"]
+    ZFS["delonix-provider-zfs<br>driver de pool zfs (ADR-0067 P3): um volume e um dataset<br>com refquota; ler e delegado, criar e destruir passa pelo helper"]
+    LVM["delonix-provider-lvm<br>driver de pool lvm-thin (ADR-0067 P4): um volume e um LV thin<br>com ext4, criado e montado pelo helper"]
+    CEPH["delonix-provider-ceph<br>suporte Ceph nativo (ADR-0081): quatro superficies de um cluster<br>pela porta Run do storage (RADOS status, RBD StoragePoolDriver de bloco,<br>CephFS por subvolume, RGW S3) — nunca a linkar librados"]
+    STORHELPER["delonix-storage-helper<br>o helper PRIVILEGIADO dos pools (ADR-0067 D3, P1): um processo<br>por ligacao no delonix-storage-helper.socket, SO_PEERCRED + allowUsers;<br>tambem o create-pool/destroy-pool do administrador"]
+    MCP["delonix-mcp<br>servidor MCP (ADR-0025) — superficie de IA LOCAL, sem inquilino<br>stdio-only; tools chamam Store/dominio, nunca shell arbitrario"]
+    ENGINE["delonix-engine<br>raiz de composicao unica (ADR-0040 D1/A5, camada assembly):<br>escolhe o adaptador e o provider de cada porta e expoe um Engine<br>com um servico por contexto — a interface recebe-o ja montado (A5)"]
+    HOST["delonix-host<br>adaptador do host (ADR-0040 R2): o mecanismo de processo-e-ficheiro<br>partilhado — escrita atomica, flock, contrato de dispatch e o peer cred<br>do socket local; adaptador de que os outros podem depender (A1)"]
+    POOLHELPER["delonix-pool-helper<br>o protocolo do helper PRIVILEGIADO de pools (ADR-0067 D3, ADR-0040 R2c):<br>as operacoes que precisam de root cruzam para o delonix-storage-helper"]
+    WARM["delonix-warm<br>o pool do plano morno (ADR-0095): runners pre-carregados (delonix __poolrunner)<br>que eliminam o pre_spawn do arranque a frio nos caminhos com processo vivo —<br>serve-one-then-exit, so orquestra processos e sockets"]
+    CRIBIN["delonix-cri-bin<br>o executavel delonix-cri, que `delonix serve cri` executa<br>(monta o Engine e serve o CRI runtime.v1)"]
+
+    BIN --> RT
+    BIN --> IMG
+    BIN --> VM2
+    BIN --> VOL
+    BIN --> NET
+    BIN --> CRI
+    BIN --> MGMT
+    BIN --> SCAN
+    BIN --> SEC
+    BIN --> PVE
+    BIN --> NAS
+    BIN --> OPN
+    BIN --> PDNS
+    MCPBIN --> MCP
+    MGMTBIN --> MGMT
+    NODEAPIBIN --> NODEAPI
+    BIN --> BTRFS
+    BIN --> ZFS
+    BIN --> LVM
+    BIN --> CEPH
+    CEPH --> STORCTX
+    BTRFS --> STORCTX
+    ZFS --> STORCTX
+    LVM --> STORCTX
+    STORHELPER --> STORCTX
+    STORHELPER --> VOL
+    STORHELPER --> BTRFS
+    STORHELPER --> ZFS
+    STORHELPER --> LVM
+    NODEAPIBIN --> NODECTX
+    NODEAPIBIN --> TEL
+    NODEAPI --> VM2
+    NODEAPI --> PVE
+    NODEAPI --> RT
+    NODEAPI --> NET
+    NODEAPI --> VOL
+    NODEAPI --> COMPUTE
+    NODEAPI --> NODECTX
+    NODEAPI --> MODEL
+    BIN --> MODEL
+    BIN --> STACK
+    BIN --> COMPUTE
+    BIN --> TEL
+
+    MGMT --> RT
+    MGMT --> IMG
+    MGMT --> VM2
+    MGMT --> VOL
+    MGMT --> NET
+    MGMT --> SCAN
+    MGMT --> TEL
+
+    SCAN --> IMG
+
+    CRI --> RT
+    CRI --> IMG
+    CRI --> NET
+    CRI --> TEL
+
+    VM2 --> COMPUTE
+
+    NET --> RULES
+    PVE --> NETCTX
+    VM2 --> LVIRT
+    VM2 --> CHV
+    CHV --> COMPUTE
+    CHV --> MODEL
+    CHV --> NODECTX
+    LVIRT --> COMPUTE
+    LVIRT --> MODEL
+    LVIRT --> NODECTX
+    OPN --> NETCTX
+    NET --> NETCTX
+    NETCTX --> MODEL
+    NETCTX --> COMPUTE
+    NETCTX --> RULES
+    BIN --> NETCTX
+    STATECRATE --> MODEL
+    COMPUTE --> NODECTX
+    COMPUTE --> MODEL
+    CRI --> NODECTX
+    CRI --> COMPUTE
+    CRI --> MODEL
+    RT --> NODECTX
+    RT --> COMPUTE
+    RT --> MODEL
+    MCP --> NODECTX
+    MCP --> COMPUTE
+    MCP --> MODEL
+    MCPBIN --> NODECTX
+    MGMT --> NODECTX
+    MGMT --> COMPUTE
+    MGMT --> MODEL
+    MGMTBIN --> NODECTX
+    NODECTX --> MODEL
+    IMG --> NODECTX
+    IMG --> COMPUTE
+    IMG --> MODEL
+    PVE --> COMPUTE
+    PVE --> MODEL
+    BIN --> NODECTX
+    SCAN --> MODEL
+    NET --> NODECTX
+    NET --> COMPUTE
+    NET --> MODEL
+    SEC --> NODECTX
+    SEC --> MODEL
+    STACK --> MODEL
+    STATECRATE --> NODECTX
+    STATECRATE --> COMPUTE
+    NAS --> MODEL
+    OPN --> MODEL
+    PDNS --> MODEL
+    VM2 --> NODECTX
+    VM2 --> MODEL
+    VOL --> STORCTX
+    STORCTX --> MODEL
+    VOL --> NODECTX
+    VOL --> COMPUTE
+    VOL --> MODEL
+    RT --> STATECRATE
+    NET --> STATECRATE
+    IMG --> STATECRATE
+    VOL --> STATECRATE
+    VM2 --> STATECRATE
+    BIN --> STATECRATE
+    CRI --> STATECRATE
+    MGMT --> STATECRATE
+    MCP --> STATECRATE
+    MCP --> VM2
+    MCP --> VOL
+    MCP --> NET
+    MCP --> MGMT
+
+    ENGINE --> COMPUTE
+    ENGINE --> VM2
+    ENGINE --> STATECRATE
+    ENGINE --> VOL
+    ENGINE --> NET
+    ENGINE --> RT
+    ENGINE --> IMG
+    ENGINE --> SCAN
+    ENGINE --> MCP
+    ENGINE --> MGMT
+    ENGINE --> TEL
+    ENGINE --> MODEL
+    HOST --> MODEL
+    POOLHELPER --> STORCTX
+    POOLHELPER --> MODEL
+    CRIBIN --> CRI
+    CRIBIN --> ENGINE
+    CRIBIN --> HOST
+    CRIBIN --> TEL
