@@ -73,7 +73,7 @@ function updateAgentUIBase(): void {
   ctxPill();
   refreshComposer();
 }
-/* ADR-0004, U4h5: o updateAgentUI e o testProv PUBLICADOS consultam a porta desktop (o runMission saiu — ADR-0005, R1b)
+/* ADR-0004, U4h5: o updateAgentUI e o testProv PUBLICADOS consultam a porta desktop (o runMission saiu — ADR-0006, R1b)
    (`desktopPorts.codev`, injectada por platform/desktop/llm.ts e demos.ts); antes o desktop
    reatribuía-os no `window`. Os chamadores internos já usavam o `window.X`. */
 window.updateAgentUI = function () { const d = desktopPorts.codev; if (d && d.updateAgentUI) d.updateAgentUI(updateAgentUIBase); else updateAgentUIBase(); };

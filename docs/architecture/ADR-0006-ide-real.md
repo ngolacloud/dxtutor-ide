@@ -433,3 +433,15 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   variável, dá um passo e corre até ao fim). `errors: []`. IPC-MATRIX: os nove `debug_*` ganham
   consumidor. **A verificar na máquina do utilizador:** instalar o gdb e correr o selftest (ou F5
   num projecto Cargo).
+- **Rebase sobre a U4h5, U4i1–U4i3 e o Studio F0/F1 (2026-11-24).** A U4h5 passou mais três
+  decorações do desktop a portas injectadas (`desktopPorts.codev.runMission`,
+  `desktopPorts.board.runSprint`, `desktopPorts.welcome`/`changelog`/`explorer`); a U4i tipou o
+  `boot.ts`, o `infra.ts` e o `visualizer.ts`. As mudanças desta série foram re-aplicadas por cima:
+  o `runMission` sai da porta do Co-Dev (as missões saíram na R1b); a porta do `runSprint` sai
+  inteira (`BoardDesktop`, a entrada no registo `app/desktop.ts` e o embrulho no `board.ts` — a
+  única implementação era o guarda «Sprint runs are scripted demos» do `demos.ts`, que a R3a tira);
+  o Welcome mantém a porta sem o cartão da missão de demonstração; o changelog mantém a porta com
+  a fonte sem repositório vazia (sem a simulação); a porta do explorador mantém o fallback da
+  pasta vazia (R1a); o `boot.ts` tipado fica sem a árvore, o `DOCS` e os contentores inventados;
+  o `infra.ts` tipado fica sem o «Debug this». Selftest desktop completo (R1–R4): `errors: []`.
+  Métricas após o rebase: globais 392 → 366, handlers inline 158 → 143.
