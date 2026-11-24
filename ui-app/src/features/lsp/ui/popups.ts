@@ -4,10 +4,11 @@
        clicar, ou ↑/↓ + Enter, abre-a; Escape ou clicar fora fecha;
      • rename (F2): caixa com o nome actual seleccionado; Enter aplica, Escape cancela;
      • code actions (Ctrl+.): menu de correcções e refactorings (`#lsp-actions`);
-     • Go to Symbol (Ctrl+Shift+O): os símbolos do ficheiro com um campo de filtro (`#lsp-symbols`).
+     • Go to Symbol (Ctrl+Shift+O): os símbolos do ficheiro com um campo de filtro (`#lsp-symbols`);
+     • Go to Symbol in Workspace (Ctrl+T): pesquisa nos servidores da pasta (`#lsp-wsymbols`).
    Listeners ligados aos elementos (sem `onclick` inline). Não toca em `window`. */
 
-import type { Reference } from "../application/lsp-client";
+import type { Reference, WorkspaceSymbolResult, WorkspaceSymbolSearch } from "../application/lsp-client";
 import { kindLabel, type CodeActionItem } from "../domain/code-actions";
 import { filterSymbols, type SymbolEntry } from "../domain/symbols";
 
@@ -262,4 +263,131 @@ export function showSymbolPicker(entries: readonly SymbolEntry[], x: number, y: 
   CLOSERS.set("lsp-symbols", () => document.removeEventListener("mousedown", onDown, true));
   render();
   input.focus();
+}
+
+/** Quanto esperar depois da última tecla antes de perguntar aos servidores. */
+const WS_DEBOUNCE_MS = 150;
+
+/** O Go to Symbol in Workspace junto a (x, y): a cada tecla (com uma pausa curta) pergunta
+ *  `search(q)` e mostra os símbolos (tipo, nome, contentor, ficheiro:linha). ↑/↓ escolhem, Enter
+ *  ou clique abrem; Escape ou clicar fora fecham. Os que estão fora da pasta ficam desactivados. */
+export function showWorkspaceSymbolPicker(
+  x: number,
+  y: number,
+  search: (q: string) => Promise<WorkspaceSymbolSearch | null>,
+  onPick: (s: WorkspaceSymbolResult) => void,
+  onClose: () => void,
+): void {
+  const el = floating("lsp-wsymbols", "lsp-pop lsp-refs lsp-symbols lsp-wsymbols", x, y);
+  const input = document.createElement("input");
+  input.className = "inp notr";
+  input.spellcheck = false;
+  input.placeholder = "Go to symbol in workspace…";
+  input.setAttribute("aria-label", "Search symbols in the folder");
+  const status = document.createElement("div");
+  status.className = "lsp-pop-hint lsp-sym-none";
+  const list = document.createElement("div");
+  list.className = "lsp-sym-list";
+  list.setAttribute("role", "listbox");
+  el.append(input, status, list);
+  let shown: WorkspaceSymbolResult[] = [];
+  let sel = 0;
+  let done = false;
+  let seq = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const finish = (pick: WorkspaceSymbolResult | null): void => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    closePopup("lsp-wsymbols");
+    if (pick) onPick(pick);
+    else onClose();
+  };
+  const rows = (): HTMLElement[] => [...list.querySelectorAll<HTMLElement>(".lsp-ref")];
+  const mark = (): void => {
+    rows().forEach((b, i) => {
+      b.classList.toggle("sel", i === sel);
+      b.setAttribute("aria-selected", String(i === sel));
+      if (i === sel) b.scrollIntoView?.({ block: "nearest" });
+    });
+  };
+  const render = (res: WorkspaceSymbolSearch | null, q: string): void => {
+    shown = res ? res.items : [];
+    sel = Math.max(0, shown.findIndex((s) => s.key));
+    list.textContent = "";
+    status.textContent = !res
+      ? "Open a folder to search its symbols"
+      : !res.servers
+        ? "No language server is running in this folder yet — open one of its files first"
+        : shown.length
+          ? ""
+          : q.trim()
+            ? "No matching symbols"
+            : "Type to search the symbols of the folder";
+    status.hidden = !status.textContent;
+    for (const s of shown) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.tabIndex = -1;
+      b.className = "lsp-ref lsp-sym";
+      b.setAttribute("role", "option");
+      b.disabled = !s.key;
+      const kind = document.createElement("span");
+      kind.className = "lsp-act-kind";
+      kind.textContent = s.label;
+      const name = document.createElement("span");
+      name.className = "lsp-sym-n";
+      name.textContent = s.name;
+      const where = document.createElement("span");
+      where.className = "lsp-ref-t";
+      where.textContent = [s.container ? `in ${s.container}` : "", s.key ? `${s.file}${s.line !== null ? `:${s.line}` : ""}` : "outside this folder"].filter(Boolean).join("  ");
+      b.append(kind, name, where);
+      b.addEventListener("mousedown", (e) => e.preventDefault()); // o foco fica no campo
+      b.addEventListener("click", () => finish(s));
+      list.appendChild(b);
+    }
+    mark();
+  };
+  const run = (): void => {
+    const q = input.value, mine = ++seq;
+    void search(q).then((res) => {
+      if (!done && mine === seq) render(res, q);
+    });
+  };
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(run, WS_DEBOUNCE_MS);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (["Escape", "Enter", "ArrowDown", "ArrowUp"].includes(e.key)) e.stopPropagation(); // são do cartão
+    if (e.key === "Escape") {
+      e.preventDefault();
+      finish(null);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const s = shown[sel];
+      if (s && s.key) finish(s);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const n = shown.length;
+      if (!n) return;
+      // salta os desactivados (fora da pasta)
+      for (let k = 0; k < n; k++) {
+        sel = (sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+        if (shown[sel].key) break;
+      }
+      mark();
+    }
+  });
+  const onDown = (e: MouseEvent): void => {
+    if (!el.contains(e.target as Node)) finish(null);
+  };
+  document.addEventListener("mousedown", onDown, true);
+  CLOSERS.set("lsp-wsymbols", () => {
+    clearTimeout(timer);
+    document.removeEventListener("mousedown", onDown, true);
+  });
+  status.textContent = "Searching…";
+  input.focus();
+  run();
 }

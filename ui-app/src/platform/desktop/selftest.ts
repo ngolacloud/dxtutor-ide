@@ -672,7 +672,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // rato parado sobre um símbolo (mousemove → cartão de hover), F12 numa chamada (salta
     // para a definição), Shift+F12 (lista de referências) e F2 + nome novo + Enter (rename em
     // todos os ficheiros, gravado no disco); pelo meio completion, assinatura, code actions,
-    // formatação e Go to Symbol (Ctrl+Shift+O + o Outline). Só corre para as linguagens com servidor instalado.
+    // formatação, Go to Symbol (Ctrl+Shift+O + o Outline) e Go to Symbol in Workspace (Ctrl+T). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
   }
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
@@ -897,6 +897,34 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const rows = [...document.querySelectorAll("#outline .s-hit")].map(h => h.textContent ?? "");
       return rows.some(r => r.includes("main")) ? rows : null;
     }, 20_000, 500);
+    // 3g) Go to Symbol in Workspace: Ctrl+T, escrever «ad» (Java: o método do Util.java, que não
+    //     está aberto) / «gre» (Kotlin: o servidor não manda a linha — procura-se no ficheiro) e
+    //     Enter leva ao símbolo.
+    const wsQuery = lang === "java" ? "ad" : "gre", wsWant = lang === "java" ? "add" : "greet";
+    const wsKey = lang === "java" ? ROOT + "lsp-java/Util.java" : main, wsLine = lang === "java" ? 3 : 1;
+    const wsRows = () => [...document.querySelectorAll("#lsp-wsymbols .lsp-sym")].map(b => `${b.querySelector(".lsp-act-kind")?.textContent} ${b.querySelector(".lsp-sym-n")?.textContent} ${b.querySelector(".lsp-ref-t")?.textContent}`);
+    const wsList = await until(() => {
+      const inp = document.querySelector<HTMLInputElement>("#lsp-wsymbols input");
+      const rows = wsRows();
+      if (inp && inp.value === wsQuery && rows.some(r => r.includes(` ${wsWant} `))) return rows;
+      if (!inp) {
+        if (W.cur !== main) W.openPath(main);
+        const el = ta()!; el.focus();
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "t", code: "KeyT", ctrlKey: true, bubbles: true, cancelable: true }));
+      } else {
+        inp.value = wsQuery; inp.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      return null;
+    }, 60_000, 2000);
+    let wsLanded: { file: string | null; line: number | null } | null = null;
+    const wsInput = document.querySelector<HTMLInputElement>("#lsp-wsymbols input");
+    if (wsList && wsInput) {
+      await sleep(1500); // o cartão fica no ecrã para a captura
+      wsInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await until(() => W.cur === wsKey && caretLineNow() === wsLine, 15_000, 250);
+      wsLanded = { file: W.cur, line: caretLineNow() };
+    }
+    document.getElementById("lsp-wsymbols")?.remove();
     // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
     const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
     const refRows = await until(() => {
@@ -946,6 +974,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       codeActions: { titles: actionTitles ? actionTitles.slice(0, 5) : null, ...(lang === "java" ? { applied: actionApplied } : {}) },
       formatting: { from: uglyLine, to: formattedLine },
       symbols: { list: symbolList, filtered, caretLineAfterEnter: symbolJump, expectedLine: lang === "java" ? 2 : 3, outline: outlineRows },
+      workspaceSymbols: { query: wsQuery, rows: wsList, landed: wsLanded, expected: { file: wsKey, line: wsLine } },
       references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
       rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk, ...(probeRename ? { probe: probeRename } : {}) },
       toasts,
