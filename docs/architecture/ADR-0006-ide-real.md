@@ -630,6 +630,7 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   `nobody@127.0.0.1:9` e o teste devolve a mensagem do ssh («Connection refused»); `errors: []`.
 - **Fim da série (2026-11-24).** R0–R6 feitas. O que ficou por verificar nesta máquina, e porquê:
   sessões reais do gdb (não instalado), o agente e o uso de tokens com um modelo real (sem chave),
-  e uma promoção a um cluster real (nunca se tocou nos clusters do utilizador). Reportado e não
-  corrigido na série: o resto «…common methods.<code>rust_tracer</code>).» na mensagem de erro do
-  visualizer (e45f18d, do develop).
+  e uma promoção a um cluster real (nunca se tocou nos clusters do utilizador). O resto «…common
+  methods.<code>rust_tracer</code>).» na mensagem de erro do visualizer (e45f18d, do develop),
+  reportado na série, foi corrigido depois a pedido do dono (com um teste do cartão de erro, que
+  nenhum cobria).
