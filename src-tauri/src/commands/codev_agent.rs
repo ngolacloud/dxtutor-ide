@@ -30,6 +30,7 @@ pub async fn codev_agent_start(
     mode: Option<String>,
     resume: Option<String>,
     provider: Option<String>,
+    review_edits: Option<bool>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let spec = StartSpec {
@@ -45,6 +46,7 @@ pub async fn codev_agent_start(
         user_mcp: tutor_agent::mcp::user_config(),
         provider,
         ollama_host: Some(tutor_llm::chat::ollama_host()),
+        review_edits: review_edits.unwrap_or(false),
         ..Default::default()
     };
     tauri::async_runtime::spawn_blocking(move || {
@@ -102,6 +104,18 @@ pub fn codev_agent_approve(
         reason,
         remember.unwrap_or(false),
     )
+}
+
+/// Decide os hunks de um `hunk_review` (docs/v2/RF-CODEV-STREAM.md §4): só os aceites são
+/// escritos; um hunk sem decisão conta como recusado. Erro se a sessão, a chamada ou um
+/// hunk não existirem (a revisão continua à espera).
+#[tauri::command]
+pub fn codev_agent_review(
+    session_id: String,
+    call: String,
+    decisions: Vec<codev_agent::HunkVerdict>,
+) -> Result<(), String> {
+    codev_agent::review(&session_id, &call, &decisions)
 }
 
 /// Muda o modo da sessão (Manual/Assistido/Auto) — a modebar.

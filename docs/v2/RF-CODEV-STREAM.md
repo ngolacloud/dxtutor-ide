@@ -136,6 +136,13 @@ Implementação: `crates/tutor-agent/src/hunks.rs` (A2.1). O anfitrião liga os 
 `Agent::hunks = Some(files)` (o `FileState` partilhado com as ferramentas via `ToolsetOptions::files`);
 a TUI/CLI não os ligam e continuam a escrever directamente.
 
+Anfitrião (A2.2, `src-tauri/src/codev_agent.rs`): a opção `review_edits` do `codev_agent_start` liga os
+hunks na sessão. A decisão de cada chamada com hunks é `hunk_gate` (§5): Manual e Assistido emitem
+`hunk_review` no canal de eventos e esperam pelo `codev_agent_review`; o Auto corre a validação base antes
+da primeira alteração do turno, aplica com `provisional: true` e, no fim do turno, valida; se um check que
+passava falhar, repõe o checkpoint do turno. O `done` do turno só sai depois da validação (I4). Auto sem
+comandos de teste/lint ou sem repositório git (sem checkpoint para repor) degrada para revisão (D2).
+
 `write` de **ficheiro novo**: `op: "create"`, `range {start:1,end:0}`, chunks de `content` ao vivo.
 `write` de **ficheiro existente**: o conteúdo é acumulado; no fim, diff de linhas contra `base` e um
 `hunk_start`/`hunk_end` por bloco diferente (sem chunks intermédios, porque o intervalo só se conhece no

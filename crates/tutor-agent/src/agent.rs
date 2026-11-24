@@ -18,7 +18,9 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::hunks::{HunkOp, HunkTracker, LineCount, LineRange, RejectedBy};
+use crate::hunks::{
+    Check, HunkOp, HunkTracker, LineCount, LineRange, RejectedBy, ValidationStatus,
+};
 use crate::provider::{
     Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent, SystemBlock,
     ThinkingDisplay, Usage,
@@ -203,6 +205,13 @@ pub enum AgentEvent {
     HunkStale {
         hunk: String,
         path: String,
+    },
+    /// Validation of the turn's provisional changes (Auto mode; emitted by the host).
+    /// `baseline`: the same commands before the first change of the turn.
+    Validation {
+        status: ValidationStatus,
+        checks: Vec<Check>,
+        baseline: Vec<Check>,
     },
     Done {
         outcome: TurnOutcome,
@@ -600,7 +609,12 @@ impl Agent {
             let allowed: Result<(), String> = match (approve(&pending), plan) {
                 (Decision::Deny(why), plan) => {
                     if let (Some(p), Some(t)) = (&plan, tracker.as_deref_mut()) {
-                        t.reject(p, RejectedBy::Human, &why, events);
+                        let by = if self.cancelled() {
+                            RejectedBy::Cancel
+                        } else {
+                            RejectedBy::Human
+                        };
+                        t.reject(p, by, &why, events);
                     }
                     Err(why)
                 }

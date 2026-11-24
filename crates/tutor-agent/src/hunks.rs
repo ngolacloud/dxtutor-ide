@@ -795,6 +795,83 @@ pub fn apply(
     ToolOutput::ok(msg)
 }
 
+// ───── validation (Auto mode, RF-CODEV-STREAM §5) ─────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValidationStatus {
+    Running,
+    Passed,
+    Failed,
+    Skipped,
+}
+
+/// The result of one validation command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Check {
+    pub command: String,
+    pub ok: bool,
+    /// The last meaningful line of the output (or why it did not finish).
+    pub summary: String,
+}
+
+/// Runs each command in the project root (same shell and limits as `run_tests`/`lint`).
+pub fn run_checks(commands: &[String], ctx: &crate::tool::ToolCtx) -> Vec<Check> {
+    commands
+        .iter()
+        .map(|c| {
+            let r = crate::tools::run_process(
+                crate::tools::shell(c),
+                &ctx.root,
+                crate::tools::MAX_TIMEOUT,
+                ctx,
+            );
+            let summary = if r.cancelled {
+                "cancelled".to_string()
+            } else if r.timed_out {
+                "timed out".to_string()
+            } else {
+                let out = format!("{}\n{}", r.stdout, r.stderr);
+                let line = out
+                    .lines()
+                    .rev()
+                    .map(str::trim)
+                    .find(|l| !l.is_empty())
+                    .unwrap_or("")
+                    .to_string();
+                let line: String = line.chars().take(200).collect();
+                match r.code {
+                    Some(0) => line,
+                    Some(code) if line.is_empty() => format!("exit {code}"),
+                    Some(code) => format!("exit {code}: {line}"),
+                    None => "killed".to_string(),
+                }
+            };
+            Check {
+                command: c.clone(),
+                ok: r.ok(),
+                summary,
+            }
+        })
+        .collect()
+}
+
+/// "Nothing broke": no command that passed before the changes fails after them. A command
+/// that already failed may keep failing (the turn may be fixing something else).
+pub fn broke(baseline: &[Check], after: &[Check]) -> Vec<Check> {
+    after
+        .iter()
+        .filter(|a| {
+            !a.ok
+                && baseline
+                    .iter()
+                    .find(|b| b.command == a.command)
+                    .is_none_or(|b| b.ok)
+        })
+        .cloned()
+        .collect()
+}
+
 // ───── tracker: from the model's stream to hunk events ─────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1854,6 +1931,44 @@ mod tests {
         t.discard(RejectedBy::Cancel, "stopped", &mut push);
         assert_eq!(kinds(&ev), ["hunk_start", "hunk_chunk", "hunk_rejected"]);
         assert!(t.take_plan("c", "read", &json!({}), &mut |_| {}).is_none());
+    }
+
+    fn check(command: &str, ok: bool) -> Check {
+        Check {
+            command: command.into(),
+            ok,
+            summary: String::new(),
+        }
+    }
+
+    #[test]
+    fn broke_counts_only_checks_that_passed_before() {
+        let base = [check("test", true), check("lint", false)];
+        assert!(broke(&base, &[check("test", true), check("lint", false)]).is_empty());
+        let b = broke(&base, &[check("test", false), check("lint", false)]);
+        assert_eq!(b, [check("test", false)]);
+        // a command with no baseline counts as having passed
+        assert_eq!(broke(&[], &[check("new", false)]).len(), 1);
+    }
+
+    #[test]
+    fn run_checks_reports_exit_and_last_line() {
+        let ws = Ws::new();
+        let ctx = crate::tool::ToolCtx {
+            root: ws.root().to_path_buf(),
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let r = run_checks(
+            &[
+                "echo one; echo 4 passed".into(),
+                "echo boom >&2; exit 3".into(),
+            ],
+            &ctx,
+        );
+        assert!(r[0].ok);
+        assert_eq!(r[0].summary, "4 passed");
+        assert!(!r[1].ok);
+        assert_eq!(r[1].summary, "exit 3: boom");
     }
 
     #[test]

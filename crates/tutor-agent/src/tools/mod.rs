@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use crate::tool::Tool;
 
-pub use exec::{run_process, run_process_io, ExecOutcome};
+pub use exec::{run_process, run_process_io, shell, ExecOutcome, MAX_TIMEOUT};
 pub(crate) use fs::{check_fresh, edit_check, write_check};
 
 /// Impressão digital do conteúdo de cada ficheiro tal como o agente o viu pela última vez.

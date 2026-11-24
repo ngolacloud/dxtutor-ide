@@ -179,7 +179,7 @@ pub fn run_process_io(
 }
 
 /// `sh -c` (Unix) / `cmd /C` (Windows).
-fn shell(command: &str) -> Command {
+pub fn shell(command: &str) -> Command {
     if cfg!(windows) {
         let mut c = Command::new("cmd");
         c.arg("/C").arg(command);

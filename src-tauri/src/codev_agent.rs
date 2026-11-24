@@ -10,6 +10,7 @@
 //! piso de segurança) decide cada chamada; só o que ela manda perguntar chega à UI, com a
 //! razão e a regra que «permitir sempre» gravaria.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -21,12 +22,13 @@ use tutor_agent::anthropic::{self, Anthropic, Config};
 use tutor_agent::checkpoint::{Checkpoint, Checkpoints};
 use tutor_agent::extensions::{self, Command as ProjectCommand, Skill};
 use tutor_agent::hooks::{Hooks, HOOKS_FILE};
+use tutor_agent::hunks::{self, Check, RejectedBy, ValidationStatus};
 use tutor_agent::mcp::{self, McpTool};
 use tutor_agent::openai::{self, OpenAiCompat};
 use tutor_agent::permissions::{Mode, Policy, Rules, Verdict};
 use tutor_agent::session::{self, HistoryItem, SessionLog, SessionMeta, SessionSummary};
 use tutor_agent::tools::flow::SubagentSpec;
-use tutor_agent::tools::{agent_tools, FlowState, ToolsetOptions, TOOLSET_VERSION};
+use tutor_agent::tools::{agent_tools, FileState, FlowState, ToolsetOptions, TOOLSET_VERSION};
 use tutor_agent::{trust, Tool};
 use tutor_agent::{
     Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall, Provider,
@@ -65,6 +67,10 @@ pub struct StartSpec {
     pub provider: Option<String>,
     /// Endereço do Ollama (o adaptador passa o das definições/`OLLAMA_HOST`).
     pub ollama_host: Option<String>,
+    /// Live hunks (docs/v2/RF-CODEV-STREAM.md, D1): `edit`/`write` stream hunks into the
+    /// editor and only accepted hunks are written. Manual and Assist review every hunk;
+    /// Auto applies provisionally and validates. Off: the old direct writes.
+    pub review_edits: bool,
 }
 
 /// Prefixo do erro de um modelo sem tool calling nativo: a UI reconhece-o e recua para o
@@ -255,6 +261,65 @@ struct Session {
     notes: Mutex<Vec<String>>,
     /// Avisos do arranque para o humano (MCP que falhou, hooks por confiar…).
     startup_notices: Vec<String>,
+    /// Live hunks on ([`StartSpec::review_edits`]).
+    review_edits: bool,
+    /// The project's test/lint commands: Auto mode validates provisional hunks with them.
+    checks: Vec<String>,
+    /// tool_use_id → the hunks of a call waiting in `hunk_review`.
+    review: Mutex<HashMap<String, Vec<String>>>,
+}
+
+/// How the host treats a call that carries hunks (RF-CODEV-STREAM §5; D1, D2).
+#[derive(Debug, Clone, PartialEq)]
+pub enum HunkGate {
+    Deny(String),
+    /// Auto: write now, validate at the end of the turn.
+    Provisional,
+    /// The human decides each hunk. `degraded`: Auto without a way to validate.
+    Review {
+        reason: String,
+        degraded: bool,
+    },
+}
+
+/// The policy's verdict, applied to a call with hunks. Rules that allow `edit` always do
+/// not skip the review in Manual/Assist; protected files are reviewed even in Auto (the
+/// policy asks for them); Auto applies provisionally only when it can validate and undo.
+pub fn hunk_gate(verdict: Verdict, mode: Mode, can_validate: bool) -> HunkGate {
+    let review = |r: &str, degraded| HunkGate::Review {
+        reason: r.to_string(),
+        degraded,
+    };
+    match verdict {
+        Verdict::Deny { reason } => HunkGate::Deny(reason),
+        Verdict::Ask { reason, .. } => HunkGate::Review {
+            reason,
+            degraded: false,
+        },
+        Verdict::Allow => match mode {
+            Mode::Auto if can_validate => HunkGate::Provisional,
+            Mode::Auto => review(
+                "modo Auto sem validação automática (comando de testes ou lint e repositório \
+                 git): revês cada alteração neste turno",
+                true,
+            ),
+            Mode::Assist => review("modo Assistido: aceitas cada alteração no editor", false),
+            Mode::Manual => review("modo Manual: aceitas cada alteração no editor", false),
+        },
+    }
+}
+
+/// What the host tracks during one turn for Auto mode's validation.
+#[derive(Default)]
+struct AutoTurn {
+    /// The checks run before the first provisional change.
+    baseline: Option<Vec<Check>>,
+    /// Hunks written provisionally this turn.
+    provisional: Vec<String>,
+    /// The turn's checkpoint (rollback target).
+    checkpoint: Option<u32>,
+    /// The "Auto degrades to review" notice was shown this turn.
+    degraded: bool,
 }
 
 /// O texto que anuncia o modo ao modelo (vai como mensagem `system` a meio da conversa,
@@ -432,6 +497,14 @@ pub fn start(
     );
     policy.plan = flow.plan_mode.clone();
     let checkpoints = Checkpoints::new(&root, &meta.id).map(Arc::new);
+    // live hunks: the read/edit/write state is shared between the tools and the loop
+    let files = spec.review_edits.then(|| Arc::new(FileState::default()));
+    let checks: Vec<String> = [meta.test_cmd.clone(), meta.lint_cmd.clone()]
+        .into_iter()
+        .flatten()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
     let ctx = ToolCtx {
         root,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -445,6 +518,7 @@ pub fn start(
         &ToolsetOptions {
             test_cmd: meta.test_cmd.clone(),
             lint_cmd: meta.lint_cmd.clone(),
+            files: files.clone(),
             ..Default::default()
         },
         meta.toolset,
@@ -454,6 +528,7 @@ pub fn start(
     );
     let mut agent = Agent::new(provider, tools, acfg, ctx);
     agent.checkpoints = checkpoints;
+    agent.hunks = files;
     // hooks do projecto: só se o humano confiou neste ficheiro, tal como está
     let root_ref = agent.ctx.root.clone();
     if root_ref.join(HOOKS_FILE).exists() {
@@ -488,6 +563,9 @@ pub fn start(
         flow,
         notes: Mutex::new(vec![]),
         startup_notices: notes,
+        review_edits: spec.review_edits,
+        checks,
+        review: Mutex::new(HashMap::new()),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -518,8 +596,84 @@ pub fn send(
     }
     s.agent.ctx.cancel.store(false, Ordering::Relaxed);
     let session = s.clone();
+    // one sink for the loop's events and the host's own (hunk_review, validation): one
+    // channel, in the order things happen (RF-CODEV-STREAM I4)
+    let sink = RefCell::new(on_event);
+    let emit = |e: AgentEvent| (**sink.borrow_mut())(e);
+    let auto = RefCell::new(AutoTurn::default());
+    let held_done: RefCell<Option<AgentEvent>> = RefCell::new(None);
+    let mut on_loop_event = |e: AgentEvent| {
+        match &e {
+            AgentEvent::Checkpoint { id, .. } => auto.borrow_mut().checkpoint = Some(*id),
+            AgentEvent::HunkApplied {
+                hunk,
+                provisional: true,
+                ..
+            } => auto.borrow_mut().provisional.push(hunk.clone()),
+            // `done` waits for Auto's validation (sent after the turn)
+            AgentEvent::Done { .. } if session.review_edits => {
+                *held_done.borrow_mut() = Some(e);
+                return;
+            }
+            _ => {}
+        }
+        emit(e);
+    };
     let mut approve = |call: &PendingCall| -> Decision {
         let verdict = session.policy.lock().unwrap().decide(call);
+        if session.review_edits && !call.hunks.is_empty() {
+            let mode = session.policy.lock().unwrap().mode;
+            let can_validate = !session.checks.is_empty() && session.agent.checkpoints.is_some();
+            let reason = match hunk_gate(verdict, mode, can_validate) {
+                HunkGate::Deny(reason) => return Decision::Deny(reason),
+                HunkGate::Provisional => {
+                    // the baseline: the checks before the turn's first change
+                    if auto.borrow().baseline.is_none() {
+                        emit(AgentEvent::Validation {
+                            status: ValidationStatus::Running,
+                            checks: vec![],
+                            baseline: vec![],
+                        });
+                        let b = hunks::run_checks(&session.checks, &session.agent.ctx);
+                        auto.borrow_mut().baseline = Some(b);
+                    }
+                    return Decision::Hunks {
+                        accepted: call.hunks.clone(),
+                        rejected: vec![],
+                        provisional: true,
+                    };
+                }
+                HunkGate::Review { reason, degraded } => {
+                    if degraded && !std::mem::replace(&mut auto.borrow_mut().degraded, true) {
+                        emit(AgentEvent::Notice {
+                            text: reason.clone(),
+                        });
+                    }
+                    reason
+                }
+            };
+            let (tx, rx) = mpsc::channel();
+            session
+                .pending
+                .lock()
+                .unwrap()
+                .insert(call.id.clone(), (tx, None));
+            session
+                .review
+                .lock()
+                .unwrap()
+                .insert(call.id.clone(), call.hunks.clone());
+            emit(AgentEvent::HunkReview {
+                call: call.id.clone(),
+                hunks: call.hunks.clone(),
+                reason,
+                why: None,
+            });
+            let d = wait_decision(&rx, &session.agent.ctx.cancel);
+            session.pending.lock().unwrap().remove(&call.id);
+            session.review.lock().unwrap().remove(&call.id);
+            return d;
+        }
         let (reason, dangerous, suggested_rule) = match verdict {
             Verdict::Allow => return Decision::Allow,
             Verdict::Deny { reason } => return Decision::Deny(reason),
@@ -555,7 +709,7 @@ pub fn send(
             };
             if t.is_empty() {
                 for text in &s.startup_notices {
-                    on_event(AgentEvent::Notice { text: text.clone() });
+                    emit(AgentEvent::Notice { text: text.clone() });
                 }
             }
             t.push(Message::user_text(q));
@@ -570,20 +724,107 @@ pub fn send(
             for n in std::mem::take(&mut *s.notes.lock().unwrap()) {
                 t.push(Message::system(n));
             }
-            s.agent.run_turn(&mut t, None, on_event, &mut approve)
+            s.agent
+                .run_turn(&mut t, None, &mut on_loop_event, &mut approve)
         }
         // «tentar de novo»: continua do histórico, sem nota nova
-        None => s.agent.run_turn(&mut t, None, on_event, &mut approve),
+        None => s
+            .agent
+            .run_turn(&mut t, None, &mut on_loop_event, &mut approve),
     };
     if let Some(log) = s.log.lock().unwrap().as_mut() {
         let _ = log.sync(&t); // append-only: só as mensagens novas
     }
     drop(t);
+    // Auto: validate the provisional changes, then tell the UI the turn is done
+    let turn = auto.take();
+    if !turn.provisional.is_empty() {
+        validate(&s, turn, &emit);
+    }
+    if let Some(done) = held_done.take() {
+        emit(done);
+    }
     s.busy.store(false, Ordering::SeqCst);
     r.map_err(|e: AgentError| match &e {
         AgentError::Provider(p) if openai::is_tools_unsupported(p) => format!("{NO_TOOLS_MARK}{e}"),
         _ => e.to_string(),
     })
+}
+
+/// Auto mode, end of turn: runs the checks again. If a check that passed before the turn
+/// now fails, the files go back to the turn's checkpoint and the provisional hunks are
+/// rejected (`by: validation`); the model hears about it in its next message.
+fn validate(s: &Session, turn: AutoTurn, emit: &dyn Fn(AgentEvent)) {
+    let baseline = turn.baseline.unwrap_or_default();
+    if s.agent.ctx.cancel.load(Ordering::Relaxed) {
+        emit(AgentEvent::Validation {
+            status: ValidationStatus::Skipped,
+            checks: vec![],
+            baseline,
+        });
+        emit(AgentEvent::Notice {
+            text: "Auto: a validação não correu porque paraste o turno; as alterações provisórias \
+                   ficam no disco (podes voltar ao checkpoint do turno)."
+                .into(),
+        });
+        return;
+    }
+    emit(AgentEvent::Validation {
+        status: ValidationStatus::Running,
+        checks: vec![],
+        baseline: baseline.clone(),
+    });
+    let after = hunks::run_checks(&s.checks, &s.agent.ctx);
+    let broken = hunks::broke(&baseline, &after);
+    if broken.is_empty() {
+        emit(AgentEvent::Validation {
+            status: ValidationStatus::Passed,
+            checks: after,
+            baseline,
+        });
+        return;
+    }
+    let what = broken
+        .iter()
+        .map(|c| format!("`{}` ({})", c.command, c.summary))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let restored = match (turn.checkpoint, s.agent.checkpoints.as_ref()) {
+        (Some(cp), Some(cps)) => cps.restore(cp),
+        _ => Err("este turno não tem checkpoint".to_string()),
+    };
+    if restored.is_ok() {
+        for hunk in &turn.provisional {
+            emit(AgentEvent::HunkRejected {
+                hunk: hunk.clone(),
+                by: RejectedBy::Validation,
+                reason: format!("a validação falhou: {what}"),
+            });
+        }
+    }
+    emit(AgentEvent::Validation {
+        status: ValidationStatus::Failed,
+        checks: after,
+        baseline,
+    });
+    let (human, model) = match restored {
+        Ok(_) => (
+            format!("Auto: a validação falhou ({what}); os ficheiros voltaram ao estado de antes do turno."),
+            format!(
+                "A validação automática falhou depois das tuas alterações ({what}) e os ficheiros \
+                 foram repostos como estavam antes do turno: volta a lê-los antes de continuar."
+            ),
+        ),
+        Err(e) => (
+            format!("Auto: a validação falhou ({what}) e não foi possível repor os ficheiros: {e}. Revê as alterações."),
+            format!(
+                "A validação automática falhou depois das tuas alterações ({what}); as alterações \
+                 continuam no disco."
+            ),
+        ),
+    };
+    emit(AgentEvent::Notice { text: human });
+    s.notes.lock().unwrap().push(model);
 }
 
 /// Espera pela decisão da UI, desistindo se a sessão for cancelada.
@@ -627,6 +868,60 @@ pub fn approve(
         Decision::Deny(reason.unwrap_or_else(|| "recusado".into()))
     };
     tx.send(d).is_ok()
+}
+
+/// One decision of a `hunk_review` (args of `codev_agent_review`).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct HunkVerdict {
+    pub hunk: String,
+    pub accept: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// The UI decides the hunks of a `hunk_review` (RF-CODEV-STREAM §4). Only the accepted
+/// hunks are written; a hunk without a decision counts as rejected. An unknown hunk is an
+/// error and leaves the review pending.
+pub fn review(id: &str, call: &str, decisions: &[HunkVerdict]) -> Result<(), String> {
+    let s = get(id)?;
+    let hunks = s
+        .review
+        .lock()
+        .unwrap()
+        .get(call)
+        .cloned()
+        .ok_or_else(|| format!("nenhuma alteração à espera de revisão com o id {call}"))?;
+    if let Some(d) = decisions.iter().find(|d| !hunks.contains(&d.hunk)) {
+        return Err(format!("hunk desconhecido nesta revisão: {}", d.hunk));
+    }
+    let mut accepted = vec![];
+    let mut rejected = vec![];
+    for h in &hunks {
+        // the last decision about a hunk wins
+        match decisions.iter().rev().find(|d| &d.hunk == h) {
+            Some(d) if d.accept => accepted.push(h.clone()),
+            Some(d) => rejected.push((
+                h.clone(),
+                d.reason
+                    .clone()
+                    .filter(|r| !r.trim().is_empty())
+                    .unwrap_or_else(|| "recusado".into()),
+            )),
+            None => rejected.push((h.clone(), "sem decisão".into())),
+        }
+    }
+    let Some((tx, _)) = s.pending.lock().unwrap().remove(call) else {
+        return Err(format!(
+            "nenhuma alteração à espera de revisão com o id {call}"
+        ));
+    };
+    s.review.lock().unwrap().remove(call);
+    tx.send(Decision::Hunks {
+        accepted,
+        rejected,
+        provisional: false,
+    })
+    .map_err(|_| "o turno já não está à espera desta decisão".to_string())
 }
 
 /// Muda o modo da sessão (a modebar). Vale a partir da próxima decisão.
@@ -1137,6 +1432,244 @@ mod tests {
         assert_eq!(wait_decision(&rx, &flag), Decision::Allow);
         flag.store(true, Ordering::Relaxed);
         assert!(matches!(wait_decision(&rx, &flag), Decision::Deny(_)));
+    }
+
+    #[test]
+    fn hunk_gate_reviews_in_manual_and_assist_and_validates_in_auto() {
+        let ask = Verdict::Ask {
+            reason: "ficheiro protegido".into(),
+            dangerous: true,
+            suggested_rule: None,
+        };
+        let review = |g: HunkGate| {
+            matches!(
+                g,
+                HunkGate::Review {
+                    degraded: false,
+                    ..
+                }
+            )
+        };
+        // an "allow always" rule makes the policy say Allow: still reviewed (D1)
+        assert!(review(hunk_gate(Verdict::Allow, Mode::Manual, true)));
+        assert!(review(hunk_gate(Verdict::Allow, Mode::Assist, true)));
+        assert_eq!(
+            hunk_gate(Verdict::Allow, Mode::Auto, true),
+            HunkGate::Provisional
+        );
+        // Auto without checks or checkpoints degrades to review (D2)
+        assert!(matches!(
+            hunk_gate(Verdict::Allow, Mode::Auto, false),
+            HunkGate::Review { degraded: true, .. }
+        ));
+        // protected files: the policy asks, and that is a review even in Auto
+        assert_eq!(
+            hunk_gate(ask, Mode::Auto, true),
+            HunkGate::Review {
+                reason: "ficheiro protegido".into(),
+                degraded: false
+            }
+        );
+        assert_eq!(
+            hunk_gate(
+                Verdict::Deny {
+                    reason: "plano".into()
+                },
+                Mode::Auto,
+                true
+            ),
+            HunkGate::Deny("plano".into())
+        );
+    }
+
+    #[test]
+    fn review_decides_each_hunk_and_counts_missing_ones_as_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: dir.path().display().to_string(),
+            sessions_base: Some(dir.path().join(".sessions")),
+            review_edits: true,
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert!(s.agent.hunks.is_some(), "review_edits turns live hunks on");
+        let wait = |call: &str, hunks: &[&str]| {
+            let (tx, rx) = mpsc::channel();
+            s.pending.lock().unwrap().insert(call.into(), (tx, None));
+            s.review
+                .lock()
+                .unwrap()
+                .insert(call.into(), hunks.iter().map(|h| h.to_string()).collect());
+            rx
+        };
+        let v = |hunk: &str, accept: bool, reason: Option<&str>| HunkVerdict {
+            hunk: hunk.into(),
+            accept,
+            reason: reason.map(String::from),
+        };
+
+        let rx = wait("c1", &["c1:1", "c1:2", "c1:3"]);
+        review(
+            &id,
+            "c1",
+            &[v("c1:1", true, None), v("c1:2", false, Some("não"))],
+        )
+        .unwrap();
+        assert_eq!(
+            rx.recv().unwrap(),
+            Decision::Hunks {
+                accepted: vec!["c1:1".into()],
+                rejected: vec![
+                    ("c1:2".into(), "não".into()),
+                    ("c1:3".into(), "sem decisão".into())
+                ],
+                provisional: false,
+            }
+        );
+        assert!(s.review.lock().unwrap().is_empty());
+
+        // an unknown hunk is refused and the review keeps waiting
+        let rx = wait("c2", &["c2:1"]);
+        let e = review(&id, "c2", &[v("c1:1", true, None)]).unwrap_err();
+        assert!(e.contains("hunk desconhecido"), "{e}");
+        assert!(s.pending.lock().unwrap().contains_key("c2"));
+        review(&id, "c2", &[v("c2:1", false, Some(" "))]).unwrap();
+        assert_eq!(
+            rx.recv().unwrap(),
+            Decision::Hunks {
+                accepted: vec![],
+                rejected: vec![("c2:1".into(), "recusado".into())],
+                provisional: false,
+            }
+        );
+
+        // nothing waiting, wrong call, wrong session
+        assert!(review(&id, "c2", &[]).unwrap_err().contains("nenhuma"));
+        assert!(review("cda-nada", "c1", &[])
+            .unwrap_err()
+            .contains("desconhecida"));
+    }
+
+    /// A git repo with `a.txt` committed, and an Auto session whose test command checks it.
+    fn auto_repo(test_cmd: &str) -> (tempfile::TempDir, String) {
+        let d = tempfile::tempdir().unwrap();
+        let g = |args: &[&str]| {
+            assert!(std::process::Command::new("git")
+                .args(args)
+                .current_dir(d.path())
+                .output()
+                .unwrap()
+                .status
+                .success())
+        };
+        g(&["init", "-q", "-b", "main"]);
+        g(&["config", "user.name", "t"]);
+        g(&["config", "user.email", "t@t"]);
+        std::fs::write(d.path().join("a.txt"), "ok\n").unwrap();
+        g(&["add", "."]);
+        g(&["commit", "-qm", "init"]);
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            mode: Some("auto".into()),
+            test_cmd: Some(test_cmd.into()),
+            sessions_base: Some(d.path().join(".git").join("sessions")),
+            review_edits: true,
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        (d, id)
+    }
+
+    fn kinds(evs: &[AgentEvent]) -> Vec<String> {
+        evs.iter()
+            .map(|e| {
+                serde_json::to_value(e).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn auto_validation_rolls_back_the_turn_when_a_passing_check_breaks() {
+        let (d, id) = auto_repo("grep -qx ok a.txt");
+        let s = get(&id).unwrap();
+        let cps = s
+            .agent
+            .checkpoints
+            .as_ref()
+            .expect("a git repo has checkpoints");
+        let baseline = hunks::run_checks(&s.checks, &s.agent.ctx);
+        assert!(baseline[0].ok);
+        let cp = cps.snapshot("turn").unwrap();
+        std::fs::write(d.path().join("a.txt"), "bad\n").unwrap(); // the provisional hunk
+        let mut evs = vec![];
+        let sink = RefCell::new(&mut evs);
+        validate(
+            &s,
+            AutoTurn {
+                baseline: Some(baseline),
+                provisional: vec!["c:1".into()],
+                checkpoint: Some(cp.id),
+                degraded: false,
+            },
+            &|e| sink.borrow_mut().push(e),
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("a.txt")).unwrap(),
+            "ok\n"
+        );
+        assert_eq!(
+            kinds(&evs),
+            ["validation", "hunk_rejected", "validation", "notice"]
+        );
+        let rejected = serde_json::to_value(&evs[1]).unwrap();
+        assert_eq!(rejected["by"], "validation");
+        let failed = serde_json::to_value(&evs[2]).unwrap();
+        assert_eq!(failed["status"], "failed");
+        assert_eq!(failed["baseline"][0]["ok"], true);
+        // the model hears about it in its next message
+        assert!(s.notes.lock().unwrap()[0].contains("repostos"));
+    }
+
+    #[test]
+    fn auto_validation_keeps_changes_that_break_nothing() {
+        let (d, id) = auto_repo("grep -q ok a.txt");
+        let s = get(&id).unwrap();
+        let baseline = hunks::run_checks(&s.checks, &s.agent.ctx);
+        std::fs::write(d.path().join("a.txt"), "ok, better\n").unwrap();
+        let mut evs = vec![];
+        let sink = RefCell::new(&mut evs);
+        validate(
+            &s,
+            AutoTurn {
+                baseline: Some(baseline),
+                provisional: vec!["c:1".into()],
+                checkpoint: None,
+                degraded: false,
+            },
+            &|e| sink.borrow_mut().push(e),
+        );
+        assert_eq!(kinds(&evs), ["validation", "validation"]);
+        assert_eq!(serde_json::to_value(&evs[1]).unwrap()["status"], "passed");
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("a.txt")).unwrap(),
+            "ok, better\n"
+        );
+    }
+
+    #[test]
+    fn sessions_without_review_edits_keep_direct_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: dir.path().display().to_string(),
+            sessions_base: Some(dir.path().join(".sessions")),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        assert!(get(&id).unwrap().agent.hunks.is_none());
     }
 
     #[test]
