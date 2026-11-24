@@ -198,7 +198,7 @@ Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm/debug, o markup v
 resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`/`runSprint`/
 `approveIssue` publicam-se já COMPOSTAS com as políticas que antes eram decorações do
 app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3), e
-o bridge.ts ainda decora o `runSprint` — as arestas internas e os handlers data-action
+o desktop (`platform/desktop/demos.ts`) ainda decora o `runSprint` — as arestas internas e os handlers data-action
 resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
 O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). Os handlers de ARRASTAR
 (`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
@@ -277,7 +277,7 @@ features/infra.ts  RESÍDUO strangler (@ts-nocheck, FORA da subárvore) + raiz d
                    renderObserveView, drawRemote/infraDraw, cache OBS/polling); compõe o
                    motor com os adaptadores do bridge, tem a tabela ACTIONS, e re-publica
                    os shims window.* (envPrime/envDrift/envDriftStyle; rtConnect/k8sConnect/
-                   dxDeploy são reatribuídos por bridge.ts/v5/v6 — ACTIONS chama window.X).
+                   dxDeploy são reatribuídos pelo desktop (platform/desktop/infra.ts) — ACTIONS chama window.X).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
@@ -319,11 +319,25 @@ Backend: `pty.rs` (várias sessões por id, UTF-8 inteiro entre leituras, códig
 do `package.json`), `ports.rs` (`/proc/net/tcp`), `commands/panel.rs`.
 Particularidades: (1) não entra no harness de goldens — o caminho do browser/testes continua
 a demo e os goldens ficam intactos; a rede é `tests/panel.{domain,application}.test.ts` +
-o passo `panel` do selftest do `bridge.ts` (PTY real, /dev/pts, integração de shell, scan);
-(2) `runInTerm` do bridge delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
+o passo `panel` do auto-teste desktop (`platform/desktop/selftest.ts`: PTY real, /dev/pts,
+integração de shell, scan); (2) `runInTerm` (`platform/desktop/terminal.ts`) delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
 linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`features/shortcuts.ts` chamam
 `termOwnsKey(e)` nos atalhos globais — com o foco no xterm, as teclas são da shell excepto
 a lista curta de `isAppKey` (estilo `commandsToSkipShell` do VS Code).
+
+## A camada desktop (`ui-app/src/platform/desktop/`, ADR-0004 U4h)
+
+O que só existe na app Tauri (pastas no disco, autosave, terminal e git reais, modelos reais,
+docker/kubectl) vive em `platform/desktop/`: `context.ts` (os clientes IPC, o objecto `R` =
+`window.DXR`, processos `sh`/`git`/`stream`, a fila `enqueue`/`idle`, e os serviços tardios
+`ctx.flushSave`/`ctx.syncGit`/`ctx.envFor`/`ctx.runInTerm`/… que cada módulo preenche) e um
+módulo por área com um `install<Área>(ctx)` (terminal, workspace, git, llm, agent-tasks,
+infra, demos, ext) + `selftest.ts`. O `bridge.ts` é só a composição: sai no browser, cria o
+contexto, instala os módulos pela ordem das antigas secções (a ordem dos efeitos no eval
+importa) e corre o arranque. Regra ao mexer: um módulo usa os serviços de outro SEMPRE por
+`ctx.x(...)` no acto (nunca capturado no install), e nada de nomes soltos que resolvam para
+um global por acaso. A U4h1 só mudou o código de sítio (as decorações `window.X = …`
+continuam); as fatias seguintes trocam-nas por portas injectadas nos donos.
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 

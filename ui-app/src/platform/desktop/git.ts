@@ -1,0 +1,128 @@
+/* ═════════ dxtutor IDE — desktop: git real (ADR-0004, U4h1) ═════════
+   O grafo, os ramos e as tags lidos do repositório real (`syncGit`), o changelog sobre o
+   `git log`/`git show` reais, o `git init`, e o commit/checkout/merge/gitflow que passam a
+   git real quando a pasta é um repositório. Era a secção «git» do bridge.ts, verbatim; ainda
+   decora commit/checkout/gitMerge/gfFinish (U4h2+: injecção no dono, o scm). */
+
+import type { CommitNode } from "./types";
+import type { DesktopContext } from "./context";
+
+export function installGit(ctx: DesktopContext): void {
+const { R, gitc, git, gitOk, enqueue, isReal, relOf, say } = ctx;
+const flushSave = () => ctx.flushSave();
+const reloadDisk = () => ctx.reloadDisk();
+const markChanged = () => ctx.markChanged();
+const envFor = () => ctx.envFor();
+const termLine = (t: string, e?: boolean) => ctx.termLine(t, e);
+/* ───── git ───── */
+async function syncGit(): Promise<void> {
+  if (!R.git) return;
+  const head = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim();
+  const lg = await git("log", "--all", "--date-order", "-n", "400", "--format=%H%x1f%P%x1f%an%x1f%at%x1f%s%x1e");
+  const heads = (await git("for-each-ref", "--format=%(refname:short)%1f%(objectname)", "refs/heads")).stdout.trim().split("\n").filter(Boolean).map(l => l.split("\x1f"));
+  const tags = (await git("for-each-ref", "--format=%(refname:short)%1f%(objectname)%1f%(*objectname)", "refs/tags")).stdout.trim().split("\n").filter(Boolean).map(l => l.split("\x1f"));
+  const s = (h: string) => h.slice(0, 7), c: Record<string, CommitNode> = {}, order: string[] = [];
+  lg.stdout.split("\x1e").map(x => x.trim()).filter(Boolean).forEach(x => {
+    const [h, p, a, t, m] = x.split("\x1f");
+    c[s(h)] = { h: s(h), m: m || "", p: (p || "").split(" ").filter(Boolean).map(s).filter(Boolean), b: null, a: a || "", t: (+t || 0) * 1000, files: [] };
+    order.push(s(h));
+  });
+  Object.values(c).forEach(x => { x.p = x.p.filter(p => c[p]); });
+  const refs: Record<string, string> = {};
+  heads.forEach(([n, h]) => { refs[n] = s(h); });
+  const rank = (n: string) => /^(main|master)$/.test(n) ? 0 : n === "develop" ? 1 : /^(release|hotfix)\//.test(n) ? 2 : 3;
+  Object.keys(refs).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).forEach(n => {
+    let h: string | undefined = refs[n];
+    while (h && c[h] && !c[h].b) { c[h].b = n; h = c[h].p[0]; }
+  });
+  Object.values(c).forEach(x => { if (!x.b) x.b = head; });
+  const tg: Record<string, string> = {};
+  tags.forEach(([n, o, d]) => { const h = s(d || o); if (c[h]) tg[h] = n; });
+  const tree: Record<string, string> = {};
+  Object.keys(FS).forEach(k => { if (isReal(k) && FS[k].orig != null) tree[k] = FS[k].orig!; });
+  const trees: Record<string, Record<string, string>> = {};
+  Object.keys(refs).forEach(n => trees[n] = n === head ? tree : (GIT.trees[n] || {}));
+  Object.assign(GIT, { c, order, refs, tags: tg, trees, base: {} });
+  BRANCH = head === "HEAD" ? "(detached)" : head;
+  COMMITS.length = 0;
+  order.slice(0, 6).forEach(h => COMMITS.push({ h, m: c[h].m }));
+  try { $("#st-branch-l")!.textContent = BRANCH; } catch { /* sem status bar */ }
+  try { termRefreshPrompt(); } catch { /* sem terminal */ }
+  try { rerender("graph"); } catch { /* sem graph */ }
+  refresh(false, true);
+}
+R.flush = () => flushSave();
+R.reloadDisk = () => reloadDisk();
+R.syncGit = () => syncGit();
+/* feature `changelog` (harvest ui-next): troca a fonte simulada pela timeline git REAL
+   do repositório aberto. git_log dá os commits; git_show dá o patch tal-e-qual. Sem pasta
+   aberta → vazio honesto (a vista mostra o aviso). Os comandos existem no backend. */
+window.clLog = async () => (R.root ? gitc.log(R.root, 30) : []);
+window.clShow = async (hash: string) => (R.root ? gitc.show(R.root, hash) : "");
+R.termLine = (t, e) => termLine(t, e);
+R.envFor = () => envFor();
+R.gitInit = () => enqueue(async () => { flushSave(); await gitOk("init", "-b", "main"); R.git = true; R.prefix = ""; await markChanged(); await syncGit(); toast("git repository created on main"); });
+const _commit = commit, _checkout = checkout, _gitMerge = gitMerge, _gfFinish = gfFinish;
+commit = function (msg?: string, author?: string) {
+  if (!R.git) return _commit(msg, author);
+  const m = (msg || COMMIT_MSG || "").trim();
+  const list = (STAGED.size ? [...STAGED] : changes()).filter(p => FS[p] && stOf(p));
+  const r = _commit(msg, author);
+  if (!r) return r;
+  flushSave();
+  const rels = list.map(relOf);
+  const by = author && AGENTS[author] ? AGENTS[author].n : null;
+  enqueue(async () => {
+    await gitOk("add", "-A", "--", ...rels);
+    const a = ["commit", "-m", m];
+    if (by) a.push("-m", `Assisted-by: ${by} (dxtutor Co-Dev)`);
+    const c = await gitOk(...a);
+    await syncGit();
+    say(c.stdout.split("\n")[0]);
+  });
+  return r;
+};
+checkout = function (b: string, create?: boolean) {
+  if (!R.git) return _checkout(b, create);
+  if (create && GIT.refs[b]) { toast("Branch already exists: " + b); return false; }
+  if (!create && !GIT.refs[b] && !/^(main|develop)$/.test(b)) { toast("Unknown branch: " + b); return false; }
+  if (!create && !GIT.refs[b]) create = true;
+  flushSave();
+  if (create) { GIT.refs[b] = GIT.refs[BRANCH]; GIT.trees[b] = { ...(GIT.trees[BRANCH] || {}) }; }
+  BRANCH = b;
+  try { $("#st-branch-l")!.textContent = b; } catch { /* sem status bar */ }
+  STAGED.clear();
+  enqueue(async () => { await gitOk(...(create ? ["checkout", "-b", b] : ["checkout", b])); await reloadDisk(); await syncGit(); })
+    .then(() => { if (R.git) void git("rev-parse", "--abbrev-ref", "HEAD").then(h => { if (h.stdout.trim() !== BRANCH) void syncGit(); }); });
+  return true;
+};
+function realMerge(src: string, author?: string): CommitNode {
+  const dst = BRANCH, m = `Merge ${src} into ${dst}`;
+  enqueue(async () => {
+    const r = await git("merge", "--no-ff", "-m", m, src);
+    if (r.code !== 0) { await git("merge", "--abort"); throw new Error(`merge of ${src} into ${dst} has conflicts — aborted. Run "git merge ${src}" in the terminal to resolve them by hand.`); }
+    await reloadDisk();
+    await syncGit();
+  });
+  return { h: "pending", m, p: [], b: dst, a: author || "w", t: Date.now(), files: [] };
+}
+gitMerge = function (src: string, author?: string) {
+  if (!R.git) return _gitMerge(src, author);
+  if (!GIT.refs[src] || src === BRANCH) return null;
+  flushSave();
+  return realMerge(src, author);
+};
+gfFinish = function (b?: string, author?: string) {
+  if (!R.git) return _gfFinish(b, author);
+  const bn = b || BRANCH;
+  if (!isFlow(bn) || !GIT.refs[bn]) return null;
+  flushSave();
+  const rel = /^(release|hotfix)\//.test(bn), tag = "v" + bn.split("/")[1], main = GIT.refs.main ? "main" : GIT.refs.master ? "master" : "main";
+  let res: CommitNode | null = null;
+  if (rel) { checkout(main); res = gitMerge(bn, author); enqueue(() => gitOk("tag", "-a", tag, "-m", `Release ${tag}`)); checkout("develop"); gitMerge(bn, author); }
+  else { checkout("develop"); res = gitMerge(bn, author); }
+  enqueue(async () => { await gitOk("branch", "-d", bn); await syncGit(); say(`gitflow: finished ${bn}`); });
+  return res;
+};
+ctx.syncGit = syncGit;
+}

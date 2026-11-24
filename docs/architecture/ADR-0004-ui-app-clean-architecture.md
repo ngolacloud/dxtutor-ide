@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g; o v5/v6 já não existem)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -486,3 +486,37 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   promoção a Production e pela explicação antes de validar, com foco, validação, `trim`,
   `onOk`, cancelar e clicar fora): idênticas, sem erros de página; auto-teste desktop
   idêntico ao da U4g6. A seguir: U4h (a parte desktop de cada feature, fora do `bridge.ts`).
+- **U4h — plano (2026-11-24).** O `bridge.ts` era uma closure de ~1050 linhas com 11 grupos
+  (terminal, pastas/autosave, git, LLM, delegação, contentores/K8s, demos, extensões,
+  menus/boas-vindas, arranque, auto-teste) que se chamam uns aos outros e partilham estado
+  (`R`, a fila `Q`, os processos). Mudar o sítio e trocar as decorações por injecção ao mesmo
+  tempo seria um big-bang; por isso: **U4h1** muda o código de sítio, mecanicamente, para
+  `platform/desktop/` (decorações intactas); **U4h2+** troca as decorações por portas
+  injectadas, dono a dono (scm, terminal, infra, codev/LLM, workspace…), com a mesma análise
+  de chamadas internas da U4g.
+- **U4h1 (2026-11-24) — a parte desktop sai do `bridge.ts` para `platform/desktop/`.**
+  `context.ts` cria o contexto partilhado (o topo da closure, verbatim: clientes IPC, `R`
+  publicado como `window.DXR`, `sh`/`git`/`gitOk`/`stream`, a fila — o `Q` passa a `idle()`,
+  que devolve a fila no momento da chamada — e os utilitários) com lugares tardios para os
+  serviços que um grupo define e outros usam (`envFor`, `termLine`, `runInTerm`, `realTerm`,
+  `reloadDisk`, `markChanged`, `flushSave`, `syncGit`, `openFolder`, `loadKeys`,
+  `desktopSample`, `provCaps`). Cada grupo foi verbatim para um módulo com um
+  `install<Área>(ctx)` — `terminal`, `workspace` (+ `installFolderUi` para o menu File, a
+  paleta, o Ctrl+O e as boas-vindas), `git`, `llm` (com a parte de UI que vinha depois da
+  delegação: são independentes), `agent-tasks`, `infra`, `demos`, `ext` — e o auto-teste para
+  `selftest.ts`; os tipos e o `declare global` para `types.ts`. O `bridge.ts` (1203 → 53
+  linhas) cria o contexto, instala pela ordem das antigas secções e corre o arranque. Os
+  módulos só definem funções no topo, por isso importá-los não tem efeitos; os efeitos no eval
+  (decorações, listeners, `MENUS`/`CMD`, `PROV`) acontecem nos installers pela mesma ordem.
+  **Provas:** (1) as dependências entre grupos foram calculadas pela AST antes de mover; (2)
+  com o type checker, os 704 identificadores com nomes da antiga closure resolvem todos dentro
+  do próprio módulo (destructuring, shim ou local) — nenhum cai num global do `declare
+  global` por acaso, o risco silencioso desta mudança; (3) cada linha do original aparece
+  tal-e-qual num módulo, à excepção de 26 com substituições previstas (`export`, `Q`→`idle()`,
+  `ctx.`, a assinatura do `selftest`, o tipo `RunOpts`). Métricas sem mudança; lint 280.
+  Verificado: 367 testes, arranque no browser 4/4, auto-teste desktop idêntico ao da U4g7
+  (23 passos); e, com um passo de sonda temporário (fora do commit) corrido na app real com a
+  UI da HEAD e com a desta árvore — botões das boas-vindas, menu File, paleta, pasta no
+  explorador, prompt real, nota do agente, Settings (texto e placeholders das chaves), logs
+  reais na observabilidade, sampler, `loadJSZip`, `drawStack` —, idênticos (só difere um nome
+  minificado).
