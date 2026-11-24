@@ -41,7 +41,8 @@ import { computeGraphLayout } from "./scm/domain/graph";
 import { statusOf, listChanges } from "./scm/domain/status";
 import { resolveAuthor } from "./scm/domain/author";
 import { isFlow } from "./scm/domain/gitflow";
-import { makeScmEngine, NO_REPO } from "./scm/application/scm-engine";
+import { makeScmEngine } from "./scm/application/scm-engine";
+import { SCM_ENGINE_MESSAGES } from "./scm/application/messages";
 import type { CommitResult, MergeResult } from "./scm/application/ports";
 import { desktopPorts } from "../app/desktop";
 import { bindActions, type ActionTable } from "./scm/ui/actions";
@@ -49,6 +50,9 @@ import { translator } from "../app/i18n";
 import { SCM_MESSAGES } from "./scm/ui/messages";
 import { GIT_MESSAGES } from "./scm/ui/git-messages";
 import { GIT_ACTIONS, sideSections } from "./scm/extras";
+
+/* os textos do motor do git na língua da interface (i18n dos motores) */
+const tse = translator(SCM_ENGINE_MESSAGES);
 import {
   toast, log, rerender,
   files, agents, fIcon, short, rel,
@@ -83,6 +87,7 @@ function drawTimeline(): void {
    (application). O motor fica puro; o `window`/DOM ficam deste lado. A etiqueta de
    ramo (#st-branch-l) actualiza-se no adaptador `store.setBranch`. ───── */
 const { gitInit, commit, commitV2, checkout, gitMerge, gfStart, gfFinish, stage, discard } = makeScmEngine({
+  copy: tse,
   workspace: { files: () => files() },
   store: {
     repo: () => repo(),
@@ -134,7 +139,7 @@ function gfPrompt(kind: FlowKind): void {
   palette("", { ph: kind === "release" ? "Versão da release (ex.: 0.3.0)" : `Nome da ${kind} (ex.: exportar-relatorio)`, verb: "Iniciar " + kind, text: (q: string) => { if (!q.trim()) return; if (!gfStartPublished(kind, q.trim())) return; toast("Ramo criado: " + branch()); rerender("graph"); } });
 }
 function pickBranch(): void {
-  if (!repo()) { toast(NO_REPO); return; }
+  if (!repo()) { toast(tse("noRepo")); return; }
   palette("", { ph: "Mudar de ramo…", items: Object.keys(GIT.refs).map((b) => ({ l: b, d: b === branch() ? "actual" : GIT.c[GIT.refs[b]].m, run: () => { checkoutPublished(b); toast("Ramo: " + b); rerender("graph"); } })) });
 }
 function gfGuide(): string {

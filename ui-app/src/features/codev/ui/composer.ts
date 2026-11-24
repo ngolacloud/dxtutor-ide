@@ -37,6 +37,10 @@ import {
 } from "../domain/composer";
 import type { DictationPort } from "../application/ports";
 import { bus } from "../../../app/bus";
+import { translator } from "../../../app/i18n";
+import { CODEV_CHAT_MESSAGES } from "./chat-messages";
+
+const tc = translator(CODEV_CHAT_MESSAGES);
 
 /* ───── o que o compositor precisa do resto da app ───── */
 
@@ -488,7 +492,7 @@ function readFiles(list: FileList | null): void {
   if (!list || !host) return;
   for (const f of Array.from(list)) {
     if (!isTextFile(f.name, f.type)) {
-      host.toast(`${f.name}: o agente ainda só recebe ficheiros de texto`);
+      host.toast(tc("textOnly", { name: f.name }));
       continue;
     }
     const r = new FileReader();
@@ -741,7 +745,7 @@ export function composerActions(): ActionTable {
         const choice = host?.providers().find((x) => x.key === p);
         if (!host || !choice) return;
         if (!choice.on) {
-          host.toast(`${choice.name} está desligado — liga-o nas Definições`);
+          host.toast(tc("providerOffToast", { name: choice.name }));
           return;
         }
         host.selectModel(p, m);

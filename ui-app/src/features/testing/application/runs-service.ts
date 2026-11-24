@@ -13,6 +13,7 @@
 import { caseFilter, failureContext, flakyContext } from "../domain/runs";
 import type { CaseResult, Runner, TestHistory, TestRunReport, TestScope } from "../domain/types";
 import type { CodevPort, RunnersPort, WorkspacePort } from "./ports";
+import { ptCopy, type RunsCopy } from "./messages";
 
 export interface RunsState {
   root: string | null;
@@ -66,8 +67,11 @@ export function makeRuns(deps: {
   onReport?: (rep: TestRunReport) => void;
   /** o atraso do «Watch» (juntar as gravações seguidas); injectável nos testes */
   debounce?: (f: () => void, ms: number) => () => void;
+  /** os pedidos ao Co-Dev na língua da interface (`./messages`); sem ela, os de antes (português) */
+  copy?: RunsCopy;
 }): Runs {
   const { runners: port, workspace, codev } = deps;
+  const copy = deps.copy ?? ptCopy;
   const debounce = deps.debounce ?? ((f, ms) => { const t = setTimeout(f, ms); return () => clearTimeout(t); });
   let st = fresh(null);
   const subs = new Set<() => void>();
@@ -183,22 +187,22 @@ export function makeRuns(deps: {
       const f = find(key);
       if (!f || !codev.available()) return;
       const ctx = failureContext(f.rep, f.c);
-      if (intent === "explain") codev.ask({ intent: "explain", text: "Explica porque é que este teste falha.", context: [ctx], send: true });
-      else codev.ask({ intent: "fix", text: `Corrige o código para o teste «${f.c.name}» passar (não alteres o teste, a não ser que esteja errado). Depois corre \`${f.rep.command}\`.`, context: [ctx], send: true });
+      if (intent === "explain") codev.ask({ intent: "explain", text: copy("explainFailure"), context: [ctx], send: true });
+      else codev.ask({ intent: "fix", text: copy("fixFailure", { name: f.c.name, command: f.rep.command }), context: [ctx], send: true });
     },
     askFlaky: (caseId) => {
       const s = st.history?.cases.find((c) => c.caseId === caseId);
       if (!s || !codev.available()) return;
-      codev.ask({ intent: "explain", text: "Este teste passa e falha sem o código mudar. Qual é a causa provável e como o tornar determinista?", context: [flakyContext(s)], send: true });
+      codev.ask({ intent: "explain", text: copy("explainFlaky"), context: [flakyContext(s)], send: true });
     },
     writeMissingTest: () => {
       if (!codev.available()) return;
       const f = workspace.currentFile?.() ?? null;
       const r = st.runners.find((x) => x.available);
-      const how = r ? ` com ${r.kind} (o projecto corre \`${r.command}\`)` : "";
+      const how = r ? copy("how", { kind: r.kind, command: r.command }) : "";
       codev.ask({
         intent: "change",
-        text: f ? `Escreve o teste em falta para ${f.path}${how}: cobre o comportamento que os testes actuais não verificam.` : `Escreve o teste em falta${how}.`,
+        text: f ? copy("missingTestFor", { path: f.path, how }) : copy("missingTest", { how }),
         context: f ? [{ kind: "file", label: f.path, text: f.text.slice(0, 12000), path: f.path }] : [],
       });
     },

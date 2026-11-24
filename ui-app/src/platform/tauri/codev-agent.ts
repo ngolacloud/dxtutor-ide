@@ -5,6 +5,7 @@
    sabe nomes de comandos, argumentos e eventos. Ver IPC-MATRIX.md §10b. */
 
 import { invoke, listen } from "./core";
+import { currentLocale } from "../../app/i18n";
 
 export interface StartAgentArgs {
   root: string;
@@ -21,6 +22,8 @@ export interface StartAgentArgs {
   reviewEdits?: boolean;
   /** A issue do Project em que esta conversa trabalha (as alterações aceites ficam ligadas a ela). */
   issue?: string | null;
+  /** A língua em que o Co-Dev responde (`en`/`ptAO`); por omissão, a da interface. Fica gravada com a sessão. */
+  language?: string | null;
 }
 
 /** Abre uma sessão; devolve o id. Falha se faltar a chave do provedor ou a pasta não existir. */
@@ -36,6 +39,7 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     provider: a.provider ?? null,
     reviewEdits: a.reviewEdits ?? false,
     issue: a.issue ?? null,
+    language: a.language ?? currentLocale(),
   });
 
 /** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */

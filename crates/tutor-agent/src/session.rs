@@ -47,6 +47,17 @@ pub struct SessionMeta {
     /// não o têm → `claude`. Uma retoma usa sempre o mesmo provedor.
     #[serde(default = "provider_claude")]
     pub provider: String,
+    /// A língua da interface quando a sessão começou (`en`, `ptAO`): o Co-Dev e os
+    /// sub-agentes respondem nela. Ficheiros anteriores não a têm → português, como eram.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
+}
+
+impl SessionMeta {
+    /// A língua em que esta sessão responde ([`crate::context::ReplyLang`]).
+    pub fn lang(&self) -> crate::context::ReplyLang {
+        crate::context::ReplyLang::from_ui(self.lang.as_deref())
+    }
 }
 
 fn toolset_v1() -> u32 {
@@ -61,7 +72,9 @@ fn provider_claude() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Line {
-    Meta { meta: SessionMeta },
+    // em caixa: o cabeçalho é bem maior do que as outras linhas (clippy::large_enum_variant); o serde
+    // trata `Box` como transparente, o ficheiro gravado não muda
+    Meta { meta: Box<SessionMeta> },
     Message { message: Message },
 }
 
@@ -188,7 +201,14 @@ impl SessionLog {
         let path = session_path(dir, &meta.id)?;
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let mut f = open_append(&path, true).map_err(|e| format!("{}: {e}", path.display()))?;
-        write_line(&mut f, &Line::Meta { meta: meta.clone() }, None).map_err(|e| e.to_string())?;
+        write_line(
+            &mut f,
+            &Line::Meta {
+                meta: Box::new(meta.clone()),
+            },
+            None,
+        )
+        .map_err(|e| e.to_string())?;
         Ok(SessionLog {
             path,
             persisted: 0,
@@ -210,7 +230,7 @@ impl SessionLog {
                 continue;
             }
             match serde_json::from_str::<Line>(&line) {
-                Ok(Line::Meta { meta: m }) if n == 0 => meta = Some(m),
+                Ok(Line::Meta { meta: m }) if n == 0 => meta = Some(*m),
                 Ok(Line::Message { message }) => t.push(message),
                 Ok(Line::Meta { .. }) => {
                     return Err(format!(
@@ -277,7 +297,7 @@ impl SessionLog {
             write_line(
                 &mut f,
                 &Line::Meta {
-                    meta: self.meta.clone(),
+                    meta: Box::new(self.meta.clone()),
                 },
                 None,
             )
@@ -379,6 +399,7 @@ mod tests {
             created: 100,
             toolset: 2,
             provider: "claude".into(),
+            lang: None,
             mcp_tools: vec![],
         }
     }

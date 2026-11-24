@@ -6,8 +6,9 @@
    custo. Sem DOM, sem window, sem Tauri — tudo pelas portas (`AgentChatDeps`). */
 
 import type { AgentChatDeps, CardRef, ToolRef } from "./ports";
+import { ptCopy, type CodevCopy } from "./messages";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
-import { ago, callDiff, describeCall, describeSession, isNoToolsError, originFor, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
+import { ago, callDiff, describeCall, describeSession, isNoToolsError, originFor, outcomeNotice, parseTodos, summarizeResult } from "../domain/agent-events";
 import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 import { proseOnly } from "../domain/prose";
@@ -26,22 +27,29 @@ interface Turn {
 }
 
 /** One line for the validation of Auto's provisional changes. */
-function validationNote(e: Extract<AgentEvent, { kind: "validation" }>): string {
+function validationNote(e: Extract<AgentEvent, { kind: "validation" }>, copy: CodevCopy): string {
   const cmds = (e.checks.length ? e.checks : e.baseline).map((c) => "`" + c.command + "`").join(", ");
   switch (e.status) {
     case "running":
-      return e.baseline.length ? `A validar as alterações provisórias (${cmds})…` : "A medir a base antes das alterações (testes/lint)…";
+      return e.baseline.length ? copy("validRunning", { cmds }) : copy("validBaseline");
     case "passed":
-      return `Validação passou (${cmds}): as alterações provisórias ficam.`;
+      return copy("validPassed", { cmds });
     case "failed":
-      return "Validação falhou: " + e.checks.filter((c) => !c.ok).map((c) => "`" + c.command + "` — " + c.summary).join("; ");
+      return copy("validFailed", { list: e.checks.filter((c) => !c.ok).map((c) => "`" + c.command + "` — " + c.summary).join("; ") });
     case "skipped":
-      return "Validação não correu.";
+      return copy("validSkipped");
   }
+}
+
+/** O pedido ao agente para implementar uma issue do Board (começa em modo plano), na língua da interface. */
+function storyText(s: BoardStory, copy: CodevCopy): string {
+  const note = s.note && s.note.trim() ? copy("storyNote", { note: s.note.trim() }) : "";
+  return copy("story", { id: s.id, title: s.title, kind: copy(s.type === "fix" ? "storyFix" : "storyFeature"), pts: s.pts, note });
 }
 
 export function makeAgentChat(deps: AgentChatDeps) {
   const { gateway, presenter, gate } = deps;
+  const copy = deps.copy ?? ptCopy;
   let session: string | null = null;
   /** `provedor|modelo` com que a sessão abriu: se o seletor mudar, abre-se outra. */
   let sessionKey: string | null = null;
@@ -92,7 +100,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         break;
       }
       case "validation":
-        presenter.agentNote?.(t.card, "validation", validationNote(e));
+        presenter.agentNote?.(t.card, "validation", validationNote(e, copy));
         break;
       case "report":
         presenter.agentReport?.(t.card, e.title, e.markdown);
@@ -122,7 +130,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         if (e.name === "task") presenter.subagent?.(e.id, typeof e.input.description === "string" ? e.input.description : "", "running");
         break;
       case "checkpoint":
-        presenter.agentNote?.(t.card, "checkpoint", `Checkpoint ${e.id} guardado antes das alterações — /reverter para voltar atrás.`);
+        presenter.agentNote?.(t.card, "checkpoint", copy("checkpointSaved", { id: e.id }));
         break;
       case "notice":
         presenter.agentNote?.(t.card, "notice", e.text);
@@ -140,11 +148,11 @@ export function makeAgentChat(deps: AgentChatDeps) {
         deps.onUsage?.(e.request.input_tokens + e.request.cache_read_input_tokens + e.request.cache_creation_input_tokens, e.request.output_tokens);
         break;
       case "served_by":
-        presenter.agentNote?.(t.card, "fallback", `Respondido por ${e.model} (fallback do servidor).`);
+        presenter.agentNote?.(t.card, "fallback", copy("servedBy", { model: e.model }));
         break;
       case "done": {
-        if (!text(t)) presenter.assistantText(t.card, e.outcome.type === "done" ? "(sem texto)" : "");
-        const n = outcomeNotice(e.outcome);
+        if (!text(t)) presenter.assistantText(t.card, e.outcome.type === "done" ? copy("noText") : "");
+        const n = e.outcome.type === "cancelled" ? copy("cancelled") : outcomeNotice(e.outcome);
         if (n) presenter.agentNote?.(t.card, "outcome", n);
         t.finish();
         break;
@@ -201,7 +209,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
       t.noTools = true;
       presenter.assistantText(
         t.card,
-        `O modelo ${deps.model()} não suporta ferramentas nativas — esta conversa segue pelo modo de texto (blocos).`,
+        copy("noNativeTools", { model: deps.model() }),
       );
     } else presenter.liveError(t.card, false, undefined, message);
     t.finish();
@@ -291,13 +299,13 @@ export function makeAgentChat(deps: AgentChatDeps) {
     try {
       const list = await gateway.sessions(deps.workspace.root());
       if (!list.length) {
-        presenter.assistantText(card, "Ainda não há conversas anteriores neste projecto.");
+        presenter.assistantText(card, copy("noSessions"));
         return;
       }
-      presenter.assistantText(card, "Conversas anteriores deste projecto — escolhe uma para continuar:");
+      presenter.assistantText(card, copy("pickSession"));
       const now = deps.nowSecs();
       const btns = list.slice(0, 6).map((s, i) => ({ l: describeSession(s, now), v: s.id, pri: i === 0 }));
-      const pick = await gate.ask<string>(card.tools, [...btns, { l: "Cancelar", v: "" }]).catch(() => "");
+      const pick = await gate.ask<string>(card.tools, [...btns, { l: copy("cancel"), v: "" }]).catch(() => "");
       if (!pick) return;
       if (session && session !== pick) void gateway.close(session);
       await ensureSubscribed();
@@ -317,12 +325,12 @@ export function makeAgentChat(deps: AgentChatDeps) {
         if (h.role === "user") presenter.userMessage(h.text);
         else {
           const c = presenter.thinking(deps.speaker());
-          presenter.assistantText(c, h.text || "(só chamadas de ferramentas)");
-          if (h.tools.length) presenter.agentNote?.(c, "tools", `${h.tools.length} chamada(s): ${h.tools.join(", ")}`);
+          presenter.assistantText(c, h.text || copy("toolsOnly"));
+          if (h.tools.length) presenter.agentNote?.(c, "tools", copy("toolCalls", { n: h.tools.length, list: h.tools.join(", ") }));
         }
       }
       const end = presenter.thinking(deps.speaker());
-      presenter.assistantText(end, "Conversa retomada. Continua a escrever — o agente tem o histórico completo.");
+      presenter.assistantText(end, copy("resumed"));
     } catch (e: unknown) {
       presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
     } finally {
@@ -349,13 +357,13 @@ export function makeAgentChat(deps: AgentChatDeps) {
     try {
       const list = session ? await gateway.checkpoints(session) : [];
       if (!list.length) {
-        presenter.assistantText(card, "Ainda não há checkpoints nesta conversa (só existem em repositórios git, a partir do primeiro turno que altera ficheiros).");
+        presenter.assistantText(card, copy("noCheckpoints"));
         return;
       }
-      presenter.assistantText(card, "Voltar os ficheiros para antes de qual pedido? (a conversa fica; o agente é avisado)");
+      presenter.assistantText(card, copy("pickCheckpoint"));
       const now = deps.nowSecs();
       const btns = [...list].reverse().slice(0, 8).map((c) => ({ l: `#${c.id} · ${c.label} · ${ago(c.created, now)}`, v: c.id }));
-      const pick = await gate.ask<number>(card.tools, [...btns, { l: "Cancelar", v: 0 }]).catch(() => 0);
+      const pick = await gate.ask<number>(card.tools, [...btns, { l: copy("cancel"), v: 0 }]).catch(() => 0);
       if (!pick || !session) return;
       const msg = await gateway.rewind(session, pick);
       await deps.reloadFromDisk().catch(() => undefined);
@@ -376,25 +384,25 @@ export function makeAgentChat(deps: AgentChatDeps) {
       const lines: string[] = [];
       lines.push(
         x.commands.length
-          ? "**Comandos do projecto** (`.dxtutor/commands/`):\n" + x.commands.map((c) => `- \`/${c.name}\` — ${c.description}`).join("\n")
-          : "Sem comandos do projecto — cria `.dxtutor/commands/<nome>.md` (o texto é o pedido; `$ARGUMENTS` recebe o resto da linha).",
+          ? copy("commandsHeader") + "\n" + x.commands.map((c) => `- \`/${c.name}\` — ${c.description}`).join("\n")
+          : copy("noCommands"),
       );
       if (x.skills.length) lines.push("**Skills** (`.dxtutor/skills/`):\n" + x.skills.map((k) => `- ${k.name} — ${k.description}`).join("\n"));
-      const state = (f: { present: boolean; trusted: boolean }) => (!f.present ? "não definidos" : f.trusted ? "confiados ✓" : "**por confiar**");
+      const state = (f: { present: boolean; trusted: boolean }) => (!f.present ? copy("notDefined") : f.trusted ? copy("trusted") : copy("toTrust"));
       lines.push(`**Hooks** (\`.dxtutor/hooks.json\`): ${state(x.hooks)}`);
-      lines.push(`**Servidores MCP**: ${x.mcpServers.length ? x.mcpServers.join(", ") : "nenhum"} — os do projecto (\`.dxtutor/mcp.json\`) ${state(x.mcp)}`);
+      lines.push(copy("mcpLine", { servers: x.mcpServers.length ? x.mcpServers.join(", ") : copy("none"), state: state(x.mcp) }));
       lines.push("`/plano <pedido>` · `/reverter` · `/retomar` · `/comandos`");
       presenter.assistantText(card, lines.join("\n\n"));
       const pending: Array<{ l: string; v: "hooks" | "mcp" | "" }> = [];
-      if (x.hooks.present && !x.hooks.trusted) pending.push({ l: "Confiar nos hooks do projecto", v: "hooks" });
-      if (x.mcp.present && !x.mcp.trusted) pending.push({ l: "Confiar nos servidores MCP do projecto", v: "mcp" });
+      if (x.hooks.present && !x.hooks.trusted) pending.push({ l: copy("trustHooks"), v: "hooks" });
+      if (x.mcp.present && !x.mcp.trusted) pending.push({ l: copy("trustMcp"), v: "mcp" });
       if (!pending.length) return;
-      presenter.agentNote?.(card, "trust", "Hooks e servidores MCP correm comandos definidos pelo repositório: confia só se conheces o projecto. A confiança deixa de valer se o ficheiro mudar.");
-      const pick = await gate.ask<"hooks" | "mcp" | "">(card.tools, [...pending, { l: "Agora não", v: "" }]).catch(() => "" as const);
+      presenter.agentNote?.(card, "trust", copy("trustWarn"));
+      const pick = await gate.ask<"hooks" | "mcp" | "">(card.tools, [...pending, { l: copy("notNow"), v: "" }]).catch(() => "" as const);
       if (!pick) return;
       await gateway.trust(root, pick);
       reset(); // a próxima mensagem abre uma sessão nova, já com eles ligados
-      presenter.agentNote?.(card, "trusted", `${pick === "hooks" ? "Hooks" : "Servidores MCP"} confiados. Valem a partir da próxima mensagem (sessão nova).`);
+      presenter.agentNote?.(card, "trusted", copy(pick === "hooks" ? "trustedHooks" : "trustedMcp"));
     } catch (e: unknown) {
       presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
     } finally {
@@ -407,7 +415,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     // a new session that knows the issue: its accepted changes count for it (A5)
     reset();
     issueKey = s.id;
-    return plan(storyPrompt(s));
+    return plan(storyText(s, copy));
   }
 
   /** F4 (RF-B03): an issue goes to the agent with the exact prompt the IDE assembled from the

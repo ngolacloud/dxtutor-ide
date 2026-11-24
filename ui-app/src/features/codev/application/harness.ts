@@ -8,6 +8,7 @@
 import type { AgentGateway } from "./ports";
 import type { AgentEvent, Checkpoint, ExtensionsStatus, Permissions } from "../domain/agent-events";
 import { initialRun, reduceRun, turnStarted, type RunState } from "../domain/run-state";
+import { ptCopy, type CodevCopy } from "./messages";
 
 export interface HarnessDeps {
   gateway: Pick<AgentGateway, "available" | "checkpoints" | "rewind" | "permissions" | "savePermissions" | "extensions" | "trust">;
@@ -19,6 +20,8 @@ export interface HarnessDeps {
   open(path: string, line?: number): void;
   confirm(message: string): boolean;
   notify(message: string): void;
+  /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
+  copy?: CodevCopy;
 }
 
 export interface HarnessState {
@@ -30,6 +33,7 @@ export interface HarnessState {
 }
 
 export function makeHarness(deps: HarnessDeps) {
+  const copy = deps.copy ?? ptCopy;
   let st: HarnessState = { run: initialRun(), checkpoints: [], permissions: null, extensions: null, available: false };
   const listeners = new Set<() => void>();
   const set = (patch: Partial<HarnessState>): void => {
@@ -78,8 +82,8 @@ export function makeHarness(deps: HarnessDeps) {
     async rewind(id: number, conversation: boolean): Promise<void> {
       const s = deps.session();
       if (!s) return;
-      const what = conversation ? "os ficheiros e a conversa" : "os ficheiros";
-      if (!deps.confirm(`Voltar ${what} ao checkpoint #${id}? O que mudou depois desse pedido deixa de estar no disco.`)) return;
+      const what = copy(conversation ? "rewindAll" : "rewindFiles");
+      if (!deps.confirm(copy("rewindConfirm", { what, id }))) return;
       try {
         const msg = await deps.gateway.rewind(s, id, conversation);
         await deps.reloadFromDisk().catch(() => undefined);
@@ -95,17 +99,17 @@ export function makeHarness(deps: HarnessDeps) {
       try {
         await deps.gateway.savePermissions(deps.root(), { allow: clean(allow), deny: clean(deny) });
         set({ permissions: await deps.gateway.permissions(deps.root()) });
-        deps.notify("Permissões gravadas em .dxtutor/permissions.json");
+        deps.notify(copy("permsSaved"));
       } catch (e) {
         err(e);
       }
     },
     async trust(kind: "hooks" | "mcp"): Promise<void> {
-      if (!deps.confirm(kind === "hooks" ? "Confiar nos hooks do projecto? Correm comandos definidos pelo repositório." : "Confiar nos servidores MCP do projecto? Correm comandos definidos pelo repositório.")) return;
+      if (!deps.confirm(copy(kind === "hooks" ? "trustHooksConfirm" : "trustMcpConfirm"))) return;
       try {
         await deps.gateway.trust(deps.root(), kind);
         set({ extensions: await deps.gateway.extensions(deps.root()) });
-        deps.notify("Confiado. Vale a partir da próxima conversa.");
+        deps.notify(copy("trustedNext"));
       } catch (e) {
         err(e);
       }

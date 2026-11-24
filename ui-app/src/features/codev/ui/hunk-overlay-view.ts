@@ -10,6 +10,10 @@
 import { esc } from "../../../core";
 import type { HunkReview } from "../application/hunk-review";
 import { activeHunk, type HunkState, type VView } from "../domain/hunk-overlay";
+import { translator } from "../../../app/i18n";
+import { CODEV_CHAT_MESSAGES } from "./chat-messages";
+
+const tc = translator(CODEV_CHAT_MESSAGES);
 
 const LINE_PX = 22;
 
@@ -26,7 +30,7 @@ function bar(h: HunkState, typing: boolean, paused: boolean): string {
   }
   if (h.status === "review") {
     if (h.choice) {
-      return `<span class="hk-tag">Co-Dev</span><span class="hk-state">${h.choice === "accept" ? "aceite" : "rejeitada"} — à espera das outras</span>`;
+      return `<span class="hk-tag">Co-Dev</span><span class="hk-state">${tc("hunkWaiting", { state: tc(h.choice === "accept" ? "hunkAccepted" : "hunkRejected") })}</span>`;
     }
     return `<span class="hk-tag">Co-Dev</span>` + btn("hunk-accept", "Aceitar", true) + btn("hunk-reject", "Rejeitar") + btn("hunk-explain", "Explicar");
   }

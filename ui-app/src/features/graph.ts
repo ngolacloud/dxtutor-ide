@@ -25,8 +25,10 @@ import { VIEW } from "../app/store/registry";
 import { registerActions, globalCalls, callGlobal } from "../app/actions";
 import { translator } from "../app/i18n";
 import { GRAPH_MESSAGES } from "./graph.messages";
+import { GRAPH_DESKTOP_MESSAGES } from "./graph.desktop-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(GRAPH_MESSAGES);
+const txd = translator(GRAPH_DESKTOP_MESSAGES);
 
 /* ───── corpo do renderer da tab `graph` (era VIEW.graph no monólito) ───── */
 function renderGraphView(_t: unknown, host: HTMLElement) {
@@ -77,7 +79,7 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
            .map((b) => `<span class="gl-ref${b === BRANCH ? " head" : ""}" style="--c:${col}">${b === BRANCH ? "● " : ""}${esc(b)}</span>`)
            .join("")}${GIT.tags[r.h] ? `<span class="gl-ref tagr">${GIT.tags[r.h]}</span>` : ""}</span><span class="gl-msg">${esc(c.m)}</span><span class="gl-au"><i style="background:${a.col}">${a.n.charAt(0)}</i>${esc(a.n)}</span><span class="gl-h">${r.h}</span><span class="gl-t">${rel(c.t)}</span></div>` +
          (sel
-           ? `<div class="gl-det">${c.files.length ? (c.files as string[]).map((p: string) => `<button class="mini" data-action="graph:file" data-on="${esc(p)}">${esc(short(p))}</button>`).join("") : '<span style="color:var(--fg-muted)">Commit anterior ao protótipo — sem lista de ficheiros.</span>'}${c.p.length > 1 ? `<span class="tag">merge de ${c.p.length} pais</span>` : ""}</div>`
+           ? `<div class="gl-det">${c.files.length ? (c.files as string[]).map((p: string) => `<button class="mini" data-action="graph:file" data-on="${esc(p)}">${esc(short(p))}</button>`).join("") : `<span style="color:var(--fg-muted)">${txd('noFileList')}</span>`}${c.p.length > 1 ? `<span class="tag">merge de ${c.p.length} pais</span>` : ""}</div>`
            : "")
        );
      })
@@ -99,5 +101,5 @@ registerActions({
   "graph:gfPrompt": { click: (c) => void callGlobal("gfPrompt", c.on) },
   "graph:toDevelop": { click: () => { callGlobal("checkout", "develop"); callGlobal("rerender", "graph"); } },
   "graph:select": { click: (c) => { UA.GSEL = UA.GSEL === c.on ? null : c.on; callGlobal("rerender", "graph"); } },
-  "graph:file": { click: (c) => { c.stop(); if (UA.FS[c.on]) callGlobal("openPath", c.on); else callGlobal("toast", "O ficheiro não existe neste ramo"); } },
+  "graph:file": { click: (c) => { c.stop(); if (UA.FS[c.on]) callGlobal("openPath", c.on); else callGlobal("toast", txd("notInBranch")); } },
 });

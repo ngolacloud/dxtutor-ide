@@ -15,6 +15,7 @@
    referência que o resíduo publica em `window.*`). */
 
 import type { GitState, Commit, FileEntry } from "../domain/types";
+import type { ScmCopy } from "./messages";
 
 /** O resultado leve de um commit que a UI mostra (hash, mensagem, nº de ficheiros).
  *  `n` é opcional: a lista que o `bridge.ts` reconstrói do `git log` só tem `{h, m}`. */
@@ -87,6 +88,8 @@ export interface IdGen {
 /* ───────── pacote de dependências entregue ao motor ───────── */
 
 export interface ScmDeps {
+  /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
+  copy?: ScmCopy;
   workspace: Workspace;
   store: ScmStore;
   flow: Flow;

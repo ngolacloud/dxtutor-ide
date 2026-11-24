@@ -4,6 +4,11 @@
    `scripts` reais do package.json, com o gestor de pacotes do lockfile. Sem DOM nem `window`:
    recebe o mundo por argumento. Um tipo sem comandos conhecidos devolve lista vazia (a vista
    di-lo em vez de inventar). */
+import { fixedCopy } from "../app/i18n-copy";
+import { RUN_MESSAGES, type RunKey } from "./run.messages";
+
+const ptLabel = fixedCopy(RUN_MESSAGES.ptAO);
+
 
 export interface ProjectCommand {
   cmd: string;
@@ -26,24 +31,25 @@ export function nodePm(f: ProjectFiles): string {
   return "npm";
 }
 
-export function commandsFor(kind: string, f: ProjectFiles): ProjectCommand[] {
+/** `label`: os rótulos na língua da interface (o pane passa o seu tradutor); sem ele, os de antes (português). */
+export function commandsFor(kind: string, f: ProjectFiles, label: (k: RunKey) => string = ptLabel): ProjectCommand[] {
   switch (kind) {
     case "rust":
-      return [{ cmd: "cargo run", label: "Correr" }, { cmd: "cargo build", label: "Compilar" }, { cmd: "cargo test", label: "Testes" }];
+      return [{ cmd: "cargo run", label: label("run") }, { cmd: "cargo build", label: "Compilar" }, { cmd: "cargo test", label: "Testes" }];
     case "go":
-      return [{ cmd: "go run .", label: "Correr" }, { cmd: "go build ./...", label: "Compilar" }, { cmd: "go test ./...", label: "Testes" }];
+      return [{ cmd: "go run .", label: label("run") }, { cmd: "go build ./...", label: "Compilar" }, { cmd: "go test ./...", label: "Testes" }];
     case "node": {
       const pm = nodePm(f);
       let scripts: Record<string, unknown> = {};
       try { scripts = (JSON.parse(f.read("package.json") || "{}").scripts || {}) as Record<string, unknown>; } catch { scripts = {}; }
       const names = Object.keys(scripts).filter((k) => typeof scripts[k] === "string");
-      if (!names.length) return [{ cmd: `${pm} install`, label: "Instalar dependências (o package.json não tem scripts)" }];
+      if (!names.length) return [{ cmd: `${pm} install`, label: label("installNoScripts") }];
       return names.map((k) => ({ cmd: `${pm} run ${k}`, label: String(scripts[k]) }));
     }
     case "python": {
       const out: ProjectCommand[] = [];
       if (f.has("manage.py")) out.push({ cmd: "python3 manage.py runserver", label: "Servidor Django" });
-      if (f.has("main.py")) out.push({ cmd: "python3 main.py", label: "Correr main.py" });
+      if (f.has("main.py")) out.push({ cmd: "python3 main.py", label: label("runMain") });
       out.push({ cmd: "python3 -m pytest", label: "Testes (pytest)" }, { cmd: "python3 -m unittest discover -v", label: "Testes (unittest)" });
       return out;
     }
@@ -53,11 +59,11 @@ export function commandsFor(kind: string, f: ProjectFiles): ProjectCommand[] {
         ? [{ cmd: "./gradlew build", label: "Compilar" }, { cmd: "./gradlew test", label: "Testes" }]
         : [{ cmd: "gradle build", label: "Compilar" }, { cmd: "gradle test", label: "Testes" }];
     case "php":
-      return [{ cmd: "composer install", label: "Instalar dependências" }];
+      return [{ cmd: "composer install", label: label("install") }];
     case "ruby":
       return f.has("Rakefile")
-        ? [{ cmd: "bundle install", label: "Instalar dependências" }, { cmd: "bundle exec rake", label: "Rake" }]
-        : [{ cmd: "bundle install", label: "Instalar dependências" }];
+        ? [{ cmd: "bundle install", label: label("install") }, { cmd: "bundle exec rake", label: "Rake" }]
+        : [{ cmd: "bundle install", label: label("install") }];
     default:
       return [];
   }

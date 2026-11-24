@@ -6,7 +6,9 @@
    message (through the agent, or queued if a turn is running). */
 
 import type { ChatPresenter, Sampler } from "./ports";
-import { askText, explainPrompt, type AskRequest } from "../domain/ask";
+import { askText, explainPrompt, type AskIntent, type AskRequest } from "../domain/ask";
+import { replyRule, type ReplyLanguage } from "../domain/reply-language";
+import type { CodevCopy, CodevEngineKey } from "./messages";
 
 export interface AskDeps {
   /** The direct model call (`null` when no live provider: explain falls back to the composer). */
@@ -17,18 +19,29 @@ export interface AskDeps {
   focus(): void;
   /** Puts the request in the composer (chips + text), sending it when `send`. */
   compose(text: string, context: AskRequest["context"], send: boolean): void;
+  /** The default questions in the interface language (`./messages`); without it, Portuguese. */
+  copy?: CodevCopy;
+  /** The interface language: the model answers in it; without it, Portuguese. */
+  replyLanguage?(): ReplyLanguage;
 }
 
+const QUESTION: Partial<Record<AskIntent, CodevEngineKey>> = { explain: "askExplain", fix: "askFix", review: "askReview", plan: "askPlan" };
+
 export function makeAsk(deps: AskDeps) {
+  /** The default question of an intent in the interface language (undefined → the domain's Portuguese one). */
+  const fallback = (r: AskRequest): string | undefined => {
+    const k = QUESTION[r.intent];
+    return deps.copy ? (k ? deps.copy(k) : "") : undefined;
+  };
   async function explain(r: AskRequest): Promise<boolean> {
     const sample = deps.sample();
     if (!sample) return false;
     const p = deps.presenter;
     const labels = r.context.map((c) => c.label).join(", ");
-    p.userMessage(askText(r) + (labels ? ` (${labels})` : ""));
+    p.userMessage(askText(r, fallback(r)) + (labels ? ` (${labels})` : ""));
     const card = p.thinking(deps.speaker());
     try {
-      const res = await sample(explainPrompt(r), { cache: false, onText: ({ text }) => p.assistantText(card, text) });
+      const res = await sample(explainPrompt(r, replyRule(deps.replyLanguage?.() ?? "ptAO"), fallback(r)), { cache: false, onText: ({ text }) => p.assistantText(card, text) });
       if (typeof res.text === "string" && res.text) p.assistantText(card, res.text);
     } catch (e: unknown) {
       p.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
@@ -41,7 +54,7 @@ export function makeAsk(deps: AskDeps) {
   return async function ask(r: AskRequest): Promise<void> {
     deps.focus();
     if (r.intent === "explain" && r.send !== false && (await explain(r))) return;
-    deps.compose(askText(r), r.context, r.send === true);
+    deps.compose(askText(r, fallback(r)), r.context, r.send === true);
   };
 }
 
