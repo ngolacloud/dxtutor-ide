@@ -68,8 +68,10 @@ use commands::codev_agent::{
     codev_agent_set_mode, codev_agent_set_plan, codev_agent_start, codev_agent_trust,
 };
 use commands::debug_cmds::{
-    debug_available, debug_break, debug_capabilities, debug_continue, debug_launch, debug_locals,
-    debug_run, debug_stack, debug_step, debug_stop,
+    breakpoints_load, breakpoints_save, debug_available, debug_break, debug_capabilities,
+    debug_continue, debug_evaluate, debug_launch, debug_locals, debug_pause, debug_run,
+    debug_set_breakpoints, debug_snapshot, debug_stack, debug_step, debug_stop,
+    debug_stop_on_panic, debug_threads, debug_variables,
 };
 use commands::devcontainer::{
     devcontainer_exec, devcontainer_info, devcontainer_session_down, devcontainer_session_exec,
@@ -801,6 +803,7 @@ pub fn run() {
         .manage(lsp::LspState::default())
         .manage(procs::Procs::default())
         .manage(debug::DebugSessions::default())
+        .manage(debug::DapSessions::default())
         .manage(pair::Pair::default())
         .setup(|_app| {
             #[cfg(target_os = "linux")]
@@ -962,6 +965,15 @@ pub fn run() {
             debug_locals,
             debug_stack,
             debug_stop,
+            debug_set_breakpoints,
+            debug_stop_on_panic,
+            debug_threads,
+            debug_variables,
+            debug_evaluate,
+            debug_pause,
+            debug_snapshot,
+            breakpoints_load,
+            breakpoints_save,
             devcontainer_info,
             devcontainer_up,
             devcontainer_exec,
