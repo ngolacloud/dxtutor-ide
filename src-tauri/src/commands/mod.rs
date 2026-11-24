@@ -16,6 +16,7 @@ pub mod debug_cmds;
 pub mod devcontainer;
 pub mod dictation;
 pub mod git;
+pub mod hood;
 pub mod missions;
 pub mod pair;
 pub mod panel;

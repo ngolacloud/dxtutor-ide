@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 196 comandos, **110 são consumidos pela `ui-app`** e **86 não o são**: a UI
+Dos 199 comandos, **116 são consumidos pela `ui-app`** e **83 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -141,9 +141,9 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 | `get_glossary` | `language: String` | `GlossaryDto` | String | — | — | R |
 | `get_study_guide` | `language: String`, `unit_id: String` | `StudyGuideDto` | String | — | — | R |
 | `run_drill` | `code: String`, `language: String`, `dependencies: Vec<String>` | `RunDto` (Rust/Go nativos; Python/C/drop-ins pelo descritor de `tutor_eval::plugin`) | String | — | — | **X** |
-| `run_measured` | `code: String` | `MeasuredRunDto` | String | — | — | **X** |
-| `compile_pipeline` | `code: String` | `PipelineDto` | String | — | — | **X** |
-| `trace_execution` | `language: String`, `code: String` | `ExecutionTraceDto` | String | — | — | **X** |
+| `run_measured` | `code: String` | `MeasuredRunDto` | String | — | `features/hood` (A8) | **X** |
+| `compile_pipeline` | `code: String` | `PipelineDto` | String | — | `features/hood` (A8) | **X** |
+| `trace_execution` | `language: String`, `code: String` | `ExecutionTraceDto` | String | — | `features/hood` (A8) | **X** |
 | `study_policy` | `mode: String`, `step_id: Option<String>` | `StudyPolicy` | — | — | — | R |
 
 ## 4. Review de código — `commands/review.rs` (3)
@@ -412,6 +412,18 @@ variáveis com diff, watch, pause, breakpoints guardados, snapshot) — a saída
 | `breakpoints_load` | `root: String` | `Vec<project::breakpoints::Breakpoint>` | String | — | `features/debug` (A7) | R |
 | `breakpoints_save` | `root`, `file`, `breakpoints: Vec<Breakpoint>` | `()` | String | — | `features/debug` (A7) | W |
 
+## 23. Under the hood real — `commands/hood.rs` (3)
+
+A8 (docs/v2/UI-AUDIT.md item 7): passagens directas para `tutor_eval::hood`, num worker bloqueante. Com os
+já existentes `compile_pipeline`, `run_measured` e `trace_execution` (secção dos missions), alimentam o
+separador «Under the hood (real)» e o «Execution trace» (`features/hood`).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `hood_line_asm` | `code: String`, `release: bool` | `hood::LineAsm` (por linha do `main.rs`: funções e instruções; `rustc -C debuginfo=2` + `objdump -d -l`) | String | — | `features/hood` (A8) | **X** |
+| `hood_python_bytecode` | `code: String` | `hood::Bytecode` (por linha e por função: as operações do `dis`) | String | — | `features/hood` (A8) | **X** |
+| `measure_growth` | `code: String`, `sizes: Vec<u64>` | `hood::Growth` (tempo por N, linha de base descontada, classe de complexidade, R², confiança) | String | — | `features/hood` (A8) | **X** |
+
 ## 12. Devcontainers — `commands/devcontainer.rs` (8)
 
 Todos lançam processos de container (no motor do sandbox do backend: delonix/docker/podman). A sessão (`up`/`status`/`down`) é consumida pelo pane Infra no desktop (ADR-0006, R5b); os outros não são consumidos pela `ui-app`.
@@ -562,10 +574,10 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **196** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 21 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 19 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 14 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
-| Consumidos pela `ui-app` | **110** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 14 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7) |
-| Não consumidos pela `ui-app` | **86** |
+| Comandos registados | **199** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 21 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 19 · `commands/hood.rs` 3 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 14 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
+| Consumidos pela `ui-app` | **116** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 14 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured`) |
+| Não consumidos pela `ui-app` | **83** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |

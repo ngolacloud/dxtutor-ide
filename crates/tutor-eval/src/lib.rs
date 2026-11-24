@@ -27,6 +27,7 @@ pub mod entrypoint;
 pub mod git;
 pub mod gitx;
 pub mod go_runner;
+pub mod hood;
 pub mod js_runner;
 pub mod lang;
 pub mod lsp;

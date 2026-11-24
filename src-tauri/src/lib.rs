@@ -84,6 +84,7 @@ use commands::git::{
     git_commit, git_compare, git_create_branch, git_diff, git_history, git_log, git_rebase,
     git_show, git_show_path, git_stage, git_stage_all, git_stash, git_unstage, git_worktree,
 };
+use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
 use commands::panel::{ports_list, problems_scan};
@@ -974,6 +975,9 @@ pub fn run() {
             debug_snapshot,
             breakpoints_load,
             breakpoints_save,
+            hood_line_asm,
+            hood_python_bytecode,
+            measure_growth,
             devcontainer_info,
             devcontainer_up,
             devcontainer_exec,
