@@ -61,6 +61,12 @@ export const selText = (): string => window.selText();
 export interface Svc { name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }
 export const composeServices = (): Svc[] | null => window.composeServices();
 
+/* ───── a pasta aberta (desktop) e o prefixo das chaves do FS (ADR-0005, R2e2) ───── */
+/** A pasta aberta no desktop (null sem pasta e no browser). */
+export const desktopRoot = (): string | null => (G.DXR && G.DXR.root) || null;
+/** O prefixo das chaves do `FS` (`ROOT`): `ROOT + caminho relativo` = chave. */
+export const fsRoot = (): string => G.ROOT;
+
 /* ───── publicação da superfície pública da feature no `window` ─────
    `renderCreviewView`/`renderHoodView` são o alvo dos shims `VIEW.creview`/`VIEW.hood`
    (v6.ts); `curFile`/`explainCmd`/`reviewCmd`/`hoodCmd`/`reviewFindings` são lidos por

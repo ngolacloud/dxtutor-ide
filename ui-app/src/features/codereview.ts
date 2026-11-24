@@ -23,7 +23,8 @@
 
 import { esc, svg, S, prov } from "../core";
 import { VIEW } from "../app/store/registry";
-import type { Finding } from "./codereview/domain/types";
+import type { AnalyzerReport, Finding } from "./codereview/domain/types";
+import { tauriReview } from "./codereview/infrastructure/tauri";
 import { scoreFor } from "./codereview/domain/scoring";
 import { makeReviewEngine } from "./codereview/application/review-engine";
 import type { ExplainCard } from "./codereview/application/ports";
@@ -49,6 +50,8 @@ import {
   selText,
   composeServices,
   publish,
+  desktopRoot,
+  fsRoot,
   type Svc,
 } from "./codereview/infrastructure/legacy-bridge";
 
@@ -97,6 +100,44 @@ function renderCreviewView(tab: unknown, host: HTMLElement): void {
   host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" data-action="open-file" data-on="${esc(t.path)}">Open file</button>${sample() && prov().claude.on ? `<button class="mini pri" data-action="deeper-review" data-on="${esc(t.path)}">Deeper review with Claude</button>` : ''}</div>
    <div class="sub" style="margin-top:12px">Rule-based checks for correctness, security, performance and the project rules. They point at evidence; you decide what to change.</div>
    ${fs.length ? fs.map(f => `<div class="rv"><div class="rv-h"><span class="tag" style="color:${SEVC[f.sev]};border-color:${SEVC[f.sev]}">${f.sev}</span><b>${f.t}</b><span class="sp"></span><button class="lnk" data-action="open-line" data-on="${f.l}:${esc(t.path)}">line ${f.l}</button></div><div class="rv-b"><p>${f.why}</p><p><b>Suggested:</b> ${f.fix}</p></div></div>`).join('') : '<div class="adv agent" style="margin-top:16px">' + svg('check') + '<div>No findings from the rule set. That is not proof of correctness — the tests are.</div></div>'}</div>`;
+  analyzersSection(t.path, host);
+}
+
+/* ───── os analisadores reais do projecto (ADR-0005, R2e2) ─────
+   No desktop com pasta aberta, a tab junta às regras locais (instantâneas) o que os
+   analisadores instalados dizem do ficheiro no disco (`review_code`, âmbito `file`):
+   clippy/rustc, go vet, ruff, … com a classe honesta (bug/risco/oportunidade), a regra, a
+   evidência, a consequência e como verificar — e que analisadores correram ou faltam. No
+   browser não há backend: a secção não aparece (os goldens ficam intactos). Um resultado que
+   chega depois de a tab mudar de ficheiro (ou de ser fechada) não pinta. */
+const CLASS_COL: Record<string, string> = { bug: 'var(--red)', risk: 'var(--yellow)', opportunity: 'var(--blue)' };
+const CLASS_PT: Record<string, string> = { bug: 'bug', risk: 'risco', opportunity: 'oportunidade' };
+const STATUS_PT: Record<string, string> = { ran: 'correu', failed: 'falhou', unavailable: 'não instalado', skipped: 'não se aplica' };
+
+function analyzersSection(path: string, host: HTMLElement): void {
+  const root = desktopRoot(), pre = fsRoot();
+  if (!root || !path.startsWith(pre)) return;
+  const page = host.querySelector('.page') || host;
+  const sec = document.createElement('div');
+  sec.className = 'cr-analyzers';
+  sec.innerHTML = '<h2>Analisadores do projecto</h2><div class="sub">A correr os analisadores instalados sobre o ficheiro gravado no disco…</div>';
+  page.appendChild(sec);
+  const rel = path.slice(pre.length);
+  tauriReview().file(root, rel).then(
+    (r) => { if (sec.isConnected) sec.innerHTML = analyzersHtml(r, pre); },
+    (e) => { if (sec.isConnected) sec.innerHTML = `<h2>Analisadores do projecto</h2><div class="sub" style="color:var(--red)">A revisão falhou: ${esc(e instanceof Error ? e.message : String(e))}</div>`; },
+  );
+}
+
+function analyzersHtml(r: AnalyzerReport, pre: string): string {
+  const runs = r.analyzers.map((a) => `<span class="tag" title="${esc(a.detail || '')}" style="${a.status === 'ran' ? 'color:var(--green);border-color:var(--green)' : a.status === 'failed' ? 'color:var(--red);border-color:var(--red)' : ''}">${esc(a.id)} · ${STATUS_PT[a.status] || esc(a.status)}</span>`).join(' ');
+  const ran = r.analyzers.some((a) => a.status === 'ran');
+  const fs = r.findings.map((f) => {
+    const col = CLASS_COL[f.class] || 'var(--fg-muted)', key = pre + f.primary.file;
+    const extra = [f.evidence ? `<pre class="notr" style="font-size:11px;white-space:pre-wrap">${esc(f.evidence)}</pre>` : '', f.consequence ? `<div><b>Se ficar:</b> ${esc(f.consequence)}</div>` : '', f.verification ? `<div><b>Verificar:</b> ${esc(f.verification)}</div>` : ''].join('');
+    return `<div class="rv"><div class="rv-h"><span class="tag" style="color:${col};border-color:${col}">${CLASS_PT[f.class] || esc(f.class)}</span><b>${esc(f.message)}</b><span class="sp"></span><button class="lnk" data-action="open-line" data-on="${f.primary.startLine}:${esc(key)}">line ${f.primary.startLine}</button></div><div class="rv-b"><div class="notr" style="color:var(--fg-muted)">${esc(f.analyzer)}${f.rule ? ' · ' + esc(f.rule) : ''}</div>${extra}</div></div>`;
+  }).join('');
+  return `<h2>Analisadores do projecto</h2><div class="sub">Os linters e compiladores instalados, sobre o ficheiro gravado no disco. Cada achado traz a evidência do analisador; tu decides.</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${runs || '<span class="sub">Nenhum analisador se aplica a este ficheiro.</span>'}</div>${fs || (ran ? '<div class="sub">Nenhum achado dos analisadores.</div>' : '')}`;
 }
 
 /* ───── Under the hood — markup da tab (dono da view) ───── */

@@ -101,7 +101,9 @@ features/codereview.ts  RESÍDUO strangler + raiz de composição: compõe o mot
                    e re-publica os shims window.* (v6.ts/debug.ts ainda resolvem por global).
 ```
 
-Governada pelas mesmas A7/A8 (está em `FEATURES`). Nota: ao contrário do Co-Dev,
+Governada pelas mesmas A7/A8 (está em `FEATURES`). No desktop com pasta, a tab de Code
+review junta às regras locais os analisadores reais do projecto (`review_code`, âmbito
+`file`, pelo adaptador `infrastructure/tauri.ts`; ADR-0005 R2e2). Nota: ao contrário do Co-Dev,
 o markup (`renderCreviewView`/`renderHoodView`) vive no resíduo de composição
 `features/codereview.ts`, não num `ui/*-view.ts` — por isso `ui/` só tem
 `actions.ts`. A tabela de acções fica no resíduo (único sítio com o bridge à mão).

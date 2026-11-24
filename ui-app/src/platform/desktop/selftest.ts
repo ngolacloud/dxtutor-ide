@@ -327,6 +327,19 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const t = document.getElementById("pane-account")?.textContent || "";
       return { user: R.user, host: R.host, git: R.gitName || null, shown: !!R.user && t.includes(R.user), noFake: !/walter|Team SYS/.test(t) || R.user === "walter" };
     });
+    // code review (ADR-0005, R2e2): a tab junta às regras locais os analisadores reais do
+    // projecto (review_code, âmbito file) para o teste Python gravado acima.
+    await step("review", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      renderCreviewView({ path: ROOT + "test_dx_selftest.py" }, host);
+      const sec = () => host.querySelector(".cr-analyzers");
+      const done = await wait(() => !!sec() && !/A correr os analisadores/.test(sec()!.textContent || ""), 120000);
+      const r = { done, analyzers: [...(sec()?.querySelectorAll(".tag") || [])].map(t => t.textContent).filter(t => t && t.includes("·")), findings: sec()?.querySelectorAll(".rv").length || 0, failed: /A revisão falhou/.test(sec()?.textContent || "") };
+      host.remove();
+      return r;
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

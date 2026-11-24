@@ -154,7 +154,7 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `review_code` | `root: String`, `scope: String`, `path: Option<String>`, `version: Option<String>` | `review::ReviewReport` | String | — | — | R |
+| `review_code` | `root: String`, `scope: String`, `path: Option<String>`, `version: Option<String>` | `review::ReviewReport` | String | — | `features/codereview` | R |
 | `list_review_analyzers` | — | `Vec<review::AnalyzerInfo>` | — | — | — | R |
 | `verify_review_fix` | `current_source: String`, `analyzed_version: String`, `fix: review::SuggestedFix` | `review::FixVerification` | — | — | — | R |
 

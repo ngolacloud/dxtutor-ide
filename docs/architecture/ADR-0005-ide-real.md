@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a–R2d e R2e1 feitas, R2e2 e R3–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop), R3–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -305,3 +305,16 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   Conta no browser, no desktop e sem user.name) + os 4 testes Rust do uso. **Selftest
   desktop:** passo `account` novo — mostra o utilizador e a máquina reais; `errors: []`. O uso
   real dos providers só se vê com um modelo a responder (o selftest corre sem modelo).
+- **R2e2 (2026-11-24) — Code review real.** No desktop com pasta aberta, a tab de Code review
+  junta às regras locais (instantâneas) os analisadores instalados no projecto, pelo backend
+  (`review_code`, âmbito `file`, caminho relativo; adaptador novo
+  `codereview/infrastructure/tauri.ts`, tipos novos no domínio): cada achado traz o
+  analisador e a regra (p.ex. `rustc · E0382`), a classe honesta do backend (bug / risco /
+  oportunidade — um lint nunca é um bug), a evidência, a consequência e como verificar, e um
+  «line N» que abre o ficheiro na linha; a secção diz que analisadores correram, falharam,
+  não estão instalados ou não se aplicam. Um resultado que chega depois de a tab mudar não
+  pinta. No browser a secção não aparece — os goldens do Code review ficam byte-idênticos.
+  **Testes com IPC falso:** `codereview.r2e2` (browser sem secção, pedido e achados com a
+  classe, abrir na linha, resultado atrasado, sem achados, erro). **Selftest desktop:** passo
+  `review` novo — o teste Python dá `ruff · não instalado` (dito, não escondido); `errors: []`.
+  IPC-MATRIX: `review_code` ganha consumidor. **Com isto a R2 fica feita.**
