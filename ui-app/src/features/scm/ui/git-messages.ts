@@ -39,6 +39,8 @@ export const GIT_MESSAGES = {
     askReviewStaged: "Review these staged changes before I commit: bugs, risks and what is missing (tests, docs).",
     blameTitle: "Who changed this line last — click for the line's history",
     needRepo: "This needs a git repository open in the desktop app.",
+    notARepo: "This folder is not a git repository. Commits, branches, gitflow and the graph use the folder's real git.",
+    noRepo: "No git repository open. Version control uses the real git of the folder open in the desktop app.",
   },
   ptAO: {
     justNow: "agora mesmo", minAgo: "há {n} min", hAgo: "há {n} h", dAgo: "há {n} d", moAgo: "há {n} meses", yAgo: "há {n} anos",
@@ -76,6 +78,8 @@ export const GIT_MESSAGES = {
     askReviewStaged: "Revê estas alterações staged antes do commit: bugs, riscos e o que falta (testes, documentação).",
     blameTitle: "Quem mudou esta linha por último — clica para o histórico da linha",
     needRepo: "Isto precisa de um repositório git aberto na app desktop.",
+    notARepo: "Esta pasta não é um repositório git. Os commits, os ramos, o gitflow e o grafo usam o git real da pasta.",
+    noRepo: "Nenhum repositório git aberto. O controlo de versões usa o git real da pasta aberta na app desktop.",
   },
 } satisfies Messages<string>;
 export type GitKey = keyof typeof GIT_MESSAGES.en;

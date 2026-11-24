@@ -15,6 +15,10 @@ import { $, hd, svg, esc } from "../core";
 import { RP } from "../app/store/registry";
 import { projectsClient, type ProjectInfo } from "../platform/tauri/projects";
 import { commandsFor, type ProjectFiles } from "./run-commands";
+import { translator } from "../app/i18n";
+import { RUN_MESSAGES } from "./run.messages";
+
+const txr = translator(RUN_MESSAGES);
 
 interface Term { runTask?: (cmd: string, o?: { cwd?: string; label?: string }) => unknown }
 interface Globals {
@@ -59,19 +63,19 @@ function renderRunPane(): void {
   const el = $("#pane-run");
   if (!el) return;
   const r = root();
-  if (!r) { el.innerHTML = hd("Run") + '<div class="sections"><div class="sec-empty">Abre uma pasta (File → Open Folder…) para ver os projectos e os comandos para os correr.</div></div>'; return; }
+  if (!r) { el.innerHTML = hd("Run") + `<div class="sections"><div class="sec-empty">${txr("noFolder")}</div></div>`; return; }
   if (state.root !== r) load(r);
   const acts = `<button title="Voltar a detectar os projectos" data-run-refresh="1">${svg("refresh")}</button>`;
   let body: string;
   if (state.loading) body = '<div class="sec-empty">A detectar os projectos…</div>';
-  else if (state.error) body = `<div class="sec-empty" style="color:var(--red)">Não consegui detectar os projectos: ${esc(state.error)}</div>`;
-  else if (!state.projects || !state.projects.length) body = '<div class="sec-empty">Não detectei projectos nesta pasta (nem na raiz nem nas sub-pastas de primeiro nível): Cargo.toml, go.mod, package.json, pyproject.toml, pom.xml, composer.json ou Gemfile.</div>';
-  else body = '<div class="sec-empty">Cada comando corre num terminal de tarefa, na pasta do projecto.</div>' + state.projects.map((p) => {
+  else if (state.error) body = `<div class="sec-empty" style="color:var(--red)">${txr("detectError", { error: esc(state.error) })}</div>`;
+  else if (!state.projects || !state.projects.length) body = `<div class="sec-empty">${txr("noProjects")}</div>`;
+  else body = `<div class="sec-empty">${txr("eachCommand")}</div>` + state.projects.map((p) => {
     const rel = relOf(r, p.path), cmds = commandsFor(p.kind, filesOf(rel));
     return `<div class="scm-grp notr">${esc(p.name)}<span class="cnt">${esc(p.kind)}</span></div>${rel ? `<div class="sec-empty notr" style="padding-top:0">${esc(rel)}/</div>` : ""}` +
       (cmds.length
         ? cmds.map((c) => `<div class="scm-row" data-run-cmd="${esc(c.cmd)}" data-run-cwd="${esc(p.path)}" title="${esc(c.cmd)}"><span class="ic" style="color:var(--green)">${svg("run")}</span><span class="nm notr">${esc(c.cmd)}</span><span class="pth notr">${esc(c.label)}</span></div>`).join("")
-        : '<div class="sec-empty">Sem comandos conhecidos para este tipo de projecto.</div>');
+        : `<div class="sec-empty">${txr("noCommands")}</div>`);
   }).join("");
   el.innerHTML = hd("Run", acts) + `<div class="sections">${body}</div>`;
 }

@@ -11,6 +11,7 @@
 
 import { $ } from "../core";
 import { codevAsk } from "../app/codev-ask";
+import { closePal } from "./palette";
 
 interface ShortcutGlobals {
   termOwnsKey?: (e: KeyboardEvent) => boolean;
@@ -60,7 +61,7 @@ const KW = window as unknown as {
 };
 document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey,go=(f: () => unknown)=>{e.preventDefault();f();};const cmd=(l: string)=>()=>KW.CMD.find(x=>x[0]===l)![2]();
   if(KW.termOwnsKey&&KW.termOwnsKey(e))return;/* foco num terminal real (features/panel): a tecla é da shell */
-  if(e.key==='Escape'){if($('#pal')!.classList.contains('show'))KW.closePal();KW.closeMenus();$('#notes')!.classList.remove('show');return;}
+  if(e.key==='Escape'){if($('#pal')!.classList.contains('show'))closePal();KW.closeMenus();$('#notes')!.classList.remove('show');return;}
   if(e.key==='F1'||(c&&e.shiftKey&&k==='p'))go(()=>KW.palette('>'));else if(e.key==='F8')go(KW.nextProblem);
   else if(c&&e.shiftKey){if(k==='e')go(()=>KW.goPane('explorer'));else if(k==='f')go(cmd('Ver: Pesquisa'));else if(k==='g')go(()=>KW.goPane('scm'));else if(k==='m')go(()=>KW.setPanelTab('problems'));else if(k==='a')go(()=>KW.goPane('codev'));}
   else if(c){if(k==='p')go(()=>KW.palette(''));else if(k==='b')go(KW.toggleSide);else if(k==='j')go(KW.togglePanel);else if(k==='`')go(()=>KW.setPanelTab('terminal'));else if(k===',')go(KW.openSettings);else if(k==='l')go(()=>KW.focusAgent());else if(k==='g')go(()=>KW.palette(':'));else if(k==='s')go(()=>KW.toast('Auto Save activo — já está guardado'));}

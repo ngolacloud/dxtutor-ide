@@ -8,10 +8,12 @@ import { bootApp } from "./harness";
 
 type W = Window & Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 let w: W;
+let TKM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7f)
 let hasAction: (n: string) => boolean;
 
 beforeEach(async () => {
   w = (await bootApp()) as W;
+  TKM = await import("../src/features/tasks");
   ({ hasAction } = await import("../src/app/actions"));
   const side = document.querySelector(".side")!;
   for (const p of ["tasks", "tutor", "search", "test", "run", "remote", "account"])
@@ -45,7 +47,7 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     w.BL.issues.push({ id: "DX-1", title: "x", type: "feature", pts: 1, stage: "todo", sprint: 0, agent, attempts: 0, tests: [], res: "", note: "" });
     w.RP.tasks();
     click(document.querySelector('#pane-tasks [data-action="tasks:sprint"][data-on="0"]'));
-    expect(w.TK.sprint).toBe(0);
+    expect(TKM.TK.sprint).toBe(0);
     expect(document.querySelector('#pane-tasks [data-action="tasks:sprint"][data-on="0"]')!.classList.contains("on")).toBe(true);
   });
 
@@ -85,14 +87,13 @@ describe("cablagem das acções partilhadas (U5b)", () => {
      ext-install, ext-toggle, builtin-toggle…), cujos cliques o ext.golden.test.ts prova. */
 
   it("learn (U5c): o nível alterna no ONB.levels do window e volta ao passo 2", () => {
-    const steps: unknown[] = [];
     w.ONB = { lang: "rust", levels: ["beginner"] };
-    w.ltOnboard = (s: unknown) => steps.push(s);
     document.body.insertAdjacentHTML("beforeend", `<button id="lv" data-action="learn:level" data-on="advanced"></button><button id="lv2" data-action="learn:level" data-on="beginner"></button>`);
     click(document.getElementById("lv"));
     click(document.getElementById("lv2"));
     expect(w.ONB.levels).toEqual(["advanced"]);
-    expect(steps).toEqual([2, 2]);
+    // volta ao passo 2 do onboarding (o dos níveis) — desde a U7g o learn chama o seu ltOnboard directamente
+    expect(document.querySelectorAll('#onb [data-action="learn:level"]').length).toBeGreaterThan(0);
   });
 
   it("board (U5c): os botões que o motor emite chamam a função publicada, com o sprint como número", () => {

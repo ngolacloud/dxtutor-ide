@@ -231,6 +231,6 @@ describe("ligação: o pane com os runners reais", () => {
     await vi.waitFor(() => expect(ipc.some(([c]) => c === "test_runners")).toBe(true));
     await Promise.resolve();
     expect(pane().textContent).not.toContain("Runners");
-    expect(pane().textContent).toMatch(/Não encontrei testes/);
+    expect(pane().textContent).toMatch(/No Rust, Go or Python tests found/);
   });
 });

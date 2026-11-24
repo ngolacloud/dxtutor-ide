@@ -47,6 +47,7 @@ import { desktopPorts } from "../app/desktop";
 import { bindActions, type ActionTable } from "./scm/ui/actions";
 import { translator } from "../app/i18n";
 import { SCM_MESSAGES } from "./scm/ui/messages";
+import { GIT_MESSAGES } from "./scm/ui/git-messages";
 import { GIT_ACTIONS, sideSections } from "./scm/extras";
 import {
   toast, log, rerender,
@@ -149,12 +150,13 @@ function openGraph(sel?: string): void { if (sel) setGraphSel(sel); openTab({ id
  *  próximo passo gitflow, ramos e commits recentes. */
 /** Os textos do pane vêm do catálogo (ADR-0004, U6b — o piloto dos textos por chave). */
 const t = translator(SCM_MESSAGES);
+const tg = translator(GIT_MESSAGES);
 function renderScmPane(): void {
   const el = $("#pane-scm"), ch = changes(), st = ch.filter((p) => STAGED.has(p)), un = ch.filter((p) => !STAGED.has(p)), lay = graphLayout();
   if (!el) return;
   if (!repo()) {
     const folder = desktopFolder();
-    el.innerHTML = hd(t("title"), "") + `<div class="sections"><div class="sec-empty">${folder ? "Esta pasta não é um repositório git. Os commits, os ramos, o gitflow e o grafo usam o git real da pasta." : "Nenhum repositório git aberto. O controlo de versões usa o git real da pasta aberta na app desktop."}</div>${folder ? '<button class="btn" data-action="git-init">git init</button>' : ""}</div>`;
+    el.innerHTML = hd(t("title"), "") + `<div class="sections"><div class="sec-empty">${tg(folder ? "notARepo" : "noRepo")}</div>${folder ? '<button class="btn" data-action="git-init">git init</button>' : ""}</div>`;
     return;
   }
   const b = branch();

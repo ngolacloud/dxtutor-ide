@@ -70,7 +70,7 @@ function advice(it: any): [string, string] {
   return ["agent", `Delegate: ≈${nfmt(tok)} tokens · ~$${u.toFixed(2)} vs ~${h} min of yours. Your review stays.`];
 }
 
-const TK: TaskFilter = { sprint: -1, who: "all", open: { backlog: false, done: false } };
+export const TK: TaskFilter = { sprint: -1, who: "all", open: { backlog: false, done: false } };
 const saveTK = () => LS.set("tk6", TK);
 const STC: Record<string, string> = { backlog: "var(--fg-muted)", todo: "var(--blue)", dev: "var(--yellow)", test: "var(--purple)", func: "var(--accent)", done: "var(--green)" };
 
@@ -126,7 +126,7 @@ RP.tasks = renderTasksPane;
 VIEW.issue = renderIssueView;
 
 window.renderTasksPane = renderTasksPane;
-Object.assign(window, { openIssue, TK,});
+Object.assign(window, { openIssue,});
 
 /* ── acções do pane e da vista (ADR-0004, U5b) ── eram `onclick="…"`/`onchange="…"` inline, que
    resolviam o TK/BL/RP/cur/PANE e as funções no window ao clicar; as acções fazem o mesmo, no acto. */
@@ -134,9 +134,9 @@ const TW = window as unknown as { TK: TaskFilter; RP: Record<string, () => void>
 const issue = (id: string) => TW.BL.issues.find((x) => x.id === id)!;
 registerActions({
   ...globalCalls("tasks", ["newIssue", "openBoard", "openStudio"]),
-  "tasks:sprint": { click: (c) => { TW.TK.sprint = Number(c.on); saveTK(); TW.RP.tasks(); } },
-  "tasks:who": { change: (c) => { TW.TK.who = c.value; saveTK(); TW.RP.tasks(); } },
-  "tasks:group": { click: (c) => { const [k, v] = args<[string, boolean]>(c); TW.TK.open[k] = v; saveTK(); TW.RP.tasks(); } },
+  "tasks:sprint": { click: (c) => { TK.sprint = Number(c.on); saveTK(); TW.RP.tasks(); } },
+  "tasks:who": { change: (c) => { TK.who = c.value; saveTK(); TW.RP.tasks(); } },
+  "tasks:group": { click: (c) => { const [k, v] = args<[string, boolean]>(c); TK.open[k] = v; saveTK(); TW.RP.tasks(); } },
   "tasks:openIssue": { click: (c) => void callGlobal("openIssue", c.on) },
   "tasks:giveBack": { click: (c) => { issue(c.on).owner = null; callGlobal("show", TW.cur); } },
   "tasks:takeIt": { click: (c) => { issue(c.on).owner = "you"; callGlobal("show", TW.cur); if (TW.PANE === "tasks") TW.RP.tasks(); } },

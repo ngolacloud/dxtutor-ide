@@ -40,7 +40,8 @@ describe(".dxtutor/team.json", () => {
 
 describe("na cadeia real", () => {
   let w: any;
-  beforeEach(async () => { w = await bootApp(); });
+  let TMod: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
+  beforeEach(async () => { w = await bootApp(); TMod = await import("../src/features/team"); });
   afterEach(() => { delete w.DXR; });
 
   const open = () => document.dispatchEvent(new window.CustomEvent("dx:workspace", { detail: { root: "/proj" } }));
@@ -53,13 +54,13 @@ describe("na cadeia real", () => {
     expect(w.AGENTS.be.cmds).toEqual(["cargo test"]);
     expect(w.AGENTS.qa.paths).toEqual(["e2e/**"]);
     expect(w.AGENTS.qa.cmds).toEqual(["npm run e2e"]);
-    expect(w.inScope("qa", w.ROOT + "e2e/login.spec.ts")).toBe(true);
+    expect(TMod.inScope("qa", w.ROOT + "e2e/login.spec.ts")).toBe(true);
   });
 
   it("com pasta, gravar a equipa escreve .dxtutor/team.json no projecto", () => {
     w.DXR = { root: "/proj" };
     w.AGENTS.db.paths = ["sql/**"];
-    w.saveTeam();
+    TMod.saveTeam();
     const saved = parseTeamJson(w.FS[w.ROOT + ".dxtutor/team.json"].content)!;
     expect(saved.db.paths).toEqual(["sql/**"]);
   });

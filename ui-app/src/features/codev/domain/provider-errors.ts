@@ -2,8 +2,9 @@
    O backend devolve os erros dos provedores tal-e-qual ("Anthropic returned 400: {json}",
    "OpenAI returned 429: …", "No API key for claude…"). Aqui reconhecem-se os casos que o
    humano consegue resolver — sem créditos, chave inválida, limite de pedidos, serviço
-   sobrecarregado, modelo inexistente, sem rede — e dá-se-lhes uma explicação e o passo
-   seguinte. O texto original fica disponível como detalhe. Sem DOM, sem window. */
+   sobrecarregado, modelo inexistente, sem rede. O texto (explicação e passo seguinte, nas
+   duas línguas) é da ui: `ui/provider-error-messages.ts`, pelo `kind`. O texto original fica
+   disponível como detalhe. Sem DOM, sem window. */
 
 export type ProviderErrorKind = "credit" | "auth" | "nokey" | "rate" | "overloaded" | "model" | "network";
 
@@ -11,8 +12,8 @@ export interface ProviderError {
   kind: ProviderErrorKind;
   /** Nome legível do provedor ("Claude (Anthropic)", "OpenAI", …), ou null se não se sabe. */
   provider: string | null;
-  title: string;
-  hint: string;
+  /** O provedor é local (Ollama): sem rede, o passo seguinte é arrancá-lo, não a internet. */
+  local: boolean;
   /** Página do provedor onde se resolve (facturação / chaves), quando há uma. */
   url: string | null;
   /** Mensagem do provedor (o `message` do JSON, se houver), para o detalhe. */
@@ -74,81 +75,31 @@ export function explainProviderError(msg: string, active?: string | null): Provi
   if (!msg) return null;
   const pid = providerOf(msg) ?? (active ? FROM_UI[active] ?? null : null);
   const p = pid ? PROVIDERS[pid] : null;
-  const who = p?.name ?? "O provedor";
   const status = statusOf(msg);
   const detail = innerMessage(msg);
   const t = msg.toLowerCase();
-  const alt = "Entretanto podes escolher outro provedor no Co-Dev, ou um modelo local com o Ollama (sem custos).";
+  const base = { provider: p?.name ?? null, local: pid === "ollama", detail };
 
   if (/credit balance is too low|insufficient[_ ]quota|exceeded your current quota|billing|payment required|purchase credits/.test(t) || status === 402) {
-    return {
-      kind: "credit",
-      provider: p?.name ?? null,
-      title: `${who}: a conta da API não tem créditos.`,
-      hint: `A chave é válida, mas a conta não tem saldo (o uso da API é pago à parte de uma subscrição do chat). Compra créditos na página de facturação do provedor e tenta de novo daqui a alguns minutos. ${alt}`,
-      url: p?.billing || null,
-      detail,
-    };
+    return { kind: "credit", ...base, url: p?.billing || null };
   }
   if (/^no api key for|sem chave/.test(t)) {
-    return {
-      kind: "nokey",
-      provider: p?.name ?? null,
-      title: `${who}: falta a chave da API.`,
-      hint: "Cola a chave em Definições → Modelos e provedores (e carrega Enter), ou define a variável de ambiente antes de abrir a app.",
-      url: p?.keys || null,
-      detail,
-    };
+    return { kind: "nokey", ...base, url: p?.keys || null };
   }
   if (status === 401 || status === 403 || /authentication_error|invalid x-api-key|invalid api key|incorrect api key|api_key_invalid|permission_error/.test(t)) {
-    return {
-      kind: "auth",
-      provider: p?.name ?? null,
-      title: `${who}: a chave da API foi recusada.`,
-      hint: "A chave está errada, foi revogada ou não tem acesso a este modelo. Gera uma nova na consola do provedor e cola-a em Definições → Modelos e provedores.",
-      url: p?.keys || null,
-      detail,
-    };
+    return { kind: "auth", ...base, url: p?.keys || null };
   }
   if (status === 429 || /rate_limit|rate limit|too many requests|resource_exhausted/.test(t)) {
-    return {
-      kind: "rate",
-      provider: p?.name ?? null,
-      title: `${who}: limite de pedidos atingido.`,
-      hint: `Espera um pouco e tenta de novo. ${alt}`,
-      url: null,
-      detail,
-    };
+    return { kind: "rate", ...base, url: null };
   }
   if (status === 529 || status === 503 || /overloaded/.test(t)) {
-    return {
-      kind: "overloaded",
-      provider: p?.name ?? null,
-      title: `${who}: o serviço está sobrecarregado.`,
-      hint: `Não é um problema teu — tenta de novo daqui a pouco. ${alt}`,
-      url: null,
-      detail,
-    };
+    return { kind: "overloaded", ...base, url: null };
   }
   if (status === 404 || /not_found_error|model.*(not found|does not exist)|unknown model/.test(t)) {
-    return {
-      kind: "model",
-      provider: p?.name ?? null,
-      title: `${who}: o modelo pedido não existe ou não está disponível para esta conta.`,
-      hint: "Escolhe outro modelo no Co-Dev ou em Definições → Modelos e provedores.",
-      url: null,
-      detail,
-    };
+    return { kind: "model", ...base, url: null };
   }
   if (/could not reach|error sending request|dns error|connection refused|timed out|network/.test(t)) {
-    return {
-      kind: "network",
-      provider: p?.name ?? null,
-      title: `${who}: não consegui chegar ao serviço.`,
-      hint: pid === "ollama" ? "Confirma que o Ollama está a correr (ollama serve) e que tem um modelo (ollama pull qwen3)." : "Confirma a ligação à internet (ou o proxy) e tenta de novo.",
-      url: null,
-      detail,
-    };
+    return { kind: "network", ...base, url: null };
   }
   return null;
 }

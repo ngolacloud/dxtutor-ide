@@ -5,10 +5,12 @@ import { bootApp } from "./harness";
  * nem fazer deploy; os erros reais (falta o compose, faltam Dockerfiles, falta deploy/k8s) ficam. */
 
 let w: any;
+let SM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
 const term = (): string => document.getElementById("term")?.textContent || "";
 
 beforeEach(async () => {
   w = await bootApp();
+  SM = await import("../src/features/studio");
   w.ENVS.rtOn = false; w.ENVS.k8sOn = false; w.STACK = null; w.K8S = null;
 });
 
@@ -40,7 +42,7 @@ describe("no browser", () => {
   it("deploy: com manifestos, não finge um cluster — diz que precisa da app desktop", () => {
     w.ENVS.rtOn = true; w.ENVS.k8sOn = true;
     w.FS[w.ROOT + "deploy/k8s/all.yaml"] = { content: w.k8sInfra(w.SD), orig: null };
-    for (const n of w.SD.nodes) { const d = w.ROOT + w.appDir(n) + "/Dockerfile"; w.FS[d] = { content: "FROM scratch\n", orig: null }; }
+    for (const n of w.SD.nodes) { const d = w.ROOT + SM.appDir(n) + "/Dockerfile"; w.FS[d] = { content: "FROM scratch\n", orig: null }; }
     const r = w.dxDeploy();
     expect(r).toMatchObject({ ok: false });
     expect(w.K8S).toBe(null);
@@ -51,8 +53,8 @@ describe("no browser", () => {
   it("o terminal emulado não responde com um cluster/contentor inventado", () => {
     w.XC.kubectl(["get", "pods"]);
     w.XC.devcontainer(["up"]);
-    expect(term()).toMatch(/não fala com o cluster/);
-    expect(term()).toMatch(/não arranca contentores/);
+    expect(term()).toMatch(/does not talk to the cluster/);
+    expect(term()).toMatch(/does not start containers/);
     expect(w.DEVC == null).toBe(true);
   });
 });

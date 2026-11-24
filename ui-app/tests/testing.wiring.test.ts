@@ -43,7 +43,7 @@ describe("sem pasta (browser)", () => {
   it("o pane diz como abrir uma pasta e não chama o backend", () => {
     fakeTauri({});
     w.RP.test();
-    expect(pane().textContent).toMatch(/Abre uma pasta/);
+    expect(pane().textContent).toMatch(/Open a folder/);
     expect(calls).toEqual([]);
   });
 });

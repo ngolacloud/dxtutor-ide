@@ -77,7 +77,7 @@ function drawDbg(): void {
   const st = SESSION && SESSION.stop;
   el.innerHTML = SESSION && st
     ? `<div class="dbg-empty">${svg("bug")}<div><b>Parado em ${esc(st.func || "?")}</b><p class="notr">${esc((st.file || "").split("/").pop() || "")}:${st.line} · ${esc(st.reason)}</p>${SESSION.locals.length ? `<p class="notr">${SESSION.locals.slice(0, 8).map((v) => `${esc(v.name)} = ${esc(v.value)}`).join("<br>")}</p>` : ""}</div></div>`
-    : `<div class="dbg-empty">${svg("bug")}<div><b>Debug assistant</b><p>${SESSION ? "A executar…" : "Sem sessão de depuração. Põe breakpoints no gutter (F9) e carrega em F5: o gdb corre o programa e pára neles."} Com uma pasta aberta na app desktop, este painel mostra também os comandos que falharam e os erros do workspace.</p></div></div>`;
+    : `<div class="dbg-empty">${svg("bug")}<div><b>Debug assistant</b><p>${tD(SESSION ? "assistRunning" : "assistIdle")} ${tD("assistDesktop")}</p></div></div>`;
 }
 function refreshDbg(): void {
   drawDbg(); if (pane() === "debug") panes().debug();
@@ -102,8 +102,8 @@ function renderDebugPane(): void {
       ? `<div class="sec-empty notr">Parado em <b>${esc(st.func || "?")}</b> · ${esc((st.file || "").split("/").pop() || "")}:${st.line} (${esc(st.reason)})</div>`
         + `<div class="scm-grp">Variables<span class="cnt">${s.locals.length}</span></div>${s.locals.map((v) => `<div class="dv"><span class="k notr">${esc(v.name)}</span><span class="v notr">${esc(v.value)}</span></div>`).join("") || '<div class="sec-empty">Sem variáveis locais neste ponto.</div>'}`
         + `<div class="scm-grp">Call stack</div>${s.stack.map((f, i) => `<div class="dv${i ? "" : " top"}" data-action="open-frame" data-on="${esc(f.file)}:${f.line}"><span class="k notr">${esc(f.func)} · ${esc((f.file || "").split("/").pop() || "")}:${f.line}</span></div>`).join("")}`
-      : `<div class="sec-empty">${s.status === "starting" ? "A arrancar o gdb…" : "A executar — à espera de um breakpoint ou do fim do programa…"}</div>${dap ? outputBlock(tD, x.output) : ""}`
-    : `<div class="sec-empty">Depuração passo-a-passo com o gdb (Rust, C, C++): num projecto Cargo constrói e corre o binário; noutro, pergunta pelo executável. Põe breakpoints no gutter ou com F9.</div>`;
+      : `<div class="sec-empty">${tD(s.status === "starting" ? "startingGdb" : "runningWait")}</div>${dap ? outputBlock(tD, x.output) : ""}`
+    : `<div class="sec-empty">${tD("intro")}</div>`;
   const msg = MSG ? `<div class="sec-empty" style="white-space:pre-wrap">${esc(MSG)}</div>` : "";
   el.innerHTML = hd("Run and Debug", "") + `<div class="sections">${ctl}${msg}${where}
    <div class="scm-grp">Breakpoints<span class="cnt">${BPS.size}</span></div>${[...BPS, ...[...BPMETA.keys()].filter((k) => !BPS.has(k))].map((b) => { const l = bpLine(b), p = bpPath(b), m = BPMETA.get(b); return `<div class="scm-row${m && !m.enabled ? " bp-off" : ""}" data-action="open-bp" data-on="${esc(b)}"><span class="bpd${m ? " k-" + (m.logMessage?.trim() ? "log" : m.condition?.trim() || m.hitCondition?.trim() ? "cond" : "plain") : ""}"></span><span class="nm notr">${esc(p.split("/").pop())}</span><span class="pth">line ${l}</span>${bpLabel(tD, m)}<span class="ra" style="display:flex"><button data-action="bp-del" data-on="${esc(b)}">×</button></span></div>`; }).join("") || '<div class="sec-empty">Click the gutter or press <kbd>F9</kbd> to add one.</div>'}</div>`;

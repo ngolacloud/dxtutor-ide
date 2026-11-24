@@ -3,11 +3,13 @@ import { beforeEach, expect, it } from "vitest";
 import { bootApp } from "./harness";
 
 let w: Window & Record<string, any>;
+let TM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
 const titles = () => Array.from(document.querySelectorAll("#tabs .tab .nm")).map((e) => e.textContent);
 
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
+  TM = await import("../src/features/tabs");
   w.TB = []; // começa sem separadores (o boot do app.ts não corre no harness)
   w.show(null);
 });
@@ -37,9 +39,9 @@ it("fechar o activo passa ao anterior; stepTab percorre em ciclo; ficheiro inexi
   const files = Object.keys(w.FS).filter((k: string) => k.endsWith(".rs")).slice(0, 3);
   files.forEach((p: string) => w.openPath(p));
   expect(w.cur).toBe(files[2]);
-  w.stepTab(1); // do último volta ao primeiro
+  TM.stepTab(1); // do último volta ao primeiro
   expect(w.cur).toBe(files[0]);
-  w.stepTab(-1);
+  TM.stepTab(-1);
   expect(w.cur).toBe(files[2]);
   w.closeTab(files[2]);
   expect(w.cur).toBe(files[1]);
@@ -56,6 +58,6 @@ it("mudar de separador emite editor:tab no bus", async () => {
   const [a, b] = Object.keys(w.FS).filter((k: string) => k.endsWith(".rs")).slice(0, 2);
   w.openPath(a);
   w.openPath(b);
-  w.setActive(a);
+  TM.setActive(a);
   expect(seen).toEqual([a, b, a]);
 });
