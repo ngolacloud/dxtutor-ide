@@ -146,13 +146,11 @@ declare global {
     renderTutorPane: () => void;
     /* feature `tasks` (migrada de v6.ts): pane «Tasks» (backlog/sprints) + vista de
        detalhe da issue (VIEW.issue). O backlog (BL), estágios (STAGES) e agentes
-       (AGENTS) continuam donos do monólito/board.ts/team.ts; nfmt idem (v6.ts). TK/
-       STC/ownerName/openIssue/advice/costAvg/usd são agora donos da própria feature
-       (publicados no window só para o residual @ts-nocheck de v6.ts ler por nome). */
+       (AGENTS) continuam donos do monólito/board.ts/team.ts; nfmt é do core (import). TK/
+       STC/ownerName/openIssue/advice/costAvg/usd são agora donos da própria feature. */
     BL: any;
     AGENTS: Record<string, any>;
     STAGES: Array<[string, string]>;
-    nfmt: (n: number) => string;
     renderTasksPane: () => void;
     /* feature `team` (motor do harness de projecto, migrado de v5.ts): `applyTemplate`
        é reatribuído por inteiro por v6.ts (como dxRun/dxStop/setMode em app.ts), por
@@ -320,16 +318,16 @@ export const esc = (s: unknown): string =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+/** Uma contagem curta (1.2k, 3.4M) — os tokens nos cartões, no Tasks e no custo. Era
+ *  léxica do v6.ts (ADR-0004, U4g3). */
+export const nfmt = (n: number): string => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n | 0));
+
 /** Literal JS seguro para interpolar num atributo de handler inline:
  *  `onclick="openPath(${jsa(p)})"`. JSON.stringify fecha o contexto JS (aspas,
  *  barras, quebras de linha, U+2028) e `esc` fecha o contexto do atributo HTML
  *  (o browser descodifica as entidades antes de correr o handler). Nunca usar
  *  `'${x}'` dentro de on*="…": um caminho ou nome vindo do disco, do git, de um
  *  VSIX ou do par remoto com `'` torna-se código. */
-/** Uma contagem curta (1.2k, 3.4M) — os tokens nos cartões, no Tasks e no custo. Era
- *  léxica do v6.ts (ADR-0004, U4g3). */
-export const nfmt = (n: number): string => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n | 0));
-
 export const jsa = (s: unknown): string =>
   esc(JSON.stringify(String(s == null ? "" : s)));
 
@@ -368,6 +366,50 @@ export const log = (src: string, msg: string): void => window.log(src, msg);
 
 /** Notificação efémera (toast). */
 export const toast = (m: string): void => window.toast(m);
+
+/** Opções do diálogo modal: título e corpo em HTML, campo de texto opcional (`input` é o
+ *  placeholder) com validação, rótulo do botão e bloqueio do OK. */
+export interface DlgOptions {
+  title: string;
+  body: string;
+  input?: string | null;
+  rows?: number;
+  ok?: string;
+  block?: boolean | number;
+  validate?: (v: string) => string;
+  onOk?: (v: string) => void;
+}
+
+/** O diálogo modal partilhado (`#dlg`, criado na primeira vez). Era do v6.ts (ADR-0004,
+ *  U4g7); os legacy-bridges do debug/infra/board importam-no daqui. Como no original, o OK
+ *  chama `onOk` sem verificar (todos os chamadores o passam). */
+export function dlg(o: DlgOptions): void {
+  let d = $("#dlg");
+  if (!d) {
+    document.body.insertAdjacentHTML("beforeend", '<div id="dlg"></div>');
+    d = $("#dlg") as HTMLElement;
+  }
+  const box = d;
+  box.innerHTML = `<div class="dlg-box"><h2>${o.title}</h2><div class="dlg-b">${o.body}</div>${o.input ? `<textarea id="dlg-in" rows="${o.rows || 3}" placeholder="${esc(o.input)}"></textarea><div class="dlg-err" id="dlg-err"></div>` : ""}<div class="dlg-f"><button class="mini" id="dlg-no">Cancel</button><button class="mini pri" id="dlg-ok"${o.block ? " disabled" : ""}>${o.ok || "OK"}</button></div></div>`;
+  box.classList.add("show");
+  const close = (): void => box.classList.remove("show"),
+    i = $("#dlg-in") as HTMLTextAreaElement | null;
+  ($("#dlg-no") as HTMLElement).onclick = close;
+  box.onclick = (e) => {
+    if (e.target === box) close();
+  };
+  ($("#dlg-ok") as HTMLElement).onclick = () => {
+    const v = i ? i.value.trim() : "";
+    const err = o.validate ? o.validate(v) : "";
+    if (err) {
+      ($("#dlg-err") as HTMLElement).textContent = err;
+      return;
+    }
+    close();
+    (o.onOk as (v: string) => void)(v);
+  };
+  if (i) setTimeout(() => i.focus(), 0);
+}
 
 /** Escreve conteúdo no ficheiro virtual `p` e refresca a árvore. */
 export const writeFile = (p: string, content: string): void =>

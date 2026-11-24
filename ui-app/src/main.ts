@@ -11,7 +11,8 @@
 
    Ordem de dependências implícita (por globais no window) — não reordenar sem a
    resolver: boot publica as globais base; as features publicam os seus shims antes do
-   app.ts (que lê THEMES/THEME eagerly); app/v5/v6 decoram; startup arranca; bridge
+   app.ts (que lê THEMES/THEME eagerly); o app.ts decora (as camadas v5/v6 dissolveram-se
+   nas features na U4g); startup arranca; bridge
    substitui a simulação pelo desktop real (só com Tauri); pair e panel no fim.
    As fases seguintes do ADR-0004 trocam estas dependências implícitas por imports.
 
@@ -61,9 +62,8 @@ import "./features/workspace";
 import "./features/explorer";
 import "./features/diagnostics";
 import "./features/shortcuts";
+import "./features/welcome";
 import "./app";
-import "./v5";
-import "./v6";
 import "./startup";
 import "./bridge";
 import "./pair";

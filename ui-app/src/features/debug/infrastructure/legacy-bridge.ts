@@ -16,6 +16,7 @@
    e não-`any`. */
 
 import type { DbgSession, EnvDep, EnvState, FileEntry } from "../domain/types";
+import { dlg as coreDlg } from "../../../core";
 export type { EnvDep, EnvState };
 
 const G = window as unknown as Record<string, any>;
@@ -81,7 +82,7 @@ export const openStagingSecrets = (): void => { G.openEnvs(); G.SHOWSEC = true; 
 export const isHuman = (what: string): boolean => G.isHuman(what);
 export const checkpoint = (label: string): void => G.checkpoint(label);
 export interface DlgOpts { title: string; body: string; ok?: string; onOk?: () => void }
-export const dlg = (opts: DlgOpts): void => G.dlg(opts);
+export const dlg = (opts: DlgOpts): void => coreDlg(opts);  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
 
 /* ───── persistência (LS, para os breakpoints `bps6`) ───── */
 export const lsGet = <T>(key: string, def: T): T => G.LS.get(key, def);

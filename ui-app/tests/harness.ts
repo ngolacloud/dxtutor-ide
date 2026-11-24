@@ -4,7 +4,7 @@ import { vi } from "vitest";
 
 // A ordem de arranque vem do src/main.ts (o ponto de entrada único — ADR-0004, U1),
 // até app.ts inclusive: uma só fonte de verdade, em vez de uma cópia da lista aqui.
-// v5/v6/startup/bridge/pair/panel ficam de fora: nada no que os goldens caracterizam
+// startup/bridge/pair/panel ficam de fora (o v5/v6 já não existem — ADR-0004, U4g7): nada no que os goldens caracterizam
 // depende deles, e trazê-los juntaria a cadeia de arranque completa (temporizadores,
 // ponte Tauri) sem necessidade para caracterizar o comportamento actual.
 const MAIN_TS = readFileSync(resolve(__dirname, "../src/main.ts"), "utf-8");

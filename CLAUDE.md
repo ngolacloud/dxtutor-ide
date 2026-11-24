@@ -160,8 +160,9 @@ features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (DB
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
 resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. Particularidades: a sessão
 `DBG` é polimórfica (`pre`/`code`/`ops`) — tipada por união + casts por `kind`; os
-helpers de lexer (`lexVariant`/`LXL`) e os containers `#pane-debug`/`#pc-dbg` vivem em
-`v6.ts`/`boot6` (fora da cadeia do harness) e são reproduzidos como fixtures no golden.
+helpers de lexer (`lexVariant`/`LXL`) vivem em `debug.ts` (ADR-0004 U4g5) e os containers
+`#pane-debug`/`#pc-dbg` nascem no `boot6` (no app.ts desde a U4g7; o arranque não corre no
+harness) — o golden reproduz estas peças como fixtures (cópias antigas).
 Rede de segurança em `tests/debug.golden.test.ts` (goldens de #pane-debug/#pc-dbg nos
 estados sem-sessão/pre/code, caracterização dos geradores, e 4 testes de dispatch
 delegado que disparam eventos reais — o golden strippa data-action, não prova o wiring)
@@ -239,7 +240,7 @@ Governada pelas mesmas A7/A8 (está em `FEATURES`). Como scm/debug/board, o over
 vive no resíduo e `ui/` só tem `actions.ts`. Particularidades: (1) o motor é PURO e
 auto-suficiente → `application/` não tem porta de infraestrutura (só injecta funções do
 domínio); (2) o overlay injecta o seu próprio `#viz` no `document.body` e decora
-`VIEW.lt`/`VIEW.hood` (definidas no v6.ts) só em `boot7` (não corre no harness) — por
+`VIEW.lt`/`VIEW.hood` (shims do app.ts/registo do codereview) só em `boot7` (não corre no harness) — por
 isso o golden caracteriza o overlay via `vizOpen` com fonte explícita, sem fixtures;
 (3) `interpreter.ts` usa os bytes de controlo `U+0000`/`U+0001` como sentinelas no `fmt`
 (não mexer). Rede de segurança em `tests/visualizer.golden.test.ts`: 14 snapshots (motor
@@ -281,9 +282,9 @@ features/infra.ts  RESÍDUO strangler (@ts-nocheck, FORA da subárvore) + raiz d
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
 TODO tipado — interfaces locais (Design/TechSpec/KindSpec/K8sState/Secrets/…) no centro,
-os `any`/casts das formas opacas do monólito confinam-se ao bridge; (2) o harness exclui
-v5.ts (`#pane-infra` de `boot5`) e v6.ts (`RP.infra`) → `infra.golden.test.ts` reproduz
-estas fixtures em `provideFixtures()`; (3) o estado window-backed PERSISTE entre testes no
+os `any`/casts das formas opacas do monólito confinam-se ao bridge; (2) o `#pane-infra` nasce no `boot5`
+(no app.ts desde a U4g7), que não corre no harness → `infra.golden.test.ts` reproduz esta
+fixture (e o antigo shim `RP.infra`) em `provideFixtures()`; (3) o estado window-backed PERSISTE entre testes no
 jsdom mas a reavaliação de `infra.ts` reassigna `window.ENVS/ENVX/K8S/…` por `bootApp`;
 LS é inoperante em headless (persistência é porta de infra, não se caracteriza). Rede de
 segurança em `tests/infra.golden.test.ts` (3 goldens de #pane-infra + caracterização do
@@ -320,7 +321,7 @@ Particularidades: (1) não entra no harness de goldens — o caminho do browser/
 a demo e os goldens ficam intactos; a rede é `tests/panel.{domain,application}.test.ts` +
 o passo `panel` do selftest do `bridge.ts` (PTY real, /dev/pts, integração de shell, scan);
 (2) `runInTerm` do bridge delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
-linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`v6.ts` chamam
+linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`features/shortcuts.ts` chamam
 `termOwnsKey(e)` nos atalhos globais — com o foco no xterm, as teclas são da shell excepto
 a lista curta de `isAppKey` (estilo `commandsToSkipShell` do VS Code).
 

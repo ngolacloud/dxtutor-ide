@@ -141,7 +141,7 @@ window.provState=k=>k==='claude'?(SAMPLE?'ao vivo':'ao vivo indisponível aqui')
 VIEW.agent=(t,host)=>window.renderAgentView(t,host);
 /* páginas Co-Dev (welcome/settings/manager/analysis + openSettings/openManager/openAnalysis/testProv + POLICY/GAPS/NEXT): migradas p/ features/codev.ts.
    Os VIEW.* ficam shims: */
-VIEW.welcome=(t,host)=>window.renderWelcomePage(t,host);
+/* VIEW.welcome: dono features/welcome.ts (ADR-0004, U4g7). */
 VIEW.settings=(t,host)=>window.renderSettingsPage(t,host);
 VIEW.manager=(t,host)=>window.renderManagerPage(t,host);
 VIEW.analysis=(t,host)=>window.renderChangelogPage(t,host);/* harvest ui-next: timeline git real (features/changelog.ts) no lugar da página estática */
@@ -182,7 +182,7 @@ function boot(){loadCfg();loadSeed();syncTree();
   /* teclado do #ag-input: dono agora o compositor (features/codev/ui/composer.ts) */
   $('#pc-terminal').onclick=()=>{if(!String(getSelection())){const c=$('#cmd');if(c)c.focus({preventScroll:true});}};
   $('#pc-output').innerHTML='';log('rust-analyzer','2 crates indexados');log('co-dev','pronto · '+connected().length+' provedores ligados');
-  termClear();tick();setInterval(()=>{tick();runLabel();},1000);
+  termClear();setInterval(()=>{runLabel();},1000);
   newChat();setTheme(THEME);
   TB=[{id:'welcome',title:'Bem-vindo',kind:'welcome'},{id:P_LX,title:'lib.rs',kind:'file',path:P_LX}];refresh(false,true);show('welcome');
   if(innerWidth<1000){setVar('--side-w','0px');}else $('#tgl-side').classList.add('on');$('#tgl-panel').classList.add('on');
@@ -245,12 +245,7 @@ const _stLang=window.stLang;window.stLang=function(){_stLang();blame();};
 function blame(){const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path)),c=h?GIT.c[h]:GIT.c['1a2b3c4'];if(!c){/* desktop: syncGit reconstrói GIT.c com hashes reais e files:[], logo '1a2b3c4' (semente do protótipo) não existe — sem crash, só o estado local */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 /* decoração v4 do pane Co-Dev (Equipa/Backlog/Studio) migrada e dobrada em features/codev.ts */
 const _dx=XC.dx;XC.dx=(a)=>{if(a[0]==='test'&&a[1]){const it=BL.issues.find(i=>i.id.toLowerCase()===a[1].toLowerCase());if(!it){echo('<span class="er">issue desconhecida</span>');return;}dropIssue(it.id,'test');return;}if(a[0]==='sprint'){runSprint((+a[1]||1)-1);return;}return _dx(a);};
-VIEW.welcome=(t,host)=>{const w=(ic,a,b,act)=>`<button class="wbtn" onclick="${act}"><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
-  host.innerHTML=`<div class="page"><div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><h1 style="font-weight:300;font-size:26px;margin:0">dxtutor <b style="font-weight:600">IDE</b></h1></div>
-  <div class="sub">Do desenho da arquitectura ao merge: o Studio gera o backlog, a equipa de assistentes desenvolve cada issue no seu ramo, os testes disparam sozinhos e tu validas.</div>
-  <h2>Do desenho à entrega</h2><div class="wgrid">${w('cube','1 · Studio','Desenhar a arquitectura e gerar o backlog','openStudio()')}${w('split','2 · Quadro','Sprints, issues e kanban com teste automático','openBoard()')}${w('account','3 · Equipa','Assistentes, harness e router de modelos','openTeam()')}${w('scm','4 · Grafo de commits','Ramos, merges e gitflow','openGraph()')}</div>
-  <h2>Aprender</h2><div class="wgrid">${w('book','Tutor','Percursos sobre o código deste projecto',"goPane('tutor');openLesson(...(nextLesson()||LCUR))")}${w('debug','Aprender com o E0382','O erro que está em Problems é uma lição',"openLesson('rust','byref')")}</div>
-  <h2>Co-Dev</h2><div class="wgrid">${w('sparkle','Missão: histórico de conversas','Conselho, auto-avaliação e correcção',"demo('b')")}${w('graph','Gestor de missões','Decisões, checkpoints e uso','openManager()')}${w('settings','Modelos e autonomia','Provedores, routing, modos','openSettings()')}${w('search','Paleta de comandos','Ctrl+Shift+P',"palette('>')")}</div></div>`;};
+/* (página de boas-vindas desta camada: código morto — sobreposta antes de ser chamada; ADR-0004, U4g7) */
 GAPS.push(['Grafo de commits e ramos','GitLens','Lista plana de commits','Feito: DAG com faixas por ramo, merges, tags, autor por commit, detalhe de ficheiros'],['Gitflow guiado','GitLens / git-flow','Não existia','Feito: cada tarefa abre um ramo e fecha com merge em develop; releases ficam com o humano'],['Vários assistentes com harness','Claude Code (subagentes)','Um só assistente','Feito: 8 papéis; caminhos, comandos e limite de ficheiros aplicados em cada ferramenta'],['Router de modelos','—','Routing fixo','Feito: o assistente descreve a tarefa e recebe o modelo mais adequado'],['Studio de arquitectura','projecto original','Só no histórico de commits','Feito: canvas editável que gera backlog e sprints'],['Backlog, sprints e kanban','Jira / Linear','Não existia','Feito: teste automático ao entrar em Teste; só o que passa chega à validação funcional'],['Tutor','projecto original','Não existia','Feito: percursos, exercícios verificados no editor, pistas graduais, lições a partir dos erros']);
 CMD.push(['Projecto: Studio de arquitectura','',openStudio],['Projecto: Quadro (kanban)','',openBoard],['Projecto: Gerar backlog a partir do Studio','',genBacklog],['Projecto: Executar Sprint 1','',()=>runSprint(0)],['Projecto: Executar Sprint 2','',()=>runSprint(1)],['Projecto: Nova issue…','',newIssue],['Equipa: Assistentes e harness','',()=>openTeam()],['Equipa: Escolher assistente da conversa…','',pickAgent],
   ['Git: Grafo de commits','',()=>openGraph()],['Gitflow: Iniciar feature…','',()=>gfPrompt('feature')],['Gitflow: Iniciar fix…','',()=>gfPrompt('fix')],['Gitflow: Iniciar release…','',()=>gfPrompt('release')],['Gitflow: Finalizar ramo actual','',()=>gfFinish()?toast('Ramo finalizado'):toast('Não estás num ramo de gitflow')],['Tutor: Continuar a aprender','',()=>{goPane('tutor');openLesson(...(nextLesson()||LCUR));}]);
@@ -292,12 +287,7 @@ XC.make=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);re
 const _dx4=XC.dx;XC.dx=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}return _dx4(a);};
 
 /* ───── wiring ───── */
-VIEW.welcome=(t,host)=>{const w=(ic,a,b,act)=>`<button class="wbtn" onclick="${act}"><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
-  host.innerHTML=`<div class="page"><div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><h1 style="font-weight:300;font-size:26px;margin:0">dxtutor <b style="font-weight:600">IDE</b></h1></div>
-  <div class="sub">Learn a language step by step, or design an architecture and let a team of assistants build it: backlog, branches, tests, containers — then run everything with one command.</div>
-  <h2>Learn</h2><div class="wgrid">${w('book','Learning Track','Rust and Go, from zero to confident','ltResume()')}${w('settings','Change language or level','Basic, Intermediate, Advanced','ltOnboard(1)')}</div>
-  <h2>From design to a running stack</h2><div class="wgrid">${w('cube','1 · Studio','Design with AWS, Azure, GCP and open-source components','openStudio()')}${w('split','2 · Board','Sprints, issues and automatic tests','openBoard()')}${w('account','3 · Team','Assistants, harness and model router','openTeam()')}${w('scm','4 · Commit graph','Branches, merges and gitflow','openGraph()')}${w('run','5 · RUN','Build and start every service','dxRun()')}</div>
-  <h2>Co-Dev</h2><div class="wgrid">${w('sparkle','Mission: persistent chat history','Council, self-evaluation and correction',"demo('b')")}${w('graph','Mission manager','Decisions, checkpoints and usage','openManager()')}${w('settings','Models and autonomy','Providers, routing, modes, language','openSettings()')}${w('search','Command palette','Ctrl+Shift+P',"palette('>')")}</div></div>`;};
+/* (página de boas-vindas desta camada: código morto — sobreposta antes de ser chamada; ADR-0004, U4g7) */
 const _settings=VIEW.settings;VIEW.settings=(t,host)=>{_settings(t,host);host.querySelector('.sub').insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${LOCALES.map(l=>`<button class="pcard${LOCALE===l[0]?' sel':''}" onclick="setLocale(${jsa(l[0])})"><div class="ph notr">${l[1]}${LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
 function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mudou e porquê');if(ci>=0)CMD.splice(ci,1);
   CMD.push(['Learning Track: Continue','',ltResume],['Learning Track: Change language or level…','',()=>ltOnboard(1)],['Project: RUN the whole stack','Ctrl+F5',dxRun],['Project: Stop the stack','',dxStop],['Preferences: Language — English','',()=>setLocale('en')],['Preferences: Language — Português (Angola)','',()=>setLocale('ptAO')]);
@@ -308,6 +298,31 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
   $('#st-tests').insertAdjacentHTML('afterend','<button class="si" id="st-stack" style="display:none;color:var(--green)" title="Running stack" onclick="setPanelTab(\'services\')"></button>');
   const sd=LS.get('studio3',null);SD=sd&&Array.isArray(sd.nodes)&&sd.nodes.every(n=>TECH[n.tech])?sd:JSON.parse(JSON.stringify(ST_SEED));
   drawStack();refresh(false,true);show(cur);}
+/* boot5/boot6: os passos de arranque das camadas v5/v6 (ADR-0004, U4g7), verbatim, junto do
+   boot/boot3/boot4 — a mesma natureza: ajustam ACTS/MENUS/CMD/LANG, que dissolvem quando cada
+   feature registar os seus comandos. Os nomes livres resolvem como no módulo de origem: dos que
+   o app.ts declara no topo, CMD/LANG são os mesmos objectos publicados (só mutados) e o runTask
+   é o publicado (ninguém o reatribui). */
+function boot5(){ENVS.rtOn=false;ENVS.k8sOn=false;if(MORD.indexOf(MODE)>MORD.indexOf(HARN.ceiling))MODE=HARN.ceiling;
+  for(let i=ACTS.length-1;i>=0;i--)if(['run','ext','account'].includes(ACTS[i].pane)||ACTS[i].overflow)ACTS.splice(i,1);const bi=ACTS.findIndex(a=>a.title==='Quadro');ACTS.splice(bi+1,0,{ic:'container',pane:'infra',title:'Infra'});const st=ACTS.find(a=>a.pane==='settings');if(st)st.spacer=1;buildActivity();$('.act').classList.add('on');
+  $('.side').insertAdjacentHTML('beforeend','<div class="pane" id="pane-infra"></div>');const tm=$('.tmux');if(tm)tm.remove();const ab=$('.tb-ic[data-ic="account"]');if(ab)ab.onclick=openSettings;
+  const drop=['Selection','Go','Terminal'],ed=MENUS.find(m=>m.t==='Edit'),sel=MENUS.find(m=>m.t==='Selection'),go=MENUS.find(m=>m.t==='Go');if(ed&&sel&&go)ed.items.push({sep:1},...go.items.filter(i=>!i.sep).slice(0,3),{sep:1},...sel.items.filter(i=>!i.sep));
+  for(let i=MENUS.length-1;i>=0;i--)if(drop.includes(MENUS[i].t))MENUS.splice(i,1);const pm=MENUS.find(m=>m.t==='Project');if(pm)pm.items.splice(2,0,{l:'⎈ Deploy to Kubernetes',act:dxDeploy},{l:'Attach project to a container',act:dcAttach},{l:'Infra: socket and KUBECONFIG',act:()=>goPane('infra')});$('#menubar').innerHTML='';buildMenubar();
+  for(let i=CMD.length-1;i>=0;i--)if(/Run and Debug|Extensions/.test(CMD[i][0]))CMD.splice(i,1);
+  CMD.push(['Project: Deploy to Kubernetes','',dxDeploy],['Infra: Connect container socket','',()=>{goPane('infra');if(!ENVS.rtOn)rtConnect();}],['Infra: Connect cluster (KUBECONFIG)','',()=>{goPane('infra');if(!ENVS.k8sOn)k8sConnect();}],['Infra: Attach project to a container','',dcAttach],...Object.entries(HT).map(([k,h])=>['Harness: Apply template — '+h.n,'',()=>{applyTemplate(k);openTeam();}]));
+  const tt=tabOf('team');if(tt)tt.title='Team & harness';updateAgentUI();drawRemote();refresh(false,true);show(cur);}
+function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX',js:'JavaScript',go:'Go',py:'Python',sh:'Shell'});ACTS.length=0;ACTS.push({ic:'explorer',pane:'explorer',title:'Explorer (Ctrl+Shift+E)'},{ic:'search',pane:'search',title:'Search (Ctrl+Shift+F)'},{ic:'scm',pane:'scm',title:'Source Control (Ctrl+Shift+G)'},{ic:'debug',pane:'debug',title:'Run and Debug (Ctrl+Shift+D)'},{ic:'test',pane:'test',title:'Testing'},{ic:'ext',pane:'ext',title:'Extensions (Ctrl+Shift+X)'},
+   {ic:'sparkle',pane:'codev',title:'Co-Dev (Ctrl+Shift+A)',acc:1,sep:1},{ic:'tasks',pane:'tasks',title:'Tasks (Ctrl+Shift+T)'},{ic:'cube',run:openStudio,title:'Studio'},{ic:'container',pane:'infra',title:'Infra and environments'},{ic:'book',pane:'tutor',title:'Learning Track'},{ic:'settings',pane:'settings',title:'Settings (Ctrl+,)',spacer:1});buildActivity();
+  ['debug','ext','tasks'].forEach(p=>{if(!$('#pane-'+p))$('.side').insertAdjacentHTML('beforeend',`<div class="pane" id="pane-${p}"></div>`);});const a=$(`.act[data-pane="${PANE}"]`);if(a)a.classList.add('on');
+  $('.panel-tabs .panel-tools').insertAdjacentHTML('beforebegin','<button class="ptab" data-pt="dbg">Debug assistant</button>');$('.panel-body').insertAdjacentHTML('beforeend','<div class="pcontent" id="pc-dbg"></div>');$$('.ptab').forEach(b=>b.onclick=()=>{setPanelTab(b.dataset.pt);if(b.dataset.pt==='dbg')drawDbg();});drawDbg();
+  $('#st-lang').insertAdjacentHTML('beforebegin','<span class="si opt" id="st-chord" style="color:var(--accent-hover)"></span>');
+  const rm=MENUS.find(m=>m.t==='Run');if(rm)rm.items=[{l:'Start Debugging',k:'F5',act:()=>startDebug()},{l:'▶ RUN the whole stack',k:'Ctrl+F5',act:dxRun},{l:'Stop the stack',act:dxStop},{sep:1},{l:'Step Over',k:'F10',act:dbgStep},{l:'Stop Debugging',k:'Shift+F5',act:dbgStop},{l:'Toggle Breakpoint',k:'F9',act:()=>{const t=tabOf(cur),ta=$('#ed-ta');if(t&&t.path&&ta)toggleBp(t.path,ta.value.slice(0,ta.selectionStart).split('\n').length);}},{sep:1},{l:'⎈ Deploy to Kubernetes',act:dxDeploy},{l:'Environments and promotion',act:openEnvs},{sep:1},{l:'cargo test',act:()=>runTask('cargo test')},{l:'dx lint',act:()=>runTask('dx lint')}];
+  const cm=MENUS.find(m=>m.t==='Co-Dev');if(cm){const ds=Object.getOwnPropertyDescriptor(cm,'items'),its=()=>ds.get?ds.get.call(cm):ds.value;Object.defineProperty(cm,'items',{configurable:true,get:()=>[{l:'Explain',k:'Ctrl+K E',act:()=>explainCmd()},{l:'Code Review',k:'Ctrl+K R',act:reviewCmd},{l:'Debug',k:'F5',act:()=>startDebug()},{l:'Under the Hood',k:'Ctrl+K U',act:hoodCmd},{sep:1},...its()]});}
+  const vm=MENUS.find(m=>m.t==='View');if(vm){const ds=Object.getOwnPropertyDescriptor(vm,'items'),g=()=>ds.get?ds.get.call(vm):ds.value;Object.defineProperty(vm,'items',{configurable:true,get:()=>[...g(),{sep:1},{l:'Tasks',k:'Ctrl+Shift+T',act:()=>goPane('tasks')},{l:'Run and Debug',k:'Ctrl+Shift+D',act:()=>goPane('debug')},{l:'Extensions',k:'Ctrl+Shift+X',act:()=>goPane('ext')},{l:'Debug assistant',act:()=>setPanelTab('dbg')}]});}
+  $('#menubar').innerHTML='';buildMenubar();
+  CMD.push(['Co-Dev: Explain','Ctrl+K E',()=>explainCmd()],['Co-Dev: Code Review','Ctrl+K R',reviewCmd],['Co-Dev: Under the Hood','Ctrl+K U',hoodCmd],['Debug: Start Debugging','F5',()=>startDebug()],['Debug: Step Over','F10',dbgStep],['Debug: Stop','Shift+F5',dbgStop],['Debug: Toggle Breakpoint','F9',()=>{const t=tabOf(cur),ta=$('#ed-ta');if(t&&t.path&&ta)toggleBp(t.path,ta.value.slice(0,ta.selectionStart).split('\n').length);}],
+   ['View: Tasks','Ctrl+Shift+T',()=>goPane('tasks')],['View: Run and Debug','Ctrl+Shift+D',()=>goPane('debug')],['View: Extensions','Ctrl+Shift+X',()=>goPane('ext')],['Extensions: Install from VSIX…','',()=>{goPane('ext');$('#vsix-in').click();}],['Environments: Open','',openEnvs],['Environments: Promote Local → Staging','',()=>promote('staging')],['Environments: Promote Staging → Production','',()=>promote('production')],['Studio: Compare design with Local','',()=>{DRIFT='local';openStudio();}]);
+  CMD.forEach(c=>{if(c[0]==='Project: RUN the whole stack')c[1]='Ctrl+F5';});window.vsxCmds();refresh(false,true);show(cur);badges();}
 
 /* ───── wiring + i18n: motor de tradução (PAIRS/NM/MN/nm/mn/tx/RULES + LOCALES/LOCALE/PT2EN/EN2PT/TR_SKIP/trText/trAttrs/trNode/setLocale/i18nBoot) migrado p/ features/i18n.ts (window-backed; LOCALE hidrata de LS preguiçosamente). Aqui so os consumidores (VIEW.settings secao Lingua, entradas setLocale do CMD, startup.ts i18nBoot) que leem por global. ───── */
 /* ── fase 4: expor ao window as globais que boot.js/handlers inline/bridge.ts/pair.ts
@@ -315,16 +330,16 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
    script. As mutáveis partilhadas já são window-backed acima (fonte única). ── */
 Object.assign(window, {
   CMD, FS, OPEN, PANE, PROV, ROOT, RUN, SECOPEN, STOP,
-  blame, boot, boot3, boot4, buildMenus,
+  blame, boot, boot3, boot4, boot5, boot6, buildMenus,
   esc, hydrate, log,
   mdFull, rerender, resetAll, runTask,
   who, // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
   CHAT, SAFE, DANGER, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
   // fachadas que as features migradas (features/*.ts) consomem por window:
   provFor, LF,
-  // núcleo que as camadas v5 (src/v5.ts) e v6 (src/v6.ts) consomem como referências livres via window:
+  // núcleo lido como referências livres via window (era das camadas v5/v6; hoje features e boot5/boot6):
   extOf, getVar, hhmm, LANG, P_HIST, P_LX, rel, setVar, short
 });
-/* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — o último módulo
-   da cadeia, de modo a correr depois de as camadas v3–v7 publicarem os seus bootN. */
+/* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — corre depois de
+   todos os donos publicarem os seus bootN (app.ts, visualizer, i18n). */
 

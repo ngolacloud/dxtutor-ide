@@ -5,7 +5,7 @@
    (course/ltUnits/dk/ltDone/ltFind/ltPath/ltSeq/ltPts/stars/ltOnboard/ltStart/ltResume/
    ltOpen/openLesson/nextLesson/drillState/ltRes/ltGo/ltAsk) e o corpo da vista (renderLtView).
    CONSUMIDORES por global: features/tutor.ts (pane renderTutorPane lê LTS/course/ltPts/…),
-   features/visualizer.ts (decora VIEW.lt + lê LTS), v5.ts (welcome chama ltResume), e em
+   features/visualizer.ts (decora VIEW.lt + lê LTS), features/welcome.ts (chama ltResume), e em
    app.ts os shims `RP.tutor`(→renderTutorPane, já lá) e `VIEW.lt`(→renderLtView). A secção
    morta «Tutor: percursos» (LEARN/LP/lesson*) fica em app.ts e lê `LF` por window.
    Mecânica: avalia ANTES de app.ts → publica tudo no window no eval (nada lido ansiosamente

@@ -23,7 +23,7 @@
    têm de chamar a versão DECORADA — resolvem-se por `window.*` no ACTO (late-binding),
    via `decoratedRunIssue`/`decoratedApproveIssue` abaixo, nunca pela função local base. */
 
-import { toast, log, rerender } from "../../../core";
+import { toast, log, rerender, dlg as coreDlg } from "../../../core";
 import type {
   Backlog, Stage, Issue, IssueFile, Design, TechSpec,
 } from "../domain/types";
@@ -172,7 +172,7 @@ export const codeGuard = (what: string): boolean => G.codeGuard(what);
 export const openIssue = (id: string): void => G.openIssue(id);
 export const studioNodes = (): StudioNode[] => G.SD.nodes;
 export const saveSD = (): void => G.saveSD();
-export const dlg = (o: DlgOpts): void => G.dlg(o);
+export const dlg = (o: DlgOpts): void => coreDlg(o);  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
 export const usage = (): Record<string, { tok: number }> => G.USAGE;
 export const usd = (tok: number, p: string): number => G.usd(tok, p);
 export const commitNotes = (): Record<string, { note?: string }> => G.GIT.c;

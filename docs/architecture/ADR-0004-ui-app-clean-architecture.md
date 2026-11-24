@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g6)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -450,3 +450,39 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   implantado, com Staging escolhido no selector — nós em sync, behind, failing e missing e
   um workload a mais —, com um nó seleccionado e ao reabrir a vista): idênticas, sem erros
   de página; auto-teste desktop idêntico ao da U4g5.
+- **U4g7 (2026-11-24) — o arranque; o v5 e o v6 deixam de existir.** O que restava das
+  camadas foi para os donos, e os dois ficheiros (`@ts-nocheck`) foram apagados:
+  - **Boas-vindas:** a página efectiva era a do v5, que sobrepunha três versões anteriores
+    antes de alguém as chamar (o shim do app.ts para o `renderWelcomePage` do codev.ts e duas
+    páginas do próprio app.ts). Passou para um módulo novo e tipado, `features/welcome.ts`,
+    que regista o `VIEW.welcome`; as duas páginas mortas e o shim saíram do app.ts. O
+    `renderWelcomePage` do codev.ts fica: na app está inalcançável, mas o golden do codev
+    caracteriza-o directamente.
+  - **`boot5`/`boot6`:** foram verbatim para o app.ts, junto do `boot`/`boot3`/`boot4` — são
+    da mesma natureza (ajustam `ACTS`/`MENUS`/`CMD`/`LANG`) e dissolvem-se quando cada
+    feature registar os seus comandos. Prova de resolução de nomes: dos nomes livres dos
+    dois, só `CMD`, `LANG` e `runTask` colidem com declarações de topo do app.ts, e são os
+    mesmos objectos publicados no `window` (os dois primeiros só mutados, o `runTask` nunca
+    reatribuído); o `esc` colidia só no `dlg`, que não foi para o app.ts.
+  - **`dlg`:** tipado no `core.ts`; os legacy-bridges do debug/infra/board importam-no em
+    vez de o lerem do `window` (deixa de ser publicado). O `nfmt` também deixa de ser
+    publicado: o `features/tasks.ts` importa-o do core.
+  - **Ícones:** os 7 do v6 (tasks/eye/review/bulb/bug/pulse/layers) entraram na biblioteca
+    `P` do boot.ts. Prova: nenhum `svg()` corre no eval de um módulo e ninguém copia ou
+    enumera o `P`, por isso existirem mais cedo não muda o markup da app.
+  - **`tick`:** o relógio do boot.ts saiu, e as chamadas no `boot()` do app.ts também. O v5
+    substituía-o por uma função vazia, por isso nunca corria — e o `#clock` nem existe no DOM.
+
+  **Decisão registada — 8 goldens regenerados (aprovada pelo dono a 2026-11-24):** o harness
+  nunca carregou o v6, por isso os goldens do debug (1), do ext (2) e do visualizer (5)
+  tinham gravado o ícone `file` de recurso onde a app mostra `bug`, `bulb` e `layers`. Com os
+  ícones no `P`, o harness passa a ver os ícones reais. Provei sobre o diff dos snapshots que
+  as 12 linhas mudadas diferem apenas na troca do ícone de recurso pelo ícone real; na app
+  nada muda. Métricas: `@ts-nocheck` 7 → 5, globais publicadas 418 → 412, handlers inline
+  162 → 160 (as duas páginas mortas); lint 282 → 280. Verificado: 367 testes, arranque no
+  browser 4/4, comparação no browser entre a HEAD e esta árvore (separador inicial e página
+  de boas-vindas, barra de actividade, menus, os 92 comandos da paleta, `LANG`, ícones,
+  separadores do painel, painéis laterais, barra de estado, modo, e o diálogo — aberto pela
+  promoção a Production e pela explicação antes de validar, com foco, validação, `trim`,
+  `onOk`, cancelar e clicar fora): idênticas, sem erros de página; auto-teste desktop
+  idêntico ao da U4g6. A seguir: U4h (a parte desktop de cada feature, fora do `bridge.ts`).

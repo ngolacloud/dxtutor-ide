@@ -10,7 +10,7 @@ exports[`goldens de DOM — pane de extensões e tab de detalhe > #pane-ext (est
 exports[`goldens de DOM — pane de extensões e tab de detalhe > tab de detalhe — GitLens (comando, não instalada) 1`] = `
 "<div class="page" style="max-width:760px"><div style="display:flex;gap:16px;align-items:center"><span class="ex-ic big" style="background:hsl(98 45% 45%)">G</span><div><h1 class="notr" style="margin:0">GitLens</h1><div class="sub notr" style="margin:0">eamodio · <code>eamodio.gitlens</code></div></div></div>
    <div class="sub" style="margin-top:12px">Git blame, history and commit graph.</div><div style="display:flex;gap:8px;margin:12px 0"><button class="mini pri">Install</button></div>
-   <h2>In this prototype</h2><div class="adv mix"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg><div>Runs in the desktop app's VS Code–compatible extension host. Here its commands are listed in the palette but do not run.</div></div>
+   <h2>In this prototype</h2><div class="adv mix"><svg class="ico" viewBox="0 0 16 16"><path d="M8 1.8a4.2 4.2 0 0 0-2.4 7.6c.5.4.8.9.8 1.5V12h3.2v-1.1c0-.6.3-1.1.8-1.5A4.2 4.2 0 0 0 8 1.8z"></path><path d="M6.4 14h3.2"></path></svg><div>Runs in the desktop app's VS Code–compatible extension host. Here its commands are listed in the palette but do not run.</div></div>
    <h2>Commands</h2><div class="tbl-wrap"><div class="rowline"><span class="notr">GitLens: Show Commit Graph</span><span class="sp"></span></div></div>
    </div>"
 `;
@@ -28,7 +28,7 @@ exports[`goldens de DOM — pane de extensões e tab de detalhe > tab de detalhe
 exports[`goldens de DOM — pane de extensões e tab de detalhe > tab de detalhe — rust-analyzer (bundled) 1`] = `
 "<div class="page" style="max-width:760px"><div style="display:flex;gap:16px;align-items:center"><span class="ex-ic big" style="background:hsl(188 45% 45%)">r</span><div><h1 class="notr" style="margin:0">rust-analyzer</h1><div class="sub notr" style="margin:0">rust-lang · <code>rust-lang.rust-analyzer</code></div></div></div>
    <div class="sub" style="margin-top:12px">Rust language support: diagnostics, completion, go to definition.</div><div style="display:flex;gap:8px;margin:12px 0"><span class="tag live">bundled</span></div>
-   <h2>In this prototype</h2><div class="adv mix"><svg class="ico" viewBox="0 0 16 16"><path d="M4 2.3h5.1L12 5.2v8a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.9A.6.6 0 0 1 4 2.3z"></path><path d="M9 2.4V5.5h2.9"></path></svg><div>Runs in the desktop app's VS Code–compatible extension host. Here its commands are listed in the palette but do not run.</div></div>
+   <h2>In this prototype</h2><div class="adv mix"><svg class="ico" viewBox="0 0 16 16"><path d="M8 1.8a4.2 4.2 0 0 0-2.4 7.6c.5.4.8.9.8 1.5V12h3.2v-1.1c0-.6.3-1.1.8-1.5A4.2 4.2 0 0 0 8 1.8z"></path><path d="M6.4 14h3.2"></path></svg><div>Runs in the desktop app's VS Code–compatible extension host. Here its commands are listed in the palette but do not run.</div></div>
    
    </div>"
 `;
