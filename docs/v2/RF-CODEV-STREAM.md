@@ -74,34 +74,34 @@ Todos os inteiros de linha são 1-based. `range` é sempre no ficheiro **tal com
 
 // hunk_start
 { "kind": "hunk_start",
-  "hunk": "h-7f3a",                 // id estável do hunk
+  "hunk": "toolu_01…:1",            // id estável do hunk: "{call}:{n}"
   "call": "toolu_01…",             // id do tool_use (um edit = um hunk; um write pode dar vários)
   "path": "crates/lexer/src/lib.rs",
   "op": "replace",                  // replace | insert | delete | create
   "range": { "start": 5, "end": 5 },// linhas substituídas (insert: start = end + 1, linhas antes de start)
-  "base": "sha256:…",              // impressão digital do ficheiro usada para o cálculo (I5)
+  "base": "9f2c…",                 // impressão digital opaca do ficheiro usado no cálculo (I5); null em create
   "old": "    for c in chars {\n" } // texto substituído (vazio em insert/create)
 
 // hunk_chunk — texto novo a acrescentar ao hunk, por ordem
-{ "kind": "hunk_chunk", "hunk": "h-7f3a", "text": "    while let Some(c) = cha" }
+{ "kind": "hunk_chunk", "hunk": "toolu_01…:1", "text": "    while let Some(c) = cha" }
 
 // hunk_end — o texto final é a concatenação dos chunks; vem repetido para verificação
-{ "kind": "hunk_end", "hunk": "h-7f3a", "text": "    while let Some(c) = chars.next() {\n",
+{ "kind": "hunk_end", "hunk": "toolu_01…:1", "text": "    while let Some(c) = chars.next() {\n",
   "lines": { "added": 1, "removed": 1 } }
 
 // hunk_review — o backend espera decisão sobre estes hunks (todos do mesmo `call`)
-{ "kind": "hunk_review", "call": "toolu_01…", "hunks": ["h-7f3a"],
+{ "kind": "hunk_review", "call": "toolu_01…", "hunks": ["toolu_01…:1"],
   "reason": "Assisted mode: you accept every change", "why": "E0382: `for` moves `chars`" }
 
 // hunk_applied — escrito em disco (Manual/Assistido) ou aplicado provisoriamente (Auto)
-{ "kind": "hunk_applied", "hunk": "h-7f3a", "provisional": false, "fingerprint": "sha256:…" }
+{ "kind": "hunk_applied", "hunk": "toolu_01…:1", "provisional": false, "fingerprint": "4b1e…" }
 
 // hunk_rejected
-{ "kind": "hunk_rejected", "hunk": "h-7f3a", "by": "human", "reason": "Not this approach" }
+{ "kind": "hunk_rejected", "hunk": "toolu_01…:1", "by": "human", "reason": "Not this approach" }
 //   by: human | validation | cancel
 
 // hunk_stale — o ficheiro mudou antes da decisão; não foi aplicado
-{ "kind": "hunk_stale", "hunk": "h-7f3a", "path": "crates/lexer/src/lib.rs" }
+{ "kind": "hunk_stale", "hunk": "toolu_01…:1", "path": "crates/lexer/src/lib.rs" }
 
 // validation
 { "kind": "validation", "status": "passed",           // running | passed | failed | skipped
@@ -123,7 +123,18 @@ acompanha os campos do `edit`:
    `hunk_chunk`.
 3. No fecho do bloco sai `hunk_end` com o texto completo.
 
-`replace_all` com várias ocorrências produz um hunk por ocorrência, com o mesmo `call`.
+`replace_all` com várias ocorrências produz um hunk por ocorrência, com o mesmo `call` (ocorrências na
+mesma linha partilham o hunk). Cada hunk cobre linhas inteiras: o texto do `edit` é alargado ao início e
+ao fim das linhas que toca, por isso o primeiro `hunk_chunk` traz o início da linha e o `hunk_end` o resto.
+
+Se o plano final (calculado com o input completo) não coincidir com o hunk transmitido, ou se a ferramenta
+recusar o input, o hunk transmitido sai com `hunk_rejected` (`by: "cancel"` ou `"validation"`) e os hunks
+certos são anunciados de novo. Nenhum hunk fica aberto depois de `done`: o backend rejeita
+(`by: "cancel"`) os que ficaram por decidir.
+
+Implementação: `crates/tutor-agent/src/hunks.rs` (A2.1). O anfitrião liga os hunks com
+`Agent::hunks = Some(files)` (o `FileState` partilhado com as ferramentas via `ToolsetOptions::files`);
+a TUI/CLI não os ligam e continuam a escrever directamente.
 
 `write` de **ficheiro novo**: `op: "create"`, `range {start:1,end:0}`, chunks de `content` ao vivo.
 `write` de **ficheiro existente**: o conteúdo é acumulado; no fim, diff de linhas contra `base` e um

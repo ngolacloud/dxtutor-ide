@@ -914,6 +914,7 @@ mod tests {
             input: serde_json::json!({ "command": cmd }),
             read_only: false,
             command: Some(cmd.into()),
+            hunks: vec![],
         };
         assert!(matches!(
             s.policy.lock().unwrap().decide(&bash("cargo build")),
@@ -1049,6 +1050,7 @@ mod tests {
             input: serde_json::json!({"path": "a.rs"}),
             read_only: false,
             command: None,
+            hunks: vec![],
         };
         assert_eq!(s.policy.lock().unwrap().decide(&edit), Verdict::Allow);
         set_plan(&id, true).unwrap();
