@@ -256,7 +256,7 @@ Cada ferramenta nova sobe o `TOOLSET_VERSION`. Combinar a ordem antes da F1.
 | F6.1 | Orçamento (T03): `budget{tokens,usd}` na issue e no sprint; verificado depois de cada `Usage`; aviso aos 80%; aos 100% o turno pára e pede autorização (como uma aprovação) | `AgentConfig` (`agent.rs:39-50`), `codev_agent.rs` |
 | F6.2 | P03: porta `PairState.amDriver()` (sem `window`); Board, composer e aprovações desactivados para o navigator | `pair.ts:240`; `features/board.ts`, `agent-chat.ts:101` |
 | F6.3 | P04: `driver: host\|guest` em cada aceitação no registo | F1.2 |
-| F6.4 | P05: uso único real (o token caduca quando o primeiro convidado entra ou sai) e expiração após 30 min sem ligação; corrigir o texto da UI | `src-tauri/src/pair.rs:161-198` + testes |
+| F6.4 | ✅ **Feito** (inclui o bug 2 da §2): o token do anfitrião é de uso único — quando o convidado sai, a sessão acaba e o mesmo token não reabre nada (teste de loopback); sem convidado em 30 min (`DXTUTOR_PAIR_IDLE_SECS`) o token expira; a UI do anfitrião avisa e termina. P05: uso único real (o token caduca quando o primeiro convidado entra ou sai) e expiração após 30 min sem ligação; corrigir o texto da UI | `src-tauri/src/pair.rs:161-198` + testes |
 | F6.5 | S09: mensagem PairCode `t:"codev"` com os eventos do overlay; o convidado desenha o mesmo realce | `pair.ts:305+`, overlay da A2 |
 
 ### F7 — Aceitação ponta a ponta

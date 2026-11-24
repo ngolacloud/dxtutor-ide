@@ -350,7 +350,7 @@ function cleanup(): void {
 }
 
 void T.event.listen("pair-status", e => {
-  const s = (e.payload || {}) as { state?: string; peer?: unknown; error?: string };
+  const s = (e.payload || {}) as { state?: string; peer?: unknown; error?: string; message?: string };
   if (s.state === "waiting") {
     if (P.role === "host" && P.state === "connected") {
       toast((P.peerName || "Your pair") + " left the session");
@@ -365,6 +365,8 @@ void T.event.listen("pair-status", e => {
     if (P.role === "host") sendSnapshot();
   } else if (s.state === "ended" || (s.state === "disconnected" && P.role === "guest")) {
     if (P.role === "guest") { toast("PairCode session ended"); cleanup(); }
+    // RF-P05: the host's token is single use and expires — the hosting ends with it
+    else if (P.role === "host" && s.state === "ended") { toast(s.message || "PairCode: a sessão terminou; o token já não serve"); cleanup(); }
   } else if (s.state === "error") {
     toast(s.error || "PairCode error");
     if (P.role === "guest") cleanup();
