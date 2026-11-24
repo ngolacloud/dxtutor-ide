@@ -209,6 +209,29 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       delete FS[key]; flushSave(); await idle();
       return { listed: listed.includes("tests::probe_passes"), inPane };
     });
+    // A6: a real runner (cargo, in a sub-folder crate) detected by test_runners, run by
+    // test_run with per-test results (one pass, one fail), kept in the SQLite history, and
+    // one test re-run on its own. The probe files are removed at the end.
+    await step("testRuns", async () => {
+      const d = desktopPorts.tests; if (!d || !d.runners || !d.runRunner || !d.history) throw new Error("A6 tests port not installed");
+      const toml = ROOT + "probe_crate/Cargo.toml", lib = ROOT + "probe_crate/src/lib.rs";
+      writeFile(toml, "[package]\nname = \"probe_crate\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n");
+      writeFile(lib, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_ok() {}\n    #[test]\n    fn probe_bad() { assert_eq!(1, 2, \"probe\"); }\n}\n");
+      flushSave(); await idle();
+      try {
+        const runner = (await d.runners()).find((r) => r.id === "cargo:probe_crate");
+        if (!runner) throw new Error("cargo runner not detected in probe_crate/");
+        const all = await d.runRunner(runner.id, { kind: "all" });
+        const st = (n: string) => all.results.find((c) => c.name === n)?.status;
+        const one = await d.runRunner(runner.id, { kind: "case", name: "tests::probe_ok" });
+        const hist = await d.history();
+        const kept = hist.runs.filter((r) => r.runner === runner.id).length;
+        const bad = hist.cases.find((c) => c.name === "tests::probe_bad");
+        return { available: runner.available, ran: all.ran, ok: st("tests::probe_ok") === "passed", bad: st("tests::probe_bad") === "failed", single: one.ok && one.results.length === 1, kept, badLast: bad?.last };
+      } finally {
+        delete FS[toml]; delete FS[lib]; flushSave(); await idle();
+      }
+    });
     // A5: the Project store through the real Tauri commands and SQLite — create, move one
     // step, a skipped step refused by the Rust rules (code `step`, overridable), and the
     // issue's activity. The issue is deleted at the end (the temp folder's project stays empty).

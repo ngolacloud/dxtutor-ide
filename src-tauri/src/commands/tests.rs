@@ -155,7 +155,8 @@ pub async fn test_run(
                 }
             }
             let rep = tutor_eval::testrun::run(&root_p, &r, &scope);
-            if rep.ran {
+            // a run that ran no test (nothing matched the changed files) is not history
+            if rep.ran && !rep.results.is_empty() {
                 if let Some(db) = &db {
                     let st = |s: Status| match s {
                         Status::Passed => "passed",

@@ -173,6 +173,41 @@ RULES.push(
  [/^Ditar \(voz\) — (.+)$/, (_m, a) => 'Dictate (voice) — ' + (a === 'Automática' ? 'Automatic' : a)],
  [/^Ditado local por configurar — falta (.+)$/, 'Local dictation not set up — missing $1'],
 );
+/* A6 — o pane Testing com runners reais, resultados por teste e histórico (features/test.ts) */
+PAIRS.push(
+ ["Histórico", "History"],
+ ["Testes no código", "Tests in the code"],
+ ["Vigiar", "Watch"],
+ ["Escrever o teste em falta", "Write a missing test"],
+ ["Explicar a falha", "Explain failure"],
+ ["Corrigir com o Co-Dev", "Fix with Co-Dev"],
+ ["Última execução", "Last run"],
+ ["Taxa de sucesso", "Pass rate"],
+ ["Instáveis", "Flaky"],
+ ["Mais lentos", "Slowest"],
+ ["# ignorados", "# skipped"],
+ ["✓ passou", "✓ passed"],
+ ["✖ falhou", "✖ failed"],
+ ["agora mesmo", "just now"],
+ ["há # min", "# min ago"],
+ ["há # h", "# h ago"],
+ ["Últimas # execuções", "Last # runs"],
+ ["A correr todos os testes…", "Running all tests…"],
+ ["A correr os testes afectados…", "Running the affected tests…"],
+ ["Indisponível.", "Not available."],
+ ["Abrir no editor", "Open in the editor"],
+ ["Correr este teste", "Run this test"],
+ ["Correr os testes afectados pelos ficheiros alterados desde o último commit", "Run the tests affected by the files changed since the last commit"],
+ ["A cada gravação, corre os testes afectados pelos ficheiros gravados", "On every save, run the tests affected by the saved files"],
+ ["Perguntar ao Co-Dev a causa provável", "Ask Co-Dev for the likely cause"],
+ ["Resultados recentes, o mais recente primeiro", "Recent results, newest first"],
+ ["Ainda não há execuções guardadas. Os cartões enchem-se com as execuções que fizeres aqui (guardadas na base de dados do projecto).", "No runs kept yet. The cards fill in from the runs you make here (kept in the project database)."],
+ ["Nenhuma execução correu testes ainda.", "No run has run tests yet."],
+ ["Nenhum: nenhum teste mudou de resultado sem motivo nas últimas execuções.", "None: no test has changed result without reason in the last runs."],
+ ["O runner não dá a duração de cada teste.", "The runner reports no per-test durations."],
+ ["O runner não deu mensagem para esta falha; vê a saída da execução abaixo.", "The runner gave no message for this failure; see the run output below."],
+ ["Nenhum runner de testes nesta pasta. Detectados: Cargo, módulos Go, pytest/unittest, vitest/jest (instalados em node_modules), Maven e Gradle.", "No test runner found in this folder. Detected: Cargo, Go modules, pytest/unittest, vitest/jest (installed in node_modules), Maven and Gradle."],
+);
 const PT2EN=new Map(),EN2PT=new Map();PAIRS.forEach(([p,e])=>{PT2EN.set(p,e);EN2PT.set(e,p);});
 const TR_SKIP='.notr,#pc-output,.s-hit,#dk-containers,#dk-images,.kc-id,.gl-h,.tmux,#term .cmd,#term .pr,.ag-model,.ed,.diff,script,style,pre,code,#st-svg,.gl-msg,.gl-ref,.kc-t,.kc-b,.lt-file,.crumb';
 function trText(s:string,toEn?:boolean){const m=s.match(/^(\s*)([\s\S]*?)(\s*)$/)!,core=m[2];if(!core)return null;if(window.__seen)window.__seen.add(core.replace(/\d+(?:[.,]\d+)?/g,'#'));const map=toEn?PT2EN:EN2PT;let r=map.get(core);
