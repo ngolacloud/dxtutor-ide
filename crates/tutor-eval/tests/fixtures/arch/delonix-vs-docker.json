@@ -1,0 +1,335 @@
+{
+ "components": [
+  {
+   "id": "docker-cli",
+   "name": "Docker CLI",
+   "kind": "cli",
+   "outbox": false,
+   "group": "docker-body",
+   "code": "docker run nginx"
+  },
+  {
+   "id": "dockerd",
+   "name": "dockerd",
+   "kind": "daemon",
+   "outbox": false,
+   "group": "docker-host"
+  },
+  {
+   "id": "containerd",
+   "name": "containerd",
+   "kind": "daemon",
+   "outbox": false,
+   "group": "docker-host"
+  },
+  {
+   "id": "shim",
+   "name": "containerd-shim\num por container",
+   "kind": "process",
+   "outbox": false,
+   "group": "docker-host"
+  },
+  {
+   "id": "runc",
+   "name": "runc",
+   "kind": "runtime",
+   "outbox": false,
+   "group": "docker-host"
+  },
+  {
+   "id": "docker-ctr",
+   "name": "Container",
+   "kind": "process",
+   "outbox": false,
+   "group": "docker-host"
+  },
+  {
+   "id": "docker-kernel",
+   "name": "Linux kernel",
+   "kind": "kernel",
+   "outbox": false,
+   "group": "docker-host"
+  },
+  {
+   "id": "cli",
+   "name": "delonix CLI",
+   "kind": "cli",
+   "outbox": false,
+   "group": "dlx-host",
+   "source": "bins/delonix/src/main.rs:1917 (run → container run); bins/delonix/src/cmd/container.rs:3622 cmd_run",
+   "code": "delonix run nginx"
+  },
+  {
+   "id": "supervisor",
+   "name": "supervisor\nfork da CLI (-d)",
+   "kind": "process",
+   "outbox": false,
+   "group": "dlx-host",
+   "source": "crates/adapters/delonix-linux/src/supervise.rs:81 run_supervised; :103 fork"
+  },
+  {
+   "id": "ctr",
+   "name": "Container",
+   "kind": "process",
+   "outbox": false,
+   "group": "dlx-host",
+   "source": "crates/adapters/delonix-linux/src/lib.rs:9759 clone; crates/adapters/delonix-linux/src/lib.rs:5541 execvp"
+  },
+  {
+   "id": "state",
+   "name": "Estado em JSON",
+   "kind": "state",
+   "outbox": false,
+   "group": "dlx-state",
+   "source": "crates/adapters/delonix-state/src/store.rs:298 Store; :314 default_root ($DELONIX_ROOT); :681 JsonStore; :94 flock"
+  },
+  {
+   "id": "logshim",
+   "name": "log shim",
+   "kind": "process",
+   "outbox": false,
+   "group": "dlx-per",
+   "source": "crates/adapters/delonix-linux/src/lib.rs:1445 log_shim; :9923 fork"
+  },
+  {
+   "id": "slirp",
+   "name": "slirp4netns\num por container",
+   "kind": "process",
+   "outbox": false,
+   "group": "dlx-per",
+   "source": "crates/adapters/delonix-sdn/src/lib.rs:2235 slirp_attach"
+  },
+  {
+   "id": "watcher",
+   "name": "watcher --rm",
+   "kind": "process",
+   "outbox": false,
+   "group": "dlx-per",
+   "source": "bins/delonix/src/cmd/container.rs:4802 spawn_rm_watcher; :4804 fork"
+  },
+  {
+   "id": "pin",
+   "name": "netns pin",
+   "kind": "process",
+   "outbox": false,
+   "group": "dlx-net",
+   "source": "crates/adapters/delonix-sdn/src/infra.rs:455 PidKind::Pin; bins/delonix/src/main.rs:2259"
+  },
+  {
+   "id": "control",
+   "name": "netns control\ndelonix0, nft, DHCP",
+   "kind": "process",
+   "outbox": false,
+   "group": "dlx-net",
+   "source": "crates/adapters/delonix-sdn/src/infra.rs:455 PidKind::Control; :28 delonix0; :3638 start_dhcp; :9829 dns_server_main; main.rs:2269"
+  },
+  {
+   "id": "slirp1",
+   "name": "slirp4netns\núnico, partilhado",
+   "kind": "process",
+   "outbox": false,
+   "group": "dlx-net",
+   "source": "crates/adapters/delonix-sdn/src/infra.rs:455 PidKind::Slirp; :2592 start_slirp"
+  },
+  {
+   "id": "vm",
+   "name": "microVM\nVmBackend",
+   "kind": "worker",
+   "outbox": false,
+   "group": "dlx-host",
+   "source": "crates/contexts/delonix-compute/src/domain/vm_backend.rs:558 VmBackend; providers cloud-hypervisor lib.rs:861, libvirt lib.rs:3260"
+  },
+  {
+   "id": "dlx-kernel",
+   "name": "Linux kernel · namespaces · cgroups v2",
+   "kind": "kernel",
+   "outbox": false,
+   "group": "dlx-host",
+   "source": "crates/adapters/delonix-linux/src/lib.rs:9558 clone_flags; :7877 setup_cgroup; :429 apply_seccomp; crates/adapters/delonix-sdn/src/infra.rs:5 nft"
+  }
+ ],
+ "connections": [
+  {
+   "from": "docker-cli",
+   "to": "dockerd",
+   "event": "",
+   "style": "control",
+   "protocol": "unix-socket"
+  },
+  {
+   "from": "dockerd",
+   "to": "containerd",
+   "event": "",
+   "style": "control"
+  },
+  {
+   "from": "containerd",
+   "to": "shim",
+   "event": "",
+   "style": "control"
+  },
+  {
+   "from": "shim",
+   "to": "runc",
+   "event": "",
+   "style": "control"
+  },
+  {
+   "from": "runc",
+   "to": "docker-ctr",
+   "event": "",
+   "style": "control"
+  },
+  {
+   "from": "cli",
+   "to": "ctr",
+   "event": "",
+   "style": "control",
+   "source": "bins/delonix/src/cmd/container.rs:4374 launch::start → crates/contexts/delonix-compute/src/domain/launch.rs:193 → crates/adapters/delonix-linux/src/workload.rs:53 → crates/adapters/delonix-linux/src/lib.rs:9759 clone; pivot_root crates/adapters/delonix-linux/src/lib.rs:3145; setup_cgroup :7877",
+   "label": "clone",
+   "protocol": "syscall"
+  },
+  {
+   "from": "cli",
+   "to": "supervisor",
+   "event": "",
+   "style": "optional",
+   "source": "crates/contexts/delonix-compute/src/domain/launch.rs:165 should_supervise (detach); crates/adapters/delonix-linux/src/supervise.rs:103 fork",
+   "label": "-d: fork",
+   "protocol": "fork-exec"
+  },
+  {
+   "from": "supervisor",
+   "to": "ctr",
+   "event": "",
+   "style": "optional",
+   "source": "crates/adapters/delonix-linux/src/supervise.rs:132 create_with",
+   "label": "clone",
+   "protocol": "syscall"
+  },
+  {
+   "from": "cli",
+   "to": "state",
+   "event": "",
+   "style": "data",
+   "source": "bins/delonix/src/cmd/container.rs:3622 cmd_run(store: &Store)",
+   "label": "lê e escreve",
+   "protocol": "fs"
+  },
+  {
+   "from": "cli",
+   "to": "logshim",
+   "event": "",
+   "style": "optional",
+   "source": "crates/adapters/delonix-linux/src/lib.rs:8966 start_log_shim (spawn em processo)",
+   "protocol": "fork-exec"
+  },
+  {
+   "from": "cli",
+   "to": "slirp",
+   "event": "",
+   "style": "optional",
+   "source": "bins/delonix/src/cmd/container.rs:3563 delonix_sdn::slirp_attach"
+  },
+  {
+   "from": "cli",
+   "to": "watcher",
+   "event": "",
+   "style": "optional",
+   "source": "bins/delonix/src/cmd/container.rs:4388 → :4802 spawn_rm_watcher (só sem supervisor)",
+   "protocol": "fork-exec"
+  },
+  {
+   "from": "cli",
+   "to": "pin",
+   "event": "",
+   "style": "optional",
+   "source": "crates/adapters/delonix-sdn/src/infra.rs:1933 ensure_up; :1783 acquire / :1794 release",
+   "label": "ensure_up"
+  },
+  {
+   "from": "cli",
+   "to": "vm",
+   "event": "",
+   "style": "optional",
+   "source": "bins/delonix/src/cmd/vm.rs:3468 delonix_vm::create",
+   "label": "VmBackend"
+  }
+ ],
+ "groups": [
+  {
+   "id": "docker-body",
+   "label": "Docker — 2 daemons residentes",
+   "kind": "boundary",
+   "style": "dashed"
+  },
+  {
+   "id": "docker-host",
+   "label": "Host",
+   "kind": "host",
+   "style": "dashed",
+   "parent": "docker-body"
+  },
+  {
+   "id": "dlx-body",
+   "label": "Delonix — sem daemon",
+   "kind": "boundary",
+   "style": "dashed",
+   "source": "AGENTS.md:236 (guardrail «Daemonless — no resident process by default»); dist/: só unidades opt-in (delonix-cri.service, delonix-node-api.socket, delonix-storage-helper.socket)"
+  },
+  {
+   "id": "dlx-host",
+   "label": "Host",
+   "kind": "host",
+   "style": "dashed",
+   "parent": "dlx-body",
+   "source": "crates/adapters/delonix-linux/src/lib.rs:9759 clone, em processo a partir de cmd_run (bins/delonix/src/cmd/container.rs:3622)"
+  },
+  {
+   "id": "dlx-state",
+   "label": "Estado: $DELONIX_ROOT",
+   "kind": "module",
+   "style": "dashed",
+   "parent": "dlx-host",
+   "source": "crates/adapters/delonix-state/src/store.rs:298, :314"
+  },
+  {
+   "id": "dlx-per",
+   "label": "Por container (opcional)",
+   "kind": "boundary",
+   "style": "dashed",
+   "parent": "dlx-host",
+   "source": "crates/adapters/delonix-linux/src/lib.rs:8966; bins/delonix/src/cmd/container.rs:3563; bins/delonix/src/cmd/container.rs:4802"
+  },
+  {
+   "id": "dlx-net",
+   "label": "Rede rootless (sob procura)",
+   "kind": "boundary",
+   "style": "dashed",
+   "parent": "dlx-host",
+   "source": "crates/adapters/delonix-sdn/src/infra.rs:1933 ensure_up; :1783 acquire; :1794 release"
+  }
+ ],
+ "views": [
+  {
+   "id": "docker",
+   "title": "Docker — 2 daemons residentes",
+   "color": "#0f766e",
+   "roots": [
+    "docker-body"
+   ],
+   "daemonless": false,
+   "strict": false
+  },
+  {
+   "id": "delonix",
+   "title": "Delonix — sem daemon",
+   "color": "#6d28d9",
+   "roots": [
+    "dlx-body"
+   ],
+   "daemonless": true,
+   "strict": true
+  }
+ ]
+}
