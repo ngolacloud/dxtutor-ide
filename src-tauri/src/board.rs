@@ -245,11 +245,32 @@ pub fn issue_prompt_from(
         scope: i.scope.clone(),
         previous_failure,
     };
-    Ok(tutor_agent::issue_prompt::render(
+    Ok(tutor_agent::issue_prompt::render_with(
         Path::new(root),
         &data,
         lang,
+        &syntax_outline,
     ))
+}
+
+/// The symbols of a file for the prompt's code context (RF-E03): the syntax map — quick and the
+/// same on every machine, with no language server to wait for. Empty for a file it does not know.
+fn syntax_outline(path: &str, code: &str) -> Vec<tutor_agent::issue_prompt::Symbol> {
+    let Some(lang) = crate::codeintel::outline_lang(path) else {
+        return Vec::new();
+    };
+    tutor_eval::codemap::outline(code, lang)
+        .into_iter()
+        .map(|s| tutor_agent::issue_prompt::Symbol {
+            kind: serde_json::to_value(s.kind)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or_default(),
+            name: s.name,
+            start: s.start_line as usize,
+            end: s.end_line as usize,
+        })
+        .collect()
 }
 
 // ── O quadro Tasks (ADR-0006, R3b) ─────────────────────────────────────────────────────────
@@ -322,5 +343,58 @@ mod tests {
             "x",
         ]);
         assert_eq!(head_commit_ms(d.path()), 1_763_000_000_000);
+    }
+
+    #[test]
+    fn the_issue_prompt_shows_the_mentioned_symbols_of_a_long_file_with_the_real_syntax_map() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        let mut code = String::new();
+        for k in 0..40 {
+            let name = if k == 25 {
+                "parse_header".to_string()
+            } else {
+                format!("step{k}")
+            };
+            code.push_str(&format!("pub fn {name}(x: u32) -> u32 {{\n"));
+            for n in 0..6 {
+                code.push_str(&format!("    let y{n} = x + {n};\n"));
+            }
+            code.push_str("    x\n}\n\n");
+        }
+        std::fs::write(d.path().join("src/lexer.rs"), &code).unwrap();
+        std::fs::write(
+            d.path().join("src/util.py"),
+            "def helper():\n    return 1\n",
+        )
+        .unwrap();
+        // the syntax map knows Rust and Python, not a text file
+        let rs = syntax_outline("src/lexer.rs", &code);
+        assert_eq!(rs.len(), 40);
+        let p = rs.iter().find(|s| s.name == "parse_header").unwrap();
+        // header, 6 lines, `x`, `}` and a blank line: 10 lines each
+        assert_eq!((p.start, p.end), (251, 259));
+        assert_eq!(
+            syntax_outline("src/util.py", "def helper():\n    return 1\n")[0].name,
+            "helper"
+        );
+        assert!(syntax_outline("notes.txt", "fn x() {}").is_empty());
+        let data = tutor_agent::issue_prompt::IssueData {
+            key: "DX-9".into(),
+            title: "Header".into(),
+            description: "`parse_header` drops the last field.".into(),
+            scope: vec!["src/lexer.rs".into()],
+            ..Default::default()
+        };
+        let r =
+            tutor_agent::issue_prompt::render_with(d.path(), &data, Some("en"), &syntax_outline);
+        assert!(r.text.contains("src/lexer.rs: 251–259 ("), "{}", r.text);
+        assert!(r
+            .text
+            .contains(" 251 │ pub fn parse_header(x: u32) -> u32 {"));
+        assert!(
+            !r.text.contains("   1 │ pub fn step0"),
+            "not the whole file"
+        );
     }
 }
