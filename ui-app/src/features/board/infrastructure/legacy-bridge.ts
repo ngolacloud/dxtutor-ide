@@ -31,6 +31,7 @@ import type {
 import { validateDesign as validateDesignImpl, CLOUD } from "../../studio";
 import { codeGuard as codeGuardImpl } from "../../team";
 import { usd as usdImpl } from "../../tasks";
+import { TASKP } from "../../router/domain/model-routing";
 export { toast, log, rerender };
 export type { Backlog, Stage, Issue, Design, TechSpec };
 
@@ -72,7 +73,7 @@ export const stages = (): Stage[] => G.STAGES;
 export const files = (): Record<string, FileEntry> => G.FS;
 export const agents = (): Record<string, Agent> => G.AGENTS;
 export const provs = (): Record<string, Prov> => G.PROV;
-export const taskProfiles = (): Record<string, { l: string }> => G.TASKP;
+export const taskProfiles = (): Record<string, { l: string }> => TASKP;
 
 /* ───── estado da execução / autoria / ramo / agente activo / pane / modo ───── */
 export const run = (): Run => G.RUN;

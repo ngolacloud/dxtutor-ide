@@ -196,7 +196,7 @@ function ltAsk(){const{s}=ltFind(LTS.cur)!;AGENT='tutor';agentPill();focusAgent(
   else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">W${txt("withClaudeLiveThe")}/p>`);}}
 
 /* ── publicar no window: tutor.ts/visualizer.ts/v5.ts e os shims de app.ts lêem por global ── */
-Object.assign(window, { LTS, saveLT, LT_BADGE, course, ltUnits, dk, ltDone, ltFind, ltPath, ltSeq, ltPts, stars, ltOnboard, ltStart, ltResume, ltOpen, openLesson, nextLesson, renderLtView, tgt, ltRes, ltGo, ltAsk });
+Object.assign(window, { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltFind, ltPath, ltSeq, ltPts, stars, ltOnboard, ltResume, ltOpen, openLesson, nextLesson, renderLtView,});
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts; o visualizer decora-a no boot7) */
 VIEW.lt = renderLtView;
 
@@ -207,9 +207,9 @@ const LW = window as unknown as { ONB: { levels: string[] }; LT_HOOD: boolean; L
 registerActions({
   "learn:level": { click: (c) => { const o = LW.ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); callGlobal("ltOnboard", 2); } },
   "learn:back": { click: () => void callGlobal("ltOnboard", 1) },
-  "learn:start": { click: () => void callGlobal("ltStart") },
-  "learn:hood": { click: () => { LW.LT_HOOD = !LW.LT_HOOD; callGlobal("ltRes"); } },
-  "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; callGlobal("saveLT"); callGlobal("ltRes"); } },
-  "learn:ask": { click: () => void callGlobal("ltAsk") },
-  "learn:go": { click: () => void callGlobal("ltGo") },
+  "learn:start": { click: () => void ltStart() },
+  "learn:hood": { click: () => { LW.LT_HOOD = !LW.LT_HOOD; ltRes(); } },
+  "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; callGlobal("saveLT"); ltRes(); } },
+  "learn:ask": { click: () => void ltAsk() },
+  "learn:go": { click: () => void ltGo() },
 });

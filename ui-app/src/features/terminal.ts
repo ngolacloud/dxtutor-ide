@@ -272,4 +272,4 @@ const runPublished = (raw?: string): unknown => { const d = desktopPorts.termina
  *  `termExec` PUBLICADO, que consulta a porta desktop (tarefa num PTY na app). */
 function runTask(c: string): unknown { TG.setPanelTab('terminal'); return TG.termExec(c); }
 
-Object.assign(window, { termClear, echo, scrollTerm, onKey, complete, echoCmd, run: runPublished, runTask });
+Object.assign(window, { termClear, echo, scrollTerm, complete, echoCmd, run: runPublished, runTask });

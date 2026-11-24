@@ -239,8 +239,8 @@ export function codeGuard(what: string): boolean {
   return true;
 }
 
-Object.assign(window, { openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill, scopeProbe,
-  RIGHTS, RIGHT_RE, HARN, MORD, isHuman, toggleRight, reviewIssue,
+Object.assign(window, { openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill,
+  RIGHTS, RIGHT_RE, HARN, MORD, isHuman, reviewIssue,
 });
 
 /* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê
@@ -259,10 +259,10 @@ const lines = (v: string): string[] => v.split('\n').map((s) => s.trim()).filter
 registerActions({
   "team:openHarness": { click: () => void callGlobal('openPath', TA.ROOT + '.dxtutor/harness.toml') },
   "team:applyTemplate": { click: (c) => void callGlobal('applyTemplate', c.on) },
-  "team:toggleRight": { click: (c) => void callGlobal('toggleRight', c.on) },
+  "team:toggleRight": { click: (c) => void toggleRight(c.on) },
   "team:review": { click: () => { TA.HARN.review = !TA.HARN.review; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
   "team:explain": { click: () => { TA.HARN.explain = !TA.HARN.explain; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
-  "team:probe": { input: (c) => void callGlobal('scopeProbe', c.value) },
+  "team:probe": { input: (c) => void scopeProbe(c.value) },
   "team:talk": { click: (c) => { TA.AGENT = c.on; callGlobal('agentPill'); callGlobal('show', TA.cur); } },
   "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); callGlobal('saveTeam'); } },
   "team:cmds": { change: (c) => { TA.AGENTS[c.on].cmds = lines(c.value); callGlobal('saveTeam'); } },

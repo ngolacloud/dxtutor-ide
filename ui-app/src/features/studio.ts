@@ -157,7 +157,7 @@ registerActions({
   'studio:tech': { change: (c) => { node(c.on).tech = c.value; save(); } },
   'studio:status': { change: (c) => { node(c.on).st = c.value; save(); } },
   'studio:unlink': { click: (c) => { SD.edges.splice(Number(c.on), 1); save(); } },
-  'studio:del': { click: (c) => void callGlobal('sdDel', c.on) },
+  'studio:del': { click: (c) => void sdDel(c.on) },
   'studio:drift': { change: (c) => { G.DRIFT = c.value || null; drawStudio(); } },
 });
 VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" data-action="studio:drift"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${G.DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
@@ -165,4 +165,4 @@ VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { loadSD, TECH, KIND, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel });
+Object.assign(window, { loadSD, TECH, KIND, isApp, sl, appDir, saveSD, openStudio, sdAdd });

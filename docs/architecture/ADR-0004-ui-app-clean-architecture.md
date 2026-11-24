@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7c)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7d)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1063,3 +1063,15 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `window` é o que evita a dependência circular/ordem trocada — trocar por import pede mover código), 40 são de nomes
   publicados mais do que uma vez ou por `window.X =`, e os outros têm leitores em testes, no desktop ou em módulos de
   outras sessões. Ver o plano a seguir.
+- **U7d (2026-11-24) — feature a feature, mais fundo (decisão do dono): o que o *checker* prova.** O critério textual da
+  U7a era conservador demais (um nome num comentário ou num export do domínio contava como leitor). Agora: um nome sem
+  leitor nenhum pelo *checker* (nem nome livre que resolva para o global, nem `window`/fachada, nem `callGlobal`), sem
+  menção em testes/e2e, e que não seja uma string literal exacta em lado nenhum do código (os acessos dinâmicos
+  `window[nome]` — o arranque `boot`…`boot6`, a lista que o PairCode decora — usam o nome exacto) está morto: saem 16
+  (`TABS`, `onKey`, `hhmm`, `STC`, `phase`, `CAPL`/`CAP`/`rankModels`, `dk`/`tgt`, `LANG` e os cinco geradores). Os
+  geradores (`composeYaml`, `appFiles`, `k8sYaml`, `cloudMap`, `dockerfile`) ficam como exports de
+  `features/generators.ts` — ninguém os lê hoje, mas a decisão do dono é que os geradores ficam. Os nomes que só o
+  próprio módulo lia pelo `callGlobal` (que a U5 pôs para resolver no acto, como o inline) e que ninguém decora passam a
+  chamada directa: `saveTK`, `scopeProbe`, `toggleRight`, `sdDel`, `ltStart`/`ltRes`/`ltGo`/`ltAsk`. E a ponte do board
+  importa o `TASKP` do domínio do router. O `router.ts` e o `generators.ts` deixam de publicar o que quer que seja.
+  Globais publicadas 311 → 286. Paridade nas duas línguas igual.
