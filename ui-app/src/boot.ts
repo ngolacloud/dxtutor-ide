@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* ═════════ dxtutor IDE — boot (monólito navegável) ═════════
    Fase 5 da componentização: quarto e último módulo TypeScript do ui-app. boot.js
    era o ÚNICO script clássico; agora toda a cadeia (boot→app→bridge→pair) é de
@@ -14,9 +13,38 @@
    o buildDocker do boot chamaria a hydrate DESTRUTIVA do boot (innerHTML=) em vez da
    NÃO-destrutiva do app (insertAdjacentHTML), apagando #st-model-l/#st-branch-l.
    Com tudo window-backed, boot e app partilham UMA fonte por nome e o app continua a
-   ganhar onde redefine. @ts-nocheck: tipar fica para fase posterior. */
+   ganhar onde redefine.
+
+   ADR-0004, U4j1: tipado (era @ts-nocheck) e sem o código morto do primeiro protótipo
+   (separadores/documentos/minimapa/boas-vindas antigos, nunca referenciados, e as versões
+   do agente que o features/codev.ts redefine antes de alguém as ler). O que resta são as
+   globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE/DOCS), o
+   painel de contentores de demonstração e dois listeners. */
 export {};
-import { esc } from "./core";
+
+declare global {
+  interface Window {
+    $: (s: string) => HTMLElement | null;
+    $$: (s: string) => HTMLElement[];
+    P: Record<string, string>;
+    ACTS: unknown[];
+    OVERFLOW: unknown[];
+    MENUS: unknown[];
+    TREE: unknown;
+    DOCS: Record<string, Array<[string, string]>>;
+    wireSections: (scope: ParentNode) => void;
+    buildDocker: () => void;
+  }
+  var toTimer: ReturnType<typeof setTimeout> | undefined;
+  var activeTab: string | null;
+  const agCtl: (a: string) => void;
+  const svg: (name: string, cls?: string) => string;
+  const hydrate: () => void;
+  const wireSections: (scope: ParentNode) => void;
+  /* o String.replaceAll existe em runtime (ES2021, webview e browsers suportados) mas a lib
+     do projecto é ES2020; declara-se só a assinatura que o buildDocker usa */
+  interface String { replaceAll(searchValue: string, replaceValue: string): string }
+}
 
 /* ── mutáveis partilhadas: window-backed SEM binding léxico. Fonte única, lida e
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
@@ -24,7 +52,7 @@ import { esc } from "./core";
    livre em modo estrito (módulo). ── */
 Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'] });
 
-window.$=s=>document.querySelector(s);window.$$=s=>[...document.querySelectorAll(s)];
+window.$=s=>document.querySelector<HTMLElement>(s);window.$$=s=>[...document.querySelectorAll<HTMLElement>(s)];
 
 /* ═════════ ICON LIBRARY (codicon-style SVG) ═════════ */
 window.P={
@@ -91,7 +119,7 @@ window.P={
 window.svg = function(name,cls){return `<svg class="ico${cls?' '+cls:''}" viewBox="0 0 16 16">${P[name]||P.file}</svg>`;}
 
 /* ═════════ TOAST ═════════ */
-window.toast = function(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toTimer);toTimer=setTimeout(()=>{t.classList.remove('show');},1600);}
+window.toast = function(m){const t=$('#toast')!;t.textContent=m;t.classList.add('show');clearTimeout(toTimer);toTimer=setTimeout(()=>{t.classList.remove('show');},1600);}
 /* o relógio da barra de estado (tick) saiu (ADR-0004, U4g7): o v5 já o substituía por uma função vazia desde a camada «less noise», por isso nunca corria na app. */
 
 /* ═════════ ACTIVITY BAR ═════════ */
@@ -153,64 +181,17 @@ window.DOCS={
   'assistant.ts':[['cm','// Painel Assistant — render das mensagens.'],['','<span class="kw">export function</span> <span class="fn">renderMessages</span>(): <span class="ty">void</span> {'],['','  <span class="kw">const</span> host = <span class="fn">$</span>(<span class="str">"#ag-msgs"</span>);'],['','  host.innerHTML = state.messages.<span class="fn">map</span>(<span class="fn">bubble</span>).<span class="fn">join</span>(<span class="str">""</span>);'],['','}']],
   'styles.css':[['cm','/* dxtutor — tema Grafite + laranja */'],['',':root {'],['','  --bg-base: <span class="num">#0f0f11</span>;'],['','  --accent: <span class="num">#e06c3b</span>;'],['','  --accent-hover: <span class="num">#f08a4b</span>;'],['','}']],
 };
-
-/* ═════════ TABS / EDITOR ═════════ */
-window.tabIcon = function(t){if(t==='chat'||t==='agent')return svg('sparkle','chat');if(t==='rust')return svg('rust','rs');if(t==='css')return svg('file','css');return svg('file');}
-window.renderTabs = function(){const host=$('#tabs');host.innerHTML='';TABS.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.name===activeTab?' active':'');
-  el.innerHTML=`<span class="ic ${t.t==='rust'?'rs':t.t==='css'?'css':t.t==='chat'||t.t==='agent'?'chat':''}">${tabIcon(t.t)}</span><span class="nm">${esc(t.name)}</span><button class="x" data-ic="close"></button>`;
-  el.onclick=e=>{if(e.target.closest('.x')){closeTab(t.name);e.stopPropagation();return;}setActive(t.name);};host.appendChild(el);});hydrate();}
-window.renderDocs = function(){const host=$('#ebody');TABS.forEach(t=>{if($('#doc-'+cid(t.name)))return;const d=document.createElement('div');d.className='doc';d.id='doc-'+cid(t.name);
-  if(t.t==='chat')d.innerHTML=welcome();
-  else if(t.t==='agent'){d.innerHTML=agentShell();host.appendChild(d);placeAgentCenter();return;}
-  else{const lines=DOCS[t.name]||[['dim','// '+t.name+' — pré-visualização']];const code=document.createElement('div');code.className='code';
-    lines.forEach((ln,i)=>{const r=document.createElement('div');r.className='cl'+(ln[0]==='err'?' err':'');r.innerHTML=`<span class="ln">${i+1}</span><span class="tx ${ln[0]!=='err'?ln[0]:''}">${ln[1]}</span>`;code.appendChild(r);});d.appendChild(code);}
-  host.appendChild(d);});}
-window.agentShell = function(){return `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Assistant</div><div class="ag-model"><span class="live"></span>opus-4.8</div><button class="ac-dock" onclick="assistantDock()">${svg('dock-right')} Dock à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`;}
-window.placeAgentCenter = function(){const s=$('#agent-slot');if(s)s.append($('#ag-msgs'),$('#budget'),$('#ag-runctl'),$('#ag-compose'));}
-window.placeAgentDock = function(){const a=$('#agent');if(a)a.append($('#ag-msgs'),$('#budget'),$('#ag-runctl'),$('#ag-compose'));}
-window.agCtl = function(a){const msg={pause:'Pausa agendada para o fim do passo 5',stop:'Execução parada',details:'A abrir detalhes do passo 5 — Verificar a mudança',esc:'De volta à lista de etapas'}[a];toast(msg);if(a==='stop'){const rc=$('#ag-runctl');if(rc)rc.classList.add('hidden');}}
-document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test(e.target.tagName))return;
+document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target as HTMLElement).tagName))return;
   const open=getComputedStyle(document.body).getPropertyValue('--agent-w').trim()!=='0px'||(activeTab==='Assistant');if(!open)return;
   const rc=$('#ag-runctl');if(e.key==='Escape'){agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
-  const m={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
-window.assistantCenter = function(){document.body.style.setProperty('--agent-w','0px');$('#tgl-agent').classList.remove('on');let x=TABS.find(o=>o.name==='Assistant');if(!x){x={name:'Assistant',t:'agent'};TABS.push(x);}setActive('Assistant');}
-window.assistantDock = function(){closeTab('Assistant');}
-window.cid = function(s){return s.replace(/[^a-z0-9]/gi,'_');}
-window.renderMinimap = function(name){const mm=$('#minimap'),scroll=$('#ebody'),t=TABS.find(o=>o.name===name);
-  if(!t||t.t==='chat'||!DOCS[name]){mm.classList.add('hidden');scroll.classList.remove('with-mm');return;}
-  mm.classList.remove('hidden');scroll.classList.add('with-mm');
-  mm.innerHTML='<div class="mm-view"></div>'+DOCS[name].map(l=>{const len=(l[1]||'').replace(/<[^>]+>/g,'').length,w=Math.max(7,Math.min(52,len*1.05));return `<div class="mm-line${l[0]==='err'?' err':''}" style="width:${w}px"></div>`;}).join('');} // largura derivada do conteúdo — visualização de dados, não cabe em classe
-window.wireSections = function(scope){scope.querySelectorAll('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
-window.buildDocker = function(){const pane=$('#pane-containers');pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
+  const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
+window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
+window.buildDocker = function(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
   const cts=[['kaeso-odoo','Exited (130) · 21 horas'],['ecm_val_364','Exited (1) · 2 dias'],['kaeso-odoo-ecm','Exited (255) · 39 min'],['lab-ao-odoo','Exited (0) · 5 dias']];
-  $('#dk-containers').innerHTML=`<div class="row open dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('container')}</span><span class="nm">kaeso</span></div>`+
+  $('#dk-containers')!.innerHTML=`<div class="row open dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('container')}</span><span class="nm">kaeso</span></div>`+
     cts.map(c=>`<div class="row dk-row sub"><span class="ct-dot"></span><span class="nm dk-fixed">kaeso-odoo:16</span><span class="pth dk-path">${c[0]} · ${c[1]}</span></div>`).join('');
-  $('#dk-images').innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
+  $('#dk-images')!.innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
   wireSections(pane);hydrate();}
-window.welcome = function(){return `<div class="wlc">
-  <div class="wlc-head"><div class="wlc-logo">${svg('sparkle')}</div><div class="wlc-title">dxtutor <b>IDE</b></div></div>
-  <div class="wlc-sub">Protótipo navegável · organização do Antigravity · ícones SVG codicon. Clica à vontade: menus, Explorer (com secções), activity bar, tabs e o terminal em baixo.</div>
-  <div class="wlc-actions">
-    ${wbtn('explorer','Explorar ficheiros','Árvore, guias de indentação e secções',"setPane('explorer')")}
-    ${wbtn('run','Experimentar o terminal','Escreve help · ls · git status',"setPanelTab('terminal');setTimeout(()=>{var c=document.getElementById('cmd');if(c)c.focus()},50)")}
-    ${wbtn('sparkle','Falar com o Assistant','Painel à direita, com budget',"toggleAgentOn()")}
-  </div></div>`;}
-window.wbtn = function(ic,t,s,act){return `<button class="wlc-btn" onclick="${act}"><span class="ic">${svg(ic)}</span><span><span class="t">${t}</span><span class="s">${s}</span></span></button>`;}
-
-/* ═════════ BOTTOM PANEL ═════════ */
-
-/* ═════════ AGENT ═════════ */
-window.toggleAgent = function(){if(TABS.find(o=>o.name==='Assistant')){assistantDock();return;}const c=getComputedStyle(document.body).getPropertyValue('--agent-w').trim();const show=c==='0px';document.body.style.setProperty('--agent-w',show?'380px':'0px');$('#tgl-agent').classList.toggle('on',show);}
-window.toggleAgentOn = function(){if(getComputedStyle(document.body).getPropertyValue('--agent-w').trim()==='0px')toggleAgent();}
-window.agSend = function(){const i=$('#ag-input');if(!i.value.trim())return;const msgs=$('#ag-msgs');const q=i.value;
-  msgs.insertAdjacentHTML('beforeend',`<div class="m user"><div class="bub"><div class="bh"><span class="br2">você</span><span class="bt">agora</span></div><div class="bd">${q.replace(/</g,'&lt;')}</div></div></div>`);i.value='';msgs.scrollTop=msgs.scrollHeight;
-  setTimeout(()=>{msgs.insertAdjacentHTML('beforeend',`<div class="m ai"><div class="bub"><div class="bh"><span>⊡</span><span class="br2">assistant</span><span class="bt">agora</span></div><div class="bd">Recebido: <code>${q.slice(0,40).replace(/</g,'&lt;')}</code>. (protótipo — sem backend)</div></div></div>`);msgs.scrollTop=msgs.scrollHeight;},250);}
-
-/* ═════════ TERMINAL ═════════ */
-/* terminal emulado (USER/HOST, prompt, input, run, history…) migrado p/ features/terminal.ts (ADR-0004, U4e). */
-
-/* ═════════ PROBLEMS ═════════ */
-window.buildProblems = function(){$('#pc-problems').innerHTML=[['e','E0382: use of moved value: `chars`','desktop/src/lib.rs:5'],['w','variável `peek` nunca usada','desktop/src/parser.rs:22'],['w','preferir `while let` a `loop`+`match`','desktop/src/main.rs:88'],['w','import não usado: `std::fmt`','desktop/src/i18n.ts:3']].map(d=>`<div class="prob"><span class="pi ${d[0]}">${d[0]==='e'?'✖':'⚠'}</span><span><span>${d[1]}</span> <span class="ploc">${d[2]}</span></span></div>`).join('');}
 
 /* ═════════ RESIZE ═════════ */
 

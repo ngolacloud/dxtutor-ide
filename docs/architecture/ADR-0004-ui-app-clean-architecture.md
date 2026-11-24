@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i; o v5/v6 já não existem; só app.ts/boot.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -685,3 +685,28 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `vzRun` byte-a-byte sem diff), arch:check, build, arranque no browser 5/5 (numa corrida
   anterior o `arch.e2e.ts` da outra sessão falhou uma vez; na HEAD sem estas alterações e na
   repetição com elas passou — transitório) e auto-teste desktop idêntico ao da U4i2.
+- **U4j — plano (2026-11-24): dissolver o `app.ts` e o `boot.ts`.** Do menor risco para o maior,
+  um commit cada: **U4j1** o `boot.ts` (código morto provado nome a nome; o resto tipado);
+  **U4j2** os shims `VIEW.*`/`RP.*` do `app.ts` (cada feature regista a sua vista, como na
+  U4g1); **U4j3** o núcleo de helpers e estado do `app.ts` (`esc`/`hhmm`/`setVar`/`hydrate`,
+  `FS`/`ROOT`, `P_*`, `log`, `runTask`…) para os donos; **U4j4** o estado do Co-Dev que ainda
+  vive no `app.ts` (`PROV`/`MODE`/`SAMPLE`/`RUN`…) e os comandos de terminal decorados
+  (`XC.git`/`docker`/`make`/`dx`); **U4j5** menus, paleta, atalhos e arranque (`boot`…`boot6`)
+  para registo de comandos por feature — o maior.
+- **U4j1 (2026-11-24) — o `boot.ts` sem código morto e tipado.** Saem 17 definições, provadas
+  nome a nome: 11 sem nenhuma referência fora do ficheiro (`tabIcon`, `renderTabs`,
+  `renderDocs`, `agentShell`, `placeAgentCenter`/`Dock`, `cid`, `renderMinimap`, `welcome`,
+  `wbtn`, `buildProblems` — o `welcome()`/`wbtn()` globais só eram chamados pelo `renderDocs`)
+  e 6 que o `features/codev.ts` redefine antes de qualquer leitura (`agCtl`,
+  `assistantCenter`/`Dock`, `toggleAgent`/`On`, `agSend`: entre o `boot.ts` e o `codev.ts`
+  nenhum módulo os referencia). Ficam, tipados (sem `@ts-nocheck`): as globais de base
+  (`$`/`$$`/`P`/`svg`/`toast`), os dados iniciais (`ACTS`/`OVERFLOW`/`MENUS`/`TREE`/`DOCS` — vão
+  com a U4j5), o painel de contentores de demonstração (`buildDocker`/`wireSections`, chamado
+  pelo `boot()`) e os dois listeners (o do teclado do agente está vivo: chama o `agCtl` do
+  codev no acto). JavaScript emitido igual, à excepção das definições removidas e do
+  `import { esc }` que deixou de ser usado (o `core.ts` só define funções no topo, por isso a
+  ordem em que avalia não muda nada). O `String.replaceAll` (usado em runtime, fora da `lib`
+  ES2020 do projecto) declara-se só para este uso, sem mexer no tsconfig. `@ts-nocheck` 2 →
+  1; globais publicadas 409 → 392; handlers inline 160 → 158; lint 270 → 269. Verificado na
+  worktree limpa: tsc, 438 testes, arch:check, build, arranque no browser 5/5, auto-teste
+  desktop idêntico ao da U4i3.

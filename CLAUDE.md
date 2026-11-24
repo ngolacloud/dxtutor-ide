@@ -40,7 +40,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
-  foram tipados); só restam os dois do monólito, `app.ts` e `boot.ts`.
+  foram tipados) e o `boot.ts` também (U4j1); só resta o `app.ts`.
 
 ## Arquitectura da feature Co-Dev (`ui-app/src/features/codev/`)
 
