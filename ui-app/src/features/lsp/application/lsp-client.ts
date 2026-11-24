@@ -19,6 +19,7 @@ import { missingServerNotice, type ServerStatus } from "../domain/server-status"
 import { completionItems, wordStartAt, type CompletionItem } from "../domain/completion";
 import { signatureView, type SignatureView } from "../domain/signature";
 import { clientSideEdit, codeActionItems, type CodeActionItem } from "../domain/code-actions";
+import { caretAfterFormatting, formattingEdits } from "../domain/formatting";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
@@ -61,6 +62,8 @@ export interface LspClient {
   applyCodeAction(item: CodeActionItem): Promise<void>;
   /** O servidor pediu para aplicar uma edição (`workspace/applyEdit`, de um comando). */
   onApplyEdit(edit: unknown): Promise<void>;
+  /** Formata o ficheiro activo (ou só a selecção `[start, end)`, se não for vazia). */
+  formatAt(start: number, end: number): Promise<FormatOutcome>;
   /** O servidor publicou diagnósticos para `uri`. */
   onDiagnostics(uri: string): void;
   /** Ficheiros abertos no servidor (caminho absoluto → versão), para inspecção. */
@@ -95,6 +98,14 @@ export interface CompletionResult {
   /** Onde começa o nome que se está a escrever (o que o item vai substituir). */
   wordStart: number;
 }
+
+/** O que a formatação fez: `formatted` (texto mudou), `unchanged` (já estava formatado),
+ *  `failed` (o servidor não formatou a selecção — avisado), `fallback` (sem servidor, ou ele
+ *  não formatou o documento: a UI usa o «Format Document» do dxtutor). */
+export type FormatOutcome = "formatted" | "unchanged" | "failed" | "fallback";
+
+/** A indentação do editor: 4 espaços (o Tab insere 4 espaços). */
+const TAB_SIZE = 4;
 
 export interface RenameResult {
   files: number;
@@ -473,6 +484,38 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     d.editor.notify(changed ? `${item.title}: ${editSummary(changed.out, changed.fileOps)}` : item.title);
   }
 
+  async function formatAt(start: number, end: number): Promise<FormatOutcome> {
+    const doc = docOf(d.workspace.currentFileKey());
+    if (!doc || !(await ensureOpen(doc))) return "fallback";
+    await sync(doc);
+    const text = d.workspace.text(doc.key) ?? "";
+    const range = start !== end ? { start: offsetToPosition(text, Math.min(start, end)), end: offsetToPosition(text, Math.max(start, end)) } : null;
+    let result: unknown;
+    try {
+      result = await d.lsp.format(doc.path, TAB_SIZE, true, range);
+    } catch {
+      result = null;
+    }
+    const edits = formattingEdits(result);
+    if (!edits) {
+      if (!range) return "fallback";
+      // ex.: o kotlin-language-server (ktfmt) não formata fragmentos
+      d.editor.notify("The language server could not format the selection — try Shift+Alt+F with no selection to format the whole file");
+      return "failed";
+    }
+    if (!edits.length) return "unchanged";
+    let next: string;
+    try {
+      next = applyTextEdits(text, edits);
+    } catch {
+      d.editor.notify("The language server returned overlapping edits — nothing was changed");
+      return "failed";
+    }
+    if (next === text) return "unchanged";
+    d.editor.replaceText(doc.key, next, caretAfterFormatting(text, next, Math.max(start, end)));
+    return "formatted";
+  }
+
   async function onApplyEdit(edit: unknown): Promise<void> {
     await applyEdit(edit);
   }
@@ -491,5 +534,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (doc) await serverOk(doc);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, onDiagnostics, opened: () => versions, onFileView };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, onDiagnostics, opened: () => versions, onFileView };
 }

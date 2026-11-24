@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (170 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (179 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 178 comandos, **92 são consumidos pela `ui-app`** e **86 não o são**: a UI
+Dos 179 comandos, **93 são consumidos pela `ui-app`** e **86 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -438,7 +438,7 @@ do `bridge.rs`).
 | `workspace_resolve` | `root: String`, `path: String` | `String` | String | — | — | R |
 | `workspace_action` | `root: String`, `op: String`, `path: String`, `content: Option<String>` | `String` | String | — | — | **W** |
 
-## 15. LSP — `lsp.rs` (13)
+## 15. LSP — `lsp.rs` (14)
 
 Todos usam `State<LspState>` + `AppHandle`. Na app desktop, a feature `features/lsp` liga o
 editor: `lsp_start` (uma vez por pasta aberta, que também passa a ser a raiz de reserva de um
@@ -449,7 +449,8 @@ ficheiro sem marcador de projecto), `lsp_did_open`/`lsp_did_change` (ao abrir/ed
 parâmetro activo), `lsp_server_status` (o aviso no editor quando o servidor da linguagem
 não está instalado) e `lsp_code_action` + `lsp_execute_command` (Ctrl+.: correcções e
 refactorings; as edições de um comando voltam do servidor por `workspace/applyEdit`, que o
-backend emite como `lsp://apply-edit`).
+backend emite como `lsp://apply-edit`) e `lsp_format` (Shift+Alt+F: o documento, ou só a selecção;
+sem servidor, ou se ele não formatar, fica o «Format Document» do dxtutor).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -463,6 +464,7 @@ backend emite como `lsp://apply-edit`).
 | `lsp_signature_help` | `path: String`, `line: u32`, `character: u32`, `trigger_character: Option<String>`, `is_retrigger: Option<bool>` | `Value` (SignatureHelp \| null) | String | — | `features/lsp` | R · S |
 | `lsp_code_action` | `path: String`, `start_line: u32`, `start_character: u32`, `end_line: u32`, `end_character: u32` | `Value` ((Command \| CodeAction)[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_execute_command` | `path: String`, `command: String`, `arguments: Option<Value>` | `Value` | String | `lsp://apply-edit` | `features/lsp` | W · S |
+| `lsp_format` | `path: String`, `tab_size: u32`, `insert_spaces: bool`, `start_line`/`start_character`/`end_line`/`end_character: Option<u32>` | `Value` (TextEdit[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_server_status` | `path: String` | `Option<lsp::ServerStatus>` (`{ language, server, installed, problem }`) | String | — | `features/lsp` (aviso no editor quando falta o servidor) | R · async |
@@ -537,9 +539,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **178** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 13 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
-| Consumidos pela `ui-app` | **92** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 13 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history`) |
+| Comandos registados | **179** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 14 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
+| Consumidos pela `ui-app` | **93** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 14 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history`) |
 | Não consumidos pela `ui-app` | **86** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

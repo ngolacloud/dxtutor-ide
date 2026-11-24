@@ -813,6 +813,24 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const el2 = ta()!; el2.value = original; el2.setSelectionRange(0, 0); el2.dispatchEvent(new Event("input", { bubbles: true }));
       await until(() => FS[main].content === original, 5_000, 100);
     }
+    // 3e) formatação: estraga o espaçamento de uma linha, Shift+Alt+F (sem selecção) formata o
+    //     documento pelo servidor e a linha volta ao estilo dele. O ficheiro volta ao que era.
+    const fmtLineNo = original.split("\n").findIndex(l => l.includes(lang === "java" ? "int total" : "val message"));
+    const uglyLine = lang === "java" ? "  int   total=Util.add(1,2) ;" : 'val   message=greet("dxtutor")';
+    const uglyText = original.split("\n").map((l, i) => (i === fmtLineNo ? uglyLine : l)).join("\n");
+    const formattedLine = await until(() => {
+      const now = (FS[main].content.split("\n")[fmtLineNo] ?? "");
+      if (FS[main].content !== uglyText && now.trim() && now !== uglyLine && FS[main].content.includes(uglyLine) === false && now.startsWith("    ")) return now;
+      const el = ta()!; el.focus();
+      if (el.value !== uglyText) { el.value = uglyText; el.dispatchEvent(new Event("input", { bubbles: true })); }
+      el.setSelectionRange(0, 0);
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "F", code: "KeyF", shiftKey: true, altKey: true, bubbles: true, cancelable: true }));
+      return null;
+    }, 60_000, 3000);
+    if (FS[main].content !== original) {
+      const el3 = ta()!; el3.value = original; el3.setSelectionRange(0, 0); el3.dispatchEvent(new Event("input", { bubbles: true }));
+      await until(() => FS[main].content === original, 5_000, 100);
+    }
     // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
     const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
     const refRows = await until(() => {
@@ -860,6 +878,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       completion: { suggestions: suggestions ? suggestions.slice(0, 6) : null, accepted: insertedLine.trim(), completed },
       signature: { first: firstSig, ...(lang === "java" ? { afterComma: secondSig } : {}) },
       codeActions: { titles: actionTitles ? actionTitles.slice(0, 5) : null, ...(lang === "java" ? { applied: actionApplied } : {}) },
+      formatting: { from: uglyLine, to: formattedLine },
       references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
       rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk, ...(probeRename ? { probe: probeRename } : {}) },
       toasts,
