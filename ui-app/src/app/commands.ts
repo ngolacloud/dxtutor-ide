@@ -3,12 +3,14 @@
    no app.ts — movidos sem mudar, na mesma posição do main.ts (logo antes do app/boot-steps.ts). O `CMD`
    lê o `THEMES` e guarda várias acções por valor ao avaliar (como antes). Dissolvem-se quando cada
    feature registar os seus comandos (U7). */
-import { getVar } from "../features/shell";
+import { getVar, sideOpen } from "../features/shell";
 import { short } from "../features/workspace";
 import type { AppCmd, AppMenu } from "./ide-globals";
 import { codevAsk } from "./codev-ask";
 import { openCodevRun } from "../features/codev/index";
 import { GIT_COMMANDS } from "../features/scm/extras";
+import { openAnalysis } from "../features/codev";
+import { edCmd } from "../features/editor";
 
 /* O global MENUS (declarado em pair.ts) não conhece os separadores/submenus que se constroem aqui:
    neste módulo vê-se com o tipo completo. Declaração só de tipo: continua a resolver o global no acto. */

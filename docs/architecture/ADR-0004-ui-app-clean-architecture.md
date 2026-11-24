@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7b)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1013,3 +1013,43 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   redesenho. Tirar pares pede que mudar de língua redesenhe tudo (ou recarregue a interface): é uma decisão de
   produto, não de refactor. A métrica dos pares fica em 1005 e só desce. Prova de paridade nas duas línguas igual
   antes e depois; goldens iguais.
+- **U6c lote 3 (2026-11-24) — mudar de língua recarrega a interface; os primeiros pares saem do motor.** (1)
+  **Decisão do dono:** o `setLocale` grava a língua e recarrega a janela (antes traduzia no sítio, com os pares, o
+  texto que estava no ecrã). Antes de recarregar, chama o `flush`/`idle` do desktop (o autosave pendente); a pasta
+  aberta volta a abrir no arranque (`dx-last-folder`). Mudança visível: mudar de língua recarrega a interface — o
+  estado em LS/disco fica, o que só existe em memória (os cartões do chat) perde-se. e2e novo (`locale.e2e.ts`):
+  muda para português, recarrega, o título do quadro (texto com chave) nasce «Quadro»; e volta. (2) Com o texto com
+  chave a nascer sempre na língua certa, um par do motor que só servia texto migrado deixa de servir: saem 78 pares
+  (`PAIRS` 1005 → 927) cujos dois textos já só existem nos catálogos — procurados como substring no código da UI fora
+  do motor e dos catálogos, no index.html, no Rust e nos cursos; os pares com números (`#`) ficam. Os pares que saíram
+  vão para `tests/fixtures/i18n-pruned-pairs.json`, e o `i18n.catalogs.test.ts` continua a provar cada entrada
+  contra o motor ∪ esses pares. Prova de paridade nas duas línguas igual antes e depois; goldens iguais.
+- **U7 — plano (2026-11-24).** O fim dos globais publicados no `window` (324 depois da U7a) e das 17 fachadas de
+  estado (`ownedGlobal`). Um *scanner* sobre o *type checker* do TypeScript lista, para cada nome, quem o publica
+  (`Object.assign(window, …)`, `window.X =`, `ownedGlobal`) e quem o lê (nome livre que resolve para a declaração
+  global, `window.X` ou uma fachada `G.X`, `callGlobal("X")`, testes, e2e). Fatias: **U7a** as publicações mortas;
+  **U7b…** por feature, os nomes lidos só por nome livre noutros módulos passam a `import` (quando ninguém decora a
+  versão publicada — o `callGlobal` existe precisamente para os que são decorados ou trocados pelo desktop) e a
+  publicação sai; no fim, as fachadas `ownedGlobal` dão lugar aos stores e o `arch-check` ganha a regra final (nenhum
+  `Object.assign(window, …)` fora de uma lista explícita de pontes). Como na U6, os módulos em desenvolvimento noutras
+  sessões entram por último.
+- **U7a (2026-11-24) — 31 publicações mortas.** Critério conservador: o nome não aparece (como palavra) em nenhum
+  outro ficheiro — código da UI, testes, e2e, index.html, Rust — e o próprio módulo não o lê pelo `window`. Saem das
+  chamadas `Object.assign(window, …)` de 13 módulos (`toggleProv`, `assistantDock`, `renderLevel`, `renderFileView`,
+  `trAttrs`, `showMenu`, `openOverflow`, `tabIc`, `parkAgent`, `renderIssueView`, `globRe`/`canRun`/`ownerOf`/…,
+  `NW`/`NH`/`mkT`, `LT_LEVELS`/`LT_EXT`/`drillState`, `curDir`/`dirAt`, …). Cinco definições ficaram sem uso nenhum e
+  saíram como código morto: `toggleAgentOn`, `LT_LANGS`, `NT`, `termNew` e o `routeModel` do router (com a sua cache
+  `ROUTE_CACHE`) — o escolhedor de modelo por LLM que já ninguém chamava. Globais publicadas 355 → 324.
+- **U7b (2026-11-24) — os globais lidos só por nome livre passam a import.** Um global troca-se por `import` sem mudar
+  nada quando: tem um único publicador, que o publica como atalho de uma declaração de topo (`{ nome }`), e ninguém o
+  reatribui nem decora; todos os leitores o lêem por nome livre (nenhum pelo `window`, por uma fachada ou pelo
+  `callGlobal`, nem testes, e2e ou Rust); e o publicador já avalia antes de cada leitor na ordem do `main.ts` (o
+  import não muda a ordem dos efeitos). Passam a import: `loadTeam`, `HT`, `sideOpen`, `mkRz`, `openAnalysis`,
+  `gfAsk`, `edCmd`, `SECOPEN` e o `buildDocker` do boot (era `window.buildDocker = function`, passa a `export
+  function`). O `openLesson` ficou publicado: a função real não recebe argumentos (é um resto que chama o `ltResume`)
+  e os leitores passam dois, que o JavaScript ignorava — o import obrigaria a mexer nas chamadas. Globais publicadas
+  324 → 315. Paridade nas duas línguas igual. **O que falta é de outra natureza** (contagem do *scanner*): 137 nomes
+  são lidos pelo `window`, por uma fachada dos `legacy-bridge` ou pelo `callGlobal` — em parte de propósito, para
+  apanhar a versão decorada ou trocada pelo desktop; 114 são publicados por `window.X =`, mais do que uma vez, ou são
+  fachadas de estado; 26 aparecem em testes. Cada um destes pede uma decisão por nome (é ponto de decoração? a porta
+  desktop cobre-o?), por isso a U7 continua por feature, a começar pelas fachadas dos `legacy-bridge`.

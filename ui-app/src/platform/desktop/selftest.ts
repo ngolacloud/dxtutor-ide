@@ -12,6 +12,7 @@ import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
 import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
+import { gfAsk } from "../../features/checkpoint";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;

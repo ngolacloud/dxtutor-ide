@@ -87,7 +87,7 @@ function applyProjectTeam(): void {
 document.addEventListener('dx:workspace', () => applyProjectTeam());
 /** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
 function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJson(AGENTS));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
-function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
+export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
 function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
 function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
 function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,norm(v)));o.innerHTML=who.length?'Pode escrever: '+who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', '):'Nenhum assistente especializado — só o orquestrador, com a tua aprovação.';}
@@ -105,7 +105,7 @@ const RIGHTS: Record<string, string> = { code: 'Writing code', arch: 'Architectu
 const RIGHT_RE: Record<string, RegExp> = { arch: /\.dxtutor\/arquitectura\//, schema: /db\/migrations\/|\/migrations\//, deps: /(Cargo\.toml|package\.json|go\.mod|requirements\.txt)$/ };
 const ALWAYS = ['merge', 'release', 'deploy', 'push'];
 const MORD = ['manual', 'assist', 'auto'];
-const HT: Record<string, any> = {
+export const HT: Record<string, any> = {
   study: { n: 'Study', d: 'You write every line. The assistants explain, hint and review — they never edit files.', ceiling: 'manual', mode: 'manual', thresh: 85, human: ['code', 'arch', 'schema', 'deps'] },
   pair: { n: 'Pair programming', d: 'The assistants propose and edit inside their scope; you decide architecture, schema and dependencies.', ceiling: 'assist', mode: 'assist', thresh: 85, human: ['arch', 'schema', 'deps'] },
   cloud: { n: 'Cloud-native team', d: 'Assistants run whole issues on feature branches. You approve the architecture, review every merge and trigger deploys.', ceiling: 'auto', mode: 'assist', thresh: 85, human: ['arch'] },
@@ -240,8 +240,8 @@ function codeGuard(what: string): boolean {
 }
 
 Object.assign(window, {
-  codeGuard, openTeam, globRe, inScope, canRun, ownerOf, harnessCheck, harnessCmd, agentSys, saveTeam, loadTeam, pickAgent, agentPill, scopeProbe, renderTeamView,
-  RIGHTS, RIGHT_RE, HT, HARN, MORD, isHuman, harnessToml, toggleRight, authorship, reviewIssue, hydrateHarn,
+  codeGuard, openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill, scopeProbe,
+  RIGHTS, RIGHT_RE, HARN, MORD, isHuman, toggleRight, reviewIssue,
 });
 
 /* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê

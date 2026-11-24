@@ -79,9 +79,6 @@ TG.HOST = "browser";
 const HIST: string[] = [];
 let hidx = 0;
 
-function termNew(): void {
-  termClear();
-}
 
 function termClear(): void {
   const t = $("#term") as HTMLElement;
@@ -275,4 +272,4 @@ const runPublished = (raw?: string): unknown => { const d = desktopPorts.termina
  *  `termExec` PUBLICADO, que consulta a porta desktop (tarefa num PTY na app). */
 function runTask(c: string): unknown { TG.setPanelTab('terminal'); return TG.termExec(c); }
 
-Object.assign(window, { termNew, termClear, echo, scrollTerm, onKey, dirAt, curDir, complete, echoCmd, run: runPublished, runTask });
+Object.assign(window, { termClear, echo, scrollTerm, onKey, complete, echoCmd, run: runPublished, runTask });

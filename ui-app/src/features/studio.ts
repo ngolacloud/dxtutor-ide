@@ -45,10 +45,6 @@ const G = window as unknown as { DRIFT: string | null };
 const slug = (s: any) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const rid = () => Math.random().toString(16).slice(2, 9);
 
-/* ───── tipos de nó legados (camada «desenhar a arquitectura»): já só os lê código
-   morto do backlog no monólito (tplNode/genBacklog$dup0); publicado para não deixar
-   referências livres soltas ───── */
-const NT={ui:{l:'Interface',ic:'layout-side',col:'#6ea8ff'},svc:{l:'Serviço',ic:'cube',col:'#dea584'},db:{l:'Base de dados',ic:'volume',col:'#5cc9a7'},queue:{l:'Fila',ic:'sync',col:'#e0b64a'},cache:{l:'Cache',ic:'history',col:'#5fcad6'},ext:{l:'Externo',ic:'cloud',col:'#c678dd'}};
 
 /* ───── o desenho é do projecto (ADR-0006, R6a) ─────
    Sai o desenho semeado (`ST_SEED`: Gateway, Orders API, Billing Worker… de um projecto de
@@ -169,4 +165,4 @@ VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { NT, NW, NH, loadSD, CLOUD, TECH, KIND, mkT, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel, validateDesign });
+Object.assign(window, { loadSD, CLOUD, TECH, KIND, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel, validateDesign });

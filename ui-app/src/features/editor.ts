@@ -79,7 +79,7 @@ function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.
 function gotoLine(n:number){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta)return;const ls=ta.value.split('\n');n=Math.max(1,Math.min(ls.length,n|0));let o=0;for(let i=0;i<n-1;i++)o+=ls[i].length+1;ta.focus({preventScroll:true});ta.setSelectionRange(o,o+ls[n-1].length);$('#ebody')!.scrollTop=Math.max(0,(n-1)*22-90);stPos();}
 function stPos(){const ta=$('#ed-ta') as HTMLTextAreaElement|null,el=$('#st-pos');if(!el)return;if(!ta){el.textContent='';return;}const b=ta.value.slice(0,ta.selectionStart).split('\n');el.textContent=`Ln ${b.length}, Col ${b[b.length-1].length+1}`;annotateLine();}
 function stLang(){const t=tabOf(cur);$('#st-lang')!.textContent=t&&t.path?(LANG[extOf(t.path)]||'Texto'):'';stPos();}
-function edCmd(c:string){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta){toast('Abre um ficheiro primeiro');return;}ta.focus();if(c==='selectAll')ta.select();else if(c==='line'){const b=ta.value.slice(0,ta.selectionStart).split('\n').length;gotoLine(b);}else{document.execCommand(c);(ta.oninput as any)();}}
+export function edCmd(c:string){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta){toast('Abre um ficheiro primeiro');return;}ta.focus();if(c==='selectAll')ta.select();else if(c==='line'){const b=ta.value.slice(0,ta.selectionStart).split('\n').length;gotoLine(b);}else{document.execCommand(c);(ta.oninput as any)();}}
 function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta.value.slice(ta.selectionStart,ta.selectionEnd):'';}
 
 /* ── publicação no window: nomes que o resíduo (app.ts refresh/show, v6.ts error-lens,
@@ -133,7 +133,7 @@ function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c
 function stLangWithBlame(): void { stLang(); blame(); }
 /* e corre a cada mudança do workspace (era o fim do subscritor do app.ts) */
 bus.on('workspace:changed',()=>{blame();});
-Object.assign(window, { LANG, renderFileView, paintEd: paintEdFull, gotoLine, stPos, stLang: stLangWithBlame, blame, edCmd, selText });
+Object.assign(window, { LANG, paintEd: paintEdFull, gotoLine, stPos, stLang: stLangWithBlame, blame, selText });
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.file = (t, host) => renderFileView(t as { path: string }, host);
 

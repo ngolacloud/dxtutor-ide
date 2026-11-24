@@ -61,7 +61,6 @@ function hydrateLT(){if(_ltHyd)return;_ltHyd=true;try{const s=LS.get('lt3',null)
 const saveLT=()=>LS.set('lt3',LTS);
 /* LT_LANGS (forma antiga {id,n,g}) deriva do catálogo oficial de 10 linguagens; LT_EXT é
    preenchido do catálogo + manifestos dos plugins (mutado em sítio, como COURSES). */
-const LT_LANGS=LANGUAGE_CATALOG.map(l=>({id:l.id,n:l.name,g:l.icon}));
 const LT_LEVELS=[['basic','Basic','Start from the ground up — syntax and first programs.'],['intermediate','Intermediate','Build on the basics with real-world patterns.'],['advanced','Advanced','Deep dives, performance and the tricky corners.']];
 const LT_EXT:Record<string,string>=Object.fromEntries(LANGUAGE_CATALOG.map(l=>[l.id,l.extension])),LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
 let LT_SUB:{ok:boolean;why:string}|null=null;window.ONB={lang:null,levels:[]};window.LT_HOOD=false;
@@ -197,7 +196,7 @@ function ltAsk(){const{s}=ltFind(LTS.cur)!;AGENT='tutor';agentPill();focusAgent(
   else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">W${txt("withClaudeLiveThe")}/p>`);}}
 
 /* ── publicar no window: tutor.ts/visualizer.ts/v5.ts e os shims de app.ts lêem por global ── */
-Object.assign(window, { LTS, saveLT, LT_LANGS, LT_LEVELS, LT_EXT, LT_BADGE, course, ltUnits, dk, ltDone, ltFind, ltPath, ltSeq, ltPts, stars, ltOnboard, ltStart, ltResume, ltOpen, openLesson, nextLesson, renderLtView, tgt, drillState, ltRes, ltGo, ltAsk });
+Object.assign(window, { LTS, saveLT, LT_BADGE, course, ltUnits, dk, ltDone, ltFind, ltPath, ltSeq, ltPts, stars, ltOnboard, ltStart, ltResume, ltOpen, openLesson, nextLesson, renderLtView, tgt, ltRes, ltGo, ltAsk });
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts; o visualizer decora-a no boot7) */
 VIEW.lt = renderLtView;
 
