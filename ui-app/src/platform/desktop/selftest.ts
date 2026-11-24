@@ -1,8 +1,9 @@
 /* ═════════ dxtutor IDE — desktop: o auto-teste (ADR-0004, U4h1) ═════════
    O auto-teste da app real (`DXTUTOR_SELFTEST`, Xvfb): percorre o terminal, o PTY do painel,
    os modelos, a config dos providers, a pasta aberta, autosave, commit, gitflow, checkpoint,
-   grafo, changelog, scm, infra, termgit, codereview e a delegação isolada, e grava o
-   relatório. Era a função `selftest` do bridge.ts, verbatim. */
+   grafo, changelog, scm, infra, termgit, codereview, a delegação isolada e o editor ligado
+   ao servidor de linguagem (Java e Kotlin: diagnósticos, hover e F12), e grava o
+   relatório. Era a função `selftest` do bridge.ts, verbatim (o passo `lsp-*` veio depois). */
 
 import type { DesktopContext } from "./context";
 
@@ -267,7 +268,81 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       return { status: res.status, patchHasFile, patchLen: res.patch.length, untouched, cancelled };
     });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
+    // feature `lsp`: o editor ligado ao servidor de linguagem, conduzido como um utilizador —
+    // abrir o ficheiro (editor:tab → lsp_start + didOpen), esperar os diagnósticos no gutter,
+    // rato parado sobre um símbolo (mousemove → cartão de hover) e F12 numa chamada (salta
+    // para a definição). Só corre para as linguagens cujo servidor está instalado.
+    for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
   }
   rep.errors = R.errors;
   await app.selftestReport(rep);
+
+  /* Uma linguagem no editor real: ficheiros com um erro de tipo, um símbolo para o hover e
+     uma chamada cuja definição está noutro ficheiro (Java) ou mais acima (Kotlin). */
+  async function lspProbe(lang: "java" | "kotlin"): Promise<unknown> {
+    const W = window as unknown as {
+      cur: string | null; openPath: (k: string, line?: number) => void;
+      diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
+    };
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const until = async <T>(f: () => T | null | undefined | false, ms: number, every = 250): Promise<T | null> => {
+      const t0 = Date.now();
+      for (;;) { const v = f(); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(every); }
+    };
+    const files: Record<string, string> = lang === "java"
+      ? {
+          "lsp-java/Util.java": "public class Util {\n    /** Adds two numbers. */\n    public static int add(int a, int b) {\n        return a + b;\n    }\n}\n",
+          "lsp-java/Main.java": "public class Main {\n    public static void main(String[] args) {\n        int total = Util.add(1, 2);\n        String broken = 42;\n        System.out.println(total + broken);\n    }\n}\n",
+        }
+      : {
+          "lsp-kotlin/App.kt": "fun greet(name: String): String = \"Hello, $name\"\n\nfun main() {\n    val message = greet(\"dxtutor\")\n    val broken: Int = \"not a number\"\n    println(message + broken)\n}\n",
+        };
+    const main = ROOT + (lang === "java" ? "lsp-java/Main.java" : "lsp-kotlin/App.kt");
+    const callLine = lang === "java" ? 2 : 3, callWord = lang === "java" ? "add" : "greet";
+    const defKey = ROOT + (lang === "java" ? "lsp-java/Util.java" : "lsp-kotlin/App.kt"), defLine = lang === "java" ? 3 : 1;
+    for (const [rel, text] of Object.entries(files)) writeFile(ROOT + rel, text);
+    flushSave(); await idle();
+
+    const t0 = Date.now();
+    W.openPath(main);
+    const ta = () => document.getElementById("ed-ta") as HTMLTextAreaElement | null;
+    // 1) diagnósticos: o servidor publica o erro de tipo, o painel junta-o, o editor pinta o gutter
+    const diag = await until(() => W.diagnostics().find(d => d.p === main && d.sev === "e"), 180_000, 500);
+    const gutterErr = !!document.querySelector("#ed-gut .g-e");
+    const diagMs = Date.now() - t0;
+    // 2) hover: rato parado sobre a chamada (coordenadas reais da textarea)
+    const offsetOf = (line: number, word: string) => { const ls = ta()!.value.split("\n"); let o = 0; for (let i = 0; i < line; i++) o += ls[i].length + 1; return o + ls[line].indexOf(word) + 1; };
+    const pointOf = (line: number, word: string) => {
+      const el = ta()!, r = el.getBoundingClientRect(), probe = document.createElement("span");
+      const cs = getComputedStyle(el);
+      probe.textContent = "0".repeat(100); probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize}`;
+      document.body.appendChild(probe); const cw = probe.getBoundingClientRect().width / 100; probe.remove();
+      const col = el.value.split("\n")[line].indexOf(word) + 1;
+      return { x: r.left + cw * (col + 0.5), y: r.top + 22 * line + 11 };
+    };
+    const hoverText = await until(() => {
+      const card = document.getElementById("lsp-hover");
+      if (card && !card.classList.contains("hidden") && card.textContent) return card.textContent;
+      const p = pointOf(callLine, callWord);
+      ta()!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: p.x, clientY: p.y }));
+      return null;
+    }, 90_000, 2500);
+    // 3) F12 na chamada → o editor salta para a definição
+    const caretLineNow = () => (ta() ? ta()!.value.slice(0, ta()!.selectionStart).split("\n").length : null);
+    // Java: abre o Util.java; Kotlin (mesmo ficheiro): o cursor vai para a linha da função
+    const arrived = () => (lang === "java" ? W.cur === defKey : W.cur === defKey && caretLineNow() === defLine);
+    const jumped = await until(() => {
+      if (arrived()) return true;
+      if (W.cur !== main) W.openPath(main);
+      const el = ta()!; const o = offsetOf(callLine, callWord); el.focus(); el.setSelectionRange(o, o);
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "F12", bubbles: true }));
+      return null;
+    }, 90_000, 3000);
+    const caretLine = caretLineNow();
+    return {
+      diagnostic: diag ? `${diag.line}: ${diag.msg.slice(0, 90)}` : null, gutterErr, diagMs,
+      hover: hoverText ? hoverText.replace(/\s+/g, " ").slice(0, 120) : null,
+      definition: { jumped: !!jumped, file: W.cur, caretLine, expectedLine: defLine },
+    };
+  }
 }
