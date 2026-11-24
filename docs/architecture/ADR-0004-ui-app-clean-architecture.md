@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j5; o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 em curso (U5a)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -854,3 +854,29 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   passos). Fecha a U4j: o monólito deixou de existir; o que fica nos dois módulos
   (o conteúdo dos menus/paleta e o ajuste das listas no arranque) dissolve-se quando cada feature
   registar os seus comandos (U7).
+- **U5 — plano (2026-11-24).** Restam 152 handlers inline (contados pela métrica; dois são prosa:
+  o texto de um achado da revisão, `<img src=x onerror=…>`, e um comentário do `tasks.ts`). Um
+  despachante partilhado, `app/actions.ts`, serve os módulos que não têm o seu: o markup emite
+  `data-action="dono:nome"` (+ `data-on`) e o dono regista a tabela. Para que nada mude, o
+  despachante faz o que o inline fazia: é o primeiro listener do document (primeiro import do
+  `main.ts`), corre cada antepassado com acção pela ordem da borbulha (caminho fixado no início),
+  `stop()` faz o `event.stopPropagation()` (pára os antepassados e, por ser o primeiro, os outros
+  listeners do document), e cede quando o código troca o handler por `el.onclick = f` (o
+  `drawRemote` do infra e o `boot5` fazem-no aos botões da barra). Fatias: **U5a** o despachante e
+  a moldura (index.html, os dois botões do arranque, a barra de acções do editor e a página de
+  boas-vindas, que guardavam código em string); **U5b** os resíduos sem despachante (pair, tasks,
+  team, studio, tutor, graph, search, test, run, remote, explorer, diff, diagnostics, account,
+  stack); **U5c** as features com despachante próprio (ext, learn, codev, board) nas suas tabelas
+  e o desktop (`DXR.*`); **U5d** o arrastar do kanban (`ondragstart/over/leave/drop`), que os
+  goldens do board mostram (o harness não os tira) — pede decisão sobre os snapshots; **U5e** o
+  CSP sem `'unsafe-inline'` no `script-src` e a métrica sem a prosa.
+- **U5a (2026-11-24) — o despachante partilhado e a moldura do IDE.** O `app/actions.ts` (com
+  testes da semântica: borbulha, `stop()`, ordem face aos outros listeners do document, cedência
+  ao `el.onclick = f`, caminho fixo quando um handler redesenha, nó de texto como alvo, tipos de
+  evento, nomes com dono) e o `app/chrome-actions.ts`: os 27 botões fixos do index.html e os dois
+  que o arranque acrescenta (`#pill-agent`, `#st-stack`) passam a `data-action="chrome:f"` e
+  chamam a mesma função publicada no acto (`callGlobal`, como o inline, que resolvia o nome no
+  window ao clicar). A barra de acções do editor (`tabs.ts`) e a página de boas-vindas guardavam
+  o código do handler em string (`'explainCmd()'`, `"goPane('infra')"`); passam a guardar o nome
+  da acção (e o argumento) e registam `tabs:*`/`welcome:*`. Nenhum dos nomes chamados colide com
+  uma propriedade do elemento ou do document (o inline procurava aí primeiro). Inline 152 → 121.

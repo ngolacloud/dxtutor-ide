@@ -40,7 +40,7 @@ published_names() {
 window_assigns() { grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count; }
 metric "globais publicadas no window (U3/U4/U7)" 381 0 \
   "$(( $(window_assigns) + $(published_names) ))"
-metric "handlers inline on*=\"…\" (U5)" 152 0 \
+metric "handlers inline on*=\"…\" (U5)" 121 0 \
   "$(grep -rhoE '[[:space:]]on(click|dblclick|change|input|keydown|keyup|submit|mousedown|mouseup|contextmenu|blur|focus|dragstart|dragover|dragleave|drop|load|error)=' "$SRC" "$UI/index.html" | count)"
 metric "invoke cru inv(\"…\") fora de platform/ (U2)" 0 0 \
   "$(grep -rhoE '\binv\("' "$SRC" --include=*.ts --exclude-dir=platform | count)"
