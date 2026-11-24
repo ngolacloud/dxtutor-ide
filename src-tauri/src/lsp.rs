@@ -391,6 +391,27 @@ fn augmented_path() -> String {
     extra.join(":")
 }
 
+/// Pastas abertas na app (registadas por `lsp_start`). São a raiz de reserva de um ficheiro
+/// que não está dentro de nenhum projecto com marcador — um `Main.java` solto, um `.sql`
+/// (o SQL não tem marcador nenhum) — para o servidor arrancar à mesma.
+fn workspace_roots() -> &'static Mutex<HashSet<String>> {
+    static W: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    W.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// A pasta aberta mais funda que contém `path` (`None` se o ficheiro está fora de todas).
+fn fallback_root(path: &str, roots: &HashSet<String>) -> Option<String> {
+    roots
+        .iter()
+        .filter(|r| {
+            let r = r.trim_end_matches('/');
+            path.strip_prefix(r)
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
+        .max_by_key(|r| r.len())
+        .map(|r| r.trim_end_matches('/').to_string())
+}
+
 /// Nearest ancestor directory of `path` holding any of `markers` (the file's project root).
 fn project_root_for(path: &str, markers: &[&str]) -> Option<String> {
     let mut dir = std::path::Path::new(path).parent();
@@ -689,7 +710,9 @@ fn session_for(
     let Some(lang) = lang_for_path(path) else {
         return Ok(None);
     };
-    let Some(root) = project_root_for(path, lang.markers) else {
+    let Some(root) = project_root_for(path, lang.markers)
+        .or_else(|| fallback_root(path, &workspace_roots().lock().unwrap()))
+    else {
         return Ok(None);
     };
     let (program, args) = match server_cmd(lang.id) {
@@ -728,6 +751,10 @@ pub async fn lsp_start(
     root: String,
 ) -> Result<(), String> {
     let map = state.0.clone();
+    workspace_roots()
+        .lock()
+        .unwrap()
+        .insert(root.trim_end_matches('/').to_string());
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         // Warm up every language whose project marker sits AT the opened folder, so the
         // (possibly minutes-long) first index starts before the student navigates.
@@ -1059,6 +1086,23 @@ mod diag_tests {
 #[cfg(test)]
 mod phase4_lang_tests {
     use super::*;
+
+    #[test]
+    fn a_file_without_a_project_marker_falls_back_to_the_open_folder() {
+        let roots: HashSet<String> = ["/w/proj".to_string(), "/w/proj/sub/".to_string()].into();
+        assert_eq!(
+            fallback_root("/w/proj/q.sql", &roots).as_deref(),
+            Some("/w/proj")
+        );
+        // a pasta aberta mais funda ganha
+        assert_eq!(
+            fallback_root("/w/proj/sub/A.java", &roots).as_deref(),
+            Some("/w/proj/sub")
+        );
+        // um prefixo de nome não é uma pasta-mãe; fora de todas → None
+        assert_eq!(fallback_root("/w/project/x.sql", &roots), None);
+        assert_eq!(fallback_root("/elsewhere/x.sql", &roots), None);
+    }
 
     #[test]
     fn the_new_learning_track_languages_map_to_their_servers() {
