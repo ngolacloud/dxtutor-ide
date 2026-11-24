@@ -24,7 +24,7 @@ import { center, freeGroupSpot, freeSpot, groupAt, layout, panelAt } from "../do
 import type {
   ArchConnection, ArchFinding, ArchKind, ArchView, Design, DesignGroup, DesignNode, GroupKind, GroupStyle, Selection,
 } from "../domain/types";
-import type { ArchStudioDeps } from "./ports";
+import type { ArchStudioDeps, Proposal } from "./ports";
 
 export interface ArchStudioState {
   design: Design;
@@ -48,6 +48,11 @@ export interface ArchStudioState {
   importWarnings: string[];
   /** Os blocos Mermaid de um Markdown aberto do projecto, à espera de escolha. */
   mdBlocks: MermaidBlock[] | null;
+  /** Uma proposta do agente à espera de decisão: mostra-se POR CIMA do desenho actual
+   *  (que não muda) até o humano a aceitar ou descartar. */
+  proposal: Proposal | null;
+  /** Durante uma proposta: espreitar o desenho actual em vez da proposta. */
+  showCurrent: boolean;
 }
 
 export const storageKey = (root: string | null): string => `dxnext-studio:${root ?? "default"}`;
@@ -64,6 +69,7 @@ export function makeArchStudio(deps: ArchStudioDeps) {
     design: emptyDesign(), sel: null, linking: null, findings: [], validating: false,
     valError: "", preview: null, written: null, opError: "", notice: "",
     io: false, ioMessage: "", ioError: "", importWarnings: [], mdBlocks: null,
+    proposal: null, showCurrent: false,
   };
   let loadedFor: string | undefined;
   /** Cada validação tem um número: só a mais recente escreve os achados. */
@@ -199,6 +205,38 @@ export function makeArchStudio(deps: ArchStudioDeps) {
 
   return {
     state: (): Readonly<ArchStudioState> => s,
+
+    // ── propostas do agente (F6) ──
+    /** Uma proposta do agente: arruma-a (chega sem posições) e mostra-a por cima do
+     *  desenho actual, que NÃO muda até «Accept». Uma proposta nova substitui a anterior. */
+    receiveProposal(p: Proposal): void {
+      ensureLoaded();
+      s.proposal = { ...p, design: autoLayout(p.design) };
+      s.showCurrent = false;
+      s.sel = null;
+      s.linking = null;
+      s.io = false;
+      repaint("all");
+    },
+    /** O humano aceita: a proposta passa a ser o desenho (guardado no cliente, como qualquer
+     *  edição — nada vai para o disco do projecto). */
+    acceptProposal(): void {
+      if (!s.proposal) return;
+      s.design = s.proposal.design;
+      s.proposal = null;
+      s.showCurrent = false;
+      changed();
+    },
+    discardProposal(): void {
+      s.proposal = null;
+      s.showCurrent = false;
+      repaint("all");
+    },
+    toggleShowCurrent(): void {
+      if (!s.proposal) return;
+      s.showCurrent = !s.showCurrent;
+      repaint("all");
+    },
 
     // ── importar / exportar ──
     toggleIo(): void {

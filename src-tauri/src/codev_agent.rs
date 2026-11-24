@@ -55,6 +55,9 @@ pub struct StartSpec {
     /// Ferramentas do anfitrião (ex.: `lsp_diagnostics`, que vive no Tauri). Entram no
     /// conjunto versão ≥ 3, sempre pela mesma ordem.
     pub host_tools: Vec<Arc<dyn Tool>>,
+    /// Ferramentas do anfitrião que só entram no conjunto versão ≥ 4 (ex.: `arch_propose`):
+    /// uma sessão gravada antes retoma sem elas (o prefixo do pedido não pode mudar).
+    pub host_tools_v4: Vec<Arc<dyn Tool>>,
     /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
     /// passa `~/.config/dxtutor/trusted.json`).
     pub trust_store: Option<PathBuf>,
@@ -450,7 +453,10 @@ pub fn start(
         meta.toolset,
         &flow,
         Some(subagent),
-        spec.host_tools.iter().cloned().chain(mcp_tools).collect(),
+        session_host_tools(&spec, meta.toolset)
+            .into_iter()
+            .chain(mcp_tools)
+            .collect(),
     );
     let mut agent = Agent::new(provider, tools, acfg, ctx);
     agent.checkpoints = checkpoints;
@@ -491,6 +497,14 @@ pub fn start(
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
+}
+
+/// As ferramentas do anfitrião de uma sessão com o conjunto `toolset`: as da versão 3
+/// sempre, as da versão 4 só a partir dela (uma sessão antiga retoma sem elas — o prefixo
+/// do pedido não pode mudar). Ordem fixa.
+fn session_host_tools(spec: &StartSpec, toolset: u32) -> Vec<Arc<dyn Tool>> {
+    let v4 = spec.host_tools_v4.iter().filter(|_| toolset >= 4);
+    spec.host_tools.iter().chain(v4).cloned().collect()
 }
 
 fn get(id: &str) -> Result<Arc<Session>, String> {
@@ -1030,6 +1044,79 @@ mod tests {
         bad.root = other.path().display().to_string();
         assert!(start(bad, &key("sk"), None).is_err());
         assert!(start(spec(Some("../fora".into()), "x"), &key("sk"), None).is_err());
+    }
+
+    #[test]
+    fn arch_propose_enters_only_sessions_of_toolset_4() {
+        let tool = |name: &'static str| -> Arc<dyn Tool> {
+            struct T(&'static str);
+            impl Tool for T {
+                fn name(&self) -> &str {
+                    self.0
+                }
+                fn description(&self) -> &str {
+                    ""
+                }
+                fn input_schema(&self) -> serde_json::Value {
+                    serde_json::json!({"type": "object"})
+                }
+                fn read_only(&self) -> bool {
+                    true
+                }
+                fn run(&self, _: &serde_json::Value, _: &ToolCtx) -> tutor_agent::ToolOutput {
+                    tutor_agent::ToolOutput::ok("")
+                }
+            }
+            Arc::new(T(name))
+        };
+        let spec = StartSpec {
+            host_tools: vec![tool("lsp_diagnostics")],
+            host_tools_v4: vec![tool("arch_propose")],
+            ..Default::default()
+        };
+        let names = |v: u32| -> Vec<String> {
+            session_host_tools(&spec, v)
+                .iter()
+                .map(|t| t.name().to_string())
+                .collect()
+        };
+        assert_eq!(names(3), ["lsp_diagnostics"]);
+        assert_eq!(names(4), ["lsp_diagnostics", "arch_propose"]);
+
+        // uma sessão nova grava o conjunto 4
+        let proj = tempfile::tempdir().unwrap();
+        let base = tempfile::tempdir().unwrap();
+        let id = start(
+            StartSpec {
+                root: proj.path().display().to_string(),
+                sessions_base: Some(base.path().to_path_buf()),
+                ..Default::default()
+            },
+            &key("sk"),
+            None,
+        )
+        .unwrap();
+        close(&id);
+        // o registo vive numa subpasta por projecto: procura-se o <id>.jsonl
+        fn find(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+            for e in std::fs::read_dir(dir).ok()?.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    if let Some(f) = find(&p, name) {
+                        return Some(f);
+                    }
+                } else if p.file_name().is_some_and(|n| n == name) {
+                    return Some(p);
+                }
+            }
+            None
+        }
+        let file = find(base.path(), &format!("{id}.jsonl")).expect("a sessão foi gravada");
+        let head = std::fs::read_to_string(file).unwrap();
+        assert!(
+            head.lines().next().unwrap().contains("\"toolset\":4"),
+            "{head}"
+        );
     }
 
     #[test]

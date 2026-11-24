@@ -9,7 +9,7 @@
    `label` nas setas). Os campos do de sistema são opcionais: um desenho antigo continua
    válido tal como estava. */
 
-import { invoke } from "./core";
+import { invoke, listen } from "./core";
 
 export type ArchEventKindDto = "service" | "store" | "broker" | "consumer" | "relay" | "gateway";
 export type ArchSystemKindDto =
@@ -107,3 +107,13 @@ export const archSaveExport = (root: string, rel: string, bytes: Uint8Array): Pr
 
 /** Lê um ficheiro de texto (o Studio só pede caminhos dentro da pasta do projecto). */
 export const readTextFile = (path: string): Promise<string> => invoke<string>("read_text_file", { path });
+
+/** `arch://proposal` — o agente do Co-Dev propôs um desenho (ferramenta `arch_propose`). */
+export interface ArchProposalDto {
+  title: string;
+  arch: ArchitectureDto;
+  findings: ArchFindingDto[];
+}
+
+export const onArchProposal = (h: (p: ArchProposalDto) => void): Promise<() => void> =>
+  listen("arch://proposal", (payload) => h(payload as ArchProposalDto));

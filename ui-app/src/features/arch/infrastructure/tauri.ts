@@ -6,7 +6,7 @@
 
 import { isDesktop } from "../../../platform/tauri/core";
 import * as ipc from "../../../platform/tauri/arch";
-import type { ArchGateway } from "../application/ports";
+import type { ArchGateway, ProposalSource } from "../application/ports";
 import { fromArchitecture } from "../domain/design";
 import type { Architecture, ArchFinding } from "../domain/types";
 
@@ -48,4 +48,14 @@ export const tauriArchGateway: ArchGateway = {
   },
   saveExport: (root, rel, bytes) => ipc.archSaveExport(root, rel, bytes),
   readFile: (root, rel) => ipc.readTextFile(join(root, rel)),
+};
+
+/** As propostas do agente chegam pelo evento `arch://proposal` (só no desktop). */
+export const tauriProposals: ProposalSource = {
+  subscribe(onProposal) {
+    if (!isDesktop()) return;
+    void ipc.onArchProposal((p) => {
+      onProposal({ title: p.title, design: fromArchitecture(fromDto(p.arch)), findings: p.findings.map(fromFinding) });
+    });
+  },
 };

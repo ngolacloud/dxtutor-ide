@@ -23,6 +23,19 @@ export interface ArchGateway {
   readFile(root: string, rel: string): Promise<string>;
 }
 
+/** Uma proposta do agente do Co-Dev (ferramenta `arch_propose`): o desenho, ainda sem
+ *  posições, e os achados da validação que o backend fez ao recebê-la. */
+export interface Proposal {
+  title: string;
+  design: Design;
+  findings: ArchFinding[];
+}
+
+/** De onde chegam as propostas (no desktop, o evento `arch://proposal`). */
+export interface ProposalSource {
+  subscribe(onProposal: (p: Proposal) => void): void;
+}
+
 /** Desenha o desenho como imagem (precisa do DOM: vive na vista). */
 export interface Renderer {
   /** SVG autónomo, fiel ao canvas (cores do tema resolvidas). */

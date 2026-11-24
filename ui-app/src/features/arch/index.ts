@@ -13,7 +13,7 @@ import type { Repaint } from "./application/ports";
 import { makeArchView } from "./ui/view";
 import { bindActions } from "./ui/actions";
 import { archActions } from "./ui/table";
-import { tauriArchGateway } from "./infrastructure/tauri";
+import { tauriArchGateway, tauriProposals } from "./infrastructure/tauri";
 import { designStore, files, openTab, themeVars, workspace } from "./infrastructure/legacy-bridge";
 import { THEME_VARS, makeRenderer } from "./ui/export";
 
@@ -31,6 +31,13 @@ view = makeArchView({ studio, root: workspace.root, savesToProject: () => tauriA
 VIEW.arch = (_t, host) => view!.mount(host);
 
 bindActions(archActions(studio, workspace.prompt));
+
+/* Propostas do agente do Co-Dev (ferramenta `arch_propose`, F6): abrem o Studio com a
+   proposta por cima do desenho actual. Só no desktop. */
+tauriProposals.subscribe((p) => {
+  studio.receiveProposal(p);
+  openArch();
+});
 
 /** Abre (ou foca) o separador do Studio de arquitectura. */
 export function openArch(): void {

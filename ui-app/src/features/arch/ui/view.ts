@@ -177,6 +177,17 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
     const bar = q<HTMLElement>("[data-arch-bar]");
     if (!bar) return;
     const s = studio.state(), d = s.design;
+    const canvas = q<HTMLElement>(".st-canvas");
+    if (canvas) canvas.style.outline = s.proposal ? "2px dashed var(--accent)" : "";
+    if (s.proposal) {
+      bar.innerHTML = `<b style="font-size:14px">Architecture</b>
+    <span style="color:var(--accent)">Co-Dev proposes: <b>${esc(s.proposal.title)}</b>${s.showCurrent ? " · showing your current design" : ""}</span>
+    <span class="sp"></span>
+    <button class="mini" data-action="arch-peek">${s.showCurrent ? "Show the proposal" : "Show current design"}</button>
+    <button class="mini" data-action="arch-discard">Discard</button>
+    <button class="mini pri" data-action="arch-accept">Accept</button>`;
+      return;
+    }
     const scaffold = !d.components.length || hasEventKinds(d);
     bar.innerHTML = `<b style="font-size:14px">Architecture</b>
     <button class="mini${s.linking !== null ? " pri" : ""}" data-action="arch-link">⤳ Connect</button>
@@ -194,7 +205,8 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
     if (!svg) return;
     const s = studio.state();
     const sel = s.sel?.t === "node" ? { node: s.sel.id } : s.sel?.t === "group" ? { group: s.sel.id } : s.sel?.t === "edge" ? { edge: s.sel.i } : {};
-    const { svg: inner, bounds: b } = canvasSvg(s.design, sel, s.linking, fast);
+    const shown = s.proposal && !s.showCurrent ? s.proposal.design : s.design;
+    const { svg: inner, bounds: b } = canvasSvg(shown, s.proposal ? {} : sel, s.proposal ? null : s.linking, fast);
     svg.setAttribute("viewBox", `${b.x} ${b.y} ${b.w} ${b.h}`);
     svg.setAttribute("width", String(b.w));
     svg.setAttribute("height", String(b.h));
@@ -303,6 +315,21 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
       `<button class="mini" style="margin-top:10px" data-action="arch-del-conn" data-on="${i}">Delete connection</button>`;
   }
 
+  function proposalInspector(): string {
+    const p = studio.state().proposal!, d = p.design;
+    const errors = p.findings.filter((f) => f.severity === "error").length;
+    const findings = p.findings.length
+      ? p.findings.map((f) => `<div class="st-f ${f.severity === "error" ? "e" : "w"}"><span>${f.severity === "error" ? "✖" : "⚠"}</span><div>${esc(f.message)} <code>${esc(f.rule)}</code></div></div>`).join("")
+      : `<div class="st-f ok"><span>✓</span><div>The proposal is consistent.</div></div>`;
+    return `<h3>Proposal from Co-Dev</h3><p><b>${esc(p.title)}</b></p>` +
+      `<p>Your design does not change until you press <b>Accept</b>. Nothing is written to disk. If the agent proposes again, the new proposal replaces this one.</p>` +
+      `<div class="st-kv"><span>components</span><code>${d.components.length}</code></div>` +
+      `<div class="st-kv"><span>arrows</span><code>${d.connections.length}</code></div>` +
+      `<div class="st-kv"><span>groups</span><code>${d.groups.length}</code></div>` +
+      `<div class="st-kv"><span>panels</span><code>${d.views.length}</code></div>` +
+      `<h3 style="margin-top:14px">Validation${errors ? ` · ${errors} error(s)` : ""}</h3>${findings}`;
+  }
+
   function ioInspector(): string {
     const s = studio.state();
     const where = savesToProject()
@@ -340,6 +367,7 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
     if (!ins) return;
     const s = studio.state(), d = s.design;
     const notice = s.notice ? `<div class="st-f w"><span>⚠</span><div>${esc(s.notice)}</div></div>` : "";
+    if (s.proposal) { ins.innerHTML = proposalInspector(); return; }
     if (s.io && s.linking === null) { ins.innerHTML = notice + ioInspector(); return; }
     if (s.linking !== null) {
       ins.innerHTML = `<h3>Connect</h3><p>${s.linking === "" ? "Click the component the arrow starts from." : "Now click the component it goes to."}</p>`;
@@ -388,6 +416,7 @@ export function makeArchView({ studio, root, savesToProject }: ArchViewDeps) {
       e.preventDefault();
     };
 
+    if (s.proposal) return; // uma proposta é só para ver: decide-se na barra
     const nodeEl = t.closest<SVGGElement>("[data-n]");
     if (s.linking !== null) { studio.linkClick(nodeEl?.dataset.n ?? null); return; }
 
