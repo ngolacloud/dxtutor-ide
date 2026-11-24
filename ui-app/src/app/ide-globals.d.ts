@@ -17,7 +17,6 @@ declare global {
   const MORD: string[];
   const THEMES: Record<string, unknown>;
   var THEME: string;
-  const ST_SEED: unknown;
   var TB: { id: string; title: string; kind: string; path?: string }[];
   var DRIFT: string | null;
   const applyTemplate: (k: string) => void;
@@ -26,6 +25,7 @@ declare global {
   const buildActivity: () => void;
   const buildDocker: () => void;
   const dbgStep: () => void;
+  const dbgStepInto: () => void;
   const dbgStop: () => void;
   const drawDbg: () => void;
   const edCmd: (c: string) => void;
@@ -33,7 +33,7 @@ declare global {
   const gfPrompt: (kind: string) => void;
   const hoodCmd: () => void;
   const loadCfg: () => void;
-  const loadSeed: () => void;
+  const loadSD: () => typeof SD;
   const loadTeam: () => void;
   const ltOnboard: (step?: number) => void;
   const ltResume: () => void;
@@ -57,10 +57,11 @@ declare global {
   const pickBranch: () => void;
   const pickModel: () => void;
   const promote: (to: string) => void;
-  const resetAll: () => void;
   const reviewCmd: () => void;
   const runLabel: () => void;
+  const runSprint: (s: number) => unknown;
   const runTask: (c: string) => unknown;
+  const resetWorkspace: () => void;
   const selText: () => string;
   const setLocale: (l: string) => void;
   const setTheme: (n: string) => void;

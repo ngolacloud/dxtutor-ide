@@ -8,9 +8,15 @@ import { bootApp, golden } from "./harness";
  * Architecture. A partir daqui, diff de golden = regressão (corrige o código,
  * nunca o snapshot — ver skill ui-golden-check).
  *
+ * ADR-0006, R6b: já não há catálogo fixo (13 extensões escritas à mão, uma «bundled» nunca
+ * instalada, três «com efeito» que eram código do dxtutor). Os goldens e a caracterização
+ * passam ao pane real: instaladas (VSIX), recomendadas pela pilha do projecto (ids reais do Open
+ * VSX), pesquisa no Open VSX (só desktop) e as funcionalidades do dxtutor. Decisão registada no
+ * ADR-0006.
+ *
  * Determinismo: o render do `ext` não usa Math.random nem Date (a cor das
  * linhas sai de charCodeAt → estável; o estado inicial é fixo). `projectContext`
- * deriva só de Object.keys(FS) semeado (VITE_SEED=1), logo a secção
+ * deriva só de Object.keys(FS) (a fixture sample-workspace do harness), logo a secção
  * «Recommended» é estável. Timers falsos só para neutralizar o setTimeout do
  * toast e o polling de arranque — não há relógio a caracterizar.
  *
@@ -29,101 +35,113 @@ let w: any;
 
 beforeEach(async () => {
   vi.useFakeTimers();
+  localStorage.clear(); // o estado instalado (ext7) não passa de um teste para o outro
   delete (window as any).EXS;
   w = await bootApp();
 });
 
 afterEach(() => {
+  delete (window as any).__TAURI__;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
+const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+/** Um VSIX mínimo (o JSZip do harness é falso: devolve estes ficheiros). */
+function fakeJSZip(pkg: Record<string, unknown>) {
+  const files: Record<string, string> = { "extension/package.json": JSON.stringify(pkg) };
+  const zip = { file: (p: string) => (p in files ? { async: async () => files[p] } : null), files: {} };
+  w.loadJSZip = async () => ({ loadAsync: async () => zip });
+}
+
 describe("goldens de DOM — pane de extensões e tab de detalhe", () => {
-  it("#pane-ext (estado inicial: rust-analyzer instalado, recomendadas, Open VSX)", () => {
+  it("#pane-ext no browser: nada instalado, recomendadas pela pilha do projecto, funcionalidades do dxtutor", () => {
     w.renderExtPane();
-    const el = document.querySelector("#pane-ext")!;
-    expect(golden(el)).toMatchSnapshot();
+    expect(golden(document.getElementById("pane-ext")!)).toMatchSnapshot();
   });
 
-  it("tab de detalhe — rust-analyzer (bundled)", () => {
+  it("tab de detalhe — uma recomendação ainda por instalar", () => {
+    const id = w.extAll().find((x: any) => x.why)!.id;
     const host = document.createElement("div");
-    w.renderExtd({ ext: "rust-lang.rust-analyzer" }, host);
-    expect(golden(host)).toMatchSnapshot();
-  });
-
-  it("tab de detalhe — Prettier (efeito ao vivo + comandos + botão Install)", () => {
-    const host = document.createElement("div");
-    w.renderExtd({ ext: "esbenp.prettier-vscode" }, host);
-    expect(golden(host)).toMatchSnapshot();
-  });
-
-  it("tab de detalhe — GitLens (comando, não instalada)", () => {
-    const host = document.createElement("div");
-    w.renderExtd({ ext: "eamodio.gitlens" }, host);
+    w.renderExtd({ ext: id }, host);
     expect(golden(host)).toMatchSnapshot();
   });
 
   it("tab de detalhe — id inexistente (extensão removida)", () => {
     const host = document.createElement("div");
-    w.renderExtd({ ext: "nao.existe" }, host);
+    w.renderExtd({ ext: "nobody.nothing" }, host);
     expect(golden(host)).toMatchSnapshot();
   });
 });
 
-describe("caracterização do motor Open VSX", () => {
-  it("estado inicial: só rust-analyzer instalado (bundled, on); catálogo com 13", () => {
-    expect(w.EXS.inst).toEqual({ "rust-lang.rust-analyzer": { on: 1 } });
+describe("o pane real (ADR-0006, R6b)", () => {
+  it("estado inicial: nada instalado, nenhuma extensão «bundled»; as funcionalidades nascem desligadas", () => {
+    expect(w.EXS).toEqual({ inst: {}, vsix: [], builtin: {} });
+    expect(w.EXT).toBeUndefined();
+    expect(w.builtinOn("inline-diagnostics")).toBe(false);
+    expect(w.builtinOn("yaml")).toBe(false);
+  });
+
+  it("as recomendações são ids reais do Open VSX escolhidos pela pilha do projecto", () => {
+    const rec = w.extAll().filter((x: any) => x.why).map((x: any) => x.id);
+    expect(rec.length).toBeGreaterThan(0);
+    expect(rec.every((id: string) => /^[\w-]+\.[\w-]+$/.test(id))).toBe(true);
+    w.renderExtPane();
+    expect(document.querySelector("#pane-ext")!.textContent).toMatch(/Recommended for this project/);
+  });
+
+  it("no browser, Install diz que precisa da app desktop e não instala nada", async () => {
+    const toast = vi.spyOn(w, "toast");
+    w.renderExtPane();
+    click(document.querySelector('#pane-ext [data-action="ext-install"]')!);
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringMatching(/needs the desktop app/)));
+    expect(w.EXS.inst).toEqual({});
+  });
+
+  it("no desktop, Install descarrega o VSIX do Open VSX e instala-o (com os comandos na paleta)", async () => {
+    const calls: string[] = [];
+    w.__TAURI__ = { core: { invoke: async (cmd: string, a: any) => { calls.push(cmd + ":" + (a.id || a.query)); return btoa("PK"); } } };
+    fakeJSZip({ publisher: "rust-lang", name: "rust-analyzer", displayName: "rust-analyzer", version: "0.4.1", contributes: { commands: [{ title: "Restart server", category: "rust-analyzer", command: "ra.restart" }] } });
+    await w.extInstall("rust-lang.rust-analyzer");
+    expect(calls).toEqual(["vsix_fetch_open_vsx:rust-lang.rust-analyzer"]);
+    expect(w.EXS.inst["rust-lang.rust-analyzer"]).toEqual({ on: 1 });
+    expect(w.EXS.vsix[0]).toMatchObject({ id: "rust-lang.rust-analyzer", ver: "0.4.1", vsix: 1 });
+    expect(w.CMD.some((c: any) => c[0] === "rust-analyzer: Restart server" && c[3] === "ext")).toBe(true);
+  });
+
+  it("no desktop, a pesquisa vai ao Open VSX (com debounce) e mostra os resultados com os números reais", async () => {
+    const calls: string[] = [];
+    w.__TAURI__ = { core: { invoke: async (cmd: string, a: any) => { calls.push(cmd + ":" + a.query); return [{ id: "golang.go", name: "Go", publisher: "golang", description: "Rich Go language support", version: "0.1.0", downloads: 1234567, verified: true }]; } } };
+    w.PANE = "ext";
+    w.renderExtPane();
+    const qi = document.getElementById("ex-q") as HTMLInputElement;
+    qi.value = "go"; qi.oninput!(new Event("input"));
+    expect(document.querySelector("#pane-ext")!.textContent).toMatch(/Searching Open VSX/);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(calls).toEqual(["vsix_search_open_vsx:go"]);
+    const t = document.querySelector("#pane-ext")!.textContent || "";
+    expect(t).toMatch(/Rich Go language support/);
+    expect(t).toMatch(/1\.2M downloads · verified/);
+  });
+
+  it("toggle e remover agem sobre um VSIX instalado", () => {
+    w.EXS.vsix.push({ id: "acme.demo", n: "Demo", pub: "acme", d: "", ctx: [], vsix: 1 });
+    w.EXS.inst["acme.demo"] = { on: 1 };
+    w.extToggle("acme.demo");
+    expect(w.EXS.inst["acme.demo"].on).toBe(false);
+    w.extRemove("acme.demo");
+    expect(w.EXS.inst["acme.demo"]).toBeUndefined();
     expect(w.EXS.vsix).toEqual([]);
-    expect(w.extAll().length).toBe(13);
-    expect(w.extOn("rust-lang.rust-analyzer")).toBeTruthy();
-    expect(w.extOn("esbenp.prettier-vscode")).toBeFalsy();
   });
 
-  it("instalar regista a extensão e os seus comandos na paleta (CMD tag 'ext')", () => {
-    const antes = w.CMD.filter((c: any[]) => c[3] === "ext").length;
-    w.extInstall("esbenp.prettier-vscode");
-    expect(w.EXS.inst["esbenp.prettier-vscode"]).toEqual({ on: 1 });
-    const depois = w.CMD.filter((c: any[]) => c[3] === "ext");
-    expect(depois.length).toBe(antes + 1);
-    expect(depois.map((c: any[]) => c[0])).toContain("Prettier: Format Document");
-    // o pane passa a mostrar 2 instaladas
+  it("as funcionalidades do dxtutor ligam-se no pane (diagnósticos na linha)", () => {
     w.renderExtPane();
-    const cnt = document.querySelector("#pane-ext .scm-grp .cnt")!;
-    expect(cnt.textContent).toBe("2");
+    click(document.querySelector('#pane-ext [data-action="builtin-toggle"][data-on="inline-diagnostics"]')!);
+    expect(w.builtinOn("inline-diagnostics")).toBe(true);
   });
 
-  it("toggle alterna on/off da extensão instalada", () => {
-    w.extInstall("esbenp.prettier-vscode");
-    expect(w.EXS.inst["esbenp.prettier-vscode"].on).toBe(1);
-    w.extToggle("esbenp.prettier-vscode");
-    expect(w.EXS.inst["esbenp.prettier-vscode"].on).toBe(false);
-    w.extToggle("esbenp.prettier-vscode");
-    expect(w.EXS.inst["esbenp.prettier-vscode"].on).toBe(true);
-  });
-
-  it("remover desinstala uma extensão não-bundled", () => {
-    w.extInstall("esbenp.prettier-vscode");
-    expect(w.EXS.inst["esbenp.prettier-vscode"]).toBeTruthy();
-    w.extRemove("esbenp.prettier-vscode");
-    expect(w.EXS.inst["esbenp.prettier-vscode"]).toBeUndefined();
-  });
-
-  it("remover NÃO desinstala uma extensão bundled (guarda)", () => {
-    w.extRemove("rust-lang.rust-analyzer");
-    expect(w.EXS.inst["rust-lang.rust-analyzer"]).toBeTruthy();
-  });
-
-  it("a pesquisa (#ex-q) filtra as linhas do pane", () => {
-    w.renderExtPane();
-    const qi = document.querySelector<HTMLInputElement>("#ex-q")!;
-    qi.value = "prettier";
-    qi.oninput!(new Event("input"));
-    const rows = document.querySelectorAll("#pane-ext .ex-row");
-    expect(rows.length).toBe(1);
-    expect(rows[0].textContent).toContain("Prettier");
-  });
-
-  it("formatDoc apara espaços finais, normaliza indentação e a última linha", () => {
+  it("formatDoc (Format Document do dxtutor) apara espaços finais, normaliza indentação e a última linha", () => {
     w.FS["scratch.ts"] = { content: "const a=1   \n\tb\n\n\n" };
     w.openTab({ id: "f:scratch.ts", path: "scratch.ts", kind: "file", title: "scratch.ts" }, false);
     (window as any).cur = "f:scratch.ts";

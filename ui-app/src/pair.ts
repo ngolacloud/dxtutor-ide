@@ -132,13 +132,6 @@ declare global {
   var closeMenus: () => void;
   var gotoLine: (n: number) => void;
   var connected: () => string[];
-  // Constantes de caminho do protótipo (donas do monólito app.ts), lidas por nome livre.
-  const P_LX: string;
-  const P_REPO: string;
-  const P_MIG: string;
-  const P_TEST: string;
-  const P_HIST: string;
-  const P_STORE: string;
   // Globais lexicais/helpers do monólito usados pelas features-folha tipadas (explorer/...).
   const SECOPEN: Record<string, boolean>;
   var AGENT: string;
@@ -148,7 +141,6 @@ declare global {
   const palette: (pre?: string, cfg?: any) => void;
   const USER: string;
   const HOST: string;
-  const BRANCHES: string[];
   const MODES: Record<string, { l: string }>;
   const RUN: { active: boolean };
   const MISSIONS: any[];
@@ -158,12 +150,9 @@ declare global {
   // pela feature `checkpoint` (gfAsk) e por v5.ts/board.ts. `v`/`pri` são polimórficos
   // (número 0/1 ou o próprio candidato escolhido), por isso ficam `any`.
   const ask: (host: HTMLElement, btns: Array<{ l: string; v: any; pri?: any; done?: string }>) => Promise<any>;
-  const commitGit: (msg?: string, author?: string) => { h: string; n: number } | null;
+  var commitGit: (msg?: string, author?: string) => { h: string; n: number } | null; // var: o bridge.ts liga-o ao git real (ADR-0006, R1d)
   const diffStat: (a: string | null, b: string) => { add: number; del: number };
-  const runTests: (pkg?: string) => { build: boolean; err: string; ok: boolean; tests: Array<{ n: string; ok: boolean }> };
-  const dsLint: () => { p: string; line: number; hex: string }[];
   const setMode: (m: string) => void;
-  const demo: (x: string) => void;
   var onKey: (e: KeyboardEvent) => void;
   const LANG: Record<string, string>;
   const diagnostics: () => { p: string; line: number; sev: string; msg: string }[];

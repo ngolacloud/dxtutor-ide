@@ -18,7 +18,7 @@
    ADR-0004, U4j1: tipado (era @ts-nocheck) e sem o código morto do primeiro protótipo
    (separadores/documentos/minimapa/boas-vindas antigos, nunca referenciados, e as versões
    do agente que o features/codev.ts redefine antes de alguém as ler). O que resta são as
-   globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE/DOCS), o
+   globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE), o
    painel de contentores de demonstração e dois listeners. */
 export {};
 
@@ -31,7 +31,6 @@ declare global {
     OVERFLOW: unknown[];
     MENUS: unknown[];
     TREE: unknown;
-    DOCS: Record<string, Array<[string, string]>>;
     wireSections: (scope: ParentNode) => void;
     buildDocker: () => void;
   }
@@ -50,7 +49,7 @@ declare global {
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
    Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
    livre em modo estrito (módulo). ── */
-Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'] });
+Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','dxtutor','workspace','projects'] });
 
 window.$=s=>document.querySelector<HTMLElement>(s);window.$$=s=>[...document.querySelectorAll<HTMLElement>(s)];
 
@@ -147,12 +146,12 @@ window.OVERFLOW=[
 
 /* ═════════ MENUS ═════════ */
 window.MENUS=[
-  {t:'File',items:[{l:'New Text File',k:'Ctrl+N'},{l:'New File…',k:'Ctrl+Alt+N'},{l:'New Window',k:'Ctrl+Shift+N'},{sep:1},{l:'Open File…',k:'Ctrl+O'},{l:'Open Folder…'},{l:'Open Recent',sub:[{l:'~/workspaces/NgolaCloud/projects'},{l:'~/workspaces/delonix-runtime'},{l:'~/workspaces/DORM'},{sep:1},{l:'Clear Recently Opened'}]},{sep:1},{l:'Save',k:'Ctrl+S'},{l:'Save As…',k:'Ctrl+Shift+S'},{l:'Save All'},{sep:1},{l:'Preferences',sub:[{l:'Settings',k:'Ctrl+,'},{l:'Keyboard Shortcuts'},{l:'Color Theme',sub:[{l:'Grafite laranja',on:1},{l:'Slate índigo'},{l:'Dark+ (clássico)'}]},{l:'Extensions'}]},{sep:1},{l:'Exit',k:'Ctrl+Q'}]},
+  {t:'File',items:[{l:'New Text File',k:'Ctrl+N'},{l:'New File…',k:'Ctrl+Alt+N'},{l:'New Window',k:'Ctrl+Shift+N'},{sep:1},{l:'Open File…',k:'Ctrl+O'},{l:'Open Folder…'},{l:'Open Recent',sub:[{l:'Clear Recently Opened'}]},{sep:1},{l:'Save',k:'Ctrl+S'},{l:'Save As…',k:'Ctrl+Shift+S'},{l:'Save All'},{sep:1},{l:'Preferences',sub:[{l:'Settings',k:'Ctrl+,'},{l:'Keyboard Shortcuts'},{l:'Color Theme',sub:[{l:'Grafite laranja',on:1},{l:'Slate índigo'},{l:'Dark+ (clássico)'}]},{l:'Extensions'}]},{sep:1},{l:'Exit',k:'Ctrl+Q'}]},
   {t:'Edit',items:[{l:'Undo',k:'Ctrl+Z'},{l:'Redo',k:'Ctrl+Y'},{sep:1},{l:'Cut',k:'Ctrl+X'},{l:'Copy',k:'Ctrl+C'},{l:'Paste',k:'Ctrl+V'},{sep:1},{l:'Find',k:'Ctrl+F'},{l:'Replace',k:'Ctrl+H'},{l:'Find in Files',k:'Ctrl+Shift+F'}]},
   {t:'Selection',items:[{l:'Select All',k:'Ctrl+A'},{l:'Expand Selection',k:'Shift+Alt+→'},{sep:1},{l:'Add Cursor Above',k:'Ctrl+Alt+↑'},{l:'Add Cursor Below',k:'Ctrl+Alt+↓'},{l:'Select All Occurrences',k:'Ctrl+Shift+L'},{sep:1},{l:'Column Selection Mode'}]},
   {t:'View',items:[{l:'Command Palette…',k:'Ctrl+Shift+P'},{l:'Open View…'},{sep:1},{l:'Appearance',sub:[{l:'Full Screen',k:'F11'},{l:'Zen Mode',k:'Ctrl+K Z'},{sep:1},{l:'Menu Bar',on:1},{l:'Status Bar',on:1},{l:'Activity Bar',on:1}]},{l:'Editor Layout',sub:[{l:'Split Up'},{l:'Split Down'},{l:'Split Right'},{sep:1},{l:'Single'},{l:'Two Columns'}]},{sep:1},{l:'Explorer',k:'Ctrl+Shift+E',on:1},{l:'Search',k:'Ctrl+Shift+F'},{l:'Source Control',k:'Ctrl+Shift+G'},{sep:1},{l:'Terminal',k:'Ctrl+`',on:1},{l:'Problems',k:'Ctrl+Shift+M'},{l:'Assistant',k:'Ctrl+Shift+A',on:1}]},
   {t:'Go',items:[{l:'Back',k:'Alt+←'},{l:'Forward',k:'Alt+→'},{sep:1},{l:'Go to File…',k:'Ctrl+P'},{l:'Go to Symbol…',k:'Ctrl+Shift+O'},{l:'Go to Line…',k:'Ctrl+G'},{sep:1},{l:'Go to Definition',k:'F12'},{l:'Go to References',k:'Shift+F12'}]},
-  {t:'Run',items:[{l:'Start Debugging',k:'F5'},{l:'Run Without Debugging',k:'Ctrl+F5'},{l:'Stop',k:'Shift+F5'},{sep:1},{l:'Toggle Breakpoint',k:'F9'},{sep:1},{l:'Run Task…',sub:[{l:'cargo build'},{l:'cargo test'},{l:'cargo clippy'},{l:'npm run dev'}]}]},
+  {t:'Run',items:[{l:'Start Debugging',k:'F5'},{l:'Run Without Debugging',k:'Ctrl+F5'},{l:'Stop',k:'Shift+F5'},{sep:1},{l:'Toggle Breakpoint',k:'F9'},{sep:1},{l:'Run Project…'},{l:'Run Tests'}]},
   {t:'Terminal',items:[{l:'New Terminal',k:'Ctrl+Shift+`'},{l:'Split Terminal',k:'Ctrl+Shift+5'},{sep:1},{l:'Run Task…'},{l:'Run Build Task…',k:'Ctrl+Shift+B'},{sep:1},{l:'Clear',act:'termClear'}]},
   {t:'Help',items:[{l:'Welcome'},{l:'Documentation'},{l:'Show All Commands',k:'Ctrl+Shift+P'},{sep:1},{l:'About dxtutor IDE'}]},
 ];
@@ -161,37 +160,21 @@ window.MENUS=[
 document.addEventListener('click',()=>closeMenus());
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
-window.TREE={projects:{dir:1,open:1,children:{
-  '.claude':{dir:1},'.worktrees':{dir:1},'audits':{dir:1},
-  'delonix-console':{dir:1,git:'u'},'delonix-deploy':{dir:1},'delonix-desktop':{dir:1,git:'m'},
-  'delonix-mail':{dir:1,git:'m'},'delonix-runtime':{dir:1,git:'m'},'DORM':{dir:1},'dx':{dir:1},'dxjs':{dir:1},
-  'dxtutor':{dir:1,git:'m',open:1,children:{
-    'desktop':{dir:1,open:1,children:{
-      'src':{dir:1,open:1,children:{
-        'main.ts':{t:'rust'},'assistant.ts':{t:'rust',git:'m'},'workspace.ts':{t:'rust'},
-        'styles.css':{t:'css',git:'m'},'theme.css':{t:'css',git:'u'},'i18n.ts':{t:'rust'},
-      }},
-      'package.json':{t:'json'},'index.html':{t:'file'},
-    }},
-    'crates':{dir:1},'Cargo.toml':{t:'toml'},'README.md':{t:'md'},
-  }},
-  'ngolacloud-control-plane':{dir:1,git:'m'},'ngolacloud-control-plane_bkp':{dir:1},'seiva':{dir:1},'still-js':{dir:1},
-}}};
-window.DOCS={
-  'lib.rs':[['cm','// Tokeniza uma expressão aritmética.'],['','<span class="kw">pub fn</span> <span class="fn">tokenize</span>(src: <span class="ty">&str</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">Token</span>&gt; {'],['','    <span class="kw">let mut</span> tokens = <span class="ty">Vec</span>::<span class="fn">new</span>();'],['','    <span class="kw">let mut</span> chars = src.<span class="fn">chars</span>().<span class="fn">peekable</span>();'],['err','    <span class="kw">for</span> c <span class="kw">in</span> chars {  <span class="cm">// ← E0382: use of moved value</span>'],['','        <span class="kw">if</span> c.<span class="fn">is_ascii_digit</span>() {'],['','            tokens.<span class="fn">push</span>(<span class="ty">Token</span>::<span class="ty">Num</span>(c));'],['','        }'],['','    }'],['','    <span class="mac">println!</span>(<span class="str">"{} tokens"</span>, tokens.<span class="fn">len</span>());'],['','    tokens'],['','}']],
-  'assistant.ts':[['cm','// Painel Assistant — render das mensagens.'],['','<span class="kw">export function</span> <span class="fn">renderMessages</span>(): <span class="ty">void</span> {'],['','  <span class="kw">const</span> host = <span class="fn">$</span>(<span class="str">"#ag-msgs"</span>);'],['','  host.innerHTML = state.messages.<span class="fn">map</span>(<span class="fn">bubble</span>).<span class="fn">join</span>(<span class="str">""</span>);'],['','}']],
-  'styles.css':[['cm','/* dxtutor — tema Grafite + laranja */'],['',':root {'],['','  --bg-base: <span class="num">#0f0f11</span>;'],['','  --accent: <span class="num">#e06c3b</span>;'],['','  --accent-hover: <span class="num">#f08a4b</span>;'],['','}']],
-};
+/* a árvore nasce vazia: o syncTree (features/explorer.ts) preenche-a com a pasta aberta (ADR-0006, R1a) */
+window.TREE={projects:{dir:1,open:1,children:{}}};
+
+/* o editor de demonstração v1 (DOCS, renderTabs/renderDocs/renderMinimap, agentShell, welcome) saiu: as
+   features tabs/editor/codev são as donas (ADR-0006, R1a). Fica o atalho de teclado dos controlos de execução. */
 document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target as HTMLElement).tagName))return;
   const open=getComputedStyle(document.body).getPropertyValue('--agent-w').trim()!=='0px'||(activeTab==='Assistant');if(!open)return;
   const rc=$('#ag-runctl');if(e.key==='Escape'){agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
   const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
 window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
 window.buildDocker = function(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
-  const cts=[['kaeso-odoo','Exited (130) · 21 horas'],['ecm_val_364','Exited (1) · 2 dias'],['kaeso-odoo-ecm','Exited (255) · 39 min'],['lab-ao-odoo','Exited (0) · 5 dias']];
-  $('#dk-containers')!.innerHTML=`<div class="row open dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('container')}</span><span class="nm">kaeso</span></div>`+
-    cts.map(c=>`<div class="row dk-row sub"><span class="ct-dot"></span><span class="nm dk-fixed">kaeso-odoo:16</span><span class="pth dk-path">${c[0]} · ${c[1]}</span></div>`).join('');
-  $('#dk-images')!.innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
+  /* sem dados inventados (ADR-0006, R1a): no desktop, o pane lista os contentores e as imagens reais do
+     runtime ligado (platform/desktop/infra.ts regista o RP.containers — R5a); no browser não há runtime */
+  $('#dk-containers')!.innerHTML='<div class="sec-empty">Os contentores e as imagens vêm do Docker ou do Podman ligado em Infra, na app desktop.</div>';
+  $('#dk-images')!.innerHTML='';
   wireSections(pane);hydrate();}
 
 /* ═════════ RESIZE ═════════ */

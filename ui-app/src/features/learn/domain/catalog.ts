@@ -1,7 +1,7 @@
 /* O catálogo oficial de linguagens do Learning Track e a montagem do selector. PURO.
    Decisão do dono (2026-11-23): no máximo 10 linguagens oficiais, as usadas pelas grandes
    empresas de tecnologia. Os cursos de cada uma chegam como plugins de
-   github.com/dxtutor-courses/<id>; Rust e Go também vêm embutidos na UI. */
+   github.com/ngolacloud/dxtutor-course-<id>; Rust e Go também vêm embutidos na UI. */
 
 import type { Course, Language, LanguageCard, PluginRow } from "./types";
 

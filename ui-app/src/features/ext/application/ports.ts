@@ -81,6 +81,11 @@ export interface Vsix {
   load(): Promise<JSZipLib>;
 }
 
+/** O Open VSX: os bytes do VSIX mais recente de um id (`publisher.name`). */
+export interface Remote {
+  fetch(id: string): Promise<Uint8Array>;
+}
+
 /** Notificações de utilizador (toast). */
 export interface Notifier {
   toast(msg: string): void;
@@ -93,9 +98,12 @@ export type Rerender = () => void;
 /* ───────── pacote de dependências entregue ao motor ───────── */
 
 export interface ExtDeps {
-  /** O catálogo Open VSX (`EXT`). Construído na composição porque os `cmds` com
-   *  efeito capturam acções do bridge (dxRun/dxStop/…); não é dado puro. */
-  catalogue: ExtItem[];
+  /** O que se conhece sem estar instalado: os resultados da pesquisa no Open VSX e as
+   *  recomendações para o projecto (ADR-0006, R6b — era o catálogo fixo `EXT`). */
+  catalogue: () => ExtItem[];
+  /** O Open VSX real (só na app desktop): descarregar o VSIX de um id. Sem ele, instalar por id
+   *  diz que precisa da app desktop (um VSIX do disco instala-se na mesma). */
+  remote: () => Remote | null;
   state: InstalledState;
   storage: Storage;
   palette: Palette;

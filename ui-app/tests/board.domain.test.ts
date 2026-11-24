@@ -34,7 +34,8 @@ describe("makeIssue (fábrica pura)", () => {
     expect(it.type).toBe("feature");
     expect(it.pts).toBe(3);
     expect(it.stage).toBe("backlog");
-    expect(it).toMatchObject({ attempts: 0, tests: [], res: null, note: "", model: null, branch: null });
+    expect(it).toMatchObject({ attempts: 0, res: null, note: "", model: null, branch: null });
+    expect("tests" in it).toBe(false); // os testes-predicado saíram (ADR-0006, R3a): testa-se com os testes do projecto
   });
   it("as sobreposições ganham aos defaults", () => {
     const it = makeIssue(12, { title: "fix", agent: "fe", type: "fix", pts: 8, stage: "todo", custom: true });
@@ -43,7 +44,8 @@ describe("makeIssue (fábrica pura)", () => {
   it("não muta estado partilhado (chamadas independentes)", () => {
     const a = makeIssue(1, { title: "a", agent: "be", sprint: 0 });
     const b = makeIssue(2, { title: "b", agent: "be", sprint: 0 });
-    expect(a.tests).not.toBe(b.tests); // arrays distintos por issue
+    a.note = "só a";
+    expect(b.note).toBe(""); // objectos distintos por issue
   });
 });
 

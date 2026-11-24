@@ -1,56 +1,30 @@
-/* ═══════════ feature `ext` (Open VSX) — recommendation policy (ADR-0002, Fase 2) ═══════════
-   A regra pura que parte o catálogo de extensões em três secções para o pane
-   «Extensions»: instaladas, recomendadas-para-este-projecto, e o resto do Open
-   VSX. Vivia inline em `renderExtPane`; extraída aqui para ser testável sem DOM.
-
-   Pura: sem DOM, sem `window`, sem Tauri. O que é "este projecto" (os tags de
-   contexto `cx`) e o que está instalado (`installed`) são FORNECIDOS pelo
-   chamador — a policy não vai buscar nada ao mundo. */
+/* ═══════════ feature `ext` (Open VSX) — as secções do pane (ADR-0002, Fase 2; ADR-0006, R6b) ═══════════
+   A regra pura que parte o pane «Extensions» em: instaladas, recomendadas-para-este-projecto e
+   resultados da pesquisa no Open VSX. Pura: o que está instalado, as recomendações e os
+   resultados são FORNECIDOS pelo chamador. */
 
 import type { ExtItem } from "./types";
 
 /** As três secções que o pane rende, por esta ordem. */
 export interface ExtSections {
-  /** Instaladas (catálogo + VSIX) que passam a pesquisa. */
+  /** Instaladas (por VSIX) que passam a pesquisa. */
   inst: ExtItem[];
-  /** Não instaladas, que passam a pesquisa e combinam o contexto do projecto. */
+  /** Recomendadas para o projecto, não instaladas, que passam a pesquisa. */
   rec: ExtItem[];
-  /** Não instaladas, que passam a pesquisa e NÃO são recomendadas. */
+  /** Resultados do Open VSX que não estão instalados nem já recomendados. */
   rest: ExtItem[];
 }
 
-/** Combina `x` com a pesquisa de texto livre `q` (já em minúsculas). Query vazia
- *  combina tudo. Pesquisa sobre nome+id+descrição, como o filtro original. */
+/** Combina `x` com a pesquisa de texto livre `q` (já em minúsculas). Query vazia combina tudo. */
 export function matchesQuery(x: ExtItem, q: string): boolean {
   return !q || (x.n + x.id + x.d).toLowerCase().includes(q);
 }
 
-/** `x` é recomendada para um projecto cujos tags de contexto são `cx`?
- *  O tag `"all"` combina qualquer projecto. */
-export function recommendedFor(x: ExtItem, cx: string[]): boolean {
-  return x.ctx.some(c => c === "all" || cx.includes(c));
-}
-
-/**
- * Parte o pane «Extensions» em instaladas / recomendadas-para-o-contexto / resto.
- *
- *   - `all` é catálogo+VSIX (a secção «instaladas» abrange ambos);
- *   - `catalogue` é só o catálogo embutido (recomendadas/resto saem daqui);
- *   - `installed(id)` diz se um id está instalado;
- *   - `cx` são os tags de contexto do projecto; `q` a pesquisa (em minúsculas).
- *
- * Byte-fiel à partição que estava em `renderExtPane` (mesma ordem de predicados,
- * mesmo `!rec.includes(x)` por identidade sobre o `catalogue`).
- */
-export function sectionsFor(
-  all: ExtItem[],
-  catalogue: ExtItem[],
-  installed: (id: string) => boolean,
-  cx: string[],
-  q: string,
-): ExtSections {
-  const inst = all.filter(x => installed(x.id) && matchesQuery(x, q));
-  const rec = catalogue.filter(x => !installed(x.id) && matchesQuery(x, q) && recommendedFor(x, cx));
-  const rest = catalogue.filter(x => !installed(x.id) && matchesQuery(x, q) && !rec.includes(x));
+/** Parte o pane: `installed` são os VSIX instalados, `recs` as recomendações, `results` a
+ *  pesquisa no Open VSX (já filtrada pelo servidor — não se volta a filtrar por texto). */
+export function sectionsFor(installed: ExtItem[], recs: ExtItem[], results: ExtItem[], isInstalled: (id: string) => boolean, q: string): ExtSections {
+  const inst = installed.filter((x) => matchesQuery(x, q));
+  const rec = recs.filter((x) => !isInstalled(x.id) && matchesQuery(x, q));
+  const rest = results.filter((x) => !isInstalled(x.id) && !rec.some((r) => r.id === x.id));
   return { inst, rec, rest };
 }

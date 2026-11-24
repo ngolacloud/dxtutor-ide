@@ -31,7 +31,9 @@ const G = window as unknown as Record<string, any>;
  *  logo após o boot, sem render; a hidratação de `LS` é que fica preguiçosa em `ext.ts`. */
 export const initExs = (): ExsState => {
   const w = window as unknown as { EXS?: ExsState };
-  w.EXS = w.EXS && w.EXS.inst ? w.EXS : { inst: { "rust-lang.rust-analyzer": { on: 1 } }, vsix: [] };
+  /* nasce vazio: o rust-analyzer «bundled» nunca foi instalado (ADR-0006, R6b) */
+  w.EXS = w.EXS && w.EXS.inst ? w.EXS : { inst: {}, vsix: [], builtin: {} };
+  if (!w.EXS.builtin) w.EXS.builtin = {};
   return w.EXS;
 };
 
@@ -63,14 +65,7 @@ export const extOf = (path: string): string => G.extOf(path);
 export const projectContext = (): Array<[string, string]> => window.projectContext();
 export const refresh = (...args: [fromEd?: boolean, force?: boolean]): unknown => window.refresh(...args);
 
-/* ───── acções que os comandos do catálogo disparam (resolvidas no acto) ───── */
-export const doSearch = (): void => window.doSearch();
-export const goPane = (p: string): void => G.goPane(p);
-export const openGraph = (): void => G.openGraph();
-export const runTask = (cmd: string): unknown => G.runTask(cmd);
-export const dxRun = (): void => G.dxRun();
-export const dxStop = (): void => G.dxStop();
-export const dxDeploy = (): void => G.dxDeploy();
+/* (as acções que os comandos do catálogo fixo disparavam saíram com ele — ADR-0006, R6b) */
 
 /* ───── VSIX: biblioteca de unzip (JSZip). Superfície mínima tipada aqui (infra). ───── */
 export interface JSZipFile { async(type: string): Promise<string> }

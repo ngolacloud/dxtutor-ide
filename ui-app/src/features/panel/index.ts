@@ -112,10 +112,7 @@ function boot(): void {
       st.innerHTML = problems.state().running && !problems.state().scan ? "✖ … ⚠ …" : `✖ ${c.errors} ⚠ ${c.warnings}`;
       st.style.color = c.errors ? "var(--red)" : c.warnings ? "var(--yellow)" : "var(--git-u)";
     }
-    // Os testes da barra de estado eram do workspace de exemplo: com pasta real, só o
-    // pane Testing (que corre a suíte a sério) fala de testes.
-    const tests = $("#st-tests");
-    if (tests) tests.textContent = "";
+    // O `#st-tests` é do features/testing (resultados reais das corridas; ADR-0006, R2a).
     const el = $("#pc-problems");
     if (el) renderProblems(el, { state: problems.state(), problems: all, filter, collapsed, root: L.root() });
     if (activeTab() === "dbg") drawAssistant();
@@ -169,7 +166,7 @@ function boot(): void {
   const dbgEl = (): HTMLElement | null => $("#pc-dbg");
   function drawAssistant(): void {
     const el = dbgEl();
-    if (!el || !L.root() || L.dbgSession()) return;
+    if (!el || !L.root()) return;
     renderAssistant(el, {
       failures: terminals.failures(),
       errors: problems.all().filter((p) => p.severity === "error"),
@@ -306,7 +303,7 @@ function boot(): void {
     if (!el || (el as HTMLElement & { __dbgx?: boolean }).__dbgx) return;
     (el as HTMLElement & { __dbgx?: boolean }).__dbgx = true;
     new MutationObserver(() => {
-      if (L.root() && !L.dbgSession() && !el.querySelector("." + ASSISTANT_MARK)) drawAssistant();
+      if (L.root() && !el.querySelector("." + ASSISTANT_MARK)) drawAssistant();
     }).observe(el, { childList: true });
   };
 

@@ -38,7 +38,7 @@ published_names() {
 # Object.assign(window, {…})): mover uma função de módulo pode trocar de sintaxe sem mudar
 # o número; deixar de a publicar (o consumidor importa) é que baixa (U3/U4/U7)
 window_assigns() { grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count; }
-metric "globais publicadas no window (U3/U4/U7)" 381 0 \
+metric "globais publicadas no window (U3/U4/U7)" 355 0 \
   "$(( $(window_assigns) + $(published_names) ))"
 # só atributos de verdade (o valor abre com aspas, escapadas ou não): a prosa — p.ex. o achado da
 # revisão «<img src=x onerror=…>» — não conta (U5e)

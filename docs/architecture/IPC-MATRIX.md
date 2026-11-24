@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 167 comandos, **75 são consumidos pela `ui-app`** e **92 não o são**: a UI
+Dos 173 comandos, **87 são consumidos pela `ui-app`** e **86 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -87,7 +87,7 @@ Exclusivo do dxtutor-ide. Sessão de colaboração; emite estado/mensagens.
 > `pair_events`, migrado de `lib.rs`). Nomes, args, contratos serde, eventos e mensagens
 > preservados (consumido por `pair.ts`).
 
-## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (16)
+## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (17)
 
 Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 
@@ -107,6 +107,7 @@ Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 | `llm_plan` | `req: llm::ChatReq`, `mode: Option<String>` | `serde_json::Value` | — | — | — | N · K |
 | `vsix_manifest` | `b64: String` | `serde_json::Value` | String | — | — | R |
 | `vsix_fetch_open_vsx` | `id: String` (`publisher.name`) | `String` (VSIX em base64) | String | — | `platform/tauri/extensions.ts` | **N** (só open-vsx.org; valida que é um VSIX; ≤ 100 MiB) · async |
+| `vsix_search_open_vsx` | `query: String`, `size: Option<u32>` (1..=50, 30 por omissão) | `Vec<vsix::OvsxHit>` | String | — | `platform/tauri/extensions.ts` | **N** (só open-vsx.org) · async |
 | `app_info` | — | `serde_json::Value` | — | — | `platform/tauri/app.ts` (via `bridge.ts`) | R · S |
 | `selftest_report` | `report: serde_json::Value` | `()` | — | — | `platform/tauri/app.ts` (via `bridge.ts`, `pair.ts`) | W · S |
 
@@ -154,7 +155,7 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `review_code` | `root: String`, `scope: String`, `path: Option<String>`, `version: Option<String>` | `review::ReviewReport` | String | — | — | R |
+| `review_code` | `root: String`, `scope: String`, `path: Option<String>`, `version: Option<String>` | `review::ReviewReport` | String | — | `features/codereview` | R |
 | `list_review_analyzers` | — | `Vec<review::AnalyzerInfo>` | — | — | — | R |
 | `verify_review_fix` | `current_source: String`, `analyzed_version: String`, `fix: review::SuggestedFix` | `review::FixVerification` | — | — | — | R |
 
@@ -198,7 +199,7 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 | `symbol_relations` | `root: String`, `symbol: String` | `codemap::Relations` | String | — | — | R |
 | `list_symbols` | `root: String`, `max: Option<usize>` | `Vec<codemap::SymbolRef>` | String | — | — | R |
 | `symbol_ranges` | `code: String`, `name: String` | `Vec<codemap::SymbolRange>` | String | — | — | R |
-| `file_outline` | `code: String`, `lang: String`, `root: Option<String>`, `file: Option<String>` | `Vec<codemap::SymbolRange>` | String | — | — | R |
+| `file_outline` | `code: String`, `lang: String`, `root: Option<String>`, `file: Option<String>` | `Vec<codemap::SymbolRange>` | String | — | `features/explorer.ts` | R |
 | `diff_lines` | `old: String`, `new: String` | `Vec<textdiff::DiffLine>` | String | — | — | R |
 | `propose_entrypoint` | `lang: String`, `code: String` | `Option<entrypoint::EntrypointProposal>` | String | — | — | R |
 | `project_entrypoint` | `root: String` | `Option<String>` | — | — | — | R |
@@ -210,9 +211,9 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `list_tests` | `root: String` | `Vec<testnav::TestItem>` | String | — | `platform/tauri/tests.ts` (pane Testing, A0.5) | R |
-| `run_test` | `root: String`, `path: String`, `lang: Option<String>` | `testnav::TestRun` | String | — | `platform/tauri/tests.ts` (pane Testing, A0.5) | **X** |
-| `run_all_tests` | `root: String` | `testnav::TestRun` | String | — | `platform/tauri/tests.ts` (pane Testing, A0.5) | **X** |
+| `list_tests` | `root: String` | `Vec<testnav::TestItem>` | String | — | `features/testing` | R |
+| `run_test` | `root: String`, `path: String`, `lang: Option<String>` | `testnav::TestRun` | String | — | `features/testing` | **X** |
+| `run_all_tests` | `root: String` | `testnav::TestRun` | String | — | `features/testing` | **X** |
 | `run_tests` | `root: String` | `SuiteRun` | String | — | `bridge.ts`, `features/codev.ts` | **X** |
 | `run_path` | `path: String`, `args: Option<String>` | `RunDto` | String | — | — | **X** |
 
@@ -367,36 +368,38 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 > Tauri-free; a fatia ganhou a fachada `capabilities()`). Nomes/args/serde/mensagens
 > preservados; A1 mantém-se em 133.
 
-Motor de depuração; os que precisam de sessão usam `State<DebugSessions>`. Não consumidos
-pela `ui-app` (painel Debug usa o motor de instrumentação — ver `features/debug.ts`).
+Motor de depuração; os que precisam de sessão usam `State<DebugSessions>`. Consumidos pela
+`ui-app` desde a R4 do ADR-0006 (`features/debug/infrastructure/tauri.ts`): o pane Run and
+Debug corre sessões reais pelo gdb. `debug_launch`/`debug_run`/`debug_continue`/`debug_step`
+são `async` (esperam pelo gdb; síncronos congelavam a thread principal).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `debug_capabilities` | — | `dap::DebugCapability` | — | — | — | R |
-| `debug_available` | — | `bool` | — | — | — | R |
-| `debug_launch` | `id: String`, `program: String`, `cwd: Option<String>` | `()` | String | — | — | **X** · S |
-| `debug_break` | `id: String`, `file: String`, `line: u32` | `u32` | String | — | — | S |
-| `debug_run` | `id: String` | `debug::Stop` | String | — | — | X · S |
-| `debug_continue` | `id: String` | `debug::Stop` | String | — | — | X · S |
-| `debug_step` | `id: String`, `into: bool` | `debug::Stop` | String | — | — | X · S |
-| `debug_locals` | `id: String` | `Vec<debug::Var>` | String | — | — | R · S |
-| `debug_stack` | `id: String` | `Vec<debug::Frame>` | String | — | — | R · S |
-| `debug_stop` | `id: String` | `()` | String | — | — | S |
+| `debug_available` | — | `bool` | — | `features/debug` | — | R |
+| `debug_launch` | `id: String`, `program: String`, `cwd: Option<String>` | `()` | String | — | `features/debug` | **X** · S |
+| `debug_break` | `id: String`, `file: String`, `line: u32` | `u32` | String | — | `features/debug` | S |
+| `debug_run` | `id: String` | `debug::Stop` | String | — | `features/debug` | X · S |
+| `debug_continue` | `id: String` | `debug::Stop` | String | — | `features/debug` | X · S |
+| `debug_step` | `id: String`, `into: bool` | `debug::Stop` | String | — | `features/debug` | X · S |
+| `debug_locals` | `id: String` | `Vec<debug::Var>` | String | — | `features/debug` | R · S |
+| `debug_stack` | `id: String` | `Vec<debug::Frame>` | String | — | `features/debug` | R · S |
+| `debug_stop` | `id: String` | `()` | String | — | `features/debug` | S |
 
 ## 12. Devcontainers — `commands/devcontainer.rs` (8)
 
-Todos lançam processos de container (docker/podman). Não consumidos pela `ui-app`.
+Todos lançam processos de container (no motor do sandbox do backend: delonix/docker/podman). A sessão (`up`/`status`/`down`) é consumida pelo pane Infra no desktop (ADR-0006, R5b); os outros não são consumidos pela `ui-app`.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `devcontainer_info` | `root: String` | `DevcontainerInfo` | String | — | — | R |
 | `devcontainer_up` | `root: String` | `DevcontainerUp` | String | — | — | **X** |
 | `devcontainer_exec` | `root: String`, `cmd: String` | `DevcontainerUp` | String | — | — | **X** |
-| `devcontainer_session_up` | `root: String` | `DevcontainerUp` | String | — | — | **X** |
+| `devcontainer_session_up` | `root: String` | `DevcontainerUp` | String | — | `platform/tauri/devcontainer.ts` (via `platform/desktop/infra.ts`) | **X** |
 | `devcontainer_session_exec` | `root: String`, `cmd: String` | `DevcontainerUp` | String | — | — | **X** |
 | `devcontainer_session_run` | `root: String`, `file: String` | `DevcontainerUp` | String | — | — | **X** |
-| `devcontainer_session_status` | `root: String` | `SessionStatus` | String | — | — | R |
-| `devcontainer_session_down` | `root: String` | `()` | String | — | — | **X** |
+| `devcontainer_session_status` | `root: String` | `SessionStatus` | String | — | `platform/tauri/devcontainer.ts` (via `platform/desktop/infra.ts`) | R |
+| `devcontainer_session_down` | `root: String` | `()` | String | — | `platform/tauri/devcontainer.ts` (via `platform/desktop/infra.ts`) | **X** |
 
 ## 13. Projecto / sandbox / run — `commands/sandbox.rs` (3)
 
@@ -411,7 +414,7 @@ Todos lançam processos de container (docker/podman). Não consumidos pela `ui-a
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `compose_ps` | `root: String` | `Vec<ComposeService>` | String | — | — | **X** |
-| `get_sandbox_engine` | — | `String` | — | — | — | R |
+| `get_sandbox_engine` | — | `String` | — | — | `platform/tauri/devcontainer.ts` (via `platform/desktop/infra.ts`) | R |
 | `set_sandbox_engine` | `engine: String` | `String` | String | — | — | W (config) |
 
 ## 14. Sistema de ficheiros — `fsops.rs` (9)
@@ -432,21 +435,30 @@ do `bridge.rs`).
 | `workspace_resolve` | `root: String`, `path: String` | `String` | String | — | — | R |
 | `workspace_action` | `root: String`, `op: String`, `path: String`, `content: Option<String>` | `String` | String | — | — | **W** |
 
-## 15. LSP — `lsp.rs` (8)
+## 15. LSP — `lsp.rs` (10)
 
-Todos usam `State<LspState>` + `AppHandle`. Não consumidos pela `ui-app`
-(editor usa Monaco local/simulação); alvo de ligação real na Etapa 2.
+Todos usam `State<LspState>` + `AppHandle`. Na app desktop, a feature `features/lsp` liga o
+editor: `lsp_start` (uma vez por pasta aberta, que também passa a ser a raiz de reserva de um
+ficheiro sem marcador de projecto), `lsp_did_open`/`lsp_did_change` (ao abrir/editar),
+`lsp_hover` (rato parado), `lsp_definition` (F12 / Ctrl+clique), `lsp_references` (Shift+F12) e
+`lsp_prepare_rename` + `lsp_rename` (F2; a UI aplica a `WorkspaceEdit` aos ficheiros da pasta) e
+`lsp_completion` (Ctrl+Espaço, depois de `.` ou ao escrever um nome), `lsp_signature_help` (depois de `(`/`,` ou Ctrl+Shift+Espaço: a assinatura com o
+parâmetro activo) e `lsp_server_status` (o aviso no editor quando o servidor da linguagem
+não está instalado).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `lsp_start` | `root: String` | `()` | String | — | — | **X** · S |
-| `lsp_did_open` | `path: String`, `text: String`, `language_id: String` | `()` | String | — | — | S |
-| `lsp_did_change` | `path: String`, `text: String`, `version: i64` | `()` | String | — | — | S |
-| `lsp_definition` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | — | R · S |
-| `lsp_references` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | — | R · S |
-| `lsp_hover` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | — | R · S |
-| `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | — | R · S |
-| `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | — | R · S |
+| `lsp_start` | `root: String` | `()` | String | `lsp://status` | `features/lsp` | **X** · S |
+| `lsp_did_open` | `path: String`, `text: String`, `language_id: String` | `()` | String | `lsp://diagnostics` | `features/lsp` | S |
+| `lsp_did_change` | `path: String`, `text: String`, `version: i64` | `()` | String | `lsp://diagnostics` | `features/lsp` | S |
+| `lsp_definition` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
+| `lsp_references` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
+| `lsp_hover` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
+| `lsp_completion` | `path: String`, `line: u32`, `character: u32`, `trigger_character: Option<String>` | `Value` (CompletionList \| CompletionItem[]) | String | — | `features/lsp` | R · S |
+| `lsp_signature_help` | `path: String`, `line: u32`, `character: u32`, `trigger_character: Option<String>`, `is_retrigger: Option<bool>` | `Value` (SignatureHelp \| null) | String | — | `features/lsp` | R · S |
+| `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | `features/lsp` | R · S |
+| `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
+| `lsp_server_status` | `path: String` | `Option<lsp::ServerStatus>` (`{ language, server, installed, problem }`) | String | — | `features/lsp` (aviso no editor quando falta o servidor) | R · async |
 
 ## 16. PTY — `pty.rs` (7)
 
@@ -476,18 +488,22 @@ ambiente da shell de login resolvido por `shellenv.rs`) e `ports.rs` (portas TCP
 | `problems_scan` | `root: String` | `problems::ScanResult` | String | `problems://check` | `features/panel` | **X** · R |
 | `ports_list` | `root: Option<String>` | `Vec<ports::PortInfo>` | String | — | `features/panel` | R |
 
-## 17. Project (SQLite) — `board.rs` (4)
+## 17. Project (SQLite) e quadro Tasks — `board.rs` (6)
 
 Project (docs/v2/UI-AUDIT.md, item 5; fase A5): Kanban, Scrum, XP ou Scrum + XP sobre o store
 `tutor_board::project` (`app_local_data_dir/board.sqlite3`, tabela `schema_version` e migrações só
-para a frente; a migração 1 importa o Board antigo, cujos `board_load`/`board_save` sem consumidores
-saíram). As regras de fluxo (um passo, WIP, DoR, DoD, bloqueio) são verificadas no store, numa
+para a frente; a migração 1 importa o Board antigo que lá estivesse). O quadro da actividade Tasks
+(ADR-0006, R3b) continua com `board_load`/`board_save`, mas num ficheiro próprio
+(`app_local_data_dir/tasks.sqlite3`): o `sprints` do Project tem outro esquema. Os dois coexistem
+até a Q3 decidir se o Tasks passa a ser o Project. As regras de fluxo (um passo, WIP, DoR, DoD, bloqueio) são verificadas no store, numa
 transacção por operação; uma regra só se ultrapassa com motivo, registado na actividade. Erros:
 `ProjectError {code, message, overridable}`. Quem age = `git config user.name` do projecto (ou o
 utilizador do SO).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
+| `board_load` | `root: Option<String>` | `Option<Backlog>` | String | — | `features/board` | R · S |
+| `board_save` | `root: Option<String>`, `backlog: Backlog` | `()` | String | — | `features/board` | **W** · S |
 | `project_load` | `root: String` | `Project` | `ProjectError` | — | `platform/tauri/project.ts` | R · **W** (cria o projecto vazio no 1.º uso) · S |
 | `project_apply` | `root: String`, `op: Op` (`{op: "create_issue" \| "move" \| "settings" \| …}`) | `Project` | `ProjectError` | — | `platform/tauri/project.ts` | **W** · S |
 | `project_issue` | `root: String`, `key: String` | `IssueDetail {activity, changeSets}` | `ProjectError` | — | `platform/tauri/project.ts` | R |
@@ -503,10 +519,10 @@ ferramenta LLM** local, não o comando IPC).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `search_project` | `root: String`, `query: String`, `max: Option<usize>`, `ignore_case: Option<bool>` | `Vec<search::SearchHit>` | String | — | — | R |
+| `search_project` | `root: String`, `query: String`, `max: Option<usize>`, `ignore_case: Option<bool>` | `Vec<search::SearchHit>` | String | — | `features/search.ts` | R |
 | `list_files` | `root: String`, `max: Option<usize>` | `Vec<String>` | String | — | — | R |
 | `read_folder_sources` | `dir: String`, `max_files: Option<usize>`, `max_bytes: Option<usize>` | `Vec<FolderSource>` | String | — | — | R |
-| `detect_projects` | `root: String` | `Vec<ProjectInfo>` | String | — | — | R |
+| `detect_projects` | `root: String` | `Vec<ProjectInfo>` | String | — | `features/run.ts` | R |
 
 ---
 
@@ -514,10 +530,10 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **167** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 4 |
-| Consumidos pela `ui-app` | **75** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `platform/tauri/project.ts` 4) |
-| Não consumidos pela `ui-app` | **92** |
+| Comandos registados | **173** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 11 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
+| Consumidos pela `ui-app` | **87** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 11 · `platform/tauri/project.ts` 4) |
+| Não consumidos pela `ui-app` | **86** |
 | Eventos distintos | **16** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |

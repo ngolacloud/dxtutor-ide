@@ -17,7 +17,7 @@
 import type { GitState, Commit, FileEntry } from "../domain/types";
 
 /** O resultado leve de um commit que a UI mostra (hash, mensagem, nº de ficheiros).
- *  `n` é opcional: `gitInit` semeia a lista só com `{h, m}`. */
+ *  `n` é opcional: a lista que o `bridge.ts` reconstrói do `git log` só tem `{h, m}`. */
 export interface CommitResult {
   h: string;
   m: string;
@@ -30,8 +30,10 @@ export interface Workspace {
 }
 
 /** O estado git/scm, window-backed e mutado no sítio. `setBranch` ao mudar o ramo
- *  também actualiza a etiqueta de ramo (a UI fá-lo no adaptador da composição). */
+ *  também actualiza a etiqueta de ramo (a UI fá-lo no adaptador da composição).
+ *  `repo()` diz se há um repositório git real aberto (sem ele, nada muda o git). */
 export interface ScmStore {
+  repo(): boolean;
   git(): GitState;
   staged(): Set<string>;
   commits(): CommitResult[];
@@ -40,6 +42,13 @@ export interface ScmStore {
   commitMsg(): string;
   setCommitMsg(m: string): void;
   author(): string;
+}
+
+/** As operações que o gitflow encadeia (mudar de ramo, merge), resolvidas NO ACTO pelas
+ *  versões publicadas — no desktop, as decoradas com git real pelo `bridge.ts`. */
+export interface Flow {
+  checkout(b: string, create?: boolean): boolean;
+  merge(src: string, author?: string): Commit | null;
 }
 
 /** Notificações de utilizador (toast) e registo de eventos (log). */
@@ -80,6 +89,7 @@ export interface IdGen {
 export interface ScmDeps {
   workspace: Workspace;
   store: ScmStore;
+  flow: Flow;
   notifier: Notifier;
   logger: Logger;
   view: ScmView;

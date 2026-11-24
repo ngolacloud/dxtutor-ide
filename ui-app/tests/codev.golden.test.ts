@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { bootApp, driveUntilRunEnds, golden } from "./harness";
+import { bootApp, golden } from "./harness";
 
 /* Goldens de innerHTML sobre o DOM real do Co-Dev (features/codev.ts), via o
  * harness que carrega a cadeia real de módulos. Regra de stripping: ver
@@ -10,9 +10,8 @@ let w: any;
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-01-01T10:00:00Z"));
-  // rid() (app.ts) gera hashes de commit/merge com Math.random() — fixá-lo é o
-  // que torna o golden do transcript reprodutível (o hash em si não é
-  // comportamento a caracterizar).
+  // rid() (app.ts) gera hashes com Math.random() — fixá-lo torna os goldens
+  // reprodutíveis (o hash em si não é comportamento a caracterizar).
   vi.spyOn(Math, "random").mockReturnValue(0.123456789);
   w = await bootApp();
 });
@@ -23,7 +22,7 @@ afterEach(() => {
 });
 
 describe("goldens de DOM — estados estáticos", () => {
-  it("#pane-codev (missões, conhecimento, checkpoints, routing, equipa, backlog, studio)", () => {
+  it("#pane-codev (conhecimento, checkpoints, routing, equipa, backlog, studio)", () => {
     w.renderCodevPane();
     const el = document.querySelector("#pane-codev")!;
     expect(golden(el)).toMatchSnapshot();
@@ -33,12 +32,6 @@ describe("goldens de DOM — estados estáticos", () => {
     w.newChat();
     const el = document.querySelector("#ag-msgs")!;
     expect(golden(el)).toMatchSnapshot();
-  });
-
-  it("página Bem-vindo (renderWelcomePage)", () => {
-    const host = document.createElement("div");
-    w.renderWelcomePage(null, host);
-    expect(golden(host)).toMatchSnapshot();
   });
 
   it("página Definições (renderSettingsPage)", () => {
@@ -51,16 +44,5 @@ describe("goldens de DOM — estados estáticos", () => {
     const host = document.createElement("div");
     w.renderManagerPage(null, host);
     expect(golden(host)).toMatchSnapshot();
-  });
-});
-
-describe("golden de transcript — missão completa", () => {
-  it("cenário a (corrigir E0382) em modo assistido, do pedido à entrega", async () => {
-    w.MODE = "assist";
-    w.demo("a");
-    await driveUntilRunEnds(w);
-    const el = document.querySelector("#ag-msgs")!;
-    expect(golden(el)).toMatchSnapshot();
-    expect(w.MISSIONS[0].state).toBe("concluída");
   });
 });

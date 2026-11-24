@@ -6,7 +6,7 @@
   "description": "Python: From Zero to Confident — from your first print to classes, generators, databases, concurrency and data structures.",
   "authors": ["dxtutor"],
   "license": "MIT OR Apache-2.0",
-  "repository": "https://github.com/dxtutor-courses/python",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-python",
   "engine": ">=0.7.0",
   "kind": "course",
   "language": {

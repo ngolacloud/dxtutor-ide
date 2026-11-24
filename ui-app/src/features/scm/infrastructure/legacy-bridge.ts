@@ -30,7 +30,7 @@ export interface PalCfg { ph?: string; verb?: string; items?: PalItem[]; text?: 
 
 /* ───── estado git/scm: window-backed (o resíduo do monólito e as camadas
    v5/v6/bridge/pair aliasam estes nomes livres como globais). Os objectos (GIT/
-   STAGED/LANE/BRANCHES/COMMITS) são DONOS da feature e publicam-se via `publish`;
+   STAGED/LANE/COMMITS) são DONOS da feature e publicam-se via `publish`;
    os acessores abaixo lêem o `window` que os transporta, para que o motor e o
    resíduo partilhem a MESMA referência. ───── */
 export const git = (): GitState => G.GIT;
@@ -46,6 +46,22 @@ export const setCommitMsg = (m: string): void => { G.COMMIT_MSG = m; };
 export const graphSel = (): string | null => G.GSEL;
 export const setGraphSel = (h: string): void => { G.GSEL = h; };
 export const author = (): string => G.AUTHOR;
+
+/* ───── há um repositório git real aberto? (ADR-0006, R1d) ─────
+   No desktop o `bridge.ts` (window.DXR) sabe-o: `DXR.git` é verdade quando a pasta aberta
+   é um repo (o pair também o actualiza). Sem DXR — o browser — não há repositório. Os
+   testes do harness (sem DXR) ligam o espelho pondo `REPO` a true no window
+   (tests/fixtures/sample-history.ts). */
+export const repo = (): boolean => (G.DXR ? !!G.DXR.git : G.REPO === true);
+/** Há app desktop com uma pasta aberta (para oferecer `git init` nela)? */
+export const desktopFolder = (): boolean => !!(G.DXR && G.DXR.root);
+/** `git init` na pasta aberta (só desktop; DXR.gitInit cria o repo em `main`). */
+export const gitInitFolder = (): void => { if (G.DXR && G.DXR.gitInit) G.DXR.gitInit(); };
+
+/* ───── as versões PUBLICADAS de checkout/gitMerge (no desktop, decoradas pelo bridge.ts
+   com git real), resolvidas no acto — o gitflow encadeia-as por aqui ───── */
+export const decoratedCheckout = (b: string, create?: boolean): boolean => G.checkout(b, create);
+export const decoratedMerge = (src: string, author?: string): Commit | null => G.gitMerge(src, author);
 
 /* ───── sistema de ficheiros virtual + agentes (catálogo de autores) ───── */
 export const files = (): Record<string, FileEntry> => G.FS;

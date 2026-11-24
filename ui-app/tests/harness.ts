@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { vi } from "vitest";
+import { applySampleWorkspace } from "./fixtures/sample-workspace";
+import { applySampleHistory } from "./fixtures/sample-history";
+import { applySampleDesign } from "./fixtures/sample-design";
 
 // A ordem de arranque vem do src/main.ts (o ponto de entrada único — ADR-0004, U1),
 // até app/boot-steps.ts inclusive (o antigo app.ts — ADR-0004, U4j5c): uma só fonte de verdade, em vez de uma cópia da lista aqui.
@@ -30,7 +33,12 @@ export async function bootApp(): Promise<typeof window> {
   for (const mod of MODULE_CHAIN) {
     await import(/* @vite-ignore */ mod);
   }
-  (window as any).loadSeed();
+  const w = window as any;
+  w.resetWorkspace();
+  applySampleWorkspace(w); // o projecto-exemplo é dado de teste (ADR-0006, R1a)
+  w.gitInit(); // o modelo git de um workspace sem repositório (vazio)
+  applySampleHistory(w); // o histórico do projecto-exemplo + espelho ligado, como se a pasta fosse um repo (ADR-0006, R1d)
+  applySampleDesign(w); // o desenho do Studio do projecto-exemplo é dado de teste (ADR-0006, R6a)
   return window;
 }
 
@@ -48,46 +56,4 @@ export function golden(el: Element): string {
     for (const attr of STRIPPED_ATTRS) node.removeAttribute(attr);
   }
   return clone.innerHTML;
-}
-
-/** Atravessa um fluxo interactivo do Co-Dev até à resolução, clicando sempre no
- * primeiro botão do gate que aparecer — sem assumir quantos gates vai haver.
- * Usa temporizadores falsos (já activos no beforeEach do ficheiro que chama
- * isto); nunca espera relógio real. */
-export async function driveToCompletion(p: Promise<unknown>, rounds = 80): Promise<void> {
-  let done = false;
-  p.finally(() => {
-    done = true;
-  });
-  for (let i = 0; i < rounds && !done; i++) {
-    await vi.advanceTimersByTimeAsync(500);
-    if (done) break;
-    // só os botões de `ask()` — criados via `.onclick=fn` (propriedade JS, sem
-    // atributo HTML) — são um gate real a bloquear a promessa. Os cartões de
-    // entrega também têm uma `.gate` decorativa (atalhos, não aprovação): dantes
-    // com `onclick="goPane(...)"`, desde a Fase 4 com `data-action` servido pelo
-    // listener delegado. Clicar nesses não desbloqueia nada e dispararia a
-    // navegação, por isso excluem-se por AMBOS os atributos.
-    const btn = document.querySelector("#ag-msgs .gate .gb:not([onclick]):not([data-action])") as HTMLButtonElement | null;
-    if (btn) btn.click();
-  }
-  await p;
-}
-
-/** Igual a `driveToCompletion`, mas para entradas como `demo()` que não
- * devolvem a promessa de `runMission` — observa `window.RUN.active` (fica
- * `false` quando a missão termina, com sucesso, erro ou parada). */
-export async function driveUntilRunEnds(w: any, rounds = 80): Promise<void> {
-  for (let i = 0; i < rounds && w.RUN.active; i++) {
-    await vi.advanceTimersByTimeAsync(500);
-    if (!w.RUN.active) break;
-    // só os botões de `ask()` — criados via `.onclick=fn` (propriedade JS, sem
-    // atributo HTML) — são um gate real a bloquear a promessa. Os cartões de
-    // entrega também têm uma `.gate` decorativa (atalhos, não aprovação): dantes
-    // com `onclick="goPane(...)"`, desde a Fase 4 com `data-action` servido pelo
-    // listener delegado. Clicar nesses não desbloqueia nada e dispararia a
-    // navegação, por isso excluem-se por AMBOS os atributos.
-    const btn = document.querySelector("#ag-msgs .gate .gb:not([onclick]):not([data-action])") as HTMLButtonElement | null;
-    if (btn) btn.click();
-  }
 }

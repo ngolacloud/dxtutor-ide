@@ -55,7 +55,8 @@ function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];hos
     if(e.key==='Tab'&&!e.shiftKey&&window.vsxSnippet&&window.vsxSnippet(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='/'&&window.vsxToggleComment&&window.vsxToggleComment(ta,t.path)){e.preventDefault();(ta.oninput as any)();return;}
     if(e.key==='Tab'){e.preventDefault();if(!document.execCommand('insertText',false,'    '))ta.setRangeText('    ',ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};
-  ta.onkeyup=ta.onclick=ta.onfocus=()=>stPos();}
+  ta.onkeyup=ta.onclick=ta.onfocus=()=>stPos();
+  bus.emit('editor:file-view',{path:t.path});/* quem decora a vista do ficheiro (p.ex. o aviso de servidor de linguagem em falta) repõe-se aqui */}
 
 /* ───── pintor do editor (gutter + realce + minimapa a partir dos diagnósticos) ───── */
 function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.content).split('\n'),dgReal:Record<number,string>={},ext=extOf(p);diagnostics().forEach(d=>{if(d.p===p&&dgReal[d.line]!=='e')dgReal[d.line]=d.sev;});
@@ -83,14 +84,16 @@ function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta
    outline/diagnósticos/palette/menus) e os onclick inline resolvem como globais.
    VIEW.file (app.ts) delega em renderFileView (shim, no registo de kinds de tab). ── */
 /* ───── o pintor publicado (ADR-0004, U4g5 — era a decoração do v6.ts) ─────
-   Por cima da base: os breakpoints no gutter, a linha corrente do depurador e o Error Lens.
+   Por cima da base: os breakpoints no gutter, a linha onde o gdb parou (ADR-0006, R4) e o
+   Error Lens.
    BUG PRÉ-EXISTENTE (reportado, não corrigido aqui): as chamadas internas do editor
    (renderFileView/oninput) usam a base, por isso estas marcas só aparecem quando alguém
    chama o `window.paintEd` — desde a extracção do editor (923a2a5); antes, no app.ts, o
    paintEd era `window.paintEd` e as chamadas internas passavam pela versão decorada. */
 const PE = window as unknown as {
-  dbgBreaks: Set<string>; dbgState: () => { kind: string; steps: { l: number }[]; i: number } | null;
-  vsxOn: (id: string) => boolean; P_LX: string;
+  dbgBreaks: Set<string>;
+  dbgCurrent?: () => { path: string; line: number } | null;
+  builtinOn: (key: string) => boolean;
 };
 function paintEdFull(p: string): void {
   paintEd(p);
@@ -99,16 +102,17 @@ function paintEdFull(p: string): void {
   if (VIEWS.get(p)) return;
   const gs = gut.children, ls = hl.children;
   [...PE.dbgBreaks].filter((b) => b.startsWith(p + ':')).forEach((b) => { const g = gs[+(b.split(':').pop() as string) - 1]; if (g) g.classList.add('bp'); });
-  const _ds = PE.dbgState();
-  if (_ds && _ds.kind === 'code' && p === PE.P_LX) { const s = _ds.steps[_ds.i]; if (s && ls[s.l - 1]) { ls[s.l - 1].classList.add('dbg-cur'); if (gs[s.l - 1]) gs[s.l - 1].classList.add('dbg-cur'); } }
-  if (PE.vsxOn('usernamehw.errorlens')) { const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
+  /* a linha onde o gdb parou (ADR-0006, R4) */
+  const cur = PE.dbgCurrent ? PE.dbgCurrent() : null;
+  if (cur && cur.path === p && ls[cur.line - 1]) { ls[cur.line - 1].classList.add('dbg-cur'); if (gs[cur.line - 1]) gs[cur.line - 1].classList.add('dbg-cur'); }
+  if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 
 /* nomes das linguagens na barra de estado (ADR-0004, U4j3 — era do app.ts; o boot4/boot6 acrescentam) */
 const LANG: Record<string, string>={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
 /* o último commit que tocou no ficheiro activo, na barra de estado (ADR-0004, U4j4a — era do app.ts). O stLang
    PUBLICADO acrescenta-o, como a decoração do app.ts fazia; as chamadas internas ao stLang local continuam sem ele. */
-function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,authorOf=BG.authorOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:GIT.c['1a2b3c4'];if(!c){/* desktop: syncGit reconstrói GIT.c com hashes reais e files:[], logo '1a2b3c4' (semente do protótipo) não existe — sem crash, só o estado local */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
+function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,authorOf=BG.authorOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:null;if(!c){/* nenhum commit do espelho toca o ficheiro (o syncGit dá files:[]; sem repo não há commits): só o estado local — ADR-0006, R1d */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 function stLangWithBlame(): void { stLang(); blame(); }
 /* e corre a cada mudança do workspace (era o fim do subscritor do app.ts) */
 bus.on('workspace:changed',()=>{blame();});

@@ -4,23 +4,6 @@
    Sem DOM, sem `window`, sem Tauri — só dados. O domínio e a aplicação importam
    destes tipos; o bridge re-exporta os que o resíduo precisa. */
 
-/** Um teste automático de uma issue: nome (ex. `rs::exposes_healthz`) e o predicado
- *  que o avalia (corre no autoTest; lê o FS vivo por closure). */
-export interface IssueTest {
-  n: string;
-  fn: () => boolean;
-}
-
-/** Um ficheiro que o gerador de uma issue produz: caminho + conteúdo, e o material
- *  opcional para a correcção (quando o teste falha) e os seus testes. */
-export interface IssueFile {
-  p: string;
-  content: string;
-  fix?: string;
-  fixNote?: string;
-  tests?: IssueTest[];
-}
-
 /** Tipo de issue (feature nova ou correcção). */
 export type IssueType = "feature" | "fix";
 
@@ -33,9 +16,9 @@ export interface TestResult {
   ok: boolean;
 }
 
-/** Uma issue do backlog, mutada no sítio ao longo do ciclo (stage/res/note/…). Os
- *  campos `gen`/`fix` são produtores de ficheiros (closures sobre os geradores do
- *  monólito); as issues `custom` (criadas à mão) não os têm. */
+/** Uma issue do backlog, mutada no sítio ao longo do ciclo (stage/res/note/…). Quem a
+ *  implementa é o agente real (ADR-0006, R3a: saíram os produtores de ficheiros `gen`/`fix`
+ *  e os testes-predicado `tests`); `res` guarda o resultado dos testes do projecto. */
 export interface Issue {
   id: string;
   title: string;
@@ -43,7 +26,6 @@ export interface Issue {
   pts: number;
   stage: IssueStage;
   attempts: number;
-  tests: IssueTest[];
   res: TestResult[] | null;
   note: string;
   model: string | null;
@@ -54,9 +36,6 @@ export interface Issue {
   custom?: boolean;
   infra?: boolean;
   merged?: string | null;
-  gen?: () => IssueFile[];
-  fix?: (() => IssueFile[]) | null;
-  fixNote?: string;
   /** A revisão do diff já foi feita (harness «review the diff before validating»). */
   reviewed?: boolean;
   /** A explicação, nas palavras de quem valida (harness «explain before validating»). */

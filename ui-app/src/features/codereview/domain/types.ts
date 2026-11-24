@@ -15,27 +15,56 @@ export interface Finding {
   fix: string;
 }
 
-/** Um achado de cor fixa do `dsLint` do monólito, já filtrado para este ficheiro.
- *  (O `dsLint` lê o workspace inteiro; a regra recebe só as entradas deste path.) */
-export interface DsHex {
-  line: number;
-  hex: string;
-}
-
-/** Factos do lexer-protótipo (`crates/lexer/src/lib.rs`) resolvidos pelo monólito
- *  (v6.ts: `lexBug`/`LXL`). Só presente quando o ficheiro revisto É esse protótipo;
- *  `null` para qualquer outro. `peekLine` é a linha de `chars.peek()`. */
-export interface LexerFacts {
-  bug: boolean;
-  peekLine: number;
-}
-
-/** Tudo o que a regra pura precisa para revisar um ficheiro — injectado pelo
- *  resíduo, que colhe `content`/`ext`/`dsLint`/`lexer` do mundo (FS/extOf/window). */
+/** Tudo o que a regra pura precisa para revisar um ficheiro (o conteúdo vem do FS). */
 export interface ReviewInput {
   path: string;
   content: string;
   ext: string;
-  lexer: LexerFacts | null;
-  dsLint: DsHex[];
+}
+
+/* ───── os analisadores reais do projecto (`review_code`, ADR-0006 R2e2) ─────
+   Espelham `tutor_eval::review` (camelCase): clippy/rustc, go vet, ruff, … sobre o ficheiro
+   no disco. A classe é o contrato de honestidade do backend: um lint de estilo nunca é um
+   bug, um erro de compilação nunca é uma sugestão. */
+
+export type AnalyzerClass = "bug" | "risk" | "opportunity";
+export type AnalyzerSeverity = "error" | "warning" | "info";
+
+export interface AnalyzerSpan {
+  file: string;
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
+  label: string | null;
+}
+
+export interface AnalyzerFinding {
+  analyzer: string;
+  rule: string | null;
+  class: AnalyzerClass;
+  severity: AnalyzerSeverity;
+  message: string;
+  primary: AnalyzerSpan;
+  related: AnalyzerSpan[];
+  evidence: string | null;
+  consequence: string | null;
+  verification: string | null;
+}
+
+/** `AnalyzerStatus`: correu, falhou, não está instalado, ou não se aplica ao âmbito. */
+export type AnalyzerStatus = "ran" | "failed" | "unavailable" | "skipped";
+
+export interface AnalyzerRun {
+  id: string;
+  language: string;
+  status: AnalyzerStatus;
+  detail: string | null;
+  filesCovered: number;
+}
+
+export interface AnalyzerReport {
+  findings: AnalyzerFinding[];
+  analyzers: AnalyzerRun[];
+  version: string | null;
 }

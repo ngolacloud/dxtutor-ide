@@ -24,16 +24,20 @@ export interface ContribSummary {
  *  catálogo com efeito trazem a acção; os do VSIX trazem só rótulo+atalho. */
 export type ExtCmd = [string, string, (() => void)?];
 
-/** Um item do catálogo (`EXT`) ou instalado por VSIX (`EXS.vsix`). */
+/** Uma extensão: instalada por VSIX (`EXS.vsix`), um resultado da pesquisa do Open VSX
+ *  (`remote`) ou uma recomendação para o projecto (`why`). Já não há um catálogo fixo nem
+ *  extensões «bundled»/«com efeito» a fingir (ADR-0006, R6b). */
 export interface ExtItem {
   id: string;
   n: string;
   pub: string;
   d: string;
   ctx: string[];
-  bundled?: number;
-  eff?: string;
   cmds?: ExtCmd[];
+  /** Os números do Open VSX (só nos resultados da pesquisa). */
+  remote?: { downloads: number; verified: boolean };
+  /** Porque se recomenda (só nas recomendações, p.ex. «Rust project»). */
+  why?: string;
   vsix?: number;
   ver?: string;
   engines?: string;
@@ -42,10 +46,12 @@ export interface ExtItem {
   contrib?: ContribSummary;
 }
 
-/** Estado instalado (`EXS`): mapa id→{on} + lista de VSIX. */
+/** Estado instalado (`EXS`): mapa id→{on} das extensões instaladas por VSIX + a lista delas, e
+ *  as funcionalidades do próprio dxtutor que se ligam e desligam (`builtin`). */
 export interface ExsState {
   inst: Record<string, { on: number | boolean }>;
   vsix: ExtItem[];
+  builtin: Record<string, boolean>;
 }
 
 /** Manifesto `package.json` de um VSIX (só os campos que lemos; o resto ignora-se). */

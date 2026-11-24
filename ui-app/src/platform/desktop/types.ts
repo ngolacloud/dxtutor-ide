@@ -30,18 +30,20 @@ export interface Desktop {
   disk: Record<string, string>; cwd: string | null; info: AppInfo;
   keys: Record<string, unknown>; proc: string | null;
   handlers: Record<string, ProcHandler>; errors: string[]; busy: number;
-  remote?: boolean; ready?: boolean; user?: string; host?: string; sock?: string; kube?: string;
+  remote?: boolean; ready?: boolean; user?: string; host?: string; gitName?: string; gitEmail?: string; sock?: string; kube?: string;
   idle?: () => Promise<unknown>; flush?: () => void;
   reloadDisk?: () => Promise<void>; syncGit?: () => Promise<void>;
   termLine?: (t: string, e?: boolean) => void; envFor?: () => Record<string, string>;
   gitInit?: () => unknown; approve?: (id: string, ok: boolean) => void;
-  logs?: (cmd: string) => unknown; open?: (p?: string) => unknown; close?: () => void;
+  open?: (p?: string) => unknown; close?: () => void;
   delegate?: (writes: [string, string][], o?: { signal?: AbortSignal | null; onStatus?: (s: string) => void }) => Promise<DelegateResult>;
   cancelTask?: (id: string) => Promise<boolean>;
   exec?: (cmd: string) => Promise<VerifyOutcome>;
   projectCmd?: (kind: VerifyKind) => VerifyCommand | null;
   delegateReview?: (title: string, writes: [string, string][]) => Promise<void>;
   readStack?: () => Promise<void>;
+  /** Redesenha o pane Containers com os contentores e as imagens reais (ADR-0006, R5a). */
+  drawContainers?: () => Promise<void>;
   /** Terminais reais (features/panel): tarefas num PTY + canais do Output. Só no desktop. */
   term?: {
     runTask: (line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string }) => Promise<number>;
@@ -120,8 +122,6 @@ declare global {
   var dcDetach: () => unknown;
   var drawRemote: () => void;
   var hydrateEnvs: () => void;
-  var runMission: (S: any, text?: any) => unknown;
-  var runSprint: (s: any) => unknown;
   var loadJSZip: () => Promise<unknown>;
   var termExec: (v: string) => unknown;
   var JSZip: unknown;
@@ -137,5 +137,5 @@ declare global {
   var reviewFindings: (p: string) => { l: number; sev: string; t: string; why: string; fix: string }[];
   var renderCreviewView: (tab: unknown, host: HTMLElement) => void;
   var renderHoodView: (tab: unknown, host: HTMLElement) => void;
-  var explainCmd: (fromDebug?: boolean) => void;
+  var explainCmd: () => void;
 }

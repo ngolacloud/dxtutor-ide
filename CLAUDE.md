@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 167 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 173 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -37,7 +37,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   pode voltar a ter a directiva: código novo nasce tipado.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch` e `project`); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp` e `project`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -51,9 +51,10 @@ Piloto de Clean Architecture (ADR-0002). A feature está extraída do monólito
 
 ```
 features/codev/
-  domain/          tipos, policy (approvalFor), scoring, scenarios/.
+  domain/          tipos, policy (approvalFor), composer, project-commands, agent-events,
+                   provider-errors, pricing.
                    PURO: sem DOM, sem window, sem Tauri, sem importar de fora.
-  application/     casos de uso: ports.ts + run-mission / live-chat / tool-executor.
+  application/     casos de uso: ports.ts + live-chat / agent-chat / tool-executor.
                    Deps injectadas por argumento; sem HTML. Cancelamento por AbortSignal.
   ui/              chat-view.ts (dono do DOM/markup) + actions.ts (1 listener
                    delegado no document: data-action + data-on, sem onclick inline).
@@ -102,7 +103,9 @@ features/codereview.ts  RESÍDUO strangler + raiz de composição: compõe o mot
                    e re-publica os shims window.* (v6.ts/debug.ts ainda resolvem por global).
 ```
 
-Governada pelas mesmas A7/A8 (está em `FEATURES`). Nota: ao contrário do Co-Dev,
+Governada pelas mesmas A7/A8 (está em `FEATURES`). No desktop com pasta, a tab de Code
+review junta às regras locais os analisadores reais do projecto (`review_code`, âmbito
+`file`, pelo adaptador `infrastructure/tauri.ts`; ADR-0006 R2e2). Nota: ao contrário do Co-Dev,
 o markup (`renderCreviewView`/`renderHoodView`) vive no resíduo de composição
 `features/codereview.ts`, não num `ui/*-view.ts` — por isso `ui/` só tem
 `actions.ts`. A tabela de acções fica no resíduo (único sítio com o bridge à mão).
@@ -119,11 +122,12 @@ features/scm/
                    author.ts (resolveAuthor). PURO.
   application/     ports.ts + scm-engine.ts (makeScmEngine: gitInit/commit[v4]/
                    commitV2/checkout/gitMerge/gfStart/gfFinish/stage/discard, deps
-                   injectadas; Date.now/Math.random como clock/ids).
+                   injectadas; Date.now/Math.random como clock/ids; `store.repo()` e a
+                   porta `flow` — ver abaixo).
   ui/              actions.ts (1 listener delegado: data-action + data-on).
   infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
 features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GIT/LANE/
-                   STAGED/BRANCH/COMMIT_MSG/COMMITS/BRANCHES/AUTHOR/GSEL) e do DOM
+                   STAGED/BRANCH/COMMIT_MSG/COMMITS/AUTHOR/GSEL) e do DOM
                    (renderScmPane/gfGuide/gfPrompt/pickBranch/drawTimeline/openGraph);
                    compõe o motor com os adaptadores do bridge e re-publica os shims
                    window.* (app.ts/v5/v6/bridge/pair + VIEW.graph/XC.git/checkpoint
@@ -131,15 +135,23 @@ features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GI
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o codereview, o markup vive
-no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. GOTCHA-commit:
-o botão «Commit» usa o commit v2 (`window.commit`, só FS+COMMITS); o Ctrl+Enter e os
-auto-commits do monólito usam o v4 git-aware (`window.commitGit`). No desktop, o commit (v2 e
-v4)/checkout/gitMerge/gfStart/gfFinish PUBLICADOS passam pela porta `desktopPorts.scm` (git
-real), e desde a A0.5 (docs/v2/UI-AUDIT.md) as acções do pane, a paleta de ramos, o prompt de
-gitflow e o Ctrl+Enter usam essas versões (o bug aberto desde f07dbc1 está fechado). Rede de
-segurança em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor),
-`tests/scm.domain.test.ts` (domínio puro) e `tests/scm.desktop-port.test.ts` (cada entrada do
-pane consulta a porta desktop).
+no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. **Sem git simulado
+(ADR-0006, R1d):** `gitInit` dá um modelo VAZIO (sem ramo nem commits); só há repositório
+quando `store.repo()` — no desktop `DXR.git` (a pasta aberta é um repo), no browser nunca.
+Sem repo, commit/checkout/merge/gitflow recusam com aviso e o pane diz-o (com `git init` no
+desktop com pasta); com repo, o motor é o espelho optimista e o git real vem da porta
+`desktopPorts.scm` (platform/desktop/git.ts; o `syncGit` reconstrói o DAG do `git log`).
+GOTCHA-commit: o botão «Commit» usa o commit v2 (`window.commit`); o Ctrl+Enter e os
+auto-commits (board, terminal, agentes) usam o v4 git-aware (`window.commitGit`); no desktop
+OS DOIS passam pela porta (commit real), tal como checkout/gitMerge/gfStart/gfFinish. As
+acções do pane (commit, ramos, Ctrl+Enter, prompt e fim do gitflow) chamam as versões
+PUBLICADAS (A0.5, docs/v2/UI-AUDIT.md: o bug aberto desde f07dbc1 está fechado), e o gitflow do motor (`gfStart`/`gfFinish`)
+encadeia checkout/merge pela porta `flow`, ligada às mesmas — nunca às locais. Rede
+de segurança em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor sobre
+o histórico da fixture `tests/fixtures/sample-history.ts`, que o harness aplica com
+`REPO=true`), `tests/scm.norepo.test.ts` (sem repositório + ligação do gitflow),
+`tests/scm.desktop-port.test.ts` (cada entrada do pane consulta a porta desktop) e
+`tests/scm.domain.test.ts` (domínio puro).
 
 ## Quarta feature extraída: Run and Debug (`ui-app/src/features/debug/`)
 
@@ -148,31 +160,30 @@ Mesmas camadas e regra de dependências:
 
 ```
 features/debug/
-  domain/          types.ts, lexer-trace.ts (buildLexTrace — passos da sessão code),
-                   crash-trace.ts (buildCrashTrace — sondas da sessão ops; importa `esc`
-                   puro de core), launch.ts (buildLaunchConfigs), breakpoints.ts
-                   (bpKey/bpLine/bpPath). PURO (geradores recebem o mundo por argumento).
-  application/     ports.ts + debug-engine.ts (makeDebugEngine: startDebug/dbgFeed/
-                   dbgApplyClone/dbgStep/dbgContinue/dbgFinish/dbgStop/dbgFix/toggleBp,
-                   deps injectadas; store/workspace/lexer/scenarios/editor/shell/view/…).
+  domain/          breakpoints.ts (bpKey/bpLine/bpPath). PURO.
+  application/     ports.ts + debug-engine.ts (makeDebugEngine: startDebug/dbgStep/dbgStop/
+                   toggleBp, deps injectadas; store/editor/shell/view/notifier).
   ui/              actions.ts (1 listener delegado: data-action + data-on; chave própria).
   infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
-features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (DBG/BPS,
-                   window-backed) e do DOM (DBGK/drawDbg/refreshDbg/renderDebugPane);
-                   compõe o motor com os adaptadores do bridge + as funções de desenho
-                   (porta view), tem a tabela ACTIONS, e re-publica os shims window.*
-                   (onclick/keydown/menus de v6 + fachadas dbgState/dbgBreaks/dbgLaunch).
+features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BPS, window-
+                   backed) e do DOM (drawDbg/refreshDbg/renderDebugPane); compõe o motor
+                   com os adaptadores do bridge, tem a tabela ACTIONS, e re-publica os shims
+                   window.* (keydown/menus de v6 + a fachada dbgBreaks que o editor lê).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
-resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. Particularidades: a sessão
-`DBG` é polimórfica (`pre`/`code`/`ops`) — tipada por união + casts por `kind`; os
-helpers de lexer (`lexVariant`/`LXL`) vivem em `debug.ts` (ADR-0004 U4g5) e os containers
-`#pane-debug`/`#pc-dbg` nascem no `boot6` (no `app/boot-steps.ts` desde a U4j5c; o arranque não corre no
-harness) — o golden reproduz estas peças como fixtures (cópias antigas).
-Rede de segurança em `tests/debug.golden.test.ts` (goldens de #pane-debug/#pc-dbg nos
-estados sem-sessão/pre/code, caracterização dos geradores, e 4 testes de dispatch
-delegado que disparam eventos reais — o golden strippa data-action, não prova o wiring)
+resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. **Depuração real (ADR-0006, R4;
+as sessões simuladas saíram na R1c2):** o motor é o gdb do backend (`debug_*`, adaptador
+`infrastructure/tauri.ts`). F5 escolhe o programa (num projecto/workspace Cargo, `cargo
+build` e o binário em `target/debug/` — `domain/session.ts::cargoTargets`; noutro, o
+caminho do executável), lança o gdb, põe os breakpoints do gutter e corre; parado, o pane
+mostra onde, as variáveis locais e a pilha, o editor pinta a linha (`dbgCurrent`), e
+Continue/Step over (F10)/Step into (F11)/Stop (Shift+F5) seguem para o gdb. Sem gdb, di-lo
+(com o que instalar). Os containers `#pane-debug`/`#pc-dbg` nascem no `boot6` (no `app/boot-steps.ts`
+desde a U4j5c; o arranque não corre no harness) e são reproduzidos como fixtures no golden.
+Rede de segurança em `tests/debug.golden.test.ts` (goldens do pane/assistente sem sessão e
+com breakpoints, a sessão real com IPC falso — construir, lançar, breakpoints, parar,
+variáveis, passo, fim —, sem gdb, sem binários, erro do gdb, e o dispatch dos breakpoints)
 e `tests/debug.domain.test.ts` (domínio puro).
 
 ## Quinta feature extraída: backlog, sprints e kanban (`ui-app/src/features/board/`)
@@ -204,18 +215,29 @@ features/board.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BL
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm/debug, o markup vive no
 resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`/`runSprint`/
 `approveIssue` publicam-se já COMPOSTAS com as políticas que antes eram decorações do
-app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3), e
-o desktop (`platform/desktop/demos.ts`) ainda decora o `runSprint` — as arestas internas e os handlers data-action
+app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3) — as arestas internas e os handlers data-action
 resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
 O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). O ARRASTAR dos cartões
 (`board:card`/`board:col`) vai pelo despachante partilhado desde a U5d do ADR-0004 — os goldens do
 quadro foram regenerados nessa altura (decisão do dono; o diff foi só a remoção dos 44 atributos
 `ondrag*`/`ondrop`). Rede de segurança em
 `tests/board.golden.test.ts` (goldens do pane vazio/povoado, caracterização de
-genBacklogIssues/mkIssue, 3 testes de dispatch delegado) e `tests/board.domain.test.ts`
-(domínio puro). **BUG pré-existente reportado (não corrigido no refactor): `autoTest`
-chama `sleep(380)` como global, mas `sleep` nunca é publicado no `window` (é `const` local
-em `codev/ui/chat-view.ts`) → o runner lança ao entrar em Teste. Preservado tal e qual.**
+genBacklogIssues/mkIssue, testes de dispatch delegado — o «Delegar» com agente falso) e
+`tests/board.domain.test.ts` (domínio puro). **Sem runner guionado (ADR-0006, R3a):** correr
+uma issue (Delegar, Sprint, ⚡ Agente) é ramo gitflow → o agente real implementa-a (porta
+`agent`, `codevAgentStory`, modo plano) → commit do que mudou → os testes do projecto
+(`projectTests`) → «Validação funcional» ou volta a desenvolvimento; a porta `scm.settle()`
+espera pela fila git/disco do desktop entre os passos. Sem agente, di-lo. Saíram os
+produtores `gen`/`fix` (templates dos geradores), os testes-predicado, o router e as pausas
+encenadas — e com eles o bug do `sleep(380)` global. O «Gerar backlog» do Studio cria issues
+só com o enunciado e o contexto do desenho na nota. **Backlog por pasta (R3b):** no desktop com pasta, o
+quadro carrega-se do backend ao abrir a pasta (`board_load`) e grava-se quando muda
+(`board_save`, por detecção de mudança com debounce — `board/domain/persist.ts` mapeia
+Issue ↔ Story, o que não tem coluna vai em `meta`); no browser fica em memória. **Equipa do
+projecto (R3c):** os escopos dos assistentes (onde escrevem, que comandos correm) derivam-se
+da estrutura da pasta aberta (`features/team-scopes.ts`, pura) e o `.dxtutor/team.json` do
+projecto manda; gravar a equipa escreve-o lá (sem pasta, no LS). O custo das issues vem do uso
+real do agente (porta `onUsage` do agente v2 → contador de uso e `ctx`).
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 
@@ -285,7 +307,13 @@ features/infra.ts  RESÍDUO strangler (tipado desde a U4i1 do ADR-0004; FORA da 
                    renderObserveView, drawRemote/infraDraw, cache OBS/polling); compõe o
                    motor com os adaptadores do bridge, tem a tabela ACTIONS, e re-publica
                    os shims window.* (envPrime/envDrift/envDriftStyle; rtConnect/k8sConnect/
-                   dxDeploy publicados consultam a porta desktopPorts.infra (U4h4) — ACTIONS chama window.X).
+                   dxDeploy publicados consultam a porta desktopPorts.infra (U4h4), e dcAttach/dcDetach/
+                   k8sScale/k8sDown também (ADR-0006 R5b: sessão devcontainer_session_* e kubectl
+                   reais; no browser não fingem); os ambientes staging/production lêem-se e
+                   promovem-se pela porta EnvCluster (desktopPorts.infra.cluster, R5c1: kubectl
+                   get/apply -f - com os segredos do ambiente) e a observabilidade pela porta
+                   ObsSource (desktopPorts.infra.obs, R5c2: stats/compose logs, kubectl top/logs;
+                   sem séries semeadas) — ACTIONS chama window.X).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
@@ -340,7 +368,7 @@ docker/kubectl) vive em `platform/desktop/`: `context.ts` (os clientes IPC, o ob
 `window.DXR`, processos `sh`/`git`/`stream`, a fila `enqueue`/`idle`, e os serviços tardios
 `ctx.flushSave`/`ctx.syncGit`/`ctx.envFor`/`ctx.runInTerm`/… que cada módulo preenche) e um
 módulo por área com um `install<Área>(ctx)` (terminal, workspace, git, llm, agent-tasks,
-infra, demos, ext) + `selftest.ts`. O `bridge.ts` é só a composição: sai no browser, cria o
+infra, remote, ext; o `demos` saiu na R3a do ADR-0006) + `selftest.ts`. O `bridge.ts` é só a composição: sai no browser, cria o
 contexto, instala os módulos pela ordem das antigas secções (a ordem dos efeitos no eval
 importa) e corre o arranque. Regra ao mexer: um módulo usa os serviços de outro SEMPRE por
 `ctx.x(...)` no acto (nunca capturado no install), e nada de nomes soltos que resolvam para
@@ -384,12 +412,12 @@ mantém-se o apagado e as regras novas vão para o ficheiro do dono.
 ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
 `dxtutor-plugin.json` + cursos no formato `tutor_core::Course` (TOML/JSON), com
 `Course.overview` e `Unit.concepts` (o texto de leitura de cada tópico). Os oficiais vivem em
-`github.com/dxtutor-courses/<id>`. O catálogo oficial tem no máximo 10 linguagens
+`github.com/ngolacloud/dxtutor-course-<id>`. O catálogo oficial tem no máximo 10 linguagens
 (`learn/domain/catalog.ts`): rust, go, python, typescript, java, kotlin, swift, csharp,
 cpp, sql.
 
 - **Fonte única dos cursos Rust/Go: `courses/<id>/`** (plugin oficial completo, publicado em
-  `dxtutor-courses/<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
+  `ngolacloud/dxtutor-course-<id>` com `scripts/publish-course.sh`). O `tutor-core` embute o TOML. O JSON
   da UI (`ui-app/src/content/courses/*.json`) é **gerado**: editar só o TOML e correr
   `python3 scripts/sync-ui-courses.py`. O teste `crates/tutor-core/tests/ui_json.rs` falha se
   divergirem.
@@ -424,14 +452,87 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
   editor. O resíduo `ext.ts` publica `vsxHighlight` (usado pelo `paintEd`), `vsxSnippet`
   (Tab), `vsxToggleComment` (Ctrl+/), `vsxApplyTheme` e `vsxInstallOpenVsx`.
 - **`ui/actions.ts`:** listener delegado da `ext` (chave `__extActionHandler__`). Os botões da
-  Fase 4 (`vsx-theme`, `vsx-open-vsx`) usam `data-action`; a lista e a página de detalhe passaram ao
-  despachante partilhado (`ext:*`, `app/actions.ts` — ADR-0004, U5c).
-- **Backend:** `vsix_fetch_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
+  Fase 4 (`vsx-theme`, `vsx-open-vsx`) e, desde a R6b do ADR-0006, as linhas, o detalhe e o «+»
+  usam `data-action`.
+- **Sem catálogo fixo (ADR-0006, R6b):** instaladas = VSIX reais; recomendadas = ids reais do Open
+  VSX pela pilha (`domain/recommend.ts`); a pesquisa vai ao Open VSX (`vsix_search_open_vsx`,
+  desktop); instalar descarrega o VSIX. Error Lens/YAML/Prettier eram código do dxtutor: são as
+  funcionalidades «Built into dxtutor» (`window.builtinOn(key)`, lido pelo editor e pelos
+  diagnósticos); Shift+Alt+F formata sempre.
+- **Backend:** `vsix_fetch_open_vsx` e `vsix_search_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
   em `lsp.rs`.
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
   `ext.phase4-harness.test.ts`. A página de detalhe só muda para itens VSIX, por isso os
   goldens do catálogo ficam intactos.
 
+## Nona feature: Testing real (`ui-app/src/features/testing/`)
+
+Feature NOVA (ADR-0006, R2a) que substitui `features/test.ts`: o pane «Testing» e o
+`#st-tests` sobre os comandos reais do backend. Nasceu tipada e em camadas (governada por A7/A8):
+
+```
+features/testing/
+  domain/          types.ts (TestItem/TestRun/TestState), results.ts (testKey/groupByFile;
+                   parseSuiteOutput — estado de cada teste na saída de «Run all»: cargo
+                   `test x ... ok|FAILED|ignored`, go `--- PASS|FAIL|SKIP`, unittest -v;
+                   statesAfterSuite/countStates/statusBarText). PURO.
+  application/     ports.ts (TestsPort/WorkspacePort) + testing-service.ts (descoberta, uma
+                   corrida de cada vez, trocar de pasta descarta resultados em voo).
+  ui/              testing-view.ts (markup) + actions.ts (chave __testingActionHandler__).
+  infrastructure/  tauri.ts (list_tests/run_test/run_all_tests) + legacy-bridge.ts (ÚNICO com
+                   window: DXR.root/projectCmd, openPath, runTask, PANE; publica renderTestPane).
+  index.ts         raiz de composição; dona do `#st-tests` (o panel/diagnostics já não o limpam).
+```
+
+A descoberta do backend cobre Rust/Go/Python; para o resto (p.ex. `npm test`) o pane mostra o
+comando de testes detectado e corre-o num terminal de tarefa. Sem pasta (browser), o pane diz
+como abrir uma e nada chama o backend. Rede: `tests/testing.{domain,application,wiring}.test.ts`
+(o wiring arranca a cadeia real com um `__TAURI__` falso) + o passo `testing` do selftest
+desktop (teste Python real: list_tests → run_all_tests → run_test).
+
+## O editor ligado ao servidor de linguagem (`ui-app/src/features/lsp/`)
+
+Feature nova e tipada, só na app desktop (governada por A7/A8). Até aqui a UI oficial nunca
+chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`).
+
+- **`domain/`:** `languages.ts` (extensão → `languageId`, alinhado com `LANGS` do `lsp.rs`),
+  `positions.ts` (offset ↔ `{line, character}` e ponto do rato → offset, com tabs),
+  `results.ts` (hover e definição normalizados; `plainMarkdown` limpa o markdown do servidor),
+  `paths.ts` (chave do `FS` ↔ caminho absoluto). PURO.
+- **`application/lsp-client.ts`:** `lsp_start` uma vez por pasta, `didOpen` uma vez por
+  ficheiro (bus `editor:tab`), `didChange` com versões (bus `workspace:changed`), hover,
+  definição, e repinta o editor quando chegam diagnósticos do ficheiro aberto.
+- **`ui/editor-hooks.ts`:** rato parado → cartão `#lsp-hover`; F12 ou Ctrl+clique → definição;
+  Shift+F12 → lista de referências; F2 → caixa de rename (`ui/popups.ts`: `#lsp-refs`,
+  `#lsp-rename`). Listeners delegados no `document`, sem mexer no `editor.ts`; não publica globais.
+- **Completion** (`domain/completion.ts`, `ui/completion-hooks.ts` + `ui/completion-view.ts`, comando
+  `lsp_completion`): Ctrl+Espaço, depois de `.` ou com 2+ letras de um nome; ↑/↓, Enter/Tab, Esc
+  apanhados na fase de captura (antes do Tab do editor). Aceitar expande o snippet e aplica os
+  `additionalTextEdits`. Filtro: prefixo, depois início de palavra (camelCase), sem repetidos.
+- **Assinatura** (`domain/signature.ts`, `ui/signature-hooks.ts`, comando `lsp_signature_help`):
+  depois de `(`/`,` ou Ctrl+Shift+Espaço, um cartão por cima do cursor com o parâmetro activo a
+  negrito; acompanha a escrita e fecha quando o servidor deixa de responder (cursor fora da
+  chamada), com Esc ou ao sair. O jdtls traz o signatureHelp DESLIGADO por omissão: o `lsp.rs`
+  liga-o nas `initializationOptions` (`init_options`).
+- **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
+  — o `didChange` normal só sai 180 ms depois da última tecla. Um rename que volta `null` (o jdtls
+  logo após uma edição) é perguntado mais duas vezes.
+- **Rename:** o cliente aplica a `WorkspaceEdit` (`changes` ou `documentChanges`; `domain/edits.ts`)
+  aos ficheiros da pasta pelo `writeFile` (o autosave leva-as ao disco), envia `didChange` dos que o
+  servidor tem abertos e conta o que salta (fora da pasta, operações de ficheiro).
+- **Servidor em falta:** sem servidor instalado o backend não abre sessão nem dá erro; o cliente
+  pergunta `lsp_server_status` (uma vez por linguagem) e o editor mostra uma faixa
+  (`#lsp-missing`, `domain/server-status.ts`) com o servidor que falta e como o instalar, reposta
+  a cada desenho da vista pelo evento `editor:file-view` do bus; «Dismiss» fecha-a para essa
+  linguagem na sessão.
+- Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
+  aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
+- **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, e o passo
+  `lsp-java`/`lsp-kotlin` do auto-teste desktop (`DXTUTOR_SELFTEST`, Xvfb), que conduz o editor real.
+  GOTCHA: o backend procura o `jdtls` no PATH e em `$HOME/.local/share/jdtls/bin`; sem servidor não
+  abre sessão (sem erro). Correndo o auto-teste com um HOME temporário, põe essa pasta no PATH
+  (`PATH="$HOME/.local/share/jdtls/bin:$PATH" HOME=/tmp/… DXTUTOR_SELFTEST=…`) — senão o passo
+  `lsp-java` diz que o servidor não foi encontrado (e verifica que o editor mostra o aviso).
 ## Studio de arquitectura de sistema (`ui-app/src/features/arch/`, ADR-0006)
 
 Feature NOVA e tipada (governada por A7/A8), separada do Studio do catálogo cloud
@@ -497,6 +598,7 @@ registada (mudança de UI aprovada), nunca para «fazer passar».
 
 - `docs/architecture/ADR-0002-codev-clean-architecture.md` — a decisão e as 6 fases.
 - `docs/architecture/ADR-0005-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
+- `docs/architecture/ADR-0006-ide-real.md` — o fim dos dados de demonstração e cada feature no backend real (R0–R6).
 - `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.

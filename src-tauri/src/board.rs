@@ -1,7 +1,8 @@
 //! Comandos Tauri do Project (docs/v2/UI-AUDIT.md, item 5) — adaptadores finos sobre o
 //! store SQLite [`tutor_board::project`]. Um projecto por *workspace* (a raiz aberta). A base
 //! vive no directório de dados local da app (`app_local_data_dir/board.sqlite3`); a
-//! migração 1 importa o Board antigo (`board_load`/`board_save`, que esta fase substitui).
+//! migração 1 importa o Board antigo que lá estava. O quadro Tasks (ADR-0006, R3b) continua com
+//! `board_load`/`board_save`, num ficheiro próprio (`tasks.sqlite3`, fim deste módulo).
 //!
 //! As regras (um passo de cada vez, WIP, DoR, DoD, bloqueio) são verificadas no store, numa
 //! transacção por operação; aqui só se abre a base, se identifica quem age e se devolve o
@@ -15,6 +16,7 @@ use tauri::{AppHandle, Manager};
 use tutor_board::project::{
     reports::Reports, IssueDetail, Op, Project, ProjectError, ProjectStore,
 };
+use tutor_board::{Backlog, BoardStore};
 
 /// Caminho do ficheiro SQLite do projecto, criando o directório se preciso.
 pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -121,4 +123,41 @@ pub fn project_issue(
 pub fn project_reports(app: AppHandle, root: String) -> Result<Reports, ProjectError> {
     let root = root_of(&root)?;
     open(&app)?.reports(&root, now_ms())
+}
+
+// ── O quadro Tasks (ADR-0006, R3b) ─────────────────────────────────────────────────────────
+// O quadro da actividade Tasks continua a gravar o backlog inteiro (`tutor_board::Backlog`) por
+// pasta. Vive num ficheiro próprio: o `board.sqlite3` é do Project, cuja migração 1 renomeia as
+// tabelas do Board antigo para `legacy_*` (e o `sprints` do Project tem outro esquema). Os dois
+// quadros coexistem até a Q3 (docs/v2/QUESTIONS.md) decidir se o Tasks passa a ser o Project.
+
+/// Caminho do SQLite do quadro Tasks, criando o directório se preciso.
+fn tasks_db_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(db_path(app)?.with_file_name("tasks.sqlite3"))
+}
+
+/// Chave de workspace: a raiz aberta, ou `"default"` sem pasta.
+fn tasks_key(root: Option<String>) -> String {
+    match root {
+        Some(r) if !r.trim().is_empty() => r,
+        _ => "default".to_string(),
+    }
+}
+
+/// Lê o backlog persistido de `root` (ou `null` se ainda não existe).
+#[tauri::command]
+pub fn board_load(app: AppHandle, root: Option<String>) -> Result<Option<Backlog>, String> {
+    let store = BoardStore::open(&tasks_db_path(&app)?).map_err(|e| e.to_string())?;
+    store
+        .load_board(&tasks_key(root))
+        .map_err(|e| e.to_string())
+}
+
+/// Grava (substitui atomicamente) o backlog de `root`. Idempotente.
+#[tauri::command]
+pub fn board_save(app: AppHandle, root: Option<String>, backlog: Backlog) -> Result<(), String> {
+    let mut store = BoardStore::open(&tasks_db_path(&app)?).map_err(|e| e.to_string())?;
+    store
+        .save_board(&tasks_key(root), &backlog, now_ms())
+        .map_err(|e| e.to_string())
 }

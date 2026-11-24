@@ -5,13 +5,13 @@
    chips, the question goes into the box, and with `send` it is sent like the human's own
    message (through the agent, or queued if a turn is running). */
 
-import type { MissionPresenter, Sampler } from "./ports";
+import type { ChatPresenter, Sampler } from "./ports";
 import { askText, explainPrompt, type AskRequest } from "../domain/ask";
 
 export interface AskDeps {
   /** The direct model call (`null` when no live provider: explain falls back to the composer). */
   sample(): Sampler | null;
-  presenter: Pick<MissionPresenter, "userMessage" | "thinking" | "assistantText" | "liveError" | "scrollMsgs">;
+  presenter: Pick<ChatPresenter, "userMessage" | "thinking" | "assistantText" | "liveError" | "scrollMsgs">;
   speaker(): string;
   /** Shows the Co-Dev panel. */
   focus(): void;
