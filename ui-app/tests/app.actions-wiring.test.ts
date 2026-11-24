@@ -87,14 +87,13 @@ describe("cablagem das acções partilhadas (U5b)", () => {
      ext-install, ext-toggle, builtin-toggle…), cujos cliques o ext.golden.test.ts prova. */
 
   it("learn (U5c): o nível alterna no ONB.levels do window e volta ao passo 2", () => {
-    const steps: unknown[] = [];
     w.ONB = { lang: "rust", levels: ["beginner"] };
-    w.ltOnboard = (s: unknown) => steps.push(s);
     document.body.insertAdjacentHTML("beforeend", `<button id="lv" data-action="learn:level" data-on="advanced"></button><button id="lv2" data-action="learn:level" data-on="beginner"></button>`);
     click(document.getElementById("lv"));
     click(document.getElementById("lv2"));
     expect(w.ONB.levels).toEqual(["advanced"]);
-    expect(steps).toEqual([2, 2]);
+    // volta ao passo 2 do onboarding (o dos níveis) — desde a U7g o learn chama o seu ltOnboard directamente
+    expect(document.querySelectorAll('#onb [data-action="learn:level"]').length).toBeGreaterThan(0);
   });
 
   it("board (U5c): os botões que o motor emite chamam a função publicada, com o sprint como número", () => {

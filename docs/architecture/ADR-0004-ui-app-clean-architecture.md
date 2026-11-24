@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7f)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7g)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1101,3 +1101,15 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   testes de outras sessões (`save`, `blame`, `complete`). Os testes apanharam duas leituras pela fachada que a
   conversão tinha deixado (`G.scrollTerm`, `TW.TK`); corrigidas, e uma busca final não encontra mais nenhuma
   referência (nem em strings) aos 14. Globais publicadas 272 → 258.
+- **U7g (2026-11-24) — o registo de serviços tipado (decisão do dono), piloto no Learning Track.** Os casos de ordem de
+  avaliação (cerca de 45 nomes) não passam a import: o publicador teria de avaliar 28 a 210 módulos mais cedo, com
+  ciclos (explorer↔workspace) e efeitos que trocavam de ordem; os dois saltos pequenos também não servem (o explorer já
+  importa o workspace; o `gotoLine` é trocado pelo teste de cablagem). Decisão do dono: `app/services.ts`, um registo
+  tipado (o padrão do `VIEW`/`RP`/`desktopPorts`) — o dono regista a sua API ao avaliar, no mesmo acto em que a
+  publicava, e o leitor que avalia antes chama-a no acto (`services.learn!.course()`); os tipos vêm por `import type`,
+  que não muda a ordem. Piloto: o pane do tutor (avalia 103 módulos antes do `learn.ts`) lê o curso e o progresso pelo
+  registo, e as suas acções chamam `ltOnboard`/`saveLT`/`ltOpen` por ele; o próprio `learn.ts` chama os seus
+  `ltOnboard`/`saveLT` directamente; o arranque importa o `ltOnboard`. Saem 10 globais (`saveLT`, `LT_BADGE`, `course`,
+  `ltUnits`, `ltDone`, `ltSeq`, `ltPts`, `stars`, `ltOnboard`, `ltOpen`); o `LTS` fica publicado (o visualizer, de
+  outra sessão, ainda o lê). O teste de cablagem do `learn:level` deixa de trocar o `ltOnboard` publicado e verifica o
+  efeito (o onboarding volta ao passo dos níveis). Globais publicadas 258 → 248.
