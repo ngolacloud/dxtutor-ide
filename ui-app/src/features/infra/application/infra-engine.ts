@@ -35,9 +35,18 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
   /* ───── hidratação preguiçosa (guard-once) ───── */
   let envsHyd = false, envxHyd = false;
   function hydrateEnvs(): void { if (envsHyd) return; envsHyd = true; Object.assign(state.envs(), persist.get("env5", {})); state.setPDc(workspace.root() + ".devcontainer/devcontainer.json"); }
-  function hydrateEnvx(): void { if (envxHyd) return; envxHyd = true; Object.assign(state.envx(), persist.get("envx6", {})); }
+  /* A0.5 (docs/v2/UI-AUDIT.md): os valores dos segredos (`sec`) nunca são gravados — viviam em
+     texto simples no localStorage. Ficam só em memória durante a sessão; os que versões
+     anteriores gravaram são apagados na primeira hidratação. Guardá-los no keyring do sistema
+     chega com os ambientes reais (fase A9). */
+  function hydrateEnvx(): void {
+    if (envxHyd) return; envxHyd = true;
+    const saved = { ...(persist.get("envx6", {}) as Record<string, unknown>) };
+    if ("sec" in saved) { delete saved.sec; persist.set("envx6", saved); }
+    Object.assign(state.envx(), saved);
+  }
   const saveEnv = (): void => persist.set("env5", state.envs());
-  const saveEnvx = (): void => persist.set("envx6", state.envx());
+  const saveEnvx = (): void => { const { sec: _secrets, ...rest } = state.envx(); persist.set("envx6", rest); };
   const cli = (): string => state.envs().rt;
 
   /* ═══════════ motor runtime / dev-container / Kubernetes ═══════════ */

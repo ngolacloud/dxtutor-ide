@@ -125,10 +125,10 @@ function renderDesktop(el: HTMLElement, d: TestsDesktop): void {
   let body: string;
   if (D.loading) body = `<div class="sec-empty">A descobrir os testes do projecto…</div>`;
   else if (D.error) body = `<div class="sec-empty" style="color:var(--red)">${esc(D.error)}</div>`;
-  else if (!items.length) body = `<div class="sec-empty">Nenhum teste encontrado. A descoberta lê funções <code>#[test]</code> (Rust), <code>func TestXxx</code> (Go) e testes <code>unittest</code> (Python).</div>`;
+  else if (!items.length) body = `<div class="sec-empty">Nenhum teste encontrado. A descoberta procura testes Rust (#[test]), Go (func TestXxx) e Python (unittest).</div>`;
   else {
     const files = [...new Set(items.map((t) => t.file))];
-    body = `<div class="sec-empty"><b style="color:var(--green)">${n("pass")} passados</b> · <b style="color:${n("fail") ? "var(--red)" : "var(--fg-muted)"}">${n("fail")} falhados</b> · ${n("idle")} por correr${n("skip") ? ` · ${n("skip")} ignorados` : ""}</div>`
+    body = `<div class="sec-empty"><b style="color:var(--green)">${n("pass")} passados</b> · <b style="color:${n("fail") ? "var(--red)" : "var(--fg-muted)"}">${n("fail")} falhados</b> · <span>${n("idle")} por correr</span>${n("skip") ? ` · <span>${n("skip")} ignorados</span>` : ""}</div>`
       + (failed.length ? `<button class="btn ghost" data-action="test-rerun-failed"${D.busy ? " disabled" : ""}>Correr de novo os ${failed.length} falhados</button>` : "")
       + files.map((f) => {
         const ts = items.filter((t) => t.file === f);
@@ -138,7 +138,7 @@ function renderDesktop(el: HTMLElement, d: TestsDesktop): void {
       }).join("");
     const sel = D.sel ? items.find((t) => key(t) === D.sel) : null;
     const out = sel ? D.output[key(sel)] : D.suite ? D.suite.output : "";
-    if (out) body += `<div class="scm-grp">${sel ? "Saída · " + esc(sel.name) : "Saída · suite completa"}</div><pre class="sec-empty" style="white-space:pre-wrap;max-height:260px;overflow:auto;font-family:var(--font-mono);font-size:11.5px">${esc(out.slice(-6000))}</pre>`;
+    if (out) body += `<div class="scm-grp">${sel ? `<span>Saída ·</span> <span class="notr">${esc(sel.name)}</span>` : "Saída · suite completa"}</div><pre class="sec-empty" style="white-space:pre-wrap;max-height:260px;overflow:auto;font-family:var(--font-mono);font-size:11.5px">${esc(out.slice(-6000))}</pre>`;
   }
   el.innerHTML = hd("Testing", btn("test-run-all", "Correr todos", "run") + btn("test-discover", "Descobrir de novo", "refresh")) + `<div class="sections">${body}</div>`;
 }
