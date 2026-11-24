@@ -445,3 +445,8 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   pasta vazia (R1a); o `boot.ts` tipado fica sem a árvore, o `DOCS` e os contentores inventados;
   o `infra.ts` tipado fica sem o «Debug this». Selftest desktop completo (R1–R4): `errors: []`.
   Métricas após o rebase: globais 392 → 366, handlers inline 158 → 143.
+- **Rebase sobre a U4j2 e o Studio F2 (2026-11-24).** A U4j2 tirou os shims `RP.x=()=>window.renderX()`
+  do `app.ts`: cada feature regista o seu pane. As que esta série reescreveu passam a registá-lo
+  elas próprias (`features/testing` → `RP.test`, `run.ts` → `RP.run`, `account.ts` → `RP.account`;
+  o `search.ts` já o fazia). Selftest desktop completo: `errors: []`. Métricas: handlers inline
+  152 → 143.
