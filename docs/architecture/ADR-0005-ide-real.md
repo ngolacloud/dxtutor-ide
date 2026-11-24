@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R0, R1b, R1a e R1c1 feitas (verificadas no desktop), R1c2/R1d e R2–R6 por fazer
+- **Estado:** aceite (2026-11-23); R0, R1b, R1a e R1c1 feitas (verificadas no desktop), R1c2 feita, R1d e R2–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -159,3 +159,30 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   «feat: flow»/«feat: ckpt ask finish» ficam em `main`), e por isso `checkpoint.finishedViaAsk`
   e `checkpoint.stayedOpen` dão `false`. O selftest não o apanhava porque só falha em `errors`.
   Resolve-se na R1d, que tira o git simulado: o gitflow passa a ser só git real.
+- **R1c2 (2026-11-24) — debug simulado e caminhos `P_*`.** Saem as sessões guionadas do
+  Run and Debug: a sessão `pre` (a oferta do `.clone()` do rustc sobre o lexer de
+  demonstração), a sessão `code` (passo-a-passo com variáveis, watch e call stack
+  inventados) e a sessão `ops` (sondas `kubectl` com saídas inventadas a um pod em
+  CrashLoopBackOff), com os geradores `lexer-trace`/`crash-trace`/`launch` do domínio, os
+  helpers `lexVariant`/`LXL`/`lexBug`, a sessão `window.DBG`, a linha corrente do depurador
+  no editor, o contador de lançadores de crash na barra de actividade, o botão «Debug
+  this» da vista de observabilidade (ambientes simulados) e o «explicar esta sessão» do
+  Explain (`explainCmd(true)`). Não há adaptador de depuração ligado: «Start debugging» (F5,
+  menus, barra do editor) abre o pane e o assistente e diz isso; Step/Stop avisam que não há
+  sessão; os breakpoints ficam (reais, persistidos, pintados no gutter) à espera do DAP da
+  R4. No desktop com pasta, o #pc-dbg continua a ser o assistente real do painel (o teste
+  `dbgSession` saiu — nunca há sessão simulada). Saem também as constantes `P_LX`/`P_REPO`/
+  `P_MIG`/`P_TEST`/`P_HIST`/`P_ADR`/`P_STORE` (caminhos fixos do projecto de demonstração);
+  os testes que as usavam passam a nomear o ficheiro da fixture. Fica `has` (o board usa-o).
+  **Goldens (decisão deste ADR):** `debug.golden` perde os goldens das sessões pre/code e do
+  pane sem sessão com a lista Launch, as caracterizações `lexTrace-*`/`crashTrace-dns`/
+  `debugConfigs` e os testes de dispatch de start/step/watch-add; ganha os goldens do pane e
+  do assistente sem depurador e do pane com breakpoints, um teste de que os nomes simulados
+  já não se publicam e um de dispatch do `open-bp`. `debug.domain` fica só com as chaves de
+  breakpoint. Nenhum outro golden mudou. Rebase sobre a U4g5 (conflitos: o harness do
+  projecto dobrado no `codev.ts` perde o `harnessRunMission`; o YAML da extensão dobrado no
+  `diagnostics.ts` fica, sobre a base vazia). Rebase seguinte sobre a U4g6/U4g7 (o v5/v6
+  deixam de existir): o cartão «Mission: persistent chat history» sai do `features/welcome.ts`,
+  os comentários do v6 ficam com ele, e o golden do assistente sem depurador ganha o ícone
+  `bug` real (a U4g7 regenerou o golden do debug pelo mesmo motivo). Métricas após o rebase:
+  globais 412 → 370, handlers inline 160 → 155.

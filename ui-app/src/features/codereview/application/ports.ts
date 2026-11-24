@@ -55,11 +55,10 @@ export interface Diagnostics {
   all(): { p: string; line: number; sev: string; msg: string }[];
 }
 
-/** Símbolos do ficheiro, selecção do editor e sessão de debug (para o Explain). */
+/** Símbolos do ficheiro e selecção do editor (para o Explain). */
 export interface Code {
   symbols(p: string): Array<{ k: string; n: string; line: number }>;
   selText(): string;
-  dbgState(): { end?: { t: string; b: string }; feed: Array<{ h: string }> } | null;
 }
 
 /* ───────── porta de apresentação (a view é dona do HTML) ─────────
@@ -67,12 +66,9 @@ export interface Code {
    o cartão «co-dev · explain» e resolve o conteúdo `KNOW` por caminho. */
 
 /** Dados do cartão de Explain, colhidos pelo caso de uso e formatados pela view.
- *  `dbgEnd` é a conclusão (HTML) da sessão de debug quando `explainCmd(true)` corre
- *  com uma sessão terminada; `null` caso contrário (a view cai para `KNOW`/resumo).
  *  `firstComment` é o 1º comentário de topo do ficheiro (ou `null`). */
 export interface ExplainCard {
   path: string;
-  dbgEnd: string | null;
   lineCount: number;
   symbols: { n: string }[];
   firstComment: string | null;

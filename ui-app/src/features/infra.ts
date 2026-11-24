@@ -56,7 +56,6 @@ declare global {
     openEnvs: () => void;
     k8sScale: (n: string, d: number) => void;
     k8sDown: () => void;
-    startDebug: (id?: string) => void;
   }
   var SHOWSEC: boolean;
 }
@@ -167,7 +166,7 @@ function obsLine(o: ObsData) { domObsLine(o, isoTime); }
 
 /** Corpo de VIEW.observe — exportado; v6.ts importa e delega (porta tipada, ADR passo 6). */
 export function renderObserveView(t: ObserveTab, host: HTMLElement) { const o = obsInit(t.env as string, t.name), last = (a: number[]) => a[a.length - 1];
-  host.innerHTML = `<div class="obs"><div class="gl-bar"><b class="notr">${esc(t.name)}</b><span class="tag">${ENVL[t.env as string]}</span>${o.crash ? '<span class="tag bad">CrashLoopBackOff</span>' : '<span class="tag live">running</span>'}<span class="tag warn">simulated</span><span class="sp"></span>${o.crash ? `<button class="mini pri" data-action="dbg-crash" data-on="${esc(t.env)}:${esc(t.name)}">${svg('bug')} Debug this</button>` : ''}<button class="mini" data-action="obs-clear" data-on="${esc(t.env)}:${esc(t.name)}">Clear</button></div>
+  host.innerHTML = `<div class="obs"><div class="gl-bar"><b class="notr">${esc(t.name)}</b><span class="tag">${ENVL[t.env as string]}</span>${o.crash ? '<span class="tag bad">CrashLoopBackOff</span>' : '<span class="tag live">running</span>'}<span class="tag warn">simulated</span><span class="sp"></span><button class="mini" data-action="obs-clear" data-on="${esc(t.env)}:${esc(t.name)}">Clear</button></div>
    <div class="obs-m">${[['CPU', '%', o.cpu, 'var(--accent)', 100], ['Memory', 'MiB', o.mem, 'var(--blue)'], ['Requests', '/s', o.rps, 'var(--green)'], ['p95 latency', 'ms', o.p95, 'var(--purple)']].map(([l, u, a, c, mx]) => `<div class="obs-c"><div class="obs-h"><span>${l}</span><b>${last(a as number[]).toFixed(u === '%' || u === '/s' ? 0 : 0)} ${u}</b></div>${spark(a as number[], c as string, mx as number | undefined)}</div>`).join('')}</div>
    <div class="obs-l" id="obs-l">${o.logs.map(x => `<div class="ll ${x.lv}"><span class="ts">${x.ts}</span><span class="lv">${x.lv}</span><span class="notr">${esc(x.m)}</span></div>`).join('')}</div></div>`; const lg = $('#obs-l')!; lg.scrollTop = lg.scrollHeight;
   clearInterval(OBST!); OBST = setInterval(() => { const tt = tabOf(cur) as unknown as (ObserveTab & { kind?: string }) | null; if (!tt || tt.kind !== 'observe') { clearInterval(OBST!); return; } const oo = OBS[tt.env + ':' + tt.name]; obsLine(oo); (['cpu', 'mem', 'rps', 'p95'] as const).forEach(k => { const a = oo[k]; a.push(Math.max(0, a[a.length - 1] + (oo.r() - .5) * (a[0] * .3 + 1))); a.shift(); }); const top = $('#obs-l')!.scrollTop, atEnd = $('#obs-l')!.scrollHeight - top - $('#obs-l')!.clientHeight < 30; show(cur!); if (!atEnd) $('#obs-l')!.scrollTop = top; }, 1500); }
@@ -211,7 +210,6 @@ const ACTIONS: ActionTable = {
   "env-select": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); window.rerender("envs"); window.infraDraw(); } },
   "toggle-sec": { on: "click", run: () => { window.SHOWSEC = !window.SHOWSEC; window.rerender("envs"); } },
   "sec-edit": { on: "change", run: e => { const [env, a, k] = e.on.split("|"); const S = ENVX.sec![env as keyof SecretSets]; S[a] = S[a] || {}; S[a][k] = e.value; window.saveEnvx(); } },
-  "dbg-crash": { on: "click", run: e => window.startDebug("crash:" + e.on) },
   "obs-clear": { on: "click", run: e => { window.OBS[e.on].logs = []; window.show(window.cur); } },
 };
 bindActions(ACTIONS);

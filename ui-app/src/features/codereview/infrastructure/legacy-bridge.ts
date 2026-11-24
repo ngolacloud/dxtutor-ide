@@ -53,10 +53,9 @@ export const sample = (): unknown => G.SAMPLE ?? null;
 /* ───── diagnósticos (os reais do painel Problems no desktop; tipados em `core.ts`) ───── */
 export const diagnostics = (): { p: string; line: number; sev: string; msg: string }[] => window.diagnostics();
 
-/* ───── símbolos do ficheiro / selecção do editor / sessão de debug (tipados em `core.ts`) ───── */
+/* ───── símbolos do ficheiro / selecção do editor (tipados em `core.ts`) ───── */
 export const symbols = (p: string): Array<{ k: string; n: string; line: number }> => window.symbols(p);
 export const selText = (): string => window.selText();
-export const dbgState = (): { end?: { t: string; b: string }; feed: Array<{ h: string }> } | null => window.dbgState();
 
 /* ───── serviços de um docker-compose (dono = `features/stack.ts`; tipado em `core.ts`) ───── */
 export interface Svc { name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }
@@ -65,8 +64,7 @@ export const composeServices = (): Svc[] | null => window.composeServices();
 /* ───── publicação da superfície pública da feature no `window` ─────
    `renderCreviewView`/`renderHoodView` são o alvo dos shims `VIEW.creview`/`VIEW.hood`
    (v6.ts); `curFile`/`explainCmd`/`reviewCmd`/`hoodCmd`/`reviewFindings` são lidos por
-   nome livre pelo resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus) e por
-   `features/debug.ts` (onclick "explainCmd(true)"). */
+   nome livre pelo resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus). */
 export const publish = (surface: Record<string, unknown>): void => {
   Object.assign(window, surface);
 };

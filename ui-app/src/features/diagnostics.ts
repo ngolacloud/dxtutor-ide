@@ -6,15 +6,15 @@
 
    O motor simulado que vivia aqui — o E0382 do lexer de demonstração, o lint de cores
    preso a `desktop/src/`, o `runTests()` que derivava testes de caminhos fixos — saiu
-   (ADR-0005, R1c1). Ficam `has`/`lexBug`, lidos pelo debug simulado até à R1c2.
+   (ADR-0005, R1c1), e com o debug simulado o `lexBug` (R1c2). Fica `has` (o ficheiro casa a
+   regex?), lido pelo board.
 
    Mecânica: avalia ANTES de `app.ts` e publica no `window`; os nomes livres do monólito
-   (`FS`, `P_LX`, `$`, `short`, `openPath`, `toast`) só se tocam DENTRO das funções. */
+   (`FS`, `$`, `short`, `openPath`, `toast`) só se tocam DENTRO das funções. */
 
 import { esc, jsa } from "../core";
 
 const has = (p: string, re: RegExp) => !!FS[p] && re.test(FS[p].content);
-const lexBug = () => has(P_LX, /for c in chars \{/) && has(P_LX, /chars\.peek\(\)/);
 /* Sem verificador real no browser, a base não tem diagnósticos: a regra do E0382, o lint de
    cores do `desktop/src/` e os testes derivados dos caminhos do projecto de demonstração saíram
    (ADR-0005, R1c1). No desktop, o painel (features/panel) substitui `diagnostics`/
@@ -43,6 +43,5 @@ function nextProblem() { const d = window.diagnostics(); if (!d.length) { toast(
 
 /* ── publicação no window (residual do monólito + features lêem por nome livre) ── */
 window.has = has;
-window.lexBug = lexBug;
 window.drawProblems = drawProblems;
 window.nextProblem = nextProblem;

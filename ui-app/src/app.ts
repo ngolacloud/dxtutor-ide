@@ -8,7 +8,7 @@
 export {};
 import { jsa, rel } from "./core";
 import { setVar, getVar, hydrate, log } from "./features/shell";
-import { short, P_LX } from "./features/workspace";
+import { short } from "./features/workspace";
 import { LANG } from "./features/editor";
 import { bus } from "./app/bus";
 import { desktopPorts } from "./app/desktop";
@@ -31,8 +31,8 @@ import { openArch } from "./features/arch/index";
 /* ───── realce de sintaxe ───── */
 /* KW + hlLine (realce de uma linha) migrados p/ features/syntax.ts; lidos por global (window.hlLine) em paintEd/diff/cat/outline e em v5.ts/v6.ts */
 
-/* ───── diagnósticos, lint e testes (derivados do estado real dos ficheiros) ───── */
-/* diagnostics/drawProblems/nextProblem (+has/lexBug do debug simulado) em features/diagnostics.ts; o motor simulado saiu (ADR-0005, R1c1); os P_* são do features/workspace.ts (U4j3) */
+/* ───── diagnósticos ───── */
+/* diagnostics/drawProblems/nextProblem (+has) em features/diagnostics.ts; o motor simulado saiu (ADR-0005, R1c1) e com o debug simulado os caminhos fixos P_* do projecto de demonstração (R1c2; saíram do features/workspace.ts, para onde a U4j3 os levara) */
 
 /* ───── separadores e vistas ───── */
 window.cur=null;window.PANE='explorer';/* VIEW com dono em app/store/registry.ts (ADR-0004, U4g1) */

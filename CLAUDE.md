@@ -146,31 +146,28 @@ Mesmas camadas e regra de dependências:
 
 ```
 features/debug/
-  domain/          types.ts, lexer-trace.ts (buildLexTrace — passos da sessão code),
-                   crash-trace.ts (buildCrashTrace — sondas da sessão ops; importa `esc`
-                   puro de core), launch.ts (buildLaunchConfigs), breakpoints.ts
-                   (bpKey/bpLine/bpPath). PURO (geradores recebem o mundo por argumento).
-  application/     ports.ts + debug-engine.ts (makeDebugEngine: startDebug/dbgFeed/
-                   dbgApplyClone/dbgStep/dbgContinue/dbgFinish/dbgStop/dbgFix/toggleBp,
-                   deps injectadas; store/workspace/lexer/scenarios/editor/shell/view/…).
+  domain/          breakpoints.ts (bpKey/bpLine/bpPath). PURO.
+  application/     ports.ts + debug-engine.ts (makeDebugEngine: startDebug/dbgStep/dbgStop/
+                   toggleBp, deps injectadas; store/editor/shell/view/notifier).
   ui/              actions.ts (1 listener delegado: data-action + data-on; chave própria).
   infrastructure/  legacy-bridge.ts — ÚNICO ficheiro que toca window.*.
-features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (DBG/BPS,
-                   window-backed) e do DOM (DBGK/drawDbg/refreshDbg/renderDebugPane);
-                   compõe o motor com os adaptadores do bridge + as funções de desenho
-                   (porta view), tem a tabela ACTIONS, e re-publica os shims window.*
-                   (onclick/keydown/menus de v6 + fachadas dbgState/dbgBreaks/dbgLaunch).
+features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BPS, window-
+                   backed) e do DOM (drawDbg/refreshDbg/renderDebugPane); compõe o motor
+                   com os adaptadores do bridge, tem a tabela ACTIONS, e re-publica os shims
+                   window.* (keydown/menus de v6 + a fachada dbgBreaks que o editor lê).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
-resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. Particularidades: a sessão
-`DBG` é polimórfica (`pre`/`code`/`ops`) — tipada por união + casts por `kind`; os
-helpers de lexer (`lexVariant`/`LXL`) vivem em `debug.ts` (ADR-0004 U4g5) e os containers
-`#pane-debug`/`#pc-dbg` nascem no `boot6` (no app.ts desde a U4g7; o arranque não corre no
-harness) — o golden reproduz estas peças como fixtures (cópias antigas).
-Rede de segurança em `tests/debug.golden.test.ts` (goldens de #pane-debug/#pc-dbg nos
-estados sem-sessão/pre/code, caracterização dos geradores, e 4 testes de dispatch
-delegado que disparam eventos reais — o golden strippa data-action, não prova o wiring)
+resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. **Sem sessões simuladas
+(ADR-0005, R1c2):** o passo-a-passo guionado do lexer de demonstração, as sondas `kubectl`
+inventadas e os lançadores derivados dos ambientes simulados saíram. Não há adaptador de
+depuração ligado: «Start debugging» (F5) abre o pane e diz isso; `dbgStep`/`dbgStop` só
+avisam que não há sessão; os breakpoints são reais (gutter/F9, LS `bps6`) e ficam à espera
+do DAP (R4, `debug_*`). No desktop com pasta, o painel (features/panel) desenha no #pc-dbg
+o assistente real. Os containers `#pane-debug`/`#pc-dbg` nascem no `boot6` (no app.ts desde a U4g7;
+o arranque não corre no harness) e são reproduzidos como fixtures no golden. Rede de segurança em
+`tests/debug.golden.test.ts` (goldens do pane/assistente sem depurador e com breakpoints,
+os nomes simulados que já não se publicam, e testes de dispatch delegado dos breakpoints)
 e `tests/debug.domain.test.ts` (domínio puro).
 
 ## Quinta feature extraída: backlog, sprints e kanban (`ui-app/src/features/board/`)

@@ -15,7 +15,7 @@ interface ShortcutGlobals {
   termOwnsKey?: (e: KeyboardEvent) => boolean;
   explainCmd: (deep?: boolean) => void; reviewCmd: () => void; hoodCmd: () => void;
   startDebug: (k?: string) => void; vizFromEditor: () => void;
-  dxRun: () => void; dbgStop: () => void; dbgState: () => unknown; dbgContinue: () => void; dbgStep: () => void;
+  dxRun: () => void; dbgStop: () => void; dbgStep: () => void;
   toggleBp: (p: string, line: number) => void; goPane: (p: string) => void;
   tabOf: (id: string | null) => { path?: string } | undefined; cur: string | null;
   vsxOn: (id: string) => boolean; vsxFmt: () => void;
@@ -36,7 +36,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (c && !e.shiftKey && !e.altKey && k === "k") { go(() => { CHORD = Date.now(); chordLabel("(Ctrl+K) waiting for second key…"); }); return; }
   if (e.key === "F5" && c) return go(G.dxRun); if (e.key === "F5" && e.shiftKey) return go(G.dbgStop);
-  if (e.key === "F5") return go(() => (G.dbgState() ? G.dbgContinue() : G.startDebug())); if (e.key === "F10" || e.key === "F11") return go(G.dbgStep);
+  if (e.key === "F5") return go(() => G.startDebug()); if (e.key === "F10" || e.key === "F11") return go(G.dbgStep);
   if (e.key === "F9") { const t = G.tabOf(G.cur), ta = $("#ed-ta") as HTMLTextAreaElement | null; if (t && t.path && ta) go(() => G.toggleBp(t.path as string, ta.value.slice(0, ta.selectionStart).split("\n").length)); return; }
   if (c && e.shiftKey && k === "d") return go(() => G.goPane("debug")); if (c && e.shiftKey && k === "x") return go(() => G.goPane("ext")); if (c && e.shiftKey && k === "t") return go(() => G.goPane("tasks"));
   if (e.shiftKey && e.altKey && k === "f" && G.vsxOn("esbenp.prettier-vscode")) return go(() => G.vsxFmt());

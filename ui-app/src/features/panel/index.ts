@@ -169,7 +169,7 @@ function boot(): void {
   const dbgEl = (): HTMLElement | null => $("#pc-dbg");
   function drawAssistant(): void {
     const el = dbgEl();
-    if (!el || !L.root() || L.dbgSession()) return;
+    if (!el || !L.root()) return;
     renderAssistant(el, {
       failures: terminals.failures(),
       errors: problems.all().filter((p) => p.severity === "error"),
@@ -306,7 +306,7 @@ function boot(): void {
     if (!el || (el as HTMLElement & { __dbgx?: boolean }).__dbgx) return;
     (el as HTMLElement & { __dbgx?: boolean }).__dbgx = true;
     new MutationObserver(() => {
-      if (L.root() && !L.dbgSession() && !el.querySelector("." + ASSISTANT_MARK)) drawAssistant();
+      if (L.root() && !el.querySelector("." + ASSISTANT_MARK)) drawAssistant();
     }).observe(el, { childList: true });
   };
 

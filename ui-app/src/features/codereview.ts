@@ -17,8 +17,7 @@
    keydown (chords Ctrl+K E/R/U, F5/F9/F10), `badges`, `boot6` e os menus — chamam
    `explainCmd`/`reviewCmd`/`hoodCmd` por nome livre (resolvem via `window`, publicados
    por `publish(...)` no fim deste módulo). `dlg()` fica em v6.ts (partilhado com
-   debug.ts/infra.ts). `lexVariant`/`LXL` (helpers de lexer) continuam donos de v6.ts —
-   lidos por fachada do bridge. Mecânica (igual às migrações strict anteriores): publica-se
+   infra.ts). Mecânica (igual às migrações strict anteriores): publica-se
    `renderCreviewView`/`renderHoodView`, e `VIEW.creview`/`VIEW.hood` registam-se aqui
    (ADR-0004, U4g1 — antes eram shims no v6.ts). */
 
@@ -48,7 +47,6 @@ import {
   diagnostics,
   symbols,
   selText,
-  dbgState,
   composeServices,
   publish,
   type Svc,
@@ -58,7 +56,7 @@ import {
    dados simples. A view é dona do markup (o texto fixo `KNOW` dos ficheiros de demonstração
    saiu — ADR-0005, R1c1). */
 function explainCard(c: ExplainCard): void {
-  card('co-dev · explain', `${c.dbgEnd ? `<p>${c.dbgEnd}</p>` : `<p><b>${esc(short(c.path))}</b> — ${c.lineCount} lines${c.symbols.length ? `, defines ${c.symbols.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${c.firstComment ? `<p>${esc(c.firstComment)}</p>` : ''}`}
+  card('co-dev · explain', `<p><b>${esc(short(c.path))}</b> — ${c.lineCount} lines${c.symbols.length ? `, defines ${c.symbols.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${c.firstComment ? `<p>${esc(c.firstComment)}</p>` : ''}
    ${c.diagnostics.length ? `<p><b>Right now:</b> ${c.diagnostics.map(m => esc(m)).join('; ')}.</p>` : ''}${c.findings.length ? `<p><b>What I would watch:</b></p><ul>${c.findings.map(r => `<li>${r.t} (line ${r.l})</li>`).join('')}</ul>` : ''}<p style="color:var(--fg-dim)">With Claude live, Explain answers about the exact code or selection instead of this summary.</p>`);
 }
 
@@ -84,7 +82,7 @@ const engine = makeReviewEngine({
     claudeOn: () => prov().claude.on,
   },
   diagnostics: { all: () => diagnostics() },
-  code: { symbols: p => symbols(p), selText: () => selText(), dbgState: () => dbgState() },
+  code: { symbols: p => symbols(p), selText: () => selText() },
   view: { explainCard },
 });
 const { curFile, reviewFindings, reviewCmd, hoodCmd, explainCmd } = engine;
@@ -138,8 +136,7 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
 /* ── publicação no window (confinada ao bridge via `publish`): `renderCreviewView`/
    `renderHoodView` (também registados em VIEW.creview/VIEW.hood, abaixo); o resto
    (curFile/explainCmd/reviewCmd/hoodCmd/reviewFindings) é lido por nome livre pelo
-   resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus) e por debug.ts (onclick
-   "explainCmd(true)"). ── */
+   resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus). ── */
 publish({ renderCreviewView, renderHoodView, curFile, explainCmd, hoodCmd, reviewCmd, reviewFindings });
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────

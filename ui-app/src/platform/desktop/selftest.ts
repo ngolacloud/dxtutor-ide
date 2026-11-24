@@ -219,9 +219,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // (restaurado no fim) para exercitar o caminho determinístico sem chamada real ao LLM.
     await step("codereview", () => {
       const errBefore = R.errors.length;
-      // P_LX (o lexer-protótipo) só existe no projecto SIMULADO; num projecto desktop real
-      // qualquer ficheiro aberto do disco serve — por isso escolhe-se um que esteja mesmo em FS.
-      const p = Object.keys(FS).find(k => k.startsWith(ROOT)) || P_LX;
+      // qualquer ficheiro aberto do disco serve — escolhe-se um que esteja mesmo em FS.
+      const p = Object.keys(FS).find(k => k.startsWith(ROOT)) || "";
       const findings = reviewFindings(p);
       const claudeBefore = PROV.claude.on; PROV.claude.on = false;
       explainCmd();

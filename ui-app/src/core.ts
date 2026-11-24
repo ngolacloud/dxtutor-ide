@@ -72,11 +72,8 @@ declare global {
     doSearch: () => void;
     replaceAll: () => void;
     renderSearchPane: () => void;
-    /* feature `debug` (migrada de v6.ts): sessão de depuração simulada + lançadores.
-       O estado/motor (`DBG`, `debugConfigs`, `BPS`) continua dono de v6.ts; a feature
-       lê por fachada tipada e delega o pane (RP.debug → window.renderDebugPane). */
-    DBG: unknown;
-    debugConfigs: () => Array<{ id: string; l: string; d: string }>;
+    /* feature `debug`: os breakpoints (`BPS`, window-backed) e o pane (RP.debug →
+       window.renderDebugPane). A sessão simulada (`DBG`) e os lançadores saíram (ADR-0005, R1c2). */
     BPS: Set<string>;
     renderDebugPane: () => void;
     /* feature `scm` (migrada de app.ts): Source Control + grafo/gitflow resumidos.
@@ -111,10 +108,9 @@ declare global {
     renderDiffView: (t: unknown, host: HTMLElement) => void;
     /* feature `router`: amostragem ao vivo disponível (router inicializa; bridge põe a true). */
     LIVE_OK: boolean;
-    /* feature `diagnostics`: motor de diagnósticos/lint/testes derivado de FS; consumido por nome
-       livre por codev/board/test/ext/debug e pelo residual (drawProblems/nextProblem em refresh/boot). */
+    /* feature `diagnostics`: `has` (o ficheiro casa a regex? — lido pelo board) e o desenho dos
+       problemas (drawProblems/nextProblem em refresh/boot); no browser não há verificador. */
     has: (p: string, re: RegExp) => boolean;
-    lexBug: () => boolean;
     diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
     drawProblems: () => void;
     nextProblem: () => void;
@@ -156,16 +152,13 @@ declare global {
        aqui — só o resíduo @ts-nocheck de v6.ts as chama por nome livre. As entradas
        abaixo são fachadas que a feature CONSOME doutras features/do monólito: `symbols`
        (explorer.ts), `selText` (editor.ts), `updateAgentUI` (codev.ts), `composeServices`
-       (stack.ts), `lexVariant`/`LXL` (continuam donas de v6.ts), `dbgState` (debug.ts). */
+       (stack.ts). */
     renderCreviewView: (t: unknown, host: HTMLElement) => void;
     renderHoodView: (t: unknown, host: HTMLElement) => void;
     symbols: (p: string) => Array<{ k: string; n: string; line: number }>;
     selText: () => string;
     updateAgentUI: () => void;
     composeServices: () => Array<{ name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }> | null;
-    lexVariant: () => string;
-    LXL: (re: RegExp) => number;
-    dbgState: () => { end?: { t: string; b: string }; feed: Array<{ h: string }> } | null;
     /* feature `ext` (motor migrado de v6.ts, @ts-nocheck): pane «Extensions» (Open VSX).
        A feature é agora dona de todo o motor (catálogo EXT, estado instalado EXS,
        instalar/remover/alternar, comandos, VSIX, formatador) e publica-o no window;

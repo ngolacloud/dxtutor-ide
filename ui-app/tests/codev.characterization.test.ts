@@ -9,10 +9,14 @@ import { bootApp } from "./harness";
  * suite estável em corridas repetidas (nenhuma espera real, nenhum polling). */
 
 let w: any;
+/** Um ficheiro da fixture do harness (tests/fixtures/sample-workspace.ts); era a constante
+ *  `P_LX` do monólito, que saiu com os caminhos fixos do projecto de demonstração (ADR-0005, R1c2). */
+let LX: string;
 
 beforeEach(async () => {
   vi.useFakeTimers();
   w = await bootApp();
+  LX = w.ROOT + "crates/lexer/src/lib.rs";
 });
 
 afterEach(() => {
@@ -49,7 +53,7 @@ describe("1. política de aprovação por modo (doTool)", () => {
     for (const mode of ["manual", "assist", "auto"]) {
       w.MODE = mode;
       const h = host();
-      const p = w.doTool({ t: "read", p: w.P_LX }, h);
+      const p = w.doTool({ t: "read", p: LX }, h);
       expect(gate(h)).toBeNull();
       expect(await resolved(p)).toBe(true);
     }
@@ -82,13 +86,13 @@ describe("1. política de aprovação por modo (doTool)", () => {
     for (const mode of ["assist", "auto"]) {
       w.MODE = mode;
       const h = host();
-      const p = w.doTool({ t: "edit", p: w.P_LX, content: w.FS[w.P_LX].content + "\n// x" }, h);
+      const p = w.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// x" }, h);
       expect(gate(h)).toBeNull();
       expect(await resolved(p)).toBe(true);
     }
     w.MODE = "manual";
     const h = host();
-    const p = w.doTool({ t: "edit", p: w.P_LX, content: w.FS[w.P_LX].content + "\n// y" }, h);
+    const p = w.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// y" }, h);
     expect(gate(h)).not.toBeNull();
     clickByLabel(h, "Aprovar edição");
     expect(await resolved(p)).toBe(true);
@@ -100,8 +104,8 @@ describe("2. edição sem alterações nunca pede aprovação (invariante #1)", 
     for (const mode of ["manual", "assist", "auto"]) {
       w.MODE = mode;
       const h = host();
-      const same = w.FS[w.P_LX].content;
-      const p = w.doTool({ t: "edit", p: w.P_LX, content: same }, h);
+      const same = w.FS[LX].content;
+      const p = w.doTool({ t: "edit", p: LX, content: same }, h);
       expect(gate(h)).toBeNull();
       expect(await resolved(p)).toBe(true);
       expect(h.textContent).toContain("sem alterações");
@@ -113,11 +117,11 @@ describe("3. skip vs reject: skip devolve null (não false), rejeição devolve 
   it("edit rejeitado em manual -> false, FS não é escrito", async () => {
     w.MODE = "manual";
     const h = host();
-    const before = w.FS[w.P_LX].content;
-    const p = w.doTool({ t: "edit", p: w.P_LX, content: before + "\n// rejected" }, h);
+    const before = w.FS[LX].content;
+    const p = w.doTool({ t: "edit", p: LX, content: before + "\n// rejected" }, h);
     clickByLabel(h, "Rejeitar");
     expect(await resolved(p)).toBe(false);
-    expect(w.FS[w.P_LX].content).toBe(before);
+    expect(w.FS[LX].content).toBe(before);
   });
 
   it("run saltado em assist (comando não-SAFE) -> null, não false", async () => {

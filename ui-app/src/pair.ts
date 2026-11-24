@@ -125,13 +125,6 @@ declare global {
   var closeMenus: () => void;
   var gotoLine: (n: number) => void;
   var connected: () => string[];
-  // Constantes de caminho do protótipo (donas do monólito app.ts), lidas por nome livre.
-  const P_LX: string;
-  const P_REPO: string;
-  const P_MIG: string;
-  const P_TEST: string;
-  const P_HIST: string;
-  const P_STORE: string;
   // Globais lexicais/helpers do monólito usados pelas features-folha tipadas (explorer/...).
   const SECOPEN: Record<string, boolean>;
   var AGENT: string;

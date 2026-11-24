@@ -44,13 +44,11 @@ const ROOT = workspaceStore.root;
 const extOf = (p: string): string => (p.includes('.') ? p.split('.').pop() as string : '').toLowerCase();
 const short = (p: string): string => p.replace(ROOT, '');
 const norm = (p: string): string => { p = String(p || '').replace(/^\.?\//, ''); return p.startsWith(ROOT) ? p : ROOT + p; };
-/** Os ficheiros de que o protótipo e os cenários do Co-Dev falam por nome. */
-const P_LX=ROOT+'crates/lexer/src/lib.rs',P_REPO=ROOT+'crates/store/src/conversations.rs',P_MIG=ROOT+'db/migrations/0002_conversations.sql',P_TEST=ROOT+'crates/store/tests/conversations_test.rs',P_HIST=ROOT+'desktop/src/history.ts',P_ADR=ROOT+'.dxtutor/arquitectura/ADR-003-historico.md',P_STORE=ROOT+'crates/store/src/lib.rs';
 /** Caminho de um ficheiro do Learning Track (fachada lida pelo learn.ts). */
 const LF = (p: string): string => ROOT + 'learn/' + p;
 /** As secções do explorador abertas/fechadas (sem dono próprio; lido por nome livre). */
 const SECOPEN: Record<string, boolean> = {};
 
-Object.assign(window, { writeFile, resetWorkspace, extOf, short, norm, P_LX, P_REPO, P_MIG, P_TEST, P_HIST, P_ADR, P_STORE, LF, SECOPEN });
+Object.assign(window, { writeFile, resetWorkspace, extOf, short, norm, LF, SECOPEN });
 
-export { writeFile, resetWorkspace, extOf, short, norm, P_LX, P_REPO, P_MIG, P_TEST, P_HIST, P_ADR, P_STORE, LF };
+export { writeFile, resetWorkspace, extOf, short, norm, LF };

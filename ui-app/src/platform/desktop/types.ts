@@ -136,5 +136,5 @@ declare global {
   var reviewFindings: (p: string) => { l: number; sev: string; t: string; why: string; fix: string }[];
   var renderCreviewView: (tab: unknown, host: HTMLElement) => void;
   var renderHoodView: (tab: unknown, host: HTMLElement) => void;
-  var explainCmd: (fromDebug?: boolean) => void;
+  var explainCmd: () => void;
 }

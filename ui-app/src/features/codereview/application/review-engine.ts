@@ -24,7 +24,7 @@ export interface ReviewEngine {
   reviewFindings(path: string): Finding[];
   reviewCmd(): void;
   hoodCmd(): void;
-  explainCmd(fromDebug?: boolean): void;
+  explainCmd(): void;
 }
 
 export function makeReviewEngine(deps: ReviewDeps): ReviewEngine {
@@ -64,15 +64,14 @@ export function makeReviewEngine(deps: ReviewDeps): ReviewEngine {
     workspace.open({ id: "hood:" + p, title: "Under the hood · " + p.split("/").pop(), kind: "hood", path: p });
   }
 
-  function explainCmd(fromDebug?: boolean): void {
-    const p = curFile(), sel = fromDebug ? "" : code.selText(), f = workspace.files()[p];
+  function explainCmd(): void {
+    const p = curFile(), sel = code.selText(), f = workspace.files()[p];
     if (!f) return;
     agent.focus(true);
-    const ds = code.dbgState();
-    const what = fromDebug && ds ? `the debugging session I just ran (${ds.end ? ds.end.t : ""})` : sel ? `this excerpt from ${workspace.short(p)}` : workspace.short(p);
+    const what = sel ? `this excerpt from ${workspace.short(p)}` : workspace.short(p);
     if (agent.sample() && agent.claudeOn()) {
       agent.setActiveProvider("claude"); agent.updateUI();
-      agent.liveChat(fromDebug && ds ? `Explain in depth, as a senior engineer teaching me, what this debug session found and the underlying concept:\n${ds.feed.map(x => x.h.replace(/<[^>]+>/g, "")).join("\n")}` : `Explain ${what}: what it does, how, and what a senior would watch out for. Be concrete.\n${sel || f.content.slice(0, 5000)}`);
+      agent.liveChat(`Explain ${what}: what it does, how, and what a senior would watch out for. Be concrete.\n${sel || f.content.slice(0, 5000)}`);
       return;
     }
     agent.user(`Explain ${what}.`);
@@ -80,7 +79,6 @@ export function makeReviewEngine(deps: ReviewDeps): ReviewEngine {
     const m = f.content.match(/^\s*(\/\/|#|--)\s*(.+)$/m);
     view.explainCard({
       path: p,
-      dbgEnd: fromDebug && ds && ds.end ? ds.end.b : null,
       lineCount: f.content.split("\n").length,
       symbols: sy.map(s => ({ n: s.n })),
       firstComment: m?.[2] ?? null,

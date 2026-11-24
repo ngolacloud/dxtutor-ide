@@ -1,36 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp, golden } from "./harness";
 
-/* Rede de segurança (Fase 0 da extracção da feature Run and Debug) para
- * `ui-app/src/features/debug.ts`, via o harness que carrega a cadeia real de
- * módulos. Goldens do markup de `renderDebugPane` (#pane-debug) e `drawDbg`
- * (#pc-dbg) em três estados — sem sessão (lista Launch), sessão `pre` (a oferta
- * do .clone() do rustc, variante «bug» do seed) e sessão `code` percorrida até
- * ao fim (variante «clone») — + caracterização do MOTOR a extrair: os geradores
- * puros `lexTrace` (passos de código por variante), `crashTrace` (sonda de ops) e
- * `debugConfigs` (lançadores), e o estado de breakpoints `toggleBp`/`saveBps`/`BPS`.
- * ANTES de mover qualquer um destes para `features/debug/{domain,application}/`.
+/* Rede de segurança da feature Run and Debug (`ui-app/src/features/debug.ts`), via o
+ * harness que carrega a cadeia real de módulos.
  *
- * A partir daqui, diff de golden = regressão (corrige o código, nunca o snapshot
- * — ver skill ui-golden-check). As caracterizações do motor fixam a saída EXACTA
- * (passos, hipóteses, fim) para que a extracção do domínio/aplicação se prove
- * byte-a-byte idêntica.
+ * ADR-0005, R1c2 (decisão registada no ADR): as sessões simuladas saíram — o passo-a-passo
+ * guionado do lexer de demonstração e as sondas `kubectl` inventadas a um pod em crash —
+ * e com elas os goldens `pane-pre-session`/`feed-pre-session`/`pane-code-session`/
+ * `feed-code-session`, as caracterizações `lexTrace-*`/`crashTrace-dns`/`debugConfigs`
+ * e os testes de dispatch de start/step/watch-add. Ficam: os goldens do pane e do
+ * assistente sem depurador (regenerados — o texto passou a dizer que não há adaptador
+ * ligado), o pane com breakpoints, o dispatch dos breakpoints e a semântica do Set.
+ *
+ * Diff de golden = regressão (corrige o código, nunca o snapshot — ver skill
+ * ui-golden-check).
  *
  * Fixtures do runtime que o harness exclui (vivem em v6.ts/boot6): os containers
- * #pane-debug e #pc-dbg, o shim RP.debug→renderDebugPane, e os helpers de lexer
- * `LXL` (nº da linha por regex sobre o fonte) e `lexVariant` (variante do fonte).
- * São reproduzidos 1:1 em `provideV6Fixtures()`: o golden pina o render de
- * `debug.ts` DADO este ambiente, que é o que a app dá em runtime. `LXL`/`lexVariant`
- * tornam-se portas injectadas na extracção; pinar `lexTrace` contra um `LXL` real
- * sobre o seed é exactamente o contrato dessa porta.
- *
- * Determinismo: o relógio é FIXADO (`setSystemTime`) antes de `bootApp` (padrão do
- * scm.golden) — por segurança, embora o markup do debug não interpole tempo
- * (o `hhmm()` do feed fica em `f.t`, que não é renderizado). Timers falsos só para
- * neutralizar o polling de arranque. O seed deixa `FS[P_LX]` na variante «bug»
- * (`for c in chars {` + `chars.peek()`), que `lexVariant` reporta como "bug". */
+ * #pane-debug e #pc-dbg, reproduzidos 1:1 em `provideV6Fixtures()`. */
 
 let w: any;
+/** Um ficheiro da fixture do harness (tests/fixtures/sample-workspace.ts). */
+let LX: string;
 
 /** Reproduz as peças que v6.ts/boot6 dão em runtime e o harness exclui. */
 function provideV6Fixtures(): void {
@@ -38,52 +28,23 @@ function provideV6Fixtures(): void {
   if (side && !document.getElementById("pane-debug")) side.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-debug"></div>');
   const pb = document.querySelector(".panel-body");
   if (pb && !document.getElementById("pc-dbg")) pb.insertAdjacentHTML("beforeend", '<div class="pcontent" id="pc-dbg"></div>');
-  w.RP.debug = () => w.renderDebugPane();
-  w.LXL = (re: RegExp) => { const ls = (w.FS[w.P_LX] ? w.FS[w.P_LX].content : "").split("\n"); return ls.findIndex((l: string) => re.test(l)) + 1; };
-  w.lexVariant = () => {
-    const c = w.FS[w.P_LX] ? w.FS[w.P_LX].content : "";
-    if (w.lexBug()) return "bug";
-    if (/for c in chars\.clone\(\)/.test(c)) return "clone";
-    if (/for c in chars\.by_ref\(\)/.test(c)) return "byref";
-    if (/while let Some\(c\) = chars\.next\(\)/.test(c)) return "whilelet";
-    return "other";
-  };
 }
 
-/** Carimba um container recém-renderizado e devolve o golden strippado. */
 function paneGolden(): string { return golden(document.getElementById("pane-debug")!); }
 function feedGolden(): string { return golden(document.getElementById("pc-dbg")!); }
-
-/** Semeia um cenário de ops determinista (envState/secrets do infra devolvem `null`
- *  em headless): um crash de DNS em `orders-worker`, com `orders-api` saudável a
- *  apontar para o host correcto (exercita o ramo do «peer» de `crashTrace`). */
-function seedOpsScenario(): void {
-  w.ENVX.ns.staging = "dxtutor-staging";
-  w.ENVX.sec = {
-    staging: {
-      "orders-worker": { DATABASE_URL: "postgres://app:secret@db.bad:5432/orders" },
-      "orders-api": { DATABASE_URL: "postgres://app:secret@db.staging:5432/orders" },
-    },
-  };
-  w.envState = () => ({
-    deps: [
-      { n: "orders-worker", status: "crash", restarts: 6, err: "dial tcp: lookup db.bad on 10.0.0.10:53: no such host" },
-      { n: "orders-api", status: "ok" },
-    ],
-  });
-  w.localSecrets = () => ({ "orders-worker": { DATABASE_URL: "postgres://app:secret@db.staging:5432/orders" } });
-}
 
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-  // O `window` persiste entre testes no jsdom; `debug.ts` reutiliza o `window.DBG`/
-  // `window.BPS` existentes ao reavaliar. Repor ANTES do boot para cada teste
-  // arrancar com sessão nula e sem breakpoints (independente da ordem).
-  (window as any).DBG = null;
+  // O `window` persiste entre testes no jsdom; `debug.ts` reutiliza o `window.BPS`
+  // existente ao reavaliar. Limpar ANTES do boot para cada teste arrancar sem breakpoints.
   if ((window as any).BPS instanceof Set) (window as any).BPS.clear();
   w = await bootApp();
+  // `toggleBp` grava em LS («bps6»), que sobrevive entre testes neste jsdom; a hidratação
+  // é preguiçosa (na primeira entrada), por isso esvaziar aqui chega.
+  w.LS.set("bps6", []);
   provideV6Fixtures();
+  LX = w.ROOT + "crates/lexer/src/lib.rs";
 });
 
 afterEach(() => {
@@ -92,122 +53,74 @@ afterEach(() => {
 });
 
 describe("golden de DOM — Run and Debug (renderDebugPane / drawDbg)", () => {
-  it("sem sessão: lista Launch + feed vazio (empty state)", () => {
-    expect(w.dbgState()).toBe(null);
+  it("sem depurador: o pane e o assistente dizem que não há adaptador ligado", () => {
     w.renderDebugPane();
     w.drawDbg();
-    expect(paneGolden()).toMatchSnapshot("pane-no-session");
-    expect(feedGolden()).toMatchSnapshot("feed-no-session");
+    expect(paneGolden()).toMatchSnapshot("pane-no-debugger");
+    expect(feedGolden()).toMatchSnapshot("feed-no-debugger");
   });
 
-  it("sessão pre: variante «bug» do seed → oferta do .clone() do rustc", () => {
-    expect(w.lexVariant()).toBe("bug");
-    w.startDebug("lexer");
-    const ds = w.dbgState();
-    expect(ds.kind).toBe("pre");
-    expect(ds.offer).toBe(true);
+  it("com breakpoints: a lista mostra ficheiro e linha", () => {
+    w.toggleBp(LX, 5);
+    w.toggleBp(LX, 10);
     w.renderDebugPane();
-    expect(paneGolden()).toMatchSnapshot("pane-pre-session");
-    expect(feedGolden()).toMatchSnapshot("feed-pre-session");
-  });
-
-  it("sessão code: variante «clone» percorrida até ao fim (root cause)", () => {
-    // Troca o fonte do lexer para a variante «clone» (a que o rustc sugere); o seed
-    // é «bug». O nº de linhas não muda, logo os breakpoints/LXL ficam estáveis.
-    w.FS[w.P_LX].content = w.FS[w.P_LX].content.replace("for c in chars {", "for c in chars.clone() {");
-    expect(w.lexVariant()).toBe("clone");
-    w.startDebug("lexer");
-    for (let k = 0; k < 20 && w.dbgState() && !w.dbgState().done; k++) w.dbgStep();
-    const ds = w.dbgState();
-    expect(ds.kind).toBe("code");
-    expect(ds.done).toBe(true);
-    expect(ds.end.ok).toBe(false);
-    w.renderDebugPane();
-    expect(paneGolden()).toMatchSnapshot("pane-code-session");
-    expect(feedGolden()).toMatchSnapshot("feed-code-session");
+    expect(paneGolden()).toMatchSnapshot("pane-breakpoints");
   });
 });
 
-describe("caracterização do motor — geradores de traço (a extrair p/ domain)", () => {
-  it("lexTrace: passos + fim exactos por variante (clone/byref/whilelet/other)", () => {
-    for (const v of ["clone", "byref", "whilelet", "other"]) {
-      expect(w.lexTrace(v)).toMatchSnapshot("lexTrace-" + v);
+describe("sem sessões simuladas (ADR-0005, R1c2)", () => {
+  it("startDebug abre o pane, avisa que não há depurador e não cria sessão", () => {
+    const toast = vi.spyOn(w, "toast");
+    w.startDebug();
+    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/No debugger attached/));
+    expect(w.DBG).toBeUndefined();
+    expect(document.querySelector("#pane-debug .dbg-ctl")).toBe(null);
+  });
+
+  it("os motores e geradores simulados já não são publicados", () => {
+    for (const n of ["dbgState", "dbgContinue", "dbgFeed", "dbgApplyClone", "dbgFix", "dbgFinish", "lexTrace", "crashTrace", "debugConfigs", "dbgLaunch", "lexVariant", "LXL", "lexBug"]) {
+      expect(w[n], n).toBeUndefined();
     }
-  });
-
-  it("debugConfigs: lançadores (só lexer sem ambientes crash hidratados)", () => {
-    expect(w.debugConfigs()).toMatchSnapshot("debugConfigs");
-  });
-
-  it("crashTrace: sonda de ops (crash de DNS com peer saudável)", () => {
-    seedOpsScenario();
-    expect(w.crashTrace("staging", "orders-worker")).toMatchSnapshot("crashTrace-dns");
   });
 });
 
 describe("dispatch delegado (data-action) — Fase 4", () => {
-  // O golden strippa onclick E data-action/data-on, logo NÃO prova que o listener
-  // delegado dispara. Estes testes disparam eventos reais e observam o efeito, fechando
-  // essa lacuna (equivalente ao «confirmado por clique» do scm/codev).
+  // O golden strippa data-action/data-on, logo NÃO prova que o listener delegado
+  // dispara. Estes testes disparam eventos reais e observam o efeito.
   const click = (el: Element) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 
-  it("start: clicar «Start debugging (F5)» abre uma sessão", () => {
-    w.renderDebugPane();
-    const btn = document.querySelector('#pane-debug .btn[data-action="start"]')!;
-    expect(btn).toBeTruthy();
-    click(btn);
-    expect(w.dbgState()).not.toBe(null);
-    expect(w.dbgState().kind).toBe("pre"); // seed = variante «bug»
-  });
-
-  it("step: numa sessão code, clicar «Step over» avança o índice e o feed", () => {
-    w.FS[w.P_LX].content = w.FS[w.P_LX].content.replace("for c in chars {", "for c in chars.clone() {");
-    w.startDebug("lexer");
-    w.renderDebugPane();
-    const before = w.dbgState().i;
-    const step = document.querySelector('#pane-debug .dbg-ctl [data-action="step"]')!;
-    expect(step).toBeTruthy();
-    click(step);
-    expect(w.dbgState().i).toBeGreaterThan(before);
-  });
-
   it("bp-del: clicar «×» de um breakpoint remove-o do Set (closest vence a linha)", () => {
-    w.toggleBp(w.P_LX, 7);
-    expect(w.dbgBreaks.has(w.P_LX + ":7")).toBe(true);
+    w.toggleBp(LX, 7);
+    expect(w.dbgBreaks.has(LX + ":7")).toBe(true);
     w.renderDebugPane();
-    const del = document.querySelector('#pane-debug [data-action="bp-del"]')!;
+    const del = document.querySelector(`#pane-debug [data-action="bp-del"][data-on="${LX}:7"]`)!;
     expect(del).toBeTruthy();
     click(del);
-    expect(w.dbgBreaks.has(w.P_LX + ":7")).toBe(false);
+    expect(w.dbgBreaks.has(LX + ":7")).toBe(false);
   });
 
-  it("watch-add: o onchange do input (evento change) acrescenta a expressão", () => {
-    w.FS[w.P_LX].content = w.FS[w.P_LX].content.replace("for c in chars {", "for c in chars.clone() {");
-    w.startDebug("lexer");
+  it("open-bp: clicar a linha abre o ficheiro na linha do breakpoint", () => {
+    const open = vi.spyOn(w, "openPath").mockImplementation(() => {});
+    w.toggleBp(LX, 7);
     w.renderDebugPane();
-    const input = document.querySelector('#pane-debug input[data-action="watch-add"]') as HTMLInputElement;
-    expect(input).toBeTruthy();
-    input.value = "tokens.capacity()";
-    input.dispatchEvent(new window.Event("change", { bubbles: true }));
-    expect(w.dbgState().watch).toContain("tokens.capacity()");
+    click(document.querySelector(`#pane-debug .scm-row[data-on="${LX}:7"] .nm`)!);
+    expect(open).toHaveBeenCalledWith(LX, 7);
   });
 });
 
 describe("caracterização do motor — breakpoints (toggleBp/BPS)", () => {
-  // Nota: o `localStorage` do jsdom é inoperante neste harness ("--localstorage-file
-  // without a valid path"), por isso a PERSISTÊNCIA de `saveBps`/`LS` (porta de infra)
-  // não se caracteriza aqui — só a semântica PURA do Set de breakpoints (chave
-  // `path:line`, alternância idempotente), que é o que vai para o domínio.
+  // Só a semântica do Set (chave `path:line`, alternância idempotente); a persistência
+  // em LS é porta de infra e o beforeEach esvazia-a.
   it("BPS nasce vazio para cada teste", () => {
     expect([...w.dbgBreaks]).toEqual([]);
   });
 
   it("toggleBp alterna por chave path:line (add/remove idempotente)", () => {
-    const key = w.P_LX + ":7";
+    const key = LX + ":7";
     expect(w.dbgBreaks.has(key)).toBe(false);
-    w.toggleBp(w.P_LX, 7);
+    w.toggleBp(LX, 7);
     expect(w.dbgBreaks.has(key)).toBe(true);
-    w.toggleBp(w.P_LX, 7);
+    w.toggleBp(LX, 7);
     expect(w.dbgBreaks.has(key)).toBe(false);
   });
 });

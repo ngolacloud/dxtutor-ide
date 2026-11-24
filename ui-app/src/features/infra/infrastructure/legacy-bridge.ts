@@ -69,7 +69,6 @@ export const goPane = (p: string): void => { G.goPane(p); };
 export const openPath = (p: string): void => { G.openPath(p); };
 export const openTab = (t: OpenTabArg): void => { G.openTab(t); };
 export const dlg = (cfg: DlgCfg): void => { coreDlg(cfg); };  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
-export const startDebug = (arg?: string): void => { G.startDebug(arg); };
 
 /* ───── terminal (saída simulada no browser) ───── */
 export const echo = (html: string): void => { G.echo(html); };
