@@ -1013,3 +1013,14 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   redesenho. Tirar pares pede que mudar de língua redesenhe tudo (ou recarregue a interface): é uma decisão de
   produto, não de refactor. A métrica dos pares fica em 1005 e só desce. Prova de paridade nas duas línguas igual
   antes e depois; goldens iguais.
+- **U6c lote 3 (2026-11-24) — mudar de língua recarrega a interface; os primeiros pares saem do motor.** (1)
+  **Decisão do dono:** o `setLocale` grava a língua e recarrega a janela (antes traduzia no sítio, com os pares, o
+  texto que estava no ecrã). Antes de recarregar, chama o `flush`/`idle` do desktop (o autosave pendente); a pasta
+  aberta volta a abrir no arranque (`dx-last-folder`). Mudança visível: mudar de língua recarrega a interface — o
+  estado em LS/disco fica, o que só existe em memória (os cartões do chat) perde-se. e2e novo (`locale.e2e.ts`):
+  muda para português, recarrega, o título do quadro (texto com chave) nasce «Quadro»; e volta. (2) Com o texto com
+  chave a nascer sempre na língua certa, um par do motor que só servia texto migrado deixa de servir: saem 78 pares
+  (`PAIRS` 1005 → 927) cujos dois textos já só existem nos catálogos — procurados como substring no código da UI fora
+  do motor e dos catálogos, no index.html, no Rust e nos cursos; os pares com números (`#`) ficam. Os pares que saíram
+  vão para `tests/fixtures/i18n-pruned-pairs.json`, e o `i18n.catalogs.test.ts` continua a provar cada entrada
+  contra o motor ∪ esses pares. Prova de paridade nas duas línguas igual antes e depois; goldens iguais.

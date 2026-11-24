@@ -49,7 +49,7 @@ metric "script-src com 'unsafe-inline' no CSP (U5)" 0 0 \
   "$(grep -oE "script-src[^;]*'unsafe-inline'" src-tauri/tauri.conf.json | count)"
 # pares de texto do motor de tradução (features/i18n.ts, PAIRS): os textos novos nascem com chave (U6b) — o motor
 # só encolhe, à medida que os textos passam a catálogos e os pares deixam de ter quem os use
-metric "pares de texto do motor de tradução (U6)" 1005 0 \
+metric "pares de texto do motor de tradução (U6)" 927 0 \
   "$(( $(grep -o '"\], \["' "$SRC/features/i18n.ts" | count) + 1 ))"
 metric "invoke cru inv(\"…\") fora de platform/ (U2)" 0 0 \
   "$(grep -rhoE '\binv\("' "$SRC" --include=*.ts --exclude-dir=platform | count)"

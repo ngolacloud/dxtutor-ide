@@ -1,0 +1,314 @@
+[
+[
+"Abre um ficheiro para ver os símbolos.",
+"Open a file to see its symbols."
+],
+[
+"Nada em execução.",
+"Nothing is running."
+],
+[
+"constrói todos os Dockerfiles e arranca a stack descrita em",
+"builds every Dockerfile and starts the stack described by"
+],
+[
+"Stack em execução",
+"Running stack"
+],
+[
+"Último commit que tocou neste ficheiro",
+"Last commit that touched this file"
+],
+[
+"Procurar em todos os ficheiros",
+"Search in all files"
+],
+[
+"Substituir por…",
+"Replace with…"
+],
+[
+"Mensagem de commit",
+"Commit message"
+],
+[
+"Abrir grafo de commits",
+"Open commit graph"
+],
+[
+"Escolhe uma linguagem e um nível para carregar o teu percurso guiado.",
+"Pick a language and a level to load your guided track."
+],
+[
+"Escolher o que aprender",
+"Choose what to learn"
+],
+[
+"Equipa de assistentes",
+"Team of assistants"
+],
+[
+"Cada assistente tem uma responsabilidade e um",
+"Each assistant has one responsibility and a"
+],
+[
+": os caminhos onde pode escrever, os comandos que pode correr e o limite de ficheiros por tarefa. O harness é aplicado em cada chamada de ferramenta — se um assistente tentar sair do escopo, a acção é bloqueada e delegada a quem é dono do caminho.",
+": the paths it may write to, the commands it may run and the file limit per task. The harness is enforced on every tool call — if an assistant tries to leave its scope, the action is blocked and delegated to whoever owns the path."
+],
+[
+"Testar o escopo",
+"Test the scope"
+],
+[
+"Pode escrever em (um padrão por linha)",
+"May write to (one pattern per line)"
+],
+[
+"Comandos permitidos",
+"Allowed commands"
+],
+[
+"Automático (router)",
+"Automatic (router)"
+],
+[
+"Máx. ficheiros",
+"Max. files"
+],
+[
+"Falar",
+"Talk"
+],
+[
+"Com o modelo em «Automático», o assistente descreve a tarefa e pede o modelo mais adequado. Os perfis abaixo são valores de exemplo, editáveis na aplicação real.",
+"With the model set to “Automatic”, the assistant describes the task and asks for the best-suited model. The profiles below are example values, editable in the real application."
+],
+[
+"▶ Executar sprint",
+"▶ Run sprint"
+],
+[
+"Backlog vazio",
+"Empty backlog"
+],
+[
+"Desenha a arquitectura no Studio e gera o backlog a partir dos componentes planeados.",
+"Design the architecture in the Studio and generate the backlog from the planned components."
+],
+[
+"Abrir o Studio",
+"Open the Studio"
+],
+[
+"Gerar a partir do desenho actual",
+"Generate from the current design"
+],
+[
+"Cada componente é uma tecnologia. Escolhe uma no catálogo, arrasta-a e usa",
+"Each component is a technology. Pick one from the catalogue, drag it, and use"
+],
+[
+"para desenhar dependências (app → recurso). Duplo clique apaga.",
+"to draw dependencies (app → resource). Double-click deletes."
+],
+[
+"Os assistentes lêem este desenho para gerar o projecto: esqueletos de código, Dockerfiles,",
+"The assistants read this design to generate the project: source skeletons, Dockerfiles,"
+],
+[
+", manifestos Kubernetes e as ligações entre serviços.",
+", Kubernetes manifests and the wiring between services."
+],
+[
+"O desenho é consistente.",
+"The design is consistent."
+],
+[
+"Em curso",
+"In progress"
+],
+[
+"· modelo",
+"· model"
+],
+[
+"Sem problemas no workspace.",
+"No problems in the workspace."
+],
+[
+"), ramo apagado. A release para",
+"), branch deleted. The release to"
+],
+[
+"fica sempre contigo.",
+"always stays with you."
+],
+[
+"Gitflow: o ramo",
+"Gitflow: the branch"
+],
+[
+"fica aberto com alterações por commitar.",
+"stays open with uncommitted changes."
+],
+[
+"Abrir o quadro",
+"Open the board"
+],
+[
+"Ao entrar aqui os testes correm sozinhos. Falha → volta a desenvolvimento.",
+"Tests run by themselves when a card enters here. Failure → back to development."
+],
+[
+"Só chega aqui o que passou nos testes. A validação é tua.",
+"Only what passed the tests gets here. The validation is yours."
+],
+[
+"✓ Validar",
+"✓ Validate"
+],
+[
+"✗ Rejeitar",
+"✗ Reject"
+],
+[
+"à espera da tua validação funcional no quadro.",
+"waiting for your functional validation on the board."
+],
+[
+"Cada issue está no seu ramo",
+"Each issue is on its own branch"
+],
+[
+"; o merge em",
+"; the merge into"
+],
+[
+"acontece quando validares.",
+"happens when you validate."
+],
+[
+"Validar no quadro",
+"Validate on the board"
+],
+[
+"Ver o grafo",
+"View the graph"
+],
+[
+"▶ Retomar",
+"▶ Resume"
+],
+[
+"Próxima issue:",
+"Next issue:"
+],
+[
+"■ Parar",
+"■ Stop"
+],
+[
+"O que queres aprender?",
+"What do you want to learn?"
+],
+[
+"Escolhe uma linguagem e guiamos-te por um percurso prático, um passo de cada vez.",
+"Pick a language and we'll guide you through a hands-on track, one step at a time."
+],
+[
+"Qual é o teu nível?",
+"What's your level?"
+],
+[
+"Escolhe um ou mais. O percurso carrega só os níveis que escolheres — mistura Básico e Intermédio, vai directo ao Avançado, ou faz os três. Podes mudar isto mais tarde no ícone da roda dentada.",
+"Pick one or more. Your track loads only the levels you choose — mix Basic and Intermediate, go straight to Advanced, or take all three. You can change this later from the gear icon."
+],
+[
+"← Voltar",
+"← Back"
+],
+[
+"Começar →",
+"Start →"
+],
+[
+"Perguntar ao Tutor",
+"Ask the Tutor"
+],
+[
+"O Tutor explica e dá pistas; o código final escreves tu.",
+"The Tutor explains and hints; you write the final code."
+],
+[
+"Com o Claude ao vivo, o Tutor responde a perguntas sobre o teu código em vez de mostrar o contexto do passo.",
+"With Claude live, the Tutor answers questions about your own code instead of showing the step's background."
+],
+[
+"✓ Submetido",
+"✓ Submitted"
+],
+[
+"Os testes ocultos decidem a correcção na aplicação desktop (",
+"Hidden tests decide correctness in the desktop app ("
+],
+[
+"). O browser não compila, por isso este protótipo só verifica que substituíste o ponto de partida por uma implementação real.",
+"). The browser cannot compile, so this prototype only checks that you replaced the starter with a real implementation."
+],
+[
+"Sem resultados.",
+"No results."
+],
+[
+"Sem notificações.",
+"No notifications."
+],
+[
+"Área de trabalho limpa.",
+"Working tree clean."
+],
+[
+"Liga este projecto a um contentor construído a partir do seu próprio contexto: linguagens, portas, o socket do runtime e o teu kubeconfig.",
+"Attach this project to a container built from its own context: languages, ports, the runtime socket and your kubeconfig."
+],
+[
+"Liga o socket para listar os contentores.",
+"Connect the socket to list containers."
+],
+[
+"Hosts remotos",
+"Remote hosts"
+],
+[
+"▶ RUN — correr a stack",
+"▶ RUN the stack"
+],
+[
+"■ Parar a stack",
+"■ Stop the stack"
+],
+[
+"⎈ Voltar a fazer deploy",
+"⎈ Redeploy"
+],
+[
+"Contexto detectado",
+"Detected context"
+],
+[
+"Os assistentes aceleram o trabalho; estas decisões nunca são deles. As linhas bloqueadas são só humanas em todos os templates.",
+"The assistants accelerate the work; these decisions are never theirs. Locked rows are human-only in every template."
+],
+[
+"Rever o diff antes de validar um merge",
+"Review the diff before validating a merge"
+],
+[
+"Tu decides; os assistentes aceleram. Aprende uma linguagem, ou desenha uma arquitectura e leva-a até uma stack em execução e um cluster local.",
+"You decide; the assistants accelerate. Learn a language, or design an architecture and take it to a running stack and a local cluster."
+],
+[
+"✓ Validar e fazer merge",
+"✓ Validate and merge"
+]
+]

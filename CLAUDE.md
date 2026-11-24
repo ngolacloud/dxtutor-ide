@@ -37,7 +37,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   pode voltar a ter a directiva: código novo nasce tipado.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp` e `project`); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project` e `comments`); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -411,7 +411,9 @@ mantém-se o apagado e as regras novas vão para o ficheiro do dono.
 
 Texto novo da interface nasce com chave: um catálogo tipado por feature (`en` + `ptAO`, dados puros — p.ex.
 `features/scm/ui/messages.ts`) e `const t = translator(CATÁLOGO)` no módulo que desenha. Nada de pares novos no
-motor (`features/i18n.ts`, `PAIRS`): a métrica U6 do `ui-metrics.sh` só desce. Ao migrar texto existente, os
+motor (`features/i18n.ts`, `PAIRS`): a métrica U6 do `ui-metrics.sh` só desce. Mudar de língua recarrega a interface
+(U6c lote 3), por isso um par que só sirva texto migrado sai do motor (vai para `tests/fixtures/i18n-pruned-pairs.json`,
+que continua a provar o catálogo). Ao migrar texto existente, os
 valores do catálogo são os que o motor produzia (gera-os com `trText`); `tests/i18n.catalogs.test.ts` confirma-os
 e os goldens provam o inglês. Parâmetros entram tal e qual — escapa-os (`esc`) se forem para HTML.
 Texto emitido por `domain/`/`application/` não importa o `translator` (lê o `window`): o motor recebe uma porta
@@ -598,6 +600,31 @@ features/arch/
   a referência só pela UI e verifica que nenhuma seta atravessa um cartão). GOTCHA-e2e:
   várias sessões partilham `ui-app/dist` e a porta 4179 — para verificar, construir para
   uma pasta própria e servir noutra porta (ou `CI=1`).
+
+## Comentários de linha para o Co-Dev (`ui-app/src/features/comments/`)
+
+Feature nova e tipada (governada por A7/A8), ao estilo do «Start discussion» do Antigravity: com o
+ponteiro no editor, um botão na margem da linha abre uma caixa por baixo dela; «Add Comment to Chat»
+(ou Ctrl+Enter) põe o comentário no compositor do Co-Dev como um chip com o código dessas linhas,
+pelo `codev.ask` partilhado (`intent: "chat"`, `send: false`, contexto `kind: "comment"`) — juntam-se
+vários e o humano escreve o pedido. Uma selecção que contém a linha alarga o comentário a ela toda.
+
+```
+features/comments/
+  domain/comment.ts          linhas (offset/ponteiro → linha), intervalo pela selecção, rótulo e o
+                             contexto para o agente. PURO.
+  application/               ports.ts (EditorPort, AskPort) + line-comments.ts (abrir/descartar/juntar).
+  ui/                        view.ts (botão e caixa DENTRO da .ed-wrap, fora do #ed-gut/#ed-hl que o
+                             paintEd redesenha — e longe dos cliques de breakpoint da margem),
+                             hooks.ts (rato, teclado, acções `comments:*` no despachante partilhado),
+                             messages.ts (en/ptAO: o `.ed` está no TR_SKIP do motor de tradução).
+  infrastructure/editor.ts   a textarea `#ed-ta` e a raiz do workspaceStore (sem window).
+  index.ts                   raiz de composição (corre no browser e na app).
+```
+
+Não comenta por cima de uma proposta do Co-Dev (os números de linha não seriam os do ficheiro).
+Testes: `tests/comments.domain.test.ts` (domínio + caso de uso) e `tests/comments.editor.test.ts`
+(no editor real do harness: posição do botão, caixa, Ctrl+Enter/Esc/lixo, o pedido ao `codev.ask`).
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
