@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R0, R1b, R1a e R1c1 feitas, R1c2/R1d e R2–R6 por fazer
+- **Estado:** aceite (2026-11-23); R0, R1b, R1a e R1c1 feitas (verificadas no desktop), R1c2/R1d e R2–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -144,3 +144,18 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   com SEARCH derivado de um CREATE INDEX e um teste do SCAN/«sem plano inventado»; o hood de TS
   muda só no rodapé. Teste novo da regra genérica das cores. Métricas: globais 390 → 388,
   handlers inline 159 → 156.
+- **Verificação desktop após R1c1 (2026-11-24).** Binário construído na worktree
+  (`cargo build -p dxtutor-ide`, UI embutida) e selftest corrido em `xvfb-run` com `HOME`
+  temporário, sem modelo local. **Com pasta** (repo git temporário, como `scripts/selftest.sh`):
+  `errors: []`, `stepErrors: {}`; open/autosave/commit/graph/changelog/scm/infra/terminal/
+  terminalUI/termgit/codereview/agentTask/panel/providers verdes; passos de LLM `skipped — no
+  model reachable` (esperado). **Sem pasta** (o arranque limpo da R1a): `errors: []`,
+  `stepErrors: {}`, `files: 0`, PTY/integração de shell verdes, `scanned: false` (sem raiz,
+  esperado). **BUG pré-existente reportado (não corrigido aqui; idêntico no selftest de
+  `fe47f3d`, antes da R0):** `gfStart`/`gfFinish` em `scm/application/scm-engine.ts` chamam o
+  `checkout`/`gitMerge` LOCAIS do motor (só o DAG em memória), não as versões decoradas pelo
+  `bridge.ts` que correm git real — no desktop o repositório nunca sai de `main`
+  (o passo `gitflow` acaba em `main` em vez de `develop`, sem ramo `feature/*`; os commits
+  «feat: flow»/«feat: ckpt ask finish» ficam em `main`), e por isso `checkpoint.finishedViaAsk`
+  e `checkpoint.stayedOpen` dão `false`. O selftest não o apanhava porque só falha em `errors`.
+  Resolve-se na R1d, que tira o git simulado: o gitflow passa a ser só git real.
