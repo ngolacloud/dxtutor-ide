@@ -33,6 +33,7 @@ pub mod mcp;
 pub mod openai;
 pub mod permissions;
 pub mod provider;
+pub mod report;
 pub mod retry;
 pub mod sandbox;
 pub mod schema;

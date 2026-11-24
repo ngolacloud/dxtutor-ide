@@ -20,6 +20,9 @@ import { makeHunkReview } from "./application/hunk-review";
 import { makeHunkOverlayView } from "./ui/hunk-overlay-view";
 import { editorOverlay } from "../../app/editor-overlay";
 import type { VView } from "./domain/hunk-overlay";
+import { makeHarness } from "./application/harness";
+import { makeHarnessView } from "./ui/harness-view";
+import { VIEW } from "../../app/store/registry";
 import type {
   Workspace,
   Terminal,
@@ -181,6 +184,32 @@ editorOverlay.set({
 });
 
 /* ───── agente v2 (ADR-0003, F4): o loop corre no backend Rust ───── */
+/* ───── the harness (A3, docs/v2/UI-AUDIT.md item 11): the «Co-Dev run» tab ───── */
+let sessionOf: () => string | null = () => null;
+const activeModel = (): string => {
+  const p = bridge.providers() as unknown as Record<string, { model?: string }>;
+  const active = p[bridge.monolith.activeProvider];
+  return (active && active.model) || "";
+};
+export const codevRun = makeHarness({
+  gateway: agentGateway,
+  session: () => sessionOf(),
+  root: () => bridge.diskRoot() ?? "",
+  reloadFromDisk: () => bridge.reloadDisk(),
+  open: (rel, line) => bridge.openPath(bridge.root() + rel, line),
+  confirm: (m) => bridge.confirm(m),
+  notify: (m) => bridge.toast(m),
+});
+const harnessView = makeHarnessView(codevRun.state, (f) => void codevRun.onChange(f), activeModel, () => Date.now());
+VIEW["codev-run"] = (_t, host) => {
+  harnessView.mount(host);
+  void codevRun.refresh();
+};
+/** Opens (or focuses) the «Co-Dev run» tab. */
+export function openCodevRun(): void {
+  bridge.openTab({ id: "codev-run", title: "Co-Dev run", kind: "codev-run" });
+}
+
 const agentChat = makeAgentChat({
   gateway: agentGateway,
   presenter,
@@ -208,7 +237,9 @@ const agentChat = makeAgentChat({
   },
   hunks: hunkReview.sink,
   flush: () => bridge.flushSave(),
+  run: { event: (s, e) => codevRun.event(s, e), turnStarted: () => codevRun.turnStarted() },
 });
+sessionOf = () => agentChat.sessionId();
 stopTurn = () => agentChat.cancel();
 
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/

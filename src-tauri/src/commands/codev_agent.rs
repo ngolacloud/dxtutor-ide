@@ -167,20 +167,43 @@ pub fn codev_agent_set_plan(session_id: String, on: bool) -> Result<(), String> 
     codev_agent::set_plan(&session_id, on)
 }
 
-/// Os checkpoints de ficheiros da sessão (um por turno que alterou ficheiros).
+/// Os checkpoints de ficheiros da sessão (um por turno que alterou ficheiros); cada um diz se
+/// a conversa também pode voltar a esse ponto (`conversation`).
 #[tauri::command]
 pub fn codev_agent_checkpoints(
     session_id: String,
-) -> Result<Vec<tutor_agent::checkpoint::Checkpoint>, String> {
+) -> Result<Vec<codev_agent::CheckpointView>, String> {
     codev_agent::checkpoints(&session_id)
 }
 
-/// Repõe os ficheiros como estavam no checkpoint (antes do turno que o criou).
+/// Repõe os ficheiros como estavam no checkpoint (antes do turno que o criou); com
+/// `conversation: true` («Rewind to here»), a conversa volta também a esse ponto.
 #[tauri::command]
-pub async fn codev_agent_rewind(session_id: String, checkpoint: u32) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || codev_agent::rewind(&session_id, checkpoint))
-        .await
-        .map_err(|e| format!("rewind task failed: {e}"))?
+pub async fn codev_agent_rewind(
+    session_id: String,
+    checkpoint: u32,
+    conversation: Option<bool>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        codev_agent::rewind(&session_id, checkpoint, conversation.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| format!("rewind task failed: {e}"))?
+}
+
+/// As regras de permissões do projecto e do utilizador (painel de permissões, A3 HARNESS-05).
+#[tauri::command]
+pub fn codev_agent_permissions(root: String) -> codev_agent::PermissionsView {
+    codev_agent::permissions(&root)
+}
+
+/// Grava as regras do projecto (`.dxtutor/permissions.json`) e aplica-as às sessões abertas.
+#[tauri::command]
+pub fn codev_agent_save_permissions(
+    root: String,
+    rules: tutor_agent::permissions::Rules,
+) -> Result<(), String> {
+    codev_agent::save_permissions(&root, rules)
 }
 
 /// O que o projecto define para o agente: comandos, skills, hooks e servidores MCP (com o

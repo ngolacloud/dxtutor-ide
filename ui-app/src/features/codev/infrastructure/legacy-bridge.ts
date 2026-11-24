@@ -176,6 +176,8 @@ export const openTab = (...args: [t: Partial<CodevTab> & { id: string }, act?: b
 export const closeTab = (id: string): void => G.closeTab(id);
 export const openDiff = (...args: [p: string, a?: string, b?: string, label?: string]): void => G.openDiff(...args);
 export const openPath = (...args: [p: string, line?: number]): void => G.openPath(...args);
+/** A yes/no question to the human (the harness: rewind, trust). */
+export const confirm = (message: string): boolean => window.confirm(message);
 
 /* ───── workspace / diagnostics / tests ───── */
 export const shortPath = (p: string): string => window.short(p);

@@ -369,6 +369,26 @@ export const presenter: ChatPresenter = {
         .join("");
     scrollMsgs();
   },
+  /* the turn's report (HARNESS-07): built from the events, collapsed under the reply */
+  agentReport(ref: CardRef, title: string, markdown: string) {
+    const c = asCard(ref);
+    const d = document.createElement("details");
+    d.className = "agent-report";
+    const sum = document.createElement("summary");
+    const b = document.createElement("span");
+    b.textContent = "Turn report";
+    sum.appendChild(b);
+    const t = document.createElement("span");
+    t.className = "ar-t";
+    t.textContent = " · " + title; // text, never HTML
+    sum.appendChild(t);
+    d.appendChild(sum);
+    const body = document.createElement("div");
+    body.innerHTML = md(markdown);
+    d.appendChild(body);
+    c.el.querySelector(".bub")!.appendChild(d);
+    scrollMsgs();
+  },
   agentPlan(ref: ToolRef, markdown: string) {
     const box = document.createElement("div");
     box.className = "agent-plan";

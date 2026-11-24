@@ -69,6 +69,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     const t = turn;
     if (!t || s !== session) return;
     if (e.kind.startsWith("hunk_") || e.kind === "validation") deps.hunks?.event(s, e);
+    deps.run?.event(s, e);
     switch (e.kind) {
       case "hunk_start":
         t.hunkPaths.set(e.call, e.path);
@@ -90,6 +91,9 @@ export function makeAgentChat(deps: AgentChatDeps) {
       }
       case "validation":
         presenter.agentNote?.(t.card, "validation", validationNote(e));
+        break;
+      case "report":
+        presenter.agentReport?.(t.card, e.title, e.markdown);
         break;
       case "stream": {
         const ev = e.event;
@@ -228,6 +232,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     presenter.userMessage(q);
     const card = presenter.thinking(deps.speaker());
     presenter.beginRun("Agente Co-Dev");
+    deps.run?.turnStarted();
     const signal = presenter.startAbort();
     try {
       const id = await ensureSession();
@@ -414,6 +419,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
     },
     /** Nova conversa: fecha a sessão (o histórico vive no backend). */
     reset,
+    /** The open session, if any (the harness view acts on it). */
+    sessionId: (): string | null => session,
     /** Stops the turn in progress (Esc in the editor overlay). */
     cancel(): void {
       if (session) void gateway.cancel(session);

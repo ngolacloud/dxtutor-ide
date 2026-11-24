@@ -36,6 +36,7 @@ export type AgentEvent =
   | { kind: "served_by"; model: string }
   | { kind: "checkpoint"; id: number; label: string }
   | { kind: "notice"; text: string }
+  | { kind: "report"; title: string; markdown: string }
   | HunkEvent
   | { kind: "done"; outcome: TurnOutcome };
 
@@ -85,7 +86,7 @@ const str = (v: unknown): v is string => typeof v === "string";
 export function parseAgentEvent(payload: unknown): { session: string; event: AgentEvent } | null {
   if (!isObj(payload) || !str(payload.session) || !isObj(payload.event)) return null;
   const e = payload.event;
-  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "done"];
+  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "report", "done"];
   if (str(e.kind) && HUNK_KINDS.includes(e.kind)) {
     return validHunkEvent(e) ? { session: payload.session, event: e as unknown as AgentEvent } : null;
   }
@@ -291,16 +292,41 @@ export function parseTodos(input: Record<string, unknown>): Todo[] {
     });
 }
 
-/** Um checkpoint de ficheiros (espelho de `tutor_agent::checkpoint::Checkpoint`). */
+/** Um checkpoint de ficheiros (espelho de `codev_agent::CheckpointView`). */
 export interface Checkpoint {
   id: number;
   label: string;
   created: number;
+  /** A conversa também pode voltar a este ponto («Rewind to here»). */
+  conversation: boolean;
 }
 
 export function parseCheckpoints(v: unknown): Checkpoint[] {
   if (!Array.isArray(v)) return [];
-  return v.filter((c): c is Checkpoint => isObj(c) && typeof c.id === "number" && str(c.label) && typeof c.created === "number");
+  return v
+    .filter((c) => isObj(c) && typeof c.id === "number" && str(c.label) && typeof c.created === "number")
+    .map((c) => {
+      const o = c as Record<string, unknown>;
+      return { id: o.id as number, label: o.label as string, created: o.created as number, conversation: o.conversation === true };
+    });
+}
+
+/** As regras de permissões (espelho de `codev_agent::PermissionsView`). */
+export interface Permissions {
+  project: { allow: string[]; deny: string[] };
+  user: { allow: string[]; deny: string[] };
+  projectFile: string;
+  userFile: string | null;
+}
+
+export function parsePermissions(v: unknown): Permissions {
+  const o = isObj(v) ? v : {};
+  const rules = (x: unknown) => {
+    const r = isObj(x) ? x : {};
+    const list = (a: unknown) => (Array.isArray(a) ? (a.filter(str) as string[]) : []);
+    return { allow: list(r.allow), deny: list(r.deny) };
+  };
+  return { project: rules(o.project), user: rules(o.user), projectFile: str(o.projectFile) ? o.projectFile : "", userFile: str(o.userFile) ? o.userFile : null };
 }
 
 /** O diff a mostrar num pedido de aprovação de edit/write (`null` para as outras ferramentas). */

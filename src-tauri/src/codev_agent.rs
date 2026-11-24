@@ -278,6 +278,19 @@ struct Session {
     /// Where accepted hunks are recorded, and for which issue (A5, RF-CODEV-STREAM §9).
     change_log: Option<PathBuf>,
     issue_key: Mutex<Option<String>>,
+    /// checkpoint id → how many messages the conversation had when that turn started, so
+    /// "Rewind to here" can take the conversation back too (A3, HARNESS-03). Only for the
+    /// turns of this run of the app: a resumed session rewinds the files only.
+    cp_marks: Mutex<HashMap<u32, usize>>,
+}
+
+/// A checkpoint as the UI lists it: whether the conversation can go back with the files.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointView {
+    #[serde(flatten)]
+    pub checkpoint: Checkpoint,
+    pub conversation: bool,
 }
 
 /// What the host keeps of a hunk to record it once accepted.
@@ -635,6 +648,7 @@ pub fn start(
         review: Mutex::new(HashMap::new()),
         change_log: spec.change_log.clone(),
         issue_key: Mutex::new(spec.issue_key.clone().filter(|k| !k.trim().is_empty())),
+        cp_marks: Mutex::new(HashMap::new()),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -676,13 +690,28 @@ pub fn send(
     // one sink for the loop's events and the host's own (hunk_review, validation): one
     // channel, in the order things happen (RF-CODEV-STREAM I4)
     let sink = RefCell::new(on_event);
-    let emit = |e: AgentEvent| (**sink.borrow_mut())(e);
+    // the turn's report is built from every event the UI sees (HARNESS-07)
+    let turn_log: RefCell<Option<tutor_agent::report::TurnLog>> = RefCell::new(None);
+    let turn_start = std::cell::Cell::new(0usize);
+    let emit = |e: AgentEvent| {
+        if let Some(l) = turn_log.borrow_mut().as_mut() {
+            l.observe(&e);
+        }
+        (**sink.borrow_mut())(e)
+    };
     let auto = RefCell::new(AutoTurn::default());
     let held_done: RefCell<Option<AgentEvent>> = RefCell::new(None);
     let metas: RefCell<HashMap<String, HunkMeta>> = RefCell::new(HashMap::new());
     let mut on_loop_event = |e: AgentEvent| {
         match &e {
-            AgentEvent::Checkpoint { id, .. } => auto.borrow_mut().checkpoint = Some(*id),
+            AgentEvent::Checkpoint { id, .. } => {
+                auto.borrow_mut().checkpoint = Some(*id);
+                session
+                    .cp_marks
+                    .lock()
+                    .unwrap()
+                    .insert(*id, turn_start.get());
+            }
             AgentEvent::HunkStart {
                 hunk,
                 call,
@@ -719,8 +748,8 @@ pub fn send(
                     record_change_sets(&session, &[(hunk.clone(), m)], "human", &emit);
                 }
             }
-            // `done` waits for Auto's validation (sent after the turn)
-            AgentEvent::Done { .. } if session.review_edits => {
+            // `done` waits for Auto's validation and the turn's report (sent after the turn)
+            AgentEvent::Done { .. } => {
                 *held_done.borrow_mut() = Some(e);
                 return;
             }
@@ -809,6 +838,11 @@ pub fn send(
         d
     };
     let mut t = s.transcript.lock().unwrap();
+    turn_start.set(t.len());
+    *turn_log.borrow_mut() = Some(tutor_agent::report::TurnLog::new(
+        text.as_deref().unwrap_or("(repetição do último pedido)"),
+        now_ms() as u64,
+    ));
     let r = match text {
         Some(q) => {
             // slash commands do projecto (.dxtutor/commands): o modelo recebe o prompt expandido
@@ -850,6 +884,9 @@ pub fn send(
     if !turn.provisional.is_empty() {
         validate(&s, turn, &emit);
     }
+    if let Some(log) = turn_log.take() {
+        report_turn(&s, log, &emit);
+    }
     if let Some(done) = held_done.take() {
         emit(done);
     }
@@ -858,6 +895,48 @@ pub fn send(
         AgentError::Provider(p) if openai::is_tools_unsupported(p) => format!("{NO_TOOLS_MARK}{e}"),
         _ => e.to_string(),
     })
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// The turn's report (HARNESS-07): sent to the UI and kept in the project database with
+/// the turn's issue — only when the turn did something (changed files, ran commands).
+fn report_turn(s: &Session, log: tutor_agent::report::TurnLog, emit: &dyn Fn(AgentEvent)) {
+    if !log.worth_reporting() {
+        return;
+    }
+    let todos = s.flow.todos.lock().unwrap().clone();
+    let markdown = log.markdown(&todos, now_ms() as u64);
+    let title = log.title();
+    emit(AgentEvent::Report {
+        title: title.clone(),
+        markdown: markdown.clone(),
+    });
+    if let Some(db) = &s.change_log {
+        let issue = s.issue_key.lock().unwrap().clone();
+        let root = s.agent.ctx.root.display().to_string();
+        let r = tutor_board::project::ProjectStore::open(db).and_then(|mut st| {
+            let id = s
+                .log
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|l| l.path().display().to_string())
+                .unwrap_or_default();
+            st.record_artifact(&root, &id, issue.as_deref(), &title, &markdown, now_ms())
+                .map_err(|e| e.message)
+        });
+        if let Err(e) = r {
+            emit(AgentEvent::Notice {
+                text: format!("não foi possível guardar o relatório do turno: {e}"),
+            });
+        }
+    }
 }
 
 /// Auto mode, end of turn: runs the checks again. If a check that passed before the turn
@@ -1084,18 +1163,28 @@ pub fn set_plan(id: &str, on: bool) -> Result<(), String> {
 }
 
 /// Os checkpoints da sessão (vazio fora de repositórios git).
-pub fn checkpoints(id: &str) -> Result<Vec<Checkpoint>, String> {
+pub fn checkpoints(id: &str) -> Result<Vec<CheckpointView>, String> {
     let s = get(id)?;
+    let marks = s.cp_marks.lock().unwrap().clone();
     Ok(s.agent
         .checkpoints
         .as_ref()
         .map(|c| c.list())
-        .unwrap_or_default())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|cp| CheckpointView {
+            conversation: marks.contains_key(&cp.id),
+            checkpoint: cp,
+        })
+        .collect())
 }
 
-/// Repõe os ficheiros como estavam no checkpoint `cp` (antes do turno que o criou). A
-/// conversa não é editada: o modelo é avisado na próxima mensagem.
-pub fn rewind(id: &str, cp: u32) -> Result<String, String> {
+/// Repõe os ficheiros como estavam no checkpoint `cp` (antes do turno que o criou). Com
+/// `conversation` («Rewind to here», A3 HARNESS-03), a conversa também volta a esse ponto: o
+/// histórico fica com as mensagens de antes desse turno e o ficheiro da sessão é reescrito.
+/// Sem isso (ou numa sessão retomada, que não sabe onde cada turno começou), a conversa
+/// fica e o modelo é avisado na próxima mensagem.
+pub fn rewind(id: &str, cp: u32, conversation: bool) -> Result<String, String> {
     let s = get(id)?;
     if s.busy.load(Ordering::SeqCst) {
         return Err("espera que o turno em curso termine (ou pára-o) antes de voltar atrás".into());
@@ -1105,12 +1194,120 @@ pub fn rewind(id: &str, cp: u32) -> Result<String, String> {
         .checkpoints
         .as_ref()
         .ok_or("checkpoints só existem em repositórios git")?;
+    let mark = s.cp_marks.lock().unwrap().get(&cp).copied();
+    if conversation && mark.is_none() {
+        return Err("a conversa deste checkpoint não pode voltar atrás (a sessão foi retomada): volta só os ficheiros".into());
+    }
     let msg = cps.restore(cp)?;
-    s.notes.lock().unwrap().push(format!(
-        "O humano reverteu os ficheiros do projecto: {msg}. O que fizeste depois desse ponto \
-         já não está no disco — volta a ler os ficheiros antes de continuar."
-    ));
-    Ok(msg)
+    match (conversation, mark) {
+        (true, Some(n)) => {
+            let mut t = s.transcript.lock().unwrap();
+            let cut = t.truncated(n);
+            if let Some(log) = s.log.lock().unwrap().as_mut() {
+                log.rewrite(&cut)?;
+            }
+            *t = cut;
+            drop(t);
+            // the later turns are gone: their marks too, and the mode is announced again
+            s.cp_marks.lock().unwrap().retain(|k, _| *k < cp);
+            *s.announced.lock().unwrap() = None;
+            s.notes.lock().unwrap().clear();
+            Ok(format!("{msg}; a conversa voltou a antes desse pedido"))
+        }
+        _ => {
+            s.notes.lock().unwrap().push(format!(
+                "O humano reverteu os ficheiros do projecto: {msg}. O que fizeste depois desse ponto \
+                 já não está no disco — volta a ler os ficheiros antes de continuar."
+            ));
+            Ok(msg)
+        }
+    }
+}
+
+/// The permission rules of a project and of the user (HARNESS-05), as the panel shows them.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionsView {
+    pub project: Rules,
+    pub user: Rules,
+    pub project_file: String,
+    pub user_file: Option<String>,
+}
+
+/// Reads `.dxtutor/permissions.json` of `root` and the user's rules.
+pub fn permissions(root: &str) -> PermissionsView {
+    let root = PathBuf::from(root.trim());
+    let pf = Rules::project_file(&root);
+    let uf = Rules::user_file();
+    let read = |p: &Path| -> Rules {
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    };
+    PermissionsView {
+        project: read(&pf),
+        user: uf.as_deref().map(read).unwrap_or_default(),
+        project_file: pf.display().to_string(),
+        user_file: uf.map(|u| u.display().to_string()),
+    }
+}
+
+/// A rule is a tool name (`edit`, `run_tests`, `mcp__server__tool`) or `bash:<command prefix>`.
+fn valid_rule(r: &str) -> bool {
+    let r = r.trim();
+    if r.is_empty() || r.len() > 200 || r.contains('\n') {
+        return false;
+    }
+    match r.split_once(':') {
+        Some(("bash", rest)) => !rest.trim().is_empty(),
+        Some(_) => false,
+        None => r.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+    }
+}
+
+/// Writes the project's rules (the same file "Allow always" writes to) and applies them to
+/// the open sessions of that folder at once (project rules + the user's).
+pub fn save_permissions(root: &str, rules: Rules) -> Result<(), String> {
+    if let Some(bad) = rules
+        .allow
+        .iter()
+        .chain(rules.deny.iter())
+        .find(|r| !valid_rule(r))
+    {
+        return Err(format!("regra inválida: «{bad}» (usa o nome de uma ferramenta, ex. edit, ou bash:<prefixo do comando>)"));
+    }
+    let clean = |v: &[String]| {
+        let mut o: Vec<String> = vec![];
+        for r in v.iter().map(|r| r.trim().to_string()) {
+            if !o.contains(&r) {
+                o.push(r);
+            }
+        }
+        o
+    };
+    let rules = Rules {
+        allow: clean(&rules.allow),
+        deny: clean(&rules.deny),
+    };
+    let root_p = PathBuf::from(root.trim());
+    let p = Rules::project_file(&root_p);
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(
+        &p,
+        serde_json::to_string_pretty(&rules).unwrap_or_default() + "\n",
+    )
+    .map_err(|e| e.to_string())?;
+    let canon = |x: &Path| std::fs::canonicalize(x).unwrap_or_else(|_| x.to_path_buf());
+    let target = canon(&root_p);
+    for sess in sessions().lock().unwrap().values() {
+        if canon(&sess.agent.ctx.root) == target {
+            sess.policy.lock().unwrap().rules = Rules::load(&target, Rules::user_file().as_deref());
+        }
+    }
+    Ok(())
 }
 
 /// Um ficheiro que faz a IDE correr comandos: existe? é confiado (com o conteúdo actual)?
@@ -1497,7 +1694,7 @@ mod tests {
         assert_eq!(names(3), ["lsp_diagnostics"]);
         assert_eq!(names(4), ["lsp_diagnostics", "arch_propose"]);
 
-        // uma sessão nova grava o conjunto 4
+        // uma sessão nova grava o conjunto actual (4 com o arch_propose; 5 desde a A3)
         let proj = tempfile::tempdir().unwrap();
         let base = tempfile::tempdir().unwrap();
         let id = start(
@@ -1528,9 +1725,18 @@ mod tests {
         let file = find(base.path(), &format!("{id}.jsonl")).expect("a sessão foi gravada");
         let head = std::fs::read_to_string(file).unwrap();
         assert!(
-            head.lines().next().unwrap().contains("\"toolset\":4"),
+            head.lines()
+                .next()
+                .unwrap()
+                .contains(&format!("\"toolset\":{TOOLSET_VERSION}")),
             "{head}"
         );
+        const {
+            assert!(
+                TOOLSET_VERSION >= 4,
+                "the arch_propose tool needs toolset 4 or later"
+            )
+        };
     }
 
     #[test]
@@ -1564,7 +1770,7 @@ mod tests {
         assert_eq!(s.policy.lock().unwrap().decide(&edit), Verdict::Allow);
         // fora de um repositório git: sem checkpoints, rewind explica porquê
         assert!(checkpoints(&id).unwrap().is_empty());
-        assert!(rewind(&id, 1).unwrap_err().contains("git"));
+        assert!(rewind(&id, 1, false).unwrap_err().contains("git"));
         close(&id);
     }
 
@@ -1948,6 +2154,88 @@ mod tests {
             (detail.change_sets[0].added, detail.change_sets[0].removed),
             (2, 1)
         );
+    }
+
+    #[test]
+    fn rewind_to_here_takes_files_and_conversation_back() {
+        let (d, id) = auto_repo("true");
+        let s = get(&id).unwrap();
+        let cps = s.agent.checkpoints.as_ref().unwrap();
+        {
+            let mut t = s.transcript.lock().unwrap();
+            t.push(Message::user_text("primeiro"));
+            t.push(Message::user_text("segundo"));
+        }
+        // the turn of checkpoint 1 started with 1 message in the conversation
+        let cp = cps.snapshot("segundo").unwrap();
+        s.cp_marks.lock().unwrap().insert(cp.id, 1);
+        std::fs::write(d.path().join("a.txt"), "changed\n").unwrap();
+        s.transcript
+            .lock()
+            .unwrap()
+            .push(Message::user_text("terceiro"));
+        if let Some(l) = s.log.lock().unwrap().as_mut() {
+            l.sync(&s.transcript.lock().unwrap()).unwrap();
+        }
+        let views = checkpoints(&id).unwrap();
+        assert!(views
+            .iter()
+            .any(|v| v.checkpoint.id == cp.id && v.conversation));
+        let msg = rewind(&id, cp.id, true).unwrap();
+        assert!(msg.contains("a conversa voltou"), "{msg}");
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("a.txt")).unwrap(),
+            "ok\n"
+        );
+        assert_eq!(s.transcript.lock().unwrap().len(), 1);
+        assert!(s.notes.lock().unwrap().is_empty());
+        // the session file now holds the shorter conversation
+        let path = s.log.lock().unwrap().as_ref().unwrap().path().to_path_buf();
+        let reopened = tutor_agent::session::SessionLog::open(path.parent().unwrap(), &id).unwrap();
+        assert_eq!(reopened.1.len(), 1);
+        // without a mark (a resumed session) only the files can go back
+        s.cp_marks.lock().unwrap().clear();
+        assert!(rewind(&id, cp.id, true).unwrap_err().contains("retomada"));
+        assert!(rewind(&id, cp.id, false).is_ok());
+    }
+
+    #[test]
+    fn permissions_are_validated_saved_and_applied_to_open_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: dir.path().display().to_string(),
+            sessions_base: Some(dir.path().join(".sessions")),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let root = dir.path().display().to_string();
+        let bad = Rules {
+            allow: vec!["rm -rf /".into()],
+            deny: vec![],
+        };
+        assert!(save_permissions(&root, bad)
+            .unwrap_err()
+            .contains("regra inválida"));
+        let rules = Rules {
+            allow: vec!["bash:cargo test".into(), "edit".into(), "edit".into()],
+            deny: vec!["bash:git push".into()],
+        };
+        save_permissions(&root, rules).unwrap();
+        let v = permissions(&root);
+        assert_eq!(
+            v.project.allow,
+            vec!["bash:cargo test".to_string(), "edit".to_string()]
+        );
+        assert_eq!(v.project.deny, vec!["bash:git push".to_string()]);
+        assert!(v.project_file.ends_with(".dxtutor/permissions.json"));
+        let s = get(&id).unwrap();
+        assert!(s
+            .policy
+            .lock()
+            .unwrap()
+            .rules
+            .allow
+            .contains(&"bash:cargo test".to_string()));
     }
 
     #[test]

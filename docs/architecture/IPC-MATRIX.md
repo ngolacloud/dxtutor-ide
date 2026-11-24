@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (165 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (167 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 171 comandos, **85 são consumidos pela `ui-app`** e **86 não o são**: a UI
+Dos 173 comandos, **87 são consumidos pela `ui-app`** e **86 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -288,7 +288,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `codev_session_discard` | `root: String`, `slug: String` | `()` | String | — | — | **G** |
 | `codev_session_list` | `root: String` | `Vec<git::SessionInfo>` | String | — | — | R |
 
-## 10b. Agente Co-Dev v2 — `commands/codev_agent.rs` (14)
+## 10b. Agente Co-Dev v2 — `commands/codev_agent.rs` (16)
 
 > **ADR-0003 (F1):** adaptadores finos sobre o caso de uso Tauri-free
 > `crate::codev_agent`, que gere sessões do loop do crate `tutor-agent` (tool use
@@ -320,8 +320,10 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `codev_agent_sessions` | `root: String` | `Vec<session::SessionSummary>` | — | — | `platform/tauri/codev-agent.ts` | R |
 | `codev_agent_history` | `session_id: String` | `Vec<session::HistoryItem>` | String | — | `platform/tauri/codev-agent.ts` | S |
 | `codev_agent_set_plan` | `session_id: String`, `on: bool` | `()` | String | — | `platform/tauri/codev-agent.ts` | S |
-| `codev_agent_checkpoints` | `session_id: String` | `Vec<checkpoint::Checkpoint>` | String | — | `platform/tauri/codev-agent.ts` | S |
-| `codev_agent_rewind` | `session_id: String`, `checkpoint: u32` | `String` | String | — | `platform/tauri/codev-agent.ts` | **W** · S |
+| `codev_agent_checkpoints` | `session_id: String` | `Vec<CheckpointView>` (o checkpoint + `conversation`: a conversa também pode voltar a esse ponto) | String | — | `platform/tauri/codev-agent.ts` | S |
+| `codev_agent_rewind` | `session_id: String`, `checkpoint: u32`, `conversation: Option<bool>` («Rewind to here»: a conversa volta também, e o JSONL da sessão é reescrito) | `String` | String | — | `platform/tauri/codev-agent.ts` | **W** · S |
+| `codev_agent_permissions` | `root: String` | `PermissionsView {project, user, projectFile, userFile}` | — | — | `platform/tauri/codev-agent.ts` | R |
+| `codev_agent_save_permissions` | `root: String`, `rules: Rules {allow, deny}` | `()` | String (regra inválida) | — | `platform/tauri/codev-agent.ts` | **W** (`.dxtutor/permissions.json`; aplica às sessões abertas da pasta) |
 | `codev_agent_extensions` | `root: String` | `ExtensionsStatus` | — | — | `platform/tauri/codev-agent.ts` | R |
 | `codev_agent_trust` | `root: String`, `kind: String` | `()` | String | — | `platform/tauri/codev-agent.ts` | W (`~/.config/dxtutor/trusted.json`) |
 | `codev_agent_cancel` | `session_id: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
@@ -528,9 +530,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **165** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 14 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 11 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
-| Consumidos pela `ui-app` | **85** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 14 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 11 · `platform/tauri/project.ts` 4) |
+| Comandos registados | **173** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 11 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 6 |
+| Consumidos pela `ui-app` | **87** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 11 · `platform/tauri/project.ts` 4) |
 | Não consumidos pela `ui-app` | **86** |
 | Eventos distintos | **16** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

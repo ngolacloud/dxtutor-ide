@@ -82,9 +82,17 @@ export const setAgentPlan = (sessionId: string, on: boolean): Promise<void> => i
 /** Os checkpoints de ficheiros da sessão — `Vec<Checkpoint>`. */
 export const listAgentCheckpoints = (sessionId: string): Promise<unknown> => invoke<unknown>("codev_agent_checkpoints", { sessionId });
 
-/** Repõe os ficheiros como estavam no checkpoint; devolve o resumo. */
-export const rewindAgent = (sessionId: string, checkpoint: number): Promise<string> =>
-  invoke<string>("codev_agent_rewind", { sessionId, checkpoint });
+/** Repõe os ficheiros como estavam no checkpoint; com `conversation`, a conversa volta também
+ *  («Rewind to here»). Devolve o resumo. */
+export const rewindAgent = (sessionId: string, checkpoint: number, conversation = false): Promise<string> =>
+  invoke<string>("codev_agent_rewind", { sessionId, checkpoint, conversation });
+
+/** As regras de permissões do projecto e do utilizador — `PermissionsView`. */
+export const agentPermissions = (root: string): Promise<unknown> => invoke<unknown>("codev_agent_permissions", { root });
+
+/** Grava as regras do projecto (`.dxtutor/permissions.json`) e aplica-as às sessões abertas. */
+export const saveAgentPermissions = (root: string, rules: { allow: string[]; deny: string[] }): Promise<void> =>
+  invoke<void>("codev_agent_save_permissions", { root, rules });
 
 /** O que o projecto define para o agente (comandos, skills, hooks, MCP) — `ExtensionsStatus`. */
 export const agentExtensions = (root: string): Promise<unknown> => invoke<unknown>("codev_agent_extensions", { root });

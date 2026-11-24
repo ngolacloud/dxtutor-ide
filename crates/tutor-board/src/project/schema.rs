@@ -127,6 +127,18 @@ const MIGRATIONS: &[&str] = &[
         issue_key   TEXT
     );
     CREATE INDEX idx_change_sets_issue ON change_sets(root, issue_key);",
+    // 2 — the reports of Co-Dev turns (docs/v2/UI-AUDIT.md item 11, HARNESS-07), linked to
+    //     the issue the turn worked on
+    "CREATE TABLE artifacts (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        root       TEXT NOT NULL,
+        session    TEXT NOT NULL,
+        issue_key  TEXT,
+        at         INTEGER NOT NULL,
+        title      TEXT NOT NULL,
+        markdown   TEXT NOT NULL
+    );
+    CREATE INDEX idx_artifacts_issue ON artifacts(root, issue_key, at);",
 ];
 
 /// The schema version this code expects.

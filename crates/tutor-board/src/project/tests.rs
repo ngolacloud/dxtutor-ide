@@ -497,3 +497,28 @@ fn projects_are_isolated_per_root_and_bad_input_is_refused() {
         assert!(e.code == "invalid" || e.code == "not_found", "{bad}: {e:?}");
     }
 }
+
+#[test]
+fn turn_reports_are_kept_with_their_issue() {
+    let mut s = store();
+    let k = create(&mut s, "x", T0);
+    s.record_artifact(
+        ROOT,
+        "cda-1",
+        Some(&k),
+        "corrige o E0382",
+        "**Files changed:** none",
+        T0 + H,
+    )
+    .unwrap();
+    s.record_artifact(ROOT, "cda-1", None, "conversa", "…", T0 + H)
+        .unwrap();
+    let d = s.detail(ROOT, &k).unwrap();
+    assert_eq!(d.reports.len(), 1);
+    assert_eq!(d.reports[0].title, "corrige o E0382");
+    let n: i64 = s
+        .conn()
+        .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 2);
+}

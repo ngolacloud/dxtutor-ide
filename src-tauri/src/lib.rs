@@ -63,9 +63,9 @@ use commands::codev::{
 };
 use commands::codev_agent::{
     codev_agent_approve, codev_agent_cancel, codev_agent_checkpoints, codev_agent_close,
-    codev_agent_extensions, codev_agent_history, codev_agent_review, codev_agent_rewind,
-    codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
-    codev_agent_start, codev_agent_trust,
+    codev_agent_extensions, codev_agent_history, codev_agent_permissions, codev_agent_review,
+    codev_agent_rewind, codev_agent_save_permissions, codev_agent_send, codev_agent_sessions,
+    codev_agent_set_mode, codev_agent_set_plan, codev_agent_start, codev_agent_trust,
 };
 use commands::debug_cmds::{
     debug_available, debug_break, debug_capabilities, debug_continue, debug_launch, debug_locals,
@@ -886,6 +886,8 @@ pub fn run() {
             codev_agent_send,
             codev_agent_approve,
             codev_agent_review,
+            codev_agent_permissions,
+            codev_agent_save_permissions,
             codev_agent_cancel,
             codev_agent_close,
             codev_agent_set_mode,

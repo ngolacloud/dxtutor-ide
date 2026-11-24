@@ -102,8 +102,9 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// conjunto com que ela começou (mudar as ferramentas muda o prefixo do pedido, e o
 /// *preserved thinking* recusa-o). 1 = F2–F5; 2 = + todo_write/exit_plan/task (F6);
 /// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7);
-/// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura).
-pub const TOOLSET_VERSION: u32 = 4;
+/// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura);
+/// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06).
+pub const TOOLSET_VERSION: u32 = 5;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -128,9 +129,13 @@ pub fn agent_tools(
         }));
         v.push(Arc::new(flow::ExitPlan {
             plan_mode: flow_state.plan_mode.clone(),
+            steps: version >= 5,
         }));
         if let Some(spec) = subagent {
-            v.push(Arc::new(flow::Task { spec }));
+            v.push(Arc::new(flow::Task {
+                spec,
+                roles: version >= 5,
+            }));
         }
     }
     if version >= 3 {
