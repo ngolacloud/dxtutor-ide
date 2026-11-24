@@ -53,6 +53,14 @@ describe("despachante partilhado", () => {
     expect(seen).toEqual(["property"]);
   });
 
+  it("um controlo desactivado não corre a sua acção (o browser não chamava o handler inline)", () => {
+    const seen: string[] = [];
+    A.registerActions({ "t:outer": { click: () => seen.push("outer") }, "t:btn": { click: () => seen.push("btn") } });
+    document.body.innerHTML = `<div data-action="t:outer"><button id="b" data-action="t:btn" disabled><span id="s">x</span></button></div>`;
+    click(document.getElementById("s")!);
+    expect(seen).toEqual(["outer"]);
+  });
+
   it("o caminho fixa-se no início: um handler que redesenha não corta os antepassados", () => {
     const seen: string[] = [];
     A.registerActions({ "t:outer": { click: () => seen.push("outer") }, "t:inner": { click: (c) => { c.el.remove(); seen.push("inner"); } } });

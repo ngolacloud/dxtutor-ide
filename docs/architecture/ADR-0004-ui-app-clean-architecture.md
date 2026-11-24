@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 em curso (U5a)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 em curso (U5a–U5b)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -880,3 +880,19 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   o código do handler em string (`'explainCmd()'`, `"goPane('infra')"`); passam a guardar o nome
   da acção (e o argumento) e registam `tabs:*`/`welcome:*`. Nenhum dos nomes chamados colide com
   uma propriedade do elemento ou do document (o inline procurava aí primeiro). Inline 152 → 121.
+- **U5b (2026-11-24) — os resíduos sem despachante.** O pair (19), tasks (16), team (15), studio
+  (12), graph (8), tutor (4), test (3), search (3), account (2), stack (2), run, remote, explorer, diff
+  e diagnostics (1 cada) passam a `data-action="dono:nome"`; cada um regista as suas acções no fim do
+  módulo. As acções lêem e escrevem o estado no `window` no acto (`TK`, `BL`, `HARN`, `AGENT`,
+  `AGENTS`, `SD`/`SSEL`/`SLINK`/`SCAT`, `DRIFT`, `GSEL`, `LTS`, `FS`, `cur`, `PANE`…) e chamam as funções
+  publicadas por nome (`callGlobal`), como o código inline fazia — não passam a usar ligações locais
+  dos módulos. O `this` passa a `c.el`, o `this.value` a `c.value`, o `event.target===this` a
+  `c.ev.target===c.el`, o `event.stopPropagation()` a `c.stop()`; os números (sprint, linha, índice
+  da aresta) voltam a número; os pares (caminho + linha, grupo + estado) viajam em JSON no `data-on`.
+  O despachante ganha uma regra: um controlo desactivado não corre a sua acção (o browser não chamava
+  o handler inline). Testes de cablagem (`tests/app.actions-wiring.test.ts`): os panes e as vistas
+  sem handlers inline, todo o `dono:nome` com dono, e cliques que provam os payloads e o `stop()`.
+  **Reportado, não corrigido:** o `board.ts` tira o botão «▶ Delegar» dos cartões do kanban que são
+  teus procurando `delegate` no atributo `onclick` — mas esse botão usa `data-action="delegate"` desde
+  a extracção do board (Fase 4 do ADR-0002), por isso a procura nunca encontra nada e o botão fica.
+  Inline 121 → 31.

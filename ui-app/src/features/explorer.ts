@@ -21,6 +21,7 @@
 
 import { $, $$, esc, svg } from "../core";
 import { desktopPorts } from "../app/desktop";
+import { registerActions, callGlobal } from "../app/actions";
 
 function renderLevel(obj:Record<string,any>,host:HTMLElement,depth:number,path:string[]){Object.keys(obj).forEach(name=>{const node=obj[name],pad=8+depth*12,row=document.createElement('div');
   let g=node.git||'';if(node.path)g=(stOf(node.path) as string).toLowerCase();else if(node.dpath)g=changes().some(p=>p.startsWith(node.dpath+'/'))?'m':'';
@@ -44,7 +45,7 @@ function markActive(){$$('#exp-sections .row.sel').forEach(x=>x.classList.remove
 function collapseAll(){OPEN.clear();Object.values(TREE.projects.children).forEach(n=>{(n as any).open=false;});buildExplorer();}
 function symbols(p:string){const f=FS[p];if(!f)return[];const out:{k:string;n:string;line:number}[]=[];f.content.split('\n').forEach((l,i)=>{const m=l.match(/^\s*(?:pub\s+)?(?:async\s+)?(fn|struct|enum|trait|impl|function|CREATE TABLE|CREATE INDEX)\s+(?:.*?\bfor\s+)?([A-Za-z_]\w*)/)||l.match(/^(#{1,3})\s+(.+)/)||l.match(/^(export)\s+(?:async\s+)?(?:function|const)\s+(\w+)/);if(m)out.push({k:m[1].replace('CREATE ','').toLowerCase(),n:m[2],line:i+1});});return out;}
 function drawOutline(){const o=$('#outline');if(!o)return;const t=tabOf(cur),sy=t&&t.path?symbols(t.path):[];
-  o.innerHTML=sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:16px" onclick="gotoLine(${s.line})"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):'<div class="sec-empty">Abre um ficheiro para ver os símbolos.</div>';}
+  o.innerHTML=sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:16px" data-action="explorer:gotoLine" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):'<div class="sec-empty">Abre um ficheiro para ver os símbolos.</div>';}
 function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/) — ex.: desktop/src/novo.ts',verb:'Criar',text:(q:string)=>{q=q.trim();if(!q)return;const p=norm(q);if(FS[p]){toast('Já existe');openPath(p);return;}writeFile(p,'');openPath(p);}});}
 function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',verb:'Criar pasta',text:(q:string)=>{q=q.trim().replace(/\/$/,'');if(!q)return;writeFile(norm(q+'/.gitkeep'),'');OPEN.add('dxtutor/'+q);refresh(true,true);toast('Pasta criada: '+q);}});}
 
@@ -109,3 +110,6 @@ export interface ExplorerDesktop { syncTree(virtual: () => void): void }
 /* o syncTree PUBLICADO consulta a porta (antes o desktop reatribuía-o no `window`); só o app.ts o chama, pelo global */
 const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) d.syncTree(syncTree); else syncTree(); };
 Object.assign(window, { renderLevel, buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });
+
+/* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
+registerActions({ "explorer:gotoLine": { click: (c) => void callGlobal("gotoLine", Number(c.on)) } });

@@ -12,8 +12,9 @@
    Shim transitório: publica `renderTutorPane`; `app.ts` delega
    `RP.tutor=()=>window.renderTutorPane()` (lazy, no switch de pane). */
 
-import { $, hd, svg, esc, jsa } from "../core";
+import { $, hd, svg, esc } from "../core";
 import { RP } from "../app/store/registry";
+import { registerActions, callGlobal } from "../app/actions";
 
 /** Renderiza o pane «Learning Track»: onboarding se não houver língua escolhida,
  *  senão o curso com progresso, unidades expansíveis e passos. */
@@ -28,15 +29,15 @@ function renderTutorPane(): void {
     return;
   }
   if (!LTS.lang) {
-    el.innerHTML = hd("Learning Track") + `<div class="sections"><div class="sec-empty">Pick a language and a level to load your guided track.</div><button class="btn" onclick="ltOnboard(1)">Choose what to learn</button></div>`;
+    el.innerHTML = hd("Learning Track") + `<div class="sections"><div class="sec-empty">Pick a language and a level to load your guided track.</div><button class="btn" data-action="tutor:onboard">Choose what to learn</button></div>`;
     return;
   }
   const c = course(), seq = ltSeq(), tot = seq.reduce((a: number, s: any) => a + s.points, 0);
   let lvl = "";
-  el.innerHTML = hd("Learning Track", `<button title="Change language or level" onclick="ltOnboard(1)">${svg("settings")}</button>`) + `<div class="sections"><div class="lt-course notr">${esc(c.title)}</div><div class="lt-tot"><span class="lp-bar" style="flex:1;margin:0"><i style="width:${tot ? ltPts() / tot * 100 : 0}%"></i></span><span>${ltPts()} / ${tot} pts</span></div>
+  el.innerHTML = hd("Learning Track", `<button title="Change language or level" data-action="tutor:onboard">${svg("settings")}</button>`) + `<div class="sections"><div class="lt-course notr">${esc(c.title)}</div><div class="lt-tot"><span class="lp-bar" style="flex:1;margin:0"><i style="width:${tot ? ltPts() / tot * 100 : 0}%"></i></span><span>${ltPts()} / ${tot} pts</span></div>
    ${ltUnits().map((u: any) => { const open = !!LTS.open[u.id], dn = u.steps.filter((s: any) => ltDone(s.id)).length, h = u.level !== lvl ? `<div class="lt-lvl">${u.level}</div>` : ""; lvl = u.level;
-     return h + `<div class="lt-unit${open ? " open" : ""}" onclick="LTS.open[${jsa(u.id)}]=!LTS.open[${jsa(u.id)}];saveLT();RP.tutor()"><span class="chev">${svg("chev")}</span><span class="nm notr">${esc(u.title)}</span>${stars(u.difficulty)}<span class="cnt">${dn}/${u.steps.length}</span></div>` + (open ? u.steps.map((s: any, i: number) => { const done = ltDone(s.id), lock = i > 0 && !ltDone(u.steps[i - 1].id);
-       return `<div class="lt-step${LTS.cur === s.id ? " cur" : ""}${lock ? " lock" : ""}" onclick="ltOpen(${jsa(s.id)})"><span class="st">${done ? "✓" : lock ? "🔒" : "▶"}</span><span class="nm notr">${esc(s.title)}</span>${stars(s.difficulty, s.kind)}<span class="tag k-${s.kind}">${LT_BADGE[s.kind]}</span><span class="pt">+${s.points}</span></div>`; }).join("") : ""); }).join("")}</div>`;
+     return h + `<div class="lt-unit${open ? " open" : ""}" data-action="tutor:unit" data-on="${esc(u.id)}"><span class="chev">${svg("chev")}</span><span class="nm notr">${esc(u.title)}</span>${stars(u.difficulty)}<span class="cnt">${dn}/${u.steps.length}</span></div>` + (open ? u.steps.map((s: any, i: number) => { const done = ltDone(s.id), lock = i > 0 && !ltDone(u.steps[i - 1].id);
+       return `<div class="lt-step${LTS.cur === s.id ? " cur" : ""}${lock ? " lock" : ""}" data-action="tutor:open" data-on="${esc(s.id)}"><span class="st">${done ? "✓" : lock ? "🔒" : "▶"}</span><span class="nm notr">${esc(s.title)}</span>${stars(s.difficulty, s.kind)}<span class="tag k-${s.kind}">${LT_BADGE[s.kind]}</span><span class="pt">+${s.points}</span></div>`; }).join("") : ""); }).join("")}</div>`;
 }
 
 /* ── publicação transitória no window (shim para o residual) ──
@@ -44,3 +45,11 @@ function renderTutorPane(): void {
 window.renderTutorPane = renderTutorPane;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.tutor = renderTutorPane;
+
+/* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
+const UA = window as unknown as { LTS: { open: Record<string, boolean> }; RP: Record<string, () => void> };
+registerActions({
+  "tutor:onboard": { click: () => void callGlobal("ltOnboard", 1) },
+  "tutor:unit": { click: (c) => { UA.LTS.open[c.on] = !UA.LTS.open[c.on]; callGlobal("saveLT"); UA.RP.tutor(); } },
+  "tutor:open": { click: (c) => void callGlobal("ltOpen", c.on) },
+});

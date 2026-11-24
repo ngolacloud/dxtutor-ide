@@ -21,6 +21,7 @@
    - **Substituição por propriedade.** Um handler inline era a propriedade `onclick` do elemento: o
      código que fazia `el.onclick = f` trocava-o. Por isso, se o elemento tiver a propriedade
      `on<tipo>` definida, a acção registada não corre (só a `f`, que o browser chama no elemento).
+   - **Controlos desactivados** não correm a sua acção (o browser não chamava o seu handler).
    - Os nomes têm dono (`dono:nome`), para não colidirem com as tabelas das features. Os
      despachantes das features ignoram estes nomes (não estão nas suas tabelas). */
 
@@ -52,6 +53,9 @@ export function registerActions(table: Record<string, ActionSpec>): void {
   }
 }
 
+/** Se `name` está registado (para os testes de cablagem: todo o `data-action="dono:nome"` no markup tem dono). */
+export const hasAction = (name: string): boolean => REG.has(name);
+
 /** Chama a função publicada `name` NO ACTO, como o handler inline (que resolvia o nome no window
  *  ao clicar — a versão publicada, eventualmente decorada ou trocada pelo desktop). */
 export const callGlobal = (name: string, ...a: unknown[]): unknown =>
@@ -77,6 +81,7 @@ const handle = (ev: Event): void => {
     const run = REG.get(el.dataset.action ?? "")?.[type];
     if (!run) continue;
     if ((el as unknown as Record<string, unknown>)["on" + type]) continue; // trocada por `el.on<tipo> = f`
+    if ((el as HTMLButtonElement).disabled === true) continue; // um controlo desactivado não corria o seu handler
     run({
       el,
       ev,

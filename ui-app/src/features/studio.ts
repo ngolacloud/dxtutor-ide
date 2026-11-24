@@ -29,11 +29,12 @@
    ambientes (`ENVL`) vêm de features/infra.ts por import; o ambiente comparado é o
    global `DRIFT` (nasce na infra; o onchange inline do selector escreve-o). */
 
-import { $, esc, jsa } from "../core";
+import { $, esc } from "../core";
 import { VIEW } from "../app/store/registry";
+import { registerActions, globalCalls, callGlobal } from "../app/actions";
 import { driftReport, DSTY, ENVL } from "./infra";
 
-/* fachada do único global da infra que o drift lê (escrito pelo onchange inline) */
+/* fachada do único global da infra que o drift lê (escrito pela acção studio:drift) */
 const G = window as unknown as { DRIFT: string | null };
 
 /* helpers locais (gémeos puros dos homónimos do monólito; isolados na feature) */
@@ -84,7 +85,7 @@ function validateDesign(){const f:any[]=[],deg=(id:string)=>SD.edges.filter(e=>e
   if(SD.nodes.filter(n=>TECH[n.tech].kind==='gateway').length>1)f.push(['w','More than one gateway: only the first one is published on port 8080.']);if(!SD.nodes.some(isApp))f.push(['e','The design has no application to build.']);return f;}
 
 /* ───── corpo da vista Studio (o VIEW.studio registado no fim compõe-no com o selector de drift) ───── */
-function renderStudioView(_t:any,host:HTMLElement){host.innerHTML=`<div class="studio"><div class="st-bar"><b style="font-size:14px">Studio</b><button class="mini" id="st-link" onclick="SLINK=SLINK===null?'':null;drawStudio()">⤳ Connect</button><button class="mini" onclick="SD=JSON.parse(JSON.stringify(ST_SEED));SSEL=null;saveSD();drawStudio()">Reset design</button><span class="sp"></span><button class="mini pri" onclick="genBacklog()">Generate backlog &amp; delegate →</button><button class="mini run" onclick="dxRun()">▶ RUN</button></div>
+function renderStudioView(_t:any,host:HTMLElement){host.innerHTML=`<div class="studio"><div class="st-bar"><b style="font-size:14px">Studio</b><button class="mini" id="st-link" data-action="studio:link">⤳ Connect</button><button class="mini" data-action="studio:reset">Reset design</button><span class="sp"></span><button class="mini pri" data-action="studio:genBacklog">Generate backlog &amp; delegate →</button><button class="mini run" data-action="studio:dxRun">▶ RUN</button></div>
   <div class="st-main"><div class="st-cat" id="st-cat"></div><div class="st-canvas"><svg id="st-svg" viewBox="0 0 760 440" preserveAspectRatio="xMinYMin meet"></svg></div><div class="st-insp" id="st-insp"></div></div></div>`;
   const s=$('#st-svg')!;s.onmousedown=e=>{const g=(e.target as Element).closest('[data-n]') as HTMLElement|null;if(!g){SSEL=null;if(SLINK!==null)SLINK='';drawStudio();return;}const id=g.dataset.n!,n=SD.nodes.find(x=>x.id===id)!,r=s.getBoundingClientRect(),k=760/r.width,ox=(e.clientX-r.left)*k-n.x,oy=(e.clientY-r.top)*k-n.y;let moved=false;
     if(SLINK!==null){if(SLINK==='')SLINK=id;else if(SLINK!==id){if(!SD.edges.some(x=>x[0]===SLINK&&x[1]===id))SD.edges.push([SLINK,id]);SLINK=null;saveSD();}drawStudio();return;}
@@ -92,17 +93,17 @@ function renderStudioView(_t:any,host:HTMLElement){host.innerHTML=`<div class="s
     const mv=(ev:MouseEvent)=>{moved=true;n.x=Math.max(4,Math.min(760-NW-4,(ev.clientX-r.left)*k-ox));n.y=Math.max(4,Math.min(440-NH-4,(ev.clientY-r.top)*k-oy));drawStudio();},up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up);if(moved)saveSD();};
     addEventListener('mousemove',mv);addEventListener('mouseup',up);drawStudio();e.preventDefault();};drawStudio();}
 function drawStudioBase(){const s=$('#st-svg');if(!s)return;const by=(id:string|null)=>SD.nodes.find(n=>n.id===id);
-  $('#st-cat')!.innerHTML=`<div class="st-tabs">${Object.entries(CLOUD).map(([k,c])=>`<button class="${SCAT===k?'on':''}" style="--c:${c.col}" title="${c.t}" onclick="SCAT=${jsa(k)};drawStudio()">${c.l}</button>`).join('')}</div><div class="st-ct">${CLOUD[SCAT].t}</div>${Object.entries(TECH).filter(([,T])=>T.cloud===SCAT).map(([k,T])=>`<button class="st-tech notr" onclick="sdAdd(${jsa(k)})" title="${T.local?'Runs locally as '+T.local:T.img||'Built from a generated Dockerfile'}"><span class="pdot" style="background:${CLOUD[T.cloud].col}"></span>${esc(T.n)}<i>＋</i></button>`).join('')}`;
+  $('#st-cat')!.innerHTML=`<div class="st-tabs">${Object.entries(CLOUD).map(([k,c])=>`<button class="${SCAT===k?'on':''}" style="--c:${c.col}" title="${c.t}" data-action="studio:cat" data-on="${esc(k)}">${c.l}</button>`).join('')}</div><div class="st-ct">${CLOUD[SCAT].t}</div>${Object.entries(TECH).filter(([,T])=>T.cloud===SCAT).map(([k,T])=>`<button class="st-tech notr" data-action="studio:add" data-on="${esc(k)}" title="${T.local?'Runs locally as '+T.local:T.img||'Built from a generated Dockerfile'}"><span class="pdot" style="background:${CLOUD[T.cloud].col}"></span>${esc(T.n)}<i>＋</i></button>`).join('')}`;
   const edge=([a,b]:string[])=>{const A=by(a),B=by(b);if(!A||!B)return'';const ax=A.x+NW/2,ay=A.y+NH/2,bx=B.x+NW/2,by2=B.y+NH/2,dx=bx-ax,dy=by2-ay,k=Math.min(Math.abs(dx)?(NW/2+6)/Math.abs(dx):9,Math.abs(dy)?(NH/2+6)/Math.abs(dy):9),pl=A.st!=='ok'||B.st!=='ok';
     return `<line x1="${ax+dx*k}" y1="${ay+dy*k}" x2="${bx-dx*k}" y2="${by2-dy*k}" stroke="${pl?'var(--accent)':'var(--fg-muted)'}" stroke-width="1.6" ${pl?'stroke-dasharray="5 4"':''} marker-end="url(#ar${pl?'p':''})"/>`;};
   s.innerHTML=`<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--fg-muted)"/></marker><marker id="arp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="var(--guide)"/></pattern></defs><rect width="760" height="440" fill="url(#grid)"/>${SD.edges.map(edge).join('')}`+
    SD.nodes.map(n=>{const T=TECH[n.tech],C=CLOUD[T.cloud],pl=n.st==='plan',wip=n.st==='wip',on=SSEL===n.id||SLINK===n.id,cut=(x:string,m:number)=>x.length>m?x.slice(0,m-1)+'…':x;
      return `<g data-n="${n.id}" transform="translate(${n.x} ${n.y})" style="cursor:${SLINK!==null?'crosshair':'grab'}"><rect width="${NW}" height="${NH}" rx="10" fill="var(--bg-elevated)" stroke="${on?'var(--accent)':pl?C.col:'var(--border-strong)'}" stroke-width="${on?2:1.3}" ${pl?'stroke-dasharray="6 4"':''}/><rect width="5" height="${NH-16}" y="8" rx="2.5" fill="${C.col}"/><text x="14" y="17" fill="${C.col}" font-size="8.5" font-weight="700" font-family="var(--font-mono)" letter-spacing=".6">${C.l}</text><text x="${NW-10}" y="17" text-anchor="end" fill="${pl?'var(--accent-hover)':wip?'var(--yellow)':'var(--green)'}" font-size="8.5" font-family="var(--font-mono)">${pl?'planned':wip?'in progress':'built'}</text><text x="14" y="34" fill="var(--fg)" font-size="12.5" font-weight="600" font-family="var(--font-ui)">${esc(cut(n.n,19))}</text><text x="14" y="49" fill="var(--fg-muted)" font-size="10" font-family="var(--font-ui)">${esc(cut(T.n,24))}</text></g>`;}).join('');
   const lb=$('#st-link');if(lb)lb.classList.toggle('pri',SLINK!==null);const n=by(SSEL),ins=$('#st-insp'),fd=validateDesign(),T=n&&TECH[n.tech];
-  ins!.innerHTML=SLINK!==null?`<h3>Connect</h3><p>${SLINK===''?'Click the component that depends on another.':'Now click what it depends on.'}</p>`:n?`<h3>Component</h3><label>Name</label><input class="inp" style="margin:0 0 8px;width:100%" value="${esc(n.n)}" onchange="SD.nodes.find(x=>x.id===${jsa(n.id)}).n=this.value;saveSD();drawStudio()"><label>Technology</label><select onchange="SD.nodes.find(x=>x.id===${jsa(n.id)}).tech=this.value;saveSD();drawStudio()">${Object.entries(CLOUD).map(([c,C])=>`<optgroup label="${C.t}">${Object.entries(TECH).filter(([,x])=>x.cloud===c).map(([k,x])=>`<option value="${k}"${n.tech===k?' selected':''}>${esc(x.n)}</option>`).join('')}</optgroup>`).join('')}</select>
+  ins!.innerHTML=SLINK!==null?`<h3>Connect</h3><p>${SLINK===''?'Click the component that depends on another.':'Now click what it depends on.'}</p>`:n?`<h3>Component</h3><label>Name</label><input class="inp" style="margin:0 0 8px;width:100%" value="${esc(n.n)}" data-action="studio:name" data-on="${esc(n.id)}"><label>Technology</label><select data-action="studio:tech" data-on="${esc(n.id)}">${Object.entries(CLOUD).map(([c,C])=>`<optgroup label="${C.t}">${Object.entries(TECH).filter(([,x])=>x.cloud===c).map(([k,x])=>`<option value="${k}"${n.tech===k?' selected':''}>${esc(x.n)}</option>`).join('')}</optgroup>`).join('')}</select>
     <div class="st-kv notr"><span>${isApp(n)?'build':'image'}</span><code>${esc(isApp(n)?'./'+appDir(n):T.img)}</code></div><div class="st-kv"><span>port</span><code>${T.port}</code></div>${T.local?`<div class="st-kv"><span>local</span><code class="notr">${esc(T.local)}</code></div>`:''}
-    <label>Status</label><select onchange="SD.nodes.find(x=>x.id===${jsa(n.id)}).st=this.value;saveSD();drawStudio()"><option value="plan"${n.st==='plan'?' selected':''}>Planned</option><option value="wip"${n.st==='wip'?' selected':''}>In progress</option><option value="ok"${n.st==='ok'?' selected':''}>Built</option></select>
-    <label>Connections</label>${SD.edges.map((e,i)=>e[0]===n.id||e[1]===n.id?`<div class="st-e notr">${esc(by(e[0])!.n)} → ${esc(by(e[1])!.n)}<button onclick="SD.edges.splice(${i},1);saveSD();drawStudio()">×</button></div>`:'').join('')||'<p>No connections.</p>'}<button class="mini" style="margin-top:10px" onclick="sdDel(${jsa(n.id)})">Delete component</button>`
+    <label>Status</label><select data-action="studio:status" data-on="${esc(n.id)}"><option value="plan"${n.st==='plan'?' selected':''}>Planned</option><option value="wip"${n.st==='wip'?' selected':''}>In progress</option><option value="ok"${n.st==='ok'?' selected':''}>Built</option></select>
+    <label>Connections</label>${SD.edges.map((e,i)=>e[0]===n.id||e[1]===n.id?`<div class="st-e notr">${esc(by(e[0])!.n)} → ${esc(by(e[1])!.n)}<button data-action="studio:unlink" data-on="${i}">×</button></div>`:'').join('')||'<p>No connections.</p>'}<button class="mini" style="margin-top:10px" data-action="studio:del" data-on="${esc(n.id)}">Delete component</button>`
     :`<h3>Design</h3><p>Each component is a technology. Pick one from the catalogue, drag it, and use <b>Connect</b> to draw dependencies (app → resource). Double-click deletes.</p><p>The assistants read this design to generate the project: source skeletons, Dockerfiles, <code>docker-compose.yml</code>, Kubernetes manifests and the wiring between services.</p><h3 style="margin-top:14px">Validation</h3>${fd.length?fd.map(x=>`<div class="st-f ${x[0]}"><span>${x[0]==='e'?'✖':'⚠'}</span><div>${esc(x[1])}</div></div>`).join(''):'<div class="st-f ok"><span>✓</span><div>The design is consistent.</div></div>'}<div class="st-kv" style="margin-top:12px"><span>components</span><code>${SD.nodes.length}</code></div><div class="st-kv"><span>planned</span><code>${SD.nodes.filter(x=>x.st==='plan').length}</code></div>`;}
 function sdAdd(tech:string){const id='n'+rid(),k=SD.nodes.length,T=TECH[tech];SD.nodes.push({id,tech,n:T.n.split(' · ')[0].replace(/^(Amazon|Azure|Cloud|Microsoft|Apache) /,'')+' '+(k+1),x:575-(k%3)*14,y:30+(k%3)*128,st:'plan'});SSEL=id;saveSD();drawStudio();}
 function sdDel(id:string){SD.nodes=SD.nodes.filter(n=>n.id!==id);SD.edges=SD.edges.filter(e=>e[0]!==id&&e[1]!==id);if(SSEL===id)SSEL=null;saveSD();drawStudio();}
@@ -121,7 +122,25 @@ function paintDrift(): void {
   const ins=$('#st-insp');if(ins&&!SSEL&&SLINK===null){const cnt=(k:string)=>Object.values(r.out).filter(x=>x.st===k).length;ins.insertAdjacentHTML('afterbegin',`<h3>Design vs ${ENVL[env]}</h3>${!r.s?`<p>${ENVL[env]} has nothing deployed yet.</p>`:`<p>${cnt('sync')} in sync · ${cnt('drift')+cnt('behind')} drifting · ${cnt('missing')+cnt('bad')} missing or failing</p>${SD.nodes.filter(n=>r.out[n.id].st!=='sync').map(n=>`<div class="st-f ${['bad','missing'].includes(r.out[n.id].st)?'e':'w'}"><span>●</span><div><b class="notr">${esc(n.n)}</b> — <span class="notr">${esc(r.out[n.id].why)}</span></div></div>`).join('')}${r.extra.map(x=>`<div class="st-f w"><span>●</span><div><b class="notr">${esc(x)}</b> — running, but not in the design</div></div>`).join('')}`}<hr style="border:0;border-top:1px solid var(--seam);margin:12px 0">`);}
 }
 window.drawStudio = function(){drawStudioBase();paintDrift();};
-VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" onchange="DRIFT=this.value||null;drawStudio()"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${G.DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
+
+/* acções do Studio (ADR-0004, U5b): eram handlers inline, que resolviam o SD/SSEL/SLINK/SCAT/DRIFT e as
+   funções no window ao clicar; as acções fazem o mesmo, no acto. */
+const node = (id: string) => SD.nodes.find((x) => x.id === id)!;
+const save = (): void => { callGlobal('saveSD'); drawStudio(); };
+registerActions({
+  ...globalCalls('studio', ['genBacklog', 'dxRun']),
+  'studio:link': { click: () => { SLINK = SLINK === null ? '' : null; drawStudio(); } },
+  'studio:reset': { click: () => { SD = JSON.parse(JSON.stringify(ST_SEED)); SSEL = null; save(); } },
+  'studio:cat': { click: (c) => { SCAT = c.on; drawStudio(); } },
+  'studio:add': { click: (c) => void callGlobal('sdAdd', c.on) },
+  'studio:name': { change: (c) => { node(c.on).n = c.value; save(); } },
+  'studio:tech': { change: (c) => { node(c.on).tech = c.value; save(); } },
+  'studio:status': { change: (c) => { node(c.on).st = c.value; save(); } },
+  'studio:unlink': { click: (c) => { SD.edges.splice(Number(c.on), 1); save(); } },
+  'studio:del': { click: (c) => void callGlobal('sdDel', c.on) },
+  'studio:drift': { change: (c) => { G.DRIFT = c.value || null; drawStudio(); } },
+});
+VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" data-action="studio:drift"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${G.DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
 
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
