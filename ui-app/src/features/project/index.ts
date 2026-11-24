@@ -91,6 +91,7 @@ function field(e: ActionEvent): void {
   let value: unknown = e.value;
   if (f === "points") value = e.value === "" ? null : Math.max(0, Math.round(Number(e.value)));
   if (f === "blocked") value = e.value.trim() ? e.value.trim() : null;
+  if (f === "scope" || f === "deps") value = e.value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
   void projectService.update(key, { [f]: value });
 }
 
@@ -135,7 +136,9 @@ const table: ActionTable = {
   "pj-ready": { change: (e) => { const k = sel(); if (k) void projectService.update(k, { ready: e.checked }); } },
   "pj-dod": { change: (e) => { const k = sel(); if (k) void projectService.toggleDod(k, Number(e.on)); } },
   "pj-branch": { click: () => { const k = sel(); if (k) void projectService.createBranch(k); } },
-  "pj-work": { click: () => { const k = sel(); if (k) projectService.work(k); } },
+  "pj-work": { click: () => { const k = sel(); if (k) void projectService.work(k); } },
+  "pj-prompt": { click: () => { const k = sel(); if (k) void projectService.viewPrompt(k); } },
+  "pj-prompt-close": { click: () => projectService.closePrompt() },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-delete": { click: (e) => void projectService.remove(e.on) },
   "pj-comment": { keydown: enter((e) => { const k = sel(); if (k) void projectService.comment(k, e.value); }) },

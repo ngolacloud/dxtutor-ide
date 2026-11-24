@@ -51,6 +51,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
   let turn: Turn | null = null;
   /** The Project issue the session works on (set when the conversation starts from one). */
   let issueKey: string | null = null;
+  /** F4: the issue's scope and prompt template version, sent with its origin (RF-G03/B04). */
+  let issueExtra: { scope?: string[]; template?: string } = {};
   let unsubscribe: (() => void) | null = null;
 
   // the chat keeps prose: long code blocks go to the editor, not the reply (RF-CODEV-STREAM §7)
@@ -257,7 +259,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         // the backend reads the disk: save what the editor shows first
         (deps.flush ? deps.flush() : Promise.resolve())
           .catch(() => undefined)
-          .then(() => gateway.send(id, q, originFor(issueKey)))
+          .then(() => gateway.send(id, q, issueKey ? { ...originFor(issueKey), ...issueExtra } : originFor(null)))
           .catch((e: unknown) => {
           presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
           resolve();
@@ -402,11 +404,21 @@ export function makeAgentChat(deps: AgentChatDeps) {
     return plan(storyPrompt(s));
   }
 
+  /** F4 (RF-B03): an issue goes to the agent with the exact prompt the IDE assembled from the
+   *  project's template, its scope and the template version — in a new session that knows it. */
+  function issue(r: { key: string; text: string; scope: string[]; template: string }): Promise<boolean> {
+    reset();
+    issueKey = r.key;
+    issueExtra = { scope: r.scope, template: r.template };
+    return send(r.text);
+  }
+
   function reset(): void {
     if (session) void gateway.close(session);
     session = null;
     sessionKey = null;
     issueKey = null;
+    issueExtra = {};
   }
 
   return {
@@ -417,6 +429,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     rewindMenu,
     commandsMenu,
     story,
+    issue,
     /** A modebar mudou: vale a partir da próxima decisão da sessão em curso. */
     modeChanged(mode: string): void {
       if (session) void gateway.setMode(session, mode);

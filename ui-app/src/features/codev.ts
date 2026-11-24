@@ -34,6 +34,7 @@ import { makeAsk } from "./codev/application/ask";
 import type { Sampler } from "./codev/application/ports";
 import { hunkContext, selectionContext, type AskContext, type AskRequest } from "./codev/domain/ask";
 import { codevAsk as codevAskRegistry } from "../app/codev-ask";
+import { codevIssue } from "../app/codev-issue";
 import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/composer";
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
@@ -240,6 +241,8 @@ function codevAskFromEditor(): void {
   void codevAsk({ intent: 'chat', context: ctx, send: false });
 }
 codevAskRegistry.register((r: AskRequest) => codevAsk(r), codevAskFromEditor);
+/* F4: the Project sends an issue with the prompt assembled from the template (no window global) */
+codevIssue.register((r) => codevEngine.agentIssue(r));
 
 /* ───── páginas: boas-vindas, definições, gestor, análise ───── */
 function openSettings() { bridge.openTab({ id: 'settings', title: 'Definições', kind: 'settings' }); }

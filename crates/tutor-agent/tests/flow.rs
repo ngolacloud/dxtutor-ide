@@ -486,7 +486,40 @@ fn toolset_6_adds_ask_human_and_suggest_at_the_end_and_keeps_5_as_it_was() {
         fs.suggestions.lock().unwrap().as_slice(),
         &[("Renomear go()".to_string(), "src/p.rs:12".to_string())]
     );
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 6);
+}
+
+#[test]
+fn toolset_7_finish_issue_answers_every_criterion_and_keeps_6_as_it_was() {
+    let fs = FlowState::default();
+    let tools = |v: u32| agent_tools(&ToolsetOptions::default(), v, &fs, None, vec![]);
+    let (n6, n7) = (names(&tools(6)), names(&tools(7)));
+    assert_eq!(&n7[..n6.len()], &n6[..]);
+    assert_eq!(&n7[n6.len()..], &["finish_issue".to_string()]);
+    let c = ctx(std::path::Path::new("/tmp"));
+    let t7 = tools(7);
+    let finish = t7.iter().find(|t| t.name() == "finish_issue").unwrap();
+    // not an issue: nothing to close
+    assert!(finish.run(&json!({"criteria": []}), &c).is_error);
+    *fs.criteria.lock().unwrap() = vec![
+        "Dado A quando B então C".into(),
+        "Dado D quando E então F".into(),
+    ];
+    let r = finish.run(
+        &json!({"criteria": [{"index": 1, "met": true, "evidence": "test a"}]}),
+        &c,
+    );
+    assert!(
+        r.is_error && r.content.contains("faltam 2"),
+        "{}",
+        r.content
+    );
+    assert!(finish.run(&json!({"criteria": [{"index": 1, "met": true, "evidence": " "}, {"index": 2, "met": true, "evidence": "x"}]}), &c).is_error);
+    let r = finish.run(&json!({"criteria": [{"index": 2, "met": false, "evidence": "falta o caso E"}, {"index": 1, "met": true, "evidence": "test a"}], "summary": "s"}), &c);
+    assert!(!r.is_error && r.content.contains("1/2"), "{}", r.content);
+    let done = fs.finished.lock().unwrap().clone().unwrap();
+    assert_eq!(done["criteria"][0]["criterion"], "Dado A quando B então C");
+    assert_eq!(done["criteria"][1]["met"], false);
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 7);
 }
 
 #[test]

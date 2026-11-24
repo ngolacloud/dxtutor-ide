@@ -218,4 +218,35 @@ describe("the Project markup", () => {
     expect(files).toHaveLength(1);
     expect(toasts.at(-1)).toContain("Ainda não há registo do Co-Dev para PRJ-3");
   });
+
+  it("F4: Co-Dev works on an issue only when Ready, with the exact prompt; «View prompt» shows it", async () => {
+    const snap = raw();
+    const issues = snap.issues as Array<Record<string, unknown>>;
+    issues[0].scope = ["src/**"];
+    issues[2].missing = ["âmbito de ficheiros", "aprovação humana (Ready)"];
+    const prompt = { text: "# Papel\nÉs o Co-Dev deste projecto.", lang: "pt", source: "builtin", version: "abc123", tokens: 42 };
+    const issuePrompt = vi.fn(async () => prompt);
+    const workWith = vi.fn();
+    const { d, toasts } = deps({ gateway: { ...deps().d.gateway, load: vi.fn(async () => snap), issuePrompt }, codev: { available: () => true, work: vi.fn(), workWith } });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.work("PRJ-3");
+    expect(workWith).not.toHaveBeenCalled();
+    expect(toasts.at(-1)).toContain("PRJ-3 ainda não está Ready — falta: âmbito de ficheiros");
+    await s.work("PRJ-1");
+    expect(issuePrompt).toHaveBeenCalledWith("/proj", "PRJ-1");
+    expect(workWith).toHaveBeenCalledWith(expect.objectContaining({ key: "PRJ-1", scope: ["src/**"] }), prompt);
+    // the panel: what is missing, the button off, and the prompt as it is sent
+    await s.select("PRJ-3");
+    let html = renderProject(s.state(), NOW);
+    expect(html).toContain("Missing for Ready");
+    expect(html).toMatch(/data-action="pj-work" disabled/);
+    await s.select("PRJ-1");
+    await s.viewPrompt("PRJ-1");
+    html = renderProject(s.state(), NOW);
+    expect(html).toContain("≈ 42 tokens");
+    expect(html).toContain("# Papel");
+    s.closePrompt();
+    expect(renderProject(s.state(), NOW)).not.toContain("≈ 42 tokens");
+  });
 });

@@ -420,3 +420,100 @@ impl Tool for Suggest {
         ToolOutput::ok("Sugestão registada na caixa de entrada do Project. Não a implementes.")
     }
 }
+
+/// Toolset 7 (RF-B06/G04): the end of an issue. Co-Dev answers every acceptance criterion
+/// with met / not met and the proof (a test, a line, an output); the host keeps the table on
+/// the issue and sends it to Review. After it the agent changes nothing more — in Auto too.
+pub struct FinishIssue {
+    pub criteria: Arc<Mutex<Vec<String>>>,
+    pub finished: Arc<Mutex<Option<Value>>>,
+}
+
+impl Tool for FinishIssue {
+    fn name(&self) -> &str {
+        "finish_issue"
+    }
+    fn description(&self) -> &str {
+        "No fim de uma issue, responde a cada critério de aceitação: cumprido ou não, com a \
+         prova (teste, ficheiro:linha, saída de um comando). A issue passa a Review (o Done é \
+         sempre do humano) e não alteras mais nada a seguir."
+    }
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "criteria": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {"type": "integer", "minimum": 1, "description": "o número do critério (1, 2, …)"},
+                            "met": {"type": "boolean"},
+                            "evidence": {"type": "string", "description": "a prova: teste, ficheiro:linha, saída"}
+                        },
+                        "required": ["index", "met", "evidence"],
+                        "additionalProperties": false
+                    }
+                },
+                "summary": {"type": "string"}
+            },
+            "required": ["criteria"],
+            "additionalProperties": false
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn mutates_files(&self) -> bool {
+        false
+    }
+    fn run(&self, input: &Value, _ctx: &ToolCtx) -> ToolOutput {
+        let criteria = self.criteria.lock().unwrap().clone();
+        if criteria.is_empty() {
+            return ToolOutput::err(
+                "este pedido não é uma issue com critérios: não há nada para fechar",
+            );
+        }
+        let given = input["criteria"].as_array().cloned().unwrap_or_default();
+        let mut rows: Vec<Option<Value>> = vec![None; criteria.len()];
+        for g in &given {
+            let i = g["index"].as_u64().unwrap_or(0) as usize;
+            if i == 0 || i > criteria.len() {
+                return ToolOutput::err(format!("critério {i} não existe (há {})", criteria.len()));
+            }
+            let evidence = g["evidence"].as_str().unwrap_or("").trim();
+            if evidence.is_empty() {
+                return ToolOutput::err(format!("o critério {i} precisa de uma prova"));
+            }
+            rows[i - 1] = Some(json!({
+                "index": i,
+                "criterion": criteria[i - 1],
+                "met": g["met"].as_bool().unwrap_or(false),
+                "evidence": evidence,
+            }));
+        }
+        let missing: Vec<String> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.is_none())
+            .map(|(i, _)| (i + 1).to_string())
+            .collect();
+        if !missing.is_empty() {
+            return ToolOutput::err(format!(
+                "responde a todos os critérios: faltam {}",
+                missing.join(", ")
+            ));
+        }
+        let table: Vec<Value> = rows.into_iter().flatten().collect();
+        let met = table.iter().filter(|r| r["met"] == true).count();
+        *self.finished.lock().unwrap() = Some(json!({
+            "criteria": table,
+            "summary": input["summary"].as_str().unwrap_or(""),
+        }));
+        ToolOutput::ok(format!(
+            "Registado: {met}/{} critérios cumpridos. A issue passa a Review e o Done é do humano. \
+             Termina aqui, sem mais alterações.",
+            criteria.len()
+        ))
+    }
+}

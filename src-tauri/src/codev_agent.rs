@@ -585,6 +585,7 @@ pub fn start(
         policy.gates = Some(Gates {
             plan_approved: flow.plan_approved.clone(),
             question: flow.question.clone(),
+            finished: flow.finished.clone(),
         });
     }
     let redactor = Redactor::for_root(&root);
@@ -715,13 +716,38 @@ pub fn send(
             o.scope.retain(|p| !p.trim().is_empty());
             o
         });
-        if let Some(k) = o.as_ref().and_then(|o| o.issue.clone()) {
-            *s.issue_key.lock().unwrap() = Some(k);
-        }
-        *s.origin.lock().unwrap() = o;
-        // a new request needs its own plan, and answers the last question
+        // a new request needs its own plan, answers the last question and starts a new issue run
         s.flow.plan_approved.store(false, Ordering::SeqCst);
         *s.flow.question.lock().unwrap() = None;
+        *s.flow.finished.lock().unwrap() = None;
+        s.flow.criteria.lock().unwrap().clear();
+        let mut o = o;
+        if let Some(k) = o.as_ref().and_then(|o| o.issue.clone()) {
+            *s.issue_key.lock().unwrap() = Some(k.clone());
+            // RF-B02/G01: an issue request counts only when the issue is Ready
+            match issue_of(&s, &k) {
+                Some(i) if !i.missing.is_empty() => {
+                    (*on_event)(AgentEvent::Notice {
+                        text: format!(
+                            "{k} ainda não está Ready (falta: {}): as acções deste pedido ficam bloqueadas.",
+                            i.missing.join("; ")
+                        ),
+                    });
+                    o = None;
+                }
+                Some(i) => {
+                    *s.flow.criteria.lock().unwrap() =
+                        i.acceptance.iter().map(|c| c.text.clone()).collect();
+                    if let Some(origin) = o.as_mut() {
+                        if origin.scope.is_empty() {
+                            origin.scope = i.scope.clone();
+                        }
+                    }
+                }
+                None => {}
+            }
+        }
+        *s.origin.lock().unwrap() = o;
     }
     s.policy.lock().unwrap().origin = s.origin.lock().unwrap().clone();
     s.agent.ctx.cancel.store(false, Ordering::Relaxed);
@@ -742,14 +768,11 @@ pub fn send(
     let held_done: RefCell<Option<AgentEvent>> = RefCell::new(None);
     let metas: RefCell<HashMap<String, HunkMeta>> = RefCell::new(HashMap::new());
     // the turn's tokens and model, for the audit log
-    let turn_usage = std::cell::Cell::new((0u64, 0u64));
+    let turn_usage: RefCell<Option<tutor_agent::provider::Usage>> = RefCell::new(None);
     let served_by: RefCell<Option<String>> = RefCell::new(None);
     let mut on_loop_event = |e: AgentEvent| {
         match &e {
-            AgentEvent::Usage { turn, .. } => turn_usage.set((
-                turn.input_tokens + turn.cache_read_input_tokens + turn.cache_creation_input_tokens,
-                turn.output_tokens,
-            )),
+            AgentEvent::Usage { turn, .. } => *turn_usage.borrow_mut() = Some(*turn),
             AgentEvent::ServedBy { model } => *served_by.borrow_mut() = Some(model.clone()),
             AgentEvent::Checkpoint { id, .. } => {
                 auto.borrow_mut().checkpoint = Some(*id);
@@ -989,15 +1012,19 @@ pub fn send(
     if let Some(log) = turn_log.take() {
         report_turn(&s, log, &emit);
     }
-    let (tin, tout) = turn_usage.get();
+    let usage = turn_usage.take().unwrap_or_default();
+    let model = served_by
+        .take()
+        .unwrap_or_else(|| s.agent.cfg.model.clone());
     let mut e = audit_entry(&s, "turn");
-    e.model = Some(
-        served_by
-            .take()
-            .unwrap_or_else(|| s.agent.cfg.model.clone()),
+    e.tokens_in = Some(
+        (usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens)
+            as i64,
     );
-    e.tokens_in = Some(tin as i64);
-    e.tokens_out = Some(tout as i64);
+    e.tokens_out = Some(usage.output_tokens as i64);
+    // RF-T04: the cost from the provider's real tokens
+    e.cost_usd = tutor_agent::cost::cost_usd(&model, &usage);
+    e.model = Some(model);
     e.outcome = Some(
         match &r {
             Ok(TurnOutcome::Done { .. }) => "done",
@@ -1049,6 +1076,16 @@ fn stop_notice(checkpoint: Option<u32>) -> Option<String> {
     })
 }
 
+/// The issue `key` of the session's folder, from the project database.
+fn issue_of(s: &Session, key: &str) -> Option<tutor_board::project::Issue> {
+    let db = s.change_log.as_ref()?;
+    let st = tutor_board::project::ProjectStore::open(db).ok()?;
+    let p = st
+        .load(&s.agent.ctx.root.display().to_string(), now_ms())
+        .ok()?;
+    p.issues.into_iter().find(|i| i.key == key)
+}
+
 /// After a turn: the question the agent asked goes to the human (and blocks the turn's issue,
 /// RF-G06); the suggestions go to the Project inbox (RF-G02/B05). Both are in the audit log.
 fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
@@ -1086,6 +1123,52 @@ fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
         e.reason = Some(q);
         e.outcome = Some(if issue.is_some() { "blocked" } else { "asked" }.into());
         audit(s, e);
+    }
+    // RF-B06/B07: the criteria table sends the issue to Review; then the project's tests run
+    let finished = s.flow.finished.lock().unwrap().clone();
+    let issue = s.issue_key.lock().unwrap().clone();
+    if let (Some(report), Some(k)) = (finished, &issue) {
+        let template = s
+            .origin
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|o| o.template.clone());
+        let r = apply(
+            serde_json::json!({"op": "codev_finished", "key": k, "report": report, "template_version": template}),
+        );
+        let mut e = audit_entry(s, "finish");
+        e.outcome = Some(if r.is_ok() { "review" } else { "failed" }.into());
+        e.reason = r.err();
+        audit(s, e);
+        if !s.checks.is_empty() {
+            let checks = hunks::run_checks(&s.checks, &s.agent.ctx);
+            let passed = checks.iter().all(|c| c.ok);
+            let summary = checks
+                .iter()
+                .filter(|c| !c.ok)
+                .map(|c| format!("`{}`: {}", c.command, c.summary))
+                .collect::<Vec<_>>()
+                .join("; ");
+            let _ = apply(
+                serde_json::json!({"op": "tests_run", "key": k, "passed": passed, "summary": summary}),
+            );
+            emit(AgentEvent::Notice {
+                text: if passed {
+                    format!("{k}: critérios respondidos e testes verdes — a issue está em Review; o Done é teu.")
+                } else {
+                    format!("{k}: os testes falharam ({summary}) — a issue volta a Em curso, com o erro no próximo pedido.")
+                },
+            });
+            let mut e = audit_entry(s, "tests");
+            e.outcome = Some(if passed { "passed" } else { "failed" }.into());
+            e.reason = (!passed).then_some(summary);
+            audit(s, e);
+        } else {
+            emit(AgentEvent::Notice {
+                text: format!("{k}: critérios respondidos — a issue está em Review (sem testes detectados no projecto); o Done é teu."),
+            });
+        }
     }
     let suggestions = std::mem::take(&mut *s.flow.suggestions.lock().unwrap());
     let n = suggestions.len();
@@ -1796,6 +1879,7 @@ mod tests {
             issue: None,
             by: "t".into(),
             scope: vec![],
+            template: None,
         });
     }
 
@@ -2566,6 +2650,7 @@ mod tests {
             issue: Some("DX-3".into()),
             by: "forged by the UI".into(),
             scope: vec!["src/**".into(), " ".into()],
+            template: None,
         };
         let _ = send(
             &id,
@@ -2714,5 +2799,130 @@ mod tests {
             t.contains("checkpoint 4") && t.contains("nada mais é escrito"),
             "{t}"
         );
+    }
+
+    /// A session on an issue of a project database, with `check` as the project's test command.
+    fn issue_session(check: &str) -> (tempfile::TempDir, String, Arc<Session>, String) {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("board.sqlite3");
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            mode: Some("auto".into()),
+            test_cmd: Some(check.into()),
+            provider: Some("ollama".into()),
+            ollama_host: Some("http://127.0.0.1:9".into()),
+            change_log: Some(db.clone()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        let root = s.agent.ctx.root.display().to_string();
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        st.apply(
+            &root,
+            "t",
+            1,
+            op(serde_json::json!({"op": "settings", "key_prefix": "DX"})),
+        )
+        .unwrap();
+        st.apply(&root, "t", 1, op(serde_json::json!({"op": "create_issue", "title": "Paginar", "acceptance": ["Dado 30, quando peço a página 2, então recebo 11-20"]}))).unwrap();
+        (d, id, s, root)
+    }
+
+    #[test]
+    fn an_issue_that_is_not_ready_gives_no_request_and_a_ready_one_brings_its_criteria_and_scope() {
+        let (d, id, s, root) = issue_session("true");
+        let issue = |k: &str| Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some(k.into()),
+            by: String::new(),
+            scope: vec![],
+            template: Some("v1".into()),
+        };
+        let notes = RefCell::new(vec![]);
+        let _ = send(
+            &id,
+            Some("implementa".into()),
+            Some(issue("DX-1")),
+            &mut |e| {
+                if let AgentEvent::Notice { text } = e {
+                    notes.borrow_mut().push(text)
+                }
+            },
+            &mut |_| {},
+        );
+        assert!(s.origin.lock().unwrap().is_none(), "not Ready: no request");
+        assert!(
+            notes
+                .borrow()
+                .iter()
+                .any(|n| n.contains("DX-1 ainda não está Ready") && n.contains("âmbito")),
+            "{:?}",
+            notes.borrow()
+        );
+        let db = d.path().join("board.sqlite3");
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        st.apply(&root, "ana", 2, op(serde_json::json!({"op": "update_issue", "key": "DX-1", "story_as": "cliente", "story_want": "páginas", "story_so": "menos linhas", "scope": ["src/**"]}))).unwrap();
+        st.apply(
+            &root,
+            "ana",
+            2,
+            op(serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true})),
+        )
+        .unwrap();
+        let _ = send(
+            &id,
+            Some("implementa".into()),
+            Some(issue("DX-1")),
+            &mut |_| {},
+            &mut |_| {},
+        );
+        let o = s.origin.lock().unwrap().clone().unwrap();
+        assert_eq!(o.scope, vec!["src/**"], "the issue's scope");
+        assert_eq!(s.flow.criteria.lock().unwrap().len(), 1);
+        // the prompt «Ver prompt» shows is the one the issue goes with
+        let r = crate::board::issue_prompt_from(&st, &root, "DX-1", None).unwrap();
+        assert_eq!(r.lang, "pt");
+        assert!(
+            r.text.contains("# Issue DX-1 — Paginar")
+                && r.text.contains("Ficheiros/pastas: src/**.")
+        );
+    }
+
+    #[test]
+    fn the_criteria_table_sends_the_issue_to_review_and_failing_tests_send_it_back() {
+        for (check, state, attempts) in [("true", "review", 0), ("false", "progress", 1)] {
+            let (d, _id, s, root) = issue_session(check);
+            *s.issue_key.lock().unwrap() = Some("DX-1".into());
+            *s.flow.finished.lock().unwrap() =
+                Some(serde_json::json!({"criteria": [{"index": 1, "met": true, "evidence": "t"}]}));
+            let evs = RefCell::new(vec![]);
+            settle_flow(&s, &|e| evs.borrow_mut().push(e));
+            let st =
+                tutor_board::project::ProjectStore::open(&d.path().join("board.sqlite3")).unwrap();
+            let i = st
+                .load(&root, 3)
+                .unwrap()
+                .issues
+                .into_iter()
+                .find(|i| i.key == "DX-1")
+                .unwrap();
+            assert_eq!(
+                (i.state.as_str(), i.attempts),
+                (state, attempts),
+                "check {check}"
+            );
+            assert!(i.criteria_report.is_some());
+            let kinds: Vec<String> = st
+                .audit(&root, Some("DX-1"))
+                .unwrap()
+                .into_iter()
+                .map(|e| e.event)
+                .collect();
+            assert_eq!(kinds, ["finish", "tests"]);
+        }
     }
 }

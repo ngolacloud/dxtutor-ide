@@ -899,9 +899,11 @@ fn assess_git(args: &[String], root: &Path, out: &mut Assessment) {
             danger(out, "apaga o reflog")
         }
         "gc" if rest.iter().any(|a| a.starts_with("--prune")) => danger(out, "apaga objectos"),
-        "commit" if has("--amend") => out.raise(
-            Risk::Unknown,
-            "git commit --amend reescreve o último commit",
+        // RF-T02: the commits are the human's — the IDE commits the accepted changes with the
+        // human as author and the Assisted-by/Issue trailers; the agent asks first, every time
+        "commit" => danger(
+            out,
+            "os commits são do humano (a IDE faz o commit com os trailers)",
         ),
         "status" | "log" | "diff" | "show" | "rev-parse" | "ls-files" | "blame" | "describe"
         | "shortlog" | "grep" | "rev-list" | "cat-file" | "ls-tree" | "merge-base" | "version" => {}

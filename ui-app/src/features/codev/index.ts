@@ -268,6 +268,9 @@ export const codevEngine = {
   agentStory: (s: { id: string; title: string; type: string; pts: number; note?: string }): Promise<void> | null =>
     agentChat.available() ? agentChat.story(s) : null,
   agentAvailable: (): boolean => agentChat.available(),
+  /** F4: «Work on it with Co-Dev» sends the issue's exact prompt (from `project_issue_prompt`). */
+  agentIssue: (r: { key: string; text: string; scope: string[]; template: string }): Promise<boolean> | null =>
+    agentChat.available() ? agentChat.issue(r) : null,
 };
 
 /* ───── low-level transcript/run-control helpers, shared with board.ts ───── */

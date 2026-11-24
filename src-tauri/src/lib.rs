@@ -986,6 +986,7 @@ pub fn run() {
             board::project_issue,
             board::project_reports,
             board::project_audit,
+            board::project_issue_prompt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dxtutor IDE");

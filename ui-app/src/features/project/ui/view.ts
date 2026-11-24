@@ -140,6 +140,12 @@ function backlogView(p: Project): string {
   }${newIssue(null)}`;
 }
 
+/** What the issue lacks to be Ready (RF-B02), as the store computed it. */
+function missingList(i: Issue): string {
+  const rest = i.missing.filter((m) => m !== "aprovação humana (Ready)");
+  return rest.length ? `<div class="pj-missing"><span class="pj-dim">Missing for Ready:</span>${rest.map((m) => `<div class="pj-li bad">· ${esc(m)}</div>`).join("")}</div>` : "";
+}
+
 function issuePanel(st: ProjectState, p: Project, now: number): string {
   const i = p.issues.find((x) => x.key === st.selected);
   if (!i) return "";
@@ -166,6 +172,14 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
       <label><span>Epic</span>${txt("epic", i.epic, "epic")}</label>
       <label><span>Blocked</span><input class="pj-input" data-action="pj-field" data-on="blocked" value="${esc(i.blocked ?? "")}" placeholder="reason (empty = not blocked)"></label>
     </div>
+    <div class="pj-sec"><span>User story</span></div>
+    <div class="pj-grid2">
+      <label><span>As</span>${txt("story_as", i.storyAs, "who (persona)")}</label>
+      <label><span>I want</span>${txt("story_want", i.storyWant, "what")}</label>
+      <label><span>So that</span>${txt("story_so", i.storySo, "the value")}</label>
+      <label><span>Depends on</span>${txt("deps", i.deps.join(", "), "PRJ-3, PRJ-7")}</label>
+    </div>
+    <label class="pj-wide"><span>Scope (files Co-Dev may change)</span>${txt("scope", i.scope.join(", "), "src/**, Cargo.toml")}</label>
     <div class="pj-sec"><span>Description</span></div>
     <textarea class="pj-input pj-desc" data-action="pj-field" data-on="description" placeholder="What and why">${esc(i.description)}</textarea>
     <div class="pj-sec"><span>Acceptance criteria</span></div>
@@ -174,10 +188,17 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
         (c, k) => `<div class="pj-check"><input type="checkbox"${c.done ? " checked" : ""} data-action="pj-crit" data-on="${k}"><span>${esc(c.text)}</span><button class="pj-icon" title="Remove" data-action="pj-crit-del" data-on="${k}">✕</button></div>`,
       )
       .join("")}
-    <input class="pj-input" placeholder="Add a criterion and press Enter" data-action="pj-crit-add">
+    <input class="pj-input" placeholder="Add a criterion (Given … When … Then …) and press Enter" data-action="pj-crit-add">
+    ${
+      i.criteriaReport
+        ? `<div class="pj-sec"><span>Co-Dev answer to the criteria</span></div><table class="pj-crit-table"><tr><th>#</th><th>Criterion</th><th>Met</th><th>Proof</th></tr>${i.criteriaReport.criteria
+            .map((r) => `<tr><td>${r.index}</td><td>${esc(r.criterion)}</td><td class="${r.met ? "ok" : "bad"}">${r.met ? "yes" : "no"}</td><td>${esc(r.evidence)}</td></tr>`)
+            .join("")}</table>${i.templateVersion ? `<div class="pj-dim">Prompt template ${esc(i.templateVersion)}</div>` : ""}`
+        : ""
+    }
     ${
       p.method !== "kanban" || p.dor.length
-        ? `<div class="pj-sec"><span>Definition of Ready</span></div><div class="pj-check"><input type="checkbox"${i.ready ? " checked" : ""} data-action="pj-ready"><span>Ready to start</span></div>${p.dor
+        ? `<div class="pj-sec"><span>Definition of Ready</span></div><div class="pj-check"><input type="checkbox"${i.ready ? " checked" : ""} data-action="pj-ready"><span>Ready to start${i.readyBy ? ` <span class="pj-dim">(${esc(i.readyBy)})</span>` : ""}</span></div>${missingList(i)}${p.dor
             .map((t) => `<div class="pj-dim pj-li">· ${esc(t)}</div>`)
             .join("")}`
         : ""
@@ -204,7 +225,12 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
               .join("")}`
           : ""
       }
-      <button class="pj-btn pri" data-action="pj-work"><span>Work on it with Co-Dev</span></button>
+      <button class="pj-btn pri" data-action="pj-work"${i.missing.length ? ` disabled title="Not Ready: ${esc(i.missing.join("; "))}"` : ""}><span>Work on it with Co-Dev</span></button>
+      <button class="pj-btn" data-action="pj-prompt" title="The exact prompt this issue goes to Co-Dev with"><span>View prompt</span></button>${
+        st.prompt && st.prompt.key === i.key
+          ? `<div class="pj-prompt"><div class="pj-prompt-head"><b>Prompt</b> <span class="pj-dim">≈ ${st.prompt.tokens} tokens · ${esc(st.prompt.lang)} · ${esc(st.prompt.source)} · ${esc(st.prompt.version)}</span><span class="sp"></span><button class="pj-icon" title="Close" data-action="pj-prompt-close">✕</button></div><pre class="pj-prompt-text">${esc(st.prompt.text)}</pre></div>`
+          : ""
+      }
       <button class="pj-btn" data-action="pj-audit" title="Every Co-Dev action on this issue: who asked, the mode, who decided and when (JSON)"><span>Export audit log</span></button></div>
     <div class="pj-sec"><span>Activity</span></div>
     <input class="pj-input" placeholder="Comment and press Enter" data-action="pj-comment">

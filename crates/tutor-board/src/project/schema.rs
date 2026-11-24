@@ -169,6 +169,20 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX idx_audit_issue ON audit(root, issue_key, at);
     CREATE INDEX idx_audit_session ON audit(session, at);",
+    // 4 — the user story Co-Dev works on (RF-B01/B02/B04/B06/B07, docs/v2/RF-DELONIX-PLANO.md
+    //     F4): «As / I want / So that», the file scope and the dependencies, who approved the
+    //     Definition of Ready, failed test attempts, the criteria table Co-Dev answered and the
+    //     prompt template version it used; and the cost of each turn in the audit log (RF-T04)
+    "ALTER TABLE issues ADD COLUMN story_as TEXT NOT NULL DEFAULT '';
+    ALTER TABLE issues ADD COLUMN story_want TEXT NOT NULL DEFAULT '';
+    ALTER TABLE issues ADD COLUMN story_so TEXT NOT NULL DEFAULT '';
+    ALTER TABLE issues ADD COLUMN scope TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE issues ADD COLUMN deps TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE issues ADD COLUMN ready_by TEXT;
+    ALTER TABLE issues ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE issues ADD COLUMN criteria_report TEXT;
+    ALTER TABLE issues ADD COLUMN template_version TEXT;
+    ALTER TABLE audit ADD COLUMN cost_usd REAL;",
 ];
 
 /// The schema version this code expects.

@@ -171,20 +171,34 @@ fn scrum_needs_ready_to_start_and_done_needs_the_dod() {
         .unwrap();
     let k = p.issues[0].key.clone();
     assert_eq!(mv(&mut s, &k, "progress", T0).unwrap_err().code, "dor");
-    s.apply(
-        ROOT,
-        "W",
-        T0,
-        op(serde_json::json!({"op": "update_issue", "key": k, "ready": true})),
-    )
-    .unwrap();
+    // RF-B02: Ready only with the story, criteria in Given/When/Then and a scope
+    let ready = |s: &mut ProjectStore| {
+        s.apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "update_issue", "key": k, "ready": true})),
+        )
+    };
+    let e = ready(&mut s).unwrap_err();
+    assert_eq!(e.code, "dor");
+    assert!(
+        e.message.contains("âmbito") && e.message.contains("Dado/Quando/Então"),
+        "{}",
+        e.message
+    );
+    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "update_issue", "key": k, "story_as": "dev", "story_want": "logs", "story_so": "depurar", "scope": ["src/**"]}))).unwrap();
+    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "set_acceptance", "key": k, "items": [{"text": "Dado X, quando Y, então works", "done": false}]}))).unwrap();
+    let p = ready(&mut s).unwrap();
+    assert_eq!(p.issues[0].ready_by.as_deref(), Some("W"));
+    assert!(p.issues[0].missing.is_empty(), "{:?}", p.issues[0].missing);
     for to in ["progress", "review", "accept"] {
         mv(&mut s, &k, to, T0 + H).unwrap();
     }
     let e = mv(&mut s, &k, "done", T0 + 2 * H).unwrap_err();
     assert_eq!(e.code, "dod");
     assert!(e.message.contains("1 critério(s)") && e.message.contains("1 item(ns)"));
-    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "set_acceptance", "key": k, "items": [{"text": "works", "done": true}]}))).unwrap();
+    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "set_acceptance", "key": k, "items": [{"text": "Dado X, quando Y, então works", "done": true}]}))).unwrap();
     s.apply(
         ROOT,
         "W",
@@ -566,4 +580,82 @@ fn the_audit_log_keeps_every_decision_in_order_and_by_issue() {
     let j = serde_json::to_value(&of_issue[0]).unwrap();
     assert_eq!(j["issueKey"], serde_json::json!(k));
     assert_eq!(j["decidedBy"], "human:ana");
+}
+
+#[test]
+fn readiness_lists_what_is_missing_and_dependencies_must_be_done() {
+    let mut s = store();
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "update_issue", "key": b, "deps": [a.clone(), "PRJ-404"], "scope": ["src/"]}))).unwrap();
+    assert_eq!(
+        s.apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "update_issue", "key": b, "deps": [b.clone()]}))
+        )
+        .unwrap_err()
+        .code,
+        "invalid"
+    );
+    let p = s.load(ROOT, T0).unwrap();
+    let ib = p.issues.iter().find(|i| i.key == b).unwrap();
+    assert!(
+        ib.missing
+            .iter()
+            .any(|m| m == &format!("dependência {a} em Done")),
+        "{:?}",
+        ib.missing
+    );
+    assert!(ib.missing.iter().any(|m| m.contains("PRJ-404 não existe")));
+    assert!(ib.missing.iter().any(|m| m == "critérios de aceitação"));
+    assert!(!ib.missing.iter().any(|m| m.contains("âmbito")));
+    assert_eq!(
+        ib.missing.last().map(String::as_str),
+        Some("aprovação humana (Ready)")
+    );
+    assert!(is_gwt(
+        "Given a user, When she logs in, Then she sees the board"
+    ));
+    assert!(!is_gwt("works"));
+}
+
+#[test]
+fn codev_answers_the_criteria_then_tests_send_it_back_and_twice_block_it() {
+    let mut s = store();
+    let k = create(&mut s, "x", T0);
+    let p = s
+        .apply(ROOT, "Co-Dev", T0, op(serde_json::json!({"op": "codev_finished", "key": k, "report": [{"criterion": 0, "met": true, "evidence": "test a"}], "template_version": "abc123"})))
+        .unwrap();
+    let i = p.issues.iter().find(|i| i.key == k).unwrap();
+    assert_eq!(i.state, "review");
+    assert_eq!(i.template_version.as_deref(), Some("abc123"));
+    assert_eq!(i.criteria_report.as_ref().unwrap()[0]["met"], true);
+    let fail = |s: &mut ProjectStore| {
+        s.apply(ROOT, "Co-Dev", T0, op(serde_json::json!({"op": "tests_run", "key": k, "passed": false, "summary": "1 failed"}))).unwrap()
+    };
+    let p = fail(&mut s);
+    let i = p.issues.iter().find(|i| i.key == k).unwrap();
+    assert_eq!(
+        (i.state.as_str(), i.attempts, i.blocked.is_none()),
+        ("progress", 1, true)
+    );
+    let p = fail(&mut s);
+    let i = p.issues.iter().find(|i| i.key == k).unwrap();
+    assert_eq!(i.attempts, 2);
+    assert!(i
+        .blocked
+        .as_deref()
+        .unwrap()
+        .starts_with("precisa de ajuda"));
+    let p = s
+        .apply(
+            ROOT,
+            "Co-Dev",
+            T0,
+            op(serde_json::json!({"op": "tests_run", "key": k, "passed": true})),
+        )
+        .unwrap();
+    assert_eq!(p.issues.iter().find(|i| i.key == k).unwrap().attempts, 0);
 }

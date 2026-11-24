@@ -115,3 +115,15 @@ describe("isFlow / slug — política gitflow", () => {
     expect(slug("Ação/Acção")).toBe("acao-accao");
   });
 });
+
+it("RF-T02: os trailers de um commit com o Co-Dev — modelo e issue; sem modelo, nenhum", async () => {
+  const { assistTrailers, issueKeyIn } = await import("../src/features/scm/domain/trailers");
+  expect(issueKeyIn("feat: paginate the API (DX-12)")).toBe("DX-12");
+  expect(issueKeyIn("chore: tidy")).toBeNull();
+  expect(assistTrailers("feat: paginate the API (DX-12)", "claude-opus-5-5")).toEqual([
+    "Assisted-by: claude-opus-5-5 (dxtutor Co-Dev)",
+    "Issue: DX-12",
+  ]);
+  expect(assistTrailers("fix: typo", "claude-opus-5-5")).toEqual(["Assisted-by: claude-opus-5-5 (dxtutor Co-Dev)"]);
+  expect(assistTrailers("feat: x (DX-1)", null)).toEqual([]);
+});

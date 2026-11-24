@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 176 comandos, **90 são consumidos pela `ui-app`** e **86 não o são**: a UI
+Dos 177 comandos, **91 são consumidos pela `ui-app`** e **86 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -492,7 +492,7 @@ ambiente da shell de login resolvido por `shellenv.rs`) e `ports.rs` (portas TCP
 | `problems_scan` | `root: String` | `problems::ScanResult` | String | `problems://check` | `features/panel` | **X** · R |
 | `ports_list` | `root: Option<String>` | `Vec<ports::PortInfo>` | String | — | `features/panel` | R |
 
-## 17. Project (SQLite) e quadro Tasks — `board.rs` (7)
+## 17. Project (SQLite) e quadro Tasks — `board.rs` (8)
 
 Project (docs/v2/UI-AUDIT.md, item 5; fase A5): Kanban, Scrum, XP ou Scrum + XP sobre o store
 `tutor_board::project` (`app_local_data_dir/board.sqlite3`, tabela `schema_version` e migrações só
@@ -513,6 +513,7 @@ utilizador do SO).
 | `project_issue` | `root: String`, `key: String` | `IssueDetail {activity, changeSets}` | `ProjectError` | — | `platform/tauri/project.ts` | R |
 | `project_reports` | `root: String` | `Reports` (cycle time, throughput, CFD, burndown, velocity — do histórico) | `ProjectError` | — | `platform/tauri/project.ts` | R |
 | `project_audit` | `root: String`, `issue: Option<String>` | `Vec<AuditEntry>` (cada decisão do Co-Dev sobre uma acção, mudança de modo e turno: origem, quem pediu, modo, ferramenta, ficheiro/linhas, comando, veredicto, quem decidiu e quando, modelo, tokens; segredos mascarados — RF-T01/T05) | `ProjectError` | — | `platform/tauri/project.ts` («Export audit log» no painel da issue) | R |
+| `project_issue_prompt` | `root: String`, `key: String`, `lang: Option<String>` (`pt`/`en`; omisso = pelo texto da issue) | `Rendered {text, lang, source, version, tokens}` (o prompt exacto com que a issue vai ao Co-Dev: template do projecto em `.dxtutor/prompts/issue.{pt,en}.md` ou o embutido, versão do template, tokens estimados — RF-B03/B04) | `ProjectError` | — | `platform/tauri/project.ts` («Ver prompt» e «Work on it with Co-Dev») | R |
 
 ## 18. Pesquisa / projecto — `commands/search.rs` (4)
 
@@ -535,9 +536,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **176** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 13 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 7 |
-| Consumidos pela `ui-app` | **90** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 13 · `platform/tauri/project.ts` 5) |
+| Comandos registados | **177** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 10 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 13 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 8 |
+| Consumidos pela `ui-app` | **91** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 13 · `platform/tauri/project.ts` 6) |
 | Não consumidos pela `ui-app` | **86** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

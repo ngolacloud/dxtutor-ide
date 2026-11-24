@@ -161,6 +161,9 @@ pub struct Origin {
     /// Empty: the whole project. A change outside asks, in every mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scope: Vec<String>,
+    /// The version of the prompt template the issue was sent with (RF-B04).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
 }
 
 /// The reason recorded and returned for an action with no human request (RF-G01).
@@ -218,6 +221,8 @@ impl Origin {
 pub struct Gates {
     pub plan_approved: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub question: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    /// Toolset 7: the issue is finished (`finish_issue`): nothing more changes, in any mode.
+    pub finished: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>,
 }
 
 pub struct Policy {
@@ -356,6 +361,12 @@ impl Policy {
             };
         }
         if let Some(g) = &self.gates {
+            // RF-B06/G04: after finish_issue the rest is the human's (Auto stops here too)
+            if g.finished.lock().unwrap().is_some() {
+                return Verdict::Deny {
+                    reason: "a issue terminou (finish_issue): o resto é do humano".into(),
+                };
+            }
             // RF-G06: a question to the human stops every change until the answer
             if g.question.lock().unwrap().is_some() {
                 return Verdict::Deny {
@@ -665,6 +676,7 @@ mod tests {
             issue: None,
             by: "ana".into(),
             scope: scope.iter().map(|s| s.to_string()).collect(),
+            template: None,
         }
     }
 

@@ -6,7 +6,21 @@
    kept locally: the store is the source of truth, and each operation returns the project
    after it. No DOM, no window: everything through the ports. */
 
-import type { ProjectDeps } from "./ports";
+import type { IssuePrompt, ProjectDeps } from "./ports";
+
+/** Narrows the backend's `project_issue_prompt` answer. */
+export function parsePrompt(v: unknown): IssuePrompt | null {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.text !== "string" || !o.text) return null;
+  return {
+    text: o.text,
+    lang: typeof o.lang === "string" ? o.lang : "",
+    source: typeof o.source === "string" ? o.source : "",
+    version: typeof o.version === "string" ? o.version : "",
+    tokens: typeof o.tokens === "number" ? o.tokens : 0,
+  };
+}
 import { branchName, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
 import {
   parseDetail,
@@ -32,6 +46,8 @@ export interface ProjectState {
   reports: Reports | null;
   filters: Filters;
   swim: Swim;
+  /** «Ver prompt» (RF-B03): the exact prompt of the selected issue, when open. */
+  prompt: (IssuePrompt & { key: string }) | null;
 }
 
 export function makeProjectService(deps: ProjectDeps) {
@@ -45,6 +61,7 @@ export function makeProjectService(deps: ProjectDeps) {
     reports: null,
     filters: { q: "", quick: [], me: "" },
     swim: "epic",
+    prompt: null,
   };
   const listeners = new Set<() => void>();
   const set = (patch: Partial<ProjectState>): void => {
@@ -228,15 +245,49 @@ export function makeProjectService(deps: ProjectDeps) {
         deps.notify.toast(parseError(e).message);
       }
     },
-    /** Hands the issue to Co-Dev (the agent's changes are recorded as its change sets). */
-    work(key: string): void {
+    /** Hands the issue to Co-Dev (the agent's changes are recorded as its change sets). With the
+     *  store's prompt (F4): only when the Definition of Ready is complete, and with the exact
+     *  prompt the backend assembled from the project's template (RF-B02/B03). */
+    async work(key: string): Promise<void> {
       const i = issue(key);
       if (!i || !st.project) return;
       if (!deps.codev.available()) {
         deps.notify.toast("O Co-Dev com agente precisa da app desktop, de uma pasta aberta e de um provedor com agente");
         return;
       }
+      const r = root();
+      if (r && deps.gateway.issuePrompt && deps.codev.workWith) {
+        if (i.missing.length) {
+          deps.notify.toast(`${key} ainda não está Ready — falta: ${i.missing.join("; ")}`);
+          return;
+        }
+        try {
+          const p = parsePrompt(await deps.gateway.issuePrompt(r, key));
+          if (!p) throw new Error("o prompt da issue veio vazio");
+          deps.codev.workWith(i, p);
+        } catch (e: unknown) {
+          deps.notify.toast(parseError(e).message);
+        }
+        return;
+      }
       deps.codev.work(i, st.project);
+    },
+    /** «Ver prompt» (RF-B03): the exact text the issue goes with, and its tokens. */
+    async viewPrompt(key: string): Promise<void> {
+      const r = root();
+      if (!r || !deps.gateway.issuePrompt) {
+        deps.notify.toast("O prompt da issue é montado pela app desktop, com uma pasta aberta");
+        return;
+      }
+      try {
+        const p = parsePrompt(await deps.gateway.issuePrompt(r, key));
+        if (p) set({ prompt: { ...p, key } });
+      } catch (e: unknown) {
+        deps.notify.toast(parseError(e).message);
+      }
+    },
+    closePrompt(): void {
+      set({ prompt: null });
     },
     loadReports,
   };

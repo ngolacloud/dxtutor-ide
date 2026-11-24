@@ -104,7 +104,7 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// 3 = + skill e as ferramentas injectadas pelo anfitrião (lsp_diagnostics, MCP) (F7);
 /// 4 = + as ferramentas do anfitrião da versão 4 (`arch_propose`, Studio de arquitectura);
 /// 5 = `exit_plan` com passos e ficheiros, `task` com papéis (A3: HARNESS-01/06).
-pub const TOOLSET_VERSION: u32 = 6;
+pub const TOOLSET_VERSION: u32 = 7;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -120,6 +120,12 @@ pub struct FlowState {
     /// Toolset 6 (RF-G02/B05): what the agent suggested outside the request (`suggest`):
     /// `(title, why)`, taken by the host to the Project inbox.
     pub suggestions: Arc<Mutex<Vec<(String, String)>>>,
+    /// Toolset 7 (RF-B06): the acceptance criteria of the issue this turn works on (set by
+    /// the host); `finish_issue` must answer each one.
+    pub criteria: Arc<Mutex<Vec<String>>>,
+    /// Toolset 7: the table `finish_issue` answered; the issue is over for the agent (in Auto
+    /// too, RF-G04) and the host sends it to Review.
+    pub finished: Arc<Mutex<Option<serde_json::Value>>>,
 }
 
 /// O conjunto de ferramentas de uma sessão, na versão `version`, por ordem fixa.
@@ -159,6 +165,13 @@ pub fn agent_tools(
         }));
         v.push(Arc::new(flow::Suggest {
             suggestions: flow_state.suggestions.clone(),
+        }));
+    }
+    // toolset 7 (F4.5): the end of an issue, after the toolset 6 tools
+    if version >= 7 {
+        v.push(Arc::new(flow::FinishIssue {
+            criteria: flow_state.criteria.clone(),
+            finished: flow_state.finished.clone(),
         }));
     }
     v
