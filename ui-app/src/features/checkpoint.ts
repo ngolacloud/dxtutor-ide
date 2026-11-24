@@ -20,6 +20,7 @@ import { $, esc, hhmm, log, toast } from "../core";
 import { translator } from "../app/i18n";
 import { CHECKPOINT_MESSAGES } from "./checkpoint.messages";
 import { services } from "../app/services";
+import { agentStore } from "../app/store";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(CHECKPOINT_MESSAGES);
 
@@ -64,7 +65,7 @@ export async function gfAsk(host: HTMLElement, M: GfAskMission): Promise<void> {
     host.insertAdjacentHTML("beforeend", `<p>${txt("gitflowTheBranch")} <code>${esc(b)}</code> ${txt("staysOpenWithUncommitted")}</p>`);
     return;
   }
-  const go = MODE === "auto" ? 1 : await ask(host, [
+  const go = agentStore.mode === "auto" ? 1 : await ask(host, [
     { l: `Finalizar: merge de ${b} em develop`, v: 1, pri: 1, done: "✓ merge aprovado por ti" },
     { l: "Manter o ramo aberto", v: 0, done: "ramo mantido" },
   ]);

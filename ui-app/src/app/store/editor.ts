@@ -3,7 +3,7 @@
    reatribui a lista no arranque (`TB=[…]`) e mexe-lhe no lugar; ao deixar de a declarar,
    todas essas escritas passam pelo acessor. */
 import { bus } from "../bus";
-import { ownedGlobal } from "./owned";
+import { ownedGlobal, ownedValue } from "./owned";
 
 const current = ownedGlobal<string | null>("cur", null, (next, prev) => bus.emit("editor:tab", { id: next, prev }));
 /* cada avaliação começa no valor inicial (ADR-0004, U4j5a): numa reavaliação (o harness dos testes reavalia os módulos
@@ -19,7 +19,7 @@ export interface Tab {
   path?: string;
   [k: string]: unknown;
 }
-const tabs = ownedGlobal<Tab[]>("TB", []);
+const tabs = ownedValue<Tab[]>([]);
 
 export const editorStore = {
   get currentTabId(): string | null {

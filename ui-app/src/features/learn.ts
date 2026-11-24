@@ -27,6 +27,7 @@ import { registerActions } from "../app/actions";
 import { translator } from "../app/i18n";
 import { LEARN_MESSAGES } from "./learn/ui/messages";
 import { services } from "../app/services";
+import { agentStore } from "../app/store";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(LEARN_MESSAGES);
 
@@ -192,7 +193,7 @@ function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:an
   else if(s.kind==='challenge'&&!ltDone(s.id)){const c=FS[ltPath(s)].content,same=c.trim()===s.starter.trim(),todo=/todo!\(|unimplemented!\(|panic\("(TODO|todo|not implemented)|\/\/\s*TODO/.test(c),has=!s.entry||c.includes(s.entry);
     LT_SUB={ok:!same&&!todo&&has,why:same?'The file still equals the starter. Write your implementation first.':todo?'The implementation still has a TODO placeholder.':`The function <code>${esc(s.entry||'')}</code> is missing.`};if(LT_SUB.ok){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}ltRes();return;}
   if(nx)ltOpen(nx.id);else{toast('Track complete');if(PANE==='tutor')RP.tutor();}}
-function ltAsk(){const{s}=ltFind(LTS.cur)!;AGENT='tutor';agentPill();focusAgent(true);
+function ltAsk(){const{s}=ltFind(LTS.cur)!;agentStore.persona='tutor';agentPill();focusAgent(true);
   if(SAMPLE&&PROV.claude.on){ACTIVE='claude';updateAgentUI();liveChat(`I am on the ${s.kind} step "${s.title}" of the course "${course().title}". Help me move forward without giving me the solution.\nMy current code:\n${FS[ltPath(s)].content||'(empty)'}`);}
   else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">W${txt("withClaudeLiveThe")}/p>`);}}
 

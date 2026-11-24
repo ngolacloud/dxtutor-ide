@@ -71,7 +71,6 @@ declare global {
   const RTN: Record<string, string>;
   const KCTX: string[];
   const AGENTS: Record<string, { n: string }>;
-  let MODE: string; // mutável — o boot5 (app.ts) reatribui (MODE=HARN.ceiling) e o auto-teste também
   var ACTIVE: string;
   const COMMIT_MSG: string;
   const isFlow: (b: string) => boolean;

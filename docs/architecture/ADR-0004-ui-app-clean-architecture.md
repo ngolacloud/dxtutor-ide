@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7h)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7i)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1129,3 +1129,16 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   igual, excepto dois módulos sem efeitos (o registo e o domínio do diff) que avaliam mais cedo. Ficam publicados de
   propósito: o `openDiff` (a ponte do scm, de outra sessão), o `setLocale`/`trNode` (o arranque, o harness dos goldens),
   e os nomes das tabelas `globalCalls` dos botões do chrome. Globais publicadas 248 → 221.
+- **U7i (2026-11-24) — dez estados com dono deixam o window.** Os shims `ownedGlobal` da U3 que só os meus módulos
+  liam ou escreviam passam a `ownedValue` (`app/store/owned.ts`): o mesmo get/set com o evento no bus, sem o acessor
+  no window. São o `MODE`, `THRESH`, `CTX_ON`, `AGENT` (persona), `CHAT`, `RUN`, `USAGE` (agentStore), `THEME`
+  (layoutStore), `TB` (editorStore) e `OPEN` (workspaceStore). Os leitores e escritores por nome livre (o arranque, os
+  comandos, o checkpoint, o terminal, o explorador, a equipa, o Learning Track, o PairCode e os módulos desktop) e
+  pelas fachadas (as pontes do Co-Dev e do board, o `features/codev.ts`, o tema, o workspace) usam o store; o
+  `features/codev.ts` adopta a conversa e a execução que cria pelos setters novos `agentStore.chat`/`agentStore.run`.
+  Os stores avaliam primeiro (logo, a ordem de avaliação fica igual). Cada avaliação começa no valor inicial, o que nos
+  testes é o reset por `bootApp` (deixa de haver herança do window entre testes para estes dez). As declarações globais
+  saem (`core.ts`, `pair.ts`, `ide-globals.d.ts`, `platform/desktop/types.ts`); os testes lêem o store da cadeia do
+  `bootApp`. Ficam como shims os sete que módulos de outras sessões ainda lêem ou escrevem: `PANE`, `LOCALE`, `cur`,
+  `FS`, `ROOT` (várias pontes), `PROV` (o visualizer) e `ACTIVE` (a ponte do codereview escreve-o). Globais
+  publicadas 221 → 216; shims de estado 17 → 7.

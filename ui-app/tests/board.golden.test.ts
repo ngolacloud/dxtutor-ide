@@ -23,6 +23,7 @@ import { bootApp, golden } from "./harness";
  * harness — ao contrário do debug, não são precisos fixtures de v6/boot. */
 
 let w: any;
+let STORE: any, ES: any, ES_A: any; // eslint-disable-line @typescript-eslint/no-explicit-any — os stores da cadeia do bootApp (U7i)
 let TMod: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7h)
 
 /** Projecção serializável de uma issue: os campos que a LÓGICA DO BOARD decide
@@ -59,7 +60,10 @@ beforeEach(async () => {
   (window as any).BL = undefined;
   w = await bootApp();
   TMod = await import("../src/features/team");
-  w.RUN.active = false;
+  STORE = await import("../src/app/store");
+  ES = STORE.editorStore;
+  ES_A = STORE.agentStore;
+  ES_A.run.active = false;
 });
 
 afterEach(() => {
@@ -181,7 +185,7 @@ describe("políticas compostas pelo board (ADR-0004, U4g3)", () => {
     click(host.querySelector(`[data-action="approve"][data-on="${it.id}"]`)!);
     expect(it.stage).toBe("func");
     expect(it.reviewed).toBe(true);
-    expect(w.TB.some((t: any) => t.id === "review" && t.issue === it.id)).toBe(true);
+    expect(ES.tabs.some((t: any) => t.id === "review" && t.issue === it.id)).toBe(true);
   });
 
   it("dono humano: delegar uma issue tua não a move", () => {

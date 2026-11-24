@@ -16,6 +16,7 @@ import { esc } from "../core";
 import { translator } from "../app/i18n";
 import { TERMINAL_MESSAGES } from "./terminal.messages";
 import { EMULATED_TERMINAL_MESSAGES } from "./emulated-terminal-messages";
+import { agentStore } from "../app/store";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(TERMINAL_MESSAGES);
 const txe = translator(EMULATED_TERMINAL_MESSAGES);
@@ -38,7 +39,7 @@ const XC={
   /* `git`: o handler é o features/termgit.ts (`XC.git=(a,raw)=>window.gitCmd(a,raw)` no app.ts); a
      base simulada que vivia aqui (lista fixa BRANCHES, log do COMMITS) era código morto e saiu (ADR-0006, R1d). */
   dx(a:string[]){const s=a[0];
-    if(s==='status'){echo(`modo <span class="ac">${MODES[MODE].l}</span> ${txt("model")} <span class="ac">${PROV[ACTIVE].name}</span> · checkpoints ${CKPT.length}`);return;}
+    if(s==='status'){echo(`modo <span class="ac">${MODES[agentStore.mode].l}</span> ${txt("model")} <span class="ac">${PROV[ACTIVE].name}</span> · checkpoints ${CKPT.length}`);return;}
     if(s==='modo'&&MODES[a[1]]){setMode(a[1]);echo('modo: '+MODES[a[1]].l);return;}
     echo('<span class="dim">dx: status | modo manual|assist|auto</span>');},
 };

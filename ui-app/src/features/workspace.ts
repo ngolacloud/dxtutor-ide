@@ -12,6 +12,7 @@ import { RP } from "../app/store/registry";
 import { drawTabs } from "./tabs";
 import { services } from "../app/services";
 import { badges, hydrate } from "./shell";
+import { editorStore } from "../app/store";
 
 const G = window as unknown as {
   refresh: (fromEd?: boolean, force?: boolean) => void;
@@ -50,7 +51,7 @@ function resetWorkspace(): void {
    resolvia por nome livre. */
 interface RefreshTab { id: string; kind: string; path?: string }
 const RW = window as unknown as {
-  TB: RefreshTab[]; cur: string | null; PANE: string;
+  cur: string | null; PANE: string;
   stOf: (p: string) => unknown; syncTree: () => void; buildExplorer: () => void; drawProblems: () => void;
   tabOf: (id: string | null) => RefreshTab | undefined;
   show: (id: string | null) => void; paintEd: (p: string) => void; drawTabs: () => void; drawOutline: () => void;
@@ -59,7 +60,7 @@ let SIG='';
 /** O sinal global «o workspace mudou»: redesenha o explorador (se a árvore mudou), os problemas, os contadores, o
  *  painel lateral activo e o editor, e emite `workspace:changed` no bus. Era do app.ts (ADR-0004, U4j5a); como lá,
  *  usa as versões publicadas do show/paintEd/… (o show da barra de acções, o paintEd com breakpoints). */
-function refresh(fromEd?: boolean, force?: boolean): void {const FS=workspaceStore.files,TB=RW.TB;const sig=Object.keys(FS).map(p=>p+RW.stOf(p)).join('|');
+function refresh(fromEd?: boolean, force?: boolean): void {const FS=workspaceStore.files,TB=editorStore.tabs as RefreshTab[];const sig=Object.keys(FS).map(p=>p+RW.stOf(p)).join('|');
   TB.filter(t=>t.kind==='file'&&!FS[t.path as string]).forEach(t=>{TB.splice(TB.indexOf(t),1);if(RW.cur===t.id)RW.cur=null;});
   if(sig!==SIG||force){SIG=sig;RW.syncTree();RW.buildExplorer();}
   RW.drawProblems();badges();if(RP[RW.PANE]&&RW.PANE!=='search')RP[RW.PANE]();hydrate();

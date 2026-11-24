@@ -5,20 +5,22 @@ import { beforeEach, expect, it } from "vitest";
 import { bootApp } from "./harness";
 
 let w: Window & Record<string, any>;
+let AS: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o agentStore da cadeia do bootApp (U7i)
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
 
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
-  w.MODE = "assist";
+  AS = (await import("../src/app/store")).agentStore;
+  AS.mode = "assist";
   w.ACTIVE = "claude";
-  w.CTX_ON = true;
+  AS.contextEnabled = true;
 });
 
-it("mudar o modo pelo window actualiza a barra de estado e o compositor", () => {
-  w.MODE = "auto";
+it("mudar o modo no dono actualiza a barra de estado e o compositor", () => {
+  AS.mode = "auto";
   expect($("#st-mode").textContent).toBe("Co-Dev: Auto");
   expect($("#cc-mode").textContent).toBe("Auto");
-  w.MODE = "manual";
+  AS.mode = "manual";
   expect($("#st-mode").textContent).toBe("Co-Dev: Manual");
 });
 
@@ -31,9 +33,9 @@ it("mudar o provedor pelo window actualiza o chip do modelo", () => {
 
 it("ligar/desligar o contexto do editor actualiza o chip de contexto", () => {
   const pill = $("#pill-ctx");
-  w.CTX_ON = false;
+  AS.contextEnabled = false;
   expect(pill.classList.contains("on")).toBe(false);
-  w.CTX_ON = true;
+  AS.contextEnabled = true;
   // com um ficheiro activo o chip acende; sem ficheiro fica apagado — mas foi redesenhado
   expect(pill.textContent).toMatch(/^@ /);
 });
@@ -45,8 +47,10 @@ it("os donos guardam os MESMOS objectos que o app.ts criou (adopção, sem cópi
   expect(workspaceStore.files).toBe(w.FS);
   expect(workspaceStore.root).toBe("dxtutor/");
   expect(agentStore.providers).toBe(w.PROV);
-  expect(agentStore.chat).toBe(w.CHAT);
-  expect(agentStore.run).toBe(w.RUN);
+  // a conversa e a execução são as do features/codev.ts (o RUN de lá traz o pend/abort), já sem o window (U7i)
+  expect(Array.isArray(agentStore.chat)).toBe(true);
+  expect(agentStore.run).toHaveProperty("pend", null);
+  expect("CHAT" in w || "RUN" in w).toBe(false);
   expect(Object.keys(workspaceStore.files).length).toBeGreaterThan(5);
 });
 

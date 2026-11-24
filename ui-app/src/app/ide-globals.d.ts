@@ -14,8 +14,6 @@ declare global {
   const OVERFLOW: { l: string; pane?: string; sep?: number }[];
   const HT: Record<string, { n: string }>;
   const THEMES: Record<string, unknown>;
-  var THEME: string;
-  var TB: { id: string; title: string; kind: string; path?: string }[];
   var DRIFT: string | null;
   const applyTemplate: (k: string) => void;
   const assistantCenter: () => void;

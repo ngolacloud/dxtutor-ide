@@ -19,6 +19,7 @@ import { sdAdd } from "../../features/studio";
 import { saveTeam } from "../../features/team";
 import { restoreCkpt } from "../../features/checkpoint";
 import { STOP } from "../../features/codev";
+import { agentStore } from "../../app/store";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -126,12 +127,12 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       // memória): gfFinish faz merge/checkout REAIS, por isso o commit que o antecede tem
       // de ser real também, senão o ramo "finalizado" nunca existiu de facto no git.
       writeFile(ROOT + "notes/ckpt-ask-finish.txt", "y\n"); flushSave(); commit("feat: ckpt ask finish"); await idle(); await idle();
-      const modeBefore = MODE; MODE = "auto";
+      const modeBefore = agentStore.mode; agentStore.mode = "auto";
       const hostFinish = document.createElement("div");
       await gfAsk(hostFinish, { files: new Set() });
       await idle(); await idle();
       const finishedViaAsk = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim() === "develop" && /develop/.test(hostFinish.innerHTML);
-      MODE = modeBefore;
+      agentStore.mode = modeBefore;
 
       gfStart("feature", "ckpt-ask-open"); await idle();
       writeFile(ROOT + "notes/ckpt-ask-open.txt", "z\n"); flushSave(); await idle();

@@ -19,7 +19,7 @@
 
 import { S, prov, provState, show, toast, log, writeFile, rerender, hhmm } from "../../../core";
 import type { Prov } from "../../../core";
-import { agentStore } from "../../../app/store";
+import { agentStore, layoutStore } from "../../../app/store";
 
 export type { Prov };
 export { prov, provState, show, toast, log, writeFile, rerender, hhmm };
@@ -36,9 +36,7 @@ const G = window as unknown as Record<string, any>;
 declare global {
   interface Window {
     ACTIVE: string;
-    CTX_ON: boolean;
     AUTHOR: string;
-    AGENT: string;
   }
 }
 
@@ -54,8 +52,8 @@ export const monolith = {
   set activeProvider(v: string) { agentStore.provider = v; },
   get contextEnabled(): boolean { return agentStore.contextEnabled; },
   set contextEnabled(v: boolean) { agentStore.contextEnabled = v; },
-  get theme(): string { return window.THEME; },
-  get activeAgent(): string { return window.AGENT; },
+  get theme(): string { return layoutStore.theme; },
+  get activeAgent(): string { return agentStore.persona; },
   set author(v: string) { window.AUTHOR = v; },
   set liveOk(v: boolean) { window.LIVE_OK = v; },
 };
@@ -68,7 +66,7 @@ export const sample = (): ((input: string | SampleMsg[], o?: SampleOpts) => Prom
 
 /* ───── read-only containers owned by other modules (fresh getter, never aliased at import time) ───── */
 export const providers = (): Record<string, Prov> => prov();
-export const chat = (): { role: string; content: string }[] => G.CHAT;
+export const chat = (): { role: string; content: string }[] => agentStore.chat;
 export const agents = (): Record<string, { n: string; d: string; col: string; paths: string[] }> => window.AGENTS;
 export const backlog = (): { issues: any[] } => window.BL;
 export const stages = (): Array<[string, string]> => window.STAGES;
@@ -76,7 +74,7 @@ export const studioDesign = (): { nodes: Array<{ st: string }> } => window.SD;
 export const themes = (): Record<string, Record<string, string>> => window.THEMES;
 export const modes = (): Record<string, { l: string; d: string }> => G.MODES;
 export const commands = (): Array<[string, string, () => unknown]> => G.CMD;
-export const usage = (): Record<string, { calls: number; tok: number }> => G.USAGE;
+export const usage = (): Record<string, { calls: number; tok: number }> => agentStore.usage;
 export const panes = (): Record<string, () => void> => G.RP;
 export const files = (): Record<string, { content: string; orig: string | null }> => window.FS;
 export const danger = (): RegExp => services.codev!.DANGER;
@@ -180,7 +178,7 @@ export interface RunState {
   abort: AbortController | null;
   M: { files: Set<string> } | null;
 }
-export const run = (): RunState => G.RUN;
+export const run = (): RunState => agentStore.run as unknown as RunState;
 
 /* ───── tabs ───── */
 export interface CodevTab { id: string; title?: string; kind?: string; path?: string }

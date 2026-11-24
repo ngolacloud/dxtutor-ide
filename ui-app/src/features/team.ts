@@ -3,7 +3,7 @@
    `AGENTS` é DECORADO por app.ts (Object.assign(AGENTS.be,…)) e LIDO por board.ts/codev.ts
    e pelo router → window-backing obrigatório. A feature avalia ANTES de app.ts; `AGENTS`
    nasce `const AGENTS=(window.AGENTS={…})` (literal puro, sem reads eager) para que a
-   decoração e os ~43 usos externos resolvam o MESMO objecto global. `window.AGENT='lead'`
+   decoração e os ~43 usos externos resolvam o MESMO objecto global. `agentStore.persona='lead'` (desde a U7i do ADR-0004 no dono, sem o window)
    inicializa o assistente activo. Globais do resíduo (short/norm/palette/$/esc/PROV/CAPL/
    CAP/TASKP/rankModels/show/cur) resolvem por window em runtime (@ts-nocheck, late-binding).
 
@@ -38,6 +38,7 @@ import { TEAM_MESSAGES } from "./team.messages";
 import { services } from "../app/services";
 import { diffLines } from "./diff/domain/diff";
 import { TEAM_DESKTOP_MESSAGES } from "./team.desktop-messages";
+import { agentStore } from "../app/store";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const msg = translator(TEAM_MESSAGES);
 const mdk = translator(TEAM_DESKTOP_MESSAGES);
@@ -61,14 +62,14 @@ const AGENTS: Record<string, Agent> = (window.AGENTS = {
 /* os limites de ficheiros por tarefa da camada v4 (Backend 8, Plataforma 12) ficam — a R3c tirou-os sem
    querer com os caminhos de demonstração */
 AGENTS.be.max = 8; AGENTS.ops.max = 12;
-window.AGENT='lead';
+agentStore.persona='lead';
 const globRe=(g:string)=>new RegExp('^'+g.split('**').map(s=>s.split('*').map(x=>x.replace(/[.+^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*')+'$');
 export const inScope=(a:string,p:string)=>AGENTS[a].paths.some(g=>globRe(g).test(short(p)));
 const canRun=(a:string,cmd:string)=>AGENTS[a].cmds.some(c=>c==='*'||cmd.startsWith(c));
 const ownerOf=(p:string)=>Object.keys(AGENTS).find(k=>k!=='lead'&&inScope(k,p))||'lead';
-export function harnessCheck(p:string){if(!inScope(AGENT,p)){const o=ownerOf(p);throw new Error(mdk('outOfScope',{name:AGENTS[AGENT].n,paths:AGENTS[AGENT].paths.join(', ')||mdk('nothing'),owner:AGENTS[o].n}));}}
-export function harnessCmd(c:string){if(!canRun(AGENT,c))throw new Error(mdk('noPermission',{name:AGENTS[AGENT].n,cmd:c}));}
-export const agentSys=()=>{const a=AGENTS[AGENT];return `\nÉs o assistente «${a.n}» (${a.d}). Harness: só podes escrever em [${a.paths.join(', ')||'nenhum caminho'}] e correr [${a.cmds.join(', ')||'nenhum comando'}]. Se a tarefa exigir sair deste escopo, não o faças: diz que assistente da equipa (${Object.values(AGENTS).map(x=>x.n).join(', ')}) deve tratar dessa parte.`+(AGENT==='tutor'?'\nComo Tutor: não dês a solução completa. Faz perguntas, explica o conceito, dá pistas graduais e pede ao aluno que tente.':'');};
+export function harnessCheck(p:string){if(!inScope(agentStore.persona,p)){const o=ownerOf(p);throw new Error(mdk('outOfScope',{name:AGENTS[agentStore.persona].n,paths:AGENTS[agentStore.persona].paths.join(', ')||mdk('nothing'),owner:AGENTS[o].n}));}}
+export function harnessCmd(c:string){if(!canRun(agentStore.persona,c))throw new Error(mdk('noPermission',{name:AGENTS[agentStore.persona].n,cmd:c}));}
+export const agentSys=()=>{const a=AGENTS[agentStore.persona];return `\nÉs o assistente «${a.n}» (${a.d}). Harness: só podes escrever em [${a.paths.join(', ')||'nenhum caminho'}] e correr [${a.cmds.join(', ')||'nenhum comando'}]. Se a tarefa exigir sair deste escopo, não o faças: diz que assistente da equipa (${Object.values(AGENTS).map(x=>x.n).join(', ')}) deve tratar dessa parte.`+(agentStore.persona==='tutor'?'\nComo Tutor: não dês a solução completa. Faz perguntas, explica o conceito, dá pistas graduais e pede ao aluno que tente.':'');};
 /** A equipa da pasta aberta: os escopos derivados da estrutura dela e dos comandos detectados, e
  *  o `.dxtutor/team.json` por cima (ADR-0006, R3c). Passam a ser os defaults que os templates
  *  de harness repõem (AG0). */
@@ -92,8 +93,8 @@ document.addEventListener('dx:workspace', () => applyProjectTeam());
 /** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
 export function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJsonKeeping(AGENTS,FS[ROOT+'.dxtutor/team.json']?.content));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
 export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
-function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{AGENT=k;agentPill();toast('Assistente: '+a.n);}}))});}
-function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[AGENT].col}"></span>${AGENTS[AGENT].n}`;}}
+function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{agentStore.persona=k;agentPill();toast('Assistente: '+a.n);}}))});}
+function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[agentStore.persona].col}"></span>${AGENTS[agentStore.persona].n}`;}}
 function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,services.workspace!.norm(v)));o.innerHTML=who.length?mdk('canWrite',{who:who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', ')}):mdk('noSpecialist');}
 /* ───── harness de projecto: templates, decision rights, mode ceiling (migrado de
    v5.ts, fundido com renderTeamView) ─────
@@ -151,7 +152,7 @@ model = "${a.model}"`).join('\n\n')}
 }
 function applyTemplateBase(id: string) {
   hydrateHarn();
-  if (RUN.active) { toast('Wait for the run to finish'); return; }
+  if (agentStore.run.active) { toast('Wait for the run to finish'); return; }
   const t = HT[id];
   Object.keys(AGENTS).forEach(k => Object.assign(AGENTS[k], JSON.parse(JSON.stringify(AG0[k]))));
   if (t.agents) Object.entries(t.agents).forEach(([k, o]) => Object.assign(AGENTS[k], o));
@@ -200,7 +201,7 @@ function renderTeamView(_t:unknown,host:HTMLElement){
   <h2>${msg("whoDecides")}</h2><div class="sub">${msg("theAssistantsAccelerateThe")}</div><div class="tbl-wrap">${Object.entries(RIGHTS).map(([r,l])=>`<div class="rowline"><span>${l}</span><span class="sp"></span><span style="color:var(--fg-muted);font-size:11.5px">${isHuman(r)?'you decide':'assistant, inside its scope'}</span><button class="sw${isHuman(r)?' on':''}" ${ALWAYS.includes(r)?'disabled style="opacity:.5"':''} data-action="team:toggleRight" data-on="${esc(r)}"></button></div>`).join('')}<div class="rowline"><span>${msg("reviewTheDiffBefore")}</span><span class="sp"></span><button class="sw${HARN.review?' on':''}" data-action="team:review"></button></div></div>
   <h2>${msg("whoDidTheWork")}</h2><div class="tbl-wrap"><div class="rowline"><b style="width:120px;flex:none">Commits</b><span class="hx-bar"><i style="width:${au.h/tot*100}%"></i></span><span>you ${au.h} · assistants ${au.a}</span></div><div class="rowline"><b style="width:120px;flex:none">Decisions</b><span class="hx-bar"><i style="width:${au.dh/Math.max(1,au.dh+au.da)*100}%"></i></span><span>you ${au.dh} · assistants ${au.da}</span></div></div>
   <h2>${msg("testTheScope")}</h2><div class="tbl-wrap"><div class="rowline"><input class="inp" style="margin:0;width:320px" placeholder="ex.: db/migrations/0005_x.sql" data-action="team:probe"><span id="probe-out" style="color:var(--fg-dim)"></span></div></div>
-  <h2>${msg("assistants")}</h2><div class="pgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${Object.entries(AGENTS).map(([k,a])=>`<div class="pcard"><div class="ph"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${AGENT===k?`<span class="tag acc">${msg("inTheConversation")}</span>`:`<button class="mini" style="margin-left:auto" data-action="team:talk" data-on="${esc(k)}">${msg("talk")}</button>`}</div><div class="pd">${a.d}</div>
+  <h2>${msg("assistants")}</h2><div class="pgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${Object.entries(AGENTS).map(([k,a])=>`<div class="pcard"><div class="ph"><span class="av" style="background:${a.col}">${a.n.charAt(0)}</span>${a.n}${agentStore.persona===k?`<span class="tag acc">${msg("inTheConversation")}</span>`:`<button class="mini" style="margin-left:auto" data-action="team:talk" data-on="${esc(k)}">${msg("talk")}</button>`}</div><div class="pd">${a.d}</div>
     <div><label>${msg("mayWriteToOne")}</label><textarea rows="2" data-action="team:paths" data-on="${esc(k)}">${esc(a.paths.join('\n'))}</textarea></div>
     <div><label>${msg("allowedCommands")}</label><textarea rows="2" data-action="team:cmds" data-on="${esc(k)}">${esc(a.cmds.join('\n'))}</textarea></div>
     <div style="display:grid;grid-template-columns:1fr 90px;gap:8px"><div><label>${msg("model")}</label><select data-action="team:model" data-on="${esc(k)}"><option value="auto"${a.model==='auto'?' selected':''}>${msg("automaticRouter")}</option>${Object.entries(PROV).map(([p,v])=>`<option value="${p}"${a.model===p?' selected':''}>${v.name}</option>`).join('')}</select></div><div><label>${msg("maxFiles")}</label><input type="number" min="0" max="50" value="${a.max}" data-action="team:max" data-on="${esc(k)}"></div></div></div>`).join('')}</div>
@@ -256,7 +257,7 @@ hydrateHarn();
    handlers inline, que resolviam o HARN/LS/AGENT/AGENTS/ROOT/cur e as funções no window ao clicar;
    as acções fazem o mesmo, no acto. */
 const TA = window as unknown as {
-  LS: { set: (k: string, v: unknown) => void }; AGENT: string; ROOT: string; cur: unknown;
+  LS: { set: (k: string, v: unknown) => void }; ROOT: string; cur: unknown;
   AGENTS: Record<string, { paths: string[]; cmds: string[]; model: string; max: number }>;
 };
 const lines = (v: string): string[] => v.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -267,7 +268,7 @@ registerActions({
   "team:review": { click: () => { HARN.review = !HARN.review; TA.LS.set('harn5', HARN); callGlobal('rerender', 'team'); } },
   "team:explain": { click: () => { HARN.explain = !HARN.explain; TA.LS.set('harn5', HARN); callGlobal('rerender', 'team'); } },
   "team:probe": { input: (c) => void scopeProbe(c.value) },
-  "team:talk": { click: (c) => { TA.AGENT = c.on; callGlobal('agentPill'); callGlobal('show', TA.cur); } },
+  "team:talk": { click: (c) => { agentStore.persona = c.on; callGlobal('agentPill'); callGlobal('show', TA.cur); } },
   "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); saveTeam(); } },
   "team:cmds": { change: (c) => { TA.AGENTS[c.on].cmds = lines(c.value); saveTeam(); } },
   "team:model": { change: (c) => { TA.AGENTS[c.on].model = c.value; saveTeam(); } },

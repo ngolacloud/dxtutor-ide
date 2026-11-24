@@ -22,6 +22,7 @@ import { loadCfg } from "./store/config";
 import { resetWorkspace } from "../features/workspace";
 import { buildActivity } from "../features/shell";
 import { openSettings } from "../features/codev";
+import { agentStore, layoutStore, editorStore } from "./store";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 
@@ -41,8 +42,8 @@ function boot(){loadCfg();resetWorkspace();syncTree();
   $('#pc-terminal')!.onclick=()=>{if(!String(getSelection())){const c=$('#cmd');if(c)c.focus({preventScroll:true});}};
   $('#pc-output')!.innerHTML='';log('co-dev','pronto · '+connected().length+' provedores ligados');
   termClear();setInterval(()=>{runLabel();},1000);
-  newChat();setTheme(THEME);
-  TB=[{id:'welcome',title:'Bem-vindo',kind:'welcome'}];refresh(false,true);show('welcome');
+  newChat();setTheme(layoutStore.theme);
+  editorStore.tabs=[{id:'welcome',title:'Bem-vindo',kind:'welcome'}];refresh(false,true);show('welcome');
   if(innerWidth<1000){setVar('--side-w','0px');}else $('#tgl-side')!.classList.add('on');$('#tgl-panel')!.classList.add('on');
   if(innerWidth<860){setVar('--panel-h','0px');$('#tgl-panel')!.classList.remove('on');assistantCenter();}
   hydrate();if(document.activeElement&&(document.activeElement as HTMLElement).blur)(document.activeElement as HTMLElement).blur();
@@ -67,7 +68,7 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
 /* boot5/boot6: os passos de arranque das camadas v5/v6 (ADR-0004, U4g7), verbatim, junto do
    boot/boot3/boot4 — a mesma natureza. Os nomes livres resolvem como no módulo de origem: o CMD/LANG
    são os mesmos objectos publicados (só mutados) e o runTask é o publicado (ninguém o reatribui). */
-function boot5(){ENVS.rtOn=false;ENVS.k8sOn=false;if(MORD.indexOf(MODE)>MORD.indexOf(HARN.ceiling))MODE=HARN.ceiling;
+function boot5(){ENVS.rtOn=false;ENVS.k8sOn=false;if(MORD.indexOf(agentStore.mode)>MORD.indexOf(HARN.ceiling))agentStore.mode=HARN.ceiling;
   for(let i=ACTS.length-1;i>=0;i--)if(['run','ext','account'].includes(ACTS[i].pane!)||ACTS[i].overflow)ACTS.splice(i,1);const bi=ACTS.findIndex(a=>a.title==='Quadro');ACTS.splice(bi+1,0,{ic:'container',pane:'infra',title:'Infra'});const st=ACTS.find(a=>a.pane==='settings');if(st)st.spacer=1;buildActivity();$('.act')!.classList.add('on');
   $('.side')!.insertAdjacentHTML('beforeend','<div class="pane" id="pane-infra"></div>');const tm=$('.tmux');if(tm)tm.remove();const ab=$('.tb-ic[data-ic="account"]');if(ab)ab.onclick=openSettings;
   const drop=['Selection','Go','Terminal'],ed=MENUS.find(m=>m.t==='Edit'),sel=MENUS.find(m=>m.t==='Selection'),go=MENUS.find(m=>m.t==='Go');if(ed&&sel&&go)ed.items!.push({sep:1},...go.items!.filter(i=>!i.sep).slice(0,3),{sep:1},...sel.items!.filter(i=>!i.sep));

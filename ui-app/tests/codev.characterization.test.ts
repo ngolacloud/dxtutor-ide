@@ -9,6 +9,7 @@ import { bootApp } from "./harness";
  * suite estável em corridas repetidas (nenhuma espera real, nenhum polling). */
 
 let w: any;
+let AS: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o agentStore da cadeia do bootApp (U7i)
 /** Um ficheiro da fixture do harness (tests/fixtures/sample-workspace.ts); era a constante
  *  `P_LX` do monólito, que saiu com os caminhos fixos do projecto de demonstração (ADR-0006, R1c2). */
 let LX: string;
@@ -16,6 +17,7 @@ let LX: string;
 beforeEach(async () => {
   vi.useFakeTimers();
   w = await bootApp();
+  AS = (await import("../src/app/store")).agentStore;
   LX = w.ROOT + "crates/lexer/src/lib.rs";
 });
 
@@ -51,7 +53,7 @@ function clickByLabel(h: HTMLElement, label: string) {
 describe("1. política de aprovação por modo (doTool)", () => {
   it("read nunca pede aprovação, em qualquer modo", async () => {
     for (const mode of ["manual", "assist", "auto"]) {
-      w.MODE = mode;
+      AS.mode = mode;
       const h = host();
       const p = w.doTool({ t: "read", p: LX }, h);
       expect(gate(h)).toBeNull();
@@ -70,7 +72,7 @@ describe("1. política de aprovação por modo (doTool)", () => {
     ["assist", "git push --force", true],
     ["auto", "git push --force", true],
   ])("run %s + %s -> gate=%s", async (mode, cmd, expectGate) => {
-    w.MODE = mode;
+    AS.mode = mode;
     const h = host();
     const p = w.doTool({ t: "run", cmd }, h);
     if (expectGate) {
@@ -84,13 +86,13 @@ describe("1. política de aprovação por modo (doTool)", () => {
 
   it("edit só pede aprovação em modo manual (assist/auto aplicam automaticamente)", async () => {
     for (const mode of ["assist", "auto"]) {
-      w.MODE = mode;
+      AS.mode = mode;
       const h = host();
       const p = w.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// x" }, h);
       expect(gate(h)).toBeNull();
       expect(await resolved(p)).toBe(true);
     }
-    w.MODE = "manual";
+    AS.mode = "manual";
     const h = host();
     const p = w.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// y" }, h);
     expect(gate(h)).not.toBeNull();
@@ -102,7 +104,7 @@ describe("1. política de aprovação por modo (doTool)", () => {
 describe("2. edição sem alterações nunca pede aprovação (invariante #1)", () => {
   it("'sem alterações' em manual/assist/auto: sucesso, sem gate", async () => {
     for (const mode of ["manual", "assist", "auto"]) {
-      w.MODE = mode;
+      AS.mode = mode;
       const h = host();
       const same = w.FS[LX].content;
       const p = w.doTool({ t: "edit", p: LX, content: same }, h);
@@ -115,7 +117,7 @@ describe("2. edição sem alterações nunca pede aprovação (invariante #1)", 
 
 describe("3. skip vs reject: skip devolve null (não false), rejeição devolve false", () => {
   it("edit rejeitado em manual -> false, FS não é escrito", async () => {
-    w.MODE = "manual";
+    AS.mode = "manual";
     const h = host();
     const before = w.FS[LX].content;
     const p = w.doTool({ t: "edit", p: LX, content: before + "\n// rejected" }, h);
@@ -125,7 +127,7 @@ describe("3. skip vs reject: skip devolve null (não false), rejeição devolve 
   });
 
   it("run saltado em assist (comando não-SAFE) -> null, não false", async () => {
-    w.MODE = "assist";
+    AS.mode = "assist";
     const h = host();
     const p = w.doTool({ t: "run", cmd: "curl example.org" }, h);
     clickByLabel(h, "Saltar");
@@ -146,7 +148,7 @@ describe("4. janela de histórico do live chat (últimas 9, sem líder não-user
     // 11 mensagens prévias; a função guarda as últimas 9 (incluindo a nova), e
     // remove do início qualquer uma que não seja 'user'.
     for (let i = 0; i < 10; i++) {
-      w.CHAT.push({ role: i % 2 === 0 ? "assistant" : "user", content: "msg" + i });
+      AS.chat.push({ role: i % 2 === 0 ? "assistant" : "user", content: "msg" + i });
     }
     await resolved(w.liveChat("pergunta final"));
     expect(captured.length).toBeLessThanOrEqual(9);

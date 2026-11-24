@@ -23,6 +23,7 @@ import { editorStore } from "./app/store/editor";
 import { drawTabs, closeTab } from "./features/tabs";
 import { scrollTerm } from "./features/terminal";
 import { pairState } from "./app/pair-state";
+import { workspaceStore } from "./app/store";
 
 export {};
 
@@ -118,7 +119,6 @@ declare global {
   const cur: string | null;
   const FS: Record<string, FsEntry>;
   const ROOT: string;
-  const OPEN: Set<string>;
   const VIEW: Record<string, (...a: any[]) => void>;
   const MENUS: Menu[];
   const CMD: CmdEntry[];
@@ -135,14 +135,12 @@ declare global {
   var connected: () => string[];
   // Globais lexicais/helpers do monólito usados pelas features-folha tipadas (explorer/...).
   const SECOPEN: Record<string, boolean>;
-  var AGENT: string;
   const sel: (row: HTMLElement) => void;
   const drawTimeline: () => void;
   const palette: (pre?: string, cfg?: any) => void;
   const USER: string;
   const HOST: string;
   const MODES: Record<string, { l: string }>;
-  const RUN: { active: boolean };
   const MISSIONS: any[];
   const DECS: any[];
   const CKPT: any[];
@@ -467,7 +465,7 @@ function enterRemote(m: Msg): void {
   P.sent = Object.assign({}, m.files);
   BRANCH = m.branch || "remote";
   try { $("#st-branch-l")!.textContent = BRANCH; } catch { /* */ }
-  CWD = [m.name]; OPEN.clear(); OPEN.add("dxtutor"); P.driver = m.driver || "host";
+  CWD = [m.name]; workspaceStore.openDirs.clear(); workspaceStore.openDirs.add("dxtutor"); P.driver = m.driver || "host";
   document.title = `${m.name} (PairCode with ${P.peerName}) — dxtutor IDE`;
   const t = $("#term");
   if (t) {
@@ -534,7 +532,7 @@ function applyFiles(m: Msg): void {
       else {
         FS[k] = { content: c, orig: null };
         const d = k.split("/"); d.pop();
-        while (d.length) { OPEN.add(d.join("/")); d.pop(); }
+        while (d.length) { workspaceStore.openDirs.add(d.join("/")); d.pop(); }
       }
       P.sent[k] = c;
       if (k === open) touched = true;

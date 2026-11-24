@@ -3,20 +3,18 @@
    assistente da conversa. Antes: primitivos soltos no window, escritos pelo app.ts, pelo
    legacy-bridge do Co-Dev e por onclick inline. */
 import { bus } from "../bus";
-import { ownedGlobal } from "./owned";
+import { ownedGlobal, ownedValue } from "./owned";
 
-const mode = ownedGlobal<string>("MODE", "assist", (next, prev) => bus.emit("agent:mode", { mode: next, prev }));
-const threshold = ownedGlobal<number>("THRESH", 85, (next, prev) => bus.emit("agent:threshold", { value: next, prev }));
+const mode = ownedValue<string>("assist", (next, prev) => bus.emit("agent:mode", { mode: next, prev }));
+const threshold = ownedValue<number>(85, (next, prev) => bus.emit("agent:threshold", { value: next, prev }));
 const provider = ownedGlobal<string>("ACTIVE", "claude", (next, prev) => bus.emit("agent:provider", { provider: next, prev }));
-const context = ownedGlobal<boolean>("CTX_ON", true, (next) => bus.emit("agent:context", { enabled: next }));
-const persona = ownedGlobal<string>("AGENT", "lead", (next, prev) => bus.emit("agent:persona", { persona: next, prev }));
+const context = ownedValue<boolean>(true, (next) => bus.emit("agent:context", { enabled: next }));
+const persona = ownedValue<string>("lead", (next, prev) => bus.emit("agent:persona", { persona: next, prev }));
 /* cada avaliação começa no valor inicial (ADR-0004, U4j5a): numa reavaliação (o harness dos testes reavalia os módulos
-   a cada teste) o acessor herdaria o valor que ficou no window; era o app.ts que repunha o MODE/ACTIVE/THRESH/CTX_ON no arranque. Na app, que
-   avalia uma vez, é o valor que já tem — sem efeito. */
-mode.set("assist");
-threshold.set(85);
+   a cada teste) o acessor herdaria o valor que ficou no window; era o app.ts que repunha o ACTIVE no arranque. Na app, que
+   avalia uma vez, é o valor que já tem — sem efeito. O MODE/THRESH/CTX_ON/AGENT já não vão ao window (U7i): começam
+   sempre no valor inicial. */
 provider.set("claude");
-context.set(true);
 
 /* colecções (U3c): o app.ts cria-as e publica-as; o acessor adopta o mesmo objecto */
 export interface Provider {
@@ -40,11 +38,11 @@ export interface RunState {
   [k: string]: unknown;
 }
 const providers = ownedGlobal<Record<string, Provider>>("PROV", {});
-const chat = ownedGlobal<ChatMessage[]>("CHAT", []);
-const run = ownedGlobal<RunState>("RUN", { active: false, paused: false, stop: false, label: "", t0: 0 });
+const chat = ownedValue<ChatMessage[]>([]);
+const run = ownedValue<RunState>({ active: false, paused: false, stop: false, label: "", t0: 0 });
 /** Chamadas e tokens por provedor nesta sessão (o painel de custos, o custo por issue). */
 export type Usage = Record<string, { calls: number; tok: number }>;
-const usage = ownedGlobal<Usage>("USAGE", {
+const usage = ownedValue<Usage>({
   claude: { calls: 0, tok: 0 },
   gemini: { calls: 0, tok: 0 },
   codex: { calls: 0, tok: 0 },
@@ -93,8 +91,16 @@ export const agentStore = {
   get chat(): ChatMessage[] {
     return chat.get();
   },
+  /** O features/codev.ts cria a conversa e adopta-a aqui (era a publicação no window — ADR-0004, U7i). */
+  set chat(v: ChatMessage[]) {
+    chat.set(v);
+  },
   get run(): RunState {
     return run.get();
+  },
+  /** O features/codev.ts cria o estado da execução e adopta-o aqui (U7i). */
+  set run(v: RunState) {
+    run.set(v);
   },
   get usage(): Usage {
     return usage.get();

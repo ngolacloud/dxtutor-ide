@@ -33,6 +33,7 @@ import { codeGuard as codeGuardImpl, HARN } from "../../team";
 import { STOP } from "../../codev";
 import { usd as usdImpl } from "../../tasks";
 import { TASKP } from "../../router/domain/model-routing";
+import { agentStore } from "../../../app/store";
 export { toast, log, rerender };
 export type { Backlog, Stage, Issue, Design, TechSpec };
 
@@ -77,13 +78,13 @@ export const provs = (): Record<string, Prov> => G.PROV;
 export const taskProfiles = (): Record<string, { l: string }> => TASKP;
 
 /* ───── estado da execução / autoria / ramo / agente activo / pane / modo ───── */
-export const run = (): Run => G.RUN;
+export const run = (): Run => agentStore.run as unknown as Run;
 export const author = (): string => G.AUTHOR;
 export const setAuthor = (a: string): void => { G.AUTHOR = a; };
 export const branch = (): string => G.BRANCH;
-export const setAgent = (a: string): void => { G.AGENT = a; };
+export const setAgent = (a: string): void => { agentStore.persona = a; };
 export const pane = (): string => G.PANE;
-export const mode = (): string => G.MODE;
+export const mode = (): string => agentStore.mode;
 export const panes = (): Record<string, () => void> => G.RP;
 export const root = (): string => G.ROOT;
 /** A sentinela de cancelamento do co-dev (`throw STOP` / `e === STOP`). */
@@ -180,7 +181,7 @@ export const openIssue = (id: string): void => G.openIssue(id);
 export const studioNodes = (): StudioNode[] => G.SD.nodes;
 export const saveSD = (): void => saveSDImpl();
 export const dlg = (o: DlgOpts): void => coreDlg(o);  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
-export const usage = (): Record<string, { tok: number }> => G.USAGE;
+export const usage = (): Record<string, { tok: number }> => agentStore.usage;
 export const usd = (tok: number, p: string): number => usdImpl(tok, p);
 export const commitNotes = (): Record<string, { note?: string }> => G.GIT.c;
 

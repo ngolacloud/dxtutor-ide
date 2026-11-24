@@ -61,6 +61,7 @@ import {
   codevRun,
 } from "./codev/index";
 import { services } from "../app/services";
+import type { ChatMessage } from "../app/store/agent";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
 
@@ -107,7 +108,7 @@ bus.on('editor:tab', () => ctxPill());
    preservado): só o doTool PUBLICADO leva o gate de direitos — o chat usa o doTool local
    do motor (codev/index.ts), que nunca teve o gate do v5. */
 interface HarnessGlobals {
-  MODE: string; short: (p: string) => string; log: (s: string, m: string) => void;
+  short: (p: string) => string; log: (s: string, m: string) => void;
 }
 const HG = window as unknown as HarnessGlobals;
 /* o harness do features/team.ts, que avalia depois deste módulo: pelo registo, no acto (ADR-0004, U7h) */
@@ -118,7 +119,7 @@ async function harnessDoTool(t: DoToolArgs[0], host: DoToolArgs[1], role?: DoToo
     const p = String((t as { p?: unknown }).p);
     if (HS().isHuman('code') && !/\/learn\//.test(p)) { (tl(host, 'harness', HG.short(p)).querySelector('.tr') as HTMLElement).innerHTML = '<span class="bad">✖ writing code is yours in this project</span>'; HG.log('harness', 'edit blocked: code is human-only'); return false; }
     const r = Object.keys(HS().RIGHT_RE).find((k) => HS().isHuman(k) && HS().RIGHT_RE[k].test(p));
-    if (r && HG.MODE !== 'manual') { const d = tl(host, 'your call', HS().RIGHTS[r] + ' · ' + HG.short(p)); const v = await ask(d, [{ l: 'Approve', v: 1, pri: 1, done: '✓ approved by you' }, { l: 'Reject', v: 0, done: '✗ rejected by you' }]); if (!v) { HG.log('humano', 'rejected ' + HG.short(p)); return false; } }
+    if (r && agentStore.mode !== 'manual') { const d = tl(host, 'your call', HS().RIGHTS[r] + ' · ' + HG.short(p)); const v = await ask(d, [{ l: 'Approve', v: 1, pri: 1, done: '✓ approved by you' }, { l: 'Reject', v: 0, done: '✗ rejected by you' }]); if (!v) { HG.log('humano', 'rejected ' + HG.short(p)); return false; } }
   }
   return codevEngine.doTool(t, host, role);
 }
@@ -440,7 +441,10 @@ const PROV: Record<string, { name: string; vendor: string; model: string; ep: st
 const CHAT: unknown[]=[];
 const RUN={active:false,paused:false,stop:false,pend:null,abort:null,label:'',t0:0};
 export const STOP='__STOP__',SAFE=/^(cargo (test|build|clippy)|dx lint|npm run lint)/,DANGER=/git push|rm -rf|drop table|--force/i;
-Object.assign(window, { PROV, CHAT, RUN,});
+Object.assign(window, { PROV });
+/* a conversa e a execução vão para o dono, sem o window (ADR-0004, U7i) */
+agentStore.chat = CHAT as ChatMessage[];
+agentStore.run = RUN;
 CW.SAMPLE = null;
 export const provFor=(r: string): string=>PROV[CW.ROUTE[r]].on?CW.ROUTE[r]:(CW.connected()[0]||CW.ROUTE[r]);
 export const who=(r: string): string=>`${CW.ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;

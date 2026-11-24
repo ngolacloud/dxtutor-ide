@@ -16,6 +16,7 @@ import type { DesktopContext } from "./context";
 import { translator } from "../../app/i18n";
 import { LLM_MESSAGES } from "./llm.messages";
 import { STOP } from "../../features/codev";
+import { agentStore } from "../../app/store";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(LLM_MESSAGES);
 
@@ -90,7 +91,7 @@ function extraTools(): Tool[] {
     inputSchema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
     execute: async ({ command }: { command: string }) => {
       const danger = /git push|rm -rf|--force|drop table|mkfs|shutdown/i.test(command);
-      if (MODE !== "auto" || danger) { if (!await askApproval(command)) return "the human denied this command"; }
+      if (agentStore.mode !== "auto" || danger) { if (!await askApproval(command)) return "the human denied this command"; }
       flushSave();
       await idle();
       const r = R.info.os === "windows" ? await sh("cmd", ["/C", command], { timeout: 300000, env: envFor() }) : await sh("sh", ["-c", command], { timeout: 300000, env: envFor() });

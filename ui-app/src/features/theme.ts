@@ -10,6 +10,7 @@
    cai. */
 
 import { S, show } from "../core";
+import { layoutStore } from "../app/store";
 
 /** Mapa de temas → overrides de custom properties CSS. */
 const THEMES: Record<string, Record<string, string>> = {'Grafite laranja':{},
@@ -24,7 +25,7 @@ function setTheme(n: string): void {
     Object.keys(t).forEach((k) => r.removeProperty(k)),
   );
   Object.entries(THEMES[n] ?? {}).forEach(([k, v]) => r.setProperty(k, v));
-  window.THEME = n;
+  layoutStore.theme = n;
   r.colorScheme = n === "Papel claro" ? "light" : "dark";
   window.save();
   const id = S.cur;
@@ -35,4 +36,3 @@ function setTheme(n: string): void {
 /* ── publicação transitória no window (shim para o monólito e os onclick inline) ── */
 window.THEMES = THEMES;
 window.setTheme = setTheme;
-if (window.THEME == null) window.THEME = "Grafite laranja";

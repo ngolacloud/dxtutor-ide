@@ -41,14 +41,15 @@ it("togglePanel/setPanelTab: abre o painel inferior e mostra o separador pedido"
   expect(w.getVar("--panel-h")).toBe("0px");
 });
 
-it("badges conta as alterações por commitar e marca a execução do Co-Dev", () => {
+it("badges conta as alterações por commitar e marca a execução do Co-Dev", async () => {
+  const { agentStore } = await import("../src/app/store");
   // o botão do Co-Dev entra no ACTS pelo boot6 (que não corre no harness)
   w.ACTS.push({ ic: "sparkle", pane: "codev", title: "Co-Dev" });
   SHM.buildActivity();
-  w.RUN.active = true;
+  agentStore.run.active = true;
   SHM.badges();
   expect($('.act[data-pane="codev"] .badge').textContent).toBe("●");
-  w.RUN.active = false;
+  agentStore.run.active = false;
   SHM.badges();
   expect($('.act[data-pane="codev"] .badge').style.display).toBe("none");
   const n = w.changes().length;

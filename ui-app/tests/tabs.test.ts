@@ -3,6 +3,7 @@ import { beforeEach, expect, it } from "vitest";
 import { bootApp } from "./harness";
 
 let w: Window & Record<string, any>;
+let STORE: any, ES: any, ES_A: any; // eslint-disable-line @typescript-eslint/no-explicit-any — os stores da cadeia do bootApp (U7i)
 let TM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7e)
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
 const titles = () => Array.from(document.querySelectorAll("#tabs .tab .nm")).map((e) => e.textContent);
@@ -10,15 +11,17 @@ const titles = () => Array.from(document.querySelectorAll("#tabs .tab .nm")).map
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
   TM = await import("../src/features/tabs");
-  w.TB = []; // começa sem separadores (o boot do app.ts não corre no harness)
+  STORE = await import("../src/app/store");
+  ES = STORE.editorStore;
+  ES_A = STORE.agentStore;
+  ES.tabs = []; // começa sem separadores (o boot não corre no harness)
   w.show(null);
 });
 
-it("a lista de separadores tem dono: TB é o editorStore.tabs (mesmo array)", async () => {
+it("a lista de separadores tem dono: o editorStore.tabs, já sem o TB no window (U7i)", async () => {
   const { editorStore } = await import("../src/app/store/editor");
-  expect(editorStore.tabs).toBe(w.TB);
-  w.TB = [{ id: "x", title: "x", kind: "welcome" }]; // reatribuição como no boot do app.ts
-  expect(editorStore.tabs).toBe(w.TB);
+  expect("TB" in w).toBe(false);
+  editorStore.tabs = [{ id: "x", title: "x", kind: "welcome" }]; // reatribuição como no arranque
   expect(editorStore.tabs[0].id).toBe("x");
 });
 
@@ -46,9 +49,9 @@ it("fechar o activo passa ao anterior; stepTab percorre em ciclo; ficheiro inexi
   TM.closeTab(files[2]);
   expect(w.cur).toBe(files[1]);
   TM.closeTab("nao-existe"); // sem efeito
-  expect(w.TB.length).toBe(2);
+  expect(ES.tabs.length).toBe(2);
   w.openPath("dxtutor/nao/existe.rs");
-  expect(w.TB.length).toBe(2);
+  expect(ES.tabs.length).toBe(2);
 });
 
 it("mudar de separador emite editor:tab no bus", async () => {

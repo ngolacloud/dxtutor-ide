@@ -18,6 +18,20 @@ export interface Owned<T> {
  * valor (uma reavaliação do módulo, ou alguém que escreveu antes), herda-o; senão começa
  * em `initial`. `changed(next, prev)` corre a cada mudança real (valor diferente).
  */
+/**
+ * O mesmo valor com dono, sem o acessor no window (ADR-0004, U7i): para os estados que já ninguém lê por nome.
+ * Cada avaliação começa em `initial` (nos testes, cada `bootApp` reavalia o store: é o reset por teste).
+ */
+export function ownedValue<T>(initial: T, changed?: (next: T, prev: T) => void): Owned<T> {
+  let value = initial;
+  const set = (v: T): void => {
+    const prev = value;
+    value = v;
+    if (!Object.is(prev, v)) changed?.(v, prev);
+  };
+  return { get: () => value, set };
+}
+
 export function ownedGlobal<T>(name: string, initial: T, changed?: (next: T, prev: T) => void): Owned<T> {
   const had = Object.prototype.hasOwnProperty.call(W, name);
   let value = (had ? (W[name] as T) : initial) ?? initial;

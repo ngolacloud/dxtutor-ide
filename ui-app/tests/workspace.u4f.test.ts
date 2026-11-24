@@ -26,8 +26,9 @@ it("writeFile cria o ficheiro, abre as pastas até ele e emite workspace:changed
   bus.on("workspace:changed", () => n++);
   w.writeFile(w.ROOT + "novo/dir/a.rs", "fn a() {}");
   expect(w.FS[w.ROOT + "novo/dir/a.rs"]).toEqual({ content: "fn a() {}", orig: null });
-  expect(w.OPEN.has(w.ROOT + "novo/dir")).toBe(true);
-  expect(w.OPEN.has(w.ROOT + "novo")).toBe(true);
+  const { workspaceStore } = await import("../src/app/store");
+  expect(workspaceStore.openDirs.has(w.ROOT + "novo/dir")).toBe(true);
+  expect(workspaceStore.openDirs.has(w.ROOT + "novo")).toBe(true);
   w.writeFile(w.ROOT + "novo/dir/a.rs", "fn b() {}");
   expect(w.FS[w.ROOT + "novo/dir/a.rs"].content).toBe("fn b() {}");
   expect(n).toBe(2);
@@ -44,33 +45,34 @@ it("LS: prefixo dx2., JSON, omissão quando falta ou está corrompido", () => {
 
 it("save/loadCfg: ida e volta do modo, provedor, limiar e modelo — pelos donos (eventos)", async () => {
   const { bus } = await import("../src/app/bus");
-  w.MODE = "manual";
+  const { agentStore: AS } = await import("../src/app/store");
+  AS.mode = "manual";
   w.ACTIVE = "gemini";
-  w.THRESH = 70;
+  AS.threshold = 70;
   w.PROV.gemini.model = "gemini-2.5-pro";
   w.save();
-  w.MODE = "assist";
+  AS.mode = "assist";
   w.ACTIVE = "claude";
-  w.THRESH = 85;
+  AS.threshold = 85;
   w.PROV.gemini.model = "outro";
   const seen: string[] = [];
   bus.on("agent:mode", (p) => seen.push(p.mode));
   (await import("../src/app/store/config")).loadCfg();
-  expect([w.MODE, w.ACTIVE, w.THRESH, w.PROV.gemini.model]).toEqual(["manual", "gemini", 70, "gemini-2.5-pro"]);
+  expect([AS.mode, w.ACTIVE, AS.threshold, w.PROV.gemini.model]).toEqual(["manual", "gemini", 70, "gemini-2.5-pro"]);
   expect(seen).toEqual(["manual"]);
   // nada guardado → não mexe
   localStorage.clear();
-  w.MODE = "auto";
+  AS.mode = "auto";
   (await import("../src/app/store/config")).loadCfg();
-  expect(w.MODE).toBe("auto");
+  expect(AS.mode).toBe("auto");
 });
 
 it("use conta chamadas/tokens; connected lista os provedores ligados", async () => {
   const { agentStore } = await import("../src/app/store/agent");
-  const before = { ...w.USAGE.claude };
+  const before = { ...agentStore.usage.claude };
   w.use("claude", 120);
-  expect(w.USAGE.claude).toEqual({ calls: before.calls + 1, tok: before.tok + 120 });
-  expect(agentStore.usage).toBe(w.USAGE);
+  expect(agentStore.usage.claude).toEqual({ calls: before.calls + 1, tok: before.tok + 120 });
+  expect("USAGE" in w).toBe(false);
   w.PROV.codex.on = false;
   expect(w.connected()).not.toContain("codex");
   w.PROV.codex.on = true;

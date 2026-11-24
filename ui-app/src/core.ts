@@ -33,8 +33,6 @@ export interface ClCommit {
 declare global {
   interface Window {
     /* estado partilhado (fonte única; o monólito lê/escreve pelos nomes livres) */
-    MODE: string;
-    THRESH: number;
     cur: string | null;
     PANE: string;
     /* helpers cujo corpo ainda vive no monólito (fachada tipada) */
@@ -45,7 +43,6 @@ declare global {
     writeFile: (p: string, content: string) => void;
     rerender: (kind: string) => void;
     /* superfície que a feature `theme` ainda resolve via window (shim transitório) */
-    THEME: string;
     THEMES: Record<string, Record<string, string>>;
     save: () => void;
     tabOf: (id: string | null) => { kind?: string } | null;

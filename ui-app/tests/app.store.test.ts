@@ -58,7 +58,7 @@ test("ownedGlobal: herda o valor que já estava no window (reavaliação do mód
   expect(ownedGlobal<string>("__T3__", "en").get()).toBe("en");
 });
 
-test("stores reais: MODE/ACTIVE/cur/PANE pelo window emitem no bus; o S do core delega", async () => {
+test("stores reais: MODE pelo dono, ACTIVE/PANE pelo window e cur pelo S emitem no bus; o S do core delega", async () => {
   vi.resetModules();
   const { bus, agentStore, editorStore, layoutStore } = await import("../src/app/store");
   const { S } = await import("../src/core");
@@ -72,7 +72,7 @@ test("stores reais: MODE/ACTIVE/cur/PANE pelo window emitem no bus; o S do core 
   editorStore.currentTabId = null;
   layoutStore.pane = "explorer";
   events.length = 0;
-  W.MODE = "auto"; // escrita do monólito
+  agentStore.mode = "auto"; // o MODE já não vai ao window (U7i)
   W.ACTIVE = "gemini";
   S.cur = "t1"; // fachada do core usada pelos legacy-bridges
   W.PANE = "scm";
