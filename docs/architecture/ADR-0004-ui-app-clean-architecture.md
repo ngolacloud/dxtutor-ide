@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7n)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7n, globais 286 → 154; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1192,3 +1192,26 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   só esses no window e a provar os outros pelo efeito: o `#tgl-agent` muda a largura do painel do Co-Dev, o
   `#rc-pause` pausa uma execução activa, o `#st-mode` pede o modo seguinte ao `setMode` e o `#st-bell` abre as
   notificações. Ordem de avaliação igual. Globais publicadas 167 → 154.
+- **U7 — fecho (2026-11-24).** As fatias U7a–U7n levaram as globais publicadas de 286 (início da U7e) a 154 e os
+  shims de estado de 17 a 7; a métrica do `ui-metrics.sh` fica em 154 e só desce. O que resta não sai sem mudar
+  código ou testes de outras sessões. Inventário (scanner do type-checker sobre o `develop` e526d3e; uma linha
+  por razão; «quem desbloqueia» = a sessão cuja mudança liberta o nome):
+
+  | Razão | Nomes | Quem desbloqueia |
+  |---|---|---|
+  | Publicados por pontes de outras features | `BPS` (debug); `STACK` `K8S` `DEVC` `P_DC` `RTN` `KCTX` `ENVL` `ENVS` `ENVX` `SHOWSEC` `DRIFT` `OBS` (infra); `drawStack` `termOwnsKey` (panel); `BRANCH` `COMMIT_MSG` (scm); `VZ` (visualizer) | a feature dona |
+  | Shims de estado lidos por pontes de outras features | `PANE`, `LOCALE`, `cur`, `FS`, `ROOT`, `PROV` (debug, infra, testing, codereview, lsp, visualizer, hood, panel, scm, codebase, ops, comments, project); `ACTIVE` (a ponte do codereview escreve-o) | todas as pontes que os lêem (passam a ler os stores de `app/store`) |
+  | Lidos só por uma feature de outra sessão | infra: `KIND` `SD` `TECH` `XC` `echo` `echoCmd` `getVar` `isApp` `newInput` `note` `rerender` `sl`; scm: `AGENTS` `AUTHOR` `blame` `clLog` `clShow` `fIcon` `gitCmd` `openDiff` `termRefreshPrompt`; codereview: `card` `diagnostics` `extOf` `liveChat` `selText` `updateAgentUI` `user`; visualizer: `EACT` `LTS` `MENUS` `buildMenubar` `esc` `hlLine`; lsp: `buildExplorer` `complete` `stPos` `writeFile`; panel: `PAIR` `agSend` `handlePrompt` `togglePanel`; project: `codevAgentAvailable` `codevAgentStory` `waiting`; hood: `hd` | essa feature (ou os seus testes) |
+  | Lidos por várias features de outras sessões | `DXR` `openTab` `openPath` `md` `tabOf` `goPane` `run` `runTask` `setPanelTab` `RP` `VIEW` `LS` `show` `refresh` `palette` `save` `toast` `short` `symbols` `focusAgent` `composeServices` `log` `P` `rel` `svg` `SAMPLE` `use` `ask` `has` `paintEd` `CMD` `dxRun` `dxStop` | o conjunto das sessões listadas no inventário (cada nome tem 2–11 leitores) |
+  | Decorados ou trocados em tempo de execução | `promptHTML` (o PairCode decora-o), `drawProblems` (a ponte do painel publica a versão real), `openIssue` (o golden do quadro troca-o), `gotoLine` (o teste de cablagem troca-o), `GSEL` (escrito pela ponte do scm) | o decorador passa a porta (U4h) / o teste troca a porta |
+  | Lidos por e2e ou pelo harness | `toggleSide` (e2e do PairCode), `setMode` e `$$` (e2e de arranque), `setLocale` (e2e de língua), `connected` (e2e do PairCode), `checkpoint` (e2e do harness), `trNode` (harness dos goldens), `EXS` (testes da ext) | mudar o e2e/harness a ler pelo módulo |
+  | Dinâmicos ou com contrato próprio | `boot`…`boot6`, `i18nBoot` (o `startup.ts` chama `window[passo]`); `openLesson`/`nextLesson` (stub de argumentos); `LIVE_OK` (dois escritores); `$` (o `boot.ts` é a base window-backed) | decisão própria (fora da U7) |
+
+  Ficam ainda 22 nomes publicados sem leitores fora do dono (`USER`, `openFile`, `SSEL`, `renderChangelogPage`,
+  `renderAgentView`, `testProv`, `LT_HOOD`, `toTimer`, `activeTab`, `wireSections`, `doSearch`, `replaceAll`,
+  `renderTasksPane`, `renderDiffView`, `PAL`, `PIDX`, `PAL_TEXT` e os `boot`…`boot6` acima): candidatos a uma limpeza
+  final, depois de confirmar que nenhum é lido por nome dinâmico (`replaceAll` e `openFile` aparecem como literais).
+  O método que serviu (U7e–U7n): o scanner de globais (leitores por nome livre, `window.X`/fachada, `callGlobal`,
+  testes e e2e), a ordem de avaliação pelo DFS dos imports (o leitor que avalia depois importa; o que avalia antes
+  usa `app/services.ts`), a verificação de acessos por literal exacto, e a prova por fatia (tsc, lint, testes,
+  arch:check, build, e2e, paridade nas duas línguas e o auto-teste desktop).
