@@ -22,6 +22,7 @@ import { clientSideEdit, codeActionItems, type CodeActionItem } from "../domain/
 import { caretAfterFormatting, formattingEdits } from "../domain/formatting";
 import { flattenSymbols, type SymbolEntry } from "../domain/symbols";
 import { locateInFile, rankWorkspaceSymbols, workspaceSymbolHits, type WorkspaceSymbolHit } from "../domain/workspace-symbols";
+import { preparedTypes, typeNodes, type TypeDirection, type TypeNode } from "../domain/type-hierarchy";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
@@ -74,6 +75,12 @@ export interface LspClient {
   workspaceSymbolsFor(query: string): Promise<WorkspaceSymbolSearch | null>;
   /** Abre o símbolo escolhido; sem posição (kotlin-language-server), procura-a no ficheiro. */
   openWorkspaceSymbol(s: WorkspaceSymbolResult): Promise<void>;
+  /** O tipo no offset do ficheiro activo, para a hierarquia de tipos (`null` sem servidor). */
+  typeHierarchyAt(offset: number): Promise<TypeHierarchyStart | null>;
+  /** Os supertipos ou subtipos de um tipo da hierarquia. */
+  typeHierarchyChildren(t: TypeEntry, direction: TypeDirection): Promise<TypeEntry[]>;
+  /** Abre o tipo escolhido (no nome dele). */
+  openType(t: TypeEntry): void;
   /** O servidor publicou diagnósticos para `uri`. */
   onDiagnostics(uri: string): void;
   /** Ficheiros abertos no servidor (caminho absoluto → versão), para inspecção. */
@@ -94,6 +101,19 @@ export interface Reference {
 }
 
 /** Um símbolo da pasta: onde abri-lo (`key` nula se não está na pasta aberta) e o caminho a mostrar. */
+/** Um tipo da hierarquia: onde abri-lo (`key` nula se não está na pasta) e o caminho a mostrar. */
+export interface TypeEntry extends TypeNode {
+  key: string | null;
+  /** Caminho relativo à pasta, o absoluto se estiver fora dela, ou `""` sem ficheiro (ex. JDK). */
+  file: string;
+}
+
+/** O início da hierarquia: o tipo no cursor, nenhum tipo ali, ou o servidor não a suporta. */
+export type TypeHierarchyStart =
+  | { status: "ok"; root: TypeEntry }
+  | { status: "none" }
+  | { status: "unsupported"; language: string };
+
 export interface WorkspaceSymbolResult extends WorkspaceSymbolHit {
   key: string | null;
   /** Caminho relativo à pasta (ou o absoluto, se estiver fora dela). */
@@ -593,6 +613,46 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (at) d.editor.open(s.key, at.line, at.character);
   }
 
+  /** O documento de onde partiu a hierarquia: escolhe a sessão para os pedidos seguintes. */
+  let typeDocPath: string | null = null;
+
+  function typeEntry(n: TypeNode): TypeEntry {
+    const key = keyOf(n.path);
+    const prefix = d.workspace.virtualPrefix();
+    return { ...n, key: key && d.workspace.text(key) != null ? key : null, file: key ? key.slice(prefix.length) : n.path ?? "" };
+  }
+
+  async function typeHierarchyAt(offset: number): Promise<TypeHierarchyStart | null> {
+    const p = await at(offset);
+    if (!p) return null;
+    let res: unknown;
+    try {
+      res = await d.lsp.prepareTypeHierarchy(p.doc.path, p.line, p.character);
+    } catch {
+      return { status: "none" };
+    }
+    const r = preparedTypes(res);
+    if (!r) return null;
+    if (!r.supported) return { status: "unsupported", language: p.doc.languageId };
+    if (!r.items.length) return { status: "none" };
+    typeDocPath = p.doc.path;
+    return { status: "ok", root: typeEntry(r.items[0]) };
+  }
+
+  async function typeHierarchyChildren(t: TypeEntry, direction: TypeDirection): Promise<TypeEntry[]> {
+    const path = typeDocPath ?? t.path;
+    if (!path) return [];
+    try {
+      return typeNodes(await d.lsp.typeHierarchy(path, t.raw, direction)).map(typeEntry);
+    } catch {
+      return [];
+    }
+  }
+
+  function openType(t: TypeEntry): void {
+    if (t.key) d.editor.open(t.key, t.line, t.character);
+  }
+
   async function onApplyEdit(edit: unknown): Promise<void> {
     await applyEdit(edit);
   }
@@ -611,5 +671,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (doc) await serverOk(doc);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, onDiagnostics, opened: () => versions, onFileView };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, typeHierarchyAt, typeHierarchyChildren, openType, onDiagnostics, opened: () => versions, onFileView };
 }

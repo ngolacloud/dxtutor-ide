@@ -579,6 +579,14 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   (ligado no `init_options`) e nada a uma consulta vazia; o kotlin-language-server manda só o URI
   (sem linha) e `containerName: "null"` — abrir um desses abre o ficheiro e procura a posição pelo
   `documentSymbol` (`locateInFile`).
+- **Hierarquia de tipos** (`domain/type-hierarchy.ts`, `ui/type-hierarchy-hooks.ts` + `showTypeHierarchy`,
+  comandos `lsp_prepare_type_hierarchy` + `lsp_type_hierarchy`): Shift+Alt+T no editor (ou «Show Type
+  Hierarchy» na paleta) abre `#lsp-types` junto ao cursor: o tipo no topo e os subtipos por baixo (Tab troca
+  para os supertipos), carregados a pedido ao abrir cada nó; ←/→ fecham/abrem, Enter abre o tipo. Cada
+  `TypeHierarchyItem` volta ao servidor TAL COMO VEIO (o jdtls põe lá um `data`). A sessão guarda as
+  capacidades que o servidor anunciou (`Session::server_caps`, `server_supports`): o kotlin-language-server
+  não anuncia `typeHierarchyProvider` (e responde com erro) → `supported: false` e o editor diz que o
+  servidor não a tem. Os tipos fora da pasta (ex. `jdt://` do JDK) mostram-se mas não se abrem.
 - **Pedidos do servidor ao cliente:** o `id` pode ser número ou TEXTO (o jdtls usa texto); o
   `dispatch` responde a ambos. Sem resposta ao `workspace/configuration`, o jdtls bloqueava.
 - **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
@@ -594,7 +602,7 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   linguagem na sessão.
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
-- **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, `lsp.symbols.test.ts`, `lsp.workspace-symbols.test.ts`, e o passo
+- **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, `lsp.symbols.test.ts`, `lsp.workspace-symbols.test.ts`, `lsp.type-hierarchy.test.ts`, e o passo
   `lsp-java`/`lsp-kotlin` do auto-teste desktop (`DXTUTOR_SELFTEST`, Xvfb), que conduz o editor real.
   GOTCHA: o backend procura o `jdtls` no PATH e em `$HOME/.local/share/jdtls/bin`; sem servidor não
   abre sessão (sem erro). Correndo o auto-teste com um HOME temporário, põe essa pasta no PATH

@@ -751,7 +751,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // rato parado sobre um símbolo (mousemove → cartão de hover), F12 numa chamada (salta
     // para a definição), Shift+F12 (lista de referências) e F2 + nome novo + Enter (rename em
     // todos os ficheiros, gravado no disco); pelo meio completion, assinatura, code actions,
-    // formatação, Go to Symbol (Ctrl+Shift+O + o Outline) e Go to Symbol in Workspace (Ctrl+T). Só corre para as linguagens com servidor instalado.
+    // formatação, Go to Symbol (Ctrl+Shift+O + o Outline), Go to Symbol in Workspace (Ctrl+T) e a hierarquia de tipos (Shift+Alt+T). Só corre para as linguagens com servidor instalado.
     for (const lang of ["java", "kotlin"] as const) await step("lsp-" + lang, () => lspProbe(lang));
   }
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
@@ -791,6 +791,9 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       ? {
           "lsp-java/Util.java": "public class Util {\n    /** Adds two numbers. */\n    public static int add(int a, int b) {\n        return a + b;\n    }\n}\n",
           "lsp-java/Main.java": "public class Main {\n    public static void main(String[] args) {\n        int total = Util.add(1, 2);\n        String broken = 42;\n        System.out.println(total + broken);\n    }\n}\n",
+          // hierarquia de tipos (Shift+Alt+T): uma interface e quem a implementa
+          "lsp-java/Shape.java": "public interface Shape {\n    double area();\n}\n",
+          "lsp-java/Circle.java": "public class Circle implements Shape {\n    public double area() { return 3.14; }\n}\n",
         }
       : {
           "lsp-kotlin/App.kt": "fun greet(name: String): String = \"Hello, $name\"\n\nfun main() {\n    val message = greet(\"dxtutor\")\n    val broken: Int = \"not a number\"\n    println(message + broken)\n}\n",
@@ -1004,6 +1007,50 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       wsLanded = { file: W.cur, line: caretLineNow() };
     }
     document.getElementById("lsp-wsymbols")?.remove();
+    // 3h) hierarquia de tipos (Shift+Alt+T). Java: em `Shape`, os subtipos têm `Circle`; Enter
+    //     abre-o; em `Circle`, Tab mostra os supertipos (`Shape`). Kotlin: o kotlin-language-server
+    //     não a suporta — o editor tem de o dizer.
+    const typeRowsNow = () => [...document.querySelectorAll("#lsp-types .lsp-type")].map(r => `${r.querySelector(".lsp-act-kind")?.textContent} ${r.querySelector(".lsp-sym-n")?.textContent}`);
+    const shiftAltT = (key: string, word: string) => {
+      if (W.cur !== key) W.openPath(key);
+      const el = ta()!; const o = el.value.indexOf(word) + 1; el.focus(); el.setSelectionRange(o, o);
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "T", code: "KeyT", shiftKey: true, altKey: true, bubbles: true, cancelable: true }));
+    };
+    let typeSubs: string[] | null = null, typeOpened: string | null = null, typeSupers: string[] | null = null, typeNotice: string | null = null;
+    if (lang === "java") {
+      const shapeKey = ROOT + "lsp-java/Shape.java", circleKey = ROOT + "lsp-java/Circle.java";
+      typeSubs = await until(() => {
+        const pop = document.getElementById("lsp-types"), rows = typeRowsNow();
+        if (rows.some(r => r.endsWith(" Circle"))) return rows;
+        if (pop && pop.textContent?.includes("No subtypes")) pop.remove(); // índice ainda a fazer-se: tenta de novo
+        if (!document.getElementById("lsp-types")) shiftAltT(shapeKey, "Shape");
+        return null;
+      }, 90_000, 3000);
+      if (typeSubs) {
+        await sleep(1500); // o cartão fica no ecrã para a captura
+        const pop = document.getElementById("lsp-types")!;
+        pop.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+        pop.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+        typeOpened = (await until(() => W.cur === circleKey && W.cur, 10_000, 250)) || W.cur;
+        typeSupers = await until(() => {
+          const pop2 = document.getElementById("lsp-types"), rows = typeRowsNow();
+          const dir = pop2?.querySelector(".lsp-types-dir.on")?.textContent;
+          if (dir === "Supertypes" && rows.some(r => r.endsWith(" Shape"))) return rows;
+          if (!pop2) shiftAltT(circleKey, "Circle");
+          else if (dir !== "Supertypes" && rows.length) pop2.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+          return null;
+        }, 60_000, 2500);
+        await sleep(1500);
+      }
+      document.getElementById("lsp-types")?.remove();
+    } else {
+      typeNotice = await until(() => {
+        const t = toasts.find(m => m.startsWith("Type hierarchy:"));
+        if (t) return t;
+        shiftAltT(main, "greet");
+        return null;
+      }, 30_000, 3000);
+    }
     // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
     const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
     const refRows = await until(() => {
@@ -1054,6 +1101,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       formatting: { from: uglyLine, to: formattedLine },
       symbols: { list: symbolList, filtered, caretLineAfterEnter: symbolJump, expectedLine: lang === "java" ? 2 : 3, outline: outlineRows },
       workspaceSymbols: { query: wsQuery, rows: wsList, landed: wsLanded, expected: { file: wsKey, line: wsLine } },
+      typeHierarchy: lang === "java" ? { subtypes: typeSubs, opened: typeOpened, supertypes: typeSupers } : { notice: typeNotice },
       references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
       rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk, ...(probeRename ? { probe: probeRename } : {}) },
       toasts,
