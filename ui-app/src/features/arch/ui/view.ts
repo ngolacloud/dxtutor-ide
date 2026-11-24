@@ -9,9 +9,10 @@
 
 import {
   EVENT_KINDS, GROUP_KINDS, GROUP_LABEL, KIND_COLOR, KIND_LABEL, PROTOCOLS, PROTOCOL_LABEL, SYSTEM_KINDS,
-  descendants, depth, findGroup, findNode, hasEventKinds, isEventKind, relationTakesEvent, viewOfGroup, viewOfNode,
+  descendants, depth, findGroup, findNode, hasEventKinds, isEventKind, isPanelBody, relationTakesEvent, viewOfGroup, viewOfNode,
 } from "../domain/design";
-import { CARD, PANEL_BAR, borderPoint, center, codeLines, layout, nameLines, type Layout } from "../domain/geometry";
+import { CARD, PANEL_BAR, codeLines, groupPills, layout, nameLines, pillRect } from "../domain/geometry";
+import { LABEL_PX, placeLabels, routeAll, straightRoutes, type Point, type Route } from "../domain/routing";
 import type { ArchConnection, ArchKind, Design, DesignGroup, DesignNode, Rect } from "../domain/types";
 import type { ArchStudio } from "../application/studio";
 import type { Repaint } from "../application/ports";
@@ -51,7 +52,6 @@ export function edgeLook(d: Design, c: ArchConnection): { color: string; dash: s
   return { color: (from && viewOfNode(d, from)?.color) ?? MUTED, dash: "6 4", label };
 }
 
-const textW = (s: string, px: number): number => s.length * px * 0.6;
 
 /* ───── peças do canvas (puras: estado → markup) ───── */
 
@@ -61,18 +61,13 @@ function panelSvg(title: string, color: string, r: Rect): string {
     `<text x="${r.x + r.w / 2}" y="${r.y + 20}" text-anchor="middle" fill="#fff" font-size="14" font-weight="700" font-family="var(--font-ui)">${esc(title)}</text></g>`;
 }
 
-/** Um grupo raiz com o mesmo nome do seu painel é o CORPO do painel: a moldura do painel já
- *  o mostra, por isso não se desenha contorno nem pílula (arrastá-lo move o painel). */
-export const isPanelBody = (d: Design, g: DesignGroup): boolean =>
-  d.views.some((v) => v.roots.includes(g.id) && v.title.trim().toLowerCase() === g.label.trim().toLowerCase());
-
 function groupSvg(g: DesignGroup, r: Rect, color: string, selected: boolean, body: boolean): string {
   if (body) {
     return `<g data-g="${esc(g.id)}" style="cursor:move"><rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="10" fill="#000" fill-opacity="0.001"${selected ? ` stroke="${ACCENT}" stroke-width="1.5" stroke-dasharray="2 3"` : ""}/>` +
       (selected ? `<rect data-gr="${esc(g.id)}" x="${r.x + r.w - 11}" y="${r.y + r.h - 11}" width="11" height="11" rx="2" fill="${ACCENT}" style="cursor:nwse-resize"/>` : "") + `</g>`;
   }
   const stroke = selected ? ACCENT : color;
-  const pw = Math.max(44, textW(g.label, 10.5) + 22), cx = r.x + r.w / 2;
+  const pill = pillRect(g.label, r), pw = pill.w, cx = r.x + r.w / 2;
   return `<g data-g="${esc(g.id)}" style="cursor:move">` +
     `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="10" fill="#000" fill-opacity="0.001" stroke="${stroke}" stroke-width="${selected ? 2 : 1.3}"${g.style === "dashed" ? ' stroke-dasharray="6 4"' : ""}/>` +
     `<rect x="${cx - pw / 2}" y="${r.y - 10}" width="${pw}" height="20" rx="10" fill="var(--bg-elevated)" stroke="${stroke}" stroke-width="1.2"/>` +
@@ -106,28 +101,25 @@ function nodeSvg(d: Design, n: DesignNode, r: Rect, selected: boolean, linking: 
   return out + `</g>`;
 }
 
-function edgeSvg(d: Design, l: Layout, c: ArchConnection, i: number, selected: boolean, marker: (color: string) => string): string {
-  const A = l.nodes.get(c.from), B = l.nodes.get(c.to);
-  if (!A || !B) return "";
-  const a = borderPoint(A, center(B)), b0 = borderPoint(B, center(A));
-  // a ponta pára 4 px antes da borda (a cabeça da seta não entra no cartão)
-  const len = Math.hypot(b0.x - a.x, b0.y - a.y) || 1, b = { x: b0.x - ((b0.x - a.x) / len) * 4, y: b0.y - ((b0.y - a.y) / len) * 4 };
+function edgeSvg(d: Design, c: ArchConnection, i: number, route: Route, labelAt: Point | null, selected: boolean, marker: (color: string) => string): string {
+  const pts = route.points;
+  if (pts.length < 2) return "";
+  // a ponta pára 3 px antes da borda (a cabeça da seta não entra no cartão)
+  const a = pts[pts.length - 2], b = pts[pts.length - 1], len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const tip = { x: b.x - ((b.x - a.x) / len) * 3, y: b.y - ((b.y - a.y) / len) * 3 };
+  const dPath = [...pts.slice(0, -1), tip].map((p, k) => `${k ? "L" : "M"}${p.x} ${p.y}`).join("");
   const { color, dash, label } = edgeLook(d, c);
   const sw = selected ? 2.6 : 1.5;
-  let out = `<g data-e="${i}" style="cursor:pointer"><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="12"/>` +
-    `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${color}" stroke-width="${sw}"${dash ? ` stroke-dasharray="${dash}"` : ""} marker-end="url(#${marker(color)})"/>`;
-  if (label) {
-    // ao lado da linha (nunca em cima dela): deslocado na perpendicular
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, nx = -(b.y - a.y) / len, ny = (b.x - a.x) / len;
-    const off = 9 + (Math.abs(nx) > 0.5 ? textW(label, 9.5) / 2 : 0);
-    const tx = mx + nx * off, ty = my + ny * off + 3;
-    out += `<text x="${tx}" y="${ty}" text-anchor="middle" fill="${color === MUTED ? "var(--fg-dim)" : color}" font-size="9.5" font-family="var(--font-mono)" paint-order="stroke" stroke="var(--bg-base)" stroke-width="3">${esc(label)}</text>`;
+  let out = `<g data-e="${i}" style="cursor:pointer"><path d="${dPath}" fill="none" stroke="transparent" stroke-width="12"/>` +
+    `<path d="${dPath}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linejoin="round"${dash ? ` stroke-dasharray="${dash}"` : ""} marker-end="url(#${marker(color)})"/>`;
+  if (label && labelAt) {
+    out += `<text x="${labelAt.x}" y="${labelAt.y + 3.5}" text-anchor="middle" fill="${color === MUTED ? "var(--fg-dim)" : color}" font-size="${LABEL_PX}" font-family="var(--font-mono)" paint-order="stroke" stroke="var(--bg-base)" stroke-width="3">${esc(label)}</text>`;
   }
   return out + `</g>`;
 }
 
 /** O SVG completo do desenho (também o que a exportação SVG da F5 vai usar). */
-export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?: number }, linking: string | null): { svg: string; bounds: Rect } {
+export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?: number }, linking: string | null, fast = false): { svg: string; bounds: Rect } {
   const l = layout(d);
   const colors: string[] = [];
   const marker = (color: string): string => {
@@ -139,7 +131,11 @@ export function canvasSvg(d: Design, sel: { node?: string; group?: string; edge?
   for (const v of d.views) { const r = l.panels.get(v.id); if (r) body += panelSvg(v.title, v.color, r); }
   const groups = [...d.groups].sort((a, b) => depth(d, a.id) - depth(d, b.id));
   for (const g of groups) body += groupSvg(g, l.groups.get(g.id)!, viewOfGroup(d, g.id)?.color ?? MUTED, sel.group === g.id, isPanelBody(d, g));
-  d.connections.forEach((c, i) => { body += edgeSvg(d, l, c, i, sel.edge === i, marker); });
+  const pills = groupPills(d, l);
+  // a meio de um arrasto: rectas de borda a borda (o encaminhamento faz-se ao largar)
+  const routes = fast ? straightRoutes(l.nodes, d.connections) : routeAll(l.nodes, d.connections, pills);
+  const labels = placeLabels([...l.nodes.values(), ...pills], routes, d.connections.map((c) => edgeLook(d, c).label || null));
+  d.connections.forEach((c, i) => { body += edgeSvg(d, c, i, routes[i], labels[i], sel.edge === i, marker); });
   for (const n of d.components) body += nodeSvg(d, n, l.nodes.get(n.id)!, sel.node === n.id || linking === n.id, linking !== null);
   const defs = `<defs>${colors.map((c, k) => `<marker id="arch-ar-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`).join("")}` +
     `<pattern id="arch-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="var(--guide)"/></pattern></defs>`;
@@ -184,17 +180,18 @@ export function makeArchView({ studio, root }: ArchViewDeps) {
     <button class="mini${s.linking !== null ? " pri" : ""}" data-action="arch-link">⤳ Connect</button>
     <button class="mini" data-action="arch-add-group" title="A dashed boundary (inside the selected group, if any)">＋ Group</button>
     <button class="mini" data-action="arch-add-view" title="Side-by-side comparison (at most two panels)">＋ Panel</button>
+    <button class="mini" data-action="arch-arrange" title="Lay everything out in layers, top to bottom">⇅ Arrange</button>
     <span class="sp"></span>
     ${scaffold ? `<button class="mini" data-action="arch-preview">Preview scaffold</button>
     <button class="mini pri" data-action="arch-scaffold">Generate scaffold</button>` : ""}`;
   }
 
-  function paintCanvas(): void {
+  function paintCanvas(fast = false): void {
     const svg = q<SVGSVGElement>("[data-arch-svg]");
     if (!svg) return;
     const s = studio.state();
     const sel = s.sel?.t === "node" ? { node: s.sel.id } : s.sel?.t === "group" ? { group: s.sel.id } : s.sel?.t === "edge" ? { edge: s.sel.i } : {};
-    const { svg: inner, bounds: b } = canvasSvg(s.design, sel, s.linking);
+    const { svg: inner, bounds: b } = canvasSvg(s.design, sel, s.linking, fast);
     svg.setAttribute("viewBox", `${b.x} ${b.y} ${b.w} ${b.h}`);
     svg.setAttribute("width", String(b.w));
     svg.setAttribute("height", String(b.h));
@@ -410,6 +407,7 @@ export function makeArchView({ studio, root }: ArchViewDeps) {
     if (!host || !host.isConnected) return;
     if (scope === "all") { paintBar(); paintCanvas(); paintInspector(); }
     else if (scope === "canvas") paintCanvas();
+    else if (scope === "drag") paintCanvas(true);
     else paintInspector();
   }
 
