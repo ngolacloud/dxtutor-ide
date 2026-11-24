@@ -14,6 +14,10 @@
 
 import { esc } from "../core";
 import { registerActions, callGlobal, args } from "../app/actions";
+import { translator } from "../app/i18n";
+import { DIAGNOSTICS_MESSAGES } from "./diagnostics.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(DIAGNOSTICS_MESSAGES);
 
 const has = (p: string, re: RegExp) => !!FS[p] && re.test(FS[p].content);
 /* Sem verificador real no browser, a base não tem diagnósticos: a regra do E0382, o lint de
@@ -35,7 +39,7 @@ window.diagnostics = function () {
 };
 function drawProblems() {
   const d = window.diagnostics(), e = d.filter(x => x.sev === 'e').length, w = d.length - e;
-  $('#pc-problems')!.innerHTML = d.length ? d.map(x => `<div class="prob" data-action="diagnostics:open" data-on="${esc(JSON.stringify([x.p, x.line]))}"><span class="pi ${x.sev}">${x.sev === 'e' ? '✖' : '⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join('') : '<div class="sec-empty">Sem problemas no workspace.</div>';
+  $('#pc-problems')!.innerHTML = d.length ? d.map(x => `<div class="prob" data-action="diagnostics:open" data-on="${esc(JSON.stringify([x.p, x.line]))}"><span class="pi ${x.sev}">${x.sev === 'e' ? '✖' : '⚠'}</span><span><span>${esc(x.msg)}</span> <span class="ploc">${short(x.p)}:${x.line}</span></span></div>`).join('') : `<div class="sec-empty">${txt("noProblemsInThe")}</div>`;
   $('#pb-prob')!.textContent = String(d.length); const s = $('#st-prob')!; s.innerHTML = `✖ ${e} ⚠ ${w}`; s.style.color = e ? 'var(--red)' : w ? 'var(--yellow)' : 'var(--git-u)';
 }
 let NP = -1;

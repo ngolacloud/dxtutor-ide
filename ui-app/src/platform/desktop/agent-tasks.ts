@@ -5,6 +5,10 @@
 
 import type { DelegateResult } from "./types";
 import type { DesktopContext } from "./context";
+import { translator } from "../../app/i18n";
+import { AGENT_TASKS_MESSAGES } from "./agent-tasks.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(AGENT_TASKS_MESSAGES);
 
 export function installAgentTasks(ctx: DesktopContext): void {
 const { R, tasks, escH } = ctx;
@@ -43,7 +47,7 @@ async function delegateReview(title: string, writes: [string, string][]): Promis
   if (el) el.innerHTML = res.status === "done" ? '<span class="okc">✓ patch pronto para revisão</span>' : '<span style="color:var(--red)">✖ ' + escH(res.error || res.status) + "</span>";
   const body = c.bd.querySelector(".dlg-body") as HTMLElement | null;
   if (!body) return;
-  body.innerHTML = `<pre style="white-space:pre-wrap;max-height:300px;overflow:auto;margin:6px 0">${escH(res.patch || "(sem alterações)")}</pre>` + (res.status === "done" && res.patch ? `<button class="mini pri" id="dlg-ap">Aplicar ao projecto</button> <button class="mini" id="dlg-no">Descartar</button>` : "");
+  body.innerHTML = `<pre style="white-space:pre-wrap;max-height:300px;overflow:auto;margin:6px 0">${escH(res.patch || "(sem alterações)")}</pre>` + (res.status === "done" && res.patch ? `<button class="mini pri" id="dlg-ap">Aplicar ao projecto</button> <button class="mini" id="dlg-no">${txt("discard")}</button>` : "");
   const ap = body.querySelector("#dlg-ap") as HTMLButtonElement | null;
   if (ap) ap.onclick = () => { writes.forEach(([rel, content]) => writeFile(ROOT + rel, content)); flushSave(); body.innerHTML = '<span class="okc">✓ aplicado ao projecto</span>'; };
   const no = body.querySelector("#dlg-no") as HTMLButtonElement | null;

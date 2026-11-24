@@ -27,6 +27,10 @@ import { $, hd, esc, toast } from "../core";
 import { RP } from "../app/store/registry";
 import { searchClient, type SearchHit } from "../platform/tauri/search";
 import { registerActions, globalCalls } from "../app/actions";
+import { translator } from "../app/i18n";
+import { SEARCH_MESSAGES } from "./search.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(SEARCH_MESSAGES);
 
 /** Uma ocorrência numa linha: nº da linha (1-based), a linha, o offset do match nela. */
 interface Hit { line: number; text: string; at: number }
@@ -51,7 +55,7 @@ function paint(res: HTMLElement, q: string, groups: FileHits[], capped: boolean)
     return `<div class="row" style="padding-left:8px${g.key ? "" : ";opacity:.6"}" ${open()}>${window.fIcon(g.label)}<span class="nm">${esc(g.label.split("/").pop())}</span><span class="deco" style="color:var(--fg-muted)">${g.hits.length}</span></div>` +
       g.hits.slice(0, 30).map((x) => `<div class="s-hit" ${open(x.line)}><span class="n">${x.line}</span><span>${esc(x.text.slice(Math.max(0, x.at - 18), x.at))}<mark>${esc(x.text.substr(x.at, q.length))}</mark>${esc(x.text.slice(x.at + q.length, x.at + q.length + 60))}</span></div>`).join("");
   }).join("");
-  res.innerHTML = `<div class="sec-empty"><b style="color:var(--accent-hover)">${n}</b> resultados em <b style="color:var(--accent-hover)">${groups.length}</b> ficheiros${capped ? ` (os primeiros ${MAX_HITS})` : ""}</div><div class="tree">${h}</div>`;
+  res.innerHTML = `<div class="sec-empty"><b style="color:var(--accent-hover)">${n}</b> ${txt("resultsIn")} <b style="color:var(--accent-hover)">${groups.length}</b> ficheiros${capped ? ` (os primeiros ${MAX_HITS})` : ""}</div><div class="tree">${h}</div>`;
 }
 
 /** Clicar num resultado abre o ficheiro (na linha); um ficheiro não carregado explica-se. */
@@ -143,7 +147,7 @@ function renderSearchPane(): void {
     el.dataset.b = "1";
     el.innerHTML =
       hd("Pesquisa") +
-      `<div class="sections"><input class="inp" id="s-q" placeholder="Procurar em todos os ficheiros"><input class="inp" id="s-r" placeholder="Substituir por…"><button class="btn ghost" data-action="search:replaceAll">Substituir tudo</button><div id="s-res"></div></div>`;
+      `<div class="sections"><input class="inp" id="s-q" placeholder="${txt("searchInAllFiles")}"><input class="inp" id="s-r" placeholder="${txt("replaceWith")}"><button class="btn ghost" data-action="search:replaceAll">${txt("replaceAll")}</button><div id="s-res"></div></div>`;
     const qel = $("#s-q") as HTMLInputElement | null;
     if (qel) qel.oninput = doSearch;
     $("#s-res")?.addEventListener("click", onResultClick);

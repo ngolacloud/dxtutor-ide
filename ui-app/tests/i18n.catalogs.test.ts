@@ -4,7 +4,32 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { bootApp } from "./harness";
 import { translator, type Messages } from "../src/app/i18n";
+import { BOOT_MESSAGES } from "../src/app/boot-steps.messages";
+import { ACCOUNT_MESSAGES } from "../src/features/account.messages";
+import { BOARD_MESSAGES } from "../src/features/board/ui/messages";
+import { CHANGELOG_MESSAGES } from "../src/features/changelog.messages";
+import { CHECKPOINT_MESSAGES } from "../src/features/checkpoint.messages";
+import { CODEREVIEW_MESSAGES } from "../src/features/codereview/ui/messages";
+import { DIAGNOSTICS_MESSAGES } from "../src/features/diagnostics.messages";
+import { EXPLORER_MESSAGES } from "../src/features/explorer.messages";
+import { EXT_MESSAGES } from "../src/features/ext/ui/messages";
+import { GRAPH_MESSAGES } from "../src/features/graph.messages";
+import { INFRA_MESSAGES } from "../src/features/infra/ui/messages";
+import { LEARN_MESSAGES } from "../src/features/learn/ui/messages";
+import { NOTIFICATIONS_MESSAGES } from "../src/features/notifications.messages";
+import { PALETTE_MESSAGES } from "../src/features/palette.messages";
 import { SCM_MESSAGES } from "../src/features/scm/ui/messages";
+import { SEARCH_MESSAGES } from "../src/features/search.messages";
+import { STACK_MESSAGES } from "../src/features/stack.messages";
+import { STUDIO_MESSAGES } from "../src/features/studio.messages";
+import { TASKS_MESSAGES } from "../src/features/tasks.messages";
+import { TEAM_MESSAGES } from "../src/features/team.messages";
+import { TERMINAL_MESSAGES } from "../src/features/terminal.messages";
+import { TUTOR_MESSAGES } from "../src/features/tutor.messages";
+import { VISUALIZER_MESSAGES } from "../src/features/visualizer/ui/messages";
+import { WELCOME_MESSAGES } from "../src/features/welcome.messages";
+import { AGENT_TASKS_MESSAGES } from "../src/platform/desktop/agent-tasks.messages";
+import { LLM_MESSAGES } from "../src/platform/desktop/llm.messages";
 
 type W = Window & { trText: (s: string, toEn?: boolean) => string | null; LOCALE: string; RP: Record<string, () => void> } & Record<string, unknown>;
 let w: W;
@@ -12,7 +37,34 @@ beforeEach(async () => { w = (await bootApp()) as unknown as W; w.LOCALE = "en";
 
 /* parâmetros de exemplo para as entradas com {nome} */
 const SAMPLE: Record<string, Record<string, string>> = { commit: { staged: " (staged)", branch: "develop" } };
-const CATALOGS: Record<string, Messages<string>> = { scm: SCM_MESSAGES };
+const CATALOGS: Record<string, Messages<string>> = {
+  boot: BOOT_MESSAGES,
+  account: ACCOUNT_MESSAGES,
+  board: BOARD_MESSAGES,
+  changelog: CHANGELOG_MESSAGES,
+  checkpoint: CHECKPOINT_MESSAGES,
+  codereview: CODEREVIEW_MESSAGES,
+  diagnostics: DIAGNOSTICS_MESSAGES,
+  explorer: EXPLORER_MESSAGES,
+  ext: EXT_MESSAGES,
+  graph: GRAPH_MESSAGES,
+  infra: INFRA_MESSAGES,
+  learn: LEARN_MESSAGES,
+  notifications: NOTIFICATIONS_MESSAGES,
+  palette: PALETTE_MESSAGES,
+  scm: SCM_MESSAGES,
+  search: SEARCH_MESSAGES,
+  stack: STACK_MESSAGES,
+  studio: STUDIO_MESSAGES,
+  tasks: TASKS_MESSAGES,
+  team: TEAM_MESSAGES,
+  terminal: TERMINAL_MESSAGES,
+  tutor: TUTOR_MESSAGES,
+  visualizer: VISUALIZER_MESSAGES,
+  welcome: WELCOME_MESSAGES,
+  agent_tasks: AGENT_TASKS_MESSAGES,
+  llm: LLM_MESSAGES,
+};
 
 describe("translator", () => {
   const M = { en: { hi: "Hello {name}", only: "only en" }, ptAO: { hi: "Olá {name}", only: "" } } as const;

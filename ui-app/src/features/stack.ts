@@ -16,6 +16,10 @@
 import { esc } from "../core";
 import { desktopPorts } from "../app/desktop";
 import { registerActions, globalCalls } from "../app/actions";
+import { translator } from "../app/i18n";
+import { STACK_MESSAGES } from "./stack.messages";
+/** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
+const txt = translator(STACK_MESSAGES);
 
 interface Svc { name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }
 
@@ -30,8 +34,8 @@ const dxRunBase = function(term?: unknown){if(term!==true){setPanelTab('terminal
   echo(`<span class="dim">${sv.length} serviço(s) em docker-compose.yml.</span>\n<span class="er">Correr a stack precisa da app desktop com a pasta aberta (docker/podman compose reais).</span>`);newInput(true);return{ok:false,sum:'needs desktop'};};
 const dxStopBase = function(term?: unknown){toast('Nada a correr');if(term===true)echo('<span class="dim">no containers</span>');};
 function drawStackBase(): void {const el=$('#pc-services'),st=$('#st-stack'),stk=STACK;if(st){st.textContent=stk?`▶ ${stk.length} services`:'';st.style.display=stk?'':'none';}if(!el)return;
-  el.innerHTML=stk?`<div class="svc-h"><b>${stk.length} services running</b><span class="tag live">live</span><span class="sp"></span><button class="mini" data-action="stack:dxStop">■ Stop</button></div><table class="tbl">${stk.map(s=>`<tr><td><span class="pdot" style="background:var(--green)"></span> <span class="notr">${esc(s.name)}</span></td><td class="c notr">${esc(s.src)}</td><td class="notr">${s.url==='internal'?'<span style="color:var(--fg-muted)">internal</span>':esc(s.url)}</td><td class="c">${s.state}</td></tr>`).join('')}</table>`
-    :`<div class="sec-empty">Nothing is running. <b>▶ RUN</b> builds every Dockerfile and starts the stack described by <code>docker-compose.yml</code>.</div><button class="mini pri" style="margin-left:16px" data-action="stack:dxRun">▶ RUN</button>`;}
+  el.innerHTML=stk?`<div class="svc-h"><b>${stk.length} services running</b><span class="tag live">live</span><span class="sp"></span><button class="mini" data-action="stack:dxStop">${txt("stop")}</button></div><table class="tbl">${stk.map(s=>`<tr><td><span class="pdot" style="background:var(--green)"></span> <span class="notr">${esc(s.name)}</span></td><td class="c notr">${esc(s.src)}</td><td class="notr">${s.url==='internal'?'<span style="color:var(--fg-muted)">internal</span>':esc(s.url)}</td><td class="c">${s.state}</td></tr>`).join('')}</table>`
+    :`<div class="sec-empty">${txt("nothingIsRunning")} <b>▶ RUN</b> ${txt("buildsEveryDockerfileAnd")} <code>docker-compose.yml</code>.</div><button class="mini pri" style="margin-left:16px" data-action="stack:dxRun">▶ RUN</button>`;}
 window.drawStack = function(){const d=desktopPorts.stack;if(d)d.drawStack(drawStackBase);else drawStackBase();};
 
 /* Sem runtime de contentores ligado (pane Infra), o RUN recusa; depois de correr/parar, o

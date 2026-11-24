@@ -28,6 +28,8 @@ const BODY = INDEX_HTML.match(/<body>([\s\S]*)<\/body>/)?.[1] ?? "";
  * CKPT, RUN, ...), tal como aconteceria num refresh da página. */
 export async function bootApp(): Promise<typeof window> {
   vi.resetModules();
+  // a língua da interface volta ao inglês em cada arranque (o window persiste entre testes do mesmo ficheiro)
+  (window as unknown as { LOCALE?: string }).LOCALE = "en";
   document.open();
   document.write(`<!doctype html><html><head></head><body>${BODY}</body></html>`);
   document.close();
