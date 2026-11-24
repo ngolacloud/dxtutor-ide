@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j4; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4i, U4j1–U4j4, U4j5a; o v5/v6 já não existem; só o app.ts com @ts-nocheck)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -794,3 +794,28 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   inicial do compositor ficou igual), arch:check, build, e2e 6/6 isolado, auto-teste desktop
   idêntico ao da HEAD. O app.ts fica com o arranque (`boot`…`boot6`), os menus/paleta/atalhos,
   o `refresh`, o `resetAll` e o `LCUR` — a U4j5.
+- **U4j5 — plano (2026-11-24).** O resto do app.ts em duas fatias: **U4j5a** as peças
+  autocontidas (o `refresh` e o `resetAll` para o workspace, os atalhos globais para o
+  `shortcuts.ts`, o fecho das notificações para o `notifications.ts`, o `cur`/`PANE` que já nascem
+  nos stores); **U4j5b** o conteúdo dos menus/paleta (`CMD`/`buildMenus`/`LCUR`) e o arranque
+  (`boot`…`boot6`) para módulos tipados — e o app.ts deixa de existir.
+- **U4j5a (2026-11-24) — refresh, resetAll, atalhos e notificações para os donos.** O `refresh`
+  (o sinal «o workspace mudou») e o `resetAll` vão para o `features/workspace.ts`, tipados por uma
+  fachada que lê as funções publicadas no acto (o `show` da barra de acções, o `paintEd` com
+  breakpoints — as que o app.ts resolvia por nome livre); o listener dos atalhos globais (F1,
+  F8, Ctrl+Shift+E/F/G/M/A, Ctrl+P/B/J/`/,/L/G/S, Escape) vai para o `shortcuts.ts`, a seguir ao
+  que lá estava (entre os dois módulos nenhum outro regista teclado, por isso a ordem é a mesma);
+  o que fecha as notificações num clique fora vai para o `notifications.ts` (nenhum listener de
+  clique no document usa `stopImmediatePropagation`, por isso a posição não muda nada). A
+  entrada «Repor protótipo» do `CMD`, que guarda o `resetAll` por valor, continua a apanhar a
+  mesma função, publicada antes de o app.ts avaliar. **Apanhado pelos testes — e corrigido
+  também para a U4j4b:** a atribuição `cur=null`/`PANE='explorer'` do app.ts não tinha efeito
+  na app, mas no harness dos testes, que reavalia os módulos a cada teste, o `ownedGlobal`
+  herda o valor que ficou no `window` — era o app.ts que os repunha a cada arranque; sem ela, o
+  `cur` herdava um separador do teste anterior e dois testes do debug falhavam. O mesmo valia
+  para o `MODE`/`ACTIVE`/`THRESH`/`CTX_ON` que a U4j4b tirou (os testes passaram, mas ficou uma
+  dependência escondida da ordem). A reposição passa para os donos: cada store repõe o valor
+  inicial ao avaliar, logo a seguir a criar o acessor — na app é o valor que já tem; nos testes,
+  cada arranque começa limpo. Globais publicadas 383 → 381. Verificado na worktree limpa sobre a
+  HEAD `187e36e`: tsc, lint 266 (igual), 458 testes, arch:check, build, e2e 6/6 isolado,
+  auto-teste desktop idêntico ao da HEAD.

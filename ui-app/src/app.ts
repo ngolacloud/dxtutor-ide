@@ -9,7 +9,6 @@ export {};
 import { setVar, getVar, hydrate, log } from "./features/shell";
 import { short, P_LX } from "./features/workspace";
 import { LANG } from "./features/editor";
-import { bus } from "./app/bus";
 import { openArch } from "./features/arch/index";
 
 /* O seed de demonstração (SEED.base) só é carregado quando a build foi feita com
@@ -36,7 +35,7 @@ import { openArch } from "./features/arch/index";
 /* motor has/lexBug/dsLint/diagnostics/runTests/drawProblems/nextProblem migrado p/ features/diagnostics.ts; lido por global (P_* ficam donas aqui) */
 
 /* ───── separadores e vistas ───── */
-window.cur=null;window.PANE='explorer';/* VIEW com dono em app/store/registry.ts (ADR-0004, U4g1) */
+/* cur/PANE nascem no editorStore/layoutStore com os mesmos valores (null/'explorer'); a atribuição daqui saiu (ADR-0004, U4j5a). */
 /* separadores do editor (tabOf/openTab/openPath/openFile/setActive/drawTabs/parkAgent/miniOff/show/closeTab/stepTab/tabIc) migrados p/ features/tabs.ts (ADR-0004, U4b); a lista TB tem dono em app/store/editor. */
 
 /* editor: renderFileView/paintEd/gotoLine/stPos/stLang/edCmd/selText migrados p/ features/editor.ts; lidos por global, pane delega no shim abaixo */
@@ -46,16 +45,7 @@ window.cur=null;window.PANE='explorer';/* VIEW com dono em app/store/registry.ts
 /* VIEW.diff: registado pela features/diff.ts (ADR-0004, U4j2). */
 
 /* ───── actualização global ───── */
-let SIG='';
-window.refresh = function(fromEd,force){const sig=Object.keys(FS).map(p=>p+stOf(p)).join('|');
-  TB.filter(t=>t.kind==='file'&&!FS[t.path]).forEach(t=>{TB.splice(TB.indexOf(t),1);if(cur===t.id)cur=null;});
-  if(sig!==SIG||force){SIG=sig;syncTree();buildExplorer();}
-  drawProblems();badges();if(RP[PANE]&&PANE!=='search')RP[PANE]();hydrate();
-  if(!fromEd){const t=tabOf(cur);if(!t)show(TB.length?TB[TB.length-1].id:null);else if(t.kind==='file'){const ta=$('#ed-ta'),top=$('#ebody').scrollTop;if(ta&&ta.value!==FS[t.path].content){ta.value=FS[t.path].content;}if(ta){paintEd(t.path);$('#ebody').scrollTop=top;}drawTabs();}else if(t.kind==='diff'||t.kind==='manager'){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}else drawTabs();}
-  else if(tabOf(cur)&&tabOf(cur).kind==='file')paintEd(tabOf(cur).path);drawOutline();
-  /* U3c (ADR-0004): o fim do refresh é o sinal «o workspace mudou» — quem reagia
-     decorando o refresh (grafo/board, autosave do desktop, sync do PairCode) subscreve */
-  bus.emit('workspace:changed',{fromEditor:!!fromEd,force:!!force});}
+/* refresh: dono features/workspace.ts (ADR-0004, U4j5a). */
 /* shell (badges/RP/sideOpen/setPane/goPane/toggleSide/togglePanel/hd/setPanelTab/buildActivity) migrada p/ features/shell.ts (ADR-0004, U4d1). */
 
 /* ───── activity bar e painéis laterais ───── */
@@ -152,14 +142,8 @@ function boot(){loadCfg();loadSeed();syncTree();
   if(innerWidth<860){setVar('--panel-h','0px');$('#tgl-panel').classList.remove('on');assistantCenter();}
   hydrate();if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   let tries=0;(function live(){if(window.claude&&typeof window.claude.use==='function'){window.claude.use('sample').then(s=>{SAMPLE=s||null;updateAgentUI();const t=tabOf(cur);if(t&&t.kind==='settings')show(cur);if(RP[PANE])RP[PANE]();}).catch(()=>{});}else if(++tries<25)setTimeout(live,300);})();}
-document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey,go=f=>{e.preventDefault();f();};
-  if(window.termOwnsKey&&window.termOwnsKey(e))return;/* foco num terminal real (features/panel): a tecla é da shell */
-  if(e.key==='Escape'){if($('#pal').classList.contains('show'))window.closePal();closeMenus();$('#notes').classList.remove('show');return;}
-  if(e.key==='F1'||(c&&e.shiftKey&&k==='p'))go(()=>palette('>'));else if(e.key==='F8')go(nextProblem);
-  else if(c&&e.shiftKey){if(k==='e')go(()=>goPane('explorer'));else if(k==='f')go(cmd('Ver: Pesquisa'));else if(k==='g')go(()=>goPane('scm'));else if(k==='m')go(()=>setPanelTab('problems'));else if(k==='a')go(()=>goPane('codev'));}
-  else if(c){if(k==='p')go(()=>palette(''));else if(k==='b')go(toggleSide);else if(k==='j')go(togglePanel);else if(k==='`')go(()=>setPanelTab('terminal'));else if(k===',')go(openSettings);else if(k==='l')go(()=>focusAgent());else if(k==='g')go(()=>palette(':'));else if(k==='s')go(()=>toast('Auto Save activo — já está guardado'));}
-},true);
-document.addEventListener('click',e=>{if(!e.target.closest('#notes')&&!e.target.closest('#st-bell'))$('#notes').classList.remove('show');});
+/* os atalhos globais deste listener passaram para o features/shortcuts.ts (ADR-0004, U4j5a). */
+/* fechar o painel de notificações ao clicar fora: features/notifications.ts (ADR-0004, U4j5a). */
 
 /* ═════════ dxtutor IDE v3 — git em grafo, gitflow, equipa com harness, router de modelos, Studio, backlog/kanban, Tutor ═════════ */
 
@@ -197,7 +181,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#notes')&&!e.target.
 let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */
 
 /* ───── integração com o resto do IDE ───── */
-function resetAll(){if(RUN.active){toast('Pára a execução primeiro');return;}loadSeed();MISSIONS.length=0;DECS.length=0;CKPT.length=0;CHAT.length=0;BL.issues.length=0;BL.seq=11;BL.mig=3;BL.adr=4;SD=JSON.parse(JSON.stringify(ST_SEED));saveSD();TB=[];newChat();refresh(false,true);openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'});toast('Protótipo reposto ao estado inicial');}
+/* resetAll: dono features/workspace.ts (ADR-0004, U4j5a). */
 /* decoração v4 do pane Co-Dev (Equipa/Backlog/Studio) migrada e dobrada em features/codev.ts */
 /* (página de boas-vindas desta camada: código morto — sobreposta antes de ser chamada; ADR-0004, U4g7) */
 CMD.push(['Projecto: Studio de arquitectura','',openStudio],['Projecto: Quadro (kanban)','',openBoard],['Projecto: Gerar backlog a partir do Studio','',genBacklog],['Projecto: Executar Sprint 1','',()=>runSprint(0)],['Projecto: Executar Sprint 2','',()=>runSprint(1)],['Projecto: Nova issue…','',newIssue],['Equipa: Assistentes e harness','',()=>openTeam()],['Equipa: Escolher assistente da conversa…','',pickAgent],
@@ -274,7 +258,6 @@ function boot6(){Object.assign(LANG,{yaml:'YAML',yml:'YAML',jsx:'JavaScript JSX'
 Object.assign(window, {
   CMD, PANE,
   boot, boot3, boot4, boot5, boot6, buildMenus,
-  resetAll,
   // fachadas que as features migradas (features/*.ts) consomem por window:
 });
 /* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — corre depois de

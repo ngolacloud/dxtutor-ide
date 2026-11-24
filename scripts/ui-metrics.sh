@@ -38,7 +38,7 @@ published_names() {
 # Object.assign(window, {…})): mover uma função de módulo pode trocar de sintaxe sem mudar
 # o número; deixar de a publicar (o consumidor importa) é que baixa (U3/U4/U7)
 window_assigns() { grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count; }
-metric "globais publicadas no window (U3/U4/U7)" 383 0 \
+metric "globais publicadas no window (U3/U4/U7)" 381 0 \
   "$(( $(window_assigns) + $(published_names) ))"
 metric "handlers inline on*=\"…\" (U5)" 152 0 \
   "$(grep -rhoE '[[:space:]]on(click|dblclick|change|input|keydown|keyup|submit|mousedown|mouseup|contextmenu|blur|focus|dragstart|dragover|dragleave|drop|load|error)=' "$SRC" "$UI/index.html" | count)"
