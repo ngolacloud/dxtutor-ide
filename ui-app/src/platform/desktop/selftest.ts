@@ -299,6 +299,15 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const found = await wait(() => !!res()?.querySelector('[data-p$="test_dx_selftest.py"][data-l="9"]'), 10000);
       return { found, summary: (res()?.querySelector(".sec-empty")?.textContent || "").trim() };
     });
+    // outline (ADR-0005, R2c): o Outline do Explorer pelo backend (file_outline — servidor de
+    // língua se houver, senão o scanner sintáctico) para o teste Python gravado acima.
+    await step("outline", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      openPath(ROOT + "test_dx_selftest.py");
+      const names = () => [...document.querySelectorAll("#outline .s-hit span:last-child")].map(e => e.textContent || "");
+      const got = await wait(() => names().includes("test_falha"), 20000);
+      return { got, symbols: names() };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

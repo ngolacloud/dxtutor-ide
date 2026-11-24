@@ -198,7 +198,7 @@ pela `ui-app` (editor usa simulação/`ui-next`); baseline para a Etapa 2.
 | `symbol_relations` | `root: String`, `symbol: String` | `codemap::Relations` | String | — | — | R |
 | `list_symbols` | `root: String`, `max: Option<usize>` | `Vec<codemap::SymbolRef>` | String | — | — | R |
 | `symbol_ranges` | `code: String`, `name: String` | `Vec<codemap::SymbolRange>` | String | — | — | R |
-| `file_outline` | `code: String`, `lang: String`, `root: Option<String>`, `file: Option<String>` | `Vec<codemap::SymbolRange>` | String | — | — | R |
+| `file_outline` | `code: String`, `lang: String`, `root: Option<String>`, `file: Option<String>` | `Vec<codemap::SymbolRange>` | String | — | `features/explorer.ts` | R |
 | `diff_lines` | `old: String`, `new: String` | `Vec<textdiff::DiffLine>` | String | — | — | R |
 | `propose_entrypoint` | `lang: String`, `code: String` | `Option<entrypoint::EntrypointProposal>` | String | — | — | R |
 | `project_entrypoint` | `root: String` | `Option<String>` | — | — | — | R |

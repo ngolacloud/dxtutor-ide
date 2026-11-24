@@ -3,7 +3,8 @@
    que vivia no monólito `app.ts` (secção `/* explorer *​/`): o renderer recursivo das
    linhas da árvore (`renderLevel`), a construção do painel inteiro (`buildExplorer` —
    projectos + Outline + Timeline), `markActive`/`collapseAll`, a extracção de símbolos
-   (`symbols`), o desenho do Outline (`drawOutline`) e os lançadores `newFile`/`newFolder`.
+   (`symbols`), o desenho do Outline (`drawOutline` — no desktop com pasta, pelo backend
+   `file_outline`, ADR-0005 R2c) e os lançadores `newFile`/`newFolder`.
 
    Fronteira: a feature é DONA destas 8 funções. Os CONSUMIDORES ficam no monólito e
    lêem por nome livre (global): `buildExplorer` (refresh em app.ts + boot.ts),
@@ -21,6 +22,7 @@
 
 import { $, $$, esc, svg } from "../core";
 import { desktopPorts } from "../app/desktop";
+import { codeintelClient, type SymbolRange } from "../platform/tauri/codeintel";
 
 function renderLevel(obj:Record<string,any>,host:HTMLElement,depth:number,path:string[]){Object.keys(obj).forEach(name=>{const node=obj[name],pad=8+depth*12,row=document.createElement('div');
   let g=node.git||'';if(node.path)g=(stOf(node.path) as string).toLowerCase();else if(node.dpath)g=changes().some(p=>p.startsWith(node.dpath+'/'))?'m':'';
@@ -48,8 +50,56 @@ function noFolder(host:HTMLElement){const d=document.createElement('div');d.clas
 function markActive(){$$('#exp-sections .row.sel').forEach(x=>x.classList.remove('sel'));const t=tabOf(cur);if(t&&t.path){const r=$(`#exp-sections .row[data-path="${esc(t.path)}"]`);if(r)r.classList.add('sel');}}
 function collapseAll(){OPEN.clear();Object.values(TREE.projects.children).forEach(n=>{(n as any).open=false;});buildExplorer();}
 function symbols(p:string){const f=FS[p];if(!f)return[];const out:{k:string;n:string;line:number}[]=[];f.content.split('\n').forEach((l,i)=>{const m=l.match(/^\s*(?:pub\s+)?(?:async\s+)?(fn|struct|enum|trait|impl|function|CREATE TABLE|CREATE INDEX)\s+(?:.*?\bfor\s+)?([A-Za-z_]\w*)/)||l.match(/^(#{1,3})\s+(.+)/)||l.match(/^(export)\s+(?:async\s+)?(?:function|const)\s+(\w+)/);if(m)out.push({k:m[1].replace('CREATE ','').toLowerCase(),n:m[2],line:i+1});});return out;}
-function drawOutline(){const o=$('#outline');if(!o)return;const t=tabOf(cur),sy=t&&t.path?symbols(t.path):[];
-  o.innerHTML=sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:16px" onclick="gotoLine(${s.line})"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):'<div class="sec-empty">Abre um ficheiro para ver os símbolos.</div>';}
+/* ───── Outline real (ADR-0005, R2c) ─────
+   No desktop com pasta aberta, os símbolos de um ficheiro de código vêm do backend
+   (`file_outline`: servidor de língua quando há, senão `syn`/scanner sintáctico). Cada
+   pedido arranca um servidor de língua, por isso: cache por ficheiro+conteúdo (teclar não
+   pede de novo enquanto o texto não mudar), debounce, um pedido de cada vez, e o último
+   resultado fica à vista até chegar o novo. Sem pasta (browser) ou para o que o backend não
+   cobre (Markdown, SQL…), fica a extracção local `symbols()`. */
+const OUTLINE_LANG: Record<string, string> = { rs: "rust", go: "go", py: "python", ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript" };
+const KIND_LABEL: Record<string, string> = { function: "fn", method: "method", struct: "struct", enum: "enum", trait: "trait", other: "sym" };
+type OutSym = { k: string; n: string; line: number };
+const OUTLINE = new Map<string, { content: string; syms: OutSym[] }>();
+let outlineTimer: ReturnType<typeof setTimeout> | undefined, outlineBusy = false, outlineRetry = false;
+const dxRoot = (): string | null => (window as unknown as { DXR?: { root?: string | null } }).DXR?.root ?? null;
+
+/** O ficheiro `p` tem outline do backend? (pasta aberta + língua coberta) */
+function outlineLang(p: string): string | null {
+  if (!dxRoot() || !p.startsWith(ROOT)) return null;
+  const e = (window as unknown as { extOf: (p: string) => string }).extOf(p);
+  return OUTLINE_LANG[e] ?? null;
+}
+function fetchOutline(p: string): void {
+  clearTimeout(outlineTimer);
+  outlineTimer = setTimeout(() => {
+    const f = FS[p], root = dxRoot(), lang = outlineLang(p);
+    if (!f || !root || !lang) return;
+    if (outlineBusy) { outlineRetry = true; return; }
+    outlineBusy = true;
+    const content = f.content, abs = root.replace(/\/$/, "") + "/" + p.slice(ROOT.length);
+    codeintelClient().outline(content, lang, root, abs).then(
+      (r: SymbolRange[]) => { OUTLINE.set(p, { content, syms: r.map((x) => ({ k: KIND_LABEL[x.kind] ?? x.kind, n: x.name, line: x.startLine })) }); },
+      () => { OUTLINE.set(p, { content, syms: symbols(p) }); }, /* backend indisponível: a extracção local */
+    ).finally(() => {
+      outlineBusy = false;
+      const t = tabOf(cur);
+      if (t && t.path === p) drawOutline();
+      if (outlineRetry) { outlineRetry = false; const t2 = tabOf(cur); if (t2 && t2.path) fetchOutline(t2.path); }
+    });
+  }, 400);
+}
+/** Os símbolos a mostrar para `p`: do backend (cache/pedido) ou da extracção local; `null` = a ler. */
+function outlineOf(p: string): OutSym[] | null {
+  if (!outlineLang(p)) return symbols(p);
+  const c = OUTLINE.get(p), f = FS[p];
+  if (!c || (f && c.content !== f.content)) fetchOutline(p);
+  return c ? c.syms : null;
+}
+function drawOutline(){const o=$('#outline');if(!o)return;const t=tabOf(cur),sy=t&&t.path?outlineOf(t.path):[];
+  o.innerHTML=sy===null?'<div class="sec-empty">A ler os símbolos…</div>':sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:16px" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):t&&t.path?'<div class="sec-empty">Sem símbolos neste ficheiro.</div>':'<div class="sec-empty">Abre um ficheiro para ver os símbolos.</div>';}
+/* clicar num símbolo vai para a linha (sem onclick inline; o #outline é recriado pelo buildExplorer) */
+document.addEventListener('click',(e)=>{const h=(e.target as HTMLElement|null)?.closest<HTMLElement>('#outline .s-hit[data-on]');if(h)gotoLine(+(h.dataset.on as string));});
 function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/) — ex.: desktop/src/novo.ts',verb:'Criar',text:(q:string)=>{q=q.trim();if(!q)return;const p=norm(q);if(FS[p]){toast('Já existe');openPath(p);return;}writeFile(p,'');openPath(p);}});}
 function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',verb:'Criar pasta',text:(q:string)=>{q=q.trim().replace(/\/$/,'');if(!q)return;writeFile(norm(q+'/.gitkeep'),'');OPEN.add('dxtutor/'+q);refresh(true,true);toast('Pasta criada: '+q);}});}
 

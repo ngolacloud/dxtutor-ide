@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a e R2b feitas, R2c–R2e e R3–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a, R2b e R2c feitas, R2d–R2e e R3–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -250,3 +250,19 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   ordem, ficheiro não carregado, debounce, resposta atrasada, erro). **Selftest desktop:**
   passo `search` novo — o pane encontra, sem distinguir maiúsculas, a linha 9 do teste Python
   gravado pelo passo `testing`; `errors: []`. IPC-MATRIX: `search_project` ganha consumidor.
+- **R2c (2026-11-24) — Outline real.** No desktop com pasta aberta, o Outline do Explorer
+  pede os símbolos de um ficheiro de código (Rust/Go/Python/JS/TS) ao backend
+  (`file_outline`: servidor de língua quando há, com o caminho absoluto; senão `syn` ou o
+  scanner sintáctico) — com as linhas reais e os tipos (struct/fn/method/…). Como cada pedido
+  arranca um servidor de língua: cache por ficheiro+conteúdo (redesenhar ou teclar sem mudar
+  o texto não pede de novo), debounce de 400 ms, um pedido de cada vez, e o último resultado
+  fica à vista até chegar o novo; com o backend em erro, cai na extracção local. Markdown,
+  SQL e o browser ficam com a extracção local (`symbols()`, sobre o conteúdo real). Um
+  ficheiro aberto sem símbolos diz «Sem símbolos neste ficheiro» (antes pedia para abrir um
+  ficheiro). Os símbolos vão para a linha por um listener delegado (`data-on`), sem `onclick`
+  inline (handlers inline 147 → 146). Cliente IPC novo `platform/tauri/codeintel.ts`. **Testes com IPC falso:**
+  `outline.r2c` (extracção local no browser, clique, backend com língua/pasta/caminho, cache e
+  novo pedido ao mudar o texto, Markdown fora, erro → local). **Selftest desktop:** passo
+  `outline` novo — o teste Python gravado dá `T`, `test_soma`, `test_falha` (a extracção local
+  não lê Python, logo vieram do backend); `errors: []`. IPC-MATRIX: `file_outline` ganha
+  consumidor.
