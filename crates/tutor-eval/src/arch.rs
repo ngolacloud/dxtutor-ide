@@ -139,6 +139,9 @@ pub enum EdgeStyle {
     Control,
     Data,
     Optional,
+    /// Dependência estática (`a → b` = `a` depende de `b`, ex.: entre crates), não um
+    /// fluxo em execução: desenha-se de outra forma e entra na legenda.
+    Depends,
 }
 
 /// Uma ligação. No desenho de eventos tem `relation` (e opcionalmente `event`); no de
@@ -1384,8 +1387,9 @@ pub(crate) mod tests {
         let g: Vec<GroupKind> =
             serde_json::from_str(r#"["host","plane","node","module","layer","boundary"]"#).unwrap();
         assert_eq!(g.len(), 6);
-        let st: Vec<EdgeStyle> = serde_json::from_str(r#"["control","data","optional"]"#).unwrap();
-        assert_eq!(st.len(), 3);
+        let st: Vec<EdgeStyle> =
+            serde_json::from_str(r#"["control","data","optional","depends"]"#).unwrap();
+        assert_eq!(st.len(), 4);
         // Grupo sem `style` = tracejado.
         let g: Group = serde_json::from_str(r#"{"id":"h","label":"Host","kind":"host"}"#).unwrap();
         assert_eq!(g.style, GroupStyle::Dashed);

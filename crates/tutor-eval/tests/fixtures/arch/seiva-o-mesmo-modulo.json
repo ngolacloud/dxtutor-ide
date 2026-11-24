@@ -148,42 +148,42 @@
    "from": "m-interface",
    "to": "m-facade",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1943 {module}-facade"
   },
   {
    "from": "m-interface",
    "to": "m-application",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1949 {module}-application (nunca infrastructure)"
   },
   {
    "from": "m-application",
    "to": "m-facade",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1904 {module}-facade"
   },
   {
    "from": "m-application",
    "to": "m-domain",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1903 {module}-domain"
   },
   {
    "from": "m-infrastructure",
    "to": "m-application",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1924 {module}-application"
   },
   {
    "from": "m-infrastructure",
    "to": "m-domain",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1925 {module}-domain"
   },
   {
@@ -206,42 +206,42 @@
    "from": "s-interface",
    "to": "s-facade",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1943 {module}-facade"
   },
   {
    "from": "s-interface",
    "to": "s-application",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1949 {module}-application (nunca infrastructure)"
   },
   {
    "from": "s-application",
    "to": "s-facade",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1904 {module}-facade"
   },
   {
    "from": "s-application",
    "to": "s-domain",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1903 {module}-domain"
   },
   {
    "from": "s-infrastructure",
    "to": "s-application",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1924 {module}-application"
   },
   {
    "from": "s-infrastructure",
    "to": "s-domain",
    "event": "",
-   "style": "control",
+   "style": "depends",
    "source": "crates/seiva/src/scaffold.rs:1925 {module}-domain"
   },
   {
