@@ -20,12 +20,21 @@
    são window-PUROS (sem `let` local): o resíduo e os onclick inline ESCREVEM-nos
    (`SD=clone(ST_SEED)` em resetAll/boot, `SSEL=…`/`SLINK=…`/`SCAT='…'` nos handlers).
 
-   VIEW.studio: `VIEW` nasce em app.ts (eager), que corre DEPOIS desta feature, por
-   isso aqui publica-se `window.renderStudioView` e é `v6.ts` (que corre depois de
-   app.ts e já decorava a vista com o drift) que estabelece `VIEW.studio` a delegar
-   em renderStudioView. `drawStudio` é window-pura e v6 continua a embrulhá-la. */
+   VIEW.studio e o drift (ADR-0004, U4g6): a feature regista `VIEW.studio` (o registo
+   vem de app/store/registry.ts desde a U4g1) — o corpo `renderStudioView` + o selector
+   «Compare with…» — e o `drawStudio` publicado é a base + a sobreposição de drift
+   («design vs realidade»: etiquetas por nó e resumo no inspector). Eram as decorações
+   do v6.ts; as chamadas internas já resolviam `drawStudio` pelo global, por isso o
+   efeito é o mesmo. O relatório (`driftReport`), os estilos (`DSTY`) e os rótulos dos
+   ambientes (`ENVL`) vêm de features/infra.ts por import; o ambiente comparado é o
+   global `DRIFT` (nasce na infra; o onchange inline do selector escreve-o). */
 
 import { $, esc, jsa } from "../core";
+import { VIEW } from "../app/store/registry";
+import { driftReport, DSTY, ENVL } from "./infra";
+
+/* fachada do único global da infra que o drift lê (escrito pelo onchange inline) */
+const G = window as unknown as { DRIFT: string | null };
 
 /* helpers locais (gémeos puros dos homónimos do monólito; isolados na feature) */
 const slug = (s: any) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -74,7 +83,7 @@ function validateDesign(){const f:any[]=[],deg=(id:string)=>SD.edges.filter(e=>e
     if(T.kind==='web'&&!SD.edges.some(e=>e[1]===n.id&&TECH[SD.nodes.find(x=>x.id===e[0])!.tech].kind==='gateway'))f.push(['w',`“${n.n}” is not behind a gateway, so it will be published directly.`]);});
   if(SD.nodes.filter(n=>TECH[n.tech].kind==='gateway').length>1)f.push(['w','More than one gateway: only the first one is published on port 8080.']);if(!SD.nodes.some(isApp))f.push(['e','The design has no application to build.']);return f;}
 
-/* ───── corpo da vista Studio (era VIEW.studio; v6.ts estabelece VIEW.studio=>isto) ───── */
+/* ───── corpo da vista Studio (o VIEW.studio registado no fim compõe-no com o selector de drift) ───── */
 function renderStudioView(_t:any,host:HTMLElement){host.innerHTML=`<div class="studio"><div class="st-bar"><b style="font-size:14px">Studio</b><button class="mini" id="st-link" onclick="SLINK=SLINK===null?'':null;drawStudio()">⤳ Connect</button><button class="mini" onclick="SD=JSON.parse(JSON.stringify(ST_SEED));SSEL=null;saveSD();drawStudio()">Reset design</button><span class="sp"></span><button class="mini pri" onclick="genBacklog()">Generate backlog &amp; delegate →</button><button class="mini run" onclick="dxRun()">▶ RUN</button></div>
   <div class="st-main"><div class="st-cat" id="st-cat"></div><div class="st-canvas"><svg id="st-svg" viewBox="0 0 760 440" preserveAspectRatio="xMinYMin meet"></svg></div><div class="st-insp" id="st-insp"></div></div></div>`;
   const s=$('#st-svg')!;s.onmousedown=e=>{const g=(e.target as Element).closest('[data-n]') as HTMLElement|null;if(!g){SSEL=null;if(SLINK!==null)SLINK='';drawStudio();return;}const id=g.dataset.n!,n=SD.nodes.find(x=>x.id===id)!,r=s.getBoundingClientRect(),k=760/r.width,ox=(e.clientX-r.left)*k-n.x,oy=(e.clientY-r.top)*k-n.y;let moved=false;
@@ -82,7 +91,7 @@ function renderStudioView(_t:any,host:HTMLElement){host.innerHTML=`<div class="s
     const now=Date.now();if(SCLICK.id===id&&now-SCLICK.t<380){sdDel(id);SCLICK.id=null;return;}SCLICK={id,t:now};SSEL=id;
     const mv=(ev:MouseEvent)=>{moved=true;n.x=Math.max(4,Math.min(760-NW-4,(ev.clientX-r.left)*k-ox));n.y=Math.max(4,Math.min(440-NH-4,(ev.clientY-r.top)*k-oy));drawStudio();},up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up);if(moved)saveSD();};
     addEventListener('mousemove',mv);addEventListener('mouseup',up);drawStudio();e.preventDefault();};drawStudio();}
-window.drawStudio = function(){const s=$('#st-svg');if(!s)return;const by=(id:string|null)=>SD.nodes.find(n=>n.id===id);
+function drawStudioBase(){const s=$('#st-svg');if(!s)return;const by=(id:string|null)=>SD.nodes.find(n=>n.id===id);
   $('#st-cat')!.innerHTML=`<div class="st-tabs">${Object.entries(CLOUD).map(([k,c])=>`<button class="${SCAT===k?'on':''}" style="--c:${c.col}" title="${c.t}" onclick="SCAT=${jsa(k)};drawStudio()">${c.l}</button>`).join('')}</div><div class="st-ct">${CLOUD[SCAT].t}</div>${Object.entries(TECH).filter(([,T])=>T.cloud===SCAT).map(([k,T])=>`<button class="st-tech notr" onclick="sdAdd(${jsa(k)})" title="${T.local?'Runs locally as '+T.local:T.img||'Built from a generated Dockerfile'}"><span class="pdot" style="background:${CLOUD[T.cloud].col}"></span>${esc(T.n)}<i>＋</i></button>`).join('')}`;
   const edge=([a,b]:string[])=>{const A=by(a),B=by(b);if(!A||!B)return'';const ax=A.x+NW/2,ay=A.y+NH/2,bx=B.x+NW/2,by2=B.y+NH/2,dx=bx-ax,dy=by2-ay,k=Math.min(Math.abs(dx)?(NW/2+6)/Math.abs(dx):9,Math.abs(dy)?(NH/2+6)/Math.abs(dy):9),pl=A.st!=='ok'||B.st!=='ok';
     return `<line x1="${ax+dx*k}" y1="${ay+dy*k}" x2="${bx-dx*k}" y2="${by2-dy*k}" stroke="${pl?'var(--accent)':'var(--fg-muted)'}" stroke-width="1.6" ${pl?'stroke-dasharray="5 4"':''} marker-end="url(#ar${pl?'p':''})"/>`;};
@@ -98,7 +107,23 @@ window.drawStudio = function(){const s=$('#st-svg');if(!s)return;const by=(id:st
 function sdAdd(tech:string){const id='n'+rid(),k=SD.nodes.length,T=TECH[tech];SD.nodes.push({id,tech,n:T.n.split(' · ')[0].replace(/^(Amazon|Azure|Cloud|Microsoft|Apache) /,'')+' '+(k+1),x:575-(k%3)*14,y:30+(k%3)*128,st:'plan'});SSEL=id;saveSD();drawStudio();}
 function sdDel(id:string){SD.nodes=SD.nodes.filter(n=>n.id!==id);SD.edges=SD.edges.filter(e=>e[0]!==id&&e[1]!==id);if(SSEL===id)SSEL=null;saveSD();drawStudio();}
 
+/* ───── design vs realidade / drift (ADR-0004, U4g6 — era a decoração do v6.ts) ─────
+   Com um ambiente escolhido em «Compare with…», cada nó ganha a etiqueta do seu estado
+   (in sync / drift / behind / missing / failing) e o inspector, sem selecção, abre com o
+   resumo «Design vs <ambiente>». */
+function paintDrift(): void {
+  const env = G.DRIFT;
+  if (!env) return;
+  const s = $('#st-svg');
+  if (!s) return;
+  const r = driftReport(env);
+  s.querySelectorAll<SVGGElement>('g[data-n]').forEach(g=>{const x=r.out[g.dataset.n!];if(!x)return;const[c,l]=DSTY[x.st];g.querySelector('rect')!.setAttribute('stroke',c);g.querySelector('rect')!.setAttribute('stroke-dasharray',x.st==='sync'?'':'4 3');const te=g.querySelector('text[text-anchor="end"]');if(te)te.remove();g.insertAdjacentHTML('beforeend',`<rect x="${NW-76}" y="6" width="70" height="14" rx="7" fill="${c}" opacity=".18"/><text x="${NW-41}" y="16.5" text-anchor="middle" fill="${c}" font-size="8.5" font-weight="700" font-family="var(--font-mono)">${l}</text>`);});
+  const ins=$('#st-insp');if(ins&&!SSEL&&SLINK===null){const cnt=(k:string)=>Object.values(r.out).filter(x=>x.st===k).length;ins.insertAdjacentHTML('afterbegin',`<h3>Design vs ${ENVL[env]}</h3>${!r.s?`<p>${ENVL[env]} has nothing deployed yet.</p>`:`<p>${cnt('sync')} in sync · ${cnt('drift')+cnt('behind')} drifting · ${cnt('missing')+cnt('bad')} missing or failing</p>${SD.nodes.filter(n=>r.out[n.id].st!=='sync').map(n=>`<div class="st-f ${['bad','missing'].includes(r.out[n.id].st)?'e':'w'}"><span>●</span><div><b class="notr">${esc(n.n)}</b> — <span class="notr">${esc(r.out[n.id].why)}</span></div></div>`).join('')}${r.extra.map(x=>`<div class="st-f w"><span>●</span><div><b class="notr">${esc(x)}</b> — running, but not in the design</div></div>`).join('')}`}<hr style="border:0;border-top:1px solid var(--seam);margin:12px 0">`);}
+}
+window.drawStudio = function(){drawStudioBase();paintDrift();};
+VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" onchange="DRIFT=this.value||null;drawStudio()"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${G.DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
+
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { NT, ST_SEED, NW, NH, CLOUD, TECH, KIND, mkT, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel, validateDesign, renderStudioView });
+Object.assign(window, { NT, ST_SEED, NW, NH, CLOUD, TECH, KIND, mkT, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel, validateDesign });

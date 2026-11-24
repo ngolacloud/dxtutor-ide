@@ -1,6 +1,6 @@
 /* ═══════════ feature `ext` — contribuições declarativas de uma extensão VS Code ═══════════
    O que um VSIX contribui no `package.json` e que o dxtutor sabe usar sem um extension host
-   (ADR-0004, Fase 4): linguagens (extensões de ficheiro + language-configuration),
+   (ADR-0005, Fase 4): linguagens (extensões de ficheiro + language-configuration),
    gramáticas TextMate, temas de cor e snippets — mais, para extensões que só arrancam um
    servidor de linguagem, a ligação a um servidor LSP conhecido. Aqui: os tipos, a lista
    de ficheiros a ler do VSIX, o mapa extensão-de-ficheiro → linguagem e o toggle de

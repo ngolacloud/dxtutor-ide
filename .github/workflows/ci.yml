@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   ui:
-    name: UI (lint, formato, typecheck, build, testes, fronteiras de arquitectura)
+    name: UI (lint, formato, typecheck, build, testes, fronteiras, arranque no browser)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +24,19 @@ jobs:
       - run: npm run ui:build
       - run: npm run ui:test
       - run: npm run arch:check
+      # arranque da app inteira num browser real (ADR-0004, U0): sem erros de página,
+      # painéis, paleta e compositor a responder — a rede de segurança da migração
+      - run: npx playwright install --with-deps chromium
+      - run: npm run ui:e2e
+        env: { CI: "1" }
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-e2e-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
 
   rust:
     name: Rust (fmt + clippy + testes do workspace)

@@ -1,4 +1,4 @@
-// Fase 4 (ADR-0004) na cadeia real de módulos: a página de detalhe de uma extensão
+// Fase 4 (ADR-0005) na cadeia real de módulos: a página de detalhe de uma extensão
 // instalada por VSIX mostra o que ela contribui (e é honesta sobre o que não corre), e o
 // editor ganha o toggle de comentário (Ctrl+/) e os snippets (Tab) publicados pela feature.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,8 +33,23 @@ describe("Fase 4 — extensões VS Code", () => {
     expect(text).toContain("3 snippets");
     expect(text).toContain("dxtutor runs clangd");
     expect(text).toContain("only JSON grammars");
-    expect(host.querySelector('[onclick^="vsxApplyTheme"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="vsx-theme"]')).not.toBeNull();
     expect(text).not.toContain("extension host. Here its commands");
+  });
+
+  it("dispatch delegado: «Apply» de um tema corre vsxApplyTheme com o label do data-on", () => {
+    w.EXS.vsix.push({
+      id: "acme.night", n: "Night", pub: "acme", d: "theme", ctx: [], vsix: 1,
+      contrib: { themes: ["Night Owl"], grammars: [], snippets: 0, languages: [], lsp: null, warnings: [] },
+    });
+    w.EXS.inst["acme.night"] = { on: 1 };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    w.renderExtd({ ext: "acme.night" }, host);
+    const toast = vi.spyOn(w, "toast").mockImplementation(() => {});
+    host.querySelector<HTMLButtonElement>('[data-action="vsx-theme"]')!.click();
+    expect(toast).toHaveBeenCalledWith("Color theme: Night Owl");
+    host.remove();
   });
 
   it("Ctrl+/ comenta e descomenta com o marcador da linguagem (sem extensão: o por omissão)", () => {

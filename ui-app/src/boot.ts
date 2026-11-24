@@ -22,7 +22,7 @@ import { esc } from "./core";
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
    Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
    livre em modo estrito (módulo). ── */
-Object.assign(window, { toTimer: undefined, openMenu: null, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'], HIST: [], hidx: 0 });
+Object.assign(window, { toTimer: undefined, TABS: [], activeTab: null, CWD: ['~','workspaces','NgolaCloud','projects'] });
 
 window.$=s=>document.querySelector(s);window.$$=s=>[...document.querySelectorAll(s)];
 
@@ -81,7 +81,6 @@ window.P={
   'dock-right':'<rect x="2" y="2.5" width="12" height="11" rx="1.2"/><path d="M9.5 2.5v11"/>',
 };
 window.svg = function(name,cls){return `<svg class="ico${cls?' '+cls:''}" viewBox="0 0 16 16">${P[name]||P.file}</svg>`;}
-window.hydrate = function(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.innerHTML=svg(el.dataset.ic);el.dataset.done=1;});}
 
 /* ═════════ TOAST / CLOCK ═════════ */
 window.toast = function(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toTimer);toTimer=setTimeout(()=>{t.classList.remove('show');},1600);}
@@ -108,23 +107,6 @@ window.OVERFLOW=[
   {sep:1},
   {l:'Colab'},{l:'Cloud Code'},{l:'Google Cloud Data Agent Kit'},{l:'Firebase SQL Connect'},{l:'Kubernetes'},{l:'Makefile'},{l:'Prisma'},{l:'Ansible'},{l:'SonarQube Setup'},{l:'Trunk'},
 ];
-window.buildActivity = function(){
-  const bar=$('#activity');
-  ACTS.forEach((a,i)=>{const el=document.createElement('button');el.className='act'+(i===0?' on':'')+(a.spacer?' spacer':'');
-    el.title=a.title;el.innerHTML=svg(a.ic)+(a.badge?`<span class="badge${a.accBadge?' acc':''}">${a.badge}</span>`:'');
-    el.onclick=e=>{e.stopPropagation();if(a.overflow)openOverflow(el);else if(a.pane)setPane(a.pane,el);else toast(a.title);};bar.appendChild(el);});
-}
-window.openOverflow = function(btn){closeMenus();const r=btn.getBoundingClientRect();const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
-  const title=document.createElement('div');title.className='mi ov-title';title.textContent='Additional Views';pop.appendChild(title);
-  OVERFLOW.forEach(it=>{if(it.sep){const s=document.createElement('div');s.className='mi-sep';pop.appendChild(s);return;}
-    const mi=document.createElement('div');mi.className='mi';mi.innerHTML=`<span>${it.l}</span>`+(it.pane?'':'<span class="key">plugin</span>');
-    mi.onclick=e=>{e.stopPropagation();closeMenus();if(it.pane)setPane(it.pane);else toast(it.l+' — requer o plugin instalado');};pop.appendChild(mi);});
-  let x=r.right+4,y=r.top;const h=pop.offsetHeight;if(y+h>innerHeight)y=innerHeight-h-6;pop.style.left=x+'px';pop.style.top=y+'px';}
-window.setPane = function(p,el){
-  $$('.act').forEach(a=>a.classList.remove('on'));
-  if(el)el.classList.add('on');else{const idx=ACTS.findIndex(a=>a.pane===p);if(idx>=0)$$('.act')[idx].classList.add('on');}
-  $$('.pane').forEach(x=>x.classList.remove('show'));const pe=$('#pane-'+p);if(pe)pe.classList.add('show');
-}
 
 /* ═════════ MENUS ═════════ */
 window.MENUS=[
@@ -137,19 +119,9 @@ window.MENUS=[
   {t:'Terminal',items:[{l:'New Terminal',k:'Ctrl+Shift+`'},{l:'Split Terminal',k:'Ctrl+Shift+5'},{sep:1},{l:'Run Task…'},{l:'Run Build Task…',k:'Ctrl+Shift+B'},{sep:1},{l:'Clear',act:'termClear'}]},
   {t:'Help',items:[{l:'Welcome'},{l:'Documentation'},{l:'Show All Commands',k:'Ctrl+Shift+P'},{sep:1},{l:'About dxtutor IDE'}]},
 ];
-window.buildMenubar = function(){const mb=$('#menubar');MENUS.forEach((m,i)=>{const b=document.createElement('button');b.className='menu-top';b.textContent=m.t;b.onclick=e=>{e.stopPropagation();openMenu===i?closeMenus():showMenu(i,b);};b.onmouseenter=()=>{if(openMenu!==null&&openMenu!==i)showMenu(i,b);};mb.appendChild(b);});}
-window.closeMenus = function(){$$('.menu-pop').forEach(p=>p.remove());$$('.menu-top').forEach(b=>b.classList.remove('open'));openMenu=null;}
-window.showMenu = function(i,btn){closeMenus();openMenu=i;btn.classList.add('open');const r=btn.getBoundingClientRect();renderPop(MENUS[i].items,r.left,r.bottom+2);}
-window.renderPop = function(items,x,y){const pop=document.createElement('div');pop.className='menu-pop show';document.body.appendChild(pop);
-  items.forEach(it=>{if(it.sep){const s=document.createElement('div');s.className='mi-sep';pop.appendChild(s);return;}
-    const mi=document.createElement('div');mi.className='mi'+(it.k?' has-key':'');let h='';
-    if(it.on!==undefined||it.check!==undefined)h+=`<span class="mi-check">${(it.on||it.check)?'✓':''}</span>`;
-    h+=`<span>${it.l}</span>`;if(it.k)h+=`<span class="key">${it.k}</span>`;if(it.sub)h+=`<span class="chev">▶</span>`;mi.innerHTML=h;
-    if(it.sub){mi.onmouseenter=()=>{pop.querySelectorAll('.menu-pop').forEach(p=>p.remove());const r=mi.getBoundingClientRect();const sp=renderPop(it.sub,r.right-3,r.top-5);pop.appendChild(sp);};mi.onclick=e=>e.stopPropagation();}
-    else mi.onclick=e=>{e.stopPropagation();closeMenus();if(typeof it.act==='function')it.act();else if(it.act&&window[it.act])window[it.act]();else toast(it.l);};
-    pop.appendChild(mi);});
-  const w=pop.offsetWidth;if(x+w>innerWidth)x=innerWidth-w-6;pop.style.left=x+'px';pop.style.top=y+'px';return pop;}
-document.addEventListener('click',closeMenus);
+/* fecha os menus a cada clique — registado aqui (primeiro, como sempre) mas resolvido na hora: o
+   closeMenus é da features/menus.ts, que avalia depois (ADR-0004, U4d2) */
+document.addEventListener('click',()=>closeMenus());
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
 window.TREE={projects:{dir:1,open:1,children:{
@@ -173,58 +145,8 @@ window.DOCS={
   'assistant.ts':[['cm','// Painel Assistant — render das mensagens.'],['','<span class="kw">export function</span> <span class="fn">renderMessages</span>(): <span class="ty">void</span> {'],['','  <span class="kw">const</span> host = <span class="fn">$</span>(<span class="str">"#ag-msgs"</span>);'],['','  host.innerHTML = state.messages.<span class="fn">map</span>(<span class="fn">bubble</span>).<span class="fn">join</span>(<span class="str">""</span>);'],['','}']],
   'styles.css':[['cm','/* dxtutor — tema Grafite + laranja */'],['',':root {'],['','  --bg-base: <span class="num">#0f0f11</span>;'],['','  --accent: <span class="num">#e06c3b</span>;'],['','  --accent-hover: <span class="num">#f08a4b</span>;'],['','}']],
 };
-window.iconFor = function(node,open){if(node.dir)return svg(open?'folderOpen':'folder',open?'':'folder-ic');return svg(node.t==='rust'?'rust':'file');}
-window.iconClass = function(node){return node.dir?'folder':(node.t||'file');}
-window.buildExplorer = function(){
-  const host=$('#exp-sections');host.innerHTML='';
-  // Root folder section (projects) — file tree
-  const treeSec=document.createElement('div');treeSec.className='section flexible';
-  const hd=document.createElement('div');hd.className='sec-hd open';hd.innerHTML=`<span class="chev">${svg('chev')}</span><span class="lbl">projects</span><span class="acts"><button>${svg('new-file')}</button><button>${svg('refresh')}</button></span>`;
-  const body=document.createElement('div');body.className='sec-body show';const tree=document.createElement('div');tree.className='tree';body.appendChild(tree);
-  hd.onclick=()=>{hd.classList.toggle('open');body.classList.toggle('show');};
-  renderLevel(TREE.projects.children,tree,0,['projects']);
-  treeSec.appendChild(hd);treeSec.appendChild(body);host.appendChild(treeSec);
-  // extra sections
-  [['OUTLINE','A pré-visualização não fornece informação de outline.'],
-   ['TIMELINE','A pré-visualização não fornece informação de timeline.'],
-   ['RUST DEPENDENCIES','adler2 2.0.1 · aead 0.5.2 · aes 0.9.1 · aes-gcm 0.11.0'],
-   ['TRUNK CHECK','Para usar o trunk, abre ou clona um repositório git.']
-  ].forEach(([lbl,txt],i)=>{
-    const sec=document.createElement('div');sec.className='section';
-    const h=document.createElement('div');h.className='sec-hd'+(i===2?' open':'');h.innerHTML=`<span class="chev">${svg('chev')}</span><span class="lbl">${lbl}</span>`;
-    const b=document.createElement('div');b.className='sec-body'+(i===2?' show':'');
-    if(i===2){b.innerHTML=`<div class="tree tree-flat">${['adler2 2.0.1','aead 0.5.2','aes 0.9.1','aes-gcm 0.11.0','sha2 0.10.8'].map(d=>`<div class="row"><span class="chev">${svg('chev')}</span><span class="ic folder">${svg('folder','folder-ic')}</span><span class="nm">${d}</span></div>`).join('')}</div>`;}
-    else b.innerHTML=`<div class="sec-empty">${txt}</div>`;
-    h.onclick=()=>{h.classList.toggle('open');b.classList.toggle('show');};
-    sec.appendChild(h);sec.appendChild(b);host.appendChild(sec);
-  });
-}
-window.renderLevel = function(obj,host,depth,path){
-  Object.keys(obj).forEach(name=>{
-    const node=obj[name];const pad=8+depth*12;
-    const row=document.createElement('div');row.className='row'+(node.git?' git-'+node.git:'');row.style.paddingLeft=pad+'px'; // profundidade ilimitada — não cabe em classe estática
-    const gi=node.git?(node.dir?`<span class="dot"></span>`:`<span class="deco">${node.git.toUpperCase()}</span>`):'';
-    row.innerHTML=`<span class="chev${node.dir?'':' leaf'}">${svg('chev')}</span><span class="ic ${iconClass(node)}">${iconFor(node,node.open)}</span><span class="nm">${esc(name)}</span>${gi}`;
-    host.appendChild(row);
-    if(node.dir){
-      const kids=document.createElement('div');kids.className='children';
-      if(depth>=0){const g=document.createElement('span');g.className='guide';g.style.left=(pad+7)+'px';kids.appendChild(g);}
-      host.appendChild(kids);let built=false;
-      const expand=open=>{row.classList.toggle('open',open);kids.classList.toggle('show',open);
-        row.querySelector('.ic').innerHTML=iconFor(node,open);
-        if(open&&!built&&node.children){renderLevel(node.children,kids,depth+1,path.concat(name));built=true;}};
-      row.onclick=e=>{e.stopPropagation();sel(row);expand(!row.classList.contains('open'));};
-      if(node.open){expand(true);}
-    }else{
-      row.onclick=e=>{e.stopPropagation();sel(row);openFile(name,node.t);};
-    }
-  });
-}
-window.sel = function(r){$$('.row.sel').forEach(x=>x.classList.remove('sel'));r.classList.add('sel');}
-window.collapseAll = function(){$$('#exp-sections .tree .row.open').forEach(r=>{r.classList.remove('open');const k=r.nextElementSibling;if(k&&k.classList.contains('children'))k.classList.remove('show');r.querySelector('.ic').innerHTML=svg('folder','folder-ic');});}
 
 /* ═════════ TABS / EDITOR ═════════ */
-window.openFile = function(name,t){let x=TABS.find(o=>o.name===name);if(!x){x={name,t:t||'file'};TABS.push(x);}setActive(name);}
 window.tabIcon = function(t){if(t==='chat'||t==='agent')return svg('sparkle','chat');if(t==='rust')return svg('rust','rs');if(t==='css')return svg('file','css');return svg('file');}
 window.renderTabs = function(){const host=$('#tabs');host.innerHTML='';TABS.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.name===activeTab?' active':'');
   el.innerHTML=`<span class="ic ${t.t==='rust'?'rs':t.t==='css'?'css':t.t==='chat'||t.t==='agent'?'chat':''}">${tabIcon(t.t)}</span><span class="nm">${esc(t.name)}</span><button class="x" data-ic="close"></button>`;
@@ -246,9 +168,6 @@ document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test(e.target.t
 window.assistantCenter = function(){document.body.style.setProperty('--agent-w','0px');$('#tgl-agent').classList.remove('on');let x=TABS.find(o=>o.name==='Assistant');if(!x){x={name:'Assistant',t:'agent'};TABS.push(x);}setActive('Assistant');}
 window.assistantDock = function(){closeTab('Assistant');}
 window.cid = function(s){return s.replace(/[^a-z0-9]/gi,'_');}
-window.setActive = function(name){activeTab=name;renderTabs();renderDocs();$$('.doc').forEach(d=>d.classList.remove('show'));const d=$('#doc-'+cid(name));if(d)d.classList.add('show');
-  const t=TABS.find(o=>o.name===name);$('#breadcrumbs').innerHTML=t?`<span class="crumb">dxtutor</span><span class="sep">›</span><span class="crumb">desktop</span><span class="sep">›</span><span class="crumb">src</span><span class="sep">›</span><span class="crumb cur">${esc(name)}</span>`:'';
-  renderMinimap(name);}
 window.renderMinimap = function(name){const mm=$('#minimap'),scroll=$('#ebody'),t=TABS.find(o=>o.name===name);
   if(!t||t.t==='chat'||!DOCS[name]){mm.classList.add('hidden');scroll.classList.remove('with-mm');return;}
   mm.classList.remove('hidden');scroll.classList.add('with-mm');
@@ -260,9 +179,6 @@ window.buildDocker = function(){const pane=$('#pane-containers');pane.innerHTML=
     cts.map(c=>`<div class="row dk-row sub"><span class="ct-dot"></span><span class="nm dk-fixed">kaeso-odoo:16</span><span class="pth dk-path">${c[0]} · ${c[1]}</span></div>`).join('');
   $('#dk-images').innerHTML=['alpine','benchimg','docker.io/pgvector/pgvector','kaeso-odoo','nextcloud'].map(n=>`<div class="row dk-row"><span class="chev">${svg('chev')}</span><span class="ic dk-ic">${svg('image')}</span><span class="nm">${n}</span></div>`).join('');
   wireSections(pane);hydrate();}
-window.closeTab = function(name){const i=TABS.findIndex(t=>t.name===name);if(i<0)return;
-  if(name==='Assistant'){placeAgentDock();document.body.style.setProperty('--agent-w','380px');$('#tgl-agent').classList.add('on');}
-  const d=$('#doc-'+cid(name));if(d)d.remove();TABS.splice(i,1);if(activeTab===name)activeTab=TABS.length?TABS[Math.max(0,i-1)].name:null;renderTabs();if(activeTab)setActive(activeTab);else $('#breadcrumbs').innerHTML='';}
 window.welcome = function(){return `<div class="wlc">
   <div class="wlc-head"><div class="wlc-logo">${svg('sparkle')}</div><div class="wlc-title">dxtutor <b>IDE</b></div></div>
   <div class="wlc-sub">Protótipo navegável · organização do Antigravity · ícones SVG codicon. Clica à vontade: menus, Explorer (com secções), activity bar, tabs e o terminal em baixo.</div>
@@ -274,11 +190,6 @@ window.welcome = function(){return `<div class="wlc">
 window.wbtn = function(ic,t,s,act){return `<button class="wlc-btn" onclick="${act}"><span class="ic">${svg(ic)}</span><span><span class="t">${t}</span><span class="s">${s}</span></span></button>`;}
 
 /* ═════════ BOTTOM PANEL ═════════ */
-window.setPanelTab = function(pt){if(getComputedStyle(document.body).getPropertyValue('--panel-h').trim()==='0px')togglePanel();
-  $$('.ptab').forEach(b=>b.classList.toggle('on',b.dataset.pt===pt));$$('.pcontent').forEach(c=>c.classList.remove('show'));const el=$('#pc-'+pt);if(el)el.classList.add('show');
-  if(pt==='terminal'){const c=$('#cmd');if(c)c.focus();}}
-window.togglePanel = function(){const c=getComputedStyle(document.body).getPropertyValue('--panel-h').trim();document.body.style.setProperty('--panel-h',c==='0px'?'230px':'0px');$('#tgl-panel').classList.toggle('on',c==='0px');}
-window.toggleSide = function(){const c=getComputedStyle(document.body).getPropertyValue('--side-w').trim();document.body.style.setProperty('--side-w',c==='0px'?'250px':'0px');$('#tgl-side').classList.toggle('on',c!=='0px');}
 
 /* ═════════ AGENT ═════════ */
 window.toggleAgent = function(){if(TABS.find(o=>o.name==='Assistant')){assistantDock();return;}const c=getComputedStyle(document.body).getPropertyValue('--agent-w').trim();const show=c==='0px';document.body.style.setProperty('--agent-w',show?'380px':'0px');$('#tgl-agent').classList.toggle('on',show);}
@@ -288,38 +199,10 @@ window.agSend = function(){const i=$('#ag-input');if(!i.value.trim())return;cons
   setTimeout(()=>{msgs.insertAdjacentHTML('beforeend',`<div class="m ai"><div class="bub"><div class="bh"><span>⊡</span><span class="br2">assistant</span><span class="bt">agora</span></div><div class="bd">Recebido: <code>${q.slice(0,40).replace(/</g,'&lt;')}</code>. (protótipo — sem backend)</div></div></div>`);msgs.scrollTop=msgs.scrollHeight;},250);}
 
 /* ═════════ TERMINAL ═════════ */
-window.USER='walter';window.HOST='delonix';
-window.promptHTML = function(){return `<span class="pr"><span>${USER}</span><span class="at">@</span><span>${HOST}</span><span class="at">:</span><span class="pth">${CWD.join('/')}</span><span class="br"> (main)</span><span class="at">$</span></span> `;}
-window.termNew = function(){termClear();}
-window.termClear = function(){const t=$('#term');t.innerHTML='';echo(`<span class="ac">delonix shell</span> <span class="dim">· emulado · </span><span class="ok">help</span><span class="dim"> para começar</span>`);newInput();}
-window.echo = function(h){const t=$('#term');const d=document.createElement('div');d.className='line';d.innerHTML=h;t.appendChild(d);scrollTerm();}
-window.scrollTerm = function(){const p=$('#pc-terminal');p.scrollTop=p.scrollHeight;}
-window.newInput = function(){const t=$('#term');const old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';t.appendChild(w);const c=$('#cmd');c.focus();c.onkeydown=onKey;scrollTerm();}
-window.onKey = function(e){const c=e.target;if(e.key==='Enter'){const v=c.value;run(v);if(v.trim())HIST.push(v);hidx=HIST.length;}else if(e.key==='ArrowUp'){if(hidx>0){hidx--;c.value=HIST[hidx]||'';}e.preventDefault();}else if(e.key==='ArrowDown'){if(hidx<HIST.length-1){hidx++;c.value=HIST[hidx]||'';}else{hidx=HIST.length;c.value='';}e.preventDefault();}else if(e.key==='Tab'){e.preventDefault();complete(c);}else if(e.ctrlKey&&e.key==='l'){e.preventDefault();termClear();}}
-window.dirAt = function(parts){let n=TREE.projects;for(const p of parts){if(!n.children||!n.children[p])return null;n=n.children[p];}return n;}
-window.curDir = function(){return dirAt(CWD.slice(4));}
-window.complete = function(c){const parts=c.value.split(' '),frag=parts[parts.length-1],d=curDir();if(!d||!d.children)return;const m=Object.keys(d.children).filter(x=>x.startsWith(frag));if(m.length===1){parts[parts.length-1]=m[0];c.value=parts.join(' ');}else if(m.length>1){echoCmd(c.value);echo('<span class="dim">'+m.join('   ')+'</span>');newInput();$('#cmd').value=c.value;}}
-window.echoCmd = function(v){const w=$('#inputwrap');if(w)w.remove();echo(promptHTML()+'<span class="cmd">'+(v||'').replace(/</g,'&lt;')+'</span>');}
-window.run = function(raw){echoCmd(raw);const v=raw.trim();if(!v){newInput();return;}const[cmd,...a]=v.split(/\s+/);
-  const C={
-    help(){echo(`<span class="ac">comandos:</span>\n<span class="ok">ls</span> [dir]   <span class="ok">cd</span> &lt;dir&gt;   <span class="ok">pwd</span>   <span class="ok">cat</span> &lt;f&gt;   <span class="ok">tree</span>\n<span class="ok">git</span> status|branch|log   <span class="ok">cargo</span> build|test\n<span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">neofetch</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
-    ls(){const d=a[0]?dirAt(CWD.slice(4).concat(a[0].split('/').filter(Boolean))):curDir();if(!d||!d.children){echo('<span class="er">ls: '+(a[0]||'.')+': não encontrado</span>');return;}echo(Object.keys(d.children).map(n=>d.children[n].dir?`<span class="dir">${n}/</span>`:`<span class="${d.children[n].t==='rust'?'ac':''}">${n}</span>`).join('   ')||'<span class="dim">(vazio)</span>');},
-    pwd(){echo('/home/'+USER+'/'+CWD.slice(1).join('/'));},
-    cd(){const x=a[0]||'~';if(x==='~'||x==='/'){CWD=['~','workspaces','NgolaCloud','projects'];return;}if(x==='..'){if(CWD.length>4)CWD.pop();return;}let t=CWD.slice();for(const p of x.split('/').filter(Boolean)){if(p==='..'){if(t.length>4)t.pop();continue;}const nd=dirAt(t.slice(4).concat(p));if(!nd||!nd.dir){echo('<span class="er">cd: '+x+': não é um directório</span>');return;}t.push(p);}CWD=t;},
-    cat(){const f=a[0];if(!f){echo('<span class="er">cat: falta o ficheiro</span>');return;}const b=f.split('/').pop();if(DOCS[b])DOCS[b].forEach(l=>echo('<span class="'+(l[0]==='err'?'':l[0])+'">'+l[1]+'</span>'));else echo('<span class="dim">// '+b+' — conteúdo não disponível no protótipo</span>');},
-    tree(){echo('<span class="dir">'+CWD[CWD.length-1]+'/</span>');const d=curDir();if(d&&d.children){const ks=Object.keys(d.children);ks.forEach((k,i)=>echo('<span class="dim">'+(i===ks.length-1?'└─ ':'├─ ')+'</span>'+(d.children[k].dir?'<span class="dir">'+k+'/</span>':k)));}},
-    echo(){echo(a.join(' ').replace(/</g,'&lt;'));},whoami(){echo(USER);},date(){echo(new Date().toString());},
-    history(){HIST.forEach((h,i)=>echo('<span class="dim">'+String(i+1).padStart(4)+'</span>  '+h.replace(/</g,'&lt;')));},
-    clear(){termClear();return 'skip';},
-    neofetch(){echo(`<span class="ac">    ✦✦✦✦✦    </span>  <span class="ok">${USER}@${HOST}</span>\n<span class="ac">  ✦✦ </span><span class="dim">delonix</span><span class="ac"> ✦✦  </span>  <span class="ac">OS</span>    Delonix Linux 7.0\n<span class="ac">  ✦✦✦✦✦✦✦✦✦  </span>  <span class="ac">Shell</span> dsh 2.1 (emulado)\n<span class="ac">    ✦✦✦✦✦    </span>  <span class="ac">IDE</span>   dxtutor IDE · grafite\n                 <span class="ac">CPU</span>   16 cores · <span class="ok">extrema velocidade</span>`);},
-    git(){const s=a[0];if(s==='status')echo(`No ramo <span class="ac">main</span>\n<span class="dim">Changes not staged:</span>\n  <span class="warn">modified:</span>   desktop/src/styles.css\n  <span class="warn">modified:</span>   desktop/src/assistant.ts\n<span class="dim">Untracked:</span>\n  <span class="er">desktop/src/theme.css</span>`);else if(s==='branch')echo(`<span class="ok">* main</span>\n  develop\n  feat/learning-paths`);else if(s==='log')echo(`<span class="ac">c638e07</span> feat(arch): persist the Studio design\n<span class="ac">a5b0d39</span> feat(arch): double-click a node to delete it\n<span class="ac">64943bc</span> feat(arch): interactive canvas`);else echo('<span class="dim">git: status|branch|log</span>');},
-    cargo(){const s=a[0];if(s==='build'){echo('<span class="dim">   Compiling dxtutor v0.1.0</span>');setTimeout(()=>{echo('<span class="ok">    Finished</span> dev in 0.81s');newInput();},140);return 'async';}if(s==='test'){echo('<span class="dim">   Running tests…</span>');setTimeout(()=>{echo('<span class="ok">test result: ok. 261 passed; 0 failed</span>');newInput();},160);return 'async';}echo('<span class="dim">cargo: build|test</span>');},
-  };
-  let r;if(XC[cmd])r=XC[cmd](a,v);else if(C[cmd])r=C[cmd]();else echo('<span class="er">'+cmd+': comando não encontrado</span> <span class="dim">(help)</span>');if(r!=='skip'&&r!=='async')newInput();}
+/* terminal emulado (USER/HOST, prompt, input, run, history…) migrado p/ features/terminal.ts (ADR-0004, U4e). */
 
 /* ═════════ PROBLEMS ═════════ */
 window.buildProblems = function(){$('#pc-problems').innerHTML=[['e','E0382: use of moved value: `chars`','desktop/src/lib.rs:5'],['w','variável `peek` nunca usada','desktop/src/parser.rs:22'],['w','preferir `while let` a `loop`+`match`','desktop/src/main.rs:88'],['w','import não usado: `std::fmt`','desktop/src/i18n.ts:3']].map(d=>`<div class="prob"><span class="pi ${d[0]}">${d[0]==='e'?'✖':'⚠'}</span><span><span>${d[1]}</span> <span class="ploc">${d[2]}</span></span></div>`).join('');}
 
 /* ═════════ RESIZE ═════════ */
-window.mkRz = function(el,v,base,min,max,inv){el.onmousedown=e=>{e.preventDefault();el.classList.add('drag');const sx=e.clientX,start=parseInt(getComputedStyle(document.body).getPropertyValue(v))||base;const mv=ev=>{let d=ev.clientX-sx;if(inv)d=-d;document.body.style.setProperty(v,Math.min(max,Math.max(min,start+d))+'px');};const up=()=>{el.classList.remove('drag');removeEventListener('mousemove',mv);removeEventListener('mouseup',up);};addEventListener('mousemove',mv);addEventListener('mouseup',up);};}
 

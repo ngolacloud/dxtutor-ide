@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=154
+EXPECT_TOTAL=159
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 11 (ceiling); actual
@@ -63,9 +63,10 @@ EXPECT_TSNOCHECK=11
 # depois o grupo `PairCode` (4 cmd) saiu de lib.rs (19→15) para commands/pair.rs;
 # depois o 13º e último grupo `estudo`/`missões` (15 cmd) saiu de lib.rs (15→0) para
 # commands/study.rs (11) + commands/missions.rs (4) — lib.rs fica sem #[tauri::command].
-# Plugins de curso: commands/plugins.rs (3) — plugin_list/plugin_install/plugin_remove (150→153).
-# Fase 4 (extensões VS Code): bridge.rs ganha vsix_fetch_open_vsx (153→154).
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/codev_agent.rs]=13 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=7 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=15 [fsops.rs]=10 [lsp.rs]=8 [pty.rs]=4 [board.rs]=2 )
+# Plugins de curso: commands/plugins.rs (3) — plugin_list/plugin_install/plugin_remove.
+# Fase 4 do ADR-0005 (extensões VS Code): bridge.rs ganha vsix_fetch_open_vsx (14→15).
+# Juntos com a develop (panel 2 + pty 3 = 155): 155 + 3 + 1 = 159.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=5 [commands/git.rs]=13 [commands/codev.rs]=5 [commands/codev_agent.rs]=13 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=7 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=10 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=15 [fsops.rs]=10 [lsp.rs]=8 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=2 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -84,7 +85,7 @@ fi
 
 echo "== A2 · #[tauri::command] por ficheiro =="
 sum=0
-for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/devcontainer.rs commands/sandbox.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs board.rs; do
+for f in lib.rs commands/review.rs commands/codeintel.rs commands/tests.rs commands/git.rs commands/codev.rs commands/codev_agent.rs commands/dictation.rs commands/search.rs commands/agent.rs commands/assistant.rs commands/debug_cmds.rs commands/devcontainer.rs commands/sandbox.rs commands/pair.rs commands/plugins.rs commands/study.rs commands/missions.rs bridge.rs fsops.rs lsp.rs pty.rs commands/panel.rs board.rs; do
   # `grep -c` imprime 0 E sai com status 1 quando não há matches (ex. lib.rs após o 13º
   # grupo sair), por isso NÃO encadeamos `|| echo 0` (duplicaria para "0\n0" e partia a
   # aritmética); normalizamos o vazio para 0 à parte.
@@ -180,7 +181,7 @@ fi
 # O resíduo strangler `features/<f>.ts` (publica os shims window.*) está FORA
 # desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
 # A7/A8 cobrem CADA feature nesta lista (codev + ext; a próxima acrescenta-se aqui).
-FEATURES="codev ext codereview scm debug board visualizer infra learn"
+FEATURES="codev ext codereview scm debug board visualizer infra learn panel"
 FEAT_ROOT=ui-app/src/features
 
 echo "== A7 · domínio não importa application/ui/infrastructure =="

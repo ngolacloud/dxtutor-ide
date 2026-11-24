@@ -15,6 +15,10 @@ export function isDesktop(): boolean {
   return !!(window.__TAURI__ && window.__TAURI__.core);
 }
 
+/** Quem invoca comandos: o `invoke` real, ou um substituto (a simulação do PairCode, testes).
+ *  Os clientes de `platform/tauri/` recebem-no por argumento — injecção, não globais. */
+export type Invoker = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+
 /**
  * Invoca um comando Tauri com um tipo de retorno explícito. É o único ponto onde o cast do
  * valor cru de `invoke` acontece — concentrado e tipado, em vez de espalhado por `bridge.ts`.

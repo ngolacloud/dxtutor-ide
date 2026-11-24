@@ -12,6 +12,8 @@ export interface DictationStatus {
   /** O que falta instalar, em texto para a UI. */
   missing: string[];
   recording: boolean;
+  /** O dispositivo Vulkan escolhido (a GPU dedicada), ou `null` (o do whisper / CPU). */
+  device: number | null;
 }
 
 export const dictationStatus = (): Promise<DictationStatus> => invoke<DictationStatus>("dictation_status");

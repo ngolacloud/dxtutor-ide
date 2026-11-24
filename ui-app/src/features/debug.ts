@@ -29,6 +29,7 @@
    `writeSession`. */
 
 import { $, hd, svg, esc, hhmm, toast, log, writeFile } from "../core";
+import { RP } from "../app/store/registry";
 import type { CodeStep, CodeTrace, CrashTrace, DbgSession, LaunchConfig, OpsStep } from "./debug/domain/types";
 import { buildLexTrace } from "./debug/domain/lexer-trace";
 import { buildCrashTrace } from "./debug/domain/crash-trace";
@@ -39,7 +40,7 @@ import { bindActions, type ActionTable } from "./debug/ui/actions";
 import {
   readSession, writeSession, breakpoints,
   pLx, files, currentTab, pane, goPane, openPath, paintEd, setPanelTab, togglePanel, getVar, setVar, panes,
-  lexVariant, lexLine,
+  lexVariant, lexLine, lexBug,
   envState, envx, envLabels, localSecrets, urlHosts,
   isHuman, checkpoint, dlg, lsGet, lsSet, publish,
   explainDeep, openStagingSecrets,
@@ -155,13 +156,31 @@ const ACTIONS: ActionTable = {
 };
 bindActions(ACTIONS);
 
+/* registo do painel (ADR-0004, U4g1 — antes era um shim no v6.ts) */
+RP.debug = renderDebugPane;
+
 /* ── publicação no window (via bridge) ──
-   • `renderDebugPane` — RP.debug (v6) delega (lazy, no switch de pane).
+   • `renderDebugPane` — o renderer do painel (registado acima em RP.debug).
    • motor (`startDebug`/`dbg*`/`saveBps`/`debugConfigs`/`lexTrace`/`crashTrace`) — os
      `onclick`/keydown/menus do monólito resolvem-nos por nome livre ao disparar.
    • fachadas SEM substring proibido para o resíduo de v6.ts ler o estado:
      `dbgState()` (sessão), `dbgBreaks` (Set), `dbgLaunch()` (lançadores). */
+/* ── helpers de lexer partilhados com o hood/reviewFindings (ADR-0004, U4g5 — eram do v6.ts)
+   `lexVariantOf` reporta a variante do fonte do lexer do seed; `lexLineOf` o nº da linha
+   que casa com `re`. Publicados como `lexVariant`/`LXL` (os adaptadores do bridge e o
+   codereview lêem-nos assim no acto). */
+function lexVariantOf(): string {
+  const fs = files(), c = fs[pLx()] ? fs[pLx()].content : "";
+  if (lexBug()) return "bug";
+  if (/for c in chars\.clone\(\)/.test(c)) return "clone";
+  if (/for c in chars\.by_ref\(\)/.test(c)) return "byref";
+  if (/while let Some\(c\) = chars\.next\(\)/.test(c)) return "whilelet";
+  return "other";
+}
+const lexLineOf = (re: RegExp): number => { const fs = files(), ls = (fs[pLx()] ? fs[pLx()].content : "").split("\n"); return ls.findIndex((l) => re.test(l)) + 1; };
+
 publish({
+  lexVariant: lexVariantOf, LXL: lexLineOf,
   renderDebugPane,
   dbgState: () => DBG,
   dbgBreaks: BPS,

@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (154 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (159 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 154 comandos, **53 são consumidos pela `ui-app`** e **101 não o são**: a UI
+Dos 159 comandos, **61 são consumidos pela `ui-app`** e **98 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -75,10 +75,10 @@ Exclusivo do dxtutor-ide. Sessão de colaboração; emite estado/mensagens.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `pair_host` | `name: String`, `port: Option<u16>` | `String` (token) | String | `pair-status` | `pair.ts` | S · E |
-| `pair_join` | `token: String`, `via: Option<String>` | `String` | String | `pair-status`, `pair-msg` | `pair.ts` | S · N · E |
-| `pair_send` | `msg: String` | `()` | String | `pair-msg` | `pair.ts` | S · E |
-| `pair_stop` | — | `()` | — | `pair-status` | `pair.ts` | S · E |
+| `pair_host` | `name: String`, `port: Option<u16>` | `String` (token) | String | `pair-status` | `platform/tauri/pair.ts` (via `pair.ts`) | S · E |
+| `pair_join` | `token: String`, `via: Option<String>` | `String` | String | `pair-status`, `pair-msg` | `platform/tauri/pair.ts` (via `pair.ts`) | S · N · E |
+| `pair_send` | `msg: String` | `()` | String | `pair-msg` | `platform/tauri/pair.ts` (via `pair.ts`) | S · E |
+| `pair_stop` | — | `()` | — | `pair-status` | `platform/tauri/pair.ts` (via `pair.ts`) | S · E |
 
 > **Etapa 3:** extraídos de `lib.rs` para `commands/pair.rs` (adaptadores finos) sobre o
 > caso de uso Tauri-free `crate::pair` (mecanismo TCP + ChaCha20-Poly1305 + WebSocket, já
@@ -87,28 +87,28 @@ Exclusivo do dxtutor-ide. Sessão de colaboração; emite estado/mensagens.
 > `pair_events`, migrado de `lib.rs`). Nomes, args, contratos serde, eventos e mensagens
 > preservados (consumido por `pair.ts`).
 
-## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (14)
+## 2. v7 desktop bridge — `bridge.rs` + `fsops::pick_folder` (16)
 
 Comandos genéricos da casca desktop; a espinha dorsal consumida pela `ui-app`.
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `pick_folder` | — | `Option<String>` | — | — | `bridge.ts` | S (diálogo) |
+| `pick_folder` | — | `Option<String>` | — | — | `platform/tauri/fs.ts` (via `bridge.ts`) | S (diálogo) |
 | `load_workspace` | `root: String` | `workspace::Loaded` | String | — | `bridge.ts` | R |
-| `write_file` | `root: String`, `rel: String`, `content: String` | `()` | String | — | `bridge.ts`, `features/codev.ts`, `pair.ts` | W |
-| `delete_file` | `root: String`, `rel: String` | `()` | String | — | `bridge.ts` | W |
-| `expand_path` | `path: String` | `String` | — | — | `bridge.ts` | R |
-| `exec` | `program: String`, `args: Vec<String>`, `cwd: Option<String>`, `env: Option<HashMap<String,String>>`, `stdin: Option<String>`, `timeout_ms: Option<u64>` | `procs::ExecOut` | String | — | `bridge.ts`, `pair.ts` | **X** |
-| `run_shell` | `id: String`, `line: String`, `cwd: Option<String>`, `env: Option<HashMap<String,String>>` | `()` | String | `proc-line`, `proc-exit` | `bridge.ts` | **X** · S · E |
-| `kill_shell` | `id: String` | `bool` | — | — | `bridge.ts` | X · S |
+| `write_file` | `root: String`, `rel: String`, `content: String` | `()` | String | — | `platform/tauri/fs.ts` (via `bridge.ts`, `features/codev.ts`, `pair.ts`) | W |
+| `delete_file` | `root: String`, `rel: String` | `()` | String | — | `platform/tauri/fs.ts` (via `bridge.ts`) | W |
+| `expand_path` | `path: String` | `String` | — | — | `platform/tauri/fs.ts` (via `bridge.ts`) | R |
+| `exec` | `program: String`, `args: Vec<String>`, `cwd: Option<String>`, `env: Option<HashMap<String,String>>`, `stdin: Option<String>`, `timeout_ms: Option<u64>` | `procs::ExecOut` | String | — | `platform/tauri/shell.ts` (via `bridge.ts`, `pair.ts`) | **X** |
+| `run_shell` | `id: String`, `line: String`, `cwd: Option<String>`, `env: Option<HashMap<String,String>>` | `()` | String | `proc-line`, `proc-exit` | `platform/tauri/shell.ts` (via `bridge.ts`) | **X** · S · E |
+| `kill_shell` | `id: String` | `bool` | — | — | `platform/tauri/shell.ts` (via `bridge.ts`) | X · S |
 | `keys_status` | — | `HashMap<String,bool>` | String | — | — | K · S |
 | `save_key` | `provider: String`, `key: String` | `()` | String | — | — | **K** · S |
-| `llm_chat` | `req: llm::ChatReq`, `mode: Option<String>` | `llm::ChatResp` | String | — | `bridge.ts` | **N** · K · S |
+| `llm_chat` | `req: llm::ChatReq`, `mode: Option<String>` | `llm::ChatResp` | String | — | `platform/tauri/providers.ts` (via `bridge.ts`) | **N** · K · S |
 | `llm_plan` | `req: llm::ChatReq`, `mode: Option<String>` | `serde_json::Value` | — | — | — | N · K |
 | `vsix_manifest` | `b64: String` | `serde_json::Value` | String | — | — | R |
 | `vsix_fetch_open_vsx` | `id: String` (`publisher.name`) | `String` (VSIX em base64) | String | — | `platform/tauri/extensions.ts` | **N** (só open-vsx.org; valida que é um VSIX; ≤ 100 MiB) · async |
-| `app_info` | — | `serde_json::Value` | — | — | `bridge.ts` | R · S |
-| `selftest_report` | `report: serde_json::Value` | `()` | — | — | `bridge.ts`, `pair.ts` | W · S |
+| `app_info` | — | `serde_json::Value` | — | — | `platform/tauri/app.ts` (via `bridge.ts`) | R · S |
+| `selftest_report` | `report: serde_json::Value` | `()` | — | — | `platform/tauri/app.ts` (via `bridge.ts`, `pair.ts`) | W · S |
 
 ## 3. Estudo / missões — `commands/study.rs` (11) + `commands/missions.rs` (4)
 
@@ -173,11 +173,11 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 |---|---|---|---|---|---|---|
 | `assistant_models` | — | `Vec<String>` | — | — | `platform/tauri/assistant.ts` (lista de modelos do Ollama no compositor do Co-Dev) | R |
 | `assistant_chat` | `messages: Vec<assistant::ChatMsg>`, `model: Option<String>` | `assistant::ChatReply` | String | — | — | **N** · K |
-| `assistant_chat_stream` | `messages: Vec<assistant::ChatMsg>`, `provider: Option<String>`, `model: Option<String>`, `request_id: String`, `mode: Option<String>`, `step_id: Option<String>` | `()` (via eventos) | — | `llm://token` `{requestId,delta}`, `llm://done` `{requestId,model}`, `llm://error` `{requestId,error}` | `bridge.ts` | **N** · K · S · E |
-| `assistant_cancel` | `request_id: String` | `()` | — | — | `bridge.ts` | S |
-| `list_providers` | — | `Vec<assistant::ProviderInfo>` | — | — | `bridge.ts` | R |
-| `get_providers_config` | — | `assistant::ProvidersConfig` | — | — | `bridge.ts` | K (lê config) |
-| `save_providers_config` | `config: assistant::ProvidersConfig` | `()` | String | — | `bridge.ts` | **K** · W |
+| `assistant_chat_stream` | `messages: Vec<assistant::ChatMsg>`, `provider: Option<String>`, `model: Option<String>`, `request_id: String`, `mode: Option<String>`, `step_id: Option<String>` | `()` (via eventos) | — | `llm://token` `{requestId,delta}`, `llm://done` `{requestId,model}`, `llm://error` `{requestId,error}` | `platform/tauri/providers.ts` (via `bridge.ts`) | **N** · K · S · E |
+| `assistant_cancel` | `request_id: String` | `()` | — | — | `platform/tauri/providers.ts` (via `bridge.ts`) | S |
+| `list_providers` | — | `Vec<assistant::ProviderInfo>` | — | — | `platform/tauri/providers.ts` (via `bridge.ts`) | R |
+| `get_providers_config` | — | `assistant::ProvidersConfig` | — | — | `platform/tauri/providers.ts` (via `bridge.ts`) | K (lê config) |
+| `save_providers_config` | `config: assistant::ProvidersConfig` | `()` | String | — | `platform/tauri/providers.ts` (via `bridge.ts`) | **K** · W |
 | `get_diagnostics` | `step_id: String`, `code: String` | `Vec<assistant::Diagnostic>` | String | — | — | R |
 
 ## 6. Inteligência de código — `commands/codeintel.rs` (10)
@@ -237,10 +237,10 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `git_changes` | `root: String` | `Vec<git::GitChange>` | String | — | `bridge.ts` | R |
+| `git_changes` | `root: String` | `Vec<git::GitChange>` | String | — | `platform/tauri/git.ts` (via `bridge.ts`) | R |
 | `git_diff` | `root: String`, `file: Option<String>`, `staged: Option<bool>` | `String` | String | — | — | R |
-| `git_log` | `root: String`, `max: Option<usize>` | `Vec<git::GitCommit>` | String | — | `bridge.ts` | R |
-| `git_show` | `root: String`, `hash: String` | `String` | String | — | `bridge.ts` | R |
+| `git_log` | `root: String`, `max: Option<usize>` | `Vec<git::GitCommit>` | String | — | `platform/tauri/git.ts` (via `bridge.ts`) | R |
+| `git_show` | `root: String`, `hash: String` | `String` | String | — | `platform/tauri/git.ts` (via `bridge.ts`) | R |
 | `git_branch` | `root: String` | `Option<String>` | String | — | — | R |
 | `git_branches` | `root: String` | `Vec<String>` | String | — | — | R |
 | `git_clone` | `url: String`, `parent_dir: String` | `String` | String | — | — | **N** · W |
@@ -261,9 +261,9 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
 | `agent_isolated_patch` | `root: String`, `writes: Vec<(String,String)>` | `String` | String | — | — | **W** |
-| `agent_task_submit` | `root: String`, `writes: Vec<(String,String)>` | `String` (id) | String | — | `bridge.ts` | **W** · S |
-| `agent_task_status` | `id: String` | `Option<AgentTask>` | — | — | `bridge.ts` | R · S |
-| `agent_task_cancel` | `id: String` | `bool` | — | — | `bridge.ts` | S |
+| `agent_task_submit` | `root: String`, `writes: Vec<(String,String)>` | `String` (id) | String | — | `platform/tauri/agent-tasks.ts` (via `bridge.ts`) | **W** · S |
+| `agent_task_status` | `id: String` | `Option<AgentTask>` | — | — | `platform/tauri/agent-tasks.ts` (via `bridge.ts`) | R · S |
+| `agent_task_cancel` | `id: String` | `bool` | — | — | `platform/tauri/agent-tasks.ts` (via `bridge.ts`) | S |
 | `arch_validate` | `arch: arch::Architecture` | `Vec<arch::Finding>` | String | — | — | R |
 | `arch_scaffold` | `root: String`, `arch: arch::Architecture` | `Vec<String>` | String | — | — | **W** |
 | `arch_scaffold_preview` | `arch: arch::Architecture` | `Vec<(String,String)>` | — | — | — | R |
@@ -333,7 +333,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `dictation_status` | — | `dictation::Status` (`ready`, `binary`, `model`, `recorder`, `missing`, `recording`) | — | — | `platform/tauri/dictation.ts` | R |
+| `dictation_status` | — | `dictation::Status` (`ready`, `binary`, `model`, `recorder`, `missing`, `recording`, `device`) | — | — | `platform/tauri/dictation.ts` | R |
 | `dictation_start` | — | `()` | String | — | `platform/tauri/dictation.ts` | **X** · S |
 | `dictation_stop` | `lang: Option<String>` | `String` (texto) | String | — | `platform/tauri/dictation.ts` | **X** · S (async: whisper numa thread de bloqueio) |
 | `dictation_cancel` | — | `()` | — | — | `platform/tauri/dictation.ts` | S |
@@ -442,17 +442,33 @@ Todos usam `State<LspState>` + `AppHandle`. Não consumidos pela `ui-app`
 | `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | — | R · S |
 | `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | — | R · S |
 
-## 16. PTY — `pty.rs` (4)
+## 16. PTY — `pty.rs` (7)
 
-Terminal real; `State<PtyState>` + `AppHandle`. Não consumidos pela `ui-app`
-(terminal usa `run_shell`/`exec` + xterm); alvo da Etapa 2.
+Terminais reais (várias instâncias por `id`); `State<PtyState>` (mapa id → sessão) +
+`AppHandle`. Consumidos pelo painel inferior (`features/panel/infrastructure/tauri.ts`,
+xterm.js). `pty://data` = `{ id, data }` (só caracteres UTF-8 completos); `pty://exit` =
+`{ id, code }` (código de saída real). Shells bash/zsh arrancam com integração de shell
+(`shell_integration.rs`: OSC 7 cwd + OSC 633 comando/código).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `pty_spawn` | `rows: u16`, `cols: u16` | `()` | String | `pty://data`, `pty://exit` | — | **X** · S · E |
-| `pty_spawn_in_session` | `rows: u16`, `cols: u16`, `root: String` | `()` | String | `pty://data`, `pty://exit` | — | **X** · S · E |
-| `pty_write` | `data: String` | `()` | String | — | — | X · S |
-| `pty_resize` | `rows: u16`, `cols: u16` | `()` | String | — | — | S |
+| `pty_spawn` | `id: String`, `rows: u16`, `cols: u16`, `cwd: Option<String>`, `shell: Option<String>`, `command: Option<String>`, `env: Option<HashMap<String,String>>` | `()` | String | `pty://data`, `pty://exit` | `features/panel` | **X** · S · E |
+| `pty_spawn_in_session` | `id: String`, `rows: u16`, `cols: u16`, `root: String` | `()` | String | `pty://data`, `pty://exit` | — | **X** · S · E |
+| `pty_write` | `id: String`, `data: String` | `()` | String | — | `features/panel` | X · S |
+| `pty_resize` | `id: String`, `rows: u16`, `cols: u16` | `()` | String | — | `features/panel` | S |
+| `pty_kill` | `id: String` | `bool` | — | `pty://exit` | `features/panel` | X · S |
+| `pty_shells` | — | `Vec<ShellProfile>` | — | — | `features/panel` | R |
+| `pty_info` | `id: String` | `PtyInfo` (shell, processo em 1.º plano, cwd) | String | — | `features/panel` | R · S |
+
+## 16b. Painel inferior — `commands/panel.rs` (2)
+
+Adaptadores finos sobre `problems.rs` (checkers do projecto com saída estruturada, no
+ambiente da shell de login resolvido por `shellenv.rs`) e `ports.rs` (portas TCP em escuta).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `problems_scan` | `root: String` | `problems::ScanResult` | String | `problems://check` | `features/panel` | **X** · R |
+| `ports_list` | `root: Option<String>` | `Vec<ports::PortInfo>` | String | — | `features/panel` | R |
 
 ## 17. Board (SQLite) — `board.rs` (2)
 
@@ -485,11 +501,11 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **154** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 4 · `board.rs` 2 |
-| Consumidos pela `ui-app` | **53** (`bridge.ts` 24 · `pair.ts` 4 · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1) |
-| Não consumidos pela `ui-app` | **101** |
-| Eventos distintos | **12** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error` |
+| Comandos registados | **159** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 5 · `commands/git.rs` 13 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 13 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 7 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 10 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 15 · `fsops.rs` 10 · `lsp.rs` 8 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 2 |
+| Consumidos pela `ui-app` | **61** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 13 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 1 · `features/panel` 8) |
+| Não consumidos pela `ui-app` | **98** |
+| Eventos distintos | **15** — `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |
 | Mutam git (**G**) | `git_stage/unstage/stage_all/commit/checkout/create_branch`, `git_clone`, `codev_session_*` |

@@ -18,6 +18,8 @@
 /** Um commit na timeline «O que mudou e porquê» (feature `changelog`). Espelha o
  *  DTO real `tutor_eval::git::GitCommit` do backend — a fonte simulada (GIT.c) é
  *  mapeada para esta mesma forma, para a vista não distinguir real de simulado. */
+import { agentStore, editorStore, layoutStore } from "./app/store";
+
 export interface ClCommit {
   hash: string;
   short: string;
@@ -228,11 +230,12 @@ declare global {
     envState: (e: string) => any;
     openObserve: (env: string, n: string) => void;
     renderInfraPane: () => void;
+    infraDraw: () => void;
     /* feature `syntax` (migrada de app.ts): realce de uma linha. O editor (paintEd),
        o diff, o `cat` do terminal e o outline — em app.ts e em v5.ts/v6.ts —
        resolvem-no por nome livre. */
     hlLine: (s: string, ext: string) => string;
-    /* feature `ext`, Fase 4 (ADR-0004): contribuições declarativas de extensões VS Code.
+    /* feature `ext`, Fase 4 (ADR-0005): contribuições declarativas de extensões VS Code.
        O editor pede o realce TextMate do documento, a expansão de snippets (Tab) e o
        toggle de comentário (Ctrl+/); ausentes no harness, por isso opcionais. */
     vsxHighlight?: (ext: string, lines: string[]) => string[] | null;
@@ -284,29 +287,31 @@ export interface SharedState {
 /** Estado partilhado tipado. Acessores sobre `window` → alia com os nomes livres do
  *  monólito (MODE/THRESH/cur/PANE). Converter `export let` soltos não aliasaria. */
 export const S: SharedState = {
+  /* U3 (ADR-0004): os donos destes valores são os stores de app/store — o S fica como
+     fachada de compatibilidade para os legacy-bridges das features. */
   get MODE() {
-    return window.MODE;
+    return agentStore.mode;
   },
   set MODE(v) {
-    window.MODE = v;
+    agentStore.mode = v;
   },
   get THRESH() {
-    return window.THRESH;
+    return agentStore.threshold;
   },
   set THRESH(v) {
-    window.THRESH = v;
+    agentStore.threshold = v;
   },
   get cur() {
-    return window.cur;
+    return editorStore.currentTabId;
   },
   set cur(v) {
-    window.cur = v;
+    editorStore.currentTabId = v;
   },
   get PANE() {
-    return window.PANE;
+    return layoutStore.pane;
   },
   set PANE(v) {
-    window.PANE = v;
+    layoutStore.pane = v;
   },
 };
 
@@ -327,6 +332,10 @@ export const esc = (s: unknown): string =>
  *  (o browser descodifica as entidades antes de correr o handler). Nunca usar
  *  `'${x}'` dentro de on*="…": um caminho ou nome vindo do disco, do git, de um
  *  VSIX ou do par remoto com `'` torna-se código. */
+/** Uma contagem curta (1.2k, 3.4M) — os tokens nos cartões, no Tasks e no custo. Era
+ *  léxica do v6.ts (ADR-0004, U4g3). */
+export const nfmt = (n: number): string => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n | 0));
+
 export const jsa = (s: unknown): string =>
   esc(JSON.stringify(String(s == null ? "" : s)));
 

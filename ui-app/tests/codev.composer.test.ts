@@ -84,10 +84,11 @@ function setup() {
   document.body.innerHTML = '<div id="ag-compose"><textarea id="ag-input"></textarea></div>';
   const sent: string[] = [];
   const toasts: string[] = [];
+  const dictLang = { v: "pt" };
   const dict = { ready: true, recording: false, text: "olá mundo", calls: [] as string[] };
   const dictation: DictationPort = {
     available: () => true,
-    status: async () => ({ ready: dict.ready, binary: "/b/whisper-cli", model: "/m/ggml-small.bin", recorder: "pw-record", missing: dict.ready ? [] : ["whisper.cpp (whisper-cli) — corre scripts/setup-whisper.sh"], recording: dict.recording }),
+    status: async () => ({ ready: dict.ready, binary: "/b/whisper-cli", model: "/m/ggml-small.bin", recorder: "pw-record", missing: dict.ready ? [] : ["whisper.cpp (whisper-cli) — corre scripts/setup-whisper.sh"], recording: dict.recording, device: 1 }),
     start: async () => {
       dict.calls.push("start");
       dict.recording = true;
@@ -135,7 +136,8 @@ function setup() {
     openModelSettings: () => sent.push("<settings>"),
     switchProvider: () => sent.push("<providers>"),
     dictation: () => dictation,
-    dictationLang: () => "pt",
+    dictationLang: () => dictLang.v,
+    setDictationLang: (l) => (dictLang.v = l),
     localModels: async () => ["llama3.1:8b", "qwen2.5-coder:14b"],
   };
   resetComposer();
@@ -150,7 +152,7 @@ function setup() {
   const enter = (shiftKey = false) =>
     $("#ag-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey, bubbles: true }));
   const click = (s: string) => $(s).dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  return { host, state, sent, toasts, dict, $, type, enter, click };
+  return { host, state, sent, toasts, dict, dictLang, $, type, enter, click };
 }
 
 beforeEach(() => {
@@ -356,4 +358,21 @@ test("microfone (whisper.cpp): grava, pára, transcreve para o cursor; Esc cance
   await flush();
   expect(t.toasts.at(-1)).toContain("setup-whisper.sh");
   expect(t.dict.calls.length).toBe(n);
+});
+
+test("língua do ditado: português por omissão, escolhida no «/», vai ao whisper", async () => {
+  const t = setup();
+  expect(t.$("#cc-mic").title).toBe("Ditar (voz) — Português");
+  t.type("/");
+  expect(t.$("#cc-pop .cc-list").textContent).toContain("Língua do ditado…Português");
+  t.click('[data-action="cc-do"][data-on="dictlang"]'); // a palette falsa escolhe a 1.ª (Português)
+  t.dictLang.v = "en";
+  refreshComposer();
+  expect(t.$("#cc-mic").title).toBe("Ditar (voz) — English");
+  t.click("#cc-mic");
+  await flush();
+  t.click("#cc-mic");
+  await flush();
+  await flush();
+  expect(t.dict.calls.at(-1)).toBe("stop:en");
 });

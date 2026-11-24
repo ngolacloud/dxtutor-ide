@@ -7,18 +7,17 @@
    sério fica para fase posterior — esta fase só componentiza. */
 export {};
 import { jsa } from "./core";
+import { bus } from "./app/bus";
 
 /* O seed de demonstração (SEED.base) só é carregado quando a build foi feita com
    VITE_SEED=1 — i.e. `npm run dev:seed`. O `npm run dev` arranca com o workspace
    vazio. Ponto único de decisão: lido aqui e respeitado por loadSeed(). */
-const SEED_ON = import.meta.env.VITE_SEED === '1';
+/* SEED/SEED_ON, LS, writeFile, loadSeed, save/loadCfg e use/connected migrados (ADR-0004, U4f): features/workspace.ts, app/store/{storage,config,agent}.ts. */
 
-const SEED={"base": {"Cargo.toml": "[workspace]\nmembers = [\"crates/lexer\", \"crates/store\"]\nresolver = \"2\"\n\n[workspace.dependencies]\nrusqlite = { version = \"0.32\", features = [\"bundled\"] }\n", "README.md": "# dxtutor\n\nIDE com um Co-Dev integrado. Local-first, multi-modelo.\n\n- `desktop/` — interface (TypeScript + Tauri)\n- `crates/lexer` — tokenizador de exemplo\n- `crates/store` — persistência SQLite\n- `db/migrations` — esquema da base de dados\n- `.dxtutor/` — conhecimento do projecto que o Co-Dev lê antes de agir\n", "desktop/index.html": "<!doctype html>\n<html lang=\"pt\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <title>dxtutor IDE<\/title>\n    <link rel=\"stylesheet\" href=\"/src/styles.css\" />\n  <\/head>\n  <body>\n    <div id=\"app\"><\/div>\n    <script type=\"module\" src=\"/src/main.ts\"><\/script>\n  <\/body>\n<\/html>\n", "desktop/package.json": "{\n  \"name\": \"dxtutor-desktop\",\n  \"version\": \"0.2.0\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc && vite build\",\n    \"lint\": \"dx lint\"\n  },\n  \"dependencies\": {\n    \"@tauri-apps/api\": \"^2.0.0\"\n  }\n}\n", "desktop/src/styles.css": "/* dxtutor — tema Grafite + laranja */\n:root {\n  --bg-base: #0f0f11;\n  --bg-editor: #161618;\n  --accent: #e06c3b;\n  --accent-hover: #f08a4b;\n  --radius: 9px;\n}\n\n.agent {\n  background: var(--bg-editor);\n  border-radius: var(--radius);\n}\n\n.send {\n  background: var(--accent);\n}\n", "desktop/src/assistant.ts": "// Painel Co-Dev — render das mensagens.\nimport { state } from \"./workspace\";\n\nexport function renderMessages(): void {\n  const host = document.querySelector(\"#ag-msgs\");\n  if (!host) return;\n  host.innerHTML = state.messages.map(bubble).join(\"\");\n}\n\nfunction bubble(m: Message): string {\n  return `<div class=\"m ${m.role}\"><div class=\"bd\">${m.html}<\/div><\/div>`;\n}\n\n// v2: suporte a cartões de plano\nexport function renderPlan(steps: Step[]): string {\n  return steps.map((s) => `<div class=\"stp ${s.state}\">${s.label}<\/div>`).join(\"\");\n}\n", "desktop/src/workspace.ts": "// Estado do workspace aberto.\nexport const state = {\n  root: \"\",\n  messages: [] as Message[],\n};\n\nexport async function openWorkspace(name: string): Promise<void> {\n  state.root = name;\n}\n", "desktop/src/i18n.ts": "// Textos da interface (pt-AO).\nconst STRINGS: Record<string, string> = {\n  \"app.title\": \"dxtutor IDE\",\n  \"agent.name\": \"Co-Dev\",\n  \"mode.manual\": \"Manual\",\n  \"mode.auto\": \"Automático\",\n};\n\nexport function t(key: string): string {\n  return STRINGS[key] ?? key;\n}\n", "desktop/src/theme.css": "/* Tokens alternativos — Slate índigo */\n:root[data-theme=\"slate\"] {\n  --bg-base: #0e1016;\n  --bg-editor: #141722;\n  --accent: #6d7cff;\n  --accent-hover: #8f9bff;\n}\n", "desktop/src/main.ts": "// Arranque da aplicação desktop.\nimport { renderMessages } from \"./assistant\";\nimport { openWorkspace } from \"./workspace\";\nimport { t } from \"./i18n\";\n\nexport async function main(): Promise<void> {\n  document.title = t(\"app.title\");\n  await openWorkspace(\"projects\");\n  renderMessages();\n}\n\nmain();\n", "crates/lexer/src/lib.rs": "// Tokeniza uma expressão aritmética.\npub fn tokenize(src: &str) -> Vec<Token> {\n    let mut tokens = Vec::new();\n    let mut chars = src.chars().peekable();\n    for c in chars {\n        if c.is_ascii_digit() {\n            tokens.push(Token::Num(c));\n        }\n    }\n    if chars.peek().is_none() {\n        tokens.push(Token::Eof);\n    }\n    tokens\n}\n\n#[derive(Debug, PartialEq)]\npub enum Token {\n    Num(char),\n    Eof,\n}\n", "crates/store/src/lib.rs": "// Camada de persistência (ADR-002): só este crate fala com o SQLite.\npub mod workspaces;\n\npub type Result<T> = std::result::Result<T, StoreError>;\n\n#[derive(Debug)]\npub enum StoreError {\n    Sqlite(rusqlite::Error),\n    NotFound,\n}\n", "crates/store/src/workspaces.rs": "use crate::Result;\nuse rusqlite::{params, Connection};\n\npub struct Workspace {\n    pub id: String,\n    pub name: String,\n    pub created_at: i64,\n}\n\npub fn insert(conn: &Connection, w: &Workspace) -> Result<()> {\n    conn.execute(\n        \"INSERT INTO workspaces (id, name, created_at) VALUES (?1, ?2, ?3)\",\n        params![w.id, w.name, w.created_at],\n    )?;\n    Ok(())\n}\n", ".dxtutor/regras.md": "# Regras do Co-Dev neste projecto\n\n1. Ler os ADRs e o Design System antes de propor uma solução.\n2. Não quebrar a API pública de um crate sem perguntar ao humano.\n3. Toda a alteração de esquema entra como migração nova em `db/migrations`.\n4. Nenhuma cor fixa na UI: usar sempre tokens (`var(--…)`).\n5. Código novo só é entregue com testes a passar e auto-avaliação ≥ limiar.\n6. `git push` e acções destrutivas exigem sempre aprovação humana.\n7. Se a confiança numa decisão for baixa, escolher a opção reversível e assinalar o pressuposto.\n", ".dxtutor/padroes.md": "# Padrões de projecto adoptados\n\n1. **Camadas** — ver ADR-002.\n2. **Repository** — acesso a dados atrás de um `trait`; a implementação SQLite é um detalhe.\n3. **Command** — cada acção da UI é um comando Tauri com entrada e saída tipadas.\n4. **Strategy** — provedores de LLM implementam o mesmo `trait ModelProvider`.\n5. **Observer** — a UI subscreve eventos do agente (plano, ferramenta, avaliação).\n", ".dxtutor/design-system.md": "# Design System\n\n## Tokens\n- Cor: `--bg-base`, `--bg-editor`, `--accent`, `--accent-hover` (ver `desktop/src/styles.css`)\n- Raio: `--radius`\n- Nunca usar valores hexadecimais fora da definição dos tokens.\n\n## Componentes\n- Listas e históricos vivem em **secções do painel lateral**, não em modais.\n- Acção primária: um único botão com `--accent` por vista.\n- Estados: vazio, a carregar, erro — sempre os três.\n", ".dxtutor/requisitos.md": "# Requisitos (backlog vivo)\n\n## RF-01 · Editor e navegação\nComo programador quero abrir, editar e procurar ficheiros sem sair do teclado.\n\n## RF-02 · Co-Dev multi-modelo\nComo programador quero escolher entre Claude, Gemini, Codex e Ollama local por papel.\n\n## RF-03 · Histórico de conversas\nComo programador quero retomar conversas anteriores do Co-Dev por workspace.\n- CA1: as conversas ficam guardadas depois de fechar a aplicação.\n- CA2: a lista mostra primeiro as mais recentes.\n- CA3: apagar um workspace apaga as suas conversas.\n\n## RNF-01 · Local-first\nOs dados do utilizador ficam na máquina; nada sai sem consentimento.\n", ".dxtutor/base-de-dados.md": "# Base de dados\n\n- Motor: SQLite (ficheiro por instalação), acesso via `rusqlite`.\n- Chaves: `TEXT` (ULID). Datas: `INTEGER` (epoch ms).\n- Integridade: chaves estrangeiras com `ON DELETE CASCADE` quando o filho não vive sem o pai.\n- Desempenho: toda a listagem ordenada precisa de um índice que cubra o filtro e a ordenação.\n- Migrações: ficheiros numerados, só para a frente, nunca editar uma migração aplicada.\n", ".dxtutor/arquitectura/ADR-001-local-first.md": "# ADR-001 · Local-first\n\n**Estado:** aceite\n\n**Decisão:** os dados do utilizador (workspaces, conversas, definições) são guardados\nlocalmente em SQLite. Serviços remotos são opcionais e nunca a fonte de verdade.\n\n**Consequências:** funciona offline; sincronização é uma funcionalidade futura, não um requisito.\n", ".dxtutor/arquitectura/ADR-002-camadas.md": "# ADR-002 · Camadas\n\n**Estado:** aceite\n\n**Decisão:** UI (`desktop/`) → comandos Tauri → crates de domínio → `crates/store`.\nSó o crate `store` contém SQL. A UI nunca acede à base de dados directamente.\n\n**Consequências:** a persistência pode mudar sem tocar na interface; testes do `store` não precisam de UI.\n", "db/migrations/0001_init.sql": "-- 0001 · esquema inicial\nCREATE TABLE workspaces (\n  id         TEXT PRIMARY KEY,\n  name       TEXT NOT NULL,\n  created_at INTEGER NOT NULL\n);\n"}, "gen": {"conversations.rs": "// Repository (padroes.md §2): quem consome depende do trait, não do SQLite.\nuse crate::Result;\nuse rusqlite::{params, Connection};\n\npub struct Conversation {\n    pub id: String,\n    pub workspace_id: String,\n    pub title: String,\n    pub created_at: i64,\n}\n\npub trait ConversationRepo {\n    fn save(&self, c: &Conversation) -> Result<()>;\n    fn list_recent(&self, workspace_id: &str, limit: u32) -> Result<Vec<Conversation>>;\n}\n\npub struct SqliteConversationRepo {\n    pub conn: Connection,\n}\n\nimpl ConversationRepo for SqliteConversationRepo {\n    fn save(&self, c: &Conversation) -> Result<()> {\n        self.conn.execute(\n            \"INSERT INTO conversations (id, workspace_id, title, created_at) VALUES (?1, ?2, ?3, ?4)\",\n            params![c.id, c.workspace_id, c.title, c.created_at],\n        )?;\n        Ok(())\n    }\n\n    fn list_recent(&self, workspace_id: &str, limit: u32) -> Result<Vec<Conversation>> {\n        let mut stmt = self.conn.prepare(\n            \"SELECT id, workspace_id, title, created_at FROM conversations WHERE workspace_id = ?1 LIMIT ?2\",\n        )?;\n        let rows = stmt.query_map(params![workspace_id, limit], Conversation::from_row)?;\n        rows.collect()\n    }\n}\n", "history.ts": "// Secção «Histórico» do painel Co-Dev.\n// Só fala com o comando Tauri — nunca com a base de dados (ADR-002).\nimport { invoke } from \"@tauri-apps/api/core\";\n\nexport async function renderHistory(host: HTMLElement, workspaceId: string): Promise<void> {\n  const items = await invoke<Conversation[]>(\"conversations_list_recent\", { workspaceId, limit: 20 });\n  if (!items.length) {\n    host.textContent = \"Ainda não há conversas neste workspace.\";\n    return;\n  }\n  host.innerHTML = items\n    .map((c) => `<button class=\"hist-row\" data-id=\"${c.id}\">${c.title}<\/button>`)\n    .join(\"\");\n  host.style.borderLeft = \"2px solid #ff6600\";\n}\n", "0002_conversations.sql": "-- 0002 · histórico de conversas do Co-Dev (ADR-003)\nCREATE TABLE conversations (\n  id           TEXT PRIMARY KEY,\n  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,\n  title        TEXT NOT NULL,\n  created_at   INTEGER NOT NULL\n);\n\nCREATE TABLE messages (\n  id              TEXT PRIMARY KEY,\n  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,\n  role            TEXT NOT NULL,\n  content         TEXT NOT NULL,\n  created_at      INTEGER NOT NULL\n);\n", "ADR-003-historico.md": "# ADR-003 · Histórico de conversas\n\n**Estado:** aceite (proposto pelo Co-Dev, aprovado pelo humano na entrega)\n\n**Contexto:** RF-03 pede conversas persistentes por workspace.\n\n**Decisão:** tabelas `conversations` e `messages` em SQLite (ADR-001), acedidas\natravés do `trait ConversationRepo` no crate `store` (ADR-002, padrão Repository).\nA UI lista-as numa secção do painel lateral (Design System).\n\n**Alternativas rejeitadas:** SQL directo na UI (viola ADR-002); Postgres gerido\n(viola ADR-001); ficheiro JSON (sem integridade referencial nem ordenação indexada).\n\n**Pressuposto a rever:** retenção de 90 dias, configurável.\n", "conversations_test.rs": "use store::conversations::*;\n\n#[test]\nfn save_and_load_roundtrip() {\n    let repo = test_repo();\n    repo.save(&conv(\"c1\", \"ws1\", \"Primeira\", 10)).unwrap();\n    assert_eq!(repo.list_recent(\"ws1\", 10).unwrap().len(), 1);\n}\n\n#[test]\nfn list_recent_orders_by_newest() {\n    let repo = test_repo();\n    repo.save(&conv(\"c1\", \"ws1\", \"Antiga\", 10)).unwrap();\n    repo.save(&conv(\"c2\", \"ws1\", \"Recente\", 20)).unwrap();\n    assert_eq!(repo.list_recent(\"ws1\", 10).unwrap()[0].id, \"c2\");\n}\n\n#[test]\nfn cascade_delete_messages() {\n    let repo = test_repo();\n    repo.save(&conv(\"c1\", \"ws1\", \"A apagar\", 10)).unwrap();\n    delete_workspace(&repo.conn, \"ws1\").unwrap();\n    assert!(repo.list_recent(\"ws1\", 10).unwrap().is_empty());\n}\n"}};
 /* COURSES (conteúdo dos cursos) migrado p/ features/learn.ts */
 /* ═════════ dxtutor IDE v2 — núcleo do IDE ═════════ */
 const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const hhmm=()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');return p(d.getHours())+':'+p(d.getMinutes());};
-const LS={get(k,d){try{const v=localStorage.getItem('dx2.'+k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem('dx2.'+k,JSON.stringify(v));}catch(e){}}};
 const setVar=(k,v)=>document.body.style.setProperty(k,v);
 const getVar=k=>getComputedStyle(document.body).getPropertyValue(k).trim();
 function hydrate(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.insertAdjacentHTML('afterbegin',svg(el.dataset.ic));el.dataset.done=1;});}
@@ -26,21 +25,12 @@ function hydrate(){$$('[data-ic]').forEach(el=>{if(el.dataset.done)return;el.ins
 /* ───── sistema de ficheiros virtual ───── */
 const ROOT='dxtutor/',FS={},OPEN=new Set(['dxtutor','dxtutor/crates','dxtutor/crates/lexer','dxtutor/crates/lexer/src','dxtutor/desktop','dxtutor/desktop/src']),SECOPEN={};
 /* estado git/scm (STAGED/BRANCH/COMMIT_MSG/BRANCHES/COMMITS/AUTHOR/GSEL) migrado p/ features/scm.ts; lido aqui por global */
-function loadSeed$dup0(){Object.keys(FS).forEach(k=>delete FS[k]);Object.entries(SEED.base).forEach(([p,c])=>{FS[ROOT+p]={content:c,orig:c};});
-  const s=FS[ROOT+'desktop/src/styles.css'];s.orig=s.content.replace('  --accent-hover: #f08a4b;\n','');
-  const a=FS[ROOT+'desktop/src/assistant.ts'];a.orig=a.content.replace(/\n\/\/ v2[\s\S]*$/,'\n');
-  FS[ROOT+'desktop/src/theme.css'].orig=null;STAGED.clear();}
 const extOf=p=>(p.includes('.')?p.split('.').pop():'').toLowerCase();
 const LANG={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
-function fIcon(p){const e=extOf(p);return `<span class="ic x-${e}">${svg(e==='rs'?'rust':e==='md'?'book':e==='sql'?'volume':'file')}</span>`;}
+/* fIcon/syncTree (ícone por extensão, árvore a partir do FS) migrados p/ features/explorer.ts (ADR-0004, U4c). */
 /* stOf/changes (estado da árvore de trabalho) migrados p/ features/scm.ts; lidos por global */
 const short=p=>p.replace(ROOT,'');
 const norm=p=>{p=String(p||'').replace(/^\.?\//,'');return p.startsWith(ROOT)?p:ROOT+p;};
-function writeFile(p,content){if(FS[p])FS[p].content=content;else{FS[p]={content,orig:null};let d=p.split('/');d.pop();while(d.length){OPEN.add(d.join('/'));d.pop();}}refresh();}
-window.syncTree = function(){const mk=dp=>({dir:1,children:{},dpath:dp}),root=mk('dxtutor');
-  Object.keys(FS).forEach(p=>{const parts=p.split('/').slice(1);let n=root,acc='dxtutor';parts.forEach((s,i)=>{if(i===parts.length-1)n.children[s]={path:p};else{acc+='/'+s;n=n.children[s]||(n.children[s]=mk(acc));}});});
-  const sort=n=>{const o={};Object.keys(n.children).sort((a,b)=>(!!n.children[b].dir-!!n.children[a].dir)||a.localeCompare(b)).forEach(k=>{o[k]=n.children[k];if(o[k].dir)sort(o[k]);});n.children=o;};sort(root);
-  TREE.projects.children.dxtutor=root;}
 
 /* ───── explorer ───── */
 /* 8 funções (renderLevel/buildExplorer/markActive/collapseAll/symbols/drawOutline/newFile/newFolder) migradas p/ features/explorer.ts; lidas por global (window.*) aqui (refresh/show), em boot.ts e v6.ts (symbols) */
@@ -54,28 +44,8 @@ const P_LX=ROOT+'crates/lexer/src/lib.rs',P_REPO=ROOT+'crates/store/src/conversa
 /* motor has/lexBug/dsLint/diagnostics/runTests/drawProblems/nextProblem migrado p/ features/diagnostics.ts; lido por global (P_* ficam donas aqui) */
 
 /* ───── separadores e vistas ───── */
-let TB=[];window.cur=null;window.PANE='explorer';const VIEW={};
-const tabOf=id=>TB.find(o=>o.id===id);
-function openTab(t,act){let x=tabOf(t.id);if(x)Object.assign(x,t);else TB.push(t);if(act===false)drawTabs();else show(t.id);}
-function openPath(p,line){if(!FS[p]){toast('Ficheiro não existe: '+short(p));return;}openTab({id:p,title:p.split('/').pop(),kind:'file',path:p});if(line)gotoLine(line);}
-function openFile(name){const p=Object.keys(FS).find(k=>k.endsWith('/'+name));if(p)openPath(p);}
-function setActive(id){if(tabOf(id))show(id);}
-function tabIc$dup0(t){if(t.kind==='file')return fIcon(t.title);const m={agent:'sparkle',welcome:'sparkle',diff:'scm',settings:'settings',manager:'graph',analysis:'book'};return `<span class="ic acc">${svg(m[t.kind]||'file')}</span>`;}
-function drawTabs(){const host=$('#tabs');host.innerHTML='';TB.forEach(t=>{const el=document.createElement('div');el.className='tab'+(t.id===cur?' active':'');el.title=t.path?short(t.path):t.title;
-  const dup=t.path&&TB.some(o=>o!==t&&o.kind==='file'&&o.title===t.title);el.innerHTML=`${tabIc(t)}<span class="nm">${esc(t.title)}${dup?` <span style="color:var(--fg-muted)">${esc(t.path.split('/').slice(-3,-2)[0]||'')}</span>`:''}</span><button class="x">${svg('close')}</button>`;
-  el.onclick=e=>{if(e.target.closest('.x')){e.stopPropagation();closeTab(t.id);return;}show(t.id);};el.onauxclick=e=>{if(e.button===1)closeTab(t.id);};host.appendChild(el);});
-  const a=host.querySelector('.active');if(a&&a.scrollIntoView)a.scrollIntoView({block:'nearest',inline:'nearest'});}
-function parkAgent(){const b=$('#ag-body');if(b.parentElement.id!=='agent')$('#agent').appendChild(b);}
-function miniOff(){$('#minimap').classList.add('hidden');$('#ebody').classList.remove('with-mm');}
-window.show = function(id){const t=tabOf(id),host=$('#ebody');parkAgent();host.innerHTML='';host.scrollTop=0;host.scrollLeft=0;
-  if(!t){cur=null;drawTabs();miniOff();$('#breadcrumbs').innerHTML='';host.innerHTML=`<div class="empty"><div><b style="color:var(--fg-dim);font-size:14px">dxtutor IDE</b><br><kbd>Ctrl+P</kbd> ir para ficheiro &nbsp; <kbd>Ctrl+Shift+P</kbd> comandos<br><kbd>Ctrl+L</kbd> falar com o Co-Dev &nbsp; <kbd>Ctrl+\`</kbd> terminal</div></div>`;drawOutline();stLang();return;}
-  cur=id;drawTabs();
-  $('#breadcrumbs').innerHTML=(t.path?t.path.split('/'):['dxtutor',t.title]).map((s,i,a)=>`<span class="crumb"${i===a.length-1?' style="color:var(--fg)"':''}>${esc(s)}</span>`).join('<span class="sep">›</span>');
-  if(t.kind!=='file')miniOff();VIEW[t.kind](t,host);hydrate();drawOutline();markActive();stLang();ctxPill();}
-function closeTab(id){const i=TB.findIndex(t=>t.id===id);if(i<0)return;const t=TB[i];TB.splice(i,1);
-  if(t.kind==='agent'){parkAgent();setVar('--agent-w','380px');$('#tgl-agent').classList.add('on');}
-  if(cur===id)show(TB.length?TB[Math.max(0,i-1)].id:null);else drawTabs();}
-function stepTab(d){if(!TB.length)return;const i=TB.findIndex(t=>t.id===cur);show(TB[(i+d+TB.length)%TB.length].id);}
+window.cur=null;window.PANE='explorer';/* VIEW com dono em app/store/registry.ts (ADR-0004, U4g1) */
+/* separadores do editor (tabOf/openTab/openPath/openFile/setActive/drawTabs/parkAgent/miniOff/show/closeTab/stepTab/tabIc) migrados p/ features/tabs.ts (ADR-0004, U4b); a lista TB tem dono em app/store/editor. */
 
 /* editor: renderFileView/paintEd/gotoLine/stPos/stLang/edCmd/selText migrados p/ features/editor.ts; lidos por global, pane delega no shim abaixo */
 VIEW.file=(t,host)=>window.renderFileView(t,host);
@@ -90,20 +60,13 @@ window.refresh = function(fromEd,force){const sig=Object.keys(FS).map(p=>p+stOf(
   if(sig!==SIG||force){SIG=sig;syncTree();buildExplorer();}
   drawProblems();badges();if(RP[PANE]&&PANE!=='search')RP[PANE]();hydrate();
   if(!fromEd){const t=tabOf(cur);if(!t)show(TB.length?TB[TB.length-1].id:null);else if(t.kind==='file'){const ta=$('#ed-ta'),top=$('#ebody').scrollTop;if(ta&&ta.value!==FS[t.path].content){ta.value=FS[t.path].content;}if(ta){paintEd(t.path);$('#ebody').scrollTop=top;}drawTabs();}else if(t.kind==='diff'||t.kind==='manager'){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}else drawTabs();}
-  else if(tabOf(cur)&&tabOf(cur).kind==='file')paintEd(tabOf(cur).path);drawOutline();}
-window.badges = function(){const set=(p,v)=>{const b=$(`.act[data-pane="${p}"] .badge`);if(b){b.textContent=v;b.style.display=v?'grid':'none';}};set('scm',changes().length||'');set('codev',typeof RUN!=='undefined'&&RUN.active?'●':'');}
+  else if(tabOf(cur)&&tabOf(cur).kind==='file')paintEd(tabOf(cur).path);drawOutline();
+  /* U3c (ADR-0004): o fim do refresh é o sinal «o workspace mudou» — quem reagia
+     decorando o refresh (grafo/board, autosave do desktop, sync do PairCode) subscreve */
+  bus.emit('workspace:changed',{fromEditor:!!fromEd,force:!!force});}
+/* shell (badges/RP/sideOpen/setPane/goPane/toggleSide/togglePanel/hd/setPanelTab/buildActivity) migrada p/ features/shell.ts (ADR-0004, U4d1). */
 
 /* ───── activity bar e painéis laterais ───── */
-const RP={};
-function buildActivity$dup0(){const bar=$('#activity');bar.innerHTML='';ACTS.forEach(a=>{const el=document.createElement('button');el.className='act'+(a.spacer?' spacer':'');el.title=a.title;el.dataset.pane=a.pane||'';el.innerHTML=svg(a.ic)+`<span class="badge${a.acc?' acc':''}" style="display:none"></span>`;
-  el.onclick=e=>{e.stopPropagation();a.overflow?openOverflow(el):setPane(a.pane,true);};bar.appendChild(el);});}
-const sideOpen=()=>getVar('--side-w')!=='0px';
-function setPane(p,tgl){if(p==='settings'){openSettings();return;}if(tgl===true&&PANE===p&&sideOpen()){toggleSide();return;}if(!sideOpen())toggleSide();PANE=p;
-  $$('.act').forEach(a=>a.classList.toggle('on',a.dataset.pane===p));$$('.pane').forEach(x=>x.classList.remove('show'));const pe=$('#pane-'+p);if(pe)pe.classList.add('show');if(RP[p])RP[p]();hydrate();}
-const goPane=p=>setPane(p);
-function toggleSide(){const o=sideOpen();setVar('--side-w',o?'0px':'250px');$('#tgl-side').classList.toggle('on',!o);}
-function togglePanel(){const o=getVar('--panel-h')!=='0px';setVar('--panel-h',o?'0px':'230px');$('#tgl-panel').classList.toggle('on',!o);}
-const hd=(t,acts)=>`<div class="side-hd"><span class="t">${t}</span><span class="acts">${acts||''}</span></div>`;
 
 RP.search=()=>window.renderSearchPane();/* corpo + leaves doSearch/replaceAll migrados p/ features/search.ts; shim delega (lazy, no switch de pane) */
 
@@ -120,8 +83,7 @@ RP.scm=()=>{const el=$('#pane-scm'),ch=changes(),st=ch.filter(p=>STAGED.has(p)),
 RP.run=()=>window.renderRunPane();/* corpo migrado p/ features/run.ts; shim delega (lazy, no switch de pane) */
 function runTask(c){setPanelTab('terminal');return termExec(c);}
 RP.test=()=>window.renderTestPane();/* corpo migrado p/ features/test.ts; shim delega (lazy, no switch de pane) */
-RP.ext=()=>{$('#pane-ext').innerHTML=hd('Extensions')+`<div class="sections"><div class="scm-grp">Provedores de LLM<span class="cnt">${Object.values(PROV).filter(p=>p.on).length}/4</span></div>${Object.entries(PROV).map(([k,p])=>`<div class="scm-row" onclick="toggleProv(${jsa(k)})"><span class="pdot${p.on?'':' off'}" style="background:${p.col}"></span><span class="nm">${p.name}</span><span class="pth">${p.vendor}</span><span class="sw${p.on?' on':''}" style="margin-left:auto"></span></div>`).join('')}
-  <div class="scm-grp">Linguagem e qualidade<span class="cnt">4</span></div>${[['rust','rust-analyzer','diagnósticos Rust'],['shield','Design System Lint','dx lint'],['test','Test Explorer','cargo test'],['check','Spell Checker','pt-AO (pré-AO90)']].map(e=>`<div class="scm-row" style="cursor:default"><span class="ic">${svg(e[0])}</span><span class="nm">${e[1]}</span><span class="pth">${e[2]}</span></div>`).join('')}<button class="btn ghost" onclick="openSettings()">Configurar provedores…</button></div>`;};
+/* RP.ext antigo (provedores de LLM) eliminado — código morto: o v6 sobrepunha-o ao carregar; o painel é da features/ext.ts (ADR-0004, U4g1). */
 RP.remote=()=>window.renderRemotePane();/* corpo migrado p/ features/remote.ts; shim delega (lazy, no switch de pane) */
 RP.account=()=>window.renderAccountPane();/* corpo migrado p/ features/account.ts; shim delega (lazy, no switch de pane) */
 RP.codev=()=>window.renderCodevPane();/* base v3 + decoração v4 migradas p/ features/codev.ts; shim delega (lazy, no switch de pane) */
@@ -158,32 +120,27 @@ const PROV={
 };
 /* ROLE/ROLE_D/ROUTE/MODES/CRIT/MISSIONS/DECS/CKPT + SPEED/MID: motor Co-Dev migrado p/ features/codev.ts (window-backed); aqui lê-se por global. */
 window.MODE='assist';window.ACTIVE='claude';window.THRESH=85;window.CTX_ON=true;window.SAMPLE=null;
-const CHAT=[],USAGE={claude:{calls:0,tok:0},gemini:{calls:0,tok:0},codex:{calls:0,tok:0},ollama:{calls:0,tok:0}};
+const CHAT=[];/* USAGE com dono no agentStore (ADR-0004, U4f) */
 const COMMITS0=COMMITS.slice();
 const RUN={active:false,paused:false,stop:false,pend:null,abort:null,label:'',t0:0};
 const STOP='__STOP__',SAFE=/^(cargo (test|build|clippy)|dx lint|npm run lint)/,DANGER=/git push|rm -rf|drop table|--force/i;
-const connected=()=>Object.keys(PROV).filter(k=>PROV[k].on);
 const provFor=r=>PROV[ROUTE[r]].on?ROUTE[r]:(connected()[0]||ROUTE[r]);
 const who=r=>`${ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
 window.provState=k=>k==='claude'?(SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
-const use=(p,tok)=>{USAGE[p].calls++;USAGE[p].tok+=tok;};
-function save(){LS.set('cfg',{MODE,ACTIVE,THRESH,THEME,ROUTE,prov:Object.fromEntries(Object.entries(PROV).map(([k,p])=>[k,{on:p.on,model:p.model}]))});}
-function loadCfg(){const c=LS.get('cfg',null);if(!c)return;if(MODES[c.MODE])MODE=c.MODE;if(PROV[c.ACTIVE])ACTIVE=c.ACTIVE;if(c.THRESH)THRESH=c.THRESH;if(THEMES[c.THEME])THEME=c.THEME;Object.keys(ROUTE).forEach(r=>{if(c.ROUTE&&PROV[c.ROUTE[r]])ROUTE[r]=c.ROUTE[r];});Object.keys(PROV).forEach(k=>{if(c.prov&&c.prov[k]){PROV[k].on=!!c.prov[k].on;if(c.prov[k].model)PROV[k].model=c.prov[k].model;}});}
 
 /* checkpoints: checkpoint$dup0/restoreCkpt$dup0/resetAll$dup0 (duplicados mortos) removidos; o checkpoint git-aware vivo está na secção git (~629). */
 
 /* interface do agente + controlo de execução + ferramentas do agente: motor migrado p/ features/codev.ts (window-backed). Fica aqui só setPanelTab (infra do painel inferior, partilhado por boot/debug/infra/pair). */
-function setPanelTab(pt,nofocus){if(getVar('--panel-h')==='0px')togglePanel();$$('.ptab').forEach(b=>b.classList.toggle('on',b.dataset.pt===pt));$$('.pcontent').forEach(c=>c.classList.remove('show'));const el=$('#pc-'+pt);if(el)el.classList.add('show');if(pt==='terminal'){scrollTerm();if(!nofocus){const c=$('#cmd');if(c)c.focus({preventScroll:true});}}}
 
 /* cenários de demonstração (G/lxStep/SCN/demo): migrados p/ features/codev.ts (SCN lazy, window.demo). */
 
 /* motor de missões (dec/decideQ/total/council/execSteps/evaluate/reflect/runMission): migrado p/ features/codev.ts. */
 
 /* conversa livre (handlePrompt/agSend/liveChat) + posicionamento (assistantCenter/Dock/toggleAgent/toggleAgentOn/focusAgent): migrados p/ features/codev.ts.
-   VIEW.agent fica como shim (VIEW só nasce em app.ts): */
+   VIEW.agent fica como shim: */
 VIEW.agent=(t,host)=>window.renderAgentView(t,host);
 /* páginas Co-Dev (welcome/settings/manager/analysis + openSettings/openManager/openAnalysis/testProv + POLICY/GAPS/NEXT): migradas p/ features/codev.ts.
-   Os VIEW.* ficam shims (VIEW só nasce em app.ts): */
+   Os VIEW.* ficam shims: */
 VIEW.welcome=(t,host)=>window.renderWelcomePage(t,host);
 VIEW.settings=(t,host)=>window.renderSettingsPage(t,host);
 VIEW.manager=(t,host)=>window.renderManagerPage(t,host);
@@ -233,6 +190,7 @@ function boot(){loadCfg();loadSeed();syncTree();
   hydrate();if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   let tries=0;(function live(){if(window.claude&&typeof window.claude.use==='function'){window.claude.use('sample').then(s=>{SAMPLE=s||null;updateAgentUI();const t=tabOf(cur);if(t&&t.kind==='settings')show(cur);if(RP[PANE])RP[PANE]();}).catch(()=>{});}else if(++tries<25)setTimeout(live,300);})();}
 document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey,go=f=>{e.preventDefault();f();};
+  if(window.termOwnsKey&&window.termOwnsKey(e))return;/* foco num terminal real (features/panel): a tecla é da shell */
   if(e.key==='Escape'){if($('#pal').classList.contains('show'))window.closePal();closeMenus();$('#notes').classList.remove('show');return;}
   if(e.key==='F1'||(c&&e.shiftKey&&k==='p'))go(()=>palette('>'));else if(e.key==='F8')go(nextProblem);
   else if(c&&e.shiftKey){if(k==='e')go(()=>goPane('explorer'));else if(k==='f')go(cmd('Ver: Pesquisa'));else if(k==='g')go(()=>goPane('scm'));else if(k==='m')go(()=>setPanelTab('problems'));else if(k==='a')go(()=>goPane('codev'));}
@@ -248,11 +206,6 @@ const rid=()=>Math.random().toString(16).slice(2,9);
 function rerender(kind){const t=tabOf(cur);if(t&&t.kind===kind){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}
 
 /* ───── git: motor (GIT/LANE/gitInit + DAG/merge/gitflow/graphLayout) migrado p/ features/scm.ts; checkpoint/restoreCkpt/gfAsk migrados p/ features/checkpoint.ts; aqui só consumidor (loadSeed) que lê por global ───── */
-function loadSeed(){Object.keys(FS).forEach(k=>delete FS[k]);STAGED.clear();
-  if(SEED_ON){Object.entries(SEED.base).forEach(([p,c])=>{FS[ROOT+p]={content:c,orig:c};});
-  const s=FS[ROOT+'desktop/src/styles.css'];s.orig=s.content.replace('  --accent-hover: #f08a4b;\n','');const a=FS[ROOT+'desktop/src/assistant.ts'];a.orig=a.content.replace(/\n\/\/ v2[\s\S]*$/,'\n');
-  FS[ROOT+'desktop/src/theme.css'].orig=null;}
-  gitInit();}
 /* authorOf + AUTHOR + commit v4 (window.commitGit) migrados p/ features/scm.ts; lidos por global (AUTHOR é window-puro, escrito aqui em runIssue/co-dev) */
 /* checkout/gitMerge/isFlow/gfStart/gfFinish/gfPrompt/gfGuide/pickBranch/drawTimeline migrados p/ features/scm.ts; lidos por global */
 RP.scm=()=>window.renderScmPane();/* corpo v4 migrado p/ features/scm.ts; shim delega (lazy, no switch de pane) */
@@ -266,8 +219,7 @@ XC.git=(a,raw)=>window.gitCmd(a,raw);
    saveTeam/loadTeam/pickAgent/agentPill/scopeProbe + VIEW.team) migrado p/ features/team.ts
    (inversão @ts-nocheck, window-backed). Aqui ficam: openTeam (abrir tab — $dup0; versão viva
    em v5.ts), a decoração Object.assign(AGENTS.*) abaixo, e o shim VIEW.team que v5/v6 decoram. ───── */
-function openTeam$dup0(){openTab({id:'team',title:'Equipa',kind:'team'});}
-VIEW.team=(t,host)=>window.renderTeamView(t,host);
+/* VIEW.team registado (composto) pela própria features/team.ts (ADR-0004, U4g4). */
 
 /* ───── router: motor (CAPL/CAP/TASKP/ROUTE_CACHE/LIVE_OK/rankModels/routeModel) migrado p/ features/router.ts; aqui só consumidores (VIEW.team, genBacklog, runIssue) que lêem por global ───── */
 
@@ -278,7 +230,7 @@ VIEW.team=(t,host)=>window.renderTeamView(t,host);
    openBoard) + produtor (genBacklog/genBacklogIssues) migrados p/ features/board.ts;
    tplNode + genBacklog$dup0 (código morto) eliminados. Aqui só o shim de VIEW.board
    (eager; v5/v6 decoram-no) e os decoradores/consumidores que lêem por global. ───── */
-VIEW.board=(t,host)=>window.renderBoardView(t,host);
+/* VIEW.board registado (composto) pela própria features/board.ts (ADR-0004, U4g3). */
 
 /* ───── Tutor (clássico): percursos LEARN/LP/lesson·/VIEW.learn/RP.tutor(v4) ELIMINADOS —
    código morto substituído pelo Learning Track (features/learn.ts + features/tutor.ts).
@@ -287,11 +239,8 @@ const LF=p=>ROOT+'learn/'+p;/* fachada viva: features/learn.ts lê window.LF (lt
 let LCUR=['rust','own'];/* fallback constante dos call-sites vivos (welcome/CMD/MENUS): nextLesson()||LCUR */
 
 /* ───── integração com o resto do IDE ───── */
-function tabIc$dup1(t){if(t.kind==='file')return fIcon(t.title);const m={agent:'sparkle',welcome:'sparkle',diff:'scm',settings:'settings',manager:'graph',analysis:'book',graph:'scm',team:'account',studio:'cube',board:'split',learn:'book'};return `<span class="ic acc">${svg(m[t.kind]||'file')}</span>`;}
-function buildActivity(){const bar=$('#activity');bar.innerHTML='';ACTS.forEach(a=>{const el=document.createElement('button');el.className='act'+(a.spacer?' spacer':'')+(a.sep?' sep':'');el.title=a.title;el.dataset.pane=a.pane||'';el.innerHTML=svg(a.ic)+`<span class="badge${a.acc?' acc':''}" style="display:none"></span>`;
-  el.onclick=e=>{e.stopPropagation();a.overflow?openOverflow(el):a.run?a.run():setPane(a.pane,true);};bar.appendChild(el);});}
 function resetAll(){if(RUN.active){toast('Pára a execução primeiro');return;}loadSeed();MISSIONS.length=0;DECS.length=0;CKPT.length=0;CHAT.length=0;BL.issues.length=0;BL.seq=11;BL.mig=3;BL.adr=4;SD=JSON.parse(JSON.stringify(ST_SEED));saveSD();TB=[];newChat();refresh(false,true);openTab({id:'welcome',title:'Bem-vindo',kind:'welcome'});toast('Protótipo reposto ao estado inicial');}
-const _refresh=refresh;refresh=function(a,b){_refresh(a,b);if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();};
+bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=tabOf(cur);if(t&&(t.kind==='graph'||t.kind==='board')){const top=$('#ebody').scrollTop;show(cur);$('#ebody').scrollTop=top;}}blame();});
 const _stLang=window.stLang;window.stLang=function(){_stLang();blame();};
 function blame(){const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path)),c=h?GIT.c[h]:GIT.c['1a2b3c4'];if(!c){/* desktop: syncGit reconstrói GIT.c com hashes reais e files:[], logo '1a2b3c4' (semente do protótipo) não existe — sem crash, só o estado local */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 /* decoração v4 do pane Co-Dev (Equipa/Backlog/Studio) migrada e dobrada em features/codev.ts */
@@ -332,7 +281,7 @@ VIEW.lt=(t,host)=>window.renderLtView(t,host);/* corpo migrado p/ features/learn
    composeYaml/dockerfile/appFiles/k8sYaml/cloudMap lidos por global por features/board.ts ───── */
 /* genBacklog/genBacklogIssues (produtor Studio→backlog) migrados p/ features/board.ts;
    lêem os geradores (composeYaml/dockerfile/appFiles/k8sYaml/cloudMap, em features/generators.ts) por global. */
-const _approve=approveIssue;approveIssue=function(id){_approve(id);if(BL.issues.some(i=>i.infra&&i.stage==='done')){SD.nodes.forEach(n=>{if(!BL.issues.some(i=>i.node===n.id)&&n.st!=='ok')n.st='ok';});saveSD();}rerender('board');};
+/* decoração de approveIssue (fecha componentes do Studio) composta em features/board.ts (ADR-0004, U4g3). */
 Object.assign(AGENTS.be,{paths:['crates/**','apps/*/src/**','apps/*/Cargo.toml','apps/*/go.mod','apps/*/package.json','apps/*/requirements.txt'],max:8});Object.assign(AGENTS.fe,{paths:['desktop/src/**','web/**']});Object.assign(AGENTS.ops,{paths:['docker-compose.yml','.env.example','Makefile','apps/*/Dockerfile','deploy/**','.ci/**','Cargo.toml'],cmds:['cargo build','docker compose','make','git push'],max:12});Object.assign(AGENTS.qa,{cmds:['cargo test','dx lint','dx test','sh tests/smoke.sh']});
 
 /* ───── RUN: one command for the whole stack ───── */
@@ -343,7 +292,6 @@ XC.make=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);re
 const _dx4=XC.dx;XC.dx=a=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}return _dx4(a);};
 
 /* ───── wiring ───── */
-function tabIc(t){if(t.kind==='file')return fIcon(t.title);if(t.kind==='lt')return `<span class="ic acc">${svg('book')}</span>`;const m={agent:'sparkle',welcome:'sparkle',diff:'scm',settings:'settings',manager:'graph',analysis:'book',graph:'scm',team:'account',studio:'cube',board:'split'};return `<span class="ic acc">${svg(m[t.kind]||'file')}</span>`;}
 VIEW.welcome=(t,host)=>{const w=(ic,a,b,act)=>`<button class="wbtn" onclick="${act}"><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
   host.innerHTML=`<div class="page"><div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><h1 style="font-weight:300;font-size:26px;margin:0">dxtutor <b style="font-weight:600">IDE</b></h1></div>
   <div class="sub">Learn a language step by step, or design an architecture and let a team of assistants build it: backlog, branches, tests, containers — then run everything with one command.</div>
@@ -366,26 +314,16 @@ function boot4(){LANG.go='Go';const ci=CMD.findIndex(c=>c[0]==='Ajuda: O que mud
    consomem; ao virar módulo, os let/const/function de topo deixaram de ser globais de
    script. As mutáveis partilhadas já são window-backed acima (fonte única). ── */
 Object.assign(window, {
-  CMD, FS, LS,
-  OPEN, PANE, PROV, ROOT, RP, RUN, SECOPEN, STOP, VIEW,
-  badges, blame, boot, boot3, boot4, buildActivity, buildMenus,
-  closeTab,
-  drawTabs, esc, fIcon, goPane,
-  hydrate, loadCfg, loadSeed, log,
-  mdFull, miniOff,
-  openFile, openPath, openTab,
-  parkAgent,
-  rerender, resetAll, runTask,
-  save, setActive, setPane, setPanelTab, show,
-  stepTab, tabIc, tabOf, togglePanel,
-  toggleSide, use,
-  who, writeFile,
-  // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
-  CHAT, SEED, SAFE, DANGER, connected, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
+  CMD, FS, OPEN, PANE, PROV, ROOT, RUN, SECOPEN, STOP,
+  blame, boot, boot3, boot4, buildMenus,
+  esc, hydrate, log,
+  mdFull, rerender, resetAll, runTask,
+  who, // núcleo partilhado que o motor Co-Dev (features/codev.ts) lê por global (defs ficam donas do monólito):
+  CHAT, SAFE, DANGER, norm, P_MIG, P_REPO, P_STORE, P_TEST, P_ADR,
   // fachadas que as features migradas (features/*.ts) consomem por window:
   provFor, LF,
   // núcleo que as camadas v5 (src/v5.ts) e v6 (src/v6.ts) consomem como referências livres via window:
-  extOf, getVar, hd, hhmm, LANG, P_HIST, P_LX, rel, setVar, short, USAGE
+  extOf, getVar, hhmm, LANG, P_HIST, P_LX, rel, setVar, short
 });
 /* arranque: `boot();…boot7();i18nBoot()` movido para src/startup.ts — o último módulo
    da cadeia, de modo a correr depois de as camadas v3–v7 publicarem os seus bootN. */

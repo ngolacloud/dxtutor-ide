@@ -19,6 +19,7 @@
 
 import { S, prov, provState, show, toast, log, writeFile, rerender, hhmm } from "../../../core";
 import type { Prov } from "../../../core";
+import { agentStore } from "../../../app/store";
 
 export type { Prov };
 export { prov, provState, show, toast, log, writeFile, rerender, hhmm };
@@ -48,10 +49,10 @@ export const monolith = {
   set threshold(v: number) { S.THRESH = v; },
   get currentTabId(): string | null { return S.cur; },
   get pane(): string { return S.PANE; },
-  get activeProvider(): string { return window.ACTIVE; },
-  set activeProvider(v: string) { window.ACTIVE = v; },
-  get contextEnabled(): boolean { return window.CTX_ON; },
-  set contextEnabled(v: boolean) { window.CTX_ON = v; },
+  get activeProvider(): string { return agentStore.provider; },
+  set activeProvider(v: string) { agentStore.provider = v; },
+  get contextEnabled(): boolean { return agentStore.contextEnabled; },
+  set contextEnabled(v: boolean) { agentStore.contextEnabled = v; },
   get theme(): string { return window.THEME; },
   get activeAgent(): string { return window.AGENT; },
   set author(v: string) { window.AUTHOR = v; },
@@ -112,12 +113,19 @@ export const setEffort = (v: string): void => {
 export const pickPersona = (): void => G.pickAgent?.();
 export const refreshPersona = (): void => G.agentPill?.();
 
-/** A língua do ditado (`dx2.dictationLang`: `pt`, `en`, …); por omissão o whisper detecta-a. */
-export const dictationLang = (): string => {
+/** A língua do ditado guardada (`dx2.dictationLang`); `null` = por escolher. */
+export const dictationLang = (): string | null => {
   try {
-    return localStorage.getItem("dx2.dictationLang") || "auto";
+    return localStorage.getItem("dx2.dictationLang");
   } catch {
-    return "auto";
+    return null;
+  }
+};
+export const setDictationLang = (v: string): void => {
+  try {
+    localStorage.setItem("dx2.dictationLang", v);
+  } catch {
+    /* armazenamento indisponível: vale só nesta execução */
   }
 };
 

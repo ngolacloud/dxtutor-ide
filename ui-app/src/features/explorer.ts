@@ -50,4 +50,56 @@ function newFolder(){palette('',{ph:'Nome da nova pasta (relativo a dxtutor/)',v
 /* ── publicação no window: nomes que o resíduo (app.ts: refresh/show + Object.assign),
    o boot.ts (buildExplorer/renderLevel/collapseAll), o v6.ts (symbols) e as entradas
    do CMD/menus (newFile/newFolder) resolvem como globais. ── */
-Object.assign(window, { renderLevel, buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder });
+/* ── U4c (ADR-0004): também donos da selecção de linha (era do boot.ts), da árvore a partir
+   do FS e do ícone por extensão (eram do app.ts). O bridge.ts decora o syncTree depois
+   (_syncTree) — decora esta versão. ── */
+/** Marca a linha `r` da árvore como seleccionada (só uma de cada vez). */
+function sel(r: Element): void {
+  $$(".row.sel").forEach((x) => x.classList.remove("sel"));
+  r.classList.add("sel");
+}
+
+interface TreeNode {
+  dir?: number;
+  children: Record<string, TreeNode | { path: string }>;
+  dpath?: string;
+}
+
+/** Reconstrói a árvore do projecto a partir dos caminhos do FS (pastas primeiro, por nome). */
+function syncTree(): void {
+  const mk = (dp: string): TreeNode => ({ dir: 1, children: {}, dpath: dp }),
+    root = mk("dxtutor");
+  Object.keys(FS).forEach((p) => {
+    const parts = p.split("/").slice(1);
+    let n = root,
+      acc = "dxtutor";
+    parts.forEach((s, i) => {
+      if (i === parts.length - 1) n.children[s] = { path: p };
+      else {
+        acc += "/" + s;
+        n = (n.children[s] as TreeNode) || (n.children[s] = mk(acc));
+      }
+    });
+  });
+  const isDir = (x: TreeNode | { path: string }): boolean => !!(x as TreeNode).dir;
+  const sort = (n: TreeNode): void => {
+    const o: TreeNode["children"] = {};
+    Object.keys(n.children)
+      .sort((a, b) => Number(isDir(n.children[b])) - Number(isDir(n.children[a])) || a.localeCompare(b))
+      .forEach((k) => {
+        o[k] = n.children[k];
+        if (isDir(o[k])) sort(o[k] as TreeNode);
+      });
+    n.children = o;
+  };
+  sort(root);
+  (TREE as { projects: { children: Record<string, unknown> } }).projects.children.dxtutor = root;
+}
+
+/** O ícone de um ficheiro pela extensão (Rust, Markdown, SQL; o resto genérico). */
+function fIcon(p: string): string {
+  const e = (window as unknown as { extOf: (p: string) => string }).extOf(p);
+  return `<span class="ic x-${e}">${svg(e === "rs" ? "rust" : e === "md" ? "book" : e === "sql" ? "volume" : "file")}</span>`;
+}
+
+Object.assign(window, { renderLevel, buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree, fIcon });

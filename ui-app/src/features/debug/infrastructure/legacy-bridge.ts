@@ -55,6 +55,8 @@ export const panes = (): Record<string, () => void> => G.RP;
    `lexVariant` reporta a variante do fonte do lexer; `lexLine` (LXL) devolve o nº da
    primeira linha que casa a regex. Tornam-se portas injectadas na Fase 3. */
 export const lexVariant = (): string => G.lexVariant();
+/** O lexer do seed tem o bug E0382 (o `for` move `chars`)? (features/diagnostics.ts) */
+export const lexBug = (): boolean => G.lexBug();
 export const lexLine = (re: RegExp): number => G.LXL(re);
 
 /* ───── ambientes/segredos (infra; para os lançadores crash e `crashTrace`) ─────

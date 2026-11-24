@@ -19,8 +19,10 @@
 
 import { $, esc } from "../../../core";
 import * as bridge from "../infrastructure/legacy-bridge";
-import { composerContext, composerRunChanged, trackSubagent } from "./composer";
+import { composerContext, trackSubagent } from "./composer";
+import { bus } from "../../../app/bus";
 import { RUBRIC } from "../domain/scoring";
+import { explainProviderError } from "../domain/provider-errors";
 import type {
   ApprovalGate,
   CardRef,
@@ -63,12 +65,31 @@ export function scrollMsgs(): void {
   m.scrollTop = $("#ag-intro") ? 0 : m.scrollHeight;
 }
 
+/** Texto do humano → HTML da bolha: escapado; as quebras de linha ficam (a bolha tem
+ *  `white-space: pre-wrap`) e os blocos ``` viram `<pre>` (sem as crases à vista). Texto
+ *  sem blocos dá exactamente `esc(t)`. */
+export function userHtml(t: string): string {
+  return esc(t).replace(/\n?```[^\n]*\n([\s\S]*?)\n?```\n?/g, (_m, code: string) => `<pre>${code}</pre>`);
+}
+
+/** Erro de um provedor → HTML do cartão: explicação e passo seguinte quando o caso é
+ *  reconhecido (sem créditos, chave recusada, limite, …), com o erro original em detalhe;
+ *  senão a mensagem tal-e-qual. */
+export function providerErrorHtml(msg: string, active?: string | null): string {
+  const e = explainProviderError(msg, active);
+  if (!e) return "Não consegui obter resposta do modelo (" + esc(msg) + ").";
+  const actions = e.kind === "credit" || e.kind === "auth" || e.kind === "nokey" || e.kind === "model"
+    ? `<div style="margin-top:8px"><button class="mini" data-action="open-settings">Abrir Definições</button></div>`
+    : "";
+  return `<b>${esc(e.title)}</b><div style="margin-top:4px">${esc(e.hint)}</div>${e.url ? `<div style="margin-top:6px">Resolve aqui: <code>${esc(e.url)}</code></div>` : ""}${actions}<details style="margin-top:8px;color:var(--fg-muted)"><summary>Detalhes</summary><code style="white-space:pre-wrap;word-break:break-word">${esc(e.detail)}</code></details>`;
+}
+
 export function user(t: string): void {
   const i = $("#ag-intro");
   if (i) i.remove();
   $("#ag-msgs")!.insertAdjacentHTML(
     "beforeend",
-    `<div class="m user"><div class="bub"><div class="bh"><span class="br2">tu</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${esc(t)}</div></div></div>`,
+    `<div class="m user"><div class="bub"><div class="bh"><span class="br2">tu</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${userHtml(t)}</div></div></div>`,
   );
   scrollMsgs();
 }
@@ -138,7 +159,8 @@ export function runState(on: boolean, label?: string): void {
   $("#rc-pause")!.innerHTML = "<kbd>p</kbd> pausar";
   runLabel();
   bridge.badges();
-  composerRunChanged(on);
+  // U3c: quem precisa de saber (o compositor: enviar↔parar e a fila) subscreve o bus
+  bus.emit("agent:run", { active: on, label: RUN.label });
 }
 
 export function runLabel(): void {
@@ -512,7 +534,8 @@ export const presenter: MissionPresenter = {
           ? "O acesso ao Claude não foi autorizado nesta página. As missões guionadas continuam disponíveis."
           : code === "rate_limited"
             ? "Limite de pedidos atingido — tenta daqui a pouco."
-            : "Não consegui obter resposta do Claude (" + esc(msg) + ").";
+            : providerErrorHtml(msg, bridge.monolith.activeProvider);
+    scrollMsgs();
   },
   refreshCtx: ctxPill,
 

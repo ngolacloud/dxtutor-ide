@@ -9,7 +9,9 @@
 //! Onde se procura (por esta ordem):
 //! - binário: `DXTUTOR_WHISPER_BIN`, `~/.local/share/dxtutor/whisper/whisper.cpp/build/bin/whisper-cli`
 //!   (o que o `scripts/setup-whisper.sh` constrói), e no `PATH` `whisper-cli`/`whisper-cpp`;
-//! - modelo: `DXTUTOR_WHISPER_MODEL`, ou o melhor `ggml-*.bin` em `~/.local/share/dxtutor/whisper/`.
+//! - modelo: `DXTUTOR_WHISPER_MODEL`, ou o melhor `ggml-*.bin` em `~/.local/share/dxtutor/whisper/`;
+//! - GPU (whisper.cpp com Vulkan): `DXTUTOR_WHISPER_DEVICE`, ou o `gpu-device` que o script
+//!   escreve (a GPU dedicada — por omissão o whisper usa a 0, a integrada nos portáteis).
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -88,6 +90,8 @@ pub struct Setup {
     pub binary: Option<PathBuf>,
     pub model: Option<PathBuf>,
     pub recorder: Option<Recorder>,
+    /// O dispositivo Vulkan (`-dev`); `None` = o do whisper (0) ou CPU.
+    pub device: Option<u32>,
 }
 
 /// O estado para a UI.
@@ -100,6 +104,7 @@ pub struct Status {
     /// O que falta, em texto para a UI (vazio quando `ready`).
     pub missing: Vec<String>,
     pub recording: bool,
+    pub device: Option<u32>,
 }
 
 /// `~/.local/share/dxtutor/whisper` — onde o script de instalação deixa o binário e os modelos.
@@ -176,6 +181,14 @@ pub fn find_model(env_model: Option<&str>, data: &Path) -> Option<PathBuf> {
     found.into_iter().next()
 }
 
+/// A GPU a usar: a variável, ou o `gpu-device` escrito pelo `setup-whisper.sh`.
+pub fn find_device(env_dev: Option<&str>, data: &Path) -> Option<u32> {
+    env_dev
+        .map(str::to_string)
+        .or_else(|| std::fs::read_to_string(data.join("gpu-device")).ok())
+        .and_then(|s| s.trim().parse().ok())
+}
+
 pub fn find_recorder(path_var: Option<&std::ffi::OsStr>) -> Option<Recorder> {
     if cfg!(windows) {
         return None;
@@ -203,6 +216,10 @@ pub fn detect() -> Setup {
             &data,
         ),
         recorder: find_recorder(path.as_deref()),
+        device: find_device(
+            std::env::var("DXTUTOR_WHISPER_DEVICE").ok().as_deref(),
+            &data,
+        ),
     }
 }
 
@@ -224,6 +241,7 @@ pub fn status(s: &Setup) -> Status {
         recorder: s.recorder,
         missing,
         recording: ACTIVE.lock().map(|a| a.is_some()).unwrap_or(false),
+        device: s.device,
     }
 }
 
@@ -337,7 +355,7 @@ pub fn stop(s: &Setup, lang: &str) -> Result<String, String> {
         .ok_or("não há gravação em curso")?;
     let wav = finish(r)?;
     let out = match (&s.binary, &s.model) {
-        (Some(b), Some(m)) => transcribe(b, m, &wav, lang),
+        (Some(b), Some(m)) => transcribe(b, m, &wav, lang, s.device),
         _ => Err("o whisper.cpp não está instalado — corre scripts/setup-whisper.sh".into()),
     };
     let _ = std::fs::remove_file(&wav);
@@ -355,8 +373,72 @@ pub fn cancel() {
     }
 }
 
+/// Texto inicial dado ao whisper (`--prompt`) para cada língua: orienta a ortografia, a
+/// pontuação e o vocabulário de programação (sem ele, «commit»/«branch»/«lexer» saem
+/// estropiados e o português às vezes sai em espanhol).
+pub fn initial_prompt(lang: &str) -> Option<&'static str> {
+    match lang {
+        "pt" => Some(
+            "Olá. Vamos rever o código do projecto: corrige o erro, faz commit na branch e corre os testes.",
+        ),
+        "en" => Some("Hi. Let's review the project code: fix the bug, commit to the branch and run the tests."),
+        _ => None,
+    }
+}
+
+/// A duração de um WAV PCM em segundos, pelo cabeçalho (`None` se não for WAV legível).
+pub fn wav_seconds(wav: &Path) -> Option<f64> {
+    let bytes = std::fs::read(wav).ok()?;
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let u32le = |i: usize| {
+        bytes
+            .get(i..i + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    let mut byte_rate = None;
+    let mut i = 12;
+    while i + 8 <= bytes.len() {
+        let size = u32le(i + 4)? as usize;
+        match &bytes[i..i + 4] {
+            b"fmt " => byte_rate = u32le(i + 16),
+            b"data" => {
+                // gravadores parados a meio deixam o tamanho a 0/«infinito»: conta o que existe
+                let avail = bytes.len() - (i + 8);
+                let data = if size == 0 || size > avail {
+                    avail
+                } else {
+                    size
+                };
+                return byte_rate.filter(|r| *r > 0).map(|r| data as f64 / r as f64);
+            }
+            _ => {}
+        }
+        i += 8 + size + (size & 1);
+    }
+    None
+}
+
+/// O contexto de áudio do whisper (`-ac`) para um clip: o whisper codifica sempre uma
+/// janela de 30 s (1500 frames); para um ditado curto, limitá-la à duração (50 frames/s
+/// e uma margem) corta o tempo do codificador para um terço sem perder qualidade.
+/// `0` = janela inteira (clips longos ou duração desconhecida).
+pub fn audio_ctx(seconds: Option<f64>) -> u32 {
+    match seconds {
+        Some(s) if s > 0.0 && s < 28.0 => ((s * 50.0).ceil() as u32 + 128).min(1500),
+        _ => 0,
+    }
+}
+
 /// Corre o `whisper-cli` sobre um WAV e devolve o texto.
-pub fn transcribe(binary: &Path, model: &Path, wav: &Path, lang: &str) -> Result<String, String> {
+pub fn transcribe(
+    binary: &Path,
+    model: &Path,
+    wav: &Path,
+    lang: &str,
+    device: Option<u32>,
+) -> Result<String, String> {
     let lang = match lang.trim() {
         "" => "auto",
         l if l.len() <= 5 && l.chars().all(|c| c.is_ascii_alphabetic()) => l,
@@ -365,12 +447,25 @@ pub fn transcribe(binary: &Path, model: &Path, wav: &Path, lang: &str) -> Result
     let threads = std::thread::available_parallelism()
         .map(|n| n.get().clamp(1, 8))
         .unwrap_or(4);
-    let out = Command::new(binary)
-        .arg("-m")
-        .arg(model)
-        .arg("-f")
-        .arg(wav)
-        .args(["-l", lang, "-t", &threads.to_string(), "-nt", "-np"])
+    let mut cmd = Command::new(binary);
+    cmd.arg("-m").arg(model).arg("-f").arg(wav).args([
+        "-l",
+        lang,
+        "-t",
+        &threads.to_string(),
+        "-nt",
+        "-np",
+    ]);
+    // NB: não usar `-mc 0` — também desliga o `--prompt`, e sem ele o whisper entra em ciclos
+    // de repetição (medido: 72% de erro). Os ciclos que escapem saem no `clean_transcript`.
+    cmd.args(["-ac", &audio_ctx(wav_seconds(wav)).to_string()]);
+    if let Some(d) = device {
+        cmd.args(["-dev", &d.to_string()]);
+    }
+    if let Some(p) = initial_prompt(lang) {
+        cmd.args(["--prompt", p]);
+    }
+    let out = cmd
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("não consegui correr o whisper.cpp: {e}"))?;
@@ -387,8 +482,22 @@ pub fn transcribe(binary: &Path, model: &Path, wav: &Path, lang: &str) -> Result
     Ok(clean_transcript(&String::from_utf8_lossy(&out.stdout)))
 }
 
-/// Junta as linhas da transcrição e tira as marcas de silêncio/ruído do whisper.
+/// Junta as linhas da transcrição, tira as marcas de silêncio/ruído do whisper e as frases
+/// repetidas em seguida (o whisper às vezes entra em ciclo e repete a mesma frase).
 pub fn clean_transcript(stdout: &str) -> String {
+    let joined = clean_lines(stdout);
+    let mut out: Vec<&str> = vec![];
+    for sentence in joined.split_inclusive(['.', '?', '!']) {
+        let t = sentence.trim();
+        if t.is_empty() || out.last().is_some_and(|p| p.eq_ignore_ascii_case(t)) {
+            continue;
+        }
+        out.push(t);
+    }
+    out.join(" ")
+}
+
+fn clean_lines(stdout: &str) -> String {
     let marker = |w: &str| {
         let w = w.trim();
         (w.starts_with('[') && w.ends_with(']'))
@@ -472,10 +581,17 @@ mod tests {
             binary: None,
             model: find_model(None, &data),
             recorder: Some(Recorder::Arecord),
+            device: None,
         });
         assert!(!st.ready);
         assert_eq!(st.missing.len(), 1);
         assert!(st.missing[0].contains("setup-whisper.sh"));
+        // GPU: o ficheiro do script; a variável ganha
+        assert_eq!(find_device(None, &data), None);
+        std::fs::write(data.join("gpu-device"), "1\n").unwrap();
+        assert_eq!(find_device(None, &data), Some(1));
+        assert_eq!(find_device(Some("0"), &data), Some(0));
+        assert_eq!(find_device(Some("x"), &data), None);
     }
 
     #[test]
@@ -509,6 +625,36 @@ mod tests {
             "Olá, isto é um teste. e mais uma frase"
         );
         assert_eq!(clean_transcript("[BLANK_AUDIO]\n"), "");
+        assert_eq!(
+            clean_transcript("Revê o lexer. Revê o lexer. Revê o lexer. E corre os testes?"),
+            "Revê o lexer. E corre os testes?"
+        );
+    }
+
+    #[test]
+    fn audio_context_from_wav_duration() {
+        let d = tempfile::tempdir().unwrap();
+        let wav = d.path().join("a.wav");
+        // cabeçalho WAV 16 kHz mono s16 (byte rate 32000) + 2 s de silêncio
+        let data = vec![0u8; 64_000];
+        let mut h = b"RIFF".to_vec();
+        h.extend((36 + data.len() as u32).to_le_bytes());
+        h.extend(b"WAVEfmt ");
+        h.extend(16u32.to_le_bytes());
+        h.extend([1, 0, 1, 0]);
+        h.extend(16_000u32.to_le_bytes());
+        h.extend(32_000u32.to_le_bytes());
+        h.extend([2, 0, 16, 0]);
+        h.extend(b"data");
+        h.extend((data.len() as u32).to_le_bytes());
+        h.extend(&data);
+        std::fs::write(&wav, &h).unwrap();
+        assert_eq!(wav_seconds(&wav), Some(2.0));
+        assert_eq!(audio_ctx(Some(2.0)), 228);
+        assert_eq!(audio_ctx(Some(29.0)), 0, "clips longos: janela inteira");
+        assert_eq!(audio_ctx(None), 0);
+        std::fs::write(&wav, b"not a wav").unwrap();
+        assert_eq!(wav_seconds(&wav), None);
     }
 
     /// Um só teste para o estado global (uma gravação de cada vez).
@@ -520,13 +666,14 @@ mod tests {
         exe(&rec, "printf 'RIFF....WAVEfmt ................data....0123456789' > \"$1\"; trap 'exit 0' INT; while :; do sleep 0.05; done");
         // whisper falso: mostra os argumentos que interessam e uma marca de silêncio
         let whisper = d.path().join("whisper-cli");
-        exe(&whisper, "echo \"[BLANK_AUDIO]\"; for a in \"$@\"; do last=\"$a\"; done; echo \" ditado ok  $5 $6\"");
+        exe(&whisper, "echo \"[BLANK_AUDIO]\"; echo \" ditado ok  $5 $6 $(echo \"$@\" | grep -o -- '-dev [0-9]*')\"");
         let model = d.path().join("ggml-base.bin");
         std::fs::write(&model, b"x").unwrap();
         let setup = Setup {
             binary: Some(whisper),
             model: Some(model),
             recorder: Some(Recorder::Arecord),
+            device: Some(1),
         };
 
         let out = d.path().join("a.wav");
@@ -541,7 +688,7 @@ mod tests {
             .contains("em curso"));
         std::thread::sleep(Duration::from_millis(150));
         let text = stop(&setup, "pt").unwrap();
-        assert_eq!(text, "ditado ok -l pt");
+        assert_eq!(text, "ditado ok -l pt -dev 1");
         assert!(!out.exists(), "o WAV temporário é apagado");
         assert!(!status(&setup).recording);
         assert!(stop(&setup, "pt").unwrap_err().contains("não há gravação"));
@@ -575,7 +722,7 @@ mod tests {
         );
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
         let sample = data_dir(&home).join("whisper.cpp/samples/jfk.wav");
-        let text = transcribe(&bin, &model, &sample, "en").unwrap();
+        let text = transcribe(&bin, &model, &sample, "en", s.device).unwrap();
         assert!(
             text.to_lowercase()
                 .contains("ask not what your country can do for you"),

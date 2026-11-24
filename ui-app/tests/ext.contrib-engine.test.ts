@@ -1,4 +1,4 @@
-// Fase 4 (ADR-0004): o motor das contribuições, de ponta a ponta, com um VSIX em memória —
+// Fase 4 (ADR-0005): o motor das contribuições, de ponta a ponta, com um VSIX em memória —
 // lê tema (com include), gramática, snippets e language-configuration; guarda; serve ao
 // editor realce, snippets, comentário e o tema activo.
 import { describe, test, expect } from "vitest";

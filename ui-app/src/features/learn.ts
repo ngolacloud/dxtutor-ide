@@ -106,6 +106,7 @@ async function ltRemove(id:string){
   if(onbOpenAt1())ltOnboard(1);
 }
 bindActions({
+  'lt-onboard':{on:'click',run:()=>{ltOnboard(1);}},
   'lt-pick':{on:'click',run:e=>{ONB.lang=e.on;ltOnboard(2);}},
   'lt-install':{on:'click',run:()=>{const i=$('#onb-src') as HTMLInputElement|null;if(i)ltInstall(i.value);}},
   'lt-remove':{on:'click',run:e=>{ltRemove(e.on);}},

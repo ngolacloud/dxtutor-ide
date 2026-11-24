@@ -1,4 +1,4 @@
-/* ═════════ dxtutor IDE — cliente IPC das extensões VS Code (ADR-0004, Fase 4) ═════════
+/* ═════════ dxtutor IDE — cliente IPC das extensões VS Code (ADR-0005, Fase 4) ═════════
    Contrato de `vsix_fetch_open_vsx` (src-tauri/src/bridge.rs): o backend descarrega do
    Open VSX o VSIX mais recente de `publisher.name`, valida-o e devolve-o em base64. */
 

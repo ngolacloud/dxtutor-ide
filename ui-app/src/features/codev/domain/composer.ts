@@ -103,6 +103,7 @@ export const SLASH_ACTIONS: SlashAction[] = [
   { id: "rewind", group: "Contexto", label: "Reverter ficheiros", hint: "/reverter" },
   { id: "resume", group: "Contexto", label: "Retomar conversa", hint: "/retomar" },
   { id: "export", group: "Contexto", label: "Exportar conversa" },
+  { id: "dictlang", group: "Contexto", label: "Língua do ditado…" },
   { id: "model", group: "Modelo", label: "Mudar de modelo…" },
   { id: "effort", group: "Modelo", label: "Esforço" },
   { id: "mode", group: "Agente", label: "Mudar de modo…", hint: "⇧Tab" },
@@ -125,6 +126,19 @@ export function filterActions(list: SlashAction[], q: string): SlashAction[] {
   if (!f) return list;
   return list.filter((a) => fold(a.label).includes(f) || fold(a.hint ?? "").includes(f) || fold(a.group).startsWith(f));
 }
+
+/* ───── ditado ───── */
+
+/** As línguas do ditado (whisper `-l`). Português por omissão: a detecção automática
+ *  falha muito em frases curtas e trocava português por espanhol/galego. */
+export const DICTATION_LANGS: Array<{ id: string; label: string }> = [
+  { id: "pt", label: "Português" },
+  { id: "en", label: "English" },
+  { id: "auto", label: "Automática" },
+];
+
+export const parseDictationLang = (s: string | null | undefined): string =>
+  DICTATION_LANGS.some((l) => l.id === s) ? (s as string) : "pt";
 
 /* ───── anexos ───── */
 

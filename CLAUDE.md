@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 133 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 155 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -36,7 +36,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   em prosa): 11 ficheiros, não pode crescer. Features novas nascem tipadas.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra` e `learn`); cada nova extracção
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel` e `learn`); cada nova extracção
   acrescenta-se lá. Nota: desde a `visualizer`, A6 = 8 (o interpretador `vzRun` é
   o único `@ts-nocheck` dentro de uma subárvore — ver abaixo). A `infra` nasceu com a
   subárvore inteiramente TIPADA (decisão do dono): nenhum `@ts-nocheck` novo, A6 fica 8.
@@ -195,9 +195,11 @@ features/board.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BL
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm/debug, o markup vive no
 resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`/`runSprint`/
-`approveIssue` são DECORADAS em runtime pelo monólito (app.ts/v5/v6) — as arestas internas
-e os handlers data-action resolvem a versão DECORADA por `window` no acto
-(`decorated*` do bridge), nunca a função local base. Os handlers de ARRASTAR
+`approveIssue` publicam-se já COMPOSTAS com as políticas que antes eram decorações do
+app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3), e
+o bridge.ts ainda decora o `runSprint` — as arestas internas e os handlers data-action
+resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
+O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). Os handlers de ARRASTAR
 (`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
 `STRIPPED_ATTRS`, migrá-los partia o golden. Rede de segurança em
 `tests/board.golden.test.ts` (goldens do pane vazio/povoado, caracterização de
@@ -288,9 +290,43 @@ segurança em `tests/infra.golden.test.ts` (3 goldens de #pane-infra + caracteri
 motor runtime/K8s/secrets/drift/obs + 6 testes de dispatch delegado) e
 `tests/infra.domain.test.ts` (domínio puro, fixture sintética de design+catálogo).
 
+## Oitava feature: painel inferior real (`ui-app/src/features/panel/`)
+
+Não é uma extracção do monólito: é a feature NOVA que, **só na app desktop**, substitui a
+demo do painel inferior por dados reais do workspace (sessão `develop-painel-inferior`).
+Nasceu tipada e em camadas (governada por A7/A8):
+
+```
+features/panel/
+  domain/          types.ts, shell-integration.ts (OSC 633/OSC 7), links.ts (ficheiro:linha,
+                   URLs), problems.ts (agrupar/filtrar/juntar LSP), naming.ts. PURO.
+  application/     ports.ts + terminals.ts (instâncias, grupos de divisão, tarefas com código
+                   de saída real, histórico de comandos), problems-service.ts (scan em voo
+                   único + debounce), output.ts (canais).
+  ui/              terminal-view.ts (xterm.js), problems/output/services/assistant-view.ts,
+                   actions.ts (chave __panelActionHandler__).
+  infrastructure/  tauri.ts (pty_*, problems_scan, ports_list, eventos) + legacy-bridge.ts
+                   (ÚNICO com window: DXR/FS/openPath; publica DXR.term, termOwnsKey,
+                   diagnostics/drawProblems/drawStack reais).
+  index.ts         raiz de composição; só arranca com `isDesktop()`.
+```
+
+Backend: `pty.rs` (várias sessões por id, UTF-8 inteiro entre leituras, código de saída),
+`shell_integration.rs` (bash `--init-file` com marcador `PS0`; zsh `ZDOTDIR`), `shellenv.rs`
+(ambiente da shell de login, para os checkers verem o node do nvm/cargo do rustup),
+`problems.rs` (cargo check/tsc/go vet/ruff/eslint → Problem; eslint segue o script `lint`
+do `package.json`), `ports.rs` (`/proc/net/tcp`), `commands/panel.rs`.
+Particularidades: (1) não entra no harness de goldens — o caminho do browser/testes continua
+a demo e os goldens ficam intactos; a rede é `tests/panel.{domain,application}.test.ts` +
+o passo `panel` do selftest do `bridge.ts` (PTY real, /dev/pts, integração de shell, scan);
+(2) `runInTerm` do bridge delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
+linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`v6.ts` chamam
+`termOwnsKey(e)` nos atalhos globais — com o foco no xterm, as teclas são da shell excepto
+a lista curta de `isAppKey` (estilo `commandsToSkipShell` do VS Code).
+
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 
-ADR-0004. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
+ADR-0005. Os cursos de linguagem são **plugins** (dados, não código): um repo GitHub com
 `dxtutor-plugin.json` + cursos no formato `tutor_core::Course` (TOML/JSON), com
 `Course.overview` e `Unit.concepts` (o texto de leitura de cada tópico). Os oficiais vivem em
 `github.com/dxtutor-courses/<id>`. O catálogo oficial tem no máximo 10 linguagens
@@ -320,7 +356,7 @@ cpp, sql.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`. Guia de autoria: `docs/plugins/README.md`.
 
-## Extensões VS Code — contribuições declarativas (ADR-0004, Fase 4)
+## Extensões VS Code — contribuições declarativas (ADR-0005, Fase 4)
 
 Não há extension host: o JavaScript de uma extensão nunca corre. O que um VSIX contribui de
 forma declarativa é aplicado por código tipado em `features/ext/`, governado por A7/A8.
@@ -332,6 +368,9 @@ forma declarativa é aplicado por código tipado em `features/ext/`, governado p
 - **`application/contributions-engine.ts`:** lê o VSIX, guarda (LS `vsx-contrib`) e serve ao
   editor. O resíduo `ext.ts` publica `vsxHighlight` (usado pelo `paintEd`), `vsxSnippet`
   (Tab), `vsxToggleComment` (Ctrl+/), `vsxApplyTheme` e `vsxInstallOpenVsx`.
+- **`ui/actions.ts`:** listener delegado da `ext` (chave `__extActionHandler__`). Os botões da
+  Fase 4 (`vsx-theme`, `vsx-open-vsx`) usam `data-action`; o resto do markup das extensões
+  ainda tem `onclick` inline (a métrica U5 do `ui-metrics.sh` não pode subir).
 - **Backend:** `vsix_fetch_open_vsx` (só open-vsx.org) e os servidores LSP das linguagens novas
   em `lsp.rs`.
 - **Testes:** `ext.contributions.test.ts`, `ext.contrib-engine.test.ts` e
@@ -362,7 +401,7 @@ registada (mudança de UI aprovada), nunca para «fazer passar».
 ## Referências
 
 - `docs/architecture/ADR-0002-codev-clean-architecture.md` — a decisão e as 6 fases.
-- `docs/architecture/ADR-0004-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
+- `docs/architecture/ADR-0005-learning-track-plugins.md` — plugins de curso, 10 linguagens, VS Code.
 - `docs/plugins/README.md` — guia para quem escreve cursos (em inglês, para contribuidores).
 - `docs/architecture/ARCHITECTURE.md` — visão geral; §6 (CSP) liga a migração dos
   `onclick` inline ao endurecimento de `script-src 'unsafe-inline'`.

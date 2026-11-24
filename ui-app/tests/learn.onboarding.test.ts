@@ -88,3 +88,23 @@ describe("leitura: apresentação do curso e conceitos do tópico", () => {
     host.remove();
   });
 });
+
+describe("pane do Learning Track sem curso carregado", () => {
+  it("dispatch delegado: «Choose what to learn» abre o selector (data-action lt-onboard)", () => {
+    let pane = document.getElementById("pane-tutor");
+    const created = !pane;
+    if (!pane) {
+      pane = document.createElement("div");
+      pane.id = "pane-tutor";
+      document.body.appendChild(pane);
+    }
+    w.course(); // hidrata o LTS (preguiçoso) antes de o mudar, senão a hidratação sobrepõe-no
+    w.LTS.lang = "no-such-course";
+    w.renderTutorPane();
+    expect(pane.textContent).toContain("is loading or is no longer installed");
+    expect(document.getElementById("onb")).toBeNull();
+    pane.querySelector<HTMLButtonElement>('[data-action="lt-onboard"]')!.click();
+    expect(document.getElementById("onb")).not.toBeNull();
+    if (created) pane.remove();
+  });
+});

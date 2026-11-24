@@ -22,7 +22,7 @@ pub fn manifest_b64(b64: &str) -> Result<Value, String> {
     manifest(&bytes)
 }
 
-// ── Open VSX (ADR-0004, Fase 4): descarregar o VSIX mais recente de uma extensão ──────────
+// ── Open VSX (ADR-0005, Fase 4): descarregar o VSIX mais recente de uma extensão ──────────
 
 /// Servidor do registo aberto de extensões VS Code.
 pub const OPEN_VSX: &str = "https://open-vsx.org";

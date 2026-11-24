@@ -21,20 +21,22 @@
    (2) nada de leitura global ANSIOSA no eval: `EXS` nasce com os defaults e hidrata de
        `LS` PREGUIÇOSAMENTE (`hydrateExs`, guard-once dentro da porta `state.read()`) —
        obrigatório porque este módulo avalia antes de `app.ts` publicar `LS`;
-   (3) o corpo de `VIEW.extd` evalua-se tarde (VIEW só existe depois de app.ts), por
-       isso fica como `renderExtd` publicado no window e v6 mantém o shim
-       `VIEW.extd=(t,host)=>window.renderExtd(t,host)` (par de `RP.ext`);
+   (3) `RP.ext`/`VIEW.extd` são registados por este módulo (ADR-0004, U4g1): os registos
+       `RP`/`VIEW` nascem em app/store/registry.ts, antes das features (antes nasciam
+       no app.ts e o v6 mantinha os shims);
    (4) o resíduo de v6 (decorações diagnostics/paintEd/keydown + arranque) lê o motor
        por fachadas-alias sem o substring migrado: `window.vsxOn(id)` (=extOn),
        `window.vsxFmt()` (=formatDoc), `window.vsxCmds()` (=extCmds). */
 
 import { $, hd, svg, esc, jsa } from "../core";
+import { RP, VIEW } from "../app/store/registry";
 import { type ExtItem, type ExsState } from "./ext/domain/types";
 import { sectionsFor } from "./ext/domain/policy";
 import { makeExtEngine } from "./ext/application/ext-engine";
 import { makeContribEngine } from "./ext/application/contributions-engine";
 import { isDesktop } from "../platform/tauri/core";
 import { fetchOpenVsx } from "../platform/tauri/extensions";
+import { bindActions } from "./ext/ui/actions";
 import { toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
 import {
   initExs,
@@ -98,7 +100,7 @@ let EXQ = "";
    publica o CDN por omissão (desktop sobrepõe-no depois). ── */
 publishJSZipLoader();
 
-/* ── Fase 4 (ADR-0004): contribuições declarativas dos VSIX (temas, gramáticas TextMate,
+/* ── Fase 4 (ADR-0005): contribuições declarativas dos VSIX (temas, gramáticas TextMate,
    snippets, language-configuration). Guardadas em LS; o tema activo vive numa <style>
    própria confinada ao editor (`.ed`). ── */
 const CONTRIB_KEY = "vsx-contrib";
@@ -230,7 +232,7 @@ function contribSection(x: ExtItem): string {
   const c = x.contrib!;
   const active = contrib.activeTheme();
   const rows: string[] = [];
-  c.themes.forEach(label => rows.push(`<div class="rowline"><span>Color theme <b class="notr">${esc(label)}</b></span><span class="sp"></span>${active === label ? '<span class="tag live">active</span>' : `<button class="mini" onclick="vsxApplyTheme(${jsa(label)})">Apply</button>`}</div>`));
+  c.themes.forEach(label => rows.push(`<div class="rowline"><span>Color theme <b class="notr">${esc(label)}</b></span><span class="sp"></span>${active === label ? '<span class="tag live">active</span>' : `<button class="mini" data-action="vsx-theme" data-on="${esc(label)}">Apply</button>`}</div>`));
   if (c.grammars.length) rows.push(`<div class="rowline"><span>Syntax highlighting (TextMate) for <span class="notr">${c.grammars.map(esc).join(", ")}</span></span></div>`);
   if (c.snippets) rows.push(`<div class="rowline"><span>${c.snippets} snippet${c.snippets === 1 ? "" : "s"} — type the prefix and press <kbd>Tab</kbd></span></div>`);
   if (c.languages.length) rows.push(`<div class="rowline"><span>Languages <span class="notr">${c.languages.map(esc).join(", ")}</span> (file extensions, comments: <kbd>Ctrl+/</kbd>)</span></div>`);
@@ -244,7 +246,7 @@ function contribSection(x: ExtItem): string {
  *  backend (o browser não tem como). Vazio no protótipo de browser. */
 function openVsxRow(): string {
   if (!isDesktop()) return "";
-  return `<div class="ovsx-row"><input class="inp notr" id="ovsx-id" placeholder="Install from Open VSX: publisher.name" spellcheck="false"><button class="mini" onclick="vsxInstallOpenVsx()">Install</button></div>`;
+  return `<div class="ovsx-row"><input class="inp notr" id="ovsx-id" placeholder="Install from Open VSX: publisher.name" spellcheck="false"><button class="mini" data-action="vsx-open-vsx">Install</button></div>`;
 }
 
 /** Descarrega o VSIX do Open VSX (backend) e instala-o pelo mesmo caminho de um VSIX do disco. */
@@ -280,9 +282,12 @@ function renderExtPane(){
   if (vi) vi.onchange = e => { const fs = (e.target as HTMLInputElement).files; if (fs && fs[0]) loadVsix(fs[0]); };
 }
 
+/* registo das vistas (ADR-0004, U4g1 — antes eram shims no v6.ts) */
+RP.ext = renderExtPane;
+VIEW.extd = (t, host) => renderExtd(t as { ext?: string }, host);
+
 /* ── publicação no window (via bridge) ──
-   Nomes reais (resolvem os onclick inline e as chamadas do resíduo @ts-nocheck de v6);
-   shims em v6: RP.ext→renderExtPane, VIEW.extd→renderExtd.
+   Nomes reais (resolvem os onclick inline e as chamadas do resíduo @ts-nocheck de v6).
    Aliases sem o substring migrado p/ as decorações de v6 (diagnostics/paintEd/keydown/
    arranque) lerem o motor: vsxOn=extOn, vsxFmt=formatDoc, vsxCmds=extCmds. */
 publish({
@@ -291,4 +296,10 @@ publish({
   vsxOn: extOn, vsxFmt: formatDoc, vsxCmds: extCmds,
   // Fase 4: contribuições declarativas — o editor (paintEd/Tab/Ctrl+/) chama-as por global.
   vsxHighlight, vsxSnippet, vsxToggleComment, vsxApplyTheme, vsxInstallOpenVsx,
+});
+
+/* Fase 4: os botões novos usam o listener delegado (data-action), não onclick inline. */
+bindActions({
+  "vsx-theme": { on: "click", run: e => vsxApplyTheme(e.on) },
+  "vsx-open-vsx": { on: "click", run: () => { void vsxInstallOpenVsx(); } },
 });

@@ -23,13 +23,15 @@
 import { $, hd, svg, esc } from "../core";
 import * as bridge from "./codev/infrastructure/legacy-bridge";
 import { bindActions, type ActionTable } from "./codev/ui/actions";
+import { bus } from "../app/bus";
+import { agentStore } from "../app/store";
 import { composerActions, mountComposer, refreshComposer, resetComposer, submit, type ComposerHost, type SpeechLike } from "./codev/ui/composer";
-import { exportMarkdown, parseEffort } from "./codev/domain/composer";
+import { exportMarkdown, parseDictationLang, parseEffort } from "./codev/domain/composer";
 import { dictationGateway } from "./codev/infrastructure/dictation-gateway";
 import { ollamaModels } from "../platform/tauri/assistant";
 import { isDesktop } from "../platform/tauri/core";
 import { RUBRIC } from "./codev/domain/scoring";
-import { buildScenarios } from "./codev/domain/scenarios";
+import { buildScenarios, scenarioForPrompt } from "./codev/domain/scenarios";
 import type { Scenario, ScenarioEnv } from "./codev/domain/types";
 import {
   codevEngine,
@@ -75,10 +77,45 @@ window.updateAgentUI = function () {
   ctxPill();
   refreshComposer();
 };
-window.setMode = function (m) { bridge.monolith.mode = m; codevEngine.agentModeChanged(m); bridge.save(); window.updateAgentUI(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
+/* U3b (ADR-0004): o Co-Dev reage às mudanças de estado pelo bus, venham de onde vierem
+   (modebar, compositor, paleta, Definições, harness do projecto, restauro no arranque) —
+   em vez de cada sítio que muda o modo/provedor/contexto chamar updateAgentUI/ctxPill. */
+bus.on('agent:mode', ({ mode }) => { codevEngine.agentModeChanged(mode); window.updateAgentUI(); });
+bus.on('agent:provider', () => window.updateAgentUI());
+bus.on('agent:providers', () => window.updateAgentUI());
+bus.on('agent:context', () => ctxPill());
+bus.on('editor:tab', () => ctxPill());
+/* ───── políticas do harness do projecto sobre o Co-Dev (ADR-0004, U4g4) ─────
+   Eram decorações do v5.ts, dobradas aqui no dono das funções (sem republicar no window):
+   o tecto de autonomia no setMode, os direitos humanos no doTool e o «o código é teu» no
+   runMission. Os dados do harness (HARN/MORD/RIGHTS/RIGHT_RE/isHuman/codeGuard) são do
+   features/team.ts e lêem-se no acto, como o v5 os lia por nome livre. NOTA (pré-existente,
+   preservado): só o doTool PUBLICADO leva o gate de direitos — as missões e o chat usam o
+   doTool local do motor (codev/index.ts), que nunca teve o gate do v5. */
+interface HarnessGlobals {
+  HARN: { ceiling: string }; MORD: string[]; RIGHTS: Record<string, string>; RIGHT_RE: Record<string, RegExp>;
+  isHuman: (r: string) => boolean; codeGuard: (what: string) => boolean;
+  MODE: string; short: (p: string) => string; log: (s: string, m: string) => void;
+}
+const HG = window as unknown as HarnessGlobals;
+type DoToolArgs = Parameters<typeof codevEngine.doTool>;
+async function harnessDoTool(t: DoToolArgs[0], host: DoToolArgs[1], role?: DoToolArgs[2]): Promise<unknown> {
+  if (t.t === 'edit') {
+    const p = String((t as { p?: unknown }).p);
+    if (HG.isHuman('code') && !/\/learn\//.test(p)) { (tl(host, 'harness', HG.short(p)).querySelector('.tr') as HTMLElement).innerHTML = '<span class="bad">✖ writing code is yours in this project</span>'; HG.log('harness', 'edit blocked: code is human-only'); return false; }
+    const r = Object.keys(HG.RIGHT_RE).find((k) => HG.isHuman(k) && HG.RIGHT_RE[k].test(p));
+    if (r && HG.MODE !== 'manual') { const d = tl(host, 'your call', HG.RIGHTS[r] + ' · ' + HG.short(p)); const v = await ask(d, [{ l: 'Approve', v: 1, pri: 1, done: '✓ approved by you' }, { l: 'Reject', v: 0, done: '✗ rejected by you' }]); if (!v) { HG.log('humano', 'rejected ' + HG.short(p)); return false; } }
+  }
+  return codevEngine.doTool(t, host, role);
+}
+function harnessRunMission(S: Parameters<typeof codevEngine.runMission>[0], text: string): ReturnType<typeof codevEngine.runMission> | undefined {
+  if (HG.codeGuard(text)) return;
+  return codevEngine.runMission(S, text);
+}
+window.setMode = function (m) { if (HG.MORD.indexOf(m) > HG.MORD.indexOf(HG.HARN.ceiling)) { bridge.toast(`This project's harness caps autonomy at ${MODES[HG.HARN.ceiling].l}`); return; } bridge.monolith.mode = m; bridge.save(); bridge.toast('Modo ' + MODES[m].l); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); };
 function cycleMode() { const k = Object.keys(MODES); window.setMode(k[(k.indexOf(bridge.monolith.mode) + 1) % k.length]); }
-function pickModel() { bridge.palette('', { ph: 'Modelo para a conversa…', items: Object.entries(bridge.providers()).map(([k, p]: [string, any]) => ({ l: `${p.name} — ${p.model}`, d: p.on ? bridge.provState(k) : 'desligado', run: () => { if (!p.on) { bridge.toast(p.name + ' está desligado — liga-o nas Definições'); return; } bridge.monolith.activeProvider = k; bridge.save(); window.updateAgentUI(); } })) }); }
-function toggleProv(k: string) { const p = bridge.providers(); p[k].on = !p[k].on; bridge.save(); window.updateAgentUI(); const panes = bridge.panes(); if (panes[bridge.monolith.pane]) panes[bridge.monolith.pane](); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); }
+function pickModel() { bridge.palette('', { ph: 'Modelo para a conversa…', items: Object.entries(bridge.providers()).map(([k, p]: [string, any]) => ({ l: `${p.name} — ${p.model}`, d: p.on ? bridge.provState(k) : 'desligado', run: () => { if (!p.on) { bridge.toast(p.name + ' está desligado — liga-o nas Definições'); return; } bridge.monolith.activeProvider = k; bridge.save(); } })) }); }
+function toggleProv(k: string) { const p = bridge.providers(); p[k].on = !p[k].on; bridge.save(); agentStore.providerChanged(k); const panes = bridge.panes(); if (panes[bridge.monolith.pane]) panes[bridge.monolith.pane](); const t = bridge.tabOf(bridge.monolith.currentTabId); if (t && t.kind === 'settings') bridge.show(bridge.monolith.currentTabId!); }
 function newChat() {
   if (bridge.run().active) { bridge.toast('Pára a missão primeiro'); return; }
   bridge.chat().length = 0;
@@ -121,8 +158,8 @@ function demo(id: string) { const S = SCN_().find((s) => s.id === id)!; focusAge
 /* publica o motor Co-Dev (já ligado em ./codev/index.ts) no window; os onclick inline,
    o resíduo app.ts e features/board.ts resolvem-nos por global */
 Object.assign(window, {
-  doTool: codevEngine.doTool,
-  runMission: codevEngine.runMission,
+  doTool: harnessDoTool,
+  runMission: harnessRunMission,
   dec: codevEngine.dec,
   decideQ: codevEngine.decideQ,
   council: codevEngine.council,
@@ -171,7 +208,8 @@ function handlePrompt(q: string) {
     card('co-dev', `<code>${cmd}</code> → ${r && r.ok ? '✓' : '✖'} ${esc(r ? r.sum : '')}`);
     return;
   }
-  const S = SCN_().find((s: any) => s.match.test(q)); if (S) window.runMission(S, q); else void codevEngine.chat(q);
+  // texto livre só cai num cenário demo na simulação do browser; no desktop vai ao modelo real
+  const S = scenarioForPrompt(q, SCN_(), !bridge.isDesktop()); if (S) window.runMission(S, q); else void codevEngine.chat(q);
 }
 /* Enter/enviar: o compositor junta anexos, modo Plano e fila, e chama handlePrompt */
 function agSend() { submit(); }
@@ -286,7 +324,7 @@ const ACTIONS: ActionTable = {
   /* change — espelha os antigos onchange */
   "set-prov-model": {
     on: "change",
-    run: (e) => { bridge.providers()[e.on].model = e.value; bridge.save(); window.updateAgentUI(); },
+    run: (e) => { bridge.providers()[e.on].model = e.value; bridge.save(); agentStore.providerChanged(e.on); },
   },
   "set-prov-ep": { on: "change", run: (e) => { bridge.providers()[e.on].ep = e.value; } },
   "set-route": {
@@ -331,11 +369,11 @@ const composerHost: ComposerHost = {
   provider: () => bridge.monolith.activeProvider,
   model: () => bridge.providers()?.[bridge.monolith.activeProvider]?.model ?? '',
   providers: () => Object.entries(bridge.providers() ?? {}).map(([key, p]) => ({ key, name: p.name, model: p.model, on: !!p.on })),
-  selectModel: (p, m) => { const all = bridge.providers(); all[p].model = m; bridge.monolith.activeProvider = p; bridge.save(); window.updateAgentUI(); },
+  selectModel: (p, m) => { const all = bridge.providers(); all[p].model = m; bridge.monolith.activeProvider = p; bridge.save(); agentStore.providerChanged(p); },
   effort: () => parseEffort(bridge.effort()),
   setEffort: (e) => { bridge.setEffort(e); refreshComposer(); },
   ctxOn: () => bridge.monolith.contextEnabled,
-  toggleCtx: () => { bridge.monolith.contextEnabled = !bridge.monolith.contextEnabled; ctxPill(); },
+  toggleCtx: () => { bridge.monolith.contextEnabled = !bridge.monolith.contextEnabled; },
   projectFiles: () => Object.keys(bridge.files() ?? {}).map((p) => bridge.shortPath(p)),
   palette: (ph, items) => bridge.palette('', { ph, items }),
   newChat: () => newChat(),
@@ -347,7 +385,8 @@ const composerHost: ComposerHost = {
   openModelSettings: () => openSettings(),
   switchProvider: () => pickModel(),
   dictation: () => dictationGateway,
-  dictationLang: () => bridge.dictationLang(),
+  dictationLang: () => parseDictationLang(bridge.dictationLang()),
+  setDictationLang: (l) => bridge.setDictationLang(l),
   localModels: () => (isDesktop() ? ollamaModels() : Promise.resolve([])),
 };
 mountComposer(composerHost);

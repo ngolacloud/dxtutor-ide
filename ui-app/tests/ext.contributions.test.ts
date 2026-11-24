@@ -1,4 +1,4 @@
-// Fase 4 (ADR-0004): contribuições declarativas de extensões VS Code — JSONC, temas,
+// Fase 4 (ADR-0005): contribuições declarativas de extensões VS Code — JSONC, temas,
 // snippets, gramáticas TextMate «lite» e language-configuration. Domínio puro.
 import { describe, test, expect } from "vitest";
 import { parseJsonc } from "../src/features/ext/domain/jsonc";

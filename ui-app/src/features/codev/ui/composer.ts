@@ -20,6 +20,7 @@ import {
   MODEL_CATALOG,
   MODE_OPTIONS,
   SLASH_ACTIONS,
+  DICTATION_LANGS,
   buildPrompt,
   filterActions,
   formatSize,
@@ -34,6 +35,7 @@ import {
   type SlashAction,
 } from "../domain/composer";
 import type { DictationPort } from "../application/ports";
+import { bus } from "../../../app/bus";
 
 /* ───── o que o compositor precisa do resto da app ───── */
 
@@ -88,8 +90,9 @@ export interface ComposerHost {
   switchProvider(): void;
   /** Ditado local com whisper.cpp (`null` = sem backend). */
   dictation(): DictationPort | null;
-  /** A língua do ditado (`pt`, `en`, … ou `auto`). */
+  /** A língua do ditado (`pt`, `en` ou `auto`) e escolhê-la. */
   dictationLang(): string;
+  setDictationLang(l: string): void;
   /** Os modelos instalados no Ollama local. */
   localModels(): Promise<string[]>;
 }
@@ -201,7 +204,8 @@ export function refreshComposer(): void {
     micBtn.classList.toggle("rec", mic === "rec");
     micBtn.classList.toggle("busy", mic === "busy");
     micBtn.innerHTML = icon(mic === "busy" ? "spin" : "mic");
-    micBtn.title = mic === "rec" ? "Parar e transcrever" : mic === "busy" ? "A transcrever…" : "Ditar (voz)";
+    const lang = DICTATION_LANGS.find((l) => l.id === host?.dictationLang())?.label ?? "";
+    micBtn.title = mic === "rec" ? "Parar e transcrever" : mic === "busy" ? "A transcrever…" : `Ditar (voz) — ${lang}`;
   }
   const ag = el("cc-agents");
   if (ag) {
@@ -328,7 +332,12 @@ function popMarkup(): string {
         .map((a, i) => {
           const head = a.group !== g ? `<div class="cc-gh">${(g = a.group)}</div>` : "";
           if (a.id === "effort") return head + effortRow();
-          const right = a.id === "model" ? modelLabel(host!.provider(), host!.model()) : a.hint;
+          const right =
+            a.id === "model"
+              ? modelLabel(host!.provider(), host!.model())
+              : a.id === "dictlang"
+                ? DICTATION_LANGS.find((l) => l.id === host!.dictationLang())?.label
+                : a.hint;
           return head + popItem("cc-do", a.id, a.label, "", { hint: right, sel: i === slashSel });
         })
         .join("");
@@ -431,7 +440,8 @@ export function submit(): void {
   refreshComposer();
 }
 
-/** Fim de uma execução: actualiza a barra e envia a próxima mensagem da fila. */
+/** Fim de uma execução: actualiza a barra e envia a próxima mensagem da fila. Ligado ao
+ *  evento `agent:run` do bus (U3c); exportado também para os testes. */
 export function composerRunChanged(running: boolean): void {
   refreshComposer();
   if (!running && host && queue.length) {
@@ -442,6 +452,7 @@ export function composerRunChanged(running: boolean): void {
     }, 0);
   }
 }
+bus.on("agent:run", ({ active }) => composerRunChanged(active));
 
 function addMention(path: string): void {
   if (attachments.some((a) => a.path === path)) return;
@@ -602,6 +613,21 @@ function doAction(id: string): void {
     case "export":
       h.exportConversation();
       return;
+    case "dictlang": {
+      const cur = h.dictationLang();
+      h.palette(
+        "Língua do ditado…",
+        DICTATION_LANGS.map((l) => ({
+          l: l.label,
+          d: l.id === cur ? "actual" : l.id === "auto" ? "o whisper detecta-a (pior em frases curtas)" : "",
+          run: () => {
+            h.setDictationLang(l.id);
+            refreshComposer();
+          },
+        })),
+      );
+      return;
+    }
     case "model":
     case "effort":
       toggle("model");

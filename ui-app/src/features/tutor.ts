@@ -23,7 +23,7 @@ function renderTutorPane(): void {
   if (!el) return;
   if (LTS.lang && !course()) {
     // Língua escolhida mas sem curso carregado: plugin ainda a carregar (desktop) ou removido.
-    el.innerHTML = hd("Learning Track") + `<div class="sections"><div class="sec-empty">The ${esc(LTS.lang)} course is loading or is no longer installed.</div><button class="btn" onclick="ltOnboard(1)">Choose what to learn</button></div>`;
+    el.innerHTML = hd("Learning Track") + `<div class="sections"><div class="sec-empty">The ${esc(LTS.lang)} course is loading or is no longer installed.</div><button class="btn" data-action="lt-onboard">Choose what to learn</button></div>`;
     return;
   }
   if (!LTS.lang) {

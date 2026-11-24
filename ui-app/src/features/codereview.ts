@@ -19,9 +19,11 @@
    por `publish(...)` no fim deste módulo). `dlg()` fica em v6.ts (partilhado com
    debug.ts/infra.ts). `lexVariant`/`LXL` (helpers de lexer) continuam donos de v6.ts —
    lidos por fachada do bridge. Mecânica (igual às migrações strict anteriores): publica-se
-   `renderCreviewView`/`renderHoodView` e `VIEW.creview`/`VIEW.hood` (v6.ts) ficam shim. */
+   `renderCreviewView`/`renderHoodView`, e `VIEW.creview`/`VIEW.hood` registam-se aqui
+   (ADR-0004, U4g1 — antes eram shims no v6.ts). */
 
 import { esc, svg, S, prov } from "../core";
+import { VIEW } from "../app/store/registry";
 import type { Finding } from "./codereview/domain/types";
 import { scoreFor } from "./codereview/domain/scoring";
 import { makeReviewEngine } from "./codereview/application/review-engine";
@@ -156,7 +158,7 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
 }
 
 /* ── publicação no window (confinada ao bridge via `publish`): `renderCreviewView`/
-   `renderHoodView` são o alvo directo do shim VIEW.creview/VIEW.hood (v6.ts); o resto
+   `renderHoodView` (também registados em VIEW.creview/VIEW.hood, abaixo); o resto
    (curFile/explainCmd/reviewCmd/hoodCmd/reviewFindings) é lido por nome livre pelo
    resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus) e por debug.ts (onclick
    "explainCmd(true)"). ── */
@@ -194,3 +196,8 @@ const ACTIONS: ActionTable = {
   },
 };
 bindActions(ACTIONS);
+
+/* registo das vistas (ADR-0004, U4g1 — antes eram shims no v6.ts; o visualizer decora o
+   VIEW.hood no boot7, e continua a decorar esta versão) */
+VIEW.creview = renderCreviewView;
+VIEW.hood = renderHoodView;

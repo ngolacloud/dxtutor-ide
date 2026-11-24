@@ -14,23 +14,25 @@
 
    Fronteira (decisão do dono «geradores FICAM»): os GERADORES de projecto (composeYaml/
    appFiles/k8sYaml/cloudMap/k8sInfra) e o catálogo do Studio (TECH/KIND/CLOUD/isApp/sl/
-   appDir) FICAM donos do monólito e são lidos por global (através do bridge). Os
-   DECORADORES do runner ficam onde estão: app.ts (approveIssue+infra), v5.ts (approveIssue/
-   delegate/runSprint — codeGuard/review), v6.ts (runIssue custo, delegate/approveIssue
-   ownership, VIEW.board duplo-clique+custo).
+   appDir) FICAM donos do monólito e são lidos por global (através do bridge). As
+   POLÍTICAS que decoravam o runner a partir do app.ts/v5/v6 (sincronizar o Studio,
+   revisão e explicação antes de validar, «o código é teu», dono humano, custo medido,
+   duplo-clique/custo nos cartões) são compostas aqui desde a U4g3 do ADR-0004.
 
    Mecânica: avalia ANTES de `app.ts` (ordem do index.html). Publica o estado (via `publish`)
    e, no fim, as funções — os nomes livres do monólito resolvem no escopo GLOBAL em runtime.
    Nada é lido ansiosamente no eval (FS/AGENTS/… só são tocados DENTRO das funções, pelo
    bridge, depois do arranque). BL/STAGES são window-backed (o resíduo é dono).
 
-   GOTCHA-decoração: runIssue/delegate/runSprint/approveIssue são DECORADAS pelo monólito
-   depois de publicadas; as arestas internas passam pela porta `orchestration` → versão
-   DECORADA por window (decoratedRunIssue/decoratedApproveIssue). VIEW.board fica como shim
-   brace-less em app.ts a delegar em renderBoardView. */
+   GOTCHA-decoração: runIssue/delegate/runSprint/approveIssue publicam-se já compostos com
+   as políticas (abaixo), e o bridge.ts ainda decora o runSprint por cima; as arestas
+   internas passam pela porta `orchestration` → versão do window no acto
+   (decoratedRunIssue/decoratedApproveIssue). O VIEW.board regista-se aqui, composto;
+   `renderBoardView` (publicado) é o corpo base, que os goldens caracterizam. */
 
-import { esc, jsa } from "../core";
-import type { Backlog } from "./board/domain/types";
+import { esc, jsa, nfmt } from "../core";
+import { VIEW } from "../app/store/registry";
+import type { Backlog, Issue } from "./board/domain/types";
 import { STAGES } from "./board/domain/issue";
 import { inView, points, autoSprint } from "./board/domain/kanban";
 import { makeBoardEngine } from "./board/application/board-engine";
@@ -48,6 +50,7 @@ import {
   openTab, openStudio, palette, refresh,
   toast, log, rerender,
   decoratedRunIssue, decoratedApproveIssue, decoratedDelegate, decoratedRunSprint, publish,
+  harness, reviewIssue, codeGuard, openIssue, studioNodes, saveSD, dlg, usage, usd, commitNotes,
   agentAvailable, agentStory,
 } from "./board/infrastructure/legacy-bridge";
 
@@ -135,9 +138,107 @@ const ACTIONS: ActionTable = {
 };
 bindActions(ACTIONS);
 
+/* ═══════════ políticas que decoram o runner e o quadro (ADR-0004, U4g3) ═══════════
+   Viviam como decorações no app.ts, v5.ts e v6.ts, por esta ordem (de dentro para fora);
+   compõem-se aqui pela mesma ordem e publicam-se já compostas. Nada entre o board.ts e
+   essas camadas lia estes nomes por valor no eval (só chamadas tardias), por isso o que o
+   resto do IDE vê em runtime é o mesmo. */
+const issueOf = (id: string): Issue | undefined => BL.issues.find((i) => i.id === id);
+
+/** (app.ts) Validar uma issue de infra fecha os componentes do Studio sem issue própria. */
+function approveSyncStudio(id: string): void {
+  approveIssue(id);
+  if (BL.issues.some((i) => i.infra && i.stage === "done")) {
+    studioNodes().forEach((n) => { if (!BL.issues.some((i) => i.node === n.id) && n.st !== "ok") n.st = "ok"; });
+    saveSD();
+  }
+  rerender("board");
+}
+/** (v5) Com o harness «review the diff», validar sem rever abre a revisão em vez disso. */
+function approveReviewed(id: string): void {
+  const it = issueOf(id);
+  if (it && it.stage === "func" && harness().review && !it.reviewed) { toast("Review the diff before validating"); reviewIssue(id); return; }
+  approveSyncStudio(id);
+}
+/** (v6) Com o harness «explain», validar pede primeiro a explicação, que fica no commit. */
+function approveExplained(id: string): void {
+  const it = issueOf(id), H = harness();
+  if (it && it.stage === "func" && H.explain && !it.explain && (!H.review || it.reviewed)) {
+    dlg({
+      title: `Explain ${it.id} before validating`,
+      body: `<p>This project asks you to say, in your own words, what the change does and why it is safe to merge. It is saved with the issue and the merge commit.</p><p style="color:var(--fg-muted)">${esc(it.title)}</p>`,
+      input: "e.g. Adds the orders table with an index on created_at so the list query does not scan the table…",
+      ok: "Validate and merge",
+      validate: (v) => (v.split(/\s+/).filter(Boolean).length < 8 ? "Write at least one full sentence (8 words or more)." : ""),
+      onOk: (v) => { it.explain = v; decoratedApproveIssue(id); },
+    });
+    return;
+  }
+  approveReviewed(id);
+  if (it && it.merged && it.explain && commitNotes()[it.merged]) commitNotes()[it.merged].note = it.explain;
+  if (pane() === "tasks") panes().tasks();
+}
+
+/** (v5) Com «writing code is yours» no harness, o Co-Dev não delega nem corre sprints. */
+function delegateGuarded(id: string): ReturnType<typeof delegate> | undefined {
+  if (codeGuard("Delegate " + id + ".")) return;
+  return delegate(id);
+}
+/** (v6) Uma issue cujo dono és tu não se delega: abre-a. */
+function delegateOwned(id: string): ReturnType<typeof delegate> | undefined {
+  const i = issueOf(id);
+  if (i && i.owner === "you") { toast(`${id} is yours — move it to Test when your code is ready`); openIssue(id); return; }
+  return delegateGuarded(id);
+}
+function runSprintGuarded(s: number): ReturnType<typeof runSprint> | undefined {
+  if (codeGuard("Run Sprint " + (s + 1) + ".")) return;
+  return runSprint(s);
+}
+
+/** (v6) Mede o custo de cada corrida do runner (tokens por provedor, dólares, tempo). */
+async function runIssueCosted(it: Issue): Promise<void> {
+  const snap = Object.fromEntries(Object.keys(usage()).map((k) => [k, usage()[k].tok])), t0 = Date.now();
+  try { await runIssue(it); } finally {
+    const c = (it.cost = it.cost || { tok: 0, usd: 0, sec: 0, runs: 0, by: {} });
+    Object.keys(usage()).forEach((k) => { const d = usage()[k].tok - snap[k]; if (d > 0) { c.tok += d; c.usd += usd(d, k); c.by[k] = (c.by[k] || 0) + d; } });
+    c.sec += (Date.now() - t0) / 1000; c.runs++;
+    if (pane() === "tasks") panes().tasks();
+  }
+}
+
+/** O quadro: o corpo base + (v5) o botão «Review diff» + (v6) duplo-clique, dono e custo.
+ *  BUGs PRÉ-EXISTENTES, preservados (reportam-se, não se corrigem no refactor): desde que o
+ *  quadro emite `data-action` (Fase 4 da extracção), (v5) já não há `approveIssue('…')` no
+ *  HTML para trocar pelo «Review diff», e (v6) já não há `delegate` no `onclick` para tirar
+ *  o «Delegar» das issues tuas — as duas trocas não acontecem (os gates em approveIssue/
+ *  delegate continuam a proteger o clique). */
+function boardView(t: unknown, host: HTMLElement): void {
+  renderBoardView(t, host);
+  if (harness().review) {
+    host.querySelectorAll(".kc-a").forEach((a) => {
+      const m = (a.innerHTML.match(/approveIssue\('([^']+)'\)/) || [])[1], it = BL.issues.find((i) => i.id === m);
+      if (it && !it.reviewed) a.innerHTML = `<button class="mini pri" onclick="reviewIssue(${jsa(it.id)})">Review diff</button>`;
+    });
+  }
+  host.querySelectorAll(".kc").forEach((k) => {
+    const id = (k.querySelector(".kc-id") || ({} as { textContent?: string })).textContent as string, i = BL.issues.find((x) => x.id === id);
+    if (!i) return;
+    (k as HTMLElement).ondblclick = () => openIssue(id);
+    if (i.owner === "you") {
+      const m = k.querySelector(".kc-m");
+      if (m) m.innerHTML = `<span class="av" style="background:#8a8f9c">Y</span>You<span class="tag" style="margin-left:auto">S${i.sprint + 1}</span>`;
+      k.querySelectorAll(".mini").forEach((b) => { if (/delegate/.test(b.getAttribute("onclick") || "")) b.remove(); });
+    }
+    if (i.cost) (k.querySelector(".kc-m") as HTMLElement).insertAdjacentHTML("beforeend", `<span class="tk-c" title="${nfmt(i.cost.tok)} tokens">$${i.cost.usd.toFixed(2)}</span>`);
+  });
+}
+VIEW.board = boardView;
+
 /* ── publicação no window (via bridge): estado + funções que o resíduo (app.ts/v5/v6/
    bridge/pair), os onclick inline e os consumidores (studio/router/codev/tasks) resolvem
-   como globais. runIssue/delegate/runSprint/approveIssue são decoradas pelo monólito
-   depois de publicadas. VIEW.board fica como shim brace-less em app.ts a delegar em
-   renderBoardView. ── */
-publish({ mkIssue, openBoard, setStage, autoTest, rejectIssue, dropIssue, newIssue, genBacklog, genBacklogIssues, runIssue, delegate, runSprint, approveIssue, renderBoardView });
+   como globais. runIssue/delegate/runSprint/approveIssue saem já compostos com as
+   políticas acima. ── */
+publish({
+  mkIssue, openBoard, setStage, autoTest, rejectIssue, dropIssue, newIssue, genBacklog, genBacklogIssues,
+  runIssue: runIssueCosted, delegate: delegateOwned, runSprint: runSprintGuarded, approveIssue: approveExplained, renderBoardView,
+});

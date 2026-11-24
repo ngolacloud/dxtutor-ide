@@ -107,7 +107,7 @@ const LANGS: &[Lang] = &[
         // tokens) and answers immediately. Empty signal ⇒ ready as soon as `initialized`.
         ready_signal: "",
     },
-    // ── ADR-0004, Fase 4: as linguagens novas do Learning Track. Os servidores arrancam quando
+    // ── ADR-0005, Fase 4: as linguagens novas do Learning Track. Os servidores arrancam quando
     // estão instalados; até haver medição, ficam prontos logo após `initialized`. ──
     Lang {
         id: "cpp",

@@ -50,3 +50,259 @@ const XC={
 };
 
 Object.assign(window, { XC, newInput, termRefreshPrompt });
+
+/* ═════════ U4e (ADR-0004): o terminal emulado de base (era do boot.ts) ═════════
+   Os primitivos do ciclo de input (`echo`/`echoCmd`/`scrollTerm`/`termClear`/`termNew`/
+   `onKey`/`complete`), a navegação na árvore (`dirAt`/`curDir`) e o interpretador de base
+   `run` (com os comandos `ls`/`cd`/`pwd`/`cat`/`tree`/`git`/`cargo`/… e o registo `XC`
+   acima por cima). O histórico (`HIST`/`hidx`) passou a estado deste módulo.
+   O `run` e o `promptHTML` são decorados depois pelo bridge.ts (terminal real com pasta
+   aberta) e pelo pair.ts (PairCode): por isso o Enter chama `G.run` e o prompt `G.promptHTML`
+   em runtime — a versão decorada, como antes. O resto chama-se directamente. */
+
+interface TreeEntry {
+  dir?: number;
+  t?: string;
+  children?: Record<string, TreeEntry>;
+}
+interface TerminalGlobals {
+  CWD: string[];
+  USER: string;
+  HOST: string;
+  TREE: { projects: TreeEntry };
+  DOCS: Record<string, Array<[string, string]>>;
+  XC: Record<string, (a: string[], v: string) => unknown>;
+  run: (raw: string) => void;
+  promptHTML: () => string;
+}
+const TG = window as unknown as TerminalGlobals;
+
+TG.USER = "walter";
+TG.HOST = "delonix";
+
+/** O histórico de comandos do terminal emulado (↑/↓). */
+const HIST: string[] = [];
+let hidx = 0;
+
+function termNew(): void {
+  termClear();
+}
+
+function termClear(): void {
+  const t = $("#term") as HTMLElement;
+  t.innerHTML = "";
+  echo(`<span class="ac">delonix shell</span> <span class="dim">· emulado · </span><span class="ok">help</span><span class="dim"> para começar</span>`);
+  newInput();
+}
+
+function echo(h: string): void {
+  const t = $("#term") as HTMLElement;
+  const d = document.createElement("div");
+  d.className = "line";
+  d.innerHTML = h;
+  t.appendChild(d);
+  scrollTerm();
+}
+
+function scrollTerm(): void {
+  const p = $("#pc-terminal") as HTMLElement;
+  p.scrollTop = p.scrollHeight;
+}
+
+function onKey(e: KeyboardEvent): void {
+  const c = e.target as HTMLInputElement;
+  if (e.key === "Enter") {
+    const v = c.value;
+    TG.run(v);
+    if (v.trim()) HIST.push(v);
+    hidx = HIST.length;
+  } else if (e.key === "ArrowUp") {
+    if (hidx > 0) {
+      hidx--;
+      c.value = HIST[hidx] || "";
+    }
+    e.preventDefault();
+  } else if (e.key === "ArrowDown") {
+    if (hidx < HIST.length - 1) {
+      hidx++;
+      c.value = HIST[hidx] || "";
+    } else {
+      hidx = HIST.length;
+      c.value = "";
+    }
+    e.preventDefault();
+  } else if (e.key === "Tab") {
+    e.preventDefault();
+    complete(c);
+  } else if (e.ctrlKey && e.key === "l") {
+    e.preventDefault();
+    termClear();
+  }
+}
+
+function dirAt(parts: string[]): TreeEntry | null {
+  let n: TreeEntry = TG.TREE.projects;
+  for (const p of parts) {
+    if (!n.children || !n.children[p]) return null;
+    n = n.children[p];
+  }
+  return n;
+}
+
+function curDir(): TreeEntry | null {
+  return dirAt(TG.CWD.slice(4));
+}
+
+function complete(c: HTMLInputElement): void {
+  const parts = c.value.split(" "),
+    frag = parts[parts.length - 1],
+    d = curDir();
+  if (!d || !d.children) return;
+  const m = Object.keys(d.children).filter((x) => x.startsWith(frag));
+  if (m.length === 1) {
+    parts[parts.length - 1] = m[0];
+    c.value = parts.join(" ");
+  } else if (m.length > 1) {
+    echoCmd(c.value);
+    echo('<span class="dim">' + m.join("   ") + "</span>");
+    newInput();
+    ($("#cmd") as HTMLInputElement).value = c.value;
+  }
+}
+
+function echoCmd(v: string): void {
+  const w = $("#inputwrap");
+  if (w) w.remove();
+  echo(TG.promptHTML() + '<span class="cmd">' + (v || "").replace(/</g, "&lt;") + "</span>");
+}
+
+/** O interpretador de base do terminal emulado: o registo `XC` primeiro, depois estes. */
+function run(raw: string): void {
+  echoCmd(raw);
+  const v = raw.trim();
+  if (!v) {
+    newInput();
+    return;
+  }
+  const [cmd, ...a] = v.split(/\s+/);
+  const C: Record<string, () => unknown> = {
+    help() {
+      echo(`<span class="ac">comandos:</span>\n<span class="ok">ls</span> [dir]   <span class="ok">cd</span> &lt;dir&gt;   <span class="ok">pwd</span>   <span class="ok">cat</span> &lt;f&gt;   <span class="ok">tree</span>\n<span class="ok">git</span> status|branch|log   <span class="ok">cargo</span> build|test\n<span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">neofetch</span> <span class="ok">history</span> <span class="ok">clear</span>`);
+    },
+    ls() {
+      const d = a[0] ? dirAt(TG.CWD.slice(4).concat(a[0].split("/").filter(Boolean))) : curDir();
+      if (!d || !d.children) {
+        echo('<span class="er">ls: ' + (a[0] || ".") + ": não encontrado</span>");
+        return;
+      }
+      const kids = d.children;
+      echo(
+        Object.keys(kids)
+          .map((n) => (kids[n].dir ? `<span class="dir">${n}/</span>` : `<span class="${kids[n].t === "rust" ? "ac" : ""}">${n}</span>`))
+          .join("   ") || '<span class="dim">(vazio)</span>',
+      );
+    },
+    pwd() {
+      echo("/home/" + TG.USER + "/" + TG.CWD.slice(1).join("/"));
+    },
+    cd() {
+      const x = a[0] || "~";
+      if (x === "~" || x === "/") {
+        TG.CWD = ["~", "workspaces", "NgolaCloud", "projects"];
+        return;
+      }
+      if (x === "..") {
+        if (TG.CWD.length > 4) TG.CWD.pop();
+        return;
+      }
+      const t = TG.CWD.slice();
+      for (const p of x.split("/").filter(Boolean)) {
+        if (p === "..") {
+          if (t.length > 4) t.pop();
+          continue;
+        }
+        const nd = dirAt(t.slice(4).concat(p));
+        if (!nd || !nd.dir) {
+          echo('<span class="er">cd: ' + x + ": não é um directório</span>");
+          return;
+        }
+        t.push(p);
+      }
+      TG.CWD = t;
+    },
+    cat() {
+      const f = a[0];
+      if (!f) {
+        echo('<span class="er">cat: falta o ficheiro</span>');
+        return;
+      }
+      const b = f.split("/").pop() as string;
+      if (TG.DOCS[b]) TG.DOCS[b].forEach((l) => echo('<span class="' + (l[0] === "err" ? "" : l[0]) + '">' + l[1] + "</span>"));
+      else echo('<span class="dim">// ' + b + " — conteúdo não disponível no protótipo</span>");
+    },
+    tree() {
+      echo('<span class="dir">' + TG.CWD[TG.CWD.length - 1] + "/</span>");
+      const d = curDir();
+      if (d && d.children) {
+        const kids = d.children;
+        const ks = Object.keys(kids);
+        ks.forEach((k, i) => echo('<span class="dim">' + (i === ks.length - 1 ? "└─ " : "├─ ") + "</span>" + (kids[k].dir ? '<span class="dir">' + k + "/</span>" : k)));
+      }
+    },
+    echo() {
+      echo(a.join(" ").replace(/</g, "&lt;"));
+    },
+    whoami() {
+      echo(TG.USER);
+    },
+    date() {
+      echo(new Date().toString());
+    },
+    history() {
+      HIST.forEach((h, i) => echo('<span class="dim">' + String(i + 1).padStart(4) + "</span>  " + h.replace(/</g, "&lt;")));
+    },
+    clear() {
+      termClear();
+      return "skip";
+    },
+    neofetch() {
+      echo(`<span class="ac">    ✦✦✦✦✦    </span>  <span class="ok">${TG.USER}@${TG.HOST}</span>\n<span class="ac">  ✦✦ </span><span class="dim">delonix</span><span class="ac"> ✦✦  </span>  <span class="ac">OS</span>    Delonix Linux 7.0\n<span class="ac">  ✦✦✦✦✦✦✦✦✦  </span>  <span class="ac">Shell</span> dsh 2.1 (emulado)\n<span class="ac">    ✦✦✦✦✦    </span>  <span class="ac">IDE</span>   dxtutor IDE · grafite\n                 <span class="ac">CPU</span>   16 cores · <span class="ok">extrema velocidade</span>`);
+    },
+    git() {
+      const s = a[0];
+      if (s === "status")
+        echo(`No ramo <span class="ac">main</span>\n<span class="dim">Changes not staged:</span>\n  <span class="warn">modified:</span>   desktop/src/styles.css\n  <span class="warn">modified:</span>   desktop/src/assistant.ts\n<span class="dim">Untracked:</span>\n  <span class="er">desktop/src/theme.css</span>`);
+      else if (s === "branch") echo(`<span class="ok">* main</span>\n  develop\n  feat/learning-paths`);
+      else if (s === "log")
+        echo(`<span class="ac">c638e07</span> feat(arch): persist the Studio design\n<span class="ac">a5b0d39</span> feat(arch): double-click a node to delete it\n<span class="ac">64943bc</span> feat(arch): interactive canvas`);
+      else echo('<span class="dim">git: status|branch|log</span>');
+    },
+    cargo() {
+      const s = a[0];
+      if (s === "build") {
+        echo('<span class="dim">   Compiling dxtutor v0.1.0</span>');
+        setTimeout(() => {
+          echo('<span class="ok">    Finished</span> dev in 0.81s');
+          newInput();
+        }, 140);
+        return "async";
+      }
+      if (s === "test") {
+        echo('<span class="dim">   Running tests…</span>');
+        setTimeout(() => {
+          echo('<span class="ok">test result: ok. 261 passed; 0 failed</span>');
+          newInput();
+        }, 160);
+        return "async";
+      }
+      echo('<span class="dim">cargo: build|test</span>');
+    },
+  };
+  let r: unknown;
+  if (TG.XC[cmd]) r = TG.XC[cmd](a, v);
+  else if (C[cmd]) r = C[cmd]();
+  else echo('<span class="er">' + cmd + ': comando não encontrado</span> <span class="dim">(help)</span>');
+  if (r !== "skip" && r !== "async") newInput();
+}
+
+Object.assign(window, { termNew, termClear, echo, scrollTerm, onKey, dirAt, curDir, complete, echoCmd, run });

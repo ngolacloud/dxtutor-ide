@@ -509,7 +509,7 @@ diag_cmd = "cc -std=c11 -fsyntax-only {file}"
 timeout_secs = 30
 "##;
 
-/// The built-in **Python** descriptor (the official Python course, ADR-0004 Phase 3). Hidden tests
+/// The built-in **Python** descriptor (the official Python course, ADR-0005 Phase 3). Hidden tests
 /// are standard-library `unittest` cases — no pytest dependency — run with `python3 -m unittest`,
 /// which exits non-zero on any failure or error (and on "no tests ran"). Diagnostics compile the
 /// student file and print a `SyntaxError` in the `file:line:col: error: msg` shape the parser reads.

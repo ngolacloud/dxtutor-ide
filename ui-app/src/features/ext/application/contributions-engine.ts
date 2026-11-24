@@ -1,4 +1,4 @@
-/* ═══════════ feature `ext` — motor das contribuições declarativas (ADR-0004, Fase 4) ═══════════
+/* ═══════════ feature `ext` — motor das contribuições declarativas (ADR-0005, Fase 4) ═══════════
    Usa o que uma extensão VS Code contribui sem precisar de um extension host: lê do VSIX
    as gramáticas, temas, snippets e language-configuration; guarda-os; e serve ao editor o
    realce (TextMate «lite»), a expansão de snippets, o marcador de comentário e o tema de

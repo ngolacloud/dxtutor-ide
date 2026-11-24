@@ -164,7 +164,7 @@ pub fn vsix_manifest(b64: String) -> Result<serde_json::Value, String> {
 }
 
 /// Descarrega do Open VSX o VSIX mais recente de `id` (`publisher.name`) e devolve-o em
-/// base64, para a UI o instalar pelo mesmo caminho de um VSIX escolhido no disco (ADR-0004,
+/// base64, para a UI o instalar pelo mesmo caminho de um VSIX escolhido no disco (ADR-0005,
 /// Fase 4). Só fala com open-vsx.org; valida que o ficheiro é mesmo um VSIX.
 #[tauri::command]
 pub async fn vsix_fetch_open_vsx(id: String) -> Result<String, String> {

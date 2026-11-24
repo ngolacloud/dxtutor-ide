@@ -25,6 +25,7 @@
    resíduo @ts-nocheck está FORA da subárvore
    features/infra/ (não governado por A7/A8). */
 import { $, $$, hd, svg, esc } from "../core";
+import { RP, VIEW } from "../app/store/registry";
 import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "./infra/domain/constants";
 import { seeded, spark, buildObs, obsLine as domObsLine } from "./infra/domain/observability";
 import { urlHosts } from "./infra/domain/secrets";
@@ -71,9 +72,10 @@ const {
   initSecrets, envDeps, envState, envHealth, secretCheck, commitsBetween, promote,
   redeployEnv, openEnvs, driftReport, openObserve,
 } = engine;
-/* ADR-0002 passo 6: nomes reais consumidos por v6.ts via import ES (porta tipada),
-   substituindo as antigas fachadas-alias resolvidas por global. */
-export { initSecrets, driftReport, DSTY };
+/* ADR-0002 passo 6: nomes reais consumidos via import ES (porta tipada), substituindo as
+   antigas fachadas-alias resolvidas por global — hoje pelo drift do Studio (features/studio.ts,
+   ADR-0004 U4g6; era a decoração do v6.ts). */
+export { initSecrets, driftReport, DSTY, ENVL };
 
 /* ═══════════ DOM (resíduo dono): remote + redesenho do pane ═══════════ */
 function drawRemote() { const b = $('.si.remote'); if (!b) return; let s = b.querySelector('span.rl'); if (!s) { b.insertAdjacentHTML('beforeend', '<span class="rl notr"></span>'); s = b.querySelector('span.rl'); } s.textContent = DEVC ? ' Dev Container: dxtutor' : ''; b.onclick = () => goPane('infra'); b.title = 'Infra: runtime, dev container, Kubernetes'; }
@@ -192,12 +194,27 @@ const ACTIONS = {
 };
 bindActions(ACTIONS);
 
+/* registo das vistas (ADR-0004, U4g1 — antes eram shims no v6.ts; o bridge.ts decora
+   depois o VIEW.observe, e continua a decorar esta versão) */
+RP.infra = renderInfraPane;
+VIEW.envs = renderEnvsView;
+VIEW.observe = renderObserveView;
+
+/* ── o que vivia nas camadas v5/v6 (ADR-0004, U4g2) ──
+   Corria ao carregar o v5.ts/v6.ts; agora corre aqui, que avalia antes — e nada entre os
+   dois lia estes nomes por valor no eval (só chamadas tardias), por isso o que se vê em
+   runtime é o mesmo (o bridge.ts continua a decorar por cima). Publica-se já composto:
+   • dxDeploy: depois de um deploy, fixa a versão no cluster e prepara os secrets (v6).
+   As chamadas internas do motor continuam a usar a versão base, como antes. (O override
+   do ctlLogs — abrir o tab de observabilidade — foi dobrado no próprio motor.) */
+function dxDeployPrimed() { const r = dxDeploy(); const K8S = window.K8S; if (r && r.ok && K8S) { K8S.ver = window.GIT.refs.develop; K8S.at = Date.now(); initSecrets(); } return r; }
+
 /* ── publicação transitória no window (shim para o residual) ──
    O render e os dois motores ficam no window; v5.ts/v6.ts e os onclick inline resolvem
    estes nomes como globais. (As decorações de v6 — dxDeploy/drawStudio — já não lêem
    initSecrets/driftReport/DSTY por global: importam-nos por porta tipada; ADR-0002 passo 6.) */
 publish({
-  rtConnect, k8sConnect, dxDeploy, needRt, projectContext, devcontainerJson, dcAttach, dcDetach,
+  rtConnect, k8sConnect, dxDeploy: dxDeployPrimed, needRt, projectContext, devcontainerJson, dcAttach, dcDetach,
   drawRemote, infraDraw, appEnv, k8sInfra, k8sDocs, k8sScale, k8sDown, runTaskQuiet, ctlLogs,
   saveEnv, cli, hydrateEnvs,
   ENVL, ENVX, saveEnvx, designApps, localSecrets, urlHosts, envDeps, envState,
@@ -205,3 +222,13 @@ publish({
   OBS, obsInit, obsLine, spark, openObserve, seeded, renderInfraPane,
 });
 
+/* ── comandos do terminal (ADR-0004, U4g2 — viviam no v5) ──
+   Registados no XC de features/terminal.ts, que por isso avalia antes deste módulo:
+   `kubectl get deploy|pods`, `devcontainer up` e `dx deploy`. Os subcomandos do `dx` que o
+   app.ts acrescenta depois (test/sprint, run/stop) são disjuntos de `deploy`, por isso
+   decorar antes deles não muda o resultado de nenhum. */
+const XC = window.XC;
+XC.kubectl = a => { const ENVS = window.ENVS, K8S = window.K8S; if (!ENVS.k8sOn) { echo('<span class="er">The connection to the server was refused — connect the cluster in Infra.</span>'); return; } if (a[0] === 'get') { echo(K8S ? (/^po/.test(a[1] || '') ? K8S.deps.flatMap(d => Array.from({ length: d.rep }, (_, i) => `${(d.n + '-' + (i + 1)).padEnd(28)} 1/1   Running`)).join('\n') : K8S.deps.map(d => `${d.n.padEnd(22)} ${d.ready}/${d.rep}   ${d.img}`).join('\n')) : '<span class="dim">No resources found in ' + esc(ENVS.ns) + ' namespace.</span>'); return; } echo('<span class="dim">kubectl get deploy | get pods</span>'); };
+XC.devcontainer = a => { if (a[0] === 'up') dcAttach(); else echo('<span class="dim">devcontainer up</span>'); };
+const _dx5 = XC.dx;
+XC.dx = a => { if (a[0] === 'deploy') return window.dxDeploy(); return _dx5(a); };

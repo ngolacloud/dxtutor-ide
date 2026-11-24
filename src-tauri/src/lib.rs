@@ -28,11 +28,15 @@ mod llm;
 mod lsp;
 pub mod missions;
 pub mod pair;
+pub mod ports;
+pub mod problems;
 mod procs;
 mod pty;
 pub mod review;
 pub mod sandbox;
 pub mod search;
+mod shell_integration;
+pub mod shellenv;
 pub mod study;
 pub mod testexec;
 mod vsix;
@@ -78,6 +82,7 @@ use commands::git::{
 };
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
+use commands::panel::{ports_list, problems_scan};
 use commands::plugins::{plugin_install, plugin_list, plugin_remove};
 use commands::review::{list_review_analyzers, review_code, verify_review_fix};
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
@@ -948,6 +953,11 @@ pub fn run() {
             pty::pty_spawn_in_session,
             pty::pty_write,
             pty::pty_resize,
+            pty::pty_kill,
+            pty::pty_shells,
+            pty::pty_info,
+            problems_scan,
+            ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,
             lsp::lsp_did_change,

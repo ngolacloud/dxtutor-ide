@@ -22,7 +22,7 @@
    tocados DENTRO das funções, chamadas depois do arranque, e resolvem no escopo GLOBAL
    em runtime. Do core importa-se só o que é dono de lá (`$`, `toast`). */
 
-import { $, toast } from "../core";
+import { $, esc, toast } from "../core";
 
 /* ───── corpo do renderer da tab `file` (era VIEW.file no monólito) ───── */
 function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];host.innerHTML=`<div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div>`;
@@ -55,4 +55,24 @@ function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta
 /* ── publicação no window: nomes que o resíduo (app.ts refresh/show, v6.ts error-lens,
    outline/diagnósticos/palette/menus) e os onclick inline resolvem como globais.
    VIEW.file (app.ts) delega em renderFileView (shim, no registo de kinds de tab). ── */
-Object.assign(window, { renderFileView, paintEd, gotoLine, stPos, stLang, edCmd, selText });
+/* ───── o pintor publicado (ADR-0004, U4g5 — era a decoração do v6.ts) ─────
+   Por cima da base: os breakpoints no gutter, a linha corrente do depurador e o Error Lens.
+   BUG PRÉ-EXISTENTE (reportado, não corrigido aqui): as chamadas internas do editor
+   (renderFileView/oninput) usam a base, por isso estas marcas só aparecem quando alguém
+   chama o `window.paintEd` — desde a extracção do editor (923a2a5); antes, no app.ts, o
+   paintEd era `window.paintEd` e as chamadas internas passavam pela versão decorada. */
+const PE = window as unknown as {
+  dbgBreaks: Set<string>; dbgState: () => { kind: string; steps: { l: number }[]; i: number } | null;
+  vsxOn: (id: string) => boolean; P_LX: string;
+};
+function paintEdFull(p: string): void {
+  paintEd(p);
+  const gut = $('#ed-gut'), hl = $('#ed-hl'); if (!gut || !hl) return;
+  const gs = gut.children, ls = hl.children;
+  [...PE.dbgBreaks].filter((b) => b.startsWith(p + ':')).forEach((b) => { const g = gs[+(b.split(':').pop() as string) - 1]; if (g) g.classList.add('bp'); });
+  const _ds = PE.dbgState();
+  if (_ds && _ds.kind === 'code' && p === PE.P_LX) { const s = _ds.steps[_ds.i]; if (s && ls[s.l - 1]) { ls[s.l - 1].classList.add('dbg-cur'); if (gs[s.l - 1]) gs[s.l - 1].classList.add('dbg-cur'); } }
+  if (PE.vsxOn('usernamehw.errorlens')) { const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
+}
+
+Object.assign(window, { renderFileView, paintEd: paintEdFull, gotoLine, stPos, stLang, edCmd, selText });

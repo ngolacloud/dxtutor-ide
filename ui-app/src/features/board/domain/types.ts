@@ -57,6 +57,23 @@ export interface Issue {
   gen?: () => IssueFile[];
   fix?: (() => IssueFile[]) | null;
   fixNote?: string;
+  /** A revisão do diff já foi feita (harness «review the diff before validating»). */
+  reviewed?: boolean;
+  /** A explicação, nas palavras de quem valida (harness «explain before validating»). */
+  explain?: string;
+  /** Dono humano da issue (`"you"`): não se delega, programa-a quem a tem. */
+  owner?: string;
+  /** Custo medido das corridas do runner (tokens, dólares, segundos, por provedor). */
+  cost?: IssueCost;
+}
+
+/** O custo acumulado das corridas de uma issue. */
+export interface IssueCost {
+  tok: number;
+  usd: number;
+  sec: number;
+  runs: number;
+  by: Record<string, number>;
 }
 
 /** O backlog em memória (sessão, não vem de LS): issues + contadores (seq de ids,
