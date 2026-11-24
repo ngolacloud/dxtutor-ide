@@ -35,6 +35,7 @@ import { bindActions, type ActionTable } from "./debug/ui/actions";
 import { inlineValues as computeInline, type BpMeta } from "./debug/domain/dap";
 import { bpLabel, bpMenu, dapButtons, dapExtras, dapStopped, outputBlock } from "./debug/ui/dap-view";
 import { DAP_MESSAGES, type DapKey } from "./debug/ui/dap-messages";
+import { DEBUG_ENGINE_MESSAGES } from "./debug/application/messages";
 import { translator } from "../app/i18n";
 import { codevAsk } from "../app/codev-ask";
 import { inlineValues } from "../app/inline-values";
@@ -130,6 +131,7 @@ const engine = makeDebugEngine({
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
   bpMeta: BPMETA,
   say: sayD,
+  copy: translator(DEBUG_ENGINE_MESSAGES),
 });
 const { startDebug, dbgContinue, dbgStep, dbgStop, toggleBp } = engine;
 const dbgStepInto = (): Promise<void> => dbgStep(true);

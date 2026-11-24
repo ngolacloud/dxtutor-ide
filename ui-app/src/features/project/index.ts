@@ -13,8 +13,13 @@ import { codev, dialog, git, loadMe, notify, openTab, workspace } from "./infras
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { State } from "./domain/types";
 import { projectInbox } from "../../app/project-inbox";
+import { translator } from "../../app/i18n";
+import { PROJECT_ENGINE_MESSAGES } from "./application/messages";
+
+const copy = translator(PROJECT_ENGINE_MESSAGES);
 
 export const projectService = makeProjectService({
+  copy,
   gateway: tauriProjectGateway,
   workspace,
   git,
@@ -61,11 +66,11 @@ function submit(e: ActionEvent): void {
   if (e.on === "sprint") {
     const start = Date.parse(v.start ?? "");
     const end = Date.parse(v.end ?? "") + DAY - 1;
-    if (!v.name?.trim() || !Number.isFinite(start) || !Number.isFinite(end)) return notify.toast("A sprint precisa de nome, início e fim");
+    if (!v.name?.trim() || !Number.isFinite(start) || !Number.isFinite(end)) return notify.toast(copy("sprintNeeds"));
     void s.apply({ op: "create_sprint", name: v.name, goal: v.goal ?? "", start, end, capacity: v.capacity ? Number(v.capacity) : null });
   } else if (e.on === "release") {
     const date = Date.parse(v.date ?? "");
-    if (!v.version?.trim() || !Number.isFinite(date)) return notify.toast("A release precisa de versão e data");
+    if (!v.version?.trim() || !Number.isFinite(date)) return notify.toast(copy("releaseNeeds"));
     void s.apply({ op: "create_release", version: v.version, date, goal: v.goal ?? "", epic: v.epic ?? "" });
   } else if (e.on === "settings") {
     const wip: Record<string, number> = {};

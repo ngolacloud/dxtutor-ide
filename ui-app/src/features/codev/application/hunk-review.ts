@@ -8,6 +8,7 @@
 
 import type { AgentEvent } from "../domain/agent-events";
 import type { HunkReviewDeps, HunkSink } from "./ports";
+import { ptCopy } from "./messages";
 import {
   activeHunk,
   choose,
@@ -30,6 +31,7 @@ import {
 const TICK_MS = 50;
 
 export function makeHunkReview(deps: HunkReviewDeps) {
+  const copy = deps.copy ?? ptCopy;
   let state: OverlayState = initialOverlay();
   let session: string | null = null;
   let following = true;
@@ -139,7 +141,7 @@ export function makeHunkReview(deps: HunkReviewDeps) {
     const ok = hs.filter((h) => h.status === "applied").length;
     const stale = hs.filter((h) => h.status === "stale").length;
     const label =
-      ok === hs.length ? `✓ ${ok} alteração(ões) aplicada(s)` : ok === 0 && !stale ? "✗ alterações rejeitadas" : `${ok} de ${hs.length} aplicada(s)${stale ? ` · ${stale} desactualizada(s)` : ""}`;
+      ok === hs.length ? copy("hunksApplied", { n: ok }) : ok === 0 && !stale ? copy("hunksRejected") : copy("hunksPartial", { ok, n: hs.length, stale: stale ? copy("hunksStale", { n: stale }) : "" });
     f(label);
   }
 

@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use tutor_agent::anthropic::{self, Anthropic, Config};
 use tutor_agent::checkpoint::{Checkpoint, Checkpoints};
+use tutor_agent::context::ReplyLang;
 use tutor_agent::extensions::{self, Command as ProjectCommand, Skill};
 use tutor_agent::hooks::{Hooks, HOOKS_FILE};
 use tutor_agent::hunks::{self, Check, RejectedBy, ValidationStatus};
@@ -79,6 +80,9 @@ pub struct StartSpec {
     pub issue_key: Option<String>,
     /// The project database where accepted hunks are recorded (`None`: not recorded).
     pub change_log: Option<PathBuf>,
+    /// The interface language (`en`, `ptAO`): Co-Dev answers in it. Saved with the session,
+    /// so a resume keeps the language it started with. `None` → Portuguese (older UIs).
+    pub lang: Option<String>,
 }
 
 /// Prefixo do erro de um modelo sem tool calling nativo: a UI reconhece-o e recua para o
@@ -499,7 +503,11 @@ pub fn start(
                 root: root_s.clone(),
                 model: resolve_model(&provider, spec.model.as_deref()),
                 effort: parse_effort(spec.effort.as_deref()).as_str().to_string(),
-                system: session_system(&root, spec.review_edits),
+                system: session_system(
+                    &root,
+                    spec.review_edits,
+                    ReplyLang::from_ui(spec.lang.as_deref()),
+                ),
                 test_cmd: spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
                 lint_cmd: spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
                 compaction: provider_features(&provider).compaction,
@@ -507,6 +515,7 @@ pub fn start(
                 toolset: TOOLSET_VERSION,
                 mcp_tools: vec![], // preenchido abaixo, depois de ligar os servidores
                 provider,
+                lang: spec.lang.clone().filter(|l| !l.trim().is_empty()),
             };
             (meta, Transcript::new(), None)
         }
@@ -590,6 +599,7 @@ pub fn start(
         provider: provider.clone(),
         model: meta.model.clone(),
         effort: acfg.effort,
+        lang: meta.lang(),
     };
     let tools = agent_tools(
         &ToolsetOptions {
@@ -1024,8 +1034,8 @@ pub const REVIEW_EDITS_NOTE: &str = "No IDE, as tuas alterações aparecem no ed
 
 /// The system prompt of a new session; with live hunks, the core block also carries
 /// [`REVIEW_EDITS_NOTE`]. It is saved with the session, so a resume keeps it byte for byte.
-fn session_system(root: &Path, review_edits: bool) -> Vec<(String, bool)> {
-    let mut v: Vec<(String, bool)> = tutor_agent::context::system_prompt(root)
+fn session_system(root: &Path, review_edits: bool, lang: ReplyLang) -> Vec<(String, bool)> {
+    let mut v: Vec<(String, bool)> = tutor_agent::context::system_prompt_in(root, lang)
         .into_iter()
         .map(|b| (b.text, b.cache))
         .collect();
@@ -2076,8 +2086,8 @@ mod tests {
     #[test]
     fn review_edits_tells_the_model_to_keep_code_out_of_the_reply() {
         let dir = tempfile::tempdir().unwrap();
-        let with = session_system(dir.path(), true);
-        let without = session_system(dir.path(), false);
+        let with = session_system(dir.path(), true, ReplyLang::Pt);
+        let without = session_system(dir.path(), false, ReplyLang::Pt);
         assert!(with[0].0.ends_with(REVIEW_EDITS_NOTE));
         assert!(!without[0].0.contains(REVIEW_EDITS_NOTE));
         assert_eq!(with.len(), without.len());
@@ -2085,6 +2095,26 @@ mod tests {
             with.last().unwrap().1,
             "the cache breakpoint stays at the end"
         );
+    }
+
+    #[test]
+    fn the_session_answers_in_the_interface_language() {
+        let dir = tempfile::tempdir().unwrap();
+        let en = session_system(dir.path(), true, ReplyLang::from_ui(Some("en")));
+        assert!(en[0].0.contains("answer the human in English"));
+        assert!(!en[0].0.contains("Respondes em português"));
+        assert!(en[0].0.ends_with(REVIEW_EDITS_NOTE));
+        let pt = session_system(dir.path(), false, ReplyLang::from_ui(Some("ptAO")));
+        assert!(pt[0]
+            .0
+            .contains("Respondes em português (ortografia pré-AO90)"));
+        // a session saved before the language existed reads as Portuguese, as it was
+        let old: SessionMeta = serde_json::from_value(serde_json::json!({
+            "id": "s", "root": "/p", "model": "m", "effort": "high", "system": [],
+            "test_cmd": null, "lint_cmd": null, "compaction": false, "created": 1
+        }))
+        .unwrap();
+        assert_eq!(old.lang(), ReplyLang::Pt);
     }
 
     #[test]

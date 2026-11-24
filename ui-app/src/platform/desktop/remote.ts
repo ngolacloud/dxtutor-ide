@@ -6,6 +6,10 @@
 
 import { desktopPorts } from "../../app/desktop";
 import type { DesktopContext, ExecResult } from "./context";
+import { translator } from "../../app/i18n";
+import { DESKTOP_MESSAGES } from "./desktop-messages";
+
+const tdk = translator(DESKTOP_MESSAGES);
 
 /** Aspas de shell para um nome de host (os do ssh_config são simples; o resto vai entre aspas). */
 const shq = (s: string): string => /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
@@ -34,7 +38,7 @@ export function installRemote(ctx: DesktopContext): void {
     async test(host) {
       const r = await sh("ssh", withConfig(["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", host, "true"]), { cwd: R.info?.home, timeout: 15000 })
         .catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) }));
-      return r.code === 0 ? { ok: true, message: "ligação e autenticação sem perguntas" } : { ok: false, message: lastLine(r.stderr) };
+      return r.code === 0 ? { ok: true, message: tdk("sshOk") } : { ok: false, message: lastLine(r.stderr) };
     },
     local: () => (R.user && R.host ? `${R.user}@${R.host}` : "this computer"),
   };

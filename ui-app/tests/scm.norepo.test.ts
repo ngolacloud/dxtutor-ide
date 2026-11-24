@@ -66,7 +66,7 @@ describe("sem repositório git", () => {
     expect(w.gitMerge("develop")).toBe(null);
     expect(w.gfStart("feature", "x")).toBe("");
     expect(w.gfFinish("feature/x")).toBe(null);
-    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/Sem repositório git/));
+    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/No git repository/));
     expect(w.GIT.order).toEqual([]);
     expect(w.GIT.refs).toEqual({});
     expect(w.BRANCH).toBe("");

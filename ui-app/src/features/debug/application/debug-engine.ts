@@ -14,9 +14,9 @@ import { bpKey, bpLine, bpPath } from "../domain/breakpoints";
 import { cargoTargets, fsKeyFor, relOf, type Session, type Stop } from "../domain/session";
 import { isPlain, sessionMarkdown, specsFor, type BpMeta, type VarNode, type Watch } from "../domain/dap";
 import type { DebugDeps, DebugEngine } from "./ports";
+import { ptCopy } from "./messages";
 
 /** O que dizer quando não há motor de depuração no sistema. */
-export const NO_GDB = "O gdb não está instalado: a depuração passo-a-passo usa o gdb (Rust, C, C++). Instala-o (p.ex. «sudo apt install gdb») e tenta de novo.";
 
 export function makeDebugEngine(deps: DebugDeps): DebugEngine {
   const { store, dbg, workspace, editor, shell, picker, view, notifier } = deps;
@@ -24,6 +24,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
   /* A7: what a DAP session adds — watches and output last across sessions */
   const meta = deps.bpMeta ?? new Map<string, BpMeta>();
   const say = deps.say ?? ((k: string) => k);
+  const copy = deps.copy ?? ptCopy;
   const watches: Watch[] = [];
   const output: string[] = [];
   /* the expanded variables: by path (stable across stops — the adapter renumbers the references
@@ -42,7 +43,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
   });
   const isDap = (s: Session | null): boolean => !!s && s.engine === "dap" && !!dbg.variables;
 
-  const fail = (e: unknown): void => { store.setMessage("A depuração falhou: " + (e instanceof Error ? e.message : String(e))); };
+  const fail = (e: unknown): void => { store.setMessage(copy("failed", { error: e instanceof Error ? e.message : String(e) })); };
 
   /** O programa a depurar: num projecto (ou workspace) Cargo, constrói-o e usa o binário em
    *  target/debug/; noutro, pergunta pelo executável. */
@@ -51,15 +52,15 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     for (const k of workspace.keys()) if (k.startsWith(pre) && /(^|\/)Cargo\.toml$/.test(k) && !/\/target\//.test(k)) tomls[k.slice(pre.length)] = workspace.content(k) || "";
     if (workspace.content(pre + "Cargo.toml") != null) {
       const bins = cargoTargets(tomls, (rel) => workspace.content(pre + rel) != null);
-      if (!bins.length) { store.setMessage("Este projecto Cargo não tem binários (só bibliotecas): não há programa para correr. Depura através de um binário ou de um exemplo."); return null; }
-      const bin = bins.length > 1 ? await picker.choose("Que binário depurar?", bins) : bins[0] ?? null;
+      if (!bins.length) { store.setMessage(copy("noBins")); return null; }
+      const bin = bins.length > 1 ? await picker.choose(copy("whichBin"), bins) : bins[0] ?? null;
       if (!bin) return null;
       store.setMessage("A construir com «cargo build»…"); view.refresh();
       const b = await workspace.exec("cargo build");
-      if (!b.ok) { store.setMessage("O «cargo build» falhou — corrige os erros e tenta de novo:\n" + b.out.slice(-2000)); return null; }
+      if (!b.ok) { store.setMessage(copy("buildFailed", { out: b.out.slice(-2000) })); return null; }
       return root.replace(/\/$/, "") + "/target/debug/" + bin;
     }
-    const p = await picker.ask("Caminho do executável a depurar (compilado com informação de depuração, p.ex. -g)");
+    const p = await picker.ask(copy("exePath"));
     if (!p || !p.trim()) return null;
     return p.trim().startsWith("/") ? p.trim() : root.replace(/\/$/, "") + "/" + p.trim();
   }
@@ -71,7 +72,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     if (st.exited || !st.stopped) {
       await dbg.stop(id).catch(() => undefined);
       store.setSession(null);
-      store.setMessage(st.exited ? `O programa terminou${st.exitCode != null ? ` com o código ${st.exitCode}` : ""}.` : `A execução não parou num ponto conhecido (${st.reason || "sem razão"}).`);
+      store.setMessage(st.exited ? `O programa terminou${st.exitCode != null ? ` com o código ${st.exitCode}` : ""}.` : copy("notStopped", { reason: st.reason || copy("noReason") }));
       view.refresh();
       return;
     }
@@ -97,9 +98,9 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     if (s0) return;
     shell.goPane("debug");
     const root = workspace.root();
-    if (!root) { store.setMessage("Abre uma pasta (File → Open Folder…) para depurar o projecto."); view.refresh(); return; }
+    if (!root) { store.setMessage(copy("openFolder")); view.refresh(); return; }
     await guarded(async () => {
-      if (!(await dbg.available())) { store.setMessage(NO_GDB); view.refresh(); return; }
+      if (!(await dbg.available())) { store.setMessage(copy("noGdb")); view.refresh(); return; }
       const program = await chooseProgram(root);
       if (!program) { view.refresh(); return; }
       const id = deps.newId();
@@ -121,7 +122,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
 
   async function resume(f: (id: string) => Promise<Stop>): Promise<void> {
     const s = store.session();
-    if (!s || s.status !== "stopped") { notifier.toast(s ? "Espera que a execução pare" : "Não há uma sessão de depuração — F5 para começar"); return; }
+    if (!s || s.status !== "stopped") { notifier.toast(copy(s ? "waitStop" : "noSessionF5")); return; }
     await guarded(async () => { store.setSession({ ...s, status: "running" }); view.refresh(); await applyStop(s.id, await f(s.id)); });
   }
 
@@ -130,9 +131,9 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
 
   async function dbgStop(): Promise<void> {
     const s = store.session();
-    if (!s) { notifier.toast("Não há uma sessão de depuração"); return; }
+    if (!s) { notifier.toast(copy("noSession")); return; }
     await dbg.stop(s.id).catch(() => undefined);
-    store.setSession(null); store.setMessage("Sessão terminada."); view.refresh();
+    store.setSession(null); store.setMessage(copy("ended")); view.refresh();
   }
 
   function toggleBp(p: string, l: number): void {

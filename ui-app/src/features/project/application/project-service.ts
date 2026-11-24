@@ -8,6 +8,7 @@
 
 import type { ProjectDeps } from "./ports";
 import { branchName, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
+import { ptCopy } from "./messages";
 import {
   parseDetail,
   parseError,
@@ -35,6 +36,7 @@ export interface ProjectState {
 }
 
 export function makeProjectService(deps: ProjectDeps) {
+  const copy = deps.copy ?? ptCopy;
   let st: ProjectState = {
     status: "idle",
     project: null,
@@ -62,7 +64,7 @@ export function makeProjectService(deps: ProjectDeps) {
     set({ status: "loading", error: null, filters: { ...st.filters, me: deps.workspace.me() } });
     try {
       const p = parseProject(await deps.gateway.load(r));
-      if (!p) throw new Error("resposta inválida do store do projecto");
+      if (!p) throw new Error(copy("badResponse"));
       set({ status: "ready", project: p, view: viewsFor(p.method).includes(st.view) ? st.view : "board" });
       if (st.view === "reports") void loadReports();
       if (st.selected) void loadDetail(st.selected);
@@ -84,7 +86,7 @@ export function makeProjectService(deps: ProjectDeps) {
     } catch (e: unknown) {
       const err: ProjectError = parseError(e);
       if (err.overridable && op.op === "move" && !op.reason) {
-        const reason = deps.dialog.prompt(`${err.message}\n\nPara avançar mesmo assim, escreve o motivo (fica registado na actividade da issue):`);
+        const reason = deps.dialog.prompt(copy("overrideReason", { error: err.message }));
         if (reason && reason.trim()) return apply({ ...op, reason: reason.trim() });
         return false;
       }
@@ -197,7 +199,7 @@ export function makeProjectService(deps: ProjectDeps) {
       const i = issue(key);
       if (!i) return;
       if (!deps.git.available()) {
-        deps.notify.toast("Esta pasta não é um repositório git");
+        deps.notify.toast(copy("notARepo"));
         return;
       }
       const name = branchName(i);
@@ -214,7 +216,7 @@ export function makeProjectService(deps: ProjectDeps) {
       const i = issue(key);
       if (!i || !st.project) return;
       if (!deps.codev.available()) {
-        deps.notify.toast("O Co-Dev com agente precisa da app desktop, de uma pasta aberta e de um provedor com agente");
+        deps.notify.toast(copy("needsAgent"));
         return;
       }
       deps.codev.work(i, st.project);

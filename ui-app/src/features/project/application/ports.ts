@@ -1,6 +1,7 @@
 /* ═════════ feature `project` — ports (what the use case needs from the world) ═════════ */
 
 import type { Issue, Project } from "../domain/types";
+import type { ProjectCopy } from "./messages";
 
 /** The project store (Tauri commands `project_*`); payloads are narrowed by the domain. */
 export interface ProjectGateway {
@@ -50,6 +51,8 @@ export interface Notifier {
 }
 
 export interface ProjectDeps {
+  /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
+  copy?: ProjectCopy;
   gateway: ProjectGateway;
   workspace: Workspace;
   git: Git;

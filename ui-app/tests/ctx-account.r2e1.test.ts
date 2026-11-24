@@ -28,13 +28,13 @@ describe("ctx: o uso real da conversa", () => {
     expect(ctx().textContent).toBe("ctx 1.2k");
     usage(18500, 300);
     expect(ctx().textContent).toBe("ctx 19k");
-    expect(ctx().title).toMatch(/Última volta: 18500 tokens de entrada, 300 de saída · conversa: 19734 de entrada, 356 de saída \(2 volta/);
+    expect(ctx().title).toMatch(/Last turn: 18500 input tokens, 300 output · conversation: 19734 input, 356 output \(2 turn/);
   });
 
   it("um provider que não reporta uso não inventa um número", () => {
     usage(0, 0);
     expect(ctx().textContent).toBe("");
-    expect(ctx().title).toMatch(/não reportou/);
+    expect(ctx().title).toMatch(/did not report/);
   });
 
   it("«Nova conversa» repõe o ctx", () => {
@@ -50,7 +50,7 @@ describe("Conta: a identidade real", () => {
 
   it("no browser diz que não há sessão local (sem «walter · Team SYS»)", () => {
     w.renderAccountPane();
-    expect(pane().textContent).toMatch(/Sem sessão local/);
+    expect(pane().textContent).toMatch(/No local session/);
     expect(pane().textContent).not.toMatch(/walter|Team SYS/);
   });
 

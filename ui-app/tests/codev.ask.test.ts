@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeAsk } from "../src/features/codev/application/ask";
+import { CODEV_ENGINE_MESSAGES } from "../src/features/codev/application/messages";
+import { translator } from "../src/app/i18n";
 import { explainPrompt, hunkContext, selectionContext } from "../src/features/codev/domain/ask";
 import { buildPrompt } from "../src/features/codev/domain/composer";
 import { bootApp } from "./harness";
@@ -24,6 +26,25 @@ describe("the ask contract", () => {
     expect(p.startsWith("Explica isto.")).toBe(true);
     expect(p).toContain('<contexto tipo="problem" nome="E0382">\nuse of moved value\n</contexto>');
     expect(p).toContain("não proponhas alterar ficheiros");
+  });
+
+  it("i18n: with the interface in English, the default question is English and the model is told to answer in English", async () => {
+    const prompts: string[] = [];
+    const calls: string[] = [];
+    const ask = makeAsk({
+      sample: () => async (p: string) => { prompts.push(p); return { text: "ok" }; },
+      presenter: { userMessage: (t: string) => calls.push(t), thinking: () => ({}), assistantText: () => undefined, liveError: () => undefined, scrollMsgs: () => undefined } as never,
+      speaker: () => "co-dev",
+      focus: () => undefined,
+      compose: () => undefined,
+      copy: translator(CODEV_ENGINE_MESSAGES),
+      replyLanguage: () => "en",
+    });
+    await ask({ intent: "explain", context: [], send: true });
+    expect(calls[0]).toBe("Explain this.");
+    expect(prompts[0].startsWith("Explain this.")).toBe(true);
+    expect(prompts[0]).toContain("Answer the human in English");
+    expect(prompts[0]).not.toContain("Responde em português");
   });
 
   it("context chips become tagged blocks in the request", () => {
@@ -94,7 +115,7 @@ describe("codev.ask in the app", () => {
 
   it("codev.ask with send:false leaves the question in the box", async () => {
     await (await import("../src/app/codev-ask")).codevAsk.ask({ intent: "fix", context: [{ kind: "problem", label: "E0382", text: "use of moved value" }], send: false });
-    expect((document.getElementById("ag-input") as HTMLTextAreaElement).value).toBe("Corrige isto.");
+    expect((document.getElementById("ag-input") as HTMLTextAreaElement).value).toBe("Fix this.");
     const chips = Array.from(document.querySelectorAll("#ag-compose .cc-att b")).map((b) => b.textContent);
     expect(chips).toEqual(["E0382"]);
   });

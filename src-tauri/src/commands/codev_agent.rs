@@ -32,6 +32,7 @@ pub async fn codev_agent_start(
     provider: Option<String>,
     review_edits: Option<bool>,
     issue: Option<String>,
+    language: Option<String>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     // `arch_propose` (Studio, F6): a proposta chega à UI pelo evento `arch://proposal`
@@ -58,6 +59,7 @@ pub async fn codev_agent_start(
         review_edits: review_edits.unwrap_or(false),
         issue_key: issue,
         change_log: crate::board::db_path(&app).ok(),
+        lang: language,
         ..Default::default()
     };
     tauri::async_runtime::spawn_blocking(move || {

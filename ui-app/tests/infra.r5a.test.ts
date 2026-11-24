@@ -17,7 +17,7 @@ describe("no browser", () => {
     const toast = vi.spyOn(w, "toast");
     w.k8sConnect();
     expect(w.ENVS.k8sOn).toBe(false);
-    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/precisa da app desktop/));
+    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/needs the desktop app/));
   });
 
   it("▶ RUN com um docker-compose.yml válido não inventa serviços a correr", () => {
@@ -44,7 +44,7 @@ describe("no browser", () => {
     const r = w.dxDeploy();
     expect(r).toMatchObject({ ok: false });
     expect(w.K8S).toBe(null);
-    expect(term()).toMatch(/O deploy precisa da app desktop/);
+    expect(term()).toMatch(/The deploy needs the desktop app/);
     expect(term()).not.toMatch(/deployments ready|simulated/);
   });
 
