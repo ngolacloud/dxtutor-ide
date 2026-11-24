@@ -608,6 +608,14 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     const main = ROOT + (lang === "java" ? "lsp-java/Main.java" : "lsp-kotlin/App.kt");
     const callLine = lang === "java" ? 2 : 3, callWord = lang === "java" ? "add" : "greet";
     const defKey = ROOT + (lang === "java" ? "lsp-java/Util.java" : "lsp-kotlin/App.kt"), defLine = lang === "java" ? 3 : 1;
+    /* O backend procura o servidor no PATH e, para o jdtls, em $HOME/.local/share/jdtls/bin; sem
+       servidor não abre sessão nenhuma (sem erro), e o passo esperaria 180 s em silêncio. Com o HOME
+       temporário do auto-teste, o jdtls instalado na pasta pessoal real não se encontra: diz-se já,
+       com o remédio (pôr a pasta dele no PATH). */
+    const server = lang === "java" ? "jdtls" : "kotlin-language-server";
+    const where = lang === "java" ? 'command -v jdtls || { test -x "$HOME/.local/share/jdtls/bin/jdtls" && echo "$HOME/.local/share/jdtls/bin/jdtls"; }' : "command -v kotlin-language-server";
+    const found = (await sh("sh", ["-c", where], { cwd: R.info.home })).stdout.trim();
+    if (!found) return { skipped: `${server} não encontrado no PATH${lang === "java" ? " nem em $HOME/.local/share/jdtls/bin" : ""} — com um HOME temporário, põe a pasta dele no PATH` };
     for (const [rel, text] of Object.entries(files)) writeFile(ROOT + rel, text);
     flushSave(); await idle();
 
@@ -648,6 +656,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     }, 90_000, 3000);
     const caretLine = caretLineNow();
     return {
+      server: found,
       diagnostic: diag ? `${diag.line}: ${diag.msg.slice(0, 90)}` : null, gutterErr, diagMs,
       hover: hoverText ? hoverText.replace(/\s+/g, " ").slice(0, 120) : null,
       definition: { jumped: !!jumped, file: W.cur, caretLine, expectedLine: defLine },
