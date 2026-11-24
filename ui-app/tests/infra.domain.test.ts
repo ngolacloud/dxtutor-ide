@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { projectContext, devcontainerJson, appEnv, k8sInfra, k8sDocs } from "../src/features/infra/domain/kubernetes";
-import { urlHosts, designApps, dbSlugs, localSecrets, deriveSecrets, secretCheck } from "../src/features/infra/domain/secrets";
-import { envDeps, envStateOf, envHealthOf, driftReport, commitsBetween } from "../src/features/infra/domain/environments";
+import { urlHosts, designApps, localSecrets, deriveSecrets, secretCheck } from "../src/features/infra/domain/secrets";
+import { envDeps, envStateOf, envHealthOf, driftReport, commitsBetween, parseClusterState, envManifest, deploymentsIn, ANN_VER, ANN_AT } from "../src/features/infra/domain/environments";
 import { seeded, spark, buildObs, obsLine } from "../src/features/infra/domain/observability";
 import { RTN, KCTX, ENVL, DSTY, defaultEnvs, defaultEnvx } from "../src/features/infra/domain/constants";
 import type { Catalog, Design, DesignNode, Files, K8sState } from "../src/features/infra/domain/types";
@@ -102,10 +102,9 @@ describe("urlHosts", () => {
   });
 });
 
-describe("secrets (designApps / dbSlugs / localSecrets / deriveSecrets / secretCheck)", () => {
-  it("designApps = web + app; dbSlugs = sql/mssql", () => {
+describe("secrets (designApps / localSecrets / deriveSecrets / secretCheck)", () => {
+  it("designApps = web + app", () => {
     expect(designApps(D, cat.isApp).map(slug)).toEqual(["web", "orders-api"]);
-    expect(dbSlugs(D, cat)).toEqual(["orders-db"]);
   });
   it("localSecrets por app a partir das arestas", () => {
     expect(localSecrets(D, cat)).toEqual({
@@ -113,11 +112,13 @@ describe("secrets (designApps / dbSlugs / localSecrets / deriveSecrets / secretC
       "orders-api": { PORT: "8080", DATABASE_URL: "postgres://app:app@orders-db:5432/app", REDIS_URL: "redis://cache:6379" },
     });
   });
-  it("deriveSecrets: staging torce credenciais/host; production esvazia (excepto PORT)", () => {
-    const L = localSecrets(D, cat), sec = deriveSecrets(L, dbSlugs(D, cat));
-    expect(sec.staging["orders-api"].DATABASE_URL).toBe("postgres://app:st4g1ng@orders-db:5432/app");
-    expect(sec.production["orders-api"].DATABASE_URL).toBe("");
-    expect(sec.production["orders-api"].PORT).toBe("8080");
+  it("deriveSecrets: staging e production com as chaves do design por preencher (excepto PORT) — nada torcido (ADR-0006, R5c1)", () => {
+    const L = localSecrets(D, cat), sec = deriveSecrets(L);
+    for (const e of ["staging", "production"] as const) {
+      expect(sec[e]["orders-api"]).toEqual({ PORT: "8080", DATABASE_URL: "", REDIS_URL: "" });
+      expect(Object.keys(sec[e])).toEqual(Object.keys(L));
+    }
+    expect(sec.staging).not.toBe(sec.production);
   });
   it("secretCheck: chaves em falta e vazias", () => {
     const L = localSecrets(D, cat);
@@ -126,7 +127,7 @@ describe("secrets (designApps / dbSlugs / localSecrets / deriveSecrets / secretC
   });
 });
 
-describe("environments (envDeps / envStateOf / envHealthOf / driftReport)", () => {
+describe("environments (envDeps / envStateOf / envHealthOf / driftReport) — o estado vem do cluster", () => {
   const k8s: K8sState = {
     docs: [
       { k: "Deployment", n: "orders-db", file: "f", rep: 1, img: "postgres:16" },
@@ -136,38 +137,79 @@ describe("environments (envDeps / envStateOf / envHealthOf / driftReport)", () =
     deps: [{ n: "orders-db", rep: 1, ready: 1 }, { n: "cache", rep: 1, ready: 1 }],
     ver: "dev1", at: 0,
   };
-  it("envDeps local: todos ok quando os segredos resolvem", () => {
-    const deps = envDeps("local", k8s, {}, D, slug);
+  it("envDeps: os workloads do cluster, ok enquanto nenhum contentor está preso", () => {
+    const deps = envDeps(k8s);
     expect(deps.every((d) => d.status === "ok")).toBe(true);
-    expect(deps.map((d) => d.n)).toEqual(["orders-db", "cache"]);
+    expect(deps.map((d) => [d.n, d.restarts])).toEqual([["orders-db", 0], ["cache", 0]]);
+    expect(envDeps(null)).toEqual([]);
   });
-  it("envDeps: segredo vazio → crash 'is required'; host inexistente → crash de DNS", () => {
-    const sec = { "orders-db": { DATABASE_URL: "" }, cache: { REDIS_URL: "redis://nowhere:6379" } };
-    const deps = envDeps("staging", k8s, sec, D, slug);
-    expect(deps.find((d) => d.n === "orders-db")!.err).toBe("DATABASE_URL is required");
-    expect(deps.find((d) => d.n === "cache")!.err).toMatch(/Name or service not known \(nowhere\)/);
+  it("envDeps: um contentor preso (lido do cluster) é um crash, com o motivo e os reinícios reais", () => {
+    const deps = envDeps({ ...k8s, deps: [{ n: "cache", rep: 1, ready: 0, restarts: 3, err: "CrashLoopBackOff" }] });
+    expect(deps[0]).toMatchObject({ n: "cache", status: "crash", err: "CrashLoopBackOff", restarts: 3 });
   });
-  it("envStateOf local lê o cluster; envHealthOf reflecte o crash", () => {
-    const deps = envDeps("local", k8s, {}, D, slug);
-    const s = envStateOf("local", k8s, {}, deps);
+  it("envStateOf local lê o cluster; os outros, a última leitura; envHealthOf reflecte o crash", () => {
+    const s = envStateOf("local", k8s, {});
     expect(s!.ver).toBe("dev1");
-    expect(s!.ingress).toBe(true);
+    expect(s!.ingress).toBe(true); // sem leitura do Ingress, decide-se pelos manifestos
+    expect(envStateOf("local", { ...k8s, ingress: false }, {})!.ingress).toBe(false);
+    expect(envStateOf("staging", k8s, {})).toBe(null);
     expect(envHealthOf(s)).toBe("ok");
     expect(envHealthOf(null)).toBe("off");
-    expect(envHealthOf({ deps: [{ n: "x", rep: 1, ready: 0, status: "crash", err: "e", restarts: 6 }], ingress: true })).toBe("bad");
+    expect(envHealthOf({ deps: [{ n: "x", rep: 1, ready: 0, status: "crash", err: "e", restarts: 2 }], ingress: true })).toBe("bad");
   });
   it("driftReport: sync/behind/drift/missing conforme versão e réplicas", () => {
-    const deps = envDeps("local", k8s, {}, D, slug);
-    const s = envStateOf("local", k8s, {}, deps);
+    const s = envStateOf("local", k8s, {});
     const sync = driftReport(s, k8s.docs, D, cat, "dev1");
     expect(sync.out.db.st).toBe("sync");
     expect(sync.out.gw.st).toBe("sync"); // ingress presente
     expect(sync.out.api.st).toBe("missing"); // app → só Secret, sem Deployment
     const behind = driftReport(s, k8s.docs, D, cat, "dev2");
     expect(behind.out.db.st).toBe("behind");
-    const s2 = envStateOf("local", { ...k8s, deps: [{ n: "orders-db", rep: 3, ready: 3 }, { n: "cache", rep: 1, ready: 1 }] }, {}, envDeps("local", { ...k8s, deps: [{ n: "orders-db", rep: 3, ready: 3 }, { n: "cache", rep: 1, ready: 1 }] }, {}, D, slug));
+    const s2 = envStateOf("local", { ...k8s, deps: [{ n: "orders-db", rep: 3, ready: 3 }, { n: "cache", rep: 1, ready: 1 }] }, {});
     expect(driftReport(s2, k8s.docs, D, cat, "dev1").out.db.st).toBe("drift");
     expect(driftReport(null, k8s.docs, D, cat, "dev1").out.db.st).toBe("off");
+  });
+});
+
+describe("parseClusterState — o JSON de kubectl get deploy/pods/ingress", () => {
+  const deploy = JSON.stringify({ items: [
+    { metadata: { name: "api", annotations: { [ANN_VER]: "abc1234", [ANN_AT]: "1700000000000" } }, spec: { replicas: 2, template: { spec: { containers: [{ image: "reg/api:1", ports: [{ containerPort: 8080 }] }] } } }, status: { readyReplicas: 1 } },
+    { metadata: { name: "db" }, spec: { replicas: 1, template: { spec: { containers: [{ image: "postgres:16" }] } } }, status: {} },
+  ] });
+  const pods = JSON.stringify({ items: [
+    { metadata: { ownerReferences: [{ kind: "ReplicaSet", name: "api-7d9f8" }] }, status: { containerStatuses: [{ restartCount: 0, state: { running: {} } }] } },
+    { metadata: { ownerReferences: [{ kind: "ReplicaSet", name: "api-7d9f8" }] }, status: { containerStatuses: [{ restartCount: 4, state: { waiting: { reason: "CrashLoopBackOff", message: "back-off 40s restarting" } }, lastState: { terminated: { reason: "Error", exitCode: 1 } } }] } },
+    { metadata: { ownerReferences: [{ kind: "ReplicaSet", name: "db-55c" }] }, status: { containerStatuses: [{ restartCount: 0, state: { waiting: { reason: "ContainerCreating" } } }] } },
+  ] });
+  it("réplicas, prontos, imagem, porta, reinícios e o motivo do contentor preso; versão e hora das anotações", () => {
+    const st = parseClusterState(deploy, pods, JSON.stringify({ items: [{}] }));
+    expect(st.ver).toBe("abc1234");
+    expect(st.at).toBe(1700000000000);
+    expect(st.ingress).toBe(true);
+    expect(st.deps[0]).toEqual({ n: "api", rep: 2, ready: 1, img: "reg/api:1", port: "8080", restarts: 4, err: "CrashLoopBackOff (último fim: Error 1): back-off 40s restarting" });
+    expect(st.deps[1]).toMatchObject({ n: "db", rep: 1, ready: 0, restarts: 0, err: null }); // a criar não é falha
+  });
+  it("respostas vazias ou inválidas não rebentam", () => {
+    expect(parseClusterState("", "", "")).toEqual({ deps: [], ver: undefined, at: undefined, ingress: false });
+    expect(parseClusterState("{not json", "x").deps).toEqual([]);
+  });
+});
+
+describe("envManifest / deploymentsIn — o que se aplica num ambiente", () => {
+  const files = {
+    "p/deploy/k8s/all.yaml": { content: "# cabeçalho\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: cache\nspec:\n  replicas: 1\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: orders-api-env\nstringData:\n  PORT: \"8080\"\n  DATABASE_URL: \"postgres://app:app@orders-db:5432/app\"\n", orig: null },
+    "p/src/x.yaml": { content: "kind: Secret\nmetadata:\n  name: fora-env\n", orig: null },
+  };
+  it("os Secrets `<app>-env` levam os segredos do ambiente; o resto passa tal e qual; só deploy/k8s", () => {
+    const m = envManifest(files, { "orders-api": { PORT: "8080", DATABASE_URL: "postgres://u:p@db.staging:5432/app" } });
+    expect(m).toContain("kind: Deployment");
+    expect(m).toContain('DATABASE_URL: "postgres://u:p@db.staging:5432/app"');
+    expect(m).not.toContain("app:app@");
+    expect(m).not.toContain("fora-env");
+    expect(deploymentsIn(m)).toEqual(["cache"]);
+  });
+  it("um Secret sem segredos do ambiente fica como está", () => {
+    expect(envManifest(files, {})).toContain("app:app@orders-db");
   });
 });
 
@@ -205,7 +247,8 @@ describe("observability (seeded / spark / buildObs / obsLine)", () => {
 describe("constantes", () => {
   it("RTN/KCTX/ENVL/DSTY + fábricas do estado inicial", () => {
     expect(Object.keys(RTN)).toEqual(["docker", "podman", "delonix"]);
-    expect(KCTX[0]).toBe("kind-dxtutor");
+    expect(KCTX).toEqual([]); // os contextos vêm do kubeconfig real ao ligar o cluster (ADR-0006, R5c1)
+    expect(defaultEnvx().ctx).toEqual({ staging: "", production: "" });
     expect(ENVL.production).toBe("Production");
     expect(DSTY.sync).toEqual(["var(--green)", "in sync"]);
     expect(defaultEnvs().rtOn).toBe(false);

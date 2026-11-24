@@ -78,8 +78,6 @@ export const setPanelTab = (tab: string, nofocus?: boolean): void => { G.setPane
 export const getVar = (k: string): string => G.getVar(k);
 
 /* ───── estado da vista + notificações ───── */
-export const pane = (): string => G.PANE;
-export const panes = (): Record<string, (() => void) | undefined> => G.RP;
 export const drawStack = (): void => { G.drawStack(); };
 export const note = (m: string): void => { G.note(m); };
 export const rel = (at: number): string => G.rel(at);

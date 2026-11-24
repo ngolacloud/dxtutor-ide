@@ -365,47 +365,6 @@ exports[`caracterização do motor — drift (design vs realidade) > envDeps/env
 }
 `;
 
-exports[`caracterização do motor — drift (design vs realidade) > envDeps: workload em crash quando um segredo aponta para um host inexistente > envDeps-crash 1`] = `
-[
-  {
-    "err": null,
-    "img": "softwaremill/elasticmq-native",
-    "n": "order-events",
-    "ready": 1,
-    "rep": 1,
-    "restarts": 0,
-    "status": "ok",
-  },
-  {
-    "err": null,
-    "img": "postgres:16-alpine",
-    "n": "orders-db",
-    "ready": 1,
-    "rep": 1,
-    "restarts": 0,
-    "status": "ok",
-  },
-  {
-    "err": null,
-    "img": "redis:7-alpine",
-    "n": "session-cache",
-    "ready": 1,
-    "rep": 1,
-    "restarts": 0,
-    "status": "ok",
-  },
-  {
-    "err": null,
-    "img": "minio/minio",
-    "n": "invoices-bucket",
-    "ready": 1,
-    "rep": 1,
-    "restarts": 0,
-    "status": "ok",
-  },
-]
-`;
-
 exports[`caracterização do motor — observabilidade (determinista por seed) > obsInit: séries + logs seedados para um workload (local/orders-api) > obsInit 1`] = `
 {
   "cpu": [
@@ -918,7 +877,7 @@ exports[`caracterização do motor — runtime / dev-container / Kubernetes (a e
 ]
 `;
 
-exports[`caracterização do motor — secrets (promoção aprovada por humano) > initSecrets: deriva staging (valores mascarados) e production (vazios) > initSecrets-sec 1`] = `
+exports[`caracterização do motor — secrets (promoção aprovada por humano) > initSecrets: staging e production com as chaves do design por preencher (excepto PORT) > initSecrets-sec 1`] = `
 {
   "production": {
     "billing-worker": {
@@ -944,23 +903,23 @@ exports[`caracterização do motor — secrets (promoção aprovada por humano) 
   },
   "staging": {
     "billing-worker": {
-      "AWS_ACCESS_KEY_ID": "minio",
-      "AWS_REGION": "us-east-1",
-      "AWS_SECRET_ACCESS_KEY": "st4g1ng-minio",
-      "DATABASE_URL": "postgres://app:st4g1ng@orders-db.staging:5432/app",
+      "AWS_ACCESS_KEY_ID": "",
+      "AWS_REGION": "",
+      "AWS_SECRET_ACCESS_KEY": "",
+      "DATABASE_URL": "",
       "PORT": "8080",
-      "S3_ENDPOINT": "http://invoices-bucket:9000",
-      "SQS_ENDPOINT": "http://order-events:9324",
+      "S3_ENDPOINT": "",
+      "SQS_ENDPOINT": "",
     },
     "orders-api": {
-      "AWS_REGION": "us-east-1",
-      "DATABASE_URL": "postgres://app:st4g1ng@orders-db:5432/app",
+      "AWS_REGION": "",
+      "DATABASE_URL": "",
       "PORT": "8080",
-      "REDIS_URL": "redis://session-cache:6379",
-      "SQS_ENDPOINT": "http://order-events:9324",
+      "REDIS_URL": "",
+      "SQS_ENDPOINT": "",
     },
     "web": {
-      "ORDERS_API_URL": "http://orders-api",
+      "ORDERS_API_URL": "",
       "PORT": "8080",
     },
   },
@@ -1011,7 +970,19 @@ exports[`caracterização do motor — secrets (promoção aprovada por humano) 
     "miss": [],
   },
   "staging": {
-    "empty": [],
+    "empty": [
+      "web.ORDERS_API_URL",
+      "orders-api.DATABASE_URL",
+      "orders-api.REDIS_URL",
+      "orders-api.SQS_ENDPOINT",
+      "orders-api.AWS_REGION",
+      "billing-worker.SQS_ENDPOINT",
+      "billing-worker.AWS_REGION",
+      "billing-worker.DATABASE_URL",
+      "billing-worker.S3_ENDPOINT",
+      "billing-worker.AWS_ACCESS_KEY_ID",
+      "billing-worker.AWS_SECRET_ACCESS_KEY",
+    ],
     "miss": [],
   },
 }
@@ -1023,7 +994,7 @@ exports[`golden de DOM — pane Infra (renderInfraPane) > desligado: runtime/clu
    <input class="inp notr" value="/var/run/docker.sock" title="Socket path"><button class="btn">Connect socket</button>
    <div class="scm-grp">Dev Container<span class="pdot off" style="background:var(--green)"></span></div><div class="sec-empty">Attach this project to a container built from its own context: languages, ports, the runtime socket and your kubeconfig.</div><button class="btn">Attach project to a container</button>
    <div class="scm-grp">Containers<span class="cnt">0</span></div><div class="sec-empty">Connect the socket to list containers.</div>
-   <div class="scm-grp">Kubernetes<span class="pdot off" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option><option>minikube</option><option>k3d-local</option><option>docker-desktop</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
+   <div class="scm-grp">Kubernetes<span class="pdot off" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
    <button class="btn">Connect cluster</button>
    
    <div class="scm-grp">Remote hosts<span class="cnt">0</span></div><input class="inp notr" placeholder="user@host">
@@ -1036,20 +1007,20 @@ exports[`golden de DOM — pane Infra (renderInfraPane) > ligado: runtime + dev 
    <input class="inp notr" value="/var/run/docker.sock" title="Socket path"><button class="btn ghost">Disconnect</button>
    <div class="scm-grp">Dev Container<span class="pdot" style="background:var(--green)"></span></div><div class="scm-row"><span class="ic"><svg class="ico" viewBox="0 0 16 16"><rect x="2.2" y="5" width="4.4" height="4.4" rx=".4"></rect><rect x="6.8" y="5" width="4.4" height="4.4" rx=".4"></rect><path d="M11.4 5h2.4v4.4h-2.4M2.2 9.4h11.6v1.4c0 .6-.4 1-1 1H3.2c-.6 0-1-.4-1-1z"></path></svg></span><span class="nm notr">dxtutor-dev</span><span class="pth notr">devcontainers/base:bookworm</span></div><button class="btn ghost">Detach</button>
    <div class="scm-grp">Containers<span class="cnt">3</span></div><div class="scm-row" title="Show logs"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-api</span><span class="pth notr">http://localhost:8080</span></div><div class="scm-row" title="Show logs"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-db</span><span class="pth notr">postgres:16</span></div><button class="btn ghost">■ Stop the stack</button>
-   <div class="scm-grp">Kubernetes<span class="pdot" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option><option>minikube</option><option>k3d-local</option><option>docker-desktop</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
+   <div class="scm-grp">Kubernetes<span class="pdot" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
    <button class="btn ghost">Disconnect</button>
    <div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">order-events</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-db</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">session-cache</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><div class="scm-row" style="cursor: pointer;" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">invoices-bucket</span><span class="pth">1/1</span><span class="ra" style="display:flex"><button title="Scale down">−</button><button title="Scale up">+</button></span></div><button class="btn">⎈ Redeploy</button><button class="btn ghost">Delete from cluster</button>
    <div class="scm-grp">Remote hosts<span class="cnt">1</span></div><div class="scm-row"><span class="ic"><svg class="ico" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="8" rx="1.2"></rect><path d="M6 13.6h4M8 11v2.6"></path></svg></span><span class="nm notr">dev@edge-01</span><span class="ra" style="display:flex"><button title="Remove">×</button></span></div><input class="inp notr" placeholder="user@host">
    <div class="sec-empty">O socket e o KUBECONFIG ligam o runtime de contentores e o cluster reais na app desktop; no browser não há a que ligar.</div></div>"
 `;
 
-exports[`golden de DOM — pane Infra (renderInfraPane) > staging seleccionado: chips de ambiente + deps promovidos (crash + ok) > pane-staging-selected 1`] = `
-"<div class="side-hd"><span class="t">Infra</span><span class="acts"><button title="RUN the stack"><svg class="ico" viewBox="0 0 16 16"><path d="M5 3.4v9.2l7-4.6z"></path></svg></button><button title="Deploy to Kubernetes"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2c2.2 1.3 3.3 3.5 3.3 6.5L8 11 4.7 8.5C4.7 5.5 5.8 3.3 8 2z"></path><circle cx="8" cy="6.3" r="1.1"></circle><path d="M5.5 10c-1 .4-1.6 1.4-1.6 2.8 1.4 0 2.4-.6 2.8-1.6M10.5 10c1 .4 1.6 1.4 1.6 2.8-1.4 0-2.4-.6-2.8-1.6"></path></svg></button></span></div><div class="sections"><div class="scm-grp">Environments</div><div class="env-chips"><button class=""><span class="pdot off" style="background:var(--green)"></span>Local</button><button class="on"><span class="pdot" style="background:var(--red)"></span>Staging</button><button class=""><span class="pdot off" style="background:var(--green)"></span>Production</button></div><div class="scm-row" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-api</span><span class="pth">1/1</span></div><div class="scm-row" title="Logs and metrics"><span class="pdot" style="background:var(--red)"></span><span class="nm notr">billing-worker</span><span class="pth">0/1 · crash loop</span></div><button class="btn ghost">Environments and secrets</button>
+exports[`golden de DOM — pane Infra (renderInfraPane) > staging seleccionado: chips de ambiente + deps lidos do cluster (crash + ok) > pane-staging-selected 1`] = `
+"<div class="side-hd"><span class="t">Infra</span><span class="acts"><button title="RUN the stack"><svg class="ico" viewBox="0 0 16 16"><path d="M5 3.4v9.2l7-4.6z"></path></svg></button><button title="Deploy to Kubernetes"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2c2.2 1.3 3.3 3.5 3.3 6.5L8 11 4.7 8.5C4.7 5.5 5.8 3.3 8 2z"></path><circle cx="8" cy="6.3" r="1.1"></circle><path d="M5.5 10c-1 .4-1.6 1.4-1.6 2.8 1.4 0 2.4-.6 2.8-1.6M10.5 10c1 .4 1.6 1.4 1.6 2.8-1.4 0-2.4-.6-2.8-1.6"></path></svg></button></span></div><div class="sections"><div class="scm-grp">Environments</div><div class="env-chips"><button class=""><span class="pdot off" style="background:var(--green)"></span>Local</button><button class="on"><span class="pdot" style="background:var(--red)"></span>Staging</button><button class=""><span class="pdot off" style="background:var(--green)"></span>Production</button></div><div class="scm-row" title="Logs and metrics"><span class="pdot" style="background:var(--green)"></span><span class="nm notr">orders-api</span><span class="pth">1/1</span></div><div class="scm-row" title="Logs and metrics"><span class="pdot" style="background:var(--red)"></span><span class="nm notr">billing-worker</span><span class="pth">0/1 · CrashLoopBackOff</span></div><button class="btn ghost">Environments and secrets</button>
    <div class="scm-grp">Container runtime<span class="pdot off" style="background:var(--green)"></span></div><div class="seg" style="margin:4px 10px"><button class="on">Docker</button><button class="">Podman</button><button class="">Delonix</button></div>
    <input class="inp notr" value="/var/run/docker.sock" title="Socket path"><button class="btn">Connect socket</button>
    <div class="scm-grp">Dev Container<span class="pdot off" style="background:var(--green)"></span></div><div class="sec-empty">Attach this project to a container built from its own context: languages, ports, the runtime socket and your kubeconfig.</div><button class="btn">Attach project to a container</button>
    <div class="scm-grp">Containers<span class="cnt">0</span></div><div class="sec-empty">Connect the socket to list containers.</div>
-   <div class="scm-grp">Kubernetes<span class="pdot off" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option><option>minikube</option><option>k3d-local</option><option>docker-desktop</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
+   <div class="scm-grp">Kubernetes<span class="pdot off" style="background:var(--green)"></span></div><input class="inp notr" value="~/.kube/config" title="KUBECONFIG"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px"><select class="inp notr" style="margin:0;width:100%" title="Context"><option selected="">kind-dxtutor</option></select><input class="inp notr" style="margin:0;width:100%" value="dxtutor" title="Namespace"></div>
    <button class="btn">Connect cluster</button>
    
    <div class="scm-grp">Remote hosts<span class="cnt">0</span></div><input class="inp notr" placeholder="user@host">

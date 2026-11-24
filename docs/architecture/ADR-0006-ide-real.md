@@ -1,6 +1,6 @@
 # ADR-0006 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5a e R5b feitas, R5c e R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2 feita (R2a–R2e2; verificada no desktop); R3 feita (R3a–R3c; verificada no desktop); R4 feita (sem gdb nesta máquina: verificada com IPC falso e o caminho honesto no desktop); R5a, R5b e R5c1 feitas, R5c2 e R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -496,3 +496,37 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   `writeFile`/`extOf`/`short`/`norm`/`LF` publicados pelo `workspace.ts`; as pastas abertas que
   nascem só com a raiz (R3c) passam ao `app/store/workspace.ts` (o novo dono do `OPEN`).
   Selftest desktop completo (34 passos): `errors: []`. Métricas: globais 389 → 363.
+- **R5c em dois passos.** R5c1 os ambientes (staging/production no cluster real); R5c2 a
+  observabilidade (métricas e logs reais em vez das séries semeadas).
+- **R5c1 (2026-11-24) — os ambientes vêm do cluster real.** Cada ambiente é um contexto do
+  kubeconfig + um namespace: o local é o do pane Infra; staging e production escolhem-se na vista
+  Environments entre os contextos reais (`kubectl config get-contexts`, lidos ao ligar o cluster —
+  a lista `KCTX` deixa de ser kind/minikube/k3d/docker-desktop inventados e nasce vazia; os
+  contextos «staging»/«production» por omissão saem). **Estado:** lido do cluster pela porta nova
+  `EnvCluster` (`desktopPorts.infra.cluster`): `kubectl get deploy|pods|ingress -o json`
+  interpretado por `parseClusterState` (domínio puro) — réplicas, prontos, reinícios e o motivo de
+  um contentor preso (`CrashLoopBackOff`, `ImagePullBackOff`…) vêm dos pods; a versão e a hora vêm
+  das anotações `dxtutor.io/version`/`deployed-at` que o deploy e a promoção põem nos
+  Deployments (o `K8S.ver` deixa de ser o `develop` e o relógio no fim do deploy). O estado não se
+  guarda (a chave do LS passa a `envx7`, largando o estado inventado da `envx6`). **Sai o
+  fabricado:** os segredos de staging «torcidos» (`st4g1ng`, o host `.staging` para provocar um
+  crash) — staging e production nascem com as chaves do design por preencher (excepto `PORT`); o
+  crash derivado dos segredos e os `restarts: 6`; a promoção que escrevia um estado e ecoava
+  «simulated». **Promover/Redeploy (desktop):** o diálogo mantém-se (commits, segredos em falta ou
+  vazios, confirmação «production»); aprovar faz `kubectl apply -f -` do manifesto do ambiente
+  (`envManifest`: os `deploy/k8s` com os Secrets `<app>-env` reescritos com os segredos desse
+  ambiente, pela entrada padrão — nunca no disco nem na linha de comandos), anota a versão, espera
+  pelo `rollout status` de cada Deployment e relê o ambiente; só um deploy que correu bem entra no
+  histórico. Production bloqueada por staging a falhar aponta para os logs (o «Attach» do debugger
+  simulado já não existe). **Browser:** sem cluster, staging/production não têm estado e aprovar
+  uma promoção diz que precisa da app desktop. **Goldens (decisão deste ADR):** os três do pane
+  Infra mudam no selector de contexto (só o contexto configurado até se lerem os reais) e o de
+  staging no motivo do crash; `initSecrets-sec`/`secretCheck` passam a chaves por preencher; o
+  `envDeps-crash` sai (era o crash fabricado). **Testes:** `infra.r5c1` (9: browser sem estado nem
+  promoção; desktop com porta falsa — o manifesto leva os segredos de staging e não os locais, um
+  deploy falhado não entra no histórico, `refreshEnvs` só lê ambientes com contexto e cluster
+  ligado, production bloqueada → logs, o selector de contexto) e `infra.domain` (parser do kubectl,
+  `envManifest`, `deploymentsIn`). **Selftest desktop:** passo `environments` — NUNCA contra os
+  clusters do utilizador: um kubeconfig temporário com um contexto cujo servidor não responde; os
+  contextos lidos são os reais do ficheiro, a leitura do namespace falha com a mensagem do kubectl
+  e o apply por stdin falha sem registar nada; `errors: []`.

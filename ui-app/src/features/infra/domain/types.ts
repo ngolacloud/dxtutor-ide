@@ -87,15 +87,29 @@ export interface K8sDep {
   ready: number;
   img?: string;
   port?: string;
+  /** Reinícios somados dos pods do Deployment (lidos do cluster; ADR-0006, R5c1). */
+  restarts?: number;
+  /** Porque é que não arranca (o `waiting.reason` de um contentor, p.ex. CrashLoopBackOff), ou null. */
+  err?: string | null;
 }
 
-/** O estado do cluster local (`window.K8S`). `ver`/`at` são postos pela
- *  decoração v6 de `dxDeploy`. */
+/** O estado do cluster local (`window.K8S`), lido do cluster real pela app desktop. `ver`/`at`
+ *  vêm das anotações que o deploy põe nos Deployments (`ANN_VER`/`ANN_AT`). */
 export interface K8sState {
   docs: K8sDoc[];
   deps: K8sDep[];
   ver?: string;
   at?: number;
+  /** Há um Ingress no namespace (lido do cluster); sem leitura, decide-se pelos manifestos. */
+  ingress?: boolean;
+}
+
+/** O que se lê de um namespace do cluster (`parseClusterState`). */
+export interface ClusterState {
+  deps: K8sDep[];
+  ver?: string;
+  at?: number;
+  ingress: boolean;
 }
 
 /* ───── environments / secrets / drift ───── */
@@ -171,7 +185,8 @@ export interface PromotionRecord {
 }
 
 /** Estado dos environments (`window.ENVX`): ambiente corrente, contexto/namespace
- *  por ambiente, segredos derivados, estado deployado por ambiente, histórico. */
+ *  por ambiente, segredos, estado deployado por ambiente (lido do cluster, não se guarda),
+ *  histórico das promoções. */
 export interface EnvX {
   cur: string;
   ctx: Record<string, string>;

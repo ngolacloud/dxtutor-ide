@@ -12,6 +12,8 @@ import type { InfraDesktop } from "../../features/infra/application/ports";
 import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { devcontainerClient } from "../tauri/devcontainer";
+import { parseClusterState, deploymentsIn, ANN_VER, ANN_AT } from "../../features/infra/domain/environments";
+import type { EnvState } from "../../features/infra/domain/types";
 import type { DesktopContext } from "./context";
 
 export function installInfra(ctx: DesktopContext): void {
@@ -27,15 +29,28 @@ function envFor(): Record<string, string> {
   return e;
 }
 const compose = () => rtBin() + " compose";
+/** O que corre num namespace: Deployments, pods (reinícios e o motivo de um contentor preso) e
+ *  Ingresses, lidos pelo kubectl e interpretados pelo domínio (ADR-0006, R5c1). null = não há
+ *  Deployments; lança se o cluster não responde. */
+async function readNs(ctxName: string, ns: string): Promise<EnvState | null> {
+  const get = (what: string) => sh("kubectl", ["--context", ctxName, "-n", ns, "get", what, "-o", "json", "--request-timeout=10s"], { env: envFor(), timeout: 20000 });
+  const [dep, pods, ing] = await Promise.all([get("deploy"), get("pods"), get("ingress")]);
+  /* a última linha é a mensagem do kubectl (as de cima são o registo do klog) */
+  if (dep.code !== 0) throw new Error(String(dep.stderr || "kubectl falhou").trim().split("\n").pop());
+  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "");
+  if (!st.deps.length) return null;
+  return { ver: st.ver, at: st.at, ingress: st.ingress, deps: st.deps.map(d => ({ n: d.n, rep: d.rep, ready: d.ready, status: d.err ? "crash" : "ok", err: d.err ?? null, restarts: d.restarts ?? 0, img: d.img })) };
+}
 async function readK8s(): Promise<void> {
   if (!ENVS.k8sOn) return;
-  const r = await sh("kubectl", ["--context", ENVS.ctx, "-n", ENVS.ns, "get", "deploy", "-o", "json"], { env: envFor(), timeout: 20000 });
-  if (r.code !== 0) return;
-  try {
-    const items = JSON.parse(r.stdout).items || [];
-    K8S = items.length ? { docs: k8sDocs(), deps: items.map((d: any) => { const c = (d.spec.template.spec.containers || [])[0] || {}; return { n: d.metadata.name, rep: d.spec.replicas || 0, ready: (d.status && d.status.readyReplicas) || 0, img: c.image, port: ((c.ports || [])[0] || {}).containerPort }; }) } : null;
-  } catch { /* resposta inválida */ }
+  const get = (what: string) => sh("kubectl", ["--context", ENVS.ctx, "-n", ENVS.ns, "get", what, "-o", "json"], { env: envFor(), timeout: 20000 });
+  const [dep, pods, ing] = await Promise.all([get("deploy"), get("pods"), get("ingress")]);
+  if (dep.code !== 0) return;
+  const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "");
+  K8S = st.deps.length ? { docs: k8sDocs(), deps: st.deps, ver: st.ver, at: st.at, ingress: st.ingress } : null;
 }
+/** As anotações da versão e da hora do deploy (lidas de volta por `parseClusterState`). */
+const annotate = (kc: string, ns: string, ver: string) => `${kc} -n ${ns} annotate deploy --all ${ANN_VER}=${ver} ${ANN_AT}=$(($(date +%s)*1000)) --overwrite`;
 /* ───── o pane Containers (ADR-0006, R5a): os contentores e as imagens reais do runtime ligado ─────
    `docker`/`podman ps -a` e `images` em JSON (o docker escreve um objecto por linha; o podman um
    array), com o socket do pane Infra. Sem runtime ligado, di-lo. */
@@ -133,7 +148,7 @@ dxDeploy(_dxDeploy) {
   const proj = R.name!.toLowerCase().replace(/[^a-z0-9_-]/g, ""), ctx = ENVS.ctx, ns = ENVS.ns, kc = `kubectl --context ${ctx}`, deps = docs.filter(d => d.k === "Deployment");
   const load = (img: string) => /^kind-/.test(ctx) ? `kind load docker-image ${img} --name ${ctx.slice(5)}` : /^minikube/.test(ctx) ? `minikube image load ${img}` : /^k3d-/.test(ctx) ? `k3d image import ${img} -c ${ctx.slice(4)}` : `echo "push ${img} to a registry the cluster can pull from"`;
   const own = deps.filter(d => /registry\.example\.com/.test(d.img || ""));
-  const script = ["set -e", `${compose()} build`, ...own.map(d => `${rtBin()} tag ${proj}-${d.n} ${d.img} && ${load(d.img)}`), `${kc} create namespace ${ns} --dry-run=client -o yaml | ${kc} apply -f -`, `${kc} -n ${ns} apply -f deploy/k8s`, ...deps.map(d => `${kc} -n ${ns} rollout status deploy/${d.n} --timeout=180s`)].join("\n");
+  const script = ["set -e", `${compose()} build`, ...own.map(d => `${rtBin()} tag ${proj}-${d.n} ${d.img} && ${load(d.img)}`), `${kc} create namespace ${ns} --dry-run=client -o yaml | ${kc} apply -f -`, `${kc} -n ${ns} apply -f deploy/k8s`, annotate(kc, ns, "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"), ...deps.map(d => `${kc} -n ${ns} rollout status deploy/${d.n} --timeout=180s`)].join("\n");
   void idle().then(async () => { const code = await runInTerm(script, { env: envFor() }); if (code === 0) { await readK8s(); toast("Deployed to " + ctx); goPane("infra"); } infraDraw(); });
   return { ok: true, sum: "deploying" };
 },
@@ -178,6 +193,27 @@ k8sScale(n, d, _k8sScale) {
 k8sDown(_k8sDown) {
   if (!ENVS.k8sOn || !R.root) return _k8sDown();
   void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} delete -f deploy/k8s`, { env: envFor() }).then(async () => { K8S = null; await readK8s(); infraDraw(); });
+},
+/* ───── staging e production no cluster real (ADR-0006, R5c1) ─────
+   O manifesto (com os segredos do ambiente) entra pela entrada padrão do `kubectl apply -f -`:
+   nunca toca no disco nem na linha de comandos. */
+cluster: {
+  async apply(t, manifest, ver) {
+    setPanelTab("terminal", true);
+    const kc = ["--context", t.ctx], show = (r: ExecResult) => { const o = [r.stdout.trim(), r.stderr.trim()].filter(Boolean).join("\n"); if (o) echo(`<span class="${r.code === 0 ? "dim" : "er"}">${escH(o.slice(-4000))}</span>`); return r.code === 0; };
+    const run = (args: string[], stdin?: string) => sh("kubectl", [...kc, ...args], { env: envFor(), stdin: stdin ?? null, timeout: 200000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) }));
+    echoCmd(`kubectl --context ${t.ctx} -n ${t.ns} apply -f deploy/k8s   # segredos de ${t.env}, versão ${ver || "?"}`);
+    const nsY = await run(["create", "namespace", t.ns, "--dry-run=client", "-o", "yaml"]);
+    let ok = show(nsY) && show(await run(["apply", "-f", "-"], nsY.stdout));
+    if (ok) ok = show(await run(["-n", t.ns, "apply", "-f", "-"], manifest));
+    if (ok && ver) ok = show(await run(["-n", t.ns, "annotate", "deploy", "--all", `${ANN_VER}=${ver}`, `${ANN_AT}=${Date.now()}`, "--overwrite"]));
+    if (ok) {
+      for (const n of deploymentsIn(manifest)) if (!show(await run(["-n", t.ns, "rollout", "status", `deploy/${n}`, "--timeout=180s"]))) { ok = false; break; }
+    }
+    echo(ok ? `<span class="ok">${escH(t.env)}: aplicado em ${escH(t.ctx)}/${escH(t.ns)}</span>` : `<span class="er">${escH(t.env)}: o deploy falhou</span>`); newInput(true);
+    return ok;
+  },
+  read: (t) => readNs(t.ctx, t.ns),
 },
 observe(t, host, _observe) {
   _observe(t, host);

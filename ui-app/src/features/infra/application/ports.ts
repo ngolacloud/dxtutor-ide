@@ -89,7 +89,6 @@ export interface Notifier {
 export interface View {
   redraw(): void;
   rerender(kind: string): void;
-  rerenderDebug(): void;
   drawStack(): void;
 }
 
@@ -97,6 +96,20 @@ export interface View {
  *  nos testes (o golden fixa o relógio). */
 export interface Clock {
   now(): number;
+}
+
+/** Onde vive um ambiente: o contexto do kubeconfig e o namespace. */
+export interface EnvTarget { env: string; ctx: string; ns: string }
+
+/** O cluster real de um ambiente (ADR-0006, R5c1), só na app desktop: aplicar os manifestos com os
+ *  segredos do ambiente (e anotar a versão) e ler o que lá corre. Sem ele (browser), staging e
+ *  production não têm estado e promover diz que precisa da app desktop. */
+export interface EnvCluster {
+  /** `kubectl apply -f -` do manifesto no namespace (cria-o se falta), anota a versão e espera
+   *  pelo rollout; a saída vai para o terminal. Devolve se correu bem. */
+  apply(t: EnvTarget, manifest: string, ver: string): Promise<boolean>;
+  /** Lê os Deployments, os pods e os Ingresses do namespace (null se não há nenhum Deployment). */
+  read(t: EnvTarget): Promise<EnvState | null>;
 }
 
 /* ───────── pacote de dependências entregue ao motor ───────── */
@@ -111,6 +124,8 @@ export interface InfraDeps {
   notifier: Notifier;
   view: View;
   clock: Clock;
+  /** O cluster real dos ambientes (a porta desktop), consultado no acto; null no browser. */
+  envCluster: () => EnvCluster | null;
 }
 
 /** Resultado de um deploy (o decorador v6 lê `.ok`). */
@@ -133,6 +148,8 @@ export interface InfraDesktop {
   /** O scale e o delete do Kubernetes com o `kubectl` real (ADR-0006, R5b). */
   k8sScale?(n: string, d: number, virtual: (n: string, d: number) => void): unknown;
   k8sDown?(virtual: () => void): unknown;
+  /** O cluster de staging/production (`kubectl` real, ADR-0006 R5c1). */
+  cluster?: EnvCluster;
 }
 
 /** A superfície que o motor devolve (os dois motores da Infra). */
@@ -169,6 +186,10 @@ export interface InfraEngine {
   commitsBetween(from: string | null | undefined, to: string | undefined): Commit[];
   promote(to: string): void;
   redeployEnv(env: string): void;
+  /** Relê do cluster o estado de staging e production (só com a porta desktop). */
+  refreshEnvs(): Promise<void>;
+  /** Muda o contexto ou o namespace de um ambiente e relê-o. */
+  setEnvTarget(env: string, field: "ctx" | "ns", v: string): void;
   openEnvs(): void;
   driftReport(env: string): DriftReport;
   openObserve(env: string, n: string): void;

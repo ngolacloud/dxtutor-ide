@@ -18,26 +18,29 @@ import {
   appEnv as domAppEnv, k8sInfra as domK8sInfra, k8sDocs as domK8sDocs,
 } from "../domain/kubernetes";
 import {
-  designApps as domDesignApps, dbSlugs as domDbSlugs,
+  designApps as domDesignApps,
   localSecrets as domLocalSecrets, deriveSecrets as domDeriveSecrets, secretCheck as domSecretCheck,
 } from "../domain/secrets";
 import {
   envDeps as domEnvDeps, envStateOf as domEnvStateOf, envHealthOf as domEnvHealthOf,
-  driftReport as domDriftReport, commitsBetween as domCommitsBetween,
+  driftReport as domDriftReport, commitsBetween as domCommitsBetween, envManifest,
 } from "../domain/environments";
 import type { Catalog, Design, DesignNode, EnvDep, EnvState, K8sDoc, SecretSets } from "../domain/types";
-import type { InfraDeps, InfraEngine, DeployResult } from "./ports";
+import type { InfraDeps, InfraEngine, DeployResult, EnvTarget } from "./ports";
 
 export function makeInfraEngine(deps: InfraDeps): InfraEngine {
-  const { state, catalog, workspace, scm, persist, terminal, nav, notifier, view, clock } = deps;
+  const { state, catalog, workspace, scm, persist, terminal, nav, notifier, view, clock, envCluster } = deps;
   const cat = (): Catalog => ({ tech: catalog.tech(), kind: catalog.kind(), isApp: catalog.isApp, slug: catalog.slug });
 
   /* ───── hidratação preguiçosa (guard-once) ───── */
   let envsHyd = false, envxHyd = false;
   function hydrateEnvs(): void { if (envsHyd) return; envsHyd = true; Object.assign(state.envs(), persist.get("env5", {})); state.setPDc(workspace.root() + ".devcontainer/devcontainer.json"); }
-  function hydrateEnvx(): void { if (envxHyd) return; envxHyd = true; Object.assign(state.envx(), persist.get("envx6", {})); }
+  /* ADR-0006, R5c1: a chave passa a `envx7` — a `envx6` guardava estado inventado (versões
+     «deployadas» em staging/production, segredos torcidos, promoções simuladas). O estado de cada
+     ambiente lê-se do cluster e não se guarda. */
+  function hydrateEnvx(): void { if (envxHyd) return; envxHyd = true; const saved = persist.get<Record<string, unknown>>("envx7", {}); delete saved.st; Object.assign(state.envx(), saved); }
   const saveEnv = (): void => persist.set("env5", state.envs());
-  const saveEnvx = (): void => persist.set("envx6", state.envx());
+  const saveEnvx = (): void => { const { st: _st, ...keep } = state.envx(); persist.set("envx7", keep); };
   const cli = (): string => state.envs().rt;
 
   /* ═══════════ motor runtime / dev-container / Kubernetes ═══════════ */
@@ -116,50 +119,99 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
   const localSecrets = () => domLocalSecrets(catalog.design(), cat());
   function initSecrets(): void {
     hydrateEnvx(); const x = state.envx(); if (x.sec) return;
-    x.sec = domDeriveSecrets(localSecrets(), domDbSlugs(catalog.design(), cat())); saveEnvx();
+    x.sec = domDeriveSecrets(localSecrets()); saveEnvx();
   }
   const secretCheck = (to: string) => domSecretCheck(localSecrets(), state.envx().sec![to as keyof SecretSets]);
   function envDeps(env: string): EnvDep[] {
-    const sec = env === "local" ? localSecrets() : state.envx().sec![env as keyof SecretSets];
-    return domEnvDeps(env, state.k8s(), sec, catalog.design(), catalog.slug);
+    return env === "local" ? domEnvDeps(state.k8s()) : (envState(env)?.deps ?? []);
   }
   function envState(env: string): EnvState | null {
     hydrateEnvx();
-    return domEnvStateOf(env, state.k8s(), state.envx().st, env === "local" ? envDeps("local") : []);
+    return domEnvStateOf(env, state.k8s(), state.envx().st);
   }
   const envHealth = (env: string): string => domEnvHealthOf(envState(env));
   const commitsBetween = (from: string | null | undefined, to: string | undefined) => domCommitsBetween(from, to, scm.commits());
   const driftReport = (env: string) => domDriftReport(envState(env), k8sDocs(), catalog.design(), cat(), scm.refs().develop);
 
+  /* ═══════════ ambientes no cluster real (ADR-0006, R5c1) ═══════════
+     Cada ambiente é um contexto do kubeconfig + um namespace. O local é o do pane Infra; staging e
+     production escolhem-se em Environments. O estado lê-se do cluster pela porta desktop
+     (`envCluster`); promover aplica os manifestos com os segredos do ambiente. No browser não há
+     cluster: os ambientes ficam sem estado e promover diz que precisa da app desktop. */
+  const target = (env: string): EnvTarget => {
+    const e = state.envs(), x = state.envx();
+    return env === "local" ? { env, ctx: e.ctx, ns: e.ns } : { env, ctx: x.ctx[env] || "", ns: x.ns[env] || "" };
+  };
+  const reading: Record<string, Promise<void> | undefined> = {};
+  function refreshEnv(env: string): Promise<void> {
+    const c = envCluster(), x = state.envx();
+    if (env === "local" || !c || !state.envs().k8sOn) return Promise.resolve();
+    const t = target(env);
+    if (!t.ctx || !t.ns) { x.st[env] = null; return Promise.resolve(); }
+    return reading[env] ??= c.read(t).then(
+      (st) => { x.st[env] = st; },
+      (e) => { x.st[env] = null; notifier.log("environments", `${env}: não consegui ler ${t.ctx}/${t.ns} — ${e}`); },
+    ).finally(() => { reading[env] = undefined; view.rerender("envs"); view.redraw(); });
+  }
+  function refreshEnvs(): Promise<void> {
+    hydrateEnvx();
+    return Promise.all(["staging", "production"].map(refreshEnv)).then(() => undefined);
+  }
+  function setEnvTarget(env: string, field: "ctx" | "ns", v: string): void {
+    hydrateEnvx(); const x = state.envx();
+    x[field][env] = v.trim(); x.st[env] = null; saveEnvx();
+    void refreshEnv(env);
+    view.rerender("envs"); view.redraw();
+  }
+  /** Aplica o manifesto de `env` (com os seus segredos) e relê o ambiente. */
+  function applyTo(env: string, ver: string, after: (ok: boolean) => void): void {
+    const c = envCluster();
+    if (!c) { notifier.toast("Promover para um cluster precisa da app desktop (o kubectl real)"); return; }
+    const sec = state.envx().sec![env as keyof SecretSets];
+    void c.apply(target(env), envManifest(workspace.files(), sec), ver).then(async (ok) => {
+      after(ok);
+      await refreshEnv(env);
+      const bad = (envState(env)?.deps ?? []).filter((d) => d.status === "crash");
+      notifier.toast(!ok ? `${ENVL[env]}: o deploy falhou — vê o terminal` : bad.length ? `${ENVL[env]}: ${bad.length} workload(s) a falhar` : `${ENVL[env]} está em ${ver}`);
+      if (ok && bad.length) notifier.note(`${ENVL[env]}: ${bad[0].n} não arranca — ${bad[0].err}`);
+    });
+  }
+
   function promote(to: string): void {
     initSecrets();
     const from = to === "staging" ? "local" : "staging", src = envState(from);
     if (!src) { notifier.toast(`Deploy to ${ENVL[from]} first`); openEnvs(); return; }
+    const t = target(to);
+    if (!t.ctx || !t.ns) { notifier.toast(`Escolhe o contexto e o namespace de ${ENVL[to]} em Environments`); openEnvs(); return; }
     if (to === "production" && envHealth("staging") === "bad") {
-      nav.dlg({ title: "Production is blocked", body: `<p>Staging has failing workloads. Fix staging before promoting:</p>${src.deps.filter((d) => d.status === "crash").map((d) => `<div class="fixl"><b>✖ ${esc(d.n)}</b><span class="notr">${esc(d.err)}</span></div>`).join("")}<p style="margin-top:10px">The Debug assistant can investigate: <b>Run and Debug → Attach: ${esc(src.deps.find((d) => d.status === "crash")!.n)} (staging)</b>.</p>`, ok: "Open debugger", onOk: () => { nav.goPane("debug"); } });
+      const bad = src.deps.filter((d) => d.status === "crash");
+      nav.dlg({ title: "Production is blocked", body: `<p>Staging has failing workloads. Fix staging before promoting:</p>${bad.map((d) => `<div class="fixl"><b>✖ ${esc(d.n)}</b><span class="notr">${esc(d.err)}</span></div>`).join("")}<p style="margin-top:10px">The logs show why: <b>Observe → ${esc(bad[0].n)} (staging)</b>.</p>`, ok: "Open the logs", onOk: () => { openObserve("staging", bad[0].n); } });
       return;
     }
     const sc = secretCheck(to), cur = envState(to), cs = cur ? commitsBetween(cur.ver, src.ver) : commitsBetween(null, src.ver).slice(0, 6), block = sc.miss.length || (to === "production" && sc.empty.length);
-    const x = state.envx(), commits = scm.commits();
+    const x = state.envx(), commits = scm.commits(), ver = src.ver || "";
     nav.dlg({
       title: `Promote ${ENVL[from]} → ${ENVL[to]}`, block: !!block,
-      body: `<div class="pr-row"><span>Version</span><code class="notr">${src.ver}</code><span class="notr">${esc((commits[src.ver as string] || {}).m || "")}</span></div><div class="pr-row"><span>Target now runs</span><code class="notr">${cur ? cur.ver : "nothing"}</code></div>
-     <div class="pr-row"><span>Cluster</span><code class="notr">${esc(x.ctx[to])} / ${esc(x.ns[to])}</code></div><h3>${cs.length} commit(s) in this promotion</h3>${cs.slice(0, 6).map((c) => `<div class="pr-c notr"><code>${c.h}</code> ${esc(c.m)}</div>`).join("")}
+      body: `<div class="pr-row"><span>Version</span><code class="notr">${esc(ver || "?")}</code><span class="notr">${esc((commits[ver] || {}).m || "")}</span></div><div class="pr-row"><span>Target now runs</span><code class="notr">${cur ? esc(cur.ver || "?") : "nothing"}</code></div>
+     <div class="pr-row"><span>Cluster</span><code class="notr">${esc(t.ctx)} / ${esc(t.ns)}</code></div><h3>${cs.length} commit(s) in this promotion</h3>${cs.slice(0, 6).map((c) => `<div class="pr-c notr"><code>${c.h}</code> ${esc(c.m)}</div>`).join("")}
      <h3>Secrets</h3>${sc.miss.length ? `<div class="fixl"><b>✖ ${sc.miss.length} key(s) missing in ${ENVL[to]}</b><span class="notr">${sc.miss.slice(0, 6).join(", ")}</span></div>` : ""}${sc.empty.length ? `<div class="fixl"><b>${to === "production" ? "✖" : "⚠"} ${sc.empty.length} empty value(s)</b><span class="notr">${sc.empty.slice(0, 6).join(", ")}</span></div>` : ""}${!sc.miss.length && !sc.empty.length ? '<p style="color:var(--green)">✓ Every key the design needs is set.</p>' : ""}
-     <p class="pr-note">Keys are checked here; values are not — a wrong value only shows up when the workload starts. Deploying is always your decision.</p>${to === "production" ? "<p>Type <b>production</b> to confirm.</p>" : ""}`,
+     <p class="pr-note">This applies <code>deploy/k8s</code> from your working tree with ${ENVL[to]}'s secrets (<code>kubectl apply</code>); the images must be in a registry that cluster can pull from. Keys are checked here; values are not — a wrong value only shows up when the workload starts. Deploying is always your decision.</p>${to === "production" ? "<p>Type <b>production</b> to confirm.</p>" : ""}`,
       input: to === "production" ? "production" : null, rows: 1, ok: `Approve and promote to ${ENVL[to]}`, validate: (v) => to === "production" && v !== "production" ? "Type production to confirm." : "",
       onOk: () => {
-        x.st[to] = { ver: src.ver, at: clock.now(), deps: [], ingress: true }; x.st[to]!.deps = envDeps(to); x.hist.unshift({ from, to, ver: src.ver, at: clock.now() }); saveEnvx(); const bad = x.st[to]!.deps.filter((d) => d.status === "crash");
-        terminal.setPanelTab("terminal", true); terminal.echoCmd(`dx promote ${from} ${to} --version ${src.ver}`); terminal.echo(`<span class="dim">$ kubectl --context ${esc(x.ctx[to])} -n ${esc(x.ns[to])} apply -f deploy/k8s/ (secrets from ${ENVL[to]})</span>\n` + x.st[to]!.deps.map((d) => d.status === "crash" ? `deployment "${d.n}" <span class="er">exceeded its progress deadline — CrashLoopBackOff</span>` : `deployment "${d.n}" <span class="ok">successfully rolled out</span>`).join("\n") + `\n<span class="dim">simulated: no real cluster is reached from the browser.</span>`); terminal.newInput(true);
-        notifier.log("environments", `promoted ${src.ver} ${from} → ${to} (approved by you)`); notifier.toast(bad.length ? `${ENVL[to]}: ${bad.length} workload(s) failing` : `${ENVL[to]} is on ${src.ver}`); if (bad.length) notifier.note(`${ENVL[to]}: ${bad[0].n} is crash-looping`); view.rerender("envs"); view.redraw(); view.rerenderDebug();
+        applyTo(to, ver, (ok) => {
+          if (!ok) return;
+          x.hist.unshift({ from, to, ver, at: clock.now() }); saveEnvx();
+          notifier.log("environments", `promoted ${ver} ${from} → ${to} (approved by you)`);
+        });
       },
     });
   }
   function redeployEnv(env: string): void {
-    const s = state.envx().st[env]; if (!s) return; s.deps = envDeps(env); s.at = clock.now(); saveEnvx(); const bad = s.deps.filter((d) => d.status === "crash");
-    notifier.toast(bad.length ? `${ENVL[env]}: still failing` : `${ENVL[env]}: all workloads ready`); notifier.log("environments", `${env} redeployed with updated secrets`); view.rerender("envs"); view.redraw(); view.rerenderDebug();
+    initSecrets();
+    const s = envState(env); if (!s) return;
+    applyTo(env, s.ver || "", (ok) => { if (ok) notifier.log("environments", `${env} redeployed with updated secrets`); });
   }
-  function openEnvs(): void { initSecrets(); nav.openTab({ id: "envs", title: "Environments", kind: "envs" }); }
+  function openEnvs(): void { initSecrets(); nav.openTab({ id: "envs", title: "Environments", kind: "envs" }); void refreshEnvs(); }
   function openObserve(env: string, n: string): void {
     nav.openTab({ id: "obs:" + env + ":" + n, title: n + " · " + ENVL[env], kind: "observe", env, name: n });
   }
@@ -168,6 +220,6 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
     hydrateEnvs, saveEnv, cli, needRt, rtConnect, k8sConnect, projectContext, devcontainerJson,
     dcAttach, dcDetach, appEnv, k8sInfra, k8sDocs, dxDeploy, k8sScale, k8sDown, runTaskQuiet, ctlLogs,
     hydrateEnvx, saveEnvx, designApps, localSecrets, initSecrets, envDeps, envState, envHealth,
-    secretCheck, commitsBetween, promote, redeployEnv, openEnvs, driftReport, openObserve,
+    secretCheck, commitsBetween, promote, redeployEnv, refreshEnvs, setEnvTarget, openEnvs, driftReport, openObserve,
   };
 }

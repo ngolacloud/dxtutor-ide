@@ -1,10 +1,12 @@
 /* ═════════ dxtutor IDE — desktop: o auto-teste (ADR-0004, U4h1) ═════════
    O auto-teste da app real (`DXTUTOR_SELFTEST`, Xvfb): percorre o terminal, o PTY do painel,
    os modelos, a config dos providers, a pasta aberta, autosave, commit, gitflow, checkpoint,
-   grafo, changelog, scm, infra, termgit, codereview e a delegação isolada, e grava o
+   grafo, changelog, scm, infra (contentores, dev container, ambientes), termgit, codereview e a
+   delegação isolada, e grava o
    relatório. Era a função `selftest` do bridge.ts, verbatim. */
 
 import type { DesktopContext } from "./context";
+import { desktopPorts } from "../../app/desktop";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -436,6 +438,28 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const down = await wait(() => W.DEVC === null, 30000);
       const gone = name ? !(await sh(bin, ["ps", "-a"])).stdout.includes(name) : false;
       return { image: img, engine, up, name, inPs, down, gone };
+    });
+    // ambientes (ADR-0006, R5c1): o kubectl real, mas NUNCA contra os clusters do utilizador — um
+    // kubeconfig temporário com um contexto cujo servidor não responde. Prova a leitura real dos
+    // contextos, o erro de ler um namespace e o apply por stdin a falhar sem inventar nada.
+    await step("environments", async () => {
+      const W = window as unknown as { ENVS: { kube: string; ctx: string; ns: string; k8sOn: boolean }; ENVX: { ctx: Record<string, string>; ns: Record<string, string>; hist: unknown[] }; KCTX: string[]; k8sConnect: () => Promise<void>; envState: (e: string) => unknown; promote: (e: string) => void };
+      const kc = (await sh("mktemp", [])).stdout.trim();
+      const cfg = "apiVersion: v1\nkind: Config\nclusters:\n- name: dx-selftest\n  cluster:\n    server: https://127.0.0.1:9\n    insecure-skip-tls-verify: true\ncontexts:\n- name: dx-selftest\n  context:\n    cluster: dx-selftest\n    user: dx-selftest\n    namespace: dx\nusers:\n- name: dx-selftest\n  user:\n    token: x\ncurrent-context: dx-selftest\n";
+      await sh("sh", ["-c", 'cat > "$1"', "sh", kc], { stdin: cfg });
+      const prev = { kube: W.ENVS.kube, ctx: W.ENVS.ctx, on: W.ENVS.k8sOn };
+      W.ENVS.kube = kc; W.ENVS.k8sOn = false;
+      await W.k8sConnect();
+      const contexts = [...W.KCTX];
+      const cluster = desktopPorts.infra?.cluster;
+      let readErr = "";
+      try { await cluster!.read({ env: "staging", ctx: "dx-selftest", ns: "dx" }); } catch (e) { readErr = String((e as Error).message || e).slice(0, 120); }
+      const applied = await cluster!.apply({ env: "staging", ctx: "dx-selftest", ns: "dx" }, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: dx-selftest\n", "abc1234");
+      W.ENVX.ctx.staging = "dx-selftest";
+      const res = { contexts, connected: W.ENVS.k8sOn, readErr, applied, staging: W.envState("staging"), hist: W.ENVX.hist.length };
+      W.ENVS.kube = prev.kube; W.ENVS.ctx = prev.ctx; W.ENVS.k8sOn = prev.on; W.ENVX.ctx.staging = "";
+      await sh("rm", ["-f", kc]);
+      return res;
     });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }

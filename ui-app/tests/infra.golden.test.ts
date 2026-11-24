@@ -97,15 +97,17 @@ describe("golden de DOM — pane Infra (renderInfraPane)", () => {
     expect(paneGolden()).toMatchSnapshot("pane-connected-deployed");
   });
 
-  it("staging seleccionado: chips de ambiente + deps promovidos (crash + ok)", () => {
+  /* ADR-0006, R5c1: o estado de staging é a última leitura do cluster (o motivo do crash é o que o
+     kubectl reporta — antes era um erro fabricado a partir dos segredos) */
+  it("staging seleccionado: chips de ambiente + deps lidos do cluster (crash + ok)", () => {
     w.ENVX.cur = "staging";
     w.ENVX.st.staging = {
       ver: "d5f2b66",
       at: Date.parse("2026-01-01T00:00:00Z"),
       ingress: true,
       deps: [
-        { n: "orders-api", rep: 1, ready: 1, status: "ok" },
-        { n: "billing-worker", rep: 1, ready: 0, status: "crash", err: "DATABASE_URL is required" },
+        { n: "orders-api", rep: 1, ready: 1, status: "ok", err: null, restarts: 0 },
+        { n: "billing-worker", rep: 1, ready: 0, status: "crash", err: "CrashLoopBackOff (último fim: Error 1)", restarts: 4 },
       ],
     };
     w.renderInfraPane();
@@ -154,7 +156,8 @@ describe("caracterização do motor — secrets (promoção aprovada por humano)
     expect(w.localSecrets()).toMatchSnapshot("localSecrets");
   });
 
-  it("initSecrets: deriva staging (valores mascarados) e production (vazios)", () => {
+  /* ADR-0006, R5c1: staging já não recebe valores «torcidos» — as chaves do design, por preencher */
+  it("initSecrets: staging e production com as chaves do design por preencher (excepto PORT)", () => {
     infra.initSecrets();
     expect(w.ENVX.sec).toMatchSnapshot("initSecrets-sec");
   });
@@ -195,15 +198,15 @@ describe("caracterização do motor — drift (design vs realidade)", () => {
     expect(infra.driftReport("local")).toMatchSnapshot("drift-replicas");
   });
 
-  it("envDeps: workload em crash quando um segredo aponta para um host inexistente", () => {
+  /* ADR-0006, R5c1: o crash já não se fabrica a partir dos segredos — os workloads de staging são
+     os da última leitura do seu namespace no cluster */
+  it("envDeps(staging): os workloads da última leitura do cluster, sem inventar crashes", () => {
     deployLocal(w.GIT.refs.develop);
-    w.ENVX.cur = "staging";
     infra.initSecrets();
-    // aponta o DATABASE_URL de staging para um host que não é um serviço do design
-    const apiKey = Object.keys(w.ENVX.sec.staging).find((a) => w.ENVX.sec.staging[a].DATABASE_URL);
-    if (apiKey) w.ENVX.sec.staging[apiKey].DATABASE_URL = "postgres://app:app@db.nowhere:5432/app";
-    w.ENVX.st.staging = { ver: w.GIT.refs.develop, at: 0, ingress: true, deps: [] };
-    expect(w.envDeps("staging")).toMatchSnapshot("envDeps-crash");
+    expect(w.envDeps("staging")).toEqual([]); // nunca lido: nada
+    const deps = [{ n: "orders-db", rep: 1, ready: 0, status: "crash", err: "ImagePullBackOff", restarts: 0 }];
+    w.ENVX.st.staging = { ver: w.GIT.refs.develop, at: 0, ingress: true, deps };
+    expect(w.envDeps("staging")).toEqual(deps);
   });
 });
 

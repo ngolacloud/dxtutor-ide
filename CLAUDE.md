@@ -304,7 +304,9 @@ features/infra.ts  RESÍDUO strangler (tipado desde a U4i1 do ADR-0004; FORA da 
                    os shims window.* (envPrime/envDrift/envDriftStyle; rtConnect/k8sConnect/
                    dxDeploy publicados consultam a porta desktopPorts.infra (U4h4), e dcAttach/dcDetach/
                    k8sScale/k8sDown também (ADR-0006 R5b: sessão devcontainer_session_* e kubectl
-                   reais; no browser não fingem) — ACTIONS chama window.X).
+                   reais; no browser não fingem); os ambientes staging/production lêem-se e
+                   promovem-se pela porta EnvCluster (desktopPorts.infra.cluster, R5c1: kubectl
+                   get/apply -f - com os segredos do ambiente) — ACTIONS chama window.X).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
