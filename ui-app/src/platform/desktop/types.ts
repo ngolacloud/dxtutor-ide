@@ -30,7 +30,7 @@ export interface Desktop {
   disk: Record<string, string>; cwd: string | null; info: AppInfo;
   keys: Record<string, unknown>; proc: string | null;
   handlers: Record<string, ProcHandler>; errors: string[]; busy: number;
-  remote?: boolean; ready?: boolean; user?: string; host?: string; sock?: string; kube?: string;
+  remote?: boolean; ready?: boolean; user?: string; host?: string; gitName?: string; gitEmail?: string; sock?: string; kube?: string;
   idle?: () => Promise<unknown>; flush?: () => void;
   reloadDisk?: () => Promise<void>; syncGit?: () => Promise<void>;
   termLine?: (t: string, e?: boolean) => void; envFor?: () => Record<string, string>;

@@ -233,14 +233,9 @@ export function ctxPill(): void {
   pill.textContent = "@ " + (t && t.path ? t.title : "sem ficheiro");
   pill.classList.toggle("on", bridge.monolith.contextEnabled && !!(t && t.path));
   composerContext(t && t.path ? (t.title ?? t.path) : null);
-  const fs = bridge.files();
-  const u = Math.min(
-    99,
-    Math.round(
-      (bridge.chat().reduce((s, m) => s + m.content.length, 0) + (t && t.path && fs[t.path] ? fs[t.path].content.length : 0)) / 4 / 2000,
-    ),
-  );
-  $("#st-ctx")!.textContent = "ctx " + u + "%";
+  /* o `ctx` da barra de estado já não é uma percentagem de um orçamento inventado (caracteres/4
+     sobre 2000 tokens): é o uso real que o provider reporta, desenhado por features/codev.ts
+     (ADR-0005, R2e1). */
 }
 
 /* ═══════════ ChatPresenter + ApprovalGate implementation ═══════════ */

@@ -63,7 +63,8 @@ pub fn get_diagnostics(step_id: String, code: String) -> Result<Vec<Diagnostic>,
 }
 
 /// Stream a Dev-Assistant chat turn. Emits `llm://token` {requestId, delta} per token
-/// chunk, then `llm://done` {requestId, model} or `llm://error` {requestId, error}.
+/// chunk, then `llm://done` {requestId, model, inputTokens, outputTokens} (the usage the
+/// provider reported; 0 when none) or `llm://error` {requestId, error}.
 /// Returns immediately; the stream runs on a thread (the pty.rs pattern). Cancel it
 /// mid-flight with `assistant_cancel(requestId)` — the Stop button.
 #[tauri::command]
@@ -119,7 +120,7 @@ pub fn assistant_chat_stream(
             Ok(reply) => {
                 let _ = app.emit(
                     "llm://done",
-                    serde_json::json!({ "requestId": request_id, "model": reply.model }),
+                    serde_json::json!({ "requestId": request_id, "model": reply.model, "inputTokens": reply.input_tokens, "outputTokens": reply.output_tokens }),
                 );
             }
             Err(e) => {

@@ -320,6 +320,13 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const listed = await wait(() => !!el()?.querySelector('[data-run-cmd="npm run hello"]'), 10000);
       return { listed, kinds: [...(el()?.querySelectorAll(".scm-grp .cnt") || [])].map(e => e.textContent) };
     });
+    // conta (ADR-0005, R2e1): o pane Conta mostra o utilizador e a máquina reais (whoami/
+    // hostname) e a identidade git, em vez de uma identidade fixa.
+    await step("account", () => {
+      window.renderAccountPane();
+      const t = document.getElementById("pane-account")?.textContent || "";
+      return { user: R.user, host: R.host, git: R.gitName || null, shown: !!R.user && t.includes(R.user), noFake: !/walter|Team SYS/.test(t) || R.user === "walter" };
+    });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
   rep.errors = R.errors;

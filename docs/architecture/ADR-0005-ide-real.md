@@ -1,6 +1,6 @@
 # ADR-0005 — IDE real: fim dos dados de demonstração
 
-- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a–R2d feitas, R2e e R3–R6 por fazer
+- **Estado:** aceite (2026-11-23); R1 feita (R0, R1b, R1a, R1c1, R1c2 e R1d; verificada no desktop); R2a–R2d e R2e1 feitas, R2e2 e R3–R6 por fazer
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0004` (migração da ui-app; corre em paralelo noutra sessão),
@@ -285,3 +285,23 @@ mesmos ficheiros onde vive boa parte do demo. Este trabalho corre na branch `fea
   **Selftest desktop:** passo `run` novo — um package.json com um script dá o projecto `node` e o
   comando `npm run hello`; `errors: []`. IPC-MATRIX: `detect_projects` ganha consumidor.
   Métricas: handlers inline 146 → 145 (os comandos correm por um listener, sem `onclick`).
+- **R2e em dois passos.** R2e1 `ctx` e Conta; R2e2 Code review (`review_code`).
+- **R2e1 (2026-11-24) — `ctx` e Conta reais.** **Backend:** o `ChatReply` do `tutor-llm`
+  ganha `input_tokens`/`output_tokens` e os quatro adaptadores de streaming lêem o uso que o
+  provider reporta (`absorb_usage`, pura: Claude `message_start`/`message_delta` com os tokens
+  de cache, OpenAI o chunk final — o pedido passa a levar `stream_options.include_usage` —,
+  Gemini `usageMetadata`, Ollama `prompt_eval_count`/`eval_count`; 0 quando não reporta, com
+  4 testes unitários); o `llm://done` leva `inputTokens`/`outputTokens`. **UI:** o
+  `streamChat` do desktop usa esses números (antes 0 de entrada e texto/4 de saída,
+  inventados) e anuncia o uso de cada volta (`dx:llm-usage`); o `ctx` da barra de estado
+  deixa de ser uma percentagem de um orçamento inventado (caracteres/4 sobre 2000 tokens) e
+  mostra os tokens de entrada da última volta (o tamanho do contexto enviado), com a soma da
+  conversa no título; vazio antes da primeira volta, no browser e quando o provider não
+  reporta; «Nova conversa» repõe-no. A Conta deixa a identidade fixa «walter · Team SYS»: no
+  desktop mostra o utilizador e a máquina (whoami/hostname, já lidos no arranque) e a
+  identidade git que assina os commits (`git config user.name`/`user.email`, lida no
+  arranque); no browser diz que não há sessão local; «Uso e missões» passa a «Uso».
+  **Testes:** `ctx-account.r2e1` (ctx vazio, última volta e soma, provider sem uso, reposição;
+  Conta no browser, no desktop e sem user.name) + os 4 testes Rust do uso. **Selftest
+  desktop:** passo `account` novo — mostra o utilizador e a máquina reais; `errors: []`. O uso
+  real dos providers só se vê com um modelo a responder (o selftest corre sem modelo).

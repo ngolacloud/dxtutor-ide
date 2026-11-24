@@ -150,12 +150,80 @@ pub struct ChatMsg {
     pub content: String,
 }
 
-/// The assistant's reply plus which model/provider produced it (for provenance).
+/// The assistant's reply plus which model/provider produced it (for provenance), and the
+/// token usage the provider reported for the turn (0 when it reported none).
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatReply {
     pub content: String,
     pub model: String,
     pub provider: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// Token usage of one turn, as the provider reports it in its own wire format.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Usage {
+    pub input: u64,
+    pub output: u64,
+}
+
+/// Absorb whatever usage a provider's (streamed or one-shot) JSON object carries:
+/// - Claude: `message_start.message.usage` (input, incl. cache reads/writes) and the
+///   cumulative `message_delta.usage.output_tokens`;
+/// - OpenAI: the final chunk's `usage.prompt_tokens`/`completion_tokens` (needs
+///   `stream_options.include_usage`);
+/// - Gemini: `usageMetadata.promptTokenCount`/`candidatesTokenCount` (cumulative per chunk);
+/// - Ollama: the final object's `prompt_eval_count`/`eval_count`.
+///
+/// Fields a chunk doesn't carry leave the running value untouched.
+pub fn absorb_usage(provider: &str, v: &serde_json::Value, u: &mut Usage) {
+    let n = |x: &serde_json::Value| x.as_u64();
+    match provider {
+        "claude" => {
+            let usage = v.get("message").and_then(|m| m.get("usage")).or_else(|| v.get("usage"));
+            if let Some(us) = usage {
+                let input = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
+                    .iter()
+                    .filter_map(|k| us.get(*k).and_then(n))
+                    .sum::<u64>();
+                if us.get("input_tokens").is_some() {
+                    u.input = input;
+                }
+                if let Some(o) = us.get("output_tokens").and_then(n) {
+                    u.output = o;
+                }
+            }
+        }
+        "openai" => {
+            if let Some(us) = v.get("usage").filter(|x| x.is_object()) {
+                if let Some(i) = us.get("prompt_tokens").and_then(n) {
+                    u.input = i;
+                }
+                if let Some(o) = us.get("completion_tokens").and_then(n) {
+                    u.output = o;
+                }
+            }
+        }
+        "gemini" => {
+            if let Some(us) = v.get("usageMetadata") {
+                if let Some(i) = us.get("promptTokenCount").and_then(n) {
+                    u.input = i;
+                }
+                if let Some(o) = us.get("candidatesTokenCount").and_then(n) {
+                    u.output = o;
+                }
+            }
+        }
+        _ => {
+            if let Some(i) = v.get("prompt_eval_count").and_then(n) {
+                u.input = i;
+            }
+            if let Some(o) = v.get("eval_count").and_then(n) {
+                u.output = o;
+            }
+        }
+    }
 }
 
 /// O endereço do Ollama (definições → `OLLAMA_HOST` → `localhost:11434`).
@@ -351,10 +419,14 @@ pub fn ollama_chat(messages: &[ChatMsg], model: Option<&str>) -> Result<ChatRepl
                 .and_then(|c| c.as_str())
                 .unwrap_or("")
                 .to_string();
+            let mut u = Usage::default();
+            absorb_usage("ollama", &v, &mut u);
             Ok(ChatReply {
                 content,
                 model,
                 provider: "ollama".into(),
+                input_tokens: u.input,
+                output_tokens: u.output,
             })
         }
         Err(ureq::Error::Status(code, r)) => {
@@ -420,6 +492,7 @@ pub fn ollama_chat_stream(
     // `message.content`, ending with `{"done": true}`.
     let reader = BufReader::new(resp.into_reader());
     let mut full = String::new();
+    let mut usage = Usage::default();
     for line in reader.lines() {
         let line = line.context("reading Ollama stream")?;
         if line.trim().is_empty() {
@@ -442,6 +515,7 @@ pub fn ollama_chat_stream(
             }
         }
         if v.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
+            absorb_usage("ollama", &v, &mut usage);
             break;
         }
     }
@@ -450,6 +524,8 @@ pub fn ollama_chat_stream(
         content: full,
         model,
         provider: "ollama".into(),
+        input_tokens: usage.input,
+        output_tokens: usage.output,
     })
 }
 
@@ -544,6 +620,7 @@ pub fn claude_chat_stream(
     };
 
     let reader = BufReader::new(resp.into_reader());
+    let mut usage = Usage::default();
     for line in reader.lines() {
         let line = line.context("reading Anthropic SSE")?;
         let data = match line.strip_prefix("data: ") {
@@ -557,6 +634,7 @@ pub fn claude_chat_stream(
             Ok(v) => v,
             Err(_) => continue,
         };
+        absorb_usage("claude", &v, &mut usage);
         match v.get("type").and_then(|t| t.as_str()) {
             Some("content_block_delta") => {
                 if let Some(text) = v
@@ -590,6 +668,8 @@ pub fn claude_chat_stream(
         content: full,
         model: model.to_string(),
         provider: "claude".into(),
+        input_tokens: usage.input,
+        output_tokens: usage.output,
     })
 }
 
@@ -634,6 +714,7 @@ pub fn openai_chat_stream(
     let body = serde_json::json!({
         "model": model,
         "stream": true,
+        "stream_options": { "include_usage": true },
         "messages": msgs,
     });
 
@@ -653,6 +734,7 @@ pub fn openai_chat_stream(
 
     let reader = BufReader::new(resp.into_reader());
     let mut full = String::new();
+    let mut usage = Usage::default();
     for line in reader.lines() {
         let line = line.context("reading OpenAI SSE")?;
         let data = match line.strip_prefix("data: ") {
@@ -666,6 +748,7 @@ pub fn openai_chat_stream(
             Ok(v) => v,
             Err(_) => continue,
         };
+        absorb_usage("openai", &v, &mut usage);
         if let Some(text) = v
             .get("choices")
             .and_then(|c| c.get(0))
@@ -686,6 +769,8 @@ pub fn openai_chat_stream(
         content: full,
         model: model.to_string(),
         provider: "openai".into(),
+        input_tokens: usage.input,
+        output_tokens: usage.output,
     })
 }
 
@@ -767,6 +852,7 @@ pub fn gemini_chat_stream(
 
     let reader = BufReader::new(resp.into_reader());
     let mut full = String::new();
+    let mut usage = Usage::default();
     for line in reader.lines() {
         let line = line.context("reading Gemini SSE")?;
         let data = match line.strip_prefix("data: ") {
@@ -780,6 +866,7 @@ pub fn gemini_chat_stream(
             Ok(v) => v,
             Err(_) => continue,
         };
+        absorb_usage("gemini", &v, &mut usage);
         if let Some(parts) = v
             .get("candidates")
             .and_then(|c| c.get(0))
@@ -796,6 +883,8 @@ pub fn gemini_chat_stream(
                                 content: full,
                                 model: model.to_string(),
                                 provider: "gemini".into(),
+                                input_tokens: usage.input,
+                                output_tokens: usage.output,
                             });
                         }
                     }
@@ -808,7 +897,51 @@ pub fn gemini_chat_stream(
         content: full,
         model: model.to_string(),
         provider: "gemini".into(),
+        input_tokens: usage.input,
+        output_tokens: usage.output,
     })
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::{absorb_usage, Usage};
+    use serde_json::json;
+
+    #[test]
+    fn claude_le_a_entrada_com_cache_e_a_saida_cumulativa() {
+        let mut u = Usage::default();
+        absorb_usage("claude", &json!({"type": "message_start", "message": {"usage": {"input_tokens": 12, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 5, "output_tokens": 1}}}), &mut u);
+        absorb_usage("claude", &json!({"type": "content_block_delta", "delta": {"text": "x"}}), &mut u);
+        absorb_usage("claude", &json!({"type": "message_delta", "usage": {"output_tokens": 42}}), &mut u);
+        assert_eq!(u, Usage { input: 1017, output: 42 });
+    }
+
+    #[test]
+    fn openai_le_o_chunk_final_e_ignora_usage_nulo() {
+        let mut u = Usage::default();
+        absorb_usage("openai", &json!({"choices": [{"delta": {"content": "x"}}], "usage": null}), &mut u);
+        absorb_usage("openai", &json!({"choices": [], "usage": {"prompt_tokens": 30, "completion_tokens": 7}}), &mut u);
+        assert_eq!(u, Usage { input: 30, output: 7 });
+    }
+
+    #[test]
+    fn gemini_e_ollama() {
+        let mut g = Usage::default();
+        absorb_usage("gemini", &json!({"usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 3}}), &mut g);
+        absorb_usage("gemini", &json!({"usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 8}}), &mut g);
+        assert_eq!(g, Usage { input: 9, output: 8 });
+        let mut o = Usage::default();
+        absorb_usage("ollama", &json!({"done": true, "prompt_eval_count": 26, "eval_count": 290}), &mut o);
+        assert_eq!(o, Usage { input: 26, output: 290 });
+    }
+
+    #[test]
+    fn sem_usage_fica_a_zero() {
+        let mut u = Usage::default();
+        absorb_usage("claude", &json!({"type": "ping"}), &mut u);
+        absorb_usage("ollama", &json!({"message": {"content": "x"}}), &mut u);
+        assert_eq!(u, Usage::default());
+    }
 }
 
 #[cfg(test)]

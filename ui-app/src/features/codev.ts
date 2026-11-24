@@ -122,9 +122,33 @@ function newChat() {
   <div class="i-n" id="live-note"></div></div>`; window.updateAgentUI();
 }
 
+/* ───── `ctx` da barra de estado: o uso real da conversa (ADR-0005, R2e1) ─────
+   O backend devolve, no fim de cada volta, os tokens que o provider reportou
+   (platform/desktop/llm.ts anuncia-os em `dx:llm-usage`). O `ctx` mostra o tamanho do último
+   contexto enviado (tokens de entrada da última volta) e o título dá a soma da conversa; antes
+   da primeira volta (e no browser, sem backend) fica vazio. «Nova conversa» repõe-no. */
+const CTX = { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0 };
+const fmtTok = (n: number): string => (n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
+function drawCtx(): void {
+  const st = $('#st-ctx');
+  if (!st) return;
+  st.textContent = CTX.turns && CTX.last ? 'ctx ' + fmtTok(CTX.last) : '';
+  st.title = !CTX.turns ? 'Contexto usado na conversa' : CTX.last
+    ? `Última volta: ${CTX.last} tokens de entrada, ${CTX.lastOut} de saída · conversa: ${CTX.inTotal} de entrada, ${CTX.outTotal} de saída (${CTX.turns} volta(s))`
+    : 'O provider não reportou o uso de tokens';
+}
+document.addEventListener('dx:llm-usage', (e) => {
+  const d = (e as CustomEvent<{ input?: number; output?: number }>).detail || {};
+  const i = Number(d.input) || 0, o = Number(d.output) || 0;
+  CTX.turns++; CTX.last = i; CTX.lastOut = o; CTX.inTotal += i; CTX.outTotal += o;
+  drawCtx();
+});
+const _newChatBase = newChat;
+function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0 }); drawCtx(); }
+
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
-Object.assign(window, { ctxPill, cycleMode, pickModel, toggleProv, scrollMsgs, newChat, user, card, phase, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
+Object.assign(window, { ctxPill, cycleMode, pickModel, toggleProv, scrollMsgs, newChat: newChatWithCtx, user, card, phase, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
 
 /* publica o doTool (já ligado em ./codev/index.ts, com o gate de direitos do harness acima)
    no window; o features/board.ts resolve-o por global. O motor de missões guionadas e os
@@ -316,7 +340,7 @@ const composerHost: ComposerHost = {
   toggleCtx: () => { bridge.monolith.contextEnabled = !bridge.monolith.contextEnabled; },
   projectFiles: () => Object.keys(bridge.files() ?? {}).map((p) => bridge.shortPath(p)),
   palette: (ph, items) => bridge.palette('', { ph, items }),
-  newChat: () => newChat(),
+  newChat: () => newChatWithCtx(),
   exportConversation,
   toast: (m) => bridge.toast(m),
   speech: () => bridge.speechRecognition() as (new () => SpeechLike) | null,
