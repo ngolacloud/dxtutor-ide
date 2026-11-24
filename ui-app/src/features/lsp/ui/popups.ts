@@ -2,12 +2,65 @@
    Dois cartões flutuantes junto ao cursor, donos do seu DOM (`#lsp-refs`, `#lsp-rename`):
      • referências (Shift+F12): uma linha por ocorrência (`ficheiro:linha` + o texto da linha);
        clicar, ou ↑/↓ + Enter, abre-a; Escape ou clicar fora fecha;
-     • rename (F2): caixa com o nome actual seleccionado; Enter aplica, Escape cancela.
+     • rename (F2): caixa com o nome actual seleccionado; Enter aplica, Escape cancela;
+     • code actions (Ctrl+.): menu de correcções e refactorings (`#lsp-actions`).
    Listeners ligados aos elementos (sem `onclick` inline). Não toca em `window`. */
 
 import type { Reference } from "../application/lsp-client";
+import { kindLabel, type CodeActionItem } from "../domain/code-actions";
 
 const CLOSERS = new Map<string, () => void>();
+
+/** O menu de code actions junto a (x, y): uma linha por acção (tipo + título); Enter, clique
+ *  ou ↑/↓ + Enter aplicam; Escape ou clicar fora fecham. As desactivadas mostram a razão. */
+export function showActionMenu(actions: readonly CodeActionItem[], x: number, y: number, onPick: (a: CodeActionItem) => void, onClose: () => void): void {
+  const el = floating("lsp-actions", "lsp-pop lsp-refs lsp-actions", x, y);
+  const head = document.createElement("div");
+  head.className = "lsp-pop-h";
+  head.textContent = actions.length ? `${actions.length} action${actions.length === 1 ? "" : "s"}` : "No code actions here";
+  el.appendChild(head);
+  const rows = actions.map((a) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "lsp-ref lsp-action" + (a.preferred ? " preferred" : "");
+    b.disabled = !!a.disabled;
+    if (a.disabled) b.title = a.disabled;
+    const kind = document.createElement("span");
+    kind.className = "lsp-act-kind";
+    kind.textContent = kindLabel(a.kind);
+    const title = document.createElement("span");
+    title.className = "lsp-act-title";
+    title.textContent = a.title;
+    b.append(kind, title);
+    b.addEventListener("click", () => {
+      closePopup("lsp-actions");
+      onPick(a);
+    });
+    el.appendChild(b);
+    return b;
+  });
+  const enabled = rows.filter((b) => !b.disabled);
+  enabled[0]?.focus();
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closePopup("lsp-actions");
+      onClose();
+      return;
+    }
+    const i = enabled.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const n = enabled.length;
+      if (n) enabled[(i + (e.key === "ArrowDown" ? 1 : n - 1) + n) % n].focus();
+    }
+  });
+  const onDown = (e: MouseEvent): void => {
+    if (!el.contains(e.target as Node)) closePopup("lsp-actions");
+  };
+  document.addEventListener("mousedown", onDown, true);
+  CLOSERS.set("lsp-actions", () => document.removeEventListener("mousedown", onDown, true));
+}
 
 function floating(id: string, cls: string, x: number, y: number): HTMLElement {
   closePopup(id);
