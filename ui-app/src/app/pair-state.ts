@@ -14,6 +14,12 @@ export interface PairView {
 }
 
 let read: (() => PairView | null) | null = null;
+/* RF-S09: Co-Dev's live hunks go to the guest, who draws them in its editor */
+let codevSend: ((e: unknown) => void) | null = null;
+let codevReceive: ((e: unknown) => void) | null = null;
+
+/** The hunk events the guest mirrors (the overlay's events; nothing else of the agent). */
+export const MIRRORED_KINDS = ["hunk_start", "hunk_chunk", "hunk_end", "hunk_review", "hunk_applied", "hunk_rejected", "hunk_stale", "validation", "done"];
 
 export const pairState = {
   /** `pair.ts`: how to read the session. */
@@ -28,6 +34,22 @@ export const pairState = {
   canDrive(): boolean {
     const v = pairState.view();
     return !v || v.driver === v.me;
+  },
+  /** `pair.ts`: how to send a Co-Dev event to the guest (only while hosting a live session). */
+  registerCodevSend(f: (e: unknown) => void): void {
+    codevSend = f;
+  },
+  /** Co-Dev (on the guest): what to do with an event from the host's Co-Dev. */
+  onCodev(f: (e: unknown) => void): void {
+    codevReceive = f;
+  },
+  /** Co-Dev (on the host): a live hunk event, mirrored to the guest when there is one. */
+  codevOut(e: { kind: string }): void {
+    if (MIRRORED_KINDS.includes(e.kind)) codevSend?.(e);
+  },
+  /** `pair.ts` (on the guest): an event from the host's Co-Dev. */
+  codevIn(e: unknown): void {
+    codevReceive?.(e);
   },
   /** Who drives, for the audit log (`null` outside a session). */
   driver(): string | null {

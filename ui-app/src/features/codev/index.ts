@@ -13,6 +13,9 @@
 import * as bridge from "./infrastructure/legacy-bridge";
 import { paceCps } from "./domain/composer";
 import { pairState } from "../../app/pair-state";
+import { parseAgentEvent } from "./domain/agent-events";
+/** The session id of the hunks mirrored from the PairCode host (RF-S09). */
+const MIRROR = "pair-mirror";
 import { presenter, gate, beat } from "./ui/chat-view";
 import { makeDoTool } from "./application/tool-executor";
 import { makeLiveChat } from "./application/live-chat";
@@ -157,7 +160,9 @@ let reveal: (line: number) => void = () => undefined;
 export const hunkReview = makeHunkReview({
   // RF-P03: in a PairCode session the navigator's decisions are refusals
   review: (s, call, d) =>
-    agentGateway.review(s, call, pairState.canDrive() ? d : d.map((x) => ({ hunk: x.hunk, accept: false, reason: "na sessão PairCode só quem conduz aceita" }))),
+    s === MIRROR
+      ? Promise.reject(new Error("Estes hunks são do Co-Dev do anfitrião: decide-os quem conduz, do lado dele."))
+      : agentGateway.review(s, call, pairState.canDrive() ? d : d.map((x) => ({ hunk: x.hunk, accept: false, reason: "na sessão PairCode só quem conduz aceita" }))),
   flush: () => bridge.flushSave(),
   reloadFromDisk: () => bridge.reloadDisk(),
   editor: {
@@ -178,6 +183,12 @@ export const hunkReview = makeHunkReview({
   pace: () => paceCps(bridge.writePace()),
   notify: (m) => bridge.toast(m),
   cancel: () => stopTurn(),
+});
+/* RF-S09: in a PairCode session the guest mirrors the host's live hunks (read-only there: the
+   decisions belong to the host's agent session) */
+pairState.onCodev((e) => {
+  const ev = parseAgentEvent({ session: MIRROR, event: e });
+  if (ev) hunkReview.sink.event(MIRROR, ev.event);
 });
 hunkReview.readFrom((rel) => bridge.files()[bridge.root() + rel]?.content ?? null);
 const hunkView = makeHunkOverlayView(hunkReview, (el) => bridge.translate(el));
@@ -240,7 +251,14 @@ const agentChat = makeAgentChat({
     bridge.recordUsage(provider, input + output);
     document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output } }));
   },
-  hunks: hunkReview.sink,
+  // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
+  hunks: {
+    ...hunkReview.sink,
+    event: (s, e) => {
+      hunkReview.sink.event(s, e);
+      pairState.codevOut(e);
+    },
+  },
   flush: () => bridge.flushSave(),
   run: { event: (s, e) => codevRun.event(s, e), turnStarted: () => codevRun.turnStarted() },
 });

@@ -236,6 +236,8 @@ const other = (r: Role): Role => (r === "host" ? "guest" : "host");
 const amDriver = () => !!P.role && P.driver === P.role;
 /* RF-P03/P04: Co-Dev and the Project read who drives (no window global) */
 pairState.register(() => (P.role ? { inSession: P.state === "connected", driver: P.driver, me: P.role } : null));
+/* RF-S09: the host mirrors Co-Dev's live hunks to the guest (same stream, same highlight) */
+pairState.registerCodevSend((e) => { if (P.role === "host" && P.state === "connected") void send({ t: "codev", e } as unknown as Msg); });
 const live = () => P.state === "connected";
 /* ───── what the host shares (UI-PAIR-01) ─────
    Private paths never leave the host's machine: the filter is applied to what is SENT (the
@@ -383,6 +385,11 @@ void T.event.listen("pair-msg", e => {
 });
 
 async function handle(m: Msg): Promise<void> {
+  if ((m as { t: string }).t === "codev") {
+    // RF-S09: the host's Co-Dev writes; the guest's editor shows it live, read-only
+    if (P.role === "guest") pairState.codevIn((m as unknown as { e: unknown }).e);
+    return;
+  }
   switch (m.t) {
     case "hello":
       P.peerName = m.name || P.peerName; P.peerRtc = !!m.rtc;
