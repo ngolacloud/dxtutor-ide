@@ -49,8 +49,9 @@ export const agentHistory = (sessionId: string): Promise<unknown> => invoke<unkn
 export const sendAgent = (sessionId: string, text: string | null, origin?: { kind: string; issue?: string; scope?: string[] }): Promise<void> =>
   invoke<void>("codev_agent_send", { sessionId, text, origin: origin ?? null });
 
-export const approveAgent = (sessionId: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean): Promise<boolean> =>
-  invoke<boolean>("codev_agent_approve", { sessionId, toolUseId, allow, reason: reason ?? null, remember: remember ?? false });
+/** `driver`: who drives a PairCode session when the human decides (RF-P04; `null` outside one). */
+export const approveAgent = (sessionId: string, toolUseId: string, allow: boolean, reason?: string, remember?: boolean, driver?: string | null): Promise<boolean> =>
+  invoke<boolean>("codev_agent_approve", { sessionId, toolUseId, allow, reason: reason ?? null, remember: remember ?? false, driver: driver ?? null });
 
 /** Uma decisão de um `hunk_review`. */
 export interface HunkDecision {
@@ -60,8 +61,8 @@ export interface HunkDecision {
 }
 
 /** Decide os hunks de um `hunk_review`; hunks sem decisão contam como recusados. */
-export const reviewAgentHunks = (sessionId: string, call: string, decisions: HunkDecision[]): Promise<void> =>
-  invoke<void>("codev_agent_review", { sessionId, call, decisions });
+export const reviewAgentHunks = (sessionId: string, call: string, decisions: HunkDecision[], driver?: string | null): Promise<void> =>
+  invoke<void>("codev_agent_review", { sessionId, call, decisions, driver: driver ?? null });
 
 export const cancelAgent = (sessionId: string): Promise<boolean> => invoke<boolean>("codev_agent_cancel", { sessionId });
 

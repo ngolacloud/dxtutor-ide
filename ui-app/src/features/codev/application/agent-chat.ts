@@ -158,6 +158,12 @@ export function makeAgentChat(deps: AgentChatDeps) {
     const isPlan = r.call.name === "exit_plan";
     const label = isPlan ? "plano proposto" : describeCall(r.call.name, r.call.input, r.call.command);
     const ref = toolRef(t, r.call.id, r.call.name, label);
+    // RF-P03: in a PairCode session only the driver approves; refusing is always safe
+    if (deps.canApprove && !deps.canApprove()) {
+      presenter.agentNote?.(t.card, "pair", "Só quem conduz a sessão PairCode aprova as propostas do Co-Dev: este pedido foi recusado. Pede o controlo e repete.");
+      await gateway.approve(s, r.call.id, false, "na sessão PairCode só quem conduz aprova: o humano deste lado não conduz");
+      return;
+    }
     if (isPlan) {
       presenter.agentPlan?.(ref, typeof r.call.input.plan === "string" ? r.call.input.plan : "");
       const ok = await gate

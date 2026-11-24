@@ -26,6 +26,7 @@ import {
 } from "../domain/board";
 import { COS, KINDS, PRIORITIES, STATES, type Issue, type Project, type State } from "../domain/types";
 import { renderPanel } from "./panels";
+import { NAVIGATOR_MESSAGE, pairState } from "../../../app/pair-state";
 
 const KIND_MARK: Record<string, string> = { story: "▣", bug: "●", task: "☑", spike: "⚑" };
 const PRI_MARK: Record<string, string> = { high: "⬆", medium: "＝", low: "⬇" };
@@ -226,7 +227,7 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
               .join("")}`
           : ""
       }
-      <button class="pj-btn pri" data-action="pj-work"${i.missing.length ? ` disabled title="Not Ready: ${esc(i.missing.join("; "))}"` : ""}><span>Work on it with Co-Dev</span></button>
+      <button class="pj-btn pri" data-action="pj-work"${i.missing.length ? ` disabled title="Not Ready: ${esc(i.missing.join("; "))}"` : !pairState.canDrive() ? ` disabled title="${esc(NAVIGATOR_MESSAGE)}"` : ""}><span>Work on it with Co-Dev</span></button>
       <button class="pj-btn" data-action="pj-prompt" title="The exact prompt this issue goes to Co-Dev with"><span>View prompt</span></button>${
         st.prompt && st.prompt.key === i.key
           ? `<div class="pj-prompt"><div class="pj-prompt-head"><b>Prompt</b> <span class="pj-dim">≈ ${st.prompt.tokens} tokens · ${esc(st.prompt.lang)} · ${esc(st.prompt.source)} · ${esc(st.prompt.version)}</span><span class="sp"></span><button class="pj-icon" title="Close" data-action="pj-prompt-close">✕</button></div><pre class="pj-prompt-text">${esc(st.prompt.text)}</pre></div>`

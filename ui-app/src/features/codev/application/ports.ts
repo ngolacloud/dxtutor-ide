@@ -308,6 +308,8 @@ export interface AgentChatDeps {
   flush?(): Promise<void>;
   /** The Run view of the harness (A3): every event of the turn, and when a turn starts. */
   run?: { event(session: string, e: AgentEvent): void; turnStarted(): void };
+  /** RF-P03: may this side approve the agent's proposals (PairCode: only the driver)? */
+  canApprove?(): boolean;
 }
 
 /** Where the agent chat sends the hunk events of a turn. */

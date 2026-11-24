@@ -20,6 +20,7 @@ import { bus } from "./app/bus";
 import { registerActions } from "./app/actions";
 import { tabMarks } from "./app/tab-marks";
 import { editorStore } from "./app/store/editor";
+import { pairState } from "./app/pair-state";
 
 export {};
 
@@ -233,6 +234,8 @@ window.PAIR = P;
 const myName = () => R.user || "me";
 const other = (r: Role): Role => (r === "host" ? "guest" : "host");
 const amDriver = () => !!P.role && P.driver === P.role;
+/* RF-P03/P04: Co-Dev and the Project read who drives (no window global) */
+pairState.register(() => (P.role ? { inSession: P.state === "connected", driver: P.driver, me: P.role } : null));
 const live = () => P.state === "connected";
 /* ───── what the host shares (UI-PAIR-01) ─────
    Private paths never leave the host's machine: the filter is applied to what is SENT (the

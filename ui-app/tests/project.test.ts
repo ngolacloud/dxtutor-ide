@@ -266,4 +266,16 @@ describe("the Project markup", () => {
     expect(html).toContain("Co-Dev $5.20 of $5.00 budget");
     expect(html).toContain('pj-dim bad"><span>Co-Dev $5.20');
   });
+
+  it("RF-P03: numa sessão PairCode, quem não conduz não executa a issue com o Co-Dev", async () => {
+    const workWith = vi.fn();
+    const issuePrompt = vi.fn(async () => ({ text: "p", lang: "pt", source: "builtin", version: "v", tokens: 1 }));
+    const { d, toasts } = deps({ gateway: { ...deps().d.gateway, issuePrompt }, codev: { available: () => true, work: vi.fn(), workWith }, canDrive: () => false, navigatorMessage: "só quem conduz" });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.work("PRJ-1");
+    expect(workWith).not.toHaveBeenCalled();
+    expect(issuePrompt).not.toHaveBeenCalled();
+    expect(toasts.at(-1)).toBe("só quem conduz");
+  });
 });

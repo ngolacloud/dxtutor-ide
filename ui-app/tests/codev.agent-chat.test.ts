@@ -529,3 +529,16 @@ test("RF-G06: a pergunta do Co-Dev aparece no chat e o evento é reconhecido", a
   await t.chat.send("pagina a API");
   expect(t.calls).toContain("note question Pergunta do Co-Dev (responde na próxima mensagem): cursor ou página?");
 });
+
+test("RF-P03: numa sessão PairCode, quem não conduz não aprova — o pedido é recusado com aviso", async () => {
+  const t = setup();
+  (t.deps as { canApprove?: () => boolean }).canApprove = () => false;
+  t.setScript(() => {
+    t.h().approval("S1", { call: { id: "c1", name: "bash", input: { command: "cargo build" }, read_only: false, command: "cargo build" }, reason: "modo Manual", dangerous: false, suggestedRule: "bash:cargo build" });
+    setTimeout(() => t.emit(done()), 5);
+  });
+  await t.chat.send("compila");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(t.gateway.approve).toHaveBeenCalledWith("S1", "c1", false, expect.stringContaining("só quem conduz"));
+  expect(t.calls.some((c) => c.startsWith("note pair Só quem conduz"))).toBe(true);
+});

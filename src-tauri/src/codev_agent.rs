@@ -292,6 +292,16 @@ struct Session {
     /// The budget of the current issue request (RF-T03): the tightest of the issue's and the
     /// sprint's, with what was spent before this turn.
     budget: Mutex<Option<Budget>>,
+    /// Who drove the PairCode session at the last human decision (RF-P04; `None` outside one).
+    driver: Mutex<Option<String>>,
+}
+
+/// RF-P04: the UI says who drives a PairCode session when the human decides; the audit log
+/// keeps it with every decision from then on (`None`: no session).
+pub fn set_driver(id: &str, driver: Option<String>) {
+    if let Ok(s) = get(id) {
+        *s.driver.lock().unwrap() = driver.filter(|d| d == "host" || d == "guest");
+    }
 }
 
 /// A Co-Dev budget in dollars (RF-T03, docs/v2/RF-DELONIX-PLANO.md F6.1).
@@ -758,6 +768,7 @@ pub fn start(
         origin: Mutex::new(None),
         redactor,
         budget: Mutex::new(None),
+        driver: Mutex::new(None),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -1471,6 +1482,7 @@ fn audit_entry(s: &Session, event: &str) -> tutor_board::project::AuditEntry {
             .or_else(|| s.issue_key.lock().unwrap().clone()),
         actor: origin.map(|o| o.by).unwrap_or_default(),
         mode: s.policy.lock().unwrap().mode.as_str().into(),
+        driver: s.driver.lock().unwrap().clone(),
         ..Default::default()
     }
 }
@@ -3391,5 +3403,23 @@ mod tests {
         .unwrap_err();
         assert!(e.contains("orçamento de S1 está esgotado"), "{e}");
         assert!(!s.busy.load(Ordering::SeqCst), "the session is free again");
+    }
+
+    #[test]
+    fn the_audit_log_says_who_was_driving_a_paircode_session() {
+        let d = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            change_log: Some(d.path().join("board.sqlite3")),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert_eq!(audit_entry(&s, "call").driver, None, "no session");
+        set_driver(&id, Some("guest".into()));
+        assert_eq!(audit_entry(&s, "call").driver.as_deref(), Some("guest"));
+        set_driver(&id, Some("someone".into()));
+        assert_eq!(audit_entry(&s, "call").driver, None, "only host or guest");
     }
 }

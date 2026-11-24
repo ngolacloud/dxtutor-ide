@@ -13,6 +13,7 @@ import { codev, dialog, git, loadMe, notify, openTab, workspace } from "./infras
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { State } from "./domain/types";
 import { projectInbox } from "../../app/project-inbox";
+import { NAVIGATOR_MESSAGE, pairState } from "../../app/pair-state";
 
 export const projectService = makeProjectService({
   gateway: tauriProjectGateway,
@@ -22,6 +23,8 @@ export const projectService = makeProjectService({
   dialog,
   notify,
   now: () => Date.now(),
+  canDrive: () => pairState.canDrive(),
+  navigatorMessage: NAVIGATOR_MESSAGE,
   download: (name, text) => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));

@@ -255,6 +255,10 @@ export function makeProjectService(deps: ProjectDeps) {
         deps.notify.toast("O Co-Dev com agente precisa da app desktop, de uma pasta aberta e de um provedor com agente");
         return;
       }
+      if (deps.canDrive && !deps.canDrive()) {
+        deps.notify.toast(deps.navigatorMessage ?? "Só quem conduz a sessão PairCode executa issues com o Co-Dev");
+        return;
+      }
       const r = root();
       if (r && deps.gateway.issuePrompt && deps.codev.workWith) {
         if (i.missing.length) {

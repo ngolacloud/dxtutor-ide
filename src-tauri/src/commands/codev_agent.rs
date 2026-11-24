@@ -116,7 +116,10 @@ pub fn codev_agent_approve(
     allow: bool,
     reason: Option<String>,
     remember: Option<bool>,
+    driver: Option<String>,
 ) -> bool {
+    // RF-P04: who drives a PairCode session when the human decides (the audit log records it)
+    codev_agent::set_driver(&session_id, driver);
     codev_agent::approve(
         &session_id,
         &tool_use_id,
@@ -134,7 +137,9 @@ pub fn codev_agent_review(
     session_id: String,
     call: String,
     decisions: Vec<codev_agent::HunkVerdict>,
+    driver: Option<String>,
 ) -> Result<(), String> {
+    codev_agent::set_driver(&session_id, driver);
     codev_agent::review(&session_id, &call, &decisions)
 }
 

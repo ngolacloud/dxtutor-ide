@@ -72,6 +72,9 @@ export interface ProjectDeps {
   dialog: Dialog;
   notify: Notifier;
   now(): number;
+  /** RF-P03: may this side run an issue with Co-Dev (PairCode: only the driver)? */
+  canDrive?(): boolean;
+  navigatorMessage?: string;
   /** Hands the human a file to save (the audit log export). */
   download?(name: string, text: string): void;
 }
