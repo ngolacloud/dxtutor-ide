@@ -337,6 +337,18 @@
   .ed-hl .cm{font-style:normal}
   .ed-ta{position:absolute;inset:0;width:100%;height:100%;background:transparent;color:transparent;caret-color:var(--fg-bright);border:0;outline:0;resize:none;overflow:hidden;font:inherit;line-height:22px;white-space:pre;padding:0;tab-size:4;user-select:text}
   .ed-ta::selection{background:rgba(74,158,255,.3)}
+  /* live Co-Dev hunks in the editor (docs/v2/RF-CODEV-STREAM.md §8) */
+  .ed-hl .l.hk-old{background:rgba(241,112,122,.09);box-shadow:inset 2px 0 0 var(--red);text-decoration:line-through;text-decoration-color:rgba(241,112,122,.55)}
+  .ed-hl .l.hk-new{background:rgba(87,196,129,.09);box-shadow:inset 2px 0 0 var(--green)}
+  .ed-hl .l.hk-writing{background:rgba(87,196,129,.2)}
+  .ed-hl .l.hk-writing::after{content:"Co-Dev";margin-left:10px;padding:0 6px;border-radius:4px;font:600 10px/16px var(--font-ui);background:var(--green);color:var(--bg-editor);vertical-align:1px}
+  .ed-gut .hk-old{color:var(--red);opacity:1}.ed-gut .hk-new{color:var(--green);opacity:1}
+  .hk-bar{position:absolute;z-index:3;display:flex;gap:6px;align-items:center;height:20px;margin-top:1px;padding:0 6px;border-radius:6px;background:var(--bg-elevated);border:1px solid var(--border-strong);box-shadow:var(--sh-pop);font:11px var(--font-ui);white-space:nowrap}
+  .hk-tag{color:var(--green);font-weight:600}.hk-state{color:var(--fg-muted)}
+  .hk-btn{font:11px var(--font-ui);padding:0 8px;height:18px;border-radius:4px;border:1px solid var(--border-strong);background:transparent;color:var(--fg);cursor:pointer}
+  .hk-btn:hover{border-color:var(--accent)}.hk-btn.pri{background:var(--accent);border-color:var(--accent);color:var(--bg-editor)}
+  .hk-back{position:fixed;right:28px;bottom:56px;z-index:60;padding:6px 12px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-elevated);color:var(--fg-bright);font:12px var(--font-ui);box-shadow:var(--sh-pop);cursor:pointer}
+  .hk-gate .hk-lead{align-self:center;color:var(--fg-muted);font-size:12px;margin-right:4px}
   .empty{height:100%;display:grid;place-items:center;color:var(--fg-muted);text-align:center;line-height:2.1;font-size:12.5px}
 
   /* diff */

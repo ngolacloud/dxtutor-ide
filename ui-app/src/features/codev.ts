@@ -52,6 +52,7 @@ import {
   waiting,
   ask,
   tl,
+  hunkReview,
 } from "./codev/index";
 
 /* ───── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ───── */
@@ -335,6 +336,13 @@ const ACTIONS: ActionTable = {
   "open-team": { on: "click", run: () => bridge.openTeam() },
   "open-board": { on: "click", run: () => bridge.openBoard() },
   "open-studio": { on: "click", run: () => bridge.openStudio() },
+  /* live hunks in the editor (RF-CODEV-STREAM §8) */
+  "hunk-accept": { on: "click", run: (e) => hunkReview.decide(e.on, true) },
+  "hunk-reject": { on: "click", run: (e) => hunkReview.decide(e.on, false) },
+  "hunk-pause": { on: "click", run: () => hunkReview.togglePause() },
+  "hunk-faster": { on: "click", run: () => hunkReview.faster() },
+  "hunk-stop": { on: "click", run: () => hunkReview.stop() },
+  "hunk-back": { on: "click", run: () => hunkReview.backToCodev() },
   /* change — espelha os antigos onchange */
   "set-prov-model": {
     on: "change",

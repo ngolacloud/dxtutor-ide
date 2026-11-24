@@ -17,6 +17,10 @@ import { makeMissionEngine } from "./application/run-mission";
 import { makeLiveChat } from "./application/live-chat";
 import { makeAgentChat } from "./application/agent-chat";
 import { agentGateway } from "./infrastructure/agent-gateway";
+import { makeHunkReview } from "./application/hunk-review";
+import { makeHunkOverlayView } from "./ui/hunk-overlay-view";
+import { editorOverlay } from "../../app/editor-overlay";
+import type { VView } from "./domain/hunk-overlay";
 import type {
   Workspace,
   Terminal,
@@ -184,6 +188,42 @@ const liveChat = makeLiveChat({
   tool: doTool,
 });
 
+/* ───── live hunks in the editor (RF-CODEV-STREAM §8) ─────
+   Paths in hunk events are relative to the project; the editor's are `ROOT + rel`. */
+const relPath = (p: string): string => (p.startsWith(bridge.root()) ? p.slice(bridge.root().length) : p);
+let stopTurn: () => void = () => undefined;
+let reveal: (line: number) => void = () => undefined;
+export const hunkReview = makeHunkReview({
+  review: (s, call, d) => agentGateway.review(s, call, d),
+  flush: () => bridge.flushSave(),
+  reloadFromDisk: () => bridge.reloadDisk(),
+  editor: {
+    repaint: (rel) => editorOverlay.repaint(bridge.root() + rel),
+    open: (rel) => bridge.openPath(bridge.root() + rel),
+    current: () => {
+      const t = bridge.tabOf(bridge.monolith.currentTabId);
+      return t && t.path ? relPath(t.path) : null;
+    },
+    reveal: (line) => reveal(line),
+    preview: (rel, text) => bridge.openDiff(bridge.root() + rel, "", text, "ficheiro novo proposto pelo Co-Dev"),
+  },
+  every: (ms, f) => {
+    const id = setInterval(f, ms);
+    return () => clearInterval(id);
+  },
+  pace: () => 40,
+  notify: (m) => bridge.toast(m),
+  cancel: () => stopTurn(),
+});
+hunkReview.readFrom((rel) => bridge.files()[bridge.root() + rel]?.content ?? null);
+const hunkView = makeHunkOverlayView(hunkReview);
+reveal = hunkView.reveal;
+editorOverlay.set({
+  view: (p, real) => hunkReview.view(relPath(p), real),
+  edit: (p, v, next, real) => hunkReview.edit(relPath(p), v as VView, next, real),
+  decorate: (p, host, v) => hunkView.decorate(p, host, v as VView),
+});
+
 /* ───── agente v2 (ADR-0003, F4): o loop corre no backend Rust ───── */
 const agentChat = makeAgentChat({
   gateway: agentGateway,
@@ -203,7 +243,10 @@ const agentChat = makeAgentChat({
   speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
   nowSecs: () => Math.floor(Date.now() / 1000),
   openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
+  hunks: hunkReview.sink,
+  flush: () => bridge.flushSave(),
 });
+stopTurn = () => agentChat.cancel();
 
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/
  *  Gemini/Ollama), senão o harness antigo (protótipo, a flag `dx2.codevLegacy`, ou um modelo

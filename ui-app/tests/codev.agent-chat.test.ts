@@ -111,6 +111,8 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
   await t.chat.send("olá");
   expect(t.gateway.start).toHaveBeenCalledWith({
     root: "/proj", provider: "claude", model: "claude-opus-5-5", effort: "high", testCmd: "cargo test", lintCmd: null, mode: "assist",
+    // live hunks only when the chat has somewhere to draw them (deps.hunks)
+    reviewEdits: false,
   });
   expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá");
   expect(t.calls).toContain("reasoning vou ver");
@@ -443,4 +445,47 @@ test("F8: modelo sem tool calling nativo → send devolve false e esse modelo pa
   expect(await t.chat.send("x")).toBe(true);
   expect(t.calls).toContain("error HTTP 401: chave inválida");
   expect(isNoToolsError("[sem-ferramentas] x") && !isNoToolsError("HTTP 400")).toBe(true);
+});
+
+test("live hunks: opens with reviewEdits, saves before sending, and shows the review bar and validation", async () => {
+  const t = setup();
+  const order: string[] = [];
+  const sunk: string[] = [];
+  const decided: Array<[string, boolean]> = [];
+  let settle: ((l: string) => void) | null = null;
+  t.deps.flush = vi.fn(async () => void order.push("flush"));
+  (t.gateway.send as ReturnType<typeof vi.fn>).mockImplementation(async (s: string) => {
+    order.push("send");
+    setTimeout(() => script(s), 0);
+  });
+  let script: (s: string) => void = () => undefined;
+  t.deps.hunks = {
+    event: (_s, e) => sunk.push(e.kind),
+    decideAll: (call, accept) => decided.push([call, accept]),
+    open: () => undefined,
+    onSettled: (_call, f) => (settle = f),
+  };
+  const bars: Array<{ acceptAll(): void; rejectAll(): void; open(): void }> = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).hunkReview = (_r: unknown, info: { path: string; count: number }, on: (typeof bars)[number]) => {
+    t.calls.push(`hunkReview ${info.path} ${info.count}`);
+    bars.push(on);
+    return { settle: (l: string) => t.calls.push(`settled ${l}`) };
+  };
+  script = () => {
+    t.emit({ kind: "hunk_start", hunk: "c:1", call: "c", path: "src/a.rs", op: "replace", range: { start: 1, end: 1 }, base: null, old: "a\n" });
+    t.emit({ kind: "hunk_review", call: "c", hunks: ["c:1"], reason: "modo Assistido: aceitas cada alteração no editor" });
+    t.emit({ kind: "validation", status: "passed", checks: [{ command: "cargo test", ok: true, summary: "ok" }], baseline: [] });
+    t.emit(done());
+  };
+  await t.chat.send("muda isto");
+  expect(t.gateway.start).toHaveBeenCalledWith(expect.objectContaining({ reviewEdits: true }));
+  expect(order).toEqual(["flush", "send"]);
+  expect(sunk).toEqual(["hunk_start", "hunk_review", "validation"]);
+  expect(t.calls).toContain("hunkReview src/a.rs 1");
+  expect(t.calls).toContain("reason false modo Assistido: aceitas cada alteração no editor");
+  expect(t.calls).toContain("note validation Validação passou (`cargo test`): as alterações provisórias ficam.");
+  bars[0].acceptAll();
+  expect(decided).toEqual([["c", true]]);
+  settle!("✓ 1 alteração(ões) aplicada(s)");
+  expect(t.calls).toContain("settled ✓ 1 alteração(ões) aplicada(s)");
 });
