@@ -60,11 +60,14 @@ function symbols(p:string){const f=FS[p];if(!f)return[];const out:{k:string;n:st
    (`file_outline`: servidor de língua quando há, senão `syn`/scanner sintáctico). Cada
    pedido arranca um servidor de língua, por isso: cache por ficheiro+conteúdo (teclar não
    pede de novo enquanto o texto não mudar), debounce, um pedido de cada vez, e o último
-   resultado fica à vista até chegar o novo. Sem pasta (browser) ou para o que o backend não
-   cobre (Markdown, SQL…), fica a extracção local `symbols()`. */
+   resultado fica à vista até chegar o novo. As linguagens que o `file_outline` não cobre mas o
+   servidor de linguagem do editor sim (Java, Kotlin, C#, C++, Swift, SQL…) vêm do `documentSymbol`
+   dele (`desktopPorts.outline`, registada pela feature `lsp`), com a mesma cache. Sem pasta
+   (browser), ou sem servidor (Markdown…), fica a extracção local `symbols()`. */
 const OUTLINE_LANG: Record<string, string> = { rs: "rust", go: "go", py: "python", ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript" };
 const KIND_LABEL: Record<string, string> = { function: "fn", method: "method", struct: "struct", enum: "enum", trait: "trait", other: "sym" };
-type OutSym = { k: string; n: string; line: number };
+/** Um símbolo do Outline: tipo, nome, linha (1-based) e profundidade (para indentar; 0 = topo). */
+export type OutSym = { k: string; n: string; line: number; d?: number };
 const OUTLINE = new Map<string, { content: string; syms: OutSym[] }>();
 let outlineTimer: ReturnType<typeof setTimeout> | undefined, outlineBusy = false, outlineRetry = false;
 const dxRoot = (): string | null => (window as unknown as { DXR?: { root?: string | null } }).DXR?.root ?? null;
@@ -75,16 +78,23 @@ function outlineLang(p: string): string | null {
   const e = (window as unknown as { extOf: (p: string) => string }).extOf(p);
   return OUTLINE_LANG[e] ?? null;
 }
+/** O ficheiro `p` tem outline pelo servidor de linguagem do editor? (fora do `file_outline`) */
+function lspOutline(p: string): boolean {
+  return !!dxRoot() && p.startsWith(ROOT) && !outlineLang(p) && !!desktopPorts.outline?.covers(p);
+}
 function fetchOutline(p: string): void {
   clearTimeout(outlineTimer);
   outlineTimer = setTimeout(() => {
-    const f = FS[p], root = dxRoot(), lang = outlineLang(p);
-    if (!f || !root || !lang) return;
+    const f = FS[p], root = dxRoot(), lang = outlineLang(p), viaLsp = !lang && lspOutline(p);
+    if (!f || !root || (!lang && !viaLsp)) return;
     if (outlineBusy) { outlineRetry = true; return; }
     outlineBusy = true;
     const content = f.content, abs = root.replace(/\/$/, "") + "/" + p.slice(ROOT.length);
-    codeintelClient().outline(content, lang, root, abs).then(
-      (r: SymbolRange[]) => { OUTLINE.set(p, { content, syms: r.map((x) => ({ k: KIND_LABEL[x.kind] ?? x.kind, n: x.name, line: x.startLine })) }); },
+    const req: Promise<OutSym[] | null> = lang
+      ? codeintelClient().outline(content, lang, root, abs).then((r: SymbolRange[]) => r.map((x) => ({ k: KIND_LABEL[x.kind] ?? x.kind, n: x.name, line: x.startLine })))
+      : desktopPorts.outline!.symbols(p);
+    req.then(
+      (syms) => { OUTLINE.set(p, { content, syms: syms ?? symbols(p) }); }, /* sem resposta do servidor: a extracção local */
       () => { OUTLINE.set(p, { content, syms: symbols(p) }); }, /* backend indisponível: a extracção local */
     ).finally(() => {
       outlineBusy = false;
@@ -96,13 +106,13 @@ function fetchOutline(p: string): void {
 }
 /** Os símbolos a mostrar para `p`: do backend (cache/pedido) ou da extracção local; `null` = a ler. */
 function outlineOf(p: string): OutSym[] | null {
-  if (!outlineLang(p)) return symbols(p);
+  if (!outlineLang(p) && !lspOutline(p)) return symbols(p);
   const c = OUTLINE.get(p), f = FS[p];
   if (!c || (f && c.content !== f.content)) fetchOutline(p);
   return c ? c.syms : null;
 }
 function drawOutline(){const o=$('#outline');if(!o)return;const t=tabOf(cur),sy=t&&t.path?outlineOf(t.path):[];
-  o.innerHTML=sy===null?'<div class="sec-empty">A ler os símbolos…</div>':sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:16px" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):t&&t.path?'<div class="sec-empty">Sem símbolos neste ficheiro.</div>':`<div class="sec-empty">${txt("openAFileTo")}</div>`;}
+  o.innerHTML=sy===null?'<div class="sec-empty">A ler os símbolos…</div>':sy.length?sy.map(s=>`<div class="s-hit" style="padding-left:${16+(s.d??0)*12}px" data-on="${s.line}"><span style="color:var(--accent-hover)">${esc(s.k.startsWith('#')?'§':s.k)}</span><span>${esc(s.n)}</span></div>`).join(''):t&&t.path?'<div class="sec-empty">Sem símbolos neste ficheiro.</div>':`<div class="sec-empty">${txt("openAFileTo")}</div>`;}
 /* clicar num símbolo vai para a linha (sem onclick inline; o #outline é recriado pelo buildExplorer) */
 document.addEventListener('click',(e)=>{const h=(e.target as HTMLElement|null)?.closest<HTMLElement>('#outline .s-hit[data-on]');if(h)gotoLine(+(h.dataset.on as string));});
 function newFile(){palette('',{ph:'Caminho do novo ficheiro (relativo a dxtutor/) — ex.: desktop/src/novo.ts',verb:'Criar',text:(q:string)=>{q=q.trim();if(!q)return;const p=norm(q);if(FS[p]){toast('Já existe');openPath(p);return;}writeFile(p,'');openPath(p);}});}
@@ -172,6 +182,10 @@ function fIcon(p: string): string {
 /** A parte desktop do explorador (ADR-0004, U4h5b), injectada em `desktopPorts.explorer`: com uma
  *  pasta real aberta, a raiz do explorador mostra o nome da pasta. Recebe a versão de base. */
 export interface ExplorerDesktop { syncTree(virtual: () => void): void }
+/** Os símbolos do Outline pelo servidor de linguagem do editor (feature `lsp`), injectados em
+ *  `desktopPorts.outline`: `covers(p)` diz se a linguagem de `p` tem servidor; `symbols(p)` dá
+ *  os símbolos, ou `null` se o servidor não respondeu (fica a extracção local). */
+export interface OutlineDesktop { covers(p: string): boolean; symbols(p: string): Promise<OutSym[] | null> }
 /* o syncTree PUBLICADO consulta a porta (antes o desktop reatribuía-o no `window`); só o app.ts o chama, pelo global */
 const syncTreePublished = (): void => { const d = desktopPorts.explorer; if (d) d.syncTree(syncTree); else syncTree(); };
 Object.assign(window, { buildExplorer, markActive, collapseAll, symbols, drawOutline, newFile, newFolder, sel, syncTree: syncTreePublished, fIcon });

@@ -5,7 +5,9 @@
    (`editor:tab`, `workspace:changed`) e pelos ganchos do editor (`ui/editor-hooks`): hover,
    definição (F12), referências (Shift+F12) e rename (F2); e pelo completion (`ui/completion-hooks`:
    Ctrl+Espaço, depois de `.` ou ao escrever um nome) e pela assinatura da chamada
-   (`ui/signature-hooks`: depois de `(`/`,` ou Ctrl+Shift+Espaço).
+   (`ui/signature-hooks`: depois de `(`/`,` ou Ctrl+Shift+Espaço); pela formatação (Shift+Alt+F) e
+   pelo Go to Symbol (`ui/symbol-hooks`: Ctrl+Shift+O e a paleta). Os mesmos símbolos dão o Outline
+   das linguagens que o `file_outline` não cobre (`desktopPorts.outline`, consultada pelo explorador).
    Os diagnósticos já chegam ao Problems e ao gutter pelo painel (`features/panel`); aqui
    só se volta a pintar o ficheiro aberto quando os dele mudam. Quando o servidor da linguagem
    não está instalado, o editor mostra um aviso com o que falta e como o instalar
@@ -14,13 +16,16 @@
 
 import { isDesktop } from "../../platform/tauri/core";
 import { bus } from "../../app/bus";
+import { desktopPorts } from "../../app/desktop";
+import { languageIdFor } from "./domain/languages";
 import { makeLspClient } from "./application/lsp-client";
 import { tauriLsp } from "./infrastructure/tauri";
-import { workspace, editor } from "./infrastructure/legacy-bridge";
+import { workspace, editor, addPaletteCommand } from "./infrastructure/legacy-bridge";
 import { bindEditorHooks } from "./ui/editor-hooks";
 import { bindCompletionHooks } from "./ui/completion-hooks";
 import { bindSignatureHooks } from "./ui/signature-hooks";
 import { bindFormatHooks } from "./ui/format-hooks";
+import { bindSymbolHooks } from "./ui/symbol-hooks";
 
 if (isDesktop()) {
   const client = makeLspClient({ lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0) });
@@ -50,4 +55,18 @@ if (isDesktop()) {
   bindSignatureHooks({ signatureHelpAt: client.signatureHelpAt, enabled: () => !!workspace.diskRoot() });
   /* Shift+Alt+F: formata pelo servidor; sem ele, o «Format Document» do dxtutor */
   bindFormatHooks({ formatAt: client.formatAt, builtinFormat: editor.builtinFormat, enabled: () => !!workspace.diskRoot() });
+  /* Ctrl+Shift+O (e a paleta): os símbolos do ficheiro, com filtro */
+  const goToSymbol = bindSymbolHooks({
+    currentFileKey: workspace.currentFileKey,
+    symbolsFor: client.symbolsFor,
+    open: editor.open,
+    notify: editor.notify,
+    enabled: () => !!workspace.diskRoot(),
+  });
+  addPaletteCommand("Go to Symbol in Editor…", "Ctrl+Shift+O", goToSymbol);
+  /* o Outline das linguagens que o file_outline não cobre: os símbolos do servidor */
+  desktopPorts.outline = {
+    covers: (p) => !!workspace.diskRoot() && !!languageIdFor(p),
+    symbols: async (p) => (await client.symbolsFor(p))?.map((s) => ({ k: s.label, n: s.name, line: s.line, d: s.depth })) ?? null,
+  };
 }

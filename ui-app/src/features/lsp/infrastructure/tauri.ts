@@ -2,7 +2,8 @@
    Implementa a `LspPort` sobre o cliente IPC tipado (`platform/tauri/core`): os comandos
    `lsp_start` / `lsp_did_open` / `lsp_did_change` / `lsp_hover` / `lsp_definition` /
    `lsp_references` / `lsp_prepare_rename` / `lsp_rename` / `lsp_completion` /
-   `lsp_signature_help` / `lsp_server_status` / `lsp_code_action` / `lsp_execute_command` e
+   `lsp_signature_help` / `lsp_server_status` / `lsp_code_action` / `lsp_execute_command` / `lsp_format` /
+   `lsp_document_symbols` e
    os eventos `lsp://diagnostics` e `lsp://apply-edit`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, listen } from "../../../platform/tauri/core";
@@ -24,6 +25,7 @@ export const tauriLsp: LspPort = {
   serverStatus: (path) => invoke<ServerStatus | null>("lsp_server_status", { path }),
   codeAction: (path, startLine, startCharacter, endLine, endCharacter) =>
     invoke<unknown>("lsp_code_action", { path, startLine, startCharacter, endLine, endCharacter }),
+  documentSymbols: (path) => invoke<unknown>("lsp_document_symbols", { path }),
   executeCommand: (path, command, args) => invoke<unknown>("lsp_execute_command", { path, command, arguments: args }),
   format: (path, tabSize, insertSpaces, range) =>
     invoke<unknown>("lsp_format", {

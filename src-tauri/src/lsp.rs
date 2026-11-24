@@ -35,6 +35,11 @@ struct Session {
     next_id: i64,
     pending: HashMap<i64, Sender<Value>>,
     open: HashSet<String>,
+    /// `initialize` respondido e `initialized` enviado. A sessão entra no mapa ANTES disso (o
+    /// arranque bloqueia segundos); quem a encontrar lá espera por isto antes de lhe mandar
+    /// pedidos — um pedido antes do `initialize` viola o protocolo, e o jdtls ficava a responder
+    /// listas vazias ao completion e ao signatureHelp durante a sessão inteira.
+    initialized: bool,
     ready: bool,
     /// Human label of the backing server ("rust-analyzer", "gopls", …) for the pill.
     label: &'static str,
@@ -603,6 +608,17 @@ fn session_notify(
     write_msg(si, &msg).map_err(|e| e.to_string())
 }
 
+/// Quanto esperar que outra thread acabe o `initialize` de uma sessão que já está no mapa.
+const INIT_BUDGET: Duration = Duration::from_secs(60);
+
+/// Espera (limitada) que a sessão tenha feito o `initialize`/`initialized` (ver `Session::initialized`).
+fn wait_initialized(session: &Arc<Mutex<Session>>, budget: Duration) {
+    let start = Instant::now();
+    while !session.lock().map(|g| g.initialized).unwrap_or(true) && start.elapsed() < budget {
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn is_ready(session: &Arc<Mutex<Session>>) -> bool {
     session.lock().map(|g| g.ready).unwrap_or(false)
 }
@@ -668,6 +684,8 @@ fn capabilities() -> Value {
             // Shift+Alt+F (documento) e Shift+Alt+F com selecção (intervalo) — features/lsp.
             "formatting": {},
             "rangeFormatting": {},
+            // Ctrl+Shift+O (Go to Symbol) e o Outline do explorador — features/lsp.
+            "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
             "publishDiagnostics": { "relatedInformation": true }
         },
         // `window.workDoneProgress` is MANDATORY for server-initiated progress: without it
@@ -703,9 +721,10 @@ fn get_or_start(
         .unwrap()
         .insert(format!("{} ({})", root, lang.id));
     {
-        let m = map.lock().map_err(|_| "lsp map lock")?;
-        if let Some(s) = m.get(key) {
-            return Ok(s.clone());
+        let existing = map.lock().map_err(|_| "lsp map lock")?.get(key).cloned();
+        if let Some(s) = existing {
+            wait_initialized(&s, INIT_BUDGET);
+            return Ok(s);
         }
     }
     let mut cmd = Command::new(program);
@@ -728,6 +747,7 @@ fn get_or_start(
         next_id: 0,
         pending: HashMap::new(),
         open: HashSet::new(),
+        initialized: false,
         ready: false,
         label: lang.server_label,
         ready_signal: lang.ready_signal,
@@ -741,7 +761,10 @@ fn get_or_start(
                     let _ = c.kill();
                 }
             }
-            return Ok(existing.clone());
+            let existing = existing.clone();
+            drop(m);
+            wait_initialized(&existing, INIT_BUDGET);
+            return Ok(existing);
         }
         m.insert(key.to_string(), session.clone());
     }
@@ -768,6 +791,9 @@ fn get_or_start(
         }),
     )?;
     session_notify(&session, "initialized", json!({}))?;
+    if let Ok(mut g) = session.lock() {
+        g.initialized = true;
+    }
     // Servers with no end-of-index `$/progress` (empty `ready_signal`, e.g. pyright) answer
     // immediately — mark them ready now so navigation doesn't burn the full `wait_ready`.
     if lang.ready_signal.is_empty() {
@@ -1216,6 +1242,30 @@ pub async fn lsp_format(
     .map_err(|e| e.to_string())?
 }
 
+/// Os símbolos do ficheiro (`textDocument/documentSymbol`): `DocumentSymbol[]` hierárquico
+/// (jdtls, kotlin-language-server) ou `SymbolInformation[]`. Como o hover, não espera pela
+/// indexação: o servidor responde com o que tem do ficheiro aberto.
+#[tauri::command]
+pub async fn lsp_document_symbols(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        session_request(
+            &session,
+            "textDocument/documentSymbol",
+            json!({ "textDocument": { "uri": path_to_uri(&path) } }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn lsp_rename(
     app: AppHandle,
@@ -1462,6 +1512,10 @@ mod phase4_lang_tests {
         assert_eq!(p["range"]["start"]["line"], 2);
         assert_eq!(p["range"]["end"]["character"], 5);
         assert!(capabilities()["textDocument"]["formatting"].is_object());
+        assert_eq!(
+            capabilities()["textDocument"]["documentSymbol"]["hierarchicalDocumentSymbolSupport"],
+            true
+        );
     }
 
     #[test]
