@@ -1,0 +1,19 @@
+/* ═════════ dxtutor IDE — feature: página de boas-vindas (ADR-0004, U4g7) ═════════
+   Dona do separador «welcome» (o primeiro que o arranque abre): regista `VIEW.welcome` no
+   registo de vistas (app/store/registry.ts). Era a camada «less noise» do v5.ts, que
+   sobrepunha as três versões anteriores (o shim do app.ts para o `renderWelcomePage` do
+   codev.ts e as duas páginas do app.ts) antes de alguém as chamar — essas saíram como
+   código morto. O bridge.ts continua a decorar esta vista no desktop (captura-a no seu
+   eval, que corre depois). Os botões chamam por nome as acções das features
+   (`openStudio()`, `openTeam()`, `dxRun()`, …) — handlers inline, como no v5. */
+
+import { svg } from "../core";
+import { VIEW } from "../app/store/registry";
+
+VIEW.welcome=(_t,host)=>{const w=(ic:string,a:string,b:string,act:string)=>`<button class="wbtn" onclick="${act}"><span class="wi">${svg(ic)}</span><span><b>${a}</b><small>${b}</small></span></button>`;
+  host.innerHTML=`<div class="page"><div style="display:flex;align-items:center;gap:14px;margin-bottom:8px"><div style="width:40px;height:40px;display:grid;place-items:center;background:var(--accent-grad);border-radius:11px;color:#fff;box-shadow:var(--sh-acc)">${svg('sparkle')}</div><h1 style="font-weight:300;font-size:26px;margin:0">dxtutor <b style="font-weight:600">IDE</b></h1></div>
+  <div class="sub">You decide; the assistants accelerate. Learn a language, or design an architecture and take it to a running stack and a local cluster.</div>
+  <h2>Build</h2><div class="wgrid">${w('cube','1 · Design','Studio with cloud and open-source components','openStudio()')}${w('account','2 · Set the harness','Templates, scopes and who decides','openTeam()')}${w('split','3 · Deliver','Board, sprints, automatic tests, your review','openBoard()')}${w('run','4 · RUN','Start the whole stack on your container runtime','dxRun()')}${w('rocket','5 · Deploy','One click to your local Kubernetes','dxDeploy()')}${w('container','Infra','Socket, dev container, KUBECONFIG',"goPane('infra')")}</div>
+  <h2>Learn</h2><div class="wgrid">${w('book','Learning Track','Rust and Go, from zero to confident','ltResume()')}</div>
+  <h2>Co-Dev</h2><div class="wgrid">${w('sparkle','Mission: persistent chat history','Council, self-evaluation and correction',"demo('b')")}${w('graph','Mission manager','Decisions, checkpoints and usage','openManager()')}${w('settings','Settings','Models, autonomy, language','openSettings()')}</div></div>`;};
+

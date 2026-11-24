@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4f, U4g1–U4g6)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 em curso (U4a–U4g, U4h1–U4h3; o v5/v6 já não existem)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -450,3 +450,114 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   implantado, com Staging escolhido no selector — nós em sync, behind, failing e missing e
   um workload a mais —, com um nó seleccionado e ao reabrir a vista): idênticas, sem erros
   de página; auto-teste desktop idêntico ao da U4g5.
+- **U4g7 (2026-11-24) — o arranque; o v5 e o v6 deixam de existir.** O que restava das
+  camadas foi para os donos, e os dois ficheiros (`@ts-nocheck`) foram apagados:
+  - **Boas-vindas:** a página efectiva era a do v5, que sobrepunha três versões anteriores
+    antes de alguém as chamar (o shim do app.ts para o `renderWelcomePage` do codev.ts e duas
+    páginas do próprio app.ts). Passou para um módulo novo e tipado, `features/welcome.ts`,
+    que regista o `VIEW.welcome`; as duas páginas mortas e o shim saíram do app.ts. O
+    `renderWelcomePage` do codev.ts fica: na app está inalcançável, mas o golden do codev
+    caracteriza-o directamente.
+  - **`boot5`/`boot6`:** foram verbatim para o app.ts, junto do `boot`/`boot3`/`boot4` — são
+    da mesma natureza (ajustam `ACTS`/`MENUS`/`CMD`/`LANG`) e dissolvem-se quando cada
+    feature registar os seus comandos. Prova de resolução de nomes: dos nomes livres dos
+    dois, só `CMD`, `LANG` e `runTask` colidem com declarações de topo do app.ts, e são os
+    mesmos objectos publicados no `window` (os dois primeiros só mutados, o `runTask` nunca
+    reatribuído); o `esc` colidia só no `dlg`, que não foi para o app.ts.
+  - **`dlg`:** tipado no `core.ts`; os legacy-bridges do debug/infra/board importam-no em
+    vez de o lerem do `window` (deixa de ser publicado). O `nfmt` também deixa de ser
+    publicado: o `features/tasks.ts` importa-o do core.
+  - **Ícones:** os 7 do v6 (tasks/eye/review/bulb/bug/pulse/layers) entraram na biblioteca
+    `P` do boot.ts. Prova: nenhum `svg()` corre no eval de um módulo e ninguém copia ou
+    enumera o `P`, por isso existirem mais cedo não muda o markup da app.
+  - **`tick`:** o relógio do boot.ts saiu, e as chamadas no `boot()` do app.ts também. O v5
+    substituía-o por uma função vazia, por isso nunca corria — e o `#clock` nem existe no DOM.
+
+  **Decisão registada — 8 goldens regenerados (aprovada pelo dono a 2026-11-24):** o harness
+  nunca carregou o v6, por isso os goldens do debug (1), do ext (2) e do visualizer (5)
+  tinham gravado o ícone `file` de recurso onde a app mostra `bug`, `bulb` e `layers`. Com os
+  ícones no `P`, o harness passa a ver os ícones reais. Provei sobre o diff dos snapshots que
+  as 12 linhas mudadas diferem apenas na troca do ícone de recurso pelo ícone real; na app
+  nada muda. Métricas: `@ts-nocheck` 7 → 5, globais publicadas 418 → 412, handlers inline
+  162 → 160 (as duas páginas mortas); lint 282 → 280. Verificado: 367 testes, arranque no
+  browser 4/4, comparação no browser entre a HEAD e esta árvore (separador inicial e página
+  de boas-vindas, barra de actividade, menus, os 92 comandos da paleta, `LANG`, ícones,
+  separadores do painel, painéis laterais, barra de estado, modo, e o diálogo — aberto pela
+  promoção a Production e pela explicação antes de validar, com foco, validação, `trim`,
+  `onOk`, cancelar e clicar fora): idênticas, sem erros de página; auto-teste desktop
+  idêntico ao da U4g6. A seguir: U4h (a parte desktop de cada feature, fora do `bridge.ts`).
+- **U4h — plano (2026-11-24).** O `bridge.ts` era uma closure de ~1050 linhas com 11 grupos
+  (terminal, pastas/autosave, git, LLM, delegação, contentores/K8s, demos, extensões,
+  menus/boas-vindas, arranque, auto-teste) que se chamam uns aos outros e partilham estado
+  (`R`, a fila `Q`, os processos). Mudar o sítio e trocar as decorações por injecção ao mesmo
+  tempo seria um big-bang; por isso: **U4h1** muda o código de sítio, mecanicamente, para
+  `platform/desktop/` (decorações intactas); **U4h2+** troca as decorações por portas
+  injectadas, dono a dono (scm, terminal, infra, codev/LLM, workspace…), com a mesma análise
+  de chamadas internas da U4g.
+- **U4h1 (2026-11-24) — a parte desktop sai do `bridge.ts` para `platform/desktop/`.**
+  `context.ts` cria o contexto partilhado (o topo da closure, verbatim: clientes IPC, `R`
+  publicado como `window.DXR`, `sh`/`git`/`gitOk`/`stream`, a fila — o `Q` passa a `idle()`,
+  que devolve a fila no momento da chamada — e os utilitários) com lugares tardios para os
+  serviços que um grupo define e outros usam (`envFor`, `termLine`, `runInTerm`, `realTerm`,
+  `reloadDisk`, `markChanged`, `flushSave`, `syncGit`, `openFolder`, `loadKeys`,
+  `desktopSample`, `provCaps`). Cada grupo foi verbatim para um módulo com um
+  `install<Área>(ctx)` — `terminal`, `workspace` (+ `installFolderUi` para o menu File, a
+  paleta, o Ctrl+O e as boas-vindas), `git`, `llm` (com a parte de UI que vinha depois da
+  delegação: são independentes), `agent-tasks`, `infra`, `demos`, `ext` — e o auto-teste para
+  `selftest.ts`; os tipos e o `declare global` para `types.ts`. O `bridge.ts` (1203 → 53
+  linhas) cria o contexto, instala pela ordem das antigas secções e corre o arranque. Os
+  módulos só definem funções no topo, por isso importá-los não tem efeitos; os efeitos no eval
+  (decorações, listeners, `MENUS`/`CMD`, `PROV`) acontecem nos installers pela mesma ordem.
+  **Provas:** (1) as dependências entre grupos foram calculadas pela AST antes de mover; (2)
+  com o type checker, os 704 identificadores com nomes da antiga closure resolvem todos dentro
+  do próprio módulo (destructuring, shim ou local) — nenhum cai num global do `declare
+  global` por acaso, o risco silencioso desta mudança; (3) cada linha do original aparece
+  tal-e-qual num módulo, à excepção de 26 com substituições previstas (`export`, `Q`→`idle()`,
+  `ctx.`, a assinatura do `selftest`, o tipo `RunOpts`). Métricas sem mudança; lint 280.
+  Verificado: 367 testes, arranque no browser 4/4, auto-teste desktop idêntico ao da U4g7
+  (23 passos); e, com um passo de sonda temporário (fora do commit) corrido na app real com a
+  UI da HEAD e com a desta árvore — botões das boas-vindas, menu File, paleta, pasta no
+  explorador, prompt real, nota do agente, Settings (texto e placeholders das chaves), logs
+  reais na observabilidade, sampler, `loadJSZip`, `drawStack` —, idênticos (só difere um nome
+  minificado).
+- **U4h2 (2026-11-24) — o scm: a primeira porta desktop injectada no dono.** Novo registo
+  `app/desktop.ts` (`desktopPorts`), onde a app Tauri instala as portas; no browser e nos testes
+  fica vazio. A interface `ScmDesktop` é do scm (`scm/application/ports.ts`): commit, checkout,
+  gitMerge e gfFinish, cada um com a versão simulada como último argumento (sem repositório o
+  adaptador delega nela; o commit corre-a primeiro e depois o `git commit`). O `scm.ts` publica
+  `commit`/`checkout`/`gitMerge`/`gfFinish` compostos com a porta (consultada no acto); o
+  `platform/desktop/git.ts` deixa de reatribuir os quatro globais e instala
+  `desktopPorts.scm` com os mesmos corpos. **Equivalência:** antes, o `window` decorado era o
+  único caminho para o git real; agora são as versões publicadas — os mesmos chamadores. As
+  chamadas internas do `scm.ts` continuam no motor local, como antes. Dentro do `gfFinish`
+  desktop, os `checkout(…)`/`gitMerge(…)` resolvem (provado com o type checker) para os globais
+  publicados, que voltam a passar pela porta — como antes passavam pelos decorados. Ninguém
+  captura estes nomes por valor (só `G.x`/`window.x` no acto e portas do board/codev).
+  **Bugs pré-existentes reportados (não corrigidos):** (1) desde a Fase 4 do scm (`f07dbc1`),
+  as acções do pane — Commit, mudar de ramo, fim de gitflow — e a paleta de ramos chamam o
+  motor local em vez do `window` decorado, por isso no desktop não usam git real (os
+  `onclick` antigos usavam); com a porta no dono, a correcção é usar as versões publicadas nas
+  acções. (2) O `gfStart` nunca foi desktop: cria o ramo de gitflow só em memória, por isso o
+  gitflow não chega ao git real — o passo `gitflow` do auto-teste acaba em `master` com um só
+  ramo, e o `checkpoint` com `finishedViaAsk: false`, desde a primeira medição da sessão.
+  Métricas sem mudança; lint 280. Verificado: 367 testes, arranque no browser 4/4, auto-teste
+  desktop idêntico ao da U4h1 (os passos `commit` e `scm` confirmam o git real pela porta).
+- **U4h3 (2026-11-24) — o terminal.** Porta `TerminalDesktop` (definida no
+  `features/terminal.ts`, registada em `desktopPorts.terminal`): `run`, `termExec` e
+  `promptHTML`, cada um com a versão emulada como último argumento. O terminal publica os três
+  compostos com a porta (as bases passam a `promptBase`/`termExecBase`/`run`); o
+  `platform/desktop/terminal.ts` deixa de reatribuir o `window.run` e o `termExec` e instala a
+  porta com os mesmos corpos — e o prompt real, que vivia na secção «folders» do bridge (agora
+  `workspace.ts`), passa para a mesma porta, porque é do terminal. **Equivalência:** os
+  chamadores são os mesmos (o Enter pelo `TG.run`, o `newInput`/`echoCmd` pelo `promptHTML`
+  global, o codev e o `runTask` pelo `termExec` global); ninguém os captura por valor antes do
+  bridge; o pair.ts, que avalia depois, continua a decorar o `run`/`promptHTML` por cima — a
+  cadeia passa de pair → desktop → base a pair → publicado → porta → base, pela mesma ordem.
+  Globais publicadas 412 → 411 (sai o `window.run =` do desktop); lint 280. Verificado: 367
+  testes, arranque no browser 4/4, auto-teste desktop idêntico ao da U4h2; e, como o auto-teste
+  chama o `realTerm`/`stream` directamente, uma sonda temporária (fora do commit) na app real
+  com a UI da HEAD e com a desta árvore — `run` (devolve a promessa, eco real, linha vazia),
+  `termExec` (tarefa no PTY do painel, devolve `null`) e a estrutura do prompt real com o nome
+  da pasta — idênticos. Nota de ambiente: entre corridas o `providers.json` real ganhou e
+  perdeu uma chave OpenAI por fora destas corridas, e um `terminalUI` saiu `false` uma vez
+  (repetido duas vezes: `true`) — sinais de outra sessão a usar o mesmo HOME.

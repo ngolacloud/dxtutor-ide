@@ -12,13 +12,20 @@
    extOf/hlLine/MODES/MODE/PROV/ACTIVE/MISSIONS/CKPT/setMode/demo/$) resolvem por window
    em tempo de chamada (pós-startup). @ts-nocheck como as outras features-motor densas. */
 
-import { esc } from "../core"; // marca o ficheiro como MÓDULO (não script) — mantém newInput/termRefreshPrompt com
+import { esc } from "../core";
+import { desktopPorts } from "../app/desktop"; // marca o ficheiro como MÓDULO (não script) — mantém newInput/termRefreshPrompt com
            // escopo de módulo, sem colidir com os `declare global { var … }` de bridge.ts/pair.ts.
 
-window.promptHTML = function(){return `<span class="pr"><span>${USER}</span><span class="at">@</span><span>${HOST}</span><span class="at">:</span><span class="pth">${CWD.join('/')}</span><span class="br"> (${esc(BRANCH)})</span><span class="at">$</span></span> `;}
+/* ADR-0004, U4h3: o prompt e o termExec PUBLICADOS consultam a porta desktop (`desktopPorts.terminal`,
+   injectada por platform/desktop/terminal.ts na app Tauri: pasta aberta → shell e prompt reais);
+   antes o desktop reatribuía-os no `window`. O pair.ts continua a decorar `promptHTML`/`run` por
+   cima, como antes decorava as versões do desktop. */
+function promptBase(): string {return `<span class="pr"><span>${USER}</span><span class="at">@</span><span>${HOST}</span><span class="at">:</span><span class="pth">${CWD.join('/')}</span><span class="br"> (${esc(BRANCH)})</span><span class="at">$</span></span> `;}
+window.promptHTML = function(){const d=desktopPorts.terminal;return d?d.promptHTML(promptBase):promptBase();};
 function newInput(nofocus?:boolean){const t=$('#term'),old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';if(!t)return;t.appendChild(w);const c=$('#cmd');if(c){c.onkeydown=onKey;if(!nofocus)c.focus({preventScroll:true});}scrollTerm();}
 function termRefreshPrompt(){const c=$('#cmd') as HTMLInputElement|null,v=c?c.value:'';newInput(true);const n=$('#cmd') as HTMLInputElement|null;if(n)n.value=v;}
-window.termExec = function(v){echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if((XC as any)[cmd])r=(XC as any)[cmd](a,v);else echo('<span class="er">'+esc(cmd)+': comando não encontrado</span>');newInput(true);return r;}
+function termExecBase(v: string): unknown {echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if((XC as any)[cmd])r=(XC as any)[cmd](a,v);else echo('<span class="er">'+esc(cmd)+': comando não encontrado</span>');newInput(true);return r;}
+window.termExec = function(v){const d=desktopPorts.terminal;return d?d.termExec(v,termExecBase):termExecBase(v);};
 const XC={
   help(){echo(`<span class="ac">ficheiros</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff | push\n<span class="ac">build</span>      <span class="ok">cargo</span> build | test [-p lexer|store] | run     <span class="ok">npm</span> run dev\n<span class="ac">co-dev</span>     <span class="ok">dx</span> lint | status | modo manual|assist|auto | missao a|b\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">neofetch</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
   cat(a:string[]){if(!a[0]){echo('<span class="er">cat: falta o ficheiro</span>');return;}const rel=CWD.slice(4).concat(a[0].split('/')).join('/');const p=FS[rel]?rel:Object.keys(FS).find(k=>k.endsWith('/'+a[0].split('/').pop()));if(!p){echo('<span class="er">cat: '+esc(a[0])+': não encontrado</span>');return;}echo(FS[p].content.split('\n').map(l=>hlLine(l,extOf(p))).join('\n'));},
@@ -56,9 +63,9 @@ Object.assign(window, { XC, newInput, termRefreshPrompt });
    `onKey`/`complete`), a navegação na árvore (`dirAt`/`curDir`) e o interpretador de base
    `run` (com os comandos `ls`/`cd`/`pwd`/`cat`/`tree`/`git`/`cargo`/… e o registo `XC`
    acima por cima). O histórico (`HIST`/`hidx`) passou a estado deste módulo.
-   O `run` e o `promptHTML` são decorados depois pelo bridge.ts (terminal real com pasta
-   aberta) e pelo pair.ts (PairCode): por isso o Enter chama `G.run` e o prompt `G.promptHTML`
-   em runtime — a versão decorada, como antes. O resto chama-se directamente. */
+   O `run` e o `promptHTML` publicados consultam a porta desktop (U4h3) e são decorados depois
+   pelo pair.ts (PairCode): por isso o Enter chama `G.run` e o prompt `G.promptHTML` em
+   runtime — a versão decorada, como antes. O resto chama-se directamente. */
 
 interface TreeEntry {
   dir?: number;
@@ -305,4 +312,17 @@ function run(raw: string): void {
   if (r !== "skip" && r !== "async") newInput();
 }
 
-Object.assign(window, { termNew, termClear, echo, scrollTerm, onKey, dirAt, curDir, complete, echoCmd, run });
+/** A parte desktop do terminal (ADR-0004, U4h3), injectada pela app Tauri em
+ *  `desktopPorts.terminal`: com uma pasta aberta, o input, os comandos das features e o prompt
+ *  passam a um shell real. Cada operação recebe a versão emulada (`virtual`), em que o
+ *  adaptador delega sem pasta. */
+export interface TerminalDesktop {
+  run(raw: string | undefined, virtual: (raw?: string) => unknown): unknown;
+  termExec(v: string, virtual: (v: string) => unknown): unknown;
+  promptHTML(virtual: () => string): string;
+}
+/* o `run` publicado consulta a porta (o desktop passava `raw` tal-e-qual, undefined incluído) */
+const runVirtual = run as (raw?: string) => unknown;
+const runPublished = (raw?: string): unknown => { const d = desktopPorts.terminal; return d ? d.run(raw, runVirtual) : runVirtual(raw); };
+
+Object.assign(window, { termNew, termClear, echo, scrollTerm, onKey, dirAt, curDir, complete, echoCmd, run: runPublished });

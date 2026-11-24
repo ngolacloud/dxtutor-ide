@@ -79,12 +79,20 @@ window.P={
   book:'<path d="M3 3.2h4.5a1.5 1.5 0 0 1 1.5 1.5v8.1a1.2 1.2 0 0 0-1.2-1.2H3z"/><path d="M13 3.2H8.5A1.5 1.5 0 0 0 7 4.7v8.1a1.2 1.2 0 0 1 1.2-1.2H13z"/>',
   popout:'<path d="M9 2.5h4.5V7"/><path d="M13.5 2.5 8 8"/><path d="M12 9v3.5a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1H7"/>',
   'dock-right':'<rect x="2" y="2.5" width="12" height="11" rx="1.2"/><path d="M9.5 2.5v11"/>',
+  /* os ícones de Tasks/Explain/Review/Debug/observabilidade/Visualize — eram um Object.assign(P,…) no v6.ts (ADR-0004, U4g7) */
+  tasks:'<path d="M6.5 4h7M6.5 8h7M6.5 12h7"/><path d="M2.2 4l1 1 1.6-1.9M2.2 8l1 1 1.6-1.9"/><circle cx="3.4" cy="12" r=".9"/>',
+  eye:'<path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
+  review:'<path d="M3.5 2.5h6l3 3v8h-9z"/><path d="M5.8 9l1.5 1.5 3-3.2"/>',
+  bulb:'<path d="M8 1.8a4.2 4.2 0 0 0-2.4 7.6c.5.4.8.9.8 1.5V12h3.2v-1.1c0-.6.3-1.1.8-1.5A4.2 4.2 0 0 0 8 1.8z"/><path d="M6.4 14h3.2"/>',
+  bug:'<path d="M5.5 5.5a2.5 2.5 0 0 1 5 0"/><rect x="4.5" y="5.5" width="7" height="8" rx="3.5"/><path d="M8 8v5M2 8.5h2.5M11.5 8.5H14M2.5 12l2-1M13.5 12l-2-1M2.5 5l2 1.2M13.5 5l-2 1.2"/>',
+  pulse:'<path d="M1.5 8.5h3l1.5-4 3 8 1.8-5.5 1 1.5h2.7"/>',
+  layers:'<path d="M8 2l6 3.2-6 3.2-6-3.2z"/><path d="M2 8.4l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2"/>',
 };
 window.svg = function(name,cls){return `<svg class="ico${cls?' '+cls:''}" viewBox="0 0 16 16">${P[name]||P.file}</svg>`;}
 
-/* ═════════ TOAST / CLOCK ═════════ */
+/* ═════════ TOAST ═════════ */
 window.toast = function(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toTimer);toTimer=setTimeout(()=>{t.classList.remove('show');},1600);}
-window.tick = function(){const d=new Date(),p=n=>String(n).padStart(2,'0');const m=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d.getMonth()];$('#clock').textContent=`${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}-${m}`;}
+/* o relógio da barra de estado (tick) saiu (ADR-0004, U4g7): o v5 já o substituía por uma função vazia desde a camada «less noise», por isso nunca corria na app. */
 
 /* ═════════ ACTIVITY BAR ═════════ */
 // Activity bar NATIVA (VS Code core) + o Assistant próprio do dxtutor.

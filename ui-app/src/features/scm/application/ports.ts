@@ -89,6 +89,21 @@ export interface ScmDeps {
 }
 
 /** A superfície que o motor devolve (os casos de uso git/scm). */
+/** O resultado mínimo de um merge / fim de gitflow que os consumidores lêem (o merge real
+ *  devolve um nó «pending» até o git terminar). */
+export interface MergeResult { h: string; m: string }
+
+/** A parte desktop do scm (ADR-0004, U4h2), injectada pela app Tauri: com uma pasta que é um
+ *  repositório git real, o commit / checkout / merge / fim de gitflow PUBLICADOS passam a git
+ *  real. Cada operação recebe a versão simulada (`virtual`): sem repositório o adaptador
+ *  delega nela; o commit corre-a primeiro (carimba o estado) e depois o `git commit`. */
+export interface ScmDesktop {
+  commit(msg: string | undefined, author: string | undefined, virtual: (msg?: string, author?: string) => CommitResult | null): CommitResult | null;
+  checkout(b: string, create: boolean | undefined, virtual: (b: string, create?: boolean) => boolean): boolean;
+  gitMerge(src: string, author: string | undefined, virtual: (src: string, author?: string) => MergeResult | null): MergeResult | null;
+  gfFinish(b: string | undefined, author: string | undefined, virtual: (b?: string, author?: string) => MergeResult | null): MergeResult | null;
+}
+
 export interface ScmEngine {
   gitInit(): void;
   commit(msg?: string, author?: string): CommitResult | null;

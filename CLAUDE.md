@@ -130,7 +130,10 @@ features/scm.ts    RESÍDUO strangler + raiz de composição: DONO do estado (GI
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o codereview, o markup vive
 no resíduo de composição `features/scm.ts` e `ui/` só tem `actions.ts`. GOTCHA-commit:
 o botão «Commit» usa o commit v2 (`window.commit`, só FS+COMMITS); o Ctrl+Enter e os
-auto-commits do monólito usam o v4 git-aware (`window.commitGit`). Rede de segurança
+auto-commits do monólito usam o v4 git-aware (`window.commitGit`). No desktop, o commit/
+checkout/gitMerge/gfFinish PUBLICADOS passam pela porta `desktopPorts.scm` (git real); as
+chamadas internas do `scm.ts` (acções do pane, paleta de ramos, Ctrl+Enter) usam o motor
+local — bug pré-existente reportado (desde f07dbc1 o pane não usa git real no desktop). Rede de segurança
 em `tests/scm.golden.test.ts` (goldens do pane + caracterização do motor) e
 `tests/scm.domain.test.ts` (domínio puro).
 
@@ -160,8 +163,9 @@ features/debug.ts  RESÍDUO strangler + raiz de composição: DONO do estado (DB
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm, o markup vive no
 resíduo `features/debug.ts` e `ui/` só tem `actions.ts`. Particularidades: a sessão
 `DBG` é polimórfica (`pre`/`code`/`ops`) — tipada por união + casts por `kind`; os
-helpers de lexer (`lexVariant`/`LXL`) e os containers `#pane-debug`/`#pc-dbg` vivem em
-`v6.ts`/`boot6` (fora da cadeia do harness) e são reproduzidos como fixtures no golden.
+helpers de lexer (`lexVariant`/`LXL`) vivem em `debug.ts` (ADR-0004 U4g5) e os containers
+`#pane-debug`/`#pc-dbg` nascem no `boot6` (no app.ts desde a U4g7; o arranque não corre no
+harness) — o golden reproduz estas peças como fixtures (cópias antigas).
 Rede de segurança em `tests/debug.golden.test.ts` (goldens de #pane-debug/#pc-dbg nos
 estados sem-sessão/pre/code, caracterização dos geradores, e 4 testes de dispatch
 delegado que disparam eventos reais — o golden strippa data-action, não prova o wiring)
@@ -197,7 +201,7 @@ Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm/debug, o markup v
 resíduo e `ui/` só tem `actions.ts`. GOTCHA-decoração: `runIssue`/`delegate`/`runSprint`/
 `approveIssue` publicam-se já COMPOSTAS com as políticas que antes eram decorações do
 app.ts/v5/v6 (Studio, revisão/explicação, `codeGuard`, dono humano, custo — ADR-0004 U4g3), e
-o bridge.ts ainda decora o `runSprint` — as arestas internas e os handlers data-action
+o desktop (`platform/desktop/demos.ts`) ainda decora o `runSprint` — as arestas internas e os handlers data-action
 resolvem a versão do `window` no acto (`decorated*` do bridge), nunca a função local base.
 O `VIEW.board` composto regista-se no board.ts; `renderBoardView` é o corpo base (goldens). Os handlers de ARRASTAR
 (`ondragstart`/`ondragover`/`ondragleave`/`ondrop`) ficam inline: não estão em
@@ -239,7 +243,7 @@ Governada pelas mesmas A7/A8 (está em `FEATURES`). Como scm/debug/board, o over
 vive no resíduo e `ui/` só tem `actions.ts`. Particularidades: (1) o motor é PURO e
 auto-suficiente → `application/` não tem porta de infraestrutura (só injecta funções do
 domínio); (2) o overlay injecta o seu próprio `#viz` no `document.body` e decora
-`VIEW.lt`/`VIEW.hood` (definidas no v6.ts) só em `boot7` (não corre no harness) — por
+`VIEW.lt`/`VIEW.hood` (shims do app.ts/registo do codereview) só em `boot7` (não corre no harness) — por
 isso o golden caracteriza o overlay via `vizOpen` com fonte explícita, sem fixtures;
 (3) `interpreter.ts` usa os bytes de controlo `U+0000`/`U+0001` como sentinelas no `fmt`
 (não mexer). Rede de segurança em `tests/visualizer.golden.test.ts`: 14 snapshots (motor
@@ -276,14 +280,14 @@ features/infra.ts  RESÍDUO strangler (@ts-nocheck, FORA da subárvore) + raiz d
                    renderObserveView, drawRemote/infraDraw, cache OBS/polling); compõe o
                    motor com os adaptadores do bridge, tem a tabela ACTIONS, e re-publica
                    os shims window.* (envPrime/envDrift/envDriftStyle; rtConnect/k8sConnect/
-                   dxDeploy são reatribuídos por bridge.ts/v5/v6 — ACTIONS chama window.X).
+                   dxDeploy são reatribuídos pelo desktop (platform/desktop/infra.ts) — ACTIONS chama window.X).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Particularidades: (1) o domínio é
 TODO tipado — interfaces locais (Design/TechSpec/KindSpec/K8sState/Secrets/…) no centro,
-os `any`/casts das formas opacas do monólito confinam-se ao bridge; (2) o harness exclui
-v5.ts (`#pane-infra` de `boot5`) e v6.ts (`RP.infra`) → `infra.golden.test.ts` reproduz
-estas fixtures em `provideFixtures()`; (3) o estado window-backed PERSISTE entre testes no
+os `any`/casts das formas opacas do monólito confinam-se ao bridge; (2) o `#pane-infra` nasce no `boot5`
+(no app.ts desde a U4g7), que não corre no harness → `infra.golden.test.ts` reproduz esta
+fixture (e o antigo shim `RP.infra`) em `provideFixtures()`; (3) o estado window-backed PERSISTE entre testes no
 jsdom mas a reavaliação de `infra.ts` reassigna `window.ENVS/ENVX/K8S/…` por `bootApp`;
 LS é inoperante em headless (persistência é porta de infra, não se caracteriza). Rede de
 segurança em `tests/infra.golden.test.ts` (3 goldens de #pane-infra + caracterização do
@@ -318,11 +322,28 @@ Backend: `pty.rs` (várias sessões por id, UTF-8 inteiro entre leituras, códig
 do `package.json`), `ports.rs` (`/proc/net/tcp`), `commands/panel.rs`.
 Particularidades: (1) não entra no harness de goldens — o caminho do browser/testes continua
 a demo e os goldens ficam intactos; a rede é `tests/panel.{domain,application}.test.ts` +
-o passo `panel` do selftest do `bridge.ts` (PTY real, /dev/pts, integração de shell, scan);
-(2) `runInTerm` do bridge delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
-linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`v6.ts` chamam
+o passo `panel` do auto-teste desktop (`platform/desktop/selftest.ts`: PTY real, /dev/pts,
+integração de shell, scan); (2) `runInTerm` (`platform/desktop/terminal.ts`) delega em `DXR.term.runTask` (tarefas num PTY); o terminal de
+linha `#term` fica para o terminal partilhado do PairCode; (3) `app.ts`/`features/shortcuts.ts` chamam
 `termOwnsKey(e)` nos atalhos globais — com o foco no xterm, as teclas são da shell excepto
 a lista curta de `isAppKey` (estilo `commandsToSkipShell` do VS Code).
+
+## A camada desktop (`ui-app/src/platform/desktop/`, ADR-0004 U4h)
+
+O que só existe na app Tauri (pastas no disco, autosave, terminal e git reais, modelos reais,
+docker/kubectl) vive em `platform/desktop/`: `context.ts` (os clientes IPC, o objecto `R` =
+`window.DXR`, processos `sh`/`git`/`stream`, a fila `enqueue`/`idle`, e os serviços tardios
+`ctx.flushSave`/`ctx.syncGit`/`ctx.envFor`/`ctx.runInTerm`/… que cada módulo preenche) e um
+módulo por área com um `install<Área>(ctx)` (terminal, workspace, git, llm, agent-tasks,
+infra, demos, ext) + `selftest.ts`. O `bridge.ts` é só a composição: sai no browser, cria o
+contexto, instala os módulos pela ordem das antigas secções (a ordem dos efeitos no eval
+importa) e corre o arranque. Regra ao mexer: um módulo usa os serviços de outro SEMPRE por
+`ctx.x(...)` no acto (nunca capturado no install), e nada de nomes soltos que resolvam para
+um global por acaso. A U4h1 só mudou o código de sítio; a partir da U4h2 cada decoração
+`window.X = …` passa a uma PORTA definida pela feature dona (`application/ports.ts`) e
+registada em `app/desktop.ts` (`desktopPorts.<feature>`): o dono consulta-a no acto, nas
+versões que publica, e a porta recebe a versão simulada como último argumento. Já migrado:
+`scm` (commit/checkout/gitMerge/gfFinish — U4h2), `terminal` (run/termExec/promptHTML — U4h3).
 
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 

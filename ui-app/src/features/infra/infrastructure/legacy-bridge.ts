@@ -20,7 +20,7 @@
    `const`/`function` solta (não em `interface Window`), logo `window.x` não tipa.
    Cada acessor exportado tem mesmo assim uma assinatura concreta e não-`any`. */
 
-import { toast, log, rerender, writeFile, svg, esc, show } from "../../../core";
+import { toast, log, rerender, writeFile, svg, esc, show, dlg as coreDlg } from "../../../core";
 import type {
   Design, Files, Envs, EnvX, K8sState, Commit, TechSpec, KindSpec, DesignNode,
   Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg,
@@ -68,7 +68,7 @@ export const lsSet = (k: string, v: unknown): void => { G.LS.set(k, v); };
 export const goPane = (p: string): void => { G.goPane(p); };
 export const openPath = (p: string): void => { G.openPath(p); };
 export const openTab = (t: OpenTabArg): void => { G.openTab(t); };
-export const dlg = (cfg: DlgCfg): void => { G.dlg(cfg); };
+export const dlg = (cfg: DlgCfg): void => { coreDlg(cfg); };  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
 export const startDebug = (arg?: string): void => { G.startDebug(arg); };
 
 /* ───── terminal (saída simulada no browser) ───── */

@@ -23,7 +23,7 @@
    nascem com o default e só hidratam de LS à primeira utilização (`hydrate()`,
    guard-once), como BPS em features/debug.ts. */
 
-import { $, hd, svg, esc, prov, jsa } from "../core";
+import { $, hd, svg, esc, prov, jsa, nfmt } from "../core";
 import { RP, VIEW } from "../app/store/registry";
 
 interface TaskFilter { sprint: number; who: string; open: Record<string, boolean> }
@@ -53,7 +53,7 @@ function costAvg(agent: string): { tok: number; usd: number; att: number } | nul
 
 /** Conselho de delegação ("tu"/"mistura"/"agente") para uma issue, com custo estimado. */
 function advice(it: any): [string, string] {
-  const AGENTS = window.AGENTS, nfmt = window.nfmt;
+  const AGENTS = window.AGENTS;
   if (isHuman("code")) return ["you", "In this project code stays with you."];
   if (it.agent === "arq" || /ADR/.test(it.title)) return ["you", "Architecture is your call: let the Architect draft, you decide."];
   const a = costAvg(it.agent), tok = a ? a.tok * it.pts : 1200 * it.pts, u = a ? a.usd * it.pts : usd(1200 * it.pts, "claude"), h = it.pts * MIN_PER_PT;
@@ -77,7 +77,7 @@ function openIssue(id: string): void {
  *  à espera de validação e os grupos por estágio. */
 function renderTasksPane(): void {
   hydrate();
-  const BL = window.BL, STAGES = window.STAGES, AGENTS = window.AGENTS, nfmt = window.nfmt;
+  const BL = window.BL, STAGES = window.STAGES, AGENTS = window.AGENTS;
   const el = $("#pane-tasks"), xs = BL.issues.filter((i: any) => (TK.sprint < 0 || i.sprint === TK.sprint) && (TK.who === "all" || (TK.who === "you" ? i.owner === "you" : i.agent === TK.who && i.owner !== "you"))),
     pts = xs.reduce((a: number, i: any) => a + i.pts, 0), dn = xs.filter((i: any) => i.stage === "done").reduce((a: number, i: any) => a + i.pts, 0), tok = xs.reduce((a: number, i: any) => a + (i.cost ? i.cost.tok : 0), 0), u = xs.reduce((a: number, i: any) => a + (i.cost ? i.cost.usd : 0), 0), wait = xs.filter((i: any) => i.stage === "func");
   if (!el) return;
@@ -93,7 +93,7 @@ function renderTasksPane(): void {
 /** Renderiza a vista de detalhe duma issue (`VIEW.issue`): fluxo, dono, conselho de
  *  delegação com custo estimado, custo real medido, testes e explicação. */
 function renderIssueView(t: any, host: HTMLElement): void {
-  const BL = window.BL, STAGES = window.STAGES, AGENTS = window.AGENTS, nfmt = window.nfmt;
+  const BL = window.BL, STAGES = window.STAGES, AGENTS = window.AGENTS;
   const i = BL.issues.find((x: any) => x.id === t.issue);
   if (!i) { host.innerHTML = '<div class="empty">Issue not found.</div>'; return; }
   const si = STAGES.findIndex((s: [string, string]) => s[0] === i.stage), ad = advice(i), c = i.cost;
