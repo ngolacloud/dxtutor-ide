@@ -70,6 +70,21 @@ export function parseTeamJson(text: string): Record<string, Partial<Scope>> | nu
 }
 
 /** O conteúdo de `.dxtutor/team.json` para os escopos actuais. */
+/** `teamJson`, keeping what else the file had — the `people` and their roles (RF-A06), which the
+ *  assistants' editor does not own. */
+export function teamJsonKeeping(agents: Record<string, Scope>, previous: string | undefined): string {
+  let rest: Record<string, unknown> = {};
+  try {
+    const v = previous ? JSON.parse(previous) : null;
+    if (v && typeof v === "object") rest = { ...(v as Record<string, unknown>) };
+  } catch {
+    /* not JSON: only the agents */
+  }
+  delete rest.agents;
+  const out = { ...JSON.parse(teamJson(agents)), ...rest };
+  return JSON.stringify(out, null, 2) + "\n";
+}
+
 export function teamJson(agents: Record<string, Scope>): string {
   return JSON.stringify({ agents: Object.fromEntries(Object.entries(agents).map(([k, a]) => [k, { paths: a.paths, cmds: a.cmds, ...(a.max != null ? { max: a.max } : {}), ...(a.model ? { model: a.model } : {}) }])) }, null, 2) + "\n";
 }

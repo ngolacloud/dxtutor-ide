@@ -33,6 +33,7 @@ pub mod problems;
 mod procs;
 mod pty;
 pub mod review;
+pub mod roles;
 pub mod sandbox;
 pub mod search;
 mod shell_integration;
