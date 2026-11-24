@@ -3,7 +3,7 @@
    `lsp_start` / `lsp_did_open` / `lsp_did_change` / `lsp_hover` / `lsp_definition` /
    `lsp_references` / `lsp_prepare_rename` / `lsp_rename` / `lsp_completion` /
    `lsp_signature_help` / `lsp_server_status` / `lsp_code_action` / `lsp_execute_command` / `lsp_format` /
-   `lsp_document_symbols` / `lsp_workspace_symbols` e
+   `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_prepare_type_hierarchy` / `lsp_type_hierarchy` e
    os eventos `lsp://diagnostics` e `lsp://apply-edit`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, listen } from "../../../platform/tauri/core";
@@ -27,6 +27,8 @@ export const tauriLsp: LspPort = {
     invoke<unknown>("lsp_code_action", { path, startLine, startCharacter, endLine, endCharacter }),
   documentSymbols: (path) => invoke<unknown>("lsp_document_symbols", { path }),
   workspaceSymbols: (root, query) => invoke<unknown>("lsp_workspace_symbols", { root, query }),
+  prepareTypeHierarchy: (path, line, character) => invoke<unknown>("lsp_prepare_type_hierarchy", { path, line, character }),
+  typeHierarchy: (path, item, direction) => invoke<unknown>("lsp_type_hierarchy", { path, item, direction }),
   executeCommand: (path, command, args) => invoke<unknown>("lsp_execute_command", { path, command, arguments: args }),
   format: (path, tabSize, insertSpaces, range) =>
     invoke<unknown>("lsp_format", {
