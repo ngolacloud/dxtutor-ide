@@ -3,11 +3,13 @@
      • referências (Shift+F12): uma linha por ocorrência (`ficheiro:linha` + o texto da linha);
        clicar, ou ↑/↓ + Enter, abre-a; Escape ou clicar fora fecha;
      • rename (F2): caixa com o nome actual seleccionado; Enter aplica, Escape cancela;
-     • code actions (Ctrl+.): menu de correcções e refactorings (`#lsp-actions`).
+     • code actions (Ctrl+.): menu de correcções e refactorings (`#lsp-actions`);
+     • Go to Symbol (Ctrl+Shift+O): os símbolos do ficheiro com um campo de filtro (`#lsp-symbols`).
    Listeners ligados aos elementos (sem `onclick` inline). Não toca em `window`. */
 
 import type { Reference } from "../application/lsp-client";
 import { kindLabel, type CodeActionItem } from "../domain/code-actions";
+import { filterSymbols, type SymbolEntry } from "../domain/symbols";
 
 const CLOSERS = new Map<string, () => void>();
 
@@ -168,4 +170,96 @@ export function showRenameBox(placeholder: string, x: number, y: number, onSubmi
     }
   });
   input.addEventListener("blur", () => finish(null));
+}
+
+/** O Go to Symbol junto a (x, y): um campo de filtro e a lista dos símbolos (indentados pela
+ *  profundidade; com filtro, os que começam pelo texto primeiro). ↑/↓ escolhem, Enter ou clique
+ *  abrem; Escape ou clicar fora fecham. */
+export function showSymbolPicker(entries: readonly SymbolEntry[], x: number, y: number, onPick: (s: SymbolEntry) => void, onClose: () => void): void {
+  const el = floating("lsp-symbols", "lsp-pop lsp-refs lsp-symbols", x, y);
+  const input = document.createElement("input");
+  input.className = "inp notr";
+  input.spellcheck = false;
+  input.placeholder = entries.length ? "Go to symbol in file…" : "No symbols in this file";
+  input.setAttribute("aria-label", "Filter symbols");
+  const list = document.createElement("div");
+  list.className = "lsp-sym-list";
+  list.setAttribute("role", "listbox");
+  el.append(input, list);
+  let shown: SymbolEntry[] = [];
+  let sel = 0;
+  let done = false;
+  const finish = (pick: SymbolEntry | null): void => {
+    if (done) return;
+    done = true;
+    closePopup("lsp-symbols");
+    if (pick) onPick(pick);
+    else onClose();
+  };
+  const mark = (): void => {
+    list.querySelectorAll<HTMLElement>(".lsp-ref").forEach((b, i) => {
+      b.classList.toggle("sel", i === sel);
+      b.setAttribute("aria-selected", String(i === sel));
+      if (i === sel) b.scrollIntoView?.({ block: "nearest" });
+    });
+  };
+  const render = (): void => {
+    const q = input.value.trim();
+    shown = filterSymbols(entries, q);
+    sel = 0;
+    list.textContent = "";
+    for (const s of shown) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.tabIndex = -1;
+      b.className = "lsp-ref lsp-sym";
+      b.setAttribute("role", "option");
+      if (!q) b.style.paddingLeft = `${12 + s.depth * 14}px`;
+      const kind = document.createElement("span");
+      kind.className = "lsp-act-kind";
+      kind.textContent = s.label;
+      const name = document.createElement("span");
+      name.className = "lsp-sym-n";
+      name.textContent = s.name;
+      const where = document.createElement("span");
+      where.className = "lsp-ref-t";
+      where.textContent = [s.detail, q && s.container ? `in ${s.container}` : "", `:${s.line}`].filter(Boolean).join("  ");
+      b.append(kind, name, where);
+      b.addEventListener("mousedown", (e) => e.preventDefault()); // o foco fica no campo
+      b.addEventListener("click", () => finish(s));
+      list.appendChild(b);
+    }
+    if (entries.length && !shown.length) {
+      const none = document.createElement("div");
+      none.className = "lsp-pop-hint lsp-sym-none";
+      none.textContent = "No matching symbols";
+      list.appendChild(none);
+    }
+    mark();
+  };
+  input.addEventListener("input", render);
+  input.addEventListener("keydown", (e) => {
+    if (["Escape", "Enter", "ArrowDown", "ArrowUp"].includes(e.key)) e.stopPropagation(); // são do cartão, não dos atalhos globais
+    if (e.key === "Escape") {
+      e.preventDefault();
+      finish(null);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (shown[sel]) finish(shown[sel]);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const n = shown.length;
+      if (n) {
+        sel = (sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+        mark();
+      }
+    }
+  });
+  const onDown = (e: MouseEvent): void => {
+    if (!el.contains(e.target as Node)) finish(null);
+  };
+  document.addEventListener("mousedown", onDown, true);
+  CLOSERS.set("lsp-symbols", () => document.removeEventListener("mousedown", onDown, true));
+  render();
+  input.focus();
 }

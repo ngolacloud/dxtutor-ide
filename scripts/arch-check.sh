@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=196
+EXPECT_TOTAL=197
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -86,7 +86,8 @@ EXPECT_TSNOCHECK=0
 # A7 (debug DAP): commands/debug_cmds.rs ganha debug_set_breakpoints, debug_stop_on_panic,
 # debug_threads, debug_variables, debug_evaluate, debug_pause, debug_snapshot, breakpoints_load e
 # breakpoints_save (10→19): 187 + 9 = 196.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=21 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=10 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=19 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=14 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=6 )
+# Símbolos do ficheiro (lsp_document_symbols, PR #21): lsp.rs 14→15: 196 + 1 = 197.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=21 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=10 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=19 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=15 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=6 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores

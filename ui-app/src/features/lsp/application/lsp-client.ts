@@ -20,6 +20,7 @@ import { completionItems, wordStartAt, type CompletionItem } from "../domain/com
 import { signatureView, type SignatureView } from "../domain/signature";
 import { clientSideEdit, codeActionItems, type CodeActionItem } from "../domain/code-actions";
 import { caretAfterFormatting, formattingEdits } from "../domain/formatting";
+import { flattenSymbols, type SymbolEntry } from "../domain/symbols";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
@@ -64,6 +65,9 @@ export interface LspClient {
   onApplyEdit(edit: unknown): Promise<void>;
   /** Formata o ficheiro activo (ou só a selecção `[start, end)`, se não for vazia). */
   formatAt(start: number, end: number): Promise<FormatOutcome>;
+  /** Os símbolos do ficheiro `key`, pela ordem do ficheiro (Go to Symbol e Outline); `null` se não
+   *  há servidor para ele. */
+  symbolsFor(key: string): Promise<SymbolEntry[] | null>;
   /** O servidor publicou diagnósticos para `uri`. */
   onDiagnostics(uri: string): void;
   /** Ficheiros abertos no servidor (caminho absoluto → versão), para inspecção. */
@@ -121,7 +125,11 @@ interface Doc {
 }
 
 export function makeLspClient(d: LspClientDeps): LspClient {
-  const started = new Set<string>();
+  /** O `lsp_start` de cada pasta, e o `didOpen` em curso de cada documento: uma chamada que
+   *  chega a meio (ex. o Outline enquanto o separador abre o ficheiro) ESPERA por eles, em vez
+   *  de mandar pedidos ao servidor antes de o documento estar aberto. */
+  const starting = new Map<string, Promise<void>>();
+  const opening = new Map<string, Promise<boolean>>();
   const versions = new Map<string, number>();
   /** O último texto que o servidor recebeu de cada documento (para não repetir `didChange`). */
   const sent = new Map<string, string>();
@@ -161,23 +169,30 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     const root = d.workspace.diskRoot();
     if (!root) return false;
     if (!(await serverOk(doc))) return false;
-    if (!started.has(root)) {
-      started.add(root);
-      await d.lsp.start(root).catch(() => started.delete(root));
+    let st = starting.get(root);
+    if (!st) {
+      st = d.lsp.start(root).catch(() => void starting.delete(root));
+      starting.set(root, st);
     }
+    await st;
+    const pending = opening.get(doc.path);
+    if (pending) return pending;
     if (versions.has(doc.path)) return true;
     const text = d.workspace.text(doc.key);
     if (text == null) return false;
     versions.set(doc.path, 1);
     sent.set(doc.path, text);
-    try {
-      await d.lsp.didOpen(doc.path, text, doc.languageId);
-      return true;
-    } catch {
-      versions.delete(doc.path);
-      sent.delete(doc.path);
-      return false;
-    }
+    const p = d.lsp.didOpen(doc.path, text, doc.languageId).then(
+      () => true,
+      () => {
+        versions.delete(doc.path);
+        sent.delete(doc.path);
+        return false;
+      },
+    );
+    opening.set(doc.path, p);
+    void p.finally(() => opening.delete(doc.path));
+    return p;
   }
 
   async function onTab(tabId: string | null): Promise<void> {
@@ -187,6 +202,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
 
   /** Dá ao servidor o texto actual do documento, se mudou desde o último que recebeu. */
   async function sync(doc: Doc): Promise<void> {
+    await opening.get(doc.path); // o didOpen em curso vai primeiro
     if (!versions.has(doc.path)) {
       await ensureOpen(doc);
       return;
@@ -516,6 +532,18 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     return "formatted";
   }
 
+  async function symbolsFor(key: string): Promise<SymbolEntry[] | null> {
+    const doc = docOf(key);
+    if (!doc || !(await ensureOpen(doc))) return null;
+    await sync(doc);
+    try {
+      const r = await d.lsp.documentSymbols(doc.path);
+      return r == null ? null : flattenSymbols(r); // null: sem sessão (o backend não a abriu)
+    } catch {
+      return null;
+    }
+  }
+
   async function onApplyEdit(edit: unknown): Promise<void> {
     await applyEdit(edit);
   }
@@ -534,5 +562,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (doc) await serverOk(doc);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, onDiagnostics, opened: () => versions, onFileView };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, onDiagnostics, opened: () => versions, onFileView };
 }
