@@ -4,7 +4,8 @@
    (`infrastructure/legacy-bridge`), e é accionado pelos eventos do editor no bus
    (`editor:tab`, `workspace:changed`) e pelos ganchos do editor (`ui/editor-hooks`): hover,
    definição (F12), referências (Shift+F12) e rename (F2); e pelo completion (`ui/completion-hooks`:
-   Ctrl+Espaço, depois de `.` ou ao escrever um nome).
+   Ctrl+Espaço, depois de `.` ou ao escrever um nome) e pela assinatura da chamada
+   (`ui/signature-hooks`: depois de `(`/`,` ou Ctrl+Shift+Espaço).
    Os diagnósticos já chegam ao Problems e ao gutter pelo painel (`features/panel`); aqui
    só se volta a pintar o ficheiro aberto quando os dele mudam.
    No browser/testes não arranca: o editor continua exactamente como antes. */
@@ -16,6 +17,7 @@ import { tauriLsp } from "./infrastructure/tauri";
 import { workspace, editor } from "./infrastructure/legacy-bridge";
 import { bindEditorHooks } from "./ui/editor-hooks";
 import { bindCompletionHooks } from "./ui/completion-hooks";
+import { bindSignatureHooks } from "./ui/signature-hooks";
 
 if (isDesktop()) {
   const client = makeLspClient({ lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0) });
@@ -36,4 +38,5 @@ if (isDesktop()) {
     enabled: () => !!workspace.diskRoot(),
   });
   bindCompletionHooks({ completionAt: client.completionAt, enabled: () => !!workspace.diskRoot() });
+  bindSignatureHooks({ signatureHelpAt: client.signatureHelpAt, enabled: () => !!workspace.diskRoot() });
 }

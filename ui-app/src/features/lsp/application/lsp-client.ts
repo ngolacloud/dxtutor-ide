@@ -14,6 +14,7 @@ import { offsetToPosition, positionToOffset, wordAt } from "../domain/positions"
 import { allTargets, firstTarget, hoverBlocks, isIndexing, renameRange, uriToPath, workspaceEditFiles, type HoverBlock, type Target } from "../domain/results";
 import { applyTextEdits } from "../domain/edits";
 import { completionItems, wordStartAt, type CompletionItem } from "../domain/completion";
+import { signatureView, type SignatureView } from "../domain/signature";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
@@ -47,6 +48,9 @@ export interface LspClient {
   /** As sugestões de completion no offset do ficheiro activo (`null` se não há servidor).
    *  `triggerCharacter` quando foi um carácter (ex. `.`) que abriu a lista. */
   completionAt(offset: number, triggerCharacter: string | null): Promise<CompletionResult | null>;
+  /** A assinatura da chamada no offset (`null` se o cursor não está numa chamada ou não há
+   *  servidor). `isRetrigger` quando a assinatura já estava à vista. */
+  signatureHelpAt(offset: number, triggerCharacter: string | null, isRetrigger: boolean): Promise<SignatureView | null>;
   /** O servidor publicou diagnósticos para `uri`. */
   onDiagnostics(uri: string): void;
   /** Ficheiros abertos no servidor (caminho absoluto → versão), para inspecção. */
@@ -154,6 +158,18 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   async function onEdit(): Promise<void> {
     const doc = docOf(d.workspace.currentFileKey());
     if (doc) await sync(doc);
+  }
+
+  async function signatureHelpAt(offset: number, triggerCharacter: string | null, isRetrigger: boolean): Promise<SignatureView | null> {
+    const doc = docOf(d.workspace.currentFileKey());
+    if (!doc || !(await ensureOpen(doc))) return null;
+    await sync(doc);
+    const pos = offsetToPosition(d.workspace.text(doc.key) ?? "", offset);
+    try {
+      return signatureView(await d.lsp.signatureHelp(doc.path, pos.line, pos.character, triggerCharacter, isRetrigger));
+    } catch {
+      return null;
+    }
   }
 
   async function completionAt(offset: number, triggerCharacter: string | null): Promise<CompletionResult | null> {
@@ -377,5 +393,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (key && key === d.workspace.currentFileKey()) d.defer(() => d.editor.repaint(key));
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, onDiagnostics, opened: () => versions };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, onDiagnostics, opened: () => versions };
 }

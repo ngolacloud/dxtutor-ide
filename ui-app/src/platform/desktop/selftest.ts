@@ -413,6 +413,29 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     const completed = insertedLine.includes(callWord + "(");
     const el0 = ta()!; el0.value = original; el0.setSelectionRange(0, 0); el0.dispatchEvent(new Event("input", { bubbles: true }));
     await until(() => FS[main].content === original, 5_000, 100);
+    // 3c) assinatura: escrever a chamada abre o cartão com o 1.º parâmetro a negrito; em Java,
+    //     depois de «1,» o activo passa ao 2.º. O ficheiro volta ao que era.
+    const callTyped = lang === "java" ? "\n        int x = Util.add(" : "\n    val y = greet(";
+    const typeAt = (extra: string) => {
+      const el = ta()!; el.focus();
+      const t = original.slice(0, lineEnd) + callTyped + extra + original.slice(lineEnd);
+      el.value = t;
+      const c = lineEnd + callTyped.length + extra.length;
+      el.setSelectionRange(c, c);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    const sigNow = () => {
+      const c = document.getElementById("lsp-signature");
+      return c ? { label: c.querySelector(".lsp-sig-label")?.textContent ?? "", active: c.querySelector(".lsp-sig-label b")?.textContent ?? null } : null;
+    };
+    const firstSig = await until(() => { const s = sigNow(); if (s && s.active) return s; typeAt(""); return null; }, 60_000, 2500);
+    let secondSig: { label: string; active: string | null } | null = null;
+    if (lang === "java" && firstSig) {
+      secondSig = await until(() => { const s = sigNow(); if (s && s.active && s.active !== firstSig.active) return s; typeAt("1,"); return null; }, 30_000, 2000);
+    }
+    const el1 = ta()!; el1.value = original; el1.setSelectionRange(0, 0); el1.dispatchEvent(new Event("input", { bubbles: true }));
+    el1.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await until(() => FS[main].content === original, 5_000, 100);
     // 4) Shift+F12 na chamada → a lista de referências (a declaração e a chamada)
     const caretOn = (line: number, word: string) => { if (W.cur !== main) W.openPath(main); const el = ta()!; const o = offsetOf(line, word); el.focus(); el.setSelectionRange(o, o); return el; };
     const refRows = await until(() => {
@@ -457,6 +480,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       hover: hoverText ? hoverText.replace(/\s+/g, " ").slice(0, 120) : null,
       definition: { jumped: !!jumped, file: defFile, caretLine, expectedLine: defLine },
       completion: { suggestions: suggestions ? suggestions.slice(0, 6) : null, accepted: insertedLine.trim(), completed },
+      signature: { first: firstSig, ...(lang === "java" ? { afterComma: secondSig } : {}) },
       references: refRows ? refRows.map(r => r.replace(/\s+/g, " ").slice(0, 70)) : null,
       rename: { placeholder, to: newName, applied: !!renamed, occurrencesOnDisk: onDisk, ...(probeRename ? { probe: probeRename } : {}) },
       toasts,
