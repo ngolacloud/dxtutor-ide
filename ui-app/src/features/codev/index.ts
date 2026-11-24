@@ -216,7 +216,7 @@ export const hunkReview = makeHunkReview({
   cancel: () => stopTurn(),
 });
 hunkReview.readFrom((rel) => bridge.files()[bridge.root() + rel]?.content ?? null);
-const hunkView = makeHunkOverlayView(hunkReview);
+const hunkView = makeHunkOverlayView(hunkReview, (el) => bridge.translate(el));
 reveal = hunkView.reveal;
 editorOverlay.set({
   view: (p, real) => hunkReview.view(relPath(p), real),

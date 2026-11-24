@@ -95,6 +95,11 @@ export const flushSave = async (): Promise<void> => {
   if (typeof G.DXR.flush === "function") G.DXR.flush();
   if (typeof G.DXR.idle === "function") await G.DXR.idle();
 };
+/** Translates the text inside `el` to the current language (the i18n layer skips the editor,
+ *  so what Co-Dev draws over it is translated explicitly). */
+export const translate = (el: Element): void => {
+  if (typeof G.trNode === "function") G.trNode(el);
+};
 /** Relê o disco para o editor (o agente v2 escreve ficheiros directamente). */
 export const reloadDisk = (): Promise<void> =>
   G.DXR && typeof G.DXR.reloadDisk === "function" ? G.DXR.reloadDisk() : Promise.resolve();

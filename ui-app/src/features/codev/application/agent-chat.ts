@@ -10,6 +10,7 @@ import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
 import { ago, callDiff, describeCall, describeSession, isNoToolsError, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
 import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
+import { proseOnly } from "../domain/prose";
 
 /** O turno em curso: cartão, segmentos de texto (um por pedido ao modelo), ferramentas. */
 interface Turn {
@@ -50,7 +51,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
   let turn: Turn | null = null;
   let unsubscribe: (() => void) | null = null;
 
-  const text = (t: Turn): string => t.segments.filter((s) => s !== "").join("\n\n");
+  // the chat keeps prose: long code blocks go to the editor, not the reply (RF-CODEV-STREAM §7)
+  const text = (t: Turn): string => proseOnly(t.segments.filter((s) => s !== "").join("\n\n"));
 
   const toolRef = (t: Turn, id: string, name: string, label: string): ToolRef => {
     let r = t.tools.get(id);

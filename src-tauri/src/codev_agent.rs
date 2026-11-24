@@ -419,10 +419,7 @@ pub fn start(
                 root: root_s.clone(),
                 model: resolve_model(&provider, spec.model.as_deref()),
                 effort: parse_effort(spec.effort.as_deref()).as_str().to_string(),
-                system: tutor_agent::context::system_prompt(&root)
-                    .into_iter()
-                    .map(|b| (b.text, b.cache))
-                    .collect(),
+                system: session_system(&root, spec.review_edits),
                 test_cmd: spec.test_cmd.clone().filter(|c| !c.trim().is_empty()),
                 lint_cmd: spec.lint_cmd.clone().filter(|c| !c.trim().is_empty()),
                 compaction: provider_features(&provider).compaction,
@@ -825,6 +822,28 @@ fn validate(s: &Session, turn: AutoTurn, emit: &dyn Fn(AgentEvent)) {
     };
     emit(AgentEvent::Notice { text: human });
     s.notes.lock().unwrap().push(model);
+}
+
+/// What the model is told when edits stream into the editor (RF-CODEV-STREAM §7, I6).
+pub const REVIEW_EDITS_NOTE: &str = "No IDE, as tuas alterações aparecem no editor enquanto as \
+     escreves e o humano aceita ou rejeita cada bloco. Nunca ponhas na resposta código que queres \
+     aplicar: altera os ficheiros com `edit`/`write`. Referências curtas entre crases na prosa são \
+     aceitáveis.";
+
+/// The system prompt of a new session; with live hunks, the core block also carries
+/// [`REVIEW_EDITS_NOTE`]. It is saved with the session, so a resume keeps it byte for byte.
+fn session_system(root: &Path, review_edits: bool) -> Vec<(String, bool)> {
+    let mut v: Vec<(String, bool)> = tutor_agent::context::system_prompt(root)
+        .into_iter()
+        .map(|b| (b.text, b.cache))
+        .collect();
+    if review_edits {
+        if let Some((core, _)) = v.first_mut() {
+            core.push_str("\n\n");
+            core.push_str(REVIEW_EDITS_NOTE);
+        }
+    }
+    v
 }
 
 /// Espera pela decisão da UI, desistindo se a sessão for cancelada.
@@ -1657,6 +1676,20 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(d.path().join("a.txt")).unwrap(),
             "ok, better\n"
+        );
+    }
+
+    #[test]
+    fn review_edits_tells_the_model_to_keep_code_out_of_the_reply() {
+        let dir = tempfile::tempdir().unwrap();
+        let with = session_system(dir.path(), true);
+        let without = session_system(dir.path(), false);
+        assert!(with[0].0.ends_with(REVIEW_EDITS_NOTE));
+        assert!(!without[0].0.contains(REVIEW_EDITS_NOTE));
+        assert_eq!(with.len(), without.len());
+        assert!(
+            with.last().unwrap().1,
+            "the cache breakpoint stays at the end"
         );
     }
 

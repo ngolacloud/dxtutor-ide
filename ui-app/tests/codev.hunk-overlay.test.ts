@@ -181,3 +181,19 @@ describe("reviews", () => {
     expect(completeReview(s, "c:2")?.call).toBe("c");
   });
 });
+
+import { CODE_IN_EDITOR, proseOnly } from "../src/features/codev/domain/prose";
+
+describe("the chat keeps prose (§7)", () => {
+  it("hides fenced blocks longer than 3 lines, keeps short ones and inline code", () => {
+    const long = "Mudei o ciclo:\n```rust\nfn a() {\n  b();\n  c();\n}\n```\nFeito.";
+    expect(proseOnly(long)).toBe(`Mudei o ciclo:\n${CODE_IN_EDITOR}\nFeito.`);
+    const short = "Usa `iter()`:\n```rust\nlet x = v.iter();\n```";
+    expect(proseOnly(short)).toBe(short);
+  });
+
+  it("a block still streaming counts as soon as it passes 3 lines", () => {
+    expect(proseOnly("Vou mostrar:\n```\na\nb")).toBe("Vou mostrar:\n```\na\nb");
+    expect(proseOnly("Vou mostrar:\n```\na\nb\nc\nd")).toBe(`Vou mostrar:\n${CODE_IN_EDITOR}`);
+  });
+});

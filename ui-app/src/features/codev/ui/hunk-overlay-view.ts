@@ -34,7 +34,7 @@ function bar(h: HunkState, typing: boolean, paused: boolean): string {
 }
 
 /** The overlay's `decorate`, the scroll and key handling, bound to one HunkReview. */
-export function makeHunkOverlayView(review: HunkReview) {
+export function makeHunkOverlayView(review: HunkReview, translate: (el: HTMLElement) => void = () => undefined) {
   let programmatic = 0;
   let boundBody: HTMLElement | null = null;
 
@@ -60,6 +60,7 @@ export function makeHunkOverlayView(review: HunkReview) {
       el.style.left = `${widest + 4}ch`;
       el.innerHTML = bar(h, !!active && active.id === h.id, s.paused);
       host.wrap.appendChild(el);
+      translate(el); // the i18n layer skips the editor (it holds code)
     }
     const body = host.wrap.closest<HTMLElement>("#ebody");
     if (body && body !== boundBody) {
@@ -81,6 +82,7 @@ export function makeHunkOverlayView(review: HunkReview) {
       el.dataset.action = "hunk-back";
       el.innerHTML = "<span>Voltar ao Co-Dev</span>";
       document.body.appendChild(el);
+      translate(el);
     } else if (!want && el) el.remove();
   }
 
