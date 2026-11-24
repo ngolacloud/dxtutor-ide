@@ -119,7 +119,13 @@ export function makeHunkReview(deps: HunkReviewDeps) {
     set(reduceOverlay(state, e));
     if (e.kind === "hunk_start" && !wasActive) following = true;
     if (e.kind === "hunk_start") follow(e.path);
-    if (e.kind === "hunk_applied") queueReload();
+    if (e.kind === "hunk_applied") {
+      // RF-E07: the text before the block, for Ctrl+Z (the editor still has it: reload comes next)
+      const h = state.hunks.find((x) => x.id === e.hunk);
+      const before = h ? realOf(h.path) : null;
+      if (h && before !== null) deps.applied?.(h.path, before);
+      queueReload();
+    }
     if (e.kind === "hunk_applied" || e.kind === "hunk_rejected" || e.kind === "hunk_stale") {
       const h = state.hunks.find((x) => x.id === e.hunk);
       if (h && !state.reviews.some((r) => r.call === h.call)) settle(h.call);
