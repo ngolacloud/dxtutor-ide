@@ -29,7 +29,7 @@ import type {
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
-import type { AgentEvent, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, SessionSummary, Todo } from "../domain/agent-events";
+import type { AgentEvent, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -280,6 +280,8 @@ export interface MissionPresenter {
   agentPlan?(ref: ToolRef, markdown: string): void;
   /** Botão «ver diff» numa linha de ferramenta. */
   toolDiffLink?(ref: ToolRef, onDiff: () => void): void;
+  /** The report of a turn (HARNESS-07), built from its events: a collapsible block. */
+  agentReport?(ref: CardRef, title: string, markdown: string): void;
   /** Live hunks waiting for a decision (RF-CODEV-STREAM): a bar on the tool line with
    *  «accept all / reject all / open in the editor». `settle` replaces it with the outcome
    *  when the review ends (from the chat or from the editor). */
@@ -360,7 +362,11 @@ export interface AgentGateway {
   history(session: string): Promise<HistoryItem[]>;
   setPlan(session: string, on: boolean): Promise<void>;
   checkpoints(session: string): Promise<Checkpoint[]>;
-  rewind(session: string, checkpoint: number): Promise<string>;
+  /** With `conversation`, the conversation goes back too («Rewind to here»). */
+  rewind(session: string, checkpoint: number, conversation?: boolean): Promise<string>;
+  /** The project's and the user's permission rules (`.dxtutor/permissions.json`). */
+  permissions(root: string): Promise<Permissions>;
+  savePermissions(root: string, rules: { allow: string[]; deny: string[] }): Promise<void>;
   extensions(root: string): Promise<ExtensionsStatus>;
   trust(root: string, kind: "hooks" | "mcp"): Promise<void>;
   send(session: string, text: string | null): Promise<void>;
@@ -399,6 +405,8 @@ export interface AgentChatDeps {
   hunks?: HunkSink;
   /** Saves what the editor has to disk before the agent reads it (autosave flush). */
   flush?(): Promise<void>;
+  /** The Run view of the harness (A3): every event of the turn, and when a turn starts. */
+  run?: { event(session: string, e: AgentEvent): void; turnStarted(): void };
 }
 
 /** Where the agent chat sends the hunk events of a turn. */

@@ -59,6 +59,7 @@ import {
   ask,
   tl,
   hunkReview,
+  codevRun,
 } from "./codev/index";
 
 /* ───── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ───── */
@@ -372,6 +373,19 @@ const ACTIONS: ActionTable = {
   "hunk-faster": { on: "click", run: () => hunkReview.faster() },
   "hunk-stop": { on: "click", run: () => hunkReview.stop() },
   "hunk-back": { on: "click", run: () => hunkReview.backToCodev() },
+  /* the «Co-Dev run» tab (A3) */
+  "hx-open": { on: "click", run: (e) => { const [p, l] = e.on.split('|'); codevRun.open(p, l ? Number(l) : undefined); } },
+  "hx-rewind": { on: "click", run: (e) => { const [id, c] = e.on.split('|'); void codevRun.rewind(Number(id), c === '1'); } },
+  "hx-perm-save": {
+    on: "click",
+    run: (e) => {
+      const form = e.el.closest('.hx-sec')?.querySelector('.hx-form');
+      const lines = (n: string) => ((form?.querySelector(`[name="${n}"]`) as HTMLTextAreaElement | null)?.value ?? '').split('\n');
+      void codevRun.savePermissions(lines('allow'), lines('deny'));
+    },
+  },
+  "hx-trust": { on: "click", run: (e) => void codevRun.trust(e.on as 'hooks' | 'mcp') },
+  "hx-refresh": { on: "click", run: () => void codevRun.refresh() },
   "hunk-explain": {
     on: "click",
     run: (e) => {
