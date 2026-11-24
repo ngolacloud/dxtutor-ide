@@ -18,9 +18,6 @@ interface SavedConfig {
   ROUTE?: Record<string, string>;
   prov?: Record<string, { on?: boolean; model?: string }>;
 }
-const G = window as unknown as {
-  THEMES: Record<string, unknown>;
-};
 /* os modos e o routing são do features/codev.ts, que avalia depois deste store: pelo registo, no acto (ADR-0004, U7j) */
 const codev = () => services.codev!;
 
@@ -43,7 +40,7 @@ export function loadCfg(): void {
   if (c.MODE && codev().MODES[c.MODE]) agentStore.mode = c.MODE;
   if (c.ACTIVE && PROV[c.ACTIVE]) agentStore.provider = c.ACTIVE;
   if (c.THRESH) agentStore.threshold = c.THRESH;
-  if (c.THEME && G.THEMES[c.THEME]) layoutStore.theme = c.THEME;
+  if (c.THEME && services.theme!.THEMES[c.THEME]) layoutStore.theme = c.THEME;
   Object.keys(codev().ROUTE).forEach((r) => {
     if (c.ROUTE && PROV[c.ROUTE[r]]) codev().ROUTE[r] = c.ROUTE[r];
   });

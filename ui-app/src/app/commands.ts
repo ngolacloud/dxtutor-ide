@@ -21,6 +21,9 @@ import { openStudio } from "../features/studio";
 import { translator } from "./i18n";
 import { COMMANDS_MESSAGES, THEME_LABEL } from "./commands-messages";
 import { agentStore, layoutStore } from "./store";
+import { openTeam } from "../features/team";
+import { nextProblem } from "../features/diagnostics";
+import { THEMES, setTheme } from "../features/theme";
 
 const tcm = translator(COMMANDS_MESSAGES);
 

@@ -54,7 +54,8 @@ function renderAccountPane(): void {
 }
 
 /* ── publicação transitória no window (shim para o residual: RP.account delega aqui) ── */
-window.renderAccountPane = renderAccountPane;
+/* exportado (ADR-0004, U7m): o auto-teste desktop e os testes importam-no */
+export { renderAccountPane };
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.account = renderAccountPane;
 

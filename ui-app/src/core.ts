@@ -44,22 +44,17 @@ declare global {
     writeFile: (p: string, content: string) => void;
     rerender: (kind: string) => void;
     /* superfície que a feature `theme` ainda resolve via window (shim transitório) */
-    THEMES: Record<string, Record<string, string>>;
     save: () => void;
     tabOf: (id: string | null) => { kind?: string } | null;
-    setTheme: (n: string) => void;
     /* feature `notifications`: o residual (app.ts/v6.ts) emite notas e abre o painel por nome livre */
     note: (m: string) => void;
     toggleNotes: () => void;
     /* feature `remote`: o residual delega o render do pane por nome (RP.remote → window.renderRemotePane) */
-    renderRemotePane: () => void;
     /* feature `run`: o residual delega o render do pane por nome (RP.run → window.renderRunPane) */
-    renderRunPane: () => void;
     /* feature `testing` (features/testing/): delegação do pane (RP.test → window.renderTestPane) */
     renderTestPane: () => void;
     /* feature `account`: mapa vivo de provedores + estado por provedor (dono = monólito) + delegação do pane */
     PROV: Record<string, Prov>;
-    renderAccountPane: () => void;
     /* feature `search`: sistema de ficheiros virtual + ícone/refresh (dono = monólito),
        leaves migrados (resolvidos por nome livre: `onclick="replaceAll()"` e o comando
        Todo Tree em v6.ts chamam `doSearch`) + delegação do pane. */
@@ -68,7 +63,6 @@ declare global {
     refresh: (fromEd?: boolean, force?: boolean) => unknown;
     doSearch: () => void;
     replaceAll: () => void;
-    renderSearchPane: () => void;
     /* feature `debug`: os breakpoints (`BPS`, window-backed) e o pane (RP.debug →
        window.renderDebugPane). A sessão simulada (`DBG`) e os lançadores saíram (ADR-0006, R1c2). */
     BPS: Set<string>;
@@ -96,7 +90,6 @@ declare global {
        commits). O motor git (graphLayout/GIT/LANE/BRANCH/authorOf/isFlow/GSEL/rel) é
        lido por nome livre (ambiente, declarado em bridge.ts/pair.ts), como diff.ts lê
        FS; aqui só a delegação do render (VIEW.graph → window.renderGraphView). */
-    renderGraphView: (t: unknown, host: HTMLElement) => void;
     /* feature `termgit` (migrada de app.ts): handler `git` do terminal (XC.git). O motor
        git é lido por nome livre, como graph.ts; `XC.git` (features/terminal.ts) fica SHIM:
        `XC.git=(a,raw)=>window.gitCmd(a,raw)`. */
@@ -110,7 +103,6 @@ declare global {
     has: (p: string, re: RegExp) => boolean;
     diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
     drawProblems: () => void;
-    nextProblem: () => void;
     /* feature `changelog` (harvest da ui-next): vista «O que mudou e porquê» = timeline
        git. A fonte de dados é window-resolved para a bridge poder trocar o simulado
        (GIT.c/COMMITS, dono = scm.ts) pelo real (git_log/git_show) em desktop. O residual
@@ -140,7 +132,6 @@ declare global {
     /* feature `team` (motor do harness de projecto, migrado de v5.ts): `applyTemplate`
        é reatribuído por inteiro por v6.ts (como dxRun/dxStop/setMode em app.ts), por
        isso fica `window.applyTemplate=` directo em vez de `export`/`Object.assign`. */
-    applyTemplate: (id: string) => void;
     /* feature `codereview` (migrada de v6.ts): Explain / Code review / Under the hood.
        `renderCreviewView`/`renderHoodView` são donas destas duas tabs (VIEW.creview/
        VIEW.hood ficam shim em v6.ts). As restantes peças (curFile/explainCmd/reviewCmd/

@@ -168,12 +168,10 @@ declare global {
   // Globais lidos pela feature Learning Track (learn.ts). mdFull/paintEd/miniOff/stPos/
   // user/liveChat/agentPill/focusAgent/RP/LF/PANE vivem em app.ts (@ts-nocheck) e são
   // publicados no window; ONB/LT_HOOD são donos de learn.ts (window-backed → var).
-  const mdFull: (s: string) => string;
   const paintEd: (p: string) => void;
   const stPos: () => void;
   const user: (msg: string) => void;
   const liveChat: (msg: string) => void;
-  const agentPill: () => void;
   const focusAgent: (x?: boolean) => void;
   const RP: Record<string, () => void>;
   var PANE: string;

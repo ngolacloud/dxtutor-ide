@@ -160,7 +160,8 @@ function renderSearchPane(): void {
 /* ── publicação transitória no window (shim para o residual) ──
    RP.search delega em renderSearchPane; o botão «Substituir tudo» (onclick inline)
    e o comando Todo Tree de v6.ts resolvem replaceAll/doSearch por nome livre. */
-window.renderSearchPane = renderSearchPane;
+/* exportado (ADR-0004, U7m): o auto-teste desktop e os testes importam-no */
+export { renderSearchPane };
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.search = renderSearchPane;
 window.doSearch = doSearch;

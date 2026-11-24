@@ -11,9 +11,7 @@ declare global {
   interface Window { claude?: { use: (k: string) => Promise<typeof SAMPLE> }; vsxCmds: () => void }
   const $$: (s: string) => HTMLElement[];
   const HT: Record<string, { n: string }>;
-  const THEMES: Record<string, unknown>;
   var DRIFT: string | null;
-  const applyTemplate: (k: string) => void;
   const assistantCenter: () => void;
   const buildActivity: () => void;
   const dbgStep: () => void;
@@ -35,14 +33,12 @@ declare global {
   const newFolder: () => void;
   const newIssue: () => void;
   const nextLesson: () => [string, string] | null;
-  const nextProblem: () => void;
   const openAnalysis: () => void;
   const openBoard: () => void;
   const openEnvs: () => void;
   const openGraph: (h?: string) => void;
   const openLesson: (lang: string, id: string) => void;
   const openManager: () => void;
-  const openTeam: () => void;
   const pickAgent: () => void;
   const pickBranch: () => void;
   const pickModel: () => void;
@@ -53,7 +49,6 @@ declare global {
   const resetWorkspace: () => void;
   const selText: () => string;
   const setLocale: (l: string) => void;
-  const setTheme: (n: string) => void;
   const sideOpen: () => boolean;
   const startDebug: (id?: string) => void;
   const stepTab: (d: number) => void;

@@ -314,7 +314,7 @@ publish({
 registerActions({
   ...globalCalls("board", ["openBoard", "openGraph"]),
   "board:runSprint": { click: (c) => void callGlobal("runSprint", Number(c.on)) },
-  "board:reviewIssue": { click: (c) => void callGlobal("reviewIssue", c.on) },
+  "board:reviewIssue": { click: (c) => reviewIssue(c.on) },
 });
 
 /* arrastar os cartões entre colunas (ADR-0004, U5d): eram `ondragstart`/`ondragover`/`ondragleave`/`ondrop`

@@ -15,12 +15,14 @@ import type * as Studio from "../features/studio";
 import type * as Shell from "../features/shell";
 import type * as Menus from "../features/menus";
 import type * as Explorer from "../features/explorer";
+import type * as Terminal from "../features/terminal";
+import type * as Theme from "../features/theme";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
   learn: Pick<typeof Learn, "LTS" | "saveLT" | "LT_BADGE" | "course" | "ltUnits" | "ltDone" | "ltSeq" | "ltPts" | "stars" | "ltOnboard" | "ltOpen">;
   /** o harness do projecto (features/team.ts): o Co-Dev (o resíduo e a ponte) e as tarefas lêem-no (U7h) */
-  team: Pick<typeof Team, "HARN" | "MORD" | "RIGHTS" | "RIGHT_RE" | "isHuman" | "harnessCheck" | "harnessCmd" | "agentSys">;
+  team: Pick<typeof Team, "HARN" | "MORD" | "RIGHTS" | "RIGHT_RE" | "isHuman" | "harnessCheck" | "harnessCmd" | "agentSys" | "agentPill" | "openTeam" | "reviewIssue">;
   /** a sentinela e as regras de comandos, o routing e as Definições (features/codev.ts): a ponte do Co-Dev e a conta (U7h) */
   codev: Pick<typeof Codev, "STOP" | "SAFE" | "DANGER" | "provFor" | "who" | "openSettings" | "MODES" | "ROUTE" | "provState">;
   /** as línguas da interface (features/i18n.ts), lidas pela secção Language das Definições (U7h) */
@@ -39,6 +41,10 @@ export interface Services {
   menus: Pick<typeof Menus, "closeMenus">;
   /** a árvore e o Outline (features/explorer.ts): os separadores e o workspace, que avaliam antes (U7l) */
   explorer: Pick<typeof Explorer, "syncTree" | "drawOutline" | "markActive">;
+  /** o comando do terminal com a porta desktop (features/terminal.ts), da ponte do Co-Dev (U7m) */
+  terminal: Pick<typeof Terminal, "termExec">;
+  /** os temas (features/theme.ts), lidos pelo config ao restaurar (U7m) */
+  theme: Pick<typeof Theme, "THEMES">;
 }
 
 export const services: Partial<Services> = {};

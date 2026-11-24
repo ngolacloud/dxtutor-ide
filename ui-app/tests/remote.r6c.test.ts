@@ -60,8 +60,8 @@ afterEach(() => {
 });
 
 describe("Remote Explorer", () => {
-  it("no browser: sem hosts inventados; diz de onde vêm", () => {
-    w.renderRemotePane();
+  it("no browser: sem hosts inventados; diz de onde vêm", async () => {
+    (await import("../src/features/remote")).renderRemotePane();
     expect(pane().textContent).toMatch(/~\/\.ssh\/config in the desktop app/);
     expect(pane().textContent).not.toMatch(/kaeso|ngolacloud|delonix/);
   });
@@ -70,7 +70,7 @@ describe("Remote Explorer", () => {
     const connect = vi.fn(), test = vi.fn(async () => ({ ok: false, message: "Connection refused" }));
     desktopPorts.remote = { config: async () => ({ text: "Host prod\n  HostName 10.0.0.5\n  User deploy\n" }), connect, test, local: () => "me@box" };
     w.ENVS.ssh = ["dev@edge-01"];
-    w.renderRemotePane();
+    (await import("../src/features/remote")).renderRemotePane();
     await vi.waitFor(() => expect(pane().textContent).toMatch(/deploy@10\.0\.0\.5/));
     expect(pane().textContent).toMatch(/me@box/);
     expect(pane().textContent).toMatch(/dev@edge-01.*added in Infra/);
@@ -85,7 +85,7 @@ describe("Remote Explorer", () => {
   it("sem ~/.ssh/config, diz que não há hosts; um erro de leitura diz-se", async () => {
     desktopPorts.remote = { config: async () => ({ text: null, error: "Permission denied" }), connect: vi.fn(), test: vi.fn(), local: () => "me@box" };
     w.ENVS.ssh = [];
-    w.renderRemotePane();
+    (await import("../src/features/remote")).renderRemotePane();
     await vi.waitFor(() => expect(pane().textContent).toMatch(/Permission denied/));
   });
 

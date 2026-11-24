@@ -117,13 +117,11 @@ declare global {
   var dcDetach: () => unknown;
   var drawRemote: () => void;
   var hydrateEnvs: () => void;
-  var termExec: (v: string) => unknown;
   var JSZip: unknown;
   // Donas de features/checkpoint.ts, lidas por nome livre pelo selftest (passo `checkpoint`).
   var checkpoint: (label: string) => number;
   var gfAsk: (host: HTMLElement, M: { files: Set<string> }) => Promise<void>;
   // Dona de features/graph.ts, lida pelo selftest (passo `graph`).
-  var renderGraphView: (tab: unknown, host: HTMLElement) => void;
   // Dona de features/termgit.ts, lida pelo selftest (passo `termgit`).
   var gitCmd: (a: string[], raw: string) => { ok: boolean } | undefined;
   // Donas de features/codereview.ts, lidas pelo selftest (passo `codereview`).

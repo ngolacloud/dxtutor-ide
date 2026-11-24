@@ -20,6 +20,7 @@ import { agentStore } from "../app/store";
 import { MODES, CKPT } from "./codev";
 import { ownedValue } from "../app/store/owned";
 import { TREE } from "../boot";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(TERMINAL_MESSAGES);
 const txe = translator(EMULATED_TERMINAL_MESSAGES);
@@ -35,7 +36,9 @@ window.promptHTML = function(){const d=desktopPorts.terminal;return d?d.promptHT
 function newInput(nofocus?:boolean){const t=$('#term'),old=$('#inputwrap');if(old)old.remove();const w=document.createElement('div');w.id='inputwrap';w.className='line inputline';w.innerHTML=promptHTML()+'<input id="cmd" autocomplete="off" spellcheck="false"/>';if(!t)return;t.appendChild(w);const c=$('#cmd');if(c){c.onkeydown=onKey;if(!nofocus)c.focus({preventScroll:true});}scrollTerm();}
 function termRefreshPrompt(){const c=$('#cmd') as HTMLInputElement|null,v=c?c.value:'';newInput(true);const n=$('#cmd') as HTMLInputElement|null;if(n)n.value=v;}
 function termExecBase(v: string): unknown {echoCmd(v);const[cmd,...a]=v.trim().split(/\s+/);let r=null;if((XC as any)[cmd])r=(XC as any)[cmd](a,v);else echo('<span class="er">'+txe('notFound',{cmd:esc(cmd)})+'</span> <span class="dim">'+txe('notFoundNote')+'</span>');newInput(true);return r;}
-window.termExec = function(v){const d=desktopPorts.terminal;return d?d.termExec(v,termExecBase):termExecBase(v);};
+/* o comando com a porta desktop (U4h3): exportado e registado — só a ponte do Co-Dev (avalia antes) o usa (ADR-0004, U7m) */
+export const termExec = function(v: string): unknown {const d=desktopPorts.terminal;return d?d.termExec(v,termExecBase):termExecBase(v);};
+services.terminal = { termExec };
 const XC={
   help(){echo(`<span class="ac">${txt("files")}</span>  <span class="ok">ls</span> <span class="ok">cd</span> <span class="ok">pwd</span> <span class="ok">cat</span> <span class="ok">tree</span>\n<span class="ac">git</span>        <span class="ok">git</span> status | add . | commit -m "msg" | log | branch | checkout &lt;ramo&gt; | diff\n<span class="ac">co-dev</span>     <span class="ok">dx</span> status | modo manual|assist|auto\n<span class="ac">outros</span>     <span class="ok">echo</span> <span class="ok">whoami</span> <span class="ok">date</span> <span class="ok">history</span> <span class="ok">clear</span>`);},
   cat(a:string[]){if(!a[0]){echo('<span class="er">'+txe('catMissing')+'</span>');return;}const rel=cwd.get().slice(4).concat(a[0].split('/')).join('/');const p=FS[rel]?rel:Object.keys(FS).find(k=>k.endsWith('/'+a[0].split('/').pop()));if(!p){echo('<span class="er">'+txe('catNotFound',{file:esc(a[0])})+'</span>');return;}echo(FS[p].content.split('\n').map(l=>hlLine(l,extOf(p))).join('\n'));},
@@ -69,7 +72,6 @@ interface TerminalGlobals {
   run: (raw: string) => void;
   promptHTML: () => string;
   setPanelTab: (pt: string, nofocus?: boolean) => void;
-  termExec: (v: string) => unknown;
 }
 const TG = window as unknown as TerminalGlobals;
 
@@ -278,6 +280,6 @@ const runPublished = (raw?: string): unknown => { const d = desktopPorts.termina
 
 /** Corre um comando no terminal (mostra-o): era o `runTask` do app.ts (ADR-0004, U4j3). Chama o
  *  `termExec` PUBLICADO, que consulta a porta desktop (tarefa num PTY na app). */
-function runTask(c: string): unknown { TG.setPanelTab('terminal'); return TG.termExec(c); }
+function runTask(c: string): unknown { TG.setPanelTab('terminal'); return termExec(c); }
 
 Object.assign(window, { termClear, echo, complete, echoCmd, run: runPublished, runTask });

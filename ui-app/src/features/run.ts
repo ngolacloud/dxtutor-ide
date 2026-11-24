@@ -90,7 +90,8 @@ document.addEventListener("click", (e) => {
 });
 
 /* ── publicação transitória no window (shim para o residual: RP.run delega aqui) ── */
-window.renderRunPane = renderRunPane;
+/* exportado (ADR-0004, U7m): o auto-teste desktop e os testes importam-no */
+export { renderRunPane };
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.run = renderRunPane;
 

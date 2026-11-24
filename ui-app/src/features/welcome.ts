@@ -15,6 +15,7 @@ import { WELCOME_MESSAGES } from "./welcome.messages";
 import { ltResume } from "./learn";
 import { openStudio } from "./studio";
 import { openSettings } from "./codev";
+import { openTeam } from "./team";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(WELCOME_MESSAGES);
 
@@ -31,7 +32,8 @@ export interface WelcomeDesktop { welcome(t: unknown, host: HTMLElement, virtual
 VIEW.welcome=(t,host)=>{const d=desktopPorts.welcome;if(d)d.welcome(t,host,welcomeBase);else welcomeBase(t,host);};
 /* os botões da página chamam a função publicada, no acto (eram `onclick="f(…)"` em string — ADR-0004, U5a) */
 registerActions({
-  ...globalCalls("welcome", ["openTeam", "openBoard", "dxRun", "dxDeploy", "openManager"]),
+  ...globalCalls("welcome", ["openBoard", "dxRun", "dxDeploy", "openManager"]),
+  "welcome:openTeam": { click: () => openTeam() },
   "welcome:openStudio": { click: () => openStudio() },
   "welcome:openSettings": { click: () => openSettings() },
   "welcome:ltResume": { click: () => ltResume() },

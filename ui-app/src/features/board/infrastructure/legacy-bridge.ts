@@ -29,7 +29,7 @@ import type {
 } from "../domain/types";
 /* U7c do ADR-0004: estes quatro deixaram de ser lidos pelo window — o publicador avalia antes desta ponte, ninguém os decora */
 import { validateDesign as validateDesignImpl, CLOUD, saveSD as saveSDImpl, appDir as appDirImpl, openStudio as openStudioImpl } from "../../studio";
-import { codeGuard as codeGuardImpl, HARN } from "../../team";
+import { codeGuard as codeGuardImpl, HARN, agentPill as agentPillImpl, reviewIssue as reviewIssueImpl } from "../../team";
 import { STOP, tl as tlImpl, beat as beatImpl, runLabel as runLabelImpl, runState as runStateImpl, scrollMsgs as scrollMsgsImpl } from "../../codev";
 import { usd as usdImpl } from "../../tasks";
 import { TASKP } from "../../router/domain/model-routing";
@@ -122,7 +122,7 @@ export const note = (m: string): void => G.note(m);
 export const runLabel = (): void => runLabelImpl();
 export const runState = (on: boolean, label?: string): void => runStateImpl(on, label);
 export const focusAgent = (nofocus?: boolean): void => G.focusAgent(nofocus);
-export const agentPill = (): void => G.agentPill();
+export const agentPill = (): void => agentPillImpl();
 export const handlePrompt = (q: string): void => G.handlePrompt(q);
 export const scrollMsgs = (): void => scrollMsgsImpl();
 
@@ -175,7 +175,7 @@ export interface DlgOpts {
   validate?: (v: string) => string; onOk?: (v: string) => void;
 }
 export const harness = (): Harness => HARN as Harness;
-export const reviewIssue = (id: string): void => G.reviewIssue(id);
+export const reviewIssue = (id: string): void => reviewIssueImpl(id);
 export const codeGuard = (what: string): boolean => codeGuardImpl(what);
 export const openIssue = (id: string): void => G.openIssue(id);
 export const studioNodes = (): StudioNode[] => G.SD.nodes;

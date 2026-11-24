@@ -85,7 +85,8 @@ export function openSsh(host: string): boolean {
 }
 
 /* ── publicação transitória no window (o selftest e o i18n chamam por global) ── */
-window.renderRemotePane = renderRemotePane;
+/* exportado (ADR-0004, U7m): o auto-teste desktop e os testes importam-no */
+export { renderRemotePane };
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.remote = renderRemotePane;
 

@@ -12,7 +12,7 @@
    além de LS, já publicado pelo boot). ONB/LT_HOOD window-puros (reatribuídos/escritos por
    onclicks inline); LTS é const mutado em sítio; LT_SUB é local (só a feature o escreve). */
 
-import { $, esc, svg } from "../core";
+import { $, esc, svg, mdFull } from "../core";
 import { VIEW } from "../app/store/registry";
 import rustCourse from "../content/courses/rust.json";
 import goCourse from "../content/courses/go.json";
@@ -28,6 +28,7 @@ import { translator } from "../app/i18n";
 import { LEARN_MESSAGES } from "./learn/ui/messages";
 import { services } from "../app/services";
 import { agentStore } from "../app/store";
+import { agentPill } from "./team";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(LEARN_MESSAGES);
 

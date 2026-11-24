@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7l)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7m)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1169,3 +1169,15 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   que avalia antes, lê-o pelo registo), e `syncTree` (a versão com a porta desktop), `drawOutline`, `markActive`
   (exportados pelo `features/explorer.ts`; os separadores e o workspace, que avaliam antes, usam o registo
   `services.explorer`; o arranque importa). Ordem de avaliação igual. Globais publicadas 192 → 182.
+- **U7m (2026-11-24) — a cauda: equipa, terminal, diagnósticos, editor, tema e os panes.** Saem quinze:
+  `applyTemplate`, `openTeam`, `agentPill`, `reviewIssue` (o `features/team.ts` exporta-os e regista os três últimos
+  em `services.team` para a ponte do Co-Dev e as tarefas, que avaliam antes; as acções da equipa, do quadro e das
+  boas-vindas chamam-nos directamente); `termExec` (a versão com a porta desktop, exportada e registada em
+  `services.terminal` para a ponte do Co-Dev); `nextProblem`; `stLang` (exporta-se a versão com o blame, a que estava
+  publicada); `THEMES`/`setTheme` (o config, que avalia antes, lê os temas por `services.theme`); `mdFull`; e os
+  panes/vistas `renderRemotePane`, `renderRunPane`, `renderSearchPane`, `renderAccountPane`, `renderGraphView` (o
+  auto-teste desktop e os testes importam-nos). Ficam: os nomes dos botões do chrome; o `promptHTML` (o PairCode
+  decora-o no window); o `openIssue` (o golden do quadro troca-o); o `drawProblems` (a ponte do painel publica a versão
+  real); o `gotoLine` (o teste de cablagem troca-o); o `openLesson`/`nextLesson` (stub de argumentos); o
+  `checkpoint`/`clLog`/`clShow`/`gitCmd`/`has`/`log`/`save`/`use`/`connected` (testes de outras sessões lêem-nos); o
+  `LIVE_OK` (dois escritores). Ordem de avaliação igual. Globais publicadas 182 → 167.

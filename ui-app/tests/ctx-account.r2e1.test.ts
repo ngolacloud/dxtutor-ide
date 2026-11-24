@@ -48,23 +48,23 @@ describe("ctx: o uso real da conversa", () => {
 describe("Conta: a identidade real", () => {
   const pane = (): HTMLElement => document.getElementById("pane-account")!;
 
-  it("no browser diz que não há sessão local (sem «walter · Team SYS»)", () => {
-    w.renderAccountPane();
+  it("no browser diz que não há sessão local (sem «walter · Team SYS»)", async () => {
+    (await import("../src/features/account")).renderAccountPane();
     expect(pane().textContent).toMatch(/No local session/);
     expect(pane().textContent).not.toMatch(/walter|Team SYS/);
   });
 
-  it("no desktop mostra o utilizador, a máquina e a identidade git", () => {
+  it("no desktop mostra o utilizador, a máquina e a identidade git", async () => {
     w.DXR = { user: "ana", host: "portatil", gitName: "Ana Silva", gitEmail: "ana@example.com" };
-    w.renderAccountPane();
+    (await import("../src/features/account")).renderAccountPane();
     expect(pane().textContent).toMatch(/ana/);
     expect(pane().textContent).toMatch(/portatil/);
     expect(pane().textContent).toMatch(/Ana Silva <ana@example\.com>/);
   });
 
-  it("sem user.name no git, di-lo", () => {
+  it("sem user.name no git, di-lo", async () => {
     w.DXR = { user: "ana", host: "portatil" };
-    w.renderAccountPane();
+    (await import("../src/features/account")).renderAccountPane();
     expect(pane().textContent).toMatch(/sem user\.name configurado/);
   });
 });

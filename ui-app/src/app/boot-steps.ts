@@ -14,7 +14,7 @@ import { buildDocker, ACTS, OVERFLOW } from "../boot";
 import type { AppCmd, AppMenu } from "./ide-globals";
 import { translator } from "./i18n";
 import { BOOT_MESSAGES } from "./boot-steps.messages";
-import { loadTeam, HT, HARN, MORD } from "../features/team";
+import { loadTeam, HT, HARN, MORD, applyTemplate, openTeam, agentPill } from "../features/team";
 import { ltResume, ltOnboard } from "../features/learn";
 import { loadSD, openStudio } from "../features/studio";
 import { closePal, palDraw, palRun, PITEMS } from "../features/palette";
@@ -24,6 +24,7 @@ import { buildActivity } from "../features/shell";
 import { openSettings, runLabel } from "../features/codev";
 import { agentStore, layoutStore, editorStore } from "./store";
 import { syncTree } from "../features/explorer";
+import { setTheme } from "../features/theme";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 

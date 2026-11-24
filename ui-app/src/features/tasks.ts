@@ -144,6 +144,6 @@ registerActions({
   "tasks:takeIt": { click: (c) => { issue(c.on).owner = "you"; callGlobal("show", TW.cur); if (TW.PANE === "tasks") TW.RP.tasks(); } },
   "tasks:delegate": { click: (c) => void callGlobal("delegate", c.on) },
   "tasks:toTest": { click: (c) => void callGlobal("dropIssue", c.on, "test") },
-  "tasks:reviewIssue": { click: (c) => void callGlobal("reviewIssue", c.on) },
+  "tasks:reviewIssue": { click: (c) => services.team!.reviewIssue(c.on) },
   "tasks:rejectIssue": { click: (c) => void callGlobal("rejectIssue", c.on) },
 });

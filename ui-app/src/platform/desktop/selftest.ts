@@ -20,6 +20,11 @@ import { saveTeam } from "../../features/team";
 import { restoreCkpt } from "../../features/checkpoint";
 import { STOP, provState } from "../../features/codev";
 import { agentStore } from "../../app/store";
+import { renderRemotePane } from "../../features/remote";
+import { renderRunPane } from "../../features/run";
+import { renderSearchPane } from "../../features/search";
+import { renderAccountPane } from "../../features/account";
+import { renderGraphView } from "../../features/graph";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -414,7 +419,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // notes/selftest.txt do `autosave` ficou em main; o gitflow deixa o repo em develop).
     await step("search", async () => {
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
-      window.renderSearchPane();
+      renderSearchPane();
       const q = document.getElementById("s-q") as HTMLInputElement | null, res = () => document.getElementById("s-res");
       if (q) { q.value = "ASSERTEQUAL(1 + 1, 3)"; q.dispatchEvent(new Event("input")); } // sem distinguir maiúsculas
       const found = await wait(() => !!res()?.querySelector('[data-p$="test_dx_selftest.py"][data-l="9"]'), 10000);
@@ -436,7 +441,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       writeFile(ROOT + "package.json", JSON.stringify({ name: "selftest", scripts: { hello: "echo hello-from-run" } }, null, 2) + "\n");
       flushSave(); await idle();
       PANE = "run";
-      window.renderRunPane();
+      renderRunPane();
       const el = () => document.getElementById("pane-run");
       const listed = await wait(() => !!el()?.querySelector('[data-run-cmd="npm run hello"]'), 10000);
       return { listed, kinds: [...(el()?.querySelectorAll(".scm-grp .cnt") || [])].map(e => e.textContent) };
@@ -444,7 +449,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // conta (ADR-0006, R2e1): o pane Conta mostra o utilizador e a máquina reais (whoami/
     // hostname) e a identidade git, em vez de uma identidade fixa.
     await step("account", () => {
-      window.renderAccountPane();
+      renderAccountPane();
       const t = document.getElementById("pane-account")?.textContent || "";
       return { user: R.user, host: R.host, git: R.gitName || null, shown: !!R.user && t.includes(R.user), noFake: !/walter|Team SYS/.test(t) || R.user === "walter" };
     });
@@ -722,7 +727,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       if (!had) { await sh("mkdir", ["-p", home + "/.ssh"]); await sh("sh", ["-c", 'cat > "$1"', "sh", cfg], { stdin: "Host dx-selftest\n  HostName 127.0.0.1\n  Port 9\n  User nobody\n" }); }
       const side = document.querySelector(".side");
       if (side && !document.getElementById("pane-remote")) side.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-remote"></div>');
-      window.renderRemotePane();
+      renderRemotePane();
       const el = () => document.getElementById("pane-remote")?.textContent || "";
       const status = () => { const b = document.querySelector('#pane-remote [data-remote="test"][data-host="dx-selftest"]'); return b?.closest(".scm-row")?.querySelector(".pth")?.textContent || ""; };
       const listed = await wait(() => had ? !/A ler o/.test(el()) : /nobody@127\.0\.0\.1:9/.test(status()), 10000);
