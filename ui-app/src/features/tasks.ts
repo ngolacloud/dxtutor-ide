@@ -57,8 +57,12 @@ function advice(it: any): [string, string] {
   const AGENTS = window.AGENTS;
   if (isHuman("code")) return ["you", "In this project code stays with you."];
   if (it.agent === "arq" || /ADR/.test(it.title)) return ["you", "Architecture is your call: let the Architect draft, you decide."];
-  const a = costAvg(it.agent), tok = a ? a.tok * it.pts : 1200 * it.pts, u = a ? a.usd * it.pts : usd(1200 * it.pts, "claude"), h = it.pts * MIN_PER_PT;
-  if (a && a.att >= 1) return ["mix", `Delegate, but expect a correction: ${AGENTS[it.agent].n} needed ${a.att.toFixed(1)} retries on average. ≈${nfmt(tok)} tokens · ~$${u.toFixed(2)} vs ~${h} min of yours.`];
+  const a = costAvg(it.agent), h = it.pts * MIN_PER_PT;
+  /* sem corridas medidas deste assistente, não se inventa um custo (era «1200 tokens por ponto»
+     ao preço do Claude — ADR-0006, R3c): a primeira delegação mede-o */
+  if (!a) return ["agent", `Delegate: no measured cost for ${AGENTS[it.agent].n} in this project yet — the first run measures it. ~${h} min of yours otherwise. Your review stays.`];
+  const tok = a.tok * it.pts, u = a.usd * it.pts;
+  if (a.att >= 1) return ["mix", `Delegate, but expect a correction: ${AGENTS[it.agent].n} needed ${a.att.toFixed(1)} retries on average. ≈${nfmt(tok)} tokens · ~$${u.toFixed(2)} vs ~${h} min of yours.`];
   return ["agent", `Delegate: ≈${nfmt(tok)} tokens · ~$${u.toFixed(2)} vs ~${h} min of yours. Your review stays.`];
 }
 
@@ -83,7 +87,7 @@ function renderTasksPane(): void {
     pts = xs.reduce((a: number, i: any) => a + i.pts, 0), dn = xs.filter((i: any) => i.stage === "done").reduce((a: number, i: any) => a + i.pts, 0), tok = xs.reduce((a: number, i: any) => a + (i.cost ? i.cost.tok : 0), 0), u = xs.reduce((a: number, i: any) => a + (i.cost ? i.cost.usd : 0), 0), wait = xs.filter((i: any) => i.stage === "func");
   if (!el) return;
   el.innerHTML = hd("Tasks", `<button title="New issue" data-action="tasks:newIssue">${svg("plus")}</button><button title="Open the board" data-action="tasks:openBoard">${svg("split")}</button>`) + `<div class="sections">
-   <div class="tk-f"><div class="seg" style="grid-template-columns:repeat(3,1fr)">${[[-1, "All"], [0, "Sprint 1"], [1, "Sprint 2"]].map(([s, l]) => `<button class="${TK.sprint === s ? "on" : ""}" data-action="tasks:sprint" data-on="${s}">${l}</button>`).join("")}</div>
+   <div class="tk-f"><div class="seg" style="grid-template-columns:repeat(auto-fit,minmax(64px,1fr))">${([[-1, "All"]] as Array<[number, string]>).concat([...new Set<number>(BL.issues.map((i: any) => i.sprint))].sort((x, y) => x - y).map((n): [number, string] => [n, "Sprint " + (n + 1)])).map(([s, l]) => `<button class="${TK.sprint === s ? "on" : ""}" data-action="tasks:sprint" data-on="${s}">${l}</button>`).join("")}</div>
    <select class="inp" style="margin:6px 0 0;width:100%" data-action="tasks:who"><option value="all">Everyone</option><option value="you"${TK.who === "you" ? " selected" : ""}>Assigned to you</option>${Object.entries(AGENTS).filter(([k]) => k !== "lead" && k !== "tutor").map(([k, a]: [string, any]) => `<option value="${k}"${TK.who === k ? " selected" : ""}>${a.n}</option>`).join("")}</select></div>
    ${BL.issues.length ? `<div class="tk-sum"><div><b>${dn}</b>/${pts} pts<span class="lp-bar"><i style="width:${pts ? dn / pts * 100 : 0}%"></i></span></div><div class="tk-k"><span>${nfmt(tok)} tokens</span><span>~$${u.toFixed(2)}</span><span>${xs.filter((i: any) => i.attempts).length} corrected</span></div></div>` : ""}
    ${wait.length ? `<div class="tk-wait" data-action="tasks:openIssue" data-on="${esc(wait[0].id)}">${svg("bulb")}<span><b>${wait.length}</b> waiting for your validation</span></div>` : ""}

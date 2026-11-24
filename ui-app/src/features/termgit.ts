@@ -15,8 +15,15 @@
    dono de lá (`esc`). */
 
 import { esc } from "../core";
+/* Há um repositório git aberto? O acessor do scm (no desktop, DXR.git; no browser nunca —
+   ADR-0006, R1d), importado em vez de publicado no window. */
+import { repo as repoOpen } from "./scm/infrastructure/legacy-bridge";
 
 function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
+  if (!repoOpen()) {
+    echo('<span class="er">fatal: not a git repository</span>\n<span class="dim">o terminal emulado só conhece o git de uma pasta aberta na app desktop</span>');
+    return { ok: false };
+  }
   const s = a[0],
     ch = changes();
   if (s === "status") {
@@ -110,8 +117,8 @@ function gitCmd(a: string[], raw: string): { ok: boolean } | undefined {
     return;
   }
   if (s === "push") {
-    echo(`<span class="ok">push simulado ✓</span> <span class="dim">origin/${esc(BRANCH)} (o protótipo não tem remoto)</span>`);
-    return { ok: true };
+    echo('<span class="dim">o terminal emulado não fala com remotos — faz o push no terminal real da app desktop</span>');
+    return { ok: false };
   }
   echo('<span class="dim">git: status | add . | commit -m | log | branch | checkout [-b] | merge | flow | diff | push</span>');
 }

@@ -110,7 +110,14 @@ async function streamChat(k: string, msgs: { role: string; content: string }[], 
   function onAbort(): void { void providers.cancel(id); cleanup(); settleErr(STOP); }
   const mine = (e: { payload: unknown }): Record<string, unknown> | null => { const p = e.payload as { requestId?: string } | null; return p && p.requestId === id ? (p as Record<string, unknown>) : null; };
   offs.push((await T.event.listen("llm://token", e => { const p = mine(e); if (!p) return; text += String(p.delta ?? ""); if (o.onText) o.onText({ text }); })) as () => void);
-  offs.push((await T.event.listen("llm://done", e => { const p = mine(e); if (!p) return; cleanup(); settleOk({ text, provider: k, inputTokens: 0, outputTokens: Math.round(text.length / 4) }); })) as () => void);
+  /* o uso que o provider reportou (ADR-0006, R2e1 — antes 0 de entrada e texto/4 de saída,
+     inventados); anuncia-o para o `ctx` da barra de estado (features/codev.ts) */
+  offs.push((await T.event.listen("llm://done", e => {
+    const p = mine(e); if (!p) return; cleanup();
+    const inputTokens = Number(p.inputTokens) || 0, outputTokens = Number(p.outputTokens) || 0;
+    document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider: k, input: inputTokens, output: outputTokens } }));
+    settleOk({ text, provider: k, inputTokens, outputTokens });
+  })) as () => void);
   offs.push((await T.event.listen("llm://error", e => { const p = mine(e); if (!p) return; cleanup(); settleErr(new Error(String(p.error ?? "erro do modelo"))); })) as () => void);
   if (o.signal) { if (o.signal.aborted) { onAbort(); return done; } o.signal.addEventListener("abort", onAbort); }
   const mode = R.root ? "project" : "study";

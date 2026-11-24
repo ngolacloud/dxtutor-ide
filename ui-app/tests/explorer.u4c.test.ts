@@ -34,3 +34,30 @@ it("sel deixa uma só linha seleccionada", () => {
   expect(document.querySelectorAll(".row.sel").length).toBe(1);
   expect(document.getElementById("r1")!.classList.contains("sel")).toBe(true);
 });
+
+it("sem pasta aberta: a árvore fica vazia e o explorador mostra o estado vazio (sem pastas inventadas)", () => {
+  w.resetWorkspace();
+  w.syncTree();
+  expect(w.TREE.projects.children).toEqual({});
+  w.buildExplorer();
+  const tree = document.querySelector("#exp-sections .tree")!;
+  expect(tree.textContent).toContain("Nenhuma pasta aberta.");
+  expect(tree.querySelector(".row")).toBeNull();
+  expect(tree.querySelector("button")).toBeNull(); // no browser não há DXR: sem «Abrir pasta…»
+});
+
+it("sem pasta aberta no desktop: «Abrir pasta…» chama o DXR.open", () => {
+  let opened = 0;
+  w.DXR = { open: () => opened++ };
+  try {
+    w.resetWorkspace();
+    w.syncTree();
+    w.buildExplorer();
+    const btn = document.querySelector("#exp-sections .tree button") as HTMLButtonElement;
+    expect(btn.textContent).toBe("Abrir pasta…");
+    btn.click();
+    expect(opened).toBe(1);
+  } finally {
+    delete w.DXR;
+  }
+});

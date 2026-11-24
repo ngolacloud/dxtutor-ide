@@ -1,0 +1,5 @@
+/* estilos da feature notifications — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  #notes{position:fixed;right:8px;bottom:30px;width:330px;max-height:320px;overflow:auto;background:var(--bg-menu);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--sh-pop);z-index:300;display:none;padding:6px}
+  #notes.show{display:block}
+  .nt{padding:7px 9px;border-radius:6px;font-size:12px;line-height:1.5;display:flex;gap:8px}
+  .nt .tm{color:var(--fg-muted);font-family:var(--font-mono);font-size:10.5px;flex:none}

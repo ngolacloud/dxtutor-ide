@@ -1,0 +1,4 @@
+/* estilos da feature team — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  .hx{border:1px solid var(--border);border-radius:10px;background:var(--bg-elevated);flex-wrap:wrap}
+  .hx-meta{display:flex;gap:14px;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted)}.hx-meta b{color:var(--accent-hover)}
+  .hx-bar{flex:1;height:6px;border-radius:3px;background:var(--accent-soft);overflow:hidden;min-width:60px}.hx-bar i{display:block;height:100%;background:var(--green)}

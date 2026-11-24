@@ -96,6 +96,7 @@ fn the_legacy_board_becomes_issues() {
                 prompt: "".into(),
                 note: "".into(),
                 branch: None,
+                meta: None,
             }],
         };
         old.save_board(ROOT, &b, T0).unwrap();

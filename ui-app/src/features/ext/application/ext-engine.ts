@@ -1,6 +1,6 @@
 /* ═══════════ feature `ext` (Open VSX) — casos de uso do motor (ADR-0002, Fase 3) ═══════════
    O motor de extensões extraído do resíduo `features/ext.ts`: instalar, alternar,
-   remover, registar comandos na paleta, carregar VSIX e formatar (Prettier). Importa
+   remover, registar comandos na paleta, carregar VSIX e formatar o documento. Importa
    SÓ `domain/` (as formas) e `ports.ts` (as capacidades do mundo). Sem DOM, sem
    `window`, sem Tauri — tudo o que precisa chega por `deps` (verificado por A7/A8).
 
@@ -23,18 +23,18 @@ export interface ExtEngine {
   extOn(id: string): number | boolean | undefined;
   extCmds(): void;
   saveExt(): void;
-  extInstall(id: string): void;
+  extInstall(id: string): Promise<void>;
   extRemove(id: string): void;
   extToggle(id: string): void;
-  loadVsix(file: File): Promise<void>;
+  loadVsix(file: Blob | Uint8Array): Promise<void>;
   formatDoc(): void;
 }
 
 export function makeExtEngine(deps: ExtDeps): ExtEngine {
-  const { catalogue, state, storage, palette, editor, tabs, vsix, notifier, rerender, contrib } = deps;
+  const { catalogue, remote, state, storage, palette, editor, tabs, vsix, notifier, rerender, contrib } = deps;
 
-  /** Catálogo + VSIX instalados — a base de «todas as extensões». */
-  const extAll = (): ExtItem[] => catalogue.concat(state.read().vsix);
+  /** Os VSIX instalados + o que se conhece do Open VSX (pesquisa e recomendações), sem repetir ids. */
+  const extAll = (): ExtItem[] => { const v = state.read().vsix; return v.concat(catalogue().filter((x) => !v.some((y) => y.id === x.id))); };
 
   /** Uma extensão está instalada E ligada? (truthy/falsy, como o original.) */
   const extOn = (id: string): number | boolean | undefined => {
@@ -44,8 +44,7 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
 
   /** Re-regista na paleta (`CMD`) os comandos das extensões activas (tag `'ext'`):
    *  limpa os antigos e empurra os das instaladas. Comandos sem acção própria
-   *  caem para um placeholder (VSIX = toast de «corre no desktop»; Prettier =
-   *  `formatDoc`; resto = no-op), fiel ao motor anterior. */
+   *  dizem que precisam de um extension host (o JavaScript das extensões não corre). */
   function extCmds(): void {
     const CMD = palette.entries();
     for (let i = CMD.length - 1; i >= 0; i--) if (CMD[i][3] === "ext") CMD.splice(i, 1);
@@ -56,12 +55,7 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
           CMD.push([
             c[0],
             c[1],
-            c[2] ||
-              (x.vsix
-                ? () => notifier.toast(`${c[0]} runs in the desktop app's extension host`)
-                : x.eff === "prettier"
-                  ? formatDoc
-                  : () => {}),
+            c[2] || (() => notifier.toast(`${c[0]} needs a VS Code extension host, which dxtutor does not have`)),
             "ext",
           ]),
         ),
@@ -85,17 +79,18 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
     extCmds();
   };
 
-  function extInstall(id: string): void {
-    state.read().inst[id] = { on: 1 };
-    saveExt();
-    notifier.toast("Installed " + (extAll().find(x => x.id === id) || { n: id }).n);
-    rerender();
+  /** Instala `id` do Open VSX: descarrega o VSIX real e instala-o como um VSIX do disco
+   *  (ADR-0006, R6b — antes só marcava a extensão como instalada). */
+  async function extInstall(id: string): Promise<void> {
+    const r = remote();
+    if (!r) { notifier.toast("Installing from Open VSX needs the desktop app — or install a .vsix file with +"); return; }
+    notifier.toast(`Downloading ${id} from Open VSX…`);
+    try { await loadVsix(await r.fetch(id)); } catch (e) { notifier.toast(`Open VSX: ${(e as Error).message || e}`); }
   }
 
   function extRemove(id: string): void {
     const s = state.read();
     const x = extAll().find(e => e.id === id);
-    if (x && x.bundled) return;
     delete s.inst[id];
     if (x && x.vsix) {
       s.vsix = s.vsix.filter(v => v.id !== id);
@@ -107,6 +102,7 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
 
   function extToggle(id: string): void {
     const inst = state.read().inst;
+    if (!inst[id]) return;
     inst[id].on = !inst[id].on;
     saveExt();
     rerender();
@@ -114,7 +110,7 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
 
   /** Carrega um VSIX: unzip → lê `extension/package.json` → monta o `ExtItem`,
    *  instala-o, persiste, re-renderiza e abre o separador de detalhe. */
-  async function loadVsix(file: File): Promise<void> {
+  async function loadVsix(file: Blob | Uint8Array): Promise<void> {
     try {
       const Z = await vsix.load();
       const zip = await Z.loadAsync(file);
@@ -167,8 +163,9 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
     }
   }
 
-  /** Formatador «Prettier» do protótipo: apara espaços finais, normaliza
-   *  indentação (tabs→4 espaços, excepto Go/Makefile) e a última linha. */
+  /** «Format Document» do dxtutor (Shift+Alt+F): apara espaços finais, normaliza a indentação
+   *  (tabs→4 espaços, excepto Go/Makefile) e a última linha. Não é o Prettier — nunca foi; o
+   *  nome deixou de o fingir (ADR-0006, R6b). */
   function formatDoc(): void {
     const t = editor.tabOf(editor.current());
     if (!t || t.kind !== "file" || !t.path) {
@@ -190,7 +187,7 @@ export function makeExtEngine(deps: ExtDeps): ExtEngine {
     }
     f.content = c;
     editor.refresh();
-    notifier.toast("Formatted with Prettier");
+    notifier.toast("Formatted (trailing spaces, indentation, final newline)");
   }
 
   return { extAll, extOn, extCmds, saveExt, extInstall, extRemove, extToggle, loadVsix, formatDoc };

@@ -9,7 +9,7 @@ import { gradeStep, installPlugin, loadCatalog } from "../src/features/learn/app
 import rust from "../src/content/courses/rust.json";
 
 const course = (id: string, summary = "s"): Course => ({ id, title: id, summary, overview: "", units: [], origin: "backend" });
-const kotlinPlugin: PluginRow = { id: "kotlin", name: "Kotlin", version: "1.0.0", source: "github:dxtutor-courses/kotlin", error: null, language: { id: "kotlin", name: "Kotlin", icon: "🟣", extension: "kt", indent: "    " } };
+const kotlinPlugin: PluginRow = { id: "kotlin", name: "Kotlin", version: "1.0.0", source: "github:ngolacloud/dxtutor-course-kotlin", error: null, language: { id: "kotlin", name: "Kotlin", icon: "🟣", extension: "kt", indent: "    " } };
 const elixirPlugin: PluginRow = { id: "elixir", name: "Elixir", version: "0.1.0", source: "github:acme/elixir", error: null, language: { id: "elixir", name: "Elixir", icon: "💧", extension: "ex", indent: "  " } };
 
 describe("catálogo", () => {
@@ -110,8 +110,8 @@ describe("casos de uso", () => {
     const gw = fakeGateway();
     await expect(installPlugin(gw, "  ")).rejects.toThrow(/plugin source/);
     await expect(installPlugin(fakeGateway({ available: () => false }), "kotlin")).rejects.toThrow(/desktop/);
-    await installPlugin(gw, "  dxtutor-courses/kotlin@v1 ");
-    expect(gw.installed).toEqual(["dxtutor-courses/kotlin@v1"]);
+    await installPlugin(gw, "  ngolacloud/dxtutor-course-kotlin@v1 ");
+    expect(gw.installed).toEqual(["ngolacloud/dxtutor-course-kotlin@v1"]);
   });
 
   test("loadCatalog: um plugin da linguagem substitui o curso embutido", async () => {

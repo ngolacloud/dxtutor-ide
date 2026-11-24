@@ -40,6 +40,9 @@ describe("cablagem das acções partilhadas (U5b)", () => {
   });
 
   it("tasks: o filtro de sprint escreve TK.sprint (número) e redesenha", () => {
+    /* os botões de sprint vêm do backlog (ADR-0006, R3c): sem issues só há «All» */
+    const agent = Object.keys(w.AGENTS).find((k) => k !== "lead" && k !== "tutor")!;
+    w.BL.issues.push({ id: "DX-1", title: "x", type: "feature", pts: 1, stage: "todo", sprint: 0, agent, attempts: 0, tests: [], res: "", note: "" });
     w.RP.tasks();
     click(document.querySelector('#pane-tasks [data-action="tasks:sprint"][data-on="0"]'));
     expect(w.TK.sprint).toBe(0);
@@ -58,11 +61,11 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     const calls: unknown[][] = [];
     w.openPath = (...a: unknown[]) => calls.push(a);
     w.gotoLine = (...a: unknown[]) => calls.push(["gotoLine", ...a]);
-    document.body.insertAdjacentHTML("beforeend", `<div class="prob" data-action="diagnostics:open" data-on='["dxtutor/src/lib.rs",12]'></div><div data-action="search:hit" data-on='["a/b.rs",3]'></div><div data-action="explorer:gotoLine" data-on="7"></div>`);
+    /* os resultados da pesquisa e o Outline têm listeners próprios desde o ADR-0006 (R2b/R2c, data-p/data-on;
+       provados em search.r2b.test.ts e outline.r2c.test.ts): aqui fica o caminho+linha do Problems */
+    document.body.insertAdjacentHTML("beforeend", `<div class="prob" data-action="diagnostics:open" data-on='["dxtutor/src/lib.rs",12]'></div>`);
     click(document.querySelector('[data-action="diagnostics:open"]'));
-    click(document.querySelector('[data-action="search:hit"]'));
-    click(document.querySelector('[data-action="explorer:gotoLine"]'));
-    expect(calls).toEqual([["dxtutor/src/lib.rs", 12], ["a/b.rs", 3], ["gotoLine", 7]]);
+    expect(calls).toEqual([["dxtutor/src/lib.rs", 12]]);
   });
 
   it("graph: o botão do ficheiro pára a borbulha (não selecciona o commit), como o event.stopPropagation()", () => {
@@ -78,17 +81,8 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     expect(w.GSEL).toBe("abc");
   });
 
-  it("ext (U5c): a linha abre a página da extensão; o botão da linha pára a borbulha (não abre)", () => {
-    const tabs: unknown[] = [], toggled: unknown[] = [];
-    w.openTab = (t: unknown) => tabs.push(t);
-    w.extToggle = (id: unknown) => toggled.push(id);
-    document.body.insertAdjacentHTML("beforeend", `<div class="ex-row" data-action="ext:open" data-on='["pub.x","X ext"]'><button id="xt" data-action="ext:rowToggle" data-on="pub.x">Disable</button></div>`);
-    click(document.getElementById("xt"));
-    expect(toggled).toEqual(["pub.x"]);
-    expect(tabs).toEqual([]);
-    click(document.querySelector(".ex-row"));
-    expect(tabs).toEqual([{ id: "extd:pub.x", title: "X ext", kind: "extd", ext: "pub.x" }]);
-  });
+  /* ext: a lista e o detalhe usam o despachante da própria feature desde o ADR-0006 (R6b: ext-open,
+     ext-install, ext-toggle, builtin-toggle…), cujos cliques o ext.golden.test.ts prova. */
 
   it("learn (U5c): o nível alterna no ONB.levels do window e volta ao passo 2", () => {
     const steps: unknown[] = [];

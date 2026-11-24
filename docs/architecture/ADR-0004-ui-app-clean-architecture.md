@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -926,3 +926,41 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `'unsafe-inline'` no CSP. O auto-teste desktop ganha o passo `csp`: regista as violações do CSP
   durante o auto-teste, procura atributos `on*` no DOM vivo depois de abertas as vistas, e prova que
   o CSP está activo (um handler inline plantado não corre). Fecha a U5.
+- **U6 — plano (2026-11-24, decisões do dono).** Duas metades. **CSS primeiro** (decisão do dono):
+  o `styles.css` parte-se por dono com prova de que a cascata não muda. **Depois i18n por chaves**
+  (§9.2): antes de migrar textos, o harness dos goldens passa a normalizar cada snapshot para inglês
+  com o motor actual (decisão do dono: regenerar TODOS os goldens uma vez, com o diff provado igual à
+  tradução); a partir daí cada texto que passa a `t("chave")` mantém os goldens iguais, e o golden
+  prova que o inglês da chave é o que o motor produzia.
+- **U6a (2026-11-24) — o `styles.css` partido por dono.** O `public/styles.css` (1073 linhas, servido
+  à parte e ligado no index.html) dá 28 ficheiros: os tokens em `app/styles/theme.css`, a base partilhada
+  (reset, controlos, botões, campos, cartões, tabelas, linhas de lista, diálogo) em `app/styles/base.css`,
+  a moldura em `features/shell.css`, e cada feature no seu (`features/<f>/styles.css` quando a feature tem
+  pasta, senão `features/<f>.css`). O `src/app/styles.ts` importa-os por uma ordem fixa — é a ordem da
+  cascata (o Vite junta o CSS pela ordem dos imports) — e é o primeiro import do `main.ts`. Cada regra foi
+  para o dono pelo token do seu selector (ou da secção, quando a lista de selectores mistura donos); as
+  regras de um dono mantêm a ordem relativa. **Prova:** (1) os blocos dos 28 ficheiros são exactamente os
+  do original; (2) análise estática de cada par de regras que trocou de ordem e PODE colidir (mesma
+  especificidade, propriedade em comum ou da mesma família de shorthands, sujeito com um token em comum ou
+  sem classes): 202 candidatos, e num browser só dois casam o mesmo elemento em algum dos 44 estados — o
+  `.sec-hd` (as duas regras põem o mesmo `cursor:pointer`) e o `.cmd-center` com as suas `@media`, um bug
+  real que a análise apanhou e se corrigiu (os blocos `@media`/`@container` passam a ter o dono das regras
+  que contêm, não o da secção); (3) os estilos computados de todos os elementos, e dos `::before`/`::after`,
+  em 46 estados da app (panes, painel, vistas, overlays, menus, uma missão do Co-Dev, o separador «Co-Dev
+  run») — 64 576 amostras —
+  são iguais antes e depois, com ruído zero entre duas corridas da mesma build, e a ferramenta apanha uma
+  mudança de um carácter no CSS (60 212 amostras diferentes). As regras `.lsp-*` que o PR #6 acrescentou
+  ao `styles.css` no `origin/develop` (que o `develop` local ainda não tem) foram trazidas tal e qual para
+  `features/lsp/styles.css`: quando se juntar o `origin/develop`, o `styles.css` dá um conflito
+  modificado/apagado que se resolve mantendo o apagado. O mesmo para os ramos que ainda o editem: as regras novas vão para o
+  ficheiro do dono. **O separador «Co-Dev run» (A3, que entrou no `develop` a meio desta fatia) tem o seu
+  ficheiro, `features/codev/harness.css`, logo a seguir aos tokens e ANTES da base** — foi o diff dos estilos
+  computados que o apanhou (a análise estática só olha para sujeitos com uma classe em comum): o `.hx` do
+  separador também casa o `<div class="rowline hx">` da página Team e, no `styles.css`, perdia o `padding`
+  para o `.rowline`, que vinha depois; com o separador junto do resto do Co-Dev, depois da base, o `.rowline.hx`
+  ganhava 14px 20px 28px em vez de 8px 12px. **Reportado, não corrigido:** o nome `.hx` colide entre o
+  separador «Co-Dev run» e a página Team (`team.ts`), por isso o `.hx` do separador aplica `height:100%`,
+  `overflow:auto` e a fonte à linha «Detected context» da página Team. **Corrigido no merge da A6
+  (2026-11-24):** a raiz do separador passou a `.hx-run` (`harness-view.ts`, `harness.css`, e2e); o `.hx` volta a
+  ser só da página Team, e a linha «Detected context» fica com o `padding` 8px 12px do `.rowline` e sem as regras
+  do separador.

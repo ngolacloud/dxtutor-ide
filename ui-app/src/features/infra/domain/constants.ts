@@ -9,8 +9,10 @@ import type { Envs, EnvX } from "./types";
 /** Runtimes de contentores suportados (rótulos). */
 export const RTN: Record<string, string> = { docker: "Docker", podman: "Podman", delonix: "Delonix" };
 
-/** Contextos de kubeconfig oferecidos no selector. */
-export const KCTX: string[] = ["kind-dxtutor", "minikube", "k3d-local", "docker-desktop"];
+/** Contextos do kubeconfig oferecidos no selector: vêm do `kubectl config get-contexts` real ao
+ *  ligar o cluster (app desktop); antes disso, a lista está vazia (ADR-0006, R5c1 — era uma lista
+ *  inventada de kind/minikube/k3d/docker-desktop). */
+export const KCTX: string[] = [];
 
 /** Rótulos dos três ambientes. */
 export const ENVL: Record<string, string> = { local: "Local", staging: "Staging", production: "Production" };
@@ -40,7 +42,7 @@ export const defaultEnvs = (): Envs => ({
 /** Estado inicial dos environments (antes da hidratação de LS). */
 export const defaultEnvx = (): EnvX => ({
   cur: "local",
-  ctx: { staging: "staging", production: "production" },
+  ctx: { staging: "", production: "" }, /* escolhe-se entre os contextos reais do kubeconfig */
   ns: { staging: "dxtutor-staging", production: "dxtutor" },
   sec: null,
   st: { staging: null, production: null },

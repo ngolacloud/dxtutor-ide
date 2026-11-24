@@ -13,7 +13,8 @@ import { bootApp, golden } from "./harness";
  *  2) caracteriza o MOTOR a extrair para `features/infra/{domain,application}/`:
  *     runtime/K8s (projectContext/devcontainerJson/k8sInfra/appEnv/k8sDocs),
  *     secrets (localSecrets/initSecrets/secretCheck), drift (envDeps/envState/
- *     envHealth/driftReport/DSTY) e observabilidade (seeded/spark/obsInit).
+ *     envHealth/driftReport/DSTY) e observabilidade (spark — as séries e os logs são reais
+ *     desde a R5c2 do ADR-0006: infra.r5c2.test.ts).
  *
  * A partir daqui, diff de golden = regressão (corrige o código, nunca o snapshot
  * — ver skill ui-golden-check). As caracterizações fixam a saída EXACTA para que
@@ -25,7 +26,7 @@ import { bootApp, golden } from "./harness";
  * ambiente, que é o que a app dá em runtime.
  *
  * Determinismo: o relógio é FIXADO (`setSystemTime`) antes de `bootApp` (padrão do
- * scm/debug.golden) — `obsInit`/`promote`/`K8S.at` usam `Date`/`Date.now`; timers
+ * scm/debug.golden) — `promote`/`K8S.at` usam `Date`/`Date.now`; timers
  * falsos neutralizam o polling de arranque. O estado window-backed (ENVS/ENVX/K8S/
  * STACK/DEVC/OBS) é reinicializado pela reavaliação de `infra.ts` em cada `bootApp`
  * (reassigna `window.X`); mesmo assim, cada teste fixa explicitamente o que muta. */
@@ -97,15 +98,17 @@ describe("golden de DOM — pane Infra (renderInfraPane)", () => {
     expect(paneGolden()).toMatchSnapshot("pane-connected-deployed");
   });
 
-  it("staging seleccionado: chips de ambiente + deps promovidos (crash + ok)", () => {
+  /* ADR-0006, R5c1: o estado de staging é a última leitura do cluster (o motivo do crash é o que o
+     kubectl reporta — antes era um erro fabricado a partir dos segredos) */
+  it("staging seleccionado: chips de ambiente + deps lidos do cluster (crash + ok)", () => {
     w.ENVX.cur = "staging";
     w.ENVX.st.staging = {
       ver: "d5f2b66",
       at: Date.parse("2026-01-01T00:00:00Z"),
       ingress: true,
       deps: [
-        { n: "orders-api", rep: 1, ready: 1, status: "ok" },
-        { n: "billing-worker", rep: 1, ready: 0, status: "crash", err: "DATABASE_URL is required" },
+        { n: "orders-api", rep: 1, ready: 1, status: "ok", err: null, restarts: 0 },
+        { n: "billing-worker", rep: 1, ready: 0, status: "crash", err: "CrashLoopBackOff (último fim: Error 1)", restarts: 4 },
       ],
     };
     w.renderInfraPane();
@@ -154,7 +157,8 @@ describe("caracterização do motor — secrets (promoção aprovada por humano)
     expect(w.localSecrets()).toMatchSnapshot("localSecrets");
   });
 
-  it("initSecrets: deriva staging (valores mascarados) e production (vazios)", () => {
+  /* ADR-0006, R5c1: staging já não recebe valores «torcidos» — as chaves do design, por preencher */
+  it("initSecrets: staging e production com as chaves do design por preencher (excepto PORT)", () => {
     infra.initSecrets();
     expect(w.ENVX.sec).toMatchSnapshot("initSecrets-sec");
   });
@@ -195,35 +199,21 @@ describe("caracterização do motor — drift (design vs realidade)", () => {
     expect(infra.driftReport("local")).toMatchSnapshot("drift-replicas");
   });
 
-  it("envDeps: workload em crash quando um segredo aponta para um host inexistente", () => {
+  /* ADR-0006, R5c1: o crash já não se fabrica a partir dos segredos — os workloads de staging são
+     os da última leitura do seu namespace no cluster */
+  it("envDeps(staging): os workloads da última leitura do cluster, sem inventar crashes", () => {
     deployLocal(w.GIT.refs.develop);
-    w.ENVX.cur = "staging";
     infra.initSecrets();
-    // aponta o DATABASE_URL de staging para um host que não é um serviço do design
-    const apiKey = Object.keys(w.ENVX.sec.staging).find((a) => w.ENVX.sec.staging[a].DATABASE_URL);
-    if (apiKey) w.ENVX.sec.staging[apiKey].DATABASE_URL = "postgres://app:app@db.nowhere:5432/app";
-    w.ENVX.st.staging = { ver: w.GIT.refs.develop, at: 0, ingress: true, deps: [] };
-    expect(w.envDeps("staging")).toMatchSnapshot("envDeps-crash");
+    expect(w.envDeps("staging")).toEqual([]); // nunca lido: nada
+    const deps = [{ n: "orders-db", rep: 1, ready: 0, status: "crash", err: "ImagePullBackOff", restarts: 0 }];
+    w.ENVX.st.staging = { ver: w.GIT.refs.develop, at: 0, ingress: true, deps };
+    expect(w.envDeps("staging")).toEqual(deps);
   });
 });
 
-describe("caracterização do motor — observabilidade (determinista por seed)", () => {
-  it("seeded: PRNG determinista (mesma seed → mesma sequência)", () => {
-    const r = w.seeded("orders-api");
-    expect(Array.from({ length: 8 }, () => +r().toFixed(6))).toMatchSnapshot("seeded-seq");
-  });
-
+describe("caracterização do motor — observabilidade (o sparkline; as séries são reais desde a R5c2)", () => {
   it("spark: sparkline SVG a partir de uma série fixa (função pura)", () => {
     expect(w.spark([0, 1, 2, 3, 2, 1, 4, 3], "var(--green)")).toMatchSnapshot("spark");
-  });
-
-  it("obsInit: séries + logs seedados para um workload (local/orders-api)", () => {
-    const o = w.obsInit("local", "orders-api");
-    expect({
-      n: o.n, env: o.env, crash: o.crash, kind: o.kind,
-      cpu: o.cpu.map((x: number) => +x.toFixed(3)),
-      logs: o.logs,
-    }).toMatchSnapshot("obsInit");
   });
 });
 
@@ -236,11 +226,19 @@ describe("dispatch delegado (data-action) — Fase 4", () => {
   const change = (el: Element) => el.dispatchEvent(new window.Event("change", { bubbles: true }));
   const q = (sel: string) => document.querySelector("#pane-infra " + sel)!;
 
-  it("rt-connect: clicar «Connect socket» liga o runtime", () => {
+  /* ADR-0006, R5a: no browser não há runtime a que ligar — o clique diz que precisa da app desktop
+     (era um interruptor «simulated»); uma ligação presa de uma sessão antiga desliga-se */
+  it("rt-connect: no browser não finge a ligação; uma ligação presa desliga-se", () => {
+    const toast = vi.spyOn(w, "toast");
     w.renderInfraPane();
     expect(w.ENVS.rtOn).toBe(false);
     click(q('[data-action="rt-connect"]'));
-    expect(w.ENVS.rtOn).toBe(true);
+    expect(w.ENVS.rtOn).toBe(false);
+    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/precisa da app desktop/));
+    w.ENVS.rtOn = true;
+    w.renderInfraPane();
+    click(q('[data-action="rt-connect"]'));
+    expect(w.ENVS.rtOn).toBe(false);
   });
 
   it("rt-set: clicar «Podman» troca o runtime e desliga a ligação", () => {

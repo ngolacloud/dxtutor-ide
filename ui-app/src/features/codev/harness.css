@@ -1,0 +1,29 @@
+/* estilos do separador «Co-Dev run» (feature codev, A3) — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  /* Co-Dev run: the harness tab (docs/v2/UI-AUDIT.md item 11, phase A3) */
+  .hx-run{height:100%;overflow:auto;padding:14px 20px 28px;font-family:var(--font-ui);color:var(--fg);box-sizing:border-box}
+  .hx-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}.hx-top b{font-size:15px;color:var(--fg-bright)}.hx-sp{flex:1}
+  .hx-live{padding:1px 8px;border-radius:9px;font-size:11px;background:rgba(92,201,167,.16);color:var(--green)}
+  .hx-cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:14px}
+  .hx-sec{background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px}
+  .hx-h{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-muted);margin-bottom:8px}
+  .hx-empty{color:var(--fg-muted);font-size:12.5px;line-height:1.5}.hx-empty b{color:var(--fg-bright);font-size:14px}
+  .hx-dim{color:var(--fg-muted);font-size:12px;line-height:1.5}.hx-ok{color:var(--green);font-size:12px}
+  .hx-meter{display:flex;flex-direction:column;gap:6px;font-size:12px}.hx-gauge{flex:none;width:100%;height:8px;border-radius:3px;background:var(--bg-input);border:1px solid var(--border);overflow:hidden;box-sizing:border-box}
+  .hx-gauge-fill{height:100%;background:var(--accent)}.hx-gauge-fill.hot{background:var(--red)}
+  .hx-md{font-size:12.5px;line-height:1.55}.hx-md p{margin:4px 0}
+  .hx-steps{margin:8px 0 0;padding-left:18px;font-size:12.5px}.hx-steps li{margin:4px 0}
+  .hx-file{background:none;border:0;padding:0 0 0 6px;cursor:pointer;color:var(--blue)}.hx-file:hover code{text-decoration:underline}
+  .hx-todos{list-style:none;margin:0;padding:0;font-size:12.5px}.hx-todos li{display:flex;gap:8px;padding:3px 0}
+  .hx-todos .t-completed{color:var(--fg-muted);text-decoration:line-through}.hx-todos .t-in_progress{color:var(--fg-bright)}.hx-tick{width:14px;color:var(--accent)}
+  .hx-sub{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0}
+  .hx-role{padding:0 7px;border-radius:9px;font-size:11px;border:1px solid var(--border-strong)}.hx-role.r-reviewer{color:var(--purple)}.hx-role.r-tester{color:var(--green)}.hx-role.r-architect{color:var(--blue)}
+  .hx-state{margin-left:auto;font-size:11px;color:var(--fg-muted)}.hx-state.s-error{color:var(--red)}.hx-state.s-running{color:var(--accent)}
+  .hx-cp{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+  .hx-cpid{font-family:var(--font-mono);color:var(--fg-muted)}.hx-cpl{flex:1 1 140px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-bright)}
+  .hx-btn{background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:6px;color:var(--fg);font:12px var(--font-ui);padding:3px 9px;cursor:pointer;white-space:nowrap}
+  .hx-btn:hover{border-color:var(--accent)}.hx-btn.pri{background:var(--accent-grad);border-color:transparent;color:#fff;font-weight:600}
+  .hx-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin:8px 0}.hx-form label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--fg-muted)}
+  .hx-ta{width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:6px;color:var(--fg);font:12px var(--font-mono);padding:6px 8px;resize:vertical}
+  .hx-row{font-size:12.5px;padding:4px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .agent-report{margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;background:var(--bg-panel)}
+  .agent-report summary{cursor:pointer;color:var(--fg-bright);font-weight:600}.agent-report .ar-t{font-weight:400;color:var(--fg-muted)}

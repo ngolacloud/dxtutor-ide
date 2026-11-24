@@ -87,7 +87,7 @@ test("the «Co-Dev run» tab: plan with files, tasks, reviewer, context, report,
   // open the tab from the Co-Dev menu
   await page.locator("#menubar .menu-top", { hasText: "Co-Dev" }).first().click();
   await page.locator(".menu-pop .mi", { hasText: /Run, checkpoints and permissions|Execução, checkpoints e permissões/ }).first().click();
-  const tab = page.locator(".hx");
+  const tab = page.locator(".hx-run");
   await expect(tab).toBeVisible();
   await expect(tab.locator('[data-action="hx-open"]')).toHaveText("src/lib.rs:3");
   await expect(tab.locator(".hx-todos li")).toHaveCount(2);

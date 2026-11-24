@@ -4,7 +4,7 @@
    application use cases (`../application/*`) call these methods with plain data
    and never touch markup themselves.
 
-   This module implements `MissionPresenter` + `ApprovalGate` (see
+   This module implements `ChatPresenter` + `ApprovalGate` (see
    `../application/ports.ts`). It reads the running app's shell state through the
    legacy bridge (`run()`, `hhmm()`, panel, log/note/toast) — the bridge is the
    one typed window facade; the use cases stay free of it.
@@ -21,22 +21,14 @@ import { $, esc } from "../../../core";
 import * as bridge from "../infrastructure/legacy-bridge";
 import { composerContext, trackSubagent } from "./composer";
 import { bus } from "../../../app/bus";
-import { RUBRIC } from "../domain/scoring";
 import { explainProviderError } from "../domain/provider-errors";
 import type {
   ApprovalGate,
   CardRef,
-  ClarifyHandle,
-  CouncilHandle,
-  DeliverView,
-  Mission,
-  MissionPresenter,
-  PlanHandle,
-  ProviderInfo,
+  ChatPresenter,
   ToolHost,
   ToolRef,
 } from "../application/ports";
-import type { Mode, Requirement, Question, Step, CheckResult } from "../domain/types";
 
 /* animation speed multiplier; only ever 1 in production, left as a knob the
    engine used to carry locally. */
@@ -241,20 +233,12 @@ export function ctxPill(): void {
   pill.textContent = "@ " + (t && t.path ? t.title : "sem ficheiro");
   pill.classList.toggle("on", bridge.monolith.contextEnabled && !!(t && t.path));
   composerContext(t && t.path ? (t.title ?? t.path) : null);
-  const fs = bridge.files();
-  const u = Math.min(
-    99,
-    Math.round(
-      (bridge.chat().reduce((s, m) => s + m.content.length, 0) + (t && t.path && fs[t.path] ? fs[t.path].content.length : 0)) / 4 / 2000,
-    ),
-  );
-  $("#st-ctx")!.textContent = "ctx " + u + "%";
+  /* o `ctx` da barra de estado já não é uma percentagem de um orçamento inventado (caracteres/4
+     sobre 2000 tokens): é o uso real que o provider reporta, desenhado por features/codev.ts
+     (ADR-0006, R2e1). */
 }
 
-/* ───── demo chips reused across the live-chat system cards ───── */
-const demoChips = `<div class="chips"><button class="chip" data-action="demo" data-on="b"><b>Missão: histórico de conversas persistente</b></button><button class="chip" data-action="demo" data-on="a"><b>Missão: corrigir o E0382 em lib.rs</b></button></div>`;
-
-/* ═══════════ MissionPresenter + ApprovalGate implementation ═══════════ */
+/* ═══════════ ChatPresenter + ApprovalGate implementation ═══════════ */
 
 export const gate: ApprovalGate = {
   ask<T>(host: ToolHost, btns: Array<{ l: string; v: T; pri?: unknown; done?: string }>): Promise<T> {
@@ -262,25 +246,17 @@ export const gate: ApprovalGate = {
   },
 };
 
-export const presenter: MissionPresenter = {
+export const presenter: ChatPresenter = {
   /* general */
   scrollMsgs,
   userMessage: user,
-  isRunning: () => bridge.run().active,
   beginRun: (label: string) => runState(true, label),
   subagent: (id: string, label: string, state: "running" | "done" | "error") => trackSubagent(id, label, state),
   endRun: () => runState(false),
-  setMissionContext(m: Mission | null) {
-    bridge.run().M = m as unknown as { files: Set<string> } | null;
-  },
   startAbort(): AbortSignal {
     const ctl = new AbortController();
     bridge.run().abort = ctl;
     return ctl.signal;
-  },
-  setLabel(label: string) {
-    bridge.run().label = label;
-    runLabel();
   },
   trackFile(path: string) {
     const m = bridge.run().M;
@@ -312,212 +288,18 @@ export const presenter: MissionPresenter = {
   },
 
   /* mission cards */
-  systemNoProvider() {
-    card("sistema", "Não há nenhum provedor ligado. Liga pelo menos um em <b>Definições → Modelos e provedores</b>.");
-  },
-  scenarioReady(msg: string) {
-    card("co-dev", msg);
-  },
-  understandStart(speaker: string): CardRef {
-    return card(speaker, '<p><span class="spin"></span> A ler as regras do projecto, os ADRs e o código relevante…</p>');
-  },
-  understandDone(ref: CardRef, understand: string, reqs: Requirement[]) {
-    asCard(ref).bd.innerHTML = `<p>${understand}</p>${reqs
-      .map((r) => `<div class="req"><b>${r.t}</b>${r.ac.map((a) => `<div class="ac">${a}</div>`).join("")}</div>`)
-      .join("")}`;
-    scrollMsgs();
-  },
-  clarify(speaker: string, q: Question, showLowConf: boolean, pct: number): ClarifyHandle {
-    const c = card(
-      speaker,
-      `<p><b>${q.q}</b></p>${
-        showLowConf
-          ? `<p style="color:var(--fg-dim)">Confiança baixa (${pct}%) e nenhuma regra do projecto cobre isto — prefiro perguntar-te.</p>`
-          : ""
-      }<div class="qo"></div><div class="qfoot"></div>`,
-    );
-    const qo = c.bd.querySelector(".qo") as HTMLElement;
-    const draw = (pick: number | null, click: boolean) => {
-      qo.innerHTML = q.opts
-        .map(
-          (o, i) =>
-            `<${click ? "button" : "div"} class="qopt${pick === i ? " pick" : pick != null ? " dim" : ""}" data-i="${i}"><span class="ql">${o.l}<small>${o.why}</small></span>${
-              i === q.best ? `<span class="tag acc">recomendada · ${pct}%</span>` : ""
-            }</${click ? "button" : "div"}>`,
-        )
-        .join("");
-      scrollMsgs();
-    };
-    return {
-      draw,
-      awaitPick(): Promise<number> {
-        draw(null, true);
-        return new Promise<number>((res, rej) => {
-          qo.querySelectorAll("button").forEach(
-            (b) =>
-              ((b as HTMLElement).onclick = () => {
-                bridge.run().pend = null;
-                res(+(b as HTMLElement).dataset.i!);
-              }),
-          );
-          bridge.run().pend = () => rej(bridge.stopSignal());
-          waiting();
-        });
-      },
-      foot(by: string, status: string, basis: string) {
-        c.bd.querySelector(".qfoot")!.innerHTML = `<span class="tag ${by === "agente" ? "acc" : "live"}">${
-          by === "agente" ? "decidido pelo Co-Dev" : "decidido por ti"
-        }</span>${status === "pressuposto" ? '<span class="tag warn">pressuposto reversível</span>' : ""}<span>base: ${basis}</span>`;
-      },
-    };
-  },
-  councilCard(speaker: string, count: number): CouncilHandle {
-    const c = card(
-      speaker,
-      `<p>${
-        count > 1
-          ? `Pedi uma proposta a cada provedor ligado (${count}) e avalio-as às cegas com a mesma rubrica.`
-          : "Só há um provedor ligado, por isso não há propostas concorrentes — sigo com esta."
-      }</p><div class="cl"></div><div class="qfoot"></div>`,
-    );
-    const cl = c.bd.querySelector(".cl") as HTMLElement;
-    return {
-      card: c,
-      candidate(x, info: ProviderInfo): ToolRef {
-        const e = document.createElement("div");
-        e.className = "cand";
-        e.innerHTML = `<div class="ch"><span class="pdot" style="background:${info.col}"></span>Proposta ${x.L} · ${info.name}<span class="tot"><span class="spin"></span></span></div><div class="ct">${x.title}</div><div class="cs">${x.sum}</div><div class="crit"></div>`;
-        cl.appendChild(e);
-        scrollMsgs();
-        return e;
-      },
-      score(candEl: ToolRef, tot: number, sc: Record<string, number>) {
-        el(candEl).querySelector(".tot")!.textContent = tot.toFixed(1);
-        el(candEl).querySelector(".crit")!.innerHTML = RUBRIC.map(
-          (k) => `<span>${k.s}<i><b style="width:${sc[k.k] * 10}%"></b></i></span>`,
-        ).join("");
-      },
-      markBest(candEl: ToolRef) {
-        el(candEl).classList.add("best");
-      },
-      foot(by: string) {
-        c.bd.querySelector(".qfoot")!.innerHTML = `<span class="tag ${by === "juiz" ? "acc" : "live"}">${
-          by === "juiz" ? "decidido pelo juiz" : "decidido por ti"
-        }</span><span>rubrica: ${RUBRIC.map((k) => k.l + " " + k.w).join(" · ")}</span>`;
-      },
-    };
-  },
-  plan(speaker: string, title: string, steps: Step[]): PlanHandle {
-    const n = steps.length;
-    const c = card(
-      speaker,
-      `<div class="plan" style="margin:0"><div class="plan-h"><span class="plan-t">${title}</span><span class="plan-c">0/${n}</span></div><div class="bar"><span style="width:0"></span></div>${steps
-        .map((s) => `<div class="stp todo"><span class="g">·</span><span class="l">${s.l}</span><span class="d"></span></div>`)
-        .join("")}</div>`,
-    );
-    const rows = c.bd.querySelectorAll(".stp");
-    return {
-      card: c,
-      stepStart(i: number) {
-        const r = rows[i];
-        r.className = "stp run";
-        r.querySelector(".g")!.textContent = "◐";
-      },
-      stepDone(i: number, ok: boolean, secs: number) {
-        const r = rows[i];
-        r.className = "stp done";
-        r.querySelector(".g")!.textContent = ok ? "✓" : "✗";
-        if (!ok) (r.querySelector(".g") as HTMLElement).style.color = "var(--red)";
-        r.querySelector(".d")!.textContent = secs.toFixed(1) + "s";
-      },
-      progress(i: number, nn: number) {
-        c.bd.querySelector(".plan-c")!.textContent = `${i + 1}/${nn}`;
-        (c.bd.querySelector(".bar span") as HTMLElement).style.width = ((i + 1) / nn) * 100 + "%";
-      },
-    };
-  },
-  evalCard(speaker: string, again: boolean): CardRef {
-    return card(
-      speaker,
-      `<p>${
-        again
-          ? "Volto a correr tudo depois da correcção."
-          : "Corro os testes e o lint e pontuo o resultado contra os critérios — quem revê não é quem escreveu."
-      }</p>`,
-    );
-  },
-  evalResult(ref: CardRef, o: { score: number; ok: boolean; res: CheckResult[]; threshold: number }) {
-    asCard(ref).bd.insertAdjacentHTML(
-      "beforeend",
-      `<div class="evalbox"><div class="score ${o.ok ? "ok" : "bad"}">${o.score}<small>/100</small></div><div style="flex:1;min-width:0">${o.res
-        .map(
-          (k) => `<div class="chk ${k.ok ? "ok" : "no"}"><span class="g">${k.ok ? "✓" : "✗"}</span><span>${k.l}</span><span class="w">${k.w}</span></div>`,
-        )
-        .join("")}</div></div><div class="qfoot"><span class="tag ${o.ok ? "live" : "bad"}">${o.ok ? "acima" : "abaixo"} do limiar ${o.threshold}</span></div>`,
-    );
-    scrollMsgs();
-  },
-  reflectCard(speaker: string, o: { score: number; threshold: number; fails: CheckResult[]; sw: boolean }): CardRef {
-    return card(
-      speaker,
-      `<p>A entrega não passou na minha própria avaliação (<b>${o.score}</b> &lt; ${o.threshold}). Não entrego assim.</p>${o.fails
-        .map((k) => `<div class="fixl"><b>✗ ${k.l}</b><span>Causa: ${k.cause}</span><span>Correcção: ${k.fixd}</span></div>`)
-        .join("")}<p style="margin-top:8px"><b>Estratégia:</b> ${
-        o.sw
-          ? "reverter ao checkpoint inicial e refazer com a abordagem mais bem classificada — a decisão anterior estava errada."
-          : "corrigir incrementalmente — a abordagem está certa, os defeitos são locais."
-      }</p>`,
-    );
-  },
-  blocked(speaker: string, score: number, threshold: number, fails: CheckResult[]) {
-    card(
-      speaker,
-      `<p>Depois de 2 tentativas a avaliação continua em <b>${score}/100</b>. Em vez de insistir, paro aqui.</p>${fails
-        .map((k) => `<div class="fixl"><b>✗ ${k.l}</b><span>${k.cause}</span></div>`)
-        .join("")}<p style="margin-top:8px">Diz-me como queres avançar, ou restaura o checkpoint inicial no Gestor de missões.</p>`,
-    );
-    void threshold;
-  },
-  deliver(speaker: string, o: DeliverView): CardRef {
-    return card(
-      speaker,
-      `<p><b>${o.title}</b> — concluído com auto-avaliação <b style="color:var(--green)">${o.score}/100</b>${
-        o.retries ? `, depois de ${o.retries} correcção(ões) feita(s) por mim` : ""
-      }.</p><ul>${o.done.map((x) => `<li>${x}</li>`).join("")}</ul>${
-        o.assumptions.length
-          ? `<p><span class="tag warn">pressuposto a rever</span> ${o.assumptions.map((a) => a.q + " → <b>" + a.choice + "</b>").join("; ")}</p>`
-          : ""
-      }<p style="color:var(--fg-dim)">${o.decCount} decisões registadas · ${o.fileCount} ficheiro(s) alterado(s).</p><div class="gate"><button class="gb" data-action="go-pane" data-on="scm">Ver alterações</button><button class="gb" data-action="open-manager">Registo de decisões</button></div>`,
-    );
-  },
-  commitConfirm(ref: CardRef, hash: string, mode: Mode, commitMsg: string) {
-    asCard(ref).bd.insertAdjacentHTML(
-      "beforeend",
-      `<p>Commit <code>${hash}</code> ${mode === "auto" ? "feito automaticamente" : "feito"}: <code>${esc(commitMsg)}</code>. O <code>git push</code> fica contigo — exige sempre aprovação humana.</p>`,
-    );
-  },
-  missionError(msg: string) {
-    card("sistema", "Erro inesperado: " + esc(msg));
-  },
-  missionStopped() {
-    card(
-      "co-dev",
-      "Execução parada a teu pedido. O que já foi alterado continua nos ficheiros; podes restaurar o checkpoint inicial no Gestor de missões.",
-    );
-  },
-
   /* live chat */
   providerOff(name: string) {
     card("sistema", `<b>${name}</b> está desligado. Liga-o nas Definições ou escolhe outro modelo.`);
   },
-  providerSimulated(name: string, ep: string) {
+  providerNeedsDesktop(name: string, ep: string) {
     card(
       "sistema",
-      `<b>${name}</b> está <b>simulado</b> neste protótipo: a página não pode chamar ${esc(ep)}. Para uma resposta real muda para Claude, ou corre uma missão guionada:${demoChips}`,
+      `<b>${name}</b> só responde na app desktop: esta página não pode chamar ${esc(ep)}. Abre o dxtutor IDE desktop, ou muda para Claude.`,
     );
   },
   liveUnavailable() {
-    card("sistema", `A ligação ao vivo ao Claude não está disponível nesta vista. As missões guionadas funcionam na mesma:${demoChips}`);
+    card("sistema", "A ligação ao vivo ao Claude não está disponível nesta vista. Abre o dxtutor IDE desktop e configura um provedor nas Definições.");
   },
   thinking(speaker: string): CardRef {
     return card(speaker, '<span class="spin"></span> a pensar…');
@@ -531,7 +313,7 @@ export const presenter: MissionPresenter = {
       bridge.run().stop || aborted
         ? "Resposta interrompida."
         : code === "not_granted"
-          ? "O acesso ao Claude não foi autorizado nesta página. As missões guionadas continuam disponíveis."
+          ? "O acesso ao Claude não foi autorizado nesta página."
           : code === "rate_limited"
             ? "Limite de pedidos atingido — tenta daqui a pouco."
             : providerErrorHtml(msg, bridge.monolith.activeProvider);

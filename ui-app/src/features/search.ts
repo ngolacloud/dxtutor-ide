@@ -8,70 +8,107 @@
    mutam o sistema de ficheiros virtual (`FS`), re-renderizam a árvore (`refresh`)
    e compõem ícones (`fIcon`) — tudo ainda dono do monólito, por isso resolvido
    via `window` (fachada tipada no core). Do core importa-se só o que é dono de lá
-   (`$`, `hd`, `esc`, `toast`). Os `onclick="openPath(...)"` inline resolvem
-   `window.openPath` no clique (continua global via o `Object.assign` do monólito).
+   (`$`, `hd`, `esc`, `toast`).
+
+   ADR-0006, R2b: no desktop com pasta aberta, a pesquisa corre em toda a pasta no disco
+   (`search_project`), não só nos ficheiros carregados; os resultados abrem-se por um só
+   listener em `#s-res` (data-p/data-l), sem `onclick` inline.
 
    Shim transitório: publica `renderSearchPane`, `doSearch` e `replaceAll` no
    `window` porque o residual invoca-os por nome livre — `app.ts` delega
    `RP.search=()=>window.renderSearchPane()` (lazy, no switch de pane), o
    a acção `search:replaceAll` do botão resolve `window.replaceAll` no clique, e o
    comando «Todo Tree» (v6.ts) chama `doSearch()` como global. Mesmo padrão de
-   `features/test.ts`, com o detalhe GOTCHA C: mover os leaves REMOVE as defs de
+   `features/test.ts` (hoje `features/testing/`), com o detalhe GOTCHA C: mover os leaves REMOVE as defs de
    topo do monólito, por isso as entradas `doSearch`/`replaceAll` saíram também do
    `Object.assign(window,…)` do `app.ts` (senão ReferenceError travava o chunk). */
 
 import { $, hd, esc, toast } from "../core";
 import { RP } from "../app/store/registry";
-import { registerActions, globalCalls, callGlobal, args } from "../app/actions";
+import { searchClient, type SearchHit } from "../platform/tauri/search";
+import { registerActions, globalCalls } from "../app/actions";
 
-/** Tupla de ocorrência numa linha: [nº da linha (1-based), linha, offset do match]. */
-type Hit = [number, string, number];
+/** Uma ocorrência numa linha: nº da linha (1-based), a linha, o offset do match nela. */
+interface Hit { line: number; text: string; at: number }
+/** As ocorrências de um ficheiro. `key` é a chave no `FS` (null = não carregado na IDE). */
+interface FileHits { label: string; key: string | null; hits: Hit[] }
 
-/** Procura incremental: varre todo o `FS` pela query de `#s-q` e pinta `#s-res`. */
+/** Máximo de ocorrências pedidas ao backend (o resto diz-se, não se esconde). */
+const MAX_HITS = 2000;
+
+const G = window as unknown as { DXR?: { root?: string | null }; ROOT: string };
+const dxr = (): { root?: string | null } | undefined => G.DXR;
+
+/** O offset do match na linha, sem distinguir maiúsculas (a coluna do backend é em bytes). */
+const findAt = (text: string, q: string): number => Math.max(0, text.toLowerCase().indexOf(q.toLowerCase()));
+
+/** Pinta os resultados (o mesmo markup para o FS e para o backend). */
+function paint(res: HTMLElement, q: string, groups: FileHits[], capped: boolean): void {
+  const n = groups.reduce((a, g) => a + g.hits.length, 0);
+  const h = groups.map((g) => {
+    /* sem handlers inline: a linha leva o destino em data-*; um só listener em #s-res abre-a */
+    const open = (line?: number): string => g.key ? `data-p="${esc(g.key)}"${line ? ` data-l="${line}"` : ""}` : 'data-unloaded="1" title="não carregado na IDE"';
+    return `<div class="row" style="padding-left:8px${g.key ? "" : ";opacity:.6"}" ${open()}>${window.fIcon(g.label)}<span class="nm">${esc(g.label.split("/").pop())}</span><span class="deco" style="color:var(--fg-muted)">${g.hits.length}</span></div>` +
+      g.hits.slice(0, 30).map((x) => `<div class="s-hit" ${open(x.line)}><span class="n">${x.line}</span><span>${esc(x.text.slice(Math.max(0, x.at - 18), x.at))}<mark>${esc(x.text.substr(x.at, q.length))}</mark>${esc(x.text.slice(x.at + q.length, x.at + q.length + 60))}</span></div>`).join("");
+  }).join("");
+  res.innerHTML = `<div class="sec-empty"><b style="color:var(--accent-hover)">${n}</b> resultados em <b style="color:var(--accent-hover)">${groups.length}</b> ficheiros${capped ? ` (os primeiros ${MAX_HITS})` : ""}</div><div class="tree">${h}</div>`;
+}
+
+/** Clicar num resultado abre o ficheiro (na linha); um ficheiro não carregado explica-se. */
+function onResultClick(e: Event): void {
+  const row = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-p],[data-unloaded]");
+  if (!row) return;
+  if (row.dataset.unloaded) { toast("Este ficheiro não está carregado na IDE (grande, binário ou além do limite de ficheiros)"); return; }
+  window.openPath(row.dataset.p as string, row.dataset.l ? +row.dataset.l : undefined);
+}
+
+/** Procura nos ficheiros carregados na IDE (o browser, ou o desktop sem pasta). */
+function searchLoaded(q: string): FileHits[] {
+  const lq = q.toLowerCase(), out: FileHits[] = [];
+  Object.keys(window.FS).sort().forEach((p) => {
+    const hits: Hit[] = [];
+    window.FS[p].content.split("\n").forEach((l, i) => { const k = l.toLowerCase().indexOf(lq); if (k >= 0) hits.push({ line: i + 1, text: l, at: k }); });
+    if (hits.length) out.push({ label: p, key: p, hits });
+  });
+  return out;
+}
+
+/** Agrupa as ocorrências do backend por ficheiro (chegam pela ordem da travessia). */
+function groupHits(hits: SearchHit[], q: string): FileHits[] {
+  const by = new Map<string, FileHits>(), root = G.ROOT;
+  for (const x of hits) {
+    let g = by.get(x.file);
+    if (!g) { const key = root + x.file; g = { label: x.file, key: window.FS[key] ? key : null, hits: [] }; by.set(x.file, g); }
+    g.hits.push({ line: x.line, text: x.text, at: findAt(x.text, q) });
+  }
+  const out = [...by.values()].sort((a, b) => a.label.localeCompare(b.label));
+  out.forEach((g) => g.hits.sort((a, b) => a.line - b.line));
+  return out;
+}
+
+let seq = 0, timer: ReturnType<typeof setTimeout> | undefined;
+
+/** Procura incremental pela query de `#s-q`: no desktop com pasta, em toda a pasta no disco
+ *  (`search_project`, ADR-0006 R2b — também apanha o que o carregamento saltou); senão nos
+ *  ficheiros carregados. Uma resposta atrasada nunca pinta por cima de uma mais recente. */
 function doSearch(): void {
   const qel = $("#s-q") as HTMLInputElement | null;
   const res = $("#s-res");
   if (!qel || !res) return;
-  const q = qel.value;
+  const q = qel.value, my = ++seq, root = dxr()?.root ?? null;
+  clearTimeout(timer);
   if (!q) {
-    res.innerHTML =
-      '<div class="sec-empty">Escreve para procurar no workspace dxtutor.</div>';
+    res.innerHTML = `<div class="sec-empty">${root ? "Escreve para procurar em toda a pasta aberta." : "Escreve para procurar nos ficheiros abertos."}</div>`;
     return;
   }
-  const lq = q.toLowerCase();
-  let n = 0,
-    files = 0,
-    h = "";
-  Object.keys(window.FS)
-    .sort()
-    .forEach((p) => {
-      const hits: Hit[] = [];
-      window.FS[p].content.split("\n").forEach((l, i) => {
-        const k = l.toLowerCase().indexOf(lq);
-        if (k >= 0) hits.push([i + 1, l, k]);
-      });
-      if (!hits.length) return;
-      files++;
-      n += hits.length;
-      h +=
-        `<div class="row" style="padding-left:8px" data-action="search:open" data-on="${esc(p)}">${window.fIcon(
-          p,
-        )}<span class="nm">${esc(
-          p.split("/").pop(),
-        )}</span><span class="deco" style="color:var(--fg-muted)">${hits.length}</span></div>` +
-        hits
-          .slice(0, 30)
-          .map(
-            (x) =>
-              `<div class="s-hit" data-action="search:hit" data-on="${esc(JSON.stringify([p, x[0]]))}"><span class="n">${x[0]}</span><span>${esc(
-                x[1].slice(Math.max(0, x[2] - 18), x[2]),
-              )}<mark>${esc(x[1].substr(x[2], q.length))}</mark>${esc(
-                x[1].slice(x[2] + q.length, x[2] + q.length + 60),
-              )}</span></div>`,
-          )
-          .join("");
-    });
-  res.innerHTML = `<div class="sec-empty"><b style="color:var(--accent-hover)">${n}</b> resultados em <b style="color:var(--accent-hover)">${files}</b> ficheiros</div><div class="tree">${h}</div>`;
+  if (!root) { paint(res, q, searchLoaded(q), false); return; }
+  res.innerHTML = '<div class="sec-empty">A procurar…</div>';
+  timer = setTimeout(() => {
+    searchClient().project(root, q, MAX_HITS, true).then(
+      (hits) => { if (my === seq) paint(res, q, groupHits(hits, q), hits.length >= MAX_HITS); },
+      (e) => { if (my === seq) res.innerHTML = `<div class="sec-empty" style="color:var(--red)">A pesquisa falhou: ${esc(e instanceof Error ? e.message : String(e))}</div>`; },
+    );
+  }, 200);
 }
 
 /** Substituir tudo: aplica `#s-q`→`#s-r` em todo o `FS`, refresca e re-procura. */
@@ -109,6 +146,7 @@ function renderSearchPane(): void {
       `<div class="sections"><input class="inp" id="s-q" placeholder="Procurar em todos os ficheiros"><input class="inp" id="s-r" placeholder="Substituir por…"><button class="btn ghost" data-action="search:replaceAll">Substituir tudo</button><div id="s-res"></div></div>`;
     const qel = $("#s-q") as HTMLInputElement | null;
     if (qel) qel.oninput = doSearch;
+    $("#s-res")?.addEventListener("click", onResultClick);
   }
   doSearch();
 }
@@ -123,8 +161,5 @@ window.doSearch = doSearch;
 window.replaceAll = replaceAll;
 
 /* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
-registerActions({
-  ...globalCalls("search", ["replaceAll"]),
-  "search:open": { click: (c) => void callGlobal("openPath", c.on) },
-  "search:hit": { click: (c) => void callGlobal("openPath", ...args<[string, number]>(c)) },
-});
+/* os resultados abrem-se pelo listener de #s-res (data-p/data-l, ADR-0006 R2b) */
+registerActions(globalCalls("search", ["replaceAll"]));

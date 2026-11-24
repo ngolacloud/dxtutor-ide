@@ -7,7 +7,7 @@
    (for the presenter and the approval gate).
 
    This is what makes the engine testable with fakes: give a fake `Workspace`,
-   a fake `MissionPresenter` and a fake `ApprovalGate` and the mission runs with
+   a fake `ChatPresenter` and a fake `ApprovalGate` and the mission runs with
    no browser. The dependency rule points inward: ports import `domain/`, never
    the other way round.
 
@@ -20,12 +20,6 @@
 
 import type {
   Mode,
-  Decision,
-  CheckResult,
-  Question,
-  Candidate,
-  Step,
-  Requirement,
   FileEntry,
 } from "../domain/types";
 import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
@@ -53,24 +47,6 @@ export interface RuntimeTool {
   content?: string;
 }
 
-/** A mission's mutable runtime record. The engine pushes decisions, files and
- *  state transitions onto it; the manager page reads it back. Kept loose (`any`
- *  fields) because its shape is the monolith's, not something this ADR fixes. */
-export interface Mission {
-  id: number;
-  title: string;
-  mode: Mode;
-  state: string;
-  score: number | null;
-  t0: number;
-  decs: Decision[];
-  retries: number;
-  files: Set<string>;
-  ck0?: number;
-  councilDec?: Decision;
-  dur?: number;
-}
-
 /* ───────── opaque DOM handles (tokens the use cases pass back to the view) ─────────
    The use cases never read or build markup off these; they only hold them and
    hand them back to presenter methods. Concretely they are elements, but the
@@ -78,29 +54,6 @@ export interface Mission {
 export type ToolHost = unknown;
 export type ToolRef = unknown;
 export type CardRef = { readonly tools: ToolHost; readonly body: ToolHost };
-
-export interface ClarifyHandle {
-  draw(pick: number | null, clickable: boolean): void;
-  awaitPick(): Promise<number>;
-  foot(by: string, status: string, basis: string): void;
-}
-
-export interface PlanHandle {
-  readonly card: CardRef;
-  stepStart(i: number, label: string): void;
-  stepDone(i: number, ok: boolean, secs: number): void;
-  progress(i: number, n: number): void;
-}
-
-export interface CouncilHandle {
-  readonly card: CardRef;
-  candidate(c: { L: string; prov: string; title: string; sum: string }, info: ProviderInfo): ToolRef;
-  score(candEl: ToolRef, tot: number, sc: Record<string, number>): void;
-  markBest(candEl: ToolRef): void;
-  foot(by: string): void;
-}
-
-/* ───────── workspace / terminal / providers / scm / checkpoints ───────── */
 
 export interface Workspace {
   files(): Record<string, FileEntry>;
@@ -148,20 +101,6 @@ export interface ProviderGateway {
   activeAgentName(): string;
   isDesktop(): boolean;
   sample(): Sampler | null;
-}
-
-export interface Scm {
-  gfStart(kind: string, name: string): string;
-  gfAsk(host: ToolHost, m: Mission): Promise<void>;
-  commit(msg: string): { h: string; n: number } | null;
-  staged(): Set<string>;
-  isTracked(p: string): boolean;
-  setAuthor(a: string): void;
-}
-
-export interface Checkpoints {
-  create(label: string): number;
-  restore(id: number, silent?: boolean): void;
 }
 
 /** The passage of time, as the engine sees it: `now()` for durations and
@@ -214,24 +153,21 @@ export interface ChatStore {
    method mirrors a chunk that was inline in the old engine; the use cases call
    them with plain data and hold the returned handles. */
 
-export interface MissionPresenter {
+export interface ChatPresenter {
   /* general transcript + run control */
   scrollMsgs(): void;
   userMessage(text: string): void;
-  isRunning(): boolean;
   /** Um sub-agente (`task`) arrancou ou terminou — o chip «agentes» do compositor. */
   subagent?(id: string, label: string, state: "running" | "done" | "error"): void;
   beginRun(label: string): void;
   endRun(): void;
-  setMissionContext(m: Mission | null): void;
   startAbort(): AbortSignal;
-  setLabel(label: string): void;
   trackFile(path: string): void;
   phase(n: number, label: string): void;
   revealTerminal(): void;
-  /** The shared stop sentinel (`window.STOP`); thrown to unwind a mission the
-   *  human stopped, and compared against in `runMission`'s catch. Shared with
-   *  `features/board.ts`, so it stays a value rather than an `AbortError`. */
+  /** The shared stop sentinel (`window.STOP`); thrown to unwind a run the human
+   *  stopped. Shared with `features/board.ts`, so it stays a value rather than an
+   *  `AbortError`. */
   stopValue(): unknown;
 
   /* tool lines */
@@ -242,26 +178,9 @@ export interface MissionPresenter {
   toolRun(host: ToolHost, cmd: string): ToolRef;
   toolRunResult(ref: ToolRef, ok: boolean, sum: string): void;
 
-  /* mission cards */
-  systemNoProvider(): void;
-  scenarioReady(msg: string): void;
-  understandStart(speaker: string): CardRef;
-  understandDone(ref: CardRef, understand: string, reqs: Requirement[]): void;
-  clarify(speaker: string, q: Question, showLowConf: boolean, pct: number): ClarifyHandle;
-  councilCard(speaker: string, count: number): CouncilHandle;
-  plan(speaker: string, title: string, steps: Step[]): PlanHandle;
-  evalCard(speaker: string, again: boolean): CardRef;
-  evalResult(ref: CardRef, o: { score: number; ok: boolean; res: CheckResult[]; threshold: number }): void;
-  reflectCard(speaker: string, o: { score: number; threshold: number; fails: CheckResult[]; sw: boolean }): CardRef;
-  blocked(speaker: string, score: number, threshold: number, fails: CheckResult[]): void;
-  deliver(speaker: string, o: DeliverView): CardRef;
-  commitConfirm(ref: CardRef, hash: string, mode: Mode, commitMsg: string): void;
-  missionError(msg: string): void;
-  missionStopped(): void;
-
   /* live chat */
   providerOff(name: string): void;
-  providerSimulated(name: string, ep: string): void;
+  providerNeedsDesktop(name: string, ep: string): void;
   liveUnavailable(): void;
   thinking(speaker: string): CardRef;
   assistantText(ref: CardRef, text: string): void;
@@ -292,18 +211,7 @@ export interface MissionPresenter {
   ): { settle(label: string): void };
 }
 
-export interface DeliverView {
-  title: string;
-  score: number;
-  retries: number;
-  done: string[];
-  assumptions: { q: string; choice: string }[];
-  decCount: number;
-  fileCount: number;
-}
-
-/** The approval gate: the human say-so on edits, commands, plans and council
- *  picks. Backed by `window.ask` (shared with board.ts), so its cancellation
+/** The approval gate: the human say-so on edits, commands and plans. Backed by `window.ask` (shared with board.ts), so its cancellation
  *  stays on the legacy `RUN.pend` path rather than taking a signal. */
 export interface ApprovalGate {
   ask<T>(host: ToolHost, btns: Array<{ l: string; v: T; pri?: unknown; done?: string }>): Promise<T>;
@@ -316,22 +224,11 @@ export interface ToolDeps {
   terminal: Terminal;
   providers: ProviderGateway;
   notifier: Notifier;
-  presenter: MissionPresenter;
+  presenter: ChatPresenter;
   gate: ApprovalGate;
   clock: Clock;
   rules: import("../domain/policy").CommandRules;
   mode(): Mode;
-}
-
-export interface MissionDeps extends ToolDeps {
-  scm: Scm;
-  checkpoints: Checkpoints;
-  missions: Mission[];
-  decisions: Decision[];
-  nextId(): number;
-  threshold(): number;
-  refresh(): void;
-  tool(t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal): Promise<unknown>;
 }
 
 /** O agente v2 em Rust (comandos `codev_agent_*` e os seus eventos). */
@@ -384,7 +281,7 @@ export interface AgentGateway {
 
 export interface AgentChatDeps {
   gateway: AgentGateway;
-  presenter: MissionPresenter;
+  presenter: ChatPresenter;
   gate: ApprovalGate;
   verify: Verify;
   workspace: Pick<Workspace, "root">;
@@ -401,6 +298,9 @@ export interface AgentChatDeps {
   nowSecs(): number;
   /** Abre um diff (antes/depois) numa tab do editor. */
   openDiff(path: string, before: string, after: string, label: string): void;
+  /** O uso real de cada pedido do agente (tokens de entrada — com os de cache — e de saída):
+   *  alimenta o contador de uso (custo das issues no Board) e o `ctx` (ADR-0006, R3c). */
+  onUsage?(input: number, output: number): void;
   /** Live hunks in the editor (RF-CODEV-STREAM); absent → edits are approved per call. */
   hunks?: HunkSink;
   /** Saves what the editor has to disk before the agent reads it (autosave flush). */
@@ -449,9 +349,9 @@ export interface LiveDeps {
   workspace: Workspace;
   providers: ProviderGateway;
   notifier: Notifier;
-  presenter: MissionPresenter;
+  presenter: ChatPresenter;
   harness: Harness;
-  /** Opcional: sem ele, run_tests/design_lint mantêm o comportamento do exemplo. */
+  /** Opcional: sem ele (browser, sem pasta), o chat não oferece run_tests/design_lint (ADR-0006, R2d). */
   verify?: Verify;
   chat: ChatStore;
   modeLabel(): string;
@@ -461,7 +361,6 @@ export interface LiveDeps {
   tool: (t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal) => Promise<unknown>;
 }
 
-export type { Candidate };
 
 /* ───────── ditado local (whisper.cpp no backend) ───────── */
 export interface DictationStatus {
@@ -496,6 +395,4 @@ export interface CodevDesktop {
   provState?(k: string, virtual: (k: string) => string): string;
   /** a página Settings com as chaves reais (providers.json) e as capacidades do backend */
   settings?(t: unknown, host: HTMLElement, virtual: (t: unknown, host: HTMLElement) => void): void;
-  /** as missões são demos guionadas: com uma pasta real aberta, avisa e não corre */
-  runMission?<S>(scenario: S, text: string, virtual: (scenario: S, text: string) => unknown): unknown;
 }

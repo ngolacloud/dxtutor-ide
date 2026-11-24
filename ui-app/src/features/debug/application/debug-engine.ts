@@ -1,79 +1,121 @@
-/* ═══════════ feature `debug` — application: motor da sessão (ADR-0002, Fase 3) ═══════════
-   Os casos de uso da depuração simulada, puros face ao mundo: recebem as capacidades
-   por portas (`DebugDeps`) e dependem só de `domain/` (e de `esc`, pura, de
-   `../../../core`). Sem DOM, sem `window`, sem Tauri — a composição (`features/debug.ts`)
-   injecta os adaptadores do legacy-bridge e as funções de desenho.
+/* ═══════════ feature `debug` — application: a sessão de depuração (ADR-0002, Fase 3) ═══════════
+   Puros face ao mundo: recebem as capacidades por portas (`DebugDeps`) e dependem só de
+   `domain/`. Sem DOM, sem `window`, sem Tauri.
 
-   O comportamento é o do motor original de `features/debug.ts` (migrado 1:1): só mudou
-   DE ONDE vêm o FS/estado/geradores/navegação/relógio — agora das portas, antes de
-   globais `window.*`. O estado é mutado no SÍTIO (mesma referência que o resíduo
-   publica em `window.DBG`/`window.BPS`), por isso os consumidores do monólito/v6
-   continuam a vê-lo. */
+   ADR-0006, R4 — depuração real pelo gdb do backend. «Start debugging» (F5): escolhe o programa
+   (num projecto Cargo, `cargo build` e o binário em `target/debug/`, perguntando qual se houver
+   vários; noutro projecto, o caminho do executável), lança o gdb na pasta, põe os breakpoints
+   do gutter e corre. Quando pára, a vista abre o ficheiro na linha e mostra as variáveis locais
+   e a pilha que o gdb dá; Continue/Step over/Step into/Stop seguem para o gdb. Um breakpoint
+   acrescentado durante a sessão vai para o gdb. Sem gdb, di-lo (com o que instalar); nada é
+   simulado. Uma operação de cada vez (o gdb é sequencial). */
 
-import { esc } from "../../../core";
-import { bpKey, bpLine } from "../domain/breakpoints";
-import type { CodeStep, DbgSession, OpsStep } from "../domain/types";
+import { bpKey, bpLine, bpPath } from "../domain/breakpoints";
+import { cargoTargets, fsKeyFor, relOf, type Stop } from "../domain/session";
 import type { DebugDeps, DebugEngine } from "./ports";
 
+/** O que dizer quando não há motor de depuração no sistema. */
+export const NO_GDB = "O gdb não está instalado: a depuração passo-a-passo usa o gdb (Rust, C, C++). Instala-o (p.ex. «sudo apt install gdb») e tenta de novo.";
+
 export function makeDebugEngine(deps: DebugDeps): DebugEngine {
-  const { store, workspace, lexer, scenarios, env, editor, shell, view, notifier, logger, human, checkpoint, clock } = deps;
+  const { store, dbg, workspace, editor, shell, picker, view, notifier } = deps;
+  let busy = false;
 
-  function dbgFeed(k: string, h: string): void { const s = store.session(); if (!s) return; s.feed.push({ k, h, t: clock.time() }); }
+  const fail = (e: unknown): void => { store.setMessage("A depuração falhou: " + (e instanceof Error ? e.message : String(e))); };
 
-  function startDebug(id?: string): void {
-    store.hydrate(); const ct = editor.currentTab();
-    id = id || (ct && ct.path === workspace.lexPath() ? "lexer" : (scenarios.launch().find((c) => c.id.startsWith("crash")) || { id: "lexer" }).id);
-    shell.goPane("debug"); if (shell.getVar("--panel-h") === "0px") shell.togglePanel(); shell.setVar("--panel-h", "300px");
-    if (id === "lexer") {
-      const v = lexer.variant();
-      if (v === "bug") {
-        const s: DbgSession = { id, kind: "pre", i: -1, steps: [], feed: [], h: {} }; store.setSession(s);
-        dbgFeed("look", "Building <code>lexer</code> in debug mode…");
-        dbgFeed("evidence", `<pre>error[E0382]: use of moved value: \`chars\`\n --> crates/lexer/src/lib.rs:${lexer.line(/chars\.peek\(\)/)}:8\n  |\n${lexer.line(/for c in/)} |     for c in chars {\n  |              ----- \`chars\` moved due to this implicit call to \`.into_iter()\`\n  |\nhelp: you can \`clone\` the value and consume it, but this might not be your desired behavior\n  |\n  |     for c in chars.clone() {\n  |                   ++++++++</pre>`);
-        dbgFeed("think", `I cannot start a session: there is no binary until the borrow checker is satisfied. <code>rustc</code> offers <code>.clone()</code> — and even warns it “might not be your desired behavior”. That warning is the interesting part. Rather than guess, let's apply the suggestion and <b>watch what it does at runtime</b>; the test will tell us if it is right.`);
-        s.offer = true; shell.setPanelTab("dbg"); view.renderPane(); view.draw(); return;
-      }
-      if (v === "other") { const s: DbgSession = { id, kind: "pre", i: -1, steps: [], feed: [], h: {} }; store.setSession(s); dbgFeed("think", "This edit is not one the prototype can step through. The desktop app runs the real test under <code>lldb</code> / <code>codelldb</code>, with the same assistant reading the frames."); shell.setPanelTab("dbg"); view.renderPane(); view.draw(); return; }
-      const tr = scenarios.code(v); const s: DbgSession = { id, kind: "code", i: -1, steps: tr.steps, end: tr.end, feed: [], h: {}, hk: { eof: "Eof is never pushed", dig: "Digits are tokenized wrong", test: "The test expects the wrong thing" }, watch: ["chars.peek()", "tokens.len()"] }; store.setSession(s);
-      const BPS = store.breakpoints(), lx = workspace.lexPath();
-      if (![...BPS].some((b) => b.startsWith(lx + ":"))) BPS.add(bpKey(lx, lexer.line(/chars\.peek\(\)/))); editor.openPath(lx); dbgFeed("look", `Debugging <code>tokenize_emits_eof</code> on <code>lib.rs</code> as it is now (<code>${v === "clone" ? "for c in chars.clone()" : v === "byref" ? "for c in chars.by_ref()" : "while let"}</code>). Breakpoints: ${[...BPS].filter((b) => b.startsWith(lx)).map((b) => "line " + bpLine(b)).join(", ")}.`); dbgStep();
-    } else {
-      const [, e, n] = id.split(":"), tr = scenarios.ops(e, n); const s: DbgSession = { id, kind: "ops", i: -1, steps: tr.steps, end: tr.end, hk: tr.hk, feed: [], h: {} }; store.setSession(s); dbgFeed("look", `Attaching to <code>${esc(n)}</code> in ${env.label(e).toLowerCase()}. A crash-looping pod cannot be stepped like code, so I investigate the way you would: status, logs, a healthy peer, the configuration diff, then confirm. Press <kbd>F10</kbd> to run each probe.`); dbgStep();
+  /** O programa a depurar: num projecto (ou workspace) Cargo, constrói-o e usa o binário em
+   *  target/debug/; noutro, pergunta pelo executável. */
+  async function chooseProgram(root: string): Promise<string | null> {
+    const pre = workspace.fsRoot(), tomls: Record<string, string> = {};
+    for (const k of workspace.keys()) if (k.startsWith(pre) && /(^|\/)Cargo\.toml$/.test(k) && !/\/target\//.test(k)) tomls[k.slice(pre.length)] = workspace.content(k) || "";
+    if (workspace.content(pre + "Cargo.toml") != null) {
+      const bins = cargoTargets(tomls, (rel) => workspace.content(pre + rel) != null);
+      if (!bins.length) { store.setMessage("Este projecto Cargo não tem binários (só bibliotecas): não há programa para correr. Depura através de um binário ou de um exemplo."); return null; }
+      const bin = bins.length > 1 ? await picker.choose("Que binário depurar?", bins) : bins[0] ?? null;
+      if (!bin) return null;
+      store.setMessage("A construir com «cargo build»…"); view.refresh();
+      const b = await workspace.exec("cargo build");
+      if (!b.ok) { store.setMessage("O «cargo build» falhou — corrige os erros e tenta de novo:\n" + b.out.slice(-2000)); return null; }
+      return root.replace(/\/$/, "") + "/target/debug/" + bin;
     }
-    shell.setPanelTab("dbg"); view.renderPane();
+    const p = await picker.ask("Caminho do executável a depurar (compilado com informação de depuração, p.ex. -g)");
+    if (!p || !p.trim()) return null;
+    return p.trim().startsWith("/") ? p.trim() : root.replace(/\/$/, "") + "/" + p.trim();
   }
 
-  function dbgApplyClone(): void {
-    if (human.owns("code")) { notifier.toast("Code is yours in this project — make the change yourself"); dbgFeed("think", `Make the change yourself on line ${lexer.line(/for c in/)}: <code>for c in chars.clone() {</code>, then press <kbd>F5</kbd>.`); editor.openPath(workspace.lexPath(), lexer.line(/for c in/)); view.draw(); return; }
-    checkpoint.snapshot("Before trying rustc's .clone() suggestion"); workspace.writeFile(workspace.lexPath(), workspace.fileContent(workspace.lexPath()).replace("for c in chars {", "for c in chars.clone() {")); logger.log("debug", "applied rustc's .clone() suggestion to observe it"); startDebug("lexer");
-  }
-
-  function dbgStep(): void {
-    const d = store.session(); if (!d || d.kind === "pre") return; if (d.i >= d.steps.length - 1) { dbgFinish(); return; } d.i++; const s = d.steps[d.i]; if (s.h) d.h = s.h;
-    if (d.kind === "ops") { dbgFeed("cmd", `<pre class="notr">$ ${esc((s as OpsStep).cmd)}\n${esc((s as OpsStep).out)}</pre>`); dbgFeed(d.i === d.steps.length - 1 ? "evidence" : "think", s.n); } else dbgFeed((s as CodeStep).ev ? "evidence" : "think", `<span class="dbg-ln">line ${(s as CodeStep).l}</span> ${s.n}`);
-    d.focus = s.focus; if (d.i >= d.steps.length - 1) dbgFinish(); view.refresh();
-  }
-
-  function dbgContinue(): void {
-    const d0 = store.session(); if (!d0) { startDebug(); return; } if (d0.kind !== "code") { dbgStep(); return; } const d = d0, steps = d.steps as CodeStep[], from = d.i, lx = workspace.lexPath(), BPS = store.breakpoints();
-    do {
-      d.i++; if (d.i >= steps.length) { d.i = steps.length - 1; dbgFinish(); view.refresh(); return; } const s = steps[d.i]; if (s.h) d.h = s.h;
-      if (s.focus === "how the loop consumes chars" && !BPS.has(bpKey(lx, s.l))) dbgFeed("think", `<span class="dbg-ln">line ${s.l} · passed</span> ${s.n}`);
-      if (BPS.has(bpKey(lx, s.l)) || d.i === steps.length - 1) { const skipped = d.i - from - 1; if (skipped > 0) dbgFeed("look", `Ran ${skipped} step(s) to the next breakpoint.`); dbgFeed(s.ev ? "evidence" : "think", `<span class="dbg-ln">line ${s.l}</span> ${s.n}`); d.focus = s.focus; if (d.i >= steps.length - 1) dbgFinish(); break; }
-    } while (true);
+  /** Depois de cada paragem: o programa saiu, ou mostra onde parou com as variáveis e a pilha. */
+  async function applyStop(id: string, st: Stop): Promise<void> {
+    const s = store.session();
+    if (!s || s.id !== id) return;
+    if (st.exited || !st.stopped) {
+      await dbg.stop(id).catch(() => undefined);
+      store.setSession(null);
+      store.setMessage(st.exited ? `O programa terminou${st.exitCode != null ? ` com o código ${st.exitCode}` : ""}.` : `A execução não parou num ponto conhecido (${st.reason || "sem razão"}).`);
+      view.refresh();
+      return;
+    }
+    const [locals, stack] = await Promise.all([dbg.locals(id).catch(() => []), dbg.stack(id).catch(() => [])]);
+    store.setSession({ ...s, status: "stopped", stop: st, locals, stack });
+    store.setMessage("");
+    const key = fsKeyFor(st.file, workspace.root() || "", workspace.fsRoot());
+    if (key && workspace.content(key) != null) editor.openPath(key, st.line);
     view.refresh();
   }
 
-  function dbgFinish(): void { const d = store.session(); if (!d || d.done) return; d.done = true; const end = d.end; if (!end) return; dbgFeed(end.ok ? "ok" : "root", `<b>${end.t}.</b> ${end.b}`); logger.log("debug", end.t); }
-
-  function dbgStop(): void { store.setSession(null); shell.setVar("--panel-h", "230px"); view.refresh(); }
-
-  function dbgFix(): void {
-    const d = store.session(); if (!d || !d.end || !d.end.fix) return; const fix = d.end.fix; if (human.owns("code")) { notifier.toast("Code is yours in this project — apply the fix yourself"); editor.openPath(workspace.lexPath(), lexer.line(/for c in/)); return; }
-    const old = workspace.fileContent(workspace.lexPath()), nw = fix(old); notifier.dlg({ title: "Apply the fix?", body: `<p>The Debug assistant proposes one line on <code>crates/lexer/src/lib.rs</code>:</p><pre class="notr">- ${esc(old.split("\n").find((l) => /for c in/.test(l))!.trim())}\n+ ${esc(nw.split("\n").find((l) => /for c in/.test(l))!.trim())}</pre><p>Then it re-runs the test under the debugger to confirm.</p>`, ok: "Apply and re-run", onOk: () => { checkpoint.snapshot("Before the Debug assistant fix"); workspace.writeFile(workspace.lexPath(), nw); startDebug("lexer"); } });
+  async function guarded(f: () => Promise<void>): Promise<void> {
+    if (busy) return;
+    busy = true;
+    try { await f(); } catch (e) { fail(e); const s = store.session(); if (s) { await dbg.stop(s.id).catch(() => undefined); store.setSession(null); } view.refresh(); } finally { busy = false; }
   }
 
-  function toggleBp(p: string, l: number): void { store.hydrate(); const BPS = store.breakpoints(), k = bpKey(p, l); BPS.has(k) ? BPS.delete(k) : BPS.add(k); store.save(); view.refresh(); const t = editor.currentTab(); if (t && t.path === p) editor.paintEd(p); }
+  async function startDebug(): Promise<void> {
+    store.hydrate();
+    const s0 = store.session();
+    if (s0 && s0.status === "stopped") return dbgContinue();
+    if (s0) return;
+    shell.goPane("debug");
+    const root = workspace.root();
+    if (!root) { store.setMessage("Abre uma pasta (File → Open Folder…) para depurar o projecto."); view.refresh(); return; }
+    await guarded(async () => {
+      if (!(await dbg.available())) { store.setMessage(NO_GDB); view.refresh(); return; }
+      const program = await chooseProgram(root);
+      if (!program) { view.refresh(); return; }
+      const id = deps.newId();
+      store.setSession({ id, program, status: "starting", stop: null, locals: [], stack: [] }); store.setMessage(""); view.refresh();
+      await dbg.launch(id, program, root);
+      for (const b of store.breakpoints()) await dbg.breakAt(id, relOf(bpPath(b), workspace.fsRoot()), +bpLine(b));
+      const s = store.session()!; store.setSession({ ...s, status: "running" }); view.refresh();
+      await applyStop(id, await dbg.run(id));
+    });
+  }
 
-  return { startDebug, dbgFeed, dbgApplyClone, dbgStep, dbgContinue, dbgFinish, dbgStop, dbgFix, toggleBp };
+  async function resume(f: (id: string) => Promise<Stop>): Promise<void> {
+    const s = store.session();
+    if (!s || s.status !== "stopped") { notifier.toast(s ? "Espera que a execução pare" : "Não há uma sessão de depuração — F5 para começar"); return; }
+    await guarded(async () => { store.setSession({ ...s, status: "running" }); view.refresh(); await applyStop(s.id, await f(s.id)); });
+  }
+
+  const dbgContinue = (): Promise<void> => resume((id) => dbg.cont(id));
+  const dbgStep = (into = false): Promise<void> => resume((id) => dbg.step(id, into));
+
+  async function dbgStop(): Promise<void> {
+    const s = store.session();
+    if (!s) { notifier.toast("Não há uma sessão de depuração"); return; }
+    await dbg.stop(s.id).catch(() => undefined);
+    store.setSession(null); store.setMessage("Sessão terminada."); view.refresh();
+  }
+
+  function toggleBp(p: string, l: number): void {
+    store.hydrate();
+    const BPS = store.breakpoints(), k = bpKey(p, l), adding = !BPS.has(k);
+    if (adding) BPS.add(k); else BPS.delete(k);
+    store.save(); view.refresh();
+    const t = editor.currentTab(); if (t && t.path === p) editor.paintEd(p);
+    /* durante a sessão, um breakpoint novo vai já para o gdb (tirar um precisa do número do gdb:
+       fica para a próxima sessão) */
+    const s = store.session();
+    if (adding && s && s.status === "stopped") void dbg.breakAt(s.id, relOf(p, workspace.fsRoot()), l).catch(fail);
+  }
+
+  return { startDebug, dbgContinue, dbgStep, dbgStop, toggleBp };
 }

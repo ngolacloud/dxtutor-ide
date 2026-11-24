@@ -94,11 +94,12 @@ describe("motor de contribuições", () => {
 
   test("o motor de extensões instala o VSIX com o resumo das contribuições e os temas na paleta", async () => {
     const { contrib } = setup();
-    const state: ExsState = { inst: {}, vsix: [] };
+    const state: ExsState = { inst: {}, vsix: [], builtin: {} };
     const CMD: Array<[string, string, (() => unknown)?, string?]> = [];
     const toasts: string[] = [];
     const engine = makeExtEngine({
-      catalogue: [],
+      catalogue: () => [],
+      remote: () => null,
       state: { read: () => state },
       storage: { save: () => {} },
       palette: { entries: () => CMD },

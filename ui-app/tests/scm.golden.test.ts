@@ -16,17 +16,17 @@ import { bootApp, golden } from "./harness";
  * domínio/aplicação se prove byte-a-byte idêntica.
  *
  * Determinismo: o relógio é FIXADO (`setSystemTime`) antes de `bootApp`, porque
- * `loadSeed()` chama `gitInit()` (que carimba `Date.now()` em cada commit do DAG
+ * o harness chama `gitInit()` (que carimba `Date.now()` em cada commit do DAG
  * semeado) e `renderScmPane` mostra `rel(c.t)` (tempo relativo) no `title` dos
- * commits — ambos passam a ser estáveis. O workspace é semeado (VITE_SEED=1 fixo
- * em vitest.config.ts) e `loadSeed` deixa três ficheiros sujos deterministas
+ * commits — ambos passam a ser estáveis. O workspace é a fixture `sample-workspace`,
+ * que deixa três ficheiros sujos deterministas
  * (styles.css M, assistant.ts M, theme.css U). Timers falsos só para neutralizar
  * o polling de arranque (não há relógio a caracterizar).
  *
  * Chamamos `renderScmPane`/`graphLayout`/`changes`/`stOf`/`isFlow`/`authorOf`/
  * `checkout`/`gfStart` DIRECTAMENTE por global: o motor vive em scm.ts (inversão
  * de direcção já feita), o harness exclui v5/v6, logo não há shims a interferir —
- * são as funções a extrair. `gitInit` corre dentro de `loadSeed` (no `bootApp`),
+ * são as funções a extrair. `gitInit` corre no `bootApp`, depois da fixture,
  * pelo que o DAG está semeado e `BRANCH === 'develop'` à entrada. */
 
 let w: any;
@@ -38,7 +38,7 @@ function paneGolden(): string {
 
 beforeEach(async () => {
   vi.useFakeTimers();
-  // Relógio fixo ANTES do boot: loadSeed()->gitInit() e rel() ficam deterministas.
+  // Relógio fixo ANTES do boot: gitInit() e rel() ficam deterministas.
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
   w = await bootApp();
 });

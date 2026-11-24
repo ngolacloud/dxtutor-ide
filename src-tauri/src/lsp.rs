@@ -391,6 +391,27 @@ fn augmented_path() -> String {
     extra.join(":")
 }
 
+/// Pastas abertas na app (registadas por `lsp_start`). São a raiz de reserva de um ficheiro
+/// que não está dentro de nenhum projecto com marcador — um `Main.java` solto, um `.sql`
+/// (o SQL não tem marcador nenhum) — para o servidor arrancar à mesma.
+fn workspace_roots() -> &'static Mutex<HashSet<String>> {
+    static W: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    W.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// A pasta aberta mais funda que contém `path` (`None` se o ficheiro está fora de todas).
+fn fallback_root(path: &str, roots: &HashSet<String>) -> Option<String> {
+    roots
+        .iter()
+        .filter(|r| {
+            let r = r.trim_end_matches('/');
+            path.strip_prefix(r)
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
+        .max_by_key(|r| r.len())
+        .map(|r| r.trim_end_matches('/').to_string())
+}
+
 /// Nearest ancestor directory of `path` holding any of `markers` (the file's project root).
 fn project_root_for(path: &str, markers: &[&str]) -> Option<String> {
     let mut dir = std::path::Path::new(path).parent();
@@ -567,6 +588,16 @@ fn wait_ready(session: &Arc<Mutex<Session>>, budget: Duration) {
     }
 }
 
+/// Opções de arranque (`initializationOptions`) por linguagem. O jdtls tem o signatureHelp
+/// DESLIGADO por omissão: sem `java.signatureHelp.enabled` responde sempre sem assinaturas
+/// (medido directamente contra o jdtls 1.61). Os outros servidores não precisam de nada.
+fn init_options(lang: &str) -> Value {
+    match lang {
+        "java" => json!({ "settings": { "java": { "signatureHelp": { "enabled": true } } } }),
+        _ => Value::Null,
+    }
+}
+
 fn capabilities() -> Value {
     json!({
         "textDocument": {
@@ -575,6 +606,24 @@ fn capabilities() -> Value {
             "references": {},
             "hover": { "contentFormat": ["markdown", "plaintext"] },
             "rename": { "prepareSupport": true },
+            // A UI (features/lsp) expande os snippets ($1, ${1:x}) e aplica os additionalTextEdits.
+            "completion": {
+                "completionItem": {
+                    "snippetSupport": true,
+                    "documentationFormat": ["markdown", "plaintext"],
+                    "insertReplaceSupport": false
+                },
+                "contextSupport": true
+            },
+            // A UI (features/lsp) mostra a assinatura com o parâmetro activo realçado.
+            "signatureHelp": {
+                "signatureInformation": {
+                    "documentationFormat": ["markdown", "plaintext"],
+                    "parameterInformation": { "labelOffsetSupport": true },
+                    "activeParameterSupport": true
+                },
+                "contextSupport": true
+            },
             "publishDiagnostics": { "relatedInformation": true }
         },
         // `window.workDoneProgress` is MANDATORY for server-initiated progress: without it
@@ -663,7 +712,8 @@ fn get_or_start(
             "processId": null,
             "rootUri": uri,
             "workspaceFolders": [{ "uri": uri, "name": "root" }],
-            "capabilities": capabilities()
+            "capabilities": capabilities(),
+            "initializationOptions": init_options(lang.id)
         }),
     )?;
     session_notify(&session, "initialized", json!({}))?;
@@ -689,7 +739,9 @@ fn session_for(
     let Some(lang) = lang_for_path(path) else {
         return Ok(None);
     };
-    let Some(root) = project_root_for(path, lang.markers) else {
+    let Some(root) = project_root_for(path, lang.markers)
+        .or_else(|| fallback_root(path, &workspace_roots().lock().unwrap()))
+    else {
         return Ok(None);
     };
     let (program, args) = match server_cmd(lang.id) {
@@ -719,7 +771,46 @@ fn semantic(session: &Arc<Mutex<Session>>, method: &str, params: Value) -> Resul
     Ok(res)
 }
 
+/// Se o servidor de linguagem de um ficheiro está instalado: sem servidor, `session_for` não abre
+/// sessão e não dá erro — o editor ficaria calado. A UI pergunta isto para avisar o que falta e
+/// como o instalar.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerStatus {
+    /// O id da linguagem (`java`, `kotlin`, …).
+    pub language: String,
+    /// O servidor que o dxtutor procura (`jdtls`, `kotlin-language-server`, …).
+    pub server: String,
+    pub installed: bool,
+    /// Porque não foi encontrado (a mensagem de `server_cmd`).
+    pub problem: Option<String>,
+}
+
+/// O estado do servidor da linguagem de `path` (`None` se o ficheiro não tem servidor conhecido).
+/// Resolve-o exactamente como uma sessão o resolveria (`server_cmd`: PATH aumentado + pistas).
+pub fn server_status(path: &str) -> Option<ServerStatus> {
+    let lang = lang_for_path(path)?;
+    let (installed, problem) = match server_cmd(lang.id) {
+        Ok(_) => (true, None),
+        Err(e) => (false, Some(e)),
+    };
+    Some(ServerStatus {
+        language: lang.id.into(),
+        server: lang.server_label.into(),
+        installed,
+        problem,
+    })
+}
+
 // ── Commands — all async: the blocking work runs on spawn_blocking, off the UI thread. ──
+
+/// Se o servidor de linguagem do ficheiro está instalado (para a UI avisar quando falta).
+#[tauri::command]
+pub async fn lsp_server_status(path: String) -> Result<Option<ServerStatus>, String> {
+    tauri::async_runtime::spawn_blocking(move || server_status(&path))
+        .await
+        .map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 pub async fn lsp_start(
@@ -728,6 +819,10 @@ pub async fn lsp_start(
     root: String,
 ) -> Result<(), String> {
     let map = state.0.clone();
+    workspace_roots()
+        .lock()
+        .unwrap()
+        .insert(root.trim_end_matches('/').to_string());
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         // Warm up every language whose project marker sits AT the opened folder, so the
         // (possibly minutes-long) first index starts before the student navigates.
@@ -860,6 +955,67 @@ pub async fn lsp_hover(
         // it answer (it returns null fast while still indexing). Gating on `ready` here was a
         // bug: a server whose end-of-index signal we don't yet recognise would never hover.
         session_request(&session, "textDocument/hover", pos(&path, line, character))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Sugestões de completion na posição (`textDocument/completion`). Como o hover, nunca espera
+/// pelo fim da indexação: chega enquanto se escreve, e o servidor responde com o que tiver.
+/// `trigger_character` (ex. `.`) quando foi esse carácter que abriu a lista.
+#[tauri::command]
+pub async fn lsp_completion(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+    trigger_character: Option<String>,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        let mut p = pos(&path, line, character);
+        p["context"] = match trigger_character {
+            Some(c) if !c.is_empty() => json!({ "triggerKind": 2, "triggerCharacter": c }),
+            _ => json!({ "triggerKind": 1 }),
+        };
+        session_request(&session, "textDocument/completion", p)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// A assinatura da chamada em que está o cursor (`textDocument/signatureHelp`). Como o hover,
+/// não espera pelo fim da indexação. `trigger_character` (`(` ou `,`) quando foi esse carácter
+/// que a pediu; `is_retrigger` quando a assinatura já estava à vista (o servidor pode manter a
+/// escolhida entre sobrecargas).
+#[tauri::command]
+pub async fn lsp_signature_help(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+    trigger_character: Option<String>,
+    is_retrigger: Option<bool>,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        let mut p = pos(&path, line, character);
+        let retrigger = is_retrigger.unwrap_or(false);
+        p["context"] = match trigger_character {
+            Some(c) if !c.is_empty() => {
+                json!({ "triggerKind": 2, "triggerCharacter": c, "isRetrigger": retrigger })
+            }
+            _ => json!({ "triggerKind": if retrigger { 3 } else { 1 }, "isRetrigger": retrigger }),
+        };
+        session_request(&session, "textDocument/signatureHelp", p)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1059,6 +1215,45 @@ mod diag_tests {
 #[cfg(test)]
 mod phase4_lang_tests {
     use super::*;
+
+    #[test]
+    fn jdtls_starts_with_signature_help_enabled() {
+        assert_eq!(
+            init_options("java")["settings"]["java"]["signatureHelp"]["enabled"],
+            true
+        );
+        assert!(init_options("kotlin").is_null());
+        assert!(capabilities()["textDocument"]["signatureHelp"].is_object());
+    }
+
+    #[test]
+    fn server_status_names_the_language_and_server() {
+        assert_eq!(server_status("/w/notes.txt"), None);
+        let st = server_status("/w/src/Main.java").unwrap();
+        assert_eq!(
+            (st.language.as_str(), st.server.as_str()),
+            ("java", "jdtls")
+        );
+        // instalado ou não depende da máquina; sem servidor, diz porquê
+        assert_eq!(st.installed, st.problem.is_none());
+    }
+
+    #[test]
+    fn a_file_without_a_project_marker_falls_back_to_the_open_folder() {
+        let roots: HashSet<String> = ["/w/proj".to_string(), "/w/proj/sub/".to_string()].into();
+        assert_eq!(
+            fallback_root("/w/proj/q.sql", &roots).as_deref(),
+            Some("/w/proj")
+        );
+        // a pasta aberta mais funda ganha
+        assert_eq!(
+            fallback_root("/w/proj/sub/A.java", &roots).as_deref(),
+            Some("/w/proj/sub")
+        );
+        // um prefixo de nome não é uma pasta-mãe; fora de todas → None
+        assert_eq!(fallback_root("/w/project/x.sql", &roots), None);
+        assert_eq!(fallback_root("/elsewhere/x.sql", &roots), None);
+    }
 
     #[test]
     fn the_new_learning_track_languages_map_to_their_servers() {

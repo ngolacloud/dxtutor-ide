@@ -219,8 +219,10 @@ tendência da taxa de sucesso, testes instáveis (mudanças de resultado nas úl
 O pane mostra os runners, os resultados por suite com duração, o detalhe da falha (mensagem e saída), correr um
 teste só, «Watch» (os afectados a cada gravação), e pede ao Co-Dev pelo `codev.ask`: explicar a falha, corrigir
 (o agente propõe os hunks no editor, como no item 6), escrever o teste em falta do ficheiro aberto e a causa
-provável de um teste instável. A lista sintáctica da A0.5 fica como «Tests in the code» e acende-se com os
-resultados dos runners. Por fazer: TEST-02 (registo de comandos e snapshots dos artefactos do Playwright/Cypress),
+provável de um teste instável. Vive na feature `features/testing/` (PR #6, ADR-0006 R2a): `domain/runs.ts`,
+`application/runs-service.ts` (uma corrida de cada vez, também contra as da descoberta), `ui/runs-view.ts`,
+`styles.css`; a lista sintáctica (`list_tests`) fica por baixo como «Tests in the code» e acende-se com os
+resultados dos runners. Sem runners (ou com um backend sem os comandos), o pane fica exactamente como antes. Por fazer: TEST-02 (registo de comandos e snapshots dos artefactos do Playwright/Cypress),
 cobertura (`cargo llvm-cov`/`c8`/`coverage.py`/`go test -cover`) e latências (`criterion`/`k6`/`-bench`) do
 TEST-03, `cargo nextest`, `odoo --test-tags`, tags, e o watch pelo watcher de ficheiros do backend (hoje é pelas
 gravações do editor).

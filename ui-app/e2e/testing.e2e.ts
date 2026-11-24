@@ -81,7 +81,7 @@ test("the Testing pane: real runners, results by suite, failure detail, history 
   await expect(pane).toContainText("No runs kept yet");
 
   // run all: per-test results by suite, then the history cards
-  await pane.locator('[data-action="test-runner-all"][data-on="cargo:."]').click();
+  await pane.locator('[data-action="runner-all"][data-on="cargo:."]').click();
   await expect(pane.locator(".tr-case")).toHaveCount(3);
   await expect(pane.locator(".tr-sum")).toContainText("1 passed");
   await expect(pane.locator(".tr-sum")).toContainText("1 failed");
@@ -90,23 +90,23 @@ test("the Testing pane: real runners, results by suite, failure detail, history 
   expect((await calls(page, "test_run")).at(-1)).toEqual({ root: "/proj", runner: "cargo:.", scope: { kind: "all" } });
 
   // the failure's detail
-  await pane.locator('[data-action="test-case-sel"][data-on="cargo:.|cargo:lexer::tests::eof"]').click();
+  await pane.locator('[data-action="case-select"][data-on="cargo:.|cargo:lexer::tests::eof"]').click();
   await expect(pane.locator(".tr-msg")).toContainText("left: 3");
   await expect(pane.locator(".tr-detail .tr-out")).toContainText("src/lib.rs:20:9");
   await page.screenshot({ path: test.info().outputPath("a6-testing.png") });
 
   // one test on its own, with the name cargo needs
-  await pane.locator('[data-action="test-case-run"][data-on="cargo:.|cargo:lexer::tests::eof"]').click();
+  await pane.locator('[data-action="case-run"][data-on="cargo:.|cargo:lexer::tests::eof"]').click();
   await expect.poll(async () => (await calls(page, "test_run")).at(-1)).toEqual({ root: "/proj", runner: "cargo:.", scope: { kind: "case", name: "tests::eof" } });
   await expect(pane.locator(".tr-sum")).toContainText("2 passed");
 
   // affected tests: the backend takes the files from git
-  await pane.locator('[data-action="test-runner-changed"][data-on="cargo:."]').click();
+  await pane.locator('[data-action="runner-changed"][data-on="cargo:."]').click();
   await expect.poll(async () => (await calls(page, "test_run")).at(-1)).toEqual({ root: "/proj", runner: "cargo:.", scope: { kind: "changed", files: [] } });
 
   // «Fix with Co-Dev» sends the failure to the agent
-  await pane.locator('[data-action="test-case-sel"][data-on="cargo:.|cargo:lexer::tests::eof"]').click();
-  if (!(await pane.locator(".tr-detail").count())) await pane.locator('[data-action="test-case-sel"][data-on="cargo:.|cargo:lexer::tests::eof"]').click();
-  await pane.locator('[data-action="test-ask"][data-on="fix|cargo:.|cargo:lexer::tests::eof"]').click();
+  await pane.locator('[data-action="case-select"][data-on="cargo:.|cargo:lexer::tests::eof"]').click();
+  if (!(await pane.locator(".tr-detail").count())) await pane.locator('[data-action="case-select"][data-on="cargo:.|cargo:lexer::tests::eof"]').click();
+  await pane.locator('[data-action="ask-failure"][data-on="fix|cargo:.|cargo:lexer::tests::eof"]').click();
   await expect.poll(async () => JSON.stringify(await calls(page, "codev_agent_send"))).toContain("tests::eof");
 });

@@ -1,0 +1,68 @@
+/* estilos da feature editor — saíram do styles.css por dono (ADR-0004, U6a); a ordem entre ficheiros está em src/app/styles.ts */
+  /* Editor */
+  .edit{display:grid;grid-template-rows:36px 24px 1fr var(--panel-h);min-width:0;background:var(--bg-editor)}
+  .tabs{display:flex;background:var(--bg-tab-inactive);border-bottom:1px solid var(--seam);overflow-x:auto}
+  .tabs::-webkit-scrollbar{height:0}
+  .tab{display:flex;align-items:center;gap:7px;padding:0 11px;height:36px;font-size:12.5px;color:var(--fg-muted);border-right:1px solid var(--seam);flex:none;max-width:220px}
+  .tab:hover{color:var(--fg)} .tab.active{background:var(--bg-editor);color:var(--fg);position:relative}
+  .tab.active::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:var(--accent-grad)}
+  .tab .ic.rs{color:#dea584}.tab .ic.css{color:var(--blue)}.tab .ic.chat{color:var(--accent-hover)}
+  .tab .x{width:17px;height:17px;display:grid;place-items:center;border-radius:5px;color:var(--fg-muted);margin-left:1px}
+  .tab .x:hover{background:var(--bg-hover);color:var(--fg)}
+  .tab .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .breadcrumbs{display:flex;align-items:center;gap:5px;padding:0 14px;font-size:11.5px;color:var(--fg-muted);border-bottom:1px solid var(--seam);background:var(--bg-editor)}
+  .breadcrumbs .sep{opacity:.5}
+  .breadcrumbs .crumb:hover{color:var(--fg)}
+  .breadcrumbs .crumb.cur{color:var(--fg)}
+  .ebody{overflow:hidden;position:relative}
+  .doc{display:none;min-height:100%}.doc.show{display:block}
+  .code{font-family:var(--font-mono);font-size:13px;line-height:1.7;padding:14px 0}
+  .cl{display:flex}
+  .cl .ln{width:46px;flex:none;text-align:right;padding-right:16px;color:var(--fg-muted);opacity:.5;user-select:none}
+  .cl .tx{white-space:pre}
+  .kw{color:var(--purple)}.fn{color:var(--blue)}.str{color:var(--git-u)}.ty{color:var(--cyan)}
+  .cm{color:var(--fg-muted);font-style:italic}.mac{color:var(--accent-hover)}.num{color:var(--accent-hover)}
+  .err{background:rgba(241,112,122,.08);box-shadow:inset 2px 0 0 var(--red)}
+  .ct-dot{width:9px;height:9px;border:1.3px solid var(--red);border-radius:2px;flex:none}
+  .dk-row{padding-left:8px}.dk-row.sub{padding-left:30px}
+  .dk-ic{color:var(--fg-dim)}
+  .dk-fixed{flex:none}
+  .dk-path{margin-left:8px;overflow:hidden;text-overflow:ellipsis}
+  /* minimap */
+  .minimap{position:absolute;top:0;right:0;bottom:0;width:66px;background:rgba(0,0,0,.14);border-left:1px solid var(--seam);padding:8px 7px;display:flex;flex-direction:column;gap:2px;pointer-events:none}
+  .mm-line{height:2px;border-radius:1px;background:var(--fg-muted);opacity:.45}
+  .mm-line.err{background:var(--red);opacity:.8}
+  .mm-view{position:absolute;left:0;right:0;top:8px;height:64px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.06)}
+  .ebody-scroll{position:absolute;inset:0;overflow:auto}
+  .ebody-scroll.with-mm{right:66px}
+  .minimap.hidden{display:none}
+  .tab .ic{display:grid;place-items:center;flex:none}.tab .ic.acc{color:var(--accent-hover)}
+
+  /* editor editável */
+  .ed{display:flex;font-family:var(--font-mono);font-size:13px;line-height:22px;padding-top:12px;min-height:100%;tab-size:4}
+  .ed-gut{width:52px;flex:none;text-align:right;padding-right:16px;color:var(--fg-muted);user-select:none}
+  .ed-gut div{height:22px;opacity:.55}.ed-gut .g-e{color:var(--red);opacity:1}.ed-gut .g-w{color:var(--yellow);opacity:1}
+  .ed-wrap{position:relative;flex:1;min-width:max-content}
+  .ed-hl{white-space:pre;padding-bottom:140px;padding-right:40px}
+  .ed-hl .l{height:22px}
+  .ed-hl .l.d-e{background:rgba(241,112,122,.09);box-shadow:inset 2px 0 0 var(--red)}
+  .ed-hl .l.d-w{background:rgba(224,182,74,.07);box-shadow:inset 2px 0 0 var(--yellow)}
+  .ed-hl .cm{font-style:normal}
+  .ed-ta{position:absolute;inset:0;width:100%;height:100%;background:transparent;color:transparent;caret-color:var(--fg-bright);border:0;outline:0;resize:none;overflow:hidden;font:inherit;line-height:22px;white-space:pre;padding:0;tab-size:4;user-select:text}
+  .ed-ta::selection{background:rgba(74,158,255,.3)}
+  /* live Co-Dev hunks in the editor (docs/v2/RF-CODEV-STREAM.md §8) */
+  .ed-hl .l.hk-old{background:rgba(241,112,122,.09);box-shadow:inset 2px 0 0 var(--red);text-decoration:line-through;text-decoration-color:rgba(241,112,122,.55)}
+  .ed-hl .l.hk-new{background:rgba(87,196,129,.09);box-shadow:inset 2px 0 0 var(--green)}
+  .ed-hl .l.hk-writing{background:rgba(87,196,129,.2)}
+  .ed-hl .l.hk-writing::after{content:"Co-Dev";margin-left:10px;padding:0 6px;border-radius:4px;font:600 10px/16px var(--font-ui);background:var(--green);color:var(--bg-editor);vertical-align:1px}
+  .ed-gut .hk-old{color:var(--red);opacity:1}.ed-gut .hk-new{color:var(--green);opacity:1}
+  /* debug */
+  .ed-gut div{cursor:pointer;position:relative}.ed-gut div:hover::before{content:"";position:absolute;left:8px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--red);opacity:.35}
+  .ed-gut div.bp::before{content:"";position:absolute;left:8px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--red);opacity:1}
+  .ed-gut div.dbg-cur{color:var(--yellow);opacity:1}.ed-hl .l.dbg-cur{background:rgba(224,182,74,.16);box-shadow:inset 3px 0 0 var(--yellow)}
+  /* actions, review, hood */
+  .ed-acts{margin-left:auto;display:flex;gap:2px}.ed-acts button{display:flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:5px;color:var(--fg-muted);font-size:11.5px}
+  .ed-acts button:hover{background:var(--bg-hover);color:var(--accent-hover)}.ed-acts svg{width:13px;height:13px}
+  @media(max-width:1300px){.ed-acts span{display:none}}
+  .op-l{white-space:pre-wrap;word-break:break-word}.op-l.error{color:var(--red)}.op-l.warn{color:var(--yellow)}
+  .op-t{color:var(--fg-muted);margin-right:10px;user-select:none}
