@@ -8,11 +8,11 @@
    do antigo ui-next (removido em e2a89b3), agora tipado e em camadas. */
 
 import { VIEW } from "../../app/store/registry";
-import { isKind } from "./domain/design";
 import { makeArchStudio } from "./application/studio";
 import type { Repaint } from "./application/ports";
 import { makeArchView } from "./ui/view";
 import { bindActions } from "./ui/actions";
+import { archActions } from "./ui/table";
 import { tauriArchGateway } from "./infrastructure/tauri";
 import { designStore, openTab, workspace } from "./infrastructure/legacy-bridge";
 
@@ -27,24 +27,7 @@ view = makeArchView({ studio, root: workspace.root });
 
 VIEW.arch = (_t, host) => view!.mount(host);
 
-bindActions({
-  "arch-link": { on: "click", run: () => studio.toggleLinking() },
-  "arch-preview": { on: "click", run: () => void studio.preview() },
-  "arch-scaffold": { on: "click", run: () => void studio.scaffold() },
-  "arch-add": {
-    on: "click",
-    run: ({ on }) => {
-      if (!isKind(on)) return;
-      const name = (workspace.prompt("Component name:", "") ?? "").trim();
-      if (name) studio.add(on, name);
-    },
-  },
-  "arch-name": { on: "change", run: ({ on, value }) => studio.rename(on, value) },
-  "arch-kind": { on: "change", run: ({ on, value }) => { if (isKind(value)) studio.setKind(on, value); } },
-  "arch-outbox": { on: "change", run: ({ on, checked }) => studio.setOutbox(on, checked) },
-  "arch-del-conn": { on: "click", run: ({ on }) => studio.removeConnection(Number(on)) },
-  "arch-del": { on: "click", run: ({ on }) => studio.remove(on) },
-});
+bindActions(archActions(studio, workspace.prompt));
 
 /** Abre (ou foca) o separador do Studio de arquitectura. */
 export function openArch(): void {

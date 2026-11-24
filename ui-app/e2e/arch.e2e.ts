@@ -14,6 +14,8 @@ test("abre o Studio de arquitectura pela paleta, vazio, e desenha um componente"
 
   await page.keyboard.press("Control+Shift+P");
   await expect(page.locator("#pal")).toBeVisible();
+  // num arranque a frio, escrever antes de o campo ter o foco perde as teclas
+  await expect(page.locator("#pal input")).toBeFocused();
   await page.keyboard.type("System architecture");
   await page.keyboard.press("Enter");
 

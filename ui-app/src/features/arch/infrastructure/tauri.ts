@@ -8,9 +8,13 @@ import * as ipc from "../../../platform/tauri/arch";
 import type { ArchGateway } from "../application/ports";
 import type { Architecture, ArchFinding } from "../domain/types";
 
+/* O domínio e os DTOs coincidem campo a campo (toArchitecture já tira os campos vazios);
+   a cópia explícita faz uma mudança de contrato partir a compilação aqui. */
 const toDto = (a: Architecture): ipc.ArchitectureDto => ({
-  components: a.components.map(({ id, name, kind, outbox }) => ({ id, name, kind, outbox })),
-  connections: a.connections.map(({ from, to, relation, event }) => ({ from, to, relation, event })),
+  components: a.components.map((c) => ({ ...c })),
+  connections: a.connections.map((c) => ({ ...c })),
+  groups: a.groups.map((g) => ({ ...g })),
+  views: a.views.map((v) => ({ ...v, roots: [...v.roots] })),
 });
 
 const fromFinding = (f: ipc.ArchFindingDto): ArchFinding => ({
