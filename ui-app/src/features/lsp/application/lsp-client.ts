@@ -16,6 +16,7 @@ import { offsetToPosition, positionToOffset, wordAt } from "../domain/positions"
 import { allTargets, firstTarget, hoverBlocks, isIndexing, renameRange, uriToPath, workspaceEditFiles, type HoverBlock, type Target } from "../domain/results";
 import { applyTextEdits } from "../domain/edits";
 import { missingServerNotice, type ServerStatus } from "../domain/server-status";
+import { completionItems, wordStartAt, type CompletionItem } from "../domain/completion";
 import type { Defer, EditorPort, LspPort, WorkspacePort } from "./ports";
 
 export interface LspClientDeps {
@@ -23,7 +24,13 @@ export interface LspClientDeps {
   workspace: WorkspacePort;
   editor: EditorPort;
   defer: Defer;
+  /** Esperar (os testes passam uma que não espera). */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** Quantas vezes, e com que intervalo, repetir um rename que voltou vazio. */
+const RENAME_RETRIES = 2;
+const RENAME_RETRY_MS = 900;
 
 export interface LspClient {
   /** O separador activo mudou. */
@@ -40,6 +47,9 @@ export interface LspClient {
   prepareRenameAt(offset: number): Promise<RenameTarget | null>;
   /** Muda o nome do símbolo no offset e aplica as edições a todos os ficheiros da pasta. */
   renameAt(offset: number, newName: string): Promise<RenameResult | null>;
+  /** As sugestões de completion no offset do ficheiro activo (`null` se não há servidor).
+   *  `triggerCharacter` quando foi um carácter (ex. `.`) que abriu a lista. */
+  completionAt(offset: number, triggerCharacter: string | null): Promise<CompletionResult | null>;
   /** O servidor publicou diagnósticos para `uri`. */
   onDiagnostics(uri: string): void;
   /** Ficheiros abertos no servidor (caminho absoluto → versão), para inspecção. */
@@ -67,6 +77,14 @@ export interface RenameTarget {
   end: number;
 }
 
+export interface CompletionResult {
+  items: CompletionItem[];
+  /** O servidor quer ser perguntado de novo a cada tecla (a lista é parcial). */
+  incomplete: boolean;
+  /** Onde começa o nome que se está a escrever (o que o item vai substituir). */
+  wordStart: number;
+}
+
 export interface RenameResult {
   files: number;
   edits: number;
@@ -83,6 +101,8 @@ interface Doc {
 export function makeLspClient(d: LspClientDeps): LspClient {
   const started = new Set<string>();
   const versions = new Map<string, number>();
+  /** O último texto que o servidor recebeu de cada documento (para não repetir `didChange`). */
+  const sent = new Map<string, string>();
   /** O estado do servidor por linguagem (perguntado uma vez) e as linguagens cujo aviso se fechou. */
   const servers = new Map<string, Promise<ServerStatus | null>>();
   const dismissed = new Set<string>();
@@ -127,11 +147,13 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     const text = d.workspace.text(doc.key);
     if (text == null) return false;
     versions.set(doc.path, 1);
+    sent.set(doc.path, text);
     try {
       await d.lsp.didOpen(doc.path, text, doc.languageId);
       return true;
     } catch {
       versions.delete(doc.path);
+      sent.delete(doc.path);
       return false;
     }
   }
@@ -141,24 +163,47 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (doc) await ensureOpen(doc);
   }
 
-  async function onEdit(): Promise<void> {
-    const doc = docOf(d.workspace.currentFileKey());
-    if (!doc) return;
+  /** Dá ao servidor o texto actual do documento, se mudou desde o último que recebeu. */
+  async function sync(doc: Doc): Promise<void> {
     if (!versions.has(doc.path)) {
       await ensureOpen(doc);
       return;
     }
     const text = d.workspace.text(doc.key);
-    if (text == null) return;
+    if (text == null || sent.get(doc.path) === text) return;
     const version = (versions.get(doc.path) ?? 1) + 1;
     versions.set(doc.path, version);
+    sent.set(doc.path, text);
     await d.lsp.didChange(doc.path, text, version).catch(() => {});
+  }
+
+  async function onEdit(): Promise<void> {
+    const doc = docOf(d.workspace.currentFileKey());
+    if (doc) await sync(doc);
+  }
+
+  async function completionAt(offset: number, triggerCharacter: string | null): Promise<CompletionResult | null> {
+    const doc = docOf(d.workspace.currentFileKey());
+    if (!doc || !(await ensureOpen(doc))) return null;
+    // o pedido vem logo a seguir a uma tecla: o servidor tem de ter esse texto, não o de há 180 ms
+    await sync(doc);
+    const text = d.workspace.text(doc.key) ?? "";
+    const pos = offsetToPosition(text, offset);
+    try {
+      const { items, incomplete } = completionItems(await d.lsp.completion(doc.path, pos.line, pos.character, triggerCharacter));
+      return { items, incomplete, wordStart: wordStartAt(text, offset) };
+    } catch {
+      return null;
+    }
   }
 
   /** O ficheiro activo, aberto no servidor, e a posição LSP do offset. */
   async function at(offset: number): Promise<{ doc: Doc; line: number; character: number } | null> {
     const doc = docOf(d.workspace.currentFileKey());
     if (!doc || !(await ensureOpen(doc))) return null;
+    // o servidor tem de responder sobre o texto que se vê — o didChange normal só sai 180 ms
+    // depois da última tecla (escrever e carregar logo em F2 perguntava sobre o texto antigo)
+    await sync(doc);
     const text = d.workspace.text(doc.key) ?? "";
     return { doc, ...offsetToPosition(text, offset) };
   }
@@ -293,12 +338,20 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     const name = newName.trim();
     const p = await at(offset);
     if (!p || !name) return null;
-    let result: unknown;
-    try {
-      result = await d.lsp.rename(p.doc.path, p.line, p.character, name);
-    } catch (e) {
-      d.editor.notify(`Rename failed: ${String(e)}`);
-      return null;
+    // Logo depois de uma edição, o jdtls ainda está a reprocessar o documento e responde ao
+    // rename com `null`; uns instantes depois responde bem (medido no auto-teste). Um `null`
+    // pergunta-se de novo; uma resposta vazia mas não nula aceita-se à primeira.
+    const sleep = d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    let result: unknown = null;
+    for (let attempt = 0; attempt <= RENAME_RETRIES; attempt++) {
+      if (attempt) await sleep(RENAME_RETRY_MS);
+      try {
+        result = await d.lsp.rename(p.doc.path, p.line, p.character, name);
+      } catch (e) {
+        d.editor.notify(`Rename failed: ${String(e)}`);
+        return null;
+      }
+      if (result !== null && result !== undefined) break;
     }
     if (isIndexing(result)) {
       d.editor.notify("The language server is still indexing — try again in a moment");
@@ -331,6 +384,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
       if (f.path && versions.has(f.path)) {
         const v = (versions.get(f.path) ?? 1) + 1;
         versions.set(f.path, v);
+        sent.set(f.path, next);
         await d.lsp.didChange(f.path, next, v).catch(() => {});
       }
       d.editor.reload(key);
@@ -354,5 +408,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (doc) await serverOk(doc);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, onDiagnostics, opened: () => versions, onFileView };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, onDiagnostics, opened: () => versions, onFileView };
 }

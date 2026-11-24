@@ -596,6 +596,15 @@ fn capabilities() -> Value {
             "references": {},
             "hover": { "contentFormat": ["markdown", "plaintext"] },
             "rename": { "prepareSupport": true },
+            // A UI (features/lsp) expande os snippets ($1, ${1:x}) e aplica os additionalTextEdits.
+            "completion": {
+                "completionItem": {
+                    "snippetSupport": true,
+                    "documentationFormat": ["markdown", "plaintext"],
+                    "insertReplaceSupport": false
+                },
+                "contextSupport": true
+            },
             "publishDiagnostics": { "relatedInformation": true }
         },
         // `window.workDoneProgress` is MANDATORY for server-initiated progress: without it
@@ -926,6 +935,34 @@ pub async fn lsp_hover(
         // it answer (it returns null fast while still indexing). Gating on `ready` here was a
         // bug: a server whose end-of-index signal we don't yet recognise would never hover.
         session_request(&session, "textDocument/hover", pos(&path, line, character))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Sugestões de completion na posição (`textDocument/completion`). Como o hover, nunca espera
+/// pelo fim da indexação: chega enquanto se escreve, e o servidor responde com o que tiver.
+/// `trigger_character` (ex. `.`) quando foi esse carácter que abriu a lista.
+#[tauri::command]
+pub async fn lsp_completion(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    path: String,
+    line: u32,
+    character: u32,
+    trigger_character: Option<String>,
+) -> Result<Value, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let Some(session) = session_for(&map, &app, &path)? else {
+            return Ok(Value::Null);
+        };
+        let mut p = pos(&path, line, character);
+        p["context"] = match trigger_character {
+            Some(c) if !c.is_empty() => json!({ "triggerKind": 2, "triggerCharacter": c }),
+            _ => json!({ "triggerKind": 1 }),
+        };
+        session_request(&session, "textDocument/completion", p)
     })
     .await
     .map_err(|e| e.to_string())?

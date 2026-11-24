@@ -967,6 +967,7 @@ pub fn run() {
             lsp::lsp_definition,
             lsp::lsp_references,
             lsp::lsp_hover,
+            lsp::lsp_completion,
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,

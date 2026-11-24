@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { makeLspClient } from "../src/features/lsp/application/lsp-client";
 import type { EditorPort, LspPort, WorkspacePort } from "../src/features/lsp/application/ports";
 
-function setup(opts: { root?: string | null; files?: Record<string, string>; hover?: unknown; definition?: unknown; references?: unknown; prepare?: unknown; prepareThrows?: boolean; rename?: unknown; missing?: string[] } = {}) {
+function setup(opts: { root?: string | null; files?: Record<string, string>; hover?: unknown; definition?: unknown; references?: unknown; prepare?: unknown; prepareThrows?: boolean; rename?: unknown; renameSeq?: unknown[]; missing?: string[] } = {}) {
   const calls: string[] = [];
   let diagCb: (uri: string) => void = () => {};
   const files: Record<string, string> = opts.files ?? { "proj/src/Main.java": "class Main {\n  int x;\n}\n" };
@@ -20,7 +20,11 @@ function setup(opts: { root?: string | null; files?: Record<string, string>; hov
       if (opts.prepareThrows) throw new Error("method not found");
       return opts.prepare ?? null;
     },
-    rename: async (path, l, c, n) => (calls.push(`rename ${path} ${l}:${c} ${n}`), opts.rename ?? null),
+    rename: async (path, l, c, n) => {
+      calls.push(`rename ${path} ${l}:${c} ${n}`);
+      // `renameSeq`: respostas sucessivas (ex. null e depois edições, como o jdtls logo após editar)
+      return opts.renameSeq ? opts.renameSeq.shift() ?? null : opts.rename ?? null;
+    },
     onDiagnostics: (cb) => (diagCb = cb),
     serverStatus: async (path) => {
       const language = path.endsWith(".kt") ? "kotlin" : path.endsWith(".java") ? "java" : null;
@@ -52,7 +56,7 @@ function setup(opts: { root?: string | null; files?: Record<string, string>; hov
     notice: (k, n, onDismiss) => { notices.set(k, n ? n.title : null); dismiss = onDismiss; },
   };
   const deferred: (() => void)[] = [];
-  const client = makeLspClient({ lsp, workspace, editor, defer: (f) => deferred.push(f) });
+  const client = makeLspClient({ lsp, workspace, editor, defer: (f) => deferred.push(f), sleep: async () => {} });
   lsp.onDiagnostics((u) => client.onDiagnostics(u));
   const activate = (k: string | null) => {
     current = k;
@@ -75,15 +79,18 @@ describe("cliente LSP do editor", () => {
     expect(t.calls.filter((c) => c.startsWith("status "))).toEqual(["status java", "status kotlin"]); // uma vez por linguagem
   });
 
-  it("depois de editar envia didChange com versões crescentes", async () => {
+  it("depois de editar envia didChange com versões crescentes (e não repete o mesmo texto)", async () => {
     const t = setup();
     await t.activate("proj/src/Main.java");
     t.files["proj/src/Main.java"] += "// a";
     await t.client.onEdit();
+    const v2 = t.files["proj/src/Main.java"].length;
+    t.files["proj/src/Main.java"] += "b";
     await t.client.onEdit();
+    await t.client.onEdit(); // sem alterações: nada
     expect(t.calls.filter((c) => c.startsWith("change "))).toEqual([
-      `change /home/u/proj/src/Main.java v2 ${t.files["proj/src/Main.java"].length}`,
-      `change /home/u/proj/src/Main.java v3 ${t.files["proj/src/Main.java"].length}`,
+      `change /home/u/proj/src/Main.java v2 ${v2}`,
+      `change /home/u/proj/src/Main.java v3 ${v2 + 1}`,
     ]);
     expect(t.client.opened().get("/home/u/proj/src/Main.java")).toBe(3);
   });
@@ -164,6 +171,19 @@ describe("cliente LSP do editor", () => {
   });
 });
 
+describe("sincronização antes dos pedidos", () => {
+  it("rename logo depois de escrever (antes do didChange atrasado) pergunta sobre o texto novo", async () => {
+    const t = setup({ files: { "proj/src/Main.java": "class Main {}" }, rename: { changes: {} } });
+    await t.activate("proj/src/Main.java");
+    t.files["proj/src/Main.java"] = "class Main { int y; }";
+    await t.client.renameAt(17, "z");
+    const change = t.calls.findIndex((c) => c.startsWith("change"));
+    const rename = t.calls.findIndex((c) => c.startsWith("rename"));
+    expect(change).toBeGreaterThan(-1);
+    expect(change).toBeLessThan(rename);
+  });
+});
+
 describe("referências e rename no cliente", () => {
   const MAIN = "class Main {\n  int t = Util.add(1, 2);\n}\n";
   const UTIL = "class Util {\n  static int add(int a, int b) { return a + b; }\n}\n";
@@ -221,6 +241,20 @@ describe("referências e rename no cliente", () => {
     expect(t.calls.filter((c) => c.startsWith("change"))).toEqual([`change /home/u/proj/src/Main.java v2 ${MAIN.length}`]);
     expect(t.shown).toContain("reload proj/src/Main.java");
     expect(t.shown.at(-1)).toBe("notify Renamed to sum: 2 change(s) in 2 file(s) — 1 file(s) skipped");
+  });
+
+  it("rename que volta null (servidor ainda a reprocessar) é perguntado de novo; null persistente desiste", async () => {
+    const edits = { changes: { "file:///home/u/proj/src/Main.java": [{ range: { start: { line: 1, character: 15 }, end: { line: 1, character: 18 } }, newText: "sum" }] } };
+    const t = setup({ files: files(), renameSeq: [null, edits] });
+    await t.activate("proj/src/Main.java");
+    expect(await t.client.renameAt(MAIN.indexOf("add"), "sum")).toEqual({ files: 1, edits: 1, skipped: [] });
+    expect(t.calls.filter((c) => c.startsWith("rename"))).toHaveLength(2);
+
+    const never = setup({ files: files() });
+    await never.activate("proj/src/Main.java");
+    expect(await never.client.renameAt(MAIN.indexOf("add"), "sum")).toBeNull();
+    expect(never.calls.filter((c) => c.startsWith("rename"))).toHaveLength(3); // 1 + 2 tentativas
+    expect(never.shown.at(-1)).toBe("notify Nothing to rename here");
   });
 
   it("rename sem edições ou ainda a indexar avisa e não grava nada", async () => {

@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 163 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 164 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -481,6 +481,13 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
 - **`ui/editor-hooks.ts`:** rato parado → cartão `#lsp-hover`; F12 ou Ctrl+clique → definição;
   Shift+F12 → lista de referências; F2 → caixa de rename (`ui/popups.ts`: `#lsp-refs`,
   `#lsp-rename`). Listeners delegados no `document`, sem mexer no `editor.ts`; não publica globais.
+- **Completion** (`domain/completion.ts`, `ui/completion-hooks.ts` + `ui/completion-view.ts`, comando
+  `lsp_completion`): Ctrl+Espaço, depois de `.` ou com 2+ letras de um nome; ↑/↓, Enter/Tab, Esc
+  apanhados na fase de captura (antes do Tab do editor). Aceitar expande o snippet e aplica os
+  `additionalTextEdits`. Filtro: prefixo, depois início de palavra (camelCase), sem repetidos.
+- **Sincronização:** antes de QUALQUER pedido o cliente envia o texto actual (`didChange`), se mudou
+  — o `didChange` normal só sai 180 ms depois da última tecla. Um rename que volta `null` (o jdtls
+  logo após uma edição) é perguntado mais duas vezes.
 - **Rename:** o cliente aplica a `WorkspaceEdit` (`changes` ou `documentChanges`; `domain/edits.ts`)
   aos ficheiros da pasta pelo `writeFile` (o autosave leva-as ao disco), envia `didChange` dos que o
   servidor tem abertos e conta o que salta (fora da pasta, operações de ficheiro).
