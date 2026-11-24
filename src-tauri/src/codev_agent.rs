@@ -25,7 +25,8 @@ use tutor_agent::hooks::{Hooks, HOOKS_FILE};
 use tutor_agent::hunks::{self, Check, RejectedBy, ValidationStatus};
 use tutor_agent::mcp::{self, McpTool};
 use tutor_agent::openai::{self, OpenAiCompat};
-use tutor_agent::permissions::{Mode, Policy, Rules, Verdict};
+use tutor_agent::permissions::{Gates, Mode, Origin, Policy, Rules, Verdict, NO_REQUEST};
+use tutor_agent::redact::Redactor;
 use tutor_agent::session::{self, HistoryItem, SessionLog, SessionMeta, SessionSummary};
 use tutor_agent::tools::flow::SubagentSpec;
 use tutor_agent::tools::{agent_tools, FileState, FlowState, ToolsetOptions, TOOLSET_VERSION};
@@ -60,6 +61,8 @@ pub struct StartSpec {
     /// Ferramentas do anfitrião que só entram no conjunto versão ≥ 4 (ex.: `arch_propose`):
     /// uma sessão gravada antes retoma sem elas (o prefixo do pedido não pode mudar).
     pub host_tools_v4: Vec<Arc<dyn Tool>>,
+    /// Ferramentas do anfitrião do conjunto versão ≥ 8 (ex.: `outline`, RF-E04).
+    pub host_tools_v8: Vec<Arc<dyn Tool>>,
     /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
     /// passa `~/.config/dxtutor/trusted.json`).
     pub trust_store: Option<PathBuf>,
@@ -282,6 +285,102 @@ struct Session {
     /// "Rewind to here" can take the conversation back too (A3, HARNESS-03). Only for the
     /// turns of this run of the app: a resumed session rewinds the files only.
     cp_marks: Mutex<HashMap<u32, usize>>,
+    /// The human request of the current turn (RF-G01); «try again» keeps the last one.
+    origin: Mutex<Option<Origin>>,
+    /// Masks secrets in what is written to disk: session log and audit log (RF-T05).
+    redactor: Redactor,
+    /// The budget of the current issue request (RF-T03): the tightest of the issue's and the
+    /// sprint's, with what was spent before this turn.
+    budget: Mutex<Option<Budget>>,
+    /// Who drove the PairCode session at the last human decision (RF-P04; `None` outside one).
+    driver: Mutex<Option<String>>,
+}
+
+/// RF-P04: the UI says who drives a PairCode session when the human decides; the audit log
+/// keeps it with every decision from then on (`None`: no session).
+pub fn set_driver(id: &str, driver: Option<String>) {
+    if let Ok(s) = get(id) {
+        *s.driver.lock().unwrap() = driver.filter(|d| d == "host" || d == "guest");
+    }
+}
+
+/// A Co-Dev budget in dollars (RF-T03, docs/v2/RF-DELONIX-PLANO.md F6.1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Budget {
+    pub label: String,
+    pub limit: f64,
+    /// Spent before the current turn (real cost of the earlier turns, audit log).
+    pub spent: f64,
+    pub warned: bool,
+}
+
+impl Budget {
+    fn left(&self) -> f64 {
+        self.limit - self.spent
+    }
+}
+
+/// What a request on the issue may still spend: the tightest of the issue's and its
+/// sprint's budget (`None`: neither has one).
+fn budget_for(s: &Session, key: &str) -> Option<Budget> {
+    let db = s.change_log.as_ref()?;
+    let st = tutor_board::project::ProjectStore::open(db).ok()?;
+    let p = st
+        .load(&s.agent.ctx.root.display().to_string(), now_ms())
+        .ok()?;
+    let i = p.issues.iter().find(|i| i.key == key)?;
+    let mut options = vec![];
+    if let Some(limit) = i.budget_usd {
+        options.push(Budget {
+            label: key.to_string(),
+            limit,
+            spent: i.spent_usd,
+            warned: false,
+        });
+    }
+    if let Some(sp) = i
+        .sprint
+        .as_ref()
+        .and_then(|id| p.sprints.iter().find(|x| &x.id == id))
+    {
+        if let Some(limit) = sp.budget_usd {
+            options.push(Budget {
+                label: sp.name.clone(),
+                limit,
+                spent: sp.spent_usd,
+                warned: false,
+            });
+        }
+    }
+    options
+        .into_iter()
+        .min_by(|a, b| a.left().total_cmp(&b.left()))
+}
+
+/// RF-T03 after each request: at 80% the human is told; when the next request (as costly as
+/// the last) would pass the limit, Co-Dev stops before it. Returns the notice, and whether to stop.
+pub fn budget_check(b: &mut Budget, turn_cost: f64, last_request: f64) -> (Option<String>, bool) {
+    let total = b.spent + turn_cost;
+    if total + last_request > b.limit {
+        return (
+            Some(format!(
+                "Orçamento de {} atingido (${total:.2} de ${:.2}): o Co-Dev parou antes de o ultrapassar. Para continuar, aumenta o orçamento e pede de novo.",
+                b.label, b.limit
+            )),
+            true,
+        );
+    }
+    if !b.warned && total >= 0.8 * b.limit {
+        b.warned = true;
+        return (
+            Some(format!(
+                "80% do orçamento de {}: ${total:.2} de ${:.2}.",
+                b.label, b.limit
+            )),
+            false,
+        );
+    }
+    (None, false)
 }
 
 /// A checkpoint as the UI lists it: whether the conversation can go back with the files.
@@ -296,6 +395,8 @@ pub struct CheckpointView {
 /// What the host keeps of a hunk to record it once accepted.
 #[derive(Clone, Default)]
 struct HunkMeta {
+    /// The new text of the hunk (for the architect's rules, RF-A03).
+    text: String,
     call: String,
     path: String,
     start: u32,
@@ -573,6 +674,21 @@ pub fn start(
         root.clone(),
     );
     policy.plan = flow.plan_mode.clone();
+    // RF-G01: in the IDE every action answers a human request (the UI sends its origin)
+    policy.require_origin = true;
+    // toolset 6: plan before changing files in Manual/Assist, and a question stops changes
+    if meta.toolset >= 6 {
+        policy.gates = Some(Gates {
+            plan_approved: flow.plan_approved.clone(),
+            question: flow.question.clone(),
+            finished: flow.finished.clone(),
+        });
+    }
+    let redactor = Redactor::for_root(&root);
+    let mut log = log;
+    if let Some(l) = log.as_mut() {
+        l.set_redactor(redactor.clone());
+    }
     let checkpoints = Checkpoints::new(&root, &meta.id).map(Arc::new);
     // live hunks: the read/edit/write state is shared between the tools and the loop
     let files = spec.review_edits.then(|| Arc::new(FileState::default()));
@@ -649,6 +765,10 @@ pub fn start(
         change_log: spec.change_log.clone(),
         issue_key: Mutex::new(spec.issue_key.clone().filter(|k| !k.trim().is_empty())),
         cp_marks: Mutex::new(HashMap::new()),
+        origin: Mutex::new(None),
+        redactor,
+        budget: Mutex::new(None),
+        driver: Mutex::new(None),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -659,7 +779,13 @@ pub fn start(
 /// do pedido não pode mudar). Ordem fixa.
 fn session_host_tools(spec: &StartSpec, toolset: u32) -> Vec<Arc<dyn Tool>> {
     let v4 = spec.host_tools_v4.iter().filter(|_| toolset >= 4);
-    spec.host_tools.iter().chain(v4).cloned().collect()
+    let v8 = spec.host_tools_v8.iter().filter(|_| toolset >= 8);
+    spec.host_tools
+        .iter()
+        .chain(v4)
+        .chain(v8)
+        .cloned()
+        .collect()
 }
 
 fn get(id: &str) -> Result<Arc<Session>, String> {
@@ -678,6 +804,7 @@ fn get(id: &str) -> Result<Arc<Session>, String> {
 pub fn send(
     id: &str,
     text: Option<String>,
+    origin: Option<Origin>,
     on_event: &mut dyn FnMut(AgentEvent),
     on_approval: &mut dyn FnMut(&ApprovalRequest),
 ) -> Result<TurnOutcome, String> {
@@ -685,6 +812,63 @@ pub fn send(
     if s.busy.swap(true, Ordering::SeqCst) {
         return Err("a sessão já está a correr um turno".into());
     }
+    // RF-G01: the turn's human request. A new message brings its own (none → its actions are
+    // blocked); «try again» (`text: None`) answers the same request as before.
+    if text.is_some() {
+        let o = origin.map(|mut o| {
+            o.by = crate::board::actor(&s.agent.ctx.root.display().to_string());
+            o.scope.retain(|p| !p.trim().is_empty());
+            o
+        });
+        // a new request needs its own plan, answers the last question and starts a new issue run
+        s.flow.plan_approved.store(false, Ordering::SeqCst);
+        *s.flow.question.lock().unwrap() = None;
+        *s.flow.finished.lock().unwrap() = None;
+        s.flow.criteria.lock().unwrap().clear();
+        let mut o = o;
+        if let Some(k) = o.as_ref().and_then(|o| o.issue.clone()) {
+            *s.issue_key.lock().unwrap() = Some(k.clone());
+            // RF-B02/G01: an issue request counts only when the issue is Ready
+            match issue_of(&s, &k) {
+                Some(i) if !i.missing.is_empty() => {
+                    (*on_event)(AgentEvent::Notice {
+                        text: format!(
+                            "{k} ainda não está Ready (falta: {}): as acções deste pedido ficam bloqueadas.",
+                            i.missing.join("; ")
+                        ),
+                    });
+                    o = None;
+                }
+                Some(i) => {
+                    *s.flow.criteria.lock().unwrap() =
+                        i.acceptance.iter().map(|c| c.text.clone()).collect();
+                    if let Some(origin) = o.as_mut() {
+                        if origin.scope.is_empty() {
+                            origin.scope = i.scope.clone();
+                        }
+                    }
+                }
+                None => {}
+            }
+        }
+        // RF-T03: the budget of the issue (or its sprint) this request may spend
+        let budget = o
+            .as_ref()
+            .and_then(|o| o.issue.as_deref())
+            .and_then(|k| budget_for(&s, k));
+        if let Some(b) = &budget {
+            if b.left() <= 0.0 {
+                s.busy.store(false, Ordering::SeqCst);
+                return Err(format!(
+                    "O orçamento de {} está esgotado (${:.2} de ${:.2}): aumenta-o para o Co-Dev continuar.",
+                    b.label, b.spent, b.limit
+                ));
+            }
+        }
+        *s.budget.lock().unwrap() = budget;
+        *s.origin.lock().unwrap() = o;
+    }
+    s.policy.lock().unwrap().origin = s.origin.lock().unwrap().clone();
     s.agent.ctx.cancel.store(false, Ordering::Relaxed);
     let session = s.clone();
     // one sink for the loop's events and the host's own (hunk_review, validation): one
@@ -702,8 +886,41 @@ pub fn send(
     let auto = RefCell::new(AutoTurn::default());
     let held_done: RefCell<Option<AgentEvent>> = RefCell::new(None);
     let metas: RefCell<HashMap<String, HunkMeta>> = RefCell::new(HashMap::new());
+    // the turn's tokens and model, for the audit log
+    let turn_usage: RefCell<Option<tutor_agent::provider::Usage>> = RefCell::new(None);
+    let served_by: RefCell<Option<String>> = RefCell::new(None);
     let mut on_loop_event = |e: AgentEvent| {
         match &e {
+            AgentEvent::Usage { turn, request } => {
+                *turn_usage.borrow_mut() = Some(*turn);
+                // RF-T03: warn at 80%, stop before the limit
+                let model = served_by
+                    .borrow()
+                    .clone()
+                    .unwrap_or_else(|| session.agent.cfg.model.clone());
+                if let (Some(tc), Some(rc)) = (
+                    tutor_agent::cost::cost_usd(&model, turn),
+                    tutor_agent::cost::cost_usd(&model, request),
+                ) {
+                    let check = session
+                        .budget
+                        .lock()
+                        .unwrap()
+                        .as_mut()
+                        .map(|b| budget_check(b, tc, rc));
+                    if let Some((Some(text), stop)) = check {
+                        emit(AgentEvent::Notice { text: text.clone() });
+                        if stop {
+                            session.agent.ctx.cancel.store(true, Ordering::Relaxed);
+                            let mut e = audit_entry(&session, "budget");
+                            e.reason = Some(text);
+                            e.outcome = Some("stopped".into());
+                            audit(&session, e);
+                        }
+                    }
+                }
+            }
+            AgentEvent::ServedBy { model } => *served_by.borrow_mut() = Some(model.clone()),
             AgentEvent::Checkpoint { id, .. } => {
                 auto.borrow_mut().checkpoint = Some(*id);
                 session
@@ -730,8 +947,9 @@ pub fn send(
                     },
                 );
             }
-            AgentEvent::HunkEnd { hunk, lines, .. } => {
+            AgentEvent::HunkEnd { hunk, lines, text } => {
                 if let Some(m) = metas.borrow_mut().get_mut(hunk) {
+                    m.text = text.clone();
                     m.added = lines.added as u32;
                     m.removed = lines.removed as u32;
                 }
@@ -757,8 +975,9 @@ pub fn send(
         }
         emit(e);
     };
-    let mut approve = |call: &PendingCall| -> Decision {
-        let verdict = session.policy.lock().unwrap().decide(call);
+    // did the last decision wait for the human? (who decided, for the audit log)
+    let asked_human = std::cell::Cell::new(false);
+    let mut decide_call = |call: &PendingCall, verdict: Verdict| -> Decision {
         if session.review_edits && !call.hunks.is_empty() {
             let mode = session.policy.lock().unwrap().mode;
             let can_validate = !session.checks.is_empty() && session.agent.checkpoints.is_some();
@@ -807,6 +1026,7 @@ pub fn send(
                 reason,
                 why: None,
             });
+            asked_human.set(true);
             let d = wait_decision(&rx, &session.agent.ctx.cancel);
             session.pending.lock().unwrap().remove(&call.id);
             session.review.lock().unwrap().remove(&call.id);
@@ -833,8 +1053,62 @@ pub fn send(
             dangerous,
             suggested_rule,
         });
+        asked_human.set(true);
         let d = wait_decision(&rx, &session.agent.ctx.cancel);
         session.pending.lock().unwrap().remove(&call.id);
+        d
+    };
+    // every decision on an action goes to the audit log (RF-T01)
+    let mut approve = |call: &PendingCall| -> Decision {
+        let verdict = rewrite_gate(
+            session.policy.lock().unwrap().decide(call),
+            call,
+            &session.agent.ctx.root,
+            &metas.borrow(),
+        );
+        let verdict = conformance_gate(verdict, call, &session.agent.ctx.root, &metas.borrow());
+        asked_human.set(false);
+        let d = decide_call(call, verdict.clone());
+        let mut e = audit_entry(&session, "call");
+        e.tool = Some(call.name.clone());
+        e.call = Some(call.id.clone());
+        e.path = call
+            .input
+            .get("path")
+            .and_then(|p| p.as_str())
+            .map(str::to_string);
+        let ranges: Vec<String> = call
+            .hunks
+            .iter()
+            .filter_map(|h| {
+                metas
+                    .borrow()
+                    .get(h)
+                    .map(|m| format!("{}-{}", m.start, m.end))
+            })
+            .collect();
+        e.lines = (!ranges.is_empty()).then(|| ranges.join(","));
+        e.command = call.command.clone();
+        let (verdict_s, reason) = match &verdict {
+            Verdict::Allow => ("allow", None),
+            Verdict::Ask { reason, .. } => ("ask", Some(reason.clone())),
+            Verdict::Deny { reason } => ("deny", Some(reason.clone())),
+        };
+        e.verdict = Some(verdict_s.into());
+        e.outcome = Some(outcome_of(&d).into());
+        e.decided_by = Some(if session.agent.ctx.cancel.load(Ordering::Relaxed) {
+            "cancel".to_string()
+        } else if asked_human.get() {
+            format!("human:{}", e.actor)
+        } else {
+            "policy".to_string()
+        });
+        e.decided_at = Some(now_ms());
+        e.reason = match &d {
+            Decision::Deny(r) => Some(r.clone()),
+            _ => reason,
+        };
+        audit(&session, e);
         d
     };
     let mut t = s.transcript.lock().unwrap();
@@ -879,14 +1153,43 @@ pub fn send(
         let _ = log.sync(&t); // append-only: só as mensagens novas
     }
     drop(t);
+    // RF-G07: after Stop, what was already written stays, and the human is told how to drop it
+    if let (Ok(TurnOutcome::Cancelled), Some(text)) = (&r, stop_notice(auto.borrow().checkpoint)) {
+        emit(AgentEvent::Notice { text });
+    }
     // Auto: validate the provisional changes, then tell the UI the turn is done
     let turn = auto.take();
     if !turn.provisional.is_empty() {
         validate(&s, turn, &emit);
     }
+    settle_flow(&s, &emit);
     if let Some(log) = turn_log.take() {
         report_turn(&s, log, &emit);
     }
+    let usage = turn_usage.take().unwrap_or_default();
+    let model = served_by
+        .take()
+        .unwrap_or_else(|| s.agent.cfg.model.clone());
+    let mut e = audit_entry(&s, "turn");
+    e.tokens_in = Some(
+        (usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens)
+            as i64,
+    );
+    e.tokens_out = Some(usage.output_tokens as i64);
+    // RF-T04: the cost from the provider's real tokens
+    e.cost_usd = tutor_agent::cost::cost_usd(&model, &usage);
+    e.model = Some(model);
+    e.outcome = Some(
+        match &r {
+            Ok(TurnOutcome::Done { .. }) => "done",
+            Ok(TurnOutcome::Cancelled) => "cancelled",
+            Ok(TurnOutcome::Refused { .. }) => "refused",
+            Ok(TurnOutcome::IterationLimit) => "iteration_limit",
+            Err(_) => "error",
+        }
+        .into(),
+    );
+    audit(&s, e);
     if let Some(done) = held_done.take() {
         emit(done);
     }
@@ -895,6 +1198,307 @@ pub fn send(
         AgentError::Provider(p) if openai::is_tools_unsupported(p) => format!("{NO_TOOLS_MARK}{e}"),
         _ => e.to_string(),
     })
+}
+
+/// Appends one row to the project's audit log (RF-T01), with the secrets masked (RF-T05).
+/// Without a project database (tests, no folder) nothing is recorded.
+fn audit(s: &Session, mut e: tutor_board::project::AuditEntry) {
+    let Some(db) = &s.change_log else { return };
+    let mask = |v: &mut Option<String>| {
+        if let Some(x) = v.as_mut() {
+            *x = s.redactor.mask(x);
+        }
+    };
+    mask(&mut e.command);
+    mask(&mut e.path);
+    mask(&mut e.reason);
+    let root = s.agent.ctx.root.display().to_string();
+    if let Ok(mut st) = tutor_board::project::ProjectStore::open(db) {
+        let _ = st.record_audit(&root, &e);
+    }
+}
+
+/// RF-A03/A04 (docs/v2/RF-DELONIX-PLANO.md F5.3): every change of the agent goes through the
+/// architect's rules (`.dxtutor/architecture.toml`) before it can be accepted. A forbidden or
+/// unapproved library, a layer dependency that is not allowed or a broken naming rule refuses
+/// the change — in every mode — unless an accepted ADR excuses that rule in `[[exceptions]]`.
+/// Only the lines the change adds are checked (what was already there is the drift, F5.5).
+fn conformance_gate(
+    verdict: Verdict,
+    call: &PendingCall,
+    root: &Path,
+    metas: &HashMap<String, HunkMeta>,
+) -> Verdict {
+    if matches!(verdict, Verdict::Deny { .. }) {
+        return verdict;
+    }
+    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+        return verdict;
+    };
+    let text = if call.hunks.is_empty() {
+        ["new_string", "new_text", "content"]
+            .iter()
+            .find_map(|k| call.input.get(*k).and_then(|v| v.as_str()))
+            .unwrap_or("")
+            .to_string()
+    } else {
+        call.hunks
+            .iter()
+            .filter_map(|h| metas.get(h).map(|m| m.text.clone()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let rules = match tutor_agent::conformance::Rules::load(root) {
+        Ok(Some(r)) => r,
+        Ok(None) => return verdict,
+        Err(e) => {
+            return Verdict::Deny {
+                reason: format!(
+                    "as regras do arquitecto não se lêem ({e}): pede ao humano para as corrigir"
+                ),
+            }
+        }
+    };
+    let rel = path
+        .strip_prefix(&format!("{}/", root.display()))
+        .unwrap_or(path);
+    let found = tutor_agent::conformance::check(&rules, rel, &text);
+    let left = tutor_agent::conformance::unexcused(&rules, root, found);
+    if left.is_empty() {
+        return verdict;
+    }
+    Verdict::Deny {
+        reason: format!(
+            "viola as regras do arquitecto (RF-A03): {} — um desvio só com um ADR aceite em [[exceptions]] de {} (pede-o com ask_human; podes redigir o ADR, não o aprovas)",
+            left.iter().map(|v| v.message.clone()).collect::<Vec<_>>().join("; "),
+            tutor_agent::conformance::RULES_FILE
+        ),
+    }
+}
+
+/// RF-E05 (docs/v2/RF-DELONIX-PLANO.md F2.4): a `write` over an existing file is turned into
+/// line hunks (RF-CODEV-STREAM I2); when they replace more than 60% of the file it is a rewrite,
+/// which always asks — in Auto too — with the percentage. Otherwise the percentage goes into
+/// the reason of an approval that was asked anyway.
+fn rewrite_gate(
+    verdict: Verdict,
+    call: &PendingCall,
+    root: &Path,
+    metas: &HashMap<String, HunkMeta>,
+) -> Verdict {
+    if call.name != "write" || call.hunks.is_empty() || matches!(verdict, Verdict::Deny { .. }) {
+        return verdict;
+    }
+    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+        return verdict;
+    };
+    let Ok(text) = std::fs::read_to_string(root.join(path)) else {
+        return verdict; // a new file: writing it whole is what `write` is for
+    };
+    let total = text.lines().count().max(1);
+    let removed: usize = call
+        .hunks
+        .iter()
+        .filter_map(|h| metas.get(h))
+        .map(|m| m.removed as usize)
+        .sum();
+    let pct = (removed * 100 / total).min(100);
+    if pct > 60 {
+        return Verdict::Ask {
+            reason: format!(
+                "write reescreve {pct}% de {path} (mais de 60%): só para ficheiros novos, gerados \
+                 ou reescritas justificadas — confirma, ou pede alterações por linhas"
+            ),
+            dangerous: true,
+            suggested_rule: None,
+        };
+    }
+    match verdict {
+        Verdict::Ask {
+            reason,
+            dangerous,
+            suggested_rule,
+        } => Verdict::Ask {
+            reason: format!("{reason} (write: {pct}% de {path})"),
+            dangerous,
+            suggested_rule,
+        },
+        v => v,
+    }
+}
+
+/// What the human is told after Stop when the turn already changed files (RF-G07): the
+/// changes stay as they are, and the turn's checkpoint takes them back.
+fn stop_notice(checkpoint: Option<u32>) -> Option<String> {
+    checkpoint.map(|cp| {
+        format!(
+            "Parado a teu pedido: nada mais é escrito. O que o Co-Dev já alterou neste turno ficou \
+             nos ficheiros — revê no Source Control; para descartar tudo, «Rewind to here» no \
+             checkpoint {cp} (separador Co-Dev run) ou /reverter."
+        )
+    })
+}
+
+/// The issue `key` of the session's folder, from the project database.
+fn issue_of(s: &Session, key: &str) -> Option<tutor_board::project::Issue> {
+    let db = s.change_log.as_ref()?;
+    let st = tutor_board::project::ProjectStore::open(db).ok()?;
+    let p = st
+        .load(&s.agent.ctx.root.display().to_string(), now_ms())
+        .ok()?;
+    p.issues.into_iter().find(|i| i.key == key)
+}
+
+/// After a turn: the question the agent asked goes to the human (and blocks the turn's issue,
+/// RF-G06); the suggestions go to the Project inbox (RF-G02/B05). Both are in the audit log.
+fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
+    let root = s.agent.ctx.root.display().to_string();
+    let store = || {
+        s.change_log
+            .as_ref()
+            .and_then(|db| tutor_board::project::ProjectStore::open(db).ok())
+    };
+    let apply = |op: serde_json::Value| -> Result<(), String> {
+        let op = serde_json::from_value(op).map_err(|e| e.to_string())?;
+        match store() {
+            Some(mut st) => st
+                .apply(&root, "Co-Dev", now_ms(), op)
+                .map(|_| ())
+                .map_err(|e| e.message),
+            None => Ok(()),
+        }
+    };
+    let question = s.flow.question.lock().unwrap().clone();
+    if let Some(q) = question {
+        emit(AgentEvent::Question { text: q.clone() });
+        let issue = s.issue_key.lock().unwrap().clone();
+        if let Some(k) = &issue {
+            let blocked = format!("dúvida: {q}");
+            if let Err(e) =
+                apply(serde_json::json!({"op": "update_issue", "key": k, "blocked": blocked}))
+            {
+                emit(AgentEvent::Notice {
+                    text: format!("não foi possível marcar {k} como bloqueada: {e}"),
+                });
+            }
+        }
+        let mut e = audit_entry(s, "question");
+        e.reason = Some(q);
+        e.outcome = Some(if issue.is_some() { "blocked" } else { "asked" }.into());
+        audit(s, e);
+    }
+    // RF-B06/B07: the criteria table sends the issue to Review; then the project's tests run
+    let finished = s.flow.finished.lock().unwrap().clone();
+    let issue = s.issue_key.lock().unwrap().clone();
+    if let (Some(report), Some(k)) = (finished, &issue) {
+        let template = s
+            .origin
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|o| o.template.clone());
+        let r = apply(
+            serde_json::json!({"op": "codev_finished", "key": k, "report": report, "template_version": template}),
+        );
+        let mut e = audit_entry(s, "finish");
+        e.outcome = Some(if r.is_ok() { "review" } else { "failed" }.into());
+        e.reason = r.err();
+        audit(s, e);
+        if !s.checks.is_empty() {
+            let checks = hunks::run_checks(&s.checks, &s.agent.ctx);
+            let passed = checks.iter().all(|c| c.ok);
+            let summary = checks
+                .iter()
+                .filter(|c| !c.ok)
+                .map(|c| format!("`{}`: {}", c.command, c.summary))
+                .collect::<Vec<_>>()
+                .join("; ");
+            let _ = apply(
+                serde_json::json!({"op": "tests_run", "key": k, "passed": passed, "summary": summary}),
+            );
+            emit(AgentEvent::Notice {
+                text: if passed {
+                    format!("{k}: critérios respondidos e testes verdes — a issue está em Review; o Done é teu.")
+                } else {
+                    format!("{k}: os testes falharam ({summary}) — a issue volta a Em curso, com o erro no próximo pedido.")
+                },
+            });
+            let mut e = audit_entry(s, "tests");
+            e.outcome = Some(if passed { "passed" } else { "failed" }.into());
+            e.reason = (!passed).then_some(summary);
+            audit(s, e);
+        } else {
+            emit(AgentEvent::Notice {
+                text: format!("{k}: critérios respondidos — a issue está em Review (sem testes detectados no projecto); o Done é teu."),
+            });
+        }
+    }
+    let suggestions = std::mem::take(&mut *s.flow.suggestions.lock().unwrap());
+    let n = suggestions.len();
+    for (title, why) in suggestions {
+        let r = apply(serde_json::json!({
+            "op": "propose", "title": title, "kind": "story", "source": "Co-Dev", "detail": why
+        }));
+        let mut e = audit_entry(s, "suggest");
+        e.reason = Some(title);
+        e.outcome = Some(if r.is_ok() { "inbox" } else { "failed" }.into());
+        audit(s, e);
+    }
+    if n > 0 && s.change_log.is_some() {
+        emit(AgentEvent::Notice {
+            text: format!("{n} sugestão(ões) do Co-Dev na caixa de entrada do Project: decides tu"),
+        });
+    }
+}
+
+/// A new audit row with the session, the current request and the mode filled in.
+fn audit_entry(s: &Session, event: &str) -> tutor_board::project::AuditEntry {
+    let origin = s.origin.lock().unwrap().clone();
+    tutor_board::project::AuditEntry {
+        at: now_ms(),
+        session: s
+            .log
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|l| {
+                l.path()
+                    .file_stem()
+                    .map(|x| x.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default(),
+        event: event.into(),
+        origin: origin
+            .as_ref()
+            .map(|o| o.kind.as_str())
+            .unwrap_or("none")
+            .into(),
+        issue_key: origin
+            .as_ref()
+            .and_then(|o| o.issue.clone())
+            .or_else(|| s.issue_key.lock().unwrap().clone()),
+        actor: origin.map(|o| o.by).unwrap_or_default(),
+        mode: s.policy.lock().unwrap().mode.as_str().into(),
+        driver: s.driver.lock().unwrap().clone(),
+        ..Default::default()
+    }
+}
+
+/// How a decision on a call ended, for the audit log.
+fn outcome_of(d: &Decision) -> &'static str {
+    match d {
+        Decision::Allow => "allowed",
+        Decision::Deny(r) if r == NO_REQUEST => "blocked",
+        Decision::Deny(_) => "denied",
+        Decision::Hunks {
+            accepted, rejected, ..
+        } => match (accepted.is_empty(), rejected.is_empty()) {
+            (true, _) => "denied",
+            (false, true) => "allowed",
+            (false, false) => "partial",
+        },
+    }
 }
 
 fn now_ms() -> i64 {
@@ -1139,7 +1743,17 @@ pub fn review(id: &str, call: &str, decisions: &[HunkVerdict]) -> Result<(), Str
 pub fn set_mode(id: &str, mode: &str) -> bool {
     match get(id) {
         Ok(s) => {
-            s.policy.lock().unwrap().mode = Mode::parse(mode);
+            let new = Mode::parse(mode);
+            let old = std::mem::replace(&mut s.policy.lock().unwrap().mode, new);
+            if old != new {
+                // RF-G04: the mode change is in the audit log
+                let mut e = audit_entry(&s, "mode");
+                e.actor = crate::board::actor(&s.agent.ctx.root.display().to_string());
+                e.reason = Some(format!("{} → {}", old.as_str(), new.as_str()));
+                e.decided_by = Some(format!("human:{}", e.actor));
+                e.decided_at = Some(e.at);
+                audit(&s, e);
+            }
             true
         }
         Err(_) => false,
@@ -1521,6 +2135,18 @@ mod tests {
         assert!(!cancel(&id));
     }
 
+    /// The tests that call the policy directly answer a chat request (RF-G01: in the IDE an
+    /// action with no request is blocked).
+    fn chat_request(s: &Session) {
+        s.policy.lock().unwrap().origin = Some(Origin {
+            kind: tutor_agent::permissions::OriginKind::Chat,
+            issue: None,
+            by: "t".into(),
+            scope: vec![],
+            template: None,
+        });
+    }
+
     #[test]
     fn remember_persists_the_suggested_rule_and_the_floor_never_remembers() {
         let dir = tempfile::tempdir().unwrap();
@@ -1532,6 +2158,7 @@ mod tests {
         };
         let id = start(spec, &key("sk-test"), None).unwrap();
         let s = get(&id).unwrap();
+        chat_request(&s);
         let bash = |cmd: &str| PendingCall {
             id: "x".into(),
             name: "bash".into(),
@@ -1750,6 +2377,7 @@ mod tests {
         };
         let id = start(spec, &key("sk"), None).unwrap();
         let s = get(&id).unwrap();
+        chat_request(&s);
         let edit = PendingCall {
             id: "e".into(),
             name: "edit".into(),
@@ -2133,6 +2761,7 @@ mod tests {
             end: 3,
             added: 2,
             removed: 1,
+            ..Default::default()
         };
         let evs = RefCell::new(vec![]);
         validate(
@@ -2255,9 +2884,540 @@ mod tests {
         let r = send(
             "cda-nada",
             Some("olá".into()),
+            None,
             &mut |_| {},
             &mut |_: &ApprovalRequest| {},
         );
         assert!(r.unwrap_err().contains("desconhecida"));
+    }
+
+    #[test]
+    fn the_ide_requires_a_request_and_logs_turns_and_mode_changes() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("board.sqlite3");
+        std::fs::write(d.path().join(".env"), "API_TOKEN=tok_9f8e7d6c5b\n").unwrap();
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            mode: Some("manual".into()),
+            provider: Some("ollama".into()),
+            ollama_host: Some("http://127.0.0.1:9".into()),
+            change_log: Some(db.clone()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert!(s.policy.lock().unwrap().require_origin);
+        let root = s.agent.ctx.root.display().to_string();
+        // an issue request: the provider is unreachable, the turn fails, but it is logged
+        let o = Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some("DX-3".into()),
+            by: "forged by the UI".into(),
+            scope: vec!["src/**".into(), " ".into()],
+            template: None,
+        };
+        let _ = send(
+            &id,
+            Some("usa tok_9f8e7d6c5b".into()),
+            Some(o),
+            &mut |_| {},
+            &mut |_| {},
+        );
+        let held = s.origin.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            held.by,
+            crate::board::actor(&root),
+            "who asked comes from the host"
+        );
+        assert_eq!(held.scope, vec!["src/**"]);
+        assert_eq!(s.issue_key.lock().unwrap().as_deref(), Some("DX-3"));
+        // «try again» keeps the request; a new message without one has none
+        let _ = send(&id, None, None, &mut |_| {}, &mut |_| {});
+        assert!(s.policy.lock().unwrap().origin.is_some());
+        let _ = send(&id, Some("outra".into()), None, &mut |_| {}, &mut |_| {});
+        assert!(s.policy.lock().unwrap().origin.is_none());
+        assert!(set_mode(&id, "auto"));
+        assert!(
+            set_mode(&id, "auto"),
+            "the same mode again is not logged twice"
+        );
+        let st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let rows = st.audit(&root, None).unwrap();
+        let kinds: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|e| (e.event.as_str(), e.origin.as_str()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("turn", "issue"),
+                ("turn", "issue"),
+                ("turn", "none"),
+                ("mode", "none")
+            ]
+        );
+        assert_eq!(rows[0].issue_key.as_deref(), Some("DX-3"));
+        assert_eq!(rows[0].outcome.as_deref(), Some("error"));
+        assert_eq!(rows[3].reason.as_deref(), Some("manual → auto"));
+        // the session log masks the project's .env secrets (RF-T05)
+        let log = std::fs::read_to_string(s.log.lock().unwrap().as_ref().unwrap().path()).unwrap();
+        assert!(
+            log.contains("usa ••••") && !log.contains("tok_9f8e7d6c5b"),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn outcomes_for_the_audit_log() {
+        assert_eq!(outcome_of(&Decision::Allow), "allowed");
+        assert_eq!(outcome_of(&Decision::Deny(NO_REQUEST.into())), "blocked");
+        assert_eq!(outcome_of(&Decision::Deny("não".into())), "denied");
+        let h = |a: &[&str], r: &[&str]| Decision::Hunks {
+            accepted: a.iter().map(|x| x.to_string()).collect(),
+            rejected: r.iter().map(|x| (x.to_string(), String::new())).collect(),
+            provisional: false,
+        };
+        assert_eq!(outcome_of(&h(&["1"], &[])), "allowed");
+        assert_eq!(outcome_of(&h(&["1"], &["2"])), "partial");
+        assert_eq!(outcome_of(&h(&[], &["2"])), "denied");
+    }
+
+    #[test]
+    fn a_question_blocks_the_issue_and_suggestions_wait_in_the_inbox() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("board.sqlite3");
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            mode: Some("assist".into()),
+            issue_key: Some("DX-1".into()),
+            change_log: Some(db.clone()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        // a new session uses toolset 6: the gates are on
+        assert!(s.policy.lock().unwrap().gates.is_some());
+        let root = s.agent.ctx.root.display().to_string();
+        {
+            let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+            st.apply(
+                &root,
+                "t",
+                1,
+                serde_json::from_value(serde_json::json!({"op": "settings", "key_prefix": "DX"}))
+                    .unwrap(),
+            )
+            .unwrap();
+            st.apply(
+                &root,
+                "t",
+                1,
+                serde_json::from_value(serde_json::json!({"op": "create_issue", "title": "x"}))
+                    .unwrap(),
+            )
+            .unwrap();
+        }
+        *s.flow.question.lock().unwrap() = Some("Paginação por cursor ou por página?".into());
+        s.flow
+            .suggestions
+            .lock()
+            .unwrap()
+            .push(("Renomear Parser::go".into(), "src/p.rs 12".into()));
+        let evs = RefCell::new(vec![]);
+        settle_flow(&s, &|e| evs.borrow_mut().push(e));
+        assert!(evs
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Question { text } if text.contains("cursor"))));
+        let st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let p = st.load(&root, 2).unwrap();
+        let issue = p.issues.iter().find(|i| i.key == "DX-1").unwrap();
+        assert_eq!(
+            issue.blocked.as_deref(),
+            Some("dúvida: Paginação por cursor ou por página?")
+        );
+        assert_eq!(p.inbox.len(), 1);
+        assert_eq!(p.inbox[0].title, "Renomear Parser::go");
+        assert_eq!(p.inbox[0].source, "Co-Dev");
+        let kinds: Vec<String> = st
+            .audit(&root, Some("DX-1"))
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event)
+            .collect();
+        assert_eq!(kinds, ["question", "suggest"]);
+        // the suggestions were taken (not offered again next turn)
+        assert!(s.flow.suggestions.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn after_stop_the_human_learns_how_to_drop_the_turns_changes() {
+        assert_eq!(
+            stop_notice(None),
+            None,
+            "nothing was written: nothing to say"
+        );
+        let t = stop_notice(Some(4)).unwrap();
+        assert!(
+            t.contains("checkpoint 4") && t.contains("nada mais é escrito"),
+            "{t}"
+        );
+    }
+
+    /// A session on an issue of a project database, with `check` as the project's test command.
+    fn issue_session(check: &str) -> (tempfile::TempDir, String, Arc<Session>, String) {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("board.sqlite3");
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            mode: Some("auto".into()),
+            test_cmd: Some(check.into()),
+            provider: Some("ollama".into()),
+            ollama_host: Some("http://127.0.0.1:9".into()),
+            change_log: Some(db.clone()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        let root = s.agent.ctx.root.display().to_string();
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        st.apply(
+            &root,
+            "t",
+            1,
+            op(serde_json::json!({"op": "settings", "key_prefix": "DX"})),
+        )
+        .unwrap();
+        st.apply(&root, "t", 1, op(serde_json::json!({"op": "create_issue", "title": "Paginar", "acceptance": ["Dado 30, quando peço a página 2, então recebo 11-20"]}))).unwrap();
+        (d, id, s, root)
+    }
+
+    #[test]
+    fn an_issue_that_is_not_ready_gives_no_request_and_a_ready_one_brings_its_criteria_and_scope() {
+        let (d, id, s, root) = issue_session("true");
+        let issue = |k: &str| Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some(k.into()),
+            by: String::new(),
+            scope: vec![],
+            template: Some("v1".into()),
+        };
+        let notes = RefCell::new(vec![]);
+        let _ = send(
+            &id,
+            Some("implementa".into()),
+            Some(issue("DX-1")),
+            &mut |e| {
+                if let AgentEvent::Notice { text } = e {
+                    notes.borrow_mut().push(text)
+                }
+            },
+            &mut |_| {},
+        );
+        assert!(s.origin.lock().unwrap().is_none(), "not Ready: no request");
+        assert!(
+            notes
+                .borrow()
+                .iter()
+                .any(|n| n.contains("DX-1 ainda não está Ready") && n.contains("âmbito")),
+            "{:?}",
+            notes.borrow()
+        );
+        let db = d.path().join("board.sqlite3");
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        st.apply(&root, "ana", 2, op(serde_json::json!({"op": "update_issue", "key": "DX-1", "story_as": "cliente", "story_want": "páginas", "story_so": "menos linhas", "scope": ["src/**"]}))).unwrap();
+        st.apply(
+            &root,
+            "ana",
+            2,
+            op(serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true})),
+        )
+        .unwrap();
+        let _ = send(
+            &id,
+            Some("implementa".into()),
+            Some(issue("DX-1")),
+            &mut |_| {},
+            &mut |_| {},
+        );
+        let o = s.origin.lock().unwrap().clone().unwrap();
+        assert_eq!(o.scope, vec!["src/**"], "the issue's scope");
+        assert_eq!(s.flow.criteria.lock().unwrap().len(), 1);
+        // the prompt «Ver prompt» shows is the one the issue goes with
+        let r = crate::board::issue_prompt_from(&st, &root, "DX-1", None).unwrap();
+        assert_eq!(r.lang, "pt");
+        assert!(
+            r.text.contains("# Issue DX-1 — Paginar")
+                && r.text.contains("Ficheiros/pastas: src/**.")
+        );
+    }
+
+    #[test]
+    fn the_criteria_table_sends_the_issue_to_review_and_failing_tests_send_it_back() {
+        for (check, state, attempts) in [("true", "review", 0), ("false", "progress", 1)] {
+            let (d, _id, s, root) = issue_session(check);
+            *s.issue_key.lock().unwrap() = Some("DX-1".into());
+            *s.flow.finished.lock().unwrap() =
+                Some(serde_json::json!({"criteria": [{"index": 1, "met": true, "evidence": "t"}]}));
+            let evs = RefCell::new(vec![]);
+            settle_flow(&s, &|e| evs.borrow_mut().push(e));
+            let st =
+                tutor_board::project::ProjectStore::open(&d.path().join("board.sqlite3")).unwrap();
+            let i = st
+                .load(&root, 3)
+                .unwrap()
+                .issues
+                .into_iter()
+                .find(|i| i.key == "DX-1")
+                .unwrap();
+            assert_eq!(
+                (i.state.as_str(), i.attempts),
+                (state, attempts),
+                "check {check}"
+            );
+            assert!(i.criteria_report.is_some());
+            let kinds: Vec<String> = st
+                .audit(&root, Some("DX-1"))
+                .unwrap()
+                .into_iter()
+                .map(|e| e.event)
+                .collect();
+            assert_eq!(kinds, ["finish", "tests"]);
+        }
+    }
+
+    #[test]
+    fn a_write_that_rewrites_most_of_a_file_always_asks_with_the_percentage() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("a.rs"), "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n").unwrap();
+        let call = |hunks: &[&str]| PendingCall {
+            id: "w".into(),
+            name: "write".into(),
+            input: serde_json::json!({"path": "a.rs", "content": "x"}),
+            read_only: false,
+            command: None,
+            hunks: hunks.iter().map(|h| h.to_string()).collect(),
+        };
+        let meta = |removed: u32| HunkMeta {
+            removed,
+            ..Default::default()
+        };
+        let metas: HashMap<String, HunkMeta> =
+            [("w:1".to_string(), meta(7)), ("w:2".to_string(), meta(2))].into();
+        // 70% in Auto (Allow) → asks, as the safety floor, with the percentage
+        match rewrite_gate(Verdict::Allow, &call(&["w:1"]), d.path(), &metas) {
+            Verdict::Ask {
+                reason, dangerous, ..
+            } => {
+                assert!(
+                    dangerous && reason.contains("70%") && reason.contains("a.rs"),
+                    "{reason}"
+                )
+            }
+            v => panic!("{v:?}"),
+        }
+        // 20%: Auto applies; an approval asked anyway shows the percentage
+        assert_eq!(
+            rewrite_gate(Verdict::Allow, &call(&["w:2"]), d.path(), &metas),
+            Verdict::Allow
+        );
+        let ask = Verdict::Ask {
+            reason: "modo Assistido".into(),
+            dangerous: false,
+            suggested_rule: None,
+        };
+        assert!(
+            matches!(rewrite_gate(ask, &call(&["w:2"]), d.path(), &metas), Verdict::Ask { reason, .. } if reason.contains("20% de a.rs"))
+        );
+        // a new file is not a rewrite
+        let mut new = call(&["w:1"]);
+        new.input = serde_json::json!({"path": "novo.rs", "content": "x"});
+        assert_eq!(
+            rewrite_gate(Verdict::Allow, &new, d.path(), &metas),
+            Verdict::Allow
+        );
+    }
+
+    #[test]
+    fn a_change_that_breaks_the_architects_rules_is_refused_unless_an_accepted_adr_excuses_it() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/architecture.toml"),
+            "[libraries]\nforbidden = [\"lodash\"]\n\n[[exceptions]]\nadr = \"ADR-0009\"\nrule = \"library:lodash\"\n",
+        )
+        .unwrap();
+        let call = PendingCall {
+            id: "e".into(),
+            name: "edit_lines".into(),
+            input: serde_json::json!({"path": "src/a.ts"}),
+            read_only: false,
+            command: None,
+            hunks: vec!["e:1".into()],
+        };
+        let metas: HashMap<String, HunkMeta> = [(
+            "e:1".to_string(),
+            HunkMeta {
+                text: "import _ from 'lodash';\n".into(),
+                ..Default::default()
+            },
+        )]
+        .into();
+        match conformance_gate(Verdict::Allow, &call, d.path(), &metas) {
+            Verdict::Deny { reason } => assert!(
+                reason.contains("lodash") && reason.contains("ADR"),
+                "{reason}"
+            ),
+            v => panic!("{v:?}"),
+        }
+        std::fs::create_dir_all(d.path().join("docs/adr")).unwrap();
+        std::fs::write(
+            d.path().join("docs/adr/ADR-0009-lodash.md"),
+            "Status: accepted\n",
+        )
+        .unwrap();
+        assert_eq!(
+            conformance_gate(Verdict::Allow, &call, d.path(), &metas),
+            Verdict::Allow
+        );
+        // the repository scan (the drift of the rules) sees the same rule
+        std::fs::remove_file(d.path().join("docs/adr/ADR-0009-lodash.md")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/architecture.toml"),
+            "[[layers]]\nname = \"web\"\npaths = [\"src/**\"]\n\n[libraries]\nforbidden = [\"lodash\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        std::fs::write(d.path().join("src/a.ts"), "import _ from 'lodash';\n").unwrap();
+        let v = tutor_agent::conformance::scan(d.path()).unwrap().unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].path, "src/a.ts");
+    }
+
+    #[test]
+    fn the_budget_warns_at_80_percent_and_stops_before_the_limit() {
+        let mut b = Budget {
+            label: "DX-1".into(),
+            limit: 1.0,
+            spent: 0.5,
+            warned: false,
+        };
+        assert_eq!(budget_check(&mut b, 0.1, 0.1), (None, false));
+        let (n, stop) = budget_check(&mut b, 0.3, 0.05);
+        assert!(!stop && n.unwrap().starts_with("80% do orçamento de DX-1"));
+        assert_eq!(
+            budget_check(&mut b, 0.32, 0.05),
+            (None, false),
+            "warned once"
+        );
+        // the next request (as costly as the last) would pass $1: stop before it
+        let (n, stop) = budget_check(&mut b, 0.4, 0.15);
+        assert!(stop && n.unwrap().contains("parou antes de o ultrapassar"));
+    }
+
+    #[test]
+    fn an_issue_request_takes_the_tightest_budget_and_an_exhausted_one_does_not_start() {
+        let (d, id, s, root) = issue_session("true");
+        let db = d.path().join("board.sqlite3");
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        let p = st
+            .apply(
+                &root,
+                "t",
+                1,
+                op(serde_json::json!({"op": "create_sprint", "name": "S1", "start": 0, "end": 10})),
+            )
+            .unwrap();
+        let sprint = p.sprints[0].id.clone();
+        st.apply(
+            &root,
+            "t",
+            1,
+            op(serde_json::json!({"op": "plan_issue", "key": "DX-1", "sprint": sprint})),
+        )
+        .unwrap();
+        st.apply(
+            &root,
+            "t",
+            1,
+            op(serde_json::json!({"op": "update_issue", "key": "DX-1", "budget_usd": 2.0})),
+        )
+        .unwrap();
+        st.apply(
+            &root,
+            "t",
+            1,
+            op(serde_json::json!({"op": "set_sprint_budget", "id": sprint, "budget_usd": 1.0})),
+        )
+        .unwrap();
+        let b = budget_for(&s, "DX-1").unwrap();
+        assert_eq!(
+            (b.label.as_str(), b.limit),
+            ("S1", 1.0),
+            "the sprint leaves less"
+        );
+        // spend it all: the next request does not start
+        st.record_audit(
+            &root,
+            &tutor_board::project::AuditEntry {
+                at: 1,
+                session: "x".into(),
+                event: "turn".into(),
+                origin: "issue".into(),
+                issue_key: Some("DX-1".into()),
+                cost_usd: Some(1.2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        st.apply(&root, "ana", 2, op(serde_json::json!({"op": "update_issue", "key": "DX-1", "story_as": "a", "story_want": "b", "story_so": "c", "scope": ["src/**"]}))).unwrap();
+        st.apply(
+            &root,
+            "ana",
+            2,
+            op(serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true})),
+        )
+        .unwrap();
+        let o = Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some("DX-1".into()),
+            by: String::new(),
+            scope: vec![],
+            template: None,
+        };
+        let e = send(
+            &id,
+            Some("continua".into()),
+            Some(o),
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .unwrap_err();
+        assert!(e.contains("orçamento de S1 está esgotado"), "{e}");
+        assert!(!s.busy.load(Ordering::SeqCst), "the session is free again");
+    }
+
+    #[test]
+    fn the_audit_log_says_who_was_driving_a_paircode_session() {
+        let d = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            change_log: Some(d.path().join("board.sqlite3")),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        assert_eq!(audit_entry(&s, "call").driver, None, "no session");
+        set_driver(&id, Some("guest".into()));
+        assert_eq!(audit_entry(&s, "call").driver.as_deref(), Some("guest"));
+        set_driver(&id, Some("someone".into()));
+        assert_eq!(audit_entry(&s, "call").driver, None, "only host or guest");
     }
 }

@@ -36,6 +36,8 @@ export type AgentEvent =
   | { kind: "served_by"; model: string }
   | { kind: "checkpoint"; id: number; label: string }
   | { kind: "notice"; text: string }
+  /** The agent asked instead of choosing (`ask_human`, RF-G06): the human answers next. */
+  | { kind: "question"; text: string }
   | { kind: "report"; title: string; markdown: string }
   | HunkEvent
   | { kind: "done"; outcome: TurnOutcome };
@@ -86,7 +88,7 @@ const str = (v: unknown): v is string => typeof v === "string";
 export function parseAgentEvent(payload: unknown): { session: string; event: AgentEvent } | null {
   if (!isObj(payload) || !str(payload.session) || !isObj(payload.event)) return null;
   const e = payload.event;
-  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "report", "done"];
+  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "question", "report", "done"];
   if (str(e.kind) && HUNK_KINDS.includes(e.kind)) {
     return validHunkEvent(e) ? { session: payload.session, event: e as unknown as AgentEvent } : null;
   }
@@ -361,6 +363,19 @@ export function parseExtensions(v: unknown): ExtensionsStatus {
     mcpServers: Array.isArray(o.mcpServers) ? (o.mcpServers.filter(str) as string[]) : [],
   };
 }
+
+/** The human request a turn answers (RF-G01, docs/v2/RF-DELONIX-PLANO.md F1.1): without one the
+ *  backend blocks the turn's actions («bloqueada: sem pedido»). Who asked is filled by the backend
+ *  from the project's git user. `scope`: the files the request may change (RF-G03). */
+export interface AgentOrigin {
+  kind: "chat" | "editor" | "issue";
+  issue?: string;
+  scope?: string[];
+}
+
+/** The origin of a message typed in a conversation: the issue it was opened for, or the chat. */
+export const originFor = (issueKey: string | null): AgentOrigin =>
+  issueKey ? { kind: "issue", issue: issueKey } : { kind: "chat" };
 
 /** Uma issue do Board, na forma mínima que o agente precisa. */
 export interface BoardStory {

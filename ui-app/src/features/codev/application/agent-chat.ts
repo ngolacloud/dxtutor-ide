@@ -7,7 +7,7 @@
 
 import type { AgentChatDeps, CardRef, ToolRef } from "./ports";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
-import { ago, callDiff, describeCall, describeSession, isNoToolsError, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
+import { ago, callDiff, describeCall, describeSession, isNoToolsError, originFor, outcomeNotice, parseTodos, storyPrompt, summarizeResult } from "../domain/agent-events";
 import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 import { proseOnly } from "../domain/prose";
@@ -51,6 +51,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
   let turn: Turn | null = null;
   /** The Project issue the session works on (set when the conversation starts from one). */
   let issueKey: string | null = null;
+  /** F4: the issue's scope and prompt template version, sent with its origin (RF-G03/B04). */
+  let issueExtra: { scope?: string[]; template?: string } = {};
   let unsubscribe: (() => void) | null = null;
 
   // the chat keeps prose: long code blocks go to the editor, not the reply (RF-CODEV-STREAM §7)
@@ -125,6 +127,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
       case "notice":
         presenter.agentNote?.(t.card, "notice", e.text);
         break;
+      case "question":
+        // RF-G06: the agent stopped to ask; the answer is the human's next message
+        presenter.agentNote?.(t.card, "question", `Pergunta do Co-Dev (responde na próxima mensagem): ${e.text}`);
+        break;
       case "tool_result":
         if (e.name === "task") presenter.subagent?.(e.id, "", e.is_error ? "error" : "done");
         if (e.name !== "todo_write") presenter.toolRunResult(toolRef(t, e.id, e.name, ""), !e.is_error, summarizeResult(e.content));
@@ -152,6 +158,12 @@ export function makeAgentChat(deps: AgentChatDeps) {
     const isPlan = r.call.name === "exit_plan";
     const label = isPlan ? "plano proposto" : describeCall(r.call.name, r.call.input, r.call.command);
     const ref = toolRef(t, r.call.id, r.call.name, label);
+    // RF-P03: in a PairCode session only the driver approves; refusing is always safe
+    if (deps.canApprove && !deps.canApprove()) {
+      presenter.agentNote?.(t.card, "pair", "Só quem conduz a sessão PairCode aprova as propostas do Co-Dev: este pedido foi recusado. Pede o controlo e repete.");
+      await gateway.approve(s, r.call.id, false, "na sessão PairCode só quem conduz aprova: o humano deste lado não conduz");
+      return;
+    }
     if (isPlan) {
       presenter.agentPlan?.(ref, typeof r.call.input.plan === "string" ? r.call.input.plan : "");
       const ok = await gate
@@ -253,7 +265,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         // the backend reads the disk: save what the editor shows first
         (deps.flush ? deps.flush() : Promise.resolve())
           .catch(() => undefined)
-          .then(() => gateway.send(id, q))
+          .then(() => gateway.send(id, q, issueKey ? { ...originFor(issueKey), ...issueExtra } : originFor(null)))
           .catch((e: unknown) => {
           presenter.liveError(card, false, undefined, e instanceof Error ? e.message : String(e));
           resolve();
@@ -398,11 +410,21 @@ export function makeAgentChat(deps: AgentChatDeps) {
     return plan(storyPrompt(s));
   }
 
+  /** F4 (RF-B03): an issue goes to the agent with the exact prompt the IDE assembled from the
+   *  project's template, its scope and the template version — in a new session that knows it. */
+  function issue(r: { key: string; text: string; scope: string[]; template: string }): Promise<boolean> {
+    reset();
+    issueKey = r.key;
+    issueExtra = { scope: r.scope, template: r.template };
+    return send(r.text);
+  }
+
   function reset(): void {
     if (session) void gateway.close(session);
     session = null;
     sessionKey = null;
     issueKey = null;
+    issueExtra = {};
   }
 
   return {
@@ -413,6 +435,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     rewindMenu,
     commandsMenu,
     story,
+    issue,
     /** A modebar mudou: vale a partir da próxima decisão da sessão em curso. */
     modeChanged(mode: string): void {
       if (session) void gateway.setMode(session, mode);

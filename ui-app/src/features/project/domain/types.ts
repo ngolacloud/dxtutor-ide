@@ -51,6 +51,47 @@ export interface Issue {
   updated: number;
   /** When it entered its current state. */
   since: number;
+  /** The user story (RF-B01): «As … I want … so that …». */
+  storyAs: string;
+  storyWant: string;
+  storySo: string;
+  /** Files/folders Co-Dev may change (RF-G03). */
+  scope: string[];
+  /** Issues that must be Done first. */
+  deps: string[];
+  /** Who approved the Definition of Ready. */
+  readyBy: string | null;
+  /** Failed test runs after Co-Dev (RF-B07). */
+  attempts: number;
+  /** The criteria table Co-Dev answered (RF-B06). */
+  criteriaReport: CriteriaReport | null;
+  /** The prompt template version of the last run (RF-B04). */
+  templateVersion: string | null;
+  /** What it still lacks to be Ready (RF-B02, from the store); empty = Co-Dev may work on it. */
+  missing: string[];
+  /** Co-Dev budget in dollars (RF-T03) and what it spent (real cost of its turns, RF-T04). */
+  budgetUsd: number | null;
+  spentUsd: number;
+}
+
+export interface CriteriaRow {
+  index: number;
+  criterion: string;
+  met: boolean;
+  evidence: string;
+}
+
+export interface CriteriaReport {
+  criteria: CriteriaRow[];
+  summary: string;
+}
+
+function parseReport(v: unknown): CriteriaReport | null {
+  if (!isObj(v) || !Array.isArray(v.criteria)) return null;
+  return {
+    criteria: v.criteria.filter(isObj).map((r) => ({ index: num(r.index), criterion: str(r.criterion), met: r.met === true, evidence: str(r.evidence) })),
+    summary: str(v.summary),
+  };
 }
 
 export interface Sprint {
@@ -61,6 +102,9 @@ export interface Sprint {
   end: number;
   state: "planned" | "active" | "closed";
   capacity: number | null;
+  /** Co-Dev budget in dollars (RF-T03), and what Co-Dev spent on the sprint's issues. */
+  budgetUsd: number | null;
+  spentUsd: number;
 }
 
 export interface Release {
@@ -180,6 +224,18 @@ function parseIssue(o: Record<string, unknown>): Issue {
     created: num(o.created),
     updated: num(o.updated),
     since: num(o.since, num(o.created)),
+    storyAs: str(o.storyAs),
+    storyWant: str(o.storyWant),
+    storySo: str(o.storySo),
+    scope: arr(o.scope).filter((x): x is string => typeof x === "string"),
+    deps: arr(o.deps).filter((x): x is string => typeof x === "string"),
+    readyBy: strOrNull(o.readyBy),
+    attempts: num(o.attempts),
+    criteriaReport: parseReport(o.criteriaReport),
+    templateVersion: strOrNull(o.templateVersion),
+    missing: arr(o.missing).filter((x): x is string => typeof x === "string"),
+    budgetUsd: numOrNull(o.budgetUsd),
+    spentUsd: num(o.spentUsd),
   };
 }
 
@@ -206,6 +262,8 @@ export function parseProject(v: unknown): Project | null {
         end: num(s.end),
         state: oneOf(s.state, ["planned", "active", "closed"] as const, "planned"),
         capacity: numOrNull(s.capacity),
+        budgetUsd: numOrNull(s.budgetUsd),
+        spentUsd: num(s.spentUsd),
       })),
     releases: arr(v.releases).filter(isObj).map((r) => ({ version: str(r.version), date: num(r.date), goal: str(r.goal), epic: str(r.epic) })),
     retro: arr(v.retro)

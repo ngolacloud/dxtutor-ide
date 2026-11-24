@@ -6,7 +6,8 @@
 
 import { shellClient } from "../../../platform/tauri/shell";
 import { isDesktop } from "../../../platform/tauri/core";
-import type { CodevPort, Commit, Dialog, Git, Notifier, Workspace } from "../application/ports";
+import type { CodevPort, Commit, Dialog, Git, IssuePrompt, Notifier, Workspace } from "../application/ports";
+import { codevIssue } from "../../../app/codev-issue";
 import type { Issue, Project } from "../domain/types";
 
 const G = window as unknown as {
@@ -64,6 +65,9 @@ export const codev: CodevPort = {
       .filter(Boolean)
       .join("\n");
     void G.codevAgentStory?.({ id: i.key, title: i.title, type: i.kind === "bug" ? "fix" : "feature", pts: i.points ?? 0, note });
+  },
+  workWith(i: Issue, prompt: IssuePrompt) {
+    void codevIssue.run({ key: i.key, text: prompt.text, scope: i.scope, template: prompt.version });
   },
 };
 

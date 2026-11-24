@@ -11,6 +11,32 @@ const ROOT: &str = "/home/dev/proj";
 
 #[rustfmt::skip]
 const TABLE: &[(&str, Risk)] = &[
+    // ── RF-G05 (F1.5): irreversible or shared, in every mode ──
+    ("rm notes.txt", D),
+    ("unlink a.txt", D),
+    ("git rm src/old.rs", D),
+    ("npm run deploy", D),
+    ("make deploy", D),
+    ("fly deploy", D),
+    ("vercel --prod", D),
+    ("npx prisma migrate deploy", D),
+    ("npx prisma db push", D),
+    ("bin/rails db:migrate", D),
+    ("python manage.py migrate", D),
+    ("alembic upgrade head", D),
+    ("sqlx migrate run", D),
+    ("diesel migration run", D),
+    ("psql -f schema.sql", D),
+    ("kubectl apply -f k8s/", D),
+    ("kubectl rollout restart deploy/api", D),
+    ("helm upgrade api ./chart", D),
+    ("gh pr merge 12 --squash", D),
+    ("gh release create v1.0", D),
+    ("npm install --force", D),
+    ("npx prisma migrate status", U),
+    ("kubectl get pods", U),
+    ("gh pr list", U),
+    ("git merge feature/x", U),
     // ── contornos da regex antiga ──
     ("rm -fr build", D),
     ("rm -r -f build", D),
@@ -97,10 +123,9 @@ const TABLE: &[(&str, Risk)] = &[
     ("make", U),
     ("cargo run", U),
     ("cargo fmt", U),
-    ("rm notes.txt", U),
-    ("git add -A && git commit -m wip", U),
+    ("git add -A && git commit -m wip", D),
     ("git checkout -b feature", U),
-    ("git commit --amend --no-edit", U),
+    ("git commit --amend --no-edit", D),
     ("sed -i 's/a/b/' src/a.rs", U),
     ("echo x > out.txt", U),
     ("./scripts/deploy.sh", U),
@@ -156,4 +181,30 @@ fn compound_commands_are_split_for_prefix_rules() {
     );
     let cmds: Vec<String> = a.commands.iter().map(|c| c.join(" ")).collect();
     assert_eq!(cmds, ["cargo build", "cargo test -p x", "tail"]);
+}
+
+#[test]
+fn a_merge_into_a_shared_branch_always_asks() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(d.path().join(".git")).unwrap();
+    let on = |branch: &str| {
+        std::fs::write(
+            d.path().join(".git/HEAD"),
+            format!("ref: refs/heads/{branch}\n"),
+        )
+        .unwrap();
+        assess("git merge feature/x", d.path()).risk
+    };
+    assert_eq!(on("develop"), D);
+    assert_eq!(on("main"), D);
+    assert_eq!(on("feature/y"), U);
+    // a worktree: `.git` is a file pointing at the real git dir
+    let wt = tempfile::tempdir().unwrap();
+    std::fs::write(
+        wt.path().join(".git"),
+        format!("gitdir: {}\n", d.path().join(".git").display()),
+    )
+    .unwrap();
+    std::fs::write(d.path().join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    assert_eq!(assess("git pull origin main", wt.path()).risk, D);
 }
