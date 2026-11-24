@@ -26,12 +26,10 @@
    `app.ts`. `window.LIVE_OK=false` inicializa-se aqui (router carrega antes de app.ts
    e de bridge.ts, que o põe a `true` quando a amostragem ao vivo fica disponível). */
 
-import { CAPL, CAP, TASKP, rankProviders } from "./router/domain/model-routing";
+import { rankProviders } from "./router/domain/model-routing";
 
 window.LIVE_OK=false;
 /* perfis e pontuação: domain/model-routing.ts (puro, testado); aqui só o lado com efeitos */
 export function rankModels(task: string){return rankProviders(task,connected());}
 
-/* publica o motor no window — o resíduo do monólito (VIEW.team, genBacklog, runIssue)
-   resolve estes nomes como globais em runtime (padrão de inversão). */
-Object.assign(window,{CAPL,CAP,TASKP,rankModels});
+/* (ADR-0004, U7d) já não publica nada no window: o team importa o rankModels e os perfis vêm do domínio */

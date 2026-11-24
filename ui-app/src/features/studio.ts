@@ -77,7 +77,7 @@ document.addEventListener('dx:workspace', () => { SD = loadSD(); SSEL = null; SL
 function openStudio(){openTab({id:'studio',title:'Studio',kind:'studio'});}
 
 /* ───── catálogo de tecnologias cloud ───── */
-const CLOUD:Record<string,any>={app:{l:'APP',col:'#dea584',t:'Application runtimes'},oss:{l:'OSS',col:'#5cc9a7',t:'Open source'},aws:{l:'AWS',col:'#ff9900',t:'Amazon Web Services'},azure:{l:'AZURE',col:'#3a96dd',t:'Microsoft Azure'},gcp:{l:'GCP',col:'#ea4335',t:'Google Cloud'}};
+export const CLOUD:Record<string,any>={app:{l:'APP',col:'#dea584',t:'Application runtimes'},oss:{l:'OSS',col:'#5cc9a7',t:'Open source'},aws:{l:'AWS',col:'#ff9900',t:'Amazon Web Services'},azure:{l:'AZURE',col:'#3a96dd',t:'Microsoft Azure'},gcp:{l:'GCP',col:'#ea4335',t:'Google Cloud'}};
 const PG='postgres:16-alpine',RD='redis:7-alpine',TF='traefik:v3.1',KC='quay.io/keycloak/keycloak:25.0',RMQ='rabbitmq:3.13-management-alpine',GCE='gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators';
 const mkT=(n:string,cloud:string,kind:string,img:string,port:number,local?:string)=>({n,cloud,kind,img,port,local});
 const TECH:Record<string,any>={
@@ -98,7 +98,7 @@ const KIND={
   oidc:{cmd:'start-dev',env:['KEYCLOAK_ADMIN: admin','KEYCLOAK_ADMIN_PASSWORD: admin'],wire:(s:string)=>[`OIDC_ISSUER: http://${s}:8080/realms/master`]},otel:{wire:(s:string)=>[`OTEL_EXPORTER_OTLP_ENDPOINT: http://${s}:4317`]},obs:{},
   gateway:{cmd:'--providers.docker=true --providers.docker.exposedbydefault=false --entrypoints.web.address=:80'}};
 const isApp=(n:any)=>['app','web'].includes(TECH[n.tech].kind),sl=(n:any)=>slug(n.n),appDir=(n:any)=>(TECH[n.tech].kind==='web'?'web/':'apps/')+sl(n);
-function validateDesign(){const f:any[]=[],deg=(id:string)=>SD.edges.filter(e=>e[0]===id||e[1]===id).length,names:Record<string,number>={};
+export function validateDesign(){const f:any[]=[],deg=(id:string)=>SD.edges.filter(e=>e[0]===id||e[1]===id).length,names:Record<string,number>={};
   SD.nodes.forEach(n=>{const T=TECH[n.tech];if(names[sl(n)])f.push(['e',`Two components are named “${n.n}”. Names become service names and must be unique.`]);names[sl(n)]=1;if(!deg(n.id))f.push(['w',`“${n.n}” is not connected to anything.`]);
     if(!isApp(n)&&T.kind!=='gateway'&&T.kind!=='obs'&&deg(n.id)&&!SD.edges.some(e=>e[1]===n.id&&isApp(SD.nodes.find(x=>x.id===e[0]))))f.push(['w',`No application uses “${n.n}”. Draw the arrow from the app to the resource.`]);
     if(T.kind==='web'&&!SD.edges.some(e=>e[1]===n.id&&TECH[SD.nodes.find(x=>x.id===e[0])!.tech].kind==='gateway'))f.push(['w',`“${n.n}” is not behind a gateway, so it will be published directly.`]);});
@@ -157,7 +157,7 @@ registerActions({
   'studio:tech': { change: (c) => { node(c.on).tech = c.value; save(); } },
   'studio:status': { change: (c) => { node(c.on).st = c.value; save(); } },
   'studio:unlink': { click: (c) => { SD.edges.splice(Number(c.on), 1); save(); } },
-  'studio:del': { click: (c) => void callGlobal('sdDel', c.on) },
+  'studio:del': { click: (c) => void sdDel(c.on) },
   'studio:drift': { change: (c) => { G.DRIFT = c.value || null; drawStudio(); } },
 });
 VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" data-action="studio:drift"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${G.DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
@@ -165,4 +165,4 @@ VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { loadSD, CLOUD, TECH, KIND, isApp, sl, appDir, saveSD, openStudio, sdAdd, sdDel, validateDesign });
+Object.assign(window, { loadSD, TECH, KIND, isApp, sl, appDir, saveSD, openStudio, sdAdd });

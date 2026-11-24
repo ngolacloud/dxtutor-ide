@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7b)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7d)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1053,3 +1053,25 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   apanhar a versão decorada ou trocada pelo desktop; 114 são publicados por `window.X =`, mais do que uma vez, ou são
   fachadas de estado; 26 aparecem em testes. Cada um destes pede uma decisão por nome (é ponto de decoração? a porta
   desktop cobre-o?), por isso a U7 continua por feature, a começar pelas fachadas dos `legacy-bridge`.
+- **U7c (2026-11-24) — as fachadas dos `legacy-bridge`: o que dá para trocar sem decidir nada.** Mesmo critério da U7b,
+  agora para leituras pelas fachadas das pontes: o nome tem um único publicador que ninguém decora, avalia antes da
+  ponte, e TODOS os seus leitores podem passar a import (nenhum em testes/e2e, nenhum `callGlobal`, nenhuma leitura
+  pelo `window` fora das pontes, nenhum em módulos de outras sessões — incluindo agora o `lsp` e o `panel`, ainda a
+  receber trabalho). Só quatro passam, todos lidos pela ponte do board: `usd` (tasks), `codeGuard` (team), `CLOUD` e
+  `validateDesign` (studio) — a ponte importa-os e a publicação sai. Globais publicadas 315 → 311. **O resto não sai
+  sem decisões:** das leituras pelas pontes, 62 têm o publicador a avaliar DEPOIS da ponte (a leitura tardia pelo
+  `window` é o que evita a dependência circular/ordem trocada — trocar por import pede mover código), 40 são de nomes
+  publicados mais do que uma vez ou por `window.X =`, e os outros têm leitores em testes, no desktop ou em módulos de
+  outras sessões. Ver o plano a seguir.
+- **U7d (2026-11-24) — feature a feature, mais fundo (decisão do dono): o que o *checker* prova.** O critério textual da
+  U7a era conservador demais (um nome num comentário ou num export do domínio contava como leitor). Agora: um nome sem
+  leitor nenhum pelo *checker* (nem nome livre que resolva para o global, nem `window`/fachada, nem `callGlobal`), sem
+  menção em testes/e2e, e que não seja uma string literal exacta em lado nenhum do código (os acessos dinâmicos
+  `window[nome]` — o arranque `boot`…`boot6`, a lista que o PairCode decora — usam o nome exacto) está morto: saem 16
+  (`TABS`, `onKey`, `hhmm`, `STC`, `phase`, `CAPL`/`CAP`/`rankModels`, `dk`/`tgt`, `LANG` e os cinco geradores). Os
+  geradores (`composeYaml`, `appFiles`, `k8sYaml`, `cloudMap`, `dockerfile`) ficam como exports de
+  `features/generators.ts` — ninguém os lê hoje, mas a decisão do dono é que os geradores ficam. Os nomes que só o
+  próprio módulo lia pelo `callGlobal` (que a U5 pôs para resolver no acto, como o inline) e que ninguém decora passam a
+  chamada directa: `saveTK`, `scopeProbe`, `toggleRight`, `sdDel`, `ltStart`/`ltRes`/`ltGo`/`ltAsk`. E a ponte do board
+  importa o `TASKP` do domínio do router. O `router.ts` e o `generators.ts` deixam de publicar o que quer que seja.
+  Globais publicadas 311 → 286. Paridade nas duas línguas igual.

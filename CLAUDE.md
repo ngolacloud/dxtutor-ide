@@ -209,7 +209,9 @@ features/board.ts  RESÍDUO strangler + raiz de composição: DONO do estado (BL
                    adaptadores do bridge, tem a tabela ACTIONS, e re-publica os shims
                    window.* (onclick/VIEW.board de v5/v6 + o catálogo/geradores do
                    monólito que FICAM: composeYaml/appFiles/k8s*/cloudMap + TECH/KIND/
-                   CLOUD/isApp/sl/appDir, lidos por global — decisão do dono).
+                   CLOUD/isApp/sl/appDir — decisão do dono; desde a U7c/U7d do ADR-0004 os
+                   geradores são exports de features/generators.ts e o CLOUD/validateDesign/usd/
+                   codeGuard/TASKP chegam à ponte por import, não pelo window).
 ```
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). Como o scm/debug, o markup vive no

@@ -45,7 +45,6 @@ import {
   scrollMsgs,
   user,
   card,
-  phase,
   md,
   beat,
   runState,
@@ -156,7 +155,7 @@ function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last:
 
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
-Object.assign(window, { ctxPill, cycleMode, pickModel, scrollMsgs, newChat: newChatWithCtx, user, card, phase, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
+Object.assign(window, { ctxPill, cycleMode, pickModel, scrollMsgs, newChat: newChatWithCtx, user, card, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
 
 /* publica o doTool (já ligado em ./codev/index.ts, com o gate de direitos do harness acima)
    no window; o features/board.ts resolve-o por global. O motor de missões guionadas e os

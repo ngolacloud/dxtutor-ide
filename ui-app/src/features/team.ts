@@ -232,16 +232,15 @@ VIEW.review = reviewView;
 function openTeam(): void { openTab({ id: 'team', title: 'Team & harness', kind: 'team' }); }
 
 const CG = window as unknown as { focusAgent: (nofocus?: boolean) => void; user: (t: string) => void; card: (who: string, html: string) => unknown };
-function codeGuard(what: string): boolean {
+export function codeGuard(what: string): boolean {
   if (!isHuman('code')) return false;
   CG.focusAgent(true); CG.user(what);
   CG.card('co-dev', `<p>In this project <b>writing code is yours</b> (harness: ${HT[HARN.tpl].n}). I will not edit files.</p><p>I can explain the problem, review what you write, and run the tests when you are ready. Ask in the box below, or change the harness in <b>Team &amp; harness</b>.</p><div class="gate"><button class="gb" data-action="team:runTests">${msg("runTheTests")}</button><button class="gb" data-action="team:openTeam">Open the harness</button></div>`);
   return true;
 }
 
-Object.assign(window, {
-  codeGuard, openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill, scopeProbe,
-  RIGHTS, RIGHT_RE, HARN, MORD, isHuman, toggleRight, reviewIssue,
+Object.assign(window, { openTeam, inScope, harnessCheck, harnessCmd, agentSys, saveTeam, pickAgent, agentPill,
+  RIGHTS, RIGHT_RE, HARN, MORD, isHuman, reviewIssue,
 });
 
 /* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê
@@ -260,10 +259,10 @@ const lines = (v: string): string[] => v.split('\n').map((s) => s.trim()).filter
 registerActions({
   "team:openHarness": { click: () => void callGlobal('openPath', TA.ROOT + '.dxtutor/harness.toml') },
   "team:applyTemplate": { click: (c) => void callGlobal('applyTemplate', c.on) },
-  "team:toggleRight": { click: (c) => void callGlobal('toggleRight', c.on) },
+  "team:toggleRight": { click: (c) => void toggleRight(c.on) },
   "team:review": { click: () => { TA.HARN.review = !TA.HARN.review; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
   "team:explain": { click: () => { TA.HARN.explain = !TA.HARN.explain; TA.LS.set('harn5', TA.HARN); callGlobal('rerender', 'team'); } },
-  "team:probe": { input: (c) => void callGlobal('scopeProbe', c.value) },
+  "team:probe": { input: (c) => void scopeProbe(c.value) },
   "team:talk": { click: (c) => { TA.AGENT = c.on; callGlobal('agentPill'); callGlobal('show', TA.cur); } },
   "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); callGlobal('saveTeam'); } },
   "team:cmds": { change: (c) => { TA.AGENTS[c.on].cmds = lines(c.value); callGlobal('saveTeam'); } },
