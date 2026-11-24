@@ -364,7 +364,9 @@ despachante é o PRIMEIRO listener do document (primeiro import do `main.ts`) e 
 inline: corre os antepassados com acção pela ordem da borbulha, `c.stop()` = `event.stopPropagation()`,
 cede a um `el.onclick = f` posterior e a controlos desactivados. As acções chamam as funções
 publicadas no acto (`callGlobal`) — não troques por ligações locais sem ver se alguém decora a
-publicada. Handlers inline novos não: a métrica U5 do `ui-metrics.sh` só desce.
+publicada. Handlers inline novos não: a métrica U5 do `ui-metrics.sh` está em 0, e desde a U5e o
+CSP da app (`script-src 'self'`, sem `'unsafe-inline'`) bloqueava-os de qualquer forma. O passo `csp`
+do auto-teste desktop prova-o na app real.
 
 ## Learning Track + plugins de curso (`ui-app/src/features/learn/`, `crates/tutor-plugins/`)
 

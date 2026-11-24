@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 em curso (U5a–U5d)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -915,3 +915,14 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `ondrop`, que o harness não tira; provou-se que o snapshot novo é o antigo com exactamente esses 44
   atributos removidos e nada mais. Teste de cablagem do arrastar (com um `dataTransfer` falso — o
   jsdom não tem). Inline 5 → 1 (a prosa do achado da revisão, que a U5e tira da métrica).
+- **U5e (2026-11-24) — o CSP sem `'unsafe-inline'` no `script-src`.** O `tauri.conf.json` passa a
+  `script-src 'self'`. O `style-src` mantém `'unsafe-inline'` (decisão §9.3) e, com ele, o
+  `dangerousDisableAssetCspModification: true` — se o Tauri injectasse nonces/hashes no `style-src`,
+  o browser passaria a ignorar o `'unsafe-inline'` e os `style="…"` gerados deixavam de valer. Nada
+  mais precisava de script inline: a única tag do index.html é o módulo `src="/src/main.ts"`, e o
+  JSZip do desktop carrega-se de um ficheiro local (`'self'`). A métrica dos handlers passa a contar
+  só atributos de verdade (o valor abre com aspas, escapadas ou não), o que tira a prosa do achado da
+  revisão (`<img src=x onerror=…>`): 1 → 0. Métrica nova, baseline 0: `script-src` com
+  `'unsafe-inline'` no CSP. O auto-teste desktop ganha o passo `csp`: regista as violações do CSP
+  durante o auto-teste, procura atributos `on*` no DOM vivo depois de abertas as vistas, e prova que
+  o CSP está activo (um handler inline plantado não corre). Fecha a U5.

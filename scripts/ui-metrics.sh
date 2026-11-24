@@ -40,8 +40,13 @@ published_names() {
 window_assigns() { grep -rhoE 'window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]' "$SRC" --include=*.ts | count; }
 metric "globais publicadas no window (U3/U4/U7)" 381 0 \
   "$(( $(window_assigns) + $(published_names) ))"
-metric "handlers inline on*=\"…\" (U5)" 1 0 \
-  "$(grep -rhoE '[[:space:]]on(click|dblclick|change|input|keydown|keyup|submit|mousedown|mouseup|contextmenu|blur|focus|dragstart|dragover|dragleave|drop|load|error)=' "$SRC" "$UI/index.html" | count)"
+# só atributos de verdade (o valor abre com aspas, escapadas ou não): a prosa — p.ex. o achado da
+# revisão «<img src=x onerror=…>» — não conta (U5e)
+metric "handlers inline on*=\"…\" (U5)" 0 0 \
+  "$(grep -rhoE '[[:space:]]on(click|dblclick|change|input|keydown|keyup|submit|mousedown|mouseup|contextmenu|blur|focus|dragstart|dragover|dragleave|drop|load|error)=\\?["'"'"']' "$SRC" "$UI/index.html" | count)"
+# o CSP da app desktop sem 'unsafe-inline' no script-src (U5e): os handlers inline voltariam a ser precisos
+metric "script-src com 'unsafe-inline' no CSP (U5)" 0 0 \
+  "$(grep -oE "script-src[^;]*'unsafe-inline'" src-tauri/tauri.conf.json | count)"
 metric "invoke cru inv(\"…\") fora de platform/ (U2)" 0 0 \
   "$(grep -rhoE '\binv\("' "$SRC" --include=*.ts --exclude-dir=platform | count)"
 

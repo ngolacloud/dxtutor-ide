@@ -15,6 +15,10 @@ const realTerm = (raw: string) => ctx.realTerm(raw);
 const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSample(i, o);
   const rep: { tauri: boolean; version?: string; os?: string; errors: string[]; steps: Record<string, unknown>; stepErrors: Record<string, string[]> } =
     { tauri: true, version: R.info.version, os: R.info.os, errors: R.errors, steps: {}, stepErrors: {} };
+  /* U5e do ADR-0004: o script-src já não tem 'unsafe-inline' — regista qualquer violação do CSP durante o
+     auto-teste (um handler inline que tenha escapado à migração seria bloqueado aqui). */
+  const cspViolations: string[] = [];
+  document.addEventListener("securitypolicyviolation", (e) => cspViolations.push(`${e.violatedDirective} ${e.blockedURI || ""} ${(e.sample || "").slice(0, 80)}`.trim()));
   const step = async (n: string, f: () => unknown) => {
     const e0 = R.errors.length;
     try { rep.steps[n] = await f(); } catch (e) { rep.steps[n] = "FAIL: " + ((e as Error) && (e as Error).message || e); }
@@ -303,6 +307,18 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     });
     await step("llmNoKey", async () => { try { await desktopSample("hi"); return "unexpected"; } catch (e) { return String((e as Error) && (e as Error).message || e).slice(0, 120); } });
   }
+  /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
+  await step("csp", async () => {
+    const inlineHandlers = [...document.querySelectorAll("*")].filter((el) => [...el.attributes].some((a) => /^on/i.test(a.name))).map((el) => el.tagName.toLowerCase() + (el.id ? "#" + el.id : "")).slice(0, 20);
+    const violations = cspViolations.slice(0, 20);
+    /* prova de que o CSP está activo: um handler inline plantado não pode correr */
+    const b = document.createElement("button");
+    b.setAttribute("onclick", "this.dataset.ran='1'");
+    document.body.appendChild(b); b.click();
+    await new Promise((r) => setTimeout(r, 50));
+    const ran = b.dataset.ran === "1"; b.remove();
+    return { inlineHandlers, violations, inlineBlocked: !ran };
+  });
   rep.errors = R.errors;
   await app.selftestReport(rep);
 }
