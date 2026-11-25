@@ -603,3 +603,68 @@ describe("o Testing grava a suite inteira no commit (UI-SCM-09)", () => {
   });
 });
 
+
+import { draftProblem, draftsFrom, moveFile, suggestPrefix } from "../src/features/scm/domain/composer";
+import { makeComposer } from "../src/features/scm/application/composer";
+import { renderComposer } from "../src/features/scm/ui/composer-view";
+
+describe("o Commit Composer (UI-SCM-14) e as lanes (UI-SCM-11)", () => {
+  const F = (path: string) => ({ path, status: "M", added: 2, removed: 1 });
+  it("rascunhos por tema com o prefixo convencional; mudar ficheiros; o que falta para commitar", () => {
+    const d = draftsFrom([F("crates/lexer/src/lib.rs"), F("crates/lexer/tests/t.rs"), F("README.md")]);
+    expect(d.map((x) => [x.message, x.files]).sort()).toEqual([["docs: ", ["README.md"]], ["feat(lexer): ", ["crates/lexer/src/lib.rs"]], ["test: ", ["crates/lexer/tests/t.rs"]]]);
+    expect(suggestPrefix("infra")).toBe("ci: ");
+    const lex = d.find((x) => x.message.startsWith("feat"))!;
+    const m = moveFile(d, "README.md", lex.id);
+    expect(m.find((x) => x.id === lex.id)!.files).toEqual(["crates/lexer/src/lib.rs", "README.md"]);
+    expect(m).toHaveLength(2);
+    expect(moveFile(m, "crates/lexer/tests/t.rs", "new").at(-1)!.files).toEqual(["crates/lexer/tests/t.rs"]);
+    expect(draftProblem(lex, [])).toBe("message");
+    expect(draftProblem({ ...lex, message: "feat(lexer): digits" }, [])).toBeNull();
+    expect(draftProblem({ ...lex, message: "feat(lexer): digits" }, ["crates/lexer/src/lib.rs"])).toBe("files");
+    expect(draftProblem({ ...lex, message: "wip stuff" }, [])).toBe("message");
+  });
+
+  function fake(lanes = false) {
+    const commits: string[] = [], snaps: string[] = [], asked: unknown[] = [];
+    const c = makeComposer({
+      git: { changes: async () => [{ path: "src/a.rs", status: "M" }, { path: "README.md", status: "M" }], worktreeDiff: async () => "+x\n-y\n+z" },
+      commits: { commitPaths: async (_r, p, m) => { commits.push(`HEAD:${m}:${p}`); return "abc1234"; }, laneCommit: async (_r, b, p, m) => { commits.push(`${b}:${m}:${p}`); return "def5678"; } },
+      root: () => "/w", snapshot: async (l) => { snaps.push(l); }, changed: async () => {}, lanesOn: () => lanes, openTab: () => {},
+      codev: { available: () => true, ask: (r) => asked.push(r) }, toast: () => {}, say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
+    });
+    return { c, commits, snaps, asked };
+  }
+
+  it("carrega as alterações; só os rascunhos prontos entram, por ordem, cada um com os seus ficheiros e uma fotografia antes", async () => {
+    const f = fake();
+    await f.c.open();
+    const src = f.c.state().drafts.find((x) => x.files.includes("src/a.rs"))!, docs = f.c.state().drafts.find((x) => x.files.includes("README.md"))!;
+    expect(f.c.state().files[0]).toMatchObject({ added: 2, removed: 1 });
+    f.c.setMessage(src.id, "feat(src): parse digits");
+    f.c.setLane(src.id, "develop"); // lanes off: ignored
+    expect(await f.c.commitAll()).toBe(1);
+    expect(f.commits).toEqual(["HEAD:feat(src): parse digits:src/a.rs"]);
+    expect(f.snaps).toEqual(["commit: feat(src): parse digits"]);
+    expect(docs.message).toBe("docs: ");
+    f.c.askCodev();
+    expect(f.asked[0]).toMatchObject({ intent: "chat", send: false });
+  });
+
+  it("com as lanes ligadas, um rascunho vai para outro ramo sem checkout", async () => {
+    const f = fake(true);
+    await f.c.load();
+    const src = f.c.state().drafts.find((x) => x.files.includes("src/a.rs"))!;
+    f.c.setMessage(src.id, "fix(src): on the lane");
+    f.c.setLane(src.id, "develop");
+    await f.c.commitAll();
+    expect(f.commits).toEqual(["develop:fix(src): on the lane:src/a.rs"]);
+    const d = document.createElement("div");
+    await f.c.load();
+    d.innerHTML = renderComposer(((k: string) => k) as never, f.c.state(), { canAsk: true, lanes: true, branches: ["main", "develop"], current: "main", problem: (x) => f.c.problem(x) });
+    expect(d.querySelectorAll(".cp-card")).toHaveLength(2);
+    expect([...d.querySelectorAll('[data-action="gx-cp-lane"] option')].map((o) => o.textContent)).toContain("develop");
+    d.innerHTML = renderComposer(((k: string) => k) as never, f.c.state(), { canAsk: true, lanes: false, branches: ["main", "develop"], current: "main", problem: (x) => f.c.problem(x) });
+    expect(d.querySelector('[data-action="gx-cp-lane"]')).toBeNull(); // off by default: no lane select
+  });
+});

@@ -92,3 +92,9 @@ export const tauriLifecycle = (inv: Invoker = invoke): LifecyclePort => ({
   prsFor: (root, sha) => inv<Pr[]>("gh_prs_for", { root, sha }),
 });
 
+/** O Commit Composer (r23 F3): commit só destes ficheiros (`git_commit_paths`) ou, com as lanes, noutro ramo sem
+ *  checkout (`git_lane_commit`). */
+export const tauriCommits = (inv: Invoker = invoke): import("../application/composer").CommitPathsPort => ({
+  commitPaths: (root, paths, message) => inv<string>("git_commit_paths", { root, paths, message }),
+  laneCommit: (root, branch, paths, message) => inv<string>("git_lane_commit", { root, branch, paths, message }),
+});

@@ -296,6 +296,28 @@ pub async fn gh_prs_for(root: String, sha: String) -> Result<Vec<tutor_eval::gh:
     blocking(move || tutor_eval::gh::prs_for(Path::new(&root), &sha)).await
 }
 
+/// Commits only `paths` (Commit Composer, r23 F3); what else is staged stays staged.
+#[tauri::command]
+pub async fn git_commit_paths(
+    root: String,
+    paths: Vec<String>,
+    message: String,
+) -> Result<String, String> {
+    blocking(move || tutor_eval::gitwork::commit_paths(Path::new(&root), &paths, &message)).await
+}
+
+/// Lanes (experimental, r23 F3 UI-SCM-11): commits the changes of `paths` to `branch` without a checkout.
+#[tauri::command]
+pub async fn git_lane_commit(
+    root: String,
+    branch: String,
+    paths: Vec<String>,
+    message: String,
+) -> Result<String, String> {
+    blocking(move || tutor_eval::gitwork::lane_commit(Path::new(&root), &branch, &paths, &message))
+        .await
+}
+
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {

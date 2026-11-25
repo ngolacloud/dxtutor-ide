@@ -30,7 +30,8 @@ import { renderAccountPane } from "../../features/account";
 import { renderGraphView, graphScreen } from "../../features/scm/graph-screen";
 import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
 import { stage, gitMerge } from "../../features/scm";
-import { hunks, undo, merge3, sync, launchpad } from "../../features/scm/extras";
+import { hunks, undo, merge3, sync, launchpad, composer } from "../../features/scm/extras";
+import { setLanes } from "../../features/scm/infrastructure/legacy-bridge";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
 import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
@@ -269,6 +270,35 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const e = graphScreen.state().lifecycle[head];
       const back = await inv("test_results_for", { root: R.root, shas: [head] }) as Array<{ runner: string; passed: number }>;
       return { recorded, readBack: back.some((r) => r.runner === "selftest" && r.passed === 3), testsInGraph: !!e?.tests?.some((t) => t.runner === "selftest"), gh: e?.ghMissing ?? "ok" };
+    });
+    // r23 F3 (UI-SCM-14/11): o Commit Composer contra o git real — dois temas viram dois commits só com os seus
+    // ficheiros; com as lanes ligadas (experimental), um rascunho vai para o develop sem checkout e o HEAD fica.
+    await step("composer", async () => {
+      const head0 = (await git("rev-parse", "HEAD")).stdout.trim(), br = BRANCH;
+      writeFile(ROOT + "src/cp_mod.rs", "pub fn cp() {}\n"); writeFile(ROOT + "docs/cp.md", "# cp\n"); flushSave(); await idle();
+      await composer.load();
+      const drafts = composer.state().drafts;
+      drafts.forEach((d) => composer.setMessage(d.id, d.files.some((f) => f.endsWith(".md")) ? "docs: composer selftest" : "feat(src): composer selftest"));
+      const made = await composer.commitAll(); await idle();
+      const subjects = (await git("log", "-2", "--format=%s")).stdout.trim().split("\n");
+      const files = (await git("show", "--name-only", "--format=", "HEAD")).stdout.trim();
+      setLanes(true);
+      let lane = "skipped", headStayed = false;
+      try {
+        const target = Object.keys(GIT.refs).find((b) => b !== br);
+        if (target) {
+          writeFile(ROOT + "src/cp_lane.rs", "pub fn lane() {}\n"); flushSave(); await idle();
+          await composer.load();
+          const d = composer.state().drafts.find((x) => x.files.some((f) => f.endsWith("cp_lane.rs")));
+          if (d) { composer.setMessage(d.id, "feat(src): on the lane"); composer.setLane(d.id, target); }
+          const headBefore = (await git("rev-parse", "HEAD")).stdout.trim();
+          await composer.commitAll(); await idle();
+          lane = (await git("log", "-1", "--format=%s", target)).stdout.trim();
+          headStayed = (await git("rev-parse", "HEAD")).stdout.trim() === headBefore;
+          delete FS[ROOT + "src/cp_lane.rs"]; flushSave(); await idle();
+        }
+      } finally { setLanes(false); }
+      return { drafts: drafts.length, made, subjects, lastHasOnlyItsFile: files.split("\n").length === 1, moved: head0 !== (await git("rev-parse", "HEAD")).stdout.trim(), lane, headStayed };
     });
     // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
     await step("graph", async () => {

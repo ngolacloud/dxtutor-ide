@@ -1003,6 +1003,179 @@ pub fn sync(root: &Path, op: SyncOp, expected: &str) -> Result<String, String> {
     Ok(o.trim().to_string())
 }
 
+// ───── the Commit Composer and lanes (r23 F3, UI-SCM-14 / UI-SCM-11) ─────
+
+fn check_paths(paths: &[String]) -> Result<Vec<&str>, String> {
+    if paths.is_empty() {
+        return Err("no file to commit".into());
+    }
+    paths
+        .iter()
+        .map(|p| {
+            let c = gitx::check_path(p)?;
+            if Path::new(c).is_absolute()
+                || Path::new(c)
+                    .components()
+                    .any(|x| matches!(x, std::path::Component::ParentDir))
+            {
+                return Err(format!("not a path inside the project: {p}"));
+            }
+            Ok(c)
+        })
+        .collect()
+}
+
+/// Commits only `paths` (new, changed or deleted), whatever else is staged; returns the new commit.
+pub fn commit_paths(root: &Path, paths: &[String], message: &str) -> Result<String, String> {
+    let m = message.trim();
+    if m.is_empty() {
+        return Err("empty commit message".into());
+    }
+    let ps = check_paths(paths)?;
+    let mut add = vec!["add", "-A", "--"];
+    add.extend(ps.iter().copied());
+    git(root, &add)?;
+    let mut c = vec!["commit", "-m", m, "--only", "--"];
+    c.extend(ps.iter().copied());
+    git(root, &c)?;
+    out(root, &["rev-parse", "--short", "HEAD"])
+        .ok_or_else(|| "commit made but HEAD unreadable".into())
+}
+
+/// UI-SCM-11 (lanes, experimental): commits the changes of `paths` to `branch` WITHOUT a checkout — a temporary
+/// index read from the branch's tip, the files' diffs against HEAD applied to it (a file git does not track yet
+/// goes in whole), `write-tree`, `commit-tree -p <tip>`, `update-ref` with the old value checked. The working
+/// tree and HEAD are left as they are (the change stays applied here too). A diff that does not apply on the
+/// branch refuses the call; nothing is half-written.
+pub fn lane_commit(
+    root: &Path,
+    branch: &str,
+    paths: &[String],
+    message: &str,
+) -> Result<String, String> {
+    let m = message.trim();
+    if m.is_empty() {
+        return Err("empty commit message".into());
+    }
+    let b = gitx::check_rev(branch)?;
+    let ps = check_paths(paths)?;
+    if out(root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).as_deref() == Some(b) {
+        return Err(format!("{b} is the current branch: commit normally"));
+    }
+    let refname = format!("refs/heads/{b}");
+    let tip = out(root, &["rev-parse", "--verify", "--quiet", &refname])
+        .ok_or_else(|| format!("no branch {b}"))?;
+    let tmp = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
+    let idx = tmp.path().display().to_string();
+    let env = [("GIT_INDEX_FILE", idx.as_str())];
+    gitx::run(root, &["read-tree", &tip], &env)?;
+    /* tracked = in the index or in HEAD (a deleted file is still tracked): its diff applies; the rest goes in whole */
+    let tracked: Vec<&str> = ps
+        .iter()
+        .copied()
+        .filter(|p| {
+            git(root, &["ls-files", "--error-unmatch", "--", p]).is_ok()
+                || git(root, &["cat-file", "-e", &format!("HEAD:{p}")]).is_ok()
+        })
+        .collect();
+    let untracked: Vec<&str> = ps
+        .iter()
+        .copied()
+        .filter(|p| !tracked.contains(p))
+        .collect();
+    if !tracked.is_empty() {
+        let mut d = vec![
+            "diff",
+            "--binary",
+            "--no-color",
+            "--no-ext-diff",
+            "HEAD",
+            "--",
+        ];
+        d.extend(tracked.iter().copied());
+        let patch = git(root, &d)?;
+        if !patch.trim().is_empty() {
+            let mut cmd = Command::new("git");
+            cmd.arg("-C")
+                .arg(root)
+                .args(["apply", "--cached", "-"])
+                .env("GIT_INDEX_FILE", &idx)
+                .env("LC_ALL", "C");
+            let mut child = cmd
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| e.to_string())?;
+            child
+                .stdin
+                .take()
+                .ok_or("no stdin")?
+                .write_all(patch.as_bytes())
+                .map_err(|e| e.to_string())?;
+            let o = child.wait_with_output().map_err(|e| e.to_string())?;
+            if !o.status.success() {
+                return Err(format!(
+                    "the changes do not apply on {b}: {}",
+                    String::from_utf8_lossy(&o.stderr).trim()
+                ));
+            }
+        }
+    }
+    for p in &untracked {
+        let file = root.join(p);
+        if !file.is_file() {
+            return Err(format!("{p} is neither tracked nor a file"));
+        }
+        let blob = git(root, &["hash-object", "-w", "--", p])?
+            .trim()
+            .to_string();
+        #[cfg(unix)]
+        let mode = {
+            use std::os::unix::fs::PermissionsExt;
+            if std::fs::metadata(&file)
+                .map(|m| m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+            {
+                "100755"
+            } else {
+                "100644"
+            }
+        };
+        #[cfg(not(unix))]
+        let mode = "100644";
+        gitx::run(
+            root,
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("{mode},{blob},{p}"),
+            ],
+            &env,
+        )?;
+    }
+    let tree = gitx::run(root, &["write-tree"], &env)?.trim().to_string();
+    if out(root, &["rev-parse", &format!("{tip}^{{tree}}")]).as_deref() == Some(tree.as_str()) {
+        return Err(format!("nothing changes on {b}"));
+    }
+    let commit = git(root, &["commit-tree", &tree, "-p", &tip, "-m", m])?
+        .trim()
+        .to_string();
+    git(
+        root,
+        &[
+            "update-ref",
+            "-m",
+            &format!("dxtutor lane: {m}"),
+            &refname,
+            &commit,
+            &tip,
+        ],
+    )?;
+    Ok(commit[..7.min(commit.len())].to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1528,6 +1701,94 @@ mod tests {
             }
         )
         .is_err());
+    }
+
+    #[test]
+    fn commit_paths_commits_only_those_files() {
+        let d = repo();
+        commit(d.path(), "a.txt", "a\n", "feat: a");
+        std::fs::write(d.path().join("a.txt"), "a2\n").unwrap();
+        std::fs::write(d.path().join("b.txt"), "b\n").unwrap();
+        std::fs::write(d.path().join("c.txt"), "c\n").unwrap();
+        g(d.path(), &["add", "c.txt"]);
+        let sha = commit_paths(d.path(), &["b.txt".into()], "feat: b").unwrap();
+        assert_eq!(out(d.path(), &["rev-parse", "--short", "HEAD"]), Some(sha));
+        assert_eq!(
+            out(d.path(), &["show", "--name-only", "--format=", "HEAD"]).as_deref(),
+            Some("b.txt")
+        );
+        assert_eq!(
+            out(d.path(), &["diff", "--cached", "--name-only"]).as_deref(),
+            Some("c.txt"),
+            "what else was staged stays staged"
+        );
+        assert!(commit_paths(d.path(), &["../x".into()], "feat: x").is_err());
+        assert!(commit_paths(d.path(), &[], "feat: x").is_err());
+    }
+
+    #[test]
+    fn a_lane_commit_goes_to_the_branch_without_a_checkout() {
+        let d = repo();
+        commit(d.path(), "f.txt", "one\ntwo\nthree\n", "feat: base");
+        g(d.path(), &["branch", "lane"]);
+        commit(d.path(), "g.txt", "only on main\n", "feat: main only");
+        std::fs::write(d.path().join("f.txt"), "one\nTWO\nthree\n").unwrap();
+        std::fs::write(d.path().join("new.txt"), "brand new\n").unwrap();
+        let head = out(d.path(), &["rev-parse", "HEAD"]);
+        let sha = lane_commit(
+            d.path(),
+            "lane",
+            &["f.txt".into(), "new.txt".into()],
+            "fix: on the lane",
+        )
+        .unwrap();
+        assert_eq!(
+            out(d.path(), &["rev-parse", "--short=7", "lane"]),
+            Some(sha)
+        );
+        assert_eq!(
+            out(d.path(), &["rev-parse", "HEAD"]),
+            head,
+            "HEAD did not move"
+        );
+        assert_eq!(
+            out(d.path(), &["symbolic-ref", "--short", "HEAD"]).as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            git(d.path(), &["show", "lane:f.txt"]).unwrap(),
+            "one\nTWO\nthree\n"
+        );
+        assert_eq!(
+            git(d.path(), &["show", "lane:new.txt"]).unwrap(),
+            "brand new\n"
+        );
+        assert!(
+            git(d.path(), &["show", "lane:g.txt"]).is_err(),
+            "main's other changes did not leak into the lane"
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("f.txt")).unwrap(),
+            "one\nTWO\nthree\n",
+            "the working tree keeps the change"
+        );
+        assert!(lane_commit(d.path(), "main", &["f.txt".into()], "x: y")
+            .unwrap_err()
+            .contains("current"));
+        assert!(lane_commit(d.path(), "nope", &["f.txt".into()], "x: y").is_err());
+        // a change that does not apply on the lane is refused and the lane does not move
+        g(d.path(), &["checkout", "-q", "--", "f.txt"]);
+        std::fs::remove_file(d.path().join("new.txt")).unwrap();
+        g(d.path(), &["checkout", "-q", "lane"]);
+        std::fs::write(d.path().join("f.txt"), "rewritten on lane\n").unwrap();
+        g(d.path(), &["commit", "-q", "-am", "feat: lane rewrite"]);
+        g(d.path(), &["checkout", "-q", "main"]);
+        let lane_tip = out(d.path(), &["rev-parse", "lane"]);
+        std::fs::write(d.path().join("f.txt"), "one\nTWO again\nthree\n").unwrap();
+        assert!(lane_commit(d.path(), "lane", &["f.txt".into()], "fix: x")
+            .unwrap_err()
+            .contains("do not apply"));
+        assert_eq!(out(d.path(), &["rev-parse", "lane"]), lane_tip);
     }
 
     #[test]

@@ -23,7 +23,9 @@ import { tauriHunks, tauriUndo, tauriScmAudit, tauriMerge, tauriSync } from "./i
 import { makeSync } from "./application/sync";
 import { makeLaunchpad } from "./application/launchpad";
 import { renderLaunchpad } from "./ui/launchpad-view";
-import { tauriGh, openExternal } from "./infrastructure/tauri";
+import { tauriGh, openExternal, tauriCommits } from "./infrastructure/tauri";
+import { makeComposer } from "./application/composer";
+import { renderComposer } from "./ui/composer-view";
 import { makeMerge3 } from "./application/merge3";
 import { renderMerge3 } from "./ui/merge3-view";
 import { makeUndo } from "./application/undo";
@@ -122,6 +124,16 @@ launchpad.subscribe(() => paint("git-launchpad"));
 let graphRemote: () => string | null = () => null;
 export const setRemoteSource = (f: () => string | null): void => { graphRemote = f; };
 
+/* ── r23 F3 (UI-SCM-14): the Commit Composer (and the lanes, experimental) ── */
+export const composer = makeComposer({
+  git: tauriGitExtras(), commits: tauriCommits(), root: () => B.gitRoot(), snapshot: (l) => undo.snapshot(l),
+  changed: () => B.reloadFromGit(), lanesOn: () => B.lanesOn(),
+  openTab: () => B.openTab({ id: "git-composer", title: "Commit Composer", kind: "git-composer" }),
+  codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
+  toast: (m) => B.toast(m), say,
+});
+composer.subscribe(() => paint("git-composer"));
+
 /* ── r23 F3: fetch, pull and push, approved and audited ── */
 export const sync = makeSync({
   git: tauriSync(), root: () => B.gitRoot(), changed: () => B.reloadFromGit(), snapshot: (l) => undo.snapshot(l),
@@ -140,6 +152,7 @@ const RENDER: Record<string, () => string> = {
   "git-rebase": () => renderRebase(t, gitExtras.state().rebase),
   "git-text": () => renderText(gitExtras.state().text),
   "git-review": () => renderReview(t, gitExtras.state().review, codevAsk.available()),
+  "git-composer": () => renderComposer(t, composer.state(), { canAsk: codevAsk.available(), lanes: B.lanesOn(), branches: Object.keys(B.git().refs), current: B.branch(), problem: (d) => composer.problem(d) }),
   "git-launchpad": () => renderLaunchpad(t, launchpad.state()),
   "git-merge": () => renderMerge3(t, merge3.state(), codevAsk.available(), (p) => merge3.blocks(p)),
 };
@@ -213,6 +226,8 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
   ["Git: Undo Last Operation", guard(() => undo.undoLast())],
   ["Git: Resolve Merge Conflicts", guard(() => merge3.open())],
   ["Git: Launchpad (pull requests)", guard(() => launchpad.open())],
+  ["Git: Commit Composer", guard(() => composer.open())],
+  ["Git: Lanes (experimental) on/off", guard(() => { B.setLanes(!B.lanesOn()); B.toast(t(B.lanesOn() ? "lanesOn" : "lanesOff")); paint("git-composer"); })],
   ["Git: Fetch", guard(() => sync.run("fetch"))],
   ["Git: Pull", guard(() => sync.run("pull"))],
   ["Git: Push", guard(() => sync.run("push"))],
@@ -235,6 +250,14 @@ export const GIT_ACTIONS: ActionTable = {
   "gx-merge-resolve": { on: "click", run: (e) => { void merge3.resolve(e.on); } },
   "gx-merge-complete": { on: "click", run: () => { void merge3.complete(); } },
   "gx-merge-abort": { on: "click", run: () => { void merge3.abort(); } },
+  "gx-cp-msg": { on: "input", run: (e) => composer.setMessage(e.on, e.value) },
+  "gx-cp-lane": { on: "change", run: (e) => composer.setLane(e.on, e.value || null) },
+  "gx-cp-move": { on: "change", run: (e) => { if (e.value) composer.move(e.on, e.value); } },
+  "gx-cp-toggle": { on: "change", run: (e) => composer.toggle(e.on) },
+  "gx-cp-ask": { on: "click", run: () => composer.askCodev() },
+  "gx-cp-reload": { on: "click", run: () => { void composer.load(); } },
+  "gx-cp-commit": { on: "click", run: () => { void composer.commitAll(); } },
+  "gx-composer": { on: "click", run: () => { void composer.open(); } },
   "gx-lp-open": { on: "click", run: (e) => openExternal(e.on, B.desktopOs()) },
   "gx-lp-refresh": { on: "click", run: () => { void launchpad.load(); } },
   "gx-lp-worktree": { on: "click", run: (e) => { void launchpad.checkoutWorktree(n(e.on)); } },

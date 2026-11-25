@@ -4,6 +4,12 @@ import type { Messages } from "../../../app/i18n";
 
 export const GIT_MESSAGES = {
   en: {
+    composerTitle: "Commit Composer", composerLede: "Your changes as commit drafts: finish each message, move files between drafts or leave them out, then commit them in order (each one only its files; undoable).",
+    composerLanesOn: "Lanes are on: a draft can go to another branch without a checkout.", composerAskBtn: "✦ Ask Co-Dev to group", composerCommit: "Commit the drafts",
+    composerMove: "Move to another draft", composerNewDraft: "a new draft", composerInclude: "Include this file", composerLane: "Branch",
+    "composerProblem-message": "Write a Conventional Commits message: type(scope): what changed", "composerProblem-files": "No file left in this draft",
+    composerNothing: "No draft is ready to commit.", lanesOn: "Lanes on (experimental): Composer drafts can go to another branch.", lanesOff: "Lanes off.", composerClean: "Nothing to commit: the working tree is clean.", composerDone: "{n} commit(s) made.", composerFilesLabel: "{n} changed files",
+    composerAsk: "Group these changes into small, coherent commits and give each a Conventional Commits message in English (type(scope): subject). Say which files go in each; I will shape the drafts myself.",
     lpTitle: "Launchpad — pull requests that need you", lpReviewMe: "Review requested", lpMine: "Yours", lpNone: "None.", lpNoChecks: "no checks", lpDraft: "draft",
     lpNotInstalled: "GitHub CLI not installed.", lpSignedOut: "GitHub CLI not signed in: run `gh auth login`.", lpWorktree: "Checkout into a worktree…",
     lpWorktreePh: "Folder for pull request #{n}", lpWorktreeTitle: "Check out pull request #{n} into its own worktree", lpWorktreeScope: "from remote {r}",
@@ -68,6 +74,12 @@ export const GIT_MESSAGES = {
     csDiscardTitle: "Discard the changes of {set}: these files go back to the last commit, with every change in them — yours too",
   },
   ptAO: {
+    composerTitle: "Commit Composer", composerLede: "As tuas alterações como rascunhos de commit: acaba cada mensagem, muda ficheiros de rascunho ou deixa-os de fora, e faz os commits por ordem (cada um só com os seus ficheiros; dá para desfazer).",
+    composerLanesOn: "As lanes estão ligadas: um rascunho pode ir para outro ramo sem checkout.", composerAskBtn: "✦ Pedir ao Co-Dev para agrupar", composerCommit: "Fazer os commits",
+    composerMove: "Mudar para outro rascunho", composerNewDraft: "um rascunho novo", composerInclude: "Incluir este ficheiro", composerLane: "Ramo",
+    "composerProblem-message": "Escreve uma mensagem Conventional Commits: tipo(âmbito): o que mudou", "composerProblem-files": "Não ficou nenhum ficheiro neste rascunho",
+    composerNothing: "Nenhum rascunho está pronto para commit.", lanesOn: "Lanes ligadas (experimental): os rascunhos do Composer podem ir para outro ramo.", lanesOff: "Lanes desligadas.", composerClean: "Nada para commit: a árvore de trabalho está limpa.", composerDone: "{n} commit(s) feitos.", composerFilesLabel: "{n} ficheiros alterados",
+    composerAsk: "Agrupa estas alterações em commits pequenos e coerentes e dá a cada um uma mensagem Conventional Commits em inglês (type(scope): subject). Diz que ficheiros vão em cada um; eu monto os rascunhos.",
     lpTitle: "Launchpad — pull requests que precisam de ti", lpReviewMe: "Revisão pedida", lpMine: "Teus", lpNone: "Nenhum.", lpNoChecks: "sem checks", lpDraft: "rascunho",
     lpNotInstalled: "GitHub CLI não instalado.", lpSignedOut: "GitHub CLI sem sessão: corre `gh auth login`.", lpWorktree: "Checkout para uma worktree…",
     lpWorktreePh: "Pasta para o pull request #{n}", lpWorktreeTitle: "Fazer checkout do pull request #{n} numa worktree própria", lpWorktreeScope: "do remoto {r}",

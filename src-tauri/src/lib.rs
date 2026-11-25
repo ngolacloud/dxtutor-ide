@@ -86,11 +86,12 @@ use commands::devcontainer::{
 use commands::dictation::{dictation_cancel, dictation_start, dictation_status, dictation_stop};
 use commands::git::{
     gh_prs, gh_prs_for, gh_runs_for, gh_status, git_amend, git_blame, git_branch, git_branches,
-    git_changes, git_checkout, git_clone, git_clone_plan, git_commit, git_compare,
-    git_conflict_stages, git_create_branch, git_diff, git_diff_range, git_history, git_hunks,
-    git_log, git_merge, git_predict_conflicts, git_rebase, git_refs, git_show, git_show_path,
-    git_stage, git_stage_all, git_stage_hunks, git_stash, git_sync, git_sync_plan, git_undo_list,
-    git_undo_plan, git_undo_restore, git_undo_snapshot, git_unstage, git_worktree,
+    git_changes, git_checkout, git_clone, git_clone_plan, git_commit, git_commit_paths,
+    git_compare, git_conflict_stages, git_create_branch, git_diff, git_diff_range, git_history,
+    git_hunks, git_lane_commit, git_log, git_merge, git_predict_conflicts, git_rebase, git_refs,
+    git_show, git_show_path, git_stage, git_stage_all, git_stage_hunks, git_stash, git_sync,
+    git_sync_plan, git_undo_list, git_undo_plan, git_undo_restore, git_undo_snapshot, git_unstage,
+    git_worktree,
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
@@ -901,6 +902,8 @@ pub fn run() {
             gh_prs,
             gh_runs_for,
             gh_prs_for,
+            git_commit_paths,
+            git_lane_commit,
             git_rebase,
             git_amend,
             git_stage,

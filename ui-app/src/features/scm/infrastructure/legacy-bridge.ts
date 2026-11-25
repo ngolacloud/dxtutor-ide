@@ -149,3 +149,7 @@ export const projectCheck = async (): Promise<{ cmd: string; ok: boolean; summar
 
 /** O sistema operativo da app desktop (para abrir URLs no browser do sistema). */
 export const desktopOs = (): string => (dxr() as unknown as { info?: { os?: string } } | null)?.info?.os ?? "linux";
+
+/** r23 F3: as lanes do Commit Composer (experimental, desligadas por omissão) — uma conveniência por pessoa no LS. */
+export const lanesOn = (): boolean => { try { return (G.LS as { get: (k: string, d: boolean) => boolean }).get("scm.lanes", false) === true; } catch { return false; } };
+export const setLanes = (on: boolean): void => { try { (G.LS as { set: (k: string, v: boolean) => void }).set("scm.lanes", on); } catch { /* sem armazenamento */ } };
