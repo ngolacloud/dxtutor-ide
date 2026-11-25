@@ -36,6 +36,9 @@ pub struct Rendered {
     pub version: String,
     /// An estimate (≈ 4 characters per token); the provider's count comes with the turn.
     pub tokens: usize,
+    /// The template's own text (before filling): what «Edit template» starts the project's file
+    /// from when the built-in one is in use.
+    pub template: String,
 }
 
 pub const BUILTIN_PT: &str = "# Papel
@@ -555,6 +558,7 @@ pub fn render_with(root: &Path, i: &IssueData, lang: Option<&str>, outline: Outl
     let tokens = text.chars().count().div_ceil(4);
     Rendered {
         version: version_of(&template),
+        template,
         text,
         lang: lang.into(),
         source,
@@ -627,6 +631,8 @@ mod tests {
             ("en", "builtin")
         );
         assert!(builtin.text.starts_with("# Role"));
+        // «Edit template» starts the project's file from the built-in text, placeholders and all
+        assert_eq!(builtin.template, BUILTIN_EN);
         std::fs::create_dir_all(d.path().join(".dxtutor/prompts")).unwrap();
         std::fs::write(
             d.path().join(".dxtutor/prompts/issue.pt.md"),
@@ -648,6 +654,7 @@ mod tests {
         let b = render(d.path(), &issue(), None);
         assert_ne!(a.version, b.version);
         assert_eq!(b.version, version_of("v2 {{id}}"));
+        assert_eq!(b.template, "v2 {{id}}");
     }
 
     #[test]

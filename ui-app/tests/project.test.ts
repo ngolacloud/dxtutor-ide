@@ -260,7 +260,8 @@ describe("the Project markup", () => {
     expect(toasts.at(-1)).toContain("PRJ-3 ainda não está Ready — falta: âmbito de ficheiros");
     await s.work("PRJ-1");
     expect(issuePrompt).toHaveBeenCalledWith("/proj", "PRJ-1");
-    expect(workWith).toHaveBeenCalledWith(expect.objectContaining({ key: "PRJ-1", scope: ["src/**"] }), prompt);
+    // the prompt as the backend sent it (plus `template`, empty when an older backend leaves it out)
+    expect(workWith).toHaveBeenCalledWith(expect.objectContaining({ key: "PRJ-1", scope: ["src/**"] }), { template: "", ...prompt });
     // the panel: what is missing, the button off, and the prompt as it is sent
     await s.select("PRJ-3");
     let html = renderProject(s.state(), NOW);
@@ -273,6 +274,58 @@ describe("the Project markup", () => {
     expect(html).toContain("# Papel");
     s.closePrompt();
     expect(renderProject(s.state(), NOW)).not.toContain("≈ 42 tokens");
+  });
+
+  it("RF-B04: «Edit template» cria o template do projecto a partir do embutido e abre-o; o do projecto só se abre", async () => {
+    const files = { write: vi.fn(async () => undefined), open: vi.fn(async () => undefined), commit: vi.fn(async () => "abc1234") };
+    const builtin = { text: "# Papel\n…", lang: "pt", source: "builtin", version: "v1", tokens: 9, template: "# Papel\n{{id}} — {{titulo}}" };
+    let answer = false;
+    const issuePrompt = vi.fn(async () => builtin);
+    let message: string | null = null;
+    const { d, toasts } = deps({ gateway: { ...deps().d.gateway, issuePrompt }, templates: files, dialog: { prompt: (_m, initial) => message ?? initial ?? null, confirm: () => answer } });
+    const s = makeProjectService(d);
+    await s.open();
+    await s.select("PRJ-1");
+    await s.viewPrompt("PRJ-1");
+    expect(renderProject(s.state(), NOW)).toContain('data-action="pj-template"');
+    // with the built-in template there is nothing of the project's to commit yet
+    expect(renderProject(s.state(), NOW)).not.toContain('data-action="pj-template-commit"');
+    expect(await s.commitTemplate()).toBeNull();
+    // declined: nothing is written
+    await s.editTemplate();
+    expect(files.write).not.toHaveBeenCalled();
+    answer = true;
+    await s.editTemplate();
+    expect(files.write).toHaveBeenCalledWith("/proj", ".dxtutor/prompts/issue.pt.md", "# Papel\n{{id}} — {{titulo}}");
+    expect(files.open).toHaveBeenCalledWith(".dxtutor/prompts/issue.pt.md");
+    expect(toasts.at(-1)).toContain("«View prompt» shows the new version");
+    // F4.4: now it is the project's template, with its own commit (only that file)
+    expect(renderProject(s.state(), NOW)).toContain('data-action="pj-template-commit"');
+    expect(await s.commitTemplate()).toBe("abc1234");
+    expect(files.commit).toHaveBeenCalledWith("/proj", ".dxtutor/prompts/issue.pt.md", "docs(prompt): update the issue template (pt)");
+    expect(toasts.at(-1)).toBe(".dxtutor/prompts/issue.pt.md committed (abc1234)");
+    message = " "; // an empty message does not commit
+    expect(await s.commitTemplate()).toBeNull();
+    expect(files.commit).toHaveBeenCalledTimes(1);
+    message = null;
+    files.commit.mockRejectedValueOnce("commitar o template de prompt é de Arquitecto ou Tech Lead (.dxtutor/team.json, RF-A06)");
+    expect(await s.commitTemplate()).toBeNull();
+    expect(toasts.at(-1)).toContain("Arquitecto ou Tech Lead");
+    // the project's own template: opened as it is, never overwritten
+    issuePrompt.mockResolvedValueOnce({ ...builtin, lang: "en", source: ".dxtutor/prompts/issue.en.md", template: "mine" });
+    await s.viewPrompt("PRJ-1");
+    files.write.mockClear();
+    await s.editTemplate();
+    expect(files.write).not.toHaveBeenCalled();
+    expect(files.open).toHaveBeenLastCalledWith(".dxtutor/prompts/issue.en.md");
+    // outside the desktop (no templates port): it says where
+    const o = deps({ gateway: { ...deps().d.gateway, issuePrompt } });
+    const off = makeProjectService(o.d);
+    await off.open();
+    await off.select("PRJ-1");
+    await off.viewPrompt("PRJ-1");
+    await off.editTemplate();
+    expect(o.toasts.at(-1)).toBe("O template edita-se na app desktop, com uma pasta aberta");
   });
 
   it("RF-T03: o orçamento e o gasto do Co-Dev na issue e no sprint", async () => {

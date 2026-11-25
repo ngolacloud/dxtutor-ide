@@ -13,10 +13,11 @@ import { codevIssue } from "../../../app/codev-issue";
 import type { Issue, Project } from "../domain/types";
 
 const G = window as unknown as {
-  DXR?: { root?: string | null; git?: boolean };
+  DXR?: { root?: string | null; git?: boolean; reloadDisk?: () => Promise<unknown>; flush?: () => void; idle?: () => Promise<unknown> };
   openTab?: (t: { id: string; title: string; kind: string }) => void;
   ROOT?: string;
   openDiff?: (p: string) => void;
+  openPath?: (p: string, line?: number) => void;
   toast?: (m: string) => void;
   checkout?: (branch: string, create?: boolean) => unknown;
   codevAgentStory?: (s: { id: string; title: string; type: string; pts: number; note?: string }) => Promise<void> | null;
@@ -83,6 +84,19 @@ export const dialog: Dialog = {
 export const notify: Notifier = { toast: (m) => (G.toast ? G.toast(m) : undefined) };
 
 export const openTab = (t: { id: string; title: string; kind: string }): void => G.openTab?.(t);
+
+/** RF-B04: opens a file of the open folder in the editor (after the disk is read again, so a file
+ *  just written is there). */
+export async function openProjectFile(rel: string): Promise<void> {
+  await G.DXR?.reloadDisk?.();
+  G.openPath?.((G.ROOT ?? "") + rel);
+}
+
+/** Writes what the editor has to disk and waits for the write queue (before a commit). */
+export async function saveEditor(): Promise<void> {
+  G.DXR?.flush?.();
+  await G.DXR?.idle?.();
+}
 
 /** RF-B08: the diff of a file of the open folder (path relative to it), as Source Control opens it. */
 export const openDiff = (rel: string): void => G.openDiff?.((G.ROOT ?? "") + rel);

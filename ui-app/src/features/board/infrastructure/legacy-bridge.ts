@@ -31,7 +31,6 @@ import type {
 import { validateDesign as validateDesignImpl, CLOUD, saveSD as saveSDImpl, appDir as appDirImpl, openStudio as openStudioImpl, TECH as TECHImpl, KIND as KINDImpl, isApp as isAppImpl, sl as slImpl } from "../../studio";
 import { codeGuard as codeGuardImpl, HARN, agentPill as agentPillImpl, reviewIssue as reviewIssueImpl } from "../../team";
 import { STOP, tl as tlImpl, beat as beatImpl, runLabel as runLabelImpl, runState as runStateImpl, scrollMsgs as scrollMsgsImpl } from "../../codev";
-import { usd as usdImpl } from "../../tasks";
 import { TASKP } from "../../router/domain/model-routing";
 import { agentStore } from "../../../app/store";
 import { echo as echoImpl, echoCmd as echoCmdImpl, newInput as newInputImpl } from "../../terminal";
@@ -169,8 +168,7 @@ export const decoratedRunSprint = (s: number): void => { G.runSprint(s); };
 /* ───── colaboradores das políticas que decoram o runner (ADR-0004, U4g3) ─────
    O harness do projecto (HARN, reviewIssue, codeGuard — features/team.ts), a vista de
    issue (openIssue — features/tasks.ts), o design do Studio (SD/saveSD), o diálogo (dlg —
-   v6.ts), o uso por provedor (USAGE — agentStore) e o conversor para dólares (usd —
-   tasks.ts). Lidos no acto, como as decorações do app.ts/v5/v6 os liam por nome livre. */
+   v6.ts) e o uso por provedor (USAGE — agentStore). Lidos no acto, como as decorações do app.ts/v5/v6 os liam por nome livre. */
 export interface Harness { review?: boolean; explain?: boolean; tpl: string }
 export interface StudioNode { id: string; st: string }
 export interface DlgOpts {
@@ -185,7 +183,6 @@ export const studioNodes = (): StudioNode[] => G.SD.nodes;
 export const saveSD = (): void => saveSDImpl();
 export const dlg = (o: DlgOpts): void => coreDlg(o);  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
 export const usage = (): Record<string, { tok: number }> => agentStore.usage;
-export const usd = (tok: number, p: string): number => usdImpl(tok, p);
 export const commitNotes = (): Record<string, { note?: string }> => G.GIT.c;
 
 /* ───── publicação da superfície pública no `window` ─────
