@@ -9,7 +9,19 @@ import type { Frame, Stop } from "./session";
 
 export type Engine = "dap" | "gdb";
 
-export interface LaunchInfo { engine: Engine; adapter: string }
+/** What the adapter answered to `initialize` (`dapc::SessionCaps`, r23 F2). */
+export interface SessionCaps {
+  stepBack: boolean;
+  dataBreakpoints: boolean;
+  readMemory: boolean;
+  restartFrame: boolean;
+  exceptionFilters: Array<{ filter: string; label: string; default: boolean }>;
+}
+
+export interface LaunchInfo { engine: Engine; adapter: string; caps?: SessionCaps | null }
+
+/** A data breakpoint (`dapc::DataBreakpoint`): stop when a variable's bytes are written. */
+export interface DataBp { dataId: string; description: string; accessType: string; verified: boolean; message: string | null }
 
 export interface VarNode {
   name: string;
@@ -20,6 +32,8 @@ export interface VarNode {
   /** differs from the previous stop */
   changed: boolean;
   path: string;
+  /** where its bytes are (`debug_read_memory`), when the adapter gives it */
+  memoryReference?: string | null;
 }
 
 export interface DapThread { id: number; name: string; current: boolean }
@@ -30,6 +44,10 @@ export interface BpMeta {
   hitCondition?: string;
   logMessage?: string;
   enabled: boolean;
+  /** r23 F2: armed only after the program stops at this other breakpoint (`path:line`) */
+  trigger?: string;
+  /** r23 F2: a scenario the breakpoint belongs to (switched on or off as a whole) */
+  group?: string;
 }
 
 export interface BreakpointSpec { line: number; condition?: string; hitCondition?: string; logMessage?: string }
@@ -60,7 +78,25 @@ export function bpKind(m?: BpMeta): "plain" | "condition" | "hit" | "log" {
 }
 
 /** A breakpoint without anything special and enabled needs no stored meta. */
-export const isPlain = (m?: BpMeta): boolean => !m || (m.enabled && bpKind(m) === "plain");
+export const isPlain = (m?: BpMeta): boolean => !m || (m.enabled && bpKind(m) === "plain" && !clean(m.trigger) && !clean(m.group));
+
+/** Is a breakpoint sent to the adapter now? On, its group on, and — when it waits for another
+ *  breakpoint — that one already hit in this session (the adapter has no triggered breakpoints:
+ *  the client keeps it back until then). */
+export function bpActive(m: BpMeta | undefined, groupsOff: ReadonlySet<string>, armed: ReadonlySet<string>): boolean {
+  if (!m) return true;
+  if (!m.enabled) return false;
+  if (clean(m.group) && groupsOff.has(clean(m.group)!)) return false;
+  if (clean(m.trigger) && !armed.has(clean(m.trigger)!)) return false;
+  return true;
+}
+
+/** The groups the breakpoints use, sorted. */
+export function bpGroups(metas: Iterable<BpMeta>): string[] {
+  const g = new Set<string>();
+  for (const m of metas) if (clean(m.group)) g.add(clean(m.group)!);
+  return [...g].sort();
+}
 
 const IDENT = /[A-Za-z_][A-Za-z0-9_]*/g;
 

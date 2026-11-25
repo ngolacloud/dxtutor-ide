@@ -3,7 +3,9 @@
    above the stop. The debug feature registers what to show for a file (line → text); the editor
    asks after each full paint. No window: both sides import this module. Paths are the editor's. */
 
-export type InlineValues = (path: string) => Record<number, string> | null;
+/** A line's text, or (r23 F2) a text with a class: `chg` (a value that changed at this stop), `perf` (a PerfTip). */
+export type InlineValue = string | { text: string; cls?: "chg" | "perf" };
+export type InlineValues = (path: string) => Record<number, InlineValue | InlineValue[]> | null;
 
 let provider: InlineValues | null = null;
 
@@ -11,7 +13,7 @@ export const inlineValues = {
   set(p: InlineValues | null): void {
     provider = p;
   },
-  of(path: string): Record<number, string> | null {
+  of(path: string): Record<number, InlineValue | InlineValue[]> | null {
     return provider ? provider(path) : null;
   },
 };

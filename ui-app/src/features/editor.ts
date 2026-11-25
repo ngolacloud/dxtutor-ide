@@ -115,7 +115,7 @@ function paintEdFull(p: string): void {
   const cur = dbgCurrent();
   if (cur && cur.path === p && ls[cur.line - 1]) { ls[cur.line - 1].classList.add('dbg-cur'); if (gs[cur.line - 1]) gs[cur.line - 1].classList.add('dbg-cur'); }
   /* A7: os valores das variáveis no fim das linhas acima da paragem (app/inline-values.ts) */
-  const iv = inlineValues.of(p); if (iv) Object.entries(iv).forEach(([n, txt]) => { const l = ls[+n - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="dv-inline">${esc(txt)}</span>`); });
+  const iv = inlineValues.of(p); if (iv) Object.entries(iv).forEach(([n, vs]) => { const l = ls[+n - 1]; if (l) for (const v of Array.isArray(vs) ? vs : [vs]) l.insertAdjacentHTML('beforeend', typeof v === 'string' ? `<span class="dv-inline">${esc(v)}</span>` : `<span class="dv-inline${v.cls ? ' ' + v.cls : ''}">${esc(v.text)}</span>`); });
   if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; services.diagnostics!.diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 

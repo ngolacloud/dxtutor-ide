@@ -32,16 +32,24 @@ import { fsKeyFor, type Session } from "./debug/domain/session";
 import { makeDebugEngine } from "./debug/application/debug-engine";
 import { tauriDebug, tauriProjectDebug } from "./debug/infrastructure/tauri";
 import { bindActions, type ActionTable } from "./debug/ui/actions";
-import { inlineValues as computeInline, type BpMeta } from "./debug/domain/dap";
+import { bpGroups, inlineValues as computeInline, type BpMeta } from "./debug/domain/dap";
 import { bpLabel, bpMenu, dapButtons, dapExtras, dapStopped, outputBlock } from "./debug/ui/dap-view";
 import { DAP_MESSAGES, type DapKey } from "./debug/ui/dap-messages";
+import { DBGX_MESSAGES, type DbgxKey } from "./debug/ui/dbgx-messages";
+import { exceptionCardHtml, exceptionsBlock, groupsBlock, perfTipText, toolbarHtml } from "./debug/ui/dbgx-view";
+import { bindConsoleKeys, renderExceptionCard, renderToolbar } from "./debug/ui/toolbar";
+import { toolbarFor, type ToolKey } from "./debug/domain/caps";
+import { isUserFrame } from "./debug/domain/frames";
+import type { InlineValue } from "../app/inline-values";
+import type { DebugSettings } from "./debug/application/ports";
+import { bus } from "../app/bus";
 import { DEBUG_ENGINE_MESSAGES } from "./debug/application/messages";
 import { translator } from "../app/i18n";
 import { codevAsk } from "../app/codev-ask";
 import { inlineValues } from "../app/inline-values";
 import { isDesktop } from "../platform/tauri/core";
 import {
-  breakpoints, currentTab, pane, goPane, openPath, paintEd, setPanelTab, panes, lsGet, lsSet, root, fsRoot, content, fsKeys, exec, paletteChoose, paletteAsk, kubeTarget,
+  breakpoints, currentTab, pane, goPane, openPath, paintEd, setPanelTab, panes, lsGet, lsSet, root, fsRoot, content, fsKeys, exec, paletteChoose, paletteAsk, kubeTarget, copyText,
 } from "./debug/infrastructure/legacy-bridge";
 
 /* ───── estado (window-backed; o editor lê-o pela fachada `dbgBreaks`) ───── */
@@ -59,7 +67,9 @@ let _metaHydrated = false;
 function hydrateMeta(): void { if (_metaHydrated) return; _metaHydrated = true; try { (lsGet<Array<[string, BpMeta]>>("bpmeta6", []) || []).forEach(([k, m]) => BPMETA.set(k, m)); } catch { /* LS ainda não pronto */ } }
 const saveMeta = (): void => lsSet("bpmeta6", [...BPMETA]);
 const tD = translator(DAP_MESSAGES);
-const sayD = (k: string, p?: Record<string, string | number>): string => tD(k as DapKey, p);
+/* r23 F2: os textos novos (barra, consola, excepções…) num catálogo à parte; o motor pede-os pela mesma porta */
+const tX = translator(DBGX_MESSAGES);
+const sayD = (k: string, p?: Record<string, string | number>): string => (k in DBGX_MESSAGES.en ? tX(k as DbgxKey, p) : tD(k as DapKey, p));
 
 /* ───── a sessão de depuração real (ADR-0006, R4) e a última mensagem para o pane ───── */
 let SESSION: Session | null = null, MSG = "";
@@ -67,8 +77,11 @@ let SESSION: Session | null = null, MSG = "";
 /** Onde o gdb parou, como chave do FS do editor (null fora da pasta ou sem sessão parada). */
 function dbgCurrent(): { path: string; line: number } | null {
   const st = SESSION && SESSION.status === "stopped" ? SESSION.stop : null, r = root();
-  const key = st && r ? fsKeyFor(st.file, r, fsRoot()) : null;
-  return key && st ? { path: key, line: st.line } : null;
+  /* r23 F2: another frame selected (or chosen by Just My Code) → its line; frame 0 → where it stopped */
+  const f = st && SESSION && (SESSION.frame ?? 0) > 0 ? SESSION.stack[SESSION.frame ?? 0] : undefined;
+  const at = f && f.file ? f : st;
+  const key = at && r ? fsKeyFor(at.file, r, fsRoot()) : null;
+  return key && at ? { path: key, line: at.line } : null;
 }
 
 /* ───── DOM: o assistente (#pc-dbg) e o pane (#pane-debug) ───── */
@@ -82,6 +95,25 @@ function drawDbg(): void {
 function refreshDbg(): void {
   drawDbg(); if (pane() === "debug") panes().debug();
   const t = currentTab(); if (t && t.path && t.kind === "file") paintEd(t.path);
+  drawFloating();
+}
+
+/* r23 F2: the floating toolbar over the editor and the exception card under the panicking line */
+const MISS_WHY = (m: { why: string; params?: Record<string, string | number> }): string => sayD(m.why, { adapter: SESSION?.adapter ?? "", ...(m.params ?? {}) });
+function drawFloating(): void {
+  const s = SESSION;
+  renderToolbar(s ? toolbarHtml(tX, toolbarFor(s, engine.extra().host), s.stops ?? 0, MISS_WHY) : null);
+  drawExceptionCard();
+}
+function drawExceptionCard(): void {
+  const s = SESSION, r = root(), t = currentTab();
+  const p = s && s.status === "stopped" ? s.panic : null;
+  if (!p || !r || !t || !t.path) { renderExceptionCard(null, 0); return; }
+  const user = s!.stack.filter((f) => isUserFrame(f.file, r));
+  const at = user[0] ?? null;
+  const key = at ? fsKeyFor(at.file, r, fsRoot()) : null;
+  if (!at || key !== t.path) { renderExceptionCard(null, 0); return; }
+  renderExceptionCard(exceptionCardHtml(tX, p, user, codevAsk.available()), at.line);
 }
 
 /** Renderiza o pane «Run and Debug»: os controlos e o estado da sessão (onde parou, variáveis,
@@ -94,10 +126,10 @@ function renderDebugPane(): void {
   const dap = !!s && s.engine === "dap", x = engine.extra();
   const ctl = s
     ? `<div class="dbg-ctl"><button title="Continue (F5)" data-action="continue"${s.status !== "stopped" ? " disabled" : ""}>▶</button><button title="Step over (F10)" data-action="step"${s.status !== "stopped" ? " disabled" : ""}>↷</button><button title="Step into (F11)" data-action="step-into"${s.status !== "stopped" ? " disabled" : ""}>↓</button>${dap ? dapButtons(tD, s) : ""}<button title="Stop (Shift+F5)" data-action="stop">■</button><span class="notr">${esc(s.program.split("/").pop() || s.program)}</span>${dap ? dapExtras(tD, s.adapter || "lldb-dap", x.stopOnPanic) : ""}</div>`
-    : `<button class="btn" data-action="start">Start debugging (F5)</button>${isDesktop() ? `<button class="btn ghost" data-action="attach">${tD("attach")}</button>` : ""}`;
+    : `<button class="btn" data-action="start">Start debugging (F5)</button>${isDesktop() ? `<button class="btn ghost" data-action="attach">${tD("attach")}</button><button class="btn ghost" data-action="dbg-test">${esc(tX("debugTest"))}</button>` : ""}`;
   const where = s
     ? s.status === "stopped" && st && dap
-      ? `<div class="sec-empty notr">Parado em <b>${esc(st.func || "?")}</b> · ${esc((st.file || "").split("/").pop() || "")}:${st.line} (${esc(st.reason)})</div>` + dapStopped(tD, s, x, codevAsk.available(), !!projectDebug)
+      ? `<div class="sec-empty notr">Parado em <b>${esc(st.func || "?")}</b> · ${esc((st.file || "").split("/").pop() || "")}:${st.line} (${esc(st.reason)})</div>` + dapStopped(tD, s, x, codevAsk.available(), !!projectDebug, { tx: tX, root: root() ?? "", jmc: x.jmc, libOpen: x.libOpen, console: x.console })
     : s.status === "stopped" && st
       ? `<div class="sec-empty notr">Parado em <b>${esc(st.func || "?")}</b> · ${esc((st.file || "").split("/").pop() || "")}:${st.line} (${esc(st.reason)})</div>`
         + `<div class="scm-grp">Variables<span class="cnt">${s.locals.length}</span></div>${s.locals.map((v) => `<div class="dv"><span class="k notr">${esc(v.name)}</span><span class="v notr">${esc(v.value)}</span></div>`).join("") || '<div class="sec-empty">Sem variáveis locais neste ponto.</div>'}`
@@ -105,8 +137,16 @@ function renderDebugPane(): void {
       : `<div class="sec-empty">${tD(s.status === "starting" ? "startingGdb" : "runningWait")}</div>${dap ? outputBlock(tD, x.output) : ""}`
     : `<div class="sec-empty">${tD("intro")}</div>`;
   const msg = MSG ? `<div class="sec-empty" style="white-space:pre-wrap">${esc(MSG)}</div>` : "";
-  el.innerHTML = hd("Run and Debug", "") + `<div class="sections">${ctl}${msg}${where}
-   <div class="scm-grp">Breakpoints<span class="cnt">${BPS.size}</span></div>${[...BPS, ...[...BPMETA.keys()].filter((k) => !BPS.has(k))].map((b) => { const l = bpLine(b), p = bpPath(b), m = BPMETA.get(b); return `<div class="scm-row${m && !m.enabled ? " bp-off" : ""}" data-action="open-bp" data-on="${esc(b)}"><span class="bpd${m ? " k-" + (m.logMessage?.trim() ? "log" : m.condition?.trim() || m.hitCondition?.trim() ? "cond" : "plain") : ""}"></span><span class="nm notr">${esc(p.split("/").pop())}</span><span class="pth">line ${l}</span>${bpLabel(tD, m)}<span class="ra" style="display:flex"><button data-action="bp-del" data-on="${esc(b)}">×</button></span></div>`; }).join("") || '<div class="sec-empty">Click the gutter or press <kbd>F9</kbd> to add one.</div>'}</div>`;
+  /* r23 F2: the exception settings (desktop, or in a DAP session) and the breakpoint groups (when there are) */
+  const exc = isDesktop() || dap ? exceptionsBlock(tX, x.stopOnPanic, s?.caps?.exceptionFilters ?? [], x.exceptionFilters) : "";
+  const groups = groupsBlock(tX, bpGroups(BPMETA.values()), x.groupsOff);
+  /* the console's input survives the repaint (the output comes every 120 ms) */
+  const ci = document.getElementById("dbg-con-in") as HTMLInputElement | null, cv = ci?.value ?? "", cf = !!ci && document.activeElement === ci;
+  el.innerHTML = hd("Run and Debug", "") + `<div class="sections">${ctl}${msg}${where}${exc}
+   <div class="scm-grp">Breakpoints<span class="cnt">${BPS.size}</span></div>${groups}${[...BPS, ...[...BPMETA.keys()].filter((k) => !BPS.has(k))].map((b) => { const l = bpLine(b), p = bpPath(b), m = BPMETA.get(b); return `<div class="scm-row${m && !m.enabled ? " bp-off" : ""}" data-action="open-bp" data-on="${esc(b)}"><span class="bpd${m ? " k-" + (m.logMessage?.trim() ? "log" : m.condition?.trim() || m.hitCondition?.trim() ? "cond" : "plain") : ""}"></span><span class="nm notr">${esc(p.split("/").pop())}</span><span class="pth">line ${l}</span>${bpLabel(tD, m, tX)}<span class="ra" style="display:flex"><button data-action="bp-del" data-on="${esc(b)}">×</button></span></div>`; }).join("") || '<div class="sec-empty">Click the gutter or press <kbd>F9</kbd> to add one.</div>'}</div>`;
+  const ni = document.getElementById("dbg-con-in") as HTMLInputElement | null;
+  if (ni && cv) ni.value = cv;
+  if (ni && cf) ni.focus();
 }
 
 /* ───── raiz de composição: liga os adaptadores do bridge (infra) + as funções de
@@ -132,6 +172,13 @@ const engine = makeDebugEngine({
   say: sayD,
   kubeTarget: () => kubeTarget(),
   copy: translator(DEBUG_ENGINE_MESSAGES),
+  /* r23 F2 */
+  clock: () => performance.now(),
+  settings: {
+    load: (r) => lsGet<DebugSettings | null>("dbgcfg:" + r, null),
+    save: (r, k) => lsSet("dbgcfg:" + r, k),
+  },
+  clipboard: (text) => copyText(text),
 });
 const { startDebug, dbgContinue, dbgStep, dbgStop, toggleBp } = engine;
 /** A10: «Debug: Attach to a Process…» (a paleta importa-o; não vai para o window). */
@@ -150,7 +197,7 @@ document.addEventListener("contextmenu", (e) => {
   const key = t.path + ":" + ([...g.parentElement!.children].indexOf(g) + 1);
   const m = document.createElement("div");
   m.id = "bp-menu"; m.className = "menu-pop bp-menu"; m.style.left = (e as MouseEvent).clientX + "px"; m.style.top = (e as MouseEvent).clientY + "px";
-  m.innerHTML = bpMenu(tD, key, BPS.has(key), BPMETA.get(key));
+  m.innerHTML = bpMenu(tD, key, BPS.has(key), BPMETA.get(key), tX);
   document.body.appendChild(m);
 });
 document.addEventListener("click", (e) => { if (!(e.target as HTMLElement | null)?.closest("#bp-menu")) closeBpMenu(); }, true);
@@ -160,6 +207,23 @@ async function bpMenuRun(on: string): Promise<void> {
   if (cmd === "add") { toggleBp(bpPath(key), +bpLine(key)); return; }
   if (cmd === "remove") { await engine.removeBreakpoint(key); return; }
   if (cmd === "enable" || cmd === "disable") { await engine.editBreakpoint(key, { ...cur, enabled: cmd === "enable" }); return; }
+  /* r23 F2: wait for another breakpoint; put in a group */
+  if (cmd === "trigger") {
+    const others = [...BPS].filter((b) => b !== key), none = tX("bpTriggerNone");
+    const pick = await paletteChoose(tX("bpTriggerPh"), [none, ...others.map((b) => `${bpPath(b).split("/").pop()}:${bpLine(b)} — ${b}`)]);
+    if (pick === null) return;
+    await engine.setTrigger(key, pick === none ? null : pick.split(" — ").pop() ?? null);
+    return;
+  }
+  if (cmd === "group") {
+    const existing = bpGroups(BPMETA.values()), none = tX("bpGroupNone"), fresh = tX("bpNewGroup");
+    const pick = existing.length ? await paletteChoose(tX("bpGroupPh"), [...existing, fresh, none]) : fresh;
+    if (pick === null) return;
+    const name = pick === fresh ? await paletteAsk(tX("bpGroupPh")) : pick === none ? "" : pick;
+    if (name === null) return;
+    await engine.setGroup(key, name || null);
+    return;
+  }
   const ph = cmd === "condition" ? tD("conditionPh") : cmd === "hit" ? tD("hitPh") : tD("logPh");
   const v = await paletteAsk(ph);
   if (v === null) return;
@@ -168,17 +232,33 @@ async function bpMenuRun(on: string): Promise<void> {
 }
 
 /* A7: os valores das variáveis no fim das linhas acima da paragem (o editor pede-os depois de pintar) */
+/* r23 F2: os do frame seleccionado, os que mudaram nesta paragem marcados, e o PerfTip na linha corrente */
 inlineValues.set((path) => {
   const cur = dbgCurrent(), s = SESSION;
   if (!cur || !s || cur.path !== path) return null;
   const loc = s.scopes?.find((x) => /local/i.test(x.name)) ?? s.scopes?.[0];
   const vars = (loc && s.children?.[loc.reference]) || s.locals;
   const text = content(path);
-  return text == null ? null : computeInline(text.split("\n"), cur.line, vars);
+  if (text == null) return null;
+  const changed = new Set(vars.filter((v) => "changed" in v && v.changed).map((v) => v.name));
+  const out: Record<number, InlineValue | InlineValue[]> = {};
+  for (const [n, txt] of Object.entries(computeInline(text.split("\n"), cur.line, vars))) {
+    const mark = [...changed].some((c) => new RegExp(`(^|, )${c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} = `).test(txt));
+    out[+n] = mark ? { text: txt, cls: "chg" } : txt;
+  }
+  const tip = (s.frame ?? 0) === 0 || s.stack[s.frame ?? 0]?.line === cur.line ? perfTipText(tX, s.perfMs) : null;
+  if (tip) out[cur.line] = [...(out[cur.line] ? [out[cur.line] as InlineValue] : []), { text: tip, cls: "perf" }];
+  return out;
 });
 
+/* r23 F2: the exception card goes back under its line when the file view is drawn again */
+bus.on("editor:file-view", () => drawExceptionCard());
+bindConsoleKeys({ evaluate: (e) => { void engine.consoleEval(e); }, history: (d) => engine.consoleHistory(d) });
+
 /* A7: ao abrir uma pasta no desktop, os breakpoints guardados do projecto voltam ao gutter */
-document.addEventListener("dx:workspace", () => { void engine.loadKept(); });
+/* r23 F2: e o que o host sabe fazer (adaptador, rr) — perguntado uma vez, para a barra dizer porquê falta algo */
+/* (depois dos outros donos da abertura da pasta: o quadro carrega primeiro) */
+document.addEventListener("dx:workspace", () => { void engine.loadKept(); setTimeout(() => { void engine.host().then(() => { if (SESSION) drawFloating(); }); }, 0); });
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
    Liga o nome de acção (emitido como `data-action` por renderDebugPane) ao efeito,
@@ -209,7 +289,44 @@ const ACTIONS: ActionTable = {
   snapshot: { on: "click", run: () => { void engine.snapshot(); } },
   attach: { on: "click", run: () => { void engine.attach(); } },
   "bp-menu": { on: "click", run: (e) => { closeBpMenu(); void bpMenuRun(e.on); } },
+  /* r23 F2 */
+  "dbg-tb": { on: "click", run: (e) => { void toolbarRun(e.on as ToolKey); } },
+  "dbg-test": { on: "click", run: () => { void engine.debugTest(); } },
+  "dbg-con-clear": { on: "click", run: () => engine.consoleClear() },
+  "dbg-exc": { on: "change", run: (e) => { void engine.setExceptionFilter(e.on, (e.el as HTMLInputElement).checked); } },
+  "dbg-jmc": { on: "change", run: () => engine.toggleJmc() },
+  "dbg-lib": { on: "click", run: (e) => engine.openLibFrames(+e.on) },
+  "dbg-data": { on: "click", run: (e) => { const i = e.on.indexOf("|"); void engine.addDataBreakpoint(+e.on.slice(0, i), e.on.slice(i + 1)); } },
+  "dbg-data-del": { on: "click", run: (e) => { void engine.removeDataBreakpoint(e.on); } },
+  "dbg-mem": { on: "click", run: (e) => { void engine.viewMemory(e.on); } },
+  "dbg-mem-close": { on: "click", run: () => engine.closeMemory() },
+  "dbg-group": { on: "click", run: (e) => { void engine.toggleGroup(e.on); } },
+  "dbg-exc-close": { on: "click", run: () => renderExceptionCard(null, 0) },
+  "dbg-ask-panic": { on: "click", run: () => engine.askPanic() },
+  "dbg-copy-panic": { on: "click", run: () => engine.copyPanic() },
 };
+
+/** The cursor's line in the editor (run to cursor). */
+function cursorAt(): { path: string; line: number } | null {
+  const t = currentTab(), ta = document.getElementById("ed-ta") as HTMLTextAreaElement | null;
+  if (!t || !t.path || t.kind !== "file" || !ta) return null;
+  return { path: t.path, line: ta.value.slice(0, ta.selectionStart).split("\n").length };
+}
+const dbgRunToCursor = (): Promise<void> => { const c = cursorAt(); if (!c) { toast(tX("tb-cursor")); return Promise.resolve(); } return engine.runToCursor(c.path, c.line); };
+function toolbarRun(k: ToolKey): Promise<void> {
+  switch (k) {
+    case "cont": return dbgContinue();
+    case "over": return dbgStep(false);
+    case "into": return dbgStep(true);
+    case "out": return engine.dbgStepOut();
+    case "cursor": return dbgRunToCursor();
+    case "rframe": return engine.restartFrame();
+    case "restart": return engine.restart();
+    case "stop": return dbgStop();
+    case "back": return engine.stepBack();
+    case "rcont": return engine.reverseContinue();
+  }
+}
 bindActions(ACTIONS);
 
 /* registo do painel (ADR-0004, U4g1 — antes era um shim no v6.ts) */
@@ -226,3 +343,10 @@ RP.debug = renderDebugPane;
    auto-teste): o dbgStep exportado é o «step over» que estava publicado */
 const dbgStepOver = (): Promise<void> => dbgStep(false);
 export { renderDebugPane, BPS as dbgBreaks, dbgCurrent, startDebug, dbgContinue, dbgStepOver as dbgStep, dbgStepInto, dbgStop, toggleBp, drawDbg, saveBps };
+/* r23 F2: os atalhos novos (features/shortcuts.ts) e a paleta (app/commands.ts) */
+export const dbgStepOut = (): Promise<void> => engine.dbgStepOut();
+export const dbgRestart = (): Promise<void> => engine.restart();
+export const dbgStepBack = (): Promise<void> => engine.stepBack();
+export const dbgReverseContinue = (): Promise<void> => engine.reverseContinue();
+export const dbgTest = (): Promise<void> => engine.debugTest();
+export { dbgRunToCursor };

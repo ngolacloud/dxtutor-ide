@@ -12,8 +12,12 @@
 
 import { bpKey, bpLine, bpPath } from "../domain/breakpoints";
 import { cargoTargets, fsKeyFor, relOf, type Session, type Stop } from "../domain/session";
-import { isPlain, sessionMarkdown, specsFor, type BpMeta, type VarNode, type Watch } from "../domain/dap";
-import type { AttachTarget, DebugDeps, DebugEngine } from "./ports";
+import { bpActive, isPlain, sessionMarkdown, specsFor, type BpMeta, type VarNode, type Watch } from "../domain/dap";
+import { timeTravelWhy, type HostCaps } from "../domain/caps";
+import { firstUserFrame, isUserFrame } from "../domain/frames";
+import { isPanicStop, panicText, parsePanic } from "../domain/exception";
+import { historyStep, remember, testArgs, testPicks, type ConsoleLine } from "../domain/console";
+import type { AttachTarget, DebugDeps, DebugEngine, DebugSettings } from "./ports";
 import { ptCopy } from "./messages";
 
 /** O que dizer quando não há motor de depuração no sistema. */
@@ -33,15 +37,63 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
   const expanded = new Set<number>();
   let stopOnPanic = false;
   let outT: ReturnType<typeof setTimeout> | undefined;
+  /* r23 F2: what the host can do (asked once), the console, the settings kept per project */
+  let hostCaps: HostCaps | null = null;
+  let hostP: Promise<HostCaps | null> | null = null;
+  const consoleLines: ConsoleLine[] = [];
+  let history: string[] = [];
+  let histIdx = 0;
+  const groupsOff = new Set<string>();
+  /** the triggers hit in this session (`path:line`): the breakpoints waiting on them are armed */
+  const armed = new Set<string>();
+  let jmc = true;
+  const libOpen = new Set<number>();
+  const excFilters = new Set<string>();
+  let settingsRoot: string | null = null;
+  const clock = deps.clock ?? (() => Date.now());
+  let resumedAt: number | null = null;
+  /** «Debug Test…» stops on panic for that session only (the human's setting is left as it was) */
+  let panicThisSession = false;
   dbg.onOutput?.((id, category, text) => {
     const s = store.session();
     if (!s || s.id !== id || category === "telemetry") return;
     output.push(text);
     if (output.length > 400) output.splice(0, output.length - 400);
+    /* r23 F2: the adapter can deliver the panic's message after the stop: read it when it comes */
+    if (s.status === "stopped" && !s.panic && isPanicStop([s.stop?.func ?? "", ...s.stack.map((f) => f.func)])) {
+      const p = parsePanic(output.join(""));
+      if (p) store.setSession({ ...s, panic: p });
+    }
     clearTimeout(outT);
     outT = setTimeout(() => view.refresh(), 120);
   });
   const isDap = (s: Session | null): boolean => !!s && s.engine === "dap" && !!dbg.variables;
+
+  /** The host's capabilities: asked once, kept (null without the command or on failure). */
+  function host(): Promise<HostCaps | null> {
+    if (!hostP) hostP = (dbg.capabilities ? Promise.resolve().then(() => dbg.capabilities!()).catch(() => null) : Promise.resolve(null)).then((h) => { hostCaps = h; return h; });
+    return hostP;
+  }
+
+  /* the settings of the open folder: read when it changes, written when one changes */
+  function settings(): void {
+    const root = workspace.root();
+    if (!deps.settings || !root || root === settingsRoot) return;
+    settingsRoot = root;
+    const k = deps.settings.load(root);
+    if (!k) return;
+    watches.splice(0, watches.length, ...k.watches.map((expr) => ({ expr })));
+    groupsOff.clear(); k.groupsOff.forEach((g) => groupsOff.add(g));
+    jmc = k.jmc; stopOnPanic = k.stopOnPanic;
+    excFilters.clear(); k.exceptionFilters.forEach((f) => excFilters.add(f));
+    history = k.history.slice(); histIdx = history.length;
+  }
+  function keep(): void {
+    const root = workspace.root();
+    if (!deps.settings || !root) return;
+    const k: DebugSettings = { watches: watches.map((w) => w.expr), groupsOff: [...groupsOff], jmc, stopOnPanic, exceptionFilters: [...excFilters], history };
+    deps.settings.save(root, k);
+  }
 
   const fail = (e: unknown): void => { store.setMessage(copy("failed", { error: e instanceof Error ? e.message : String(e) })); };
 
@@ -77,12 +129,33 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
       return;
     }
     const [locals, stack] = await Promise.all([dbg.locals(id).catch(() => []), dbg.stack(id).catch(() => [])]);
-    store.setSession({ ...s, status: "stopped", stop: st, locals, stack, frame: 0, children: {} });
-    if (isDap(s)) await loadFrame(id, 0);
+    const root = workspace.root() || "";
+    /* r23 F2: the time the program ran, a panic read from its output, and — with Just My Code —
+       the first frame of the human's code when it stopped inside a library (a panic stops in std) */
+    const perfMs = resumedAt != null ? Math.max(0, clock() - resumedAt) : undefined;
+    resumedAt = null;
+    const panic = isPanicStop([st.func, ...stack.map((f) => f.func)]) ? parsePanic(output.join("")) : null;
+    const user = jmc && !isUserFrame(st.file, root) ? firstUserFrame(stack.map((f) => f.file), root) : 0;
+    const sel = user > 0 ? user : 0;
+    store.setSession({ ...s, status: "stopped", stop: st, locals, stack, frame: sel, children: {}, perfMs, stops: (s.stops ?? 0) + 1, panic, memory: null });
+    if (isDap(s)) await loadFrame(id, sel);
     store.setMessage("");
-    const key = fsKeyFor(st.file, workspace.root() || "", workspace.fsRoot());
-    if (key && workspace.content(key) != null) editor.openPath(key, st.line);
+    await arm(id, st);
+    const f = stack[sel], at = f && sel > 0 ? f : { file: st.file, line: st.line };
+    const key = fsKeyFor(at.file, root, workspace.fsRoot());
+    if (key && workspace.content(key) != null) editor.openPath(key, at.line);
     view.refresh();
+  }
+
+  /** A stop on a breakpoint arms the ones that wait for it (sent to the adapter from now on). */
+  async function arm(id: string, st: Stop): Promise<void> {
+    const key = fsKeyFor(st.file, workspace.root() || "", workspace.fsRoot());
+    if (!key || !st.line) return;
+    const k = bpKey(key, st.line);
+    if (armed.has(k) || !store.breakpoints().has(k)) return;
+    const waiting = [...meta.entries()].filter(([, m]) => m.trigger === k).map(([b]) => bpPath(b));
+    armed.add(k);
+    for (const file of new Set(waiting)) await sendFile(id, file).catch(() => undefined);
   }
 
   async function guarded(f: () => Promise<void>): Promise<void> {
@@ -92,7 +165,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
   }
 
   async function startDebug(): Promise<void> {
-    store.hydrate();
+    store.hydrate(); settings();
     const s0 = store.session();
     if (s0 && s0.status === "stopped") return dbgContinue();
     if (s0) return;
@@ -103,27 +176,39 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
       if (!(await dbg.available())) { store.setMessage(copy("noGdb")); view.refresh(); return; }
       const program = await chooseProgram(root);
       if (!program) { view.refresh(); return; }
-      const id = deps.newId();
-      store.setSession({ id, program, status: "starting", stop: null, locals: [], stack: [] }); store.setMessage(""); view.refresh();
-      const info = await dbg.launch(id, program, root);
-      const engine = info && info.engine === "dap" ? "dap" : "gdb";
-      store.setSession({ ...store.session()!, engine, adapter: info ? info.adapter : "gdb" });
-      output.length = 0;
-      if (engine === "dap" && dbg.setBreakpoints) {
-        for (const file of filesWithBreakpoints()) await sendFile(id, file);
-        if (stopOnPanic && dbg.stopOnPanic) await dbg.stopOnPanic(id, true).catch(() => false);
-      } else {
-        for (const b of store.breakpoints()) await dbg.breakAt(id, relOf(bpPath(b), workspace.fsRoot()), +bpLine(b));
-      }
-      const s = store.session()!; store.setSession({ ...s, status: "running" }); view.refresh();
-      await applyStop(id, await dbg.run(id));
+      await launchSession(program, [], root);
     });
+  }
+
+  /** Launches `program` (with `args`, in `cwd`), sends the breakpoints and the exception settings,
+   *  and runs to the first stop. Called inside `guarded`. */
+  async function launchSession(program: string, args: string[], cwd: string, panic = false): Promise<void> {
+    panicThisSession = panic;
+    const id = deps.newId();
+    armed.clear(); libOpen.clear(); consoleLines.length = 0;
+    store.setSession({ id, program, status: "starting", stop: null, locals: [], stack: [], args, cwd, stops: 0, panicOnStart: panic }); store.setMessage(""); view.refresh();
+    const info = await (args.length ? dbg.launch(id, program, cwd, args) : dbg.launch(id, program, cwd));
+    const engine = info && info.engine === "dap" ? "dap" : "gdb";
+    store.setSession({ ...store.session()!, engine, adapter: info ? info.adapter : "gdb", caps: info ? info.caps ?? null : null });
+    output.length = 0;
+    if (engine === "dap" && dbg.setBreakpoints) {
+      for (const file of filesWithBreakpoints()) await sendFile(id, file);
+      if ((stopOnPanic || panicThisSession) && dbg.stopOnPanic) await dbg.stopOnPanic(id, true).catch(() => false);
+      const offered = new Set((info && info.caps?.exceptionFilters.map((f) => f.filter)) ?? []);
+      const on = [...excFilters].filter((f) => offered.has(f));
+      if (on.length && dbg.exceptionFilters) await dbg.exceptionFilters(id, on).catch(() => []);
+    } else {
+      for (const b of store.breakpoints()) await dbg.breakAt(id, relOf(bpPath(b), workspace.fsRoot()), +bpLine(b));
+    }
+    const s = store.session()!; store.setSession({ ...s, status: "running" }); view.refresh();
+    resumedAt = clock();
+    await applyStop(id, await dbg.run(id));
   }
 
   async function resume(f: (id: string) => Promise<Stop>): Promise<void> {
     const s = store.session();
     if (!s || s.status !== "stopped") { notifier.toast(copy(s ? "waitStop" : "noSessionF5")); return; }
-    await guarded(async () => { store.setSession({ ...s, status: "running" }); view.refresh(); await applyStop(s.id, await f(s.id)); });
+    await guarded(async () => { store.setSession({ ...s, status: "running" }); view.refresh(); resumedAt = clock(); await applyStop(s.id, await f(s.id)); });
   }
 
   const dbgContinue = (): Promise<void> => resume((id) => dbg.cont(id));
@@ -164,7 +249,10 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
   /** Sends a file's breakpoints (with their meta) to a live DAP session. */
   async function sendFile(id: string, file: string): Promise<void> {
     if (!dbg.setBreakpoints) return;
-    const specs = specsFor(linesOf(file), (line) => meta.get(bpKey(file, line)) ?? (store.breakpoints().has(bpKey(file, line)) ? undefined : { enabled: false }));
+    const specs = specsFor(linesOf(file), (line) => {
+      const k = bpKey(file, line), m = meta.get(k) ?? (store.breakpoints().has(k) ? undefined : { enabled: false });
+      return m && !bpActive(m, groupsOff, armed) ? { ...m, enabled: false } : m;
+    });
     await dbg.setBreakpoints(id, relOf(file, workspace.fsRoot()), specs);
   }
   /** Keeps a file's breakpoints in the project database (desktop). */
@@ -173,7 +261,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     if (!deps.project || !root) return;
     const list = linesOf(file).map((line) => {
       const k = bpKey(file, line), m = meta.get(k);
-      return { file: relOf(file, workspace.fsRoot()), line, condition: m?.condition, hitCondition: m?.hitCondition, logMessage: m?.logMessage, enabled: m ? m.enabled : store.breakpoints().has(k) };
+      return { file: relOf(file, workspace.fsRoot()), line, condition: m?.condition, hitCondition: m?.hitCondition, logMessage: m?.logMessage, enabled: m ? m.enabled : store.breakpoints().has(k), ...(m?.trigger ? { trigger: relOf(m.trigger, workspace.fsRoot()) } : {}), ...(m?.group ? { group: m.group } : {}) };
     });
     await deps.project.save(root, relOf(file, workspace.fsRoot()), list).catch(() => undefined);
   }
@@ -245,15 +333,15 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
   async function addWatch(expr: string): Promise<void> {
     const e = expr.trim();
     if (!e || watches.some((w) => w.expr === e)) return;
-    watches.push({ expr: e });
+    watches.push({ expr: e }); keep();
     const s = stopped();
     if (s && isDap(s)) await evalWatches(s.id, s.frame ?? 0);
     view.refresh();
   }
-  function removeWatch(i: number): void { watches.splice(i, 1); view.refresh(); }
+  function removeWatch(i: number): void { watches.splice(i, 1); keep(); view.refresh(); }
 
   async function setStopOnPanic(on: boolean): Promise<void> {
-    stopOnPanic = on;
+    stopOnPanic = on; panicThisSession = false; keep();
     const s = store.session();
     if (isDap(s) && dbg.stopOnPanic) {
       const found = await dbg.stopOnPanic(s!.id, on).catch(() => false);
@@ -296,7 +384,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     const list = await deps.project.load(root).catch(() => []);
     for (const b of list) {
       const key = bpKey(workspace.fsRoot() + b.file, b.line);
-      const m: BpMeta = { condition: b.condition ?? undefined, hitCondition: b.hitCondition ?? undefined, logMessage: b.logMessage ?? undefined, enabled: b.enabled };
+      const m: BpMeta = { condition: b.condition ?? undefined, hitCondition: b.hitCondition ?? undefined, logMessage: b.logMessage ?? undefined, enabled: b.enabled, ...(b.trigger ? { trigger: workspace.fsRoot() + b.trigger } : {}), ...(b.group ? { group: b.group } : {}) };
       if (b.enabled) store.breakpoints().add(key);
       if (!isPlain(m)) meta.set(key, m);
     }
@@ -317,7 +405,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     const s = stopped();
     if (!s || !s.stop || !deps.codev?.available()) { notifier.toast(say("needsStop")); return; }
     const key = fsKeyFor(s.stop.file, workspace.root() || "", workspace.fsRoot());
-    const ctx = [{ kind: "problem" as const, label: `${s.stop.func} · ${s.stop.file.split("/").pop()}:${s.stop.line}`, text: markdownOf(s), ...(key ? { path: relOf(key, workspace.fsRoot()) } : {}) }];
+    const ctx = [{ kind: "frame" as const, label: `${s.stop.func} · ${s.stop.file.split("/").pop()}:${s.stop.line}`, text: markdownOf(s), ...(key ? { path: relOf(key, workspace.fsRoot()) } : {}) }];
     if (kind === "explain") deps.codev.ask({ intent: "explain", text: say("askExplainStop"), context: ctx, send: true });
     else deps.codev.ask({ intent: "change", text: say("askTestFromStop"), context: ctx, send: true });
   }
@@ -390,9 +478,189 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     await dbg.pause(s.id).catch(fail);
   }
 
+  /* ───── r23 F2 ───── */
+
+  const needStopped = (): Session | null => { const s = stopped(); if (!s) notifier.toast(copy(store.session() ? "waitStop" : "noSessionF5")); return s; };
+
+  async function restart(): Promise<void> {
+    const s = store.session();
+    if (!s) return startDebug();
+    if (s.status === "starting") return;
+    await dbg.stop(s.id).catch(() => undefined);
+    store.setSession(null);
+    const root = workspace.root();
+    if (!root) return;
+    await guarded(() => launchSession(s.program, s.args ?? [], s.cwd ?? root, !!s.panicOnStart));
+  }
+
+  async function runToCursor(path: string, line: number): Promise<void> {
+    const s = needStopped();
+    if (!s) return;
+    if (!isDap(s) || !dbg.runTo) { notifier.toast(say("needsDap")); return; }
+    if (!path || line < 1) return;
+    await resume((id) => dbg.runTo!(id, relOf(path, workspace.fsRoot()), line));
+  }
+
+  async function restartFrame(): Promise<void> {
+    const s = needStopped();
+    if (!s) return;
+    if (!s.caps?.restartFrame || !dbg.restartFrame) { notifier.toast(say(isDap(s) ? "rframe-adapter" : "needs-dap", { adapter: s.adapter ?? "" })); return; }
+    const level = s.frame ?? 0;
+    await resume((id) => dbg.restartFrame!(id, level));
+  }
+
+  /** Time travel needs a recording (rr): without one, say what is missing. */
+  async function noTimeTravel(): Promise<void> {
+    const h = await host();
+    const w = timeTravelWhy(h);
+    notifier.toast(say(w.why, w.params));
+  }
+  const stepBack = (): Promise<void> => noTimeTravel();
+  const reverseContinue = (): Promise<void> => noTimeTravel();
+
+  async function consoleEval(expr: string): Promise<void> {
+    const e = expr.trim();
+    if (!e) return;
+    history = remember(history, e); histIdx = history.length; keep();
+    consoleLines.push({ kind: "in", text: e });
+    const s = stopped();
+    if (!s || !isDap(s) || !dbg.evaluate) consoleLines.push({ kind: "err", text: say(s ? "needsDap" : "needsStop") });
+    else {
+      try { const r = await dbg.evaluate(s.id, e, s.frame ?? 0, "repl"); consoleLines.push({ kind: "out", text: r.value }); }
+      catch (err) { consoleLines.push({ kind: "err", text: err instanceof Error ? err.message : String(err) }); }
+    }
+    if (consoleLines.length > 300) consoleLines.splice(0, consoleLines.length - 300);
+    view.refresh();
+  }
+  function consoleHistory(dir: -1 | 1): string { const r = historyStep(history, histIdx, dir); histIdx = r.idx; return r.text; }
+  function consoleClear(): void { consoleLines.length = 0; view.refresh(); }
+
+  async function debugTest(): Promise<void> {
+    store.hydrate(); settings();
+    if (store.session()) { notifier.toast(say("attachBusy")); return; }
+    shell.goPane("debug");
+    const root = workspace.root();
+    if (!root) { store.setMessage(copy("openFolder")); view.refresh(); return; }
+    if (!dbg.testTargets) { notifier.toast(say("needsDap")); return; }
+    await guarded(async () => {
+      if (!(await dbg.available())) { store.setMessage(copy("noGdb")); view.refresh(); return; }
+      store.setMessage(say("buildingTests")); view.refresh();
+      let bins;
+      try { bins = await dbg.testTargets!(root); } catch (e) { store.setMessage(e instanceof Error ? e.message : String(e)); view.refresh(); return; }
+      const picks = testPicks(bins);
+      store.setMessage("");
+      if (!picks.length) { store.setMessage(say("noTests")); view.refresh(); return; }
+      const label = await picker.choose(say("whichTest"), picks.map((p) => p.label));
+      const pick = picks.find((p) => p.label === label);
+      if (!pick) { view.refresh(); return; }
+      /* a failing test panics: stop there (this session only; the setting stays as the human left it) */
+      await launchSession(pick.binary.executable, testArgs(pick.name), pick.binary.cwd || root, true);
+    });
+  }
+
+  async function setExceptionFilter(filter: string, on: boolean): Promise<void> {
+    if (filter === "rust_panic") return setStopOnPanic(on);
+    if (on) excFilters.add(filter); else excFilters.delete(filter);
+    keep();
+    const s = store.session();
+    if (isDap(s) && dbg.exceptionFilters) {
+      const offered = new Set(s!.caps?.exceptionFilters.map((f) => f.filter) ?? []);
+      await dbg.exceptionFilters(s!.id, [...excFilters].filter((f) => offered.has(f))).catch(fail);
+    }
+    view.refresh();
+  }
+
+  /** The container (a scope or a parent variable) a variable was listed in. */
+  function parentOf(s: Session, reference: number, name: string): number | null {
+    for (const [p, kids] of Object.entries(s.children ?? {})) if (kids.some((k) => k.reference === reference && k.name === name)) return +p;
+    return null;
+  }
+  function nodeByPath(s: Session, path: string): { node: VarNode; parent: number | null } | null {
+    for (const [p, kids] of Object.entries(s.children ?? {})) { const n = kids.find((k) => k.path === path); if (n) return { node: n, parent: +p }; }
+    return null;
+  }
+
+  async function addDataBreakpoint(reference: number, name: string): Promise<void> {
+    const s = needStopped();
+    if (!s) return;
+    if (!s.caps?.dataBreakpoints || !dbg.dataBreakpoints) { notifier.toast(say("noDataBps")); return; }
+    void reference;
+    const found = Object.values(s.children ?? {}).flat().find((k) => k.name === name && k.reference === reference);
+    const parent = found ? parentOf(s, reference, name) : null;
+    try {
+      const list = await dbg.dataBreakpoints(s.id, { frame: s.frame ?? 0, reference: parent, name }, null);
+      const cur = store.session(); if (cur && cur.id === s.id) store.setSession({ ...cur, dataBps: list });
+      const added = list[list.length - 1];
+      if (added && !added.verified) notifier.toast(added.message || say("dataBpNotSet"));
+    } catch (e) { notifier.toast(e instanceof Error ? e.message : String(e)); }
+    view.refresh();
+  }
+  async function removeDataBreakpoint(dataId: string): Promise<void> {
+    const s = store.session();
+    if (!s || !dbg.dataBreakpoints) return;
+    const list = await dbg.dataBreakpoints(s.id, null, dataId).catch(() => (s.dataBps ?? []).filter((d) => d.dataId !== dataId));
+    const cur = store.session(); if (cur && cur.id === s.id) store.setSession({ ...cur, dataBps: list });
+    view.refresh();
+  }
+
+  async function viewMemory(path: string): Promise<void> {
+    const s = needStopped();
+    if (!s) return;
+    const hit = nodeByPath(s, path);
+    const ref = hit?.node.memoryReference;
+    if (!s.caps?.readMemory || !dbg.readMemory || !ref) { notifier.toast(say("noMemory")); return; }
+    try {
+      const m = await dbg.readMemory(s.id, ref, 0, 128);
+      const cur = store.session(); if (cur && cur.id === s.id) store.setSession({ ...cur, memory: { name: hit!.node.name, ...m } });
+    } catch (e) { notifier.toast(e instanceof Error ? e.message : String(e)); }
+    view.refresh();
+  }
+  function closeMemory(): void { const s = store.session(); if (s) store.setSession({ ...s, memory: null }); view.refresh(); }
+
+  async function setTrigger(key: string, trigger: string | null): Promise<void> {
+    store.hydrate();
+    const cur: BpMeta = { ...(meta.get(key) ?? { enabled: true }) };
+    if (trigger && trigger !== key) cur.trigger = trigger; else delete cur.trigger;
+    await editBreakpoint(key, { ...cur, enabled: true });
+  }
+  async function setGroup(key: string, group: string | null): Promise<void> {
+    store.hydrate();
+    const cur: BpMeta = { ...(meta.get(key) ?? { enabled: true }) };
+    if (group && group.trim()) cur.group = group.trim(); else delete cur.group;
+    await editBreakpoint(key, { ...cur, enabled: cur.enabled !== false });
+  }
+  async function toggleGroup(name: string): Promise<void> {
+    if (groupsOff.has(name)) groupsOff.delete(name); else groupsOff.add(name);
+    keep();
+    const s = store.session();
+    if (isDap(s)) for (const [k, m] of meta) if (m.group === name) await sendFile(s!.id, bpPath(k)).catch(fail);
+    const t = editor.currentTab(); if (t && t.path) editor.paintEd(t.path);
+    view.refresh();
+  }
+  function toggleJmc(): void { jmc = !jmc; libOpen.clear(); keep(); view.refresh(); }
+  function openLibFrames(from: number): void { if (libOpen.has(from)) libOpen.delete(from); else libOpen.add(from); view.refresh(); }
+
+  function askPanic(): void {
+    const s = stopped();
+    if (!s || !s.panic || !deps.codev?.available()) { notifier.toast(say("needsStop")); return; }
+    const p = s.panic;
+    deps.codev.ask({ intent: "explain", text: say("askPanic"), send: true, context: [
+      { kind: "panic", label: `${p.file.split("/").pop()}:${p.line}`, text: panicText(p), path: p.file },
+      { kind: "frame", label: `${s.stop?.func ?? "?"}`, text: markdownOf(s) },
+    ] });
+  }
+  function copyPanic(): void {
+    const s = stopped();
+    if (!s || !s.panic) return;
+    deps.clipboard?.(panicText(s.panic) + "\n\n" + markdownOf(s));
+    notifier.toast(say("copied"));
+  }
+
   return {
     startDebug, dbgContinue, dbgStep, dbgStop, toggleBp,
     dbgStepOut, dbgPause, toggleVar, selectFrame, selectThread, addWatch, removeWatch, setStopOnPanic, editBreakpoint, removeBreakpoint, loadKept, askCodev, snapshot, attach,
-    extra: () => ({ watches, output, stopOnPanic, expanded }),
+    restart, runToCursor, restartFrame, stepBack, reverseContinue, consoleEval, consoleHistory, consoleClear, debugTest, setExceptionFilter,
+    addDataBreakpoint, removeDataBreakpoint, viewMemory, closeMemory, setTrigger, setGroup, toggleGroup, toggleJmc, openLibFrames, askPanic, copyPanic, host,
+    extra: () => ({ watches, output, stopOnPanic: stopOnPanic || (panicThisSession && !!store.session()), expanded, host: hostCaps, console: consoleLines, groupsOff, jmc, libOpen, exceptionFilters: excFilters }),
   };
 }

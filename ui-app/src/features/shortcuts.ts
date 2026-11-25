@@ -16,7 +16,7 @@ import { closeMenus } from "./menus";
 import { openSettings } from "./codev";
 import { nextProblem } from "./diagnostics";
 import { vizFromEditor } from "./visualizer";
-import { startDebug, dbgStop, dbgStep, dbgStepInto, toggleBp } from "./debug";
+import { startDebug, dbgStop, dbgStep, dbgStepInto, toggleBp, dbgStepOut, dbgRunToCursor, dbgStepBack, dbgReverseContinue, dbgRestart } from "./debug";
 import { explainCmd, reviewCmd } from "./codereview";
 import { services } from "../app/services";
 import { dxRun } from "./stack";
@@ -43,6 +43,10 @@ document.addEventListener("keydown", (e) => {
   }
   if (c && !e.shiftKey && !e.altKey && k === "i" && codevAsk.available()) return go(() => codevAsk.fromEditor());
   if (c && !e.shiftKey && !e.altKey && k === "k") { go(() => { CHORD = Date.now(); chordLabel("(Ctrl+K) waiting for second key…"); }); return; }
+  /* r23 F2 (UI-DBG-07): Ctrl+Shift+F5 restart, Shift+F11 step out, Ctrl+F10 run to cursor, Shift+F10 step back,
+     Shift+F9 reverse continue — antes dos F5/F9/F10 simples, que não olham para os modificadores */
+  if (e.key === "F5" && c && e.shiftKey) return go(() => { void dbgRestart(); }); if (e.key === "F11" && e.shiftKey) return go(() => { void dbgStepOut(); });
+  if (e.key === "F10" && c) return go(() => { void dbgRunToCursor(); }); if (e.key === "F10" && e.shiftKey) return go(() => { void dbgStepBack(); }); if (e.key === "F9" && e.shiftKey) return go(() => { void dbgReverseContinue(); });
   if (e.key === "F5" && c) return go(dxRun); if (e.key === "F5" && e.shiftKey) return go(dbgStop);
   if (e.key === "F5") return go(() => startDebug()); if (e.key === "F10") return go(dbgStep); if (e.key === "F11") return go(dbgStepInto);
   if (e.key === "F9") { const t = G.tabOf(G.cur), ta = $("#ed-ta") as HTMLTextAreaElement | null; if (t && t.path && ta) go(() => toggleBp(t.path as string, ta.value.slice(0, ta.selectionStart).split("\n").length)); return; }

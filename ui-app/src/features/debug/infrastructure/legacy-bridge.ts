@@ -82,3 +82,9 @@ export const kubeTarget = (): { context: string; namespace: string; kubeconfig: 
   const e = (window as unknown as { ENVS?: { kube?: string; ctx?: string; ns?: string; k8sOn?: boolean } }).ENVS;
   return e && e.k8sOn && e.ctx ? { context: e.ctx, namespace: (e.ns || "default").trim() || "default", kubeconfig: (e.kube || "").trim() } : null;
 };
+
+/* r23 F2: the viewport for the floating toolbar (its size and when it changes) and the clipboard
+   (the exception helper's «Copy») — the only `window` they need, kept here. */
+export const viewport = (): { w: number; h: number } => ({ w: window.innerWidth, h: window.innerHeight });
+export const onResize = (f: () => void): void => window.addEventListener("resize", f);
+export const copyText = (text: string): void => { void navigator.clipboard?.writeText(text).catch(() => undefined); };

@@ -10,7 +10,7 @@ import { replyRule } from "./reply-language";
 export type AskIntent = "chat" | "explain" | "fix" | "change" | "review" | "plan";
 
 export interface AskContext {
-  kind: "selection" | "file" | "hunk" | "problem" | "test" | "lesson" | "issue" | "terminal" | "comment";
+  kind: "selection" | "file" | "hunk" | "problem" | "test" | "lesson" | "issue" | "terminal" | "comment" | "frame" | "panic";
   /** Short label for the chip (e.g. `lib.rs:12–18`). */
   label: string;
   /** The text the context carries (a selection, a diff, an error). */

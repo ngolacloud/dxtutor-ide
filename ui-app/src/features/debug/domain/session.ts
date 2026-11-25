@@ -37,7 +37,24 @@ export interface Session {
   frame?: number;
   threads?: Array<{ id: number; name: string; current: boolean }>;
   scopes?: Array<{ name: string; value: string; type: string; reference: number; changed: boolean; path: string }>;
-  children?: Record<number, Array<{ name: string; value: string; type: string; reference: number; changed: boolean; path: string }>>;
+  children?: Record<number, Array<{ name: string; value: string; type: string; reference: number; changed: boolean; path: string; memoryReference?: string | null }>>;
+  /* r23 F2 */
+  /** what the adapter can do (DAP) */
+  caps?: import("./dap").SessionCaps | null;
+  /** how it was launched (Restart launches it again) */
+  args?: string[];
+  cwd?: string;
+  /** the data breakpoints set in this session */
+  dataBps?: import("./dap").DataBp[];
+  /** a variable's bytes, when the human opened them */
+  memory?: { name: string; address: string; bytes: number[]; unreadable: number } | null;
+  /** how long the program ran before this stop (ms), and how many stops so far */
+  perfMs?: number;
+  stops?: number;
+  /** «Debug Test…»: stop on panic in this session (and when it restarts) */
+  panicOnStart?: boolean;
+  /** the panic the program stopped on (read from its output) */
+  panic?: import("./exception").Panic | null;
 }
 
 /** Os binários de um Cargo.toml: os `[[bin]] name = "…"`, senão o `[package] name`. */
