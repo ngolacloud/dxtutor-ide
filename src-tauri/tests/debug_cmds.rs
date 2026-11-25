@@ -72,7 +72,14 @@ fn live_round_trip_through_the_public_api() {
     assert!(ok, "cc must compile the test program");
 
     let sessions = DebugSessions::default();
-    debug::driver::launch(&sessions, "t".into(), bin.to_string_lossy().into(), None).unwrap();
+    debug::driver::launch(
+        &sessions,
+        "t".into(),
+        bin.to_string_lossy().into(),
+        vec![],
+        None,
+    )
+    .unwrap();
     let bp = debug::driver::set_break(&sessions, "t", &src.to_string_lossy(), 1).unwrap();
     assert!(bp >= 1, "breakpoint number");
     let stop = debug::driver::run(&sessions, "t").unwrap();
