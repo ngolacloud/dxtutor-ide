@@ -30,6 +30,7 @@ import { renderAccountPane } from "../../features/account";
 import { renderGraphView, graphScreen } from "../../features/scm/graph-screen";
 import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
 import { stage } from "../../features/scm";
+import { hunks } from "../../features/scm/extras";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
 import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
@@ -162,6 +163,25 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     });
     // feature `graph` (migrada de app.ts para features/graph.ts nesta sessão): o renderer
     // puro da tab `graph` (VIEW.graph) desenha um nó por commit do grafo real.
+    // r23 F3 (UI-SCM-10): staging de parte de um ficheiro contra o git real — dois hunks, só um entra no stage pelo
+    // pane, e o commit do IDE leva só esse (o índice manda); o outro fica por commitar.
+    await step("hunks", async () => {
+      const rel = "notes/hunks.txt", key = ROOT + rel, body = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+      writeFile(key, body); flushSave(); await idle();
+      commit("test: hunks base"); await idle(); await idle();
+      writeFile(key, body.replace("line 2\n", "line two\n").replace("line 28\n", "line twenty-eight\n")); flushSave(); await idle();
+      await hunks.toggle(rel);
+      const e = hunks.entry(rel);
+      const before = e?.unstaged?.hunks.length ?? -1;
+      const first = e?.unstaged?.hunks[0]?.id;
+      if (first) await hunks.stage(rel, first);
+      const staged = hunks.entry(rel)?.staged?.hunks.length ?? -1, left = hunks.entry(rel)?.unstaged?.hunks.length ?? -1;
+      commit("fix: only line two"); await idle(); await idle();
+      const head = (await git("show", "HEAD:" + (R.prefix || "") + rel)).stdout;
+      const still = (await git("diff", "--name-only")).stdout.includes(rel);
+      await hunks.toggle(rel);
+      return { before, staged, left, committedOnlyThatHunk: head.includes("line two\n") && head.includes("line 28\n"), otherHunkStillUncommitted: still };
+    });
     // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
     await step("graph", async () => {
       const host = document.createElement("div");

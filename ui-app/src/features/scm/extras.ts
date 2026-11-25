@@ -18,6 +18,10 @@ import { GIT_MESSAGES, type GitKey } from "./ui/git-messages";
 import { blameText, renderCompare, renderHistory, renderRebase, renderReview, renderSide, renderText } from "./ui/git-views";
 import type { ActionTable } from "./ui/actions";
 import type { RebaseAction } from "./domain/git-extras";
+import { makeHunks } from "./application/hunks";
+import { tauriHunks } from "./infrastructure/tauri";
+import { HUNK_MESSAGES } from "./ui/hunk-messages";
+import { renderHunks } from "./ui/hunks-view";
 
 const t = translator(GIT_MESSAGES);
 const say = (k: string, p?: Record<string, string | number>): string => t(k as GitKey, p);
@@ -51,6 +55,23 @@ export const gitExtras = makeGitExtras({
   tabs: { open: (id, title, kind) => B.openTab({ id, title, kind }), repaint: (kind) => paint(kind) },
   say,
 });
+
+/* ── r23 F3 (UI-SCM-10): staging part of a file, under its row in the pane (desktop with a repository only) ── */
+const th = translator(HUNK_MESSAGES);
+export const hunks = makeHunks({ git: tauriHunks(), root: () => B.gitRoot(), changed: async () => { B.panes().scm?.(); } });
+hunks.subscribe(() => B.panes().scm?.());
+/** The button on a changed file's row that opens its hunks (nothing outside the desktop: the goldens stay). */
+export function hunkButton(fsKey: string): string {
+  const rel = relOf(fsKey);
+  if (!active() || rel === null) return "";
+  return `<button title="${th("showHunks")}" data-action="scm-hunks" data-on="${escAttr(rel)}">${hunks.entry(rel) ? "▾" : "▸"}</button>`;
+}
+/** A changed file's hunks, when open (or nothing). */
+export function hunkBox(fsKey: string): string {
+  const rel = relOf(fsKey), e = rel === null ? undefined : hunks.entry(rel);
+  return active() && rel !== null && e ? renderHunks(th, rel, e) : "";
+}
+const escAttr = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
 /** The A4 git work is on (desktop app, the open folder is a git repository). */
 export const active = (): boolean => B.gitRoot() !== null;
@@ -137,6 +158,8 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
 
 const n = (s: string): number => Number(s) || 0;
 export const GIT_ACTIONS: ActionTable = {
+  "scm-hunks": { on: "click", run: (e) => { void hunks.toggle(e.on); } },
+  "scm-hunk": { on: "change", run: (e) => { const [path, id, op] = e.on.split("|"); void (op === "unstage" ? hunks.unstage(path, id) : hunks.stage(path, id)); } },
   "gx-stash-push": { on: "click", run: () => { void gitExtras.stashPush(false); } },
   "gx-stash-push-all": { on: "click", run: () => { void gitExtras.stashPush(true); } },
   "gx-stash-show": { on: "click", run: (e) => { void gitExtras.stashShow(n(e.on)); } },

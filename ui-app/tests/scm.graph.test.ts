@@ -217,3 +217,86 @@ describe("o minimapa e a linha WIP", () => {
     }
   });
 });
+
+import { makeHunks } from "../src/features/scm/application/hunks";
+import { renderHunks } from "../src/features/scm/ui/hunks-view";
+import type { FileHunksData } from "../src/features/scm/application/extras-ports";
+
+describe("staging por hunk (UI-SCM-10)", () => {
+  const H = (id: string, add = 1): FileHunksData["hunks"][number] => ({ id, header: `@@ -1,3 +1,3 @@ fn ${id}`, oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [" a", "-b", "+B"], added: add, removed: 1 });
+  function fake() {
+    const side: Record<string, FileHunksData["hunks"]> = { un: [H("h1"), H("h2")], st: [] };
+    const calls: string[] = [];
+    let changed = 0;
+    const h = makeHunks({
+      git: {
+        hunks: async (_r, path, staged) => ({ path, staged, binary: false, hunks: [...side[staged ? "st" : "un"]] }),
+        stageHunks: async (_r, path, ids, unstage) => {
+          calls.push(`${unstage ? "unstage" : "stage"}:${path}:${ids.join()}`);
+          const [from, to] = unstage ? ["st", "un"] : ["un", "st"];
+          side[to].push(...side[from].filter((x) => ids.includes(x.id))); side[from] = side[from].filter((x) => !ids.includes(x.id));
+          return { path, staged: unstage, binary: false, hunks: side[from] };
+        },
+      },
+      root: () => "/w", changed: async () => { changed++; },
+    });
+    return { h, calls, changed: () => changed };
+  }
+
+  it("abrir lê os dois lados; marcar faz stage só desse hunk e tira-o de volta; o pane é avisado", async () => {
+    const f = fake();
+    await f.h.toggle("src/a.rs");
+    expect(f.h.entry("src/a.rs")!.unstaged!.hunks.map((x) => x.id)).toEqual(["h1", "h2"]);
+    await f.h.stage("src/a.rs", "h2");
+    expect(f.calls).toEqual(["stage:src/a.rs:h2"]);
+    expect(f.h.entry("src/a.rs")!.staged!.hunks.map((x) => x.id)).toEqual(["h2"]);
+    expect(f.h.partly("src/a.rs")).toBe(true);
+    await f.h.unstage("src/a.rs", "h2");
+    expect(f.h.entry("src/a.rs")!.staged!.hunks).toEqual([]);
+    expect(f.changed()).toBe(2);
+    await f.h.toggle("src/a.rs");
+    expect(f.h.entry("src/a.rs")).toBeUndefined();
+  });
+
+  it("a vista: por marcar os de fora, marcados os do índice, a pré-visualização e os erros", () => {
+    const t = (k: string) => k;
+    const d = document.createElement("div");
+    d.innerHTML = renderHunks(t as never, "src/a.rs", { unstaged: { path: "src/a.rs", staged: false, binary: false, hunks: [H("h1")] }, staged: { path: "src/a.rs", staged: true, binary: false, hunks: [H("h2", 3)] }, busy: false, error: null });
+    const boxes = [...d.querySelectorAll<HTMLInputElement>('[data-action="scm-hunk"]')];
+    expect(boxes.map((b) => [b.dataset.on, b.checked])).toEqual([["src/a.rs|h1|stage", false], ["src/a.rs|h2|unstage", true]]);
+    expect(d.querySelector(".hk-h code")!.textContent).toBe("@@ -1,3 +1,3 @@");
+    expect(d.querySelector(".hk-l.add")!.textContent).toBe("+B");
+    d.innerHTML = renderHunks(t as never, "x", { unstaged: null, staged: null, busy: false, error: "the file changed" });
+    expect(d.textContent).toBe("the file changed");
+    d.innerHTML = renderHunks(t as never, "x", { unstaged: { path: "x", staged: false, binary: true, hunks: [] }, staged: { path: "x", staged: true, binary: false, hunks: [] }, busy: false, error: null });
+    expect(d.textContent).toBe("binary");
+  });
+
+  it("no pane real: só no desktop com repositório aparece o botão; abrir mostra os hunks e marcar chama o git_stage_hunks", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = (await bootApp()) as unknown as Record<string, any>;
+    const key = w.ROOT + "src/x.rs";
+    w.FS[key] = { content: "new", orig: "old" };
+    try {
+      w.RP.scm();
+      expect(document.querySelector('[data-action="scm-hunks"]')).toBeNull(); // the browser (and the goldens): nothing
+      const calls: string[] = [];
+      w.DXR = { root: "/w/repo", git: true };
+      w.__TAURI__ = { core: { invoke: async (cmd: string, a: Record<string, unknown>) => {
+        calls.push(`${cmd}:${a.path}:${a.staged ?? a.unstage ?? ""}`);
+        if (cmd === "git_hunks") return { path: a.path, staged: a.staged, binary: false, hunks: a.staged ? [] : [H("h1")] };
+        if (cmd === "git_stage_hunks") return { path: a.path, staged: false, binary: false, hunks: [] };
+        throw new Error(cmd);
+      } } };
+      w.RP.scm();
+      const btn = document.querySelector<HTMLElement>('[data-action="scm-hunks"][data-on="src/x.rs"]');
+      expect(btn).not.toBeNull();
+      btn!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+      await vi.waitFor(() => expect(document.querySelector('#pane-scm [data-action="scm-hunk"]')).not.toBeNull());
+      const box = document.querySelector<HTMLInputElement>('#pane-scm [data-action="scm-hunk"]')!;
+      box.checked = true;
+      box.dispatchEvent(new window.Event("change", { bubbles: true }));
+      await vi.waitFor(() => expect(calls).toContain("git_stage_hunks:src/x.rs:false"));
+    } finally { delete w.FS[key]; delete w.DXR; delete w.__TAURI__; }
+  });
+});

@@ -49,7 +49,7 @@ import { bindActions, type ActionTable } from "./scm/ui/actions";
 import { translator } from "../app/i18n";
 import { SCM_MESSAGES } from "./scm/ui/messages";
 import { GIT_MESSAGES } from "./scm/ui/git-messages";
-import { GIT_ACTIONS, sideSections } from "./scm/extras";
+import { GIT_ACTIONS, sideSections, hunkButton, hunkBox } from "./scm/extras";
 
 /* os textos do motor do git na língua da interface (i18n dos motores) */
 const tse = translator(SCM_ENGINE_MESSAGES);
@@ -166,7 +166,7 @@ function renderScmPane(): void {
     return;
   }
   const b = branch();
-  const row = (p: string, s: number): string => `<div class="scm-row" data-action="open-diff" data-on="${esc(p)}">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="${t("openFile")}" data-action="open-path" data-on="${esc(p)}">↗</button><button title="${t("discard")}" data-action="discard" data-on="${esc(p)}">↶</button><button title="${s ? t("unstage") : "Stage"}" data-action="stage" data-on="${esc(p)}">${s ? "−" : "+"}</button></span><span class="g ${stOf(p)}">${stOf(p)}</span></div>`;
+  const row = (p: string, s: number): string => `<div class="scm-row" data-action="open-diff" data-on="${esc(p)}">${fIcon(p)}<span class="nm">${esc(p.split("/").pop())}</span><span class="pth">${esc(short(p).split("/").slice(0, -1).join("/"))}</span><span class="ra"><button title="${t("openFile")}" data-action="open-path" data-on="${esc(p)}">↗</button><button title="${t("discard")}" data-action="discard" data-on="${esc(p)}">↶</button><button title="${s ? t("unstage") : "Stage"}" data-action="stage" data-on="${esc(p)}">${s ? "−" : "+"}</button>${hunkButton(p)}</span><span class="g ${stOf(p)}">${stOf(p)}</span></div>${hunkBox(p)}`;
   el.innerHTML = hd(t("title"), `<button title="${t("graph")}" data-action="open-graph">${svg("graph")}</button><button title="${t("refresh")}" data-action="refresh">${svg("refresh")}</button>`) + `<div class="sections"><div class="scm-grp">dxtutor · ${esc(b)}<span class="cnt">${ch.length}</span></div>
     <input class="inp" id="scm-msg" placeholder="${t("message")}" value="${esc(commitMsg())}"><button class="btn" data-action="commit">${t("commit", { staged: st.length ? " (staged)" : "", branch: esc(b) })}</button>
     ${st.length ? `<div class="scm-grp">${t("staged")}<span class="cnt">${st.length}</span></div>` + st.map((p) => row(p, 1)).join("") : ""}<div class="scm-grp">${t("changes")}<span class="cnt">${un.length}</span></div>${un.map((p) => row(p, 0)).join("") || `<div class="sec-empty">${t("clean")}</div>`}

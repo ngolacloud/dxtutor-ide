@@ -168,6 +168,28 @@ pub async fn git_refs(root: String) -> Result<tutor_eval::gitwork::Refs, String>
     blocking(move || tutor_eval::gitwork::refs(Path::new(&root))).await
 }
 
+/// The hunks of one file (r23 F3, UI-SCM-10): the working tree's, or the index's with `staged`.
+#[tauri::command]
+pub async fn git_hunks(
+    root: String,
+    path: String,
+    staged: bool,
+) -> Result<tutor_eval::gitwork::FileHunks, String> {
+    blocking(move || tutor_eval::gitwork::hunks(Path::new(&root), &path, staged)).await
+}
+
+/// Stages the hunks `ids` of `path` (`git apply --cached` of a patch of just those), or takes
+/// them back out of the index with `unstage`. Returns that side's hunks afterwards.
+#[tauri::command]
+pub async fn git_stage_hunks(
+    root: String,
+    path: String,
+    ids: Vec<String>,
+    unstage: bool,
+) -> Result<tutor_eval::gitwork::FileHunks, String> {
+    blocking(move || tutor_eval::gitwork::stage_hunks(Path::new(&root), &path, &ids, unstage)).await
+}
+
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {

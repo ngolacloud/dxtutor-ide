@@ -5,7 +5,9 @@
 //! Like `gitx`, every function runs the real `git` and parses machine output (`%00`-separated
 //! `for-each-ref` formats); nothing is simulated.
 
+use std::io::Write;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use serde::Serialize;
 
@@ -226,6 +228,179 @@ pub fn refs(root: &Path) -> Result<Refs, String> {
     })
 }
 
+// ───── hunks: staging part of a file (UI-SCM-10) ─────
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hunk {
+    /// stable while the hunk's text is the same (FNV-1a of its header and lines)
+    pub id: String,
+    /// `@@ -a,b +c,d @@ context`
+    pub header: String,
+    pub old_start: u32,
+    pub old_lines: u32,
+    pub new_start: u32,
+    pub new_lines: u32,
+    /// the body, each line with its ` `/`+`/`-`/`\` prefix
+    pub lines: Vec<String>,
+    pub added: u32,
+    pub removed: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileHunks {
+    pub path: String,
+    /// hunks of the index vs HEAD (`true`) or of the working tree vs the index (`false`)
+    pub staged: bool,
+    pub binary: bool,
+    pub hunks: Vec<Hunk>,
+}
+
+fn fnv(s: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{:012x}", h & 0xffff_ffff_ffff)
+}
+
+fn range(s: &str) -> (u32, u32) {
+    let s = s.trim_start_matches(['-', '+']);
+    match s.split_once(',') {
+        Some((a, b)) => (a.parse().unwrap_or(0), b.parse().unwrap_or(0)),
+        None => (s.parse().unwrap_or(0), 1),
+    }
+}
+
+/// A one-file unified diff → (the file header up to the first `@@`, the hunks, binary?).
+pub fn parse_hunks(diff: &str) -> (String, Vec<Hunk>, bool) {
+    let mut header = String::new();
+    let mut hunks: Vec<Hunk> = Vec::new();
+    let mut binary = false;
+    for line in diff.lines() {
+        if line.starts_with("@@") {
+            let mut parts = line.split_whitespace().skip(1);
+            let (os, ol) = range(parts.next().unwrap_or("-0,0"));
+            let (ns, nl) = range(parts.next().unwrap_or("+0,0"));
+            hunks.push(Hunk {
+                id: String::new(),
+                header: line.to_string(),
+                old_start: os,
+                old_lines: ol,
+                new_start: ns,
+                new_lines: nl,
+                lines: vec![],
+                added: 0,
+                removed: 0,
+            });
+        } else if let Some(h) = hunks.last_mut() {
+            if line.starts_with('+') {
+                h.added += 1;
+            } else if line.starts_with('-') {
+                h.removed += 1;
+            }
+            h.lines.push(line.to_string());
+        } else {
+            if line.starts_with("Binary files ") || line == "GIT binary patch" {
+                binary = true;
+            }
+            header.push_str(line);
+            header.push('\n');
+        }
+    }
+    for h in &mut hunks {
+        h.id = fnv(&format!("{}\n{}", h.header, h.lines.join("\n")));
+    }
+    (header, hunks, binary)
+}
+
+fn diff_of(root: &Path, path: &str, staged: bool) -> Result<String, String> {
+    let p = gitx::check_path(path)?;
+    let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-U3"];
+    if staged {
+        args.push("--cached");
+    }
+    args.extend(["--", p]);
+    git(root, &args)
+}
+
+/// The hunks of one file: the working tree's (not staged yet) or the index's (staged).
+pub fn hunks(root: &Path, path: &str, staged: bool) -> Result<FileHunks, String> {
+    let (_, hunks, binary) = parse_hunks(&diff_of(root, path, staged)?);
+    Ok(FileHunks {
+        path: path.to_string(),
+        staged,
+        binary,
+        hunks,
+    })
+}
+
+fn apply_cached(root: &Path, patch: &str, reverse: bool) -> Result<(), String> {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(root)
+        .args(["apply", "--cached", "--whitespace=nowarn"]);
+    if reverse {
+        cmd.arg("--reverse");
+    }
+    cmd.arg("-");
+    cmd.env("GIT_TERMINAL_PROMPT", "0").env("LC_ALL", "C");
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not start git: {e}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("no stdin")?
+        .write_all(patch.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// Stages (or, with `unstage`, takes back out of the index) the hunks `ids` of `path`: a patch of
+/// just those hunks, with the file's own header, through `git apply --cached [--reverse]`. The ids
+/// come from [`hunks`]; one that no longer exists (the file changed) refuses the whole call.
+/// Returns the file's hunks on the side they came from, after the change.
+pub fn stage_hunks(
+    root: &Path,
+    path: &str,
+    ids: &[String],
+    unstage: bool,
+) -> Result<FileHunks, String> {
+    if ids.is_empty() {
+        return Err("no hunk chosen".into());
+    }
+    let (header, all, binary) = parse_hunks(&diff_of(root, path, unstage)?);
+    if binary {
+        return Err(format!("{path} is binary: stage the whole file"));
+    }
+    let chosen: Vec<&Hunk> = all.iter().filter(|h| ids.contains(&h.id)).collect();
+    if chosen.len() != ids.len() {
+        return Err("the file changed since the hunks were read: read them again".into());
+    }
+    let mut patch = header;
+    for h in chosen {
+        patch.push_str(&h.header);
+        patch.push('\n');
+        for l in &h.lines {
+            patch.push_str(l);
+            patch.push('\n');
+        }
+    }
+    apply_cached(root, &patch, unstage)?;
+    hunks(root, path, unstage)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,6 +533,69 @@ mod tests {
             names.contains(&"Ana") && names.contains(&"Rui"),
             "{names:?}"
         );
+    }
+
+    #[test]
+    fn staging_one_hunk_leaves_the_other_and_unstaging_takes_it_back() {
+        let d = repo();
+        let body: String = (1..=30).map(|i| format!("line {i}\n")).collect();
+        commit(d.path(), "f.txt", &body, "feat: f");
+        let changed = body
+            .replace("line 2\n", "line two\n")
+            .replace("line 28\n", "line twenty-eight\n");
+        std::fs::write(d.path().join("f.txt"), &changed).unwrap();
+        let un = hunks(d.path(), "f.txt", false).unwrap();
+        assert_eq!(un.hunks.len(), 2);
+        assert_eq!((un.hunks[0].added, un.hunks[0].removed), (1, 1));
+        let first = un.hunks[0].id.clone();
+        assert_eq!(
+            hunks(d.path(), "f.txt", false).unwrap().hunks[0].id,
+            first,
+            "the id is stable"
+        );
+        let left = stage_hunks(d.path(), "f.txt", std::slice::from_ref(&first), false).unwrap();
+        assert_eq!(left.hunks.len(), 1);
+        assert!(left.hunks[0]
+            .lines
+            .iter()
+            .any(|l| l == "+line twenty-eight"));
+        let st = hunks(d.path(), "f.txt", true).unwrap();
+        assert_eq!(st.hunks.len(), 1);
+        assert!(st.hunks[0].lines.iter().any(|l| l == "+line two"));
+        g(d.path(), &["commit", "-q", "-m", "fix: only line two"]);
+        let committed = git(d.path(), &["show", "HEAD:f.txt"]).unwrap();
+        assert!(
+            committed.contains("line two\n") && committed.contains("line 28\n"),
+            "only the staged hunk is committed"
+        );
+        // the other hunk: stage it, then take it back out
+        let id = hunks(d.path(), "f.txt", false).unwrap().hunks[0].id.clone();
+        stage_hunks(d.path(), "f.txt", std::slice::from_ref(&id), false).unwrap();
+        let sid = hunks(d.path(), "f.txt", true).unwrap().hunks[0].id.clone();
+        let back = stage_hunks(d.path(), "f.txt", &[sid], true).unwrap();
+        assert!(back.hunks.is_empty());
+        assert_eq!(hunks(d.path(), "f.txt", false).unwrap().hunks.len(), 1);
+        assert!(stage_hunks(d.path(), "f.txt", &["nope".into()], false)
+            .unwrap_err()
+            .contains("changed"));
+        assert!(stage_hunks(d.path(), "-x", &[id], false).is_err());
+    }
+
+    #[test]
+    fn parse_hunks_keeps_the_header_and_no_newline_markers() {
+        let (h, hs, bin) = parse_hunks("diff --git a/x b/x\nindex 1..2 100644\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n");
+        assert!(h.starts_with("diff --git") && h.ends_with("+++ b/x\n"));
+        assert_eq!(
+            (
+                hs.len(),
+                hs[0].old_start,
+                hs[0].old_lines,
+                hs[0].lines.len(),
+                bin
+            ),
+            (1, 1, 1, 3, false)
+        );
+        assert!(parse_hunks("diff --git a/i b/i\nBinary files a/i and b/i differ\n").2);
     }
 
     #[test]

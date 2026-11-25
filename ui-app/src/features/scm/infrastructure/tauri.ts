@@ -5,7 +5,7 @@
    `git_diff`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, type Invoker } from "../../../platform/tauri/core";
-import type { GitExtrasPort, GitRefsPort } from "../application/extras-ports";
+import type { FileHunksData, GitExtrasPort, GitRefsPort, HunksPort } from "../application/extras-ports";
 import type { RefsSnapshot } from "../domain/refs";
 import type { Blame, Compare, HistCommit, RebasePlan, StashResult, Worktree } from "../domain/git-extras";
 import { parseChangeSetGroups } from "../domain/changesets";
@@ -31,4 +31,10 @@ export const tauriGitExtras = (inv: Invoker = invoke): GitExtrasPort => ({
 export const tauriGitRefs = (inv: Invoker = invoke): GitRefsPort => ({
   refs: (root) => inv<RefsSnapshot>("git_refs", { root }),
   show: (root, hash) => inv<string>("git_show", { root, hash }),
+});
+
+/** O staging por hunk (r23 F3, UI-SCM-10): `git_hunks` e `git_stage_hunks`. */
+export const tauriHunks = (inv: Invoker = invoke): HunksPort => ({
+  hunks: (root, path, staged) => inv<FileHunksData>("git_hunks", { root, path, staged }),
+  stageHunks: (root, path, ids, unstage) => inv<FileHunksData>("git_stage_hunks", { root, path, ids, unstage }),
 });

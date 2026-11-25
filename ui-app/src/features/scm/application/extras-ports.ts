@@ -8,6 +8,15 @@ import type { Blame, Compare, HistCommit, RebaseOp, RebasePlan, StashOp, StashRe
 import type { ChangeSetGroup } from "../domain/changesets";
 import type { RefsSnapshot } from "../domain/refs";
 
+/** One file's hunks (r23 F3, UI-SCM-10): the shape of `git_hunks`. */
+export interface HunkData { id: string; header: string; oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[]; added: number; removed: number }
+export interface FileHunksData { path: string; staged: boolean; binary: boolean; hunks: HunkData[] }
+/** Staging part of a file: read its hunks, move some into (or out of) the index. */
+export interface HunksPort {
+  hunks(root: string, path: string, staged: boolean): Promise<FileHunksData>;
+  stageHunks(root: string, path: string, ids: string[], unstage: boolean): Promise<FileHunksData>;
+}
+
 /** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
 export interface GitRefsPort {
   refs(root: string): Promise<RefsSnapshot>;

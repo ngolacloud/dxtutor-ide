@@ -92,14 +92,19 @@ const scmDesktop: ScmDesktop = {
 commit(msg, author, _commit) {
   if (!R.git) return _commit(msg, author);
   const m = (msg || commitMsg() || "").trim();
-  const list = (STAGED.size ? [...STAGED] : changes()).filter(p => FS[p] && stOf(p));
+  const fileStaged = STAGED.size > 0;
+  const list = (fileStaged ? [...STAGED] : changes()).filter(p => FS[p] && stOf(p));
   const r = _commit(msg, author);
   if (!r) return r;
   flushSave();
   const rels = list.map(relOf);
   const by = author && AGENTS[author] ? AGENTS[author].n : null;
   enqueue(async () => {
-    await gitOk("add", "-A", "--", ...rels);
+    /* r23 F3 (UI-SCM-10): what is already in the index (hunks staged in the pane, or by hand) is committed as it
+       is — the files staged whole join it, and without any, nothing else is added (like VS Code) */
+    const inIndex = new Set((await git("diff", "--cached", "--name-only")).stdout.split("\n").map(x => x.trim()).filter(Boolean));
+    const add = rels.filter(p => !inIndex.has((R.prefix || "") + p));
+    if (add.length && (fileStaged || !inIndex.size)) await gitOk("add", "-A", "--", ...add);
     const a = ["commit", "-m", m];
     // RF-T02: the model that helped and the issue, as trailers; the author is the human
     const model = by ? agentStore.providers[agentStore.provider]?.model || by : null;
