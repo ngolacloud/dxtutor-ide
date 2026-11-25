@@ -32,7 +32,7 @@ export interface Services {
   /** os caminhos do workspace (features/workspace.ts): a ponte do Co-Dev, a equipa e o Learning Track (U7h) */
   workspace: Pick<typeof Workspace, "norm" | "LF">;
   /** os separadores (features/tabs.ts): a ponte do Co-Dev, a equipa e o Learning Track (U7h) */
-  tabs: Pick<typeof Tabs, "miniOff" | "closeTab" | "rerender">;
+  tabs: Pick<typeof Tabs, "miniOff" | "closeTab" | "rerender" | "EACT">;
   /** restaurar um checkpoint (features/checkpoint.ts), da ponte do Co-Dev (U7h) */
   checkpoint: Pick<typeof Checkpoint, "restoreCkpt">;
   /** abrir o Studio (features/studio.ts), da ponte do Co-Dev e das tarefas (U7h) */
@@ -40,7 +40,7 @@ export interface Services {
   /** o layout (features/shell.ts): o boot, os separadores e a ponte do Co-Dev (U7h) */
   shell: Pick<typeof Shell, "hydrate" | "setVar" | "badges" | "getVar">;
   /** fechar os menus (features/menus.ts): o boot, a paleta e o shell (U7h) */
-  menus: Pick<typeof Menus, "closeMenus">;
+  menus: Pick<typeof Menus, "closeMenus" | "buildMenubar">;
   /** a árvore e o Outline (features/explorer.ts): os separadores e o workspace, que avaliam antes (U7l) */
   explorer: Pick<typeof Explorer, "syncTree" | "drawOutline" | "markActive">;
   /** o comando do terminal com a porta desktop (features/terminal.ts), da ponte do Co-Dev (U7m) */

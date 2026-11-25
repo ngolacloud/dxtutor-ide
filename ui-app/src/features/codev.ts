@@ -164,13 +164,13 @@ function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last:
 
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
-Object.assign(window, { user, card, md, waiting, ask });
+Object.assign(window, { user, card, waiting, ask });
 
 /* o doTool com o gate de direitos do harness acima: exportado (ADR-0004, U7k — era publicado no window, que só os
    testes liam). O motor de missões guionadas e os cenários de demonstração foram removidos (ADR-0006, R1b). */
 export { harnessDoTool as doTool };
 /* os helpers do transcript que o board, os separadores e o arranque usam: por import (ADR-0004, U7l — eram publicados no window) */
-export { ctxPill, scrollMsgs, beat, runState, runLabel, tl };
+export { ctxPill, scrollMsgs, beat, runState, runLabel, tl, md };
 /* os botões da moldura (app/chrome-actions.ts), os comandos e o arranque importam-nos (ADR-0004, U7n — eram publicados no window) */
 export { cycleMode, pickModel, newChatWithCtx as newChat, agCtl, assistantCenter, toggleAgent, openManager };
 

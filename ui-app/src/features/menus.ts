@@ -109,8 +109,7 @@ function renderPop(items: MenuItem[], x: number, y: number): HTMLElement {
 }
 
 /* publicação transitória no window (o monólito e as camadas chamam por nome) */
-Object.assign(window, { buildMenubar });
 
 export { buildMenubar, closeMenus, showMenu, renderPop };
 /* o boot, a paleta e o shell (avaliam antes) fecham os menus pelo registo (ADR-0004, U7h) */
-services.menus = { closeMenus };
+services.menus = { closeMenus, buildMenubar };

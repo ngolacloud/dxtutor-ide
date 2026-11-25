@@ -32,6 +32,7 @@ import { bootApp, golden } from "./harness";
  * golden é estável. */
 
 let w: any;
+let VM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7p4)
 
 /** Programa mínimo determinista (Copy + aritmética + println) para pinar o
  *  pipeline completo sem o volume dos exemplos do catálogo. */
@@ -46,6 +47,7 @@ beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
   w = await bootApp();
+  VM = await import("../src/features/visualizer");
 });
 
 afterEach(() => {
@@ -59,35 +61,35 @@ afterEach(() => {
 /* ───────────── motor puro: lexer / parser / inferência ───────────── */
 describe("visualizer · motor puro — lexer/parser", () => {
   it("vzLex produz os tokens exactos do programa mínimo", () => {
-    expect(w.vzLex(TINY)).toMatchSnapshot();
+    expect(VM.vzLex(TINY)).toMatchSnapshot();
   });
 
   it("vzParse produz o AST exacto do programa mínimo", () => {
-    expect(w.vzParse(TINY)).toMatchSnapshot();
+    expect(VM.vzParse(TINY)).toMatchSnapshot();
   });
 
   it("vzParse produz o AST do exemplo `sum` (fn + params + ref + for)", () => {
-    expect(w.vzParse(w.VZS.sum[1])).toMatchSnapshot();
+    expect(VM.vzParse(VM.VZS.sum[1])).toMatchSnapshot();
   });
 
   it("vzHints infere os tipos prováveis do exemplo `sum`", () => {
-    const ast = w.vzParse(w.VZS.sum[1]);
-    expect(w.vzHints(ast)).toMatchSnapshot();
+    const ast = VM.vzParse(VM.VZS.sum[1]);
+    expect(VM.vzHints(ast)).toMatchSnapshot();
   });
 });
 
 /* ───────────── motor puro: interpretador (vzRun) ───────────── */
 describe("visualizer · motor puro — interpretador", () => {
   it("vzRun traça o programa mínimo passo-a-passo (estrutura completa)", () => {
-    expect(w.vzRun(TINY)).toMatchSnapshot();
+    expect(VM.vzRun(TINY)).toMatchSnapshot();
   });
 
   it("vzRun traça o crescimento de um Vec (`grow`, estrutura completa)", () => {
-    expect(w.vzRun(w.VZS.grow[1])).toMatchSnapshot();
+    expect(VM.vzRun(VM.VZS.grow[1])).toMatchSnapshot();
   });
 
   it("vzRun rejeita o use-after-move (`moved`) como erro de compilação", () => {
-    expect(w.vzRun(w.VZS.moved[1])).toMatchSnapshot();
+    expect(VM.vzRun(VM.VZS.moved[1])).toMatchSnapshot();
   });
 
   // Pino de comportamento ponta-a-ponta de TODO o catálogo de exemplos: nº de
@@ -95,8 +97,8 @@ describe("visualizer · motor puro — interpretador", () => {
   // do traço completo de cada um.
   it("vzRun — resumo determinista de cada exemplo do catálogo VZS", () => {
     const summary: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries<any>(w.VZS)) {
-      const r = w.vzRun(v[1]);
+    for (const [k, v] of Object.entries<any>(VM.VZS)) {
+      const r = VM.vzRun(v[1]);
       summary[k] = { title: v[0], steps: r.steps.length, end: r.end, out: r.out, err: r.err };
     }
     expect(summary).toMatchSnapshot();
@@ -106,8 +108,8 @@ describe("visualizer · motor puro — interpretador", () => {
 /* ───────────── motor puro: narração (vzTell via VZ.notes) ───────────── */
 describe("visualizer · motor puro — narração", () => {
   it("vzTell narra cada passo do exemplo `sum` (povoado por vizOpen em VZ.notes)", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
-    expect(w.VZ.notes).toMatchSnapshot();
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
+    expect(VM.VZ.notes).toMatchSnapshot();
   });
 });
 
@@ -118,33 +120,33 @@ describe("visualizer · overlay #viz (golden)", () => {
   }
 
   it("renderiza o exemplo `sum` no passo 0", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
     expect(vizGolden()).toMatchSnapshot();
   });
 
   it("avança o exemplo `sum` até ao último passo (saída + contadores)", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
-    w.vzGo(w.VZ.res.steps.length - 1);
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
+    VM.vzGo(VM.VZ.res.steps.length - 1);
     expect(vizGolden()).toMatchSnapshot();
   });
 
   it("mostra o cartão de erro do use-after-move (`moved`)", () => {
-    w.vizOpen(w.VZS.moved[1], w.VZS.moved[0]);
+    VM.vizOpen(VM.VZS.moved[1], VM.VZS.moved[0]);
     expect(vizGolden()).toMatchSnapshot();
   });
 
   it("profundidade `basic` — variáveis + call stack", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
-    w.VZ.depth = "basic";
-    w.vzRender();
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
+    VM.VZ.depth = "basic";
+    VM.vzRender();
     expect(vizGolden()).toMatchSnapshot();
   });
 
   it("profundidade `machine` — memória + contadores + endereços", () => {
-    w.vizOpen(w.VZS.grow[1], w.VZS.grow[0]);
-    w.vzGo(5);
-    w.VZ.depth = "machine";
-    w.vzRender();
+    VM.vizOpen(VM.VZS.grow[1], VM.VZS.grow[0]);
+    VM.vzGo(5);
+    VM.VZ.depth = "machine";
+    VM.vzRender();
     expect(vizGolden()).toMatchSnapshot();
   });
 });
@@ -158,51 +160,51 @@ describe("visualizer · dispatch delegado (Fase 4)", () => {
   const q = (sel: string): HTMLElement => document.querySelector(sel) as HTMLElement;
 
   it("data-action=vz-step (click) avança um passo; vz-back recua", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
-    expect(w.VZ.i).toBe(0);
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
+    expect(VM.VZ.i).toBe(0);
     q('[data-action="vz-step"]').click();
-    expect(w.VZ.i).toBe(1);
+    expect(VM.VZ.i).toBe(1);
     q('[data-action="vz-back"]').click();
-    expect(w.VZ.i).toBe(0);
+    expect(VM.VZ.i).toBe(0);
   });
 
   it("data-action=vz-depth (click) com data-on troca a profundidade", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
-    expect(w.VZ.depth).toBe("memory");
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
+    expect(VM.VZ.depth).toBe("memory");
     q('[data-action="vz-depth"][data-on="machine"]').click();
-    expect(w.VZ.depth).toBe("machine");
+    expect(VM.VZ.depth).toBe("machine");
   });
 
   it("data-action=vz-close (click) fecha o overlay (remove .show)", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
     expect(document.getElementById("viz")!.classList.contains("show")).toBe(true);
     q('[data-action="vz-close"]').click();
     expect(document.getElementById("viz")!.classList.contains("show")).toBe(false);
   });
 
   it("data-action=vz-predict (change) alterna o modo prever (lê .checked)", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
-    expect(w.VZ.predict).toBe(false);
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
+    expect(VM.VZ.predict).toBe(false);
     const cb = q('[data-action="vz-predict"]') as HTMLInputElement;
     cb.checked = true;
     cb.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(w.VZ.predict).toBe(true);
+    expect(VM.VZ.predict).toBe(true);
   });
 
   it("data-action=vz-pick (change) abre o exemplo escolhido (lê .value)", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
     const sel = q('[data-action="vz-pick"]') as HTMLSelectElement;
     sel.value = "grow";
     sel.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(w.VZ.src).toBe(w.VZS.grow[1]);
+    expect(VM.VZ.src).toBe(VM.VZS.grow[1]);
   });
 
   it("data-action=vz-play (click) arranca o temporizador (toggle)", () => {
-    w.vizOpen(w.VZS.sum[1], w.VZS.sum[0]);
-    expect(w.VZ.timer).toBeNull();
+    VM.vizOpen(VM.VZS.sum[1], VM.VZS.sum[0]);
+    expect(VM.VZ.timer).toBeNull();
     q('[data-action="vz-play"]').click();
-    expect(w.VZ.timer).not.toBeNull();
+    expect(VM.VZ.timer).not.toBeNull();
     q('[data-action="vz-play"]').click();
-    expect(w.VZ.timer).toBeNull();
+    expect(VM.VZ.timer).toBeNull();
   });
 });

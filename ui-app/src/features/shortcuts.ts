@@ -15,11 +15,12 @@ import { closePal } from "./palette";
 import { closeMenus } from "./menus";
 import { openSettings } from "./codev";
 import { nextProblem } from "./diagnostics";
+import { vizFromEditor } from "./visualizer";
 
 interface ShortcutGlobals {
   termOwnsKey?: (e: KeyboardEvent) => boolean;
   explainCmd: (deep?: boolean) => void; reviewCmd: () => void; hoodCmd: () => void;
-  startDebug: (k?: string) => void; vizFromEditor: () => void;
+  startDebug: (k?: string) => void;
   dxRun: () => void; dbgStop: () => void; dbgStep: () => void; dbgStepInto: () => void;
   toggleBp: (p: string, line: number) => void; goPane: (p: string) => void;
   tabOf: (id: string | null) => { path?: string } | undefined; cur: string | null;
@@ -37,7 +38,7 @@ document.addEventListener("keydown", (e) => {
   if (CHORD && Date.now() - CHORD < 1600) {
     CHORD = 0; chordLabel("");
     if (k === "e") return go(() => G.explainCmd()); if (k === "r") return go(G.reviewCmd); if (k === "u") return go(G.hoodCmd);
-    if (k === "d") return go(() => G.startDebug()); if (k === "v") return go(() => G.vizFromEditor());
+    if (k === "d") return go(() => G.startDebug()); if (k === "v") return go(() => vizFromEditor());
   }
   if (c && !e.shiftKey && !e.altKey && k === "i" && codevAsk.available()) return go(() => codevAsk.fromEditor());
   if (c && !e.shiftKey && !e.altKey && k === "k") { go(() => { CHORD = Date.now(); chordLabel("(Ctrl+K) waiting for second key…"); }); return; }

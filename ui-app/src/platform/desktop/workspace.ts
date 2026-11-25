@@ -18,6 +18,7 @@ import { closeTab } from "../../features/tabs";
 import { workspaceStore } from "../../app/store";
 import { TREE } from "../../boot";
 import { cwd, echo, newInput } from "../../features/terminal";
+import { buildMenubar } from "../../features/menus";
 
 export function installWorkspace(ctx: DesktopContext): void {
 const { R, fsx, git, enqueue, escH, isReal, relOf, say } = ctx;

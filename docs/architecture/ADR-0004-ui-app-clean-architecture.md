@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 217 depois da U7p3, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 194 depois da U7p4, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1275,3 +1275,12 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   ponte do scm (`commitMsg()`/`setCommitMsg`, `graphSel()`/`setGraphSel`, reexportados pelo resíduo); o `clLog`/
   `clShow` do changelog e o `gitCmd` do termgit passam a exports. O `changelog.ts`, o `graph.ts` e o `termgit.ts`
   deixam de publicar e saem da lista do A9 (50). Ordem de avaliação igual. Globais publicadas 236 → 217.
+  **U7p4 — o visualizer (2026-11-25).** A superfície `publish({ … })` do `features/visualizer.ts` fica só com o `boot7`
+  (o `startup.ts` chama os passos do arranque por nome); os outros dezassete (`VZS`, `vizOpen`, `vizClose`,
+  `vizFromEditor`, `vzGo`, `vzRender`, … e o motor `vzLex`/`vzParse`/`vzRun`/`vzTell`/`vzHints`) passam a exports, e
+  o `VZ` a `export let` do módulo (o `vizOpen` reatribui-o; quem o importa vê o actual). Os acessores da ponte que
+  liam esses nomes no window (`viz`, `samples`, `vizOpen`…`vzRender`) não tinham utilizador nenhum e saem. O que o
+  visualizer lia dos outros: o `md` passa a export do Co-Dev, e o `EACT` (separadores), o `buildMenubar` (menus) e
+  o `LTS` (Learning Track), que só se lêem no `boot7` e na decoração do `VIEW.lt`, vêm pelo registo; o arranque, o
+  PairCode e o desktop importam o `buildMenubar`; os atalhos importam o `vizFromEditor`. O `features/menus.ts` deixa
+  de publicar e sai da lista do A9 (49). Ordem de avaliação igual. Globais publicadas 217 → 194.

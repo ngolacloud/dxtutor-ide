@@ -28,6 +28,7 @@ import { setTheme } from "../features/theme";
 import { termClear } from "../features/terminal";
 import { rtConnect, k8sConnect, dxDeploy, dcAttach, drawRemote, promote, openEnvs } from "../features/infra";
 import { gfPrompt } from "../features/scm";
+import { buildMenubar } from "../features/menus";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 

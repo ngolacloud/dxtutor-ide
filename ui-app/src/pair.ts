@@ -24,6 +24,7 @@ import { drawTabs, closeTab } from "./features/tabs";
 import { scrollTerm, cwd, echo, newInput } from "./features/terminal";
 import { pairState } from "./app/pair-state";
 import { workspaceStore } from "./app/store";
+import { buildMenubar } from "./features/menus";
 
 export {};
 
@@ -178,7 +179,6 @@ declare global {
   var scrollTerm: () => void;
   var setPanelTab: (pt: string, nofocus?: boolean) => void;
   var writeFile: (p: string, content: string) => void;
-  var buildMenubar: () => void;
   var toast: (m: string) => void;
   var log: (src: string, msg: string) => void;
   var run: (raw?: string) => unknown;

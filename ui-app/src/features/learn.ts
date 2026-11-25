@@ -56,7 +56,7 @@ const LT_READ: Record<string, boolean> = {};
 /* LTS window-backed; hidrata de LS PREGUIÇOSAMENTE (como hydrateBps no debug.ts): a
    feature avalia ANTES de app.ts publicar LS → `LS.get()` ansioso no eval = ReferenceError
    que pára o chunk. Default eager-safe; Object.assign(LTS,…) hidrata em sítio (não reatribui,
-   por isso o window.LTS que tutor.ts/visualizer aliasam continua a mesma referência). */
+   por isso o LTS que o tutor e o visualizer lêem pelo registo continua a mesma referência). */
 interface LTState { lang: string|null; levels: string[]; done: Record<string,number>; open: Record<string,boolean>; show: Record<string,number>; cur: string|null; }
 const LTS: LTState = {lang:null,levels:[],done:{},open:{},show:{},cur:null};
 let _ltHyd=false;
@@ -201,7 +201,7 @@ function ltAsk(){const{s}=ltFind(LTS.cur)!;agentStore.persona='tutor';agentPill(
   else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">W${txt("withClaudeLiveThe")}/p>`);}}
 
 /* ── publicar no window: tutor.ts/visualizer.ts/v5.ts e os shims de app.ts lêem por global ── */
-Object.assign(window, { LTS, openLesson, nextLesson });
+Object.assign(window, { openLesson, nextLesson });
 /* a API que o pane do tutor lê (ADR-0004, U7g): o tutor avalia antes deste módulo, por isso não o importa — usa o registo */
 services.learn = { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltSeq, ltPts, stars, ltOnboard, ltOpen };
 export { LTS, saveLT, LT_BADGE, course, ltUnits, ltDone, ltSeq, ltPts, stars, ltOnboard, ltOpen };
@@ -211,13 +211,12 @@ VIEW.lt = renderLtView;
 /* acções do onboarding e do editor de exercícios (ADR-0004, U5c): eram `onclick="…"` inline, que liam e
    escreviam o ONB/LT_HOOD/LTS no window e chamavam as funções publicadas, ao clicar; vão pelo
    despachante partilhado, que faz o mesmo no acto. */
-const LW = window as unknown as { LTS: { show: Record<string, number> } };
 registerActions({
   "learn:level": { click: (c) => { const o = ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); ltOnboard(2); } },
   "learn:back": { click: () => void ltOnboard(1) },
   "learn:start": { click: () => void ltStart() },
   "learn:hood": { click: () => { LT_HOOD = !LT_HOOD; ltRes(); } },
-  "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; saveLT(); ltRes(); } },
+  "learn:showTarget": { click: (c) => { LTS.show[c.on] = 1; saveLT(); ltRes(); } },
   "learn:ask": { click: () => void ltAsk() },
   "learn:go": { click: () => void ltGo() },
 });

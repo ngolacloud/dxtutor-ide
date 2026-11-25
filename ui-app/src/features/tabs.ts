@@ -198,8 +198,8 @@ function showWithActions(id: string | null): void {
  *  ADR-0004 U4j3; como lá, usa o `show` publicado — o da barra de acções). */
 function rerender(kind: string): void { const t=tabOf(editorStore.currentTabId);if(t&&t.kind===kind){const top=$('#ebody')!.scrollTop;G.show(editorStore.currentTabId);$('#ebody')!.scrollTop=top;} }
 
-Object.assign(window, { tabOf, openTab, openPath, show: showWithActions, EACT });
+Object.assign(window, { tabOf, openTab, openPath, show: showWithActions });
 
-export { rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };
+export { EACT, rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };
 /* o que a ponte do Co-Dev, a equipa e o Learning Track lêem — avaliam antes (ADR-0004, U7h) */
-services.tabs = { miniOff, closeTab, rerender };
+services.tabs = { miniOff, closeTab, rerender, EACT };

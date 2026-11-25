@@ -15,7 +15,7 @@ beforeEach(async () => {
     { t: "File", items: [{ l: "Abrir", k: "Ctrl+O", act: vi.fn() }, { sep: true }, { l: "Recentes", sub: [{ l: "a" }, { l: "b" }] }] },
     { t: "View", items: [{ l: "Tema", act: "__acaoMenuTeste" }, { l: "Sem acção" }] },
   );
-  w.buildMenubar();
+  MNM.buildMenubar();
 });
 
 it("a barra tem um botão por menu; clicar abre, clicar de novo fecha", () => {

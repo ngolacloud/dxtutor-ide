@@ -64,7 +64,7 @@ facade_writes() {
 }
 # baseline subida UMA vez, de propósito, no início da U7p (119 → 291): a medida antiga não via as superfícies nem as
 # fachadas (ADR-0004, «U7p — correcção da medida»). Daqui para a frente só desce.
-metric "globais publicadas no window (U3/U4/U7)" 217 0 \
+metric "globais publicadas no window (U3/U4/U7)" 194 0 \
   "$(( $(window_assigns) + $(published_names) + $(surface_names) + $(facade_writes) ))"
 # só atributos de verdade (o valor abre com aspas, escapadas ou não): a prosa — p.ex. o achado da
 # revisão «<img src=x onerror=…>» — não conta (U5e)

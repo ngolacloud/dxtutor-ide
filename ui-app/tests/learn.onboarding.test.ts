@@ -13,9 +13,9 @@ beforeEach(async () => {
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
   w = await bootApp();
   LM = await import("../src/features/learn");
-  w.LTS.lang = null;
-  w.LTS.levels = [];
-  w.LTS.cur = null;
+  LM.LTS.lang = null;
+  LM.LTS.levels = [];
+  LM.LTS.cur = null;
 });
 
 afterEach(() => {
@@ -60,15 +60,15 @@ describe("leitura: apresentação do curso e conceitos do tópico", () => {
 
   it("todas as unidades embutidas (Rust e Go) trazem texto de conceitos, e cada curso a sua apresentação", () => {
     for (const lang of ["rust", "go"]) {
-      w.LTS.lang = lang;
+      LM.LTS.lang = lang;
       expect(LM.course().overview.length, `${lang}.overview`).toBeGreaterThan(500);
       for (const u of LM.course().units) expect(u.concepts.length, `${lang}:${u.id}`).toBeGreaterThan(1000);
     }
   });
 
   it("no 1.º passo do curso abrem a apresentação e os conceitos; o botão fecha/abre", () => {
-    w.LTS.lang = "rust";
-    w.LTS.levels = ["basic"];
+    LM.LTS.lang = "rust";
+    LM.LTS.levels = ["basic"];
     const unit = LM.course().units[0];
     const host = openStep(unit.steps[0].id, `${unit.steps[0].id}.rs`);
     expect(card("__overview")!.textContent).toMatch(/About Rust/);
@@ -80,10 +80,10 @@ describe("leitura: apresentação do curso e conceitos do tópico", () => {
   });
 
   it("num passo seguinte a apresentação já não aparece e os conceitos ficam fechados", () => {
-    w.LTS.lang = "rust";
-    w.LTS.levels = ["basic"];
+    LM.LTS.lang = "rust";
+    LM.LTS.levels = ["basic"];
     const unit = LM.course().units[0];
-    w.LTS.done[`rust:${unit.steps[0].id}`] = 1;
+    LM.LTS.done[`rust:${unit.steps[0].id}`] = 1;
     const host = openStep(unit.steps[1].id, `${unit.steps[1].id}.rs`);
     expect(card("__overview")).toBeNull();
     expect(card(unit.id)!.querySelector(".lt-read-b")).toBeNull();
@@ -101,7 +101,7 @@ describe("pane do Learning Track sem curso carregado", () => {
       document.body.appendChild(pane);
     }
     LM.course(); // hidrata o LTS (preguiçoso) antes de o mudar, senão a hidratação sobrepõe-no
-    w.LTS.lang = "no-such-course";
+    LM.LTS.lang = "no-such-course";
     (await import("../src/features/tutor")).renderTutorPane();
     expect(pane.textContent).toContain("is loading or is no longer installed");
     expect(document.getElementById("onb")).toBeNull();

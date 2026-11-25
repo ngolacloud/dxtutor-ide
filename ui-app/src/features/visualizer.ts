@@ -37,13 +37,15 @@ import type { VzNote, VzRunResult, VzSlot } from "./visualizer/domain/types";
 import type { VizError } from "./visualizer/application/visualize";
 import { translator } from "../app/i18n";
 import { VISUALIZER_MESSAGES } from "./visualizer/ui/messages";
+import { md } from "./codev";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(VISUALIZER_MESSAGES);
 export {};
 
 /** Uma pergunta do modo «prever»: o enunciado e a resposta certa. */
 interface VzQuestion { q: string; a: string }
-/** O estado do overlay (window-backed em `window.VZ`). */
+/** O estado do overlay (o `VZ` deste módulo). */
 interface VzOverlay {
   src: string; title: string; origin: string | null; i: number;
   timer: ReturnType<typeof setInterval> | null; speed: number; depth: string; predict: boolean;
@@ -52,11 +54,7 @@ interface VzOverlay {
   pending?: { i: number; q: VzQuestion } | null; score?: { ok: number; n: number };
 }
 declare global {
-  interface Window { VZ: VzOverlay | null }
-  const md: (t: unknown) => string;
   const P: Record<string, string>;
-  const EACT: [string, string, string, string][];
-  const LTS: { lang: string };
 }
 
 P.film='<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M5 2.5v11M11 2.5v11M2 5.5h3M2 8h3M2 10.5h3M11 5.5h3M11 8h3M11 10.5h3"/>';
@@ -66,13 +64,12 @@ P.film='<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M5 2.5v11M
    window abaixo para os consumidores que o resolvem por global (i18n, paleta). O
    interpretador (`vzRun`) é o único @ts-nocheck da subárvore. Aqui fica só o overlay. ── */
 /* null até ao primeiro vizOpen; os controlos só correm com o overlay aberto (as guardas `if(!VZ)` ficam onde já estavam) */
-let VZ=null as unknown as VzOverlay;
+/* o estado do overlay: deste módulo (era window.VZ; ADR-0004, U7p4) — `export let`, quem o importa vê o actual */
+export let VZ=null as unknown as VzOverlay;
 function vizOpen(src: string,title: string,origin?: string|null){let o=$('#viz');if(!o){document.body.insertAdjacentHTML('beforeend','<div id="viz"></div>');o=$('#viz');}clearInterval((VZ||{}).timer!);
-  /* window-backed: VZ é o único estado reatribuído (aqui); os onclick da barra correm
-     no scope global e lêem `VZ` → window.VZ. Atribuição em cadeia mantém o MESMO objecto
-     em ambos, por isso mutações (.i/.pending/.timer, via onclick OU via funções do módulo)
-     propagam. Corrige o desync pré-existente que partia os botões Step/depth/re-run/predict. */
-  VZ=window.VZ={src,title,origin:origin||null,i:0,timer:null,speed:LS.get('vzspeed',5),depth:LS.get('vzdepth','memory'),predict:LS.get('vzpred',false),guess:null,ans:null,res:null,err:null,notes:{}} as VzOverlay;
+  /* o VZ é o único estado reatribuído (aqui); as acções da barra e as funções do módulo lêem e mutam o mesmo
+     objecto (.i/.pending/.timer). Até à U7p4 do ADR-0004 também ia ao window (atribuição em cadeia). */
+  VZ={src,title,origin:origin||null,i:0,timer:null,speed:LS.get('vzspeed',5),depth:LS.get('vzdepth','memory'),predict:LS.get('vzpred',false),guess:null,ans:null,res:null,err:null,notes:{}} as VzOverlay;
   /* a orquestração (correr + construir notas, incl. tratamento de erro) vive no caso
      de uso `buildVisualization` (application/); aqui só injectamos as portas do domínio
      e copiamos o resultado para o estado window-backed antes de pintar. */
@@ -132,11 +129,11 @@ function vzArrows(){const m=$('#vz-mem'),sv=$('#vz-arrows');if(!m||!sv)return;co
 document.addEventListener('keydown',e=>{const o=$('#viz');if(!o||!o.classList.contains('show'))return;if(e.target&&(e.target as HTMLElement).id==='vz-guess')return;const k=e.key;
   if(k==='Escape'){e.preventDefault();e.stopImmediatePropagation();vizClose();}else if(k==='ArrowRight'){e.preventDefault();e.stopImmediatePropagation();vzGo(VZ.i+1);}else if(k==='ArrowLeft'){e.preventDefault();e.stopImmediatePropagation();vzGo(VZ.i-1);}else if(k===' '){e.preventDefault();e.stopImmediatePropagation();vzPlay();}},true);
 window.addEventListener('resize',()=>{if($('#viz.show'))vzArrows();});
-function boot7(){EACT.splice(4,0,['film','Visualize','Ctrl+K V','vizFromEditor()']);
+function boot7(){services.tabs!.EACT.splice(4,0,['film','Visualize','Ctrl+K V','vizFromEditor()']);
   const cm=MENUS.find(m=>m.t==='Co-Dev');if(cm){const ds=Object.getOwnPropertyDescriptor(cm,'items')!,g=()=>ds.get?ds.get.call(cm):ds.value;Object.defineProperty(cm,'items',{configurable:true,get:()=>{const a=g();a.splice(4,0,{l:'Visualize Execution',k:'Ctrl+K V',act:vizFromEditor});return a;}});}
-  const rm=MENUS.find(m=>m.t==='Run');if(rm)rm.items!.splice(2,0,{l:'Visualize Execution',k:'Ctrl+K V',act:vizFromEditor});$('#menubar')!.innerHTML='';buildMenubar();
+  const rm=MENUS.find(m=>m.t==='Run');if(rm)rm.items!.splice(2,0,{l:'Visualize Execution',k:'Ctrl+K V',act:vizFromEditor});$('#menubar')!.innerHTML='';services.menus!.buildMenubar();
   CMD.push(['Co-Dev: Visualize Execution','Ctrl+K V',vizFromEditor],...Object.entries(VZS).map(([_k,v])=>['Visualize: '+v[0],'',()=>vizOpen(v[1],v[0])] as [string, string, () => void]));
-  const _lt=VIEW.lt;VIEW.lt=(t,host)=>{_lt(t,host);const b=host.querySelector('.lt-bar .mini');if(b&&LTS.lang==='rust')b.insertAdjacentHTML('beforebegin',`<button class="mini" data-action="vz-from-editor" title="Visualize execution (Ctrl+K V)">${svg('film')} Visualize</button>`);};
+  const _lt=VIEW.lt;VIEW.lt=(t,host)=>{_lt(t,host);const b=host.querySelector('.lt-bar .mini');if(b&&services.learn!.LTS.lang==='rust')b.insertAdjacentHTML('beforebegin',`<button class="mini" data-action="vz-from-editor" title="Visualize execution (Ctrl+K V)">${svg('film')} Visualize</button>`);};
   const _hood=VIEW.hood;VIEW.hood=(t,host)=>{_hood(t,host);if(/\.rs$/.test(t.path))host.querySelector('.page h1').insertAdjacentHTML('afterend',`<button class="mini pri" style="margin:4px 0 8px" data-action="vz-hood" data-on="${/fn\s+main\s*\(/.test(FS[t.path].content)?'ed':'sum'}">${svg('film')} Visualize execution step by step</button>`);};
   show(cur!);}
 
@@ -166,9 +163,7 @@ bindActions({
 
 /* ── publicação no window: os nomes que boot.ts / handlers inline / app.ts (arranque)
    / i18n consomem. Internos (hex, VZR, VZSEEN, VZSZ) ficam léxicos ao módulo. ── */
-publish({
-  VZ, VZS, boot7,
-  vizClose, vizFromEditor, vizOpen,
-  vzAnswer, vzArrows, vzAsk, vzErr, vzGo, vzHints, vzLex, vzParse,
-  vzPlay, vzQuestion, vzRender, vzRun, vzTell
-});
+publish({ boot7 });
+/* o resto lê-se por import desde a U7p4 do ADR-0004 (os atalhos e os testes); o boot7 fica no window porque o
+   startup.ts chama os passos do arranque por nome */
+export { VZS, vizClose, vizFromEditor, vizOpen, vzAnswer, vzArrows, vzAsk, vzErr, vzGo, vzHints, vzLex, vzParse, vzPlay, vzQuestion, vzRender, vzRun, vzTell };
