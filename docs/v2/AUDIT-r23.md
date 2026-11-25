@@ -254,7 +254,7 @@ Testing implications:
   - In the browser, desktop-only screens say "needs the desktop app" (the pattern already used by `ops`, `testing` and `lsp`).
 - **Per-commit gates:**
   - `npm run ui:build`, `ui:test`, `arch:check`, `cargo test` for the touched crates;
-  - every new Tauri command added to `generate_handler!`, to `docs/architecture/IPC-MATRIX.md`, and to `EXPECT_TOTAL` (today 223) in `scripts/arch-check.sh` in the same commit;
+  - every new Tauri command added to `generate_handler!`, to `docs/architecture/IPC-MATRIX.md`, and to `EXPECT_TOTAL` (223 before F1, 224 after it) in `scripts/arch-check.sh` in the same commit;
   - no golden diff unless the owner approves the UI change and it is recorded;
   - new features added to `FEATURES` in `arch-check.sh`.
 
@@ -545,3 +545,51 @@ The brief's numbering is kept for naming. One phase per PR on `develop`.
     - (d) redaction is applied to logs and the audit, not to outgoing LLM requests (X02 gap);
     - (e) the keychain claim in `features/codev.ts`.
 16. **Tools missing for acceptance tests:** rr, gdb, tflint, checkov, trivy, conftest, infracost, vault, argocd, gitleaks. Install them on this machine (and in CI), or accept "not installed" paths as the tested behaviour for now?
+
+---
+
+## 6. Owner decisions (2026-11-25) and F1 status
+
+The owner approved four of the §5 questions, with one condition: everything follows the repository's
+structure (typed layered features, ports, en + ptAO catalogues, IPC-MATRIX, no new `window` globals).
+
+| § 5 | Decision |
+|---|---|
+| Q1 audit location | Same `audit` table as the Co-Dev, origin `"ide"`. No new columns yet: `tool` holds the feature, `call` the action, `path` the scope. Columns such as `approval_id`, `exit_code` and `env` are added (with their migration) by the phase that needs them. |
+| Q2 approval dialog | Yes: `app/approval.ts`, adopted first in Ops. The other confirms (scm extras, infra promote, codebase, arch) move to it in their own phases. |
+| Q12 `platform.js` | Not available. F4 is built from RF §8 and UI-PLAT-01…08 only; nothing is invented beyond them. |
+| Q4, Q8, Q16 tools | rr, gdb, Vault and the `keyring` crate are approved. System installs are the owner's to run (they need `sudo`); until then the app shows "not installed" with the hint. |
+
+Commands for the owner (Ubuntu; run once):
+
+```sh
+# gdb and rr (F2 time travel); rr needs perf events
+sudo apt install gdb rr
+echo 'kernel.perf_event_paranoid = 1' | sudo tee /etc/sysctl.d/60-rr.conf && sudo sysctl --system
+
+# Vault (F4) from the HashiCorp apt repository; a dev server is enough for the tests: vault server -dev
+wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+sudo apt update && sudo apt install vault
+
+# keyring crate (F4): its Secret Service backend needs D-Bus headers to build (and a keyring daemon at run time)
+sudo apt install libdbus-1-dev
+```
+
+The other questions (Q3, Q5, Q6, Q7, Q9, Q10, Q11, Q13, Q14) stay open and are asked at the start of
+the phase they belong to. The defects in Q15 stay reported, not fixed.
+
+### F1 status: done (foundations)
+
+| Commit | What |
+|---|---|
+| `a416cb9` | `app/approval.ts` + `app/approval-messages.ts`: one dialog with the title, the exact command, where it runs, an optional required reason and an optional typed word (the button stays off until both are given). Returns the decision and runs nothing. Ops adopts it through its `HumanPort.approve` (structural type, the feature does not import `app/`); deleting a pod or an apply that destroys asks for the name typed. `window.confirm` is gone from Ops. |
+| `5ea8115` | `audit_record(root, entry)` in `board.rs` (224 commands): the backend decides who (`git config user.name`) and when, and masks the `.env` values and the known secret patterns in the command, scope and reason (`Redactor::for_root`). Ops audits every decision through an `AuditPort`; a refusal is audited, and an approval that cannot be audited does not run. Self-test step `audit` proves the round trip (`audit_record` → `project_audit`) with a `.env` secret masked. |
+| `44c91db` | The status bar shows the build (`#st-build`: version · commit, `*` for a dirty tree; the desktop app's version from `app_info`). |
+
+Not done in F1, on purpose: the r23 fixtures (item 3) come in with the first phase whose tests use
+them, so nothing unused is committed.
+
+Checks on each commit: `tsc`, eslint (no new warnings), vitest (1004 tests), `arch:check` (all green,
+no metric up), `ui:build`, e2e (26, with the Ops test driving the new dialog), `cargo test` for
+`board.rs`, and the desktop self-test (52 steps, no FAIL).

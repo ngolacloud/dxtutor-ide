@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 223 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 224 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -673,6 +673,19 @@ features/comments/
 Não comenta por cima de uma proposta do Co-Dev (os números de linha não seriam os do ficheiro).
 Testes: `tests/comments.domain.test.ts` (domínio + caso de uso) e `tests/comments.editor.test.ts`
 (no editor real do harness: posição do botão, caixa, Ctrl+Enter/Esc/lixo, o pedido ao `codev.ask`).
+
+## Aprovação e auditoria partilhadas (r23 F1, `docs/v2/AUDIT-r23.md`)
+
+Tudo o que muda algo fora do editor (push, reset, apply, deploy, sync, exec, delete) pede aprovação com
+o comando EXACTO e vai para o registo de auditoria.
+
+- **`app/approval.ts`** — o único diálogo para isso (`requestApproval(pedido)` → decisão; não corre nada).
+  Título, comando, onde corre, motivo obrigatório e palavra a escrever opcionais. Uma feature declara na
+  sua porta um `approve(pedido)` com a mesma forma (tipagem estrutural, sem importar `app/` na aplicação)
+  e a composição liga-o. Nada de `window.confirm` novo; o Ops já migrou, os outros migram nas suas fases.
+- **`audit_record`** (`board.rs`, cliente `platform/tauri/audit.ts`) — a mesma tabela do registo do
+  Co-Dev, origem `ide` (`tool` = feature, `call` = acção, `path` = onde). Quem e quando decide-os o
+  backend; os segredos mascaram-se no Rust. A aprovação que não se consegue auditar não corre.
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
