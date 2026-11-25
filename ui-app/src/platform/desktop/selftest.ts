@@ -293,12 +293,14 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       let refused: { code?: string; overridable?: boolean } = {};
       try { await pc.apply(root, { op: "move", key, to: "done" }); } catch (e) { refused = e as typeof refused; }
       const detail = (await pc.issue(root, key)) as { activity: Array<{ kind: string }>; usage?: { turns: number } };
+      // RF-B04 (bloco 4): o prompt traz o texto do template, de onde «Edit template» parte
+      const prompt = (await pc.issuePrompt(root, key)) as { source?: string; template?: string };
       // RF-E08/B08 (bloco 1 dos RF restantes): the change sets since the last commit (none in a fresh
       // folder) and the issue's Co-Dev usage (no turns yet), through the real commands
       const sets = await tauriGitExtras().changeSets(root);
       await pc.apply(root, { op: "delete_issue", key });
-      const out = { empty: p0.issues.length === 0, moved: p2.issues.find((i) => i.key === key)?.state, refused: refused.code, overridable: refused.overridable, activity: detail.activity.map((a) => a.kind), usageTurns: detail.usage?.turns, changeSets: sets.length };
-      if (out.moved !== "progress" || out.refused !== "step" || out.overridable !== true || !out.activity.includes("moved") || out.usageTurns !== 0 || out.changeSets !== 0) throw new Error("project store: " + JSON.stringify(out));
+      const out = { empty: p0.issues.length === 0, moved: p2.issues.find((i) => i.key === key)?.state, refused: refused.code, overridable: refused.overridable, activity: detail.activity.map((a) => a.kind), usageTurns: detail.usage?.turns, changeSets: sets.length, template: prompt.source === "builtin" && !!prompt.template?.includes("{{id}}") };
+      if (out.moved !== "progress" || out.refused !== "step" || out.overridable !== true || !out.activity.includes("moved") || out.usageTurns !== 0 || out.changeSets !== 0 || !out.template) throw new Error("project store: " + JSON.stringify(out));
       return out;
     });
     // feature `infra` (migrada de v5.ts nesta sessão para features/infra.ts): prova que
@@ -534,8 +536,13 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const hash = await tauriRulesGateway.commit(root, [".dxtutor/architecture.toml", "docs/adr/0001-queue.md"], "docs(arch): selftest rules");
       const files = (await git("show", "--name-only", "--format=", "HEAD")).stdout.trim().split("\n");
       const onDisk = (await sh("cat", ["docs/adr/0001-queue.md"])).stdout;
-      const out = { saved: saved.exists && saved.rules.layers.length === 1, adrs: adrs.map(a => a.id), accepted: accepted.accepted, approvedBy: /Approved by: /.test(onDisk), hash, files };
-      if (!out.saved || !out.accepted || !out.approvedBy || !files.includes(".dxtutor/architecture.toml") || !files.includes("docs/adr/0001-queue.md")) throw new Error("arch rules: " + JSON.stringify(out));
+      // F4.4 (bloco 4): o commit próprio do template de prompt, só com esse ficheiro
+      writeFile(ROOT + ".dxtutor/prompts/issue.en.md", "# Role\n{{id}} — {{titulo}}\n");
+      flushSave(); await idle();
+      await tauriRulesGateway.commit(root, [".dxtutor/prompts/issue.en.md"], "docs(prompt): selftest template");
+      const tpl = (await git("show", "--name-only", "--format=", "HEAD")).stdout.trim();
+      const out = { saved: saved.exists && saved.rules.layers.length === 1, adrs: adrs.map(a => a.id), accepted: accepted.accepted, approvedBy: /Approved by: /.test(onDisk), hash, files, template: tpl };
+      if (!out.saved || !out.accepted || !out.approvedBy || !files.includes(".dxtutor/architecture.toml") || !files.includes("docs/adr/0001-queue.md") || tpl !== ".dxtutor/prompts/issue.en.md") throw new Error("arch rules: " + JSON.stringify(out));
       return out;
     });
     // depuração (ADR-0006, R4): o gdb do backend. Sem gdb no sistema, o pane di-lo (o caminho

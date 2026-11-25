@@ -198,22 +198,31 @@ fn civil(days: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// A path of the project the architect's actions may touch: the rules file or an ADR, inside it.
+/// A prompt template of the project (`.dxtutor/prompts/*.md`, RF-B04).
+fn is_template(rel: &str) -> bool {
+    rel.starts_with(".dxtutor/prompts/") && rel.ends_with(".md")
+}
+
+/// A path of the project the architect's actions may touch: the rules file, an ADR or a prompt
+/// template, inside it.
 fn architect_file(rel: &str) -> Result<(), String> {
     if rel.split(['/', '\\']).any(|s| s == "..") || rel.starts_with('/') {
         return Err(format!("{rel}: fora da pasta do projecto"));
     }
-    if rel == RULES_FILE || (crate::roles::is_adr(rel) && rel.ends_with(".md")) {
+    if rel == RULES_FILE || (crate::roles::is_adr(rel) && rel.ends_with(".md")) || is_template(rel)
+    {
         Ok(())
     } else {
-        Err(format!("{rel}: não é o ficheiro de regras nem um ADR"))
+        Err(format!(
+            "{rel}: não é o ficheiro de regras, um ADR nem um template de prompt"
+        ))
     }
 }
 
 /// Accepts the ADR at `rel` (the architect only). Already accepted: nothing changes.
 pub fn accept_adr(root: &Path, rel: &str) -> Result<Adr, String> {
     architect_file(rel)?;
-    if rel == RULES_FILE {
+    if !crate::roles::is_adr(rel) {
         return Err(format!("{rel}: não é um ADR"));
     }
     crate::roles::require(root, ARCHITECT, "aceitar um ADR")?;
@@ -240,8 +249,10 @@ pub fn accept_adr(root: &Path, rel: &str) -> Result<Adr, String> {
     Ok(parse_adr(rel, &next))
 }
 
-/// The architect's commit of exactly `paths` (the rules file and ADRs): other staged changes stay
-/// staged and out of it. Returns the new commit's short hash.
+/// The architect's commit of exactly `paths` (the rules file, ADRs and prompt templates): other
+/// staged changes stay staged and out of it. Only templates: the architect or the tech lead
+/// (F4.4, as `roles::approvers_of` says); with the rules or an ADR: the architect. Returns the new
+/// commit's short hash.
 pub fn commit(root: &Path, paths: &[String], message: &str) -> Result<String, String> {
     if paths.is_empty() {
         return Err("nada para commitar".into());
@@ -252,7 +263,15 @@ pub fn commit(root: &Path, paths: &[String], message: &str) -> Result<String, St
     if message.trim().is_empty() {
         return Err("a mensagem do commit está vazia".into());
     }
-    crate::roles::require(root, ARCHITECT, "commitar as regras e os ADR")?;
+    if paths.iter().all(|p| is_template(p)) {
+        crate::roles::require(
+            root,
+            &["architect", "tech_lead"],
+            "commitar o template de prompt",
+        )?;
+    } else {
+        crate::roles::require(root, ARCHITECT, "commitar as regras e os ADR")?;
+    }
     tutor_eval::git::require_identity(root)?;
     let run = |args: &[&str]| -> Result<String, String> {
         let out = Command::new("git")
@@ -445,6 +464,9 @@ mod tests {
         assert!(commit(d.path(), &["src/lib.rs".into()], "x")
             .unwrap_err()
             .contains("não é"));
+        assert!(accept_adr(d.path(), ".dxtutor/prompts/issue.en.md")
+            .unwrap_err()
+            .contains("não é um ADR"));
         assert!(commit(d.path(), &[RULES_FILE.into()], " ")
             .unwrap_err()
             .contains("vazia"));
@@ -460,5 +482,42 @@ mod tests {
         assert_eq!(civil(20_416), "2025-11-24");
         assert_eq!(civil(11_016), "2000-02-29");
         assert_eq!(today().len(), 10);
+    }
+
+    #[test]
+    fn the_template_commit_is_the_architects_or_the_tech_leads() {
+        let d = repo("lead@x.pt");
+        std::fs::create_dir_all(d.path().join(".dxtutor/prompts")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/team.json"),
+            r#"{"people": [{"email": "lead@x.pt", "roles": ["tech_lead"]}, {"email": "rui@x.pt", "roles": ["developer"]}]}"#,
+        )
+        .unwrap();
+        std::fs::write(d.path().join("README.md"), "x\n").unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-qm", "init"]);
+        let t = ".dxtutor/prompts/issue.en.md".to_string();
+        std::fs::write(d.path().join(&t), "# Role\n{{id}}\n").unwrap();
+        // the tech lead commits a template, but not the rules
+        let h = commit(
+            d.path(),
+            std::slice::from_ref(&t),
+            "docs(prompt): the issue template",
+        )
+        .unwrap();
+        assert_eq!(git(d.path(), &["show", "--name-only", "--format=", &h]), t);
+        std::fs::write(d.path().join(&t), "# Role v2\n").unwrap();
+        assert!(commit(d.path(), &[t.clone(), RULES_FILE.into()], "x")
+            .unwrap_err()
+            .contains("Arquitecto"));
+        // a developer: neither
+        git(d.path(), &["config", "user.email", "rui@x.pt"]);
+        assert!(commit(d.path(), std::slice::from_ref(&t), "x")
+            .unwrap_err()
+            .contains("Tech Lead"));
+        // only `.dxtutor/prompts/*.md`
+        assert!(commit(d.path(), &[".dxtutor/team.json".into()], "x")
+            .unwrap_err()
+            .contains("não é"));
     }
 }

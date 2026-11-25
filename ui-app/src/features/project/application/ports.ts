@@ -54,6 +54,18 @@ export interface IssuePrompt {
   source: string;
   version: string;
   tokens: number;
+  /** The template's own text (before filling), for «Edit template». */
+  template: string;
+}
+
+/** The project's prompt template files (RF-B04, F4): written inside the open folder and opened in
+ *  the editor. Changes to `.dxtutor/prompts/` are the architect's or the tech lead's (F5.7). */
+export interface TemplateFiles {
+  write(root: string, rel: string, content: string): Promise<void>;
+  open(rel: string): Promise<void>;
+  /** The template's own commit (`arch_rules_commit`: only that file; the architect or the tech
+   *  lead), after the editor is written to disk. Returns the short hash. */
+  commit(root: string, rel: string, message: string): Promise<string>;
 }
 
 export interface Dialog {
@@ -80,4 +92,6 @@ export interface ProjectDeps {
   navigatorMessage?: string;
   /** Hands the human a file to save (the audit log export). */
   download?(name: string, text: string): void;
+  /** «Edit template» (desktop only). */
+  templates?: TemplateFiles;
 }

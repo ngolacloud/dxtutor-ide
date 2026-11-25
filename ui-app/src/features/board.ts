@@ -52,7 +52,7 @@ import {
   openTab, openStudio, palette, refresh,
   toast, log, rerender,
   decoratedRunIssue, decoratedApproveIssue, decoratedDelegate, decoratedRunSprint, publish,
-  harness, reviewIssue, codeGuard, openIssue, studioNodes, saveSD, dlg, usage, usd, commitNotes,
+  harness, reviewIssue, codeGuard, openIssue, studioNodes, saveSD, dlg, usage, commitNotes,
   agentAvailable, agentStory,
 } from "./board/infrastructure/legacy-bridge";
 import { translator } from "../app/i18n";
@@ -260,12 +260,13 @@ function runSprintGuarded(s: number): ReturnType<typeof runSprint> | undefined {
 /* (a porta desktop do runSprint — ADR-0004 U4h5, «com pasta real a corrida é uma demo» — saiu: o
    Sprint corre com o agente real também com pasta aberta; ADR-0006, R3a) */
 
-/** (v6) Mede o custo de cada corrida do runner (tokens por provedor, dólares, tempo). */
+/** (v6) Mede cada corrida do runner: tokens por provedor e tempo (os dólares de uma taxa fixa
+ *  saíram — F4.9; o custo real está no painel da issue do Project). */
 async function runIssueCosted(it: Issue): Promise<void> {
   const snap = Object.fromEntries(Object.keys(usage()).map((k) => [k, usage()[k].tok])), t0 = Date.now();
   try { await runIssue(it); } finally {
     const c = (it.cost = it.cost || { tok: 0, usd: 0, sec: 0, runs: 0, by: {} });
-    Object.keys(usage()).forEach((k) => { const d = usage()[k].tok - snap[k]; if (d > 0) { c.tok += d; c.usd += usd(d, k); c.by[k] = (c.by[k] || 0) + d; } });
+    Object.keys(usage()).forEach((k) => { const d = usage()[k].tok - snap[k]; if (d > 0) { c.tok += d; c.by[k] = (c.by[k] || 0) + d; } });
     c.sec += (Date.now() - t0) / 1000; c.runs++;
     if (pane() === "tasks") panes().tasks();
   }
@@ -294,7 +295,7 @@ function boardView(t: unknown, host: HTMLElement): void {
       if (m) m.innerHTML = `<span class="av" style="background:#8a8f9c">Y</span>You<span class="tag" style="margin-left:auto">S${i.sprint + 1}</span>`;
       k.querySelectorAll(".mini").forEach((b) => { if (/delegate/.test(b.getAttribute("onclick") || "")) b.remove(); });
     }
-    if (i.cost) (k.querySelector(".kc-m") as HTMLElement).insertAdjacentHTML("beforeend", `<span class="tk-c" title="${nfmt(i.cost.tok)} tokens">$${i.cost.usd.toFixed(2)}</span>`);
+    if (i.cost) (k.querySelector(".kc-m") as HTMLElement).insertAdjacentHTML("beforeend", `<span class="tk-c" title="${nfmt(i.cost.tok)} tokens">${nfmt(i.cost.tok)}</span>`);
   });
 }
 VIEW.board = boardView;
