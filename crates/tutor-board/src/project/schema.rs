@@ -226,6 +226,22 @@ const MIGRATIONS: &[&str] = &[
     //     what was spent is the sum of the real cost of the turns in the audit log
     "ALTER TABLE issues ADD COLUMN budget_usd REAL;
     ALTER TABLE sprints ADD COLUMN budget_usd REAL;",
+    // 8 — test results per commit (r23 F3, UI-SCM-09): what the Testing pane ran on which commit, so a
+    //     commit's lifecycle shows real results (`dirty`: the working tree had uncommitted changes)
+    "CREATE TABLE test_results (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        root     TEXT NOT NULL,
+        sha      TEXT NOT NULL,
+        dirty    INTEGER NOT NULL DEFAULT 0,
+        at       INTEGER NOT NULL,
+        runner   TEXT NOT NULL,
+        command  TEXT NOT NULL,
+        passed   INTEGER NOT NULL DEFAULT 0,
+        failed   INTEGER NOT NULL DEFAULT 0,
+        ignored  INTEGER NOT NULL DEFAULT 0,
+        ok       INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_test_results_sha ON test_results(root, sha, at);",
 ];
 
 /// The schema version this code expects.

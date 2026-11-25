@@ -15,7 +15,7 @@ use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
 use tutor_board::project::{
     reports::Reports, AuditEntry, ChangeSetGroup, IssueDetail, Op, Project, ProjectError,
-    ProjectStore,
+    ProjectStore, TestResult,
 };
 use tutor_board::{Backlog, BoardStore};
 
@@ -293,6 +293,69 @@ pub fn audit_record(app: AppHandle, root: String, entry: IdeAudit) -> Result<(),
     let redactor = tutor_agent::redact::Redactor::for_root(Path::new(&root));
     let e = ide_audit_entry(&entry, &actor(&root), now_ms(), &redactor)?;
     open(&app)?.record_audit(&root, &e)
+}
+
+/// A test run as the Testing pane reports it (r23 F3, UI-SCM-09); the commit is decided here.
+#[derive(serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTestRun {
+    pub runner: String,
+    pub command: String,
+    pub passed: i64,
+    pub failed: i64,
+    #[serde(default)]
+    pub ignored: i64,
+}
+
+/// Records a test run on the folder's current commit (HEAD), and whether the working tree had
+/// uncommitted changes. Without a commit (not a repository, no commit yet) nothing is recorded.
+#[tauri::command]
+pub fn test_results_record(
+    app: AppHandle,
+    root: String,
+    run: NewTestRun,
+) -> Result<bool, ProjectError> {
+    let root = root_of(&root)?;
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(Path::new(&root))
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let Some(sha) = git(&["rev-parse", "--verify", "HEAD"]).filter(|s| !s.is_empty()) else {
+        return Ok(false);
+    };
+    let dirty = git(&["status", "--porcelain", "--untracked-files=no"])
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    let clip = |s: &str| s.chars().take(500).collect::<String>();
+    let r = TestResult {
+        sha,
+        dirty,
+        at: now_ms(),
+        runner: clip(&run.runner),
+        command: clip(&run.command),
+        passed: run.passed.max(0),
+        failed: run.failed.max(0),
+        ignored: run.ignored.max(0),
+        ok: run.failed == 0,
+    };
+    open(&app)?.record_test_result(&root, &r)?;
+    Ok(true)
+}
+
+/// The test runs on these commits (hashes or 7+ prefixes), newest first.
+#[tauri::command]
+pub fn test_results_for(
+    app: AppHandle,
+    root: String,
+    shas: Vec<String>,
+) -> Result<Vec<TestResult>, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.test_results_for(&root, &shas)
 }
 
 /// O prompt exacto com que a issue vai ao Co-Dev (RF-B03/B04): o template do projecto

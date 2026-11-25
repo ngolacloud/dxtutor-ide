@@ -5,7 +5,7 @@
    `git_diff`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, type Invoker } from "../../../platform/tauri/core";
-import type { GhPort, GhRun, GhStatusData, SyncOp, SyncPlanData, SyncPort, ConflictPrediction, ConflictStagesData, MergePort, MergeStateData, FileHunksData, GitExtrasPort, GitRefsPort, HunksPort, UndoEntryData, UndoPlanData, UndoPort } from "../application/extras-ports";
+import type { GhPort, GhRun, GhStatusData, LifecyclePort, SyncOp, SyncPlanData, SyncPort, ConflictPrediction, ConflictStagesData, MergePort, MergeStateData, FileHunksData, GitExtrasPort, GitRefsPort, HunksPort, UndoEntryData, UndoPlanData, UndoPort } from "../application/extras-ports";
 import { auditClient } from "../../../platform/tauri/audit";
 import { shellClient } from "../../../platform/tauri/shell";
 import type { RefsSnapshot } from "../domain/refs";
@@ -83,3 +83,12 @@ export function openExternal(url: string, os: string, inv: Invoker = invoke): vo
   const [program, args]: [string, string[]] = os === "windows" ? ["cmd", ["/C", "start", "", url]] : os === "macos" ? ["open", [url]] : ["xdg-open", [url]];
   void shellClient(inv).exec({ program, args, timeoutMs: 15000 }).catch(() => undefined);
 }
+
+/** O ciclo de vida de um commit (r23 F3, UI-SCM-09): os testes gravados (`test_results_for`) e o gh. */
+export const tauriLifecycle = (inv: Invoker = invoke): LifecyclePort => ({
+  testsFor: (root, shas) => inv<import("../domain/lifecycle").TestResultRow[]>("test_results_for", { root, shas }),
+  ghStatus: () => inv<GhStatusData>("gh_status"),
+  runsFor: (root, sha) => inv<GhRun[]>("gh_runs_for", { root, sha }),
+  prsFor: (root, sha) => inv<Pr[]>("gh_prs_for", { root, sha }),
+});
+

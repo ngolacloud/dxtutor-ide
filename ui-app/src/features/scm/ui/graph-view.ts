@@ -9,6 +9,7 @@ import { refLabelsAt, remoteGroups, trackOf, type RefLabel, type RefsSnapshot } 
 import { tokenFor, type SearchMode } from "../domain/search";
 import type { ActivityBar } from "../domain/activity";
 import type { ConflictPrediction } from "../application/extras-ports";
+import type { Stage } from "../domain/lifecycle";
 import type { GraphScreenKey } from "./graph-screen-messages";
 
 export type T = (k: GraphScreenKey, p?: Record<string, string | number>) => string;
@@ -48,6 +49,8 @@ export interface GraphVm {
   predictions: Record<string, ConflictPrediction>;
   /** a sync running (its op) */
   syncing: string | null;
+  /** UI-SCM-09: the selected commit's lifecycle (null: not a desktop repository) */
+  lifecycle: Stage[] | null;
 }
 
 function sidebar(t: T, vm: GraphVm): string {
@@ -130,8 +133,15 @@ export function renderGraphScreen(t: T, vm: GraphVm): string {
   }).join("");
   /* the selected commit's files: a panel under the graph (inline, it pushed the rows away from the SVG's dots) */
   const sc = vm.selected ? vm.commits[vm.selected] : undefined;
+  const life = vm.lifecycle && sc ? `<ol class="gl-life">${vm.lifecycle.map((st) => {
+    const label = t(`life-${st.key}` as GraphScreenKey), val = st.state === "pending" ? t("lifeReading") : st.state === "none" ? t(`lifeNone-${st.key}` as GraphScreenKey)
+      : st.state === "not-installed" ? t("lifeGhMissing") : st.state === "not-connected" ? t("lifeNotConnected") : st.state === "error" ? t("lifeError", { e: st.detail ?? "" })
+      : st.key === "tests" ? t("lifeTests", { p: st.text.split("/")[0], f: st.text.split("/")[1], i: st.text.split("/")[2] }) : st.key === "ci" ? t("lifeCi", { n: st.text, name: st.detail ?? "" }) : st.text + (st.detail && st.key === "pr" ? ` · ${st.detail}` : "");
+    const link = st.url ? ` <button class="gl-life-link" data-action="graph:open-url" data-on="${esc(st.url)}">↗</button>` : "";
+    return `<li class="gl-st s-${st.state}"><span class="gl-dot"></span><b>${esc(label)}</b> <span class="gl-dim" title="${esc(st.key === "tests" ? st.detail ?? "" : "")}">${esc(val)}</span>${link}</li>`;
+  }).join("")}</ol>` : "";
   const det = !sc ? "" : `<div class="gl-det gl-det-panel"><b class="gl-h">${esc(sc.h)}</b> <span class="gl-msg">${esc(sc.m)}</span><div class="gl-files">${vm.files === null || vm.files === undefined ? `<span class="gl-dim">${esc(t("readingFiles"))}</span>`
-    : vm.files.length ? vm.files.map((p) => `<button class="mini" data-action="graph:file" data-on="${esc(p)}">${esc(p)}</button>`).join("") : `<span class="gl-dim">${esc(t("noFiles"))}</span>`}${sc.p.length > 1 ? `<span class="tag">${esc(t("mergeOf", { n: sc.p.length }))}</span>` : ""}</div></div>`;
+    : vm.files.length ? vm.files.map((p) => `<button class="mini" data-action="graph:file" data-on="${esc(p)}">${esc(p)}</button>`).join("") : `<span class="gl-dim">${esc(t("noFiles"))}</span>`}${sc.p.length > 1 ? `<span class="tag">${esc(t("mergeOf", { n: sc.p.length }))}</span>` : ""}</div>${life}</div>`;
   const headRow = vm.layout.rows.find((r) => vm.refs ? r.h.slice(0, 7) === (vm.refs.headSha ?? "").slice(0, 7) : vm.fallbackLabels(r.h).some((l) => l.kind === "head"));
   const wipX = 14 + (headRow ? headRow.col : 0) * 18, wipCol = vm.lanes[(headRow ? headRow.col : 0) % vm.lanes.length];
   const wip = vm.wip ? `<div class="gl-row gl-wip" data-action="graph:wip" style="--gw:${gw}px"><svg class="gl-wipdot" width="${gw}" height="32"><circle cx="${wipX}" cy="16" r="5" fill="none" stroke="${wipCol}" stroke-width="2" stroke-dasharray="3 2"/>${headRow ? `<line x1="${wipX}" y1="21" x2="${wipX}" y2="32" stroke="${wipCol}" stroke-width="2" stroke-dasharray="3 2"/>` : ""}</svg><span class="gl-refs"></span><span class="gl-msg">${esc(t("wip", { n: vm.wip.files }))}${vm.wip.staged ? ` <span class="gl-dim">· ${esc(t("wipStaged", { n: vm.wip.staged }))}</span>` : ""}</span><span></span><span class="gl-h">WIP</span><span></span></div>` : "";

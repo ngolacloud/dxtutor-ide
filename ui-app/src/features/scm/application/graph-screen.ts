@@ -6,7 +6,8 @@
 
 import { filesOfShow, type RefsSnapshot } from "../domain/refs";
 import type { SearchMode } from "../domain/search";
-import type { ConflictPrediction, GitRefsPort } from "./extras-ports";
+import type { ConflictPrediction, GitRefsPort, LifecyclePort } from "./extras-ports";
+import type { LifecycleInput } from "../domain/lifecycle";
 
 export interface GraphScreenState {
   refs: RefsSnapshot | null;
@@ -20,13 +21,16 @@ export interface GraphScreenState {
   mode: SearchMode;
   /** UI-SCM-13: merging each local branch into HEAD would conflict? (read after the refs) */
   predictions: Record<string, ConflictPrediction>;
+  /** UI-SCM-09: each selected commit's lifecycle sources, by hash (without the message) */
+  lifecycle: Record<string, Omit<LifecycleInput, "message">>;
 }
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | null }) {
-  const { git, root } = deps;
-  const st: GraphScreenState = { refs: null, loading: false, error: null, files: {}, query: "", mode: "highlight", predictions: {} };
+export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | null; life?: LifecyclePort }) {
+  const { git, root, life } = deps;
+  let gh: Promise<"ok" | "not-installed" | "error"> | null = null;
+  const st: GraphScreenState = { refs: null, loading: false, error: null, files: {}, query: "", mode: "highlight", predictions: {}, lifecycle: {} };
   let forRoot: string | null = null, inFlight: Promise<void> | null = null, again = false;
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
@@ -60,8 +64,27 @@ export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | n
     emit();
   }
 
+  /** Reads a commit's lifecycle sources (once per commit; `gh` is checked once). */
+  async function lifecycleOf(full: string): Promise<void> {
+    const r = root(), key = full.slice(0, 7);
+    if (!r || !life || key in st.lifecycle) return;
+    const e: Omit<LifecycleInput, "message"> = { tests: undefined, runs: undefined, prs: undefined, ghMissing: null };
+    st.lifecycle[key] = e; emit();
+    const tests = life.testsFor(r, [full]).then((t) => { e.tests = t; }, () => { e.tests = []; });
+    gh ??= life.ghStatus().then((s) => (s.installed && s.signedIn ? "ok" : s.installed ? "error" : "not-installed"), () => "not-installed");
+    const g = await gh;
+    if (g !== "ok") { e.ghMissing = g; if (g === "error") e.ghError = "gh is not signed in"; }
+    else await Promise.all([
+      life.runsFor(r, full).then((x) => { e.runs = x; }, (x) => { e.ghMissing = "error"; e.ghError = msg(x); }),
+      life.prsFor(r, full).then((x) => { e.prs = x; }, (x) => { e.ghMissing = "error"; e.ghError = msg(x); }),
+    ]);
+    await tests;
+    emit();
+  }
+
   return {
     state: (): GraphScreenState => st,
+    lifecycleOf,
     subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; },
     load,
     filesOf,

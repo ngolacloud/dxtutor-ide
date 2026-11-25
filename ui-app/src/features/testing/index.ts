@@ -22,7 +22,7 @@ import { makeRuns } from "./application/runs-service";
 import { renderTesting } from "./ui/testing-view";
 import { renderRuns } from "./ui/runs-view";
 import { bindActions, type ActionTable } from "./ui/actions";
-import { tauriRunners, tauriTests } from "./infrastructure/tauri";
+import { tauriRunners, tauriTests, tauriResults } from "./infrastructure/tauri";
 import * as L from "./infrastructure/legacy-bridge";
 import { codevAsk } from "../../app/codev-ask";
 import { translator } from "../../app/i18n";
@@ -38,6 +38,7 @@ const runs = makeRuns({
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
   busy: () => testing.state().running || testing.state().loading,
   onReport: (rep) => testing.mark(statesFromReport(testing.state().items, rep)),
+  results: tauriResults(),
 });
 
 /** Renderiza o pane «Testing» (e dispara a descoberta na primeira vez para a pasta aberta). */

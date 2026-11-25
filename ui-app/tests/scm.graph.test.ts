@@ -556,3 +556,50 @@ describe("o Launchpad (UI-SCM-14)", () => {
     expect(d.textContent).toContain("lpSignedOut");
   });
 });
+
+import { lifecycleOf } from "../src/features/scm/domain/lifecycle";
+
+describe("o ciclo de vida de um commit (UI-SCM-09)", () => {
+  const T = (ok: boolean, at: number) => ({ sha: "abc1234def", dirty: false, at, runner: "cargo", command: "cargo test", passed: 4, failed: ok ? 0 : 1, ignored: 1, ok });
+  it("cada fonte real, ou diz que não a há — nada sintetizado", () => {
+    const l = lifecycleOf({ message: "fix: lexer (DX-3)", tests: [T(false, 1), T(true, 2)], runs: [{ name: "CI", status: "completed", conclusion: "failure", url: "https://x/r/1" }], prs: [{ number: 9, title: "fix lexer", author: "a", head: "h", base: "b", url: "https://x/p/9", draft: false, state: "MERGED", review: "", checks: { passed: 0, failed: 0, pending: 0 }, updatedAt: "" }], ghMissing: null });
+    expect(l.map((s) => `${s.key}:${s.state}:${s.text}`)).toEqual(["issue:ok:DX-3", "tests:ok:4/0/1", "ci:failed:1", "pr:ok:#9", "env:not-connected:"]);
+    const none = lifecycleOf({ message: "chore: x", tests: [], runs: null, prs: null, ghMissing: "not-installed" });
+    expect(none.map((s) => s.state)).toEqual(["none", "none", "not-installed", "not-installed", "not-connected"]);
+    expect(lifecycleOf({ message: "x", tests: undefined, runs: undefined, prs: undefined, ghMissing: null }).slice(1, 4).map((s) => s.state)).toEqual(["pending", "pending", "pending"]);
+  });
+
+  it("o caso de uso lê os testes gravados e o gh uma vez por commit; sem sessão no gh, diz-o", async () => {
+    const calls: string[] = [];
+    const s = makeGraphScreen({ git: { refs: async () => REFS, show: async () => "", predict: async () => [] }, root: () => "/w", life: {
+      testsFor: async (_r, shas) => { calls.push(`tests:${shas}`); return [T(true, 1)]; },
+      ghStatus: async () => { calls.push("gh"); return { installed: true, version: "", signedIn: false, notes: "" }; },
+      runsFor: async () => { calls.push("runs"); return []; }, prsFor: async () => { calls.push("prs"); return []; },
+    } });
+    await s.lifecycleOf("abc1234def");
+    await s.lifecycleOf("abc1234def");
+    await s.lifecycleOf("1111111aaa");
+    expect(calls).toEqual(["tests:abc1234def", "gh", "tests:1111111aaa"]);
+    expect(s.state().lifecycle.abc1234).toMatchObject({ ghMissing: "error", tests: [expect.objectContaining({ ok: true })] });
+  });
+});
+
+import { makeRuns } from "../src/features/testing/application/runs-service";
+
+describe("o Testing grava a suite inteira no commit (UI-SCM-09)", () => {
+  it("só uma corrida «all» que correu é gravada, com as contagens", async () => {
+    const recorded: unknown[] = [];
+    const rep = (scope: string) => ({ runner: "cargo", kind: "cargo", command: scope === "all" ? "cargo test" : "cargo test x", ran: true, ok: false, durationMs: 1, output: "", note: "",
+      results: [{ id: "a", name: "a", suite: "s", file: null, status: "passed", durationMs: 1 }, { id: "b", name: "b", suite: "s", file: null, status: "failed", durationMs: 1 }, { id: "c", name: "c", suite: "s", file: null, status: "skipped", durationMs: 1 }] });
+    const r = makeRuns({
+      runners: { runners: async () => [{ id: "cargo", label: "cargo", kind: "cargo", available: true, command: "cargo test", reason: "" }] as never, run: async (_r, _id, scope) => rep(scope.kind) as never, history: async () => ({ runs: [], flaky: [] }) as never },
+      workspace: { root: () => "/w" }, codev: { available: () => false, ask: () => {} },
+      results: { record: async (root, run) => { recorded.push([root, run]); } },
+    });
+    await r.reload();
+    await r.run("cargo", { kind: "all" } as never);
+    await r.run("cargo", { kind: "case", name: "a" } as never);
+    await vi.waitFor(() => expect(recorded).toEqual([["/w", { runner: "cargo", command: "cargo test", passed: 1, failed: 1, ignored: 1 }]]));
+  });
+});
+

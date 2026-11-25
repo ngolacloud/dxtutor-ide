@@ -12,7 +12,8 @@ import { services } from "../../app/services";
 import { translator } from "../../app/i18n";
 import { LANE, authorOf, isFlow, graphLayout, graphSel, setGraphSel, gfPrompt, pickBranch } from "../scm";
 import { makeGraphScreen } from "./application/graph-screen";
-import { tauriGitRefs } from "./infrastructure/tauri";
+import { tauriGitRefs, tauriLifecycle, openExternal } from "./infrastructure/tauri";
+import { lifecycleOf } from "./domain/lifecycle";
 import * as B from "./infrastructure/legacy-bridge";
 import { sync, setRemoteSource } from "./extras";
 import { GRAPH_MESSAGES } from "./ui/graph.messages";
@@ -29,7 +30,7 @@ import { listChanges } from "./domain/status";
 const t = translator(GRAPH_SCREEN_MESSAGES);
 const tg = translator(GRAPH_MESSAGES);
 
-export const graphScreen = makeGraphScreen({ git: tauriGitRefs(), root: () => B.gitRoot() });
+export const graphScreen = makeGraphScreen({ git: tauriGitRefs(), root: () => B.gitRoot(), life: tauriLifecycle() });
 /* the Launchpad fetches pull requests from the current branch's remote (else origin) */
 setRemoteSource(() => { const r = graphScreen.state().refs, up = r?.branches.find((b) => b.current)?.upstream; return (up && r?.remotes.find((x) => up.startsWith(x + "/"))) || r?.remotes.find((x) => x === "origin") || r?.remotes[0] || null; });
 
@@ -76,6 +77,7 @@ function model(): GraphVm {
     when: (t) => new Date(t).toISOString().slice(0, 10),
     predictions: st.predictions,
     syncing: sync.busy(),
+    lifecycle: sel && B.gitRoot() && G.c[sel] ? lifecycleOf({ message: G.c[sel].m, ...(st.lifecycle[sel.slice(0, 7)] ?? { tests: undefined, runs: undefined, prs: undefined, ghMissing: null }) }) : null,
   };
 }
 
@@ -104,7 +106,7 @@ bus.on("workspace:changed", ({ fromEditor }) => { if (!fromEditor && host && hos
 
 const select = (h: string | null): void => {
   setGraphSel(h);
-  if (h) void graphScreen.filesOf(h);
+  if (h) { void graphScreen.filesOf(h); void graphScreen.lifecycleOf(h); }
   services.tabs!.rerender("graph");
 };
 
@@ -124,6 +126,7 @@ registerActions({
   "graph:mode": { click: () => graphScreen.setMode(graphScreen.state().mode === "filter" ? "highlight" : "filter") },
   "graph:token": { click: (c) => { c.stop(); graphScreen.addToken(c.on); } },
   "graph:sync": { click: (c) => { void sync.run(c.on as "fetch" | "pull" | "push"); } },
+  "graph:open-url": { click: (c) => { c.stop(); openExternal(c.on, B.desktopOs()); } },
   "graph:wip": { click: () => B.goPane("scm") },
   "graph:file": { click: (c) => { c.stop(); if (B.files()[B.rootKey() + c.on]) B.openRel(c.on); else B.toast(t("notInBranch")); } },
 });

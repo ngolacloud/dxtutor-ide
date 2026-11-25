@@ -35,3 +35,8 @@ export interface CodevPort {
   available(): boolean;
   ask(r: { intent: "explain" | "fix" | "change"; text: string; context: AskContext[]; send?: boolean }): void;
 }
+
+/** r23 F3 (UI-SCM-09): the results of a whole-suite run, kept on the folder's current commit (the commit's lifecycle). */
+export interface ResultsPort {
+  record(root: string, run: { runner: string; command: string; passed: number; failed: number; ignored: number }): Promise<unknown>;
+}

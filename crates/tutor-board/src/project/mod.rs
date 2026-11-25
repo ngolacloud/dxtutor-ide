@@ -329,6 +329,22 @@ pub struct AuditEntry {
     pub cost_usd: Option<f64>,
 }
 
+/// One test run on a commit (r23 F3, UI-SCM-09).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TestResult {
+    pub sha: String,
+    /// the working tree had uncommitted changes when it ran
+    pub dirty: bool,
+    pub at: i64,
+    pub runner: String,
+    pub command: String,
+    pub passed: i64,
+    pub failed: i64,
+    pub ignored: i64,
+    pub ok: bool,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct NewChangeSet {
@@ -875,6 +891,51 @@ impl ProjectStore {
             ],
         )?;
         Ok(())
+    }
+
+    /// Records one test run on a commit (r23 F3, UI-SCM-09).
+    pub fn record_test_result(&mut self, root: &str, r: &TestResult) -> Result<(), ProjectError> {
+        self.conn.execute(
+            "INSERT INTO test_results (root, sha, dirty, at, runner, command, passed, failed, ignored, ok)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![root, r.sha, r.dirty, r.at, r.runner, r.command, r.passed, r.failed, r.ignored, r.ok],
+        )?;
+        Ok(())
+    }
+
+    /// The test runs on these commits (full hashes or prefixes of 7+), newest first.
+    pub fn test_results_for(
+        &self,
+        root: &str,
+        shas: &[String],
+    ) -> Result<Vec<TestResult>, ProjectError> {
+        let mut out = Vec::new();
+        let mut st = self.conn.prepare(
+            "SELECT sha, dirty, at, runner, command, passed, failed, ignored, ok FROM test_results
+             WHERE root = ?1 AND sha LIKE ?2 || '%' ORDER BY at DESC, id DESC LIMIT 20",
+        )?;
+        for sha in shas
+            .iter()
+            .filter(|s| s.len() >= 7 && s.chars().all(|c| c.is_ascii_hexdigit()))
+        {
+            let rows = st.query_map(params![root, sha], |r| {
+                Ok(TestResult {
+                    sha: r.get(0)?,
+                    dirty: r.get(1)?,
+                    at: r.get(2)?,
+                    runner: r.get(3)?,
+                    command: r.get(4)?,
+                    passed: r.get(5)?,
+                    failed: r.get(6)?,
+                    ignored: r.get(7)?,
+                    ok: r.get(8)?,
+                })
+            })?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        Ok(out)
     }
 
     /// The audit log of a folder, oldest first: of one issue (`Some`) or all of it.

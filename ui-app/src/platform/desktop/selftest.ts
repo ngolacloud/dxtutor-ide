@@ -259,6 +259,17 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const st = launchpad.state();
       return { installed: st.status?.installed ?? null, signedIn: st.status?.signedIn ?? null, listed: st.review === null ? "nothing" : st.review.length, error: st.error };
     });
+    // r23 F3 (UI-SCM-09): o ciclo de vida do commit — um resultado de testes gravado no HEAD real (o backend decide o
+    // commit), lido de volta no grafo; o gh sem sessão diz-o; os ambientes «não ligados». Nada inventado.
+    await step("lifecycle", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const recorded = await inv("test_results_record", { root: R.root, run: { runner: "selftest", command: "true", passed: 3, failed: 0, ignored: 1 } });
+      const head = (await git("rev-parse", "--short=7", "HEAD")).stdout.trim();
+      await graphScreen.lifecycleOf(head);
+      const e = graphScreen.state().lifecycle[head];
+      const back = await inv("test_results_for", { root: R.root, shas: [head] }) as Array<{ runner: string; passed: number }>;
+      return { recorded, readBack: back.some((r) => r.runner === "selftest" && r.passed === 3), testsInGraph: !!e?.tests?.some((t) => t.runner === "selftest"), gh: e?.ghMissing ?? "ok" };
+    });
     // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
     await step("graph", async () => {
       const host = document.createElement("div");

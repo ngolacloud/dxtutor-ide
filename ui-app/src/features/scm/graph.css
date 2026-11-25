@@ -50,3 +50,7 @@
   .gl-screen .gl-row{grid-template-columns:fit-content(220px) minmax(100px,1fr) 96px 60px 64px;gap:8px}
   .gl-conf{color:var(--yellow,#e0b64a);font-size:11px;margin-left:2px}
   .gl-banner{padding:6px 14px;font-size:12px;color:var(--yellow,#e0b64a);background:color-mix(in srgb,var(--yellow,#e0b64a) 10%,transparent);border-bottom:1px solid var(--seam)}
+  .gl-life{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:12px}
+  .gl-st{display:flex;align-items:center;gap:6px}.gl-dot{width:8px;height:8px;border-radius:50%;background:var(--border-strong);flex:none}
+  .gl-st.s-ok .gl-dot{background:var(--green)}.gl-st.s-failed .gl-dot{background:var(--red)}.gl-st.s-pending .gl-dot{background:var(--yellow,#e0b64a)}
+  .gl-life-link{background:none;border:0;color:var(--accent-hover);cursor:pointer;padding:0 2px}

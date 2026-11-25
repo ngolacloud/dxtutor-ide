@@ -212,6 +212,26 @@ fn check_sha(sha: &str) -> Result<&str, String> {
     }
 }
 
+/// The full hash of a (short) commit hash in `root` (GitHub matches runs on the full one).
+fn full_sha(root: &Path, sha: &str) -> String {
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{sha}^{{commit}}"),
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| s.len() == 40)
+        .unwrap_or_else(|| sha.to_string())
+}
+
 pub fn parse_runs(v: &Value) -> Vec<Run> {
     let s = |p: &Value, k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     v.as_array()

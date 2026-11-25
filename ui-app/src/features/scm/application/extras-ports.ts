@@ -56,6 +56,14 @@ export interface GhPort {
 
 /** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
 export interface ConflictPrediction { branch: string; clean: boolean; files: string[]; error: string | null }
+/** The commit lifecycle's sources (r23 F3, UI-SCM-09): stored test results, CI runs and PRs of a commit. */
+export interface LifecyclePort {
+  testsFor(root: string, shas: string[]): Promise<import("../domain/lifecycle").TestResultRow[]>;
+  ghStatus(): Promise<GhStatusData>;
+  runsFor(root: string, sha: string): Promise<GhRun[]>;
+  prsFor(root: string, sha: string): Promise<import("../domain/launchpad").Pr[]>;
+}
+
 export interface GitRefsPort {
   refs(root: string): Promise<RefsSnapshot>;
   /** whether merging each branch into HEAD would conflict (`git_predict_conflicts`; nothing touched) */

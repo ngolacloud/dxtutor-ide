@@ -928,3 +928,37 @@ fn breakpoints_are_kept_per_project_and_file() {
     assert_eq!(main.len(), 1);
     assert_eq!(main[0].condition, None);
 }
+
+#[test]
+fn test_results_are_kept_per_commit_newest_first() {
+    let d = tempfile::tempdir().unwrap();
+    let mut st = ProjectStore::open(&d.path().join("p.sqlite3")).unwrap();
+    let r = |sha: &str, at: i64, ok: bool| TestResult {
+        sha: sha.into(),
+        dirty: false,
+        at,
+        runner: "cargo".into(),
+        command: "cargo test".into(),
+        passed: 3,
+        failed: if ok { 0 } else { 1 },
+        ignored: 0,
+        ok,
+    };
+    st.record_test_result("/p", &r("abcdef1234567890", 1, false))
+        .unwrap();
+    st.record_test_result("/p", &r("abcdef1234567890", 2, true))
+        .unwrap();
+    st.record_test_result("/p", &r("1111111222222", 3, true))
+        .unwrap();
+    st.record_test_result("/q", &r("abcdef1234567890", 4, true))
+        .unwrap();
+    let got = st.test_results_for("/p", &["abcdef1".into()]).unwrap();
+    assert_eq!(
+        got.iter().map(|x| (x.at, x.ok)).collect::<Vec<_>>(),
+        vec![(2, true), (1, false)]
+    );
+    assert!(st
+        .test_results_for("/p", &["abc".into(), "zzzzzzz".into()])
+        .unwrap()
+        .is_empty());
+}
