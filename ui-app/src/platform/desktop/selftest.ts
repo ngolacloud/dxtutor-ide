@@ -27,6 +27,9 @@ import { renderSearchPane } from "../../features/search";
 import { renderAccountPane } from "../../features/account";
 import { renderGraphView } from "../../features/graph";
 import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
+import { stage } from "../../features/scm";
+import { clLog, clShow } from "../../features/changelog";
+import { gitCmd } from "../../features/termgit";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -161,9 +164,9 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // feature `changelog` (harvest ui-next): observa o caminho desktop-REAL — clLog→git_log
     // e clShow→git_show sobre o repo git do próprio selftest (acabou de ganhar commits acima).
     await step("changelog", async () => {
-      const log = await window.clLog();
+      const log = await clLog();
       const first = log[0];
-      const diff = first ? await window.clShow(first.hash) : "";
+      const diff = first ? await clShow(first.hash) : "";
       return { commits: log.length, realGitLog: log.length > 0 && typeof first?.subject === "string",
         firstSubject: first ? first.subject : "", diffLen: diff.length, diffIsGitShow: /^commit\s+[0-9a-f]/i.test(diff) };
     });

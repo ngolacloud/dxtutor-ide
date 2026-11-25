@@ -12,6 +12,7 @@ import { agentStore } from "../../app/store/agent";
 import { assistTrailers } from "../../features/scm/domain/trailers";
 import type { DesktopContext } from "./context";
 import { rerender } from "../../features/tabs";
+import { gitMerge, isFlow, commitMsg } from "../../features/scm";
 
 export function installGit(ctx: DesktopContext): void {
 const { R, gitc, git, gitOk, enqueue, isReal, relOf, say } = ctx;
@@ -86,7 +87,7 @@ function realMerge(src: string, author?: string): CommitNode {
 const scmDesktop: ScmDesktop = {
 commit(msg, author, _commit) {
   if (!R.git) return _commit(msg, author);
-  const m = (msg || COMMIT_MSG || "").trim();
+  const m = (msg || commitMsg() || "").trim();
   const list = (STAGED.size ? [...STAGED] : changes()).filter(p => FS[p] && stOf(p));
   const r = _commit(msg, author);
   if (!r) return r;
@@ -143,8 +144,8 @@ gfFinish(b, author, _gfFinish) {
   flushSave();
   const rel = /^(release|hotfix)\//.test(bn), tag = "v" + bn.split("/")[1], main = GIT.refs.main ? "main" : GIT.refs.master ? "master" : "main";
   let res: CommitNode | null = null;
-  if (rel) { checkout(main); res = gitMerge(bn, author); enqueue(() => gitOk("tag", "-a", tag, "-m", `Release ${tag}`)); checkout("develop"); gitMerge(bn, author); }
-  else { checkout("develop"); res = gitMerge(bn, author); }
+  if (rel) { checkout(main); res = gitMerge(bn, author) as CommitNode | null; enqueue(() => gitOk("tag", "-a", tag, "-m", `Release ${tag}`)); checkout("develop"); gitMerge(bn, author); }
+  else { checkout("develop"); res = gitMerge(bn, author) as CommitNode | null; }
   enqueue(async () => { await gitOk("branch", "-d", bn); await syncGit(); say(`gitflow: finished ${bn}`); });
   return res;
 },

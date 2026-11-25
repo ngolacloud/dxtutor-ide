@@ -61,6 +61,7 @@ import {
   openDiff, openPath, publish,
   repo, desktopFolder, gitInitFolder, decoratedCheckout, decoratedMerge,
 } from "./scm/infrastructure/legacy-bridge";
+import { services } from "../app/services";
 
 /* ───── estado git/scm (window-backed via publish; o resíduo do monólito e as
    camadas v5/v6/bridge/pair aliasam estes nomes livres como globais) ───── */
@@ -68,7 +69,7 @@ const GIT: GitState = { c: {}, order: [], refs: {}, trees: {}, base: {}, tags: {
 const LANE = ["#e08a5b", "#6ea8ff", "#5cc9a7", "#c678dd", "#e0b64a", "#5fcad6", "#f1707a"];
 const STAGED = new Set<string>();
 const COMMITS: Array<{ h: string; m: string; n?: number }> = [];
-publish({ GIT, LANE, STAGED, COMMITS, BRANCH: "", COMMIT_MSG: "", GSEL: null, AUTHOR: "w" });
+publish({ GIT, STAGED, COMMITS, BRANCH: "", AUTHOR: "w" });
 
 /* ───── wrappers de domínio: mantêm as assinaturas window que o golden e o monólito
    chamam, injectando o `FS`/`AGENTS`/`GIT` vivos ───── */
@@ -217,10 +218,14 @@ bindActions({ ...ACTIONS, ...GIT_ACTIONS });
    (app.ts) delega em renderScmPane (lazy, no switch de pane). `commit` v2 (botão) e
    `commitGit` v4 git-aware ficam distintos (GOTCHA-commit). ── */
 publish({
-  commitGit: commitGitPublished, commit: commitPublished, checkout: checkoutPublished, gitMerge: gitMergePublished, gfFinish: gfFinishPublished,
-  gitInit, authorOf, stOf, changes, isFlow, gfStart: gfStartPublished, gfPrompt, gfGuide,
-  pickBranch, drawTimeline, graphLayout, openGraph, stage, discard,
-  renderScmPane,
+  commitGit: commitGitPublished, commit: commitPublished, checkout: checkoutPublished, gfFinish: gfFinishPublished,
+  gitInit, stOf, changes, gfStart: gfStartPublished, openGraph, renderScmPane,
 });
+/* lidos por import desde a U7p3 do ADR-0004 (a ponte do scm, que avalia antes, usa o registo): o gitMerge exportado é o
+   publicado de antes (a porta desktop), o gitflow encadeia-o pela porta flow; o COMMIT_MSG e o GSEL são da ponte */
+export { gitMergePublished as gitMerge, authorOf, isFlow, gfPrompt, gfGuide, pickBranch, drawTimeline, graphLayout, stage, discard, LANE };
+export { commitMsg, setCommitMsg, graphSel, setGraphSel } from "./scm/infrastructure/legacy-bridge";
+services.scm = { gitMerge: gitMergePublished, discard, LANE };
+
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.scm = renderScmPane;

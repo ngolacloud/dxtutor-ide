@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 236 depois da U7p2, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 217 depois da U7p3, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1263,3 +1263,15 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   Studio, que o usava (`setDrift` para o arranque). Os testes da infra lêem e escrevem pelo módulo da cadeia do
   `bootApp`. Fica o `ENVS` (o e2e do Ops lê `window.ENVS` na app construída) e o `STACK`/`drawStack` (fatia do
   painel). Ordem de avaliação igual. Globais publicadas (medida corrigida) 291 → 236.
+  **U7p3 — o scm (2026-11-25).** Entretanto o ramo `feat/rf-b4-template-custo` (outra sessão) passou a mexer também no
+  arch, na ext e no board, que saem da U7p até pararem; os nomes do scm que a ponte do board lê (`BRANCH`, `GIT`,
+  `STAGED`, `commitGit`, `checkout`, `gfStart`, `gfFinish`, `stOf`, `changes`, `openGraph`), os que o project/arch
+  lêem (`commit`) e os que um e2e lê (`renderScmPane`) ficam; e o `AUTHOR` (o board escreve-o) e o `COMMITS` (a
+  fixture partilhada do harness escreve-o sem acesso ao módulo fresco) também. Saem dezasseis: da superfície do
+  `features/scm.ts`, `gitMerge` (o publicado, com a porta desktop — a ponte encadeia-o no gitflow pelo registo
+  `services.scm`, e o teste da ligação do gitflow troca-o lá em vez de no window), `authorOf`, `isFlow`,
+  `gfPrompt`, `gfGuide`, `pickBranch` (o botão da moldura, o grafo e os comandos importam-no), `drawTimeline`,
+  `graphLayout`, `stage`, `discard` (a ponte, pelo registo) e o `LANE`; o `COMMIT_MSG` e o `GSEL` passam a valores da
+  ponte do scm (`commitMsg()`/`setCommitMsg`, `graphSel()`/`setGraphSel`, reexportados pelo resíduo); o `clLog`/
+  `clShow` do changelog e o `gitCmd` do termgit passam a exports. O `changelog.ts`, o `graph.ts` e o `termgit.ts`
+  deixam de publicar e saem da lista do A9 (50). Ordem de avaliação igual. Globais publicadas 236 → 217.

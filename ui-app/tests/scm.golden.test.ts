@@ -30,6 +30,7 @@ import { bootApp, golden } from "./harness";
  * pelo que o DAG está semeado e `BRANCH === 'develop'` à entrada. */
 
 let w: any;
+let SCMM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7p3)
 
 /** Carimba o pane recém-renderizado e devolve o golden strippado. */
 function paneGolden(): string {
@@ -41,6 +42,7 @@ beforeEach(async () => {
   // Relógio fixo ANTES do boot: gitInit() e rel() ficam deterministas.
   vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
   w = await bootApp();
+  SCMM = await import("../src/features/scm");
 });
 
 afterEach(() => {
@@ -58,7 +60,7 @@ describe("golden de DOM — Source Control (renderScmPane)", () => {
   it("com ficheiro em stage (grupo Staged + botão «staged»)", () => {
     const first = w.changes()[0];
     expect(first).toBeTruthy();
-    w.stage(first); // alterna STAGED e re-renderiza o pane
+    SCMM.stage(first); // alterna STAGED e re-renderiza o pane
     expect(paneGolden()).toMatchSnapshot();
   });
 
@@ -79,13 +81,13 @@ describe("golden de DOM — Source Control (renderScmPane)", () => {
 
 describe("caracterização do motor — graphLayout (atribuição de lanes a extrair)", () => {
   it("layout do DAG semeado: rows/col/pl/idx/max fixos", () => {
-    const lay = w.graphLayout();
+    const lay = SCMM.graphLayout();
     expect(lay.rows.length).toBe(w.GIT.order.length);
     expect(lay).toMatchSnapshot();
   });
 
   it("primeira row tem coluna 0 e cada row referencia um commit do DAG", () => {
-    const lay = w.graphLayout();
+    const lay = SCMM.graphLayout();
     for (const r of lay.rows) {
       expect(w.GIT.c[r.h]).toBeTruthy();
       expect(typeof r.col).toBe("number");
@@ -123,20 +125,20 @@ describe("caracterização do motor — árvore de trabalho (changes/stOf)", () 
 
 describe("caracterização do motor — política gitflow (isFlow) e autores (authorOf)", () => {
   it("isFlow: feature/fix/hotfix/release são gitflow; develop/main/feat não", () => {
-    expect(w.isFlow("feature/x")).toBe(true);
-    expect(w.isFlow("fix/x")).toBe(true);
-    expect(w.isFlow("hotfix/x")).toBe(true);
-    expect(w.isFlow("release/0.3.0")).toBe(true);
-    expect(w.isFlow("develop")).toBe(false);
-    expect(w.isFlow("main")).toBe(false);
-    expect(w.isFlow("feat/learning-paths")).toBe(false); // feat/ não é feature/
+    expect(SCMM.isFlow("feature/x")).toBe(true);
+    expect(SCMM.isFlow("fix/x")).toBe(true);
+    expect(SCMM.isFlow("hotfix/x")).toBe(true);
+    expect(SCMM.isFlow("release/0.3.0")).toBe(true);
+    expect(SCMM.isFlow("develop")).toBe(false);
+    expect(SCMM.isFlow("main")).toBe(false);
+    expect(SCMM.isFlow("feat/learning-paths")).toBe(false); // feat/ não é feature/
   });
 
   it("authorOf: 'w' é You; desconhecido devolve o próprio nome; agente conhecido vem de AGENTS", () => {
-    expect(w.authorOf("w")).toEqual({ n: "You", col: "#8a8f9c" });
-    expect(w.authorOf("")).toEqual({ n: "You", col: "#8a8f9c" });
-    expect(w.authorOf("convidado")).toEqual({ n: "convidado", col: "#8a8f9c" });
+    expect(SCMM.authorOf("w")).toEqual({ n: "You", col: "#8a8f9c" });
+    expect(SCMM.authorOf("")).toEqual({ n: "You", col: "#8a8f9c" });
+    expect(SCMM.authorOf("convidado")).toEqual({ n: "convidado", col: "#8a8f9c" });
     const agentKey = Object.keys(w.AGENTS)[0];
-    expect(w.authorOf(agentKey)).toEqual({ n: w.AGENTS[agentKey].n, col: w.AGENTS[agentKey].col });
+    expect(SCMM.authorOf(agentKey)).toEqual({ n: w.AGENTS[agentKey].n, col: w.AGENTS[agentKey].col });
   });
 });

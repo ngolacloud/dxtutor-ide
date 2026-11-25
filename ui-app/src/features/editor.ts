@@ -29,6 +29,7 @@ import { editorOverlay, type OverlayView } from "../app/editor-overlay";
 import { lineAnnotation } from "../app/line-annotation";
 import { inlineValues } from "../app/inline-values";
 import { codevUndo } from "../app/codev-undo";
+import { authorOf } from "./scm";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -132,7 +133,7 @@ function annotateLine(): void {
   blame();
 }
 lineAnnotation.onRedraw(() => annotateLine());
-function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,authorOf=BG.authorOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const la=lineAnnotation.get();if(la){const ta=$('#ed-ta') as HTMLTextAreaElement|null,ln=ta&&ta.dataset.path===t.path?ta.value.slice(0,ta.selectionStart).split('\n').length:1,st=la.status(t.path,ln);if(st){el.textContent=st.text;el.title=st.title;el.onclick=st.open;return;}}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:null;if(!c){/* nenhum commit do espelho toca o ficheiro (o syncGit dá files:[]; sem repo não há commits): só o estado local — ADR-0006, R1d */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
+function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c: Record<string, { a: string; t: number; m: string; h: string; files: string[] }> }; stOf: (p: string) => unknown; authorOf: (a: string) => { n: string }; openGraph: (h?: string) => void };const GIT=BG.GIT,stOf=BG.stOf,openGraph=BG.openGraph;const el=$('#st-blame'),t=tabOf(cur);if(!el)return;if(!t||!t.path||t.kind!=='file'){el.textContent='';return;}const la=lineAnnotation.get();if(la){const ta=$('#ed-ta') as HTMLTextAreaElement|null,ln=ta&&ta.dataset.path===t.path?ta.value.slice(0,ta.selectionStart).split('\n').length:1,st=la.status(t.path,ln);if(st){el.textContent=st.text;el.title=st.title;el.onclick=st.open;return;}}const h=GIT.order.find(x=>GIT.c[x]&&GIT.c[x].files.includes(t.path!)),c=h?GIT.c[h]:null;if(!c){/* nenhum commit do espelho toca o ficheiro (o syncGit dá files:[]; sem repo não há commits): só o estado local — ADR-0006, R1d */el.textContent=stOf(t.path)?'Tu · alterações por commitar':'';el.onclick=null;return;}el.textContent=stOf(t.path)?'Tu · alterações por commitar':`${authorOf(c.a).n}, ${rel(c.t)} · ${c.m.slice(0,38)}`;el.onclick=()=>openGraph(c.h);}
 function stLangWithBlame(): void { stLang(); blame(); }
 /* e corre a cada mudança do workspace (era o fim do subscritor do app.ts) */
 bus.on('workspace:changed',()=>{blame();});

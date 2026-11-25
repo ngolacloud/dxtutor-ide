@@ -71,17 +71,18 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     expect(calls).toEqual([["dxtutor/src/lib.rs", 12]]);
   });
 
-  it("graph: o botão do ficheiro pára a borbulha (não selecciona o commit), como o event.stopPropagation()", () => {
+  it("graph: o botão do ficheiro pára a borbulha (não selecciona o commit), como o event.stopPropagation()", async () => {
     const opened: unknown[] = [];
     w.openPath = (p: unknown) => opened.push(p);
-    w.GSEL = null;
+    const SCMG = await import("../src/features/scm");
+    SCMG.setGraphSel(null);
     w.FS["x/y.rs"] = { content: "" };
     document.body.insertAdjacentHTML("beforeend", `<div class="gl-row" data-action="graph:select" data-on="abc"><div class="gl-det"><button id="gf" data-action="graph:file" data-on="x/y.rs">y.rs</button></div></div>`);
     click(document.getElementById("gf"));
     expect(opened).toEqual(["x/y.rs"]);
-    expect(w.GSEL).toBe(null);
+    expect(SCMG.graphSel()).toBe(null);
     click(document.querySelector(".gl-row"));
-    expect(w.GSEL).toBe("abc");
+    expect(SCMG.graphSel()).toBe("abc");
   });
 
   /* ext: a lista e o detalhe usam o despachante da própria feature desde o ADR-0006 (R6b: ext-open,

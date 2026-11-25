@@ -27,6 +27,7 @@ import { translator } from "../app/i18n";
 import { GRAPH_MESSAGES } from "./graph.messages";
 import { GRAPH_DESKTOP_MESSAGES } from "./graph.desktop-messages";
 import { services } from "../app/services";
+import { LANE, authorOf, isFlow, graphLayout, graphSel, setGraphSel, gfPrompt, pickBranch } from "./scm";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(GRAPH_MESSAGES);
 const txd = translator(GRAPH_DESKTOP_MESSAGES);
@@ -74,7 +75,7 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
        const c = GIT.c[r.h],
          a = authorOf(c.a),
          col = LANE[r.col % LANE.length],
-         sel = GSEL === r.h;
+         sel = graphSel() === r.h;
        return (
          `<div class="gl-row${sel ? " sel" : ""}" data-action="graph:select" data-on="${esc(r.h)}"><span class="gl-refs">${refsAt(r.h)
            .map((b) => `<span class="gl-ref${b === BRANCH ? " head" : ""}" style="--c:${col}">${b === BRANCH ? "● " : ""}${esc(b)}</span>`)
@@ -97,11 +98,12 @@ bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=(window as unknown 
 VIEW.graph = renderGraphView;
 
 /* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
-const UA = window as unknown as { GSEL: string | null; FS: Record<string, unknown> };
+const UA = window as unknown as { FS: Record<string, unknown> };
 registerActions({
-  ...globalCalls("graph", ["pickBranch", "gfFinish"]),
-  "graph:gfPrompt": { click: (c) => void callGlobal("gfPrompt", c.on) },
+  ...globalCalls("graph", ["gfFinish"]),
+  "graph:pickBranch": { click: () => pickBranch() },
+  "graph:gfPrompt": { click: (c) => gfPrompt(c.on as Parameters<typeof gfPrompt>[0]) },
   "graph:toDevelop": { click: () => { callGlobal("checkout", "develop"); services.tabs!.rerender("graph"); } },
-  "graph:select": { click: (c) => { UA.GSEL = UA.GSEL === c.on ? null : c.on; services.tabs!.rerender("graph"); } },
+  "graph:select": { click: (c) => { setGraphSel(graphSel() === c.on ? null : c.on); services.tabs!.rerender("graph"); } },
   "graph:file": { click: (c) => { c.stop(); if (UA.FS[c.on]) callGlobal("openPath", c.on); else callGlobal("toast", txd("notInBranch")); } },
 });

@@ -108,7 +108,7 @@ describe("moldura do IDE (index.html) — U5a", () => {
     expect(document.querySelectorAll("[onclick],[onchange],[oninput]").length).toBe(0);
     const W = w as unknown as Record<string, unknown>;
     const calls: string[] = [];
-    for (const f of ["toggleSide", "togglePanel", "pickBranch", "refresh", "palette", "goPane", "setPanelTab"])
+    for (const f of ["toggleSide", "togglePanel", "refresh", "palette", "goPane", "setPanelTab"])
       W[f] = (...a: unknown[]) => calls.push(`${f}(${a.map((x) => JSON.stringify(x)).join(",")})`);
     const clickSel = (s: string) => click(document.querySelector(s)!);
     clickSel(".cmd-center"); clickSel("#tgl-side"); clickSel("#tgl-panel"); clickSel('.tb-ic[data-ic="account"]');

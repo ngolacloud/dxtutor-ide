@@ -26,6 +26,7 @@ import { nextProblem } from "../features/diagnostics";
 import { THEMES, setTheme } from "../features/theme";
 import { newFile, newFolder } from "../features/explorer";
 import { termClear } from "../features/terminal";
+import { gfPrompt, pickBranch } from "../features/scm";
 
 const tcm = translator(COMMANDS_MESSAGES);
 

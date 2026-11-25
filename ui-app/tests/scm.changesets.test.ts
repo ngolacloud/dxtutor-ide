@@ -173,9 +173,11 @@ describe("vista", () => {
 
 /* a cadeia real: o pane com a secção, o Stage e o diff pelo despachante */
 let w: any;
+let SCMM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7p3)
 let ipc: string[];
 beforeEach(async () => {
   w = await bootApp();
+  SCMM = await import("../src/features/scm");
   ipc = [];
   w.DXR = { root: "/proj", git: true, flush: () => undefined, idle: async () => undefined, reloadDisk: async () => undefined, syncGit: async () => undefined };
   w.REPO = true;
@@ -189,7 +191,7 @@ beforeEach(async () => {
   };
   w.__TAURI__ = { core: { invoke: async (cmd: string) => { ipc.push(cmd); if (!handlers[cmd]) throw new Error("comando inesperado: " + cmd); return handlers[cmd](); } } };
 });
-afterEach(() => { delete w.__TAURI__; delete w.DXR; delete w.REPO; delete w.FS["/proj/src/a.rs"]; w.STAGED.clear(); w.COMMIT_MSG = ""; });
+afterEach(() => { delete w.__TAURI__; delete w.DXR; delete w.REPO; delete w.FS["/proj/src/a.rs"]; w.STAGED.clear(); SCMM.setCommitMsg(""); });
 
 describe("ligação", () => {
   it("o pane mostra o conjunto da DX-7; Stage prepara o ficheiro; o ficheiro abre o diff", async () => {
@@ -202,7 +204,7 @@ describe("ligação", () => {
     expect(ipc).toContain("project_change_sets");
     (pane.querySelector('[data-action="gx-cs-stage"]') as HTMLElement).click();
     expect([...w.STAGED]).toEqual(["/proj/src/a.rs"]);
-    expect(w.COMMIT_MSG).toBe("Paginate the list (DX-7)");
+    expect(SCMM.commitMsg()).toBe("Paginate the list (DX-7)");
     // the repainted pane shows it in the message box (the message is set before staging repaints)
     expect((document.getElementById("scm-msg") as HTMLInputElement).value).toBe("Paginate the list (DX-7)");
     const opened: string[] = [];

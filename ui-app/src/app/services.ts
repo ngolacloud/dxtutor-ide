@@ -18,6 +18,7 @@ import type * as Explorer from "../features/explorer";
 import type * as Terminal from "../features/terminal";
 import type * as Theme from "../features/theme";
 import type * as Infra from "../features/infra";
+import type * as Scm from "../features/scm";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -48,6 +49,8 @@ export interface Services {
   theme: Pick<typeof Theme, "THEMES">;
   /** o runtime, o desenho do pane e o contexto do projecto (features/infra.ts): o stack, a equipa e a ponte da ext (U7p2) */
   infra: Pick<typeof Infra, "needRt" | "infraDraw" | "projectContext">;
+  /** o merge publicado (a porta desktop), o discard e as cores das faixas (features/scm.ts): a ponte do scm, que avalia antes (U7p3) */
+  scm: Pick<typeof Scm, "gitMerge" | "discard" | "LANE">;
 }
 
 export const services: Partial<Services> = {};

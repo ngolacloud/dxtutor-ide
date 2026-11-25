@@ -69,15 +69,12 @@ declare global {
   const ENVS: Envs;
   const AGENTS: Record<string, { n: string }>;
   var ACTIVE: string;
-  const COMMIT_MSG: string;
   const isFlow: (b: string) => boolean;
   // Motor do grafo de commits (dono = features/scm.ts), lido por nome livre pela
   // feature strict features/graph.ts (e pelos consumidores do monólito).
   const graphLayout: () => { rows: { h: string; col: number; pl: number[] }[]; idx: Record<string, number>; max: number };
-  const LANE: string[];
   const authorOf: (a: string) => { n: string; col: string };
   const rel: (t: number) => string;
-  let GSEL: string | null;
   const changes: () => string[];
   const stOf: (p: string) => unknown;
   const use: (p: string, tok: number) => void;

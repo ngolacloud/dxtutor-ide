@@ -19,6 +19,7 @@
 import { toast, log, rerender } from "../../../core";
 import { editorStore } from "../../../app/store/editor";
 import type { Commit, GitState, FileEntry, Author } from "../domain/types";
+import { services } from "../../../app/services";
 export { toast, log, rerender };
 
 const G = window as unknown as Record<string, any>;
@@ -35,17 +36,20 @@ export interface PalCfg { ph?: string; verb?: string; items?: PalItem[]; text?: 
    os acessores abaixo lêem o `window` que os transporta, para que o motor e o
    resíduo partilhem a MESMA referência. ───── */
 export const git = (): GitState => G.GIT;
-export const lanes = (): string[] => G.LANE;
+export const lanes = (): string[] => services.scm!.LANE;
 export const staged = (): Set<string> => G.STAGED;
 export const commitsList = (): Array<{ h: string; m: string; n?: number }> => G.COMMITS;
 
 /* primitivos window-puros (escritos também pelo resíduo: AUTHOR='lead' em runIssue, …) */
 export const branch = (): string => G.BRANCH;
 export const setBranch = (b: string): void => { G.BRANCH = b; };
-export const commitMsg = (): string => G.COMMIT_MSG;
-export const setCommitMsg = (m: string): void => { G.COMMIT_MSG = m; };
-export const graphSel = (): string | null => G.GSEL;
-export const setGraphSel = (h: string): void => { G.GSEL = h; };
+/* a mensagem do commit e o commit seleccionado no grafo: deste módulo desde a U7p3 do ADR-0004 (eram window.*) */
+let COMMIT_MSG = "";
+let GSEL: string | null = null;
+export const commitMsg = (): string => COMMIT_MSG;
+export const setCommitMsg = (m: string): void => { COMMIT_MSG = m; };
+export const graphSel = (): string | null => GSEL;
+export const setGraphSel = (h: string | null): void => { GSEL = h; };
 export const author = (): string => G.AUTHOR;
 
 /* ───── há um repositório git real aberto? (ADR-0006, R1d) ─────
@@ -62,7 +66,7 @@ export const gitInitFolder = (): void => { if (G.DXR && G.DXR.gitInit) G.DXR.git
 /* ───── as versões PUBLICADAS de checkout/gitMerge (no desktop, decoradas pelo bridge.ts
    com git real), resolvidas no acto — o gitflow encadeia-as por aqui ───── */
 export const decoratedCheckout = (b: string, create?: boolean): boolean => G.checkout(b, create);
-export const decoratedMerge = (src: string, author?: string): Commit | null => G.gitMerge(src, author);
+export const decoratedMerge = (src: string, author?: string): Commit | null => services.scm!.gitMerge(src, author) as Commit | null;
 
 /* ───── sistema de ficheiros virtual + agentes (catálogo de autores) ───── */
 export const files = (): Record<string, FileEntry> => G.FS;
@@ -128,7 +132,7 @@ export const editorCursor = (): { path: string; line: number; start: number; end
 /** O prefixo dos caminhos do editor (as chaves do FS são `ROOT` + caminho relativo). */
 export const rootKey = (): string => (typeof G.ROOT === "string" ? G.ROOT : "");
 /** O `discard` publicado (o do motor: repõe o ficheiro do último commit) de uma chave do FS. */
-export const decoratedDiscard = (p: string): void => (G.discard as (p: string) => void)(p);
+export const decoratedDiscard = (p: string): void => services.scm!.discard(p);
 /** Abre o diff de um ficheiro (caminho relativo à pasta). */
 export const openDiffRel = (rel: string): void => G.openDiff(rootKey() + rel);
 /** Abre um ficheiro (caminho relativo à pasta) numa linha. */
