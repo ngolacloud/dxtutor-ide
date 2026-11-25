@@ -55,7 +55,8 @@ function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];hos
       if(real===null){const pos=Math.max(0,ta.selectionStart-1);ta.value=v.text;ta.setSelectionRange(Math.min(pos,v.text.length),Math.min(pos,v.text.length));toast('Estas linhas são uma proposta do Co-Dev: aceita ou rejeita primeiro');return;}
       f.content=real;setKeepingCaret(ta,syncView(t.path));}
     else f.content=ta.value;
-    paintEd(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
+    /* bug 8 (RF-S03): the full painter — the base one left out breakpoints, the debugger line, the inline values and diagnostics */
+    paintEdFull(t.path);clearTimeout(ta._t);ta._t=setTimeout(()=>refresh(true),180);};
   ta.onkeydown=e=>{
     /* RF-E07: Ctrl+Z right after a Co-Dev block (nothing typed since) puts back the text from before it */
     if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){const prev=codevUndo.take(t.path);if(prev!==null){e.preventDefault();f.content=prev;ta.value=syncView(t.path);paintEd(t.path);refresh(true);toast('Desfeito o último bloco do Co-Dev');return;}}
