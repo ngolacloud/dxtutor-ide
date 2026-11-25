@@ -178,16 +178,18 @@ impl Tool for ExitPlan {
             a.store(true, Ordering::SeqCst);
             self.plan_mode.store(false, Ordering::SeqCst);
             return ToolOutput::ok(
-                "Plano aprovado pelo humano: executa-o, regista-o com todo_write e verifica cada \
-                 passo. O que não estiver no plano não o faças: sugere-o com suggest.",
+                "Plano aprovado pelo humano: executa-o pela ordem dos passos (um ficheiro de cada \
+                 vez, como o plano os lista), regista-o com todo_write e verifica cada passo. O que \
+                 não estiver no plano não o faças: sugere-o com suggest.",
             );
         }
         if !self.plan_mode.swap(false, Ordering::SeqCst) {
             return ToolOutput::err("não estás em modo plano: executa directamente");
         }
         ToolOutput::ok(
-            "Plano aprovado pelo humano. O modo plano terminou: executa o plano, regista-o com \
-             todo_write e verifica cada passo.",
+            "Plano aprovado pelo humano. O modo plano terminou: executa o plano pela ordem dos \
+             passos (um ficheiro de cada vez, como o plano os lista), regista-o com todo_write e \
+             verifica cada passo.",
         )
     }
 }
@@ -517,5 +519,42 @@ impl Tool for FinishIssue {
              Termina aqui, sem mais alterações.",
             criteria.len()
         ))
+    }
+}
+
+#[cfg(test)]
+mod plan_order_tests {
+    use super::*;
+
+    /// RF-S08 (F3.3): once the plan is approved, the agent is told to follow its steps in order,
+    /// one file at a time (the chat marks a block ahead of the plan or outside it).
+    #[test]
+    fn the_approved_plan_is_followed_in_the_order_of_its_steps() {
+        let ctx = ToolCtx {
+            root: PathBuf::from("/tmp"),
+            cancel: Arc::new(AtomicBool::new(false)),
+        };
+        let approved = ExitPlan {
+            plan_mode: Arc::new(AtomicBool::new(false)),
+            steps: true,
+            approved: Some(Arc::new(AtomicBool::new(false))),
+        };
+        let out = approved.run(&json!({"plan": "x"}), &ctx);
+        assert!(
+            !out.is_error && out.content.contains("pela ordem dos passos"),
+            "{}",
+            out.content
+        );
+        let plan_mode = ExitPlan {
+            plan_mode: Arc::new(AtomicBool::new(true)),
+            steps: true,
+            approved: None,
+        };
+        let out = plan_mode.run(&json!({"plan": "x"}), &ctx);
+        assert!(
+            !out.is_error && out.content.contains("pela ordem dos passos"),
+            "{}",
+            out.content
+        );
     }
 }

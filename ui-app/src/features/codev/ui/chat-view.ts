@@ -24,8 +24,13 @@ import { bus } from "../../../app/bus";
 import { explainProviderError, type ProviderError } from "../domain/provider-errors";
 import { translator } from "../../../app/i18n";
 import { CODEV_CHAT_MESSAGES } from "./chat-messages";
+import { CODEV_STREAM_MESSAGES } from "./stream-messages";
+import { CODE_IN_EDITOR } from "../domain/prose";
+import { rangeLabel, type PlanPlace } from "../domain/plan-order";
+import { codevAsk } from "../../../app/codev-ask";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
+const ts = translator(CODEV_STREAM_MESSAGES);
 import type {
   ApprovalGate,
   CardRef,
@@ -318,7 +323,21 @@ export const presenter: ChatPresenter = {
     return card(speaker, '<span class="spin"></span> a pensar…');
   },
   assistantText(ref: CardRef, text: string) {
-    asCard(ref).bd.innerHTML = md(text);
+    const bd = asCard(ref).bd;
+    bd.innerHTML = md(text);
+    // RF-S01 (F3.2): where a long code block was left out of the chat, a button asks Co-Dev to make
+    // the change in the editor (edit_lines/edit) instead
+    if (text.includes(CODE_IN_EDITOR)) {
+      bd.innerHTML = bd.innerHTML.split(esc(CODE_IN_EDITOR)).join(`<span class="cd-code-ed">${esc(CODE_IN_EDITOR)}</span>`);
+      bd.querySelectorAll<HTMLElement>(".cd-code-ed").forEach((span) => {
+        const b = document.createElement("button");
+        b.className = "mini cd-apply";
+        b.textContent = ts("applyCode");
+        b.disabled = !codevAsk.available();
+        b.onclick = () => { b.disabled = true; void codevAsk.ask({ intent: "chat", text: ts("applyAsk"), context: [], send: true }); };
+        span.after(b);
+      });
+    }
     scrollMsgs();
   },
   liveError(ref: CardRef, aborted: boolean, code: string | undefined, msg: string) {
@@ -424,6 +443,28 @@ export const presenter: ChatPresenter = {
     t.appendChild(w);
   },
   /* live hunks (RF-CODEV-STREAM): the review bar of a call; per-hunk choices live in the editor */
+  hunkWriting(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace }, open: () => void) {
+    const c = asCard(ref);
+    const line = document.createElement("div");
+    line.className = "cd-writing";
+    line.append(ts("writing") + " ");
+    const a = document.createElement("a");
+    a.className = "cd-writing-path";
+    a.textContent = info.path; // text, never HTML
+    a.title = ts("openAt", { path: info.path, line: info.start });
+    a.onclick = (ev) => { ev.preventDefault(); open(); };
+    line.appendChild(a);
+    line.append(" " + rangeLabel(info.start, info.end));
+    const p = info.place;
+    if (p.kind !== "none") {
+      const tag = document.createElement("span");
+      tag.className = "tag cd-plan" + (p.kind === "in-order" ? "" : " warn");
+      tag.textContent = p.kind === "in-order" ? ts("planStep", { step: p.step }) : p.kind === "ahead" ? ts("aheadOfPlan", { step: p.step, pending: p.pending.join(", ") }) : ts("outsidePlan");
+      line.append(" ", tag);
+    }
+    (c.tools ?? c.bd).appendChild(line);
+    scrollMsgs();
+  },
   hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string }, on: { acceptAll(): void; rejectAll(): void; open(): void }) {
     const t = el(ref);
     const bar = document.createElement("div");
