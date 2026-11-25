@@ -81,6 +81,27 @@ describe("na cadeia real", () => {
     expect(t).toMatch(/no measured cost for Backend in this project yet/);
     expect(t).not.toMatch(/≈1\.2k tokens|≈\d[\d.]*k? tokens · ~\$/);
   });
+
+  it("F4.9: com custo medido, o quadro antigo mostra tokens e não dólares de uma taxa fixa", () => {
+    const it = w.mkIssue({ title: "Paginar", agent: "be", sprint: 0, stage: "dev" });
+    // um backlog antigo ainda traz `usd` (da taxa fixa): já não aparece em lado nenhum
+    it.cost = { tok: 12345, usd: 0.19, sec: 3, runs: 1, by: { claude: 12345 } };
+    w.openIssue(it.id);
+    const view = document.body.textContent || "";
+    expect(view).toContain("12.3k");
+    expect(view).not.toMatch(/Estimated spend|example values|\$0\.19/);
+    expect(view).toContain("The cost in dollars of the Co-Dev turns, at the model's real price, is in the issue panel of the Project.");
+    if (!document.getElementById("pane-tasks")) document.querySelector(".side")!.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-tasks"></div>');
+    w.RP.tasks();
+    const pane = document.getElementById("pane-tasks")!;
+    expect(pane.textContent).not.toContain("$");
+    expect(pane.querySelector(`.tk-row[data-on="${it.id}"] .tk-c`)?.textContent).toBe("12.3k");
+    // o conselho usa os tokens medidos, sem dólares
+    const other = w.mkIssue({ title: "Outra", agent: "be", sprint: 0, stage: "todo", pts: it.pts });
+    w.openIssue(other.id);
+    expect(document.body.textContent).toMatch(/Delegate: ≈[\d.]+k? tokens vs ~\d+ min of yours/);
+    expect(document.body.textContent).not.toMatch(/tokens · ~\$/);
+  });
 });
 
 it("RF-A06: gravar os escopos dos assistentes mantém as pessoas e os papéis do team.json", async () => {

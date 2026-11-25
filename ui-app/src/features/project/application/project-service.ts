@@ -19,6 +19,7 @@ export function parsePrompt(v: unknown): IssuePrompt | null {
     source: typeof o.source === "string" ? o.source : "",
     version: typeof o.version === "string" ? o.version : "",
     tokens: typeof o.tokens === "number" ? o.tokens : 0,
+    template: typeof o.template === "string" ? o.template : "",
   };
 }
 import { branchName, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
@@ -294,6 +295,32 @@ export function makeProjectService(deps: ProjectDeps) {
     },
     closePrompt(): void {
       set({ prompt: null });
+    },
+    /** RF-B04 (F4): edit the prompt template in the IDE. With the built-in one in use, the project's
+     *  file (`.dxtutor/prompts/issue.<lang>.md`) is created from it first — after the human
+     *  confirms; then it opens in the editor. «View prompt» shows the new version afterwards. */
+    async editTemplate(): Promise<void> {
+      const r = root(), p = st.prompt, files = deps.templates;
+      if (!r || !p || !files) {
+        deps.notify.toast("O template edita-se na app desktop, com uma pasta aberta");
+        return;
+      }
+      const lang = p.lang === "pt" ? "pt" : "en";
+      const rel = p.source && p.source !== "builtin" ? p.source : `.dxtutor/prompts/issue.${lang}.md`;
+      try {
+        if (!p.source || p.source === "builtin") {
+          if (!p.template.trim()) throw new Error("o backend não mandou o texto do template");
+          const ok = deps.dialog.confirm(
+            `Create ${rel} from the built-in template?\n\nIt becomes this project's template: commit it with the code. Changes to it are the architect's or the tech lead's.`,
+          );
+          if (!ok) return;
+          await files.write(r, rel, p.template);
+        }
+        await files.open(rel);
+        deps.notify.toast(`${rel}: edit it and save — «View prompt» shows the new version`);
+      } catch (e: unknown) {
+        deps.notify.toast(parseError(e).message);
+      }
     },
     loadReports,
   };

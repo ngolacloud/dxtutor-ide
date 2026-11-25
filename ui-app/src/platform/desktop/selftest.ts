@@ -287,12 +287,14 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       let refused: { code?: string; overridable?: boolean } = {};
       try { await pc.apply(root, { op: "move", key, to: "done" }); } catch (e) { refused = e as typeof refused; }
       const detail = (await pc.issue(root, key)) as { activity: Array<{ kind: string }>; usage?: { turns: number } };
+      // RF-B04 (bloco 4): o prompt traz o texto do template, de onde «Edit template» parte
+      const prompt = (await pc.issuePrompt(root, key)) as { source?: string; template?: string };
       // RF-E08/B08 (bloco 1 dos RF restantes): the change sets since the last commit (none in a fresh
       // folder) and the issue's Co-Dev usage (no turns yet), through the real commands
       const sets = await tauriGitExtras().changeSets(root);
       await pc.apply(root, { op: "delete_issue", key });
-      const out = { empty: p0.issues.length === 0, moved: p2.issues.find((i) => i.key === key)?.state, refused: refused.code, overridable: refused.overridable, activity: detail.activity.map((a) => a.kind), usageTurns: detail.usage?.turns, changeSets: sets.length };
-      if (out.moved !== "progress" || out.refused !== "step" || out.overridable !== true || !out.activity.includes("moved") || out.usageTurns !== 0 || out.changeSets !== 0) throw new Error("project store: " + JSON.stringify(out));
+      const out = { empty: p0.issues.length === 0, moved: p2.issues.find((i) => i.key === key)?.state, refused: refused.code, overridable: refused.overridable, activity: detail.activity.map((a) => a.kind), usageTurns: detail.usage?.turns, changeSets: sets.length, template: prompt.source === "builtin" && !!prompt.template?.includes("{{id}}") };
+      if (out.moved !== "progress" || out.refused !== "step" || out.overridable !== true || !out.activity.includes("moved") || out.usageTurns !== 0 || out.changeSets !== 0 || !out.template) throw new Error("project store: " + JSON.stringify(out));
       return out;
     });
     // feature `infra` (migrada de v5.ts nesta sessão para features/infra.ts): prova que

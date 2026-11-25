@@ -8,8 +8,8 @@ import { VIEW } from "../../app/store/registry";
 import { makeProjectService } from "./application/project-service";
 import { makeProjectView } from "./ui/view";
 import { bindActions, type ActionEvent, type ActionTable } from "./ui/actions";
-import { tauriProjectGateway } from "./infrastructure/tauri";
-import { codev, dialog, git, loadMe, notify, openDiff, openTab, workspace } from "./infrastructure/legacy-bridge";
+import { tauriProjectGateway, writeProjectFile } from "./infrastructure/tauri";
+import { codev, dialog, git, loadMe, notify, openDiff, openProjectFile, openTab, workspace } from "./infrastructure/legacy-bridge";
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { State } from "./domain/types";
 import { projectInbox } from "../../app/project-inbox";
@@ -30,6 +30,7 @@ export const projectService = makeProjectService({
   now: () => Date.now(),
   canDrive: () => pairState.canDrive(),
   navigatorMessage: NAVIGATOR_MESSAGE,
+  templates: { write: writeProjectFile, open: openProjectFile },
   download: (name, text) => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
@@ -148,6 +149,7 @@ const table: ActionTable = {
   "pj-work": { click: () => { const k = sel(); if (k) void projectService.work(k); } },
   "pj-prompt": { click: () => { const k = sel(); if (k) void projectService.viewPrompt(k); } },
   "pj-prompt-close": { click: () => projectService.closePrompt() },
+  "pj-template": { click: () => void projectService.editTemplate() },
   "pj-sprint-budget": { change: (e) => void projectService.apply({ op: "set_sprint_budget", id: e.on, budget_usd: e.value.trim() === "" ? null : Math.max(0, Number(e.value)) }) },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-diff": { click: (e) => openDiff(e.on) },

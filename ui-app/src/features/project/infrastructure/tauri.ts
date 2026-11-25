@@ -2,6 +2,7 @@
 
 import { projectClient } from "../../../platform/tauri/project";
 import { isDesktop } from "../../../platform/tauri/core";
+import { fsClient } from "../../../platform/tauri/fs";
 import type { ProjectGateway } from "../application/ports";
 
 const client = projectClient();
@@ -15,3 +16,6 @@ export const tauriProjectGateway: ProjectGateway = {
   audit: (root, issue) => client.audit(root, issue),
   issuePrompt: (root, key) => client.issuePrompt(root, key),
 };
+
+/** RF-B04: writes a template file inside the open folder (`write_file`). */
+export const writeProjectFile = (root: string, rel: string, content: string): Promise<void> => fsClient().writeFile(root, rel, content);
