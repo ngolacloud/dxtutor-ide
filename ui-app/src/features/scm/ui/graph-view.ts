@@ -7,6 +7,7 @@
 import type { GraphLayout } from "../domain/types";
 import { refLabelsAt, remoteGroups, trackOf, type RefLabel, type RefsSnapshot } from "../domain/refs";
 import { tokenFor, type SearchMode } from "../domain/search";
+import type { ActivityBar } from "../domain/activity";
 import type { GraphScreenKey } from "./graph-screen-messages";
 
 export type T = (k: GraphScreenKey, p?: Record<string, string | number>) => string;
@@ -37,6 +38,11 @@ export interface GraphVm {
   /** commits matching the query (all of them without one) and the commits loaded */
   matchCount: number;
   total: number;
+  /** uncommitted changes in the working tree (null: none, or not a repository) */
+  wip: { files: number; staged: number } | null;
+  activity: ActivityBar[];
+  /** the time label of a bucket edge */
+  when: (t: number) => string;
 }
 
 function sidebar(t: T, vm: GraphVm): string {
@@ -83,6 +89,13 @@ function dag(vm: GraphVm): { paths: string; dots: string; gw: number; H: number 
   return { paths, dots, gw, H };
 }
 
+function minimap(t: T, vm: GraphVm): string {
+  if (vm.activity.length < 2) return "";
+  const max = Math.max(...vm.activity.map((b) => b.count), 1), searching = vm.query.trim() !== "";
+  const bars = vm.activity.map((b) => `<button class="gl-mbar" ${b.newest ? `data-action="graph:goto" data-on="${esc(b.newest)}"` : "disabled"} title="${esc(t("activityTip", { n: b.count, from: vm.when(b.from), to: vm.when(b.to) }))}"><span style="height:${Math.round((b.count / max) * 100)}%"></span>${searching && b.matched ? `<i style="height:${Math.round((b.matched / max) * 100)}%"></i>` : ""}</button>`).join("");
+  return `<div class="gl-mini" aria-label="${esc(t("activity"))}">${bars}</div>`;
+}
+
 export function renderGraphScreen(t: T, vm: GraphVm): string {
   if (!vm.repo) return `<div class="gl"><div class="gl-empty">${esc(t("noRepo"))}</div></div>`;
   const { paths, dots, gw, H } = dag(vm), L = vm.layout;
@@ -98,10 +111,15 @@ export function renderGraphScreen(t: T, vm: GraphVm): string {
     const labels = vm.refs ? refLabelsAt(vm.refs, r.h) : vm.fallbackLabels(r.h);
     const refsHtml = labels.map((l) => l.kind === "tag" ? `<span class="gl-ref tagr">${esc(l.name)}</span>`
       : `<span class="gl-ref${l.kind === "head" ? " head" : l.kind === "remote" ? " remote" : ""}" style="--c:${col}">${l.kind === "head" ? "● " : ""}${esc(l.name)}</span>`).join("");
-    const det = !sel ? "" : `<div class="gl-det">${vm.files === null || vm.files === undefined ? `<span class="gl-dim">${esc(t("readingFiles"))}</span>`
-      : vm.files.length ? vm.files.map((p) => `<button class="mini" data-action="graph:file" data-on="${esc(p)}">${esc(p)}</button>`).join("") : `<span class="gl-dim">${esc(t("noFiles"))}</span>`}${c.p.length > 1 ? `<span class="tag">${esc(t("mergeOf", { n: c.p.length }))}</span>` : ""}</div>`;
     const chips = `${c.type ? `<button class="gl-chip t-${esc(c.type)}" data-action="graph:token" data-on="${esc(tokenFor("type", c.type))}">${esc(c.type)}</button>` : ""}${c.issue ? `<button class="gl-chip gl-issue" data-action="graph:token" data-on="${esc(tokenFor("issue", c.issue))}">${esc(c.issue)}</button>` : ""}`;
-    return `<div class="gl-row${sel ? " sel" : ""}${c.match ? "" : " dim"}" data-action="graph:select" data-on="${esc(r.h)}"><span class="gl-refs">${refsHtml}</span><span class="gl-msg">${chips}${esc(c.m)}</span><span class="gl-au"><i style="background:${c.author.col}">${esc(c.author.n.charAt(0))}</i>${esc(c.author.n)}</span><span class="gl-h">${esc(r.h)}</span><span class="gl-t">${esc(c.time)}</span></div>${det}`;
+    return `<div class="gl-row${sel ? " sel" : ""}${c.match ? "" : " dim"}" data-action="graph:select" data-on="${esc(r.h)}"><span class="gl-refs">${refsHtml}</span><span class="gl-msg">${chips}${esc(c.m)}</span><span class="gl-au"><i style="background:${c.author.col}">${esc(c.author.n.charAt(0))}</i>${esc(c.author.n)}</span><span class="gl-h">${esc(r.h)}</span><span class="gl-t">${esc(c.time)}</span></div>`;
   }).join("");
-  return `<div class="gl gl-screen">${sidebar(t, vm)}<div class="gl-main">${bar}<div class="gl-body" style="--gw:${gw}px"><svg class="gl-svg" width="${gw}" height="${L.rows.length * H}">${paths}${dots}</svg>${rows}</div></div></div>`;
+  /* the selected commit's files: a panel under the graph (inline, it pushed the rows away from the SVG's dots) */
+  const sc = vm.selected ? vm.commits[vm.selected] : undefined;
+  const det = !sc ? "" : `<div class="gl-det gl-det-panel"><b class="gl-h">${esc(sc.h)}</b> <span class="gl-msg">${esc(sc.m)}</span><div class="gl-files">${vm.files === null || vm.files === undefined ? `<span class="gl-dim">${esc(t("readingFiles"))}</span>`
+    : vm.files.length ? vm.files.map((p) => `<button class="mini" data-action="graph:file" data-on="${esc(p)}">${esc(p)}</button>`).join("") : `<span class="gl-dim">${esc(t("noFiles"))}</span>`}${sc.p.length > 1 ? `<span class="tag">${esc(t("mergeOf", { n: sc.p.length }))}</span>` : ""}</div></div>`;
+  const headRow = vm.layout.rows.find((r) => vm.refs ? r.h.slice(0, 7) === (vm.refs.headSha ?? "").slice(0, 7) : vm.fallbackLabels(r.h).some((l) => l.kind === "head"));
+  const wipX = 14 + (headRow ? headRow.col : 0) * 18, wipCol = vm.lanes[(headRow ? headRow.col : 0) % vm.lanes.length];
+  const wip = vm.wip ? `<div class="gl-row gl-wip" data-action="graph:wip" style="--gw:${gw}px"><svg class="gl-wipdot" width="${gw}" height="32"><circle cx="${wipX}" cy="16" r="5" fill="none" stroke="${wipCol}" stroke-width="2" stroke-dasharray="3 2"/>${headRow ? `<line x1="${wipX}" y1="21" x2="${wipX}" y2="32" stroke="${wipCol}" stroke-width="2" stroke-dasharray="3 2"/>` : ""}</svg><span class="gl-refs"></span><span class="gl-msg">${esc(t("wip", { n: vm.wip.files }))}${vm.wip.staged ? ` <span class="gl-dim">· ${esc(t("wipStaged", { n: vm.wip.staged }))}</span>` : ""}</span><span></span><span class="gl-h">WIP</span><span></span></div>` : "";
+  return `<div class="gl gl-screen">${sidebar(t, vm)}<div class="gl-main">${bar}${minimap(t, vm)}${wip}<div class="gl-body" style="--gw:${gw}px"><svg class="gl-svg" width="${gw}" height="${L.rows.length * H}">${paths}${dots}</svg>${rows}</div>${det}</div></div>`;
 }

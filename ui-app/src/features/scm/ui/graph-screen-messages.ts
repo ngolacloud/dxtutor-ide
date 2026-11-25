@@ -14,6 +14,7 @@ export const GRAPH_SCREEN_MESSAGES = {
     searchPh: "Search: author: type: file: issue: branch: message:", matchCount: "{n} of {total}",
     modeHighlight: "Highlight", modeFilter: "Filter", modeHighlightTip: "Every commit shows; the others are dimmed. Click to show only the matches.",
     modeFilterTip: "Only the matches show. Click to show every commit.",
+    wip: "Uncommitted changes ({n} files)", wipStaged: "{n} staged", activity: "Activity", activityTip: "{n} commits · {from} → {to}",
   },
   ptAO: {
     branches: "Ramos", remotes: "Remotos", tags: "Tags", stashes: "Stashes", worktrees: "Worktrees", contributors: "Contribuidores",
@@ -26,6 +27,7 @@ export const GRAPH_SCREEN_MESSAGES = {
     searchPh: "Pesquisar: author: type: file: issue: branch: message:", matchCount: "{n} de {total}",
     modeHighlight: "Realçar", modeFilter: "Filtrar", modeHighlightTip: "Aparecem todos os commits; os outros ficam esbatidos. Clica para mostrar só os que batem.",
     modeFilterTip: "Só aparecem os que batem. Clica para mostrar todos os commits.",
+    wip: "Alterações por commitar ({n} ficheiros)", wipStaged: "{n} no stage", activity: "Actividade", activityTip: "{n} commits · {from} → {to}",
   },
 } satisfies Messages<string>;
 export type GraphScreenKey = keyof typeof GRAPH_SCREEN_MESSAGES.en;

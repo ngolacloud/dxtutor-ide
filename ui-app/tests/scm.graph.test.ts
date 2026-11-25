@@ -175,3 +175,45 @@ describe("a pesquisa na cadeia real", () => {
     M.graphScreen.setQuery(""); M.graphScreen.setMode("highlight");
   });
 });
+
+import { activityBuckets } from "../src/features/scm/domain/activity";
+
+describe("o minimapa e a linha WIP", () => {
+  it("commits por intervalo, os que batem e o mais recente de cada um", () => {
+    const b = activityBuckets([{ h: "a", t: 0, match: true }, { h: "b", t: 10, match: false }, { h: "c", t: 100, match: true }, { h: "d", t: 95, match: false }], 2);
+    expect(b.map((x) => [x.count, x.matched, x.newest])).toEqual([[2, 1, "b"], [2, 1, "c"]]);
+    expect(activityBuckets([])).toEqual([]);
+    expect(activityBuckets([{ h: "a", t: 5, match: false }])).toHaveLength(1);
+  });
+
+  it("no desktop com alterações por commitar: a linha WIP leva ao Source Control; as barras levam ao commit", async () => {
+    const w = (await bootApp()) as unknown as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    w.DXR = { root: "/w/repo", git: true };
+    w.__TAURI__ = { core: { invoke: async () => { throw new Error("offline"); } } };
+    Object.assign(w.GIT, {
+      c: { b2: { h: "b2", m: "feat: two", p: ["b1"], b: "main", a: "Ana", t: 2_000_000_000, files: [] }, b1: { h: "b1", m: "feat: one", p: [], b: "main", a: "Ana", t: 1_000_000_000, files: [] } },
+      order: ["b2", "b1"], refs: { main: "b2" }, tags: {},
+    });
+    const key = w.ROOT + "wip.txt";
+    w.FS[key] = { content: "new", orig: "old" };
+    const panes: string[] = [];
+    w.goPane = (p: string) => panes.push(p);
+    try {
+      const h = document.createElement("div");
+      document.body.appendChild(h);
+      w.VIEW.graph({ id: "graph", kind: "graph" }, h);
+      const wip = h.querySelector(".gl-wip")!;
+      expect(wip.textContent).toMatch(/Uncommitted changes \(\d+ files\)/);
+      wip.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+      expect(panes).toEqual(["scm"]);
+      const bars = h.querySelectorAll(".gl-mbar");
+      expect(bars).toHaveLength(2);
+      bars[0].dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+      const M = await import("../src/features/scm");
+      expect(M.graphSel()).toBe("b1");
+    } finally {
+      delete w.FS[key]; delete w.DXR; delete w.__TAURI__; delete w.goPane;
+      Object.assign(w.GIT, { c: {}, order: [], refs: {}, tags: {} });
+    }
+  });
+});

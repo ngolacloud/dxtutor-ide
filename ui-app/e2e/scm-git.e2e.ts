@@ -66,6 +66,15 @@ function fakeBackend(): void {
       case "git_rebase":
         return (args.op as { op: string }).op === "run" ? { ...plan, commits: [commits[1]] } : plan;
       // RF-E08: the working tree has a Co-Dev block of PRJ-3 not committed yet
+      // r23 F3: the Commit Graph's sidebar and a commit's patch
+      case "git_refs":
+        return { head: "develop", headSha: "ddddddd", remotes: ["origin"],
+          branches: [{ name: "develop", sha: "ddddddd", upstream: "origin/develop", ahead: 1, behind: 0, gone: false, current: true }, { name: "main", sha: "bbbbbbb", upstream: "origin/main", ahead: 0, behind: 2, gone: false, current: false }],
+          remoteBranches: [{ remote: "origin", name: "develop", sha: "ccccccc" }, { remote: "origin", name: "main", sha: "bbbbbbb" }],
+          tags: [{ name: "v0.1.0", sha: "bbbbbbb", annotated: true }], stashes: [{ index: 0, message: "On develop: lexer experiment", time: now - 7200 }],
+          worktrees: [{ path: "/proj", head: "dddddddd", branch: "develop", current: true }], contributors: [{ name: "Ana", email: "ana@example.com", commits: 2 }, { name: "Rui", email: "rui@example.com", commits: 1 }] };
+      case "git_show":
+        return `commit ${args.hash}\n\n src/lib.rs | 2 +-\ndiff --git a/src/lib.rs b/src/lib.rs\n`;
       case "git_changes":
         return [{ path: "src/lib.rs", status: "M" }];
       case "project_change_sets":
@@ -157,4 +166,23 @@ test("RF-E08: the Co-Dev change sets of the working tree, by issue — Stage sug
   // the file opens its diff
   await page.locator('#pane-scm [data-action="gx-cs-open"]').click();
   await expect(page.locator(".tab.active")).toContainText("lib.rs");
+});
+
+test("r23 F3: the Commit Graph — the refs sidebar, ref labels, search with highlight and filter", async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => (window as unknown as { openGraph: () => void }).openGraph());
+  const gl = page.locator(".gl-screen");
+  await expect(gl.locator(".gl-sec summary")).toHaveText(["Branches2", "Remotes2", "Tags1", "Stashes1", "Worktrees1", "Contributors2"]);
+  await expect(gl.locator('.gl-row[data-on="ddddddd"] .gl-ref')).toHaveText(["● develop"]);
+  await expect(gl.locator('.gl-row[data-on="bbbbbbb"] .gl-ref')).toHaveText(["main", "origin/main", "v0.1.0"]);
+  await expect(gl.locator('.gl-item[data-on="bbbbbbb"] .gl-ab')).toHaveText("↓2");
+  await page.screenshot({ path: test.info().outputPath("f3-graph.png") });
+  await gl.locator(".gl-search").fill("author:Ana");
+  await expect(gl.locator(".gl-row.dim")).toHaveCount(1);
+  await gl.locator('[data-action="graph:mode"]').click();
+  await expect(gl.locator(".gl-row")).toHaveCount(2);
+  await expect(gl.locator(".gl-bar")).toContainText("2 of 3");
+  await gl.locator('.gl-row[data-on="ccccccc"]').click();
+  await expect(gl.locator(".gl-det")).toContainText("src/lib.rs");
+  await page.screenshot({ path: test.info().outputPath("f3-graph-filter.png") });
 });

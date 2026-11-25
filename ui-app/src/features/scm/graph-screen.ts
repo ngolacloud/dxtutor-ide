@@ -22,6 +22,8 @@ import { computeGraphLayout } from "./domain/graph";
 import { isEmptyQuery, matches, parseQuery } from "./domain/search";
 import { conventionalOf } from "./domain/conventional";
 import { issueKeyIn } from "./domain/trailers";
+import { activityBuckets } from "./domain/activity";
+import { listChanges } from "./domain/status";
 
 const t = translator(GRAPH_SCREEN_MESSAGES);
 const tg = translator(GRAPH_MESSAGES);
@@ -29,6 +31,15 @@ const tg = translator(GRAPH_MESSAGES);
 export const graphScreen = makeGraphScreen({ git: tauriGitRefs(), root: () => B.gitRoot() });
 
 let host: HTMLElement | null = null;
+
+/** the working tree's uncommitted files (desktop repository only) */
+function wipOf(): { files: number; staged: number } | null {
+  if (!B.gitRoot()) return null;
+  const changed = listChanges(B.files());
+  if (!changed.length) return null;
+  const staged = B.staged();
+  return { files: changed.length, staged: changed.filter((p) => staged.has(p)).length };
+}
 
 function model(): GraphVm {
   const G = B.git(), br = B.branch(), sel = graphSel(), st = graphScreen.state();
@@ -58,6 +69,8 @@ function model(): GraphVm {
     selected: sel, files: selFiles, refs: st.refs, fallbackLabels,
     loading: st.loading, error: st.error, branchCount: st.refs ? st.refs.branches.length : Object.keys(G.refs).length,
     query: st.query, mode: st.mode, matchCount: hit.size, total: G.order.length,
+    wip: wipOf(), activity: activityBuckets(G.order.map((h) => ({ h, t: G.c[h].t, match: hit.has(h) }))),
+    when: (t) => new Date(t).toISOString().slice(0, 10),
   };
 }
 
@@ -104,5 +117,6 @@ registerActions({
   "graph:search": { input: (c) => graphScreen.setQuery((c.el as HTMLInputElement).value) },
   "graph:mode": { click: () => graphScreen.setMode(graphScreen.state().mode === "filter" ? "highlight" : "filter") },
   "graph:token": { click: (c) => { c.stop(); graphScreen.addToken(c.on); } },
+  "graph:wip": { click: () => B.goPane("scm") },
   "graph:file": { click: (c) => { c.stop(); if (B.files()[B.rootKey() + c.on]) B.openRel(c.on); else B.toast(t("notInBranch")); } },
 });
