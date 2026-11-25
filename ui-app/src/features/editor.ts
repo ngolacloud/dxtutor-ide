@@ -30,6 +30,7 @@ import { lineAnnotation } from "../app/line-annotation";
 import { inlineValues } from "../app/inline-values";
 import { codevUndo } from "../app/codev-undo";
 import { authorOf } from "./scm";
+import { dbgBreaks, dbgCurrent } from "./debug";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -107,9 +108,9 @@ function paintEdFull(p: string): void {
   /* breakpoints, the debugger line and Error Lens use real line numbers: skipped while the overlay shows proposed lines */
   if (VIEWS.get(p)) return;
   const gs = gut.children, ls = hl.children;
-  [...PE.dbgBreaks].filter((b) => b.startsWith(p + ':')).forEach((b) => { const g = gs[+(b.split(':').pop() as string) - 1]; if (g) g.classList.add('bp'); });
+  [...dbgBreaks].filter((b) => b.startsWith(p + ':')).forEach((b) => { const g = gs[+(b.split(':').pop() as string) - 1]; if (g) g.classList.add('bp'); });
   /* a linha onde o gdb parou (ADR-0006, R4) */
-  const cur = PE.dbgCurrent ? PE.dbgCurrent() : null;
+  const cur = dbgCurrent();
   if (cur && cur.path === p && ls[cur.line - 1]) { ls[cur.line - 1].classList.add('dbg-cur'); if (gs[cur.line - 1]) gs[cur.line - 1].classList.add('dbg-cur'); }
   /* A7: os valores das variáveis no fim das linhas acima da paragem (app/inline-values.ts) */
   const iv = inlineValues.of(p); if (iv) Object.entries(iv).forEach(([n, txt]) => { const l = ls[+n - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="dv-inline">${esc(txt)}</span>`); });

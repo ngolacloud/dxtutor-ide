@@ -30,6 +30,8 @@ import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, o
 import { stage } from "../../features/scm";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
+import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
+import { reviewFindings, explainCmd, renderCreviewView, renderHoodView } from "../../features/codereview";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -549,9 +551,8 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
       const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
       const available = !!(await inv("debug_available"));
-      const G = window as unknown as { startDebug: () => Promise<void>; dbgStep: () => Promise<void>; dbgCurrent: () => { path: string; line: number } | null; toggleBp: (p: string, l: number) => void };
       const pane = () => document.getElementById("pane-debug")?.textContent || "";
-      if (!available) { await G.startDebug(); return { available, saysNoGdb: /O gdb não está instalado/.test(pane()) }; }
+      if (!available) { await startDebug(); return { available, saysNoGdb: /O gdb não está instalado/.test(pane()) }; }
       // a member of the root workspace below: its own [workspace] table made cargo refuse («multiple workspace roots»)
       writeFile(ROOT + "dbgself/Cargo.toml", '[package]\nname = "dbgself"\nversion = "0.1.0"\nedition = "2021"\n');
       writeFile(ROOT + "dbgself/src/main.rs", "fn main() {\n    let answer = 40 + 2;\n    println!(\"{answer}\");\n}\n");
@@ -560,21 +561,21 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       // the breakpoints persist (LS) across runs: toggling blindly could remove one left by an earlier run
       // line 2, not 3: a line breakpoint on `println!` resolves to several locations (the macro), so each
       // continue stops on line 3 again — real lldb behaviour; `let answer = 40 + 2;` has one location
-      for (const old of [ROOT + "dbgself/src/main.rs:3"]) if ((window as unknown as { dbgBreaks: Set<string> }).dbgBreaks.has(old)) G.toggleBp(ROOT + "dbgself/src/main.rs", 3);
-      const bpKeyNow = ROOT + "dbgself/src/main.rs:2", breaks = (window as unknown as { dbgBreaks: Set<string> }).dbgBreaks;
-      if (!breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2);
-      await G.startDebug();
-      const stoppedAt = G.dbgCurrent();
+      for (const old of [ROOT + "dbgself/src/main.rs:3"]) if (dbgBreaks.has(old)) toggleBp(ROOT + "dbgself/src/main.rs", 3);
+      const bpKeyNow = ROOT + "dbgself/src/main.rs:2", breaks = dbgBreaks;
+      if (!breaks.has(bpKeyNow)) toggleBp(ROOT + "dbgself/src/main.rs", 2);
+      await startDebug();
+      const stoppedAt = dbgCurrent();
       // A7: over DAP (lldb-dap) when it is installed — the engine, then (after the step, once `answer`
       // exists) the variables tree and the values inline
       const engine = document.querySelector("#pane-debug .dbg-engine")?.textContent || "gdb";
-      await G.dbgStep();
-      await wait(() => !G.dbgCurrent() || G.dbgCurrent()!.line !== 2, 20000);
-      const after = G.dbgCurrent();
+      await dbgStep();
+      await wait(() => !dbgCurrent() || dbgCurrent()!.line !== 2, 20000);
+      const after = dbgCurrent();
       const vars = /answer/.test(pane());
       const inline = [...document.querySelectorAll("#ed-hl .dv-inline")].map(e => e.textContent).join(" | ");
-      if (after) await G.startDebug(); // continuar até ao fim
-      if (breaks.has(bpKeyNow)) G.toggleBp(ROOT + "dbgself/src/main.rs", 2); // a próxima execução começa limpa
+      if (after) await startDebug(); // continuar até ao fim
+      if (breaks.has(bpKeyNow)) toggleBp(ROOT + "dbgself/src/main.rs", 2); // a próxima execução começa limpa
       return { available, engine, stoppedAt, vars, inline, after, ended: /O programa terminou/.test(pane()), pane: pane().slice(0, 400) };
     });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e

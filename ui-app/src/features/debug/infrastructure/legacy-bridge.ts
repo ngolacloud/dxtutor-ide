@@ -15,11 +15,10 @@
 
 const G = window as unknown as Record<string, any>;
 
-/* ───── breakpoints: window-backed ─────
-   `window.BPS` transporta o Set para que o editor (`window.dbgBreaks`, pintura do
-   gutter) veja a MESMA referência que o motor. */
-/** O Set de breakpoints (`path:line`), reutilizado se já existir no `window`. */
-export const breakpoints = (): Set<string> => (G.BPS = G.BPS instanceof Set ? G.BPS : new Set<string>());
+/* ───── breakpoints ───── o Set que o motor e o editor (pintura do gutter) partilham */
+/* o Set é deste módulo desde a U7p5 do ADR-0004 (era window.BPS); o resíduo reexporta-o como dbgBreaks */
+const BPS = new Set<string>();
+export const breakpoints = (): Set<string> => BPS;
 
 /* ───── navegação / separador actual / painel / registo de panes ───── */
 export interface EditorTab { path?: string; kind?: string }

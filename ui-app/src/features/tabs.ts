@@ -18,10 +18,12 @@ import { tabMarks } from "../app/tab-marks";
 import { $, esc, svg, toast } from "../core";
 import { editorStore, type Tab } from "../app/store/editor";
 import { VIEW } from "../app/store/registry";
-import { registerActions, globalCalls } from "../app/actions";
+import { registerActions, callGlobal } from "../app/actions";
 import { services } from "../app/services";
 import { ctxPill } from "./codev";
 import { stLang } from "./editor";
+import { explainCmd, reviewCmd } from "./codereview";
+import { startDebug } from "./debug";
 
 interface LegacyGlobals {
   FS: Record<string, { content: string; orig: string | null }>;
@@ -185,7 +187,9 @@ function stepTab(d: number): void {
    locais e a barra deixara de aparecer ao abrir um ficheiro (regressão corrigida aqui). */
 const EACT: [string, string, string, string][] = [['bulb', 'Explain', 'Ctrl+K E', 'explainCmd'], ['review', 'Code review', 'Ctrl+K R', 'reviewCmd'], ['bug', 'Debug', 'F5', 'startDebug'], ['run', 'RUN', 'Ctrl+F5', 'dxRun'], ['eye', 'Under the hood', 'Ctrl+K U', 'hoodCmd']];
 /* os botões da barra de acções do editor chamam a função publicada, no acto (eram `onclick="f()"` — ADR-0004, U5a) */
-registerActions(globalCalls("tabs", EACT.map((a) => a[3])));
+/* os da barra que já não vão ao window chamam a função importada (ADR-0004, U7p5); os outros (dxRun, hoodCmd) a publicada */
+const EACT_LOCAL: Record<string, () => unknown> = { explainCmd: () => explainCmd(), reviewCmd: () => reviewCmd(), startDebug: () => startDebug() };
+registerActions(Object.fromEntries(EACT.map((a) => [`tabs:${a[3]}`, { click: () => void (EACT_LOCAL[a[3]] ? EACT_LOCAL[a[3]]() : callGlobal(a[3])) }])));
 function showWithActions(id: string | null): void {
   show(id);
   const t = tabOf(editorStore.currentTabId), b = $("#breadcrumbs");

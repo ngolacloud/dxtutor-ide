@@ -184,7 +184,9 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
    `renderHoodView` (também registados em VIEW.creview/VIEW.hood, abaixo); o resto
    (curFile/explainCmd/reviewCmd/hoodCmd/reviewFindings) é lido por nome livre pelo
    resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus). ── */
-publish({ renderCreviewView, renderHoodView, curFile, explainCmd, hoodCmd, reviewCmd, reviewFindings });
+publish({ hoodCmd });
+/* o resto lê-se por import desde a U7p5 do ADR-0004; o hoodCmd fica no window (o e2e do hood chama-o) */
+export { renderCreviewView, renderHoodView, curFile, explainCmd, reviewCmd, reviewFindings };
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
    Liga o nome de acção (emitido como `data-action` pelo markup de

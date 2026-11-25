@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 194 depois da U7p4, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 176 depois da U7p5, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1284,3 +1284,20 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   o `LTS` (Learning Track), que só se lêem no `boot7` e na decoração do `VIEW.lt`, vêm pelo registo; o arranque, o
   PairCode e o desktop importam o `buildMenubar`; os atalhos importam o `vizFromEditor`. O `features/menus.ts` deixa
   de publicar e sai da lista do A9 (49). Ordem de avaliação igual. Globais publicadas 217 → 194.
+  **U7p5 — o debug e o codereview (2026-11-25).** A superfície do `features/debug.ts` sai inteira: `renderDebugPane`,
+  `dbgBreaks` (o Set dos breakpoints, agora um valor da ponte em vez de `window.BPS`), `dbgCurrent`, `startDebug`,
+  `dbgContinue`, `dbgStep` (o «step over» que estava publicado), `dbgStepInto`, `dbgStop`, `toggleBp`, `drawDbg` e
+  `saveBps` passam a exports; a do `features/codereview.ts` fica só com o `hoodCmd` (o e2e do hood chama-o) e os
+  outros seis (`renderCreviewView`, `renderHoodView`, `curFile`, `explainCmd`, `reviewCmd`, `reviewFindings`)
+  passam a exports. A barra de acções dos separadores (`EACT`) chamava-os por `globalCalls` a partir da tabela
+  (o scanner não via esses nomes, que não estão escritos no `globalCalls`): os que saem chamam a função importada
+  e o `dxRun`/`hoodCmd` continuam pelo publicado. O editor, os atalhos, o arranque e o auto-teste importam. O
+  `features/debug.ts` deixa de publicar e sai da lista do A9 (48). Ordem de avaliação igual. Globais publicadas
+  194 → 176. **Declarações globais órfãs e um bug da U7n:** o auto-teste apanhou o `reviewFindings`/`renderCreviewView`
+  lidos por nome livre no `selftest.ts` — o tsc não os via porque a declaração global (`platform/desktop/types.ts`)
+  ficara depois de o nome sair do window. As fatias anteriores deixaram 54 declarações assim (`declare global`) e 41
+  membros de `interface Window` no `core.ts`; saem todas (ficam só os globais reais do runtime: `__TAURI__`,
+  `__PAIRSIM__`, `webkitAudioContext`, `JSZip`, …), e o tsc encontrou mais um leitor esquecido: o item «Co-Dev» do
+  menu View (`app/commands.ts`) chamava o `toggleAgent` por nome livre, que a U7n tirou do window — clicar nele
+  lançava um ReferenceError (já no `origin`). Passa a importá-lo. Regra daqui para a frente: tirar um nome do window
+  tira também a sua declaração global.

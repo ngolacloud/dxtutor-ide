@@ -16,13 +16,14 @@ import { closeMenus } from "./menus";
 import { openSettings } from "./codev";
 import { nextProblem } from "./diagnostics";
 import { vizFromEditor } from "./visualizer";
+import { startDebug, dbgStop, dbgStep, dbgStepInto, toggleBp } from "./debug";
+import { explainCmd, reviewCmd } from "./codereview";
 
 interface ShortcutGlobals {
   termOwnsKey?: (e: KeyboardEvent) => boolean;
-  explainCmd: (deep?: boolean) => void; reviewCmd: () => void; hoodCmd: () => void;
-  startDebug: (k?: string) => void;
-  dxRun: () => void; dbgStop: () => void; dbgStep: () => void; dbgStepInto: () => void;
-  toggleBp: (p: string, line: number) => void; goPane: (p: string) => void;
+  hoodCmd: () => void;
+  dxRun: () => void;
+  goPane: (p: string) => void;
   tabOf: (id: string | null) => { path?: string } | undefined; cur: string | null;
   vsxFmt: () => void;
 }
@@ -37,14 +38,14 @@ document.addEventListener("keydown", (e) => {
   if (G.termOwnsKey && G.termOwnsKey(e)) return; /* foco num terminal real (features/panel): a tecla é da shell */
   if (CHORD && Date.now() - CHORD < 1600) {
     CHORD = 0; chordLabel("");
-    if (k === "e") return go(() => G.explainCmd()); if (k === "r") return go(G.reviewCmd); if (k === "u") return go(G.hoodCmd);
-    if (k === "d") return go(() => G.startDebug()); if (k === "v") return go(() => vizFromEditor());
+    if (k === "e") return go(() => explainCmd()); if (k === "r") return go(reviewCmd); if (k === "u") return go(G.hoodCmd);
+    if (k === "d") return go(() => startDebug()); if (k === "v") return go(() => vizFromEditor());
   }
   if (c && !e.shiftKey && !e.altKey && k === "i" && codevAsk.available()) return go(() => codevAsk.fromEditor());
   if (c && !e.shiftKey && !e.altKey && k === "k") { go(() => { CHORD = Date.now(); chordLabel("(Ctrl+K) waiting for second key…"); }); return; }
-  if (e.key === "F5" && c) return go(G.dxRun); if (e.key === "F5" && e.shiftKey) return go(G.dbgStop);
-  if (e.key === "F5") return go(() => G.startDebug()); if (e.key === "F10") return go(G.dbgStep); if (e.key === "F11") return go(G.dbgStepInto);
-  if (e.key === "F9") { const t = G.tabOf(G.cur), ta = $("#ed-ta") as HTMLTextAreaElement | null; if (t && t.path && ta) go(() => G.toggleBp(t.path as string, ta.value.slice(0, ta.selectionStart).split("\n").length)); return; }
+  if (e.key === "F5" && c) return go(G.dxRun); if (e.key === "F5" && e.shiftKey) return go(dbgStop);
+  if (e.key === "F5") return go(() => startDebug()); if (e.key === "F10") return go(dbgStep); if (e.key === "F11") return go(dbgStepInto);
+  if (e.key === "F9") { const t = G.tabOf(G.cur), ta = $("#ed-ta") as HTMLTextAreaElement | null; if (t && t.path && ta) go(() => toggleBp(t.path as string, ta.value.slice(0, ta.selectionStart).split("\n").length)); return; }
   if (c && e.shiftKey && k === "d") return go(() => G.goPane("debug")); if (c && e.shiftKey && k === "x") return go(() => G.goPane("ext")); if (c && e.shiftKey && k === "t") return go(() => G.goPane("tasks"));
   if (e.shiftKey && e.altKey && k === "f") return go(() => G.vsxFmt()); /* Format Document do dxtutor, sempre (era só com o «Prettier» instalado — ADR-0006, R6b) */
 }, true);

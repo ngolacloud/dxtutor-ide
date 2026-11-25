@@ -41,8 +41,7 @@ import { codevAsk } from "../app/codev-ask";
 import { inlineValues } from "../app/inline-values";
 import { isDesktop } from "../platform/tauri/core";
 import {
-  breakpoints, currentTab, pane, goPane, openPath, paintEd, setPanelTab, panes, lsGet, lsSet, publish,
-  root, fsRoot, content, fsKeys, exec, paletteChoose, paletteAsk, kubeTarget,
+  breakpoints, currentTab, pane, goPane, openPath, paintEd, setPanelTab, panes, lsGet, lsSet, root, fsRoot, content, fsKeys, exec, paletteChoose, paletteAsk, kubeTarget,
 } from "./debug/infrastructure/legacy-bridge";
 
 /* ───── estado (window-backed; o editor lê-o pela fachada `dbgBreaks`) ───── */
@@ -223,8 +222,7 @@ RP.debug = renderDebugPane;
      por nome livre ao disparar.
    • `dbgBreaks` (Set) e `dbgCurrent()` (onde o gdb parou) — as fachadas que o editor lê para
      pintar os breakpoints e a linha corrente. */
-publish({
-  renderDebugPane,
-  dbgBreaks: BPS, dbgCurrent,
-  startDebug, dbgContinue, dbgStep: () => dbgStep(false), dbgStepInto, dbgStop, toggleBp, drawDbg, saveBps,
-});
+/* lidos por import desde a U7p5 do ADR-0004 (o editor, os atalhos, o arranque, a barra de acções dos separadores e o
+   auto-teste): o dbgStep exportado é o «step over» que estava publicado */
+const dbgStepOver = (): Promise<void> => dbgStep(false);
+export { renderDebugPane, BPS as dbgBreaks, dbgCurrent, startDebug, dbgContinue, dbgStepOver as dbgStep, dbgStepInto, dbgStop, toggleBp, drawDbg, saveBps };

@@ -29,6 +29,8 @@ import { termClear } from "../features/terminal";
 import { rtConnect, k8sConnect, dxDeploy, dcAttach, drawRemote, promote, openEnvs } from "../features/infra";
 import { gfPrompt } from "../features/scm";
 import { buildMenubar } from "../features/menus";
+import { startDebug, dbgStep, dbgStepInto, dbgStop, toggleBp, drawDbg } from "../features/debug";
+import { explainCmd, reviewCmd } from "../features/codereview";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 

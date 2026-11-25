@@ -5,6 +5,7 @@ import { bootApp } from "./harness";
  * analisadores reais do projecto (`review_code`, IPC falso aqui). No browser nada muda. */
 
 let w: any;
+let CRM: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7p5)
 let calls: Array<Record<string, unknown>>;
 let LX: string;
 
@@ -37,6 +38,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(async () => {
   w = await bootApp();
+  CRM = await import("../src/features/codereview");
   calls = [];
   LX = w.ROOT + "crates/lexer/src/lib.rs";
 });
@@ -49,7 +51,7 @@ afterEach(() => {
 describe("browser (sem pasta)", () => {
   it("só as regras locais: sem a secção dos analisadores", () => {
     const h = host();
-    w.renderCreviewView({ path: LX }, h);
+    CRM.renderCreviewView({ path: LX }, h);
     expect(h.querySelector(".cr-analyzers")).toBe(null);
   });
 });
@@ -62,7 +64,7 @@ describe("desktop com pasta: review_code", () => {
 
   it("pede a revisão do ficheiro (âmbito file, caminho relativo) e mostra os achados com a classe honesta", async () => {
     const h = host();
-    w.renderCreviewView({ path: LX }, h);
+    CRM.renderCreviewView({ path: LX }, h);
     expect(h.querySelector(".cr-analyzers")!.textContent).toMatch(/Running the installed analyzers/);
     await flush();
     expect(calls).toEqual([{ cmd: "review_code", root: "/proj", scope: "file", path: "crates/lexer/src/lib.rs", version: null }]);
@@ -80,7 +82,7 @@ describe("desktop com pasta: review_code", () => {
   it("«line N» abre o ficheiro na linha do achado", async () => {
     const open = vi.spyOn(w, "openPath").mockImplementation(() => {});
     const h = host();
-    w.renderCreviewView({ path: LX }, h);
+    CRM.renderCreviewView({ path: LX }, h);
     await flush();
     h.querySelector<HTMLElement>('.cr-analyzers [data-action="open-line"]')!.click();
     expect(open).toHaveBeenCalledWith(LX, 10);
@@ -90,7 +92,7 @@ describe("desktop com pasta: review_code", () => {
     let resolve!: (v: unknown) => void;
     w.__TAURI__.core.invoke = () => new Promise((r) => { resolve = r; });
     const h = host();
-    w.renderCreviewView({ path: LX }, h);
+    CRM.renderCreviewView({ path: LX }, h);
     const old = h.querySelector(".cr-analyzers")!;
     h.innerHTML = "<p>outra tab</p>"; // a tab foi redesenhada / fechada
     resolve(REPORT);
@@ -102,12 +104,12 @@ describe("desktop com pasta: review_code", () => {
   it("sem achados, di-lo; um erro do backend diz-se", async () => {
     w.__TAURI__.core.invoke = async () => ({ ...REPORT, findings: [] });
     const h = host();
-    w.renderCreviewView({ path: LX }, h);
+    CRM.renderCreviewView({ path: LX }, h);
     await flush();
     expect(h.querySelector(".cr-analyzers")!.textContent).toMatch(/No findings from the analyzers/);
     w.__TAURI__.core.invoke = async () => { throw new Error("review task failed: x"); };
     const h2 = host();
-    w.renderCreviewView({ path: LX }, h2);
+    CRM.renderCreviewView({ path: LX }, h2);
     await flush();
     expect(h2.querySelector(".cr-analyzers")!.textContent).toMatch(/A revisão falhou: review task failed: x/);
   });

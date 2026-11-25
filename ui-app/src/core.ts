@@ -42,13 +42,9 @@ declare global {
     log: (src: string, msg: string) => void;
     toast: (m: string) => void;
     writeFile: (p: string, content: string) => void;
-    rerender: (kind: string) => void;
     /* superfície que a feature `theme` ainda resolve via window (shim transitório) */
     save: () => void;
     tabOf: (id: string | null) => { kind?: string } | null;
-    /* feature `notifications`: o residual (app.ts/v6.ts) emite notas e abre o painel por nome livre */
-    note: (m: string) => void;
-    toggleNotes: () => void;
     /* feature `remote`: o residual delega o render do pane por nome (RP.remote → window.renderRemotePane) */
     /* feature `run`: o residual delega o render do pane por nome (RP.run → window.renderRunPane) */
     /* feature `testing` (features/testing/): delegação do pane (RP.test → window.renderTestPane) */
@@ -61,39 +57,22 @@ declare global {
     FS: Record<string, { content: string; orig: string | null }>;
     fIcon: (p: string) => string;
     refresh: (fromEd?: boolean, force?: boolean) => unknown;
-    doSearch: () => void;
-    replaceAll: () => void;
     /* feature `debug`: os breakpoints (`BPS`, window-backed) e o pane (RP.debug →
        window.renderDebugPane). A sessão simulada (`DBG`) e os lançadores saíram (ADR-0006, R1c2). */
-    BPS: Set<string>;
-    renderDebugPane: () => void;
     /* feature `scm` (migrada de app.ts): Source Control + grafo/gitflow resumidos.
        Dados/helpers donos do monólito, lidos por fachada; estado primitivo (BRANCH,
        COMMIT_MSG) é window-backed (nomes livres do monólito aliasam estas props). */
     BRANCH: string;
-    COMMIT_MSG: string;
     changes: () => string[];
     STAGED: Set<string>;
-    graphLayout: () => { rows: Array<{ h: string; col: number; pl: number[] }>; idx: Record<string, number>; max: number };
     short: (p: string) => string;
     stOf: (p: string) => string;
     GIT: any;
-    LANE: string[];
-    authorOf: (a: string) => { n: string; col: string };
     rel: (t: number) => string;
-    gfGuide: () => string;
     /* commit v4 git-aware (módulo-local do monólito), distinto de window.commit (v2):
        o onkeydown Ctrl+Enter do pane scm chama esta fachada. */
     commitGit: (msg?: string, author?: string) => unknown;
     renderScmPane: () => void;
-    /* feature `graph` (migrada de app.ts): corpo do renderer da tab `graph` (DAG de
-       commits). O motor git (graphLayout/GIT/LANE/BRANCH/authorOf/isFlow/GSEL/rel) é
-       lido por nome livre (ambiente, declarado em bridge.ts/pair.ts), como diff.ts lê
-       FS; aqui só a delegação do render (VIEW.graph → window.renderGraphView). */
-    /* feature `termgit` (migrada de app.ts): handler `git` do terminal (XC.git). O motor
-       git é lido por nome livre, como graph.ts; `XC.git` (features/terminal.ts) fica SHIM:
-       `XC.git=(a,raw)=>window.gitCmd(a,raw)`. */
-    gitCmd: (a: string[], raw: string) => { ok: boolean } | undefined;
     /* feature `diff`: corpo do renderer da tab `diff` (VIEW.diff → window.renderDiffView). */
     /* feature `router`: amostragem ao vivo disponível (router inicializa; bridge põe a true). */
     LIVE_OK: boolean;
@@ -107,18 +86,6 @@ declare global {
        (GIT.c/COMMITS, dono = scm.ts) pelo real (git_log/git_show) em desktop. O residual
        (menu Help + paleta) delega o render por nome (VIEW.analysis → renderChangelogPage). */
     COMMITS: Array<{ h: string; m: string }>;
-    clLog: () => Promise<ClCommit[]>;
-    clShow: (hash: string) => Promise<string>;
-    /* feature `tutor` (migrada de app.ts): pane «Learning Track» (v4). O curso e o
-       progresso (LTS) continuam donos do monólito; a feature lê por fachada. */
-    LTS: { lang: string | null; levels: string[]; done: Record<string, unknown>; open: Record<string, boolean>; cur: string | null };
-    course: () => { title: string; units: any[] };
-    ltUnits: () => any[];
-    ltDone: (id: string) => boolean;
-    ltSeq: () => any[];
-    ltPts: () => number;
-    LT_BADGE: Record<string, string>;
-    stars: (d: number, kind?: string) => string;
     /* feature `tasks` (migrada de v6.ts): pane «Tasks» (backlog/sprints) + vista de
        detalhe da issue (VIEW.issue). O backlog (BL), estágios (STAGES) e agentes
        (AGENTS) continuam donos do monólito/board.ts/team.ts; nfmt é do core (import). TK/
@@ -137,8 +104,6 @@ declare global {
        abaixo são fachadas que a feature CONSOME doutras features/do monólito: `symbols`
        (explorer.ts), `selText` (editor.ts), `updateAgentUI` (codev.ts), `composeServices`
        (stack.ts). */
-    renderCreviewView: (t: unknown, host: HTMLElement) => void;
-    renderHoodView: (t: unknown, host: HTMLElement) => void;
     symbols: (p: string) => Array<{ k: string; n: string; line: number }>;
     selText: () => string;
     updateAgentUI: () => void;
@@ -149,15 +114,9 @@ declare global {
        v6 retém só os shims (RP.ext/VIEW.extd) e lê o motor por fachada vsxOn/vsxFmt/
        vsxCmds. Estas decls documentam a superfície window partilhada. */
     EXS: any;
-    EXT: any[];
-    projectContext: () => Array<[string, string]>;
     extAll: () => any[];
     extRow: (x: any) => string;
     renderExtPane: () => void;
-    /* feature `codev` (migrada de app.ts): pane «Co-Dev» (base v3 + decoração v4
-       Equipa/Backlog/Studio dobradas num só render). Missões, checkpoints, routing,
-       papéis e o desenho (SD, window-backed) continuam donos do monólito. */
-    MISSIONS: any[];
     SD: any;
     setMode: (m: string) => void;
     /* feature `infra` (migrada de v5.ts base + v6.ts decoração): pane «Infra» (runtime
@@ -166,20 +125,7 @@ declare global {
        continuam window-backed por causa de bridge.ts/stack.ts; ENVS/RTN/KCTX/k8sDocs e
        ENVL/ENVX/envHealth/envState/openObserve nascem e vivem em features/infra.ts). */
     ENVS: any;
-    RTN: Record<string, string>;
-    KCTX: string[];
-    DEVC: any;
-    K8S: any;
     STACK: any;
-    k8sDocs: () => any[];
-    P_DC: string;
-    ENVL: Record<string, string>;
-    ENVX: any;
-    envHealth: (e: string) => string;
-    envState: (e: string) => any;
-    openObserve: (env: string, n: string) => void;
-    renderInfraPane: () => void;
-    infraDraw: () => void;
     /* feature `syntax` (migrada de app.ts): realce de uma linha. O editor (paintEd),
        o diff, o `cat` do terminal e o outline — em app.ts e em v5.ts/v6.ts —
        resolvem-no por nome livre. */
@@ -194,10 +140,6 @@ declare global {
        é window-backed porque o resíduo boot/keydown de app.ts o lê por nome livre:
        boot usa PIDX/PITEMS + palDraw/palRun, o keydown usa closePal. */
     palette: (pre?: string, cfg?: any) => void;
-    closePal: () => void;
-    fuzzy: (q: string, s: string) => boolean;
-    palDraw: () => void;
-    palRun: (i: number) => void;
   }
 }
 

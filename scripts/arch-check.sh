@@ -279,11 +279,11 @@ A9_ALLOW="
   app/store/registry.ts app/store/storage.ts boot.ts features/board.ts
   features/board/infrastructure/legacy-bridge.ts features/checkpoint.ts features/codereview.ts
   features/codereview/infrastructure/legacy-bridge.ts features/codev.ts
-  features/codev/infrastructure/legacy-bridge.ts features/debug.ts
-  features/debug/infrastructure/legacy-bridge.ts features/diagnostics.ts features/diff.ts features/editor.ts
-  features/explorer.ts features/ext.ts features/ext/infrastructure/legacy-bridge.ts features/i18n.ts
-  features/infra.ts features/infra/infrastructure/legacy-bridge.ts features/learn.ts features/palette.ts
-  features/panel/index.ts features/panel/infrastructure/legacy-bridge.ts features/router.ts features/scm.ts
+  features/codev/infrastructure/legacy-bridge.ts features/debug/infrastructure/legacy-bridge.ts
+  features/diagnostics.ts features/diff.ts features/editor.ts features/explorer.ts features/ext.ts
+  features/ext/infrastructure/legacy-bridge.ts features/i18n.ts features/infra.ts
+  features/infra/infrastructure/legacy-bridge.ts features/learn.ts features/palette.ts features/panel/index.ts
+  features/panel/infrastructure/legacy-bridge.ts features/router.ts features/scm.ts
   features/scm/infrastructure/legacy-bridge.ts features/shell.ts features/stack.ts features/studio.ts
   features/syntax.ts features/tabs.ts features/tasks.ts features/team.ts features/terminal.ts
   features/testing/index.ts features/testing/infrastructure/legacy-bridge.ts features/visualizer.ts

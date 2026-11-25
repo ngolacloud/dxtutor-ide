@@ -130,36 +130,24 @@ declare global {
   const hlLine: (s: string, ext: string) => string;
   const fIcon: (p: string) => string;
   var openTab: (t: Partial<Tab> & { id: string }, act?: boolean) => void;
-  var drawTabs: () => void;
   var gotoLine: (n: number) => void;
   var connected: () => string[];
-  // Globais lexicais/helpers do monólito usados pelas features-folha tipadas (explorer/...).
-  const SECOPEN: Record<string, boolean>;
-  const sel: (row: HTMLElement) => void;
-  const drawTimeline: () => void;
   const palette: (pre?: string, cfg?: any) => void;
-  const MISSIONS: any[];
   // `ask` (dono = features/codev.ts): porta de aprovação humana — lido por nome livre
   // pela feature `checkpoint` (gfAsk) e por v5.ts/board.ts. `v`/`pri` são polimórficos
   // (número 0/1 ou o próprio candidato escolhido), por isso ficam `any`.
   const ask: (host: HTMLElement, btns: Array<{ l: string; v: any; pri?: any; done?: string }>) => Promise<any>;
   var commitGit: (msg?: string, author?: string) => { h: string; n: number } | null; // var: o bridge.ts liga-o ao git real (ADR-0006, R1d)
   const setMode: (m: string) => void;
-  var onKey: (e: KeyboardEvent) => void;
-  const LANG: Record<string, string>;
   const diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
   // Globais do i18n (i18n.ts): LOCALE window-backed (var → também em window.LOCALE);
   // __seen/__miss são instrumentação opcional de tradução (podem não existir).
   var LOCALE: string;
   var __seen: Set<string> | undefined;
   var __miss: Set<string> | undefined;
-  // Globais do Studio (studio.ts, @ts-nocheck) lidos pelos geradores tipados; catálogos
-  // heterogéneos → Record<string, any>, e os helpers de nó com assinatura fina.
-  const appDir: (n: any) => string;
   // Estado do desenho do Studio (studio.ts), window-backed (var → também em window.X);
   // o resíduo/onclicks inline e generators.ts escrevem/lêem por global.
   var SD: { nodes: Array<{ id: string; tech: string; n: string; x: number; y: number; st: string }>; edges: string[][] };
-  var drawStudio: () => void;
   // Globais lidos pela feature Learning Track (learn.ts). mdFull/paintEd/miniOff/stPos/
   // user/liveChat/agentPill/focusAgent/RP/LF/PANE vivem em app.ts (@ts-nocheck) e são
   // publicados no window; ONB/LT_HOOD são donos de learn.ts (window-backed → var).
@@ -176,7 +164,6 @@ declare global {
   var promptHTML: () => string;
   var show: (id: string | null) => void;
   var openPath: (p: string, line?: number) => void;
-  var scrollTerm: () => void;
   var setPanelTab: (pt: string, nofocus?: boolean) => void;
   var writeFile: (p: string, content: string) => void;
   var toast: (m: string) => void;
