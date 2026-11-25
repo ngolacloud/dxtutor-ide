@@ -14,6 +14,7 @@ import type { DesktopContext } from "./context";
 import { rerender } from "../../features/tabs";
 import { gitMerge, isFlow, commitMsg } from "../../features/scm";
 import { undo, merge3 } from "../../features/scm/extras";
+import { services } from "../../app/services";
 
 export function installGit(ctx: DesktopContext): void {
 const { R, gitc, git, gitOk, enqueue, isReal, relOf, say } = ctx;
@@ -119,7 +120,8 @@ commit(msg, author, _commit) {
     const model = by ? agentStore.providers[agentStore.provider]?.model || by : null;
     const trailers = assistTrailers(m, model);
     if (trailers.length) a.push("-m", trailers.join("\n"));
-    const c = await gitOk(...a);
+    /* r23 F4a (X03): the backend runs the secret scan first; a blocked commit asks the human (with a reason) */
+    const c = await (services.protect ? services.protect.guard(() => gitOk(...a)) : gitOk(...a));
     await syncGit();
     say(c.stdout.split("\n")[0]);
   });

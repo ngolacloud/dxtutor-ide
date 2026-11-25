@@ -87,5 +87,7 @@ import "./startup";
 import "./bridge";
 import "./pair";
 import "./features/panel/index";
+/* r23 F4a: a protecção de dados (redacção, secret scan antes do commit) */
+import "./features/protect/index";
 import "./features/lsp/index";
 import "./features/comments/index";

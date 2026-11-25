@@ -21,6 +21,7 @@ import type * as Infra from "../features/infra";
 import type * as Scm from "../features/scm";
 import type * as Diagnostics from "../features/diagnostics";
 import type * as Project from "../features/project/index";
+import type * as Protect from "../features/protect/index";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -59,6 +60,8 @@ export interface Services {
   panel: { termOwnsKey: (e: KeyboardEvent) => boolean };
   /** abrir o Project (features/project/index.ts, que avalia depois das boas-vindas — r23 F6) */
   project: Pick<typeof Project, "openProject">;
+  /** r23 F4a: um commit da UI que o secret scan bloqueou pergunta ao humano (features/protect, que avalia depois) */
+  protect: Pick<typeof Protect.protect, "guard">;
 }
 
 export const services: Partial<Services> = {};

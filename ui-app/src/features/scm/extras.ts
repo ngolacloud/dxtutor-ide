@@ -25,6 +25,7 @@ import { makeLaunchpad } from "./application/launchpad";
 import { renderLaunchpad } from "./ui/launchpad-view";
 import { tauriGh, openExternal, tauriCommits } from "./infrastructure/tauri";
 import { makeComposer } from "./application/composer";
+import { services } from "../../app/services";
 import { renderComposer } from "./ui/composer-view";
 import { makeMerge3 } from "./application/merge3";
 import { renderMerge3 } from "./ui/merge3-view";
@@ -125,8 +126,15 @@ let graphRemote: () => string | null = () => null;
 export const setRemoteSource = (f: () => string | null): void => { graphRemote = f; };
 
 /* ── r23 F3 (UI-SCM-14): the Commit Composer (and the lanes, experimental) ── */
+/* r23 F4a (X03): a commit the secret scan blocked asks the human (features/protect, which evaluates later) */
+const scanned = <T>(f: () => Promise<T>): Promise<T> => (services.protect ? services.protect.guard(f) : f());
+const commitsPort = tauriCommits();
 export const composer = makeComposer({
-  git: tauriGitExtras(), commits: tauriCommits(), root: () => B.gitRoot(), snapshot: (l) => undo.snapshot(l),
+  git: tauriGitExtras(),
+  commits: {
+    commitPaths: (r, ps, m) => scanned(() => commitsPort.commitPaths(r, ps, m)),
+    laneCommit: (r, b, ps, m) => scanned(() => commitsPort.laneCommit(r, b, ps, m)),
+  }, root: () => B.gitRoot(), snapshot: (l) => undo.snapshot(l),
   changed: () => B.reloadFromGit(), lanesOn: () => B.lanesOn(),
   openTab: () => B.openTab({ id: "git-composer", title: "Commit Composer", kind: "git-composer" }),
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
