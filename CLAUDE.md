@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 259 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 262 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -42,7 +42,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   falha até sair). As métricas «globais publicadas» e «shims de estado» do `ui-metrics.sh` também só descem.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments` e `welcome` — a página de boas-vindas da r23 F6); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — e `protect` — a protecção de dados da r23 F4a); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -760,6 +760,31 @@ o comando EXACTO e vai para o registo de auditoria.
 - **`audit_record`** (`board.rs`, cliente `platform/tauri/audit.ts`) — a mesma tabela do registo do
   Co-Dev, origem `ide` (`tool` = feature, `call` = acção, `path` = onde). Quem e quando decide-os o
   backend; os segredos mascaram-se no Rust. A aprovação que não se consegue auditar não corre.
+
+## Protecção de dados (r23 F4a, `crates/tutor-protect`, `ui-app/src/features/protect/`)
+
+Nenhum segredo sai da máquina, e a regra vive no Rust:
+- **Redacção antes de QUALQUER pedido a um modelo** (X02): `tutor_protect::redact::guard_json`/`guard_body` no último passo
+  do `tutor-llm` (chat, tutor), do agente (`tutor-agent`, Anthropic e OpenAI, uma vez antes das tentativas) e do
+  `llm.rs`. A redacção saiu do `tutor-agent` (que a reexporta como `redact`). Junta às regras os valores secretos dos
+  `.env` da pasta aberta (`protect_learn`, ao abrir a pasta). Cada pedido que perdeu segredos chega à UI pelo evento
+  `protect://redacted` (contagem na barra de estado, `#st-protect`, e uma linha no registo de auditoria).
+- **Secret scan antes de CADA commit da app** (X03): `tutor_protect::scan::guard_commit` corre no backend, em cada sítio
+  que comita: o `exec` quando é `git commit` (o pane, Ctrl+Enter, o quadro, o amend), o merge/Composer/lanes do
+  `gitwork`, `git::commit`, as regras de arquitectura e o bash do agente (âmbito = todas as mudanças; o agente não tem
+  excepção). Usa o gitleaks se estiver instalado (só no índice), senão as mesmas regras; ficheiros proibidos (`.env`,
+  `.tfstate`, chaves). Bloqueado, devolve `SECRET_SCAN_BLOCKED:{relatório}` (pré-visualizações MASCARADAS). Na UI,
+  `services.protect.guard(f)` (o commit do desktop, o Composer e as lanes) mostra os achados no diálogo partilhado; passar
+  exige motivo, auditado ANTES de `secret_scan_allow` (um commit, 2 min) e com o resultado. Um commit que o humano
+  faz no seu terminal não passa por aqui.
+- **Máscara** (X04): o PTY (`tutor_protect::stream::Masker`, pedaço a pedaço: o eco interactivo não pode esperar — um
+  segredo partido entre duas leituras pode passar) e a saída do depurador.
+- **IaC no editor** (P03/C03): `tutor_eval::iacfind` (regras próprias sobre `.tf`: um argumento com nome de segredo a
+  partir de `var.`/literal é erro — fica no state e no plano —; variável secreta sem `sensitive`) entra no scan do
+  Problems (`dxtutor-iac`). O tflint/checkov/trivy entram na pipeline da F4b.
+- Testes: `cargo test -p tutor-protect` (os critérios de aceitação: pedido redigido, commit com `postgres://u:p@h`
+  bloqueado), `cargo test -p tutor-eval iacfind` (`password = var.x` é erro), `tests/protect.test.ts` e o passo `protect` do
+  auto-teste.
 
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 

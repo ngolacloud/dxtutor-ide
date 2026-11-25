@@ -916,6 +916,42 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         throw new Error("debugRR: " + JSON.stringify(out));
       return out;
     });
+    // r23 F4a (aceitação do brief): um `.tf` com `password = var.x` é um erro no Problems; um commit com
+    // `postgres://u:p@h` é bloqueado pelo secret scan do backend (e passa uma vez com um motivo); o terminal
+    // mascara um URL com palavra-passe. (O pedido ao modelo redigido é o teste unitário de tutor_protect.)
+    await step("protect", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 200)); return f(); };
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string;
+      const tf = ROOT + "infra/db.tf";
+      writeFile(tf, 'variable "db_password" {\n  type = string\n}\n\nresource "aws_db_instance" "main" {\n  username = "app"\n  password = var.db_password\n}\n');
+      flushSave(); await idle();
+      const tfError = await wait(() => diagnostics().some(d => d.p === tf && d.sev === "e" && d.line === 7), 120000);
+      const tfDiag = diagnostics().filter(d => d.p === tf).map(d => `${d.sev}:${d.line}`);
+      // the secret scan before a commit (the same `exec git commit` the pane uses)
+      writeFile(ROOT + "db.rs", 'const URL: &str = "postgres://u:p@h/app";\n');
+      flushSave(); await idle();
+      await git("add", "db.rs", "infra/db.tf");
+      const blocked = await sh("git", ["commit", "-m", "feat: db"]) as { code: number; stderr: string };
+      const report = blocked.stderr.startsWith("SECRET_SCAN_BLOCKED:") ? JSON.parse(blocked.stderr.slice("SECRET_SCAN_BLOCKED:".length)) as { findings: Array<{ file: string; line: number; rule: string }> } : null;
+      const leaks = blocked.stderr.includes("u:p@");
+      await inv("secret_scan_allow", { root, reason: "self-test fixture" });
+      const allowed = await sh("git", ["commit", "-m", "feat: db (self-test)"]) as { code: number };
+      await git("reset", "--hard", "HEAD~1");
+      // the terminal masks a URL's password
+      let masked = false, shown = "";
+      if (R.term) {
+        await R.term.runTask("printf 'DATABASE_URL=postgres://app:s3cr3tpass@db/app\\n'", { label: "selftest-protect" });
+        const I = () => R.term!.inspect();
+        const task = I().terminals.find(t => t.label === "selftest-protect");
+        /* the task's header (the command, written by the UI) comes first; the program's output line is what the PTY masks */
+        if (task) { await wait(() => I().text(task.id).split("\n").some(l => l.includes("DATABASE_URL") && !l.includes("Executing task")), 5000); shown = I().text(task.id).split("\n").find(l => l.includes("DATABASE_URL") && !l.includes("Executing task")) || ""; }
+        masked = shown.includes("••••") && !shown.includes("s3cr3tpass");
+      }
+      const out = { tfError, tfDiag, blockedCode: blocked.code, findings: report?.findings.map(f => `${f.file}:${f.line} ${f.rule}`), leaks, allowedCode: allowed.code, masked, shown: shown.slice(0, 80) };
+      if (!tfError || blocked.code === 0 || !report || !report.findings.some(f => f.file === "db.rs" && f.rule === "url-credentials") || leaks || allowed.code !== 0 || !masked) throw new Error("protect: " + JSON.stringify(out));
+      return out;
+    });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e
     // em release, o bytecode Python, os estágios do compilador, uma execução medida, o crescimento com N
     // e o traço real (Rust e Python).

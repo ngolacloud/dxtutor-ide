@@ -711,3 +711,28 @@ write to…» instead), «rebuild and replay to step n», heap tracking. Also re
 (pushed in `64981e1`), a `sed` also changed `add_breakpoint` (`debug_break` on DAP) to use the path as given;
 it matches `set_breakpoints` and is only used by the gdb path in the UI. F2b makes it explicit and removes the
 `absolute`/`cwd` code it left unused.
+
+### F4a status: done (data protection and the IaC findings in the editor)
+
+Owner decisions at the start of F4 (2026-11-26): F4 is reviewed in three parts — F4a (data protection: redaction
+before any model request, the secret scan before every commit, terminal masking; the `.tf` findings in the editor:
+the brief's three acceptance criteria), F4b (the IaC pipeline, plan, drift, state), F4c (Vault and the guided
+deploy); Vault sign-in is OIDC plus a pasted token (both go to the OS keychain, never back to the UI); the model API
+keys move from `keys.json` to the keychain too (§5 Q8/Q15e), in F4c with the `keyring` crate.
+
+| What | Where |
+|---|---|
+| New crate `tutor-protect` (Tauri-free): the redaction (moved from `tutor-agent`, re-exported there) with named rules and per-rule minimum lengths (URL credentials at any length: `postgres://u:p@h`), the values learned from the open folders' `.env` files, `guard_json`/`guard_body` with a count hook; the secret scan (`guard_commit`: staged / tracked / paths / working tree; gitleaks when installed, else the same rules; forbidden files; a one-time reasoned override); the stream masker | `crates/tutor-protect/` |
+| Every outgoing request filtered: `tutor-llm` (chat ×5, tutor), `tutor-agent` (Anthropic, OpenAI), `src-tauri/src/llm.rs`; event `protect://redacted` | as listed |
+| The scan before every commit the app makes: `exec` of a `git commit`, `gitwork` merge/commit_paths/lane_commit, `git::commit`, `arch_rules::commit`, the agent's bash | as listed |
+| Masking: the PTY output, a debugged program's output | `src-tauri/src/pty.rs`, `commands/debug_cmds.rs` |
+| `.tf` findings (`tutor_eval::iacfind`) in the Problems scan (`dxtutor-iac`), so in the editor on save | `crates/tutor-eval/src/iacfind.rs`, `src-tauri/src/problems.rs` |
+| Commands `protect_learn`, `secret_scan`, `secret_scan_allow` (259 → 262) | `src-tauri/src/commands/protect.rs` |
+| UI `features/protect/` (A7/A8): learns on folder open, the status bar count (and an audit line per request that lost secrets), `services.protect.guard` for the desktop commit, the Composer and lanes: the findings in the shared approval dialog, a reason, audited before the override and with the result | `ui-app/src/features/protect/` |
+
+Acceptance: the unit tests of `tutor_protect` (a request with a known secret arrives redacted; a commit containing
+`postgres://u:p@h` is blocked) and of `iacfind` (`password = var.x` is an error), and the self-test step `protect` in
+the real app (the `.tf` error in the Problems, the blocked `exec git commit` and its reasoned override, the masked
+terminal). Reported: a commit made by hand in the human's own terminal does not pass the scan (no git hooks are
+installed in the user's repository); the terminal masks chunk by chunk, so a secret split across two reads of the PTY
+can pass; tflint/checkov/trivy findings come with the F4b pipeline.
