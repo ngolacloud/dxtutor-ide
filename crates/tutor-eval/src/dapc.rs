@@ -698,7 +698,7 @@ impl DapSession {
 
     /// Adds a plain breakpoint on `line` of `file`, keeping the file's others.
     pub fn add_breakpoint(&self, file: &str, line: u32) -> Result<BreakpointState, String> {
-        let abs = self.absolute(file);
+        let abs = file.to_string();
         let file = abs.as_str();
         let mut list = self
             .breakpoints
@@ -1221,10 +1221,13 @@ mod tests {
             .status()
             .unwrap()
             .success());
+        // the program runs in another folder than its source (a test runs in its package's folder)
+        let run_dir = d.path().join("run");
+        std::fs::create_dir(&run_dir).unwrap();
         let s = DapSession::launch(
             bin.to_str().unwrap(),
             &[],
-            Some(d.path().to_str().unwrap()),
+            Some(run_dir.to_str().unwrap()),
             None,
         )
         .unwrap();
@@ -1249,7 +1252,8 @@ mod tests {
             .value
             .ends_with("= 3"));
         // run to line 8: stops there, and the temporary breakpoint is gone afterwards
-        let at = s.run_to(file, 8).unwrap();
+        // the path as the UI sends breakpoints, not joined to the run folder
+        let at = s.run_to("t.c", 8).unwrap();
         assert_eq!(at.line, 8, "{at:?}");
         assert_eq!(
             s.locals(0)
