@@ -9,15 +9,17 @@
 
 import { esc } from "../../../core";
 import type { HunkReview } from "../application/hunk-review";
-import { activeHunk, type HunkState, type VView } from "../domain/hunk-overlay";
+import { activeHunk, blockedReview, type HunkState, type OverlayState, type VView } from "../domain/hunk-overlay";
 import { translator } from "../../../app/i18n";
 import { CODEV_CHAT_MESSAGES } from "./chat-messages";
+import { CODEV_STREAM_MESSAGES } from "./stream-messages";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
+const ts = translator(CODEV_STREAM_MESSAGES);
 
 const LINE_PX = 22;
 
-function bar(h: HunkState, typing: boolean, paused: boolean): string {
+function bar(h: HunkState, typing: boolean, paused: boolean, s?: OverlayState): string {
   const btn = (action: string, label: string, pri = false) =>
     `<button class="hk-btn${pri ? " pri" : ""}" data-action="${action}" data-on="${esc(h.id)}"><span>${label}</span></button>`;
   if (typing) {
@@ -31,6 +33,16 @@ function bar(h: HunkState, typing: boolean, paused: boolean): string {
   if (h.status === "review") {
     if (h.choice) {
       return `<span class="hk-tag">Co-Dev</span><span class="hk-state">${tc("hunkWaiting", { state: tc(h.choice === "accept" ? "hunkAccepted" : "hunkRejected") })}</span>`;
+    }
+    // RF-A03/A04: breaks the architect's rules — red, «accept» off until the architect's override
+    const blocked = s ? blockedReview(s, h.id) : null;
+    if (blocked) {
+      const why = esc((blocked.violations ?? []).map((v) => v.message).join("; "));
+      return (
+        `<span class="hk-tag hk-tag-bad" title="${why}">${ts("violatesRules")}</span>` +
+        `<button class="hk-btn" disabled title="${esc(ts("acceptNeedsOverride"))}"><span>Aceitar</span></button>` +
+        btn("hunk-reject", "Rejeitar") + btn("hunk-override", ts("overrideAdr")) + btn("hunk-explain", "Explicar")
+      );
     }
     return `<span class="hk-tag">Co-Dev</span>` + btn("hunk-accept", "Aceitar", true) + btn("hunk-reject", "Rejeitar") + btn("hunk-explain", "Explicar");
   }
@@ -62,7 +74,7 @@ export function makeHunkOverlayView(review: HunkReview, translate: (el: HTMLElem
       el.className = "hk-bar";
       el.style.top = `${b.from * LINE_PX}px`;
       el.style.left = `${widest + 4}ch`;
-      el.innerHTML = bar(h, !!active && active.id === h.id, s.paused);
+      el.innerHTML = bar(h, !!active && active.id === h.id, s.paused, s);
       host.wrap.appendChild(el);
       translate(el); // the i18n layer skips the editor (it holds code)
     }

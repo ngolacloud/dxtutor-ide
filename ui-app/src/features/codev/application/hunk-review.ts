@@ -9,23 +9,7 @@
 import type { AgentEvent } from "../domain/agent-events";
 import type { HunkReviewDeps, HunkSink } from "./ports";
 import { ptCopy } from "./messages";
-import {
-  activeHunk,
-  choose,
-  completeReview,
-  initialOverlay,
-  isOpen,
-  mapEdit,
-  openPaths,
-  reduceOverlay,
-  revealAll,
-  revealStep,
-  setPaused,
-  shiftAnchors,
-  virtualView,
-  type OverlayState,
-  type VView,
-} from "../domain/hunk-overlay";
+import { activeHunk, choose, completeReview, initialOverlay, isOpen, mapEdit, openPaths, reduceOverlay, revealAll, revealStep, setPaused, shiftAnchors, virtualView, type OverlayState, type VView, blockedReview, overrideReview } from "../domain/hunk-overlay";
 
 /** How often the typing advances. */
 const TICK_MS = 50;
@@ -38,6 +22,7 @@ export function makeHunkReview(deps: HunkReviewDeps) {
   let stopTimer: (() => void) | null = null;
   let reloadQueued = false;
   const settled = new Map<string, (label: string) => void>();
+  const overridden = new Map<string, (adr: string) => void>();
   const listeners = new Set<() => void>();
 
   /** Applies a new state and redraws every file that had or has open hunks. */
@@ -152,13 +137,40 @@ export function makeHunkReview(deps: HunkReviewDeps) {
     f(label);
   }
 
+  /** RF-A03/A04: accepting a change that breaks the rules waits for the architect's override. */
+  function refuseBlocked(id: string): boolean {
+    const r = blockedReview(state, id);
+    if (!r) return false;
+    deps.notify(`Viola as regras do arquitecto (${(r.violations ?? []).map((v) => v.message).join("; ")}): aceitar pede o override do Arquitecto com um ADR aceite.`);
+    return true;
+  }
+
+  async function override(call: string): Promise<boolean> {
+    const r = state.reviews.find((x) => x.call === call);
+    if (!session || !r?.violations?.length || !deps.override || !deps.askAdr) return false;
+    const adr = deps.askAdr(r.violations.map((v) => v.message).join("; "))?.trim();
+    if (!adr) return false;
+    try {
+      await deps.override(session, call, adr);
+    } catch (e: unknown) {
+      deps.notify(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+    set(overrideReview(state, call, adr));
+    overridden.get(call)?.(adr);
+    deps.notify(`Override com o ${adr}: já podes aceitar.`);
+    return true;
+  }
+
   function decide(id: string, accept: boolean): void {
+    if (accept && refuseBlocked(id)) return;
     set(choose(state, id, accept ? "accept" : "reject"));
     const r = completeReview(state, id);
     if (r) void send(r.call);
   }
 
   function decideAll(call: string, accept: boolean): void {
+    if (accept && refuseBlocked(call)) return;
     let s = state;
     for (const h of s.hunks) if (h.call === call && isOpen(h)) s = choose(s, h.id, accept ? "accept" : "reject");
     set(s);
@@ -175,6 +187,8 @@ export function makeHunkReview(deps: HunkReviewDeps) {
       else deps.editor.open(path);
     },
     onSettled: (call, f) => settled.set(call, f),
+    override,
+    onOverridden: (call, f) => overridden.set(call, f),
   };
 
   return {
@@ -188,6 +202,7 @@ export function makeHunkReview(deps: HunkReviewDeps) {
     edit,
     decide,
     decideAll,
+    override,
     togglePause(): void {
       set(setPaused(state, !state.paused));
     },

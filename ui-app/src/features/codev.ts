@@ -339,6 +339,8 @@ const ACTIONS: ActionTable = {
   /* live hunks in the editor (RF-CODEV-STREAM §8) */
   "hunk-accept": { on: "click", run: (e) => hunkReview.decide(e.on, true) },
   "hunk-reject": { on: "click", run: (e) => hunkReview.decide(e.on, false) },
+  /* RF-A03/A04: the architect's override (data-on = the hunk; the review is its call's) */
+  "hunk-override": { on: "click", run: (e) => { const h = hunkReview.state().hunks.find((x) => x.id === e.on); if (h) void hunkReview.override(h.call); } },
   "hunk-pause": { on: "click", run: () => hunkReview.togglePause() },
   "hunk-faster": { on: "click", run: () => hunkReview.faster() },
   "hunk-stop": { on: "click", run: () => hunkReview.stop() },

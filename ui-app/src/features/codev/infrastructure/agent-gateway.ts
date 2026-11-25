@@ -28,6 +28,7 @@ export const agentGateway: AgentGateway = {
       issue: o.issue ?? null,
     }),
   review: (s, call, decisions) => ipc.reviewAgentHunks(s, call, decisions, pairState.driver()),
+  override: (s, call, adr) => ipc.overrideAgentViolation(s, call, adr),
   sessions: async (root) => parseSessions(await ipc.listAgentSessions(root)),
   history: async (s) => parseHistory(await ipc.agentHistory(s)),
   setPlan: (s, on) => ipc.setAgentPlan(s, on),

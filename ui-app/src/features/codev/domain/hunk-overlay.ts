@@ -12,7 +12,7 @@
 
    No DOM, no window, no Tauri. */
 
-import type { AgentEvent, HunkOp, ValidationCheck } from "./agent-events";
+import type { AgentEvent, HunkOp, ValidationCheck, RuleViolation } from "./agent-events";
 
 export type HunkStatus = "streaming" | "proposed" | "review" | "applied" | "rejected" | "stale";
 
@@ -44,6 +44,10 @@ export interface ReviewState {
   call: string;
   hunks: string[];
   reason: string;
+  /** RF-A03/A04: the rules the change breaks — accepted only after the architect's override */
+  violations?: RuleViolation[];
+  /** the accepted ADR the architect overrode them with */
+  overriddenBy?: string;
 }
 
 export interface ValidationState {
@@ -109,7 +113,7 @@ export function reduceOverlay(s: OverlayState, e: AgentEvent): OverlayState {
       return {
         ...s,
         hunks: s.hunks.map((h) => (e.hunks.includes(h.id) && isOpen(h) ? { ...h, status: "review" as const } : h)),
-        reviews: [...s.reviews.filter((r) => r.call !== e.call), { call: e.call, hunks: e.hunks, reason: e.reason }],
+        reviews: [...s.reviews.filter((r) => r.call !== e.call), { call: e.call, hunks: e.hunks, reason: e.reason, ...(e.violations?.length ? { violations: e.violations } : {}) }],
       };
     case "hunk_applied": {
       const done = s.hunks.find((h) => h.id === e.hunk);
@@ -161,6 +165,18 @@ export const revealAll = (s: OverlayState): OverlayState => ({
 });
 
 export const setPaused = (s: OverlayState, paused: boolean): OverlayState => ({ ...s, paused });
+
+/** RF-A03/A04: the review of a hunk breaks the rules and the architect has not overridden it yet. */
+export function blockedReview(s: OverlayState, id: string): ReviewState | null {
+  const r = s.reviews.find((x) => x.hunks.includes(id) || x.call === id);
+  return r && r.violations?.length && !r.overriddenBy ? r : null;
+}
+
+/** The architect overrode the review's violations with an accepted ADR. */
+export const overrideReview = (s: OverlayState, call: string, adr: string): OverlayState => ({
+  ...s,
+  reviews: s.reviews.map((r) => (r.call === call ? { ...r, overriddenBy: adr } : r)),
+});
 
 /** The human's choice for one hunk of a review (sent when the review is complete). */
 export const choose = (s: OverlayState, id: string, choice: "accept" | "reject"): OverlayState =>

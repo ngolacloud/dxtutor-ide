@@ -111,12 +111,15 @@ export function makeAgentChat(deps: AgentChatDeps) {
         if (sink && presenter.hunkReview) {
           const n = t.planOutside.get(e.call) ?? 0;
           const outside = n ? { n, planned: plannedLabel(plannedLines(planSteps, path)) } : undefined;
-          const bar = presenter.hunkReview(ref, { path, count: e.hunks.length, reason: e.reason, outside }, {
+          const violations = e.violations?.length ? e.violations.map((v) => v.message) : undefined;
+          const bar = presenter.hunkReview(ref, { path, count: e.hunks.length, reason: e.reason, outside, violations }, {
             acceptAll: () => sink.decideAll(e.call, true),
             rejectAll: () => sink.decideAll(e.call, false),
             open: () => sink.open(path),
+            ...(violations && sink.override ? { override: () => { void sink.override?.(e.call); } } : {}),
           });
           sink.onSettled(e.call, (label) => bar.settle(label));
+          if (violations) sink.onOverridden?.(e.call, (adr: string) => bar.unblock?.(adr));
         }
         break;
       }

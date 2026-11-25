@@ -194,6 +194,10 @@ pub enum AgentEvent {
         reason: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         why: Option<String>,
+        /// RF-A03/A04: the architect's rules the change breaks — the IDE shows it in red and it is
+        /// accepted only after the architect's override with an accepted ADR.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        violations: Vec<crate::conformance::Violation>,
     },
     /// The hunk was written to disk (`provisional`: Auto, pending validation).
     HunkApplied {
