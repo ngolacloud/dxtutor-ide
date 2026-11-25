@@ -63,6 +63,9 @@ export interface IssuePrompt {
 export interface TemplateFiles {
   write(root: string, rel: string, content: string): Promise<void>;
   open(rel: string): Promise<void>;
+  /** The template's own commit (`arch_rules_commit`: only that file; the architect or the tech
+   *  lead), after the editor is written to disk. Returns the short hash. */
+  commit(root: string, rel: string, message: string): Promise<string>;
 }
 
 export interface Dialog {

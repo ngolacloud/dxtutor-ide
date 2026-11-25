@@ -315,11 +315,29 @@ export function makeProjectService(deps: ProjectDeps) {
           );
           if (!ok) return;
           await files.write(r, rel, p.template);
+          // the project's template from now on: «Commit template» shows
+          if (st.prompt) set({ prompt: { ...st.prompt, source: rel } });
         }
         await files.open(rel);
         deps.notify.toast(`${rel}: edit it and save — «View prompt» shows the new version`);
       } catch (e: unknown) {
         deps.notify.toast(parseError(e).message);
+      }
+    },
+    /** RF-B04 (F4.4): the template's own commit — only that file, by the architect or the tech lead. */
+    async commitTemplate(): Promise<string | null> {
+      const r = root(), p = st.prompt, files = deps.templates;
+      if (!r || !p || !files || !p.source || p.source === "builtin") return null;
+      const lang = p.lang === "pt" ? "pt" : "en";
+      const message = deps.dialog.prompt(`Commit only ${p.source}. Message:`, `docs(prompt): update the issue template (${lang})`);
+      if (!message || !message.trim()) return null;
+      try {
+        const hash = await files.commit(r, p.source, message.trim());
+        deps.notify.toast(`${p.source} committed (${hash})`);
+        return hash;
+      } catch (e: unknown) {
+        deps.notify.toast(parseError(e).message);
+        return null;
       }
     },
     loadReports,

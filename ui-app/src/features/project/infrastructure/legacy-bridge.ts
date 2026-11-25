@@ -13,7 +13,7 @@ import { codevIssue } from "../../../app/codev-issue";
 import type { Issue, Project } from "../domain/types";
 
 const G = window as unknown as {
-  DXR?: { root?: string | null; git?: boolean; reloadDisk?: () => Promise<unknown> };
+  DXR?: { root?: string | null; git?: boolean; reloadDisk?: () => Promise<unknown>; flush?: () => void; idle?: () => Promise<unknown> };
   openTab?: (t: { id: string; title: string; kind: string }) => void;
   ROOT?: string;
   openDiff?: (p: string) => void;
@@ -90,6 +90,12 @@ export const openTab = (t: { id: string; title: string; kind: string }): void =>
 export async function openProjectFile(rel: string): Promise<void> {
   await G.DXR?.reloadDisk?.();
   G.openPath?.((G.ROOT ?? "") + rel);
+}
+
+/** Writes what the editor has to disk and waits for the write queue (before a commit). */
+export async function saveEditor(): Promise<void> {
+  G.DXR?.flush?.();
+  await G.DXR?.idle?.();
 }
 
 /** RF-B08: the diff of a file of the open folder (path relative to it), as Source Control opens it. */

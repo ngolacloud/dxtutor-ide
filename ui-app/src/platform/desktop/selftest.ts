@@ -536,8 +536,13 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const hash = await tauriRulesGateway.commit(root, [".dxtutor/architecture.toml", "docs/adr/0001-queue.md"], "docs(arch): selftest rules");
       const files = (await git("show", "--name-only", "--format=", "HEAD")).stdout.trim().split("\n");
       const onDisk = (await sh("cat", ["docs/adr/0001-queue.md"])).stdout;
-      const out = { saved: saved.exists && saved.rules.layers.length === 1, adrs: adrs.map(a => a.id), accepted: accepted.accepted, approvedBy: /Approved by: /.test(onDisk), hash, files };
-      if (!out.saved || !out.accepted || !out.approvedBy || !files.includes(".dxtutor/architecture.toml") || !files.includes("docs/adr/0001-queue.md")) throw new Error("arch rules: " + JSON.stringify(out));
+      // F4.4 (bloco 4): o commit próprio do template de prompt, só com esse ficheiro
+      writeFile(ROOT + ".dxtutor/prompts/issue.en.md", "# Role\n{{id}} — {{titulo}}\n");
+      flushSave(); await idle();
+      await tauriRulesGateway.commit(root, [".dxtutor/prompts/issue.en.md"], "docs(prompt): selftest template");
+      const tpl = (await git("show", "--name-only", "--format=", "HEAD")).stdout.trim();
+      const out = { saved: saved.exists && saved.rules.layers.length === 1, adrs: adrs.map(a => a.id), accepted: accepted.accepted, approvedBy: /Approved by: /.test(onDisk), hash, files, template: tpl };
+      if (!out.saved || !out.accepted || !out.approvedBy || !files.includes(".dxtutor/architecture.toml") || !files.includes("docs/adr/0001-queue.md") || tpl !== ".dxtutor/prompts/issue.en.md") throw new Error("arch rules: " + JSON.stringify(out));
       return out;
     });
     // depuração (ADR-0006, R4): o gdb do backend. Sem gdb no sistema, o pane di-lo (o caminho

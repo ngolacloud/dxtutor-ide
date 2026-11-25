@@ -288,7 +288,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `arch_rules_save` | `root: String`, `rules: Rules` | `RulesDoc` (validadas por `conformance::validate`; só o Arquitecto quando o `team.json` nomeia pessoas) | String | — | `features/arch` | **W** (só `.dxtutor/architecture.toml`) |
 | `adr_list` | `root: String` | `Vec<Adr {path, id, title, status, accepted}>` (`docs/adr/`, `docs/decisions/`, `docs/architecture/ADR*`) | — | — | `features/arch` | R |
 | `adr_accept` | `root: String`, `path: String` | `Adr` (o estado passa a aceite e fica escrito quem aprovou; só o Arquitecto — F5.5) | String | — | `features/arch` | **W** (só o ADR) · X (`git config`) |
-| `arch_rules_commit` | `root: String`, `paths: Vec<String>`, `message: String` | `String` (hash curto; `git commit --only` do ficheiro de regras e dos ADR, o resto preparado fica de fora; só o Arquitecto, com identidade git humana) | String | — | `features/arch` | **G** · X |
+| `arch_rules_commit` | `root: String`, `paths: Vec<String>`, `message: String` | `String` (hash curto; `git commit --only` do ficheiro de regras, dos ADR e dos templates de prompt `.dxtutor/prompts/*.md`, o resto preparado fica de fora; só o Arquitecto — só templates: também o Tech Lead (F4.4) —, com identidade git humana) | String | — | `features/arch`, `features/project` («Commit template») | **G** · X |
 
 ## 10. Co-Dev — `commands/codev.rs` (5)
 
