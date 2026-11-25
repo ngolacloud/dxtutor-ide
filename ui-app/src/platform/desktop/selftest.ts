@@ -34,11 +34,69 @@ import { hunks, undo, merge3, sync, launchpad, composer } from "../../features/s
 import { setLanes } from "../../features/scm/infrastructure/legacy-bridge";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
-import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
+import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks, dbgTest, dbgRunToCursor, dbgStop } from "../../features/debug";
 import { reviewFindings, explainCmd, renderCreviewView, renderHoodView } from "../../features/codereview";
 import { dxRun, dxStop, stackState } from "../../features/stack";
 import { diagnostics } from "../../features/diagnostics";
 import { renderTestPane } from "../../features/testing/index";
+
+/* r23 F2: the cache of the brief's acceptance test, with its bug (eviction takes the newest end) */
+const LRU_SRC = `use std::collections::{HashMap, VecDeque};
+
+pub struct Lru<V> {
+    cap: usize,
+    map: HashMap<String, V>,
+    order: VecDeque<String>,
+}
+
+impl<V: Clone> Lru<V> {
+    pub fn new(cap: usize) -> Self {
+        Self { cap, map: HashMap::new(), order: VecDeque::new() }
+    }
+
+    pub fn get(&mut self, key: &str) -> Option<V> {
+        let v = self.map.get(key)?.clone();
+        self.touch(key);
+        Some(v)
+    }
+
+    pub fn put(&mut self, key: &str, value: V) {
+        if self.map.len() == self.cap {
+            let old = self.order.pop_back().unwrap();
+            self.map.remove(&old);
+        }
+        self.map.insert(key.to_string(), value);
+        self.touch(key);
+    }
+
+    fn touch(&mut self, key: &str) {
+        self.order.retain(|k| k != key);
+        self.order.push_back(key.to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn evicts_least_recently_used() {
+        let mut c = Lru::new(2);
+        c.put("a", 1);
+        c.put("b", 2);
+        c.get("a");
+        c.put("c", 3);
+        assert_eq!(c.get("a"), Some(1));
+        assert_eq!(c.get("b"), None);
+    }
+
+    #[test]
+    fn get_missing_returns_none() {
+        let mut c: Lru<i32> = Lru::new(1);
+        assert_eq!(c.get("x"), None);
+    }
+}
+`;
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -735,6 +793,73 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       if (after) await startDebug(); // continuar até ao fim
       if (breaks.has(bpKeyNow)) toggleBp(ROOT + "dbgself/src/main.rs", 2); // a próxima execução começa limpa
       return { available, engine, stoppedAt, vars, inline, after, ended: /O programa terminou/.test(pane()), pane: pane().slice(0, 400) };
+    });
+    // r23 F2 (aceitação do brief): o teste `evicts_least_recently_used` falha no depurador real — «Debug
+    // Test…» constrói os testes, depura esse com --exact, pára no panic (Just My Code leva ao frame do
+    // teste, o cartão mostra left/right), a consola avalia nesse frame e a memória de `c` lê-se; depois da
+    // correcção (`pop_front`), uma segunda sessão pára num breakpoint, corre até ao cursor e o teste passa.
+    // A barra flutuante mostra só o que funciona e diz porquê falta o resto (sem rr: andar para trás).
+    await step("debugR23", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const host = await inv("debug_capabilities") as { available: boolean; adapter: string | null; timeTravel: { available: boolean; reason: string } };
+      if (!host.available) return { host, skipped: "no DAP adapter (lldb-dap)" };
+      const pane = () => document.getElementById("pane-debug")?.textContent || "";
+      const lib = ROOT + "dbglru/src/lib.rs";
+      writeFile(ROOT + "dbglru/Cargo.toml", '[package]\nname = "dbglru"\nversion = "0.1.0"\nedition = "2021"\n');
+      writeFile(lib, LRU_SRC);
+      writeFile(ROOT + "Cargo.toml", '[workspace]\nmembers = ["dbgself", "dbglru"]\nresolver = "2"\n');
+      flushSave(); await idle();
+      const pickTest = async (): Promise<boolean> => {
+        if (!(await wait(() => [...document.querySelectorAll("#pal.show #pal-list .pi")].some(e => /evicts_least_recently_used/.test(e.textContent || "")), 240000))) return false;
+        (([...document.querySelectorAll("#pal-list .pi")].find(e => /evicts_least_recently_used/.test(e.textContent || ""))) as HTMLElement).click();
+        return true;
+      };
+      const run1 = dbgTest();
+      const picked = await pickTest();
+      await run1;
+      const at = dbgCurrent();
+      // the panic's message can reach the debugger after the stop: the card comes with it
+      await wait(() => /right/.test(document.getElementById("dbg-exc")?.textContent || ""), 10000);
+      const card = document.getElementById("dbg-exc")?.textContent || "";
+      const toolbar = [...document.querySelectorAll("#dbg-tb button")].map(b => b.getAttribute("data-on"));
+      const missing = document.querySelector("#dbg-tb .dbg-tb-miss")?.getAttribute("title") || "";
+      const libRow = !!document.querySelector("#pane-debug .dbg-lib");
+      // the console evaluates in the test's frame
+      const con = document.getElementById("dbg-con-in") as HTMLInputElement | null;
+      if (con) { con.value = "c.cap"; con.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); }
+      await wait(() => !!document.querySelector("#pane-debug .dbg-cl.out, #pane-debug .dbg-cl.err"), 15000);
+      const conOut = document.querySelector("#pane-debug .dbg-cl.out, #pane-debug .dbg-cl.err")?.textContent || "";
+      // a variable's bytes (the cache `c`)
+      const mem = document.querySelector('#pane-debug [data-action="dbg-mem"]') as HTMLElement | null;
+      mem?.click();
+      await wait(() => !!document.querySelector("#pane-debug .dbg-hex"), 10000);
+      const hexRows = document.querySelectorAll("#pane-debug .dbg-hex").length;
+      await dbgStop();
+      const first = { picked, at: at && `${at.path.split("/").pop()}:${at.line}`, card: card.slice(0, 200), leftRight: /left\s*None/.test(card) && /right\s*Some\(1\)/.test(card), toolbar, missing: missing.slice(0, 200), libRow, conOut, hexRows };
+      // the fix (one line), then: a breakpoint on `c.get("a");`, run to the assertion, continue to the end
+      writeFile(lib, LRU_SRC.replace("self.order.pop_back()", "self.order.pop_front()"));
+      flushSave(); await idle();
+      const lines = LRU_SRC.split("\n"), lineOf = (re: RegExp) => lines.findIndex(l => re.test(l)) + 1;
+      const bpLine = lineOf(/^\s*c\.get\("a"\);/), assertLine = lineOf(/assert_eq!\(c\.get\("a"\), Some\(1\)\)/);
+      const bpKeyNow = lib + ":" + bpLine;
+      if (!dbgBreaks.has(bpKeyNow)) toggleBp(lib, bpLine);
+      const run2 = dbgTest();
+      const picked2 = await pickTest();
+      await run2;
+      const atBp = dbgCurrent();
+      const ta = document.getElementById("ed-ta") as HTMLTextAreaElement | null;
+      if (ta) { const off = ta.value.split("\n").slice(0, assertLine - 1).join("\n").length + 1; ta.selectionStart = ta.selectionEnd = off; }
+      await dbgRunToCursor();
+      const atCursor = dbgCurrent();
+      if (dbgBreaks.has(bpKeyNow)) toggleBp(lib, bpLine);
+      await startDebug(); // continue: the fixed test passes and the program ends
+      await wait(() => /terminou|ended/i.test(pane()), 20000);
+      const passed = /c[oó]digo 0|code 0/.test(pane());
+      const out = { ...first, picked2, atBp: atBp?.line, bpLine, atCursor: atCursor?.line, assertLine, passed, timeTravel: host.timeTravel.reason };
+      if (!picked || !first.leftRight || !first.at?.startsWith("lib.rs:") || toolbar.includes("back") || !missing || !/= 2|2$/.test(conOut) || !atBp || atBp.line !== bpLine || atCursor?.line !== assertLine || !passed)
+        throw new Error("debugR23: " + JSON.stringify(out));
+      return out;
     });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e
     // em release, o bytecode Python, os estágios do compilador, uma execução medida, o crescimento com N

@@ -658,3 +658,28 @@ signed out), `lifecycle`, `composer` (two commits; a lane commit with HEAD uncha
 Known limits, reported: the Launchpad and the CI/PR stages need `gh` signed in (they say so otherwise); a lane
 commit applies the diff against HEAD, so a change that does not apply on the target branch is refused rather than
 merged; environments wait for F4's deploy records.
+
+### F2a status: done (debugger over DAP, first half)
+
+Owner decisions at the start of F2 (2026-11-25): F2 is reviewed in two halves — F2a (the DAP work, steps 1–9 and
+13 of §4.2) now, F2b (rr: spike, record/replay, timeline) after gdb and rr are installed and
+`perf_event_paranoid` is 1; Q3: Co-Dev gets the `frame` and `panic` context kinds (the type only); Q5: exception
+settings are «panic» plus the adapter's filters, and the console says «may run code» (no `Err`-through-`?` stop,
+no side-effect-free promise).
+
+| Commit | What |
+|---|---|
+| `797ab4f` | Backend: the adapter's `initialize` capabilities kept (`SessionCaps` in `LaunchInfo.caps`); `debug_capabilities` adds `timeTravel {available, reason}` (Linux, rr, gdb, `perf_event_paranoid` ≤ 1) and no longer offers codelldb (§5 Q15b: `dapc` cannot drive it). New: `debug_run_to`, `debug_restart_frame`, `debug_data_breakpoints`, `debug_read_memory`, `debug_exception_filters`, `debug_test_targets` (`tutor_eval::testbins`); `debug_launch` takes `args`, `debug_evaluate` a `context`. Project DB migration 9: `breakpoints.trigger_on`, `grp`. Real-adapter tests (lldb-dap 21) and a real Cargo project. |
+| `19059b6` | UI: the floating toolbar (only what works here, the rest listed with the reason; LIVE and the stop count; draggable), Shift+F11 / Ctrl+F10 / Shift+F10 / Shift+F9 / Ctrl+Shift+F5; the debug console (repl, history, «may run code»); «Debug Test…» (pane and palette) that stops on the panic; exception settings; the exception helper card under the panicking line (message, left/right, the top frames; Co-Dev analysis with `panic` + `frame`; Copy); data breakpoints and a variable's memory from the variables tree; triggered breakpoints and groups from the gutter menu; Just My Code (library frames collapsed; a stop inside a library selects the first project frame) and PerfTips; inline values follow the selected frame and mark what changed. |
+| (this commit) | This section, CLAUDE.md, and the `debugR23` self-test step. Also `5f299f0`: the Launchpad asks gh for CI runs by the full hash (an F3b bug). |
+
+252 commands after F2a. The desktop self-test drives the brief's acceptance: the LRU cache test
+`evicts_least_recently_used` fails in the real debugger (lldb-dap), Just My Code puts the editor on the test's
+line, the card shows `left: None` / `right: Some(1)`, the console evaluates in that frame, the memory of `c` is read;
+after the one-line fix (`pop_front`), a second session stops at a breakpoint, runs to the assertion's line and the
+test passes. Co-Dev streaming the fix into the editor needs a configured model and is not part of the self-test.
+
+Not in F2a, reported: everything that needs a recording (step back, reverse continue, the cause chain, «where did
+this come from», the timeline and its queries, predicted values and dimmed lines, «rebuild and replay to step n») is
+F2b. Restart frame stays hidden with lldb-dap (no `supportsRestartFrame`). Not done in F2a: pinned inline watches,
+condition insights, the Parallel Stacks view, deque oldest/newest views, memory type layout and heap tracking.

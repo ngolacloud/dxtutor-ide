@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 246 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 252 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -207,6 +207,36 @@ Rede de segurança em `tests/debug.golden.test.ts` (goldens do pane/assistente s
 com breakpoints, a sessão real com IPC falso — construir, lançar, breakpoints, parar,
 variáveis, passo, fim —, sem gdb, sem binários, erro do gdb, e o dispatch dos breakpoints)
 e `tests/debug.domain.test.ts` (domínio puro).
+
+### Depurador real da r23 F2a (`features/debug/`, `tutor_eval::dapc`)
+
+O que o adaptador sabe fazer vem do `initialize` (`dapc::SessionCaps` no `LaunchInfo.caps`) e o que o host
+sabe fazer do `debug_capabilities` (adaptador; `timeTravel` com o motivo: Linux, rr, gdb, `perf_event_paranoid`
+≤ 1), perguntado uma vez ao abrir a pasta. A barra flutuante (`ui/toolbar.ts`, `#dbg-tb`, arrastável) mostra só
+os controlos que funcionam (`domain/caps.ts::toolbarFor`) e lista os outros com o motivo; o lldb-dap não tem
+`restartFrame` nem `stepBack`, por isso «Restart frame» e andar para trás ficam escondidos até ao rr (F2b).
+Regras:
+- Comandos novos: `debug_run_to` (breakpoint temporário + continue), `debug_restart_frame`, `debug_data_breakpoints`
+  (`dataBreakpointInfo` + `setDataBreakpoints`; o lldb-dap pára com `reason: "breakpoint"` e `description: "watchpoint N"`),
+  `debug_read_memory`, `debug_exception_filters` (só os que o adaptador oferece; o panic do Rust continua a ser o
+  breakpoint de função `rust_panic`) e `debug_test_targets` (`tutor_eval::testbins`: `cargo test --no-run
+  --message-format=json` + `--list --format terse`; lança com `--exact <teste> --nocapture`). `debug_launch` ganhou `args`
+  e `debug_evaluate` o `context` (`repl` na consola: o lldb responde `(int) $0 = 3`).
+- A consola diz «may run code»: o DAP não garante avaliação sem efeitos (decisão Q5 do AUDIT-r23). As definições
+  de excepção são o panic e os filtros do adaptador; «`Err` por `?`» não existe.
+- Triggered e grupos: o DAP não os tem; o cliente só envia um breakpoint com `trigger` depois de o programa parar
+  no trigger (`armed`, por sessão) e não envia os de um grupo desligado (`bpActive`). Guardam-se na base do
+  Project (migração 9: `breakpoints.trigger_on`, `grp`); o resto das definições (watches, grupos desligados, Just My
+  Code, filtros, histórico da consola) no LS por pasta (`dbgcfg:<root>`).
+- Parado numa biblioteca (um panic pára no `rust_panic`), o Just My Code selecciona o primeiro frame do projecto; o
+  `dbgCurrent` e as inline values seguem o frame seleccionado. O pânico lê-se da saída do programa
+  (`domain/exception.ts`) e o cartão `#dbg-exc` vive na `.ed-wrap` por baixo da linha. O Co-Dev recebe os
+  contextos `frame` e `panic` (decisão Q3).
+- GOTCHA-ordem: o `dx:workspace` do debug pergunta as capacidades num `setTimeout(0)` — o quadro carrega primeiro
+  (`board.persist.test`) — e a sessão gdb não faz chamadas novas (`debug.golden.test` fixa a sequência).
+- Testes: `cargo test -p tutor-eval dapc testbins dap::` (sessões reais com o lldb-dap e um projecto Cargo real),
+  `tests/debug.r23.test.ts` e o passo `debugR23` do auto-teste (o teste da cache LRU do brief falha no depurador, a
+  correcção `pop_front`, run to cursor, e passa).
 
 ## Quinta feature extraída: backlog, sprints e kanban (`ui-app/src/features/board/`)
 
