@@ -210,6 +210,9 @@ export interface ChatPresenter {
   /** RF-S01/S08 (F3.2/F3.3): Co-Dev started writing a block — «Writing `path` 40–52», a link that
    *  opens the file, and where the block falls in the approved plan. One line per tool call. */
   hunkWriting?(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace; lines?: LinesCheck }, open: () => void): void;
+  /** RF-G07: after Stop, the files the turn left changed — «keep» or «discard» (back to the turn's
+   *  checkpoint). `settle` replaces the bar with the outcome. */
+  stopReview?(ref: CardRef, info: { checkpoint: number; files: string[] }, on: { keep(): void; discard(): void }): { settle(label: string): void };
   hunkReview?(
     ref: ToolRef,
     /** `outside`: RF-G08 — blocks of the call outside the lines the plan gave for the file (a warning, never a block).
@@ -293,6 +296,8 @@ export interface AgentGateway {
 }
 
 export interface AgentChatDeps {
+  /** Asks the human before something that cannot be undone from the chat (RF-G07: discarding a stopped turn). */
+  confirm?(message: string): boolean;
   /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
   copy?: CodevCopy;
   gateway: AgentGateway;

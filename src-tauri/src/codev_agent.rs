@@ -1195,14 +1195,17 @@ pub fn send(
         let _ = log.sync(&t); // append-only: só as mensagens novas
     }
     drop(t);
-    // RF-G07: after Stop, what was already written stays, and the human is told how to drop it
-    if let (Ok(TurnOutcome::Cancelled), Some(text)) = (&r, stop_notice(auto.borrow().checkpoint)) {
-        emit(AgentEvent::Notice { text });
-    }
+    let stopped = matches!(&r, Ok(TurnOutcome::Cancelled));
     // Auto: validate the provisional changes, then tell the UI the turn is done
     let turn = auto.take();
+    let turn_checkpoint = turn.checkpoint;
     if !turn.provisional.is_empty() {
         validate(&s, turn, &emit);
+    }
+    // RF-G07: after Stop, what was already written stays (after Auto's validation, which may have
+    // undone it) — the human keeps it or drops it, from the chat
+    if stopped {
+        stop_review(&s, turn_checkpoint, &emit);
     }
     settle_flow(&s, &emit);
     if let Some(log) = turn_log.take() {
@@ -1448,6 +1451,31 @@ fn stop_notice(checkpoint: Option<u32>) -> Option<String> {
              checkpoint {cp} (separador Co-Dev run) ou /reverter."
         )
     })
+}
+
+/// RF-G07 (sessão de fecho dos RF, bloco 6): after Stop, the files the turn left changed — the
+/// notice says how to drop them, and the `stop_review` event gives the chat its «keep / discard»
+/// bar (discard = back to the turn's checkpoint). Nothing changed: nothing to say.
+fn stop_review(s: &Session, checkpoint: Option<u32>, emit: &dyn Fn(AgentEvent)) {
+    let Some(cp) = checkpoint else {
+        return;
+    };
+    let files = s
+        .agent
+        .checkpoints
+        .as_ref()
+        .and_then(|c| c.changed_since(cp).ok())
+        .unwrap_or_default();
+    if files.is_empty() {
+        return;
+    }
+    if let Some(text) = stop_notice(Some(cp)) {
+        emit(AgentEvent::Notice { text });
+    }
+    emit(AgentEvent::StopReview {
+        checkpoint: cp,
+        files,
+    });
 }
 
 /// The issue `key` of the session's folder, from the project database.
@@ -3800,5 +3828,66 @@ mod tests {
                 .contains("viola as regras do arquitecto: biblioteca proibida: moment")),
             x => panic!("{x:?}"),
         }
+    }
+
+    #[test]
+    fn after_stop_the_files_the_turn_changed_are_offered_to_keep_or_discard() {
+        let d = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+                .args(args)
+                .current_dir(d.path())
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        std::fs::write(d.path().join("lib.rs"), "fn a() {}\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "init"]);
+        let spec = StartSpec {
+            root: d.path().display().to_string(),
+            sessions_base: Some(d.path().join(".sessions")),
+            provider: Some("ollama".into()),
+            ollama_host: Some("http://127.0.0.1:9".into()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        let s = get(&id).unwrap();
+        let cps = s
+            .agent
+            .checkpoints
+            .as_ref()
+            .expect("a git folder has checkpoints");
+        let cp = cps.snapshot("turno").unwrap().id;
+        let events = RefCell::new(vec![]);
+        let collect = |e: AgentEvent| events.borrow_mut().push(e);
+        // no checkpoint, or nothing changed since it: nothing to offer
+        stop_review(&s, None, &collect);
+        stop_review(&s, Some(cp), &collect);
+        assert!(events.borrow().is_empty());
+        // the stopped turn wrote two files
+        std::fs::write(d.path().join("lib.rs"), "fn a() { b() }\n").unwrap();
+        std::fs::write(d.path().join("b.rs"), "fn b() {}\n").unwrap();
+        stop_review(&s, Some(cp), &collect);
+        let evs = events.borrow();
+        assert!(
+            matches!(&evs[0], AgentEvent::Notice { text } if text.contains(&format!("checkpoint {cp}")))
+        );
+        match &evs[1] {
+            AgentEvent::StopReview { checkpoint, files } => {
+                assert_eq!(*checkpoint, cp);
+                assert!(
+                    files.contains(&"lib.rs".to_string()) && files.contains(&"b.rs".to_string()),
+                    "{files:?}"
+                );
+            }
+            e => panic!("{e:?}"),
+        }
+        // the event as the UI reads it
+        let j = serde_json::to_value(&evs[1]).unwrap();
+        assert_eq!(j["kind"], "stop_review");
     }
 }

@@ -667,3 +667,37 @@ test("RF-A03/A04: a revisão que viola as regras chega à barra com as violaçõ
   expect(seen[1].violations).toBeUndefined();
   expect(seen[1].on.override).toBeUndefined();
 });
+
+test("RF-G07: depois do Stop, a barra mantém ou descarta (volta ao checkpoint do turno, só os ficheiros)", async () => {
+  expect(parseAgentEvent({ session: "S1", event: { kind: "stop_review", checkpoint: 3, files: ["a.rs"] } })?.event).toEqual({ kind: "stop_review", checkpoint: 3, files: ["a.rs"] });
+  expect(parseAgentEvent({ session: "S1", event: { kind: "stop_review", checkpoint: "3", files: [] } })).toBeNull();
+  let answer = false;
+  const t = setup("allow", { confirm: () => answer });
+  const bars: Array<{ on: { keep(): void; discard(): void }; settled: string[] }> = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).stopReview = (_c: unknown, info: { checkpoint: number; files: string[] }, on: { keep(): void; discard(): void }) => {
+    t.calls.push(`stopReview ${info.checkpoint} ${info.files.join(",")}`);
+    const b = { on, settled: [] as string[] };
+    bars.push(b);
+    return { settle: (l: string) => b.settled.push(l) };
+  };
+  t.setScript(() => {
+    t.emit({ kind: "stop_review", checkpoint: 3, files: ["src/a.rs", "src/b.rs"] } as AgentEvent);
+    t.emit({ kind: "stop_review", checkpoint: 4, files: ["src/c.rs"] } as AgentEvent);
+    t.emit(done({ type: "cancelled" }));
+  });
+  await t.chat.send("muda isto");
+  expect(t.calls).toContain("stopReview 3 src/a.rs,src/b.rs");
+  // keep: nothing goes back
+  bars[0].on.keep();
+  expect(bars[0].settled).toEqual(["Mantido — as alterações do turno parado ficam."]);
+  // discard, refused in the confirmation: nothing goes back either
+  bars[1].on.discard();
+  expect(t.gateway.rewind).not.toHaveBeenCalled();
+  // discard, confirmed: the files back to the checkpoint (not the conversation), the editor reloads
+  answer = true;
+  const reloads = (t.deps.reloadFromDisk as ReturnType<typeof vi.fn>).mock.calls.length;
+  bars[1].on.discard();
+  await vi.waitFor(() => expect(bars[1].settled).toEqual(["Descartado — os ficheiros voltaram ao checkpoint 4."]));
+  expect(t.gateway.rewind).toHaveBeenCalledWith("S1", 4, false);
+  expect((t.deps.reloadFromDisk as ReturnType<typeof vi.fn>).mock.calls.length).toBe(reloads + 1);
+});
