@@ -250,7 +250,8 @@ pub fn parse_runs(v: &Value) -> Vec<Run> {
 
 /// The CI runs (GitHub Actions) of one commit.
 pub fn runs_for_with(program: &str, root: &Path, sha: &str) -> Result<Vec<Run>, String> {
-    let sha = check_sha(sha)?;
+    let full = full_sha(root, check_sha(sha)?);
+    let sha = full.as_str();
     Ok(parse_runs(&json(
         program,
         root,
@@ -357,5 +358,49 @@ mod tests {
         let none = prs_with("/nonexistent/gh-xyz", d.path(), PrFilter::Mine).unwrap_err();
         assert!(none.contains("not installed"), "{none}");
         assert!(!status_with("/nonexistent/gh-xyz").installed);
+    }
+
+    /// GitHub matches runs on the full hash: a short one from the graph is resolved first.
+    #[test]
+    fn runs_are_asked_with_the_full_hash() {
+        let d = tempfile::tempdir().unwrap();
+        let repo = d.path().join("r");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |a: &[&str]| {
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(&repo)
+                    .args(a)
+                    .output()
+                    .unwrap()
+                    .status
+                    .success(),
+                "{a:?}"
+            );
+        };
+        git(&["init", "-q"]);
+        git(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@x",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "one",
+        ]);
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        let full = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let gh = fake(d.path(), "[]", 0);
+        runs_for_with(&gh, &repo, &full[..7]).unwrap();
+        let args = std::fs::read_to_string(d.path().join("args")).unwrap();
+        assert!(args.contains(&format!("--commit {full}")), "{args}");
     }
 }
