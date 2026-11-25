@@ -48,7 +48,8 @@ function nextProblem() { const d = window.diagnostics(); if (!d.length) { toast(
 /* ── publicação no window (residual do monólito + features lêem por nome livre) ── */
 window.has = has;
 window.drawProblems = drawProblems;
-window.nextProblem = nextProblem;
+/* lido por import (ADR-0004, U7m): os comandos e os atalhos */
+export { nextProblem };
 
 /* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
 registerActions({ "diagnostics:open": { click: (c) => void callGlobal("openPath", ...args<[string, number]>(c)) } });

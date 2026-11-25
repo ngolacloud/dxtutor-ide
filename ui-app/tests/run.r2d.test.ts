@@ -49,8 +49,8 @@ describe("o pane Run na cadeia real", () => {
     vi.restoreAllMocks();
   });
 
-  it("sem pasta, diz como abrir uma (e já não mostra a lista fixa)", () => {
-    w.renderRunPane();
+  it("sem pasta, diz como abrir uma (e já não mostra a lista fixa)", async () => {
+    (await import("../src/features/run")).renderRunPane();
     expect(pane().textContent).toMatch(/Open a folder/);
     expect(pane().textContent).not.toMatch(/dx lint|cargo test -p lexer/);
   });
@@ -85,7 +85,7 @@ describe("o pane Run na cadeia real", () => {
 
     it("lista os projectos detectados e os comandos de cada um", async () => {
       w.PANE = "run";
-      w.renderRunPane();
+      (await import("../src/features/run")).renderRunPane();
       expect(pane().textContent).toMatch(/A detectar/);
       await vi.waitFor(() => expect(pane().textContent).toMatch(/npm run dev/));
       expect(calls).toEqual([["detect_projects", { root: "/proj" }]]);
@@ -96,7 +96,7 @@ describe("o pane Run na cadeia real", () => {
 
     it("clicar num comando corre-o num terminal de tarefa na pasta do projecto", async () => {
       w.PANE = "run";
-      w.renderRunPane();
+      (await import("../src/features/run")).renderRunPane();
       await vi.waitFor(() => expect(pane().querySelector('[data-run-cmd="npm run dev"]')).toBeTruthy());
       click(pane().querySelector('[data-run-cmd="npm run dev"] .nm')!);
       expect(runTask).toHaveBeenCalledWith("npm run dev", { cwd: "/proj/web", label: "npm run dev" });
@@ -106,7 +106,7 @@ describe("o pane Run na cadeia real", () => {
       delete w.DXR.term;
       const rt = vi.spyOn(w, "runTask").mockImplementation(() => {});
       w.PANE = "run";
-      w.renderRunPane();
+      (await import("../src/features/run")).renderRunPane();
       await vi.waitFor(() => expect(pane().querySelector('[data-run-cmd="npm run dev"]')).toBeTruthy());
       click(pane().querySelector('[data-run-cmd="npm run dev"]')!);
       expect(rt).toHaveBeenCalledWith("cd '/proj/web' && npm run dev");
@@ -115,7 +115,7 @@ describe("o pane Run na cadeia real", () => {
     it("um erro do backend diz-se no pane", async () => {
       w.__TAURI__.core.invoke = async () => { throw new Error("detect failed"); };
       w.PANE = "run";
-      w.renderRunPane();
+      (await import("../src/features/run")).renderRunPane();
       await vi.waitFor(() => expect(pane().textContent).toMatch(/Could not detect the projects: detect failed/));
     });
   });

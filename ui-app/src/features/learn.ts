@@ -12,7 +12,7 @@
    além de LS, já publicado pelo boot). ONB/LT_HOOD window-puros (reatribuídos/escritos por
    onclicks inline); LTS é const mutado em sítio; LT_SUB é local (só a feature o escreve). */
 
-import { $, esc, svg } from "../core";
+import { $, esc, svg, mdFull } from "../core";
 import { VIEW } from "../app/store/registry";
 import rustCourse from "../content/courses/rust.json";
 import goCourse from "../content/courses/go.json";
@@ -28,6 +28,7 @@ import { translator } from "../app/i18n";
 import { LEARN_MESSAGES } from "./learn/ui/messages";
 import { services } from "../app/services";
 import { agentStore } from "../app/store";
+import { agentPill } from "./team";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(LEARN_MESSAGES);
 
@@ -65,7 +66,9 @@ const saveLT=()=>LS.set('lt3',LTS);
    preenchido do catálogo + manifestos dos plugins (mutado em sítio, como COURSES). */
 const LT_LEVELS=[['basic','Basic','Start from the ground up — syntax and first programs.'],['intermediate','Intermediate','Build on the basics with real-world patterns.'],['advanced','Advanced','Deep dives, performance and the tricky corners.']];
 const LT_EXT:Record<string,string>=Object.fromEntries(LANGUAGE_CATALOG.map(l=>[l.id,l.extension])),LT_BADGE:Record<string,string>={concept:'LEARN',drill:'DRILL',challenge:'APPLY'};
-let LT_SUB:{ok:boolean;why:string}|null=null;window.ONB={lang:null,levels:[]};window.LT_HOOD=false;
+/* a escolha do onboarding (língua e níveis): com dono aqui (U7j — era window.ONB) */
+export let ONB:{lang:string|null;levels:string[]}={lang:null,levels:[]};
+let LT_SUB:{ok:boolean;why:string}|null=null;let LT_HOOD=false;
 const course=()=>{hydrateLT();return COURSES[LTS.lang!];},ltUnits=()=>{hydrateLT();return course().units.filter((u:any)=>LTS.levels.includes(u.level));},dk=(id:string)=>LTS.lang+':'+id,ltDone=(id:string)=>!!LTS.done[dk(id)];
 export const ltFind=(id:string|null)=>{for(const u of course().units)for(const s of u.steps)if(s.id===id)return{u,s};return null;};
 export const ltPath=(s:any)=>services.workspace!.LF(`${LTS.lang}/${s.id}.${LT_EXT[LTS.lang!]}`);
@@ -208,12 +211,12 @@ VIEW.lt = renderLtView;
 /* acções do onboarding e do editor de exercícios (ADR-0004, U5c): eram `onclick="…"` inline, que liam e
    escreviam o ONB/LT_HOOD/LTS no window e chamavam as funções publicadas, ao clicar; vão pelo
    despachante partilhado, que faz o mesmo no acto. */
-const LW = window as unknown as { ONB: { levels: string[] }; LT_HOOD: boolean; LTS: { show: Record<string, number> } };
+const LW = window as unknown as { LTS: { show: Record<string, number> } };
 registerActions({
-  "learn:level": { click: (c) => { const o = LW.ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); ltOnboard(2); } },
+  "learn:level": { click: (c) => { const o = ONB.levels; if (o.includes(c.on)) o.splice(o.indexOf(c.on), 1); else o.push(c.on); ltOnboard(2); } },
   "learn:back": { click: () => void ltOnboard(1) },
   "learn:start": { click: () => void ltStart() },
-  "learn:hood": { click: () => { LW.LT_HOOD = !LW.LT_HOOD; ltRes(); } },
+  "learn:hood": { click: () => { LT_HOOD = !LT_HOOD; ltRes(); } },
   "learn:showTarget": { click: (c) => { LW.LTS.show[c.on] = 1; saveLT(); ltRes(); } },
   "learn:ask": { click: () => void ltAsk() },
   "learn:go": { click: () => void ltGo() },

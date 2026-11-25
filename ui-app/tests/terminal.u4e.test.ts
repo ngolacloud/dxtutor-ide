@@ -13,9 +13,9 @@ const key = (k: string) => document.querySelector("#cmd")!.dispatchEvent(new Key
 
 beforeEach(async () => {
   w = (await bootApp()) as Window & Record<string, any>;
-  w.syncTree(); // a árvore sai do FS (a fixture), como no arranque da app — já não há árvore fixa (ADR-0006, R1a)
-  w.CWD = ["~", "dxtutor", "workspace", "projects"];
-  w.termClear();
+  (await import("../src/features/explorer")).syncTree(); // a árvore sai do FS (a fixture), como no arranque da app — já não há árvore fixa (ADR-0006, R1a)
+  (await import("../src/features/terminal")).cwd.set(["~", "dxtutor", "workspace", "projects"]);
+  (await import("../src/features/terminal")).termClear();
 });
 
 it("termClear desenha o cabeçalho e um prompt com o utilizador e a máquina", () => {

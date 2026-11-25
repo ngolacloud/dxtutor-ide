@@ -39,6 +39,7 @@ import { services } from "../app/services";
 import { diffLines } from "./diff/domain/diff";
 import { TEAM_DESKTOP_MESSAGES } from "./team.desktop-messages";
 import { agentStore } from "../app/store";
+import { MODES, DECS } from "./codev";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const msg = translator(TEAM_MESSAGES);
 const mdk = translator(TEAM_DESKTOP_MESSAGES);
@@ -93,8 +94,8 @@ document.addEventListener('dx:workspace', () => applyProjectTeam());
 /** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
 export function saveTeam(){const dxr=(window as unknown as {DXR?:{root?:string|null}}).DXR;if(dxr&&dxr.root){writeFile(ROOT+'.dxtutor/team.json',teamJsonKeeping(AGENTS,FS[ROOT+'.dxtutor/team.json']?.content));return;}LS.set('team3',Object.fromEntries(Object.entries(AGENTS).map(([k,a])=>[k,{paths:a.paths,cmds:a.cmds,model:a.model,max:a.max}])));}
 export function loadTeam(){const t=LS.get('team3',null);if(t)Object.keys(AGENTS).forEach(k=>{if(t[k]){['paths','cmds'].forEach(f=>{if(Array.isArray(t[k][f]))(AGENTS[k] as any)[f]=t[k][f];});if(t[k].model)AGENTS[k].model=t[k].model;if(t[k].max!=null)AGENTS[k].max=t[k].max;}});}
-function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{agentStore.persona=k;agentPill();toast('Assistente: '+a.n);}}))});}
-function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[agentStore.persona].col}"></span>${AGENTS[agentStore.persona].n}`;}}
+export function pickAgent(){palette('',{ph:'Com que assistente queres falar?',items:Object.entries(AGENTS).map(([k,a])=>({l:a.n,d:a.d,run:()=>{agentStore.persona=k;agentPill();toast('Assistente: '+a.n);}}))});}
+export function agentPill(){const p=$('#pill-agent');if(p){p.innerHTML=`<span class="pdot" style="background:${AGENTS[agentStore.persona].col}"></span>${AGENTS[agentStore.persona].n}`;}}
 function scopeProbe(v:string){const o=$('#probe-out');if(!o)return;if(!v.trim()){o.textContent='';return;}const who=Object.keys(AGENTS).filter(k=>k!=='lead'&&inScope(k,services.workspace!.norm(v)));o.innerHTML=who.length?mdk('canWrite',{who:who.map(k=>`<b style="color:${AGENTS[k].col}">${AGENTS[k].n}</b>`).join(', ')}):mdk('noSpecialist');}
 /* ───── harness de projecto: templates, decision rights, mode ceiling (migrado de
    v5.ts, fundido com renderTeamView) ─────
@@ -163,7 +164,7 @@ function applyTemplateBase(id: string) {
 }
 /* Aplicar um template também acerta o «explain before validating» (mesmo quando a base
    recusa por haver uma execução a correr). Era a decoração do v6.ts (ADR-0004, U4g4). */
-window.applyTemplate = function (id: string) {
+export const applyTemplate = function (id: string): void {
   applyTemplateBase(id);
   HARN.explain = ['study', 'critical'].includes(id); LS.set('harn5', HARN); rerender('team');
 };
@@ -182,7 +183,7 @@ function authorship() {
   const dh = DECS.filter((d: any) => d.by === 'humano').length;
   return { h, a, dh, da: DECS.length - dh };
 }
-function reviewIssue(id: string) {
+export function reviewIssue(id: string) {
   const it = window.BL.issues.find((i: any) => i.id === id);
   if (!it) return;
   it.reviewed = true;
@@ -233,7 +234,7 @@ function reviewView(t: Tab, host: HTMLElement): void {
 VIEW.team = teamView;
 VIEW.review = reviewView;
 /** Abre o separador «Team & harness». */
-function openTeam(): void { openTab({ id: 'team', title: 'Team & harness', kind: 'team' }); }
+export function openTeam(): void { openTab({ id: 'team', title: 'Team & harness', kind: 'team' }); }
 
 const CG = window as unknown as { focusAgent: (nofocus?: boolean) => void; user: (t: string) => void; card: (who: string, html: string) => unknown };
 export function codeGuard(what: string): boolean {
@@ -243,10 +244,8 @@ export function codeGuard(what: string): boolean {
   return true;
 }
 
-Object.assign(window, { openTeam, pickAgent, agentPill, reviewIssue,
-});
 /* o harness que o Co-Dev e as tarefas lêem (ADR-0004, U7h): avaliam antes deste módulo, por isso usam o registo */
-services.team = { HARN, MORD, RIGHTS, RIGHT_RE, isHuman, harnessCheck, harnessCmd, agentSys };
+services.team = { HARN, MORD, RIGHTS, RIGHT_RE, isHuman, harnessCheck, harnessCmd, agentSys, agentPill, openTeam, reviewIssue, pickAgent };
 
 /* O HARN hidrata do LS logo ao carregar (o LS nasce em app/store, antes de tudo): quem o lê
    directamente — o tecto no setMode, o boot5, as políticas do board — vê já os valores
@@ -263,12 +262,12 @@ const TA = window as unknown as {
 const lines = (v: string): string[] => v.split('\n').map((s) => s.trim()).filter(Boolean);
 registerActions({
   "team:openHarness": { click: () => void callGlobal('openPath', TA.ROOT + '.dxtutor/harness.toml') },
-  "team:applyTemplate": { click: (c) => void callGlobal('applyTemplate', c.on) },
+  "team:applyTemplate": { click: (c) => applyTemplate(c.on) },
   "team:toggleRight": { click: (c) => void toggleRight(c.on) },
   "team:review": { click: () => { HARN.review = !HARN.review; TA.LS.set('harn5', HARN); callGlobal('rerender', 'team'); } },
   "team:explain": { click: () => { HARN.explain = !HARN.explain; TA.LS.set('harn5', HARN); callGlobal('rerender', 'team'); } },
   "team:probe": { input: (c) => void scopeProbe(c.value) },
-  "team:talk": { click: (c) => { agentStore.persona = c.on; callGlobal('agentPill'); callGlobal('show', TA.cur); } },
+  "team:talk": { click: (c) => { agentStore.persona = c.on; agentPill(); callGlobal('show', TA.cur); } },
   "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); saveTeam(); } },
   "team:cmds": { change: (c) => { TA.AGENTS[c.on].cmds = lines(c.value); saveTeam(); } },
   "team:model": { change: (c) => { TA.AGENTS[c.on].model = c.value; saveTeam(); } },
@@ -276,5 +275,5 @@ registerActions({
   "team:approve": { click: (c) => { callGlobal('approveIssue', c.on); services.tabs!.closeTab('review'); } },
   "team:reject": { click: (c) => void callGlobal('rejectIssue', c.on) },
   "team:runTests": { click: () => void callGlobal('handlePrompt', '/test') },
-  "team:openTeam": { click: () => void callGlobal('openTeam') },
+  "team:openTeam": { click: () => openTeam() },
 });

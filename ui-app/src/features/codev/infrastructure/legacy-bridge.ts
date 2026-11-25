@@ -29,6 +29,7 @@ import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
 /* donos que avaliam depois desta ponte: lidos pelo registo, no acto (ADR-0004, U7h) */
 import { services } from "../../../app/services";
 import { diffStat } from "../../diff/domain/diff";
+import { THEMES, setTheme as setThemeImpl } from "../../theme";
 
 const G = window as unknown as Record<string, any>;
 
@@ -71,8 +72,8 @@ export const agents = (): Record<string, { n: string; d: string; col: string; pa
 export const backlog = (): { issues: any[] } => window.BL;
 export const stages = (): Array<[string, string]> => window.STAGES;
 export const studioDesign = (): { nodes: Array<{ st: string }> } => window.SD;
-export const themes = (): Record<string, Record<string, string>> => window.THEMES;
-export const modes = (): Record<string, { l: string; d: string }> => G.MODES;
+export const themes = (): Record<string, Record<string, string>> => THEMES;
+export const modes = (): Record<string, { l: string; d: string }> => services.codev!.MODES;
 export const commands = (): Array<[string, string, () => unknown]> => G.CMD;
 export const usage = (): Record<string, { calls: number; tok: number }> => agentStore.usage;
 export const panes = (): Record<string, () => void> => G.RP;
@@ -118,8 +119,8 @@ export const setEffort = (v: string): void => {
 };
 
 /** O assistente da conversa (features/team.ts): escolher e redesenhar o `#pill-agent`. */
-export const pickPersona = (): void => G.pickAgent?.();
-export const refreshPersona = (): void => G.agentPill?.();
+export const pickPersona = (): void => services.team?.pickAgent();
+export const refreshPersona = (): void => services.team?.agentPill();
 
 /** A língua do ditado guardada (`dx2.dictationLang`); `null` = por escolher. */
 /** RF-S02: the editor's writing pace (`slow`/`normal`/`fast`/`instant`), kept between runs. */
@@ -198,7 +199,7 @@ export const shortPath = (p: string): string => window.short(p);
 export const normalizePath = (p: string): string => services.workspace!.norm(p);
 export const fIcon = (p: string): string => window.fIcon(p);
 export const fileDiffStat = (a: string | null, b: string): { add: number; del: number } => diffStat(a, b);
-export const termExec = (v: string): { ok: boolean; sum?: string } | undefined => G.termExec(v);
+export const termExec = (v: string): { ok: boolean; sum?: string } | undefined => services.terminal!.termExec(v) as { ok: boolean; sum?: string } | undefined;
 /** Desktop com pasta real: corre o comando a sério (bridge `DXR.exec`) — o `ok` vem do
  *  exit code. `null` no protótipo/sem pasta, onde vale o terminal simulado. */
 export const realExec = (): ((cmd: string) => Promise<RealRun>) | null =>
@@ -216,7 +217,7 @@ export const harnessCheck = (p: string): void => services.team!.harnessCheck(p);
 export const recordUsage = (p: string, tok: number): void => G.use(p, tok);
 export const harnessCmd = (c: string): void => services.team!.harnessCmd(c);
 export const agentSys = (): string => services.team!.agentSys();
-export const openTeam = (): void => G.openTeam();
+export const openTeam = (): void => services.team!.openTeam();
 export const openBoard = (): void => G.openBoard();
 export const openStudio = (): void => services.studio!.openStudio();
 
@@ -225,7 +226,7 @@ export const connected = (): string[] => G.connected();
 export const speakerLabel = (role: string): string => services.codev!.who(role);
 export const trackUsage = (providerKey: string, tok: number): void => G.use(providerKey, tok);
 export const save = (): void => window.save();
-export const setTheme = (n: string): void => window.setTheme(n);
+export const setTheme = (n: string): void => setThemeImpl(n);
 export const provFor = (role: string): string => services.codev!.provFor(role);
 export const setPanelTab = (...args: [pt: string, nofocus?: boolean]): void => G.setPanelTab(...args);
 export const goToPane = (p: string): void => G.goPane(p);

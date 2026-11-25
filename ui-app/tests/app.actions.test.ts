@@ -103,18 +103,42 @@ describe("despachante partilhado", () => {
 });
 
 describe("moldura do IDE (index.html) — U5a", () => {
-  it("não tem handlers inline e cada botão chama a mesma função publicada, com o mesmo argumento", async () => {
+  it("não tem handlers inline; os botões dos nomes publicados chamam a função do window, com o mesmo argumento", async () => {
     const w = await bootApp();
     expect(document.querySelectorAll("[onclick],[onchange],[oninput]").length).toBe(0);
     const W = w as unknown as Record<string, unknown>;
     const calls: string[] = [];
-    for (const f of ["toggleSide", "togglePanel", "toggleAgent", "newFile", "newFolder", "collapseAll", "termClear", "pickModel",
-      "assistantCenter", "openManager", "newChat", "pickBranch", "cycleMode", "toggleNotes", "refresh", "palette", "goPane", "agCtl", "setPanelTab"])
+    for (const f of ["toggleSide", "togglePanel", "pickBranch", "refresh", "palette", "goPane", "setPanelTab"])
       W[f] = (...a: unknown[]) => calls.push(`${f}(${a.map((x) => JSON.stringify(x)).join(",")})`);
     const clickSel = (s: string) => click(document.querySelector(s)!);
-    clickSel(".cmd-center"); clickSel("#tgl-side"); clickSel("#tgl-panel"); clickSel("#tgl-agent"); clickSel('.tb-ic[data-ic="account"]');
-    clickSel('#pane-explorer [data-ic="refresh"]'); clickSel("#rc-pause"); clickSel("#st-prob"); clickSel("#st-tests"); clickSel("#st-pos"); clickSel("#st-mode"); clickSel("#st-bell");
-    expect(calls).toEqual(['palette("")', "toggleSide()", "togglePanel()", "toggleAgent()", 'goPane("account")',
-      "refresh(false,true)", 'agCtl("pause")', 'setPanelTab("problems")', 'goPane("test")', 'palette(":")', "cycleMode()", "toggleNotes()"]);
+    clickSel(".cmd-center"); clickSel("#tgl-side"); clickSel("#tgl-panel"); clickSel('.tb-ic[data-ic="account"]');
+    clickSel('#pane-explorer [data-ic="refresh"]'); clickSel("#st-prob"); clickSel("#st-tests"); clickSel("#st-pos");
+    expect(calls).toEqual(['palette("")', "toggleSide()", "togglePanel()", 'goPane("account")',
+      "refresh(false,true)", 'setPanelTab("problems")', 'goPane("test")', 'palette(":")']);
+  });
+
+  it("os botões das funções importadas (U7n) fazem o efeito da função: Co-Dev, execução, modo e sino", async () => {
+    const w = await bootApp();
+    const W = w as unknown as Record<string, unknown>;
+    const { agentStore } = await import("../src/app/store");
+    const clickSel = (s: string) => click(document.querySelector(s)!);
+    // #tgl-agent → toggleAgent: alterna a largura do painel do Co-Dev
+    const before = document.body.style.getPropertyValue("--agent-w");
+    clickSel("#tgl-agent");
+    expect(document.body.style.getPropertyValue("--agent-w")).not.toBe(before);
+    // #rc-pause → agCtl("pause"): com uma execução activa, pausa-a
+    agentStore.run.active = true; agentStore.run.paused = false;
+    clickSel("#rc-pause");
+    expect(agentStore.run.paused).toBe(true);
+    agentStore.run.active = false; agentStore.run.paused = false;
+    // #st-mode → cycleMode: pede o modo seguinte ao setMode publicado
+    const modes: string[] = [];
+    W.setMode = (m: string) => modes.push(m);
+    agentStore.mode = "manual";
+    clickSel("#st-mode");
+    expect(modes).toEqual(["assist"]);
+    // #st-bell → toggleNotes: abre o painel de notificações
+    clickSel("#st-bell");
+    expect(document.getElementById("notes")!.classList.contains("show")).toBe(true);
   });
 });

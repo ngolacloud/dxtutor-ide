@@ -4,8 +4,8 @@
    learn.ts e o pair.ts por nome livre); este módulo publica-os — era o fim do app.ts. Shim de
    transição: a U7 remove-o quando esses consumidores importarem do core. */
 
-import { esc, rel, mdFull } from "../core";
+import { esc, rel } from "../core";
 
-Object.assign(window, { esc, rel, mdFull });
+Object.assign(window, { esc, rel });
 
 export {};

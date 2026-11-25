@@ -18,7 +18,7 @@ beforeEach(async () => {
   // na língua da interface — este teste fixa o português
   (w as unknown as { LOCALE: string }).LOCALE = "ptAO";
   calls = [];
-  w.renderSearchPane();
+  (await import("../src/features/search")).renderSearchPane();
 });
 
 afterEach(() => {

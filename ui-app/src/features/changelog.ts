@@ -130,10 +130,10 @@ function draw(): void {
 
 /** Ponto de entrada da vista (VIEW.analysis → esta fachada). Desenha o estado actual
  *  e, na primeira abertura, carrega a timeline (assíncrona: git_log real ou simulado). */
-window.renderChangelogPage = (_t: unknown, host: HTMLElement): void => {
+const renderChangelogPage = (_t: unknown, host: HTMLElement): void => {
   CL.host = host;
   draw();
   if (!CL.loaded) void load();
 };
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
-VIEW.analysis = window.renderChangelogPage;
+VIEW.analysis = renderChangelogPage;

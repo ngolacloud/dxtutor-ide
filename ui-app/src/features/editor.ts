@@ -136,8 +136,10 @@ function blame(): void{const BG=window as unknown as { GIT: { order: string[]; c
 function stLangWithBlame(): void { stLang(); blame(); }
 /* e corre a cada mudança do workspace (era o fim do subscritor do app.ts) */
 bus.on('workspace:changed',()=>{blame();});
-Object.assign(window, { paintEd: paintEdFull, gotoLine, stPos, stLang: stLangWithBlame, blame, selText });
+Object.assign(window, { paintEd: paintEdFull, gotoLine, stPos, blame, selText });
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.file = (t, host) => renderFileView(t as { path: string }, host);
 
 export { LANG };
+/* o stLang com o blame (o publicado antes): os separadores importam-no (ADR-0004, U7m) */
+export { stLangWithBlame as stLang };

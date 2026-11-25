@@ -76,11 +76,11 @@ describe("desktop com pasta: file_outline", () => {
   it("redesenhar com o mesmo conteúdo usa a cache; mudar o texto pede de novo", async () => {
     w.openPath(LX);
     await vi.advanceTimersByTimeAsync(450);
-    w.drawOutline(); w.drawOutline();
+    (await import("../src/features/explorer")).drawOutline(); (await import("../src/features/explorer")).drawOutline();
     await vi.advanceTimersByTimeAsync(450);
     expect(calls).toHaveLength(1);
     w.FS[LX].content += "\nfn mais() {}\n";
-    w.drawOutline();
+    (await import("../src/features/explorer")).drawOutline();
     expect(names()).toEqual(["Lexer", "tokenize", "peek"]); // o último resultado fica à vista
     await vi.advanceTimersByTimeAsync(450);
     expect(calls).toHaveLength(2);

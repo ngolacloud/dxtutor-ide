@@ -9,7 +9,8 @@ import { bootApp } from "./harness";
  * suite estável em corridas repetidas (nenhuma espera real, nenhum polling). */
 
 let w: any;
-let AS: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o agentStore da cadeia do bootApp (U7i)
+let AS: any;
+let CMD: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da cadeia do bootApp (U7k) // eslint-disable-line @typescript-eslint/no-explicit-any — o agentStore da cadeia do bootApp (U7i)
 /** Um ficheiro da fixture do harness (tests/fixtures/sample-workspace.ts); era a constante
  *  `P_LX` do monólito, que saiu com os caminhos fixos do projecto de demonstração (ADR-0006, R1c2). */
 let LX: string;
@@ -18,6 +19,7 @@ beforeEach(async () => {
   vi.useFakeTimers();
   w = await bootApp();
   AS = (await import("../src/app/store")).agentStore;
+  CMD = await import("../src/features/codev");
   LX = w.ROOT + "crates/lexer/src/lib.rs";
 });
 
@@ -55,7 +57,7 @@ describe("1. política de aprovação por modo (doTool)", () => {
     for (const mode of ["manual", "assist", "auto"]) {
       AS.mode = mode;
       const h = host();
-      const p = w.doTool({ t: "read", p: LX }, h);
+      const p = CMD.doTool({ t: "read", p: LX }, h);
       expect(gate(h)).toBeNull();
       expect(await resolved(p)).toBe(true);
     }
@@ -74,7 +76,7 @@ describe("1. política de aprovação por modo (doTool)", () => {
   ])("run %s + %s -> gate=%s", async (mode, cmd, expectGate) => {
     AS.mode = mode;
     const h = host();
-    const p = w.doTool({ t: "run", cmd }, h);
+    const p = CMD.doTool({ t: "run", cmd }, h);
     if (expectGate) {
       expect(gate(h)).not.toBeNull();
       clickByLabel(h, "Executar");
@@ -88,13 +90,13 @@ describe("1. política de aprovação por modo (doTool)", () => {
     for (const mode of ["assist", "auto"]) {
       AS.mode = mode;
       const h = host();
-      const p = w.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// x" }, h);
+      const p = CMD.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// x" }, h);
       expect(gate(h)).toBeNull();
       expect(await resolved(p)).toBe(true);
     }
     AS.mode = "manual";
     const h = host();
-    const p = w.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// y" }, h);
+    const p = CMD.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// y" }, h);
     expect(gate(h)).not.toBeNull();
     clickByLabel(h, "Aprovar edição");
     expect(await resolved(p)).toBe(true);
@@ -107,7 +109,7 @@ describe("2. edição sem alterações nunca pede aprovação (invariante #1)", 
       AS.mode = mode;
       const h = host();
       const same = w.FS[LX].content;
-      const p = w.doTool({ t: "edit", p: LX, content: same }, h);
+      const p = CMD.doTool({ t: "edit", p: LX, content: same }, h);
       expect(gate(h)).toBeNull();
       expect(await resolved(p)).toBe(true);
       expect(h.textContent).toContain("sem alterações");
@@ -120,7 +122,7 @@ describe("3. skip vs reject: skip devolve null (não false), rejeição devolve 
     AS.mode = "manual";
     const h = host();
     const before = w.FS[LX].content;
-    const p = w.doTool({ t: "edit", p: LX, content: before + "\n// rejected" }, h);
+    const p = CMD.doTool({ t: "edit", p: LX, content: before + "\n// rejected" }, h);
     clickByLabel(h, "Rejeitar");
     expect(await resolved(p)).toBe(false);
     expect(w.FS[LX].content).toBe(before);
@@ -129,7 +131,7 @@ describe("3. skip vs reject: skip devolve null (não false), rejeição devolve 
   it("run saltado em assist (comando não-SAFE) -> null, não false", async () => {
     AS.mode = "assist";
     const h = host();
-    const p = w.doTool({ t: "run", cmd: "curl example.org" }, h);
+    const p = CMD.doTool({ t: "run", cmd: "curl example.org" }, h);
     clickByLabel(h, "Saltar");
     expect(await resolved(p)).toBeNull();
   });
@@ -158,14 +160,16 @@ describe("4. janela de histórico do live chat (últimas 9, sem líder não-user
   });
 });
 
-describe("5. ordem/altura de publicação dos globais do motor Co-Dev no window", () => {
-  it("ROLE/ROUTE/MODES/DECS/CKPT já existem logo após a avaliação do módulo", () => {
-    for (const k of ["ROLE", "ROUTE", "MODES", "DECS", "CKPT"]) {
-      expect(w[k], `window.${k}`).toBeDefined();
+describe("5. ordem/altura de publicação dos dados do motor Co-Dev", () => {
+  it("ROLE/ROUTE/MODES/DECS/CKPT existem logo após a avaliação do módulo, exportados e já sem o window (U7j)", async () => {
+    const CM = await import("../src/features/codev");
+    for (const k of ["ROLE", "ROUTE", "MODES", "DECS", "CKPT"] as const) {
+      expect(CM[k], k).toBeDefined();
+      expect(w[k], `window.${k}`).toBeUndefined();
     }
-    expect(Array.isArray(w.DECS)).toBe(true);
-    expect(Array.isArray(w.CKPT)).toBe(true);
-    expect(w.DECS.length).toBe(0);
+    expect(Array.isArray(CM.DECS)).toBe(true);
+    expect(Array.isArray(CM.CKPT)).toBe(true);
+    expect(CM.DECS.length).toBe(0);
     // sem missões guionadas (ADR-0006, R1b): o motor e os cenários deixaram de existir
     for (const k of ["runMission", "demo", "CRIT", "MISSIONS", "GAPS", "council", "execSteps"]) {
       expect(w[k], `window.${k}`).toBeUndefined();

@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=218
+EXPECT_TOTAL=223
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -98,7 +98,8 @@ EXPECT_TSNOCHECK=0
 # (21→22), debug_cmds.rs ganha debug_attach_targets e debug_attach (19→21): 210 + 5 = 215.
 # Bloco 1 dos RF restantes (F2.7, RF-E08): board.rs ganha project_change_sets (8→9): 216.
 # Hierarquia de tipos (lsp_prepare_type_hierarchy + lsp_type_hierarchy): lsp.rs 16→18: 216 + 2 = 218.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=22 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=11 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=21 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=9 )
+# Bloco 3 (F5.2/F5.5): agent.rs ganha arch_rules_load/save, adr_list/accept e arch_rules_commit (11→16): 218 + 5 = 223.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=22 [commands/codev.rs]=5 [commands/codev_agent.rs]=16 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=21 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=9 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -266,6 +267,44 @@ if [ -z "$a8bad" ]; then
 else
   bad "window usado fora do bridge (deve passar por legacy-bridge.ts):"
   printf '%s' "$a8bad" | sed 's/^/       /'
+fi
+
+echo "== A9 · só os ficheiros da lista publicam no window (fecho da U7) =="
+# ADR-0004, fecho da U7: o que fica no window está inventariado no ADR, e só estes ficheiros ainda publicam
+# (`Object.assign(window, …)` ou `window.X = …`, depois do strip de comentários). Código novo não publica: lê por
+# import, pelo store ou pelo registo `app/services.ts`. A lista só encolhe — quando um ficheiro deixa de publicar,
+# sai daqui (o A9 avisa).
+A9_ALLOW="
+  app/boot-steps.ts app/commands.ts app/globals.ts app/store/agent.ts app/store/config.ts
+  app/store/registry.ts app/store/storage.ts boot.ts features/board/infrastructure/legacy-bridge.ts
+  features/changelog.ts features/checkpoint.ts features/codereview/infrastructure/legacy-bridge.ts
+  features/codev/infrastructure/legacy-bridge.ts features/codev.ts
+  features/debug/infrastructure/legacy-bridge.ts features/diagnostics.ts features/diff.ts features/editor.ts
+  features/explorer.ts features/ext/infrastructure/legacy-bridge.ts features/i18n.ts
+  features/infra/infrastructure/legacy-bridge.ts features/infra.ts features/learn.ts features/menus.ts
+  features/notifications.ts features/palette.ts features/router.ts
+  features/scm/infrastructure/legacy-bridge.ts features/shell.ts features/stack.ts features/studio.ts
+  features/syntax.ts features/tabs.ts features/tasks.ts features/team.ts features/termgit.ts
+  features/terminal.ts features/testing/infrastructure/legacy-bridge.ts
+  features/visualizer/infrastructure/legacy-bridge.ts features/visualizer.ts features/workspace.ts pair.ts
+  platform/desktop/context.ts
+"
+a9bad=""; a9stale=""
+while IFS= read -r f; do
+  rel=${f#ui-app/src/}
+  if strip_comments "$f" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]'; then
+    printf '%s\n' $A9_ALLOW | grep -qxF "$rel" || a9bad="$a9bad       $rel"$'\n'
+  fi
+done < <(find ui-app/src -name '*.ts' -not -name '*.d.ts' | sort)
+for rel in $A9_ALLOW; do
+  f="ui-app/src/$rel"
+  if [ ! -f "$f" ] || ! strip_comments "$f" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]'; then a9stale="$a9stale       $rel"$'\n'; fi
+done
+if [ -z "$a9bad" ] && [ -z "$a9stale" ]; then
+  pass "só os $(printf '%s\n' $A9_ALLOW | grep -c .) ficheiros da lista publicam no window"
+else
+  [ -n "$a9bad" ] && { bad "ficheiro novo a publicar no window (lê por import, store ou app/services.ts):"; printf '%s' "$a9bad"; }
+  [ -n "$a9stale" ] && { bad "já não publica no window — tira-o da lista A9_ALLOW em scripts/arch-check.sh:"; printf '%s' "$a9stale"; }
 fi
 
 echo

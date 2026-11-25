@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 216 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 223 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -35,6 +35,10 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
 - **A6** — baseline de `@ts-nocheck` (**directiva** `// @ts-nocheck`, não a palavra
   em prosa): **0 ficheiros** desde a U4j5b do ADR-0004 (era 11). Nenhum ficheiro da UI
   pode voltar a ter a directiva: código novo nasce tipado.
+- **A9** — só os ficheiros da lista `A9_ALLOW` publicam no `window` (`Object.assign(window, …)` ou
+  `window.X = …`, fecho da U7 do ADR-0004). Código novo não publica: lê por import, pelo store de `app/store`
+  ou pelo registo `app/services.ts`. A lista só encolhe — um ficheiro que deixa de publicar sai dela (o A9
+  falha até sair). As métricas «globais publicadas» e «shims de estado» do `ui-metrics.sh` também só descem.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
   `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 — e `comments`); cada nova
@@ -426,7 +430,8 @@ ficheiro à parte (p.ex. `git-messages.ts`): o teste verifica-lhes só a estrutu
 ## Globais e o registo de serviços (`ui-app/src/app/services.ts`, ADR-0004 U7)
 
 Função ou estado de outro módulo lê-se por **import**, não pelo `window`; nada de `Object.assign(window, …)` novo
-(a métrica U7 do `ui-metrics.sh` só desce). A ordem de avaliação do `main.ts` conta: um import puxa a avaliação do
+(a métrica U7 do `ui-metrics.sh` só desce e o A9 do `arch-check` reprova um ficheiro novo que publique). O que
+ainda fica no `window`, e que sessão o desbloqueia, está no ADR-0004 («U7 — fecho»). A ordem de avaliação do `main.ts` conta: um import puxa a avaliação do
 dono para mais cedo e troca a ordem dos efeitos. Se o dono avalia DEPOIS do leitor, o dono regista a sua API em
 `services` (tipada por `import type`, que não muda a ordem) e o leitor chama-a no acto (`services.team!.isHuman(…)`),
 nunca ao avaliar. Nos testes, o módulo vem fresco da cadeia do `bootApp` (`M = await import(…)` depois dele), não do

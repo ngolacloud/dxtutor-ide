@@ -65,7 +65,6 @@ declare global {
   const GIT: GitState;
   const COMMITS: { h: string; m: string }[];
   const LS: { get: (k: string, d?: any) => any; set: (k: string, v: unknown) => void };
-  const TREE: { projects: { children: Record<string, unknown> } };
   const PROV: Record<string, Prov>;
   const ENVS: Envs;
   const RTN: Record<string, string>;
@@ -93,13 +92,11 @@ declare global {
   let K8S: unknown;
   let SAMPLE: ((input: string | SampleMsg[], o?: SampleOpts) => Promise<any>) | null;
   let LIVE_OK: boolean;
-  let provState: (k: string) => string;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.
   var termRefreshPrompt: () => void;
   var echoCmd: (v?: string) => void;
   var rerender: (k: string) => void;
   var card: (w: string, html: string) => { el: HTMLElement; bd: HTMLElement; tools: HTMLElement };
-  var syncTree: (...a: any[]) => void;
   var commit: (msg?: string, author?: string) => unknown;
   var checkout: (b: string, create?: boolean) => boolean;
   var stage: (p: string) => void;
@@ -107,7 +104,6 @@ declare global {
   var gfStart: (kind: string, name: string) => string;
   var gfFinish: (b?: string, author?: string) => CommitNode | null;
   var updateAgentUI: (...a: any[]) => void;
-  var testProv: (k: string, btn: HTMLElement) => unknown;
   var rtConnect: () => unknown;
   var k8sConnect: () => unknown;
   var dxRun: (term?: unknown) => { ok: boolean; sum?: string };
@@ -120,14 +116,11 @@ declare global {
   var dcDetach: () => unknown;
   var drawRemote: () => void;
   var hydrateEnvs: () => void;
-  var loadJSZip: () => Promise<unknown>;
-  var termExec: (v: string) => unknown;
   var JSZip: unknown;
   // Donas de features/checkpoint.ts, lidas por nome livre pelo selftest (passo `checkpoint`).
   var checkpoint: (label: string) => number;
   var gfAsk: (host: HTMLElement, M: { files: Set<string> }) => Promise<void>;
   // Dona de features/graph.ts, lida pelo selftest (passo `graph`).
-  var renderGraphView: (tab: unknown, host: HTMLElement) => void;
   // Dona de features/termgit.ts, lida pelo selftest (passo `termgit`).
   var gitCmd: (a: string[], raw: string) => { ok: boolean } | undefined;
   // Donas de features/codereview.ts, lidas pelo selftest (passo `codereview`).

@@ -117,3 +117,12 @@ export interface ArchProposalDto {
 
 export const onArchProposal = (h: (p: ArchProposalDto) => void): Promise<() => void> =>
   listen("arch://proposal", (payload) => h(payload as ArchProposalDto));
+
+/* ── F5.2/F5.5: as regras do arquitecto e os ADR (commands/agent.rs → arch_rules.rs). Os payloads
+   chegam como `unknown`: a feature `arch` estreita-os no seu domínio (domain/rules.ts). ── */
+export const archRulesLoad = (root: string): Promise<unknown> => invoke<unknown>("arch_rules_load", { root });
+export const archRulesSave = (root: string, rules: Record<string, unknown>): Promise<unknown> => invoke<unknown>("arch_rules_save", { root, rules });
+export const adrList = (root: string): Promise<unknown> => invoke<unknown>("adr_list", { root });
+export const adrAccept = (root: string, path: string): Promise<unknown> => invoke<unknown>("adr_accept", { root, path });
+/** O commit do arquitecto só destes ficheiros. Devolve o hash curto. */
+export const archRulesCommit = (root: string, paths: string[], message: string): Promise<string> => invoke<string>("arch_rules_commit", { root, paths, message });

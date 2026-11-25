@@ -1,8 +1,8 @@
 # DXTUTOR IDE — arquitectura
 
 Documento vivo. Descreve o **estado actual** (base `main`,
-`6017c120e15b4155a803c74eac86e39590f5c10a`) e a **arquitectura de destino** da
-reorganização Clean Architecture. O que ainda não existe está marcado como
+`6017c120e15b4155a803c74eac86e39590f5c10a`; a secção da UI foi actualizada no fecho da U7 do ADR-0004,
+2026-11-25) e a **arquitectura de destino** da reorganização Clean Architecture. O que ainda não existe está marcado como
 *destino*.
 
 ## 1. Visão geral
@@ -77,17 +77,29 @@ apresentar árvore e grafo sem ciclos. Não se cria uma crate por tipo/ficheiro.
 | `tutor-cli` | 1 | 200 | Prova ponta-a-ponta |
 | `tutor-agent` | 7 | — | Harness v2 do Co-Dev: loop de agente com tool use nativo (ADR-0003); provedores Anthropic e OpenAI-compatível (Codex, Gemini, Ollama — F8). Depende de `serde`/`serde_json`/`ureq`/`ignore`/`regex` e de `tutor-llm` (política única da modebar); consumido por `src-tauri` via `codev_agent` |
 
-### UI (`ui-app/src/`)
+### UI (`ui-app/src/`, actualizado no fecho da U7 do ADR-0004, 2026-11-25)
 
-- 39 ficheiros TypeScript; 31 em `features/`.
-- Arranque por encadeamento: `startup.ts` chama
-  `boot();boot3();boot4();boot5();boot6();boot7();i18nBoot();`.
-- `core.ts` funciona em parte como fachada sobre `window`; muitas features
-  publicam globais (`boot.ts` com 63 publicações `window.X=`, `codev.ts` 19,
-  `palette.ts`/`debug.ts` 12 …).
-- `bridge.ts` substitui funções em tempo de execução (execução, Git, infra,
-  missões), ligando a UI ao backend real.
-- 21 ficheiros com `@ts-nocheck` (ver MIGRATION.md).
+- ~400 ficheiros TypeScript, nenhum com `@ts-nocheck`. Um só ponto de entrada (`main.ts`), um só
+  `<script>` no `index.html`; a ordem dos imports é a ordem de avaliação (e conta: ver abaixo).
+- **Features em camadas** (`features/<nome>/domain|application|ui|infrastructure`, governadas por A7/A8 do
+  `arch-check`): codev, ext, codereview, scm, debug, board, visualizer, infra, learn, panel, arch, testing,
+  lsp, project, hood, ops, codebase, comments. Ao lado, os **resíduos de composição** `features/<nome>.ts`
+  (donos do DOM e do estado de cada feature) e os módulos-folha (tabs, explorer, palette, terminal, …).
+- **`app/`**: `store/` (os donos do estado — agente, editor, layout, workspace, config — com eventos no
+  `bus`), `actions.ts` (o despachante delegado de `data-action`, primeiro listener do document), `services.ts`
+  (o registo tipado para quem avalia antes do módulo que lê), `i18n.ts` (catálogos `en`/`ptAO` por chave),
+  `styles.ts` (a cascata dos CSS por dono), `commands.ts`/`boot-steps.ts` (menus, paleta e o arranque).
+- **`platform/`**: `tauri/` (os clientes IPC tipados — 0 `invoke` cru fora daqui) e `desktop/` (o que só existe
+  na app Tauri, instalado por `bridge.ts`; as features expõem portas em `app/desktop.ts`, que o desktop
+  preenche — nada de reatribuir funções no `window`).
+- **O `window` (fecho da U7):** 130 globais publicadas (eram 286) e 7 shims de estado `ownedGlobal`. Ficam as
+  que módulos ou testes de outras sessões ainda lêem, as decoradas em tempo de execução e as chamadas por nome
+  (os passos `boot…boot6`/`i18nBoot` do `startup.ts`); o inventário, com quem desbloqueia cada nome, está no
+  ADR-0004 («U7 — fecho»). Regras: só os ficheiros da lista A9 do `arch-check` publicam no `window`, e as
+  métricas do `ui-metrics.sh` (globais, shims) só descem.
+- **Como um módulo lê outro:** por import, se o dono avalia antes; pelo registo `app/services.ts` (chamado no
+  acto, nunca ao avaliar) se o dono avalia depois — um import puxaria a avaliação do dono para mais cedo e
+  trocaria a ordem dos efeitos. Estado partilhado lê-se no store de `app/store`.
 
 ## 4. Contratos IPC
 
@@ -106,12 +118,11 @@ apresentar árvore e grafo sem ciclos. Não se cria uma crate por tipo/ficheiro.
 
 - Backend: `composition.rs` monta dependências (implementações concretas) e
   injecta contratos nos casos de uso; `lib.rs` limita-se a montar e registar.
-- Frontend: um ponto de entrada explícito (`ui-app/src/main.ts`) compõe estado
-  e serviços, regista funcionalidades e arranca uma vez — substituindo o
-  encadeamento `bootN` e as substituições de `v5.ts`/`v6.ts`/`bridge.ts`.
-- Proprietários de estado definidos por domínio (workspace, editor,
-  aprendizagem, agente, Git, terminal, colaboração), sem um objecto global que
-  exponha toda a aplicação.
+- Frontend (*feito* no ADR-0004): o ponto de entrada explícito `ui-app/src/main.ts` existe, os
+  `v5.ts`/`v6.ts`/`app.ts` dissolveram-se nas features e o desktop entra por portas (`app/desktop.ts`), não
+  por substituições no `window`; os donos do estado vivem em `app/store/`. *Destino* que falta: o arranque
+  ainda corre os passos `bootN` publicados no `window` (`startup.ts`), e parte da aplicação ainda se lê pelo
+  `window` (ver §3, «O `window`»).
 
 ## 6. Segurança (fronteira)
 

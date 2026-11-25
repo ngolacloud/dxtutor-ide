@@ -21,6 +21,7 @@ import { translator } from "../app/i18n";
 import { CHECKPOINT_MESSAGES } from "./checkpoint.messages";
 import { services } from "../app/services";
 import { agentStore } from "../app/store";
+import { CKPT } from "./codev";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(CHECKPOINT_MESSAGES);
 

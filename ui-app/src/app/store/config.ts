@@ -8,6 +8,7 @@
 import { agentStore } from "./agent";
 import { layoutStore } from "./layout";
 import { LS } from "./storage";
+import { services } from "../services";
 
 interface SavedConfig {
   MODE?: string;
@@ -17,11 +18,8 @@ interface SavedConfig {
   ROUTE?: Record<string, string>;
   prov?: Record<string, { on?: boolean; model?: string }>;
 }
-const G = window as unknown as {
-  MODES: Record<string, unknown>;
-  THEMES: Record<string, unknown>;
-  ROUTE: Record<string, string>;
-};
+/* os modos e o routing são do features/codev.ts, que avalia depois deste store: pelo registo, no acto (ADR-0004, U7j) */
+const codev = () => services.codev!;
 
 export function save(): void {
   const PROV = agentStore.providers;
@@ -30,7 +28,7 @@ export function save(): void {
     ACTIVE: agentStore.provider,
     THRESH: agentStore.threshold,
     THEME: layoutStore.theme,
-    ROUTE: G.ROUTE,
+    ROUTE: codev().ROUTE,
     prov: Object.fromEntries(Object.entries(PROV).map(([k, p]) => [k, { on: p.on, model: p.model }])),
   });
 }
@@ -39,12 +37,12 @@ export function loadCfg(): void {
   const c = LS.get<SavedConfig | null>("cfg", null);
   if (!c) return;
   const PROV = agentStore.providers;
-  if (c.MODE && G.MODES[c.MODE]) agentStore.mode = c.MODE;
+  if (c.MODE && codev().MODES[c.MODE]) agentStore.mode = c.MODE;
   if (c.ACTIVE && PROV[c.ACTIVE]) agentStore.provider = c.ACTIVE;
   if (c.THRESH) agentStore.threshold = c.THRESH;
-  if (c.THEME && G.THEMES[c.THEME]) layoutStore.theme = c.THEME;
-  Object.keys(G.ROUTE).forEach((r) => {
-    if (c.ROUTE && PROV[c.ROUTE[r]]) G.ROUTE[r] = c.ROUTE[r];
+  if (c.THEME && services.theme!.THEMES[c.THEME]) layoutStore.theme = c.THEME;
+  Object.keys(codev().ROUTE).forEach((r) => {
+    if (c.ROUTE && PROV[c.ROUTE[r]]) codev().ROUTE[r] = c.ROUTE[r];
   });
   Object.keys(PROV).forEach((k) => {
     const saved = c.prov && c.prov[k];

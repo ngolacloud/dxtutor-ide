@@ -9,8 +9,7 @@
    importa-se só o que é dono de lá (`$`, `hd`, `svg`, `esc`). Os `onclick="…"` inline
    resolvem os nomes livres (ltOnboard/ltOpen/saveLT/RP.tutor) no `window` ao clicar.
 
-   Shim transitório: publica `renderTutorPane`; `app.ts` delega
-   `RP.tutor=()=>window.renderTutorPane()` (lazy, no switch de pane). */
+   Regista `RP.tutor = renderTutorPane` e exporta-o (desde a U7k do ADR-0004 já não vai ao window). */
 
 import { $, hd, svg, esc } from "../core";
 import { RP } from "../app/store/registry";
@@ -23,7 +22,7 @@ const txt = translator(TUTOR_MESSAGES);
 
 /** Renderiza o pane «Learning Track»: onboarding se não houver língua escolhida,
  *  senão o curso com progresso, unidades expansíveis e passos. */
-function renderTutorPane(): void {
+export function renderTutorPane(): void {
   const { LTS, course, ltSeq, ltPts, ltUnits, ltDone, stars, LT_BADGE } = services.learn!;
   const el = $("#pane-tutor");
   if (!el) return;
@@ -44,9 +43,6 @@ function renderTutorPane(): void {
        return `<div class="lt-step${LTS.cur === s.id ? " cur" : ""}${lock ? " lock" : ""}" data-action="tutor:open" data-on="${esc(s.id)}"><span class="st">${done ? "✓" : lock ? "🔒" : "▶"}</span><span class="nm notr">${esc(s.title)}</span>${stars(s.difficulty, s.kind)}<span class="tag k-${s.kind}">${LT_BADGE[s.kind]}</span><span class="pt">+${s.points}</span></div>`; }).join("") : ""); }).join("")}</div>`;
 }
 
-/* ── publicação transitória no window (shim para o residual) ──
-   RP.tutor (app.ts) delega em renderTutorPane. */
-window.renderTutorPane = renderTutorPane;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.tutor = renderTutorPane;
 

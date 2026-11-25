@@ -6,7 +6,8 @@
 
 import { isDesktop } from "../../../platform/tauri/core";
 import * as ipc from "../../../platform/tauri/arch";
-import type { ArchGateway, ProposalSource } from "../application/ports";
+import type { ArchGateway, ProposalSource, RulesGateway } from "../application/ports";
+import { parseAdr, parseAdrs, parseRulesDoc, rulesToWire } from "../domain/rules";
 import { fromArchitecture } from "../domain/design";
 import type { Architecture, ArchFinding } from "../domain/types";
 
@@ -48,6 +49,16 @@ export const tauriArchGateway: ArchGateway = {
   },
   saveExport: (root, rel, bytes) => ipc.archSaveExport(root, rel, bytes),
   readFile: (root, rel) => ipc.readTextFile(join(root, rel)),
+};
+
+/** As regras do arquitecto e os ADR (F5.2/F5.5) sobre `arch_rules_*` / `adr_*`. */
+export const tauriRulesGateway: RulesGateway = {
+  available: () => isDesktop(),
+  load: async (root) => parseRulesDoc(await ipc.archRulesLoad(root)),
+  save: async (root, rules) => parseRulesDoc(await ipc.archRulesSave(root, rulesToWire(rules))),
+  adrs: async (root) => parseAdrs(await ipc.adrList(root)),
+  acceptAdr: async (root, path) => parseAdr(await ipc.adrAccept(root, path)),
+  commit: (root, paths, message) => ipc.archRulesCommit(root, paths, message),
 };
 
 /** As propostas do agente chegam pelo evento `arch://proposal` (só no desktop). */

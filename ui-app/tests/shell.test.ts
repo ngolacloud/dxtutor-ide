@@ -44,7 +44,7 @@ it("togglePanel/setPanelTab: abre o painel inferior e mostra o separador pedido"
 it("badges conta as alterações por commitar e marca a execução do Co-Dev", async () => {
   const { agentStore } = await import("../src/app/store");
   // o botão do Co-Dev entra no ACTS pelo boot6 (que não corre no harness)
-  w.ACTS.push({ ic: "sparkle", pane: "codev", title: "Co-Dev" });
+  (await import("../src/boot")).ACTS.push({ ic: "sparkle", pane: "codev", title: "Co-Dev" });
   SHM.buildActivity();
   agentStore.run.active = true;
   SHM.badges();
@@ -56,7 +56,7 @@ it("badges conta as alterações por commitar e marca a execução do Co-Dev", a
   expect($('.act[data-pane="scm"] .badge').textContent).toBe(n ? String(n) : "");
 });
 
-it("buildActivity desenha um botão por ACTS; hd é o cabeçalho partilhado do core", () => {
-  expect(document.querySelectorAll("#activity .act").length).toBe(w.ACTS.length);
+it("buildActivity desenha um botão por ACTS; hd é o cabeçalho partilhado do core", async () => {
+  expect(document.querySelectorAll("#activity .act").length).toBe((await import("../src/boot")).ACTS.length);
   expect(w.hd("Título", "<b>x</b>")).toBe('<div class="side-hd"><span class="t">Título</span><span class="acts"><b>x</b></span></div>');
 });

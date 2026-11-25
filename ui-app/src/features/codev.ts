@@ -65,17 +65,18 @@ import type { ChatMessage } from "../app/store/agent";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
 
-/* ───── dados de config/estado do Co-Dev (window-backed; app.ts residual lê por global) ───── */
-const ROLE: Record<string, string> = window.ROLE = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
-const ROLE_D: Record<string, string> = window.ROLE_D = { plan: 'requisitos, arquitectura, plano', code: 'escreve e edita código', review: 'testes, lint, auto-avaliação', judge: 'escolhe entre propostas', local: 'autocomplete e dados sensíveis' };
-const ROUTE: Record<string, string> = window.ROUTE = { plan: 'claude', code: 'codex', review: 'gemini', judge: 'claude', local: 'ollama' };
-const MODES: Record<string, { l: string; d: string }> = window.MODES = {
+/* ───── dados de config/estado do Co-Dev: exportados; o config e a ponte (avaliam antes) lêem-nos pelo registo (U7j) ───── */
+export const ROLE: Record<string, string> = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
+export const ROLE_D: Record<string, string> = { plan: 'requisitos, arquitectura, plano', code: 'escreve e edita código', review: 'testes, lint, auto-avaliação', judge: 'escolhe entre propostas', local: 'autocomplete e dados sensíveis' };
+export const ROUTE: Record<string, string> = { plan: 'claude', code: 'codex', review: 'gemini', judge: 'claude', local: 'ollama' };
+export const MODES: Record<string, { l: string; d: string }> = {
   manual: { l: 'Manual', d: 'Tu decides tudo: respostas, proposta, plano, cada edição e cada comando.' },
   assist: { l: 'Assistido', d: 'O Co-Dev decide o que é seguro e reversível; pergunta-te quando a confiança é baixa.' },
   auto: { l: 'Auto', d: 'Autónomo de ponta a ponta, com auto-avaliação e correcção. Só pára para push e acções destrutivas.' },
 };
-window.DECS = DECS_ARR;
-const CKPT: any[] = window.CKPT = [];
+/* as decisões e os checkpoints: lidos por import (ADR-0004, U7j — eram window.DECS/window.CKPT) */
+export const DECS = DECS_ARR;
+export const CKPT: any[] = [];
 
 /* ───── interface do agente ───── */
 function updateAgentUIBase(): void {
@@ -163,12 +164,15 @@ function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last:
 
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */
-Object.assign(window, { ctxPill, cycleMode, pickModel, scrollMsgs, newChat: newChatWithCtx, user, card, md, beat, runState, runLabel, agCtl, waiting, ask, tl });
+Object.assign(window, { user, card, md, waiting, ask });
 
-/* publica o doTool (já ligado em ./codev/index.ts, com o gate de direitos do harness acima)
-   no window; o features/board.ts resolve-o por global. O motor de missões guionadas e os
-   cenários de demonstração foram removidos (ADR-0006, R1b). */
-Object.assign(window, { doTool: harnessDoTool });
+/* o doTool com o gate de direitos do harness acima: exportado (ADR-0004, U7k — era publicado no window, que só os
+   testes liam). O motor de missões guionadas e os cenários de demonstração foram removidos (ADR-0006, R1b). */
+export { harnessDoTool as doTool };
+/* os helpers do transcript que o board, os separadores e o arranque usam: por import (ADR-0004, U7l — eram publicados no window) */
+export { ctxPill, scrollMsgs, beat, runState, runLabel, tl };
+/* os botões da moldura (app/chrome-actions.ts), os comandos e o arranque importam-nos (ADR-0004, U7n — eram publicados no window) */
+export { cycleMode, pickModel, newChatWithCtx as newChat, agCtl, assistantCenter, toggleAgent, openManager };
 
 /* ───── conversa livre: ponto de entrada (o motor liveChat vive em application/) ───── */
 function handlePrompt(q: string) {
@@ -214,13 +218,13 @@ function handlePrompt(q: string) {
 function agSend() { submit(); }
 
 /* ───── posicionamento do painel ───── */
-window.renderAgentView = (_t, host) => { host.innerHTML = `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Co-Dev</div><button class="ac-dock" data-action="assistant-dock">${svg('dock-right')} Fixar à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`; $('#agent-slot')!.appendChild($('#ag-body')!); bridge.setVar('--agent-w', '0px'); $('#tgl-agent')!.classList.remove('on'); scrollMsgs(); };
+const renderAgentView = (_t: unknown, host: HTMLElement): void => { host.innerHTML = `<div class="agent-center"><div class="ac-head"><div class="ag-mark">${svg('sparkle')}</div><div class="ag-name">Co-Dev</div><button class="ac-dock" data-action="assistant-dock">${svg('dock-right')} Fixar à direita</button></div><div class="ac-body"><div id="agent-slot"></div></div></div>`; $('#agent-slot')!.appendChild($('#ag-body')!); bridge.setVar('--agent-w', '0px'); $('#tgl-agent')!.classList.remove('on'); scrollMsgs(); };
 function assistantCenter() { bridge.openTab({ id: 'agent', title: 'Co-Dev', kind: 'agent' }); }
 function assistantDock() { bridge.closeTab('agent'); }
 function toggleAgent() { if (bridge.tabOf('agent')) { bridge.closeTab('agent'); return; } const show = bridge.getVar('--agent-w') === '0px'; bridge.setVar('--agent-w', show ? '380px' : '0px'); $('#tgl-agent')!.classList.toggle('on', show); }
 function focusAgent(nofocus?: boolean) { if (bridge.tabOf('agent')) { if (bridge.monolith.currentTabId !== 'agent') bridge.show('agent'); } else if (bridge.getVar('--agent-w') === '0px') toggleAgent(); if (!nofocus) ($('#ag-input') as HTMLElement)!.focus(); }
 /* publica o ponto de entrada de conversa livre + posicionamento; VIEW.agent fica como shim em app.ts (VIEW nasce depois) */
-Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, assistantCenter, toggleAgent, focusAgent });
+Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, focusAgent });
 /* Board (opção 2 do ADR-0003): o Board pede ao Co-Dev pelo seu legacy-bridge, sem importar a feature */
 Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvailable: codevEngine.agentAvailable });
 
@@ -256,9 +260,9 @@ export function openSettings() { bridge.openTab({ id: 'settings', title: 'Defini
 function openManager() { bridge.openTab({ id: 'manager', title: 'Gestor de missões', kind: 'manager' }); }
 export function openAnalysis() { bridge.openTab({ id: 'analysis', title: tc('analysisTitle'), kind: 'analysis' }); }
 function testProvBase(k: string, btn: HTMLElement): void { btn.textContent = 'a testar…'; setTimeout(() => { btn.textContent = 'Testar ligação'; const o = btn.parentElement!.querySelector('.pd')!; const PROV = bridge.providers(); o.innerHTML = k === 'claude' ? (bridge.sample() ? '<span style="color:var(--green)">✓ ao vivo</span> ' + tc('testLive') : tc('testLiveOff')) : `<span style="color:var(--yellow)">simulado</span> ${tc('testSimulated', { ep: esc(PROV[k].ep) })}`; }, 500); }
-window.testProv = function (k, btn) { const d = desktopPorts.codev; return d && d.testProv ? d.testProv(k, btn, testProvBase) : testProvBase(k, btn); };
+const testProv = function (k: string, btn: HTMLElement): unknown { const d = desktopPorts.codev; return d && d.testProv ? d.testProv(k, btn, testProvBase) : testProvBase(k, btn); };
 const POLICY = [['Responder a perguntas de clarificação', 'tu', 'Co-Dev se confiança ≥ 80%; senão pergunta', 'Co-Dev; abaixo de 80% assume a opção reversível e assinala'], ['Escolher entre propostas dos modelos', 'tu, com recomendação do juiz', 'juiz', 'juiz'], ['Aprovar o plano', 'tu', 'automático', 'automático'], ['Editar ficheiros', 'aprovas cada edição', 'automático, com diff', 'automático, com diff'], ['Terminal: testes, build, lint', 'aprovas', 'automático', 'automático'], ['Terminal: outros comandos', 'aprovas', 'aprovas', 'automático'], ['Corrigir depois de falhar a auto-avaliação', 'aprovas', 'automático (máx. 2)', 'automático (máx. 2)'], ['Commit local', 'aprovas', 'aprovas', 'automático'], ['Push e acções destrutivas', 'aprovas', 'aprovas', 'aprovas — sempre']];
-window.renderSettingsPage = (_t, host) => {
+export const renderSettingsPage = (_t: unknown, host: HTMLElement): void => {
   const mi = Object.keys(MODES).indexOf(bridge.monolith.mode); const PROV = bridge.providers();
   host.innerHTML = `<div class="page"><h1>Definições</h1><div class="sub">Guardadas neste browser. Chaves e endpoints reais ficam no keychain da aplicação — aqui servem para mostrar o contrato.</div>
   <h2>Modelos e provedores</h2><div class="pgrid">${Object.entries(PROV).map(([k, p]: [string, any]) => `<div class="pcard"><div class="ph"><span class="pdot${p.on ? '' : ' off'}" style="background:${p.col}"></span>${p.name}<span class="tag ${k === 'claude' && bridge.sample() ? 'live' : ''}">${bridge.provState(k)}</span><button class="sw${p.on ? ' on' : ''}" title="Ligar / desligar" data-action="toggle-prov" data-on="${esc(k)}"></button></div>
@@ -270,7 +274,7 @@ window.renderSettingsPage = (_t, host) => {
   <h2>Aparência</h2><div class="pgrid">${Object.keys(bridge.themes()).map(n => `<button class="pcard${n === bridge.monolith.theme ? ' sel' : ''}" data-action="set-theme" data-on="${esc(n)}"><div class="ph">${n}${n === bridge.monolith.theme ? '<span class="tag acc">activo</span>' : ''}</div></button>`).join('')}</div>
   <h2>Atalhos de teclado</h2><div class="tbl-wrap">${bridge.commands().filter(c => c[1]).map(c => `<div class="rowline"><span>${c[0]}</span><span class="sp"></span><kbd>${c[1]}</kbd></div>`).join('')}</div></div>`;
 };
-window.renderManagerPage = (_t, host) => {
+export const renderManagerPage = (_t: unknown, host: HTMLElement): void => {
   const PROV = bridge.providers(); const usage = bridge.usage();
   host.innerHTML = `<div class="page"><h1>Gestor de missões</h1><div class="sub">Tudo o que o Co-Dev fez, decidiu e pode desfazer.</div>
   <h2>Checkpoints</h2><div class="tbl-wrap">${CKPT.map((c: any) => `<div class="rowline"><span style="color:var(--fg-muted);font-family:var(--font-mono);font-size:11px">${c.t}</span><span>${esc(c.label)}</span><span class="sp"></span><button class="mini" data-action="restore-ckpt" data-on="${c.id}">Restaurar ficheiros</button></div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">Criados antes de cada missão e de cada correcção.</div>'}</div>
@@ -282,11 +286,10 @@ window.renderManagerPage = (_t, host) => {
    `features/changelog.ts` (timeline git real). `openAnalysis` (o ponto de entrada do
    menu Help + paleta) mantém-se e passa a abrir o changelog. */
 /* publica openManager/openSettings/openAnalysis (testProv é window.* acima); os VIEW.* ficam shims em app.ts */
-Object.assign(window, { openManager });
 
 /** Renderiza o pane «Co-Dev»: base (conhecimento, checkpoints, routing) e,
  *  por cima, a camada v4 (equipa, backlog, studio). */
-function renderCodevPane(): void {
+export function renderCodevPane(): void {
   const fs = bridge.files(), PROV = bridge.providers(), agents = bridge.agents(), backlog = bridge.backlog(), stages = bridge.stages(), studio = bridge.studioDesign();
   // ── base v3 ──
   const kn = Object.keys(fs).filter(p => p.includes("/.dxtutor/")).sort();
@@ -301,13 +304,10 @@ function renderCodevPane(): void {
   if (sec) sec.insertAdjacentHTML("afterbegin", `<div class="scm-grp">Equipa<span class="cnt">${Object.keys(agents).length}</span></div>${Object.entries(agents).map(([, a]: [string, any]) => `<div class="scm-row" data-action="open-team" title="${esc(a.d)}"><span class="pdot" style="background:${a.col}"></span><span class="nm">${a.n}</span><span class="pth">${esc(a.paths.join(", ") || "só leitura")}</span></div>`).join("")}<div class="scm-grp">Backlog<span class="cnt">${backlog.issues.length}</span></div><div class="scm-row" data-action="open-board"><span class="ic">${svg("split")}</span><span class="nm">Quadro</span><span class="pth">${stages.map(s => backlog.issues.filter((i: any) => i.stage === s[0]).length).join(" · ")}</span></div><div class="scm-row" data-action="open-studio"><span class="ic">${svg("cube")}</span><span class="nm">Studio</span><span class="pth">${studio.nodes.filter((n: any) => n.st === "plan").length} planeados</span></div>`);
 }
 
-/* ── publicação transitória no window (shim para o residual) ──
-   RP.codev (app.ts) delega em renderCodevPane. */
-window.renderCodevPane = renderCodevPane;
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.codev = renderCodevPane;
-VIEW.agent = window.renderAgentView;
-VIEW.manager = window.renderManagerPage;
+VIEW.agent = renderAgentView;
+VIEW.manager = renderManagerPage;
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
    O único sítio que liga o nome de acção (emitido como `data-action` pelos
@@ -323,7 +323,7 @@ const ACTIONS: ActionTable = {
   "set-mode": { on: "click", run: (e) => window.setMode(e.on) },
   "handle-prompt": { on: "click", run: (e) => handlePrompt(e.on) },
   "toggle-prov": { on: "click", run: (e) => toggleProv(e.on) },
-  "test-prov": { on: "click", run: (e) => window.testProv(e.on, e.el) },
+  "test-prov": { on: "click", run: (e) => testProv(e.on, e.el as HTMLElement) },
   "set-theme": { on: "click", run: (e) => bridge.setTheme(e.on) },
   "restore-ckpt": { on: "click", run: (e) => bridge.restoreCkpt(+e.on) },
   "open-path": { on: "click", run: (e) => bridge.openPath(e.on) },
@@ -431,7 +431,7 @@ mountComposer(composerHost);
    fim); o agentStore adopta os objectos ao publicá-los. O MODE/ACTIVE/THRESH/CTX_ON nascem no agentStore
    com os mesmos valores que o app.ts lhes voltava a atribuir. Seguem o STOP/SAFE/DANGER, o provFor/who, o
    provState com a porta desktop e o VIEW.settings composto (página + secção Language do i18n + porta). */
-const CW = window as unknown as { ROUTE: Record<string, string>; ROLE: Record<string, string>; connected: () => string[]; LOCALE: string; SAMPLE: unknown };
+const CW = window as unknown as { connected: () => string[]; LOCALE: string; SAMPLE: unknown };
 const PROV: Record<string, { name: string; vendor: string; model: string; ep: string; on: boolean; local?: boolean; col: string }>={
   claude:{name:'Claude',vendor:'Anthropic',model:'claude-opus-5-5',ep:'https://api.anthropic.com',on:true,col:'var(--accent-hover)'},
   gemini:{name:'Gemini',vendor:'Google',model:'gemini-pro',ep:'https://generativelanguage.googleapis.com',on:true,col:'var(--blue)'},
@@ -446,13 +446,13 @@ Object.assign(window, { PROV });
 agentStore.chat = CHAT as ChatMessage[];
 agentStore.run = RUN;
 CW.SAMPLE = null;
-export const provFor=(r: string): string=>PROV[CW.ROUTE[r]].on?CW.ROUTE[r]:(CW.connected()[0]||CW.ROUTE[r]);
-export const who=(r: string): string=>`${CW.ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
+export const provFor=(r: string): string=>PROV[ROUTE[r]].on?ROUTE[r]:(CW.connected()[0]||ROUTE[r]);
+export const who=(r: string): string=>`${ROLE[r].split(' ')[0].toLowerCase()} · ${PROV[provFor(r)].name.toLowerCase()}`;
 const provStateBase=(k: string): string=>k==='claude'?(CW.SAMPLE?'ao vivo':'ao vivo indisponível aqui'):PROV[k].local?'local · simulado':'simulado';
-window.provState=(k: string): string=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
-const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{window.renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${services.i18n!.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
+export const provState=(k: string): string=>{const d=desktopPorts.codev;return d&&d.provState?d.provState(k,provStateBase):provStateBase(k);};
+const settingsWithLanguage=(t: unknown,host: HTMLElement)=>{renderSettingsPage(t,host);host.querySelector('.sub')!.insertAdjacentHTML('afterend',`<h2>Language</h2><div class="pgrid">${services.i18n!.LOCALES.map(l=>`<button class="pcard${CW.LOCALE===l[0]?' sel':''}" data-action="codev:setLocale" data-on="${esc(l[0])}"><div class="ph notr">${l[1]}${CW.LOCALE===l[0]?'<span class="tag acc">✓</span>':''}</div><div class="pd">${l[2]}</div></button>`).join('')}</div>`);};
 VIEW.settings=(t,host)=>{const d=desktopPorts.codev;if(d&&d.settings)d.settings(t,host,settingsWithLanguage);else settingsWithLanguage(t,host);};
 /* o que a ponte do Co-Dev e a conta lêem (ADR-0004, U7h): avaliam antes deste módulo, por isso usam o registo */
-services.codev = { STOP, SAFE, DANGER, provFor, who, openSettings };
+services.codev = { STOP, SAFE, DANGER, provFor, who, openSettings, MODES, ROUTE, provState, agCtl, openManager };
 /* a escolha da língua nas Definições chama o setLocale publicado, no acto (era `onclick` inline — ADR-0004, U5c) */
 registerActions({ "codev:setLocale": { click: (c) => void callGlobal("setLocale", c.on) } });

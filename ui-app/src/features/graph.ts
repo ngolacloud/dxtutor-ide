@@ -88,7 +88,8 @@ function renderGraphView(_t: unknown, host: HTMLElement) {
 
 /* ── publicação no window: `VIEW.graph` (app.ts) delega em renderGraphView (shim, no
    registo de kinds de tab). ── */
-window.renderGraphView = renderGraphView;
+/* exportado (ADR-0004, U7m): o auto-teste desktop e os testes importam-no */
+export { renderGraphView };
 /* redesenha o grafo aberto quando o workspace muda (ADR-0004, U4j4a — era um subscritor do app.ts) */
 bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=(window as unknown as { tabOf: (id: string | null) => { kind?: string } | undefined }).tabOf((window as unknown as { cur: string | null }).cur);if(t&&t.kind==='graph'){const top=$('#ebody')!.scrollTop;(window as unknown as { show: (id: string | null) => void }).show((window as unknown as { cur: string | null }).cur);$('#ebody')!.scrollTop=top;}}});
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */

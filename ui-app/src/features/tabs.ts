@@ -20,17 +20,15 @@ import { editorStore, type Tab } from "../app/store/editor";
 import { VIEW } from "../app/store/registry";
 import { registerActions, globalCalls } from "../app/actions";
 import { services } from "../app/services";
+import { ctxPill } from "./codev";
+import { stLang } from "./editor";
 
 interface LegacyGlobals {
   FS: Record<string, { content: string; orig: string | null }>;
   short: (p: string) => string;
   fIcon: (name: string) => string;
   gotoLine: (line: number) => void;
-  drawOutline: () => void;
-  markActive: () => void;
-  stLang: () => void;
   show: (id: string | null) => void;
-  ctxPill: () => void;
 }
 const G = window as unknown as LegacyGlobals;
 
@@ -138,8 +136,8 @@ function show(id: string | null): void {
     miniOff();
     ($("#breadcrumbs") as HTMLElement).innerHTML = "";
     host.innerHTML = `<div class="empty"><div><b style="color:var(--fg-dim);font-size:14px">dxtutor IDE</b><br><kbd>Ctrl+P</kbd> ir para ficheiro &nbsp; <kbd>Ctrl+Shift+P</kbd> comandos<br><kbd>Ctrl+L</kbd> falar com o Co-Dev &nbsp; <kbd>Ctrl+\`</kbd> terminal</div></div>`;
-    G.drawOutline();
-    G.stLang();
+    services.explorer!.drawOutline();
+    stLang();
     return;
   }
   editorStore.currentTabId = id;
@@ -152,10 +150,10 @@ function show(id: string | null): void {
   if (t.kind !== "file") miniOff();
   VIEW[t.kind](t, host);
   services.shell!.hydrate();
-  G.drawOutline();
-  G.markActive();
-  G.stLang();
-  G.ctxPill();
+  services.explorer!.drawOutline();
+  services.explorer!.markActive();
+  stLang();
+  ctxPill();
 }
 
 function closeTab(id: string): void {
@@ -200,7 +198,7 @@ function showWithActions(id: string | null): void {
  *  ADR-0004 U4j3; como lá, usa o `show` publicado — o da barra de acções). */
 function rerender(kind: string): void { const t=tabOf(editorStore.currentTabId);if(t&&t.kind===kind){const top=$('#ebody')!.scrollTop;G.show(editorStore.currentTabId);$('#ebody')!.scrollTop=top;} }
 
-Object.assign(window, { rerender, tabOf, openTab, openPath, openFile, show: showWithActions, EACT });
+Object.assign(window, { rerender, tabOf, openTab, openPath, show: showWithActions, EACT });
 
 export { rerender, tabOf, openTab, openPath, openFile, setActive, tabIc, drawTabs, parkAgent, miniOff, show, closeTab, stepTab };
 /* o que a ponte do Co-Dev, a equipa e o Learning Track lêem — avaliam antes (ADR-0004, U7h) */

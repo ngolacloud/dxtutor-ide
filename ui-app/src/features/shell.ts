@@ -19,6 +19,7 @@ import { RP } from "../app/store/registry";
 import { scrollTerm } from "./terminal";
 import { services } from "../app/services";
 import { openSettings } from "./codev";
+import { ACTS, OVERFLOW } from "../boot";
 
 interface Act {
   ic: string;
@@ -36,8 +37,6 @@ interface OverflowItem {
   sep?: boolean;
 }
 interface LegacyGlobals {
-  ACTS: Act[];
-  OVERFLOW: OverflowItem[];
   getVar: (k: string) => string;
   scrollTerm: () => void;
   changes: () => string[];
@@ -127,7 +126,7 @@ function setPanelTab(pt: string, nofocus?: boolean): void {
 function buildActivity(): void {
   const bar = $("#activity") as HTMLElement;
   bar.innerHTML = "";
-  G.ACTS.forEach((a) => {
+  (ACTS as unknown as Act[]).forEach((a) => {
     const el = document.createElement("button");
     el.className = "act" + (a.spacer ? " spacer" : "") + (a.sep ? " sep" : "");
     el.title = a.title;
@@ -154,7 +153,7 @@ function openOverflow(btn: HTMLElement): void {
   title.className = "mi ov-title";
   title.textContent = "Additional Views";
   pop.appendChild(title);
-  G.OVERFLOW.forEach((it) => {
+  (OVERFLOW as OverflowItem[]).forEach((it) => {
     if (it.sep) {
       const s = document.createElement("div");
       s.className = "mi-sep";

@@ -21,6 +21,7 @@
    globais de base ($/$$/P/svg/toast), os dados iniciais (ACTS/OVERFLOW/MENUS/TREE), o
    painel de contentores de demonstração e dois listeners. */
 import { services } from "./app/services";
+import type { AppAct } from "./app/ide-globals";
 import { translator } from "./app/i18n";
 import { INFRA_DESKTOP_MESSAGES } from "./features/infra/ui/desktop-messages";
 
@@ -29,17 +30,9 @@ declare global {
     $: (s: string) => HTMLElement | null;
     $$: (s: string) => HTMLElement[];
     P: Record<string, string>;
-    ACTS: unknown[];
-    OVERFLOW: unknown[];
     MENUS: unknown[];
-    TREE: unknown;
-    wireSections: (scope: ParentNode) => void;
   }
-  var toTimer: ReturnType<typeof setTimeout> | undefined;
-  var activeTab: string | null;
-  const agCtl: (a: string) => void;
   const svg: (name: string, cls?: string) => string;
-  const wireSections: (scope: ParentNode) => void;
   /* o String.replaceAll existe em runtime (ES2021, webview e browsers suportados) mas a lib
      do projecto é ES2020; declara-se só a assinatura que o buildDocker usa */
   interface String { replaceAll(searchValue: string, replaceValue: string): string }
@@ -49,7 +42,9 @@ declare global {
    escrita por boot e pelos restantes módulos por nome (resolvem a globalThis.*).
    Inicializadas já aqui para a propriedade existir antes de qualquer atribuição
    livre em modo estrito (módulo). ── */
-Object.assign(window, { toTimer: undefined, activeTab: null, CWD: ['~','dxtutor','workspace','projects'] });
+/* do toast e da barra do assistente: só este módulo os lê (U7o — eram window.toTimer/activeTab) */
+let toTimer: ReturnType<typeof setTimeout> | undefined;
+const activeTab: string | null = null;
 
 window.$=s=>document.querySelector<HTMLElement>(s);window.$$=s=>[...document.querySelectorAll<HTMLElement>(s)];
 
@@ -125,7 +120,7 @@ window.toast = function(m){const t=$('#toast')!;t.textContent=m;t.classList.add(
 /* ═════════ ACTIVITY BAR ═════════ */
 // Activity bar NATIVA (VS Code core) + o Assistant próprio do dxtutor.
 // Ícones contribuídos por plugins NÃO entram aqui — vão para o overflow "…".
-window.ACTS=[
+export const ACTS: AppAct[]=[
   {ic:'explorer',pane:'explorer',title:'Explorer'},
   {ic:'search',pane:'search',title:'Search'},
   {ic:'scm',pane:'scm',title:'Source Control',badge:'3'},
@@ -138,7 +133,7 @@ window.ACTS=[
   {ic:'settings',pane:'settings',title:'Settings'},
 ];
 // Vistas de plugin (só aparecem se o plugin estiver instalado) — vivem no overflow.
-window.OVERFLOW=[
+export const OVERFLOW: { l?: string; pane?: string; sep?: number }[]=[
   {l:'Remote Explorer',pane:'remote'},{l:'Containers',pane:'containers'},{l:'GitLens'},{l:'Python'},{l:'Launchpad'},
   {sep:1},
   {l:'Colab'},{l:'Cloud Code'},{l:'Google Cloud Data Agent Kit'},{l:'Firebase SQL Connect'},{l:'Kubernetes'},{l:'Makefile'},{l:'Prisma'},{l:'Ansible'},{l:'SonarQube Setup'},{l:'Trunk'},
@@ -161,15 +156,16 @@ document.addEventListener('click',()=>services.menus!.closeMenus());
 
 /* ═════════ EXPLORER (tree + sections) ═════════ */
 /* a árvore nasce vazia: o syncTree (features/explorer.ts) preenche-a com a pasta aberta (ADR-0006, R1a) */
-window.TREE={projects:{dir:1,open:1,children:{}}};
+/* lidos por import (ADR-0004, U7j — eram window.ACTS/OVERFLOW/TREE) */
+export const TREE: { projects: { dir?: number; open?: number; children: Record<string, any> } }={projects:{dir:1,open:1,children:{}}};
 
 /* o editor de demonstração v1 (DOCS, renderTabs/renderDocs/renderMinimap, agentShell, welcome) saiu: as
    features tabs/editor/codev são as donas (ADR-0006, R1a). Fica o atalho de teclado dos controlos de execução. */
 document.addEventListener('keydown',e=>{if(/^(input|textarea)$/i.test((e.target as HTMLElement).tagName))return;
   const open=getComputedStyle(document.body).getPropertyValue('--agent-w').trim()!=='0px'||(activeTab==='Assistant');if(!open)return;
-  const rc=$('#ag-runctl');if(e.key==='Escape'){agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
-  const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();agCtl(m[e.key]);}});
-window.wireSections = function(scope){scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
+  const rc=$('#ag-runctl');if(e.key==='Escape'){services.codev!.agCtl('esc');return;}if(rc&&rc.classList.contains('hidden'))return;
+  const m: Record<string, string>={p:'pause',x:'stop',d:'details'};if(m[e.key]){e.preventDefault();services.codev!.agCtl(m[e.key]);}});
+const wireSections = function(scope: ParentNode): void {scope.querySelectorAll<HTMLElement>('.sec-hd').forEach(h=>{h.onclick=()=>{h.classList.toggle('open');const b=h.nextElementSibling;if(b&&b.classList.contains('sec-body'))b.classList.toggle('show');};});}
 export function buildDocker(){const pane=$('#pane-containers')!;pane.innerHTML=pane.innerHTML.replaceAll('{chev}',svg('chev'));
   /* sem dados inventados (ADR-0006, R1a): no desktop, o pane lista os contentores e as imagens reais do
      runtime ligado (platform/desktop/infra.ts regista o RP.containers — R5a); no browser não há runtime */

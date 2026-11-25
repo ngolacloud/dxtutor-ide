@@ -160,7 +160,7 @@ referenciam `ui/` nem `ui-next/`.
 | 1 — Build e contratos | `ui:build` na cadeia de `build`; docs coerentes; matriz IPC; 1ªs verificações de arquitectura | Build limpo + contratos de referência verificados | **feito** (ver §9) |
 | 2 — Primeira fatia | 1 feature atravessa UI→adaptador→caso de uso→impl (ex. abrir workspace / board) | Testes do caso de uso + teste integrado | **feito** (ver §10) |
 | 3 — Backend | Extrair responsabilidades de `lib.rs`; portas e erros tipados; composição | APIs/dados/CLI/TUI preservados | **feito** — 1º grupo (`review`) §11; 2º (`code-intel`) §12; 3º (`testes`/execução) §13; 4º (`git`) §14; 5º (`co-dev`) §15; 6º (`pesquisa`) §16; 7º (`agente`) §17; 8º (`assistant`) §18; 9º (`debug`) §19; 10º (`devcontainers`) §20; 11º (`sandbox`/run) §21; 12º (`PairCode`) §22; **13º e último (`estudo`/`missões`) §23 — `lib.rs` fica sem `#[tauri::command]`** |
-| 4 — UI | Estado por proprietário, bootstrap, serviços, fim de globais/substituições, tipagem | Mesmos fluxos, sem dependência da ordem HTML | **em curso** — plano em `ADR-0004` (fases U0–U7); U0 (rede de segurança: arranque em browser real + métricas que só descem) feita |
+| 4 — UI | Estado por proprietário, bootstrap, serviços, fim de globais/substituições, tipagem | Mesmos fluxos, sem dependência da ordem HTML | **feito no âmbito da UI que não depende de outras sessões** — ADR-0004: U0–U5 feitas, U6 em curso (texto dos módulos ainda em desenvolvimento noutras sessões), U7 fechada (U7a–U7o; ver §24) |
 | 5 — Learning e fronteiras | Conteúdo separado, progresso preservado, políticas e CSP verificadas | Testes específicos + compatibilidade de dados | pendente |
 | 6 — Consolidação | Remoção de shims, CI PR/main, docs finais, revisão do grafo | Critérios de aceitação ou pendências claras | pendente |
 
@@ -936,3 +936,26 @@ são a fronteira de serialização para o webview, partilhada entre grupos.
   §2 e IPC-MATRIX §3 coerentes). **GOTCHA A2:** o literal `#[tauri::command]` não pode aparecer
   em comentário de `commands/*.rs` (o `grep -c` conta-o) — reescrito o comentário de
   `missions.rs` sem o token.
+
+## 24. Etapa 4 — UI (ADR-0004): estado no fecho da U7 (2026-11-25)
+
+Comparação com as baselines (as §3/§4 deste documento e a §5 do ADR-0004, medida no HEAD de 2026-11-23); o
+detalhe de cada fase está no
+`ADR-0004-ui-app-clean-architecture.md` (§10, uma nota por fatia).
+
+| Medida | Baseline | Agora |
+|---|---|---|
+| `<script>` no `index.html` | 43 | 1 (`main.ts`, U1) |
+| Ficheiros com `// @ts-nocheck` | 21 (E05/§3) | 0 (U4) |
+| `invoke` cru fora de `platform/` | 44 | 0 (U2: clientes tipados em `platform/tauri/`) |
+| Handlers inline `on*="…"` | 165 | 0 (U5; CSP `script-src` sem `'unsafe-inline'`) |
+| Globais publicadas no `window` | 286 no início da U7e (o `boot.ts` sozinho publicava 63 na §4) | 130 |
+| Shims de estado `ownedGlobal` | 17 (U3) | 7 |
+| `v5.ts`/`v6.ts`/`app.ts` (substituições em tempo de execução) | 3 ficheiros | 0 (U4: as features são donas; o desktop entra por portas `app/desktop.ts`) |
+
+Regras que impedem a regressão (`npm run arch:check`): as métricas do `scripts/ui-metrics.sh` só descem; A7/A8
+(domínio puro, `window` só nas pontes das features em camadas); **A9** — só os ficheiros da lista `A9_ALLOW` do
+`arch-check.sh` publicam no `window` (código novo lê por import, pelo store de `app/store` ou pelo registo
+`app/services.ts`; um ficheiro que deixa de publicar sai da lista). O que fica no `window`, porquê e que sessão o
+desbloqueia: ADR-0004, «U7 — fecho». A etapa 6 (consolidação) herda esse inventário.
+

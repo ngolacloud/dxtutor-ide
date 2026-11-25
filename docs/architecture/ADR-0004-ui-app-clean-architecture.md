@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 em curso (U7a–U7i)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o, globais 286 → 130; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1142,3 +1142,88 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   `bootApp`. Ficam como shims os sete que módulos de outras sessões ainda lêem ou escrevem: `PANE`, `LOCALE`, `cur`,
   `FS`, `ROOT` (várias pontes), `PROV` (o visualizer) e `ACTIVE` (a ponte do codereview escreve-o). Globais
   publicadas 221 → 216; shims de estado 17 → 7.
+- **U7j (2026-11-24) — o estado simples dos meus módulos deixa o window.** Dezanove nomes passam a ter dono por
+  módulo: os catálogos e o estado do Co-Dev (`ROLE`, `ROLE_D`, `ROUTE`, `MODES`, `DECS`, `CKPT`) são exportados pelo
+  `features/codev.ts` — o config e a ponte do Co-Dev, que avaliam antes, lêem `MODES`/`ROUTE` pelo registo; a barra de
+  actividades, o overflow e a árvore (`ACTS`, `OVERFLOW`, `TREE`) são exportados pelo `boot.ts` (que avalia primeiro);
+  a pasta actual do terminal (`CWD`) passa a `cwd` (um `ownedValue` do `features/terminal.ts`, que o PairCode e o
+  desktop mudam por `cwd.set`) e a máquina do prompt (`HOST`) a constante local; os itens da paleta (`PITEMS`), a
+  escolha do onboarding (`ONB`) e o separador/modo de ligar do Studio (`SCAT`/`SLINK`) são `export let` dos donos
+  (ligação viva para quem os importa). Saem as declarações globais. O teste de caracterização que exigia os
+  catálogos do Co-Dev no window passa a exigi-los exportados e fora do window. Ordem de avaliação igual, excepto o
+  registo (sem efeitos). Globais publicadas 216 → 197.
+- **U7k (2026-11-24) — os nomes que só os testes liam.** Dos 15 nomes publicados que só testes ou e2e liam, 9 são
+  lidos por testes de outras sessões (lsp, hood, project, scm, debug, visualizer, testing, ops) e o `i18nBoot` é
+  chamado pelo `startup.ts` por nome (`window[passo]`): ficam. Saem seis: `doTool` (o do gate de direitos, agora
+  `export { harnessDoTool as doTool }`), `renderSettingsPage`, `renderManagerPage`, `renderCodevPane` (exportados pelo
+  `features/codev.ts`, que os usa localmente no `VIEW.manager`/`RP.codev`/secção Language), `renderTutorPane`
+  (`features/tutor.ts`) e o `loadJSZip` (a ponte da ext guarda o carregador num valor do módulo e consulta a porta
+  `desktopPorts.ext` no acto; o golden da ext deixa de trocar o `window.loadJSZip` e injecta o JSZip falso pela porta,
+  como o desktop). Os testes lêem os módulos da cadeia do `bootApp`. Globais publicadas 197 → 192.
+- **U7l (2026-11-24) — os helpers do Co-Dev e do explorador.** Dos 23 nomes destes dois donos ficam publicados os
+  dos botões do chrome (`cycleMode`, `pickModel`, `newChat`, `agCtl`, `assistantCenter`, `toggleAgent`, `openManager`,
+  `collapseAll`, `newFile`, `newFolder` — `callGlobal` por nome, trocados pelo teste das acções), o `ask` e o
+  `buildExplorer` (testes de outras sessões lêem-nos) e o `setMode` (a lista de globais obrigatórios do e2e de
+  arranque). Saem dez: `ctxPill`, `scrollMsgs`, `beat`, `runState`, `runLabel`, `tl` (re-exportados pelo
+  `features/codev.ts`; a ponte do board, os separadores e o arranque importam-nos), `provState` (exportado; o `core`,
+  que avalia antes, lê-o pelo registo), e `syncTree` (a versão com a porta desktop), `drawOutline`, `markActive`
+  (exportados pelo `features/explorer.ts`; os separadores e o workspace, que avaliam antes, usam o registo
+  `services.explorer`; o arranque importa). Ordem de avaliação igual. Globais publicadas 192 → 182.
+- **U7m (2026-11-24) — a cauda: equipa, terminal, diagnósticos, editor, tema e os panes.** Saem quinze:
+  `applyTemplate`, `openTeam`, `agentPill`, `reviewIssue` (o `features/team.ts` exporta-os e regista os três últimos
+  em `services.team` para a ponte do Co-Dev e as tarefas, que avaliam antes; as acções da equipa, do quadro e das
+  boas-vindas chamam-nos directamente); `termExec` (a versão com a porta desktop, exportada e registada em
+  `services.terminal` para a ponte do Co-Dev); `nextProblem`; `stLang` (exporta-se a versão com o blame, a que estava
+  publicada); `THEMES`/`setTheme` (o config, que avalia antes, lê os temas por `services.theme`); `mdFull`; e os
+  panes/vistas `renderRemotePane`, `renderRunPane`, `renderSearchPane`, `renderAccountPane`, `renderGraphView` (o
+  auto-teste desktop e os testes importam-nos). Ficam: os nomes dos botões do chrome; o `promptHTML` (o PairCode
+  decora-o no window); o `openIssue` (o golden do quadro troca-o); o `drawProblems` (a ponte do painel publica a versão
+  real); o `gotoLine` (o teste de cablagem troca-o); o `openLesson`/`nextLesson` (stub de argumentos); o
+  `checkpoint`/`clLog`/`clShow`/`gitCmd`/`has`/`log`/`save`/`use`/`connected` (testes de outras sessões lêem-nos); o
+  `LIVE_OK` (dois escritores). Ordem de avaliação igual. Globais publicadas 182 → 167.
+- **U7n (2026-11-24) — os botões da moldura.** O `app/chrome-actions.ts` avalia depois de todos os donos, por isso
+  importa as funções em vez de as chamar pelo `callGlobal`: `cycleMode`, `pickModel`, `newChat` (o com o contexto),
+  `agCtl`, `assistantCenter`, `toggleAgent`, `openManager` (`features/codev.ts`), `newFile`, `newFolder`, `collapseAll`
+  (`features/explorer.ts`), `termClear`, `pickAgent` e `toggleNotes` — e os treze saem do window. O `boot.ts` (o
+  Esc/p/x/d da execução), a conta e a ponte do Co-Dev, que avaliam antes, usam o registo (`services.codev.agCtl`/
+  `openManager`, `services.team.pickAgent`); os comandos, o arranque e as boas-vindas importam. Continuam pelo
+  publicado os botões cujos nomes outras sessões ainda lêem (`toggleSide` — o e2e do PairCode chama-o —, `togglePanel`,
+  `refresh`, `palette`, `goPane`, `setPanelTab`, `pickBranch`). O teste da moldura (decisão do dono) passa a trocar
+  só esses no window e a provar os outros pelo efeito: o `#tgl-agent` muda a largura do painel do Co-Dev, o
+  `#rc-pause` pausa uma execução activa, o `#st-mode` pede o modo seguinte ao `setMode` e o `#st-bell` abre as
+  notificações. Ordem de avaliação igual. Globais publicadas 167 → 154.
+- **U7 — fecho (2026-11-24).** As fatias U7a–U7n levaram as globais publicadas de 286 (início da U7e) a 154 e os
+  shims de estado de 17 a 7; a métrica do `ui-metrics.sh` fica em 154 e só desce. O que resta não sai sem mudar
+  código ou testes de outras sessões. Inventário (scanner do type-checker sobre o `develop` e526d3e; uma linha
+  por razão; «quem desbloqueia» = a sessão cuja mudança liberta o nome):
+
+  | Razão | Nomes | Quem desbloqueia |
+  |---|---|---|
+  | Publicados por pontes de outras features | `BPS` (debug); `STACK` `K8S` `DEVC` `P_DC` `RTN` `KCTX` `ENVL` `ENVS` `ENVX` `SHOWSEC` `DRIFT` `OBS` (infra); `drawStack` `termOwnsKey` (panel); `BRANCH` `COMMIT_MSG` (scm); `VZ` (visualizer) | a feature dona |
+  | Shims de estado lidos por pontes de outras features | `PANE`, `LOCALE`, `cur`, `FS`, `ROOT`, `PROV` (debug, infra, testing, codereview, lsp, visualizer, hood, panel, scm, codebase, ops, comments, project); `ACTIVE` (a ponte do codereview escreve-o) | todas as pontes que os lêem (passam a ler os stores de `app/store`) |
+  | Lidos só por uma feature de outra sessão | infra: `KIND` `SD` `TECH` `XC` `echo` `echoCmd` `getVar` `isApp` `newInput` `note` `rerender` `sl`; scm: `AGENTS` `AUTHOR` `blame` `clLog` `clShow` `fIcon` `gitCmd` `openDiff` `termRefreshPrompt`; codereview: `card` `diagnostics` `extOf` `liveChat` `selText` `updateAgentUI` `user`; visualizer: `EACT` `LTS` `MENUS` `buildMenubar` `esc` `hlLine`; lsp: `buildExplorer` `complete` `stPos` `writeFile`; panel: `PAIR` `agSend` `handlePrompt` `togglePanel`; project: `codevAgentAvailable` `codevAgentStory` `waiting`; hood: `hd` | essa feature (ou os seus testes) |
+  | Lidos por várias features de outras sessões | `DXR` `openTab` `openPath` `md` `tabOf` `goPane` `run` `runTask` `setPanelTab` `RP` `VIEW` `LS` `show` `refresh` `palette` `save` `toast` `short` `symbols` `focusAgent` `composeServices` `log` `P` `rel` `svg` `SAMPLE` `use` `ask` `has` `paintEd` `CMD` `dxRun` `dxStop` | o conjunto das sessões listadas no inventário (cada nome tem 2–11 leitores) |
+  | Decorados ou trocados em tempo de execução | `promptHTML` (o PairCode decora-o), `drawProblems` (a ponte do painel publica a versão real), `openIssue` (o golden do quadro troca-o), `gotoLine` (o teste de cablagem troca-o), `GSEL` (escrito pela ponte do scm) | o decorador passa a porta (U4h) / o teste troca a porta |
+  | Lidos por e2e ou pelo harness | `toggleSide` (e2e do PairCode), `setMode` e `$$` (e2e de arranque), `setLocale` (e2e de língua), `connected` (e2e do PairCode), `checkpoint` (e2e do harness), `trNode` (harness dos goldens), `EXS` (testes da ext) | mudar o e2e/harness a ler pelo módulo |
+  | Dinâmicos ou com contrato próprio | `boot`…`boot6`, `i18nBoot` (o `startup.ts` chama `window[passo]`); `openLesson`/`nextLesson` (stub de argumentos); `LIVE_OK` (dois escritores); `$` (o `boot.ts` é a base window-backed) | decisão própria (fora da U7) |
+
+  Os 22 nomes que só o dono lia saíram na U7o (abaixo), excepto os `boot`…`boot6` (dinâmicos).
+  O método que serviu (U7e–U7n): o scanner de globais (leitores por nome livre, `window.X`/fachada, `callGlobal`,
+  testes e e2e), a ordem de avaliação pelo DFS dos imports (o leitor que avalia depois importa; o que avalia antes
+  usa `app/services.ts`), a verificação de acessos por literal exacto, e a prova por fatia (tsc, lint, testes,
+  arch:check, build, e2e, paridade nas duas línguas e o auto-teste desktop).
+- **U7o (2026-11-24) — os nomes que só o dono lia.** Dezassete nomes publicados sem nenhum leitor fora do módulo
+  dono passam a valores ou funções do módulo: `USER` (constante do prompt emulado do terminal), `SSEL` (o nó
+  seleccionado do Studio), `LT_HOOD` (Learning Track), `toTimer`/`activeTab`/`wireSections` (`boot.ts`; o `activeTab`
+  nunca era escrito), `testProv` e `renderAgentView` (`features/codev.ts`), `renderChangelogPage`; e os que só se
+  publicavam sem leitor nenhum — `openFile` (separadores), `doSearch`/`replaceAll` (a acção `search:replaceAll` chama a
+  função), `renderTasksPane`, `renderDiffView`. O estado da paleta passa a ter dono no `features/palette.ts`: `PAL`,
+  `PAL_TEXT` (locais) e `palState.idx` (o item seleccionado, que o keydown do arranque move com as setas — era
+  `window.PIDX`, escrito pelos dois). Ficam os `boot`…`boot6` (o `startup.ts` chama `window[passo]`). Ordem de
+  avaliação igual. Globais publicadas 154 → 130.
+- **U7 — regras finais e documentos (2026-11-25).** Os dois critérios de saída da U7 que faltavam: (1) o
+  `arch-check` ganha o **A9** — só os 44 ficheiros da lista `A9_ALLOW` publicam no `window` (`Object.assign(window,
+  …)` ou `window.X = …`, depois do strip de comentários); um ficheiro novo que publique reprova, e um da lista que
+  deixe de publicar também (tem de sair da lista, que só encolhe) — e os «shims de estado» do `ui-metrics.sh`
+  passam de informativos a métrica que só desce (7); (2) o `ARCHITECTURE.md` (a secção da UI e a inicialização do
+  frontend) e o `MIGRATION.md` (a etapa 4 e a §24, com a comparação com a baseline) ficam coerentes com o código.

@@ -26,7 +26,7 @@
 import { $, hd, esc, toast } from "../core";
 import { RP } from "../app/store/registry";
 import { searchClient, type SearchHit } from "../platform/tauri/search";
-import { registerActions, globalCalls } from "../app/actions";
+import { registerActions } from "../app/actions";
 import { translator } from "../app/i18n";
 import { SEARCH_MESSAGES } from "./search.messages";
 import { SEARCH_DESKTOP_MESSAGES } from "./search.desktop-messages";
@@ -160,12 +160,11 @@ function renderSearchPane(): void {
 /* ── publicação transitória no window (shim para o residual) ──
    RP.search delega em renderSearchPane; o botão «Substituir tudo» (onclick inline)
    e o comando Todo Tree de v6.ts resolvem replaceAll/doSearch por nome livre. */
-window.renderSearchPane = renderSearchPane;
+/* exportado (ADR-0004, U7m): o auto-teste desktop e os testes importam-no */
+export { renderSearchPane };
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 RP.search = renderSearchPane;
-window.doSearch = doSearch;
-window.replaceAll = replaceAll;
 
 /* acções do pane (ADR-0004, U5b): eram `onclick="…"` inline, que resolviam os nomes no window ao clicar; as acções chamam o mesmo, no acto. */
 /* os resultados abrem-se pelo listener de #s-res (data-p/data-l, ADR-0006 R2b) */
-registerActions(globalCalls("search", ["replaceAll"]));
+registerActions({ "search:replaceAll": { click: () => replaceAll() } });

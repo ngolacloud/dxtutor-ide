@@ -11,6 +11,7 @@
 
 import { S, show } from "../core";
 import { layoutStore } from "../app/store";
+import { services } from "../app/services";
 
 /** Mapa de temas → overrides de custom properties CSS. */
 const THEMES: Record<string, Record<string, string>> = {'Grafite laranja':{},
@@ -34,5 +35,6 @@ function setTheme(n: string): void {
 }
 
 /* ── publicação transitória no window (shim para o monólito e os onclick inline) ── */
-window.THEMES = THEMES;
-window.setTheme = setTheme;
+/* lidos por import (ADR-0004, U7m); o config (avalia antes) lê os temas pelo registo */
+export { THEMES, setTheme };
+services.theme = { THEMES };

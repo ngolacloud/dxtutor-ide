@@ -29,8 +29,8 @@ import type {
 } from "../domain/types";
 /* U7c do ADR-0004: estes quatro deixaram de ser lidos pelo window — o publicador avalia antes desta ponte, ninguém os decora */
 import { validateDesign as validateDesignImpl, CLOUD, saveSD as saveSDImpl, appDir as appDirImpl, openStudio as openStudioImpl } from "../../studio";
-import { codeGuard as codeGuardImpl, HARN } from "../../team";
-import { STOP } from "../../codev";
+import { codeGuard as codeGuardImpl, HARN, agentPill as agentPillImpl, reviewIssue as reviewIssueImpl } from "../../team";
+import { STOP, tl as tlImpl, beat as beatImpl, runLabel as runLabelImpl, runState as runStateImpl, scrollMsgs as scrollMsgsImpl } from "../../codev";
 import { TASKP } from "../../router/domain/model-routing";
 import { agentStore } from "../../../app/store";
 export { toast, log, rerender };
@@ -112,18 +112,18 @@ export const appDir = (n: unknown): string => appDirImpl(n);
 
 /* ───── helpers de conversa do Co-Dev (cartões, passos, perguntas, ritmo) ───── */
 export const card = (label: string, html: string): Card => G.card(label, html);
-export const tl = (host: HTMLElement, name: string, arg: unknown): HTMLElement => G.tl(host, name, arg);
+export const tl = (host: HTMLElement, name: string, arg: unknown): HTMLElement => tlImpl(host, name, arg) as HTMLElement;
 export const ask = (host: HTMLElement, btns: AskBtn[]): Promise<number> => G.ask(host, btns);
-export const beat = (ms: number): Promise<void> => G.beat(ms);
+export const beat = (ms: number): Promise<void> => beatImpl(ms);
 export const sleep = (ms: number): Promise<void> => G.sleep(ms);
 export const user = (t: string): void => G.user(t);
 export const note = (m: string): void => G.note(m);
-export const runLabel = (): void => G.runLabel();
-export const runState = (on: boolean, label?: string): void => G.runState(on, label);
+export const runLabel = (): void => runLabelImpl();
+export const runState = (on: boolean, label?: string): void => runStateImpl(on, label);
 export const focusAgent = (nofocus?: boolean): void => G.focusAgent(nofocus);
-export const agentPill = (): void => G.agentPill();
+export const agentPill = (): void => agentPillImpl();
 export const handlePrompt = (q: string): void => G.handlePrompt(q);
-export const scrollMsgs = (): void => G.scrollMsgs();
+export const scrollMsgs = (): void => scrollMsgsImpl();
 
 /* ───── terminal + testes + variáveis CSS + aplicação de uma ferramenta ───── */
 export const echo = (html: string): void => G.echo(html);
@@ -173,7 +173,7 @@ export interface DlgOpts {
   validate?: (v: string) => string; onOk?: (v: string) => void;
 }
 export const harness = (): Harness => HARN as Harness;
-export const reviewIssue = (id: string): void => G.reviewIssue(id);
+export const reviewIssue = (id: string): void => reviewIssueImpl(id);
 export const codeGuard = (what: string): boolean => codeGuardImpl(what);
 export const openIssue = (id: string): void => G.openIssue(id);
 export const studioNodes = (): StudioNode[] => G.SD.nodes;
