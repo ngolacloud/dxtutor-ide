@@ -253,6 +253,7 @@ export function openCodevRun(): void {
 
 const agentChat = makeAgentChat({
   copy,
+  confirm: (m) => bridge.confirm(m),
   gateway: agentGateway,
   presenter,
   gate,

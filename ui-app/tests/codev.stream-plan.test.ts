@@ -95,6 +95,24 @@ describe("a vista do chat", () => {
     expect(document.querySelectorAll(".hk-gate .hk-plan")).toHaveLength(1);
   });
 
+  it("RF-G07: a barra depois do Stop — os ficheiros, «Keep» e «Discard», e o resultado no lugar dela", async () => {
+    const { presenter } = await import("../src/features/codev/ui/chat-view");
+    const card = presenter.thinking("co-dev");
+    const calls: string[] = [];
+    const files = ["a.rs", "b.rs", "c.rs", "d.rs", "e.rs", "f.rs", "g<x>.rs"];
+    const bar = presenter.stopReview!(card, { checkpoint: 7, files }, { keep: () => calls.push("keep"), discard: () => calls.push("discard") });
+    const el = document.querySelector(".stop-review")!;
+    expect(el.querySelector(".sr-lead")!.textContent).toBe("Stopped: the turn left 7 file(s) changed — a.rs, b.rs, c.rs, d.rs, e.rs, f.rs … (+1)");
+    const btns = [...el.querySelectorAll("button")];
+    expect(btns.map((b) => b.textContent)).toEqual(["Keep", "Discard (back to checkpoint 7)"]);
+    btns[1].click();
+    btns[0].click();
+    expect(calls).toEqual(["discard", "keep"]);
+    bar.settle("Discarded");
+    expect(el.textContent).toBe("Discarded");
+    expect(el.querySelectorAll("button")).toHaveLength(0);
+  });
+
   it("o bloco de código longo fica fora do chat, com um botão que pede a alteração no editor", async () => {
     const { presenter } = await import("../src/features/codev/ui/chat-view");
     const { codevAsk } = await import("../src/app/codev-ask");

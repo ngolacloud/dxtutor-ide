@@ -129,6 +129,12 @@ pub enum AgentEvent {
         attempt: u32,
         reason: String,
     },
+    /// RF-G07: o humano parou o turno e ficaram ficheiros alterados — o IDE oferece mantê-los ou
+    /// descartá-los (voltar ao `checkpoint` do turno).
+    StopReview {
+        checkpoint: u32,
+        files: Vec<String>,
+    },
     /// Uma ferramenta vai correr (já validada e aprovada).
     ToolStart {
         id: String,
