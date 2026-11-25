@@ -67,7 +67,18 @@ export function showActionMenu(actions: readonly CodeActionItem[], x: number, y:
   CLOSERS.set("lsp-actions", () => document.removeEventListener("mousedown", onDown, true));
 }
 
-function floating(id: string, cls: string, x: number, y: number): HTMLElement {
+/** A área onde um cartão tem de caber (coordenadas do ecrã), p.ex. a do editor. */
+export interface Bounds {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Um cartão junto a (x, y), dentro da janela — e, com `bounds`, dentro dessa área (o editor, para
+ *  não tapar o painel do Co-Dev nem o painel inferior): a largura limita-se à área e o cartão
+ *  volta a encostar-se sempre que muda de tamanho (o conteúdo que chega depois alarga-o). */
+function floating(id: string, cls: string, x: number, y: number, bounds?: Bounds): HTMLElement {
   closePopup(id);
   const el = document.createElement("div");
   el.id = id;
@@ -75,11 +86,19 @@ function floating(id: string, cls: string, x: number, y: number): HTMLElement {
   document.body.appendChild(el);
   const place = (): void => {
     const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    const b = {
+      left: Math.max(0, bounds?.left ?? 0),
+      top: Math.max(0, bounds?.top ?? 0),
+      right: Math.min(vw, bounds?.right ?? vw),
+      bottom: Math.min(vh, bounds?.bottom ?? vh),
+    };
+    if (bounds) el.style.maxWidth = `${Math.max(240, b.right - b.left - 16)}px`;
     const r = el.getBoundingClientRect();
-    el.style.left = `${Math.max(8, Math.min(x, vw - r.width - 8))}px`;
-    el.style.top = `${y + r.height > vh - 8 ? Math.max(8, y - r.height - 30) : y}px`;
+    el.style.left = `${Math.max(b.left + 8, Math.min(x, b.right - r.width - 8))}px`;
+    el.style.top = `${y + r.height > b.bottom - 8 ? Math.max(b.top + 8, y - r.height - 30) : y}px`;
   };
   queueMicrotask(place);
+  if (bounds && typeof ResizeObserver !== "undefined") new ResizeObserver(place).observe(el);
   return el;
 }
 
@@ -403,9 +422,10 @@ interface TypeRow {
   parent: TypeRow | null;
 }
 
-/** A hierarquia de tipos junto a (x, y): o tipo no topo e, por baixo, os subtipos ou os
- *  supertipos (Tab ou os botões trocam), carregados a pedido ao abrir cada nó. ↑/↓ escolhem,
- *  → abre (ou desce), ← fecha (ou sobe), Enter ou clique abrem o tipo, Escape fecha. */
+/** A hierarquia de tipos junto a (x, y), dentro de `bounds` (a área do editor): o tipo no topo e,
+ *  por baixo, os subtipos ou os supertipos (Tab ou os botões trocam), carregados a pedido ao abrir
+ *  cada nó. ↑/↓ escolhem, → abre (ou desce), ← fecha (ou sobe), Enter ou clique abrem o tipo,
+ *  Escape fecha. */
 export function showTypeHierarchy(
   root: TypeEntry,
   x: number,
@@ -414,8 +434,9 @@ export function showTypeHierarchy(
   onPick: (t: TypeEntry) => void,
   onClose: () => void,
   initial: TypeDirection = "subtypes",
+  bounds?: Bounds,
 ): void {
-  const el = floating("lsp-types", "lsp-pop lsp-refs lsp-types", x, y);
+  const el = floating("lsp-types", "lsp-pop lsp-refs lsp-types", x, y, bounds);
   el.tabIndex = -1;
   const head = document.createElement("div");
   head.className = "lsp-pop-h lsp-types-h";

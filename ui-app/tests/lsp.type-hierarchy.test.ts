@@ -172,6 +172,34 @@ describe("hierarquia de tipos — Shift+Alt+T e o cartão", () => {
     expect(document.activeElement).toBe(ta);
   });
 
+  it("o cartão fica dentro da área do editor (não passa para o painel do Co-Dev à direita)", async () => {
+    // a janela tem 1400px; o editor (#ebody) vai de 300 a 900 e o Co-Dev fica à direita dele
+    document.body.innerHTML = `<div id="ebody"><div class="ed"><textarea id="ed-ta">public abstract class Base implements Shape {}</textarea></div></div>`;
+    const ta2 = document.getElementById("ed-ta") as HTMLTextAreaElement;
+    ta2.setSelectionRange(23, 23);
+    const rect = (left: number, top: number, width: number, height: number) => () => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} }) as DOMRect;
+    document.getElementById("ebody")!.getBoundingClientRect = rect(300, 40, 600, 500);
+    ta2.getBoundingClientRect = rect(850, 40, 50, 500); // o cursor está perto da margem direita do editor
+    const html = document.documentElement, size = { clientWidth: 1400, clientHeight: 900 };
+    const saved = Object.fromEntries(Object.keys(size).map((k) => [k, Object.getOwnPropertyDescriptor(html, k)]));
+    Object.keys(size).forEach((k) => Object.defineProperty(html, k, { configurable: true, value: size[k as keyof typeof size] }));
+    const proto = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      return this.id === "lsp-types" ? rect(0, 0, 560, 120)() : proto.call(this);
+    };
+    try {
+      show();
+      await wait();
+      await wait();
+      const card = document.getElementById("lsp-types")!;
+      expect(card.style.maxWidth).toBe("584px"); // a largura do editor menos as margens
+      expect(card.style.left).toBe("332px"); // 900 − 560 − 8: encostado à margem direita do editor, não à da janela
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = proto;
+      Object.keys(size).forEach((k) => (saved[k] ? Object.defineProperty(html, k, saved[k]!) : delete (html as unknown as Record<string, unknown>)[k]));
+    }
+  });
+
   it("diz quando o servidor não tem hierarquia, quando não há tipo, e sem pasta não intercepta", async () => {
     start = { status: "unsupported", language: "kotlin" };
     show();
