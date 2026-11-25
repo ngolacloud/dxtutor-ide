@@ -21,6 +21,9 @@ import type { RebaseAction } from "./domain/git-extras";
 import { makeHunks } from "./application/hunks";
 import { tauriHunks, tauriUndo, tauriScmAudit, tauriMerge, tauriSync } from "./infrastructure/tauri";
 import { makeSync } from "./application/sync";
+import { makeLaunchpad } from "./application/launchpad";
+import { renderLaunchpad } from "./ui/launchpad-view";
+import { tauriGh, openExternal } from "./infrastructure/tauri";
 import { makeMerge3 } from "./application/merge3";
 import { renderMerge3 } from "./ui/merge3-view";
 import { makeUndo } from "./application/undo";
@@ -106,6 +109,19 @@ export const merge3 = makeMerge3({
 });
 merge3.subscribe(() => paint("git-merge"));
 
+/* ── r23 F3 (UI-SCM-14): the Launchpad ── */
+export const launchpad = makeLaunchpad({
+  gh: tauriGh(), git: tauriGitExtras(), root: () => B.gitRoot(), project: () => B.projectName(),
+  remote: () => (graphRemote() ?? "origin"),
+  human: { approve: (r) => requestApproval(r), text: (ph, verb, initial) => new Promise((res) => { B.palette(initial ?? "", { ph, verb, text: (q) => res(q) }); }), toast: (m) => B.toast(m) },
+  audit: tauriScmAudit(), changed: async () => { await gitExtras.refreshSide(); },
+  openTab: () => B.openTab({ id: "git-launchpad", title: "Launchpad", kind: "git-launchpad" }), say,
+});
+launchpad.subscribe(() => paint("git-launchpad"));
+/** The remote the Launchpad fetches pull requests from: the current branch's, else origin (from the graph's refs). */
+let graphRemote: () => string | null = () => null;
+export const setRemoteSource = (f: () => string | null): void => { graphRemote = f; };
+
 /* ── r23 F3: fetch, pull and push, approved and audited ── */
 export const sync = makeSync({
   git: tauriSync(), root: () => B.gitRoot(), changed: () => B.reloadFromGit(), snapshot: (l) => undo.snapshot(l),
@@ -124,6 +140,7 @@ const RENDER: Record<string, () => string> = {
   "git-rebase": () => renderRebase(t, gitExtras.state().rebase),
   "git-text": () => renderText(gitExtras.state().text),
   "git-review": () => renderReview(t, gitExtras.state().review, codevAsk.available()),
+  "git-launchpad": () => renderLaunchpad(t, launchpad.state()),
   "git-merge": () => renderMerge3(t, merge3.state(), codevAsk.available(), (p) => merge3.blocks(p)),
 };
 function paint(kind: string): void {
@@ -195,6 +212,7 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
   ["Git: Interactive Rebase…", guard(() => gitExtras.openRebase())],
   ["Git: Undo Last Operation", guard(() => undo.undoLast())],
   ["Git: Resolve Merge Conflicts", guard(() => merge3.open())],
+  ["Git: Launchpad (pull requests)", guard(() => launchpad.open())],
   ["Git: Fetch", guard(() => sync.run("fetch"))],
   ["Git: Pull", guard(() => sync.run("pull"))],
   ["Git: Push", guard(() => sync.run("push"))],
@@ -217,6 +235,10 @@ export const GIT_ACTIONS: ActionTable = {
   "gx-merge-resolve": { on: "click", run: (e) => { void merge3.resolve(e.on); } },
   "gx-merge-complete": { on: "click", run: () => { void merge3.complete(); } },
   "gx-merge-abort": { on: "click", run: () => { void merge3.abort(); } },
+  "gx-lp-open": { on: "click", run: (e) => openExternal(e.on, B.desktopOs()) },
+  "gx-lp-refresh": { on: "click", run: () => { void launchpad.load(); } },
+  "gx-lp-worktree": { on: "click", run: (e) => { void launchpad.checkoutWorktree(n(e.on)); } },
+  "gx-launchpad": { on: "click", run: () => { void launchpad.open(); } },
   "gx-undo": { on: "click", run: (e) => { void undo.undo(n(e.on)); } },
   "scm-hunks": { on: "click", run: (e) => { void hunks.toggle(e.on); } },
   "scm-hunk": { on: "change", run: (e) => { const [path, id, op] = e.on.split("|"); void (op === "unstage" ? hunks.unstage(path, id) : hunks.stage(path, id)); } },

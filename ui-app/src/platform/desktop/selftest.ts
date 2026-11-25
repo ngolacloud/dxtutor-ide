@@ -30,7 +30,7 @@ import { renderAccountPane } from "../../features/account";
 import { renderGraphView, graphScreen } from "../../features/scm/graph-screen";
 import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
 import { stage, gitMerge } from "../../features/scm";
-import { hunks, undo, merge3, sync } from "../../features/scm/extras";
+import { hunks, undo, merge3, sync, launchpad } from "../../features/scm/extras";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
 import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
@@ -252,6 +252,12 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         await git("remote", "remove", "selftest-origin");
         await sh("rm", ["-rf", remoteDir.replace(/\/remote\.git$/, "")], { cwd: R.info.home });
       }
+    });
+    // r23 F3 (UI-SCM-14): o Launchpad sobre o gh real (com o HOME do auto-teste não há sessão): diz-o e não lista PRs.
+    await step("launchpad", async () => {
+      await launchpad.load();
+      const st = launchpad.state();
+      return { installed: st.status?.installed ?? null, signedIn: st.status?.signedIn ?? null, listed: st.review === null ? "nothing" : st.review.length, error: st.error };
     });
     // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
     await step("graph", async () => {

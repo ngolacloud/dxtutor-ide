@@ -44,6 +44,16 @@ export interface SyncPort {
   run(root: string, op: SyncOp, expected: string): Promise<string>;
 }
 
+/** The GitHub CLI, read-only (r23 F3): the shape of `gh_status` / `gh_prs` / `gh_runs_for` / `gh_prs_for`. */
+export interface GhStatusData { installed: boolean; version: string; signedIn: boolean; notes: string }
+export interface GhRun { id: number; name: string; status: string; conclusion: string; url: string; createdAt: string }
+export interface GhPort {
+  status(): Promise<GhStatusData>;
+  prs(root: string, filter: "review" | "mine" | "open"): Promise<import("../domain/launchpad").Pr[]>;
+  runsFor(root: string, sha: string): Promise<GhRun[]>;
+  prsFor(root: string, sha: string): Promise<import("../domain/launchpad").Pr[]>;
+}
+
 /** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
 export interface ConflictPrediction { branch: string; clean: boolean; files: string[]; error: string | null }
 export interface GitRefsPort {

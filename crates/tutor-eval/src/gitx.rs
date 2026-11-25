@@ -507,6 +507,21 @@ pub enum WorktreeOp {
     Remove {
         path: String,
     },
+    /// r23 F3 (Launchpad): a pull request's head into its own worktree —
+    /// `git fetch <remote> pull/<n>/head:pr/<n>` then `git worktree add <path> pr/<n>`
+    AddPr {
+        number: u64,
+        path: String,
+        remote: String,
+    },
+}
+
+/// The commands `AddPr` runs (what the approval dialog shows).
+pub fn pr_worktree_commands(number: u64, path: &str, remote: &str) -> [String; 2] {
+    [
+        format!("git fetch {remote} pull/{number}/head:pr/{number}"),
+        format!("git worktree add {path} pr/{number}"),
+    ]
 }
 
 pub fn parse_worktrees(text: &str, root: &Path) -> Vec<Worktree> {
@@ -566,6 +581,24 @@ pub fn worktree(root: &Path, op: &WorktreeOp) -> Result<Vec<Worktree>, String> {
             } else {
                 git(root, &["worktree", "add", "--", p, b])?;
             }
+        }
+        WorktreeOp::AddPr {
+            number,
+            path,
+            remote,
+        } => {
+            let p = path.trim();
+            if p.is_empty()
+                || p.starts_with('-')
+                || p.chars().any(|c| c.is_control())
+                || *number == 0
+            {
+                return Err(format!("pasta ou número inválidos: {p:?} #{number}"));
+            }
+            let r = check_rev(remote)?;
+            let refspec = format!("pull/{number}/head:pr/{number}");
+            git(root, &["fetch", r, &refspec])?;
+            git(root, &["worktree", "add", "--", p, &format!("pr/{number}")])?;
         }
         WorktreeOp::Remove { path } => {
             let cur = list(root)?;

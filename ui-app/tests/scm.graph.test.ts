@@ -501,3 +501,58 @@ describe("o sync (fetch, pull, push)", () => {
     expect(bad.toasts.at(-1)).toContain("non-fast-forward");
   });
 });
+
+import { prIssue, prSeverity, prWorktreeCommands, sortPrs, type Pr } from "../src/features/scm/domain/launchpad";
+import { makeLaunchpad } from "../src/features/scm/application/launchpad";
+import { renderLaunchpad } from "../src/features/scm/ui/launchpad-view";
+
+describe("o Launchpad (UI-SCM-14)", () => {
+  const pr = (n: number, o: Partial<Pr> = {}): Pr => ({ number: n, title: `feat: thing ${n}`, author: "ana", head: `feature/dx-${n}-x`, base: "develop", url: `https://github.com/o/r/pull/${n}`, draft: false, state: "OPEN", review: "", checks: { passed: 1, failed: 0, pending: 0 }, updatedAt: `2026-11-2${n}T00:00:00Z`, ...o });
+  it("gravidade, ordem, a issue ligada e os comandos da worktree", () => {
+    expect(prSeverity(pr(1, { checks: { passed: 0, failed: 1, pending: 0 } }))).toBe("high");
+    expect(prSeverity(pr(2, { review: "REVIEW_REQUIRED" }))).toBe("medium");
+    expect(prSeverity(pr(3))).toBe("low");
+    expect(sortPrs([pr(3), pr(2, { review: "REVIEW_REQUIRED" }), pr(1, { review: "CHANGES_REQUESTED" })]).map((p) => p.number)).toEqual([1, 2, 3]);
+    expect(prIssue(pr(4, { title: "fix: x (PRJ-9)" }))).toBe("PRJ-9");
+    expect(prIssue(pr(5))).toBe("DX-5");
+    expect(prWorktreeCommands(7, "../r-pr-7", "origin")).toBe("git fetch origin pull/7/head:pr/7\ngit worktree add ../r-pr-7 pr/7");
+  });
+
+  function fake(o: { installed?: boolean; signedIn?: boolean; approve?: boolean } = {}) {
+    const wt: unknown[] = [], audited: Array<{ action: string; outcome?: string }> = [], asked: Array<{ command: string }> = [];
+    const lp = makeLaunchpad({
+      gh: { status: async () => ({ installed: o.installed ?? true, version: "gh 2.105.0", signedIn: o.signedIn ?? true, notes: o.installed === false ? "Install the GitHub CLI" : "" }), prs: async (_r, f) => (f === "review" ? [pr(3), pr(1, { checks: { passed: 0, failed: 2, pending: 0 } })] : [pr(2)]), runsFor: async () => [], prsFor: async () => [] },
+      git: { worktree: async (_r, op) => { wt.push(op); return []; } }, root: () => "/w", project: () => "repo", remote: () => "origin",
+      human: { approve: async (r) => { asked.push(r); return { approved: o.approve ?? true, reason: "", decidedAt: 1 }; }, text: async (_p, _v, init) => init ?? null, toast: () => {} },
+      audit: { record: async (_r, e) => { audited.push(e); } }, changed: async () => {}, openTab: () => {}, say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
+    });
+    return { lp, wt, audited, asked };
+  }
+
+  it("lê os PRs por gravidade; a worktree do PR é aprovada com os dois comandos e auditada", async () => {
+    const f = fake();
+    await f.lp.open();
+    expect(f.lp.state().review!.map((p) => p.number)).toEqual([1, 3]);
+    expect(await f.lp.checkoutWorktree(1)).toBe(true);
+    expect(f.asked[0].command).toBe("git fetch origin pull/1/head:pr/1\ngit worktree add ../repo-pr-1 pr/1");
+    expect(f.wt).toEqual([{ op: "add_pr", number: 1, path: "../repo-pr-1", remote: "origin" }]);
+    expect(f.audited.map((a) => `${a.action}:${a.outcome}`)).toEqual(["git.worktree.pr:sent", "git.worktree.pr:ok"]);
+    const d = document.createElement("div");
+    d.innerHTML = renderLaunchpad(((k: string) => k) as never, f.lp.state());
+    expect(d.querySelectorAll(".lp-row.sev-high")).toHaveLength(1);
+    expect(d.querySelector('[data-action="gx-lp-open"]')!.getAttribute("data-on")).toBe("https://github.com/o/r/pull/1");
+  });
+
+  it("sem gh, ou sem sessão, diz-o e não lista nada (nada inventado)", async () => {
+    const none = fake({ installed: false });
+    await none.lp.load();
+    expect(none.lp.state().review).toBeNull();
+    const d = document.createElement("div");
+    d.innerHTML = renderLaunchpad(((k: string) => k) as never, none.lp.state());
+    expect(d.textContent).toContain("lpNotInstalled");
+    const out = fake({ signedIn: false });
+    await out.lp.load();
+    d.innerHTML = renderLaunchpad(((k: string) => k) as never, out.lp.state());
+    expect(d.textContent).toContain("lpSignedOut");
+  });
+});

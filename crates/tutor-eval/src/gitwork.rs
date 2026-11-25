@@ -1478,6 +1478,59 @@ mod tests {
     }
 
     #[test]
+    fn a_pull_request_goes_into_its_own_worktree() {
+        let base = tempfile::tempdir().unwrap();
+        let origin = base.path().join("origin");
+        std::fs::create_dir(&origin).unwrap();
+        g(&origin, &["init", "-q", "-b", "main"]);
+        for (k, v) in [
+            ("user.name", "Ana"),
+            ("user.email", "a@x"),
+            ("commit.gpgsign", "false"),
+        ] {
+            g(&origin, &["config", k, v]);
+        }
+        commit(&origin, "a.txt", "a\n", "feat: a");
+        g(&origin, &["checkout", "-q", "-b", "contrib"]);
+        commit(&origin, "pr.txt", "from the PR\n", "feat: pr");
+        g(&origin, &["update-ref", "refs/pull/7/head", "HEAD"]);
+        g(&origin, &["checkout", "-q", "main"]);
+        g(
+            base.path(),
+            &["clone", "-q", &origin.display().to_string(), "w"],
+        );
+        let w = base.path().join("w");
+        let path = base.path().join("w-pr-7").display().to_string();
+        let list = gitx::worktree(
+            &w,
+            &WorktreeOp::AddPr {
+                number: 7,
+                path: path.clone(),
+                remote: "origin".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(
+            std::fs::read_to_string(Path::new(&path).join("pr.txt")).unwrap(),
+            "from the PR\n"
+        );
+        assert_eq!(
+            gitx::pr_worktree_commands(7, "../w-pr-7", "origin")[0],
+            "git fetch origin pull/7/head:pr/7"
+        );
+        assert!(gitx::worktree(
+            &w,
+            &WorktreeOp::AddPr {
+                number: 0,
+                path: "x".into(),
+                remote: "origin".into()
+            }
+        )
+        .is_err());
+    }
+
+    #[test]
     fn refs_of_an_empty_repository_has_no_head() {
         let d = repo();
         let r = refs(d.path()).unwrap();

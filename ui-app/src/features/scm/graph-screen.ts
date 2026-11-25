@@ -14,7 +14,7 @@ import { LANE, authorOf, isFlow, graphLayout, graphSel, setGraphSel, gfPrompt, p
 import { makeGraphScreen } from "./application/graph-screen";
 import { tauriGitRefs } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
-import { sync } from "./extras";
+import { sync, setRemoteSource } from "./extras";
 import { GRAPH_MESSAGES } from "./ui/graph.messages";
 import { GRAPH_SCREEN_MESSAGES } from "./ui/graph-screen-messages";
 import { renderGraphScreen, type GraphCommitVm, type GraphVm } from "./ui/graph-view";
@@ -30,6 +30,8 @@ const t = translator(GRAPH_SCREEN_MESSAGES);
 const tg = translator(GRAPH_MESSAGES);
 
 export const graphScreen = makeGraphScreen({ git: tauriGitRefs(), root: () => B.gitRoot() });
+/* the Launchpad fetches pull requests from the current branch's remote (else origin) */
+setRemoteSource(() => { const r = graphScreen.state().refs, up = r?.branches.find((b) => b.current)?.upstream; return (up && r?.remotes.find((x) => up.startsWith(x + "/"))) || r?.remotes.find((x) => x === "origin") || r?.remotes[0] || null; });
 
 let host: HTMLElement | null = null;
 

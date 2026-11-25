@@ -5,9 +5,11 @@
    `git_diff`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, type Invoker } from "../../../platform/tauri/core";
-import type { SyncOp, SyncPlanData, SyncPort, ConflictPrediction, ConflictStagesData, MergePort, MergeStateData, FileHunksData, GitExtrasPort, GitRefsPort, HunksPort, UndoEntryData, UndoPlanData, UndoPort } from "../application/extras-ports";
+import type { GhPort, GhRun, GhStatusData, SyncOp, SyncPlanData, SyncPort, ConflictPrediction, ConflictStagesData, MergePort, MergeStateData, FileHunksData, GitExtrasPort, GitRefsPort, HunksPort, UndoEntryData, UndoPlanData, UndoPort } from "../application/extras-ports";
 import { auditClient } from "../../../platform/tauri/audit";
+import { shellClient } from "../../../platform/tauri/shell";
 import type { RefsSnapshot } from "../domain/refs";
+import type { Pr } from "../domain/launchpad";
 import type { Blame, Compare, HistCommit, RebasePlan, StashResult, Worktree } from "../domain/git-extras";
 import { parseChangeSetGroups } from "../domain/changesets";
 
@@ -66,3 +68,18 @@ export const tauriSync = (inv: Invoker = invoke): SyncPort => ({
   plan: (root, op) => inv<SyncPlanData>("git_sync_plan", { root, op }),
   run: (root, op: SyncOp, expected) => inv<string>("git_sync", { root, op, expected }),
 });
+
+/** O GitHub CLI, só leitura (r23 F3): `gh_status`, `gh_prs`, `gh_runs_for`, `gh_prs_for`. */
+export const tauriGh = (inv: Invoker = invoke): GhPort => ({
+  status: () => inv<GhStatusData>("gh_status"),
+  prs: (root, filter) => inv<Pr[]>("gh_prs", { root, filter }),
+  runsFor: (root, sha) => inv<GhRun[]>("gh_runs_for", { root, sha }),
+  prsFor: (root, sha) => inv<Pr[]>("gh_prs_for", { root, sha }),
+});
+
+/** Abre um URL https no browser do sistema (o mesmo caminho do terminal do painel): nunca dentro da janela da app. */
+export function openExternal(url: string, os: string, inv: Invoker = invoke): void {
+  if (!/^https:\/\//.test(url)) return;
+  const [program, args]: [string, string[]] = os === "windows" ? ["cmd", ["/C", "start", "", url]] : os === "macos" ? ["open", [url]] : ["xdg-open", [url]];
+  void shellClient(inv).exec({ program, args, timeoutMs: 15000 }).catch(() => undefined);
+}

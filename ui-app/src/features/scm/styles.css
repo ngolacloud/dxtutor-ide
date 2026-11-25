@@ -82,3 +82,8 @@
 .gm-pre{margin:0;font-family:var(--font-mono);font-size:11.5px;line-height:1.45;background:var(--bg-base);border:1px solid var(--border);border-radius:6px;padding:6px 8px;overflow:auto;max-height:220px;white-space:pre}
 .gm-result{width:100%;min-height:200px;font-family:var(--font-mono);font-size:12px;line-height:1.45;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:6px;padding:8px;resize:vertical}
 .gm-check{font-size:12px;margin-top:6px}.gm-check.ok{color:var(--green)}.gm-check.bad{color:var(--red)}
+/* r23 F3 (UI-SCM-14): o Launchpad */
+.lp-row{display:grid;grid-template-columns:6px minmax(0,1fr) auto auto auto auto;gap:10px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--seam)}
+.lp-sev{width:6px;height:28px;border-radius:3px;background:var(--border-strong)}.sev-high .lp-sev{background:var(--red)}.sev-medium .lp-sev{background:var(--yellow,#e0b64a)}
+.lp-main{min-width:0;font-size:12.5px}.lp-main>div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lp-issue{color:var(--accent-hover)}
+.lp-checks{font-size:11.5px;font-family:var(--font-mono)}.lp-link{text-decoration:none}

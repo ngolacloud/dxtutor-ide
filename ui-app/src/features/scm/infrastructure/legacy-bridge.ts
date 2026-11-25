@@ -146,3 +146,6 @@ export const projectCheck = async (): Promise<{ cmd: string; ok: boolean; summar
   const r = await d.exec(c.cmd);
   return { cmd: c.cmd, ok: r.ok, summary: r.sum };
 };
+
+/** O sistema operativo da app desktop (para abrir URLs no browser do sistema). */
+export const desktopOs = (): string => (dxr() as unknown as { info?: { os?: string } } | null)?.info?.os ?? "linux";

@@ -4,6 +4,11 @@ import type { Messages } from "../../../app/i18n";
 
 export const GIT_MESSAGES = {
   en: {
+    lpTitle: "Launchpad — pull requests that need you", lpReviewMe: "Review requested", lpMine: "Yours", lpNone: "None.", lpNoChecks: "no checks", lpDraft: "draft",
+    lpNotInstalled: "GitHub CLI not installed.", lpSignedOut: "GitHub CLI not signed in: run `gh auth login`.", lpWorktree: "Checkout into a worktree…",
+    lpWorktreePh: "Folder for pull request #{n}", lpWorktreeTitle: "Check out pull request #{n} into its own worktree", lpWorktreeScope: "from remote {r}",
+    "lpReview-APPROVED": "approved", "lpReview-CHANGES_REQUESTED": "changes requested", "lpReview-REVIEW_REQUIRED": "review required",
+    "lpSev-high": "needs action: failing checks or changes requested", "lpSev-medium": "waiting on a review or checks", "lpSev-low": "nothing pending",
     "sync-fetch": "Fetch from every remote", "sync-pull": "Pull (rebase your commits on top)", "sync-push": "Push", syncScope: "{b} → {u} · {a} to push · {n} to pull",
     syncScopeNew: "{b} has no upstream yet: it is created on {r}", syncDone: "{cmd} — {out}", syncFailed: "Sync failed: {e}",
     mergeTab: "Merge", mergeNone: "No merge in progress.", mergeCommitTitle: "Complete the merge", mergeLeft: "{n} file(s) still in conflict", mergeComplete: "Complete merge…", mergeAbort: "Abort merge…",
@@ -63,6 +68,11 @@ export const GIT_MESSAGES = {
     csDiscardTitle: "Discard the changes of {set}: these files go back to the last commit, with every change in them — yours too",
   },
   ptAO: {
+    lpTitle: "Launchpad — pull requests que precisam de ti", lpReviewMe: "Revisão pedida", lpMine: "Teus", lpNone: "Nenhum.", lpNoChecks: "sem checks", lpDraft: "rascunho",
+    lpNotInstalled: "GitHub CLI não instalado.", lpSignedOut: "GitHub CLI sem sessão: corre `gh auth login`.", lpWorktree: "Checkout para uma worktree…",
+    lpWorktreePh: "Pasta para o pull request #{n}", lpWorktreeTitle: "Fazer checkout do pull request #{n} numa worktree própria", lpWorktreeScope: "do remoto {r}",
+    "lpReview-APPROVED": "aprovado", "lpReview-CHANGES_REQUESTED": "alterações pedidas", "lpReview-REVIEW_REQUIRED": "revisão necessária",
+    "lpSev-high": "precisa de acção: checks a falhar ou alterações pedidas", "lpSev-medium": "à espera de revisão ou de checks", "lpSev-low": "nada pendente",
     "sync-fetch": "Buscar de todos os remotos", "sync-pull": "Receber (os teus commits por cima, com rebase)", "sync-push": "Enviar", syncScope: "{b} → {u} · {a} por enviar · {n} por receber",
     syncScopeNew: "{b} ainda não tem upstream: é criado em {r}", syncDone: "{cmd} — {out}", syncFailed: "O sync falhou: {e}",
     mergeTab: "Merge", mergeNone: "Não há nenhum merge em curso.", mergeCommitTitle: "Concluir o merge", mergeLeft: "{n} ficheiro(s) ainda em conflito", mergeComplete: "Concluir o merge…", mergeAbort: "Abortar o merge…",

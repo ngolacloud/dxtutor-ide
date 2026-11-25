@@ -269,6 +269,33 @@ pub async fn git_sync(
     blocking(move || tutor_eval::gitwork::sync(Path::new(&root), op, &expected)).await
 }
 
+/// Whether the GitHub CLI is installed and signed in (r23 F3).
+#[tauri::command]
+pub async fn gh_status() -> Result<tutor_eval::gh::GhStatus, String> {
+    blocking(|| Ok(tutor_eval::gh::status())).await
+}
+
+/// Open pull requests: asking me for a review, mine, or all (read-only, `gh pr list --json`).
+#[tauri::command]
+pub async fn gh_prs(
+    root: String,
+    filter: tutor_eval::gh::PrFilter,
+) -> Result<Vec<tutor_eval::gh::Pr>, String> {
+    blocking(move || tutor_eval::gh::prs(Path::new(&root), filter)).await
+}
+
+/// The CI runs of one commit (`gh run list --commit`).
+#[tauri::command]
+pub async fn gh_runs_for(root: String, sha: String) -> Result<Vec<tutor_eval::gh::Run>, String> {
+    blocking(move || tutor_eval::gh::runs_for(Path::new(&root), &sha)).await
+}
+
+/// The pull requests (any state) that contain one commit.
+#[tauri::command]
+pub async fn gh_prs_for(root: String, sha: String) -> Result<Vec<tutor_eval::gh::Pr>, String> {
+    blocking(move || tutor_eval::gh::prs_for(Path::new(&root), &sha)).await
+}
+
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {
