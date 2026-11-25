@@ -6,6 +6,10 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+# r23 F4a (X03): the secret scan before every commit the app makes
+tutor-protect = { path = "../tutor-protect" }
+# r23 F4a: the built-in IaC rules (iacfind)
+regex = "1"
 tutor-core = { path = "../tutor-core" }
 anyhow.workspace = true
 tempfile.workspace = true

@@ -231,6 +231,19 @@ impl Tool for Bash {
             .map(Duration::from_secs)
             .unwrap_or(self.default_timeout)
             .min(MAX_TIMEOUT);
+        // r23 F4a (X03): a commit the agent makes passes the secret scan first (all the changes:
+        // `git add … && git commit` adds them in the same command); blocked, the human decides
+        if tutor_protect::scan::shell_commits(command) {
+            if let Err(e) = tutor_protect::scan::guard_commit(
+                &ctx.root,
+                &tutor_protect::scan::Scope::WorkingTree,
+            ) {
+                return ToolOutput::err(format!(
+                    "{} — remove the secret from the change (use an environment variable or the vault), or leave the commit to the human",
+                    tutor_protect::scan::summary(&e)
+                ));
+            }
+        }
         let r = run_process(shell(command), &ctx.root, timeout, ctx);
         ToolOutput {
             is_error: !r.ok(),

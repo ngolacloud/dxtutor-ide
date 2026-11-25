@@ -842,6 +842,8 @@ pub fn merge(root: &Path, op: &MergeOp) -> Result<MergeState, String> {
             if !st.conflicts.is_empty() {
                 return Err(format!("still unmerged: {}", st.conflicts.join(", ")));
             }
+            // r23 F4a (X03): the secret scan before every commit the app makes
+            tutor_protect::scan::guard_commit(root, &tutor_protect::scan::Scope::Staged)?;
             let o = match message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
                 Some(m) => git(root, &["commit", "-m", m])?,
                 None => git(root, &["commit", "--no-edit"])?,
@@ -1032,6 +1034,7 @@ pub fn commit_paths(root: &Path, paths: &[String], message: &str) -> Result<Stri
         return Err("empty commit message".into());
     }
     let ps = check_paths(paths)?;
+    tutor_protect::scan::guard_commit(root, &tutor_protect::scan::Scope::Paths(paths))?;
     let mut add = vec!["add", "-A", "--"];
     add.extend(ps.iter().copied());
     git(root, &add)?;
@@ -1059,6 +1062,7 @@ pub fn lane_commit(
     }
     let b = gitx::check_rev(branch)?;
     let ps = check_paths(paths)?;
+    tutor_protect::scan::guard_commit(root, &tutor_protect::scan::Scope::Paths(paths))?;
     if out(root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).as_deref() == Some(b) {
         return Err(format!("{b} is the current branch: commit normally"));
     }

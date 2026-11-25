@@ -23,6 +23,7 @@ pub mod ops;
 pub mod pair;
 pub mod panel;
 pub mod plugins;
+pub mod protect;
 pub mod review;
 pub mod sandbox;
 pub mod search;

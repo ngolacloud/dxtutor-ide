@@ -105,6 +105,7 @@ use commands::ops::{
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
 use commands::panel::{ports_list, problems_scan};
 use commands::plugins::{plugin_install, plugin_list, plugin_remove};
+use commands::protect::{protect_learn, secret_scan, secret_scan_allow};
 use commands::review::{list_review_analyzers, review_code, verify_review_fix};
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
@@ -825,6 +826,15 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(target_os = "linux")]
             enable_media(_app);
+            // r23 F4a (X02): each request that lost secrets is shown (and audited) by the UI
+            let handle = _app.handle().clone();
+            tutor_protect::redact::on_redact(move |origin, count| {
+                let _ = tauri::Emitter::emit(
+                    &handle,
+                    "protect://redacted",
+                    serde_json::json!({"origin": origin, "count": count, "total": tutor_protect::redact::total()}),
+                );
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1061,6 +1071,9 @@ pub fn run() {
             pty::pty_shells,
             pty::pty_info,
             problems_scan,
+            protect_learn,
+            secret_scan,
+            secret_scan_allow,
             ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,

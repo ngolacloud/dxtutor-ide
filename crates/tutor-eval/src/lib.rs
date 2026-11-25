@@ -32,6 +32,7 @@ pub mod gitwork;
 pub mod gitx;
 pub mod go_runner;
 pub mod hood;
+pub mod iacfind;
 pub mod js_runner;
 pub mod lang;
 pub mod lsp;

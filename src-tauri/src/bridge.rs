@@ -63,6 +63,27 @@ pub async fn exec(
     timeout_ms: Option<u64>,
 ) -> Result<procs::ExecOut, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // r23 F4a (X03): a `git commit` the UI runs (the pane, Ctrl+Enter, the board, an amend)
+        // passes the secret scan first; blocked, it fails like git would, with the report
+        if program == "git" && tutor_protect::scan::is_git_commit(&args) {
+            let dir = args
+                .windows(2)
+                .find(|w| w[0] == "-C")
+                .map(|w| w[1].clone())
+                .or_else(|| cwd.clone())
+                .unwrap_or_else(|| ".".into());
+            if let Err(e) = tutor_protect::scan::guard_commit(
+                std::path::Path::new(&dir),
+                &tutor_protect::scan::commit_scope(&args),
+            ) {
+                return Ok(procs::ExecOut {
+                    code: 1,
+                    stdout: String::new(),
+                    stderr: e,
+                    timed_out: false,
+                });
+            }
+        }
         procs::exec(
             &program,
             &args,

@@ -79,7 +79,8 @@ pub async fn debug_launch(
                 OutputEvent {
                     id: sid.clone(),
                     category: category.into(),
-                    text: text.into(),
+                    // r23 F4a (X04): a debugged program's output is masked too
+                    text: tutor_protect::redact::current().mask(text),
                 },
             );
         });
@@ -380,7 +381,8 @@ fn output_sink(app: &tauri::AppHandle, id: &str) -> tutor_eval::dapc::OnOutput {
             OutputEvent {
                 id: sid.clone(),
                 category: category.into(),
-                text: text.into(),
+                // r23 F4a (X04): a debugged program's output is masked too
+                text: tutor_protect::redact::current().mask(text),
             },
         );
     })
@@ -611,7 +613,8 @@ pub async fn debug_attach(
             OutputEvent {
                 id: sid.clone(),
                 category: category.into(),
-                text: text.into(),
+                // r23 F4a (X04): a debugged program's output is masked too
+                text: tutor_protect::redact::current().mask(text),
             },
         );
     });

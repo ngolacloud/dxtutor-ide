@@ -469,6 +469,8 @@ pub fn commit(root: &Path, message: &str) -> Result<(), String> {
         return Err("empty commit message".into());
     }
     require_identity(root)?;
+    // r23 F4a (X03): the secret scan before every commit the app makes
+    tutor_protect::scan::guard_commit(root, &tutor_protect::scan::Scope::Staged)?;
     let out = Command::new("git")
         .arg("-C")
         .arg(root)

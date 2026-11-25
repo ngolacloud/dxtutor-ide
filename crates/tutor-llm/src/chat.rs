@@ -416,7 +416,7 @@ pub fn ollama_chat(messages: &[ChatMsg], model: Option<&str>) -> Result<ChatRepl
 
     match ureq::post(&url)
         .timeout(Duration::from_secs(120))
-        .send_json(body)
+        .send_json(crate::guarded("assistant", body))
     {
         Ok(resp) => {
             let v: serde_json::Value = resp.into_json().context("parsing Ollama reply")?;
@@ -483,7 +483,7 @@ pub fn ollama_chat_stream(
 
     let resp = match ureq::post(&url)
         .timeout(Duration::from_secs(300))
-        .send_json(body)
+        .send_json(crate::guarded("assistant", body))
     {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
@@ -617,7 +617,7 @@ pub fn claude_chat_stream(
     if let Some(ws) = workspace_id.filter(|w| !w.is_empty()) {
         req = req.set("anthropic-workspace-id", ws); // required for org-scoped keys
     }
-    let resp = match req.send_json(body) {
+    let resp = match req.send_json(crate::guarded("assistant", body)) {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
             let detail = r.into_string().unwrap_or_default();
@@ -729,7 +729,7 @@ pub fn openai_chat_stream(
         .set("authorization", &format!("Bearer {api_key}"))
         .set("content-type", "application/json")
         .timeout(Duration::from_secs(300))
-        .send_json(body)
+        .send_json(crate::guarded("assistant", body))
     {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {
@@ -847,7 +847,7 @@ pub fn gemini_chat_stream(
         .set("x-goog-api-key", api_key)
         .set("content-type", "application/json")
         .timeout(Duration::from_secs(300))
-        .send_json(body)
+        .send_json(crate::guarded("assistant", body))
     {
         Ok(r) => r,
         Err(ureq::Error::Status(code, r)) => {

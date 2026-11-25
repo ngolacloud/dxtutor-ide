@@ -1,0 +1,15 @@
+[package]
+name = "tutor-protect"
+description = "Data protection (r23 F4): redaction before any LLM request, the secret scan before a commit, masking of terminal output"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+regex = "1"
+serde = { workspace = true }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = { workspace = true }

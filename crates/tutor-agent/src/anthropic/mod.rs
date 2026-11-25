@@ -212,6 +212,8 @@ impl Anthropic {
 
     /// Envia o POST, repetindo falhas antes do primeiro byte. Devolve a resposta HTTP 200.
     fn send(&self, req: &Request, body: &str) -> Result<ureq::Response, ProviderError> {
+        // r23 F4a (X02): no secret leaves for the model (once, before the retries)
+        let body = &tutor_protect::redact::guard_body("codev", body);
         let mut attempt = 0u32;
         loop {
             let mut r = self.agent.post(&self.cfg.endpoint);

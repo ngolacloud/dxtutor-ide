@@ -412,6 +412,8 @@ impl OpenAiCompat {
     }
 
     fn send(&self, body: &str) -> Result<ureq::Response, ProviderError> {
+        // r23 F4a (X02): no secret leaves for the model (once, before the retries)
+        let body = &tutor_protect::redact::guard_body("codev", body);
         let mut attempt = 0;
         loop {
             let mut r = self

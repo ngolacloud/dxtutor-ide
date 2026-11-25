@@ -209,6 +209,8 @@ fn spawn_with_command(
     thread::spawn(move || {
         let mut buf = [0u8; 16384];
         let mut carry: Vec<u8> = Vec::new();
+        // r23 F4a (X04): secrets in the output are masked before they reach the webview
+        let mut mask = tutor_protect::stream::Masker::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
@@ -218,14 +220,14 @@ fn spawn_with_command(
                     if cut == 0 {
                         continue;
                     }
-                    let data = String::from_utf8_lossy(&carry[..cut]).into_owned();
+                    let data = mask.push(&String::from_utf8_lossy(&carry[..cut]));
                     carry.drain(..cut);
                     let _ = app.emit("pty://data", DataEvent { id: &id, data });
                 }
             }
         }
         if !carry.is_empty() {
-            let data = String::from_utf8_lossy(&carry).into_owned();
+            let data = mask.push(&String::from_utf8_lossy(&carry));
             let _ = app.emit("pty://data", DataEvent { id: &id, data });
         }
         let code = child.wait().map(|s| i64::from(s.exit_code())).unwrap_or(-1);
