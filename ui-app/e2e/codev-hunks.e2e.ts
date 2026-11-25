@@ -144,6 +144,41 @@ test("a hunk streams into the editor and Accept writes it", async ({ page }) => 
   await page.screenshot({ path: test.info().outputPath("a2-accepted.png") });
 });
 
+test("F3.4 at 1440×900: the line being written, the written block, the margin mark gone on accept; the chat says where", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await boot(page);
+  await askCodev(page, "corrige o E0382 em src/lib.rs");
+
+  // while Co-Dev types: the line being written carries the «Co-Dev» label, the margin marks the block
+  await expect(page.locator("#ed-hl .l.hk-writing")).toHaveCount(1);
+  await expect(page.locator("#ed-gut .hk-new").first()).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("f34-writing-1440x900.png") });
+
+  // F3.2: the chat says where it writes, with a link to the file; the code block left out has its button
+  const writing = page.locator("#ag-msgs .cd-writing");
+  await expect(writing).toContainText(/(Writing|A escrever) src\/lib\.rs \d/);
+  await expect(page.locator("#ag-msgs .cd-apply")).toBeVisible();
+
+  // the written block, waiting for the decision
+  const accept = page.locator('.hk-bar [data-action="hunk-accept"]');
+  await expect(accept).toBeVisible();
+  await expect(page.locator("#ed-hl .l.hk-writing")).toHaveCount(0);
+  await expect(page.locator("#ed-hl .l.hk-new").first()).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("f34-written-1440x900.png") });
+
+  // accepted: the overlay and the margin mark go, the file has the change
+  await accept.click();
+  await expect(page.locator(".hk-gate .gdone")).toContainText(/aplicada|applied/);
+  await expect(page.locator("#ed-gut .hk-new")).toHaveCount(0);
+  await expect(page.locator("#ed-gut .hk-old")).toHaveCount(0);
+  await expect(page.locator("#ed-hl .l.hk-new")).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("f34-accepted-1440x900.png") });
+
+  // the link in the chat opens the file
+  await writing.locator(".cd-writing-path").click();
+  await expect(page.locator(".tab.active")).toContainText("lib.rs");
+});
+
 test("Reject leaves the file as it was", async ({ page }) => {
   await boot(page);
   await askCodev(page, "corrige o E0382 em src/lib.rs");

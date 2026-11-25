@@ -12,6 +12,8 @@ import { ago, callDiff, describeCall, describeSession, isNoToolsError, originFor
 import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 import { proseOnly } from "../domain/prose";
+import { parseSteps, type PlanStep } from "../domain/run-state";
+import { placeInPlan } from "../domain/plan-order";
 
 /** O turno em curso: cartão, segmentos de texto (um por pedido ao modelo), ferramentas. */
 interface Turn {
@@ -57,6 +59,9 @@ export function makeAgentChat(deps: AgentChatDeps) {
   const noTools = new Set<string>();
   const key = (): string => `${deps.provider()}|${deps.model()}`;
   let turn: Turn | null = null;
+  /* RF-S08 (F3.3): the plan `exit_plan` proposed in this session and the files written since it */
+  let planSteps: PlanStep[] = [];
+  let planTouched: string[] = [];
   /** The Project issue the session works on (set when the conversation starts from one). */
   let issueKey: string | null = null;
   /** F4: the issue's scope and prompt template version, sent with its origin (RF-G03/B04). */
@@ -81,9 +86,18 @@ export function makeAgentChat(deps: AgentChatDeps) {
     if (e.kind.startsWith("hunk_") || e.kind === "validation") deps.hunks?.event(s, e);
     deps.run?.event(s, e);
     switch (e.kind) {
-      case "hunk_start":
+      case "hunk_start": {
+        const first = !t.hunkPaths.has(e.call);
         t.hunkPaths.set(e.call, e.path);
+        // RF-S01/S08: one «Writing path a–b» line per call, against the plan
+        if (first) {
+          const place = placeInPlan(planSteps, planTouched, e.path);
+          if (!planTouched.includes(e.path)) planTouched.push(e.path);
+          const sink = deps.hunks;
+          presenter.hunkWriting?.(t.card, { path: e.path, start: e.range.start, end: e.range.end, place }, () => sink?.open(e.path));
+        }
         break;
+      }
       case "hunk_review": {
         const path = t.hunkPaths.get(e.call) ?? "";
         const ref = toolRef(t, e.call, "edit", path);
@@ -125,6 +139,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
         presenter.agentNote?.(t.card, "retry", `A repetir o pedido (${e.reason})…`);
         break;
       case "tool_start":
+        if (e.name === "exit_plan") {
+          planSteps = parseSteps(e.input.steps);
+          planTouched = [];
+        }
         if (e.name === "todo_write") presenter.agentTodos?.(t.card, parseTodos(e.input));
         else toolRef(t, e.id, e.name, describeCall(e.name, e.input));
         if (e.name === "task") presenter.subagent?.(e.id, typeof e.input.description === "string" ? e.input.description : "", "running");
@@ -431,6 +449,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
     if (session) void gateway.close(session);
     session = null;
     sessionKey = null;
+    planSteps = [];
+    planTouched = [];
     issueKey = null;
     issueExtra = {};
   }
