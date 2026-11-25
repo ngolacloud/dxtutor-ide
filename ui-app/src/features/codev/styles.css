@@ -279,3 +279,5 @@
   /* RF-A03/A04: a change that breaks the architect's rules — red, «accept» off until the override */
   .hk-tag.hk-tag-bad{color:var(--red)}.hk-btn[disabled]{opacity:.45;cursor:not-allowed}
   .hk-gate.hk-violation{border-color:var(--red)}.hk-gate .hk-rules{flex-basis:100%;color:var(--red);font-size:11.5px;margin:2px 0}.hk-gate .gb[disabled]{opacity:.45;cursor:not-allowed}
+  /* RF-G07: after Stop, keep or discard what the turn left changed */
+  .gate.stop-review{flex-wrap:wrap}.stop-review .sr-lead{flex-basis:100%;font-size:12px;color:var(--fg-dim);margin-bottom:4px}
