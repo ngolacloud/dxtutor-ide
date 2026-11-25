@@ -892,6 +892,8 @@ fn breakpoints_are_kept_per_project_and_file() {
         hit_condition: None,
         log_message: None,
         enabled: true,
+        trigger: None,
+        group: None,
     };
     s.save_breakpoints("/p", "src/main.rs", &[bp(3, None), bp(9, Some("i == 3"))])
         .unwrap();
@@ -905,6 +907,8 @@ fn breakpoints_are_kept_per_project_and_file() {
             hit_condition: Some("2".into()),
             log_message: Some("x={x}".into()),
             enabled: false,
+            trigger: Some("src/main.rs:3".into()),
+            group: Some("eviction".into()),
         }],
     )
     .unwrap();
@@ -915,6 +919,8 @@ fn breakpoints_are_kept_per_project_and_file() {
     assert_eq!(all[0].file, "src/lib.rs");
     assert!(!all[0].enabled);
     assert_eq!(all[0].log_message.as_deref(), Some("x={x}"));
+    assert_eq!(all[0].trigger.as_deref(), Some("src/main.rs:3"));
+    assert_eq!(all[0].group.as_deref(), Some("eviction"));
     assert_eq!(all[2].condition.as_deref(), Some("i == 3"));
     // replacing a file's list; blank strings are not kept
     s.save_breakpoints("/p", "src/main.rs", &[bp(4, Some("  "))])

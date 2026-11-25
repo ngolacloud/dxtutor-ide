@@ -21,7 +21,10 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::Emitter;
-use tutor_eval::dapc::{BreakpointSpec, BreakpointState, DapSession, DapThread, VarNode};
+use tutor_eval::dapc::{
+    BreakpointSpec, BreakpointState, DapSession, DapThread, DataBreakpoint, DataTarget,
+    MemoryBlock, SessionCaps, VarNode,
+};
 
 use crate::debug::{self, DapSessions, DebugSessions};
 
@@ -45,6 +48,8 @@ pub struct LaunchInfo {
     /// "dap" or "gdb"
     pub engine: String,
     pub adapter: String,
+    /// what the adapter can do (DAP; none for gdb) — r23 F2
+    pub caps: Option<SessionCaps>,
 }
 
 #[derive(Clone, Serialize)]
@@ -63,7 +68,9 @@ pub async fn debug_launch(
     program: String,
     cwd: Option<String>,
     engine: Option<String>,
+    args: Option<Vec<String>>,
 ) -> Result<LaunchInfo, String> {
+    let args = args.unwrap_or_default();
     if engine.as_deref() != Some("gdb") && tutor_eval::dapc::find_adapter().is_some() {
         let (sid, app2) = (id.clone(), app.clone());
         let on_output: tutor_eval::dapc::OnOutput = Arc::new(move |category: &str, text: &str| {
@@ -77,21 +84,24 @@ pub async fn debug_launch(
             );
         });
         let s = tauri::async_runtime::spawn_blocking(move || {
-            DapSession::launch(&program, &[], cwd.as_deref(), Some(on_output))
+            DapSession::launch(&program, &args, cwd.as_deref(), Some(on_output))
         })
         .await
         .map_err(|e| format!("debug task failed: {e}"))??;
         let adapter = s.adapter.clone();
+        let caps = Some(s.caps());
         dap.insert(id, s)?;
         return Ok(LaunchInfo {
             engine: "dap".into(),
             adapter,
+            caps,
         });
     }
-    debug::driver::launch(&sessions, id, program, cwd)?;
+    debug::driver::launch(&sessions, id, program, args, cwd)?;
     Ok(LaunchInfo {
         engine: "gdb".into(),
         adapter: "gdb".into(),
+        caps: None,
     })
 }
 
@@ -284,16 +294,92 @@ pub async fn debug_variables(
     blocking(move || s.variables(frame, reference)).await
 }
 
-/// A watch expression in a frame.
+/// A watch expression in a frame, or (`context: "repl"`) a line of the debug console (r23 F2).
 #[tauri::command]
 pub async fn debug_evaluate(
     dap: tauri::State<'_, DapSessions>,
     id: String,
     expression: String,
     frame: u32,
+    context: Option<String>,
 ) -> Result<VarNode, String> {
     let s = need_dap(&dap, &id)?;
-    blocking(move || s.evaluate(&expression, frame)).await
+    let ctx = context.unwrap_or_else(|| "watch".into());
+    blocking(move || s.evaluate_in(&expression, frame, &ctx)).await
+}
+
+/// Run to the cursor (r23 F2): a temporary breakpoint on `line` of `file`, continue, and the
+/// temporary breakpoint is gone wherever the program stops.
+#[tauri::command]
+pub async fn debug_run_to(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    file: String,
+    line: u32,
+) -> Result<debug::Stop, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.run_to(&file, line).map(Into::into)).await
+}
+
+/// Restart a frame (r23 F2) — only adapters that announce `supportsRestartFrame`.
+#[tauri::command]
+pub async fn debug_restart_frame(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    frame: u32,
+) -> Result<debug::Stop, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.restart_frame(frame).map(Into::into)).await
+}
+
+/// Data breakpoints (r23 F2): add one on a variable and/or remove one by its id; the list back.
+#[tauri::command]
+pub async fn debug_data_breakpoints(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    add: Option<DataTarget>,
+    remove: Option<String>,
+) -> Result<Vec<DataBreakpoint>, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.data_breakpoints(add, remove.as_deref())).await
+}
+
+/// The bytes of a variable (r23 F2), from its memory reference.
+#[tauri::command]
+pub async fn debug_read_memory(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    memory_reference: String,
+    offset: i64,
+    count: u32,
+) -> Result<MemoryBlock, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.read_memory(&memory_reference, offset, count)).await
+}
+
+/// The exception filters to stop on (r23 F2), among the ones the adapter offers; the ones set.
+#[tauri::command]
+pub async fn debug_exception_filters(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    filters: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let s = need_dap(&dap, &id)?;
+    blocking(move || s.set_exception_filters(&filters)).await
+}
+
+/// «Debug this test» (r23 F2): builds the project's test binaries and lists their tests.
+#[tauri::command]
+pub async fn debug_test_targets(
+    root: String,
+) -> Result<Vec<tutor_eval::testbins::TestBinary>, String> {
+    blocking(move || {
+        tutor_eval::testbins::test_targets(
+            std::path::Path::new(root.trim()),
+            &crate::shellenv::command,
+        )
+    })
+    .await
 }
 
 /// Ask a running program to stop (the waiting `run`/`continue` returns the stop).
@@ -402,9 +488,11 @@ pub async fn debug_attach(
     let label = argv.join(" ");
     let s = blocking(move || DapSession::attach(&argv, pid, root.as_deref(), Some(on_output), map))
         .await?;
+    let caps = Some(s.caps());
     dap.insert(id, s)?;
     Ok(LaunchInfo {
         engine: "dap".into(),
         adapter: label,
+        caps,
     })
 }

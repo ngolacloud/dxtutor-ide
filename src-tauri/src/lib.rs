@@ -74,9 +74,11 @@ use commands::codev_agent::{
 };
 use commands::debug_cmds::{
     breakpoints_load, breakpoints_save, debug_attach, debug_attach_targets, debug_available,
-    debug_break, debug_capabilities, debug_continue, debug_evaluate, debug_launch, debug_locals,
-    debug_pause, debug_run, debug_set_breakpoints, debug_snapshot, debug_stack, debug_step,
-    debug_stop, debug_stop_on_panic, debug_threads, debug_variables,
+    debug_break, debug_capabilities, debug_continue, debug_data_breakpoints, debug_evaluate,
+    debug_exception_filters, debug_launch, debug_locals, debug_pause, debug_read_memory,
+    debug_restart_frame, debug_run, debug_run_to, debug_set_breakpoints, debug_snapshot,
+    debug_stack, debug_step, debug_stop, debug_stop_on_panic, debug_test_targets, debug_threads,
+    debug_variables,
 };
 use commands::devcontainer::{
     devcontainer_exec, devcontainer_info, devcontainer_session_down, devcontainer_session_exec,
@@ -1011,6 +1013,12 @@ pub fn run() {
             debug_variables,
             debug_evaluate,
             debug_pause,
+            debug_run_to,
+            debug_restart_frame,
+            debug_data_breakpoints,
+            debug_read_memory,
+            debug_exception_filters,
+            debug_test_targets,
             debug_snapshot,
             breakpoints_load,
             breakpoints_save,

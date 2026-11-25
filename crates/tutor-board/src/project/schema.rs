@@ -242,6 +242,10 @@ const MIGRATIONS: &[&str] = &[
         ok       INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX idx_test_results_sha ON test_results(root, sha, at);",
+    // 9 — triggered breakpoints and breakpoint groups (r23 F2, UI-DBG-10): `trigger_on` is the
+    //     breakpoint (`file:line`, relative) that arms this one; `grp` the scenario it belongs to
+    "ALTER TABLE breakpoints ADD COLUMN trigger_on TEXT;
+    ALTER TABLE breakpoints ADD COLUMN grp TEXT;",
 ];
 
 /// The schema version this code expects.

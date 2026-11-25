@@ -348,6 +348,118 @@ pub struct VarNode {
     pub changed: bool,
     /// a stable path for the diff and the watch (`frame-func/scope/a.b`)
     pub path: String,
+    /// where its bytes are, for `read_memory` (adapters that support memory references)
+    pub memory_reference: Option<String>,
+}
+
+/// An exception filter the adapter offers (`setExceptionBreakpoints`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExceptionFilter {
+    pub filter: String,
+    pub label: String,
+    pub default: bool,
+}
+
+/// What this adapter can do, from its `initialize` answer (r23 F2): the UI shows a control only
+/// when the adapter has it, and says why otherwise.
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCaps {
+    pub step_back: bool,
+    pub data_breakpoints: bool,
+    pub read_memory: bool,
+    pub restart_frame: bool,
+    pub exception_filters: Vec<ExceptionFilter>,
+}
+
+impl SessionCaps {
+    pub fn from_initialize(b: &Value) -> SessionCaps {
+        let on = |k: &str| b[k].as_bool().unwrap_or(false);
+        SessionCaps {
+            step_back: on("supportsStepBack"),
+            data_breakpoints: on("supportsDataBreakpoints"),
+            read_memory: on("supportsReadMemoryRequest"),
+            restart_frame: on("supportsRestartFrame"),
+            exception_filters: b["exceptionBreakpointFilters"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|f| {
+                            Some(ExceptionFilter {
+                                filter: f["filter"].as_str()?.to_string(),
+                                label: f["label"].as_str().unwrap_or("").to_string(),
+                                default: f["default"].as_bool().unwrap_or(false),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// A data breakpoint (a watchpoint): stop when the bytes of a variable are written (or read).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataBreakpoint {
+    pub data_id: String,
+    /// what the adapter calls it (`watch p.x`…)
+    pub description: String,
+    /// `write`, `read` or `readWrite`
+    pub access_type: String,
+    pub verified: bool,
+    pub message: Option<String>,
+}
+
+/// What to watch: a variable `name` inside the container `reference` (a scope or a parent
+/// variable), or an expression in frame `frame` when there is no container.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataTarget {
+    pub frame: u32,
+    #[serde(default)]
+    pub reference: Option<i64>,
+    pub name: String,
+    #[serde(default)]
+    pub access_type: Option<String>,
+}
+
+/// Bytes read from the program (`readMemory`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryBlock {
+    pub address: String,
+    pub bytes: Vec<u8>,
+    pub unreadable: u64,
+}
+
+/// Standard base64 (what DAP uses for memory), without a dependency.
+pub fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
+    let val = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let clean: Vec<u8> = s
+        .bytes()
+        .filter(|c| !c.is_ascii_whitespace() && *c != b'=')
+        .collect();
+    let mut out = Vec::with_capacity(clean.len() * 3 / 4);
+    for chunk in clean.chunks(4) {
+        let mut n = 0u32;
+        for (i, c) in chunk.iter().enumerate() {
+            n |= val(*c).ok_or("memory: not base64")? << (18 - 6 * i);
+        }
+        let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+        out.extend_from_slice(&bytes[..chunk.len().saturating_sub(1)]);
+    }
+    Ok(out)
 }
 
 #[derive(Default)]
@@ -360,6 +472,8 @@ struct Snapshots {
 
 pub struct DapSession {
     client: DapClient,
+    caps: SessionCaps,
+    data_bps: Mutex<Vec<DataBreakpoint>>,
     breakpoints: Mutex<HashMap<String, Vec<BreakpointSpec>>>,
     functions: Mutex<Vec<String>>,
     configured: AtomicBool,
@@ -463,10 +577,11 @@ impl DapSession {
     ) -> Result<DapSession, String> {
         let client =
             DapClient::spawn_cmd(argv, cwd.filter(|_| !attached).map(Path::new), on_output)?;
-        client.request(
+        let init = client.request(
             "initialize",
-            json!({"clientID": "dxtutor", "clientName": "dxtutor IDE", "adapterID": "lldb-dap", "linesStartAt1": true, "columnsStartAt1": true, "pathFormat": "path", "supportsVariableType": true, "supportsRunInTerminalRequest": false}),
+            json!({"clientID": "dxtutor", "clientName": "dxtutor IDE", "adapterID": "lldb-dap", "linesStartAt1": true, "columnsStartAt1": true, "pathFormat": "path", "supportsVariableType": true, "supportsMemoryReferences": true, "supportsRunInTerminalRequest": false}),
         )?;
+        let caps = SessionCaps::from_initialize(&init);
         let pending = client.request_later(request, args)?;
         // an attach that fails (ptrace refused, no such pid) answers before any `initialized`
         let first = client.wait_event(|e| e["event"] == "initialized", Some(REQUEST_TIMEOUT));
@@ -502,6 +617,8 @@ impl DapSession {
         };
         let s = DapSession {
             client,
+            caps,
+            data_bps: Mutex::default(),
             breakpoints: Mutex::default(),
             functions: Mutex::default(),
             configured: AtomicBool::new(false),
@@ -531,6 +648,15 @@ impl DapSession {
             .lock()
             .map_err(|_| "dap lock")?
             .insert(file.to_string(), specs.to_vec());
+        self.send_breakpoints(file, specs)
+    }
+
+    /// Sends a file's breakpoints to the adapter without keeping them as the human's.
+    fn send_breakpoints(
+        &self,
+        file: &str,
+        specs: &[BreakpointSpec],
+    ) -> Result<Vec<BreakpointState>, String> {
         let bps: Vec<Value> = specs
             .iter()
             .map(|b| {
@@ -768,6 +894,7 @@ impl DapSession {
             .unwrap_or("")
             .to_string();
         let reference = v["variablesReference"].as_i64().unwrap_or(0);
+        let memory_reference = v["memoryReference"].as_str().map(String::from);
         let path = if parent.is_empty() {
             name.clone()
         } else {
@@ -785,6 +912,7 @@ impl DapSession {
             reference,
             changed,
             path,
+            memory_reference,
         }
     }
 
@@ -839,17 +967,185 @@ impl DapSession {
         }
     }
 
-    /// A watch expression in a frame.
+    /// A watch expression in a frame; `context` is `watch` (default), `repl` (the debug console)
+    /// or `hover`. The adapter may run code to answer (lldb calls functions): the UI says so.
     pub fn evaluate(&self, expression: &str, level: u32) -> Result<VarNode, String> {
+        self.evaluate_in(expression, level, "watch")
+    }
+
+    pub fn evaluate_in(
+        &self,
+        expression: &str,
+        level: u32,
+        context: &str,
+    ) -> Result<VarNode, String> {
+        let context = match context {
+            "repl" | "hover" => context,
+            _ => "watch",
+        };
         let f = self.frame_at(level)?;
         let body = self.client.request(
             "evaluate",
-            json!({"expression": expression, "frameId": f.id, "context": "watch"}),
+            json!({"expression": expression, "frameId": f.id, "context": context}),
         )?;
         let mut s = self.snaps.lock().map_err(|_| "dap lock")?;
         let mut v = body.clone();
         v["name"] = json!(expression);
         Ok(self.node(&mut s, &format!("watch:{}", f.func), &v))
+    }
+
+    /// What this adapter can do (its `initialize` answer).
+    pub fn caps(&self) -> SessionCaps {
+        self.caps.clone()
+    }
+
+    /// Run to `line` of `file`: a temporary breakpoint there (the file's own stay), continue, and
+    /// take the temporary one away again wherever the program stops.
+    pub fn run_to(&self, file: &str, line: u32) -> Result<DapStop, String> {
+        let abs = self.absolute(file);
+        let mine = self
+            .breakpoints
+            .lock()
+            .map_err(|_| "dap lock")?
+            .get(&abs)
+            .cloned()
+            .unwrap_or_default();
+        let temp = !mine.iter().any(|b| {
+            b.line == line
+                && b.condition.is_none()
+                && b.log_message.is_none()
+                && b.hit_condition.is_none()
+        });
+        if temp {
+            let mut with = mine.clone();
+            with.retain(|b| b.line != line);
+            with.push(BreakpointSpec {
+                line,
+                ..Default::default()
+            });
+            let states = self.send_breakpoints(&abs, &with)?;
+            let ok = states.iter().any(|s| s.line == line && s.verified);
+            if !ok {
+                let _ = self.send_breakpoints(&abs, &mine);
+                return Err(format!("line {line} has no code to stop at"));
+            }
+        }
+        let st = self.cont();
+        if temp {
+            let _ = self.send_breakpoints(&abs, &mine);
+        }
+        st
+    }
+
+    /// Restart the frame at `level` (only adapters that support it).
+    pub fn restart_frame(&self, level: u32) -> Result<DapStop, String> {
+        if !self.caps.restart_frame {
+            return Err(format!("{} cannot restart a frame", self.adapter));
+        }
+        let f = self.frame_at(level)?;
+        self.client.drain(|e| e["event"] == "stopped");
+        self.client
+            .request("restartFrame", json!({"frameId": f.id}))?;
+        self.wait_stop()
+    }
+
+    /// Adds a data breakpoint (`add`) and/or removes one by its id (`remove`); returns the list.
+    pub fn data_breakpoints(
+        &self,
+        add: Option<DataTarget>,
+        remove: Option<&str>,
+    ) -> Result<Vec<DataBreakpoint>, String> {
+        if !self.caps.data_breakpoints {
+            return Err(format!("{} has no data breakpoints", self.adapter));
+        }
+        let mut list = self.data_bps.lock().map_err(|_| "dap lock")?.clone();
+        if let Some(id) = remove {
+            list.retain(|d| d.data_id != id);
+        }
+        if let Some(t) = add {
+            let mut args = json!({"name": t.name});
+            match t.reference.filter(|r| *r > 0) {
+                Some(r) => args["variablesReference"] = json!(r),
+                None => args["frameId"] = json!(self.frame_at(t.frame)?.id),
+            }
+            let info = self.client.request("dataBreakpointInfo", args)?;
+            let Some(data_id) = info["dataId"].as_str().map(String::from) else {
+                return Err(info["description"]
+                    .as_str()
+                    .unwrap_or("the adapter cannot watch that")
+                    .to_string());
+            };
+            let offered: Vec<String> = info["accessTypes"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let want = t.access_type.unwrap_or_else(|| "write".into());
+            let access = if offered.is_empty() || offered.contains(&want) {
+                want
+            } else {
+                offered[0].clone()
+            };
+            if !list.iter().any(|d| d.data_id == data_id) {
+                list.push(DataBreakpoint {
+                    data_id,
+                    description: info["description"].as_str().unwrap_or(&t.name).to_string(),
+                    access_type: access,
+                    verified: false,
+                    message: None,
+                });
+            }
+        }
+        let body = self.client.request(
+            "setDataBreakpoints",
+            json!({"breakpoints": list.iter().map(|d| json!({"dataId": d.data_id, "accessType": d.access_type})).collect::<Vec<_>>()}),
+        )?;
+        let states = body["breakpoints"].as_array().cloned().unwrap_or_default();
+        for (d, r) in list.iter_mut().zip(states.iter()) {
+            d.verified = r["verified"].as_bool().unwrap_or(false);
+            d.message = r["message"].as_str().map(String::from);
+        }
+        *self.data_bps.lock().map_err(|_| "dap lock")? = list.clone();
+        Ok(list)
+    }
+
+    /// Reads `count` bytes at `memory_reference` + `offset` (adapters with `readMemory`).
+    pub fn read_memory(
+        &self,
+        memory_reference: &str,
+        offset: i64,
+        count: u32,
+    ) -> Result<MemoryBlock, String> {
+        if !self.caps.read_memory {
+            return Err(format!("{} cannot read memory", self.adapter));
+        }
+        let body = self.client.request(
+            "readMemory",
+            json!({"memoryReference": memory_reference, "offset": offset, "count": count.min(4096)}),
+        )?;
+        Ok(MemoryBlock {
+            address: body["address"]
+                .as_str()
+                .unwrap_or(memory_reference)
+                .to_string(),
+            bytes: base64_decode(body["data"].as_str().unwrap_or(""))?,
+            unreadable: body["unreadableBytes"].as_u64().unwrap_or(0),
+        })
+    }
+
+    /// The exception filters on (`setExceptionBreakpoints`): only ids the adapter offered.
+    pub fn set_exception_filters(&self, filters: &[String]) -> Result<Vec<String>, String> {
+        let known: Vec<String> = filters
+            .iter()
+            .filter(|f| self.caps.exception_filters.iter().any(|x| &x.filter == *f))
+            .cloned()
+            .collect();
+        self.client
+            .request("setExceptionBreakpoints", json!({"filters": known}))?;
+        Ok(known)
     }
 
     pub fn stop(&self) {
@@ -885,6 +1181,137 @@ mod tests {
         assert!(
             stop_from(&json!({"event": "exited", "body": {"exitCode": 3}})).exit_code == Some(3)
         );
+    }
+
+    #[test]
+    fn decodes_base64_and_reads_caps() {
+        assert_eq!(base64_decode("AQID/w==").unwrap(), vec![1, 2, 3, 255]);
+        assert_eq!(base64_decode("aGk=").unwrap(), b"hi".to_vec());
+        assert!(base64_decode("@@").is_err());
+        let c = SessionCaps::from_initialize(
+            &json!({"supportsDataBreakpoints": true, "exceptionBreakpointFilters": [{"filter": "cpp_throw", "label": "C++ Throw"}]}),
+        );
+        assert!(c.data_breakpoints && !c.step_back && !c.restart_frame && !c.read_memory);
+        assert_eq!(c.exception_filters[0].filter, "cpp_throw");
+    }
+
+    /// r23 F2: what the adapter says it can do, the console (repl), run to a line, a data
+    /// breakpoint that stops on the write, the bytes of a variable, and the exception filters.
+    #[test]
+    fn real_session_extras_with_lldb_dap() {
+        if find_adapter().is_none() || Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipped: no lldb-dap or cc on PATH");
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("t.c");
+        std::fs::write(
+            &src,
+            "#include <stdio.h>\nint main(void) {\n  int total = 0;\n  int seen = 0;\n  for (int i = 0; i < 5; i++) {\n    total += i;\n  }\n  seen = total + 1;\n  printf(\"%d %d\\n\", total, seen);\n  return 0;\n}\n",
+        )
+        .unwrap();
+        let bin = d.path().join("t");
+        assert!(Command::new("cc")
+            .args(["-g", "-O0", "-o"])
+            .arg(&bin)
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success());
+        let s = DapSession::launch(
+            bin.to_str().unwrap(),
+            &[],
+            Some(d.path().to_str().unwrap()),
+            None,
+        )
+        .unwrap();
+        let caps = s.caps();
+        assert!(caps.data_breakpoints && caps.read_memory, "{caps:?}");
+        let file = src.to_str().unwrap();
+        s.set_breakpoints(
+            file,
+            &[BreakpointSpec {
+                line: 3,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        let st = s.run().unwrap();
+        assert_eq!(st.line, 3, "{st:?}");
+        // the console evaluates in the frame
+        // (lldb-dap answers the console in lldb's own format: `(int) $0 = 3`)
+        assert!(s
+            .evaluate_in("1 + 2", 0, "repl")
+            .unwrap()
+            .value
+            .ends_with("= 3"));
+        // run to line 8: stops there, and the temporary breakpoint is gone afterwards
+        let at = s.run_to(file, 8).unwrap();
+        assert_eq!(at.line, 8, "{at:?}");
+        assert_eq!(
+            s.locals(0)
+                .unwrap()
+                .iter()
+                .find(|v| v.name == "total")
+                .unwrap()
+                .value,
+            "10"
+        );
+        // a line without code is refused
+        assert!(s.run_to(file, 1).is_err());
+        // a data breakpoint on `seen`: the next continue stops on its write
+        let locals_scope = s
+            .variables(0, None)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.name.to_lowercase().contains("local"))
+            .unwrap();
+        let seen = s
+            .locals(0)
+            .unwrap()
+            .into_iter()
+            .find(|v| v.name == "seen")
+            .unwrap();
+        let list = s
+            .data_breakpoints(
+                Some(DataTarget {
+                    frame: 0,
+                    reference: Some(locals_scope.reference),
+                    name: "seen".into(),
+                    access_type: None,
+                }),
+                None,
+            )
+            .unwrap();
+        assert_eq!(list.len(), 1);
+        assert!(list[0].verified, "{list:?}");
+        // the bytes of `seen` (an int, 0 before the write)
+        if let Some(m) = seen.memory_reference.as_deref() {
+            let mem = s.read_memory(m, 0, 4).unwrap();
+            assert_eq!(mem.bytes, vec![0, 0, 0, 0], "{mem:?}");
+        }
+        let hit = s.cont().unwrap();
+        assert!(hit.stopped, "{hit:?}");
+        // lldb-dap reports a watchpoint as reason `breakpoint`, description `watchpoint N`, on the
+        // line after the write
+        assert!(
+            hit.description
+                .as_deref()
+                .unwrap_or("")
+                .contains("watchpoint"),
+            "{hit:?}"
+        );
+        assert_eq!(hit.line, 9);
+        let cleared = s.data_breakpoints(None, Some(&list[0].data_id)).unwrap();
+        assert!(cleared.is_empty());
+        // exception filters: only the ones the adapter offers are sent
+        let on = s
+            .set_exception_filters(&["cpp_throw".into(), "nope".into()])
+            .unwrap();
+        assert_eq!(on, vec!["cpp_throw".to_string()]);
+        let end = s.cont().unwrap();
+        assert!(end.exited, "{end:?}");
+        s.stop();
     }
 
     /// A real session against lldb-dap: compiles a small C program with `-g`, stops at a

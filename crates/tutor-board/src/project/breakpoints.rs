@@ -1,6 +1,8 @@
 //! The gutter's breakpoints per workspace (A7, docs/v2/UI-AUDIT.md item 4, DBG-03): a line, an
 //! optional condition, hit count and log message (a logpoint), and whether it is on. Kept in
 //! the project database so they survive a restart; the file path is relative to the project.
+//! r23 F2: a breakpoint can wait for another (`trigger`, `file:line` relative) and belong to a
+//! group (a scenario switched on or off as a whole).
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,10 @@ pub struct Breakpoint {
     pub log_message: Option<String>,
     #[serde(default = "on")]
     pub enabled: bool,
+    #[serde(default)]
+    pub trigger: Option<String>,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 fn on() -> bool {
@@ -32,7 +38,7 @@ fn nz(s: &Option<String>) -> Option<&str> {
 
 pub fn load(conn: &Connection, root: &str) -> Result<Vec<Breakpoint>, ProjectError> {
     let mut st = conn.prepare(
-        "SELECT file, line, condition, hit_condition, log_message, enabled FROM breakpoints WHERE root = ?1 ORDER BY file, line",
+        "SELECT file, line, condition, hit_condition, log_message, enabled, trigger_on, grp FROM breakpoints WHERE root = ?1 ORDER BY file, line",
     )?;
     let rows = st.query_map(params![root], |r| {
         Ok(Breakpoint {
@@ -42,6 +48,8 @@ pub fn load(conn: &Connection, root: &str) -> Result<Vec<Breakpoint>, ProjectErr
             hit_condition: r.get(3)?,
             log_message: r.get(4)?,
             enabled: r.get::<_, i64>(5)? != 0,
+            trigger: r.get(6)?,
+            group: r.get(7)?,
         })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -61,8 +69,8 @@ pub fn save_file(
     )?;
     for b in list {
         tx.execute(
-            "INSERT OR REPLACE INTO breakpoints (root, file, line, condition, hit_condition, log_message, enabled) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![root, file, b.line, nz(&b.condition), nz(&b.hit_condition), nz(&b.log_message), b.enabled as i64],
+            "INSERT OR REPLACE INTO breakpoints (root, file, line, condition, hit_condition, log_message, enabled, trigger_on, grp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![root, file, b.line, nz(&b.condition), nz(&b.hit_condition), nz(&b.log_message), b.enabled as i64, nz(&b.trigger), nz(&b.group)],
         )?;
     }
     tx.commit()?;
