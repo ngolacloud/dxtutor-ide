@@ -15,6 +15,8 @@ export interface ProjectGateway {
   issuePrompt?(root: string, key: string): Promise<unknown>;
   /** The Co-Dev audit log (RF-T01) of one issue, or of the folder with `null`. */
   audit?(root: string, issue: string | null): Promise<unknown>;
+  /** RF-A05: the repository against the architect's rules (`arch_conformance`). */
+  conformance?(root: string): Promise<unknown>;
 }
 
 export interface Workspace {
@@ -94,4 +96,8 @@ export interface ProjectDeps {
   download?(name: string, text: string): void;
   /** «Edit template» (desktop only). */
   templates?: TemplateFiles;
+  /** RF-A05: show only these files in the Problems panel (`app/problems-scope`). */
+  showInProblems?(label: string, files: string[]): void;
+  /** Opens a file of the open folder at a line. */
+  openAt?(rel: string, line: number): void;
 }

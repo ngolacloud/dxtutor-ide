@@ -15,6 +15,8 @@ export const projectClient = (inv: Invoker = invoke) => ({
   issuePrompt: (root: string, key: string): Promise<unknown> => inv<unknown>("project_issue_prompt", { root, key }),
   /** O registo de auditoria do Co-Dev (RF-T01): de uma issue, ou da pasta com `issue: null`. */
   audit: (root: string, issue: string | null): Promise<unknown> => inv<unknown>("project_audit", { root, issue }),
+  /** RF-A05: the repository against the architect's rules (`arch_conformance`; `null`: no rules file). */
+  conformance: (root: string): Promise<unknown> => inv<unknown>("arch_conformance", { root }),
 });
 
 export type ProjectClient = ReturnType<typeof projectClient>;

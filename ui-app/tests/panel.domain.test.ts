@@ -57,6 +57,12 @@ describe("Problems", () => {
     expect(filterProblems(ps, { ...ALL, text: "!b.rs" }).map((p) => p.file)).toEqual(["a.rs", "c.ts"]);
     expect(filterProblems(ps, { ...ALL, warnings: false, infos: false })).toHaveLength(1);
   });
+  it("RF-A05: só os ficheiros de uma issue (o filtro que o Project pede), com o resto do filtro", () => {
+    expect(filterProblems(ps, { ...ALL, files: ["b.rs", "c.ts"], scope: "DXT-3" }).map((p) => p.file)).toEqual(["b.rs", "b.rs", "c.ts"]);
+    expect(filterProblems(ps, { ...ALL, files: ["b.rs"], warnings: false })).toHaveLength(1);
+    expect(filterProblems([P("./b.rs", 1, "error")], { ...ALL, files: ["b.rs"] })).toHaveLength(1);
+    expect(filterProblems(ps, { ...ALL, files: [] })).toEqual([]);
+  });
   it("o LSP ao vivo substitui os da mesma fonte nesse ficheiro", () => {
     const live = new Map([["b.rs", [P("b.rs", 7, "error", "live", "rustc")]]]);
     const m = mergeLive(ps, live);
