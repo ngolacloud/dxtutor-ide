@@ -62,8 +62,9 @@ export const gitExtras = makeGitExtras({
     discard: (paths) => { const r = B.rootKey(), fs = B.files(); void undo.snapshot(`discard ${paths.join(", ")}`).then(() => paths.forEach((p) => { if (fs[r + p]) B.decoratedDiscard(r + p); })); },
     open: (p, l) => B.openRel(p, l),
   },
+  audit: tauriScmAudit(),
   human: {
-    confirm: (m) => B.confirmBox(m),
+    approve: (r) => requestApproval(r),
     text: (ph, verb, initial) => new Promise((res) => { B.palette(initial ?? "", { ph, verb, text: (q) => res(q) }); }),
     pick: (ph, items) => new Promise((res) => { B.palette("", { ph, items: items.map((i) => ({ l: i.label, d: i.detail, run: () => res(i.value) })) }); }),
     toast: (m) => B.toast(m),

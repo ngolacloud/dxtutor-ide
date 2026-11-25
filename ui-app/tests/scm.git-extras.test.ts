@@ -60,6 +60,7 @@ function fakes(over: Partial<GitExtrasPort> = {}) {
   const answers: Array<string | null> = [];
   let confirmAnswer = true;
   const confirms: string[] = [];
+  const audited: Array<{ action: string; approved: boolean; outcome?: string }> = [];
   const git: GitExtrasPort = {
     blame: async (_r, p) => { calls.push(["blame", p]); return BLAME; },
     history: async (_r, p, s, e) => { calls.push(["history", [p, s, e]]); return PLAN.commits.slice().reverse(); },
@@ -80,12 +81,13 @@ function fakes(over: Partial<GitExtrasPort> = {}) {
   };
   const x = makeGitExtras({
     git, ws,
-    human: { confirm: (m) => { confirms.push(m); return confirmAnswer; }, text: async () => answers.shift() ?? null, pick: async () => answers.shift() ?? null, toast: (m) => toasts.push(m) },
+    audit: { record: async (_r, e) => { audited.push(e); } },
+    human: { approve: async (r) => { confirms.push(`${r.title}\n${r.command}`); return { approved: confirmAnswer, reason: r.reasonRequired ? "needed" : "", decidedAt: 1 }; }, text: async () => answers.shift() ?? null, pick: async () => answers.shift() ?? null, toast: (m) => toasts.push(m) },
     codev: { available: () => true, ask: (r) => asked.push(r) },
     tabs: { open: vi.fn(), repaint: vi.fn() },
     say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
   });
-  return { x, calls, toasts, asked, answers, confirms, ws, setConfirm: (v: boolean) => { confirmAnswer = v; } };
+  return { x, calls, toasts, asked, answers, confirms, audited, ws, setConfirm: (v: boolean) => { confirmAnswer = v; } };
 }
 
 describe("aplicação", () => {
@@ -124,6 +126,7 @@ describe("aplicação", () => {
     await f.x.stashDrop(0);
     expect(f.confirms.at(-1)).toContain("git stash drop stash@{0}");
     expect(f.calls.some(([c, op]) => c === "stash" && (op as { op: string }).op === "drop")).toBe(false);
+    await vi.waitFor(() => expect(f.audited).toEqual([expect.objectContaining({ action: "git.stash.drop", approved: false })]));
   });
 
   it("amend de um commit publicado pede uma segunda confirmação", async () => {
@@ -131,7 +134,9 @@ describe("aplicação", () => {
     f.answers.push("feat: a");
     await f.x.amend();
     expect(f.calls.filter(([c]) => c === "amend").map(([, a]) => a)).toEqual([["feat: a", false], ["feat: a", true]]);
-    expect(f.confirms[0]).toContain('git commit --amend -m \\"feat: a');
+    expect(f.confirms[0]).toContain('git commit --amend -m "feat: a"');
+    // r23 F3: both approvals are audited, then the result
+    expect(f.audited.map((a) => `${a.action}:${a.outcome ?? "-"}`)).toEqual(["git.amend:sent", "git.amend.published:sent", "git.amend.published:ok", "git.amend:ok"]);
     expect(f.toasts.at(-1)).toContain("abc1234");
   });
 

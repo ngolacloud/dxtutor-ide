@@ -141,11 +141,12 @@ test("blame on the caret line, the line's history, stashes, worktrees and the in
   await rb.locator('select[data-action="gx-rb-action"][data-on="1"]').selectOption("fixup");
   await expect(rb.locator(".gx-cmd")).toContainText("fixup dddddddd");
   await page.screenshot({ path: test.info().outputPath("a4-rebase.png") });
-  let asked = "";
-  page.once("dialog", (d) => { asked = d.message(); void d.accept(); });
+  // r23 F3: the shared approval dialog with the exact command, then the audit log
   await rb.locator('[data-action="gx-rb-run"]').click();
+  await expect(page.locator("#approval .appr-cmd")).toContainText("git rebase -i main");
+  await page.locator("#approval #appr-ok").click();
   await expect.poll(async () => (await calls(page, "git_rebase")).map((a) => a.op).find((o) => (o as { op: string }).op === "run")).toEqual({ op: "run", onto: "main", steps: [{ action: "pick", hash: "c".repeat(40) }, { action: "fixup", hash: "d".repeat(40) }] });
-  expect(asked).toContain("git rebase -i main");
+  await expect.poll(async () => (await calls(page, "audit_record")).map((a) => `${(a.entry as { action: string }).action}:${(a.entry as { outcome?: string }).outcome}`)).toEqual(["git.rebase:sent", "git.rebase:ok"]);
 });
 
 test("RF-E08: the Co-Dev change sets of the working tree, by issue — Stage suggests the message with the key", async ({ page }) => {

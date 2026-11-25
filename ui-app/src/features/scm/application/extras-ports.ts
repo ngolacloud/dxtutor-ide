@@ -79,8 +79,18 @@ export interface GitWorkspacePort {
   open(path: string, line?: number): void;
 }
 
+/** The request of `app/approval.ts` (structural type; the composition links them — r23 F3). */
+export interface ApprovalRequest { title: string; command: string; scope?: string; destructive?: boolean; reasonRequired?: boolean; confirmText?: string }
+export interface ApprovalDecision { approved: boolean; reason: string; decidedAt: number }
+
+/** The audit log (r23 F1, RF-BK-L01): every git operation that needs approval, decided and done. */
+export interface ScmAuditPort {
+  record(root: string, e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number; outcome?: "sent" | "ok" | "failed" }): Promise<void>;
+}
+
 export interface HumanPort {
-  confirm(message: string): boolean;
+  /** the shared approval dialog: the exact command and where it runs; resolves with the decision */
+  approve(r: ApprovalRequest): Promise<ApprovalDecision>;
   /** a line of text (palette); null when cancelled */
   text(placeholder: string, verb: string, initial?: string): Promise<string | null>;
   /** a choice (palette); null when cancelled */

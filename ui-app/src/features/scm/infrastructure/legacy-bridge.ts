@@ -116,7 +116,6 @@ export const projectName = (): string => { const r = dxr()?.root || ""; return r
 export const saveToDisk = async (): Promise<void> => { const d = dxr(); d?.flush?.(); await d?.idle?.(); };
 /** O git mudou a árvore ou as refs: recarrega os ficheiros e o grafo. */
 export const reloadFromGit = async (): Promise<void> => { const d = dxr(); await d?.reloadDisk?.(); await d?.syncGit?.(); };
-export const confirmBox = (m: string): boolean => (G.confirm as (m: string) => boolean)(m);
 /** O ficheiro e a linha do editor (caminho relativo à pasta) e as linhas seleccionadas. */
 export const editorCursor = (): { path: string; line: number; start: number; end: number } | null => {
   const t = editorStore.tabs.find((x) => x.id === editorStore.currentTabId);

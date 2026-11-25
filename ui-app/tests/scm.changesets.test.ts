@@ -67,7 +67,8 @@ function fakes(groups: ChangeSetGroup[] = GROUPS, changed = ["src/a.rs", "src/b.
   } satisfies GitWorkspacePort;
   const x = makeGitExtras({
     git, ws,
-    human: { confirm: (m) => { confirms.push(m); return confirmAnswer; }, text: async () => null, pick: async () => null, toast: (m) => toasts.push(m) },
+    audit: { record: async () => undefined },
+    human: { approve: async (r) => { confirms.push(`${r.title}\n${r.command}`); return { approved: confirmAnswer, reason: "", decidedAt: 1 }; }, text: async () => null, pick: async () => null, toast: (m) => toasts.push(m) },
     codev: { available: () => false, ask: () => undefined },
     tabs: { open: () => undefined, repaint: () => undefined },
     say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
@@ -112,7 +113,8 @@ describe("aplicação", () => {
     const g = makeGitExtras({
       git: { changes: async () => [], changeSets: async () => { throw new Error("db"); } } as unknown as GitExtrasPort,
       ws: { root: () => "/p" } as unknown as GitWorkspacePort,
-      human: { confirm: () => true, text: async () => null, pick: async () => null, toast: () => undefined },
+      audit: { record: async () => undefined },
+      human: { approve: async () => ({ approved: true, reason: "", decidedAt: 1 }), text: async () => null, pick: async () => null, toast: () => undefined },
       codev: { available: () => false, ask: () => undefined },
       tabs: { open: () => undefined, repaint: () => undefined },
       say: (k) => k,
