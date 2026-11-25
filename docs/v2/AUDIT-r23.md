@@ -593,3 +593,23 @@ them, so nothing unused is committed.
 Checks on each commit: `tsc`, eslint (no new warnings), vitest (1004 tests), `arch:check` (all green,
 no metric up), `ui:build`, e2e (26, with the Ops test driving the new dialog), `cargo test` for
 `board.rs`, and the desktop self-test (52 steps, no FAIL).
+
+### F6 status: done (Welcome)
+
+Owner decisions at the start of the phase (§5 Q11, 2026-11-25): the old cards become the «Build» walkthrough;
+«New Project from a Template» is dropped until real templates exist; every prototype walkthrough comes in except
+Cloud.
+
+- **Backend.** `git_clone_plan(url, parentDir)` (225 commands) returns the exact command, the folder and whether
+  it exists. `git_clone` now uses the same validation and runs `git -C <parent> clone -- <url> <name>` with
+  `GIT_TERMINAL_PROMPT=0`, refusing an existing folder. Before, it ran `git clone <url>` with no `--` (a URL
+  starting with `-` was read as an option) and guessed the new folder; it had no UI consumer then.
+- **UI.** `features/welcome/` (typed, layered, A7/A8): Start, Recent (the real `dx-recent`; none in the browser),
+  Walkthroughs with progress and a «new» badge, a `walk:<id>` tab per walkthrough, «Mark done», «Show welcome page
+  on startup», and the palette commands «Help: Welcome» / «Help: Walkthroughs». Step actions are typed ids mapped
+  to feature entry points (no evaluated strings). The old `desktopPorts.welcome` port is gone.
+- **Clone path.** URL → parent folder (next to the most recent one) → backend plan → approval dialog → audit
+  (`sent`, then `ok`/`failed`) → clone → open. Refused: audited, nothing runs; not auditable: does not run.
+- **Checks.** tsc, eslint, vitest (1028), `arch:check`, `ui:build`, e2e (29: the acceptance — a recent folder opens
+  that workspace —, the clone through the dialog, and the startup choice), `cargo test -p tutor-eval`, desktop
+  self-test (53 steps, no FAIL; new step `clone` with a real `file://` clone).

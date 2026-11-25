@@ -10,7 +10,6 @@ import type { StackDesktop } from "../features/stack";
 import type { InfraDesktop } from "../features/infra/application/ports";
 import type { CodevDesktop } from "../features/codev/application/ports";
 import type { ExplorerDesktop, OutlineDesktop } from "../features/explorer";
-import type { WelcomeDesktop } from "../features/welcome";
 import type { ChangelogDesktop } from "../features/changelog";
 import type { ExtDesktop } from "../features/ext/application/ports";
 import type { RemoteDesktop } from "../features/remote";
@@ -31,8 +30,6 @@ export interface DesktopPorts {
   explorer?: ExplorerDesktop;
   /** o Outline das linguagens fora do `file_outline`, pelo servidor de linguagem do editor (features/lsp) */
   outline?: OutlineDesktop;
-  /** «Open Folder…» e as pastas recentes na página de boas-vindas — U4h5b */
-  welcome?: WelcomeDesktop;
   /** o git log/show reais do changelog — U4h5b */
   changelog?: ChangelogDesktop;
   /** o JSZip embutido na app — U4h5b */

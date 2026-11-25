@@ -143,10 +143,10 @@ ctx.openFolder = openFolder; ctx.reloadDisk = reloadDisk; ctx.markChanged = mark
 }
 
 export function installFolderUi(ctx: DesktopContext): void {
-const { R, escH, base, idle } = ctx;
+const { R, idle } = ctx;
 const openFolder = (p?: string) => ctx.openFolder(p);
 const flushSave = () => ctx.flushSave();
-/* ───── menus, palette, welcome ───── */
+/* ───── menus e paleta (as boas-vindas são da feature `welcome` desde a r23 F6) ───── */
 R.open = p => openFolder(p);
 const closeFolder = () => { flushSave(); void idle().then(() => { LS.set("dx-last-folder", ""); location.reload(); }); };
 R.close = closeFolder;
@@ -169,20 +169,11 @@ CMD.unshift(["File: Open Folder…", "Ctrl+O", () => openFolder()], ["File: Clos
 document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "o" || e.key === "O")) { e.preventDefault(); void openFolder(); }
 }, true);
-/* os botões de pasta nas boas-vindas: porta `desktopPorts.welcome` (U4h5b; antes embrulhava o VIEW.welcome) */
-desktopPorts.welcome = { welcome(t, host, _welcome) {
-  _welcome(t, host);
-  const sub = host.querySelector(".sub");
-  if (!sub) return;
-  const rec = LS.get("dx-recent", []) as string[];
-  sub.insertAdjacentHTML("afterend", `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button class="mini pri" data-action="desktop:open">Open Folder…</button>${rec.slice(0, 4).map(p => `<button class="mini" title="${escH(p)}" data-action="desktop:openRecent" data-on="${escH(p)}">${escH(base(p))}</button>`).join("")}${R.root ? `<span class="dim" style="align-self:center">open: <b>${escH(R.root)}</b></span>` : ""}</div>`);
-} };
+/* as boas-vindas (Open Folder…, Recent, Clone) são da feature `welcome` desde a r23 F6: lê o `DXR` e o `dx-recent` pela ponte */
 }
 
 const DX = (): Desktop => window.DXR as unknown as Desktop;
 /* os botões que o desktop acrescenta chamam o `DXR` no acto (eram `onclick="DXR.…"` inline — ADR-0004, U5c) */
 registerActions({
   "desktop:gitInit": { click: () => void DX().gitInit!() },
-  "desktop:open": { click: () => void DX().open!() },
-  "desktop:openRecent": { click: (c) => void DX().open!(c.on) },
 });

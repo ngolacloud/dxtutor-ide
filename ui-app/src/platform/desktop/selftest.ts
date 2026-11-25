@@ -11,6 +11,7 @@ import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
 import { auditClient } from "../tauri/audit";
+import { gitClient } from "../tauri/git";
 import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
@@ -651,6 +652,23 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         };
       } finally {
         delete FS[env]; flushSave(); await idle();
+      }
+    });
+    // r23 F6: «Clone Git Repository…» contra o git real — o plano (o comando exacto e a pasta), a recusa de um URL
+    // com ar de opção, o clone para a pasta planeada (a partir do repositório temporário, por file://) e a recusa
+    // de clonar por cima dela. Tudo numa pasta temporária fora do projecto.
+    await step("clone", async () => {
+      const g = gitClient(), root = (R.root as string).replace(/\/$/, "");
+      const parent = (await sh("mktemp", ["-d"], { cwd: R.info.home })).stdout.trim();
+      try {
+        const plan = await g.clonePlan(`file://${root}`, parent);
+        const optionUrl = await g.clonePlan("--upload-pack=touch /tmp/x", parent).then(() => "accepted", () => "refused");
+        const path = await g.clone(`file://${root}`, parent);
+        const again = await g.clone(`file://${root}`, parent).then(() => "cloned twice", (e) => /already exists/.test(String(e)) ? "refused" : String(e));
+        const head = (await sh("git", ["-C", path, "rev-parse", "--is-inside-work-tree"], { cwd: parent })).stdout.trim();
+        return { command: plan.command.startsWith(`git -C ${parent} clone -- file://`), target: path === plan.target, optionUrl, again, isRepo: head === "true" };
+      } finally {
+        await sh("rm", ["-rf", parent], { cwd: R.info.home });
       }
     });
     // A10: as lacunas aprovadas, contra o repositório temporário e esta máquina — o mapa de onboarding,

@@ -7,6 +7,7 @@ import { getVar, sideOpen } from "../features/shell";
 import { short } from "../features/workspace";
 import type { AppCmd, AppMenu } from "./ide-globals";
 import { codevAsk } from "./codev-ask";
+import { openWelcome, pickWalkthrough } from "../features/welcome/index";
 import { openCodevRun } from "../features/codev/index";
 import { GIT_COMMANDS } from "../features/scm/extras";
 import { openHoodReal, openTrace } from "../features/hood/index";
@@ -35,6 +36,8 @@ const tcm = translator(COMMANDS_MESSAGES);
 declare const MENUS: AppMenu[];
 
 export const CMD: AppCmd[]=[
+  /* r23 F6: a página de boas-vindas e os walkthroughs (features/welcome) */
+  ['Help: Welcome','',()=>openWelcome()],['Help: Walkthroughs','',()=>pickWalkthrough()],
   ['Ir para ficheiro…','Ctrl+P',()=>palette('')],['Mostrar todos os comandos','Ctrl+Shift+P',()=>palette('>')],['Ir para a linha…','Ctrl+G',()=>palette(':')],['Ir para o próximo problema','F8',()=>nextProblem()],
   ['Ficheiro: Novo ficheiro…','',newFile],['Ficheiro: Nova pasta…','',newFolder],
   ['Ver: Explorer','Ctrl+Shift+E',()=>goPane('explorer')],['Ver: Pesquisa','Ctrl+Shift+F',()=>{goPane('search');$('#s-q')!.focus();}],['Ver: Source Control','Ctrl+Shift+G',()=>goPane('scm')],['Ver: Run and Debug','',()=>goPane('run')],['Ver: Testing','',()=>goPane('test')],['Ver: Extensions','',()=>goPane('ext')],

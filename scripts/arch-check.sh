@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=225
+EXPECT_TOTAL=226
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -100,8 +100,9 @@ EXPECT_TSNOCHECK=0
 # Hierarquia de tipos (lsp_prepare_type_hierarchy + lsp_type_hierarchy): lsp.rs 16→18: 216 + 2 = 218.
 # Bloco 3 (F5.2/F5.5): agent.rs ganha arch_rules_load/save, adr_list/accept e arch_rules_commit (11→16): 218 + 5 = 223.
 # r23 F1 (docs/v2/AUDIT-r23.md): board.rs ganha audit_record — o registo de auditoria das operações do IDE (9→10): 224.
-# Sessão de fecho dos RF, bloco 3 (RF-A03/A04): codev_agent.rs ganha codev_agent_override (16→17): 225.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=22 [commands/codev.rs]=5 [commands/codev_agent.rs]=17 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=21 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=10 )
+# r23 F6: git.rs ganha git_clone_plan — o comando exacto do clone antes da aprovação (22→23): 225.
+# Sessão de fecho dos RF, bloco 3 (RF-A03/A04): codev_agent.rs ganha codev_agent_override (16→17): 225 + 1 = 226 (junto com o git_clone_plan da r23 F6).
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=23 [commands/codev.rs]=5 [commands/codev_agent.rs]=17 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=21 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [board.rs]=10 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores
@@ -216,7 +217,7 @@ fi
 # O resíduo strangler `features/<f>.ts` (publica os shims window.*) está FORA
 # desta subárvore e não é governado por A7/A8 — é transitório (ADR, passo 6).
 # A7/A8 cobrem CADA feature nesta lista (codev + ext; a próxima acrescenta-se aqui).
-FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops codebase comments"
+FEATURES="codev ext codereview scm debug board visualizer infra learn panel arch testing lsp project hood ops codebase comments welcome"
 FEAT_ROOT=ui-app/src/features
 
 echo "== A7 · domínio não importa application/ui/infrastructure =="

@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 225 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 226 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -42,7 +42,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   falha até sair). As métricas «globais publicadas» e «shims de estado» do `ui-metrics.sh` também só descem.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 — e `comments`); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments` e `welcome` — a página de boas-vindas da r23 F6); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -686,6 +686,23 @@ o comando EXACTO e vai para o registo de auditoria.
 - **`audit_record`** (`board.rs`, cliente `platform/tauri/audit.ts`) — a mesma tabela do registo do
   Co-Dev, origem `ide` (`tool` = feature, `call` = acção, `path` = onde). Quem e quando decide-os o
   backend; os segredos mascaram-se no Rust. A aprovação que não se consegue auditar não corre.
+
+## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
+
+Feature tipada e em camadas (governada por A7/A8), no lugar do antigo `features/welcome.ts`: Start (New File,
+Open File, Open Folder, **Clone Git Repository…**, Connect to, PairCode) · Recent (o `dx-recent` real; no browser,
+nenhuma pasta) · Walkthroughs (Get started, Build — os antigos cartões —, Co-Dev, Project, PairCode, Quality,
+Learning Track; sem Cloud) e «Show welcome page on startup» (lido pelo `boot`, `domain/progress.ts`).
+
+- Cada passo de um walkthrough nomeia uma ACÇÃO (`domain/walkthroughs.ts`); a tabela `STEP` do `index.ts` liga-a
+  ao ponto de entrada da feature dona. Nada de código em texto (o `WEL.run` do protótipo fazia eval).
+- O Clone: o backend constrói o comando (`git_clone_plan` → `git -C <pasta> clone -- <url> <nome>`, a mesma
+  validação do `git_clone`: sem URL com ar de opção, sem `ext::`), o diálogo partilhado aprova-o, o
+  `audit_record` regista-o antes de correr (sem auditoria não corre) e com o resultado, e a pasta nova abre-se.
+- O Project avalia depois desta feature: lê-se por `services.project`. Os comandos «Help: Welcome» e
+  «Help: Walkthroughs» estão no `app/commands.ts`.
+- Testes: `tests/welcome.test.ts`, `tests/welcome.wiring.test.ts`, `e2e/welcome.e2e.ts` (a aceitação: uma pasta
+  recente abre esse workspace) e o passo `clone` do auto-teste desktop (clone real por `file://`).
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
