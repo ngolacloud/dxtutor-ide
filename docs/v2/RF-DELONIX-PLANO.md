@@ -219,9 +219,9 @@ Cada ferramenta nova sobe o `TOOLSET_VERSION`. Combinar a ordem antes da F1.
 | Passo | O quê |
 |---|---|
 | F3.1 | ✅ **Feito**: «Velocidade de escrita no editor…» no menu «/» (Lento 20 / Normal 40 / Rápido 120 / Instantâneo), guardada entre execuções; critério RF-S02 testado (400 caracteres a Normal = 10 s). Opções de velocidade (D6) nas Definições; teste do ritmo (400 car em Normal = 10 s ±10%) sobre o `revealStep` puro |
-| F3.2 | Confirmar a rede de segurança dos blocos de código no chat (§7 da A2) e a linha «A escrever `path` a–b» com link |
-| F3.3 | Ordem do plano: hunks de um ficheiro fora da ordem do plano ficam à espera (ou o backend serializa pela ordem do `plan`) |
-| F3.4 | Capturas Playwright a 1440×900: linha activa, bloco escrito, marca na margem que desaparece ao aceitar |
+| F3.2 | ✅ **Feito**: a rede de segurança (`domain/prose.ts`: blocos de código com mais de 3 linhas na resposta não vão para o chat) passa a ter o botão **Ask Co-Dev to make the change**, que pede ao agente a alteração no editor com `edit_lines`/`edit` (`codev.ask`, uma vez); e cada bloco que o Co-Dev começa a escrever dá no chat a linha **«Writing `src/lib.rs` 40–52»**, com o caminho como link que abre o ficheiro (uma por chamada). Testes: `codev.stream-plan.test.ts`, `RF-S01/S08 (F3.2/F3.3)…` em `codev.agent-chat.test.ts`, e2e `F3.4 at 1440×900…` |
+| F3.3 | ✅ **Feito** (sem segurar blocos): o modelo chama uma ferramenta de cada vez e, no Assistido, cada uma espera pelo humano — segurar um bloco até chegarem os de um ficheiro anterior pararia o turno. Em vez disso: o plano aprovado manda executar os passos pela ordem, um ficheiro de cada vez (`exit_plan`, teste `the_approved_plan_is_followed_in_the_order_of_its_steps`), e a linha «Writing» de cada bloco diz onde cai no plano — «step N of the plan», **«ahead of the plan: step N, before `a.rs`»** (um ficheiro de um passo anterior ainda não foi escrito) ou **«not in the plan»** (o assinalar da G08) — por `domain/plan-order.ts` (puro) |
+| F3.4 | ✅ **Feito**: e2e `F3.4 at 1440×900…` em `codev-hunks.e2e.ts` — com o viewport a 1440×900, a linha em escrita (rótulo «Co-Dev»), o bloco escrito à espera da decisão e, depois de aceitar, a marca na margem e o overlay desaparecem; capturas `f34-writing/written/accepted-1440x900.png` nos artefactos do teste |
 
 ### F4 — Issues e template (RF-B01–B08, T02, T04) (L) · por cima do ADR-0006 R3 e da A5
 

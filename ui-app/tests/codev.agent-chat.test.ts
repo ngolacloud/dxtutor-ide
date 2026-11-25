@@ -564,3 +564,42 @@ test("RF-P03: numa sessão PairCode, quem não conduz não aprova — o pedido �
   expect(t.gateway.approve).toHaveBeenCalledWith("S1", "c1", false, expect.stringContaining("só quem conduz"));
   expect(t.calls.some((c) => c.startsWith("note pair Só quem conduz"))).toBe(true);
 });
+
+test("RF-S01/S08 (F3.2/F3.3): «Writing path a–b» uma vez por chamada, contra a ordem do plano aprovado", async () => {
+  const t = setup();
+  const lines: Array<{ path: string; start: number; end: number; place: unknown }> = [];
+  const opened: string[] = [];
+  t.deps.hunks = { event: () => undefined, decideAll: () => undefined, open: (p: string) => opened.push(p), onSettled: () => undefined };
+  const opens: Array<() => void> = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).hunkWriting = (_c: unknown, info: (typeof lines)[number], open: () => void) => {
+    lines.push(info);
+    opens.push(open);
+  };
+  const start = (call: string, path: string, s: number, e: number, n = 1): AgentEvent =>
+    ({ kind: "hunk_start", hunk: `${call}:${n}`, call, path, op: "replace", range: { start: s, end: e }, base: null, old: "" }) as AgentEvent;
+  t.setScript(() => {
+    t.emit({ kind: "tool_start", id: "p", name: "exit_plan", input: { plan: "x", steps: [{ text: "lexer", files: [{ path: "src/lexer.rs" }] }, { text: "parser", files: [{ path: "./src/parser.rs" }] }] } });
+    // ahead: parser.rs before lexer.rs
+    t.emit(start("c1", "src/parser.rs", 40, 52));
+    t.emit(start("c1", "src/parser.rs", 90, 91, 2)); // same call: no second line
+    t.emit(start("c2", "src/lexer.rs", 3, 2)); // an insertion
+    t.emit(start("c3", "README.md", 1, 1));
+    t.emit(done());
+  });
+  await t.chat.send("implementa o plano");
+  expect(lines.map((l) => [l.path, l.start, l.end, l.place])).toEqual([
+    ["src/parser.rs", 40, 52, { kind: "ahead", step: 2, pending: ["src/lexer.rs"] }],
+    ["src/lexer.rs", 3, 2, { kind: "in-order", step: 1 }],
+    ["README.md", 1, 1, { kind: "outside" }],
+  ]);
+  opens[0]();
+  expect(opened).toEqual(["src/parser.rs"]);
+  // without a plan the line is still there, with no place
+  t.chat.reset();
+  t.setScript(() => {
+    t.emit(start("d1", "src/a.rs", 5, 6));
+    t.emit(done());
+  });
+  await t.chat.send("muda isto");
+  expect(lines.at(-1)!.place).toEqual({ kind: "none" });
+});
