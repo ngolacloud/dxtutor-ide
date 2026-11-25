@@ -126,6 +126,28 @@ export function makeAgentChat(deps: AgentChatDeps) {
       case "validation":
         presenter.agentNote?.(t.card, "validation", validationNote(e, copy));
         break;
+      case "stop_review": {
+        // RF-G07: keep what the stopped turn wrote, or go back to its checkpoint (the files only)
+        const sess = s;
+        const cp = e.checkpoint;
+        if (!presenter.stopReview) break;
+        const bar = presenter.stopReview(t.card, { checkpoint: cp, files: e.files }, {
+          keep: () => bar.settle(copy("stopKept")),
+          discard: () => {
+            if (deps.confirm && !deps.confirm(copy("stopDiscardConfirm", { n: e.files.length, id: cp }))) return;
+            void (async () => {
+              try {
+                await gateway.rewind(sess, cp, false);
+                await deps.reloadFromDisk();
+                bar.settle(copy("stopDiscarded", { id: cp }));
+              } catch (err: unknown) {
+                presenter.agentNote?.(t.card, "notice", err instanceof Error ? err.message : String(err));
+              }
+            })();
+          },
+        });
+        break;
+      }
       case "report":
         presenter.agentReport?.(t.card, e.title, e.markdown);
         break;

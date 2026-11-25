@@ -443,6 +443,34 @@ export const presenter: ChatPresenter = {
     t.appendChild(w);
   },
   /* live hunks (RF-CODEV-STREAM): the review bar of a call; per-hunk choices live in the editor */
+  stopReview(ref: CardRef, info: { checkpoint: number; files: string[] }, on: { keep(): void; discard(): void }) {
+    const c = asCard(ref);
+    const bar = document.createElement("div");
+    bar.className = "gate stop-review";
+    const lead = document.createElement("div");
+    lead.className = "sr-lead";
+    lead.textContent = ts("stopReviewLead", { n: info.files.length, files: info.files.slice(0, 6).join(", ") + (info.files.length > 6 ? ` … (+${info.files.length - 6})` : "") });
+    bar.appendChild(lead);
+    const btn = (label: string, pri: boolean, run: () => void) => {
+      const x = document.createElement("button");
+      x.className = "gb" + (pri ? " pri" : "");
+      x.textContent = label; // text, never HTML
+      x.onclick = run;
+      bar.appendChild(x);
+    };
+    btn(ts("stopKeep"), true, () => on.keep());
+    btn(ts("stopDiscard", { id: info.checkpoint }), false, () => on.discard());
+    c.bd.after(bar);
+    scrollMsgs();
+    return {
+      settle(label: string) {
+        const done = document.createElement("span");
+        done.className = "gdone";
+        done.textContent = label;
+        bar.replaceChildren(done);
+      },
+    };
+  },
   hunkWriting(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace; lines?: LinesCheck }, open: () => void) {
     const c = asCard(ref);
     const line = document.createElement("div");

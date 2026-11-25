@@ -70,7 +70,9 @@ export type HunkEvent =
   | { kind: "hunk_applied"; hunk: string; provisional: boolean; fingerprint: string }
   | { kind: "hunk_rejected"; hunk: string; by: "human" | "validation" | "cancel"; reason: string }
   | { kind: "hunk_stale"; hunk: string; path: string }
-  | { kind: "validation"; status: "running" | "passed" | "failed" | "skipped"; checks: ValidationCheck[]; baseline: ValidationCheck[] };
+  | { kind: "validation"; status: "running" | "passed" | "failed" | "skipped"; checks: ValidationCheck[]; baseline: ValidationCheck[] }
+  /** RF-G07: the human stopped the turn and it left these files changed (keep, or back to `checkpoint`). */
+  | { kind: "stop_review"; checkpoint: number; files: string[] };
 
 export interface PendingCall {
   id: string;
@@ -96,7 +98,7 @@ const str = (v: unknown): v is string => typeof v === "string";
 export function parseAgentEvent(payload: unknown): { session: string; event: AgentEvent } | null {
   if (!isObj(payload) || !str(payload.session) || !isObj(payload.event)) return null;
   const e = payload.event;
-  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "question", "report", "done"];
+  const known = ["stream", "retrying", "tool_start", "tool_result", "usage", "served_by", "checkpoint", "notice", "question", "report", "done", "stop_review"];
   if (str(e.kind) && HUNK_KINDS.includes(e.kind)) {
     return validHunkEvent(e) ? { session: payload.session, event: e as unknown as AgentEvent } : null;
   }
@@ -104,6 +106,7 @@ export function parseAgentEvent(payload: unknown): { session: string; event: Age
   if (e.kind === "stream" && !(isObj(e.event) && str(e.event.type))) return null;
   if ((e.kind === "tool_start" || e.kind === "tool_result") && !(str(e.id) && str(e.name))) return null;
   if (e.kind === "done" && !(isObj(e.outcome) && str(e.outcome.type))) return null;
+  if (e.kind === "stop_review" && !(num(e.checkpoint) && Array.isArray(e.files) && e.files.every(str))) return null;
   return { session: payload.session, event: e as unknown as AgentEvent };
 }
 

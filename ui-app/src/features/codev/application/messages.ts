@@ -12,7 +12,9 @@ export const CODEV_ENGINE_MESSAGES = {
   en: {
     validRunning: "Validating the provisional changes ({cmds})…", validBaseline: "Measuring the baseline before the changes (tests/lint)…",
     validPassed: "Validation passed ({cmds}): the provisional changes stay.", validFailed: "Validation failed: {list}", validSkipped: "Validation did not run.",
-    checkpointSaved: "Checkpoint {id} saved before the changes — /reverter to go back.", servedBy: "Answered by {model} (server fallback).",
+    checkpointSaved: "Checkpoint {id} saved before the changes — /reverter to go back.",
+    stopKept: "Kept — the changes of the stopped turn stay.", stopDiscarded: "Discarded — the files are back as at checkpoint {id}.",
+    stopDiscardConfirm: "Discard what the stopped turn changed ({n} file(s)) and go back to checkpoint {id}? The files return to how they were before the request.", servedBy: "Answered by {model} (server fallback).",
     noText: "(no text)", cancelled: "Interrupted by you. The history is consistent: you can carry on.",
     noNativeTools: "The model {model} does not support native tools — this conversation continues in text mode (blocks).",
     noSessions: "There are no earlier conversations in this project yet.", pickSession: "Earlier conversations in this project — pick one to continue:",
@@ -42,7 +44,9 @@ export const CODEV_ENGINE_MESSAGES = {
   ptAO: {
     validRunning: "A validar as alterações provisórias ({cmds})…", validBaseline: "A medir a base antes das alterações (testes/lint)…",
     validPassed: "Validação passou ({cmds}): as alterações provisórias ficam.", validFailed: "Validação falhou: {list}", validSkipped: "Validação não correu.",
-    checkpointSaved: "Checkpoint {id} guardado antes das alterações — /reverter para voltar atrás.", servedBy: "Respondido por {model} (fallback do servidor).",
+    checkpointSaved: "Checkpoint {id} guardado antes das alterações — /reverter para voltar atrás.",
+    stopKept: "Mantido — as alterações do turno parado ficam.", stopDiscarded: "Descartado — os ficheiros voltaram ao checkpoint {id}.",
+    stopDiscardConfirm: "Descartar o que o turno parado alterou ({n} ficheiro(s)) e voltar ao checkpoint {id}? Os ficheiros voltam a como estavam antes do pedido.", servedBy: "Respondido por {model} (fallback do servidor).",
     noText: "(sem texto)", cancelled: "Interrompido por ti. O histórico ficou consistente: podes continuar.",
     noNativeTools: "O modelo {model} não suporta ferramentas nativas — esta conversa segue pelo modo de texto (blocos).",
     noSessions: "Ainda não há conversas anteriores neste projecto.", pickSession: "Conversas anteriores deste projecto — escolhe uma para continuar:",
