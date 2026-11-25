@@ -158,6 +158,19 @@ o histórico da fixture `tests/fixtures/sample-history.ts`, que o harness aplica
 `tests/scm.desktop-port.test.ts` (cada entrada do pane consulta a porta desktop) e
 `tests/scm.domain.test.ts` (domínio puro).
 
+### Git real da r23 F3 (`features/scm/`, `tutor_eval::gitwork`)
+
+O Commit Graph saiu de `features/graph.ts` para `features/scm/` (`domain/refs.ts`, `search.ts`, `activity.ts`,
+`conflicts.ts`; `application/graph-screen.ts`, `hunks.ts`, `undo.ts`, `merge3.ts`; `ui/graph-view.ts`,
+`hunks-view.ts`, `merge3-view.ts`; composição em `graph-screen.ts` e `extras.ts`). O backend é o módulo
+`crates/tutor-eval/src/gitwork.rs` (refs, hunks, undo, previsão de conflitos, merge): git CLI e saída de máquina,
+com testes contra repositórios reais. Regras:
+- Tudo o que muda o repositório fora do editor passa por `approved(…)` (diálogo partilhado + `audit_record`
+  antes e com o resultado); o commit, o checkout e o merge locais não pedem aprovação porque o undo os repõe.
+- Antes de cada operação, `undo.snapshot(rótulo)` (refs em `refs/dxtutor/undo/<n>`).
+- O commit do desktop respeita o índice (hunks em stage); a UI de hunks e o undo só aparecem no desktop com
+  repositório, por isso os goldens do pane não mudam.
+
 ## Quarta feature extraída: Run and Debug (`ui-app/src/features/debug/`)
 
 Quarta aplicação do procedimento `extract-feature` (ADR-0002, Fases 0–4 concluídas).

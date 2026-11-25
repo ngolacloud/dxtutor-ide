@@ -613,3 +613,31 @@ Cloud.
 - **Checks.** tsc, eslint, vitest (1028), `arch:check`, `ui:build`, e2e (29: the acceptance — a recent folder opens
   that workspace —, the clone through the dialog, and the startup choice), `cargo test -p tutor-eval`, desktop
   self-test (53 steps, no FAIL; new step `clone` with a real `file://` clone).
+
+### F3a status: done (git, first half)
+
+Owner decisions at the start of F3 (2026-11-25): lanes ship behind an experimental switch, off by default (F3b);
+the graph moves into `features/scm/`; a per-commit test result table in the Project DB (F3b); review F3 in two
+halves.
+
+| Commit | What |
+|---|---|
+| `6d7f9a8` | `git_refs` (new module `tutor_eval::gitwork`): the Commit Graph's sidebar in one read — branches with upstream and ahead/behind, remotes, tags, stashes, worktrees, contributors. The graph moved from `features/graph.ts` into `features/scm/` (domain, use case, view, composition, en/ptAO catalogue). |
+| `e80fc0e` | Search with `author:` `type:` `file:` `issue:` `branch:` `message:` tokens, Highlight/Filter, type and issue chips; `syncGit` reads each commit's files. |
+| `6d91ed7` | WIP row on HEAD's lane, activity minimap, commit details in a panel under the graph (inline, they drifted from the SVG). |
+| `85a8025` | Hunk staging: `git_hunks` / `git_stage_hunks` (`git apply --cached [--reverse]`), hunks under a file's row in the pane (desktop only); the desktop commit respects the index. |
+| `f6b557b` | Undo: `git_undo_snapshot/list/plan/restore` (refs + index tree + `git stash create` under `refs/dxtutor/undo/<n>`); snapshots before commit, checkout, merge, branch delete, stash, amend, discard; undo through the approval dialog with the exact commands, audited, itself undoable. |
+| `fd2b3f6` | The scm's `window.confirm`s (stash drop, worktree add/remove, amend, rebase, discarding a change set) now use the shared approval dialog and the audit log. |
+| `01c3a4a` | `git_predict_conflicts` (`git merge-tree --write-tree`): ⚠ on branches that would conflict with HEAD, and a banner. |
+| `8f34803` | Three-way merge: `git_merge` (status/resolve/commit/abort) and `git_conflict_stages`; a conflicted merge stays open in a «Merge» tab (base · ours · theirs, result, take a side, ask Co-Dev); completing runs the project check and commits only when it passes, approved and audited. |
+
+236 commands after F3a. Acceptance of the brief (a temp repo stages one hunk, commits, undoes and predicts a
+conflict) is covered by the `gitwork` Rust tests and by the desktop self-test steps `hunks`, `undo`, `graph`
+(prediction) and `merge3` against real git.
+
+Not in F3a (F3b): sync with approval (pull/push), the `gh` module and Launchpad, the commit lifecycle (with the
+test-results table), the Commit Composer, lanes (off by default).
+
+Known limits, reported: the merge check uses the folder's detected lint (else test) command; a folder without one
+completes with «no project check found» in the dialog's scope. Untracked files are not part of undo snapshots
+(`git stash create` covers tracked files only).
