@@ -4,6 +4,7 @@
    folder opens. Whoever opens the Project imports `openProject` (activity bar, menu,
    palette) — no window global. Kanban, Scrum, XP or Scrum + XP over the SQLite store. */
 
+import { services } from "../../app/services";
 import { VIEW } from "../../app/store/registry";
 import { makeProjectService } from "./application/project-service";
 import { makeProjectView } from "./ui/view";
@@ -55,6 +56,8 @@ export function openProject(sub?: View): void {
   if (sub) projectService.setView(sub);
   openTab({ id: "project", title: "Project", kind: "project" });
 }
+/* the Welcome walkthroughs open it; they evaluate before this module (r23 F6) */
+services.project = { openProject };
 
 const sel = (): string | null => projectService.state().selected;
 const DAY = 86_400_000;

@@ -77,7 +77,7 @@ import "./features/workspace";
 import "./features/explorer";
 import "./features/diagnostics";
 import "./features/shortcuts";
-import "./features/welcome";
+import "./features/welcome/index"; /* r23 F6: Start · Recent · Walkthroughs */
 import "./app/chrome-actions";
 import "./app/commands";
 import "./app/boot-steps";

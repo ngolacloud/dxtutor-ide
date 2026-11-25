@@ -21,7 +21,7 @@ import "../features/diagnostics.css";
 import "../features/codev/styles.css";
 import "../features/project/styles.css";
 import "../features/diff/styles.css";
-import "../features/welcome.css";
+import "../features/welcome/styles.css";
 import "../features/palette.css";
 import "../features/notifications.css";
 import "../features/scm/styles.css";

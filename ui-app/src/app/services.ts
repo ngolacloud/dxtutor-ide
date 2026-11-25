@@ -20,6 +20,7 @@ import type * as Theme from "../features/theme";
 import type * as Infra from "../features/infra";
 import type * as Scm from "../features/scm";
 import type * as Diagnostics from "../features/diagnostics";
+import type * as Project from "../features/project/index";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -56,6 +57,8 @@ export interface Services {
   diagnostics: Pick<typeof Diagnostics, "diagnostics" | "drawProblems" | "has">;
   /** o atalho «a tecla é da shell» do terminal real (o painel, só no desktop): os atalhos globais (U7p6) */
   panel: { termOwnsKey: (e: KeyboardEvent) => boolean };
+  /** abrir o Project (features/project/index.ts, que avalia depois das boas-vindas — r23 F6) */
+  project: Pick<typeof Project, "openProject">;
 }
 
 export const services: Partial<Services> = {};

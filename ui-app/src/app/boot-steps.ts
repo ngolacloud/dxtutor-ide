@@ -8,6 +8,8 @@ import { setVar, hydrate, log, mkRz, badges } from "../features/shell";
 import { LANG } from "../features/editor";
 import { openArch } from "../features/arch/index";
 import { openProject } from "../features/project/index";
+import { showOnStartup as showWelcomeOnStartup, STORAGE_KEY as WELCOME_STORAGE_KEY } from "../features/welcome/domain/progress";
+import { LS } from "./store/storage";
 import { openCodevRun } from "../features/codev/index";
 import { CMD, buildMenus, LCUR } from "./commands";
 import { buildDocker, ACTS, OVERFLOW } from "../boot";
@@ -52,7 +54,8 @@ function boot(){loadCfg();resetWorkspace();syncTree();
   $('#pc-output')!.innerHTML='';log('co-dev','pronto · '+connected().length+' provedores ligados');
   termClear();setInterval(()=>{runLabel();},1000);
   newChat();setTheme(layoutStore.theme);
-  editorStore.tabs=[{id:'welcome',title:'Bem-vindo',kind:'welcome'}];refresh(false,true);show('welcome');
+  /* r23 F6: «Show welcome page on startup» (desligado, o arranque abre o editor vazio) */
+  const wel=showWelcomeOnStartup(LS.get(WELCOME_STORAGE_KEY,null));editorStore.tabs=wel?[{id:'welcome',title:'Bem-vindo',kind:'welcome'}]:[];refresh(false,true);show(wel?'welcome':null);
   if(innerWidth<1000){setVar('--side-w','0px');}else $('#tgl-side')!.classList.add('on');$('#tgl-panel')!.classList.add('on');
   if(innerWidth<860){setVar('--panel-h','0px');$('#tgl-panel')!.classList.remove('on');assistantCenter();}
   hydrate();if(document.activeElement&&(document.activeElement as HTMLElement).blur)(document.activeElement as HTMLElement).blur();
