@@ -40,3 +40,39 @@ export function placeInPlan(steps: PlanStep[], touched: string[], path: string):
 export function rangeLabel(start: number, end: number): string {
   return end > start ? `${start}–${end}` : `${start}`;
 }
+
+/* ── RF-G08 (sessão de fecho, bloco 2): o bloco contra as LINHAS que o passo do plano deu ── */
+
+/** Lines of slack around a planned range: earlier blocks of the same turn shift the lines, and the
+ *  plan's lines are the model's estimate before it wrote anything. */
+export const PLAN_LINE_SLACK = 3;
+
+export type LinesCheck = { kind: "unknown" } | { kind: "in" } | { kind: "out"; planned: Array<[number, number]> };
+
+/** The line ranges the plan gave for `path` (steps that name the file without lines add none). */
+export function plannedLines(steps: PlanStep[], path: string): Array<[number, number]> {
+  const p = norm(path);
+  const out: Array<[number, number]> = [];
+  for (const s of steps)
+    for (const f of s.files) {
+      if (norm(f.path) !== p || typeof f.start !== "number") continue;
+      const r: [number, number] = [f.start, Math.max(f.start, typeof f.end === "number" ? f.end : f.start)];
+      if (!out.some(([a, b]) => a === r[0] && b === r[1])) out.push(r);
+    }
+  return out.sort((x, y) => x[0] - y[0]);
+}
+
+/** Does a block on `path` at `start`–`end` fall in the lines the plan gave for that file? `unknown`
+ *  when the plan gave none for it (no plan, the file is not in it, or it came without lines). */
+export function linesInPlan(steps: PlanStep[], path: string, start: number, end: number, slack = PLAN_LINE_SLACK): LinesCheck {
+  const planned = plannedLines(steps, path);
+  if (!planned.length) return { kind: "unknown" };
+  const a = start, b = Math.max(start, end);
+  return planned.some(([ps, pe]) => b >= ps - slack && a <= pe + slack) ? { kind: "in" } : { kind: "out", planned };
+}
+
+/** `40–52, 90` — the planned ranges, short. */
+export function plannedLabel(planned: Array<[number, number]>): string {
+  return planned.map(([a, b]) => rangeLabel(a, b)).join(", ");
+}
+

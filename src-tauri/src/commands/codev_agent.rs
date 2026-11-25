@@ -145,6 +145,13 @@ pub fn codev_agent_review(
     codev_agent::review(&session_id, &call, &decisions)
 }
 
+/// RF-A03/A04: o override do Arquitecto a uma alteração que viola as regras, com o número de um
+/// ADR aceite (fica no registo de auditoria). Depois disso, os hunks da chamada podem ser aceites.
+#[tauri::command]
+pub fn codev_agent_override(session_id: String, call: String, adr: String) -> Result<(), String> {
+    codev_agent::override_violation(&session_id, &call, &adr)
+}
+
 /// Muda o modo da sessão (Manual/Assistido/Auto) — a modebar.
 #[tauri::command]
 pub fn codev_agent_set_mode(session_id: String, mode: String) -> bool {

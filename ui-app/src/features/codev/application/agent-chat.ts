@@ -13,7 +13,7 @@ import type { BoardStory } from "../domain/agent-events";
 import { formatUsage } from "../domain/pricing";
 import { proseOnly } from "../domain/prose";
 import { parseSteps, type PlanStep } from "../domain/run-state";
-import { placeInPlan } from "../domain/plan-order";
+import { linesInPlan, placeInPlan, plannedLabel, plannedLines } from "../domain/plan-order";
 
 /** O turno em curso: cartão, segmentos de texto (um por pedido ao modelo), ferramentas. */
 interface Turn {
@@ -26,6 +26,8 @@ interface Turn {
   noTools?: boolean;
   /** Live hunks: the file of each call that streams hunks. */
   hunkPaths: Map<string, string>;
+  /** RF-G08: blocks of each call outside the lines the plan gave for their file */
+  planOutside: Map<string, number>;
 }
 
 /** One line for the validation of Auto's provisional changes. */
@@ -89,12 +91,15 @@ export function makeAgentChat(deps: AgentChatDeps) {
       case "hunk_start": {
         const first = !t.hunkPaths.has(e.call);
         t.hunkPaths.set(e.call, e.path);
+        // RF-G08: every block against the lines the plan gave for its file
+        const lines = linesInPlan(planSteps, e.path, e.range.start, e.range.end);
+        if (lines.kind === "out") t.planOutside.set(e.call, (t.planOutside.get(e.call) ?? 0) + 1);
         // RF-S01/S08: one «Writing path a–b» line per call, against the plan
         if (first) {
           const place = placeInPlan(planSteps, planTouched, e.path);
           if (!planTouched.includes(e.path)) planTouched.push(e.path);
           const sink = deps.hunks;
-          presenter.hunkWriting?.(t.card, { path: e.path, start: e.range.start, end: e.range.end, place }, () => sink?.open(e.path));
+          presenter.hunkWriting?.(t.card, { path: e.path, start: e.range.start, end: e.range.end, place, lines }, () => sink?.open(e.path));
         }
         break;
       }
@@ -104,12 +109,17 @@ export function makeAgentChat(deps: AgentChatDeps) {
         presenter.toolReason?.(ref, e.reason, false);
         const sink = deps.hunks;
         if (sink && presenter.hunkReview) {
-          const bar = presenter.hunkReview(ref, { path, count: e.hunks.length, reason: e.reason }, {
+          const n = t.planOutside.get(e.call) ?? 0;
+          const outside = n ? { n, planned: plannedLabel(plannedLines(planSteps, path)) } : undefined;
+          const violations = e.violations?.length ? e.violations.map((v) => v.message) : undefined;
+          const bar = presenter.hunkReview(ref, { path, count: e.hunks.length, reason: e.reason, outside, violations }, {
             acceptAll: () => sink.decideAll(e.call, true),
             rejectAll: () => sink.decideAll(e.call, false),
             open: () => sink.open(path),
+            ...(violations && sink.override ? { override: () => { void sink.override?.(e.call); } } : {}),
           });
           sink.onSettled(e.call, (label) => bar.settle(label));
+          if (violations) sink.onOverridden?.(e.call, (adr: string) => bar.unblock?.(adr));
         }
         break;
       }
@@ -281,6 +291,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
           reasoning: "",
           tools: new Map(),
           hunkPaths: new Map(),
+          planOutside: new Map(),
           finish: () => {
             fallback = !!tt.noTools;
             resolve();

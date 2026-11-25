@@ -26,7 +26,7 @@ import { translator } from "../../../app/i18n";
 import { CODEV_CHAT_MESSAGES } from "./chat-messages";
 import { CODEV_STREAM_MESSAGES } from "./stream-messages";
 import { CODE_IN_EDITOR } from "../domain/prose";
-import { rangeLabel, type PlanPlace } from "../domain/plan-order";
+import { plannedLabel, rangeLabel, type LinesCheck, type PlanPlace } from "../domain/plan-order";
 import { codevAsk } from "../../../app/codev-ask";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
@@ -443,7 +443,7 @@ export const presenter: ChatPresenter = {
     t.appendChild(w);
   },
   /* live hunks (RF-CODEV-STREAM): the review bar of a call; per-hunk choices live in the editor */
-  hunkWriting(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace }, open: () => void) {
+  hunkWriting(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace; lines?: LinesCheck }, open: () => void) {
     const c = asCard(ref);
     const line = document.createElement("div");
     line.className = "cd-writing";
@@ -462,10 +462,17 @@ export const presenter: ChatPresenter = {
       tag.textContent = p.kind === "in-order" ? ts("planStep", { step: p.step }) : p.kind === "ahead" ? ts("aheadOfPlan", { step: p.step, pending: p.pending.join(", ") }) : ts("outsidePlan");
       line.append(" ", tag);
     }
+    // RF-G08: outside the lines the plan gave for this file (a warning)
+    if (info.lines?.kind === "out") {
+      const tag = document.createElement("span");
+      tag.className = "tag cd-plan cd-lines warn";
+      tag.textContent = ts("outsideLines", { planned: plannedLabel(info.lines.planned) });
+      line.append(" ", tag);
+    }
     (c.tools ?? c.bd).appendChild(line);
     scrollMsgs();
   },
-  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string }, on: { acceptAll(): void; rejectAll(): void; open(): void }) {
+  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[] }, on: { acceptAll(): void; rejectAll(): void; open(): void; override?(): void }) {
     const t = el(ref);
     const bar = document.createElement("div");
     bar.className = "gate hk-gate";
@@ -474,6 +481,12 @@ export const presenter: ChatPresenter = {
     const n = document.createElement("span");
     n.textContent = tc("editorChanges", { n: info.count });
     lead.appendChild(n);
+    if (info.outside?.n) {
+      const w = document.createElement("span");
+      w.className = "tag warn hk-plan";
+      w.textContent = ts("blocksOutside", { n: info.outside.n, planned: info.outside.planned });
+      lead.append(" ", w);
+    }
     bar.appendChild(lead);
     const btn = (label: string, pri: boolean, run: () => void) => {
       const x = document.createElement("button");
@@ -482,13 +495,34 @@ export const presenter: ChatPresenter = {
       x.onclick = run;
       bar.appendChild(x);
     };
+    // RF-A03/A04: breaks the architect's rules — red, «accept» off until the architect's override
+    if (info.violations?.length) {
+      bar.classList.add("hk-violation");
+      const w = document.createElement("div");
+      w.className = "hk-rules";
+      w.textContent = ts("violatesRules") + ": " + info.violations.join("; ");
+      bar.appendChild(w);
+    }
     btn("Aceitar todas", true, () => on.acceptAll());
+    const acceptAll = bar.querySelector<HTMLButtonElement>("button.gb.pri");
+    if (info.violations?.length && acceptAll) {
+      acceptAll.disabled = true;
+      acceptAll.title = ts("acceptNeedsOverride");
+    }
     btn("Rejeitar todas", false, () => on.rejectAll());
     btn("Ver no editor", false, () => on.open());
+    const ov = on.override;
+    if (info.violations?.length && ov) btn(ts("overrideAdr"), false, () => ov());
     t.appendChild(bar);
     scrollMsgs();
     waiting();
     return {
+      unblock(adr: string) {
+        bar.classList.remove("hk-violation");
+        if (acceptAll) { acceptAll.disabled = false; acceptAll.title = ""; }
+        const w = bar.querySelector(".hk-rules");
+        if (w) w.textContent = `${w.textContent} — override: ${adr}`;
+      },
       settle(label: string) {
         const done = document.createElement("span");
         done.className = "gdone";

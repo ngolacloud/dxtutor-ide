@@ -26,7 +26,7 @@ import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
 import type { ReplyLanguage } from "../domain/reply-language";
 import type { CodevCopy } from "./messages";
 import type { AgentEvent, AgentOrigin, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
-import type { PlanPlace } from "../domain/plan-order";
+import type { LinesCheck, PlanPlace } from "../domain/plan-order";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -209,12 +209,14 @@ export interface ChatPresenter {
    *  when the review ends (from the chat or from the editor). */
   /** RF-S01/S08 (F3.2/F3.3): Co-Dev started writing a block — «Writing `path` 40–52», a link that
    *  opens the file, and where the block falls in the approved plan. One line per tool call. */
-  hunkWriting?(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace }, open: () => void): void;
+  hunkWriting?(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace; lines?: LinesCheck }, open: () => void): void;
   hunkReview?(
     ref: ToolRef,
-    info: { path: string; count: number; reason: string },
-    on: { acceptAll(): void; rejectAll(): void; open(): void },
-  ): { settle(label: string): void };
+    /** `outside`: RF-G08 — blocks of the call outside the lines the plan gave for the file (a warning, never a block).
+     *  `violations`: RF-A03/A04 — the rules it breaks: «accept» stays off until the architect's override. */
+    info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[] },
+    on: { acceptAll(): void; rejectAll(): void; open(): void; override?(): void },
+  ): { settle(label: string): void; unblock?(adr: string): void };
 }
 
 /** The approval gate: the human say-so on edits, commands and plans. Backed by `window.ask` (shared with board.ts), so its cancellation
@@ -244,6 +246,8 @@ export interface AgentGateway {
   /** Desktop, pasta real aberta, provedor com agente v2 e harness v2 ligado (o antigo fica
    *  atrás de uma flag). */
   available(): boolean;
+  /** RF-A03/A04: the architect's override of a change under review that breaks the rules. */
+  override?(session: string, call: string, adr: string): Promise<void>;
   start(o: {
     root: string;
     /** `claude`/`codex`/`gemini`/`ollama` (F8). Numa retoma vale o gravado na sessão. */
@@ -331,6 +335,10 @@ export interface HunkSink {
   open(path: string): void;
   /** Registers what to do when a call's review ends (to settle the chat bar). */
   onSettled(call: string, f: (label: string) => void): void;
+  /** RF-A03/A04: asks for the architect's override of a call that breaks the rules … */
+  override?(call: string): Promise<boolean>;
+  /** … and tells when it was granted (to unblock the chat bar). */
+  onOverridden?(call: string, f: (adr: string) => void): void;
 }
 
 /** What the live-hunk use case needs from the world. */
@@ -342,6 +350,10 @@ export interface HunkReviewDeps {
   /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
   copy?: CodevCopy;
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
+  /** RF-A03/A04: the architect's override of a call that breaks the rules (`codev_agent_override`). */
+  override?(session: string, call: string, adr: string): Promise<void>;
+  /** Asks the human for the accepted ADR that allows the deviation; `null` when cancelled. */
+  askAdr?(violations: string): string | null;
   flush(): Promise<void>;
   reloadFromDisk(): Promise<void>;
   editor: {

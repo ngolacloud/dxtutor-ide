@@ -276,3 +276,6 @@
   /* F3.2/F3.3: «Writing path a–b» in the chat, against the plan; the button under a code block left out */
   .cd-writing{font-size:11.5px;color:var(--fg-dim);margin:3px 0}.cd-writing-path{font-family:var(--font-mono);color:var(--accent-hover);cursor:pointer}.cd-writing-path:hover{text-decoration:underline}
   .cd-writing .cd-plan{margin-left:4px;font-size:10.5px}.cd-code-ed{color:var(--fg-muted)}.cd-apply{margin-left:8px}
+  /* RF-A03/A04: a change that breaks the architect's rules — red, «accept» off until the override */
+  .hk-tag.hk-tag-bad{color:var(--red)}.hk-btn[disabled]{opacity:.45;cursor:not-allowed}
+  .hk-gate.hk-violation{border-color:var(--red)}.hk-gate .hk-rules{flex-basis:100%;color:var(--red);font-size:11.5px;margin:2px 0}.hk-gate .gb[disabled]{opacity:.45;cursor:not-allowed}

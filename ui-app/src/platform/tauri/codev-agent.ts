@@ -68,6 +68,10 @@ export interface HunkDecision {
 export const reviewAgentHunks = (sessionId: string, call: string, decisions: HunkDecision[], driver?: string | null): Promise<void> =>
   invoke<void>("codev_agent_review", { sessionId, call, decisions, driver: driver ?? null });
 
+/** RF-A03/A04: the architect's override of a change under review that breaks the rules (an accepted ADR). */
+export const overrideAgentViolation = (sessionId: string, call: string, adr: string): Promise<void> =>
+  invoke<void>("codev_agent_override", { sessionId, call, adr });
+
 export const cancelAgent = (sessionId: string): Promise<boolean> => invoke<boolean>("codev_agent_cancel", { sessionId });
 
 export const setAgentMode = (sessionId: string, mode: string): Promise<boolean> =>

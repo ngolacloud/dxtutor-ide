@@ -6,12 +6,18 @@ export const CODEV_STREAM_MESSAGES = {
   en: {
     writing: "Writing", openAt: "Open {path} at line {line}",
     aheadOfPlan: "ahead of the plan: step {step}, before {pending}", outsidePlan: "not in the plan", planStep: "step {step} of the plan",
+    outsideLines: "outside the planned lines ({planned})", blocksOutside: "{n} block(s) outside the planned lines ({planned})",
+    violatesRules: "breaks the rules", acceptNeedsOverride: "It breaks the architect's rules: accepting it needs the architect's override with an accepted ADR",
+    overrideAdr: "Override (ADR)…", adrPrompt: "It breaks the architect's rules:\n{violations}\n\nThe accepted ADR that allows it (e.g. ADR-0007):",
     applyCode: "Ask Co-Dev to make the change",
     applyAsk: "Make in the editor the change whose code you put in your last reply: change the files with edit_lines or edit (never paste the code in the chat).",
   },
   ptAO: {
     writing: "A escrever", openAt: "Abrir {path} na linha {line}",
     aheadOfPlan: "à frente do plano: passo {step}, antes de {pending}", outsidePlan: "fora do plano", planStep: "passo {step} do plano",
+    outsideLines: "fora das linhas do plano ({planned})", blocksOutside: "{n} bloco(s) fora das linhas do plano ({planned})",
+    violatesRules: "viola as regras", acceptNeedsOverride: "Viola as regras do arquitecto: aceitar pede o override do Arquitecto com um ADR aceite",
+    overrideAdr: "Override (ADR)…", adrPrompt: "Viola as regras do arquitecto:\n{violations}\n\nO ADR aceite que o permite (ex.: ADR-0007):",
     applyCode: "Pedir ao Co-Dev para fazer a alteração",
     applyAsk: "Faz no editor a alteração cujo código puseste na tua última resposta: muda os ficheiros com edit_lines ou edit (nunca colando o código no chat).",
   },

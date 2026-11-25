@@ -194,6 +194,7 @@ export const openDiff = (...args: [p: string, a?: string, b?: string, label?: st
 export const openPath = (...args: [p: string, line?: number]): void => G.openPath(...args);
 /** A yes/no question to the human (the harness: rewind, trust). */
 export const confirm = (message: string): boolean => window.confirm(message);
+export const prompt = (message: string, initial = ""): string | null => window.prompt(message, initial);
 
 /* ───── workspace / diagnostics / tests ───── */
 export const shortPath = (p: string): string => window.short(p);

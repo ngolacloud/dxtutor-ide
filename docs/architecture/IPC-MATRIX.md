@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (225 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (226 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 225 comandos, **142 são consumidos pela `ui-app`** e **83 não o são**: a UI
+Dos 226 comandos, **143 são consumidos pela `ui-app`** e **83 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -307,7 +307,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `codev_session_discard` | `root: String`, `slug: String` | `()` | String | — | — | **G** |
 | `codev_session_list` | `root: String` | `Vec<git::SessionInfo>` | String | — | — | R |
 
-## 10b. Agente Co-Dev v2 — `commands/codev_agent.rs` (16)
+## 10b. Agente Co-Dev v2 — `commands/codev_agent.rs` (17)
 
 > **ADR-0003 (F1):** adaptadores finos sobre o caso de uso Tauri-free
 > `crate::codev_agent`, que gere sessões do loop do crate `tutor-agent` (tool use
@@ -335,6 +335,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 | `codev_agent_send` | `session_id: String`, `text: Option<String>` | `()` (via eventos) | — | `codev-agent://event` `{session,event}`, `codev-agent://approval` `{session,request:{call,reason,dangerous,suggestedRule}}`, `codev-agent://error` `{session,error}` | `platform/tauri/codev-agent.ts` | **N** · K · **W** · **X** · S · E |
 | `codev_agent_approve` | `session_id: String`, `tool_use_id: String`, `allow: bool`, `reason: Option<String>`, `remember: Option<bool>` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S · W (`remember` grava `.dxtutor/permissions.json`) |
 | `codev_agent_review` | `session_id: String`, `call: String`, `decisions: Vec<{hunk: String, accept: bool, reason?: String}>` | `()` | String | — | `platform/tauri/codev-agent.ts` | S · **W** (escreve só os hunks aceites) |
+| `codev_agent_override` | `session_id: String`, `call: String`, `adr: String` | `()` (o override do Arquitecto a uma alteração em revisão que viola as regras: só com o papel Arquitecto e um ADR aceite; fica no registo de auditoria; depois disso os hunks podem ser aceites — RF-A03/A04) | String | — | `platform/tauri/codev-agent.ts` | S · X (`git config`) |
 | `codev_agent_set_mode` | `session_id: String`, `mode: String` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S |
 | `codev_agent_sessions` | `root: String` | `Vec<session::SessionSummary>` | — | — | `platform/tauri/codev-agent.ts` | R |
 | `codev_agent_history` | `session_id: String` | `Vec<session::HistoryItem>` | String | — | `platform/tauri/codev-agent.ts` | S |
@@ -620,9 +621,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **225** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 23 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 16 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 16 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 21 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 18 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 10 |
-| Consumidos pela `ui-app` | **142** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 18 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5) · `audit_record` (`platform/tauri/audit.ts`, r23 F1) · `git_clone`/`git_clone_plan` (`features/welcome`, r23 F6)) |
+| Comandos registados | **226** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 23 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 17 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 16 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 21 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 18 · `pty.rs` 7 · `commands/panel.rs` 2 · `board.rs` 10 |
+| Consumidos pela `ui-app` | **143** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 18 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5) · `audit_record` (`platform/tauri/audit.ts`, r23 F1) · `git_clone`/`git_clone_plan` (`features/welcome`, r23 F6)) |
 | Não consumidos pela `ui-app` | **83** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

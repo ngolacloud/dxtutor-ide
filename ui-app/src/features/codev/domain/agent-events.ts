@@ -27,6 +27,14 @@ export type TurnOutcome =
   | { type: "cancelled" }
   | { type: "iteration_limit" };
 
+/** RF-A03/A04: an architect's rule a change under review breaks (`tutor_agent::conformance::Violation`). */
+export interface RuleViolation {
+  rule: string;
+  message: string;
+  path: string;
+  line?: number | null;
+}
+
 export type AgentEvent =
   | { kind: "stream"; event: StreamEvent }
   | { kind: "retrying"; attempt: number; reason: string }
@@ -58,7 +66,7 @@ export type HunkEvent =
   | { kind: "hunk_start"; hunk: string; call: string; path: string; op: HunkOp; range: LineRange; base: string | null; old: string }
   | { kind: "hunk_chunk"; hunk: string; text: string }
   | { kind: "hunk_end"; hunk: string; text: string; lines: { added: number; removed: number } }
-  | { kind: "hunk_review"; call: string; hunks: string[]; reason: string; why?: string }
+  | { kind: "hunk_review"; call: string; hunks: string[]; reason: string; why?: string; violations?: RuleViolation[] }
   | { kind: "hunk_applied"; hunk: string; provisional: boolean; fingerprint: string }
   | { kind: "hunk_rejected"; hunk: string; by: "human" | "validation" | "cancel"; reason: string }
   | { kind: "hunk_stale"; hunk: string; path: string }
