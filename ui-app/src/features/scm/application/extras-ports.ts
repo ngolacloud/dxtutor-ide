@@ -28,8 +28,11 @@ export interface UndoPort {
 }
 
 /** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
+export interface ConflictPrediction { branch: string; clean: boolean; files: string[]; error: string | null }
 export interface GitRefsPort {
   refs(root: string): Promise<RefsSnapshot>;
+  /** whether merging each branch into HEAD would conflict (`git_predict_conflicts`; nothing touched) */
+  predict(root: string, branches: string[]): Promise<ConflictPrediction[]>;
   show(root: string, hash: string): Promise<string>;
 }
 

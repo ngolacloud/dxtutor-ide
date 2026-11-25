@@ -6,7 +6,7 @@
 
 import { filesOfShow, type RefsSnapshot } from "../domain/refs";
 import type { SearchMode } from "../domain/search";
-import type { GitRefsPort } from "./extras-ports";
+import type { ConflictPrediction, GitRefsPort } from "./extras-ports";
 
 export interface GraphScreenState {
   refs: RefsSnapshot | null;
@@ -18,13 +18,15 @@ export interface GraphScreenState {
   query: string;
   /** highlight: every commit, the others dimmed · filter: only the matches */
   mode: SearchMode;
+  /** UI-SCM-13: merging each local branch into HEAD would conflict? (read after the refs) */
+  predictions: Record<string, ConflictPrediction>;
 }
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | null }) {
   const { git, root } = deps;
-  const st: GraphScreenState = { refs: null, loading: false, error: null, files: {}, query: "", mode: "highlight" };
+  const st: GraphScreenState = { refs: null, loading: false, error: null, files: {}, query: "", mode: "highlight", predictions: {} };
   let forRoot: string | null = null, inFlight: Promise<void> | null = null, again = false;
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
@@ -33,10 +35,15 @@ export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | n
     const r = root();
     if (!r) { if (st.refs || forRoot) { st.refs = null; st.files = {}; forRoot = null; emit(); } return; }
     if (inFlight) { again = true; return inFlight; }
-    if (r !== forRoot) { st.refs = null; st.files = {}; }
+    if (r !== forRoot) { st.refs = null; st.files = {}; st.predictions = {}; }
     st.loading = true; emit();
     inFlight = (async () => {
-      try { st.refs = await git.refs(r); st.error = null; forRoot = r; }
+      try {
+        st.refs = await git.refs(r); st.error = null; forRoot = r;
+        const others = st.refs.head ? st.refs.branches.filter((b) => !b.current).map((b) => b.name).slice(0, 100) : [];
+        st.predictions = {};
+        if (others.length) for (const p of await git.predict(r, others).catch(() => [] as ConflictPrediction[])) st.predictions[p.branch] = p;
+      }
       catch (e) { st.error = msg(e); }
       finally { st.loading = false; inFlight = null; emit(); }
       if (again) { again = false; await load(); }

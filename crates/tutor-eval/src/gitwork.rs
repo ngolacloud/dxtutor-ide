@@ -659,6 +659,79 @@ pub fn undo_restore(root: &Path, id: u32) -> Result<UndoEntry, String> {
     Ok(before)
 }
 
+// ───── conflict prediction (UI-SCM-13) ─────
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Prediction {
+    pub branch: String,
+    /// merging it into HEAD would not conflict
+    pub clean: bool,
+    /// the files that would conflict
+    pub files: Vec<String>,
+    /// git could not tell (unrelated histories, a bad ref…)
+    pub error: Option<String>,
+}
+
+/// `git merge-tree --write-tree --name-only` output: the tree, then the conflicted files.
+pub fn parse_merge_tree(text: &str) -> Vec<String> {
+    text.lines()
+        .skip(1)
+        .map(str::trim)
+        .take_while(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// For each branch, whether merging it into HEAD would conflict, and in which files — without
+/// touching the working tree, the index or any ref (`git merge-tree --write-tree`, git ≥ 2.38).
+pub fn predict_conflicts(root: &Path, branches: &[String]) -> Result<Vec<Prediction>, String> {
+    if branches.len() > 100 {
+        return Err("too many branches (100 at most)".into());
+    }
+    let mut out = Vec::new();
+    for b in branches {
+        let r = gitx::check_rev(b)?;
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(root).args([
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "--no-messages",
+            "HEAD",
+            r,
+        ]);
+        let o = cmd
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("could not start git: {e}"))?;
+        let text = String::from_utf8_lossy(&o.stdout).to_string();
+        out.push(match o.status.code() {
+            Some(0) => Prediction {
+                branch: b.clone(),
+                clean: true,
+                files: vec![],
+                error: None,
+            },
+            Some(1) if !text.trim().is_empty() => Prediction {
+                branch: b.clone(),
+                clean: false,
+                files: parse_merge_tree(&text),
+                error: None,
+            },
+            _ => Prediction {
+                branch: b.clone(),
+                clean: false,
+                files: vec![],
+                error: Some(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            },
+        });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -922,6 +995,44 @@ mod tests {
         }
         let l = undo_list(d.path()).unwrap();
         assert_eq!((l.len(), l[0].id, l.last().unwrap().id), (50, 52, 3));
+    }
+
+    #[test]
+    fn predicts_which_branches_would_conflict_without_touching_anything() {
+        let d = repo();
+        commit(d.path(), "f.txt", "one\ntwo\nthree\n", "feat: base");
+        g(d.path(), &["checkout", "-q", "-b", "clash"]);
+        commit(
+            d.path(),
+            "f.txt",
+            "one\nTWO from clash\nthree\n",
+            "feat: clash",
+        );
+        g(d.path(), &["checkout", "-q", "main"]);
+        g(d.path(), &["checkout", "-q", "-b", "calm"]);
+        commit(d.path(), "g.txt", "new\n", "feat: calm");
+        g(d.path(), &["checkout", "-q", "main"]);
+        commit(d.path(), "f.txt", "one\ntwo on main\nthree\n", "feat: main");
+        let head = out(d.path(), &["rev-parse", "HEAD"]);
+        let p =
+            predict_conflicts(d.path(), &["clash".into(), "calm".into(), "nope".into()]).unwrap();
+        assert_eq!(
+            (p[0].clean, p[0].files.clone()),
+            (false, vec!["f.txt".to_string()])
+        );
+        assert!(p[1].clean && p[1].files.is_empty());
+        assert!(p[2].error.is_some());
+        assert_eq!(out(d.path(), &["rev-parse", "HEAD"]), head, "nothing moved");
+        assert_eq!(
+            out(d.path(), &["status", "--porcelain"]),
+            None,
+            "the working tree is untouched"
+        );
+        assert!(predict_conflicts(d.path(), &["-x".into()]).is_err());
+        assert_eq!(
+            parse_merge_tree("abc\na.rs\nb.rs\n\nmsg\n"),
+            vec!["a.rs", "b.rs"]
+        );
     }
 
     #[test]

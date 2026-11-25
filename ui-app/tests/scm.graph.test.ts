@@ -45,7 +45,7 @@ describe("o caso de uso", () => {
     let root: string | null = "/w/repo";
     let resolve!: (r: RefsSnapshot) => void;
     const refs = vi.fn(() => new Promise<RefsSnapshot>((r) => { resolve = r; }));
-    const s = makeGraphScreen({ git: { refs, show: async () => "" }, root: () => root });
+    const s = makeGraphScreen({ git: { refs, show: async () => "", predict: async () => [] }, root: () => root });
     const p = s.load();
     void s.load();
     expect(refs).toHaveBeenCalledTimes(1);
@@ -63,7 +63,7 @@ describe("o caso de uso", () => {
 
   it("os ficheiros de um commit: lidos uma vez, a pedido; um erro do git dá lista vazia", async () => {
     const show = vi.fn(async (_r: string, h: string) => { if (h === "bad") throw new Error("x"); return "diff --git a/a.rs b/a.rs\n"; });
-    const s = makeGraphScreen({ git: { refs: async () => REFS, show }, root: () => "/w" });
+    const s = makeGraphScreen({ git: { refs: async () => REFS, show, predict: async () => [] }, root: () => "/w" });
     await s.filesOf("abc");
     await s.filesOf("abc");
     expect(show).toHaveBeenCalledTimes(1);
@@ -73,7 +73,7 @@ describe("o caso de uso", () => {
   });
 
   it("um erro a ler as refs fica no estado", async () => {
-    const s = makeGraphScreen({ git: { refs: async () => { throw new Error("not a git repository"); }, show: async () => "" }, root: () => "/w" });
+    const s = makeGraphScreen({ git: { refs: async () => { throw new Error("not a git repository"); }, show: async () => "", predict: async () => [] }, root: () => "/w" });
     await s.load();
     expect(s.state().error).toBe("not a git repository");
   });
@@ -90,6 +90,7 @@ describe("na cadeia real (desktop com IPC falso)", () => {
       calls.push([cmd, args]);
       if (cmd === "git_refs") return REFS;
       if (cmd === "git_show") return "diff --git a/src/lib.rs b/src/lib.rs\n";
+      if (cmd === "git_predict_conflicts") return (args.branches as string[]).map((b) => ({ branch: b, clean: b !== "feature/x", files: b === "feature/x" ? ["src/lib.rs"] : [], error: null }));
       throw new Error("inesperado: " + cmd);
     } } };
     w.DXR = { root: "/w/repo", git: true };
@@ -109,6 +110,10 @@ describe("na cadeia real (desktop com IPC falso)", () => {
     expect(calls[0]).toEqual(["git_refs", { root: "/w/repo" }]);
     expect([...h.querySelectorAll(".gl-sec summary")].map((s) => s.textContent)).toEqual(["Branches3", "Remotes2", "Tags1", "Stashes1", "Worktrees1", "Contributors1"]);
     expect(h.querySelector(".gl-nm.cur")!.textContent).toBe("● main");
+    // UI-SCM-13: the branches other than HEAD's are checked; feature/x would conflict
+    expect(calls.find(([c]) => c === "git_predict_conflicts")).toEqual(["git_predict_conflicts", { root: "/w/repo", branches: ["feature/x", "develop"] }]);
+    expect(h.querySelector('.gl-item[data-on="e4f5a6b7"] .gl-conf')!.getAttribute("title")).toContain("src/lib.rs");
+    expect(h.querySelector(".gl-banner")!.textContent).toContain("1 branch(es) would conflict when merged into main: feature/x");
     expect(h.querySelector('.gl-item[data-on="a1b2c3d"] .gl-ab')!.textContent).toBe("↑2");
     expect([...h.querySelectorAll('.gl-row[data-on="a1b2c3d"] .gl-ref')].map((e) => e.textContent)).toEqual(["● main", "develop", "up/main", "v1.0"]);
     expect([...h.querySelectorAll('.gl-row[data-on="0000aaa"] .gl-ref')].map((e) => e.textContent)).toEqual(["origin/main"]);

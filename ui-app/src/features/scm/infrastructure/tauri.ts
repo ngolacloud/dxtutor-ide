@@ -5,7 +5,7 @@
    `git_diff`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, type Invoker } from "../../../platform/tauri/core";
-import type { FileHunksData, GitExtrasPort, GitRefsPort, HunksPort, UndoEntryData, UndoPlanData, UndoPort } from "../application/extras-ports";
+import type { ConflictPrediction, FileHunksData, GitExtrasPort, GitRefsPort, HunksPort, UndoEntryData, UndoPlanData, UndoPort } from "../application/extras-ports";
 import { auditClient } from "../../../platform/tauri/audit";
 import type { RefsSnapshot } from "../domain/refs";
 import type { Blame, Compare, HistCommit, RebasePlan, StashResult, Worktree } from "../domain/git-extras";
@@ -31,6 +31,7 @@ export const tauriGitExtras = (inv: Invoker = invoke): GitExtrasPort => ({
 /** O Commit Graph (r23 F3): `git_refs` e o `git_show` de um commit. */
 export const tauriGitRefs = (inv: Invoker = invoke): GitRefsPort => ({
   refs: (root) => inv<RefsSnapshot>("git_refs", { root }),
+  predict: (root, branches) => inv<ConflictPrediction[]>("git_predict_conflicts", { root, branches }),
   show: (root, hash) => inv<string>("git_show", { root, hash }),
 });
 

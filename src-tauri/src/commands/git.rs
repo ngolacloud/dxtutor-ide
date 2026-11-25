@@ -221,6 +221,16 @@ pub async fn git_undo_restore(
     blocking(move || tutor_eval::gitwork::undo_restore(Path::new(&root), id)).await
 }
 
+/// For each branch, whether merging it into HEAD would conflict, and in which files (r23 F3,
+/// UI-SCM-13; `git merge-tree --write-tree`, nothing touched).
+#[tauri::command]
+pub async fn git_predict_conflicts(
+    root: String,
+    branches: Vec<String>,
+) -> Result<Vec<tutor_eval::gitwork::Prediction>, String> {
+    blocking(move || tutor_eval::gitwork::predict_conflicts(Path::new(&root), &branches)).await
+}
+
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {

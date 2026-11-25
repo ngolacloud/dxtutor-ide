@@ -71,6 +71,7 @@ function model(): GraphVm {
     query: st.query, mode: st.mode, matchCount: hit.size, total: G.order.length,
     wip: wipOf(), activity: activityBuckets(G.order.map((h) => ({ h, t: G.c[h].t, match: hit.has(h) }))),
     when: (t) => new Date(t).toISOString().slice(0, 10),
+    predictions: st.predictions,
   };
 }
 

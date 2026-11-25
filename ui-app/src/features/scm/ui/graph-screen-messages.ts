@@ -14,6 +14,7 @@ export const GRAPH_SCREEN_MESSAGES = {
     searchPh: "Search: author: type: file: issue: branch: message:", matchCount: "{n} of {total}",
     modeHighlight: "Highlight", modeFilter: "Filter", modeHighlightTip: "Every commit shows; the others are dimmed. Click to show only the matches.",
     modeFilterTip: "Only the matches show. Click to show every commit.",
+    conflictTip: "Merging {b} into the current branch would conflict in: {files}", conflictBanner: "{n} branch(es) would conflict when merged into {head}: {list}",
     wip: "Uncommitted changes ({n} files)", wipStaged: "{n} staged", activity: "Activity", activityTip: "{n} commits · {from} → {to}",
   },
   ptAO: {
@@ -27,6 +28,7 @@ export const GRAPH_SCREEN_MESSAGES = {
     searchPh: "Pesquisar: author: type: file: issue: branch: message:", matchCount: "{n} de {total}",
     modeHighlight: "Realçar", modeFilter: "Filtrar", modeHighlightTip: "Aparecem todos os commits; os outros ficam esbatidos. Clica para mostrar só os que batem.",
     modeFilterTip: "Só aparecem os que batem. Clica para mostrar todos os commits.",
+    conflictTip: "Juntar {b} ao ramo actual daria conflito em: {files}", conflictBanner: "{n} ramo(s) dariam conflito ao juntar a {head}: {list}",
     wip: "Alterações por commitar ({n} ficheiros)", wipStaged: "{n} no stage", activity: "Actividade", activityTip: "{n} commits · {from} → {to}",
   },
 } satisfies Messages<string>;

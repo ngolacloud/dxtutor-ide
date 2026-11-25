@@ -8,6 +8,7 @@ import type { GraphLayout } from "../domain/types";
 import { refLabelsAt, remoteGroups, trackOf, type RefLabel, type RefsSnapshot } from "../domain/refs";
 import { tokenFor, type SearchMode } from "../domain/search";
 import type { ActivityBar } from "../domain/activity";
+import type { ConflictPrediction } from "../application/extras-ports";
 import type { GraphScreenKey } from "./graph-screen-messages";
 
 export type T = (k: GraphScreenKey, p?: Record<string, string | number>) => string;
@@ -43,6 +44,8 @@ export interface GraphVm {
   activity: ActivityBar[];
   /** the time label of a bucket edge */
   when: (t: number) => string;
+  /** UI-SCM-13: branches whose merge into HEAD would conflict */
+  predictions: Record<string, ConflictPrediction>;
 }
 
 function sidebar(t: T, vm: GraphVm): string {
@@ -55,7 +58,8 @@ function sidebar(t: T, vm: GraphVm): string {
   const branches = r.branches.map((b) => {
     const tr = trackOf(b);
     const track = tr ? (tr.gone ? `<span class="gl-gone">${esc(t("gone"))}</span>` : `${tr.ahead ? `<span class="gl-ab" title="${esc(t("ahead", { n: tr.ahead }))}">↑${tr.ahead}</span>` : ""}${tr.behind ? `<span class="gl-ab" title="${esc(t("behind", { n: tr.behind }))}">↓${tr.behind}</span>` : ""}`) : "";
-    return go(b.sha, `<span class="gl-nm${b.current ? " cur" : ""}">${b.current ? "● " : ""}${esc(b.name)}</span>${track}`, b.upstream ?? "");
+    const pr = vm.predictions[b.name], warn = pr && !pr.clean && !pr.error ? `<span class="gl-conf" title="${esc(t("conflictTip", { b: b.name, files: pr.files.join(", ") }))}">⚠</span>` : "";
+    return go(b.sha, `<span class="gl-nm${b.current ? " cur" : ""}">${b.current ? "● " : ""}${esc(b.name)}</span>${track}${warn}`, b.upstream ?? "");
   }).join("");
   const remotes = remoteGroups(r).map((g) => `<div class="gl-grp">${esc(g.remote)}</div>${g.branches.map((b) => go(b.sha, `<span class="gl-nm">${esc(b.name)}</span>`)).join("")}`).join("");
   const tags = r.tags.map((x) => go(x.sha, `<span class="gl-nm">${esc(x.name)}</span>`)).join("");
@@ -121,5 +125,7 @@ export function renderGraphScreen(t: T, vm: GraphVm): string {
   const headRow = vm.layout.rows.find((r) => vm.refs ? r.h.slice(0, 7) === (vm.refs.headSha ?? "").slice(0, 7) : vm.fallbackLabels(r.h).some((l) => l.kind === "head"));
   const wipX = 14 + (headRow ? headRow.col : 0) * 18, wipCol = vm.lanes[(headRow ? headRow.col : 0) % vm.lanes.length];
   const wip = vm.wip ? `<div class="gl-row gl-wip" data-action="graph:wip" style="--gw:${gw}px"><svg class="gl-wipdot" width="${gw}" height="32"><circle cx="${wipX}" cy="16" r="5" fill="none" stroke="${wipCol}" stroke-width="2" stroke-dasharray="3 2"/>${headRow ? `<line x1="${wipX}" y1="21" x2="${wipX}" y2="32" stroke="${wipCol}" stroke-width="2" stroke-dasharray="3 2"/>` : ""}</svg><span class="gl-refs"></span><span class="gl-msg">${esc(t("wip", { n: vm.wip.files }))}${vm.wip.staged ? ` <span class="gl-dim">· ${esc(t("wipStaged", { n: vm.wip.staged }))}</span>` : ""}</span><span></span><span class="gl-h">WIP</span><span></span></div>` : "";
-  return `<div class="gl gl-screen">${sidebar(t, vm)}<div class="gl-main">${bar}${minimap(t, vm)}${wip}<div class="gl-body" style="--gw:${gw}px"><svg class="gl-svg" width="${gw}" height="${L.rows.length * H}">${paths}${dots}</svg>${rows}</div>${det}</div></div>`;
+  const clash = Object.values(vm.predictions).filter((p) => !p.clean && !p.error);
+  const banner = clash.length ? `<div class="gl-banner" title="${esc(clash.map((p) => `${p.branch}: ${p.files.join(", ")}`).join("\n"))}">⚠ ${esc(t("conflictBanner", { n: clash.length, head: vm.refs?.head ?? vm.branch, list: clash.map((p) => p.branch).slice(0, 3).join(", ") + (clash.length > 3 ? "…" : "") }))}</div>` : "";
+  return `<div class="gl gl-screen">${sidebar(t, vm)}<div class="gl-main">${bar}${banner}${minimap(t, vm)}${wip}<div class="gl-body" style="--gw:${gw}px"><svg class="gl-svg" width="${gw}" height="${L.rows.length * H}">${paths}${dots}</svg>${rows}</div>${det}</div></div>`;
 }

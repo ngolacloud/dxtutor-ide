@@ -210,10 +210,11 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       document.body.appendChild(host);
       renderGraphView(null, host);
       await graphScreen.load();
-      const rows = host.querySelectorAll(".gl-row").length, refs = graphScreen.state().refs;
+      const rows = host.querySelectorAll(".gl-row:not(.gl-wip)").length, refs = graphScreen.state().refs;
       const out = { rows, matchesCommits: rows === GIT.order.length, dots: host.querySelectorAll(".gl-svg circle").length, hasBranchBar: /gl-bar/.test(host.innerHTML),
         sidebar: host.querySelectorAll(".gl-side .gl-sec").length, head: refs?.head ?? null, headMatches: refs?.head === BRANCH, branches: refs?.branches.length ?? 0,
-        contributors: refs?.contributors.length ?? 0, refsError: graphScreen.state().error };
+        contributors: refs?.contributors.length ?? 0, refsError: graphScreen.state().error,
+        predicted: Object.keys(graphScreen.state().predictions).length, predictErrors: Object.values(graphScreen.state().predictions).filter((p) => p.error).map((p) => p.error) };
       host.remove();
       return out;
     });
