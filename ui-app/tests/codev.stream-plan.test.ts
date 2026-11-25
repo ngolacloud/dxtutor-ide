@@ -3,7 +3,7 @@
 // pede a alteração no editor. Domínio puro, e a vista do chat no harness real.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootApp } from "./harness";
-import { planFiles, placeInPlan, rangeLabel } from "../src/features/codev/domain/plan-order";
+import { linesInPlan, planFiles, placeInPlan, plannedLabel, plannedLines, rangeLabel, PLAN_LINE_SLACK } from "../src/features/codev/domain/plan-order";
 import { CODE_IN_EDITOR, proseOnly } from "../src/features/codev/domain/prose";
 import type { PlanStep } from "../src/features/codev/domain/run-state";
 
@@ -26,6 +26,23 @@ describe("domínio", () => {
     expect(placeInPlan(steps, [], "README.md")).toEqual({ kind: "outside" });
     expect(placeInPlan([], [], "src/lexer.rs")).toEqual({ kind: "none" });
     expect(placeInPlan([{ text: "x", files: [] }], [], "a")).toEqual({ kind: "none" });
+  });
+
+  it("RF-G08: o bloco contra as linhas do passo, com folga; sem linhas no plano não se sabe", () => {
+    // src/lexer.rs: 1–20 no passo 1 (o passo 2 nomeia-o sem linhas); src/token.rs sem linhas
+    expect(plannedLines(steps, "./src/lexer.rs")).toEqual([[1, 20]]);
+    expect(linesInPlan(steps, "src/lexer.rs", 10, 12)).toEqual({ kind: "in" });
+    expect(PLAN_LINE_SLACK).toBe(3);
+    expect(linesInPlan(steps, "src/lexer.rs", 23, 30)).toEqual({ kind: "in" }); // 3 linhas de folga
+    expect(linesInPlan(steps, "src/lexer.rs", 24, 30)).toEqual({ kind: "out", planned: [[1, 20]] });
+    expect(linesInPlan(steps, "src/lexer.rs", 24, 23)).toEqual({ kind: "out", planned: [[1, 20]] }); // uma inserção
+    expect(linesInPlan(steps, "src/token.rs", 500, 510)).toEqual({ kind: "unknown" });
+    expect(linesInPlan(steps, "README.md", 1, 1)).toEqual({ kind: "unknown" });
+    expect(linesInPlan([], "src/lexer.rs", 1, 1)).toEqual({ kind: "unknown" });
+    const two: PlanStep[] = [{ text: "a", files: [{ path: "x.rs", start: 90 }, { path: "x.rs", start: 40, end: 52 }] }, { text: "b", files: [{ path: "x.rs", start: 40, end: 52 }] }];
+    expect(plannedLines(two, "x.rs")).toEqual([[40, 52], [90, 90]]);
+    expect(plannedLabel(plannedLines(two, "x.rs"))).toBe("40–52, 90");
+    expect(linesInPlan(two, "x.rs", 70, 75)).toEqual({ kind: "out", planned: [[40, 52], [90, 90]] });
   });
 
   it("o intervalo: a–b, ou uma linha (inserção)", () => {
@@ -60,6 +77,22 @@ describe("a vista do chat", () => {
     expect(rows[1].querySelector(".cd-plan.warn")).toBeNull();
     (rows[0].querySelector(".cd-writing-path") as HTMLElement).click();
     expect(opened).toEqual(["x"]);
+  });
+
+  it("RF-G08: o aviso das linhas do plano na linha «Writing» e na barra de revisão do chat", async () => {
+    const { presenter } = await import("../src/features/codev/ui/chat-view");
+    const card = presenter.thinking("co-dev");
+    presenter.hunkWriting!(card, { path: "x.rs", start: 70, end: 75, place: { kind: "in-order", step: 1 }, lines: { kind: "out", planned: [[40, 52], [90, 90]] } }, () => undefined);
+    presenter.hunkWriting!(card, { path: "y.rs", start: 3, end: 4, place: { kind: "in-order", step: 1 }, lines: { kind: "in" } }, () => undefined);
+    const rows = [...document.querySelectorAll(".cd-writing")];
+    expect(rows[0].querySelector(".cd-lines.warn")?.textContent).toBe("outside the planned lines (40–52, 90)");
+    expect(rows[1].querySelector(".cd-lines")).toBeNull();
+    const ref = presenter.toolLine(card.tools, "edit", "x.rs");
+    presenter.hunkReview!(ref, { path: "x.rs", count: 3, reason: "", outside: { n: 2, planned: "40–52, 90" } }, { acceptAll: () => undefined, rejectAll: () => undefined, open: () => undefined });
+    expect(document.querySelector(".hk-gate .hk-plan.warn")?.textContent).toBe("2 block(s) outside the planned lines (40–52, 90)");
+    const ref2 = presenter.toolLine(card.tools, "edit", "y.rs");
+    presenter.hunkReview!(ref2, { path: "y.rs", count: 1, reason: "" }, { acceptAll: () => undefined, rejectAll: () => undefined, open: () => undefined });
+    expect(document.querySelectorAll(".hk-gate .hk-plan")).toHaveLength(1);
   });
 
   it("o bloco de código longo fica fora do chat, com um botão que pede a alteração no editor", async () => {

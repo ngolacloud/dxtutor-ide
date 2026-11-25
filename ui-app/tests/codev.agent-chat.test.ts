@@ -603,3 +603,34 @@ test("RF-S01/S08 (F3.2/F3.3): «Writing path a–b» uma vez por chamada, contra
   await t.chat.send("muda isto");
   expect(lines.at(-1)!.place).toEqual({ kind: "none" });
 });
+
+test("RF-G08: os blocos contra as linhas que o plano deu — aviso na linha «Writing» e na barra de revisão", async () => {
+  const t = setup();
+  const lines: Array<{ path: string; lines?: unknown }> = [];
+  const reviews: Array<{ path: string; count: number; outside?: { n: number; planned: string } }> = [];
+  t.deps.hunks = { event: () => undefined, decideAll: () => undefined, open: () => undefined, onSettled: () => undefined };
+  const pres = t.deps.presenter as unknown as Record<string, unknown>;
+  pres.hunkWriting = (_c: unknown, info: (typeof lines)[number]) => lines.push(info);
+  pres.hunkReview = (_r: unknown, info: (typeof reviews)[number]) => {
+    reviews.push(info);
+    return { settle: () => undefined };
+  };
+  const start = (call: string, path: string, s: number, e: number, n: number): AgentEvent =>
+    ({ kind: "hunk_start", hunk: `${call}:${n}`, call, path, op: "replace", range: { start: s, end: e }, base: null, old: "" }) as AgentEvent;
+  t.setScript(() => {
+    t.emit({ kind: "tool_start", id: "p", name: "exit_plan", input: { plan: "x", steps: [{ text: "parse", files: [{ path: "src/parser.rs", start: 40, end: 52 }, { path: "README.md" }] }] } });
+    t.emit(start("c1", "src/parser.rs", 41, 45, 1)); // in
+    t.emit(start("c1", "src/parser.rs", 120, 125, 2)); // out
+    t.emit(start("c1", "src/parser.rs", 300, 300, 3)); // out
+    t.emit({ kind: "hunk_review", call: "c1", hunks: ["c1:1", "c1:2", "c1:3"], reason: "" });
+    t.emit(start("c2", "src/parser.rs", 200, 210, 1)); // out, first of its call
+    t.emit({ kind: "hunk_review", call: "c2", hunks: ["c2:1"], reason: "" });
+    t.emit(start("c3", "README.md", 1, 2, 1)); // the plan gave no lines for it
+    t.emit({ kind: "hunk_review", call: "c3", hunks: ["c3:1"], reason: "" });
+    t.emit(done());
+  });
+  await t.chat.send("implementa");
+  expect(lines.map((l) => l.lines)).toEqual([{ kind: "in" }, { kind: "out", planned: [[40, 52]] }, { kind: "unknown" }]);
+  expect(reviews.map((r) => r.outside)).toEqual([{ n: 2, planned: "40–52" }, { n: 1, planned: "40–52" }, undefined]);
+});
+
