@@ -92,7 +92,7 @@ apresentar árvore e grafo sem ciclos. Não se cria uma crate por tipo/ficheiro.
 - **`platform/`**: `tauri/` (os clientes IPC tipados — 0 `invoke` cru fora daqui) e `desktop/` (o que só existe
   na app Tauri, instalado por `bridge.ts`; as features expõem portas em `app/desktop.ts`, que o desktop
   preenche — nada de reatribuir funções no `window`).
-- **O `window` (fecho da U7):** 130 globais publicadas (eram 286) e 7 shims de estado `ownedGlobal`. Ficam as
+- **O `window` (fecho da U7, medida corrigida na U7p):** 291 publicações contando as superfícies `publish({…})` das pontes e as escritas por fachada (a medida antiga, que só via `window.X =` e `Object.assign(window, {…})`, descera de 286 a 130) e 7 shims de estado `ownedGlobal`. Ficam as
   que módulos ou testes de outras sessões ainda lêem, as decoradas em tempo de execução e as chamadas por nome
   (os passos `boot…boot6`/`i18nBoot` do `startup.ts`); o inventário, com quem desbloqueia cada nome, está no
   ADR-0004 («U7 — fecho»). Regras: só os ficheiros da lista A9 do `arch-check` publicam no `window`, e as

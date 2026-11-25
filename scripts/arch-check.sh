@@ -274,29 +274,47 @@ echo "== A9 · só os ficheiros da lista publicam no window (fecho da U7) =="
 # (`Object.assign(window, …)` ou `window.X = …`, depois do strip de comentários). Código novo não publica: lê por
 # import, pelo store ou pelo registo `app/services.ts`. A lista só encolhe — quando um ficheiro deixa de publicar,
 # sai daqui (o A9 avisa).
-A9_ALLOW="  app/boot-steps.ts app/commands.ts app/globals.ts app/store/agent.ts app/store/config.ts
-  app/store/registry.ts app/store/storage.ts boot.ts features/board/infrastructure/legacy-bridge.ts
-  features/changelog.ts features/checkpoint.ts features/codereview/infrastructure/legacy-bridge.ts
-  features/codev/infrastructure/legacy-bridge.ts features/codev.ts
+A9_ALLOW="
+  app/boot-steps.ts app/commands.ts app/globals.ts app/store/agent.ts app/store/config.ts
+  app/store/registry.ts app/store/storage.ts boot.ts features/board.ts
+  features/board/infrastructure/legacy-bridge.ts features/changelog.ts features/checkpoint.ts
+  features/codereview.ts features/codereview/infrastructure/legacy-bridge.ts features/codev.ts
+  features/codev/infrastructure/legacy-bridge.ts features/debug.ts
   features/debug/infrastructure/legacy-bridge.ts features/diagnostics.ts features/diff.ts features/editor.ts
-  features/explorer.ts features/ext/infrastructure/legacy-bridge.ts features/i18n.ts
-  features/infra/infrastructure/legacy-bridge.ts features/infra.ts features/learn.ts features/menus.ts
-  features/palette.ts features/router.ts features/scm/infrastructure/legacy-bridge.ts features/shell.ts
+  features/explorer.ts features/ext.ts features/ext/infrastructure/legacy-bridge.ts features/graph.ts
+  features/i18n.ts features/infra.ts features/infra/infrastructure/legacy-bridge.ts features/learn.ts
+  features/menus.ts features/palette.ts features/panel/index.ts features/panel/infrastructure/legacy-bridge.ts
+  features/router.ts features/scm.ts features/scm/infrastructure/legacy-bridge.ts features/shell.ts
   features/stack.ts features/studio.ts features/syntax.ts features/tabs.ts features/tasks.ts features/team.ts
-  features/termgit.ts features/terminal.ts features/testing/infrastructure/legacy-bridge.ts
-  features/visualizer/infrastructure/legacy-bridge.ts features/visualizer.ts features/workspace.ts pair.ts
-  platform/desktop/context.ts
+  features/termgit.ts features/terminal.ts features/testing/index.ts
+  features/testing/infrastructure/legacy-bridge.ts features/visualizer.ts
+  features/visualizer/infrastructure/legacy-bridge.ts features/workspace.ts pair.ts
+  platform/desktop/context.ts platform/desktop/selftest.ts
 "
+# publica = `Object.assign(window, …)`, `window.X = …`, uma superfície `publish({ … })` (as pontes das features fazem
+# `Object.assign(window, surface)`) ou uma escrita por uma fachada do window (`const G = window as …; G.X = …`) —
+# as duas últimas desde a correcção da medida no início da U7p
+a9_publishes() {
+  local src facs x
+  src=$(strip_comments "$1" | tr -d '\000')
+  printf '%s\n' "$src" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]|\bpublish\(\{' && return 0
+  facs=$(printf '%s\n' "$src" | grep -oE '(const|let|var) +[A-Za-z_$][A-Za-z0-9_$]* *= *\(?(window|globalThis) +as\b' \
+    | sed -E 's/(const|let|var) +([A-Za-z_$][A-Za-z0-9_$]*).*/\2/' | sort -u)
+  for x in $facs; do
+    printf '%s\n' "$src" | grep -qE "(^|[^A-Za-z0-9_\$.])$x\.[A-Za-z_\$][A-Za-z0-9_\$]*[[:space:]]*=[^=>]" && return 0
+  done
+  return 1
+}
 a9bad=""; a9stale=""
 while IFS= read -r f; do
   rel=${f#ui-app/src/}
-  if strip_comments "$f" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]'; then
+  if a9_publishes "$f"; then
     printf '%s\n' $A9_ALLOW | grep -qxF "$rel" || a9bad="$a9bad       $rel"$'\n'
   fi
 done < <(find ui-app/src -name '*.ts' -not -name '*.d.ts' | sort)
 for rel in $A9_ALLOW; do
   f="ui-app/src/$rel"
-  if [ ! -f "$f" ] || ! strip_comments "$f" | grep -qE 'Object\.assign\(window|window\.[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*=[^=]'; then a9stale="$a9stale       $rel"$'\n'; fi
+  if [ ! -f "$f" ] || ! a9_publishes "$f"; then a9stale="$a9stale       $rel"$'\n'; fi
 done
 if [ -z "$a9bad" ] && [ -z "$a9stale" ]; then
   pass "só os $(printf '%s\n' $A9_ALLOW | grep -c .) ficheiros da lista publicam no window"

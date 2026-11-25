@@ -35,8 +35,9 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
 - **A6** — baseline de `@ts-nocheck` (**directiva** `// @ts-nocheck`, não a palavra
   em prosa): **0 ficheiros** desde a U4j5b do ADR-0004 (era 11). Nenhum ficheiro da UI
   pode voltar a ter a directiva: código novo nasce tipado.
-- **A9** — só os ficheiros da lista `A9_ALLOW` publicam no `window` (`Object.assign(window, …)` ou
-  `window.X = …`, fecho da U7 do ADR-0004). Código novo não publica: lê por import, pelo store de `app/store`
+- **A9** — só os ficheiros da lista `A9_ALLOW` publicam no `window` (`Object.assign(window, …)`, `window.X = …`,
+  uma superfície `publish({ … })` das pontes ou uma escrita por fachada `const G = window as …; G.X = …` — fecho da
+  U7 do ADR-0004, medida corrigida na U7p). Código novo não publica: lê por import, pelo store de `app/store`
   ou pelo registo `app/services.ts`. A lista só encolhe — um ficheiro que deixa de publicar sai dela (o A9
   falha até sair). As métricas «globais publicadas» e «shims de estado» do `ui-metrics.sh` também só descem.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).

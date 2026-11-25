@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o, globais 286 → 130; U7p em curso nas features paradas, 130 → 119; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1199,6 +1199,7 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
 
   | Razão | Nomes | Quem desbloqueia |
   |---|---|---|
+  | Superfícies `publish({…})` das pontes (a medida antiga não as via — ver «U7p — correcção da medida») | infra 40, scm 28, ext 22, visualizer 19, board 16, debug 11, codereview 7, testing 1 (144; 22 sem nenhum leitor) | a feature dona (o board e a ext são desta sessão) |
   | Publicados por pontes de outras features | `BPS` (debug); `STACK` `K8S` `DEVC` `P_DC` `RTN` `KCTX` `ENVL` `ENVS` `ENVX` `SHOWSEC` `DRIFT` `OBS` (infra); `drawStack` `termOwnsKey` (panel); `BRANCH` `COMMIT_MSG` (scm); `VZ` (visualizer) | a feature dona |
   | Shims de estado lidos por pontes de outras features | `PANE`, `LOCALE`, `cur`, `FS`, `ROOT`, `PROV` (debug, infra, testing, codereview, lsp, visualizer, hood, panel, scm, codebase, ops, comments, project); `ACTIVE` (a ponte do codereview escreve-o) | todas as pontes que os lêem (passam a ler os stores de `app/store`) |
   | Lidos só por uma feature de outra sessão | infra: `KIND` `SD` `TECH` `XC` `echo` `echoCmd` `getVar` `isApp` `newInput` `note` `rerender` `sl`; scm: `AGENTS` `AUTHOR` `blame` `clLog` `clShow` `fIcon` `gitCmd` `openDiff` `termRefreshPrompt`; codereview: `card` `diagnostics` `extOf` `liveChat` `selText` `updateAgentUI` `user`; visualizer: `EACT` `LTS` `MENUS` `buildMenubar` `esc` `hlLine`; lsp: `buildExplorer` `complete` `stPos` `writeFile`; panel: `PAIR` `agSend` `handlePrompt` `togglePanel`; project: `codevAgentAvailable` `codevAgentStory` `waiting`; hood: `hd` | essa feature (ou os seus testes) |
@@ -1240,3 +1241,15 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   reescritor que usa o type-checker (só os identificadores que resolvem para a declaração global — o `board.ts` tem
   um `echo` seu, importado da ponte). O `features/notifications.ts` deixa de publicar e sai da lista do A9 (o A9
   apanhou-o). Ordem de avaliação igual. Globais publicadas 130 → 119.
+  **U7p — correcção da medida (2026-11-25).** A contagem das «globais publicadas» do `ui-metrics.sh` só via
+  `window.X = …` e os nomes de `Object.assign(window, { … })` com o objecto escrito no sítio. Ficavam de fora duas
+  formas: (1) as superfícies `publish({ … })` das pontes de nove features, cuja implementação é
+  `Object.assign(window, surface)` com uma variável — 144 nomes (infra 40, scm 28, ext 22, visualizer 19, board 16,
+  debug 11, codereview 7, testing 1; o `publish` do painel escreve no `DXR`); e (2) as escritas por uma fachada do
+  window (`const G = window as …; G.X = …`) — 28. O scanner das fatias via as fachadas mas não as superfícies, por
+  isso o inventário do fecho também as omitia. A métrica passa a contar as quatro formas e a baseline sobe UMA vez,
+  de propósito, de 119 para 291 (o valor real); daqui para a frente só desce. O A9 passa a tratar as duas formas
+  como «publicar»: entram na lista os dez ficheiros que já publicavam assim (os resíduos board/codereview/debug/ext/
+  scm, o `graph.ts`, o índice e a ponte do painel, o índice do testing e o auto-teste desktop), 53 no total. O
+  número da U7a–U7o (286 → 130) fica como estava, mas é da medida antiga; a tabela do fecho ganha a linha das
+  superfícies.

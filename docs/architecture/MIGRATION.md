@@ -949,7 +949,7 @@ detalhe de cada fase está no
 | Ficheiros com `// @ts-nocheck` | 21 (E05/§3) | 0 (U4) |
 | `invoke` cru fora de `platform/` | 44 | 0 (U2: clientes tipados em `platform/tauri/`) |
 | Handlers inline `on*="…"` | 165 | 0 (U5; CSP `script-src` sem `'unsafe-inline'`) |
-| Globais publicadas no `window` | 286 no início da U7e (o `boot.ts` sozinho publicava 63 na §4) | 130 |
+| Globais publicadas no `window` | 286 no início da U7e (o `boot.ts` sozinho publicava 63 na §4) | 130 pela medida antiga; **291** pela medida corrigida no início da U7p, que conta também as superfícies `publish({…})` das pontes e as escritas por fachada (ADR-0004, «U7p — correcção da medida») |
 | Shims de estado `ownedGlobal` | 17 (U3) | 7 |
 | `v5.ts`/`v6.ts`/`app.ts` (substituições em tempo de execução) | 3 ficheiros | 0 (U4: as features são donas; o desktop entra por portas `app/desktop.ts`) |
 
