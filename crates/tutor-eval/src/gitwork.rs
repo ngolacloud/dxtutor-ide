@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::gitx::{self, git, Stash, StashOp, Worktree, WorktreeOp};
 
@@ -401,6 +401,264 @@ pub fn stage_hunks(
     hunks(root, path, unstage)
 }
 
+// ───── undo: snapshots before each operation (UI-SCM-12) ─────
+
+const UNDO_NS: &str = "refs/dxtutor/undo/";
+const UNDO_KEEP: usize = 50;
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefAt {
+    pub name: String,
+    pub sha: String,
+}
+
+/// What the repository looked like right before an operation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoEntry {
+    /// the snapshot's number (newest is highest)
+    #[serde(default)]
+    pub id: u32,
+    /// what was about to happen («commit: fix the lexer», «checkout develop»)
+    pub label: String,
+    /// unix ms
+    pub at: i64,
+    /// the branch HEAD was on (`None`: detached or no commit)
+    pub head: Option<String>,
+    pub head_sha: Option<String>,
+    pub refs: Vec<RefAt>,
+    /// the index as a tree (`None` when it had conflicts)
+    pub index: Option<String>,
+    /// `git stash create` of the working tree (`None` when it was clean)
+    pub worktree: Option<String>,
+}
+
+/// The exact git commands a restore runs (shown in the approval dialog, then run as they are).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoPlan {
+    pub entry: UndoEntry,
+    pub commands: Vec<Vec<String>>,
+    /// the commands for a POSIX shell
+    pub display: String,
+}
+
+fn out(root: &Path, args: &[&str]) -> Option<String> {
+    git(root, args)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn undo_refs(root: &Path) -> Result<Vec<(u32, String)>, String> {
+    let text = git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(refname)%00%(contents)%01",
+            UNDO_NS,
+        ],
+    )?;
+    let mut v: Vec<(u32, String)> = text
+        .split('\u{1}')
+        .filter_map(|rec| {
+            let (name, body) = rec.trim_start_matches('\n').split_once('\0')?;
+            Some((
+                name.strip_prefix(UNDO_NS)?.parse().ok()?,
+                body.trim().to_string(),
+            ))
+        })
+        .collect();
+    v.sort_by_key(|(n, _)| *n);
+    Ok(v)
+}
+
+/// Records the repository's state before `label` and returns it. Kept as a commit under
+/// `refs/dxtutor/undo/<n>` whose tree is the index and whose parents are HEAD and the working-tree
+/// stash, so `git gc` keeps everything a restore needs. The newest 50 are kept.
+pub fn undo_snapshot(root: &Path, label: &str) -> Result<UndoEntry, String> {
+    let label: String = label
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(200)
+        .collect();
+    let head_sha = out(root, &["rev-parse", "--verify", "--quiet", "HEAD"]);
+    let head =
+        out(root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).filter(|_| head_sha.is_some());
+    let refs = git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(refname)%00%(objectname)",
+            "refs/heads",
+            "refs/tags",
+        ],
+    )?
+    .lines()
+    .filter_map(|l| {
+        l.split_once('\0').map(|(n, s)| RefAt {
+            name: n.to_string(),
+            sha: s.to_string(),
+        })
+    })
+    .collect();
+    let index = out(root, &["write-tree"]);
+    let worktree = if head_sha.is_some() {
+        out(
+            root,
+            &["stash", "create", &format!("dxtutor undo: {label}")],
+        )
+    } else {
+        None
+    };
+    let existing = undo_refs(root)?;
+    let id = existing.last().map(|(n, _)| n + 1).unwrap_or(1);
+    let entry = UndoEntry {
+        id,
+        label,
+        at: now_ms(),
+        head,
+        head_sha: head_sha.clone(),
+        refs,
+        index: index.clone(),
+        worktree: worktree.clone(),
+    };
+    let json = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
+    let tree = match &index {
+        Some(t) => t.clone(),
+        None => out(root, &["hash-object", "-t", "tree", "-w", "--stdin"])
+            .unwrap_or_else(|| EMPTY_TREE.to_string()),
+    };
+    let mut args: Vec<String> = vec!["commit-tree".into(), tree, "-m".into(), json];
+    for p in [head_sha, worktree].into_iter().flatten() {
+        args.push("-p".into());
+        args.push(p);
+    }
+    let a: Vec<&str> = args.iter().map(String::as_str).collect();
+    let env = [
+        ("GIT_AUTHOR_NAME", "dxtutor"),
+        ("GIT_AUTHOR_EMAIL", "undo@dxtutor.invalid"),
+        ("GIT_COMMITTER_NAME", "dxtutor"),
+        ("GIT_COMMITTER_EMAIL", "undo@dxtutor.invalid"),
+    ];
+    let commit = gitx::run(root, &a, &env)?.trim().to_string();
+    git(root, &["update-ref", &format!("{UNDO_NS}{id}"), &commit])?;
+    if existing.len() + 1 > UNDO_KEEP {
+        for (n, _) in existing.iter().take(existing.len() + 1 - UNDO_KEEP) {
+            let _ = git(root, &["update-ref", "-d", &format!("{UNDO_NS}{n}")]);
+        }
+    }
+    Ok(entry)
+}
+
+/// The snapshots, newest first.
+pub fn undo_list(root: &Path) -> Result<Vec<UndoEntry>, String> {
+    let mut v: Vec<UndoEntry> = undo_refs(root)?
+        .into_iter()
+        .filter_map(|(id, body)| {
+            serde_json::from_str::<UndoEntry>(&body)
+                .ok()
+                .map(|e| UndoEntry { id, ..e })
+        })
+        .collect();
+    v.reverse();
+    Ok(v)
+}
+
+fn q(s: &str) -> String {
+    if !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_./:=@%+,-^{}".contains(c))
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
+/// What restoring snapshot `id` will run: put every recorded branch and tag back, HEAD back on its
+/// branch (or detached at its commit), the working tree back to the stash (or to HEAD when it was
+/// clean) and the index back to its tree. Branches created after the snapshot are left alone;
+/// untracked files are not touched.
+pub fn undo_plan(root: &Path, id: u32) -> Result<UndoPlan, String> {
+    let entry = undo_list(root)?
+        .into_iter()
+        .find(|e| e.id == id)
+        .ok_or_else(|| format!("no undo snapshot {id}"))?;
+    let sha = entry
+        .head_sha
+        .clone()
+        .ok_or("the snapshot was taken before the first commit: nothing to restore")?;
+    let mut cmds: Vec<Vec<String>> = Vec::new();
+    for r in &entry.refs {
+        cmds.push(vec!["update-ref".into(), r.name.clone(), r.sha.clone()]);
+    }
+    match &entry.head {
+        Some(b) => cmds.push(vec![
+            "symbolic-ref".into(),
+            "HEAD".into(),
+            format!("refs/heads/{b}"),
+        ]),
+        None => cmds.push(vec![
+            "update-ref".into(),
+            "--no-deref".into(),
+            "HEAD".into(),
+            sha.clone(),
+        ]),
+    }
+    let wt = entry
+        .worktree
+        .clone()
+        .map(|w| format!("{w}^{{tree}}"))
+        .unwrap_or_else(|| sha.clone());
+    cmds.push(vec!["read-tree".into(), "--reset".into(), "-u".into(), wt]);
+    if let Some(ix) = &entry.index {
+        cmds.push(vec!["read-tree".into(), ix.clone()]);
+    }
+    let display = cmds
+        .iter()
+        .map(|c| {
+            format!(
+                "git {}",
+                c.iter().map(|a| q(a)).collect::<Vec<_>>().join(" ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(UndoPlan {
+        entry,
+        commands: cmds,
+        display,
+    })
+}
+
+/// Restores snapshot `id`, after taking a snapshot of the present (so the undo can be undone).
+/// Returns that new snapshot. Runs exactly [`undo_plan`]'s commands.
+pub fn undo_restore(root: &Path, id: u32) -> Result<UndoEntry, String> {
+    let plan = undo_plan(root, id)?;
+    let before = undo_snapshot(root, &format!("before undo of #{id}: {}", plan.entry.label))?;
+    for c in &plan.commands {
+        let a: Vec<&str> = c.iter().map(String::as_str).collect();
+        git(root, &a).map_err(|e| {
+            format!(
+                "git {}: {e} (the state before the undo is snapshot #{})",
+                c.join(" "),
+                before.id
+            )
+        })?;
+    }
+    Ok(before)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -596,6 +854,74 @@ mod tests {
             (1, 1, 1, 3, false)
         );
         assert!(parse_hunks("diff --git a/i b/i\nBinary files a/i and b/i differ\n").2);
+    }
+
+    #[test]
+    fn undo_brings_back_a_commit_a_checkout_and_the_working_tree() {
+        let d = repo();
+        commit(d.path(), "a.txt", "one\n", "feat: one");
+        std::fs::write(d.path().join("a.txt"), "edited, not committed\n").unwrap();
+        std::fs::write(d.path().join("b.txt"), "staged\n").unwrap();
+        g(d.path(), &["add", "b.txt"]);
+        let snap = undo_snapshot(d.path(), "commit: two").unwrap();
+        assert_eq!((snap.id, snap.head.as_deref()), (1, Some("main")));
+        assert!(snap.worktree.is_some() && snap.index.is_some());
+        g(d.path(), &["commit", "-q", "-am", "feat: two"]);
+        g(d.path(), &["checkout", "-q", "-b", "other"]);
+        let list = undo_list(d.path()).unwrap();
+        assert_eq!(list[0].label, "commit: two");
+        let plan = undo_plan(d.path(), 1).unwrap();
+        assert!(
+            plan.display
+                .contains("git symbolic-ref HEAD refs/heads/main"),
+            "{}",
+            plan.display
+        );
+        assert!(
+            plan.display.contains("git read-tree --reset -u"),
+            "{}",
+            plan.display
+        );
+        let before = undo_restore(d.path(), 1).unwrap();
+        assert_eq!(before.id, 2);
+        assert_eq!(
+            out(d.path(), &["symbolic-ref", "--short", "HEAD"]).as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            out(d.path(), &["log", "-1", "--format=%s"]).as_deref(),
+            Some("feat: one")
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("a.txt")).unwrap(),
+            "edited, not committed\n"
+        );
+        assert_eq!(
+            out(d.path(), &["diff", "--cached", "--name-only"]).as_deref(),
+            Some("b.txt")
+        );
+        // the undo itself is undoable: back to «other» with «feat: two»
+        undo_restore(d.path(), before.id).unwrap();
+        assert_eq!(
+            out(d.path(), &["symbolic-ref", "--short", "HEAD"]).as_deref(),
+            Some("other")
+        );
+        assert_eq!(
+            out(d.path(), &["log", "-1", "--format=%s"]).as_deref(),
+            Some("feat: two")
+        );
+        assert!(undo_plan(d.path(), 99).is_err());
+    }
+
+    #[test]
+    fn undo_keeps_the_newest_fifty() {
+        let d = repo();
+        commit(d.path(), "a.txt", "a\n", "feat: a");
+        for i in 0..52 {
+            undo_snapshot(d.path(), &format!("op {i}")).unwrap();
+        }
+        let l = undo_list(d.path()).unwrap();
+        assert_eq!((l.len(), l[0].id, l.last().unwrap().id), (50, 52, 3));
     }
 
     #[test]

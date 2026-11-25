@@ -30,7 +30,7 @@ import { renderAccountPane } from "../../features/account";
 import { renderGraphView, graphScreen } from "../../features/scm/graph-screen";
 import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
 import { stage } from "../../features/scm";
-import { hunks } from "../../features/scm/extras";
+import { hunks, undo } from "../../features/scm/extras";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
 import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
@@ -181,6 +181,28 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const still = (await git("diff", "--name-only")).stdout.includes(rel);
       await hunks.toggle(rel);
       return { before, staged, left, committedOnlyThatHunk: head.includes("line two\n") && head.includes("line 28\n"), otherHunkStillUncommitted: still };
+    });
+    // r23 F3 (UI-SCM-12): o undo contra o git real — um commit pelo IDE tira a fotografia antes; desfazê-lo passa pelo
+    // diálogo de aprovação (com os comandos exactos), repõe o HEAD e fica no registo de auditoria.
+    await step("undo", async () => {
+      const key = ROOT + "notes/undo.txt";
+      const headBefore = (await git("rev-parse", "HEAD")).stdout.trim();
+      writeFile(key, "undo me\n"); flushSave(); await idle();
+      commit("test: to be undone"); await idle(); await idle();
+      await undo.refresh();
+      const snap = undo.entries()[0];
+      const headAfterCommit = (await git("rev-parse", "HEAD")).stdout.trim();
+      const p = undo.undo(snap?.id ?? -1);
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 50)); return f(); };
+      const dialog = await wait(() => !!document.querySelector("#approval .appr-cmd"), 5000);
+      const shown = document.querySelector("#approval .appr-cmd")?.textContent ?? "";
+      (document.querySelector("#approval #appr-ok") as HTMLElement | null)?.click();
+      const ok = await p; await idle();
+      const headNow = (await git("rev-parse", "HEAD")).stdout.trim();
+      const rows = await projectClient().audit(R.root as string, null) as Array<{ origin: string; tool: string | null; call: string | null; outcome: string | null }>;
+      const audited = rows.filter((r) => r.origin === "ide" && r.tool === "scm" && r.call === "git.undo").map((r) => r.outcome);
+      delete FS[key]; flushSave(); await idle();
+      return { snapLabel: snap?.label ?? null, committed: headAfterCommit !== headBefore, dialog, showsCommands: /git (symbolic-ref|update-ref|read-tree)/.test(shown), ok, headRestored: headNow === headBefore, audited };
     });
     // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
     await step("graph", async () => {

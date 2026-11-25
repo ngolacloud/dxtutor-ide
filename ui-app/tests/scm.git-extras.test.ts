@@ -194,7 +194,7 @@ describe("ligação", () => {
     expect(pane.querySelector('[data-action="gx-wt-remove"][data-on="/proj"]')).toBeNull(); // a pasta aberta não se remove
     expect(pane.querySelector('[data-action="gx-rebase"]')).not.toBeNull();
     // RF-E08: and the Co-Dev change sets of the working tree (none here: no section)
-    await vi.waitFor(() => expect(ipc.map(([c]) => c).sort()).toEqual(["git_changes", "git_stash", "git_worktree", "project_change_sets"]));
+    await vi.waitFor(() => expect(ipc.map(([c]) => c).sort()).toEqual(["git_changes", "git_stash", "git_undo_list", "git_worktree", "project_change_sets"]));
     expect(pane.textContent).not.toContain("Co-Dev change sets");
   });
 

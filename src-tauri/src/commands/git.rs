@@ -190,6 +190,37 @@ pub async fn git_stage_hunks(
     blocking(move || tutor_eval::gitwork::stage_hunks(Path::new(&root), &path, &ids, unstage)).await
 }
 
+/// Records the repository's state before an operation (r23 F3, UI-SCM-12): HEAD, branches and
+/// tags, the index tree and a stash of the working tree, under `refs/dxtutor/undo/<n>`.
+#[tauri::command]
+pub async fn git_undo_snapshot(
+    root: String,
+    label: String,
+) -> Result<tutor_eval::gitwork::UndoEntry, String> {
+    blocking(move || tutor_eval::gitwork::undo_snapshot(Path::new(&root), &label)).await
+}
+
+/// The undo snapshots, newest first.
+#[tauri::command]
+pub async fn git_undo_list(root: String) -> Result<Vec<tutor_eval::gitwork::UndoEntry>, String> {
+    blocking(move || tutor_eval::gitwork::undo_list(Path::new(&root))).await
+}
+
+/// The exact git commands restoring snapshot `id` runs (for the approval dialog).
+#[tauri::command]
+pub async fn git_undo_plan(root: String, id: u32) -> Result<tutor_eval::gitwork::UndoPlan, String> {
+    blocking(move || tutor_eval::gitwork::undo_plan(Path::new(&root), id)).await
+}
+
+/// Restores snapshot `id` after snapshotting the present; returns that new snapshot.
+#[tauri::command]
+pub async fn git_undo_restore(
+    root: String,
+    id: u32,
+) -> Result<tutor_eval::gitwork::UndoEntry, String> {
+    blocking(move || tutor_eval::gitwork::undo_restore(Path::new(&root), id)).await
+}
+
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {

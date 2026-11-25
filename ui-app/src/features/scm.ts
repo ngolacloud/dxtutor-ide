@@ -49,7 +49,7 @@ import { bindActions, type ActionTable } from "./scm/ui/actions";
 import { translator } from "../app/i18n";
 import { SCM_MESSAGES } from "./scm/ui/messages";
 import { GIT_MESSAGES } from "./scm/ui/git-messages";
-import { GIT_ACTIONS, sideSections, hunkButton, hunkBox } from "./scm/extras";
+import { GIT_ACTIONS, sideSections, hunkButton, hunkBox, discardWithUndo } from "./scm/extras";
 
 /* os textos do motor do git na língua da interface (i18n dos motores) */
 const tse = translator(SCM_ENGINE_MESSAGES);
@@ -202,7 +202,7 @@ const ACTIONS: ActionTable = {
   commit: { on: "click", run: () => commitPublished() },
   "open-diff": { on: "click", run: (e) => openDiff(e.on) },
   "open-path": { on: "click", run: (e) => openPath(e.on) },
-  discard: { on: "click", run: (e) => discard(e.on) },
+  discard: { on: "click", run: (e) => discardWithUndo(e.on, discard) },
   stage: { on: "click", run: (e) => stage(e.on) },
   checkout: { on: "click", run: (e) => checkoutPublished(e.on) },
   "gf-prompt": { on: "click", run: (e) => gfPrompt(e.on as FlowKind) },

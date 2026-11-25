@@ -15,11 +15,14 @@ import { makeGitExtras } from "./application/git-extras";
 import { tauriGitExtras } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
 import { GIT_MESSAGES, type GitKey } from "./ui/git-messages";
-import { blameText, renderCompare, renderHistory, renderRebase, renderReview, renderSide, renderText } from "./ui/git-views";
+import { blameText, renderCompare, renderHistory, renderRebase, renderReview, renderSide, renderText, renderUndo } from "./ui/git-views";
 import type { ActionTable } from "./ui/actions";
 import type { RebaseAction } from "./domain/git-extras";
 import { makeHunks } from "./application/hunks";
-import { tauriHunks } from "./infrastructure/tauri";
+import { tauriHunks, tauriUndo, tauriScmAudit } from "./infrastructure/tauri";
+import { makeUndo } from "./application/undo";
+import { requestApproval } from "../../app/approval";
+import type { GitExtrasPort } from "./application/extras-ports";
 import { HUNK_MESSAGES } from "./ui/hunk-messages";
 import { renderHunks } from "./ui/hunks-view";
 
@@ -29,8 +32,22 @@ const say = (k: string, p?: Record<string, string | number>): string => t(k as G
 /** A path of the editor (the FS key = ROOT + relative path) as a project path, or null. */
 const relOf = (p: string): string | null => { const r = B.rootKey(); return r && p.startsWith(r) ? p.slice(r.length) : null; };
 
+/* r23 F3 (UI-SCM-12): undo for git — a snapshot before each operation, an approved and audited restore */
+export const undo = makeUndo({
+  git: tauriUndo(), root: () => B.gitRoot(), changed: () => B.reloadFromGit(),
+  human: { approve: (r) => requestApproval(r), toast: (m) => B.toast(m) },
+  audit: tauriScmAudit(), say,
+});
+undo.subscribe(() => { if (active()) B.panes().scm?.(); });
+/** The A4 commands that change the repository take a snapshot first (stash push/apply/drop, amend). */
+const withUndo = (g: GitExtrasPort): GitExtrasPort => ({
+  ...g,
+  stash: async (root, op) => { if (op.op !== "list" && op.op !== "show") await undo.snapshot(`stash ${op.op}`); return g.stash(root, op); },
+  amend: async (root, message, allowPublished) => { await undo.snapshot("amend"); return g.amend(root, message, allowPublished); },
+});
+
 export const gitExtras = makeGitExtras({
-  git: tauriGitExtras(),
+  git: withUndo(tauriGitExtras()),
   ws: {
     root: () => B.gitRoot(),
     project: () => B.projectName(),
@@ -42,7 +59,7 @@ export const gitExtras = makeGitExtras({
     commitMessage: () => B.commitMsg(),
     setCommitMessage: (m) => B.setCommitMsg(m),
     stage: (paths) => { const r = B.rootKey(), s = B.staged(); paths.forEach((p) => s.add(r + p)); B.panes().scm?.(); },
-    discard: (paths) => { const r = B.rootKey(), fs = B.files(); paths.forEach((p) => { if (fs[r + p]) B.decoratedDiscard(r + p); }); },
+    discard: (paths) => { const r = B.rootKey(), fs = B.files(); void undo.snapshot(`discard ${paths.join(", ")}`).then(() => paths.forEach((p) => { if (fs[r + p]) B.decoratedDiscard(r + p); })); },
     open: (p, l) => B.openRel(p, l),
   },
   human: {
@@ -134,9 +151,15 @@ let csSig: string | null = null;
 let sideAsked = false;
 export function sideSections(): string {
   if (!active()) { sideAsked = false; csSig = null; return ""; }
-  if (!sideAsked) { sideAsked = true; csSig = dirtySignature(); void gitExtras.refreshSide(); }
+  if (!sideAsked) { sideAsked = true; csSig = dirtySignature(); void gitExtras.refreshSide(); void undo.refresh(); }
   else { const sig = dirtySignature(); if (sig !== csSig) { csSig = sig; void gitExtras.refreshChangeSets(); } }
-  return renderSide(t, gitExtras.state(), codevAsk.available(), Date.now());
+  return renderSide(t, gitExtras.state(), codevAsk.available(), Date.now()) + renderUndo(t, undo.entries(), undo.busy(), Math.floor(Date.now() / 1000));
+}
+
+/** Discarding a file from the pane: snapshot first on the desktop (the browser discards at once). */
+export function discardWithUndo(fsKey: string, discard: (p: string) => void): void {
+  if (!active()) { discard(fsKey); return; }
+  void undo.snapshot(`discard ${relOf(fsKey) ?? fsKey}`).then(() => discard(fsKey));
 }
 
 /** The palette's git commands (app/commands.ts): outside the desktop with a repository they say why. */
@@ -146,6 +169,7 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
   ["Git: Line History (selection)", guard(() => { const c = B.editorCursor(); return c ? gitExtras.openHistory(c.path, [c.start, c.end]) : gitExtras.openHistory(); })],
   ["Git: Compare Branches…", guard(() => gitExtras.openCompare())],
   ["Git: Interactive Rebase…", guard(() => gitExtras.openRebase())],
+  ["Git: Undo Last Operation", guard(() => undo.undoLast())],
   ["Git: Stash Changes", guard(() => gitExtras.stashPush(false))],
   ["Git: Stash Including Untracked", guard(() => gitExtras.stashPush(true))],
   ["Git: New Worktree…", guard(() => gitExtras.worktreeAdd())],
@@ -158,6 +182,7 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
 
 const n = (s: string): number => Number(s) || 0;
 export const GIT_ACTIONS: ActionTable = {
+  "gx-undo": { on: "click", run: (e) => { void undo.undo(n(e.on)); } },
   "scm-hunks": { on: "click", run: (e) => { void hunks.toggle(e.on); } },
   "scm-hunk": { on: "change", run: (e) => { const [path, id, op] = e.on.split("|"); void (op === "unstage" ? hunks.unstage(path, id) : hunks.stage(path, id)); } },
   "gx-stash-push": { on: "click", run: () => { void gitExtras.stashPush(false); } },

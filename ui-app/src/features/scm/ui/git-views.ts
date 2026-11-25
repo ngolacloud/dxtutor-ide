@@ -168,3 +168,9 @@ export function renderReview(t: T, r: ReviewState | null, canAsk: boolean): stri
   }).join("");
   return `<div class="gx">${head}${groups}</div>`;
 }
+
+/** r23 F3 (UI-SCM-12): the undo snapshots in the pane — newest first, each with its «Undo». */
+export function renderUndo(t: T, entries: Array<{ id: number; label: string; at: number }>, busy: boolean, now: number): string {
+  const rows = entries.slice(0, 10).map((e) => `<div class="scm-row gx-row" title="#${e.id}"><span class="nm notr" style="max-width:none">${esc(e.label)}</span><span class="pth">${esc(ago(t, Math.floor(e.at / 1000), now))}</span><span class="ra" style="display:flex"><button title="${t("undoBtn")}" data-action="gx-undo" data-on="${e.id}"${busy ? " disabled" : ""}>↶</button></span></div>`).join("");
+  return `<div class="scm-grp">${t("undoSection")}<span class="cnt">${entries.length}</span></div>${rows || `<div class="sec-empty">${t("undoNone")}</div>`}`;
+}

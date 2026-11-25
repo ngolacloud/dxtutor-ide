@@ -17,6 +17,16 @@ export interface HunksPort {
   stageHunks(root: string, path: string, ids: string[], unstage: boolean): Promise<FileHunksData>;
 }
 
+/** The undo snapshots (r23 F3, UI-SCM-12): the shape of `git_undo_*`. */
+export interface UndoEntryData { id: number; label: string; at: number; head: string | null; headSha: string | null; refs: Array<{ name: string; sha: string }>; index: string | null; worktree: string | null }
+export interface UndoPlanData { entry: UndoEntryData; commands: string[][]; display: string }
+export interface UndoPort {
+  snapshot(root: string, label: string): Promise<UndoEntryData>;
+  list(root: string): Promise<UndoEntryData[]>;
+  plan(root: string, id: number): Promise<UndoPlanData>;
+  restore(root: string, id: number): Promise<UndoEntryData>;
+}
+
 /** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
 export interface GitRefsPort {
   refs(root: string): Promise<RefsSnapshot>;

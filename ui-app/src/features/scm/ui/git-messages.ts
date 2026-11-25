@@ -4,6 +4,9 @@ import type { Messages } from "../../../app/i18n";
 
 export const GIT_MESSAGES = {
   en: {
+    undo: "Undo", undoSection: "Undo", undoNone: "Nothing to undo yet.", undoBtn: "Undo", undoTitle: "Undo «{label}»", undoScope: "snapshot #{id} · HEAD back to {head}",
+    undoDone: "Undone: {label} (the state before it is snapshot #{id})", undoFailed: "Undo failed: {e}", undoSnapFailed: "Could not snapshot before the operation: {e}",
+    notAudited: "Not run: the audit log could not record it ({e}).",
     justNow: "just now", minAgo: "{n} min ago", hAgo: "{n} h ago", dAgo: "{n} d ago", moAgo: "{n} mo ago", yAgo: "{n} y ago",
     notCommitted: "You · not committed yet", you: "You",
     show: "Show", apply: "Apply", pop: "Pop (apply and drop)", drop: "Drop",
@@ -51,6 +54,9 @@ export const GIT_MESSAGES = {
     csConfirmDiscard: "Discard the changes of {set}?\n\n{files}\n\nThese files go back to the last commit, with every change in them — yours too.",
   },
   ptAO: {
+    undo: "Desfazer", undoSection: "Desfazer", undoNone: "Ainda não há nada para desfazer.", undoBtn: "Desfazer", undoTitle: "Desfazer «{label}»", undoScope: "fotografia #{id} · HEAD de volta a {head}",
+    undoDone: "Desfeito: {label} (o estado de antes está na fotografia #{id})", undoFailed: "O desfazer falhou: {e}", undoSnapFailed: "Não consegui tirar a fotografia antes da operação: {e}",
+    notAudited: "Não correu: o registo de auditoria não o conseguiu guardar ({e}).",
     justNow: "agora mesmo", minAgo: "há {n} min", hAgo: "há {n} h", dAgo: "há {n} d", moAgo: "há {n} meses", yAgo: "há {n} anos",
     notCommitted: "Tu · ainda por commitar", you: "Tu",
     show: "Ver", apply: "Aplicar", pop: "Aplicar e apagar", drop: "Apagar",

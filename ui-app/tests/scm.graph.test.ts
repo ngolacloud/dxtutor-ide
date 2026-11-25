@@ -300,3 +300,67 @@ describe("staging por hunk (UI-SCM-10)", () => {
     } finally { delete w.FS[key]; delete w.DXR; delete w.__TAURI__; }
   });
 });
+
+import { makeUndo } from "../src/features/scm/application/undo";
+import type { UndoEntryData } from "../src/features/scm/application/extras-ports";
+
+describe("o undo do git (UI-SCM-12)", () => {
+  const E = (id: number, label: string): UndoEntryData => ({ id, label, at: 1_000 * id, head: "main", headSha: "abc1234", refs: [], index: "t", worktree: null });
+  function fake(o: { approve?: boolean; auditFails?: boolean; restoreFails?: boolean } = {}) {
+    const list: UndoEntryData[] = [E(1, "commit: one")], asked: Array<{ title: string; command: string; destructive?: boolean }> = [], toasts: string[] = [], audited: Array<{ outcome?: string; approved: boolean }> = [];
+    let restored = 0, changed = 0;
+    const u = makeUndo({
+      git: {
+        snapshot: async (_r, label) => { const e = E(list.length + 1, label); list.unshift(e); return e; },
+        list: async () => [...list],
+        plan: async (_r, id) => ({ entry: list.find((e) => e.id === id)!, commands: [["symbolic-ref", "HEAD", "refs/heads/main"]], display: "git symbolic-ref HEAD refs/heads/main" }),
+        restore: async () => { if (o.restoreFails) throw new Error("index.lock exists"); restored++; return E(99, "before undo"); },
+      },
+      root: () => "/w", changed: async () => { changed++; },
+      human: { approve: async (r) => { asked.push(r); return { approved: o.approve ?? true, reason: "", decidedAt: 5 }; }, toast: (m) => toasts.push(m) },
+      audit: { record: async (_r, e) => { if (o.auditFails) throw new Error("db"); audited.push(e); } },
+      say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
+    });
+    return { u, asked, toasts, audited, restored: () => restored, changed: () => changed };
+  }
+
+  it("a fotografia entra na lista; desfazer mostra os comandos exactos, audita antes e depois, e repõe", async () => {
+    const f = fake();
+    await f.u.snapshot("checkout develop");
+    await vi.waitFor(() => expect(f.u.entries().map((e) => e.label)).toEqual(["checkout develop", "commit: one"]));
+    expect(await f.u.undo(2)).toBe(true);
+    expect(f.asked[0]).toMatchObject({ title: 'undoTitle {"label":"checkout develop"}', command: "git symbolic-ref HEAD refs/heads/main", destructive: true });
+    expect(f.audited.map((a) => a.outcome)).toEqual(["sent", "ok"]);
+    expect([f.restored(), f.changed()]).toEqual([1, 1]);
+  });
+
+  it("recusado: auditado e nada reposto; sem auditoria não corre; uma falha do git fica auditada", async () => {
+    const no = fake({ approve: false });
+    expect(await no.u.undo(1)).toBe(false);
+    await vi.waitFor(() => expect(no.audited).toEqual([expect.objectContaining({ approved: false })]));
+    expect(no.restored()).toBe(0);
+    const blind = fake({ auditFails: true });
+    expect(await blind.u.undo(1)).toBe(false);
+    expect(blind.restored()).toBe(0);
+    expect(blind.toasts.at(-1)).toContain("notAudited");
+    const broken = fake({ restoreFails: true });
+    expect(await broken.u.undo(1)).toBe(false);
+    await vi.waitFor(() => expect(broken.audited.map((a) => a.outcome)).toEqual(["sent", "failed"]));
+    expect(broken.toasts.at(-1)).toContain("index.lock");
+  });
+
+  it("uma resposta que não é lista (backend antigo/guionado) dá lista vazia, sem rebentar o pane", async () => {
+    const u = makeUndo({ git: { snapshot: async () => E(1, "x"), list: async () => null as unknown as UndoEntryData[], plan: async () => { throw new Error(); }, restore: async () => E(1, "x") }, root: () => "/w", changed: async () => {}, human: { approve: async () => ({ approved: false, reason: "", decidedAt: 1 }), toast: () => {} }, audit: { record: async () => {} }, say: (k) => k });
+    await u.refresh();
+    expect(u.entries()).toEqual([]);
+  });
+
+  it("«Undo last» usa a mais recente; sem nenhuma, di-lo", async () => {
+    const f = fake();
+    await f.u.undoLast();
+    expect(f.asked[0].title).toContain("commit: one");
+    const empty = makeUndo({ git: { snapshot: async () => E(1, "x"), list: async () => [], plan: async () => { throw new Error(); }, restore: async () => E(1, "x") }, root: () => "/w", changed: async () => {}, human: { approve: async () => ({ approved: true, reason: "", decidedAt: 1 }), toast: (m) => f.toasts.push(m) }, audit: { record: async () => {} }, say: (k) => k });
+    expect(await empty.undoLast()).toBe(false);
+    expect(f.toasts.at(-1)).toBe("undoNone");
+  });
+});

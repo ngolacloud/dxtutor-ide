@@ -13,6 +13,7 @@ import { assistTrailers } from "../../features/scm/domain/trailers";
 import type { DesktopContext } from "./context";
 import { rerender } from "../../features/tabs";
 import { gitMerge, isFlow, commitMsg } from "../../features/scm";
+import { undo } from "../../features/scm/extras";
 
 export function installGit(ctx: DesktopContext): void {
 const { R, gitc, git, gitOk, enqueue, isReal, relOf, say } = ctx;
@@ -76,6 +77,7 @@ R.gitInit = () => enqueue(async () => { flushSave(); await gitOk("init", "-b", "
 function realMerge(src: string, author?: string): CommitNode {
   const dst = BRANCH, m = `Merge ${src} into ${dst}`;
   enqueue(async () => {
+    await undo.snapshot(`merge ${src} into ${dst}`);
     const r = await git("merge", "--no-ff", "-m", m, src);
     if (r.code !== 0) { await git("merge", "--abort"); throw new Error(`merge of ${src} into ${dst} has conflicts — aborted. Run "git merge ${src}" in the terminal to resolve them by hand.`); }
     await reloadDisk();
@@ -102,6 +104,7 @@ commit(msg, author, _commit) {
   enqueue(async () => {
     /* r23 F3 (UI-SCM-10): what is already in the index (hunks staged in the pane, or by hand) is committed as it
        is — the files staged whole join it, and without any, nothing else is added (like VS Code) */
+    await undo.snapshot(`commit: ${m}`);
     const inIndex = new Set((await git("diff", "--cached", "--name-only")).stdout.split("\n").map(x => x.trim()).filter(Boolean));
     const add = rels.filter(p => !inIndex.has((R.prefix || "") + p));
     if (add.length && (fileStaged || !inIndex.size)) await gitOk("add", "-A", "--", ...add);
@@ -126,7 +129,7 @@ checkout(b, create, _checkout) {
   BRANCH = b;
   try { $("#st-branch-l")!.textContent = b; } catch { /* sem status bar */ }
   STAGED.clear();
-  enqueue(async () => { await gitOk(...(create ? ["checkout", "-b", b] : ["checkout", b])); await reloadDisk(); await syncGit(); })
+  enqueue(async () => { await undo.snapshot(`checkout ${create ? "-b " : ""}${b}`); await gitOk(...(create ? ["checkout", "-b", b] : ["checkout", b])); await reloadDisk(); await syncGit(); })
     .then(() => { if (R.git) void git("rev-parse", "--abbrev-ref", "HEAD").then(h => { if (h.stdout.trim() !== BRANCH) void syncGit(); }); });
   return true;
 },
@@ -155,7 +158,7 @@ gfFinish(b, author, _gfFinish) {
   let res: CommitNode | null = null;
   if (rel) { checkout(main); res = gitMerge(bn, author) as CommitNode | null; enqueue(() => gitOk("tag", "-a", tag, "-m", `Release ${tag}`)); checkout("develop"); gitMerge(bn, author); }
   else { checkout("develop"); res = gitMerge(bn, author) as CommitNode | null; }
-  enqueue(async () => { await gitOk("branch", "-d", bn); await syncGit(); say(`gitflow: finished ${bn}`); });
+  enqueue(async () => { await undo.snapshot(`delete branch ${bn}`); await gitOk("branch", "-d", bn); await syncGit(); say(`gitflow: finished ${bn}`); });
   return res;
 },
 };
