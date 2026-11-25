@@ -12,6 +12,10 @@
 import { codevAsk } from "../../../app/codev-ask";
 import { esc, svg, toast } from "../../../core";
 import type { Problem } from "../domain/types";
+import { services } from "../../../app/services";
+import { setProblemsOverride } from "../../diagnostics";
+import { setDrawStackOverride, stackState, dxRun, dxStop } from "../../stack";
+import { agSend } from "../../codev";
 
 export { esc, svg, toast };
 
@@ -90,10 +94,10 @@ export function askCodev(text: string): void {
     /* sem Co-Dev */
   }
   const ta = document.getElementById("ag-input") as HTMLTextAreaElement | null;
-  if (ta && typeof G.agSend === "function") {
+  if (ta) {
     ta.value = text;
     ta.dispatchEvent(new Event("input", { bubbles: true }));
-    G.agSend();
+    agSend();
   } else if (typeof G.handlePrompt === "function") G.handlePrompt(text);
   else toast("Co-Dev is not available");
 }
@@ -105,14 +109,14 @@ export interface StackRow {
   url: string;
   state: string;
 }
-export const stack = (): StackRow[] | null => (G.STACK as StackRow[] | null) ?? null;
+export const stack = (): StackRow[] | null => (stackState() as StackRow[] | null) ?? null;
 export const composeFile = (): string | null =>
   ["docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"].find((f) => hasFile(f)) ?? null;
 export const readStack = async (): Promise<void> => {
   await dxr()?.readStack?.();
 };
-export const composeUp = (): void => void G.dxRun();
-export const composeDown = (): void => void G.dxStop();
+export const composeUp = (): void => void dxRun();
+export const composeDown = (): void => void dxStop();
 
 /** Regista uma falha do painel onde o selftest do bridge a vê (DXR.errors). */
 export const reportError = (where: string, e: unknown): void => {
@@ -140,18 +144,14 @@ export interface Published {
 export function publish(p: Published): void {
   const R = dxr();
   if (R) R.term = p.term;
-  G.termOwnsKey = p.ownsKey;
-  const baseDiagnostics = G.diagnostics as () => unknown[];
-  const baseDraw = G.drawProblems as () => void;
-  G.diagnostics = function () {
-    if (!root()) return baseDiagnostics();
-    return p.problems().map((x) => ({ p: fsKey(x.file), line: x.line, sev: x.severity === "error" ? "e" : "w", msg: x.message }));
-  };
-  G.drawProblems = function () {
-    if (!root()) return baseDraw();
-    p.drawProblems();
-  };
-  G.drawStack = function () {
+  /* desde a U7p6 do ADR-0004 nada disto vai ao window: o atalho do terminal pelo registo, os problemas e o desenho dos
+     serviços pelos ganchos dos donos (features/diagnostics.ts e features/stack.ts) */
+  services.panel = { termOwnsKey: p.ownsKey };
+  setProblemsOverride({
+    diagnostics: (base) => (root() ? p.problems().map((x) => ({ p: fsKey(x.file), line: x.line, sev: x.severity === "error" ? "e" : "w", msg: x.message })) : base()),
+    drawProblems: (base) => { if (!root()) base(); else p.drawProblems(); },
+  });
+  setDrawStackOverride(function () {
     const rows = stack();
     const st = document.getElementById("st-stack");
     if (st) {
@@ -159,5 +159,5 @@ export function publish(p: Published): void {
       st.style.display = rows ? "" : "none";
     }
     p.drawServices();
-  };
+  });
 }

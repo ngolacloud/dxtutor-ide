@@ -74,8 +74,6 @@ declare global {
   const stOf: (p: string) => unknown;
   const use: (p: string, tok: number) => void;
   const goPane: (p: string) => void;
-  // Lexicais que o bridge re-atribui (let em app.js).
-  let STACK: { name: string; src: string; url: string; state: string }[] | null;
   let SAMPLE: ((input: string | SampleMsg[], o?: SampleOpts) => Promise<any>) | null;
   let LIVE_OK: boolean;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.
@@ -86,9 +84,6 @@ declare global {
   var gfStart: (kind: string, name: string) => string;
   var gfFinish: (b?: string, author?: string) => CommitNode | null;
   var updateAgentUI: (...a: any[]) => void;
-  var dxRun: (term?: unknown) => { ok: boolean; sum?: string };
-  var dxStop: (term?: unknown) => void;
-  var drawStack: (...a: any[]) => void;
   var JSZip: unknown;
   // Donas de features/checkpoint.ts, lidas por nome livre pelo selftest (passo `checkpoint`).
   var checkpoint: (label: string) => number;

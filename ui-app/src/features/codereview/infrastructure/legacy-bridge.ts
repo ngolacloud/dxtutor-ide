@@ -1,3 +1,5 @@
+import { services } from "../../../app/services";
+import { composeServices as composeServicesImpl } from "../../stack";
 /* ═════════ dxtutor IDE — feature `codereview`: legacy bridge (ADR-0002, Fase 1) ═════════
    O ÚNICO ficheiro da feature `codereview` (Explain · Code review · Under the hood)
    autorizado a ler ou escrever `window.*`. `features/codereview.ts` importa tudo o que
@@ -51,7 +53,7 @@ export const setActiveProvider = (v: string): void => { G.ACTIVE = v; };
 export const sample = (): unknown => G.SAMPLE ?? null;
 
 /* ───── diagnósticos (os reais do painel Problems no desktop; tipados em `core.ts`) ───── */
-export const diagnostics = (): { p: string; line: number; sev: string; msg: string }[] => window.diagnostics();
+export const diagnostics = (): { p: string; line: number; sev: string; msg: string }[] => services.diagnostics!.diagnostics();
 
 /* ───── símbolos do ficheiro / selecção do editor (tipados em `core.ts`) ───── */
 export const symbols = (p: string): Array<{ k: string; n: string; line: number }> => window.symbols(p);
@@ -59,7 +61,7 @@ export const selText = (): string => window.selText();
 
 /* ───── serviços de um docker-compose (dono = `features/stack.ts`; tipado em `core.ts`) ───── */
 export interface Svc { name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }
-export const composeServices = (): Svc[] | null => window.composeServices();
+export const composeServices = (): Svc[] | null => composeServicesImpl() as Svc[] | null;
 
 /* ───── a pasta aberta (desktop) e o prefixo das chaves do FS (ADR-0006, R2e2) ───── */
 /** A pasta aberta no desktop (null sem pasta e no browser). */

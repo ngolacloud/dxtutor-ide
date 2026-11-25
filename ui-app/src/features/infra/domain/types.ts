@@ -211,7 +211,7 @@ export interface Commit {
 
 /** Um dev container anexado (`devc()` da ponte da infra). */
 export interface Devc { name: string; image: string }
-/** Um serviço do stack a correr (`window.STACK[i]`, produzido por stack.ts/bridge.ts). */
+/** Um serviço do stack a correr (`stackState()` do features/stack.ts, escrito pelo desktop). */
 export interface StackItem { name: string; src: string; url: string; state: string }
 /** Um serviço do compose (só o campo que a Infra lê para as portas do devcontainer). */
 export interface ComposeSvc { port?: number | string }

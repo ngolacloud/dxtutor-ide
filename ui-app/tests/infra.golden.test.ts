@@ -86,15 +86,15 @@ describe("golden de DOM — pane Infra (renderInfraPane)", () => {
     expect(paneGolden()).toMatchSnapshot("pane-disconnected");
   });
 
-  it("ligado: runtime + dev container + stack a correr + cluster deployado", () => {
+  it("ligado: runtime + dev container + stack a correr + cluster deployado", async () => {
     w.ENVS.rtOn = true;
     w.ENVS.k8sOn = true;
     w.ENVS.ssh = ["dev@edge-01"];
     INF.setDevc({ name: "dxtutor-dev", image: "devcontainers/base:bookworm" });
-    w.STACK = [
+    (await import("../src/features/stack")).setStackState([
       { name: "orders-api", src: "build ./orders-api", url: "http://localhost:8080", state: "healthy" },
       { name: "orders-db", src: "postgres:16", url: "internal", state: "running" },
-    ];
+    ]);
     deployLocal();
     INF.renderInfraPane();
     expect(paneGolden()).toMatchSnapshot("pane-connected-deployed");

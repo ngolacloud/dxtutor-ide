@@ -139,7 +139,6 @@ declare global {
   const ask: (host: HTMLElement, btns: Array<{ l: string; v: any; pri?: any; done?: string }>) => Promise<any>;
   var commitGit: (msg?: string, author?: string) => { h: string; n: number } | null; // var: o bridge.ts liga-o ao git real (ADR-0006, R1d)
   const setMode: (m: string) => void;
-  const diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
   // Globais do i18n (i18n.ts): LOCALE window-backed (var → também em window.LOCALE);
   // __seen/__miss são instrumentação opcional de tradução (podem não existir).
   var LOCALE: string;
@@ -158,7 +157,6 @@ declare global {
   const focusAgent: (x?: boolean) => void;
   const RP: Record<string, () => void>;
   var PANE: string;
-  const has: (p: string, re: RegExp) => boolean;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.
   var refresh: (fromEd?: boolean, force?: boolean) => unknown;
   var promptHTML: () => string;

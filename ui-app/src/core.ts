@@ -45,10 +45,6 @@ declare global {
     /* superfície que a feature `theme` ainda resolve via window (shim transitório) */
     save: () => void;
     tabOf: (id: string | null) => { kind?: string } | null;
-    /* feature `remote`: o residual delega o render do pane por nome (RP.remote → window.renderRemotePane) */
-    /* feature `run`: o residual delega o render do pane por nome (RP.run → window.renderRunPane) */
-    /* feature `testing` (features/testing/): delegação do pane (RP.test → window.renderTestPane) */
-    renderTestPane: () => void;
     /* feature `account`: mapa vivo de provedores + estado por provedor (dono = monólito) + delegação do pane */
     PROV: Record<string, Prov>;
     /* feature `search`: sistema de ficheiros virtual + ícone/refresh (dono = monólito),
@@ -76,11 +72,6 @@ declare global {
     /* feature `diff`: corpo do renderer da tab `diff` (VIEW.diff → window.renderDiffView). */
     /* feature `router`: amostragem ao vivo disponível (router inicializa; bridge põe a true). */
     LIVE_OK: boolean;
-    /* feature `diagnostics`: `has` (o ficheiro casa a regex? — lido pelo board) e o desenho dos
-       problemas (drawProblems/nextProblem em refresh/boot); no browser não há verificador. */
-    has: (p: string, re: RegExp) => boolean;
-    diagnostics: () => { p: string; line: number; sev: string; msg: string }[];
-    drawProblems: () => void;
     /* feature `changelog` (harvest da ui-next): vista «O que mudou e porquê» = timeline
        git. A fonte de dados é window-resolved para a bridge poder trocar o simulado
        (GIT.c/COMMITS, dono = scm.ts) pelo real (git_log/git_show) em desktop. O residual
@@ -107,7 +98,6 @@ declare global {
     symbols: (p: string) => Array<{ k: string; n: string; line: number }>;
     selText: () => string;
     updateAgentUI: () => void;
-    composeServices: () => Array<{ name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }> | null;
     /* feature `ext` (motor migrado de v6.ts, @ts-nocheck): pane «Extensions» (Open VSX).
        A feature é agora dona de todo o motor (catálogo EXT, estado instalado EXS,
        instalar/remover/alternar, comandos, VSIX, formatador) e publica-o no window;
@@ -125,7 +115,6 @@ declare global {
        continuam window-backed por causa de bridge.ts/stack.ts; ENVS/RTN/KCTX/k8sDocs e
        ENVL/ENVX/envHealth/envState/openObserve nascem e vivem em features/infra.ts). */
     ENVS: any;
-    STACK: any;
     /* feature `syntax` (migrada de app.ts): realce de uma linha. O editor (paintEd),
        o diff, o `cat` do terminal e o outline — em app.ts e em v5.ts/v6.ts —
        resolvem-no por nome livre. */

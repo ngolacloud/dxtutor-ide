@@ -52,7 +52,7 @@ function resetWorkspace(): void {
 interface RefreshTab { id: string; kind: string; path?: string }
 const RW = window as unknown as {
   cur: string | null; PANE: string;
-  stOf: (p: string) => unknown; buildExplorer: () => void; drawProblems: () => void;
+  stOf: (p: string) => unknown; buildExplorer: () => void;
   tabOf: (id: string | null) => RefreshTab | undefined;
   show: (id: string | null) => void; paintEd: (p: string) => void; drawTabs: () => void;
 };
@@ -63,7 +63,7 @@ let SIG='';
 function refresh(fromEd?: boolean, force?: boolean): void {const FS=workspaceStore.files,TB=editorStore.tabs as RefreshTab[];const sig=Object.keys(FS).map(p=>p+RW.stOf(p)).join('|');
   TB.filter(t=>t.kind==='file'&&!FS[t.path as string]).forEach(t=>{TB.splice(TB.indexOf(t),1);if(RW.cur===t.id)RW.cur=null;});
   if(sig!==SIG||force){SIG=sig;services.explorer!.syncTree();RW.buildExplorer();}
-  RW.drawProblems();badges();if(RP[RW.PANE]&&RW.PANE!=='search')RP[RW.PANE]();hydrate();
+  services.diagnostics!.drawProblems();badges();if(RP[RW.PANE]&&RW.PANE!=='search')RP[RW.PANE]();hydrate();
   if(!fromEd){const t=RW.tabOf(RW.cur);if(!t)RW.show(TB.length?TB[TB.length-1].id:null);else if(t.kind==='file'){const ta=$('#ed-ta') as HTMLTextAreaElement|null,top=$('#ebody')!.scrollTop;if(ta&&ta.value!==FS[t.path as string].content){ta.value=FS[t.path as string].content;}if(ta){RW.paintEd(t.path as string);$('#ebody')!.scrollTop=top;}drawTabs();}else if(t.kind==='diff'||t.kind==='manager'){const top=$('#ebody')!.scrollTop;RW.show(RW.cur);$('#ebody')!.scrollTop=top;}else drawTabs();}
   else if(RW.tabOf(RW.cur)&&RW.tabOf(RW.cur)!.kind==='file')RW.paintEd(RW.tabOf(RW.cur)!.path as string);services.explorer!.drawOutline();
   /* U3c (ADR-0004): o fim do refresh é o sinal «o workspace mudou» — quem reagia

@@ -106,6 +106,7 @@ const ACTIONS: ActionTable = {
 };
 bindActions(ACTIONS);
 
-/* a feature regista o seu pane (ADR-0004, U4j2); `window.renderTestPane` fica para o selftest e o i18n */
+/* a feature regista o seu pane (ADR-0004, U4j2) */
 RP.test = renderTestPane;
-L.publish({ renderTestPane });
+/* o auto-teste importa-o (ADR-0004, U7p6 — era publicado no window) */
+export { renderTestPane };

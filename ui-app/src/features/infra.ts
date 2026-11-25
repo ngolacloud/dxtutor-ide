@@ -110,7 +110,7 @@ function infraDraw() { if (PANE === 'infra') RP.infra(); drawRemote(); }
  *  cima, a camada v6 (environments, workloads do ambiente seleccionado). */
 function renderInfraPane(): void {
   hydrateEnvs(); hydrateEnvx();
-  const DEVC = devc(), K8S = k8s(), STACK = window.STACK;
+  const DEVC = devc(), K8S = k8s(), STACK = stackState();
   // ── base v5 ──
   const el = $("#pane-infra"), on = (x: unknown) => `<span class="pdot${x ? "" : " off"}" style="background:var(--green)"></span>`, docs = k8sDocs().length;
   if (!el) return;
@@ -218,8 +218,8 @@ export function renderObserveView(t: ObserveTab, host: HTMLElement) {
    reatribuídos/decorados por bridge.ts (real) e v5/v6. As mutações de estado usam ENVS/
    ENVX (a MESMA referência que window.ENVS/ENVX). */
 const ACTIONS: ActionTable = {
-  "dx-run": { on: "click", run: () => window.dxRun() },
-  "dx-stop": { on: "click", run: () => window.dxStop() },
+  "dx-run": { on: "click", run: () => dxRun() },
+  "dx-stop": { on: "click", run: () => dxStop() },
   "dx-deploy": { on: "click", run: () => dxDeployPublished() },
   "rt-set": { on: "click", run: e => { ENVS.rt = e.on; ENVS.rtOn = false; saveEnv(); infraDraw(); } },
   "rt-sock": { on: "change", run: e => { ENVS.sock[ENVS.rt] = e.value; ENVS.rtOn = false; saveEnv(); infraDraw(); } },
@@ -303,6 +303,7 @@ services.infra = { needRt, infraDraw, projectContext };
 /* o registo de comandos do terminal (features/terminal.ts avalia antes): por import (ADR-0004, U7p1) */
 import { XC as XCImport } from "./terminal";
 import { services } from "../app/services";
+import { dxRun, dxStop, stackState } from "./stack";
 const XC = XCImport as Record<string, (a: string[], v?: string) => unknown>;
 /* o terminal emulado não fala com o cluster nem com o runtime (respondia com o estado K8S/DEVC
    simulado — ADR-0006, R5a): o kubectl/devcontainer reais correm no terminal da app desktop */
@@ -313,6 +314,6 @@ XC.dx = (a: string[]) => { if (a[0] === 'deploy') return dxDeployPublished(); re
 /* `docker compose up|down|ps`, `make run|stop` e `dx run|stop` (ADR-0004, U4j4a — eram do app.ts): chamam o
    dxRun/dxStop PUBLICADOS (com a porta desktop do stack). Os subcomandos do `dx` são disjuntos dos outros
    decoradores (deploy aqui, test/sprint no board), por isso a ordem da cadeia não muda o resultado. */
-XC.docker=(a: string[])=>{if(a[0]==='compose'&&a[1]==='up')return window.dxRun(true);if(a[0]==='compose'&&a[1]==='down'){window.dxStop(true);return;}if(a[0]==='compose'&&a[1]==='ps'){const STACK=window.STACK;echo(STACK?STACK.map((s: { name: string; state: string; url: string })=>`${s.name.padEnd(20)} ${s.state.padEnd(9)} ${s.url}`).join('\n'):'<span class="dim">no containers</span>');return;}echo('<span class="dim">docker compose up | down | ps</span>');};
-XC.make=(a: string[])=>{if(a[0]==='run')return window.dxRun(true);if(a[0]==='stop'){window.dxStop(true);return;}echo('<span class="dim">make run | stop</span>');};
-const _dx4=XC.dx;XC.dx=(a: string[])=>{if(a[0]==='run')return window.dxRun(true);if(a[0]==='stop'){window.dxStop(true);return;}return _dx4(a);};
+XC.docker=(a: string[])=>{if(a[0]==='compose'&&a[1]==='up')return dxRun(true);if(a[0]==='compose'&&a[1]==='down'){dxStop(true);return;}if(a[0]==='compose'&&a[1]==='ps'){const STACK=stackState();echo(STACK?STACK.map((s: { name: string; state: string; url: string })=>`${s.name.padEnd(20)} ${s.state.padEnd(9)} ${s.url}`).join('\n'):'<span class="dim">no containers</span>');return;}echo('<span class="dim">docker compose up | down | ps</span>');};
+XC.make=(a: string[])=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}echo('<span class="dim">make run | stop</span>');};
+const _dx4=XC.dx;XC.dx=(a: string[])=>{if(a[0]==='run')return dxRun(true);if(a[0]==='stop'){dxStop(true);return;}return _dx4(a);};

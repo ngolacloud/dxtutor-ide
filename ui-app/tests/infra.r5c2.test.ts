@@ -27,7 +27,7 @@ beforeEach(async () => {
   desktopPorts = (await import("../src/app/desktop")).desktopPorts as Record<string, any>;
   host = document.createElement("div"); document.body.appendChild(host);
   Object.keys(INF.OBS).forEach((k) => delete INF.OBS[k]);
-  w.STACK = null; INF.setK8s(null); w.ENVS.k8sOn = false;
+  (await import("../src/features/stack")).setStackState(null); INF.setK8s(null); w.ENVS.k8sOn = false;
   INF.ENVX.ctx = { staging: "", production: "" }; INF.ENVX.ns = { staging: "dx-stg", production: "dx" };
 });
 
@@ -60,7 +60,7 @@ describe("no desktop (porta obs falsa)", () => {
   });
 
   it("um serviço do compose a correr: lê o stats e os logs dele e mostra-os", async () => {
-    w.STACK = [{ name: "db", src: "postgres:16", url: "internal", state: "running" }];
+    (await import("../src/features/stack")).setStackState([{ name: "db", src: "postgres:16", url: "internal", state: "running" }]);
     open("local", "db");
     expect(host.textContent).toMatch(/Reading the logs/);
     await vi.waitFor(() => expect(host.querySelectorAll(".ll").length).toBe(2));
@@ -95,7 +95,7 @@ describe("no desktop (porta obs falsa)", () => {
   });
 
   it("«Clear» esconde as linhas até agora; «Follow in terminal» segue os logs do mesmo alvo", async () => {
-    w.STACK = [{ name: "db", src: "x", url: "internal", state: "running" }];
+    (await import("../src/features/stack")).setStackState([{ name: "db", src: "x", url: "internal", state: "running" }]);
     open("local", "db");
     await vi.waitFor(() => expect(host.querySelectorAll(".ll").length).toBe(2));
     click(host.querySelector('[data-action="obs-clear"]')!);

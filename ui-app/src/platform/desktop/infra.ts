@@ -19,6 +19,7 @@ import { translator } from "../../app/i18n";
 import { DESKTOP_MESSAGES } from "./desktop-messages";
 import { echo, echoCmd, newInput } from "../../features/terminal";
 import { k8s, setK8s, devc, setDevc, pDc, RTN, KCTX, needRt, infraDraw, k8sDocs, saveEnv, hydrateEnvs, devcontainerJson } from "../../features/infra";
+import { stackState, setStackState, drawStack } from "../../features/stack";
 
 const tdk = translator(DESKTOP_MESSAGES);
 /** os erros das amostras de observabilidade na língua da interface (o domínio recebe-os por parâmetro) */
@@ -111,7 +112,7 @@ async function readStack(): Promise<void> {
   let rows: any[] = [];
   const s = r.stdout.trim();
   try { rows = s.startsWith("[") ? JSON.parse(s) : s.split("\n").filter(Boolean).map(l => JSON.parse(l)); } catch { /* formato inesperado */ }
-  STACK = rows.length ? rows.map(x => { const pub = (x.Publishers || []).find((p: any) => p.PublishedPort); return { name: x.Service || x.Name, src: x.Image || "", url: pub ? `http://localhost:${pub.PublishedPort}` : "internal", state: x.Health || x.State || "" }; }) : null;
+  setStackState(rows.length ? rows.map(x => { const pub = (x.Publishers || []).find((p: any) => p.PublishedPort); return { name: x.Service || x.Name, src: x.Image || "", url: pub ? `http://localhost:${pub.PublishedPort}` : "internal", state: x.Health || x.State || "" }; }) : null);
   drawStack(); void drawContainers();
 }
 /* as portas desktop do stack e da infra (ADR-0004, U4h4): o features/stack.ts consulta
@@ -124,12 +125,12 @@ dxRun(term, _dxRun) {
   if (!R.root || !FS[ROOT + "docker-compose.yml"] && !FS[ROOT + "compose.yaml"]) return _dxRun(term);
   if (!needRt()) return { ok: false };
   flushSave();
-  void idle().then(async () => { const code = await runInTerm(`${compose()} up --build -d`, { env: envFor() }); if (code === 0) { await readStack(); setPanelTab("services"); toast(`${STACK ? STACK.length : 0} services up`); } });
+  void idle().then(async () => { const code = await runInTerm(`${compose()} up --build -d`, { env: envFor() }); if (code === 0) { await readStack(); setPanelTab("services"); toast(`${stackState() ? stackState()!.length : 0} services up`); } });
   return { ok: true, sum: "starting" };
 },
 dxStop(term, _dxStop) {
   if (!R.root) return _dxStop(term);
-  void runInTerm(`${compose()} down`, { env: envFor() }).then(() => { STACK = null; drawStack(); });
+  void runInTerm(`${compose()} down`, { env: envFor() }).then(() => { setStackState(null); drawStack(); });
 },
 drawStack(_drawStack) {
   _drawStack();
@@ -139,7 +140,7 @@ drawStack(_drawStack) {
 const infraDesktop: InfraDesktop = {
 async rtConnect() {
   hydrateEnvs();
-  if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); STACK = null; setDevc(null); drawStack(); say("container runtime disconnected"); infraDraw(); void drawContainers(); return; }
+  if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); setStackState(null); setDevc(null); drawStack(); say("container runtime disconnected"); infraDraw(); void drawContainers(); return; }
   R.sock = await fsx.expandPath(ENVS.sock[ENVS.rt]);
   const env = { DOCKER_HOST: "unix://" + R.sock, CONTAINER_HOST: "unix://" + R.sock };
   const r = await sh(rtBin(), ["info", "--format", ENVS.rt === "podman" ? "{{.Version.Version}}" : "{{.ServerVersion}}"], { env, timeout: 15000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) }));

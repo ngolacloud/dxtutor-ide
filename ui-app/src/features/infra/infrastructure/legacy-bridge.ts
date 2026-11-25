@@ -29,6 +29,7 @@ import type {
 import { echo as echoImpl, echoCmd as echoCmdImpl, newInput as newInputImpl } from "../../terminal";
 import { note as noteImpl } from "../../notifications";
 import { services } from "../../../app/services";
+import { stackState, setStackState, composeServices as composeServicesImpl, drawStack as drawStackImpl } from "../../stack";
 
 export { toast, log, rerender, writeFile, svg, esc, show };
 export type {
@@ -50,8 +51,8 @@ export const setEnvxRef = (v: EnvX): void => { ENVX_REF = v; };
 export const envx = (): EnvX => ENVX_REF;
 export const k8s = (): K8sState | null => K8S;
 export const setK8s = (v: K8sState | null): void => { K8S = v; };
-export const stack = (): StackItem[] | null => G.STACK;
-export const setStack = (v: StackItem[] | null): void => { G.STACK = v; };
+export const stack = (): StackItem[] | null => stackState() as StackItem[] | null;
+export const setStack = (v: StackItem[] | null): void => { setStackState(v as never); };
 export const devc = (): Devc | null => DEVC;
 export const setDevc = (v: Devc | null): void => { DEVC = v; };
 export const pDc = (): string => P_DC as string;
@@ -65,7 +66,7 @@ export const tech = (): Record<string, TechSpec> => services.studio!.TECH as Rec
 export const kind = (): Record<string, KindSpec> => services.studio!.KIND as Record<string, KindSpec>;
 export const isApp = (n: DesignNode): boolean => services.studio!.isApp(n as never);
 export const nodeSlug = (n: DesignNode): string => services.studio!.sl(n as never);
-export const composeServices = (): ComposeSvc[] | null => G.composeServices();
+export const composeServices = (): ComposeSvc[] | null => composeServicesImpl() as ComposeSvc[] | null;
 
 /* ───── git (promoções lêem as refs + o grafo de commits) ───── */
 export const gitRefs = (): Record<string, string> => G.GIT.refs;
@@ -89,7 +90,7 @@ export const setPanelTab = (tab: string, nofocus?: boolean): void => { G.setPane
 export const getVar = (k: string): string => services.shell!.getVar(k);
 
 /* ───── estado da vista + notificações ───── */
-export const drawStack = (): void => { G.drawStack(); };
+export const drawStack = (): void => { drawStackImpl(); };
 export const note = (m: string): void => { noteImpl(m); };
 export const rel = (at: number): string => G.rel(at);
 

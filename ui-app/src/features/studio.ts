@@ -37,6 +37,7 @@ import { translator } from "../app/i18n";
 import { STUDIO_MESSAGES } from "./studio.messages";
 import { services } from "../app/services";
 import { STUDIO_DESKTOP_MESSAGES } from "./studio.desktop-messages";
+import { dxRun } from "./stack";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(STUDIO_MESSAGES);
 const txd = translator(STUDIO_DESKTOP_MESSAGES);
@@ -160,7 +161,8 @@ function drawStudio(): void { drawStudioBase(); paintDrift(); }
 const node = (id: string) => SD.nodes.find((x) => x.id === id)!;
 const save = (): void => { saveSD(); drawStudio(); };
 registerActions({
-  ...globalCalls('studio', ['genBacklog', 'dxRun']),
+  ...globalCalls('studio', ['genBacklog']),
+  'studio:dxRun': { click: () => void dxRun() },
   'studio:link': { click: () => { SLINK = SLINK === null ? '' : null; drawStudio(); } },
   'studio:clear': { click: () => { SD = emptyDesign(); SSEL = null; SLINK = null; save(); } },
   'studio:cat': { click: (c) => { SCAT = c.on; drawStudio(); } },

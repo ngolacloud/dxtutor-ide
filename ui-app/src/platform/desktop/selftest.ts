@@ -32,6 +32,9 @@ import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
 import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
 import { reviewFindings, explainCmd, renderCreviewView, renderHoodView } from "../../features/codereview";
+import { dxRun, dxStop, stackState } from "../../features/stack";
+import { diagnostics } from "../../features/diagnostics";
+import { renderTestPane } from "../../features/testing/index";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -250,7 +253,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
       const key = ROOT + "probe_tests.rs";
       writeFile(key, "#[cfg(test)]\nmod tests {\n    #[test]\n    fn probe_passes() {}\n}\n"); flushSave(); await idle();
-      PANE = "test"; window.renderTestPane();
+      PANE = "test"; renderTestPane();
       document.querySelector<HTMLElement>('#pane-test [data-action="refresh"]')?.click();
       const inPane = await wait(() => (document.getElementById("pane-test")?.textContent || "").includes("probe_passes"), 20000);
       delete FS[key]; flushSave(); await idle();
@@ -269,7 +272,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const el = () => document.getElementById("pane-test");
       const q = <T extends Element>(sel: string) => el()?.querySelector<T>(sel) ?? null;
       try {
-        PANE = "test"; window.renderTestPane();
+        PANE = "test"; renderTestPane();
         q<HTMLElement>('[data-action="refresh"]')?.click();
         const detected = await wait(() => !!q('[data-action="runner-all"][data-on="cargo:probe_crate"]'), 20000);
         q<HTMLElement>('[data-action="runner-all"][data-on="cargo:probe_crate"]')?.click();
@@ -410,7 +413,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       writeFile(ROOT + "test_dx_selftest.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_soma(self):\n        self.assertEqual(1 + 1, 2)\n\n    def test_falha(self):\n        self.assertEqual(1 + 1, 3)\n");
       flushSave(); await idle();
       PANE = "test";
-      window.renderTestPane();
+      renderTestPane();
       document.querySelector<HTMLElement>('#pane-test [data-action="refresh"]')?.click(); // um ficheiro de testes novo: voltar a descobrir
       const el = () => document.getElementById("pane-test");
       const listed = await wait(() => /test_falha/.test(el()?.textContent || ""), 20000);
@@ -683,15 +686,15 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const proj = "dxtutor-selftest-" + Date.now().toString(36);
       writeFile(W.ROOT + "docker-compose.yml", `name: ${proj}\nservices:\n  obs:\n    image: ${img}\n    entrypoint: ["sh", "-c", "echo dxtutor-selftest up; while true; do echo tick; sleep 1; done"]\n`);
       flushSave(); await idle();
-      W.dxRun();
-      const up = await wait(() => !!W.STACK && W.STACK.some(x => x.name === "obs"), 120000);
+      dxRun();
+      const up = await wait(() => !!stackState() && stackState()!.some(x => x.name === "obs"), 120000);
       openObserve("local", "obs");
       const polled = await wait(() => { const o = OBS["local:obs"]; return !!o && o.polled && o.logs.some(l => /dxtutor-selftest up/.test(l.m)); }, 30000);
       await wait(() => (OBS["local:obs"]?.mem.length || 0) >= 1, 15000);
       const o = OBS["local:obs"];
       const res = { image: img, up, polled, logLines: o ? o.logs.length : 0, firstLog: o?.logs[0]?.m || "", mem: o?.mem.slice(-1)[0], cpu: o?.cpu.slice(-1)[0], sampleErr: o?.sampleErr, logErr: o?.logErr };
-      W.dxStop();
-      const down = await wait(() => W.STACK === null, 60000);
+      dxStop();
+      const down = await wait(() => stackState() === null, 60000);
       const left = (await sh("docker", ["ps", "-a", "-q", "--filter", `label=com.docker.compose.project=${proj}`])).stdout.trim();
       return { ...res, down, gone: !left };
     });
@@ -849,7 +852,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     W.openPath(main);
     const ta = () => document.getElementById("ed-ta") as HTMLTextAreaElement | null;
     // 1) diagnósticos: o servidor publica o erro de tipo, o painel junta-o, o editor pinta o gutter
-    const diag = await until(() => W.diagnostics().find(d => d.p === main && d.sev === "e"), 180_000, 500);
+    const diag = await until(() => diagnostics().find(d => d.p === main && d.sev === "e"), 180_000, 500);
     const gutterErr = !!document.querySelector("#ed-gut .g-e");
     const diagMs = Date.now() - t0;
     // 2) hover: rato parado sobre a chamada (coordenadas reais da textarea)

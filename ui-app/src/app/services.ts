@@ -19,6 +19,7 @@ import type * as Terminal from "../features/terminal";
 import type * as Theme from "../features/theme";
 import type * as Infra from "../features/infra";
 import type * as Scm from "../features/scm";
+import type * as Diagnostics from "../features/diagnostics";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -51,6 +52,10 @@ export interface Services {
   infra: Pick<typeof Infra, "needRt" | "infraDraw" | "projectContext">;
   /** o merge publicado (a porta desktop), o discard e as cores das faixas (features/scm.ts): a ponte do scm, que avalia antes (U7p3) */
   scm: Pick<typeof Scm, "gitMerge" | "discard" | "LANE">;
+  /** os problemas (features/diagnostics.ts, com o painel real por cima no desktop): o editor, o workspace e os geradores (U7p6) */
+  diagnostics: Pick<typeof Diagnostics, "diagnostics" | "drawProblems" | "has">;
+  /** o atalho «a tecla é da shell» do terminal real (o painel, só no desktop): os atalhos globais (U7p6) */
+  panel: { termOwnsKey: (e: KeyboardEvent) => boolean };
 }
 
 export const services: Partial<Services> = {};

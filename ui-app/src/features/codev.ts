@@ -170,7 +170,7 @@ Object.assign(window, { user, card, waiting, ask });
    testes liam). O motor de missões guionadas e os cenários de demonstração foram removidos (ADR-0006, R1b). */
 export { harnessDoTool as doTool };
 /* os helpers do transcript que o board, os separadores e o arranque usam: por import (ADR-0004, U7l — eram publicados no window) */
-export { ctxPill, scrollMsgs, beat, runState, runLabel, tl, md };
+export { ctxPill, scrollMsgs, beat, runState, runLabel, tl, md, agSend };
 /* os botões da moldura (app/chrome-actions.ts), os comandos e o arranque importam-nos (ADR-0004, U7n — eram publicados no window) */
 export { cycleMode, pickModel, newChatWithCtx as newChat, agCtl, assistantCenter, toggleAgent, openManager };
 
@@ -224,7 +224,7 @@ function assistantDock() { bridge.closeTab('agent'); }
 function toggleAgent() { if (bridge.tabOf('agent')) { bridge.closeTab('agent'); return; } const show = bridge.getVar('--agent-w') === '0px'; bridge.setVar('--agent-w', show ? '380px' : '0px'); $('#tgl-agent')!.classList.toggle('on', show); }
 function focusAgent(nofocus?: boolean) { if (bridge.tabOf('agent')) { if (bridge.monolith.currentTabId !== 'agent') bridge.show('agent'); } else if (bridge.getVar('--agent-w') === '0px') toggleAgent(); if (!nofocus) ($('#ag-input') as HTMLElement)!.focus(); }
 /* publica o ponto de entrada de conversa livre + posicionamento; VIEW.agent fica como shim em app.ts (VIEW nasce depois) */
-Object.assign(window, { handlePrompt, agSend, liveChat: codevEngine.liveChat, focusAgent });
+Object.assign(window, { handlePrompt, liveChat: codevEngine.liveChat, focusAgent });
 /* Board (opção 2 do ADR-0003): o Board pede ao Co-Dev pelo seu legacy-bridge, sem importar a feature */
 Object.assign(window, { codevAgentStory: codevEngine.agentStory, codevAgentAvailable: codevEngine.agentAvailable });
 

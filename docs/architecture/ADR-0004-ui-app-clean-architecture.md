@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 176 depois da U7p5, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 161 depois da U7p6, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1301,3 +1301,16 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   menu View (`app/commands.ts`) chamava o `toggleAgent` por nome livre, que a U7n tirou do window — clicar nele
   lançava um ReferenceError (já no `origin`). Passa a importá-lo. Regra daqui para a frente: tirar um nome do window
   tira também a sua declaração global.
+  **U7p6 — o stack, o painel, os diagnósticos e o testing (2026-11-25).** Saem onze: o `features/stack.ts` deixa de
+  publicar (`dxRun`, `dxStop`, `drawStack` e `composeServices` passam a exports; o estado dos serviços, que era
+  `window.STACK`, passa a `stackState()`/`setStackState`, que a infra, o painel, o desktop e os testes usam); o
+  `features/diagnostics.ts` exporta o `diagnostics`/`drawProblems`/`has` e regista-os em `services.diagnostics` para
+  o editor, o workspace e os geradores, que avaliam antes. A ponte do painel deixa de reatribuir o window: os
+  problemas reais e o desenho dos serviços entram por ganchos dos donos (`setProblemsOverride`, que recebe a versão de
+  base para quando não há pasta, e `setDrawStackOverride`), e o atalho «a tecla é da shell» pelo registo
+  (`services.panel.termOwnsKey`); o `agSend` passa a export do Co-Dev. O `renderTestPane` passa a export do testing.
+  Os botões do pane do stack, do Studio, das boas-vindas e da barra de acções dos separadores chamam o `dxRun`/
+  `dxStop` importado (o `stack.ts` registava os seus com `globalCalls`, que os procurava no window — teria partido).
+  Uma verificação nova confirma que nenhum `callGlobal`/`globalCalls` nem entrada do `EACT` aponta para um nome que já
+  não esteja publicado. Fica o `PAIR` (o PairCode, fora do âmbito). Saem da lista do A9 cinco ficheiros (43). Ordem
+  de avaliação igual (só o registo, sem efeitos). Globais publicadas 176 → 161.

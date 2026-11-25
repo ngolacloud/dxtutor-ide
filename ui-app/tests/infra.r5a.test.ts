@@ -13,7 +13,7 @@ beforeEach(async () => {
   w = await bootApp();
   INF = await import("../src/features/infra");
   SM = await import("../src/features/studio");
-  w.ENVS.rtOn = false; w.ENVS.k8sOn = false; w.STACK = null; INF.setK8s(null);
+  w.ENVS.rtOn = false; w.ENVS.k8sOn = false; (await import("../src/features/stack")).setStackState(null); INF.setK8s(null);
 });
 
 describe("no browser", () => {
@@ -24,20 +24,20 @@ describe("no browser", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/needs the desktop app/));
   });
 
-  it("▶ RUN com um docker-compose.yml válido não inventa serviços a correr", () => {
+  it("▶ RUN com um docker-compose.yml válido não inventa serviços a correr", async () => {
     w.ENVS.rtOn = true; // mesmo «ligado» (estado antigo), o browser não arranca contentores
     w.FS[w.ROOT + "docker-compose.yml"] = { content: "services:\n  web:\n    image: nginx\n", orig: null };
-    const r = w.dxRun();
+    const r = (await import("../src/features/stack")).dxRun();
     expect(r).toMatchObject({ ok: false });
-    expect(w.STACK).toBe(null);
+    expect((await import("../src/features/stack")).stackState()).toBe(null);
     expect(term()).toMatch(/precisa da app desktop/);
     expect(term()).not.toMatch(/services up|simulated/);
   });
 
-  it("▶ RUN sem docker-compose.yml mostra o erro real do compose", () => {
+  it("▶ RUN sem docker-compose.yml mostra o erro real do compose", async () => {
     w.ENVS.rtOn = true;
     delete w.FS[w.ROOT + "docker-compose.yml"];
-    w.dxRun();
+    (await import("../src/features/stack")).dxRun();
     expect(term()).toMatch(/no configuration file provided/);
   });
 

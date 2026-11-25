@@ -31,6 +31,7 @@ import { inlineValues } from "../app/inline-values";
 import { codevUndo } from "../app/codev-undo";
 import { authorOf } from "./scm";
 import { dbgBreaks, dbgCurrent } from "./debug";
+import { services } from "../app/services";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -66,7 +67,7 @@ function renderFileView(t:{path:string},host:HTMLElement){const f=FS[t.path];hos
   bus.emit('editor:file-view',{path:t.path});/* quem decora a vista do ficheiro (p.ex. o aviso de servidor de linguagem em falta) repõe-se aqui */}
 
 /* ───── pintor do editor (gutter + realce + minimapa a partir dos diagnósticos) ───── */
-function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.content).split('\n'),dgReal:Record<number,string>={},ext=extOf(p);diagnostics().forEach(d=>{if(d.p===p&&dgReal[d.line]!=='e')dgReal[d.line]=d.sev;});
+function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.content).split('\n'),dgReal:Record<number,string>={},ext=extOf(p);services.diagnostics!.diagnostics().forEach(d=>{if(d.p===p&&dgReal[d.line]!=='e')dgReal[d.line]=d.sev;});
   /* with an overlay, diagnostics follow the real line numbers; proposed lines have none */
   const dg:Record<number,string>={};lines.forEach((_,i)=>{const r=v?v.lines[i]?.real:i+1;if(r&&dgReal[r])dg[i+1]=dgReal[r];});
   const num=(i:number)=>{if(!v)return String(i+1);const m=v.lines[i];return m&&m.kind==='new'?'+':m&&m.real?String(m.real):'';};
@@ -114,7 +115,7 @@ function paintEdFull(p: string): void {
   if (cur && cur.path === p && ls[cur.line - 1]) { ls[cur.line - 1].classList.add('dbg-cur'); if (gs[cur.line - 1]) gs[cur.line - 1].classList.add('dbg-cur'); }
   /* A7: os valores das variáveis no fim das linhas acima da paragem (app/inline-values.ts) */
   const iv = inlineValues.of(p); if (iv) Object.entries(iv).forEach(([n, txt]) => { const l = ls[+n - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="dv-inline">${esc(txt)}</span>`); });
-  if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
+  if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; services.diagnostics!.diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 
 /* nomes das linguagens na barra de estado (ADR-0004, U4j3 — era do app.ts; o boot4/boot6 acrescentam) */

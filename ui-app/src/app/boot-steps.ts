@@ -31,6 +31,7 @@ import { gfPrompt } from "../features/scm";
 import { buildMenubar } from "../features/menus";
 import { startDebug, dbgStep, dbgStepInto, dbgStop, toggleBp, drawDbg } from "../features/debug";
 import { explainCmd, reviewCmd } from "../features/codereview";
+import { dxRun, dxStop, drawStack } from "../features/stack";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOOT_MESSAGES);
 
