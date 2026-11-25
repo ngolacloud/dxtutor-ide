@@ -78,6 +78,8 @@ test("the Ops tab: IaC plan diff, the namespace with its actions, cloud CLIs —
   await page.locator('[data-action="ops-open"]').click();
   const ops = page.locator(".ops");
   await expect(ops).toBeVisible();
+  // r23 F1: the status bar shows the build — the desktop app's version (app_info) with the commit it was built from
+  await expect(page.locator("#st-build")).toHaveText(/^e2e( · [0-9a-f]{7}\*?)?$/);
 
   // IaC: plan → per-resource diff → apply only with the exact command approved
   await ops.locator('[data-action="ops-plan"]').click();

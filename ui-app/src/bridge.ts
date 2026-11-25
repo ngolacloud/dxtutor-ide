@@ -20,6 +20,7 @@ import { installInfra } from "./platform/desktop/infra";
 import { installExt } from "./platform/desktop/ext";
 import { installRemote } from "./platform/desktop/remote";
 import { selftest } from "./platform/desktop/selftest";
+import { mountBuildBadge } from "./app/build-info";
 
 (() => {
 if (!window.__TAURI__ || !window.__TAURI__.core) return;
@@ -39,6 +40,7 @@ installFolderUi(ctx);
 /* ───── start ───── */
 void (async () => {
   R.info = await app.info();
+  if (R.info.version) mountBuildBadge(R.info.version);
   try {
     R.user = (await sh("whoami", [], { cwd: R.info.home })).stdout.trim().split(/[\\/]/).pop();
     R.host = (await sh("hostname", [], { cwd: R.info.home })).stdout.trim().split(".")[0];
