@@ -298,6 +298,10 @@ struct Session {
     budget: Mutex<Option<Budget>>,
     /// Who drove the PairCode session at the last human decision (RF-P04; `None` outside one).
     driver: Mutex<Option<String>>,
+    /// RF-A03/A04: tool_use_id → the architect's rules a call under review breaks …
+    violating: Mutex<HashMap<String, Vec<tutor_agent::conformance::Violation>>>,
+    /// … and → the accepted ADR the architect overrode them with.
+    overrides: Mutex<HashMap<String, String>>,
 }
 
 /// RF-P04: the UI says who drives a PairCode session when the human decides; the audit log
@@ -779,6 +783,8 @@ pub fn start(
         redactor,
         budget: Mutex::new(None),
         driver: Mutex::new(None),
+        violating: Mutex::new(HashMap::new()),
+        overrides: Mutex::new(HashMap::new()),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -1030,16 +1036,26 @@ pub fn send(
                 .lock()
                 .unwrap()
                 .insert(call.id.clone(), call.hunks.clone());
+            let violations = session
+                .violating
+                .lock()
+                .unwrap()
+                .get(&call.id)
+                .cloned()
+                .unwrap_or_default();
             emit(AgentEvent::HunkReview {
                 call: call.id.clone(),
                 hunks: call.hunks.clone(),
                 reason,
                 why: None,
+                violations,
             });
             asked_human.set(true);
             let d = wait_decision(&rx, &session.agent.ctx.cancel);
             session.pending.lock().unwrap().remove(&call.id);
             session.review.lock().unwrap().remove(&call.id);
+            session.violating.lock().unwrap().remove(&call.id);
+            session.overrides.lock().unwrap().remove(&call.id);
             return d;
         }
         let (reason, dangerous, suggested_rule) = match verdict {
@@ -1076,7 +1092,22 @@ pub fn send(
             &session.agent.ctx.root,
             &metas.borrow(),
         );
-        let verdict = conformance_gate(verdict, call, &session.agent.ctx.root, &metas.borrow());
+        // RF-A03/A04: in the IDE's review a change that breaks the rules reaches the human, in red,
+        // and is accepted only with the architect's override; elsewhere (CLI/TUI) it is refused
+        let verdict = if session.review_edits && !call.hunks.is_empty() {
+            match violations_of(call, &session.agent.ctx.root, &metas.borrow()) {
+                Ok(v) => {
+                    let verdict = review_conformance(verdict, &v);
+                    if !v.is_empty() && !matches!(verdict, Verdict::Deny { .. }) {
+                        session.violating.lock().unwrap().insert(call.id.clone(), v);
+                    }
+                    verdict
+                }
+                Err(reason) => Verdict::Deny { reason },
+            }
+        } else {
+            conformance_gate(verdict, call, &session.agent.ctx.root, &metas.borrow())
+        };
         let verdict = role_gate(verdict, call, &session.agent.ctx.root);
         asked_human.set(false);
         let d = decide_call(call, verdict.clone());
@@ -1277,8 +1308,55 @@ fn conformance_gate(
     if matches!(verdict, Verdict::Deny { .. }) {
         return verdict;
     }
-    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+    match violations_of(call, root, metas) {
+        Err(reason) => Verdict::Deny { reason },
+        Ok(left) if left.is_empty() => verdict,
+        Ok(left) => Verdict::Deny {
+            reason: format!(
+                "viola as regras do arquitecto (RF-A03): {} — um desvio só com um ADR aceite em [[exceptions]] de {} (pede-o com ask_human; podes redigir o ADR, não o aprovas)",
+                left.iter().map(|v| v.message.clone()).collect::<Vec<_>>().join("; "),
+                tutor_agent::conformance::RULES_FILE
+            ),
+        },
+    }
+}
+
+/// RF-A03/A04 (sessão de fecho, bloco 3): in the IDE's review, a change that breaks the rules is
+/// not refused before the human sees it — it asks (in Auto too: `dangerous`), drawn in red, and
+/// `review` accepts it only after `override_violation`.
+fn review_conformance(
+    verdict: Verdict,
+    violations: &[tutor_agent::conformance::Violation],
+) -> Verdict {
+    if violations.is_empty() || matches!(verdict, Verdict::Deny { .. }) {
         return verdict;
+    }
+    Verdict::Ask {
+        reason: format!(
+            "viola as regras do arquitecto (RF-A03): {} — só se aceita com o override do Arquitecto e um ADR aceite",
+            violation_text(violations)
+        ),
+        dangerous: true,
+        suggested_rule: None,
+    }
+}
+
+fn violation_text(v: &[tutor_agent::conformance::Violation]) -> String {
+    v.iter()
+        .map(|x| x.message.clone())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// The architect's rules a call breaks and no accepted ADR excuses; `Err` when the rules file
+/// cannot be read. Empty when there are no rules or the call writes no file.
+fn violations_of(
+    call: &PendingCall,
+    root: &Path,
+    metas: &HashMap<String, HunkMeta>,
+) -> Result<Vec<tutor_agent::conformance::Violation>, String> {
+    let Some(path) = call.input.get("path").and_then(|p| p.as_str()) else {
+        return Ok(vec![]);
     };
     let text = if call.hunks.is_empty() {
         ["new_string", "new_text", "content"]
@@ -1295,30 +1373,18 @@ fn conformance_gate(
     };
     let rules = match tutor_agent::conformance::Rules::load(root) {
         Ok(Some(r)) => r,
-        Ok(None) => return verdict,
+        Ok(None) => return Ok(vec![]),
         Err(e) => {
-            return Verdict::Deny {
-                reason: format!(
-                    "as regras do arquitecto não se lêem ({e}): pede ao humano para as corrigir"
-                ),
-            }
+            return Err(format!(
+                "as regras do arquitecto não se lêem ({e}): pede ao humano para as corrigir"
+            ))
         }
     };
     let rel = path
         .strip_prefix(&format!("{}/", root.display()))
         .unwrap_or(path);
     let found = tutor_agent::conformance::check(&rules, rel, &text);
-    let left = tutor_agent::conformance::unexcused(&rules, root, found);
-    if left.is_empty() {
-        return verdict;
-    }
-    Verdict::Deny {
-        reason: format!(
-            "viola as regras do arquitecto (RF-A03): {} — um desvio só com um ADR aceite em [[exceptions]] de {} (pede-o com ask_human; podes redigir o ADR, não o aprovas)",
-            left.iter().map(|v| v.message.clone()).collect::<Vec<_>>().join("; "),
-            tutor_agent::conformance::RULES_FILE
-        ),
-    }
+    Ok(tutor_agent::conformance::unexcused(&rules, root, found))
 }
 
 /// RF-E05 (docs/v2/RF-DELONIX-PLANO.md F2.4): a `write` over an existing file is turned into
@@ -1754,19 +1820,43 @@ pub fn review(id: &str, call: &str, decisions: &[HunkVerdict]) -> Result<(), Str
     if let Some(d) = decisions.iter().find(|d| !hunks.contains(&d.hunk)) {
         return Err(format!("hunk desconhecido nesta revisão: {}", d.hunk));
     }
+    // RF-A03/A04: a change that breaks the rules is accepted only after the architect's override
+    let violating = s
+        .violating
+        .lock()
+        .unwrap()
+        .get(call)
+        .cloned()
+        .unwrap_or_default();
+    if !violating.is_empty()
+        && !s.overrides.lock().unwrap().contains_key(call)
+        && decisions.iter().any(|d| d.accept)
+    {
+        return Err(format!(
+            "esta alteração viola as regras do arquitecto ({}): aceitá-la pede o override do Arquitecto com um ADR aceite",
+            violation_text(&violating)
+        ));
+    }
+    let broke = (!violating.is_empty()).then(|| violation_text(&violating));
     let mut accepted = vec![];
     let mut rejected = vec![];
     for h in &hunks {
         // the last decision about a hunk wins
         match decisions.iter().rev().find(|d| &d.hunk == h) {
             Some(d) if d.accept => accepted.push(h.clone()),
-            Some(d) => rejected.push((
-                h.clone(),
-                d.reason
+            Some(d) => {
+                let why = d
+                    .reason
                     .clone()
                     .filter(|r| !r.trim().is_empty())
-                    .unwrap_or_else(|| "recusado".into()),
-            )),
+                    .unwrap_or_else(|| "recusado".into());
+                // the model learns which rule it broke
+                let why = match &broke {
+                    Some(b) => format!("{why} — viola as regras do arquitecto: {b}"),
+                    None => why,
+                };
+                rejected.push((h.clone(), why))
+            }
             None => rejected.push((h.clone(), "sem decisão".into())),
         }
     }
@@ -1782,6 +1872,47 @@ pub fn review(id: &str, call: &str, decisions: &[HunkVerdict]) -> Result<(), Str
         provisional: false,
     })
     .map_err(|_| "o turno já não está à espera desta decisão".to_string())
+}
+
+/// RF-A03/A04 (sessão de fecho, bloco 3): the architect overrides the rules a call under review
+/// breaks, naming an accepted ADR. Only the architect (`.dxtutor/team.json`, F5.7), only an ADR
+/// that is accepted (`conformance::adr_accepted`); the override goes to the audit log. After it,
+/// the human may accept the call's hunks.
+pub fn override_violation(id: &str, call: &str, adr: &str) -> Result<(), String> {
+    let s = get(id)?;
+    let violating = s
+        .violating
+        .lock()
+        .unwrap()
+        .get(call)
+        .cloned()
+        .ok_or_else(|| format!("nenhuma alteração que viole as regras à espera com o id {call}"))?;
+    let root = s.agent.ctx.root.clone();
+    crate::roles::require(
+        &root,
+        &["architect"],
+        "aprovar um desvio às regras do arquitecto",
+    )?;
+    let adr = adr.trim();
+    if adr.is_empty() || !tutor_agent::conformance::adr_accepted(&root, adr) {
+        return Err(format!(
+            "o ADR «{adr}» não está aceite (docs/adr, docs/architecture ou docs/decisions, com Status: accepted / Estado: aceite)"
+        ));
+    }
+    s.overrides
+        .lock()
+        .unwrap()
+        .insert(call.to_string(), adr.to_string());
+    let mut e = audit_entry(&s, "override");
+    e.actor = crate::board::actor(&root.display().to_string());
+    e.call = Some(call.to_string());
+    e.verdict = Some("override".into());
+    e.outcome = Some("allowed".into());
+    e.reason = Some(format!("{adr}: {}", violation_text(&violating)));
+    e.decided_by = Some(format!("human:{}", e.actor));
+    e.decided_at = Some(e.at);
+    audit(&s, e);
+    Ok(())
 }
 
 /// Muda o modo da sessão (a modebar). Vale a partir da próxima decisão.
@@ -3544,5 +3675,130 @@ mod tests {
             role_gate(ask.clone(), &call(".dxtutor/architecture.toml"), d.path()),
             ask
         );
+    }
+
+    #[test]
+    fn a_change_that_breaks_the_rules_asks_in_red_and_only_the_architects_override_lets_it_in() {
+        use tutor_agent::conformance::Violation;
+        let v = vec![Violation {
+            rule: "library:moment".into(),
+            message: "biblioteca proibida: moment".into(),
+            path: "src/a.ts".into(),
+            line: Some(1),
+        }];
+        // in the review a violation asks — dangerous, so in Auto too — and a Deny stays a Deny
+        match review_conformance(Verdict::Allow, &v) {
+            Verdict::Ask {
+                reason,
+                dangerous: true,
+                ..
+            } => assert!(reason.contains("moment") && reason.contains("override")),
+            x => panic!("{x:?}"),
+        }
+        let deny = Verdict::Deny {
+            reason: "fora da raiz".into(),
+        };
+        assert_eq!(review_conformance(deny.clone(), &v), deny);
+        assert_eq!(review_conformance(Verdict::Allow, &[]), Verdict::Allow);
+
+        // a session with a call waiting in review that breaks the rules
+        let (d, id, s, root) = issue_session("true");
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(args)
+                .current_dir(d.path())
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "rui@x.pt"]);
+        git(&["config", "user.name", "Rui"]);
+        std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/team.json"),
+            r#"{"people": [{"email": "rui@x.pt", "roles": ["developer"]}, {"email": "ana@x.pt", "roles": ["architect"]}]}"#,
+        )
+        .unwrap();
+        let (tx, rx) = mpsc::channel();
+        s.pending.lock().unwrap().insert("c1".into(), (tx, None));
+        s.review
+            .lock()
+            .unwrap()
+            .insert("c1".into(), vec!["c1:1".into()]);
+        s.violating.lock().unwrap().insert("c1".into(), v.clone());
+        let accept = [HunkVerdict {
+            hunk: "c1:1".into(),
+            accept: true,
+            reason: None,
+        }];
+        // accepting without the override is refused (the review keeps waiting)
+        assert!(review(&id, "c1", &accept).unwrap_err().contains("override"));
+        // the override: only the architect, only with an accepted ADR
+        assert!(override_violation(&id, "c1", "ADR-0007")
+            .unwrap_err()
+            .contains("Arquitecto"));
+        git(&["config", "user.email", "ana@x.pt"]);
+        assert!(override_violation(&id, "c1", "ADR-0007")
+            .unwrap_err()
+            .contains("não está aceite"));
+        std::fs::create_dir_all(d.path().join("docs/adr")).unwrap();
+        std::fs::write(
+            d.path().join("docs/adr/ADR-0007-moment.md"),
+            "# Use moment\n\nStatus: accepted\n",
+        )
+        .unwrap();
+        assert!(override_violation(&id, "nope", "ADR-0007")
+            .unwrap_err()
+            .contains("nenhuma"));
+        override_violation(&id, "c1", "ADR-0007").unwrap();
+        // now the hunks can be accepted
+        review(&id, "c1", &accept).unwrap();
+        match rx.try_recv().unwrap() {
+            Decision::Hunks {
+                accepted, rejected, ..
+            } => assert_eq!((accepted, rejected.len()), (vec!["c1:1".to_string()], 0)),
+            x => panic!("{x:?}"),
+        }
+        // the override is in the audit log, with the ADR and the rule
+        let st = tutor_board::project::ProjectStore::open(&d.path().join("board.sqlite3")).unwrap();
+        let log = st.audit(&root, None).unwrap();
+        let o = log
+            .iter()
+            .find(|e| e.event == "override")
+            .expect("override in the audit log");
+        // who: the git user.name (the test keeps «Rui»; only the email became the architect's)
+        assert_eq!(o.decided_by.as_deref(), Some("human:Rui"));
+        assert!(o
+            .reason
+            .as_deref()
+            .unwrap()
+            .starts_with("ADR-0007: biblioteca proibida: moment"));
+
+        // rejecting a violating change tells the model which rule it broke
+        let (tx, rx) = mpsc::channel();
+        s.pending.lock().unwrap().insert("c2".into(), (tx, None));
+        s.review
+            .lock()
+            .unwrap()
+            .insert("c2".into(), vec!["c2:1".into()]);
+        s.violating.lock().unwrap().insert("c2".into(), v);
+        review(
+            &id,
+            "c2",
+            &[HunkVerdict {
+                hunk: "c2:1".into(),
+                accept: false,
+                reason: None,
+            }],
+        )
+        .unwrap();
+        match rx.try_recv().unwrap() {
+            Decision::Hunks { rejected, .. } => assert!(rejected[0]
+                .1
+                .contains("viola as regras do arquitecto: biblioteca proibida: moment")),
+            x => panic!("{x:?}"),
+        }
     }
 }

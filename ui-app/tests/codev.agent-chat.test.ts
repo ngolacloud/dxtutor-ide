@@ -634,3 +634,36 @@ test("RF-G08: os blocos contra as linhas que o plano deu — aviso na linha «Wr
   expect(reviews.map((r) => r.outside)).toEqual([{ n: 2, planned: "40–52" }, { n: 1, planned: "40–52" }, undefined]);
 });
 
+
+test("RF-A03/A04: a revisão que viola as regras chega à barra com as violações e o override, que a desbloqueia", async () => {
+  const t = setup();
+  const overridden: Record<string, (adr: string) => void> = {};
+  const overrides: string[] = [];
+  t.deps.hunks = {
+    event: () => undefined, decideAll: () => undefined, open: () => undefined, onSettled: () => undefined,
+    override: async (call: string) => { overrides.push(call); overridden[call]?.("ADR-0007"); return true; },
+    onOverridden: (call: string, f: (adr: string) => void) => { overridden[call] = f; },
+  };
+  const seen: Array<{ violations?: string[]; on: { override?(): void }; unblocked: string[] }> = [];
+  (t.deps.presenter as unknown as Record<string, unknown>).hunkReview = (_r: unknown, info: { violations?: string[] }, on: { override?(): void }) => {
+    const entry = { violations: info.violations, on, unblocked: [] as string[] };
+    seen.push(entry);
+    return { settle: () => undefined, unblock: (adr: string) => entry.unblocked.push(adr) };
+  };
+  t.setScript(() => {
+    t.emit({ kind: "hunk_start", hunk: "c:1", call: "c", path: "src/a.ts", op: "replace", range: { start: 1, end: 1 }, base: null, old: "" } as AgentEvent);
+    t.emit({ kind: "hunk_review", call: "c", hunks: ["c:1"], reason: "viola", violations: [{ rule: "library:moment", message: "biblioteca proibida: moment", path: "src/a.ts" }] } as AgentEvent);
+    t.emit({ kind: "hunk_start", hunk: "d:1", call: "d", path: "src/b.ts", op: "replace", range: { start: 1, end: 1 }, base: null, old: "" } as AgentEvent);
+    t.emit({ kind: "hunk_review", call: "d", hunks: ["d:1"], reason: "ok" } as AgentEvent);
+    t.emit(done());
+  });
+  await t.chat.send("muda isto");
+  expect(seen[0].violations).toEqual(["biblioteca proibida: moment"]);
+  expect(typeof seen[0].on.override).toBe("function");
+  seen[0].on.override!();
+  await vi.waitFor(() => expect(seen[0].unblocked).toEqual(["ADR-0007"]));
+  expect(overrides).toEqual(["c"]);
+  // a review without violations: no override offered
+  expect(seen[1].violations).toBeUndefined();
+  expect(seen[1].on.override).toBeUndefined();
+});

@@ -10,6 +10,9 @@
    The decision log is owned here (one source of truth) and re-published onto
    `window` by `codev.ts`. */
 
+import { translator as streamTranslator } from "../../app/i18n";
+import { CODEV_STREAM_MESSAGES } from "./ui/stream-messages";
+const streamText = streamTranslator(CODEV_STREAM_MESSAGES);
 import * as bridge from "./infrastructure/legacy-bridge";
 import { paceCps } from "./domain/composer";
 import { pairState } from "../../app/pair-state";
@@ -175,6 +178,14 @@ export const hunkReview = makeHunkReview({
     s === MIRROR
       ? Promise.reject(new Error("Estes hunks são do Co-Dev do anfitrião: decide-os quem conduz, do lado dele."))
       : agentGateway.review(s, call, pairState.canDrive() ? d : d.map((x) => ({ hunk: x.hunk, accept: false, reason: "na sessão PairCode só quem conduz aceita" }))),
+  // RF-A03/A04: the architect's override of a change that breaks the rules (the host's session only)
+  override: (s, call, adr) =>
+    s === MIRROR
+      ? Promise.reject(new Error("Estes hunks são do Co-Dev do anfitrião: o override é do lado dele."))
+      : agentGateway.override
+        ? agentGateway.override(s, call, adr)
+        : Promise.reject(new Error("o override só existe na app desktop")),
+  askAdr: (violations) => bridge.prompt(streamText("adrPrompt", { violations }), ""),
   flush: () => bridge.flushSave(),
   reloadFromDisk: () => bridge.reloadDisk(),
   editor: {

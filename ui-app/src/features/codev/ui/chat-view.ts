@@ -472,7 +472,7 @@ export const presenter: ChatPresenter = {
     (c.tools ?? c.bd).appendChild(line);
     scrollMsgs();
   },
-  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string; outside?: { n: number; planned: string } }, on: { acceptAll(): void; rejectAll(): void; open(): void }) {
+  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[] }, on: { acceptAll(): void; rejectAll(): void; open(): void; override?(): void }) {
     const t = el(ref);
     const bar = document.createElement("div");
     bar.className = "gate hk-gate";
@@ -495,13 +495,34 @@ export const presenter: ChatPresenter = {
       x.onclick = run;
       bar.appendChild(x);
     };
+    // RF-A03/A04: breaks the architect's rules — red, «accept» off until the architect's override
+    if (info.violations?.length) {
+      bar.classList.add("hk-violation");
+      const w = document.createElement("div");
+      w.className = "hk-rules";
+      w.textContent = ts("violatesRules") + ": " + info.violations.join("; ");
+      bar.appendChild(w);
+    }
     btn("Aceitar todas", true, () => on.acceptAll());
+    const acceptAll = bar.querySelector<HTMLButtonElement>("button.gb.pri");
+    if (info.violations?.length && acceptAll) {
+      acceptAll.disabled = true;
+      acceptAll.title = ts("acceptNeedsOverride");
+    }
     btn("Rejeitar todas", false, () => on.rejectAll());
     btn("Ver no editor", false, () => on.open());
+    const ov = on.override;
+    if (info.violations?.length && ov) btn(ts("overrideAdr"), false, () => ov());
     t.appendChild(bar);
     scrollMsgs();
     waiting();
     return {
+      unblock(adr: string) {
+        bar.classList.remove("hk-violation");
+        if (acceptAll) { acceptAll.disabled = false; acceptAll.title = ""; }
+        const w = bar.querySelector(".hk-rules");
+        if (w) w.textContent = `${w.textContent} — override: ${adr}`;
+      },
       settle(label: string) {
         const done = document.createElement("span");
         done.className = "gdone";
