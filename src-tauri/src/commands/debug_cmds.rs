@@ -23,7 +23,7 @@ use serde::Serialize;
 use tauri::Emitter;
 use tutor_eval::dapc::{
     BreakpointSpec, BreakpointState, DapSession, DapThread, DataBreakpoint, DataTarget,
-    MemoryBlock, SessionCaps, VarNode,
+    MemoryBlock, Position, SessionCaps, VarNode, WriteHit,
 };
 
 use crate::debug::{self, DapSessions, DebugSessions};
@@ -264,8 +264,10 @@ pub async fn debug_stop_on_panic(
 ) -> Result<bool, String> {
     let s = need_dap(&dap, &id)?;
     blocking(move || {
+        // lldb resolves `rust_panic`; gdb (a replay, r23 F2b) only `__rustc::rust_panic`, the
+        // symbol's full name in current Rust. Both name the same place: the program stops once.
         Ok(s.set_function_breakpoints(&if on {
-            vec!["rust_panic".to_string()]
+            vec!["rust_panic".to_string(), "__rustc::rust_panic".to_string()]
         } else {
             vec![]
         })? > 0)
@@ -366,6 +368,138 @@ pub async fn debug_exception_filters(
 ) -> Result<Vec<String>, String> {
     let s = need_dap(&dap, &id)?;
     blocking(move || s.set_exception_filters(&filters)).await
+}
+
+/* ───── r23 F2b: record and replay (rr) ───── */
+
+fn output_sink(app: &tauri::AppHandle, id: &str) -> tutor_eval::dapc::OnOutput {
+    let (sid, app2) = (id.to_string(), app.clone());
+    Arc::new(move |category: &str, text: &str| {
+        let _ = app2.emit(
+            "debug://output",
+            OutputEvent {
+                id: sid.clone(),
+                category: category.into(),
+                text: text.into(),
+            },
+        );
+    })
+}
+
+fn need_replay(dap: &DapSessions, id: &str) -> Result<Arc<DapSession>, String> {
+    let s = need_dap(dap, id)?;
+    if s.is_replay() {
+        Ok(s)
+    } else {
+        Err("this needs a recording (rr): replay the run first".into())
+    }
+}
+
+/// Records `program args` in `cwd` with rr (Linux); the trace to replay, its exit code and output.
+#[tauri::command]
+pub async fn debug_record(
+    id: String,
+    program: String,
+    args: Option<Vec<String>>,
+    cwd: Option<String>,
+) -> Result<tutor_eval::rr::Recording, String> {
+    blocking(move || {
+        tutor_eval::rr::record(
+            &id,
+            &program,
+            &args.unwrap_or_default(),
+            cwd.as_deref().map(std::path::Path::new),
+        )
+    })
+    .await
+}
+
+/// Replays a recording: rr serves it, gdb (DAP mode) drives it; the session takes the usual
+/// `debug_*` commands, plus the ones below (backwards, the position, travel, writes).
+#[tauri::command]
+pub async fn debug_replay(
+    app: tauri::AppHandle,
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    trace: String,
+    program: String,
+    cwd: Option<String>,
+) -> Result<LaunchInfo, String> {
+    let on = output_sink(&app, &id);
+    let s =
+        blocking(move || DapSession::replay(&trace, &program, cwd.as_deref(), Some(on))).await?;
+    let (adapter, caps) = (s.adapter.clone(), Some(s.caps()));
+    dap.insert(id, s)?;
+    Ok(LaunchInfo {
+        engine: "dap".into(),
+        adapter,
+        caps,
+    })
+}
+
+/// Backwards in a replay: `next`, `step`, `out` or `continue`.
+#[tauri::command]
+pub async fn debug_reverse(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    kind: String,
+) -> Result<debug::Stop, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || s.reverse(&kind).map(Into::into)).await
+}
+
+/// Where a replay is in its recording (ticks, event) and the recording's span.
+#[tauri::command]
+pub async fn debug_position(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+) -> Result<Position, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || s.position()).await
+}
+
+/// To the moment `(event, ticks)` of the recording (a stop at `file:line`; empty file: start or end).
+#[tauri::command]
+pub async fn debug_travel(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    event: u64,
+    ticks: u64,
+    file: String,
+    line: u32,
+    watch: Option<String>,
+) -> Result<debug::Stop, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || {
+        s.travel(event, ticks, &file, line, watch.as_deref())
+            .map(Into::into)
+    })
+    .await
+}
+
+/// «Where did this come from»: back to the last write to `expression` in frame `frame`.
+#[tauri::command]
+pub async fn debug_last_write(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    frame: u32,
+    expression: String,
+) -> Result<debug::Stop, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || s.last_write(frame, &expression).map(Into::into)).await
+}
+
+/// Every change to `expression` (frame `frame`) while its function runs, up to `max`.
+#[tauri::command]
+pub async fn debug_writes(
+    dap: tauri::State<'_, DapSessions>,
+    id: String,
+    frame: u32,
+    expression: String,
+    max: Option<usize>,
+) -> Result<Vec<WriteHit>, String> {
+    let s = need_replay(&dap, &id)?;
+    blocking(move || s.writes(frame, &expression, max.unwrap_or(50).min(200))).await
 }
 
 /// «Debug this test» (r23 F2): builds the project's test binaries and lists their tests.

@@ -27,6 +27,9 @@ pub struct Stop {
     /// the adapter's explanation of the stop — an exception's text (DAP)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// r23 F2b: a replay's write — the watched location, to travel back to it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -354,6 +357,7 @@ impl From<tutor_eval::dapc::DapStop> for Stop {
             exit_code: d.exit_code,
             thread: d.thread,
             description: d.description,
+            watch: d.watch,
         }
     }
 }

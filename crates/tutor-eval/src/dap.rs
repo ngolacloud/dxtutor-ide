@@ -35,7 +35,9 @@ pub struct DebugCapability {
 
 /// Can this host record a run and replay it backwards (rr)? `reason` is a code the UI words:
 /// `ok`, `not-linux`, `no-rr`, `no-gdb` (rr replays through gdb), `perf-paranoid` (the kernel
-/// hides the performance counters rr needs: `kernel.perf_event_paranoid` must be ≤ 1).
+/// hides the performance counters rr needs: `kernel.perf_event_paranoid` must be ≤ 1), and
+/// `rr-cannot-record` (a tiny recording failed — rr < 5.9 does not know Meteor Lake, for one;
+/// `error` has rr's words).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeTravel {
@@ -43,6 +45,8 @@ pub struct TimeTravel {
     pub reason: String,
     /// the kernel's `perf_event_paranoid` (Linux)
     pub perf_event_paranoid: Option<i32>,
+    /// rr's own words when it could not record here
+    pub error: Option<String>,
 }
 
 /// The time-travel gate from what was found (pure, for the tests).
@@ -62,6 +66,7 @@ pub fn time_travel_from(linux: bool, rr: bool, gdb: bool, paranoid: Option<i32>)
         available: reason == "ok",
         reason: reason.into(),
         perf_event_paranoid: paranoid,
+        error: None,
     }
 }
 
@@ -72,12 +77,22 @@ fn perf_event_paranoid() -> Option<i32> {
 }
 
 pub fn detect_time_travel() -> TimeTravel {
-    time_travel_from(
+    let mut t = time_travel_from(
         cfg!(target_os = "linux"),
         on_path("rr").is_some(),
         on_path("gdb").is_some(),
         perf_event_paranoid(),
-    )
+    );
+    if t.available {
+        // the last word is rr's: a tiny recording (once per run of the app)
+        let p = crate::rr::probe();
+        if !p.works {
+            t.available = false;
+            t.reason = "rr-cannot-record".into();
+            t.error = p.error;
+        }
+    }
+    t
 }
 
 /// Is `tool` an executable file on `PATH`? (A dependency-free `which`.)

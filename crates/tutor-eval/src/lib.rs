@@ -40,6 +40,7 @@ pub mod onboard;
 pub mod ops;
 pub mod plugin;
 pub mod review;
+pub mod rr;
 pub mod runner;
 pub mod rust_tracer;
 pub mod search;

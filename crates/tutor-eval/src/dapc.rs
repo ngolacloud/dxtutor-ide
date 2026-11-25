@@ -315,6 +315,8 @@ pub struct DapStop {
     pub thread: Option<i64>,
     /// the adapter's explanation (an exception's text…)
     pub description: Option<String>,
+    /// r23 F2b: the watched location this stop is a write to (`last_write`), to travel back to it
+    pub watch: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -470,9 +472,51 @@ struct Snapshots {
     paths: HashMap<i64, String>,
 }
 
+/// Where a replay is in its recording (rr's ticks and events), and the recording's span.
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Position {
+    pub event: u64,
+    pub ticks: u64,
+    pub start_event: u64,
+    pub start_ticks: u64,
+    pub end_event: u64,
+    pub end_ticks: u64,
+}
+
+/// A moment of the recording: rr's event (global) and the ticks of the thread that runs it. Ticks
+/// are per thread (measured: a stop in another thread jumps from 1179 to 118907), so moments
+/// compare by event first; inside one event only one thread runs.
+pub type Moment = (u64, u64);
+
+/// One write to a watched expression found in the recording (`writes`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteHit {
+    pub event: u64,
+    pub ticks: u64,
+    /// the watched location (its address as an expression: valid in any frame), to travel back
+    pub location: String,
+    pub func: String,
+    pub file: String,
+    pub line: u32,
+    /// what gdb said about the values (`Old value = … / New value = …`)
+    pub values: String,
+}
+
+struct Replay {
+    _server: Mutex<Option<crate::rr::ReplayServer>>,
+    range: Mutex<Position>,
+    /// the replay's guard: a breakpoint on `main` — for the human the recording starts there (what
+    /// runs before is the loader), so going back stops there too. (rr does not support a syscall
+    /// catchpoint, so the other end is the recording's own end, `end_ticks`.)
+    guards: Vec<u32>,
+}
+
 pub struct DapSession {
     client: DapClient,
     caps: SessionCaps,
+    replay: Option<Replay>,
     data_bps: Mutex<Vec<DataBreakpoint>>,
     breakpoints: Mutex<HashMap<String, Vec<BreakpointSpec>>>,
     functions: Mutex<Vec<String>>,
@@ -480,11 +524,37 @@ pub struct DapSession {
     thread: Mutex<Option<i64>>,
     frames: Mutex<Vec<DapFrame>>,
     snaps: Mutex<Snapshots>,
-    /// the folder the program runs in (relative breakpoint paths are resolved against it)
-    cwd: Option<PathBuf>,
     pub adapter: String,
     /// attached to a process that was already running: stopping detaches instead of killing it
     attached: bool,
+}
+
+/// The numbers of the enabled breakpoints in gdb's `info breakpoints` (`1  breakpoint  keep y …`).
+pub fn enabled_breakpoints(info: &str) -> Vec<u32> {
+    info.lines()
+        .filter_map(|l| {
+            let w: Vec<&str> = l.split_whitespace().collect();
+            let n: u32 = w.first()?.parse().ok()?;
+            w.iter().skip(1).take(4).any(|x| *x == "y").then_some(n)
+        })
+        .collect()
+}
+
+/// The address in gdb's answer to `print &(x)` as an expression valid anywhere: Rust
+/// `$1 = (*mut usize) 0x7f…` → `*(0x7f… as *mut usize)`; C `$1 = (int *) 0x7f…` → `*(int *) 0x7f…`.
+pub fn location_of(print: &str) -> Option<String> {
+    let rest = print.split_once(" = ")?.1.trim();
+    let close = rest.rfind(')')?;
+    let ty = rest.get(1..close)?.trim();
+    let addr = rest[close + 1..].split_whitespace().next()?;
+    if !rest.starts_with('(') || !addr.starts_with("0x") {
+        return None;
+    }
+    Some(if ty.starts_with('*') {
+        format!("*({addr} as {ty})")
+    } else {
+        format!("*({ty}) {addr}")
+    })
 }
 
 fn stop_from(e: &Value) -> DapStop {
@@ -618,6 +688,7 @@ impl DapSession {
         let s = DapSession {
             client,
             caps,
+            replay: None,
             data_bps: Mutex::default(),
             breakpoints: Mutex::default(),
             functions: Mutex::default(),
@@ -625,7 +696,6 @@ impl DapSession {
             thread: Mutex::new(None),
             frames: Mutex::default(),
             snaps: Mutex::default(),
-            cwd: cwd.map(PathBuf::from),
             adapter,
             attached,
         };
@@ -688,18 +758,9 @@ impl DapSession {
             .collect())
     }
 
-    /// A path the adapter can match against the debug info: relative ones join the session's folder.
-    fn absolute(&self, file: &str) -> String {
-        match &self.cwd {
-            Some(d) if !Path::new(file).is_absolute() => d.join(file).display().to_string(),
-            _ => file.to_string(),
-        }
-    }
-
     /// Adds a plain breakpoint on `line` of `file`, keeping the file's others.
+    /// `file` is used as given, like `set_breakpoints` (the same key keeps the file's others).
     pub fn add_breakpoint(&self, file: &str, line: u32) -> Result<BreakpointState, String> {
-        let abs = file.to_string();
-        let file = abs.as_str();
         let mut list = self
             .breakpoints
             .lock()
@@ -775,6 +836,10 @@ impl DapSession {
         if !self.configured.swap(true, Ordering::SeqCst) {
             self.client.drain(|e| e["event"] == "stopped");
             self.client.request("configurationDone", json!({}))?;
+            if self.replay.is_some() {
+                // a replay is attached at the recording's start, stopped: run it
+                return self.resume("continue");
+            }
             return self.wait_stop();
         }
         self.resume("continue")
@@ -788,6 +853,10 @@ impl DapSession {
     }
 
     fn resume(&self, command: &str) -> Result<DapStop, String> {
+        // a replay at the end of its recording has nothing more to run
+        if self.replay.is_some() && self.at_end() {
+            return self.stop_after("");
+        }
         let t = self.current_thread()?;
         // a stop still queued is from before this resume (an adapter can repeat `stopped`, one per
         // thread): reading it as this step's stop would put every later stop one behind
@@ -1151,6 +1220,424 @@ impl DapSession {
         Ok(known)
     }
 
+    /* ───── replay (rr, r23 F2b) ───── */
+
+    /// Replays the recording `trace` of `program`: rr serves it, gdb (DAP mode, rr's commands
+    /// loaded) attaches to it at its start. Forwards goes through DAP; backwards through gdb's
+    /// `reverse-*`; the position through rr's `when`/`when-ticks`.
+    pub fn replay(
+        trace: &str,
+        program: &str,
+        cwd: Option<&str>,
+        on_output: Option<OnOutput>,
+    ) -> Result<DapSession, String> {
+        let printed: Option<crate::rr::OnLine> = on_output
+            .clone()
+            .map(|f| Arc::new(move |l: &str| f("stdout", l)) as crate::rr::OnLine);
+        let srv = crate::rr::ReplayServer::start(trace, printed)?;
+        let init = crate::rr::gdbinit_file()?;
+        let argv: Vec<String> = ["gdb", "-i", "dap", "-q", "-x"]
+            .iter()
+            .map(|s| s.to_string())
+            .chain([init.display().to_string()])
+            .collect();
+        let target = format!("127.0.0.1:{}", srv.port);
+        let mut s = DapSession::start(
+            &argv,
+            "rr · gdb".into(),
+            cwd,
+            on_output,
+            "attach",
+            json!({"program": program, "target": target}),
+            true,
+        )?;
+        // gdb answers DAP without reverse requests: backwards is ours, through the console
+        s.caps.step_back = true;
+        s.caps.data_breakpoints = false;
+        let guards: Vec<u32> = ["break main"]
+            .iter()
+            .filter_map(|c| s.repl(c).ok())
+            .filter_map(|t| t.split_whitespace().nth(1).and_then(|n| n.parse().ok()))
+            .collect();
+        s.replay = Some(Replay {
+            _server: Mutex::new(Some(srv)),
+            range: Mutex::new(Position::default()),
+            guards,
+        });
+        s.measure()?;
+        Ok(s)
+    }
+
+    pub fn is_replay(&self) -> bool {
+        self.replay.is_some()
+    }
+
+    fn need_replay(&self) -> Result<&Replay, String> {
+        self.replay
+            .as_ref()
+            .ok_or_else(|| "this needs a recording (rr): replay the run first".to_string())
+    }
+
+    /// A gdb console command; its text, or the adapter's error.
+    pub fn repl(&self, command: &str) -> Result<String, String> {
+        let body = self.client.request(
+            "evaluate",
+            json!({"expression": command, "context": "repl"}),
+        )?;
+        Ok(body["result"].as_str().unwrap_or("").to_string())
+    }
+
+    fn number(&self, command: &str) -> Result<u64, String> {
+        let t = self.repl(command)?;
+        crate::rr::parse_number(&t).ok_or_else(|| format!("{command}: {t}"))
+    }
+
+    /// The recording's span: to `main` (its start for the human), then to the end (the `exit_group`
+    /// guard), and back to `main`.
+    fn measure(&self) -> Result<(), String> {
+        let _ = self.repl("continue")?;
+        let (start_event, start) = self.now()?;
+        let _ = self.repl("continue")?;
+        let (end_event, end) = self.now()?;
+        let _ = self.repl("reverse-continue")?;
+        self.client.drain(is_stop);
+        let r = self.need_replay()?;
+        *r.range.lock().map_err(|_| "dap lock")? = Position {
+            event: start_event,
+            ticks: start,
+            start_event,
+            start_ticks: start,
+            end_event,
+            end_ticks: end,
+        };
+        Ok(())
+    }
+
+    /// Where the replay is: rr's (event, ticks).
+    fn now(&self) -> Result<Moment, String> {
+        Ok((self.number("when")?, self.number("when-ticks")?))
+    }
+
+    fn end_moment(&self) -> Moment {
+        self.replay
+            .as_ref()
+            .and_then(|r| r.range.lock().ok().map(|p| (p.end_event, p.end_ticks)))
+            .unwrap_or((u64::MAX, u64::MAX))
+    }
+
+    /// Where the replay is now, with the recording's span.
+    pub fn position(&self) -> Result<Position, String> {
+        let r = self.need_replay()?;
+        let mut p = r.range.lock().map_err(|_| "dap lock")?.clone();
+        p.ticks = self.number("when-ticks")?;
+        p.event = self.number("when")?;
+        Ok(p)
+    }
+
+    /// The stop a console command produced (its `stopped` event), or — when gdb did not move (no
+    /// more history) — where it is, with gdb's words as the description.
+    fn stop_after(&self, text: &str) -> Result<DapStop, String> {
+        let st = match self
+            .client
+            .wait_event(is_stop, Some(Duration::from_secs(3)))
+        {
+            Ok(e) => self.after_stop(&e)?,
+            Err(_) => {
+                let t = self.current_thread()?;
+                let mut st = self.after_stop(
+                    &json!({"event": "stopped", "body": {"reason": "no-history", "threadId": t}}),
+                )?;
+                st.description = Some(text.trim().to_string());
+                st
+            }
+        };
+        Ok(self.mark_end(st))
+    }
+
+    fn mark_end(&self, mut st: DapStop) -> DapStop {
+        if self.replay.is_some() && self.at_end() {
+            st.reason = "end-of-recording".into();
+        }
+        st
+    }
+
+    /// Backwards: `next` (step back over), `step` (into), `out` (to the caller), `continue`.
+    pub fn reverse(&self, kind: &str) -> Result<DapStop, String> {
+        self.need_replay()?;
+        let cmd = match kind {
+            "step" => "reverse-step",
+            "out" => "reverse-finish",
+            "continue" => "reverse-continue",
+            _ => "reverse-next",
+        };
+        self.client.drain(|e| e["event"] == "stopped");
+        let text = self.repl(cmd)?;
+        self.stop_after(&text)
+    }
+
+    /// Runs `body` with every breakpoint off (a query must stop only where it means to).
+    fn alone<T>(&self, body: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        // only the human's breakpoints go off (disabling and re-enabling the guards loses them in rr)
+        let guards = self
+            .replay
+            .as_ref()
+            .map(|r| r.guards.clone())
+            .unwrap_or_default();
+        let on: Vec<u32> = enabled_breakpoints(&self.repl("info breakpoints").unwrap_or_default())
+            .into_iter()
+            .filter(|n| !guards.contains(n))
+            .collect();
+        let list = on
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !list.is_empty() {
+            let _ = self.repl(&format!("disable {list}"));
+        }
+        let r = body();
+        if !list.is_empty() {
+            let _ = self.repl(&format!("enable {list}"));
+        }
+        r
+    }
+
+    /// Watches `expression`'s bytes (from frame `level`): the watchpoint's number, and a gdb value
+    /// (`$N`, its address) that reads it in any frame — where it is written the name may not exist
+    /// (`c` is `self` inside the method that writes it).
+    fn watch(&self, level: u32, expression: &str) -> Result<(u32, Option<String>, String), String> {
+        let _ = self.repl(&format!("frame {level}"));
+        let addr = self
+            .repl(&format!("print &({expression})"))
+            .unwrap_or_default();
+        let at = addr
+            .split_whitespace()
+            .next()
+            .filter(|h| h.starts_with('$'))
+            .map(String::from);
+        // the location as an expression valid in any frame and at any time: its address, typed
+        let location = location_of(&addr).unwrap_or_else(|| expression.to_string());
+        let n = self.watch_location(&location)?;
+        Ok((n, at, location))
+    }
+
+    fn watch_location(&self, location: &str) -> Result<u32, String> {
+        let t = self.repl(&format!("watch -l {location}"))?;
+        t.split_whitespace()
+            .skip_while(|w| !w.eq_ignore_ascii_case("watchpoint"))
+            .nth(1)
+            .and_then(|n| n.trim_end_matches(':').parse().ok())
+            .ok_or_else(|| format!("cannot watch {location}: {}", t.trim()))
+    }
+
+    /// `expression = value` where the replay stopped (gdb's `print`, without its `$n = `).
+    fn value_here(&self, expression: &str, at: Option<&str>) -> String {
+        let read = at
+            .map(|h| format!("print *{h}"))
+            .unwrap_or_else(|| format!("print {expression}"));
+        let t = self.repl(&read).unwrap_or_default();
+        let v = t.trim().split_once(" = ").map(|x| x.1).unwrap_or(t.trim());
+        format!("{expression} = {v}")
+    }
+
+    /// «Where did this come from»: back to the last write to `expression` (in frame `level`).
+    pub fn last_write(&self, level: u32, expression: &str) -> Result<DapStop, String> {
+        self.need_replay()?;
+        self.alone(|| {
+            let (n, at, location) = self.watch(level, expression)?;
+            self.client.drain(|e| e["event"] == "stopped");
+            let text = self.repl("reverse-continue");
+            let _ = self.repl(&format!("delete {n}"));
+            let text = text?;
+            let mut st = self.stop_after(&text)?;
+            st.description = Some(if st.reason == "no-history" {
+                format!("no earlier write to {expression} in the recording")
+            } else {
+                self.value_here(expression, at.as_deref())
+            });
+            st.watch = Some(location);
+            Ok(st)
+        })
+    }
+
+    /// Every write to `expression` (frame `level`) while its function runs, up to `max`; the replay
+    /// ends where it was. The watch is on the variable's address, which other code used before the
+    /// function started and uses after it returns: a write counts while the function that owns the
+    /// variable is on the stack (the write itself may be in a callee — `c.order` is written inside
+    /// `Lru::touch` through `&mut self`); one with it gone ends the search.
+    pub fn writes(
+        &self,
+        level: u32,
+        expression: &str,
+        max: usize,
+    ) -> Result<Vec<WriteHit>, String> {
+        self.need_replay()?;
+        let here = self.position()?;
+        let f = self.frame_at(0)?;
+        let owner = self.frame_at(level)?.func;
+        let hits = self.alone(|| {
+            let (n, at, location) = self.watch(level, expression)?;
+            let mut hits: Vec<WriteHit> = vec![];
+            // backwards to before the first change while the owner runs (nothing recorded: a reverse
+            // stop shows the value before the write), then forwards, recording each change's new value
+            let mut last: Moment = (here.event, here.ticks);
+            for _ in 0..max.max(1) * 4 {
+                self.client.drain(|e| e["event"] == "stopped");
+                let Ok(text) = self.repl("reverse-continue") else {
+                    break;
+                };
+                let Ok(st) = self.stop_after(&text) else {
+                    break;
+                };
+                let m = self.now()?;
+                if m >= last || st.reason == "no-history" {
+                    break;
+                }
+                last = m;
+                if !self.alive(&owner) {
+                    break;
+                }
+            }
+            let mut entered = false;
+            for _ in 0..(max * 4 + 50) {
+                if self.at_end() {
+                    break;
+                }
+                self.client.drain(|e| e["event"] == "stopped");
+                let Ok(text) = self.repl("continue") else {
+                    break;
+                };
+                let Ok(st) = self.stop_after(&text) else {
+                    break;
+                };
+                let m = self.now()?;
+                if m < last || st.reason == "no-history" || st.reason == "end-of-recording" {
+                    break;
+                }
+                if m == last {
+                    // forwards from a reverse stop, the same write triggers again at the same point
+                    continue;
+                }
+                last = m;
+                if !self.alive(&owner) {
+                    if entered {
+                        break;
+                    }
+                    continue;
+                }
+                entered = true;
+                hits.push(WriteHit {
+                    event: m.0,
+                    ticks: m.1,
+                    location: location.clone(),
+                    func: st.func,
+                    file: st.file,
+                    line: st.line,
+                    values: self.value_here(expression, at.as_deref()),
+                });
+                if hits.len() >= max {
+                    break;
+                }
+            }
+            let _ = self.repl(&format!("delete {n}"));
+            Ok(hits)
+        })?;
+        let _ = self.travel(here.event, here.ticks, &f.file, f.line, None);
+        let mut hits = hits;
+        hits.sort_by_key(|h| (h.event, h.ticks));
+        Ok(hits)
+    }
+
+    /// The recording's end has been reached (a `continue` there would end rr's session).
+    fn at_end(&self) -> bool {
+        let end = self.end_moment();
+        end.0 > 0 && self.now().map(|m| m >= end).unwrap_or(false)
+    }
+
+    /// Is a frame of the function `owner` on the stack where the replay stopped?
+    fn alive(&self, owner: &str) -> bool {
+        self.frames
+            .lock()
+            .map(|f| f.iter().any(|x| x.func == owner))
+            .unwrap_or(false)
+    }
+
+    /// To the moment `(event, ticks)` of the recording: a stop at `file:line` (a breakpoint there), or
+    /// a write to `watch` (a watchpoint: it stops mid-line, where no line breakpoint does) — run
+    /// backwards or forwards until the moment matches; `file` empty and no watch: the start or end.
+    pub fn travel(
+        &self,
+        event: u64,
+        ticks: u64,
+        file: &str,
+        line: u32,
+        watch: Option<&str>,
+    ) -> Result<DapStop, String> {
+        let r = self.need_replay()?;
+        let start = r
+            .range
+            .lock()
+            .map(|p| (p.start_event, p.start_ticks))
+            .map_err(|_| "dap lock")?;
+        let target: Moment = (event, ticks);
+        self.alone(|| {
+            if file.is_empty() && watch.is_none() {
+                if target > start && self.at_end() {
+                    return self.stop_after("");
+                }
+                self.client.drain(|e| e["event"] == "stopped");
+                let text = self.repl(if target <= start {
+                    "reverse-continue"
+                } else {
+                    "continue"
+                })?;
+                return self.stop_after(&text);
+            }
+            let n: Option<u32> = match watch {
+                Some(w) => Some(self.watch_location(w)?),
+                None => self
+                    .repl(&format!("break {file}:{line}"))?
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|n| n.trim_end_matches(':').parse().ok()),
+            };
+            let mut st: Option<DapStop> = None;
+            for _ in 0..400 {
+                let cur = self.now()?;
+                if cur == target {
+                    break;
+                }
+                let dir = if cur > target {
+                    "reverse-continue"
+                } else {
+                    "continue"
+                };
+                if dir == "continue" && self.at_end() {
+                    break;
+                }
+                self.client.drain(|e| e["event"] == "stopped");
+                let text = self.repl(dir)?;
+                let s2 = self.stop_after(&text)?;
+                let now = self.now()?;
+                let stuck = now == cur
+                    || s2.reason == "no-history"
+                    || (dir == "continue" && now > target)
+                    || (dir == "reverse-continue" && now < target);
+                st = Some(s2);
+                if stuck {
+                    break;
+                }
+            }
+            if let Some(n) = n {
+                let _ = self.repl(&format!("delete {n}"));
+            }
+            match st {
+                Some(s) => Ok(s),
+                None => self.stop_after(""),
+            }
+        })
+    }
+
     pub fn stop(&self) {
         let _ = self
             .client
@@ -1183,6 +1670,29 @@ mod tests {
         assert!(st.stopped && st.thread == Some(7) && st.reason == "breakpoint");
         assert!(
             stop_from(&json!({"event": "exited", "body": {"exitCode": 3}})).exit_code == Some(3)
+        );
+    }
+
+    #[test]
+    fn a_location_valid_anywhere() {
+        assert_eq!(
+            location_of("$1 = (*mut usize) 0x771eebbfe4e8\n").as_deref(),
+            Some("*(0x771eebbfe4e8 as *mut usize)")
+        );
+        assert_eq!(
+            location_of("$3 = (int *) 0x7ffd1234").as_deref(),
+            Some("*(int *) 0x7ffd1234")
+        );
+        assert_eq!(location_of("No symbol \"x\" in current context."), None);
+    }
+
+    #[test]
+    fn reads_gdb_breakpoint_tables() {
+        let info = "Num     Type           Disp Enb Address            What\n1       catchpoint     keep y                      syscall \"exit_group\" \n2       breakpoint     keep y   0x0000000000401136 in main at t.c:3\n3       breakpoint     keep n   0x0000000000401140 in main at t.c:7\n4       hw watchpoint  keep y                      -location total\n";
+        assert_eq!(enabled_breakpoints(info), vec![1, 2, 4]);
+        assert!(
+            enabled_breakpoints("No breakpoints, watchpoints, tracepoints, or catchpoints.")
+                .is_empty()
         );
     }
 
@@ -1318,6 +1828,145 @@ mod tests {
         assert_eq!(on, vec!["cpp_throw".to_string()]);
         let end = s.cont().unwrap();
         assert!(end.exited, "{end:?}");
+        s.stop();
+    }
+
+    /// r23 F2b: a real recording (rr) replayed through gdb in DAP mode — the span, a breakpoint,
+    /// stepping back, the last write to a variable, every write to it, and travelling back to a stop.
+    #[test]
+    fn real_replay_with_rr() {
+        let gdb = Command::new("gdb").arg("--version").output().is_ok();
+        if !crate::rr::probe().works
+            || !gdb
+            || Command::new("cc").arg("--version").output().is_err()
+        {
+            eprintln!("skipped: rr cannot record here, or no gdb/cc");
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("t.c");
+        std::fs::write(
+            &src,
+            // the variable lives in a thread and is written in a callee, through a pointer — like a Rust test
+            // (its own thread) writing through `&mut self`; rr's ticks are per thread
+            "#include <stdio.h>\n#include <pthread.h>\nvoid add(int *t, int i) {\n  *t += i;\n}\nvoid *work(void *arg) {\n  int total = 0;\n  for (int i = 0; i < 4; i++) {\n    add(&total, i);\n  }\n  int last = total;\n  printf(\"%d\\n\", last);\n  return arg;\n}\nint main(void) {\n  pthread_t th;\n  pthread_create(&th, 0, work, 0);\n  pthread_join(th, 0);\n  return 0;\n}\n",
+        )
+        .unwrap();
+        let bin = d.path().join("t");
+        assert!(Command::new("cc")
+            .args(["-g", "-O0", "-pthread", "-o"])
+            .arg(&bin)
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success());
+        let rec = crate::rr::record(
+            "dapc-replay-test",
+            bin.to_str().unwrap(),
+            &[],
+            Some(d.path()),
+        )
+        .unwrap();
+        let log: Arc<Mutex<String>> = Arc::default();
+        let sink = log.clone();
+        let s = DapSession::replay(
+            &rec.trace,
+            bin.to_str().unwrap(),
+            Some(d.path().to_str().unwrap()),
+            Some(Arc::new(move |_c: &str, t: &str| {
+                sink.lock().unwrap().push_str(t)
+            })),
+        )
+        .unwrap();
+        assert!(s.is_replay() && s.caps().step_back);
+        let span = s.position().unwrap();
+        assert!(
+            (span.end_event, span.end_ticks) > (span.start_event, span.start_ticks),
+            "{span:?}"
+        );
+        let file = src.to_str().unwrap();
+        s.set_breakpoints(
+            file,
+            &[BreakpointSpec {
+                line: 11,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        let st = s.run().unwrap();
+        assert_eq!(st.line, 11, "{st:?}");
+        let at7 = s.position().unwrap();
+        // one step back: into the loop
+        let back = s.reverse("next").unwrap();
+        assert!(back.line < 11, "{back:?}");
+        assert!(
+            (s.position().unwrap().event, s.position().unwrap().ticks) <= (at7.event, at7.ticks)
+        );
+        // forwards again, then: where did `total` last change?
+        s.set_breakpoints(file, &[]).unwrap();
+        let _ = s.travel(at7.event, at7.ticks, file, 11, None).unwrap();
+        assert_eq!(
+            (s.position().unwrap().event, s.position().unwrap().ticks),
+            (at7.event, at7.ticks)
+        );
+        let lw = s.last_write(0, "total").unwrap();
+        // the last write is inside `add`, through the pointer
+        assert_eq!((lw.func.as_str(), lw.line), ("add", 4), "{lw:?}");
+        assert!(
+            lw.description
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("total = "),
+            "{lw:?}"
+        );
+        // every write to `total` in the recording (the initialisation and the loop's 4), and back
+        let _ = s.travel(at7.event, at7.ticks, file, 11, None).unwrap();
+        let hits = s.writes(0, "total", 20).unwrap();
+        // each change while `work` runs (a watchpoint stops when the value changes: `+= 0` does not),
+        // with the value the write left
+        let vals: Vec<&str> = hits.iter().map(|h| h.values.as_str()).collect();
+        // (the initialisation shows only when the stack held something else before)
+        assert!(
+            vals.ends_with(&["total = 1", "total = 3", "total = 6"]) && vals.len() <= 4,
+            "{hits:?}"
+        );
+        assert!(
+            hits.iter().all(|h| h.func == "add" || h.func == "work"),
+            "{hits:?}"
+        );
+        assert!(hits
+            .windows(2)
+            .all(|w| (w[0].event, w[0].ticks) < (w[1].event, w[1].ticks)));
+        assert_eq!(
+            (s.position().unwrap().event, s.position().unwrap().ticks),
+            (at7.event, at7.ticks),
+            "back where it was"
+        );
+        // to a write found (a watchpoint stops mid-line: travel by its location, not by a line)
+        let w = &hits[hits.len() - 2];
+        let _ = s
+            .travel(w.event, w.ticks, &w.file, w.line, Some(&w.location))
+            .unwrap();
+        let p = s.position().unwrap();
+        assert_eq!((p.event, p.ticks), (w.event, w.ticks), "{w:?}");
+        // the start and the end of the recording
+        let _ = s
+            .travel(span.start_event, span.start_ticks, "", 0, None)
+            .unwrap();
+        let end = s.travel(span.end_event, span.end_ticks, "", 0, None);
+        let end = end.unwrap_or_else(|e| panic!("{e}\n--- gdb said:\n{}", log.lock().unwrap()));
+        assert_eq!(end.reason, "end-of-recording", "{end:?}");
+        // at the end, continue stays there (and the session lives on); going back still works
+        assert_eq!(s.cont().unwrap().reason, "end-of-recording");
+        assert!(s.reverse("continue").unwrap().stopped);
+        assert!(
+            (s.position().unwrap().event, s.position().unwrap().ticks)
+                < (span.end_event, span.end_ticks)
+        );
+        assert!(
+            log.lock().unwrap().contains('6'),
+            "the replayed program's output reaches the console"
+        );
         s.stop();
     }
 
