@@ -12,7 +12,7 @@ export interface HostCaps {
   adapter: string | null;
   engine: string | null;
   note: string;
-  timeTravel: { available: boolean; reason: string; perfEventParanoid: number | null };
+  timeTravel: { available: boolean; reason: string; perfEventParanoid: number | null; error?: string | null };
 }
 
 export type ToolKey = "rcont" | "back" | "cont" | "over" | "into" | "out" | "cursor" | "rframe" | "restart" | "stop";
@@ -31,6 +31,7 @@ const ORDER: ToolKey[] = ["rcont", "back", "cont", "over", "into", "out", "curso
 export function timeTravelWhy(host: HostCaps | null): { why: string; params?: Record<string, string | number> } {
   const r = host?.timeTravel.reason ?? "unknown";
   if (r === "perf-paranoid") return { why: "tt-perf-paranoid", params: { n: host?.timeTravel.perfEventParanoid ?? "?" } };
+  if (r === "rr-cannot-record") return { why: "tt-rr-cannot-record", params: { e: host?.timeTravel.error ?? "" } };
   if (r === "ok") return { why: "tt-live" };
   return { why: `tt-${r}` };
 }

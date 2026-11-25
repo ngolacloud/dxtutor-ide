@@ -10,7 +10,7 @@ import { esc } from "../../../core";
 import { bpKind, type BpMeta, type VarNode, type Watch } from "../domain/dap";
 import type { Session } from "../domain/session";
 import type { DapKey } from "./dap-messages";
-import { consoleBlock, dataBpsBlock, memoryBlock, stackBlock, varActions, type TX } from "./dbgx-view";
+import { consoleBlock, dataBpsBlock, memoryBlock, stackBlock, timelineBlock, varActions, type TX } from "./dbgx-view";
 import type { ConsoleLine } from "../domain/console";
 
 export type T = (k: DapKey, p?: Record<string, string | number>) => string;
@@ -35,7 +35,7 @@ function varRows(t: T, s: Session, nodes: VarNode[], expanded: Set<number>, dept
     const open = v.reference > 0 && expanded.has(v.reference);
     const kids = open ? s.children?.[v.reference] : undefined;
     const tw = v.reference > 0 ? `<span class="dvt">${open ? "▾" : "▸"}</span>` : `<span class="dvt"></span>`;
-    return `<div class="dv dvx${v.changed ? " chg" : ""}" style="padding-left:${10 + depth * 14}px"${v.reference > 0 ? ` data-action="var-toggle" data-on="${v.reference}"` : ""} title="${esc(v.type)}${v.changed ? " · " + t("changed") : ""}">${tw}<span class="k notr">${esc(v.name)}</span><span class="v notr">${esc(v.value)}</span>${more ? varActions(more.tx, s.caps, v) : ""}</div>`
+    return `<div class="dv dvx${v.changed ? " chg" : ""}" style="padding-left:${10 + depth * 14}px"${v.reference > 0 ? ` data-action="var-toggle" data-on="${v.reference}"` : ""} title="${esc(v.type)}${v.changed ? " · " + t("changed") : ""}">${tw}<span class="k notr">${esc(v.name)}</span><span class="v notr">${esc(v.value)}</span>${more ? varActions(more.tx, s.caps, v, !!s.replay) : ""}</div>`
       + (open ? (kids ? varRows(t, s, kids, expanded, depth + 1, more) : `<div class="sec-empty" style="padding-left:${24 + depth * 14}px">…</div>`) : "");
   }).join("");
 }
@@ -61,7 +61,7 @@ export function dapStopped(t: T, s: Session, x: DapExtra, canAsk: boolean, canSn
   const why = st && st.description ? `<div class="sec-empty notr dbg-why">${esc(st.description)}</div>` : "";
   const asks = `<div class="dbg-acts">${canAsk ? `<button class="btn ghost dbg-ai" data-action="ask-explain">${t("askExplain")}</button><button class="btn ghost dbg-ai" data-action="ask-test">${t("askTest")}</button>` : ""}${canSnapshot ? `<button class="btn ghost" data-action="snapshot">${t("snapshot")}</button>` : ""}</div>`;
   if (more) {
-    return why + asks + threads + `<div class="scm-grp">${t("variables")}</div>${vars}` + (s.memory ? memoryBlock(more.tx, s.memory) : "")
+    return why + asks + (s.replay ? timelineBlock(more.tx, s.replay) : "") + threads + `<div class="scm-grp">${t("variables")}</div>${vars}` + (s.memory ? memoryBlock(more.tx, s.memory) : "")
       + stackBlock(more.tx, s, more.root, more.jmc, more.libOpen) + watch + dataBpsBlock(more.tx, s.dataBps ?? []) + consoleBlock(more.tx, x.output, more.console, true);
   }
   return why + asks + threads + `<div class="scm-grp">${t("variables")}</div>${vars}` + `<div class="scm-grp">Call stack</div>${stack}` + watch + outputBlock(t, x.output);

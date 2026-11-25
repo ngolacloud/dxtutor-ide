@@ -13,6 +13,7 @@ import type { Frame, Session, Stop, Var } from "../domain/session";
 import type { BpMeta, BreakpointSpec, DapThread, DataBp, LaunchInfo, VarNode, Watch } from "../domain/dap";
 import type { HostCaps } from "../domain/caps";
 import type { ConsoleLine, TestBinary } from "../domain/console";
+import type { Position, Recording, WriteHit } from "../domain/replay";
 import type { DebugCopy } from "./messages";
 
 /** O motor de depuração do backend (gdb/MI), por sessão. */
@@ -44,6 +45,14 @@ export interface DebugPort {
   exceptionFilters?(id: string, filters: string[]): Promise<string[]>;
   /** the project's test binaries and their tests (`cargo test --no-run`) */
   testTargets?(root: string): Promise<TestBinary[]>;
+  /* ── r23 F2b: record and replay (rr) ── */
+  record?(id: string, program: string, args: string[], cwd: string): Promise<Recording>;
+  replay?(id: string, trace: string, program: string, cwd: string): Promise<LaunchInfo>;
+  reverse?(id: string, kind: "next" | "step" | "out" | "continue"): Promise<Stop>;
+  position?(id: string): Promise<Position>;
+  travel?(id: string, event: number, ticks: number, file: string, line: number, watch?: string): Promise<Stop>;
+  lastWrite?(id: string, frame: number, expression: string): Promise<Stop>;
+  writes?(id: string, frame: number, expression: string, max?: number): Promise<WriteHit[]>;
   pause?(id: string): Promise<void>;
   /** the program's output as it comes (unsubscribe with the returned function) */
   onOutput?(f: (id: string, category: string, text: string) => void): void;
@@ -223,6 +232,18 @@ export interface DebugEngine {
   copyPanic(): void;
   /** the host's capabilities (asked once; null until they come) */
   host(): Promise<HostCaps | null>;
+  /* ── r23 F2b ── */
+  /** «Record and Replay Test…»: builds, picks a test, records it with rr and replays it (stops on its panic) */
+  recordTest(): Promise<void>;
+  /** the live session's run again, recorded, and replayed (from the panic card) */
+  replayThisRun(): Promise<void>;
+  /** to a mark of the timeline (its index), or to the recording's start */
+  travelTo(index: number): Promise<void>;
+  travelStart(): Promise<void>;
+  /** «where did this come from»: the variable at `path` (or an expression), its last write */
+  originOf(pathOrExpression: string, isPath: boolean): Promise<void>;
+  /** every change to an expression in the selected frame, as marks */
+  changesOf(expression: string): Promise<void>;
   /** what the view reads besides the session */
   extra(): { watches: Watch[]; output: string[]; stopOnPanic: boolean; expanded: Set<number>; host: HostCaps | null; console: ConsoleLine[]; groupsOff: Set<string>; jmc: boolean; libOpen: Set<number>; exceptionFilters: Set<string> };
 }

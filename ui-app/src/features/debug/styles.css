@@ -98,3 +98,12 @@
 .dbg-groups .k{color:var(--fg-dim);margin-right:4px}
 .dbg-grp{border:1px solid var(--border-strong);border-radius:10px;background:var(--accent-soft);color:var(--fg);padding:1px 8px;cursor:pointer;font-size:11px}
 .dbg-grp.off{background:transparent;color:var(--fg-muted);text-decoration:line-through}
+/* ───── r23 F2b: record and replay ───── */
+#dbg-tb .badge.replay{background:rgba(198,120,221,.18);color:var(--purple)}
+.dbg-tl{padding:6px 14px 10px}
+.dbg-tl .bar{position:relative;height:16px;border-radius:4px;background:var(--bg-input);border:1px solid var(--border)}
+.dbg-tl .mk{position:absolute;top:2px;width:8px;height:10px;margin-left:-4px;border:0;border-radius:2px;background:var(--fg-muted);cursor:pointer;padding:0}
+.dbg-tl .mk.write{background:var(--yellow)}.dbg-tl .mk.panic{background:var(--red)}
+.dbg-tl .mk:hover{outline:1px solid var(--fg)}
+.dbg-tl .now{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--purple);pointer-events:none}
+.dbg-writes-in{margin:0 10px 6px;width:calc(100% - 20px);font-family:var(--font-mono);font-size:11px}

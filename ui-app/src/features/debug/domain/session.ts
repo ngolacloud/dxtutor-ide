@@ -15,6 +15,8 @@ export interface Stop {
   /** DAP: the thread that stopped, and the adapter's explanation (an exception's text) */
   thread?: number;
   description?: string;
+  /** r23 F2b: a replay's write — the watched location, to travel back to it */
+  watch?: string;
 }
 
 export interface Var { name: string; value: string }
@@ -51,6 +53,8 @@ export interface Session {
   /** how long the program ran before this stop (ms), and how many stops so far */
   perfMs?: number;
   stops?: number;
+  /** r23 F2b: a replay of a recording (rr): where it is, the timeline's marks, the last query */
+  replay?: import("./replay").ReplayState | null;
   /** «Debug Test…»: stop on panic in this session (and when it restarts) */
   panicOnStart?: boolean;
   /** the panic the program stopped on (read from its output) */

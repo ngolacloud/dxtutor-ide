@@ -13,6 +13,7 @@ import { hexRows, type ConsoleLine } from "../domain/console";
 import type { Panic } from "../domain/exception";
 import type { DataBp, SessionCaps } from "../domain/dap";
 import type { Session } from "../domain/session";
+import { pct, type ReplayState } from "../domain/replay";
 import type { DbgxKey } from "./dbgx-messages";
 
 export type TX = (k: DbgxKey, p?: Record<string, string | number>) => string;
@@ -39,7 +40,7 @@ export const icon = (k: keyof typeof P, s = 15): string =>
 
 /** The floating toolbar's inside: grip, the buttons, the LIVE badge with the stop count, and an
  *  «i» that lists what is not offered here and why. */
-export function toolbarHtml(t: TX, tb: Toolbar, stops: number, why: (m: Toolbar["missing"][number]) => string): string {
+export function toolbarHtml(t: TX, tb: Toolbar, stops: number, why: (m: Toolbar["missing"][number]) => string, replay?: { n: number; total: number } | null): string {
   const btn = (k: ToolKey, on: boolean) => {
     const keys = TOOL_KEYS[k] ? ` (${TOOL_KEYS[k]})` : "";
     const cls = k === "cont" ? "pri" : k === "stop" ? "red" : k === "rcont" || k === "back" ? "tt" : "";
@@ -48,7 +49,10 @@ export function toolbarHtml(t: TX, tb: Toolbar, stops: number, why: (m: Toolbar[
   const missing = tb.missing.length
     ? `<span class="dbg-tb-miss" tabindex="0" title="${esc([t("tb-missing"), ...tb.missing.map((m) => `• ${t(`tb-${m.key}` as DbgxKey)}: ${why(m)}`)].join("\n"))}">i</span>`
     : "";
-  return `<span class="grip" title="${esc(t("tb-grip"))}">${icon("grip", 12)}</span>${tb.buttons.map((b) => btn(b.key, b.enabled)).join("")}<span class="sep"></span><span class="badge live" title="${esc(t("tb-live-title"))}">${esc(t("tb-live"))}</span>${stops ? `<span class="pos notr">${esc(t("tb-stops", { n: stops }))}</span>` : ""}${missing}`;
+  const badge = replay
+    ? `<span class="badge replay" title="${esc(t("tb-replay-title"))}">${esc(t("tb-replay"))}</span><span class="pos notr">${esc(t("tb-pos", { n: replay.n, total: replay.total }))}</span>`
+    : `<span class="badge live" title="${esc(t("tb-live-title"))}">${esc(t("tb-live"))}</span>${stops ? `<span class="pos notr">${esc(t("tb-stops", { n: stops }))}</span>` : ""}`;
+  return `<span class="grip" title="${esc(t("tb-grip"))}">${icon("grip", 12)}</span>${tb.buttons.map((b) => btn(b.key, b.enabled)).join("")}<span class="sep"></span>${badge}${missing}`;
 }
 
 /** The debug console: the program's output, the evaluations, and the input (it may run code). */
@@ -94,8 +98,9 @@ export function memoryBlock(t: TX, m: { name: string; address: string; bytes: nu
 }
 
 /** The actions at the end of a variable's row (shown on hover): break on write, show memory. */
-export function varActions(t: TX, caps: SessionCaps | null | undefined, v: { name: string; reference: number; path: string; memoryReference?: string | null }): string {
+export function varActions(t: TX, caps: SessionCaps | null | undefined, v: { name: string; reference: number; path: string; memoryReference?: string | null }, replay = false): string {
   const out: string[] = [];
+  if (replay) out.push(`<button class="dvw-a" title="${esc(t("origin"))}" data-action="dbg-origin" data-on="${esc(v.path)}">↶</button>`);
   if (caps?.dataBreakpoints) out.push(`<button class="dvw-a" title="${esc(t("breakOnWrite"))}" data-action="dbg-data" data-on="${esc(v.reference + "|" + v.name)}">⦿</button>`);
   if (caps?.readMemory && v.memoryReference) out.push(`<button class="dvw-a" title="${esc(t("viewMemory"))}" data-action="dbg-mem" data-on="${esc(v.path)}">▦</button>`);
   return out.join("");
@@ -112,7 +117,7 @@ export const perfTipText = (t: TX, ms: number | undefined): string | null => (ms
 
 /** The exception helper card: the panic, left/right of an assertion, the stack's top frames
  *  (no cause chain without a recording), and its actions. */
-export function exceptionCardHtml(t: TX, p: Panic, frames: Array<{ level: number; func: string; file: string; line: number }>, canAsk: boolean): string {
+export function exceptionCardHtml(t: TX, p: Panic, frames: Array<{ level: number; func: string; file: string; line: number }>, canAsk: boolean, rr: { canReplay: boolean; inReplay: boolean } = { canReplay: false, inReplay: false }): string {
   const lr = p.left !== undefined
     ? `<div class="lr"><span>${esc(t("panicLeft"))}</span><code>${esc(p.left)}</code><span>${esc(t("panicRight"))}</span><code>${esc(p.right ?? "")}</code></div>`
     : "";
@@ -120,5 +125,22 @@ export function exceptionCardHtml(t: TX, p: Panic, frames: Array<{ level: number
   return `<div class="h">${icon("bolt", 14)}<b>${esc(t("panic"))}</b><span class="notr">${esc(t("panicThread", { thread: p.thread }))}</span><button data-action="dbg-exc-close" title="${esc(t("close"))}">×</button></div>`
     + `<div class="msg notr">${esc(p.message)}</div>${lr}`
     + `<div class="chain"><div class="k">${esc(t("panicNoChain"))}</div>${stack}</div>`
-    + `<div class="acts">${canAsk ? `<button class="ai" data-action="dbg-ask-panic">${icon("spark", 13)} ${esc(t("askPanicBtn"))}</button>` : ""}<button data-action="dbg-copy-panic">${icon("copy", 13)} ${esc(t("copy"))}</button></div>`;
+    + `<div class="acts">${rr.inReplay ? `<button data-action="dbg-origin-ask">↶ ${esc(t("originAsk"))}</button>` : rr.canReplay ? `<button data-action="dbg-replay-run">${icon("back", 13)} ${esc(t("replayRun"))}</button>` : ""}${canAsk ? `<button class="ai" data-action="dbg-ask-panic">${icon("spark", 13)} ${esc(t("askPanicBtn"))}</button>` : ""}<button data-action="dbg-copy-panic">${icon("copy", 13)} ${esc(t("copy"))}</button></div>`;
+}
+
+/** The recording's timeline: the bar with the marks (stops, writes, the panic) and «now», the
+ *  step position, «to the start», and the «every change to…» query with what it found. */
+export function timelineBlock(t: TX, r: ReplayState): string {
+  const p = r.position;
+  if (!p) return "";
+  const kinds = { stop: t("markStop"), write: t("markWrite"), panic: t("markPanic") };
+  const marks = r.marks.map((m, i) => `<button class="mk ${m.kind}" style="left:${pct(p, m.event).toFixed(2)}%" data-action="dbg-travel" data-on="${i}" title="${esc(`${kinds[m.kind]} · ${m.label}${m.line ? ` (${m.file.split("/").pop()}:${m.line})` : ""}`)}"></button>`).join("");
+  const q = r.query;
+  const hits = q && q.hits.length
+    ? `<div class="scm-grp">${esc(t("changesOf", { e: q.expression }))}<span class="cnt">${q.hits.length}</span></div>`
+      + q.hits.map((h) => { const i = r.marks.findIndex((m) => m.event === h.event && m.ticks === h.ticks); return `<div class="dv"${i >= 0 ? ` data-action="dbg-travel" data-on="${i}"` : ""}><span class="k notr">${esc((h.file.split("/").pop() || "") + ":" + h.line)}</span><span class="v notr">${esc(h.values)}</span></div>`; }).join("")
+    : "";
+  return `<div class="scm-grp">${esc(t("timeline"))}<span class="cnt notr">${esc(t("tb-pos", { n: p.event, total: p.endEvent }))}</span><button class="dbg-mini" data-action="dbg-travel-start">⏮ ${esc(t("timelineStart"))}</button></div>`
+    + `<div class="dbg-tl"><div class="bar">${marks}<span class="now" style="left:${pct(p, p.event).toFixed(2)}%"></span></div></div>`
+    + `<input class="inp dbg-writes-in notr" data-action="dbg-writes" placeholder="${esc(t("writesPh"))}">` + hits;
 }

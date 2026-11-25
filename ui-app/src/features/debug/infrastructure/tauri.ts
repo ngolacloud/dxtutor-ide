@@ -16,6 +16,7 @@ import type { Frame, Stop, Var } from "../domain/session";
 import type { BpMeta, DapThread, DataBp, LaunchInfo, VarNode } from "../domain/dap";
 import type { HostCaps } from "../domain/caps";
 import type { TestBinary } from "../domain/console";
+import type { Position, Recording, WriteHit } from "../domain/replay";
 
 export const tauriDebug = (inv: Invoker = invoke, desktop: () => boolean = isDesktop): DebugPort => ({
   available: async () => (desktop() ? inv<boolean>("debug_available") : false),
@@ -39,6 +40,13 @@ export const tauriDebug = (inv: Invoker = invoke, desktop: () => boolean = isDes
   readMemory: (id, memoryReference, offset, count) => inv<{ address: string; bytes: number[]; unreadable: number }>("debug_read_memory", { id, memoryReference, offset, count }),
   exceptionFilters: (id, filters) => inv<string[]>("debug_exception_filters", { id, filters }),
   testTargets: (root) => inv<TestBinary[]>("debug_test_targets", { root }),
+  record: (id, program, args, cwd) => inv<Recording>("debug_record", { id, program, args, cwd }),
+  replay: (id, trace, program, cwd) => inv<LaunchInfo>("debug_replay", { id, trace, program, cwd }),
+  reverse: (id, kind) => inv<Stop>("debug_reverse", { id, kind }),
+  position: (id) => inv<Position>("debug_position", { id }),
+  travel: (id, event, ticks, file, line, watch) => inv<Stop>("debug_travel", watch ? { id, event, ticks, file, line, watch } : { id, event, ticks, file, line }),
+  lastWrite: (id, frame, expression) => inv<Stop>("debug_last_write", { id, frame, expression }),
+  writes: (id, frame, expression, max) => inv<WriteHit[]>("debug_writes", max === undefined ? { id, frame, expression } : { id, frame, expression, max }),
   pause: (id) => inv<void>("debug_pause", { id }),
   attachTargets: (target) => inv<{ ok: boolean; places: string[]; processes: Array<{ pid: number; command: string }>; adapter: string | null; notes: string }>("debug_attach_targets", { target }),
   attach: (id, target, pid, adapter, root, remoteRoot) => inv<LaunchInfo>("debug_attach", { id, target, pid, adapter, root, remoteRoot }),

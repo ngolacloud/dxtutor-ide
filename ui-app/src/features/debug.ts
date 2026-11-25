@@ -102,7 +102,8 @@ function refreshDbg(): void {
 const MISS_WHY = (m: { why: string; params?: Record<string, string | number> }): string => sayD(m.why, { adapter: SESSION?.adapter ?? "", ...(m.params ?? {}) });
 function drawFloating(): void {
   const s = SESSION;
-  renderToolbar(s ? toolbarHtml(tX, toolbarFor(s, engine.extra().host), s.stops ?? 0, MISS_WHY) : null);
+  const rp = s?.replay?.position;
+  renderToolbar(s ? toolbarHtml(tX, toolbarFor(s, engine.extra().host), s.stops ?? 0, MISS_WHY, rp ? { n: rp.event, total: rp.endEvent } : null) : null);
   drawExceptionCard();
 }
 function drawExceptionCard(): void {
@@ -113,7 +114,8 @@ function drawExceptionCard(): void {
   const at = user[0] ?? null;
   const key = at ? fsKeyFor(at.file, r, fsRoot()) : null;
   if (!at || key !== t.path) { renderExceptionCard(null, 0); return; }
-  renderExceptionCard(exceptionCardHtml(tX, p, user, codevAsk.available()), at.line);
+  const rr = { canReplay: !!engine.extra().host?.timeTravel.available, inReplay: !!s!.replay };
+  renderExceptionCard(exceptionCardHtml(tX, p, user, codevAsk.available(), rr), at.line);
 }
 
 /** Renderiza o pane «Run and Debug»: os controlos e o estado da sessão (onde parou, variáveis,
@@ -126,7 +128,7 @@ function renderDebugPane(): void {
   const dap = !!s && s.engine === "dap", x = engine.extra();
   const ctl = s
     ? `<div class="dbg-ctl"><button title="Continue (F5)" data-action="continue"${s.status !== "stopped" ? " disabled" : ""}>▶</button><button title="Step over (F10)" data-action="step"${s.status !== "stopped" ? " disabled" : ""}>↷</button><button title="Step into (F11)" data-action="step-into"${s.status !== "stopped" ? " disabled" : ""}>↓</button>${dap ? dapButtons(tD, s) : ""}<button title="Stop (Shift+F5)" data-action="stop">■</button><span class="notr">${esc(s.program.split("/").pop() || s.program)}</span>${dap ? dapExtras(tD, s.adapter || "lldb-dap", x.stopOnPanic) : ""}</div>`
-    : `<button class="btn" data-action="start">Start debugging (F5)</button>${isDesktop() ? `<button class="btn ghost" data-action="attach">${tD("attach")}</button><button class="btn ghost" data-action="dbg-test">${esc(tX("debugTest"))}</button>` : ""}`;
+    : `<button class="btn" data-action="start">Start debugging (F5)</button>${isDesktop() ? `<button class="btn ghost" data-action="attach">${tD("attach")}</button><button class="btn ghost" data-action="dbg-test">${esc(tX("debugTest"))}</button>${x.host?.timeTravel.available ? `<button class="btn ghost" data-action="dbg-record-test">${esc(tX("recordTest"))}</button>` : ""}` : ""}`;
   const where = s
     ? s.status === "stopped" && st && dap
       ? `<div class="sec-empty notr">Parado em <b>${esc(st.func || "?")}</b> · ${esc((st.file || "").split("/").pop() || "")}:${st.line} (${esc(st.reason)})</div>` + dapStopped(tD, s, x, codevAsk.available(), !!projectDebug, { tx: tX, root: root() ?? "", jmc: x.jmc, libOpen: x.libOpen, console: x.console })
@@ -304,6 +306,14 @@ const ACTIONS: ActionTable = {
   "dbg-exc-close": { on: "click", run: () => renderExceptionCard(null, 0) },
   "dbg-ask-panic": { on: "click", run: () => engine.askPanic() },
   "dbg-copy-panic": { on: "click", run: () => engine.copyPanic() },
+  /* r23 F2b: record and replay */
+  "dbg-record-test": { on: "click", run: () => { void engine.recordTest(); } },
+  "dbg-replay-run": { on: "click", run: () => { void engine.replayThisRun(); } },
+  "dbg-travel": { on: "click", run: (e) => { void engine.travelTo(+e.on); } },
+  "dbg-travel-start": { on: "click", run: () => { void engine.travelStart(); } },
+  "dbg-writes": { on: "change", run: (e) => { const v = e.value; (e.el as HTMLInputElement).value = ""; void engine.changesOf(v); } },
+  "dbg-origin": { on: "click", run: (e) => { void engine.originOf(e.on, true); } },
+  "dbg-origin-ask": { on: "click", run: () => { void paletteAsk(tX("originAskPh")).then((v) => { if (v && v.trim()) void engine.originOf(v, false); }); } },
 };
 
 /** The cursor's line in the editor (run to cursor). */
@@ -349,4 +359,10 @@ export const dbgRestart = (): Promise<void> => engine.restart();
 export const dbgStepBack = (): Promise<void> => engine.stepBack();
 export const dbgReverseContinue = (): Promise<void> => engine.reverseContinue();
 export const dbgTest = (): Promise<void> => engine.debugTest();
+export const dbgRecordTest = (): Promise<void> => engine.recordTest();
+/* r23 F2b: o auto-teste conduz a reprodução por aqui (e lê onde está) */
+export const dbgOrigin = (expression: string): Promise<void> => engine.originOf(expression, false);
+export const dbgChanges = (expression: string): Promise<void> => engine.changesOf(expression);
+export const dbgTravel = (index: number): Promise<void> => engine.travelTo(index);
+export const dbgReplayState = (): { replay: NonNullable<Session["replay"]>; stop: Session["stop"] } | null => (SESSION && SESSION.replay ? { replay: SESSION.replay, stop: SESSION.stop } : null);
 export { dbgRunToCursor };

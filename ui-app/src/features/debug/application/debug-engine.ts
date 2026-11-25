@@ -16,7 +16,8 @@ import { bpActive, isPlain, sessionMarkdown, specsFor, type BpMeta, type VarNode
 import { timeTravelWhy, type HostCaps } from "../domain/caps";
 import { firstUserFrame, isUserFrame } from "../domain/frames";
 import { isPanicStop, panicText, parsePanic } from "../domain/exception";
-import { historyStep, remember, testArgs, testPicks, type ConsoleLine } from "../domain/console";
+import { historyStep, remember, testArgs, testPicks, type ConsoleLine, type TestPick } from "../domain/console";
+import { addMark, expressionOf, writeMarks } from "../domain/replay";
 import type { AttachTarget, DebugDeps, DebugEngine, DebugSettings } from "./ports";
 import { ptCopy } from "./messages";
 
@@ -139,12 +140,26 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     const sel = user > 0 ? user : 0;
     store.setSession({ ...s, status: "stopped", stop: st, locals, stack, frame: sel, children: {}, perfMs, stops: (s.stops ?? 0) + 1, panic, memory: null });
     if (isDap(s)) await loadFrame(id, sel);
-    store.setMessage("");
+    store.setMessage(st.reason === "end-of-recording" ? say("replayEnd") : "");
+    await replayMark(id, panic ? "panic" : "stop", `${st.func}${st.line ? ` · ${st.file.split("/").pop()}:${st.line}` : ""}`);
     await arm(id, st);
     const f = stack[sel], at = f && sel > 0 ? f : { file: st.file, line: st.line };
     const key = fsKeyFor(at.file, root, workspace.fsRoot());
     if (key && workspace.content(key) != null) editor.openPath(key, at.line);
     view.refresh();
+  }
+
+  /** r23 F2b: in a replay, where it is now, and a mark there for the timeline. */
+  async function replayMark(id: string, kind: "stop" | "panic" | "write", label: string): Promise<void> {
+    const s = store.session();
+    if (!s || s.id !== id || !s.replay || !dbg.position) return;
+    const position = await dbg.position(id).catch(() => null);
+    if (!position) return;
+    /* where it really stopped (frame 0: a breakpoint there brings it back), and a write's location */
+    const at = s.stop ?? s.stack[0];
+    const marks = addMark(s.replay.marks, { event: position.event, ticks: position.ticks, kind, file: at?.file ?? "", line: at?.line ?? 0, label, ...(s.stop?.watch ? { watch: s.stop.watch } : {}) });
+    const cur = store.session();
+    if (cur && cur.id === id && cur.replay) store.setSession({ ...cur, replay: { ...cur.replay, position, marks } });
   }
 
   /** A stop on a breakpoint arms the ones that wait for it (sent to the adapter from now on). */
@@ -158,10 +173,18 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     for (const file of new Set(waiting)) await sendFile(id, file).catch(() => undefined);
   }
 
-  async function guarded(f: () => Promise<void>): Promise<void> {
+  /** One operation at a time; an error ends the session — unless `keep` (r23 F2b: a query or a
+   *  travel in a replay that fails leaves the replay where it was, stopped, with the message). */
+  async function guarded(f: () => Promise<void>, keep = false): Promise<void> {
     if (busy) return;
     busy = true;
-    try { await f(); } catch (e) { fail(e); const s = store.session(); if (s) { await dbg.stop(s.id).catch(() => undefined); store.setSession(null); } view.refresh(); } finally { busy = false; }
+    try { await f(); } catch (e) {
+      fail(e);
+      const s = store.session();
+      if (s && keep) store.setSession({ ...s, status: "stopped" });
+      else if (s) { await dbg.stop(s.id).catch(() => undefined); store.setSession(null); }
+      view.refresh();
+    } finally { busy = false; }
   }
 
   async function startDebug(): Promise<void> {
@@ -182,12 +205,13 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
 
   /** Launches `program` (with `args`, in `cwd`), sends the breakpoints and the exception settings,
    *  and runs to the first stop. Called inside `guarded`. */
-  async function launchSession(program: string, args: string[], cwd: string, panic = false): Promise<void> {
+  async function launchSession(program: string, args: string[], cwd: string, panic = false, trace?: string): Promise<void> {
     panicThisSession = panic;
     const id = deps.newId();
     armed.clear(); libOpen.clear(); consoleLines.length = 0;
-    store.setSession({ id, program, status: "starting", stop: null, locals: [], stack: [], args, cwd, stops: 0, panicOnStart: panic }); store.setMessage(""); view.refresh();
-    const info = await (args.length ? dbg.launch(id, program, cwd, args) : dbg.launch(id, program, cwd));
+    store.setSession({ id, program, status: "starting", stop: null, locals: [], stack: [], args, cwd, stops: 0, panicOnStart: panic, ...(trace ? { replay: { trace, position: null, marks: [] } } : {}) }); store.setMessage(""); view.refresh();
+    /* r23 F2b: a recording is replayed (rr + gdb) instead of launched */
+    const info = await (trace && dbg.replay ? dbg.replay(id, trace, program, cwd) : args.length ? dbg.launch(id, program, cwd, args) : dbg.launch(id, program, cwd));
     const engine = info && info.engine === "dap" ? "dap" : "gdb";
     store.setSession({ ...store.session()!, engine, adapter: info ? info.adapter : "gdb", caps: info ? info.caps ?? null : null });
     output.length = 0;
@@ -205,10 +229,10 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     await applyStop(id, await dbg.run(id));
   }
 
-  async function resume(f: (id: string) => Promise<Stop>): Promise<void> {
+  async function resume(f: (id: string) => Promise<Stop>, keep = false): Promise<void> {
     const s = store.session();
     if (!s || s.status !== "stopped") { notifier.toast(copy(s ? "waitStop" : "noSessionF5")); return; }
-    await guarded(async () => { store.setSession({ ...s, status: "running" }); view.refresh(); resumedAt = clock(); await applyStop(s.id, await f(s.id)); });
+    await guarded(async () => { store.setSession({ ...s, status: "running" }); view.refresh(); resumedAt = clock(); await applyStop(s.id, await f(s.id)); }, keep);
   }
 
   const dbgContinue = (): Promise<void> => resume((id) => dbg.cont(id));
@@ -486,6 +510,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     const s = store.session();
     if (!s) return startDebug();
     if (s.status === "starting") return;
+    if (s.replay) return travelStart();
     await dbg.stop(s.id).catch(() => undefined);
     store.setSession(null);
     const root = workspace.root();
@@ -515,8 +540,14 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     const w = timeTravelWhy(h);
     notifier.toast(say(w.why, w.params));
   }
-  const stepBack = (): Promise<void> => noTimeTravel();
-  const reverseContinue = (): Promise<void> => noTimeTravel();
+  /* r23 F2b: in a replay, backwards through rr; live, say what is missing */
+  function backwards(kind: "next" | "continue"): Promise<void> {
+    const s = store.session();
+    if (!s || !s.replay || !dbg.reverse) return noTimeTravel();
+    return resume((id) => dbg.reverse!(id, kind));
+  }
+  const stepBack = (): Promise<void> => backwards("next");
+  const reverseContinue = (): Promise<void> => backwards("continue");
 
   async function consoleEval(expr: string): Promise<void> {
     const e = expr.trim();
@@ -535,27 +566,125 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
   function consoleHistory(dir: -1 | 1): string { const r = historyStep(history, histIdx, dir); histIdx = r.idx; return r.text; }
   function consoleClear(): void { consoleLines.length = 0; view.refresh(); }
 
-  async function debugTest(): Promise<void> {
+  /** Builds the tests and asks which one (null: none, or the human gave up). Inside `guarded`. */
+  async function pickTest(root: string): Promise<TestPick | null> {
+    if (!(await dbg.available())) { store.setMessage(copy("noGdb")); view.refresh(); return null; }
+    store.setMessage(say("buildingTests")); view.refresh();
+    let bins;
+    try { bins = await dbg.testTargets!(root); } catch (e) { store.setMessage(e instanceof Error ? e.message : String(e)); view.refresh(); return null; }
+    const picks = testPicks(bins);
+    store.setMessage("");
+    if (!picks.length) { store.setMessage(say("noTests")); view.refresh(); return null; }
+    const label = await picker.choose(say("whichTest"), picks.map((p) => p.label));
+    const pick = picks.find((p) => p.label === label) ?? null;
+    if (!pick) view.refresh();
+    return pick;
+  }
+
+  /** The common checks of «Debug Test» and «Record and Replay Test»: the folder, nothing running. */
+  function testRoot(): string | null {
     store.hydrate(); settings();
-    if (store.session()) { notifier.toast(say("attachBusy")); return; }
+    if (store.session()) { notifier.toast(say("attachBusy")); return null; }
     shell.goPane("debug");
     const root = workspace.root();
-    if (!root) { store.setMessage(copy("openFolder")); view.refresh(); return; }
-    if (!dbg.testTargets) { notifier.toast(say("needsDap")); return; }
+    if (!root) { store.setMessage(copy("openFolder")); view.refresh(); return null; }
+    if (!dbg.testTargets) { notifier.toast(say("needsDap")); return null; }
+    return root;
+  }
+
+  async function debugTest(): Promise<void> {
+    const root = testRoot();
+    if (!root) return;
     await guarded(async () => {
-      if (!(await dbg.available())) { store.setMessage(copy("noGdb")); view.refresh(); return; }
-      store.setMessage(say("buildingTests")); view.refresh();
-      let bins;
-      try { bins = await dbg.testTargets!(root); } catch (e) { store.setMessage(e instanceof Error ? e.message : String(e)); view.refresh(); return; }
-      const picks = testPicks(bins);
-      store.setMessage("");
-      if (!picks.length) { store.setMessage(say("noTests")); view.refresh(); return; }
-      const label = await picker.choose(say("whichTest"), picks.map((p) => p.label));
-      const pick = picks.find((p) => p.label === label);
-      if (!pick) { view.refresh(); return; }
+      const pick = await pickTest(root);
       /* a failing test panics: stop there (this session only; the setting stays as the human left it) */
-      await launchSession(pick.binary.executable, testArgs(pick.name), pick.binary.cwd || root, true);
+      if (pick) await launchSession(pick.binary.executable, testArgs(pick.name), pick.binary.cwd || root, true);
     });
+  }
+
+  /* ───── r23 F2b: record and replay (rr) ───── */
+
+  /** Can this host record? Otherwise say why (and stop). */
+  async function canRecord(): Promise<boolean> {
+    const h = await host();
+    if (h?.timeTravel.available && dbg.record && dbg.replay) return true;
+    await noTimeTravel();
+    return false;
+  }
+
+  /** Records `program args` with rr, then replays the recording to its first stop. Inside `guarded`. */
+  async function recordAndReplay(program: string, args: string[], cwd: string, panic: boolean): Promise<void> {
+    store.setMessage(say("recording")); view.refresh();
+    let rec;
+    try { rec = await dbg.record!(deps.newId(), program, args, cwd); } catch (e) { store.setMessage(e instanceof Error ? e.message : String(e)); view.refresh(); return; }
+    store.setMessage(say("replaying")); view.refresh();
+    await launchSession(program, args, cwd, panic, rec.trace);
+  }
+
+  async function recordTest(): Promise<void> {
+    const root = testRoot();
+    if (!root || !(await canRecord())) return;
+    await guarded(async () => {
+      const pick = await pickTest(root);
+      if (pick) await recordAndReplay(pick.binary.executable, testArgs(pick.name), pick.binary.cwd || root, true);
+    });
+  }
+
+  /** The live session's program, run again under rr and replayed (the panic card's «replay this run»). */
+  async function replayThisRun(): Promise<void> {
+    const s = store.session(), root = workspace.root();
+    if (!s || !root || s.replay) return;
+    if (!(await canRecord())) return;
+    await dbg.stop(s.id).catch(() => undefined);
+    store.setSession(null);
+    await guarded(() => recordAndReplay(s.program, s.args ?? [], s.cwd ?? root, !!s.panicOnStart || stopOnPanic));
+  }
+
+  const replaying = (): Session | null => { const s = stopped(); if (!s || !s.replay) { notifier.toast(say("needsReplay")); return null; } return s; };
+
+  async function travelTo(index: number): Promise<void> {
+    const s = replaying();
+    const m = s?.replay?.marks[index];
+    if (!s || !m || !dbg.travel) return;
+    await resume((id) => dbg.travel!(id, m.event, m.ticks, m.file, m.line, m.watch), true);
+  }
+  async function travelStart(): Promise<void> {
+    const s = replaying();
+    const p = s?.replay?.position;
+    if (!s || !p || !dbg.travel) return;
+    await resume((id) => dbg.travel!(id, p.startEvent, p.startTicks, "", 0), true);
+  }
+
+  async function originOf(pathOrExpression: string, isPath: boolean): Promise<void> {
+    const s = replaying();
+    if (!s || !dbg.lastWrite) return;
+    let expr: string | null = pathOrExpression.trim();
+    if (isPath) {
+      const scope = (s.scopes ?? []).find((sc) => pathOrExpression.startsWith(sc.path + "."));
+      expr = scope ? expressionOf(pathOrExpression, scope.path) : null;
+    }
+    if (!expr) return;
+    const e = expr;
+    await resume((id) => dbg.lastWrite!(id, s.frame ?? 0, e), true);
+    const cur = store.session();
+    if (cur && cur.id === s.id && cur.stop) await replayMark(s.id, "write", cur.stop.description || e);
+    view.refresh();
+  }
+
+  async function changesOf(expression: string): Promise<void> {
+    const s = replaying(), e = expression.trim();
+    if (!s || !e || !dbg.writes) return;
+    await guarded(async () => {
+      store.setMessage(say("searching", { e })); view.refresh();
+      const hits = await dbg.writes!(s.id, s.frame ?? 0, e, 50);
+      const cur = store.session();
+      if (!cur || cur.id !== s.id || !cur.replay) return;
+      let marks = cur.replay.marks.filter((m) => m.kind !== "write");
+      for (const m of writeMarks(e, hits)) marks = addMark(marks, m);
+      store.setSession({ ...cur, replay: { ...cur.replay, marks, query: { expression: e, hits } } });
+      store.setMessage(hits.length ? "" : say("writesNone", { e }));
+      view.refresh();
+    }, true);
   }
 
   async function setExceptionFilter(filter: string, on: boolean): Promise<void> {
@@ -661,6 +790,7 @@ export function makeDebugEngine(deps: DebugDeps): DebugEngine {
     dbgStepOut, dbgPause, toggleVar, selectFrame, selectThread, addWatch, removeWatch, setStopOnPanic, editBreakpoint, removeBreakpoint, loadKept, askCodev, snapshot, attach,
     restart, runToCursor, restartFrame, stepBack, reverseContinue, consoleEval, consoleHistory, consoleClear, debugTest, setExceptionFilter,
     addDataBreakpoint, removeDataBreakpoint, viewMemory, closeMemory, setTrigger, setGroup, toggleGroup, toggleJmc, openLibFrames, askPanic, copyPanic, host,
+    recordTest, replayThisRun, travelTo, travelStart, originOf, changesOf,
     extra: () => ({ watches, output, stopOnPanic: stopOnPanic || (panicThisSession && !!store.session()), expanded, host: hostCaps, console: consoleLines, groupsOff, jmc, libOpen, exceptionFilters: excFilters }),
   };
 }
