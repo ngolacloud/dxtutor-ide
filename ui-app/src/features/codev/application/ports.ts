@@ -26,7 +26,7 @@ import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
 import type { ReplyLanguage } from "../domain/reply-language";
 import type { CodevCopy } from "./messages";
 import type { AgentEvent, AgentOrigin, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
-import type { PlanPlace } from "../domain/plan-order";
+import type { LinesCheck, PlanPlace } from "../domain/plan-order";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -209,10 +209,11 @@ export interface ChatPresenter {
    *  when the review ends (from the chat or from the editor). */
   /** RF-S01/S08 (F3.2/F3.3): Co-Dev started writing a block — «Writing `path` 40–52», a link that
    *  opens the file, and where the block falls in the approved plan. One line per tool call. */
-  hunkWriting?(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace }, open: () => void): void;
+  hunkWriting?(ref: CardRef, info: { path: string; start: number; end: number; place: PlanPlace; lines?: LinesCheck }, open: () => void): void;
   hunkReview?(
     ref: ToolRef,
-    info: { path: string; count: number; reason: string },
+    /** `outside`: RF-G08 — blocks of the call outside the lines the plan gave for the file (a warning, never a block). */
+    info: { path: string; count: number; reason: string; outside?: { n: number; planned: string } },
     on: { acceptAll(): void; rejectAll(): void; open(): void },
   ): { settle(label: string): void };
 }
