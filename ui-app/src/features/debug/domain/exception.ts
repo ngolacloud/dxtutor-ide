@@ -3,7 +3,8 @@
    `rust_panic` is called, so it is already in the output when the debugger stops there): the
    thread, where, the message, and — for `assert_eq!`/`assert_ne!` — the left and right values.
    Both formats: Rust ≥ 1.73 (`panicked at src/x.rs:3:9:` then the message) and the older
-   (`panicked at 'msg', src/x.rs:3:9`). Without a recording (rr), there is no cause chain: the
+   (`panicked at 'msg', src/x.rs:3:9`), with or without the thread id newer Rust writes after the name
+   (`thread 't' (1025884) panicked at`), and `\r\n` line ends (a pseudo-terminal). Without a recording (rr), there is no cause chain: the
    card shows the stack. PURE: no DOM, no window. */
 
 export interface Panic {
@@ -16,11 +17,13 @@ export interface Panic {
   right?: string;
 }
 
-const NEW = /thread '([^']*)' panicked at ([^\n]+?):(\d+):(\d+):\n([\s\S]*?)(?=\nnote: |\nthread '|\nstack backtrace:|\n\s*$|$)/g;
-const OLD = /thread '([^']*)' panicked at '([\s\S]*?)', ([^\n]+?):(\d+):(\d+)/g;
+const NEW = /thread '([^']*)'(?: \(\d+\))? panicked at ([^\n]+?):(\d+):(\d+):\n([\s\S]*?)(?=\nnote: |\nthread '|\nstack backtrace:|\n\s*$|$)/g;
+const OLD = /thread '([^']*)'(?: \(\d+\))? panicked at '([\s\S]*?)', ([^\n]+?):(\d+):(\d+)/g;
 
 /** The last panic in the program's output (null: none). */
-export function parsePanic(output: string): Panic | null {
+export function parsePanic(raw: string): Panic | null {
+  /* a program run under a pseudo-terminal (lldb-dap) writes `\r\n` */
+  const output = raw.replace(/\r\n?/g, "\n");
   let last: Panic | null = null, lastAt = -1;
   for (const m of output.matchAll(NEW)) {
     if ((m.index ?? 0) < lastAt) continue;

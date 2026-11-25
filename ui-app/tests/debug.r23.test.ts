@@ -55,6 +55,9 @@ describe("domínio", () => {
     expect(panicText(p)).toContain("  left: None\n right: Some(1)");
     expect(parsePanic("thread 'main' panicked at 'index out of bounds', src/main.rs:3:5\n")).toMatchObject({ thread: "main", file: "src/main.rs", line: 3, message: "index out of bounds" });
     expect(parsePanic("all good\n")).toBeNull();
+    /* what lldb-dap really sends (a pseudo-terminal, newer Rust with the thread id) */
+    const real = "running 1 test\r\n\r\nthread 'tests::evicts_least_recently_used' (1025884) panicked at src/lib.rs:46:9:\r\nassertion `left == right` failed\r\n  left: None\r\n right: Some(1)\r\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\r\n";
+    expect(parsePanic(real)).toEqual({ thread: "tests::evicts_least_recently_used", file: "src/lib.rs", line: 46, column: 9, message: "assertion `left == right` failed", left: "None", right: "Some(1)" });
     expect(isPanicStop(["rust_panic", "std::panicking::begin_panic_handler"])).toBe(true);
     expect(isPanicStop(["main", "start"])).toBe(false);
   });
