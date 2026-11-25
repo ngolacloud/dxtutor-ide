@@ -6,6 +6,7 @@
    kept locally: the store is the source of truth, and each operation returns the project
    after it. No DOM, no window: everything through the ports. */
 
+import { issueDrift, parseViolations, type IssueDrift } from "../domain/drift";
 import type { IssuePrompt, ProjectDeps } from "./ports";
 
 /** Narrows the backend's `project_issue_prompt` answer. */
@@ -50,6 +51,9 @@ export interface ProjectState {
   swim: Swim;
   /** «Ver prompt» (RF-B03): the exact prompt of the selected issue, when open. */
   prompt: (IssuePrompt & { key: string }) | null;
+  /** RF-A05: the architect's rules broken in the files Co-Dev changed for the selected issue
+   *  (`null`: not loaded, no rules file, or no change sets). */
+  drift: IssueDrift | null;
 }
 
 export function makeProjectService(deps: ProjectDeps) {
@@ -65,6 +69,7 @@ export function makeProjectService(deps: ProjectDeps) {
     filters: { q: "", quick: [], me: "" },
     swim: "epic",
     prompt: null,
+    drift: null,
   };
   const listeners = new Set<() => void>();
   const set = (patch: Partial<ProjectState>): void => {
@@ -119,6 +124,12 @@ export function makeProjectService(deps: ProjectDeps) {
     try {
       const d = parseDetail(await deps.gateway.issue(r, key));
       if (st.selected === key) set({ detail: d });
+      // RF-A05: the drift of the rules in the files of the issue's change sets
+      if (d.changeSets.length && deps.gateway.conformance) {
+        const raw = await deps.gateway.conformance(r).catch(() => null);
+        const drift = raw === null ? null : issueDrift(d.changeSets, parseViolations(raw));
+        if (st.selected === key) set({ drift });
+      }
     } catch (e: unknown) {
       deps.notify.toast(parseError(e).message);
     }
@@ -149,7 +160,7 @@ export function makeProjectService(deps: ProjectDeps) {
       if (v === "reports") void loadReports();
     },
     select(key: string | null): void {
-      set({ selected: key, detail: null });
+      set({ selected: key, detail: null, drift: null });
       if (key) void loadDetail(key);
     },
     search(q: string): void {
@@ -295,6 +306,16 @@ export function makeProjectService(deps: ProjectDeps) {
     },
     closePrompt(): void {
       set({ prompt: null });
+    },
+    /** RF-A05: the Problems panel with only the files Co-Dev changed for the selected issue. */
+    driftInProblems(): void {
+      const k = st.selected, d = st.drift;
+      if (!k || !d || !d.files.length || !deps.showInProblems) return;
+      deps.showInProblems(k, d.files);
+    },
+    /** Opens a violation's file at its line. */
+    openViolation(path: string, line: number | null): void {
+      deps.openAt?.(path, line ?? 1);
     },
     /** RF-B04 (F4): edit the prompt template in the IDE. With the built-in one in use, the project's
      *  file (`.dxtutor/prompts/issue.<lang>.md`) is created from it first — after the human

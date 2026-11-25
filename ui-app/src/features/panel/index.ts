@@ -14,6 +14,10 @@
 import { isDesktop } from "../../platform/tauri/core";
 import type { Problem, ShellProfile } from "./domain/types";
 import { ALL, type ProblemFilter } from "./domain/problems";
+import { translator } from "../../app/i18n";
+import { PANEL_SCOPE_MESSAGES } from "./ui/scope-messages";
+import { problemsScope } from "../../app/problems-scope";
+const scopeText = translator(PANEL_SCOPE_MESSAGES);
 import { makeOutput } from "./application/output";
 import { makeTerminals, TASKS_CHANNEL } from "./application/terminals";
 import { makeProblems } from "./application/problems-service";
@@ -96,6 +100,13 @@ function boot(): void {
 
   /* ───── estado das outras vistas ───── */
   let filter: ProblemFilter = { ...ALL };
+  /* RF-A05: the Project asks to show only an issue's files */
+  problemsScope.subscribe((sc) => {
+    filter = { ...filter, files: sc.files, scope: sc.label };
+    L.setPanelTab("problems");
+    drawToolbar();
+    drawProblemsAll();
+  });
   const collapsed = new Set<string>();
   const svc: ServicesModel = { ports: null, portsError: null, showAll: false, root: null, rootName: null, home: null, compose: null, stack: null, stackLoading: false };
 
@@ -187,7 +198,8 @@ function boot(): void {
       left = b("xt-new", L.svg("plus"), "New Terminal (Ctrl+Shift+`)") + b("xt-profiles", L.svg("chev"), "Launch Profile…") + b("xt-split", L.svg("split"), "Split Terminal (Ctrl+Shift+5)") + b("xt-kill", L.svg("trash"), "Kill Terminal") + b("xt-clear", L.svg("collapse"), "Clear Terminal");
     } else if (pt === "problems") {
       const tg = (k: keyof ProblemFilter, ic: string, t: string) => `<button class="pt-tg${filter[k] ? " on" : ""}" data-action="pb-sev" data-on="${k}" title="${t}">${ic}</button>`;
-      left = `<input class="pt-filter" id="pb-filter" placeholder="Filter (e.g. text, !exclude)" data-action="pb-filter" value="${L.esc(filter.text)}">` + tg("errors", "✖", "Show Errors") + tg("warnings", "⚠", "Show Warnings") + tg("infos", "ℹ", "Show Infos") + b("pb-collapse", L.svg("collapse"), "Collapse All") + b("pb-rescan", L.svg("refresh"), "Check the workspace again");
+      const scope = filter.scope ? `<button class="pt-scope" data-action="pb-clear-scope" title="${L.esc(scopeText("pbScopeTitle", { n: filter.files?.length ?? 0 }))}">${L.esc(scopeText("pbScope", { scope: filter.scope }))} ✕</button>` : "";
+      left = scope + `<input class="pt-filter" id="pb-filter" placeholder="Filter (e.g. text, !exclude)" data-action="pb-filter" value="${L.esc(filter.text)}">` + tg("errors", "✖", "Show Errors") + tg("warnings", "⚠", "Show Warnings") + tg("infos", "ℹ", "Show Infos") + b("pb-collapse", L.svg("collapse"), "Collapse All") + b("pb-rescan", L.svg("refresh"), "Check the workspace again");
     } else if (pt === "output") {
       const chs = output.channels();
       left = `<select class="pt-sel" id="op-channel" data-action="op-channel">${chs.map((c) => `<option${c === channel ? " selected" : ""}>${L.esc(c)}</option>`).join("")}</select>` + b("op-clear", L.svg("trash"), "Clear Output");
@@ -245,6 +257,8 @@ function boot(): void {
     "pb-collapse": { on: "click", run: () => { const all = new Set(problems.all().map((p) => p.file)); const allCollapsed = [...all].every((f) => collapsed.has(f)); collapsed.clear(); if (!allCollapsed) all.forEach((f) => collapsed.add(f)); drawProblemsAll(); } },
     "pb-filter": { on: "input", run: (e) => { filter = { ...filter, text: e.value }; drawProblemsAll(); } },
     "pb-clear-filter": { on: "click", run: () => { filter = { ...ALL }; drawToolbar(); drawProblemsAll(); } },
+    /* RF-A05: drop the issue's file filter the Project set */
+    "pb-clear-scope": { on: "click", run: () => { filter = { ...filter, files: undefined, scope: undefined }; drawToolbar(); drawProblemsAll(); } },
     "pb-sev": { on: "click", run: (e) => { const k = e.on as "errors" | "warnings" | "infos"; filter = { ...filter, [k]: !filter[k] }; e.el.classList.toggle("on", filter[k]); drawProblemsAll(); } },
     "pb-rescan": { on: "click", run: () => problems.request("manual refresh", true) },
     "op-channel": { on: "change", run: (e) => { channel = e.value; channelPicked = true; drawOutput(); } },

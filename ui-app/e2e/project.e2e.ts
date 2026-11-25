@@ -78,6 +78,9 @@ function fakeBackend(): void {
           : { activity: activity[String(args.key)] ?? [], changeSets: [] };
       case "project_reports":
         return { cycle: [], cycleMedian: null, cycleP85: null, throughput: [], cfd: [], burndown: null, velocity: [] };
+      // RF-A05: the repository against the architect's rules — one violation in PRJ-2's file
+      case "arch_conformance":
+        return [{ rule: "library:moment", message: "forbidden library: moment", path: "src/iter.rs", line: 13 }];
       default:
         return null;
     }
@@ -142,7 +145,12 @@ test("the Project activity: create, drag a card one step, the issue panel and th
   // RF-B08: what Co-Dev used on it, and its change set opens the diff
   await expect(page.locator(".pj-issue .pj-usage")).toContainText("2 turns in 1 session");
   await expect(page.locator(".pj-issue .pj-usage")).toContainText("5.4k in / 900 out tokens · $0.12");
+  // RF-A05: the rules broken in the files Co-Dev changed for it, and Problems filtered by them
+  await expect(page.locator('.pj-issue [data-action="pj-drift-open"]')).toContainText("src/iter.rs:13 forbidden library: moment");
   await page.screenshot({ path: test.info().outputPath("a5-issue.png") });
+  await page.locator('.pj-issue [data-action="pj-drift-problems"]').click();
+  await expect(page.locator('.ptab.on[data-pt="problems"]')).toHaveCount(1);
+  await expect(page.locator(".pt-scope")).toContainText("Issue PRJ-2");
   await page.locator('.pj-issue [data-action="pj-diff"][data-on="src/iter.rs"]').click();
   await expect(page.locator(".tab.active")).toContainText("iter.rs");
 });
