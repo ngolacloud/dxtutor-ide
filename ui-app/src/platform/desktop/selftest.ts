@@ -34,7 +34,7 @@ import { hunks, undo, merge3, sync, launchpad, composer } from "../../features/s
 import { setLanes } from "../../features/scm/infrastructure/legacy-bridge";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
-import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks, dbgTest, dbgRunToCursor, dbgStop } from "../../features/debug";
+import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks, dbgTest, dbgRunToCursor, dbgStop, dbgRecordTest, dbgStepBack, dbgOrigin, dbgChanges, dbgTravel, dbgReplayState } from "../../features/debug";
 import { reviewFindings, explainCmd, renderCreviewView, renderHoodView } from "../../features/codereview";
 import { dxRun, dxStop, stackState } from "../../features/stack";
 import { diagnostics } from "../../features/diagnostics";
@@ -859,6 +859,61 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const out = { ...first, picked2, atBp: atBp?.line, bpLine, atCursor: atCursor?.line, assertLine, passed, timeTravel: host.timeTravel.reason };
       if (!picked || !first.leftRight || !first.at?.startsWith("lib.rs:") || toolbar.includes("back") || !missing || !/= 2|2$/.test(conOut) || !atBp || atBp.line !== bpLine || atCursor?.line !== assertLine || !passed)
         throw new Error("debugR23: " + JSON.stringify(out));
+      return out;
+    });
+    // r23 F2b: gravar e reproduzir (rr). O mesmo teste da LRU, com o bug, gravado e reproduzido até ao
+    // panic: a barra anda para trás (REPLAY, evento n/N), um passo atrás, a última escrita de
+    // `c.order.len`, todas as suas mudanças como marcas, e viajar para uma marca e para o início. Sem rr
+    // (ou num CPU que o rr não sabe contar) o passo diz porquê, como a app.
+    await step("debugRR", async () => {
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const host = await inv("debug_capabilities") as { timeTravel: { available: boolean; reason: string; error?: string | null } };
+      if (!host.timeTravel.available) return { timeTravel: host.timeTravel, skipped: "no time travel here" };
+      const lib = ROOT + "dbglru/src/lib.rs";
+      if (!FS[lib]) return { skipped: "debugR23 did not write the LRU crate" };
+      writeFile(lib, LRU_SRC);
+      flushSave(); await idle();
+      const run = dbgRecordTest();
+      if (!(await wait(() => [...document.querySelectorAll("#pal.show #pal-list .pi")].some(e => /evicts_least_recently_used/.test(e.textContent || "")), 240000))) throw new Error("debugRR: no test to pick");
+      (([...document.querySelectorAll("#pal-list .pi")].find(e => /evicts_least_recently_used/.test(e.textContent || ""))) as HTMLElement).click();
+      await run;
+      const atPanic = dbgCurrent();
+      const st0 = dbgReplayState();
+      const toolbar = [...document.querySelectorAll("#dbg-tb button")].map(b => b.getAttribute("data-on"));
+      const badge = document.querySelector("#dbg-tb .badge")?.textContent || "";
+      const pos = document.querySelector("#dbg-tb .pos")?.textContent || "";
+      await wait(() => !!document.querySelector('#dbg-exc [data-action="dbg-origin-ask"]'), 10000);
+      const cardOrigin = !!document.querySelector('#dbg-exc [data-action="dbg-origin-ask"]');
+      const timeline = document.querySelectorAll("#pane-debug .dbg-tl .mk").length;
+      const p0 = st0?.replay.position, t0 = p0 ? p0.event * 1e9 + p0.ticks : 0;
+      // (in the test's frame, where `c` exists) every change to the cache's order, then travel to one
+      await dbgChanges("c.order.len");
+      const q = dbgReplayState()?.replay.query;
+      const marks = dbgReplayState()?.replay.marks ?? [];
+      const wi = marks.findIndex(m => m.kind === "write");
+      if (wi >= 0) await dbgTravel(wi);
+      const tp = dbgReplayState()?.replay.position, travelled = tp ? `${tp.event}:${tp.ticks}` : null;
+      // back to the panic, then where did the order's length come from
+      const pi = (dbgReplayState()?.replay.marks ?? []).findIndex(m => m.kind === "panic");
+      if (pi >= 0) await dbgTravel(pi);
+      const atPanic2 = dbgCurrent();
+      await dbgOrigin("c.order.len");
+      const origin = dbgReplayState();
+      const originAt = dbgCurrent();
+      // one step back (ticks count branches: a short step can keep them; where it stops moves)
+      const before = JSON.stringify(dbgReplayState()?.stop);
+      await dbgStepBack();
+      const backMoved = JSON.stringify(dbgReplayState()?.stop) !== before;
+      const pb = dbgReplayState()?.replay.position, back = pb ? pb.event * 1e9 + pb.ticks : -1;
+      await dbgStop();
+      const out = {
+        badge, pos, toolbar, cardOrigin, timeline, atPanic: atPanic && `${atPanic.path.split("/").pop()}:${atPanic.line}`,
+        panicTicks: t0, backTicks: back, backMoved, atPanic2: atPanic2 && `${atPanic2.path.split("/").pop()}:${atPanic2.line}`, origin: origin?.stop?.description, originAt: originAt && `${originAt.path.split("/").pop()}:${originAt.line}`,
+        changes: q?.hits.map(h => `${h.line}:${h.values}`), travelledTo: travelled, writeAt: wi >= 0 ? `${marks[wi].event}:${marks[wi].ticks}` : null,
+      };
+      if (!/REPLAY|REPRODU/.test(badge) || !toolbar.includes("back") || !toolbar.includes("rcont") || !cardOrigin || !backMoved || !(back <= t0) || !/^c\.order\.len = \d/.test(origin?.stop?.description ?? "") || !(q && q.hits.length >= 3) || travelled !== out.writeAt)
+        throw new Error("debugRR: " + JSON.stringify(out));
       return out;
     });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e

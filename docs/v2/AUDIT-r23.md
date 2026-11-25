@@ -683,3 +683,31 @@ Not in F2a, reported: everything that needs a recording (step back, reverse cont
 this come from», the timeline and its queries, predicted values and dimmed lines, «rebuild and replay to step n») is
 F2b. Restart frame stays hidden with lldb-dap (no `supportsRestartFrame`). Not done in F2a: pinned inline watches,
 condition insights, the Parallel Stacks view, deque oldest/newest views, memory type layout and heap tracking.
+
+### F2b status: done (record and replay with rr)
+
+The owner installed gdb 15.1 and rr; the apt rr (5.7.0) cannot record on this CPU (Intel Core Ultra 9 185H,
+Meteor Lake: «Intel CPU type 0xa06a0 unknown» — the table gained it in rr 5.9.0), so the owner installed the
+official rr 5.9.0 package. The spike (§5 Q4) measured, on this machine:
+
+| Question | Finding |
+|---|---|
+| Recording | Works only bound to a performance core (`--bind-to-cpu`): the branch counter rr needs (`r5111c4`) exists on the `cpu_core` PMU, not on `cpu_atom`. The app binds to the first CPU of `cpu_core`. |
+| Frontend | Option (b), gdb's DAP mode, attached to `rr replay -s 0` with rr's `gdbinit` loaded: forwards, breakpoints, stack, variables and memory through the existing `dapc`. gdb 15's DAP has **no** `stepBack`/`reverseContinue`; backwards goes through its console (`reverse-next/step/finish/continue`), which emits the `stopped` event. |
+| Position | rr's `when` / `when-ticks` («event n/N»). Ticks are per thread (going back past the test's thread start jumps from 1179 to 118907), so a moment is (event, ticks). `seek-ticks` needs `extended-remote`, which DAP's `attach` does not use; travelling is a temporary breakpoint at the stop's frame-0 line — or, for a write, a watchpoint on its address, since a watchpoint stops mid-line — running until the moment matches. |
+| Pitfalls | Closing rr's stdout kills it with SIGPIPE at the program's first print (the replayed output now reaches the console); gdb resolves the panic only as `__rustc::rust_panic`; a syscall catchpoint is not supported by rr's server. |
+
+| What | Where |
+|---|---|
+| `tutor_eval::rr`: probe (a tiny recording, once), record (newest 5 kept in `<tmp>/dxtutor-rr`), the replay server, rr's gdbinit | `crates/tutor-eval/src/rr.rs` |
+| `DapSession::replay`, `reverse`, `position`, `travel`, `last_write`, `writes` (each change while the frame that owns the variable is on the stack — the write may be in a callee —, with its new value and its location) | `crates/tutor-eval/src/dapc.rs` |
+| Commands `debug_record`, `debug_replay`, `debug_reverse`, `debug_position`, `debug_travel`, `debug_last_write`, `debug_writes` (252 → 259); `debug_capabilities` reports `rr-cannot-record` with rr's words | `src-tauri/src/commands/debug_cmds.rs` |
+| UI: «Record and Replay Test…» (pane and palette), «Replay this run backwards» on the panic card, step back / reverse continue on the toolbar (REPLAY, event n/N), the recording's timeline (stops, writes, the panic; click to travel; to the start), «every change to…», «where did this come from» on each variable and «last write to…» on the card | `ui-app/src/features/debug/` |
+
+The self-test step `debugRR` records the brief's failing LRU test, replays it to the panic, finds every change to
+`c.order.len`, travels to one, goes back to the panic, jumps to the last write and steps back. Reported, not in F2b:
+predicted values and dimmed lines, the cause chain built automatically from the assertion (the card offers «last
+write to…» instead), «rebuild and replay to step n», heap tracking. Also reported: in F2a's fix of `run_to`
+(pushed in `64981e1`), a `sed` also changed `add_breakpoint` (`debug_break` on DAP) to use the path as given;
+it matches `set_breakpoints` and is only used by the gdb path in the UI. F2b makes it explicit and removes the
+`absolute`/`cwd` code it left unused.

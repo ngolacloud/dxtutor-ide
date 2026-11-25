@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 252 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 259 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -237,6 +237,33 @@ Regras:
 - Testes: `cargo test -p tutor-eval dapc testbins dap::` (sessões reais com o lldb-dap e um projecto Cargo real),
   `tests/debug.r23.test.ts` e o passo `debugR23` do auto-teste (o teste da cache LRU do brief falha no depurador, a
   correcção `pop_front`, run to cursor, e passa).
+
+### Gravar e reproduzir da r23 F2b (`tutor_eval::rr`, `dapc::DapSession::replay`)
+
+O rr grava (`rr record --bind-to-cpu=<primeiro núcleo P>`: num Intel híbrido o contador de saltos que o rr usa só
+existe na PMU `cpu_core`; o rr < 5.9 não conhece o Meteor Lake) e serve a gravação (`rr replay -s 0`); o gdb em
+modo DAP (`gdb -i dap -x <rr gdbinit>`, `attach {program, target}`) conduz a reprodução pelo mesmo `dapc`. O
+`debug_capabilities` faz uma gravação de teste uma vez por execução (`rr::probe`): sem ela, `rr-cannot-record`
+com as palavras do rr. Medido no spike e nos testes reais (`dapc::tests::real_replay_with_rr`):
+- O gdb 15 em DAP NÃO tem `stepBack`/`reverseContinue`: andar para trás é a consola (`reverse-next`, `-step`,
+  `-finish`, `-continue`); a posição é o `when`/`when-ticks` do rr; o `seek-ticks` do rr precisa de
+  `extended-remote` (o `attach` do DAP liga com `target remote`), por isso viajar é um breakpoint temporário no
+  sítio da paragem (frame 0) — ou, para uma escrita, o watchpoint no endereço (`*(0x… as *mut usize)`), porque um
+  watchpoint pára a meio da linha — até o momento bater.
+- GOTCHA-ticks: os ticks do rr são POR THREAD (medido: recuar até antes da thread do teste salta de 1179 para
+  118907). Um momento é `(evento, ticks)`: o evento é global e, dentro dele, só corre uma thread.
+- GOTCHA-SIGPIPE: o `rr replay` escreve a saída do programa reproduzido no SEU stdout; fechar esse pipe mata o rr
+  no primeiro `printf` («Remote connection closed»). O `ReplayServer` drena-o sempre e manda as linhas à consola.
+- O panic: o gdb só resolve `__rustc::rust_panic` (o lldb `rust_panic`); o «parar em panic» envia os dois.
+- Um watchpoint (`watch -l`) vigia o ENDEREÇO: antes da função começar e depois de sair, outro código usa-o; as
+  consultas contam uma escrita enquanto o frame dono da variável está na pilha (a escrita pode estar num método
+  chamado: `c.order` muda dentro de `VecDeque::push_back` via `&mut self`) e param quando ele sai; nunca dão
+  `continue` no fim da gravação (fecha a ligação do rr). Só pára quando o valor MUDA. O valor lê-se por `print *$N` (o `&expr` guardado), porque onde se escreve o nome
+  pode não existir (`self` em vez de `c`). Para trás, a paragem mostra o valor de antes: as mudanças registam-se
+  no caminho para a frente.
+- A reprodução começa, para o humano, em `main` (um breakpoint-guarda); no fim, `continue` fica no fim.
+- Um erro numa consulta ou viagem não fecha a reprodução (`guarded(…, keep)`).
+- Testes: `cargo test -p tutor-eval -- rr:: dapc::`, `tests/debug.rr.test.ts` e o passo `debugRR` do auto-teste.
 
 ## Quinta feature extraída: backlog, sprints e kanban (`ui-app/src/features/board/`)
 
