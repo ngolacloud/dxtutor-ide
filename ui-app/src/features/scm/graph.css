@@ -16,3 +16,19 @@
   .gl-au i{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:9.5px;font-weight:700;color:#14110f;flex:none}
   .gl-h{font-family:var(--font-mono);font-size:11px;color:var(--accent-hover)}.gl-t{font-size:11px;color:var(--fg-muted);text-align:right}
   .gl-det{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 14px 10px calc(var(--gw) + 14px);background:var(--bg-sel);font-size:12px}
+  /* r23 F3 (UI-SCM-08): o Commit Graph com a barra lateral (ramos, remotos, tags, stashes, worktrees, contribuidores) */
+  .gl-screen{display:grid;grid-template-columns:230px minmax(0,1fr);height:100%;min-height:0}
+  @media (max-width:900px){.gl-screen{grid-template-columns:1fr}.gl-side{display:none}}
+  .gl-side{border-right:1px solid var(--seam);overflow:auto;padding:6px 0;font-size:12px;background:var(--bg-side)}
+  .gl-main{overflow:auto;min-width:0}
+  .gl-sec summary{display:flex;align-items:center;gap:6px;padding:5px 12px;font-size:11px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:var(--fg-dim);cursor:pointer;list-style:none}
+  .gl-sec summary::-webkit-details-marker{display:none}.gl-sec summary::before{content:"▸";font-size:9px}.gl-sec[open] summary::before{content:"▾"}
+  .gl-n{margin-left:auto;font-weight:500;color:var(--fg-muted)}
+  .gl-item{display:flex;align-items:center;gap:6px;width:100%;text-align:left;background:none;border:0;padding:3px 12px 3px 24px;color:var(--fg);font-size:12px;white-space:nowrap;overflow:hidden}
+  button.gl-item{cursor:pointer}button.gl-item:hover{background:var(--bg-hover)}
+  .gl-nm{overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;font-family:var(--font-mono);font-size:11.5px}.gl-nm.cur{color:var(--accent-hover);font-weight:600}
+  .gl-dim{color:var(--fg-muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
+  .gl-grp{padding:4px 12px 2px 18px;color:var(--fg-dim);font-size:11px}
+  .gl-ab{font-size:10.5px;color:var(--fg-dim);font-family:var(--font-mono)}.gl-gone{font-size:10.5px;color:var(--red)}
+  .gl-ref.remote{border-style:dotted}
+  .gl-empty{padding:28px;color:var(--fg-muted)}

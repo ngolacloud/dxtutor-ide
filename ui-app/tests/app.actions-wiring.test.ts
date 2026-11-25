@@ -76,10 +76,10 @@ describe("cablagem das acções partilhadas (U5b)", () => {
     w.openPath = (p: unknown) => opened.push(p);
     const SCMG = await import("../src/features/scm");
     SCMG.setGraphSel(null);
-    w.FS["x/y.rs"] = { content: "" };
+    w.FS[w.ROOT + "x/y.rs"] = { content: "" }; // r23 F3: o botão leva o caminho do repositório (do `git show`)
     document.body.insertAdjacentHTML("beforeend", `<div class="gl-row" data-action="graph:select" data-on="abc"><div class="gl-det"><button id="gf" data-action="graph:file" data-on="x/y.rs">y.rs</button></div></div>`);
     click(document.getElementById("gf"));
-    expect(opened).toEqual(["x/y.rs"]);
+    expect(opened).toEqual([w.ROOT + "x/y.rs"]);
     expect(SCMG.graphSel()).toBe(null);
     click(document.querySelector(".gl-row"));
     expect(SCMG.graphSel()).toBe("abc");

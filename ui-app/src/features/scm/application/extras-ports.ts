@@ -6,6 +6,13 @@
 
 import type { Blame, Compare, HistCommit, RebaseOp, RebasePlan, StashOp, StashResult, Worktree, WorktreeOp } from "../domain/git-extras";
 import type { ChangeSetGroup } from "../domain/changesets";
+import type { RefsSnapshot } from "../domain/refs";
+
+/** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
+export interface GitRefsPort {
+  refs(root: string): Promise<RefsSnapshot>;
+  show(root: string, hash: string): Promise<string>;
+}
 
 export interface GitExtrasPort {
   blame(root: string, path: string): Promise<Blame>;

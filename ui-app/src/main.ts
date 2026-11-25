@@ -66,7 +66,8 @@ import "./features/board";
 import "./features/i18n";
 import "./features/syntax";
 import "./features/diff";
-import "./features/graph";
+/* r23 F3: o Commit Graph (era features/graph.ts) */
+import "./features/scm/graph-screen";
 import "./features/termgit";
 import "./features/palette";
 import "./features/editor";
@@ -77,7 +78,8 @@ import "./features/workspace";
 import "./features/explorer";
 import "./features/diagnostics";
 import "./features/shortcuts";
-import "./features/welcome/index"; /* r23 F6: Start · Recent · Walkthroughs */
+/* r23 F6: Start · Recent · Walkthroughs */
+import "./features/welcome/index";
 import "./app/chrome-actions";
 import "./app/commands";
 import "./app/boot-steps";

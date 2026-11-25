@@ -15,7 +15,7 @@ use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
 
-fn run(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String, String> {
+pub(crate) fn run(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String, String> {
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(root).args(args);
     cmd.env("GIT_TERMINAL_PROMPT", "0").env("LC_ALL", "C");
@@ -42,7 +42,7 @@ fn run(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String, Strin
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     run(root, args, &[])
 }
 

@@ -28,6 +28,7 @@ pub mod deps;
 pub mod entrypoint;
 pub mod git;
 pub mod gitx;
+pub mod gitwork;
 pub mod go_runner;
 pub mod hood;
 pub mod js_runner;

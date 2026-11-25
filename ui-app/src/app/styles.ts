@@ -25,7 +25,7 @@ import "../features/welcome/styles.css";
 import "../features/palette.css";
 import "../features/notifications.css";
 import "../features/scm/styles.css";
-import "../features/graph.css";
+import "../features/scm/graph.css";
 import "../features/studio.css";
 import "../features/board/styles.css";
 import "../features/learn/styles.css";

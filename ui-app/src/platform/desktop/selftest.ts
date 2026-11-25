@@ -27,7 +27,7 @@ import { renderRemotePane } from "../../features/remote";
 import { renderRunPane } from "../../features/run";
 import { renderSearchPane } from "../../features/search";
 import { renderAccountPane } from "../../features/account";
-import { renderGraphView } from "../../features/graph";
+import { renderGraphView, graphScreen } from "../../features/scm/graph-screen";
 import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
 import { stage } from "../../features/scm";
 import { clLog, clShow } from "../../features/changelog";
@@ -162,11 +162,18 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     });
     // feature `graph` (migrada de app.ts para features/graph.ts nesta sessão): o renderer
     // puro da tab `graph` (VIEW.graph) desenha um nó por commit do grafo real.
-    await step("graph", () => {
+    // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
+    await step("graph", async () => {
       const host = document.createElement("div");
+      document.body.appendChild(host);
       renderGraphView(null, host);
-      const rows = host.querySelectorAll(".gl-row").length;
-      return { rows, matchesCommits: rows === GIT.order.length, dots: host.querySelectorAll(".gl-svg circle").length, hasBranchBar: /gl-bar/.test(host.innerHTML) };
+      await graphScreen.load();
+      const rows = host.querySelectorAll(".gl-row").length, refs = graphScreen.state().refs;
+      const out = { rows, matchesCommits: rows === GIT.order.length, dots: host.querySelectorAll(".gl-svg circle").length, hasBranchBar: /gl-bar/.test(host.innerHTML),
+        sidebar: host.querySelectorAll(".gl-side .gl-sec").length, head: refs?.head ?? null, headMatches: refs?.head === BRANCH, branches: refs?.branches.length ?? 0,
+        contributors: refs?.contributors.length ?? 0, refsError: graphScreen.state().error };
+      host.remove();
+      return out;
     });
     // feature `changelog` (harvest ui-next): observa o caminho desktop-REAL — clLog→git_log
     // e clShow→git_show sobre o repo git do próprio selftest (acabou de ganhar commits acima).

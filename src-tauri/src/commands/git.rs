@@ -161,6 +161,13 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| format!("git task failed: {e}"))?
 }
 
+/// The Commit Graph's sidebar in one read (r23 F3): branches with upstream and ahead/behind,
+/// remotes and their branches, tags (peeled), stashes, worktrees and contributors.
+#[tauri::command]
+pub async fn git_refs(root: String) -> Result<tutor_eval::gitwork::Refs, String> {
+    blocking(move || tutor_eval::gitwork::refs(Path::new(&root))).await
+}
+
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {
