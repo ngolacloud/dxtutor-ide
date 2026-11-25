@@ -93,7 +93,7 @@ export interface K8sDep {
   err?: string | null;
 }
 
-/** O estado do cluster local (`window.K8S`), lido do cluster real pela app desktop. `ver`/`at`
+/** O estado do cluster local (`k8s()` da ponte da infra), lido do cluster real pela app desktop. `ver`/`at`
  *  vêm das anotações que o deploy põe nos Deployments (`ANN_VER`/`ANN_AT`). */
 export interface K8sState {
   docs: K8sDoc[];
@@ -184,7 +184,7 @@ export interface PromotionRecord {
   at: number;
 }
 
-/** Estado dos environments (`window.ENVX`): ambiente corrente, contexto/namespace
+/** Estado dos environments (o `ENVX` do features/infra.ts): ambiente corrente, contexto/namespace
  *  por ambiente, segredos, estado deployado por ambiente (lido do cluster, não se guarda),
  *  histórico das promoções. */
 export interface EnvX {
@@ -209,7 +209,7 @@ export interface Commit {
    aplicação consome e o bridge serve — declaradas aqui (o centro) para as setas de
    dependência apontarem todas para dentro (ports/bridge importam daqui). ───── */
 
-/** Um dev container anexado (`window.DEVC`). */
+/** Um dev container anexado (`devc()` da ponte da infra). */
 export interface Devc { name: string; image: string }
 /** Um serviço do stack a correr (`window.STACK[i]`, produzido por stack.ts/bridge.ts). */
 export interface StackItem { name: string; src: string; url: string; state: string }

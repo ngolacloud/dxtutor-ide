@@ -19,6 +19,7 @@
 import { toast, rerender } from "../../../core";
 import type { ExsState } from "../domain/types";
 import { desktopPorts } from "../../../app/desktop";
+import { services } from "../../../app/services";
 export { toast, rerender };
 
 const G = window as unknown as Record<string, any>;
@@ -62,7 +63,7 @@ export const openTab = (...args: [t: OpenTabArg, act?: boolean]): void => G.open
 /* ───── editor / diagnósticos / contexto de projecto ───── */
 export const paintEd = (path: string): void => G.paintEd(path);
 export const extOf = (path: string): string => G.extOf(path);
-export const projectContext = (): Array<[string, string]> => window.projectContext();
+export const projectContext = (): Array<[string, string]> => services.infra!.projectContext() as Array<[string, string]>;
 export const refresh = (...args: [fromEd?: boolean, force?: boolean]): unknown => window.refresh(...args);
 
 /* (as acções que os comandos do catálogo fixo disparavam saíram com ele — ADR-0006, R6b) */

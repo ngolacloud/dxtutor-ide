@@ -39,7 +39,7 @@ import {
   design, files, root, tech, kind, isApp, nodeSlug, composeServices,
   gitRefs, gitCommits, lsGet, lsSet,
   goPane, openPath, openTab, dlg, echo, echoCmd, newInput, setPanelTab, getVar,
-  drawStack, note, rel, toast, log, rerender, writeFile, publish,
+  drawStack, note, rel, toast, log, rerender, writeFile, setEnvxRef,
 } from "./infra/infrastructure/legacy-bridge";
 import { translator } from "../app/i18n";
 import { INFRA_ENGINE_MESSAGES, type InfraEngineKey } from "./infra/application/messages";
@@ -58,20 +58,7 @@ const txe = translator(EMULATED_TERMINAL_MESSAGES);
 /* globais que este resíduo publica/lê e que o resto do contrato (core.ts) ainda não declara */
 declare global {
   interface Window {
-    saveEnv: () => void;
-    saveEnvx: () => void;
-    SHOWSEC: boolean;
-    DRIFT: string | null;
-    OBS: Record<string, ObsData>;
-    ctlLogs: (n: string) => void;
-    XC: Record<string, (a: string[], v?: string) => unknown>;
-    redeployEnv: (e: string) => void;
-    promote: (e: string) => void;
-    openEnvs: () => void;
-    k8sScale: (n: string, d: number) => void;
-    k8sDown: () => void;
   }
-  var SHOWSEC: boolean;
 }
 
 /* ═══════════ estado window-backed (o resíduo é dono) ═══════════
@@ -79,11 +66,12 @@ declare global {
    resolvem-nas por global). DSTY já não é publicada: v6 importa-a por porta tipada
    (ADR-0002 passo 6). ENVS/ENVX hidratam-se preguiçosamente no motor. DEVC/K8S
    continuam window-backed porque bridge.ts/stack.ts os reatribuem; STACK é de stack.ts. */
-window.RTN = RTN; window.KCTX = KCTX; window.ENVL = ENVL;
 const ENVS = (window.ENVS = defaultEnvs());
-const ENVX = (window.ENVX = defaultEnvx());
-window.DEVC = null; window.K8S = null; window.SHOWSEC = false; window.DRIFT = null;
-const OBS: Record<string, ObsData> = (window.OBS = {}); let OBST = null as ReturnType<typeof setInterval> | null;
+/* o ENVX passa à ponte por referência (o motor lê-o por envx()) — já não vai ao window (ADR-0004, U7p2) */
+const ENVX = defaultEnvx(); setEnvxRef(ENVX);
+/* o DEVC/K8S/P_DC vivem na ponte (k8s()/devc()/pDc()); o mostrar/esconder dos segredos é deste módulo (U7p2) */
+let SHOWSEC = false;
+const OBS: Record<string, ObsData> = {}; let OBST = null as ReturnType<typeof setInterval> | null;
 
 /* ═══════════ raiz de composição: adaptadores do bridge (infra) ↔ portas do motor
    (application). O motor fica puro (sem window/DOM); window/DOM ficam deste lado. ENVS/
@@ -115,16 +103,14 @@ const {
 export { initSecrets, driftReport, DSTY, ENVL };
 
 /* ═══════════ DOM (resíduo dono): remote + redesenho do pane ═══════════ */
-function drawRemote() { const b = $('.si.remote'); if (!b) return; let s = b.querySelector('span.rl'); if (!s) { b.insertAdjacentHTML('beforeend', '<span class="rl notr"></span>'); s = b.querySelector('span.rl'); } s!.textContent = DEVC ? ' Dev Container: dxtutor' : ''; b.onclick = () => goPane('infra'); b.title = 'Infra: runtime, dev container, Kubernetes'; }
+function drawRemote() { const b = $('.si.remote'); if (!b) return; let s = b.querySelector('span.rl'); if (!s) { b.insertAdjacentHTML('beforeend', '<span class="rl notr"></span>'); s = b.querySelector('span.rl'); } s!.textContent = devc() ? ' Dev Container: dxtutor' : ''; b.onclick = () => goPane('infra'); b.title = 'Infra: runtime, dev container, Kubernetes'; }
 function infraDraw() { if (PANE === 'infra') RP.infra(); drawRemote(); }
 
 /** Renderiza o pane «Infra»: base (runtime/dev-container/containers/K8s/remote) e, por
  *  cima, a camada v6 (environments, workloads do ambiente seleccionado). */
 function renderInfraPane(): void {
   hydrateEnvs(); hydrateEnvx();
-  const DEVC = window.DEVC, K8S = window.K8S, STACK = window.STACK,
-    ENVL = window.ENVL, ENVX = window.ENVX, envHealth = window.envHealth, envState = window.envState,
-    openObserve = window.openObserve;
+  const DEVC = devc(), K8S = k8s(), STACK = window.STACK;
   // ── base v5 ──
   const el = $("#pane-infra"), on = (x: unknown) => `<span class="pdot${x ? "" : " off"}" style="background:var(--green)"></span>`, docs = k8sDocs().length;
   if (!el) return;
@@ -234,35 +220,35 @@ export function renderObserveView(t: ObserveTab, host: HTMLElement) {
 const ACTIONS: ActionTable = {
   "dx-run": { on: "click", run: () => window.dxRun() },
   "dx-stop": { on: "click", run: () => window.dxStop() },
-  "dx-deploy": { on: "click", run: () => window.dxDeploy() },
-  "rt-set": { on: "click", run: e => { ENVS.rt = e.on; ENVS.rtOn = false; window.saveEnv(); window.infraDraw(); } },
-  "rt-sock": { on: "change", run: e => { ENVS.sock[ENVS.rt] = e.value; ENVS.rtOn = false; window.saveEnv(); window.infraDraw(); } },
-  "rt-connect": { on: "click", run: () => window.rtConnect() },
-  "open-pdc": { on: "click", run: () => window.openPath(window.P_DC) },
-  "dc-detach": { on: "click", run: () => window.dcDetach() },
-  "dc-attach": { on: "click", run: () => window.dcAttach() },
-  "ctl-logs": { on: "click", run: e => window.ctlLogs(e.on) },
-  "kube-conf": { on: "change", run: e => { ENVS.kube = e.value; ENVS.k8sOn = false; window.saveEnv(); window.infraDraw(); } },
-  "kube-ctx": { on: "change", run: e => { ENVS.ctx = e.value; window.K8S = null; window.saveEnv(); window.infraDraw(); } },
-  "kube-ns": { on: "change", run: e => { ENVS.ns = e.value; window.saveEnv(); } },
-  "k8s-connect": { on: "click", run: () => window.k8sConnect() },
-  "k8s-scale": { on: "click", run: e => { const [n, d] = e.on.split("|"); window.k8sScale(n, +d); } },
-  "k8s-down": { on: "click", run: () => window.k8sDown() },
+  "dx-deploy": { on: "click", run: () => dxDeployPublished() },
+  "rt-set": { on: "click", run: e => { ENVS.rt = e.on; ENVS.rtOn = false; saveEnv(); infraDraw(); } },
+  "rt-sock": { on: "change", run: e => { ENVS.sock[ENVS.rt] = e.value; ENVS.rtOn = false; saveEnv(); infraDraw(); } },
+  "rt-connect": { on: "click", run: () => rtConnectPublished() },
+  "open-pdc": { on: "click", run: () => window.openPath(pDc()) },
+  "dc-detach": { on: "click", run: () => dcDetachPublished() },
+  "dc-attach": { on: "click", run: () => dcAttachPublished() },
+  "ctl-logs": { on: "click", run: e => ctlLogs(e.on) },
+  "kube-conf": { on: "change", run: e => { ENVS.kube = e.value; ENVS.k8sOn = false; saveEnv(); infraDraw(); } },
+  "kube-ctx": { on: "change", run: e => { ENVS.ctx = e.value; setK8s(null); saveEnv(); infraDraw(); } },
+  "kube-ns": { on: "change", run: e => { ENVS.ns = e.value; saveEnv(); } },
+  "k8s-connect": { on: "click", run: () => k8sConnectPublished() },
+  "k8s-scale": { on: "click", run: e => { const [n, d] = e.on.split("|"); k8sScalePublished(n, +d); } },
+  "k8s-down": { on: "click", run: () => k8sDownPublished() },
   /* ADR-0006, R6c: no desktop abre um terminal com `ssh <host>` (features/remote.ts); no browser diz que não há como */
   "ssh-open": { on: "click", run: e => { if (!openSsh(e.on)) window.toast("SSH terminals need the desktop app"); } },
-  "ssh-del": { on: "click", run: e => { ENVS.ssh.splice(+e.on, 1); window.saveEnv(); window.infraDraw(); } },
-  "ssh-add": { on: "change", run: e => { if (e.value.trim()) { ENVS.ssh.push(e.value.trim()); window.saveEnv(); window.infraDraw(); } } },
-  "env-chip": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); window.infraDraw(); void refreshEnvs(); } },
+  "ssh-del": { on: "click", run: e => { ENVS.ssh.splice(+e.on, 1); saveEnv(); infraDraw(); } },
+  "ssh-add": { on: "change", run: e => { if (e.value.trim()) { ENVS.ssh.push(e.value.trim()); saveEnv(); infraDraw(); } } },
+  "env-chip": { on: "click", run: e => { ENVX.cur = e.on; saveEnvx(); infraDraw(); void refreshEnvs(); } },
   "env-ctx": { on: "change", run: e => setEnvTarget(e.on, "ctx", e.value) },
   "env-ns": { on: "change", run: e => setEnvTarget(e.on, "ns", e.value) },
-  "open-envs": { on: "click", run: () => window.openEnvs() },
-  "observe": { on: "click", run: e => { const [env, n] = e.on.split("|"); window.openObserve(env, n); } },
-  "promote": { on: "click", run: e => window.promote(e.on) },
-  "deploy-envs": { on: "click", run: () => { window.dxDeploy(); services.tabs!.rerender("envs"); } },
-  "redeploy": { on: "click", run: e => window.redeployEnv(e.on) },
-  "env-select": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); services.tabs!.rerender("envs"); window.infraDraw(); } },
-  "toggle-sec": { on: "click", run: () => { window.SHOWSEC = !window.SHOWSEC; services.tabs!.rerender("envs"); } },
-  "sec-edit": { on: "change", run: e => { const [env, a, k] = e.on.split("|"); const S = ENVX.sec![env as keyof SecretSets]; S[a] = S[a] || {}; S[a][k] = e.value; window.saveEnvx(); } },
+  "open-envs": { on: "click", run: () => openEnvs() },
+  "observe": { on: "click", run: e => { const [env, n] = e.on.split("|"); openObserve(env, n); } },
+  "promote": { on: "click", run: e => promote(e.on) },
+  "deploy-envs": { on: "click", run: () => { dxDeployPublished(); services.tabs!.rerender("envs"); } },
+  "redeploy": { on: "click", run: e => redeployEnv(e.on) },
+  "env-select": { on: "click", run: e => { ENVX.cur = e.on; saveEnvx(); services.tabs!.rerender("envs"); infraDraw(); } },
+  "toggle-sec": { on: "click", run: () => { SHOWSEC = !SHOWSEC; services.tabs!.rerender("envs"); } },
+  "sec-edit": { on: "change", run: e => { const [env, a, k] = e.on.split("|"); const S = ENVX.sec![env as keyof SecretSets]; S[a] = S[a] || {}; S[a][k] = e.value; saveEnvx(); } },
   "obs-clear": { on: "click", run: e => { const o = OBS[e.on]; if (!o) return; o.clearedAt = o.logs.length ? o.logs[o.logs.length - 1].iso || new Date().toISOString() : new Date().toISOString(); o.logs = []; window.show(window.cur); } },
   "obs-follow": { on: "click", run: e => { const i = e.on.indexOf(":"), t = obsTargetOf(e.on.slice(0, i), e.on.slice(i + 1)), src = desktopPorts.infra?.obs; if (t && src) src.follow(t); } },
 };
@@ -296,18 +282,18 @@ const k8sDownPublished = () => { const d = desktopPorts.infra; return d && d.k8s
    (eram o develop e o relógio): vêm das anotações que o deploy real põe no cluster (ADR-0006, R5c1) */
 function dxDeployPrimed() { const r = dxDeploy(); if (r && r.ok) initSecrets(); return r; }
 
-/* ── publicação transitória no window (shim para o residual) ──
-   O render e os dois motores ficam no window; v5.ts/v6.ts e os onclick inline resolvem
-   estes nomes como globais. (As decorações de v6 — dxDeploy/drawStudio — já não lêem
-   initSecrets/driftReport/DSTY por global: importam-nos por porta tipada; ADR-0002 passo 6.) */
-publish({
-  rtConnect: rtConnectPublished, k8sConnect: k8sConnectPublished, dxDeploy: dxDeployPublished, needRt, projectContext, devcontainerJson, dcAttach: dcAttachPublished, dcDetach: dcDetachPublished,
-  drawRemote, infraDraw, appEnv, k8sInfra, k8sDocs, k8sScale: k8sScalePublished, k8sDown: k8sDownPublished, runTaskQuiet, ctlLogs,
-  saveEnv, cli, hydrateEnvs,
-  ENVL, ENVX, saveEnvx, designApps, localSecrets, urlHosts, envDeps, envState,
-  envHealth, secretCheck, commitsBetween, promote, redeployEnv, refreshEnvs, setEnvTarget, openEnvs,
-  OBS, spark, openObserve, renderInfraPane,
-});
+/* ── os nomes que a infra publicava no window (a superfície publish) são exports desde a U7p2 do ADR-0004: o arranque,
+   o desktop, o auto-teste e as boas-vindas importam-nos; o stack, a equipa e a ponte da ext (avaliam antes) usam
+   o registo. As versões exportadas do runtime/K8s/deploy/dev-container são as que consultam a porta desktop. ── */
+export {
+  rtConnectPublished as rtConnect, k8sConnectPublished as k8sConnect, dxDeployPublished as dxDeploy, dcAttachPublished as dcAttach,
+  dcDetachPublished as dcDetach, k8sScalePublished as k8sScale, k8sDownPublished as k8sDown,
+  needRt, projectContext, devcontainerJson, drawRemote, infraDraw, appEnv, k8sInfra, k8sDocs, runTaskQuiet, ctlLogs, saveEnv, cli, hydrateEnvs,
+  ENVX, saveEnvx, designApps, localSecrets, urlHosts, envDeps, envState, envHealth, secretCheck, commitsBetween, promote, redeployEnv,
+  refreshEnvs, setEnvTarget, openEnvs, OBS, spark, openObserve, renderInfraPane, RTN, KCTX,
+};
+export { k8s, setK8s, devc, setDevc, pDc } from "./infra/infrastructure/legacy-bridge";
+services.infra = { needRt, infraDraw, projectContext };
 
 /* ── comandos do terminal (ADR-0004, U4g2 — viviam no v5) ──
    Registados no XC de features/terminal.ts, que por isso avalia antes deste módulo:
@@ -323,7 +309,7 @@ const XC = XCImport as Record<string, (a: string[], v?: string) => unknown>;
 XC.kubectl = () => { echo(`<span class="dim">${txe("noCluster")}</span>`); };
 XC.devcontainer = () => { echo(`<span class="dim">${txe("noContainers")}</span>`); };
 const _dx5 = XC.dx;
-XC.dx = (a: string[]) => { if (a[0] === 'deploy') return window.dxDeploy(); return _dx5(a); };
+XC.dx = (a: string[]) => { if (a[0] === 'deploy') return dxDeployPublished(); return _dx5(a); };
 /* `docker compose up|down|ps`, `make run|stop` e `dx run|stop` (ADR-0004, U4j4a — eram do app.ts): chamam o
    dxRun/dxStop PUBLICADOS (com a porta desktop do stack). Os subcomandos do `dx` são disjuntos dos outros
    decoradores (deploy aqui, test/sprint no board), por isso a ordem da cadeia não muda o resultado. */

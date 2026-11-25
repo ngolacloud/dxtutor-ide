@@ -193,7 +193,7 @@ export function reviewIssue(id: string) {
 
 function renderTeamView(_t:unknown,host:HTMLElement){
   hydrateHarn();
-  const cx=window.projectContext(),rec=cx.some(c=>c[0]==='odoo')?'erp':cx.some(c=>c[0]==='k8s'||c[0]==='compose')?'cloud':'pair';
+  const cx=services.infra!.projectContext() as Array<[string, string]>,rec=cx.some(c=>c[0]==='odoo')?'erp':cx.some(c=>c[0]==='k8s'||c[0]==='compose')?'cloud':'pair';
   const au=authorship(),tot=Math.max(1,au.h+au.a);
   host.innerHTML=`<div class="page"><h1>${msg("teamOfAssistants")}</h1><div class="sub">${msg("eachAssistantHasOne")} <b>harness</b>${msg("thePathsItMay")}</div>
   <h2>${msg("projectHarness")}</h2><div class="sub">The harness is the project's contract: what the assistants may touch, how far they may go on their own, and which decisions stay with you. It is derived from the project context and saved as <code>.dxtutor/harness.toml</code>, so it is versioned with the code.</div>

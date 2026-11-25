@@ -67,8 +67,6 @@ declare global {
   const LS: { get: (k: string, d?: any) => any; set: (k: string, v: unknown) => void };
   const PROV: Record<string, Prov>;
   const ENVS: Envs;
-  const RTN: Record<string, string>;
-  const KCTX: string[];
   const AGENTS: Record<string, { n: string }>;
   var ACTIVE: string;
   const COMMIT_MSG: string;
@@ -88,8 +86,6 @@ declare global {
   const saveEnv: () => void;
   // Lexicais que o bridge re-atribui (let em app.js).
   let STACK: { name: string; src: string; url: string; state: string }[] | null;
-  let DEVC: unknown;
-  let K8S: unknown;
   let SAMPLE: ((input: string | SampleMsg[], o?: SampleOpts) => Promise<any>) | null;
   let LIVE_OK: boolean;
   // Globais function-declaradas (vivem no window): re-atribuíveis a partir do módulo.

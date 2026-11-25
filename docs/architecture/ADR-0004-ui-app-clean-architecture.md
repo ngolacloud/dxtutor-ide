@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o: 286 → 130 pela medida antiga); U7p em curso nas features paradas, com a medida corrigida (291 no início → 236 depois da U7p2, contando as superfícies `publish({…})` e as escritas por fachada que a antiga não via; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1253,3 +1253,13 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   scm, o `graph.ts`, o índice e a ponte do painel, o índice do testing e o auto-teste desktop), 53 no total. O
   número da U7a–U7o (286 → 130) fica como estava, mas é da medida antiga; a tabela do fecho ganha a linha das
   superfícies.
+  **U7p2 — a infra (2026-11-25).** Saem 47 nomes. A superfície `publish({ … })` do `features/infra.ts` desaparece:
+  os 37 nomes passam a exports (as versões do runtime/K8s/deploy/dev-container que se exportam são as que consultam a
+  porta desktop, como as publicadas), e o arranque, o desktop, o auto-teste e as boas-vindas importam-nos; o stack, a
+  equipa e a ponte da ext, que avaliam antes, usam `services.infra` (`needRt`, `infraDraw`, `projectContext`). O
+  estado: `K8S`, `DEVC` e `P_DC` passam a valores da ponte da infra (`k8s()`/`setK8s`, `devc()`/`setDevc`, `pDc()`),
+  que o desktop escreve pelos setters; o `ENVX` é do resíduo e a ponte recebe a referência (`setEnvxRef`); o `OBS`
+  e o `SHOWSEC` são do resíduo; o `RTN`/`KCTX`/`ENVL` vêm do domínio (o resíduo reexporta-os); o `DRIFT` passa ao
+  Studio, que o usava (`setDrift` para o arranque). Os testes da infra lêem e escrevem pelo módulo da cadeia do
+  `bootApp`. Fica o `ENVS` (o e2e do Ops lê `window.ENVS` na app construída) e o `STACK`/`drawStack` (fatia do
+  painel). Ordem de avaliação igual. Globais publicadas (medida corrigida) 291 → 236.

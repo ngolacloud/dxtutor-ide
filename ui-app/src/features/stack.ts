@@ -42,8 +42,8 @@ window.drawStack = function(){const d=desktopPorts.stack;if(d)d.drawStack(drawSt
 /* Sem runtime de contentores ligado (pane Infra), o RUN recusa; depois de correr/parar, o
    pane Infra e o indicador remoto redesenham. Era a decoração da camada v5 (ADR-0004, U4g2);
    a parte desktop entra pela porta (abaixo). */
-const dxRunGuarded = function(term?: unknown){if(!window.needRt()){if(term===true)services.terminal!.echo('<span class="er">Cannot connect to the container runtime. Point the socket in Infra.</span>');return{ok:false,sum:'no runtime'};}const r=dxRunBase(term);window.infraDraw();return r;};
-const dxStopGuarded = function(t?: unknown){dxStopBase(t);window.infraDraw();};
+const dxRunGuarded = function(term?: unknown){if(!services.infra!.needRt()){if(term===true)services.terminal!.echo('<span class="er">Cannot connect to the container runtime. Point the socket in Infra.</span>');return{ok:false,sum:'no runtime'};}const r=dxRunBase(term);services.infra!.infraDraw();return r;};
+const dxStopGuarded = function(t?: unknown){dxStopBase(t);services.infra!.infraDraw();};
 /* ADR-0004, U4h4: o dxRun/dxStop/drawStack PUBLICADOS consultam a porta desktop
    (`desktopPorts.stack`, injectada por platform/desktop/infra.ts na app Tauri: docker compose
    real na pasta aberta); antes o desktop reatribuía-os no `window`. As chamadas internas (o

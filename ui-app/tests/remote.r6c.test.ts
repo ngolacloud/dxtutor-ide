@@ -45,11 +45,13 @@ Include ~/.ssh/config.d/*
 });
 
 let w: any;
+let INF: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da infra da cadeia do bootApp (U7p2)
 let desktopPorts: Record<string, any>;
 const pane = () => document.getElementById("pane-remote")!;
 
 beforeEach(async () => {
   w = await bootApp();
+  INF = await import("../src/features/infra");
   desktopPorts = (await import("../src/app/desktop")).desktopPorts as Record<string, any>;
   if (!pane()) document.querySelector(".side")!.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-remote"></div>');
 });
@@ -92,7 +94,7 @@ describe("Remote Explorer", () => {
   it("Infra: clicar num host abre o terminal SSH no desktop; no browser diz que não há como", () => {
     w.ENVS.ssh = ["dev@edge-01"];
     if (!document.getElementById("pane-infra")) document.querySelector(".side")!.insertAdjacentHTML("beforeend", '<div class="pane" id="pane-infra"></div>'); // nasce no boot5, fora do harness
-    w.renderInfraPane();
+    INF.renderInfraPane();
     const toast = vi.spyOn(w, "toast");
     const rowEl = () => document.querySelector('#pane-infra [data-action="ssh-open"]') as HTMLElement | null;
     expect(rowEl()).toBeTruthy();

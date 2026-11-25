@@ -17,6 +17,7 @@ import type * as Menus from "../features/menus";
 import type * as Explorer from "../features/explorer";
 import type * as Terminal from "../features/terminal";
 import type * as Theme from "../features/theme";
+import type * as Infra from "../features/infra";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -45,6 +46,8 @@ export interface Services {
   terminal: Pick<typeof Terminal, "termExec" | "echo" | "echoCmd" | "newInput">;
   /** os temas (features/theme.ts), lidos pelo config ao restaurar (U7m) */
   theme: Pick<typeof Theme, "THEMES">;
+  /** o runtime, o desenho do pane e o contexto do projecto (features/infra.ts): o stack, a equipa e a ponte da ext (U7p2) */
+  infra: Pick<typeof Infra, "needRt" | "infraDraw" | "projectContext">;
 }
 
 export const services: Partial<Services> = {};

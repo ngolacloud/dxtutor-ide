@@ -40,15 +40,22 @@ const G = window as unknown as Record<string, any>;
 
 /* ───── estado window-backed (o resíduo é dono; aqui só os acessores) ───── */
 export const envs = (): Envs => G.ENVS;
-export const envx = (): EnvX => G.ENVX;
-export const k8s = (): K8sState | null => G.K8S;
-export const setK8s = (v: K8sState | null): void => { G.K8S = v; };
+/* o ENVX/K8S/DEVC/P_DC são deste módulo desde a U7p2 do ADR-0004 (eram window.*): o resíduo dá a referência do
+   ENVX ao avaliar, e o desktop, o auto-teste e os testes lêem-nos e escrevem-nos por estes acessores */
+let ENVX_REF: EnvX;
+let K8S: K8sState | null = null;
+let DEVC: Devc | null = null;
+let P_DC: string | undefined;
+export const setEnvxRef = (v: EnvX): void => { ENVX_REF = v; };
+export const envx = (): EnvX => ENVX_REF;
+export const k8s = (): K8sState | null => K8S;
+export const setK8s = (v: K8sState | null): void => { K8S = v; };
 export const stack = (): StackItem[] | null => G.STACK;
 export const setStack = (v: StackItem[] | null): void => { G.STACK = v; };
-export const devc = (): Devc | null => G.DEVC;
-export const setDevc = (v: Devc | null): void => { G.DEVC = v; };
-export const pDc = (): string => G.P_DC;
-export const setPDc = (v: string): void => { G.P_DC = v; };
+export const devc = (): Devc | null => DEVC;
+export const setDevc = (v: Devc | null): void => { DEVC = v; };
+export const pDc = (): string => P_DC as string;
+export const setPDc = (v: string): void => { P_DC = v; };
 
 /* ───── design do Studio + catálogo + FS + raiz (donos do monólito/studio) ───── */
 export const design = (): Design => G.SD;
@@ -86,9 +93,3 @@ export const drawStack = (): void => { G.drawStack(); };
 export const note = (m: string): void => { noteImpl(m); };
 export const rel = (at: number): string => G.rel(at);
 
-/* ───── publicação da superfície pública no `window` ─────
-   Os nomes reais resolvem os onclick inline (escopo global), os decoradores de
-   v5/v6 (dxRun/dxStop/dxDeploy/drawStudio) e os consumidores por global. */
-export const publish = (surface: Record<string, unknown>): void => {
-  Object.assign(window, surface);
-};

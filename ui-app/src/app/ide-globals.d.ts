@@ -11,7 +11,6 @@ declare global {
   interface Window { claude?: { use: (k: string) => Promise<typeof SAMPLE> }; vsxCmds: () => void }
   const $$: (s: string) => HTMLElement[];
   const HT: Record<string, { n: string }>;
-  var DRIFT: string | null;
   const assistantCenter: () => void;
   const buildActivity: () => void;
   const dbgStep: () => void;

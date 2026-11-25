@@ -18,6 +18,7 @@ import type { DesktopContext } from "./context";
 import { translator } from "../../app/i18n";
 import { DESKTOP_MESSAGES } from "./desktop-messages";
 import { echo, echoCmd, newInput } from "../../features/terminal";
+import { k8s, setK8s, devc, setDevc, pDc, RTN, KCTX, needRt, infraDraw, k8sDocs, saveEnv, hydrateEnvs, devcontainerJson } from "../../features/infra";
 
 const tdk = translator(DESKTOP_MESSAGES);
 /** os erros das amostras de observabilidade na língua da interface (o domínio recebe-os por parâmetro) */
@@ -54,7 +55,7 @@ async function readK8s(): Promise<void> {
   const [dep, pods, ing] = await Promise.all([get("deploy"), get("pods"), get("ingress")]);
   if (dep.code !== 0) return;
   const st = parseClusterState(dep.stdout, pods.code === 0 ? pods.stdout : "", ing.code === 0 ? ing.stdout : "", tdk("lastEnd"));
-  K8S = st.deps.length ? { docs: k8sDocs(), deps: st.deps, ver: st.ver, at: st.at, ingress: st.ingress } : null;
+  setK8s(st.deps.length ? { docs: k8sDocs(), deps: st.deps, ver: st.ver, at: st.at, ingress: st.ingress } : null);
 }
 /* ───── ajudas da observabilidade (R5c2) ───── */
 const fail = (e: unknown): ExecResult => ({ code: -1, stdout: "", stderr: String(e) });
@@ -138,7 +139,7 @@ drawStack(_drawStack) {
 const infraDesktop: InfraDesktop = {
 async rtConnect() {
   hydrateEnvs();
-  if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); STACK = null; DEVC = null; drawStack(); say("container runtime disconnected"); infraDraw(); void drawContainers(); return; }
+  if (ENVS.rtOn) { ENVS.rtOn = false; saveEnv(); STACK = null; setDevc(null); drawStack(); say("container runtime disconnected"); infraDraw(); void drawContainers(); return; }
   R.sock = await fsx.expandPath(ENVS.sock[ENVS.rt]);
   const env = { DOCKER_HOST: "unix://" + R.sock, CONTAINER_HOST: "unix://" + R.sock };
   const r = await sh(rtBin(), ["info", "--format", ENVS.rt === "podman" ? "{{.Version.Version}}" : "{{.ServerVersion}}"], { env, timeout: 15000 }).catch((e): ExecResult => ({ code: -1, stdout: "", stderr: String(e) }));
@@ -148,7 +149,7 @@ async rtConnect() {
 },
 async k8sConnect() {
   hydrateEnvs();
-  if (ENVS.k8sOn) { ENVS.k8sOn = false; saveEnv(); K8S = null; say("cluster disconnected"); infraDraw(); return; }
+  if (ENVS.k8sOn) { ENVS.k8sOn = false; saveEnv(); setK8s(null); say("cluster disconnected"); infraDraw(); return; }
   const kube: string = await fsx.expandPath(ENVS.kube);
   R.kube = kube;
   const env = { KUBECONFIG: kube };
@@ -174,7 +175,7 @@ dxDeploy(_dxDeploy) {
   const proj = R.name!.toLowerCase().replace(/[^a-z0-9_-]/g, ""), ctx = ENVS.ctx, ns = ENVS.ns, kc = `kubectl --context ${ctx}`, deps = docs.filter(d => d.k === "Deployment");
   const load = (img: string) => /^kind-/.test(ctx) ? `kind load docker-image ${img} --name ${ctx.slice(5)}` : /^minikube/.test(ctx) ? `minikube image load ${img}` : /^k3d-/.test(ctx) ? `k3d image import ${img} -c ${ctx.slice(4)}` : `echo "push ${img} to a registry the cluster can pull from"`;
   const own = deps.filter(d => /registry\.example\.com/.test(d.img || ""));
-  const script = ["set -e", `${compose()} build`, ...own.map(d => `${rtBin()} tag ${proj}-${d.n} ${d.img} && ${load(d.img)}`), `${kc} create namespace ${ns} --dry-run=client -o yaml | ${kc} apply -f -`, `${kc} -n ${ns} apply -f deploy/k8s`, annotate(kc, ns, "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"), ...deps.map(d => `${kc} -n ${ns} rollout status deploy/${d.n} --timeout=180s`)].join("\n");
+  const script = ["set -e", `${compose()} build`, ...own.map(d => `${rtBin()} tag ${proj}-${d.n} ${d.img} && ${load(d.img as string)}`), `${kc} create namespace ${ns} --dry-run=client -o yaml | ${kc} apply -f -`, `${kc} -n ${ns} apply -f deploy/k8s`, annotate(kc, ns, "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"), ...deps.map(d => `${kc} -n ${ns} rollout status deploy/${d.n} --timeout=180s`)].join("\n");
   void idle().then(async () => { const code = await runInTerm(script, { env: envFor() }); if (code === 0) { await readK8s(); toast("Deployed to " + ctx); goPane("infra"); } infraDraw(); });
   return { ok: true, sum: "deploying" };
 },
@@ -182,8 +183,8 @@ dxDeploy(_dxDeploy) {
 dcAttach(_dcAttach) {
   if (!R.root) return _dcAttach();
   if (!needRt()) return;
-  const root = R.root, pDc = (window as unknown as { P_DC: string }).P_DC;
-  if (!FS[pDc]) writeFile(pDc, (window as unknown as { devcontainerJson: () => string }).devcontainerJson());
+  const root = R.root, pdcPath = pDc();
+  if (!FS[pdcPath]) writeFile(pdcPath, devcontainerJson());
   flushSave();
   setPanelTab("terminal", true); echoCmd(tdk("dcUpCmd"));
   void idle().then(async () => {
@@ -197,7 +198,7 @@ dcAttach(_dcAttach) {
          runtime escolhido acima: diz-se qual, em vez de o trocar às escondidas */
       const engine = await devcontainerClient().engine().catch(() => "");
       const dv = { name: st.name || "dev container", image: up.image, engine };
-      DEVC = dv;
+      setDevc(dv);
       echo(`<span class="ok">${tdk("dcRunning", { name: escH(dv.name), engine: escH(engine || "?"), image: escH(up.image), built: up.built ? tdk("dcBuilt") : "" })}</span>`); newInput(true);
       say(`dev container ${dv.name} up`); toast("Projecto ligado ao dev container");
     } catch (e) { echo(`<span class="er">${escH(String(e))}</span>`); newInput(true); toast("O dev container não arrancou"); }
@@ -207,18 +208,18 @@ dcAttach(_dcAttach) {
 dcDetach(_dcDetach) {
   if (!R.root) return _dcDetach();
   const root = R.root;
-  void devcontainerClient().sessionDown(root).then(() => { DEVC = null; say("dev container parado"); toast("Dev container parado"); infraDraw(); }, (e) => { toast(tdk("dcStopFail", { error: String(e) })); });
+  void devcontainerClient().sessionDown(root).then(() => { setDevc(null); say("dev container parado"); toast("Dev container parado"); infraDraw(); }, (e) => { toast(tdk("dcStopFail", { error: String(e) })); });
 },
 /* ───── o scale e o delete do Kubernetes com o kubectl real (ADR-0006, R5b) ───── */
 k8sScale(n, d, _k8sScale) {
-  if (!ENVS.k8sOn || !K8S) return _k8sScale(n, d);
-  const x = (K8S as { deps: Array<{ n: string; rep: number }> }).deps.find(y => y.n === n); if (!x) return;
+  if (!ENVS.k8sOn || !k8s()) return _k8sScale(n, d);
+  const x = (k8s() as { deps: Array<{ n: string; rep: number }> }).deps.find(y => y.n === n); if (!x) return;
   const rep = Math.max(0, x.rep + d);
   void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} scale deploy/${n} --replicas=${rep}`, { env: envFor() }).then(async () => { await readK8s(); infraDraw(); });
 },
 k8sDown(_k8sDown) {
   if (!ENVS.k8sOn || !R.root) return _k8sDown();
-  void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} delete -f deploy/k8s`, { env: envFor() }).then(async () => { K8S = null; await readK8s(); infraDraw(); });
+  void runInTerm(`kubectl --context ${ENVS.ctx} -n ${ENVS.ns} delete -f deploy/k8s`, { env: envFor() }).then(async () => { setK8s(null); await readK8s(); infraDraw(); });
 },
 /* ───── staging e production no cluster real (ADR-0006, R5c1) ─────
    O manifesto (com os segredos do ambiente) entra pela entrada padrão do `kubectl apply -f -`:
@@ -270,8 +271,8 @@ obs: {
 };
 /* ao abrir uma pasta, um dev container já a correr para ela volta a aparecer ligado */
 document.addEventListener("dx:workspace", () => {
-  const root = R.root; if (!root) { DEVC = null; return; }
-  void devcontainerClient().sessionStatus(root).then((st) => { DEVC = st.running ? { name: st.name, image: (DEVC as { image?: string } | null)?.image || "" } : null; infraDraw(); }, () => undefined);
+  const root = R.root; if (!root) { setDevc(null); return; }
+  void devcontainerClient().sessionStatus(root).then((st) => { setDevc(st.running ? { name: st.name, image: (devc() as { image?: string } | null)?.image || "" } : null); infraDraw(); }, () => undefined);
 });
 desktopPorts.stack = stackDesktop;
 desktopPorts.infra = infraDesktop;

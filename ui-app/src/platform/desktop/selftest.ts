@@ -26,6 +26,7 @@ import { renderRunPane } from "../../features/run";
 import { renderSearchPane } from "../../features/search";
 import { renderAccountPane } from "../../features/account";
 import { renderGraphView } from "../../features/graph";
+import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
 
 export async function selftest(ctx: DesktopContext): Promise<void> {
 const { R, sh, git, stream, gitc, providers, tasks, app, idle } = ctx;
@@ -643,7 +644,7 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 100)); return f(); };
       const W = window as unknown as { ENVS: { rt: string; rtOn: boolean }; rtConnect: () => Promise<void> };
       W.ENVS.rt = "docker";
-      if (!W.ENVS.rtOn) await W.rtConnect();
+      if (!W.ENVS.rtOn) await rtConnect();
       await wait(() => W.ENVS.rtOn, 15000);
       const host = () => document.getElementById("dk-containers"), imgs = () => document.getElementById("dk-images");
       await R.drawContainers?.();
@@ -654,17 +655,16 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // um devcontainer.json com uma imagem que já existe nesta máquina (sem descarregar nada).
     await step("devcontainer", async () => {
       const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 200)); return f(); };
-      const W = window as unknown as { P_DC: string; DEVC: { name: string; image: string } | null; dcAttach: () => void; dcDetach: () => void; ENVS: { rtOn: boolean } };
       const img = ((await sh("docker", ["images", "--format", "{{.Repository}}:{{.Tag}}"])).stdout.trim().split("\n").filter(x => x && !x.includes("<none>"))[0]) || "";
       if (!img) return { skipped: "sem imagens locais" };
-      writeFile(W.P_DC, JSON.stringify({ name: "selftest", image: img }) + "\n"); flushSave(); await idle();
-      W.dcAttach();
-      const up = await wait(() => !!W.DEVC, 60000);
-      const name = W.DEVC ? W.DEVC.name : "", engine = (W.DEVC as unknown as { engine?: string } | null)?.engine || "docker";
+      writeFile(pDc(), JSON.stringify({ name: "selftest", image: img }) + "\n"); flushSave(); await idle();
+      dcAttach();
+      const up = await wait(() => !!devc(), 60000);
+      const name = (devc() as { name: string } | null)?.name ?? "", engine = (devc() as unknown as { engine?: string } | null)?.engine || "docker";
       const bin = engine === "host" ? "docker" : engine;
       const inPs = name ? (await sh(bin, ["ps"])).stdout.includes(name) : false; /* o delonix ignora o --format: procura-se o nome na tabela */
-      W.dcDetach();
-      const down = await wait(() => W.DEVC === null, 30000);
+      dcDetach();
+      const down = await wait(() => devc() === null, 30000);
       const gone = name ? !(await sh(bin, ["ps", "-a"])).stdout.includes(name) : false;
       return { image: img, engine, up, name, inPs, down, gone };
     });
@@ -681,10 +681,10 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       flushSave(); await idle();
       W.dxRun();
       const up = await wait(() => !!W.STACK && W.STACK.some(x => x.name === "obs"), 120000);
-      W.openObserve("local", "obs");
-      const polled = await wait(() => { const o = W.OBS["local:obs"]; return !!o && o.polled && o.logs.some(l => /dxtutor-selftest up/.test(l.m)); }, 30000);
-      await wait(() => (W.OBS["local:obs"]?.mem.length || 0) >= 1, 15000);
-      const o = W.OBS["local:obs"];
+      openObserve("local", "obs");
+      const polled = await wait(() => { const o = OBS["local:obs"]; return !!o && o.polled && o.logs.some(l => /dxtutor-selftest up/.test(l.m)); }, 30000);
+      await wait(() => (OBS["local:obs"]?.mem.length || 0) >= 1, 15000);
+      const o = OBS["local:obs"];
       const res = { image: img, up, polled, logLines: o ? o.logs.length : 0, firstLog: o?.logs[0]?.m || "", mem: o?.mem.slice(-1)[0], cpu: o?.cpu.slice(-1)[0], sampleErr: o?.sampleErr, logErr: o?.logErr };
       W.dxStop();
       const down = await wait(() => W.STACK === null, 60000);
@@ -701,15 +701,15 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       await sh("sh", ["-c", 'cat > "$1"', "sh", kc], { stdin: cfg });
       const prev = { kube: W.ENVS.kube, ctx: W.ENVS.ctx, on: W.ENVS.k8sOn };
       W.ENVS.kube = kc; W.ENVS.k8sOn = false;
-      await W.k8sConnect();
-      const contexts = [...W.KCTX];
+      await k8sConnect();
+      const contexts = [...KCTX];
       const cluster = desktopPorts.infra?.cluster;
       let readErr = "";
       try { await cluster!.read({ env: "staging", ctx: "dx-selftest", ns: "dx" }); } catch (e) { readErr = String((e as Error).message || e).slice(0, 120); }
       const applied = await cluster!.apply({ env: "staging", ctx: "dx-selftest", ns: "dx" }, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: dx-selftest\n", "abc1234");
-      W.ENVX.ctx.staging = "dx-selftest";
-      const res = { contexts, connected: W.ENVS.k8sOn, readErr, applied, staging: W.envState("staging"), hist: W.ENVX.hist.length };
-      W.ENVS.kube = prev.kube; W.ENVS.ctx = prev.ctx; W.ENVS.k8sOn = prev.on; W.ENVX.ctx.staging = "";
+      ENVX.ctx.staging = "dx-selftest";
+      const res = { contexts, connected: W.ENVS.k8sOn, readErr, applied, staging: envState("staging"), hist: ENVX.hist.length };
+      W.ENVS.kube = prev.kube; W.ENVS.ctx = prev.ctx; W.ENVS.k8sOn = prev.on; ENVX.ctx.staging = "";
       await sh("rm", ["-f", kc]);
       return res;
     });

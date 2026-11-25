@@ -7,6 +7,7 @@ import { bootApp } from "./harness";
  * ambiente. No browser não há cluster: nada se inventa (nem estado, nem crash, nem promoção). */
 
 let w: any;
+let INF: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da infra da cadeia do bootApp (U7p2)
 let desktopPorts: Record<string, any>;
 let infra: any; // o módulo FRESCO (initSecrets não é publicado no window)
 
@@ -17,19 +18,20 @@ const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve();
 
 /** O cluster local deployado: manifestos gerados do design e o K8S lido (versão anotada). */
 function deployLocal(): void {
-  w.FS[w.ROOT + "deploy/k8s/all.yaml"] = { content: w.k8sInfra(w.SD), orig: "" };
-  const docs = w.k8sDocs();
-  w.K8S = { docs, deps: docs.filter((d: any) => d.k === "Deployment").map((d: any) => ({ n: d.n, rep: d.rep, ready: d.rep, img: d.img })), ver: w.GIT.refs.develop, at: 1 };
+  w.FS[w.ROOT + "deploy/k8s/all.yaml"] = { content: INF.k8sInfra(w.SD), orig: "" };
+  const docs = INF.k8sDocs();
+  INF.setK8s({ docs, deps: docs.filter((d: any) => d.k === "Deployment").map((d: any) => ({ n: d.n, rep: d.rep, ready: d.rep, img: d.img })), ver: w.GIT.refs.develop, at: 1 });
 }
 
 beforeEach(async () => {
   localStorage.clear(); // a hidratação preguiçosa do ENVX leria o que um teste anterior guardou
   w = await bootApp();
+  INF = await import("../src/features/infra");
   desktopPorts = (await import("../src/app/desktop")).desktopPorts as Record<string, any>;
   infra = await import("../src/features/infra");
-  w.ENVS.rtOn = true; w.ENVS.k8sOn = true; w.K8S = null;
-  w.ENVX.ctx = { staging: "", production: "" }; w.ENVX.ns = { staging: "dxtutor-staging", production: "dxtutor" };
-  w.ENVX.st = { staging: null, production: null }; w.ENVX.hist = []; w.ENVX.sec = null;
+  w.ENVS.rtOn = true; w.ENVS.k8sOn = true; INF.setK8s(null);
+  INF.ENVX.ctx = { staging: "", production: "" }; INF.ENVX.ns = { staging: "dxtutor-staging", production: "dxtutor" };
+  INF.ENVX.st = { staging: null, production: null }; INF.ENVX.hist = []; INF.ENVX.sec = null;
 });
 
 afterEach(() => {
@@ -41,35 +43,35 @@ afterEach(() => {
 describe("no browser (sem cluster)", () => {
   it("staging e production não têm estado nem crash inventado", () => {
     deployLocal();
-    expect(w.envState("staging")).toBe(null);
-    expect(w.envHealth("staging")).toBe("off");
-    expect(w.envDeps("staging")).toEqual([]);
+    expect(INF.envState("staging")).toBe(null);
+    expect(INF.envHealth("staging")).toBe("off");
+    expect(INF.envDeps("staging")).toEqual([]);
   });
 
   it("promover sem o local deployado pede o deploy primeiro", () => {
     const toast = vi.spyOn(w, "toast");
-    w.promote("staging");
+    INF.promote("staging");
     expect(toast).toHaveBeenCalledWith("Deploy to Local first");
   });
 
   it("promover sem contexto escolhido para o ambiente pede para o escolher", () => {
     deployLocal();
     const toast = vi.spyOn(w, "toast");
-    w.promote("staging");
+    INF.promote("staging");
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/Escolhe o contexto e o namespace de Staging/));
   });
 
   it("aprovar a promoção diz que precisa da app desktop e não regista nada", () => {
     deployLocal();
-    w.ENVX.ctx.staging = "kind-staging";
+    INF.ENVX.ctx.staging = "kind-staging";
     const toast = vi.spyOn(w, "toast");
-    w.promote("staging");
+    INF.promote("staging");
     expect(document.querySelector("#dlg .dlg-b")!.textContent).toMatch(/kind-staging \/ dxtutor-staging/);
     expect(document.querySelector("#dlg .dlg-b")!.textContent).not.toMatch(/simulated/);
     click(okBtn()!);
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/precisa da app desktop/));
-    expect(w.ENVX.hist).toEqual([]);
-    expect(w.ENVX.st.staging).toBe(null);
+    expect(INF.ENVX.hist).toEqual([]);
+    expect(INF.ENVX.st.staging).toBe(null);
   });
 });
 
@@ -84,11 +86,11 @@ describe("no desktop (porta do cluster, falsa)", () => {
 
   it("promover aplica os manifestos com os segredos DE STAGING, regista a promoção e relê o ambiente", async () => {
     deployLocal();
-    w.ENVX.ctx.staging = "kind-staging";
+    INF.ENVX.ctx.staging = "kind-staging";
     infra.initSecrets();
-    const api = Object.keys(w.ENVX.sec.staging).find((a) => "DATABASE_URL" in w.ENVX.sec.staging[a])!;
-    w.ENVX.sec.staging[api].DATABASE_URL = "postgres://u:p@db.staging:5432/app";
-    w.promote("staging");
+    const api = Object.keys(INF.ENVX.sec.staging).find((a) => "DATABASE_URL" in INF.ENVX.sec.staging[a])!;
+    INF.ENVX.sec.staging[api].DATABASE_URL = "postgres://u:p@db.staging:5432/app";
+    INF.promote("staging");
     click(okBtn()!);
     await vi.waitFor(() => expect(read).toHaveBeenCalled());
     const [target, manifest, ver] = apply.mock.calls[0];
@@ -97,39 +99,39 @@ describe("no desktop (porta do cluster, falsa)", () => {
     expect(manifest).toContain('DATABASE_URL: "postgres://u:p@db.staging:5432/app"');
     expect(manifest).not.toContain("postgres://app:app@"); // os valores locais não vão para staging
     await flush();
-    expect(w.ENVX.hist[0]).toMatchObject({ from: "local", to: "staging", ver: w.GIT.refs.develop });
-    expect(w.envState("staging")).toEqual(staged);
-    expect(w.envHealth("staging")).toBe("bad");
+    expect(INF.ENVX.hist[0]).toMatchObject({ from: "local", to: "staging", ver: w.GIT.refs.develop });
+    expect(INF.envState("staging")).toEqual(staged);
+    expect(INF.envHealth("staging")).toBe("bad");
   });
 
   it("um deploy que falha não fica no histórico", async () => {
     apply.mockResolvedValueOnce(false);
     deployLocal();
-    w.ENVX.ctx.staging = "kind-staging";
-    w.promote("staging");
+    INF.ENVX.ctx.staging = "kind-staging";
+    INF.promote("staging");
     click(okBtn()!);
     await vi.waitFor(() => expect(read).toHaveBeenCalled());
     await flush();
-    expect(w.ENVX.hist).toEqual([]);
+    expect(INF.ENVX.hist).toEqual([]);
   });
 
   it("refreshEnvs lê só os ambientes com contexto escolhido e com o cluster ligado", async () => {
-    w.ENVX.ctx.production = "prod-ctx";
-    await w.refreshEnvs();
+    INF.ENVX.ctx.production = "prod-ctx";
+    await INF.refreshEnvs();
     expect(read).toHaveBeenCalledTimes(1);
     expect(read).toHaveBeenCalledWith({ env: "production", ctx: "prod-ctx", ns: "dxtutor" });
-    expect(w.envState("production")).toEqual(staged);
+    expect(INF.envState("production")).toEqual(staged);
     w.ENVS.k8sOn = false;
-    await w.refreshEnvs();
+    await INF.refreshEnvs();
     expect(read).toHaveBeenCalledTimes(1);
   });
 
   it("production bloqueada por staging a falhar aponta para os logs (não para um debugger que já não existe)", async () => {
     deployLocal();
-    w.ENVX.ctx.staging = "kind-staging"; w.ENVX.ctx.production = "prod-ctx";
-    await w.refreshEnvs();
+    INF.ENVX.ctx.staging = "kind-staging"; INF.ENVX.ctx.production = "prod-ctx";
+    await INF.refreshEnvs();
     const openTab = vi.spyOn(w, "openTab").mockImplementation(() => {});
-    w.promote("production");
+    INF.promote("production");
     expect(document.querySelector("#dlg h2")!.textContent).toBe("Production is blocked");
     expect(document.querySelector("#dlg .dlg-b")!.textContent).toMatch(/ImagePullBackOff/);
     click(okBtn()!);
@@ -137,16 +139,16 @@ describe("no desktop (porta do cluster, falsa)", () => {
   });
 
   it("na vista Environments, o contexto de staging escolhe-se entre os contextos reais e relê o ambiente", async () => {
-    w.KCTX.length = 0; w.KCTX.push("kind-staging", "prod-ctx");
+    INF.KCTX.length = 0; INF.KCTX.push("kind-staging", "prod-ctx");
     const host = document.createElement("div"); document.body.appendChild(host);
     w.VIEW.envs({}, host);
     const sel = host.querySelector('[data-action="env-ctx"][data-on="staging"]') as HTMLSelectElement;
     expect([...sel.options].map((o) => o.value)).toEqual(["", "kind-staging", "prod-ctx"]);
     change(sel, "kind-staging");
-    expect(w.ENVX.ctx.staging).toBe("kind-staging");
+    expect(INF.ENVX.ctx.staging).toBe("kind-staging");
     await vi.waitFor(() => expect(read).toHaveBeenCalledWith({ env: "staging", ctx: "kind-staging", ns: "dxtutor-staging" }));
     change(host.querySelector('[data-action="env-ns"][data-on="staging"]')!, " stg ");
-    expect(w.ENVX.ns.staging).toBe("stg");
+    expect(INF.ENVX.ns.staging).toBe("stg");
     host.remove();
   });
 });

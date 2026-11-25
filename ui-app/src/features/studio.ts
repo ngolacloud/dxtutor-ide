@@ -41,8 +41,10 @@ import { STUDIO_DESKTOP_MESSAGES } from "./studio.desktop-messages";
 const txt = translator(STUDIO_MESSAGES);
 const txd = translator(STUDIO_DESKTOP_MESSAGES);
 
-/* fachada do único global da infra que o drift lê (escrito pela acção studio:drift) */
-const G = window as unknown as { DRIFT: string | null };
+/* o ambiente com que o Studio compara o desenho (o drift): deste módulo desde a U7p2 do ADR-0004 (era window.DRIFT,
+   que a infra criava); o arranque escolhe-o pelo setDrift */
+let DRIFT: string | null = null;
+export const setDrift = (v: string | null): void => { DRIFT = v; };
 
 /* helpers locais (gémeos puros dos homónimos do monólito; isolados na feature) */
 const slug = (s: any) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -142,7 +144,7 @@ function sdDel(id:string){SD.nodes=SD.nodes.filter(n=>n.id!==id);SD.edges=SD.edg
    (in sync / drift / behind / missing / failing) e o inspector, sem selecção, abre com o
    resumo «Design vs <ambiente>». */
 function paintDrift(): void {
-  const env = G.DRIFT;
+  const env = DRIFT;
   if (!env) return;
   const s = $('#st-svg');
   if (!s) return;
@@ -168,9 +170,9 @@ registerActions({
   'studio:status': { change: (c) => { node(c.on).st = c.value; save(); } },
   'studio:unlink': { click: (c) => { SD.edges.splice(Number(c.on), 1); save(); } },
   'studio:del': { click: (c) => void sdDel(c.on) },
-  'studio:drift': { change: (c) => { G.DRIFT = c.value || null; drawStudio(); } },
+  'studio:drift': { change: (c) => { DRIFT = c.value || null; drawStudio(); } },
 });
-VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" data-action="studio:drift"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${G.DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
+VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-bar .sp');if(b)b.insertAdjacentHTML('beforebegin',`<select class="mini" title="Compare the design with what is running" data-action="studio:drift"><option value="">Compare with…</option>${Object.entries(ENVL).map(([k,l])=>`<option value="${k}"${DRIFT===k?' selected':''}>${l}</option>`).join('')}</select>`);};
 
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
