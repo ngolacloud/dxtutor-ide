@@ -382,4 +382,4 @@ export const writeFile = (p: string, content: string): void =>
   window.writeFile(p, content);
 
 /** Re-renderiza a vista `kind` se for a vista activa. */
-export const rerender = (kind: string): void => window.rerender(kind);
+export const rerender = (kind: string): void => services.tabs!.rerender(kind);

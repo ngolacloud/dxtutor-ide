@@ -21,7 +21,7 @@ import { registerActions } from "./app/actions";
 import { tabMarks } from "./app/tab-marks";
 import { editorStore } from "./app/store/editor";
 import { drawTabs, closeTab } from "./features/tabs";
-import { scrollTerm, cwd } from "./features/terminal";
+import { scrollTerm, cwd, echo, newInput } from "./features/terminal";
 import { pairState } from "./app/pair-state";
 import { workspaceStore } from "./app/store";
 
@@ -154,10 +154,6 @@ declare global {
   var __miss: Set<string> | undefined;
   // Globais do Studio (studio.ts, @ts-nocheck) lidos pelos geradores tipados; catálogos
   // heterogéneos → Record<string, any>, e os helpers de nó com assinatura fina.
-  const TECH: Record<string, any>;
-  const KIND: Record<string, any>;
-  const sl: (n: any) => string;
-  const isApp: (n: any) => boolean;
   const appDir: (n: any) => string;
   // Estado do desenho do Studio (studio.ts), window-backed (var → também em window.X);
   // o resíduo/onclicks inline e generators.ts escrevem/lêem por global.
@@ -179,8 +175,6 @@ declare global {
   var promptHTML: () => string;
   var show: (id: string | null) => void;
   var openPath: (p: string, line?: number) => void;
-  var newInput: (nofocus?: boolean) => void;
-  var echo: (h: string) => void;
   var scrollTerm: () => void;
   var setPanelTab: (pt: string, nofocus?: boolean) => void;
   var writeFile: (p: string, content: string) => void;

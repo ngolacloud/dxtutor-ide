@@ -18,7 +18,7 @@
    `Object.assign(window,…)` de app.ts. */
 
 import { esc } from "../core";
-import { appDir } from "./studio";
+import { appDir, TECH, KIND, isApp, sl } from "./studio";
 
 /** Nó do desenho do Studio (SD.nodes) e o desenho inteiro — forma mínima lida pelos geradores. */
 interface GNode { id: string; tech: string; n: string }

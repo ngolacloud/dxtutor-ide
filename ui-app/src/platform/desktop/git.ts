@@ -11,6 +11,7 @@ import { desktopPorts } from "../../app/desktop";
 import { agentStore } from "../../app/store/agent";
 import { assistTrailers } from "../../features/scm/domain/trailers";
 import type { DesktopContext } from "./context";
+import { rerender } from "../../features/tabs";
 
 export function installGit(ctx: DesktopContext): void {
 const { R, gitc, git, gitOk, enqueue, isReal, relOf, say } = ctx;

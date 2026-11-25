@@ -62,6 +62,7 @@ import { BOARD_DESKTOP_MESSAGES, type BoardDesktopKey } from "./board/applicatio
 /* o motor recebe uma só porta `copy`: os textos migrados (pares do motor) e os novos (desktop) */
 const tbe = translator(BOARD_ENGINE_MESSAGES), tbd = translator(BOARD_DESKTOP_MESSAGES);
 import { BOARD_MESSAGES } from "./board/ui/messages";
+import { XC as XCImport } from "./terminal";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(BOARD_MESSAGES);
 
@@ -196,7 +197,7 @@ const ACTIONS: ActionTable = {
 bindActions(ACTIONS);
 /* `dx test <ISSUE>` e `dx sprint <n>` no terminal (ADR-0004, U4j4a — eram do app.ts): chamam o dropIssue/runSprint
    PUBLICADOS (o runSprint com as guardas e a porta desktop), como o app.ts chamava pelo global. */
-const XCB=(window as unknown as { XC: Record<string, (a: string[], v?: string) => unknown> }).XC;
+const XCB=XCImport as Record<string, (a: string[], v?: string) => unknown>;
 const _dx=XCB.dx;XCB.dx=(a: string[])=>{if(a[0]==='test'&&a[1]){const it=(window as unknown as { BL: Backlog }).BL.issues.find(i=>i.id.toLowerCase()===a[1].toLowerCase());if(!it){(window as unknown as { echo: (h: string) => void }).echo('<span class="er">issue desconhecida</span>');return;}(window as unknown as { dropIssue: (id: string, st: string) => void }).dropIssue(it.id,'test');return;}if(a[0]==='sprint'){(window as unknown as { runSprint: (s: number) => unknown }).runSprint((+a[1]||1)-1);return;}return _dx(a);};
 /* redesenha o quadro aberto quando o workspace muda (ADR-0004, U4j4a — era um subscritor do app.ts) */
 bus.on('workspace:changed',({fromEditor:a})=>{if(!a){const t=(window as unknown as { tabOf: (id: string | null) => { kind?: string } | undefined; cur: string | null }).tabOf((window as unknown as { cur: string | null }).cur);if(t&&t.kind==='board'){const top=$('#ebody')!.scrollTop;(window as unknown as { show: (id: string | null) => void }).show((window as unknown as { cur: string | null }).cur);$('#ebody')!.scrollTop=top;}}});

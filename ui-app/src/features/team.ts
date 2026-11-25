@@ -88,7 +88,7 @@ function applyProjectTeam(): void {
   });
   Object.keys(AGENTS).forEach((k) => { AG0[k] = JSON.parse(JSON.stringify(AGENTS[k])); });
   if (FS[ROOT + '.dxtutor/team.json'] && !tj) log('team', mdk('teamJsonInvalid'));
-  try { agentPill(); rerender('team'); } catch { /* ainda sem UI */ }
+  try { agentPill(); services.tabs!.rerender('team'); } catch { /* ainda sem UI */ }
 }
 document.addEventListener('dx:workspace', () => applyProjectTeam());
 /** Grava a equipa: com pasta aberta, no projecto (`.dxtutor/team.json`, versionável); sem pasta, no LS. */
@@ -160,13 +160,13 @@ function applyTemplateBase(id: string) {
   Object.assign(HARN, { tpl: id, ceiling: t.ceiling, human: t.human.slice(), review: true });
   S.THRESH = t.thresh; S.MODE = t.mode; LS.set('harn5', HARN);
   saveTeam(); window.save(); updateAgentUI(); writeFile(ROOT + '.dxtutor/harness.toml', harnessToml());
-  toast(`Harness applied: ${t.n}`); log('harness', `template ${id} applied · ceiling ${t.ceiling}`); rerender('team');
+  toast(`Harness applied: ${t.n}`); log('harness', `template ${id} applied · ceiling ${t.ceiling}`); services.tabs!.rerender('team');
 }
 /* Aplicar um template também acerta o «explain before validating» (mesmo quando a base
    recusa por haver uma execução a correr). Era a decoração do v6.ts (ADR-0004, U4g4). */
 export const applyTemplate = function (id: string): void {
   applyTemplateBase(id);
-  HARN.explain = ['study', 'critical'].includes(id); LS.set('harn5', HARN); rerender('team');
+  HARN.explain = ['study', 'critical'].includes(id); LS.set('harn5', HARN); services.tabs!.rerender('team');
 };
 function toggleRight(r: string) {
   hydrateHarn();
@@ -175,7 +175,7 @@ function toggleRight(r: string) {
   i < 0 ? HARN.human.push(r) : HARN.human.splice(i, 1);
   LS.set('harn5', HARN);
   if (FS[ROOT + '.dxtutor/harness.toml']) writeFile(ROOT + '.dxtutor/harness.toml', harnessToml());
-  rerender('team');
+  services.tabs!.rerender('team');
 }
 function authorship() {
   let h = 0, a = 0;
@@ -188,7 +188,7 @@ export function reviewIssue(id: string) {
   if (!it) return;
   it.reviewed = true;
   openTab({ id: 'review', title: 'Review ' + it.id, kind: 'review', issue: id });
-  rerender('board');
+  services.tabs!.rerender('board');
 }
 
 function renderTeamView(_t:unknown,host:HTMLElement){
@@ -264,8 +264,8 @@ registerActions({
   "team:openHarness": { click: () => void callGlobal('openPath', TA.ROOT + '.dxtutor/harness.toml') },
   "team:applyTemplate": { click: (c) => applyTemplate(c.on) },
   "team:toggleRight": { click: (c) => void toggleRight(c.on) },
-  "team:review": { click: () => { HARN.review = !HARN.review; TA.LS.set('harn5', HARN); callGlobal('rerender', 'team'); } },
-  "team:explain": { click: () => { HARN.explain = !HARN.explain; TA.LS.set('harn5', HARN); callGlobal('rerender', 'team'); } },
+  "team:review": { click: () => { HARN.review = !HARN.review; TA.LS.set('harn5', HARN); services.tabs!.rerender('team'); } },
+  "team:explain": { click: () => { HARN.explain = !HARN.explain; TA.LS.set('harn5', HARN); services.tabs!.rerender('team'); } },
   "team:probe": { input: (c) => void scopeProbe(c.value) },
   "team:talk": { click: (c) => { agentStore.persona = c.on; agentPill(); callGlobal('show', TA.cur); } },
   "team:paths": { change: (c) => { TA.AGENTS[c.on].paths = lines(c.value); saveTeam(); } },

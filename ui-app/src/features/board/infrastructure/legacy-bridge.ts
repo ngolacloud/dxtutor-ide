@@ -28,12 +28,15 @@ import type {
   Backlog, Stage, Issue, Design, TechSpec,
 } from "../domain/types";
 /* U7c do ADR-0004: estes quatro deixaram de ser lidos pelo window — o publicador avalia antes desta ponte, ninguém os decora */
-import { validateDesign as validateDesignImpl, CLOUD, saveSD as saveSDImpl, appDir as appDirImpl, openStudio as openStudioImpl } from "../../studio";
+import { validateDesign as validateDesignImpl, CLOUD, saveSD as saveSDImpl, appDir as appDirImpl, openStudio as openStudioImpl, TECH as TECHImpl, KIND as KINDImpl, isApp as isAppImpl, sl as slImpl } from "../../studio";
 import { codeGuard as codeGuardImpl, HARN, agentPill as agentPillImpl, reviewIssue as reviewIssueImpl } from "../../team";
 import { STOP, tl as tlImpl, beat as beatImpl, runLabel as runLabelImpl, runState as runStateImpl, scrollMsgs as scrollMsgsImpl } from "../../codev";
 import { usd as usdImpl } from "../../tasks";
 import { TASKP } from "../../router/domain/model-routing";
 import { agentStore } from "../../../app/store";
+import { echo as echoImpl, echoCmd as echoCmdImpl, newInput as newInputImpl } from "../../terminal";
+import { note as noteImpl } from "../../notifications";
+import { services } from "../../../app/services";
 export { toast, log, rerender };
 export type { Backlog, Stage, Issue, Design, TechSpec };
 
@@ -104,11 +107,11 @@ export const stOf = (p: string): string => G.stOf(p);
 export const design = (): Design => G.SD;
 export const saveDesign = (): void => saveSDImpl();
 export const validateDesign = (): Array<[string, string]> => validateDesignImpl() as Array<[string, string]>;
-export const tech = (): Record<string, TechSpec> => G.TECH;
-export const kindTable = (): Record<string, { hc?: boolean }> => G.KIND;
+export const tech = (): Record<string, TechSpec> => TECHImpl as Record<string, TechSpec>;
+export const kindTable = (): Record<string, { hc?: boolean }> => KINDImpl as Record<string, { hc?: boolean }>;
 export const cloudTable = (): Record<string, { l: string }> => CLOUD;
-export const isApp = (n: unknown): boolean => G.isApp(n);
-export const nodeSlug = (n: unknown): string => G.sl(n);
+export const isApp = (n: unknown): boolean => isAppImpl(n as never);
+export const nodeSlug = (n: unknown): string => slImpl(n as never);
 export const appDir = (n: unknown): string => appDirImpl(n);
 
 /* ───── helpers de conversa do Co-Dev (cartões, passos, perguntas, ritmo) ───── */
@@ -118,7 +121,7 @@ export const ask = (host: HTMLElement, btns: AskBtn[]): Promise<number> => G.ask
 export const beat = (ms: number): Promise<void> => beatImpl(ms);
 export const sleep = (ms: number): Promise<void> => G.sleep(ms);
 export const user = (t: string): void => G.user(t);
-export const note = (m: string): void => G.note(m);
+export const note = (m: string): void => noteImpl(m);
 export const runLabel = (): void => runLabelImpl();
 export const runState = (on: boolean, label?: string): void => runStateImpl(on, label);
 export const focusAgent = (nofocus?: boolean): void => G.focusAgent(nofocus);
@@ -127,11 +130,11 @@ export const handlePrompt = (q: string): void => G.handlePrompt(q);
 export const scrollMsgs = (): void => scrollMsgsImpl();
 
 /* ───── terminal + testes + variáveis CSS + aplicação de uma ferramenta ───── */
-export const echo = (html: string): void => G.echo(html);
-export const echoCmd = (cmd: string): void => G.echoCmd(cmd);
-export const newInput = (nofocus?: boolean): void => G.newInput(nofocus);
+export const echo = (html: string): void => echoImpl(html);
+export const echoCmd = (cmd: string): void => echoCmdImpl(cmd);
+export const newInput = (nofocus?: boolean): void => newInputImpl(nofocus);
 export const setPanelTab = (tab: string, nofocus?: boolean): void => G.setPanelTab(tab, nofocus);
-export const getVar = (k: string): string => G.getVar(k);
+export const getVar = (k: string): string => services.shell!.getVar(k);
 /** Testes e lint do projecto aberto pelos comandos detectados (`DXR.projectCmd`), corridos a sério
  *  (`DXR.exec`, código de saída real). Sem desktop ou sem pasta, não há testes: `[]`. */
 export const projectTests = async (): Promise<Array<{ n: string; ok: boolean }>> => {

@@ -81,7 +81,7 @@ let SSEL:string|null=null;
 let SCLICK:{id:string|null,t:number}={id:null,t:0};const NW=152,NH=58;
 const saveSD=()=>{ if (hasFolder()) writeFile(P_STUDIO(), JSON.stringify(SD, null, 2) + '\n'); else LS.set('studio4', SD); };
 /* outra pasta aberta: o desenho é o dela */
-document.addEventListener('dx:workspace', () => { SD = loadSD(); SSEL = null; SLINK = null; rerender('studio'); });
+document.addEventListener('dx:workspace', () => { SD = loadSD(); SSEL = null; SLINK = null; services.tabs!.rerender('studio'); });
 export function openStudio(){openTab({id:'studio',title:'Studio',kind:'studio'});}
 
 /* ───── catálogo de tecnologias cloud ───── */
@@ -94,7 +94,8 @@ const TECH:Record<string,any>={
   'aws-alb':mkT('Application Load Balancer','aws','gateway',TF,80,'Traefik'),'aws-s3':mkT('Amazon S3','aws','s3','minio/minio',9000,'MinIO'),'aws-rds':mkT('Amazon RDS · PostgreSQL','aws','sql',PG,5432,'PostgreSQL'),'aws-dynamodb':mkT('Amazon DynamoDB','aws','dynamo','amazon/dynamodb-local',8000,'DynamoDB Local'),'aws-sqs':mkT('Amazon SQS','aws','sqs','softwaremill/elasticmq-native',9324,'ElasticMQ'),'aws-elasticache':mkT('Amazon ElastiCache · Redis','aws','cache',RD,6379,'Redis'),'aws-cognito':mkT('Amazon Cognito','aws','oidc',KC,8080,'Keycloak (stand-in)'),
   'az-frontdoor':mkT('Azure Front Door','azure','gateway',TF,80,'Traefik'),'az-blob':mkT('Azure Blob Storage','azure','blob','mcr.microsoft.com/azure-storage/azurite',10000,'Azurite'),'az-sql':mkT('Azure SQL Database','azure','mssql','mcr.microsoft.com/mssql/server:2022-latest',1433,'SQL Server 2022'),'az-servicebus':mkT('Azure Service Bus','azure','amqp',RMQ,5672,'RabbitMQ (stand-in)'),'az-redis':mkT('Azure Cache for Redis','azure','cache',RD,6379,'Redis'),'az-entra':mkT('Microsoft Entra ID','azure','oidc',KC,8080,'Keycloak (stand-in)'),
   'gcp-lb':mkT('Cloud Load Balancing','gcp','gateway',TF,80,'Traefik'),'gcp-gcs':mkT('Cloud Storage','gcp','gcs','fsouza/fake-gcs-server',4443,'fake-gcs-server'),'gcp-sql':mkT('Cloud SQL · PostgreSQL','gcp','sql',PG,5432,'PostgreSQL'),'gcp-pubsub':mkT('Pub/Sub','gcp','pubsub',GCE,8085,'Pub/Sub emulator'),'gcp-memorystore':mkT('Memorystore · Redis','gcp','cache',RD,6379,'Redis'),'gcp-firestore':mkT('Firestore','gcp','firestore',GCE,8080,'Firestore emulator')};
-const KIND={
+/* tipado como o global que era (Record<string, any>): os geradores indexam-no pelo kind do catálogo (U7p1) */
+const KIND: Record<string, any>={
   sql:{env:['POSTGRES_USER: app','POSTGRES_PASSWORD: app','POSTGRES_DB: app'],hc:'pg_isready -U app',vol:'/var/lib/postgresql/data',wire:(s:string)=>[`DATABASE_URL: postgres://app:app@${s}:5432/app`]},
   mssql:{env:['ACCEPT_EULA: "Y"','MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Change_me_123}'],wire:(s:string)=>[`DATABASE_URL: sqlserver://sa:\${MSSQL_SA_PASSWORD:-Change_me_123}@${s}:1433`]},
   cache:{hc:'redis-cli ping',wire:(s:string)=>[`REDIS_URL: redis://${s}:6379`]},amqp:{hc:'rabbitmq-diagnostics -q ping',wire:(s:string)=>[`AMQP_URL: amqp://guest:guest@${s}:5672`]},
@@ -174,9 +175,8 @@ VIEW.studio=(t,host)=>{renderStudioView(t,host);const b=host.querySelector('.st-
 /* ── publicar no window: o resíduo do monólito, as camadas v5/v6 e os onclick inline
    resolvem estes nomes livres como globais; drawStudio/SD/SSEL/SLINK/SCAT já estão
    window-backed acima (fonte única). ── */
-Object.assign(window, { TECH, KIND, isApp, sl });
 /* a ponte do Co-Dev e as tarefas (avaliam antes) abrem o Studio pelo registo (ADR-0004, U7h) */
-services.studio = { openStudio };
+services.studio = { openStudio, TECH, KIND, isApp, sl };
 
 /* lidos por import (ADR-0004, U7e): o arranque, os geradores, a ponte do board e o auto-teste desktop */
-export { loadSD, saveSD, appDir, sdAdd };
+export { loadSD, saveSD, appDir, sdAdd, TECH, KIND, isApp, sl };

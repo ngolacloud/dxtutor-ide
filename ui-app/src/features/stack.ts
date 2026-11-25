@@ -18,6 +18,7 @@ import { desktopPorts } from "../app/desktop";
 import { registerActions, globalCalls } from "../app/actions";
 import { translator } from "../app/i18n";
 import { STACK_MESSAGES } from "./stack.messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(STACK_MESSAGES);
 
@@ -26,13 +27,13 @@ interface Svc { name: string; deps: string[]; image?: string; build?: string; po
 window.STACK=null;
 function composeServices(){const c=FS[ROOT+'docker-compose.yml'];if(!c)return null;const out: Svc[]=[];let cur: Svc|null=null,on=false,dep=false;c.content.split('\n').forEach(l=>{if(/^services:/.test(l)){on=true;return;}if(/^\S/.test(l)&&!/^services:/.test(l))on=false;if(!on)return;let m;if(/^    \S/.test(l))dep=/^    depends_on:/.test(l);
     if((m=l.match(/^  ([a-z0-9][\w-]*):\s*$/))){cur={name:m[1],deps:[]};out.push(cur);}else if(cur){if((m=l.match(/^    image:\s*(.+)/)))cur.image=m[1];if((m=l.match(/^    build:\s*\.\/(.+)/)))cur.build=m[1];if((m=l.match(/^      - "(\d+):\d+"/)))cur.port=m[1];if((m=l.match(/PathPrefix\(`([^`]+)`\)/)))cur.route=m[1];if(dep&&(m=l.match(/^      (?:- )?([a-z0-9][\w-]*):?\s*$/)))cur.deps.push(m[1]);if(/healthcheck:/.test(l))cur.hc=true;}});return out;}
-const dxRunBase = function(term?: unknown){if(term!==true){setPanelTab('terminal',true);echoCmd('docker compose up --build -d');}const sv=composeServices();
-  if(!sv){echo(`<span class="er">no configuration file provided: not found</span>\n<span class="dim">docker-compose.yml does not exist on ${esc(BRANCH)}. Generate the backlog from the Studio, run the sprints and validate the issues — the merge into develop brings the artefacts.</span>`);newInput(true);toast('Nothing to run yet — generate and validate the project first');return{ok:false,sum:'no compose file'};}
-  const miss=sv.filter(s=>s.build&&!FS[ROOT+s.build+'/Dockerfile']);if(miss.length){echo(miss.map(s=>`<span class="er">failed to solve: failed to read dockerfile: open ${s.build}/Dockerfile: no such file or directory</span>`).join('\n')+`\n<span class="dim">Validate the pending issues on the board so their branches are merged.</span>`);newInput(true);return{ok:false,sum:'missing Dockerfile'};}
+const dxRunBase = function(term?: unknown){if(term!==true){setPanelTab('terminal',true);services.terminal!.echoCmd('docker compose up --build -d');}const sv=composeServices();
+  if(!sv){services.terminal!.echo(`<span class="er">no configuration file provided: not found</span>\n<span class="dim">docker-compose.yml does not exist on ${esc(BRANCH)}. Generate the backlog from the Studio, run the sprints and validate the issues — the merge into develop brings the artefacts.</span>`);services.terminal!.newInput(true);toast('Nothing to run yet — generate and validate the project first');return{ok:false,sum:'no compose file'};}
+  const miss=sv.filter(s=>s.build&&!FS[ROOT+s.build+'/Dockerfile']);if(miss.length){services.terminal!.echo(miss.map(s=>`<span class="er">failed to solve: failed to read dockerfile: open ${s.build}/Dockerfile: no such file or directory</span>`).join('\n')+`\n<span class="dim">Validate the pending issues on the board so their branches are merged.</span>`);services.terminal!.newInput(true);return{ok:false,sum:'missing Dockerfile'};}
   /* o compose up a sério (build, pull, arranque, portas) só existe na app desktop com a pasta aberta —
      a porta `desktopPorts.stack` faz isso; aqui já não se finge (ADR-0006, R5a) */
-  echo(`<span class="dim">${sv.length} serviço(s) em docker-compose.yml.</span>\n<span class="er">Correr a stack precisa da app desktop com a pasta aberta (docker/podman compose reais).</span>`);newInput(true);return{ok:false,sum:'needs desktop'};};
-const dxStopBase = function(term?: unknown){toast('Nada a correr');if(term===true)echo('<span class="dim">no containers</span>');};
+  services.terminal!.echo(`<span class="dim">${sv.length} serviço(s) em docker-compose.yml.</span>\n<span class="er">Correr a stack precisa da app desktop com a pasta aberta (docker/podman compose reais).</span>`);services.terminal!.newInput(true);return{ok:false,sum:'needs desktop'};};
+const dxStopBase = function(term?: unknown){toast('Nada a correr');if(term===true)services.terminal!.echo('<span class="dim">no containers</span>');};
 function drawStackBase(): void {const el=$('#pc-services'),st=$('#st-stack'),stk=STACK;if(st){st.textContent=stk?`▶ ${stk.length} services`:'';st.style.display=stk?'':'none';}if(!el)return;
   el.innerHTML=stk?`<div class="svc-h"><b>${stk.length} services running</b><span class="tag live">live</span><span class="sp"></span><button class="mini" data-action="stack:dxStop">${txt("stop")}</button></div><table class="tbl">${stk.map(s=>`<tr><td><span class="pdot" style="background:var(--green)"></span> <span class="notr">${esc(s.name)}</span></td><td class="c notr">${esc(s.src)}</td><td class="notr">${s.url==='internal'?'<span style="color:var(--fg-muted)">internal</span>':esc(s.url)}</td><td class="c">${s.state}</td></tr>`).join('')}</table>`
     :`<div class="sec-empty">${txt("nothingIsRunning")} <b>▶ RUN</b> ${txt("buildsEveryDockerfileAnd")} <code>docker-compose.yml</code>.</div><button class="mini pri" style="margin-left:16px" data-action="stack:dxRun">▶ RUN</button>`;}
@@ -41,7 +42,7 @@ window.drawStack = function(){const d=desktopPorts.stack;if(d)d.drawStack(drawSt
 /* Sem runtime de contentores ligado (pane Infra), o RUN recusa; depois de correr/parar, o
    pane Infra e o indicador remoto redesenham. Era a decoração da camada v5 (ADR-0004, U4g2);
    a parte desktop entra pela porta (abaixo). */
-const dxRunGuarded = function(term?: unknown){if(!window.needRt()){if(term===true)echo('<span class="er">Cannot connect to the container runtime. Point the socket in Infra.</span>');return{ok:false,sum:'no runtime'};}const r=dxRunBase(term);window.infraDraw();return r;};
+const dxRunGuarded = function(term?: unknown){if(!window.needRt()){if(term===true)services.terminal!.echo('<span class="er">Cannot connect to the container runtime. Point the socket in Infra.</span>');return{ok:false,sum:'no runtime'};}const r=dxRunBase(term);window.infraDraw();return r;};
 const dxStopGuarded = function(t?: unknown){dxStopBase(t);window.infraDraw();};
 /* ADR-0004, U4h4: o dxRun/dxStop/drawStack PUBLICADOS consultam a porta desktop
    (`desktopPorts.stack`, injectada por platform/desktop/infra.ts na app Tauri: docker compose

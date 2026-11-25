@@ -25,6 +25,10 @@ import type {
   Design, Files, Envs, EnvX, K8sState, Commit, TechSpec, KindSpec, DesignNode,
   Devc, StackItem, ComposeSvc, DlgCfg, OpenTabArg,
 } from "../domain/types";
+/* donos que avaliam antes desta ponte importam-se; os que avaliam depois, pelo registo (ADR-0004, U7p1) */
+import { echo as echoImpl, echoCmd as echoCmdImpl, newInput as newInputImpl } from "../../terminal";
+import { note as noteImpl } from "../../notifications";
+import { services } from "../../../app/services";
 
 export { toast, log, rerender, writeFile, svg, esc, show };
 export type {
@@ -50,10 +54,10 @@ export const setPDc = (v: string): void => { G.P_DC = v; };
 export const design = (): Design => G.SD;
 export const files = (): Files => G.FS;
 export const root = (): string => G.ROOT;
-export const tech = (): Record<string, TechSpec> => G.TECH;
-export const kind = (): Record<string, KindSpec> => G.KIND;
-export const isApp = (n: DesignNode): boolean => G.isApp(n);
-export const nodeSlug = (n: DesignNode): string => G.sl(n);
+export const tech = (): Record<string, TechSpec> => services.studio!.TECH as Record<string, TechSpec>;
+export const kind = (): Record<string, KindSpec> => services.studio!.KIND as Record<string, KindSpec>;
+export const isApp = (n: DesignNode): boolean => services.studio!.isApp(n as never);
+export const nodeSlug = (n: DesignNode): string => services.studio!.sl(n as never);
 export const composeServices = (): ComposeSvc[] | null => G.composeServices();
 
 /* ───── git (promoções lêem as refs + o grafo de commits) ───── */
@@ -71,15 +75,15 @@ export const openTab = (t: OpenTabArg): void => { G.openTab(t); };
 export const dlg = (cfg: DlgCfg): void => { coreDlg(cfg); };  /* o diálogo é do core (era window.dlg do v6.ts; ADR-0004, U4g7) */
 
 /* ───── terminal (saída simulada no browser) ───── */
-export const echo = (html: string): void => { G.echo(html); };
-export const echoCmd = (cmd: string): void => { G.echoCmd(cmd); };
-export const newInput = (nofocus?: boolean): void => { G.newInput(nofocus); };
+export const echo = (html: string): void => { echoImpl(html); };
+export const echoCmd = (cmd: string): void => { echoCmdImpl(cmd); };
+export const newInput = (nofocus?: boolean): void => { newInputImpl(nofocus); };
 export const setPanelTab = (tab: string, nofocus?: boolean): void => { G.setPanelTab(tab, nofocus); };
-export const getVar = (k: string): string => G.getVar(k);
+export const getVar = (k: string): string => services.shell!.getVar(k);
 
 /* ───── estado da vista + notificações ───── */
 export const drawStack = (): void => { G.drawStack(); };
-export const note = (m: string): void => { G.note(m); };
+export const note = (m: string): void => { noteImpl(m); };
 export const rel = (at: number): string => G.rel(at);
 
 /* ───── publicação da superfície pública no `window` ─────

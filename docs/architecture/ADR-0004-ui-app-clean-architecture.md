@@ -1,6 +1,6 @@
 # ADR-0004 — Migração da ui-app para Clean Architecture (Etapa 4 do MIGRATION)
 
-- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o, globais 286 → 130; o que falta e quem o desbloqueia está em «U7 — fecho»)
+- **Estado:** aceite (recomendações do §9 aceites a 2026-11-23); U0–U3 feitas, U4 feita (U4a–U4j5: o v5/v6 e o app.ts já não existem; nenhum ficheiro com @ts-nocheck); U5 feita (U5a–U5e: 0 handlers inline, `script-src` sem `'unsafe-inline'`); U6 em curso (U6a–U6c; falta o texto dos módulos ainda em desenvolvimento noutras sessões); U7 feita no que não depende de outras sessões (U7a–U7o, globais 286 → 130; U7p em curso nas features paradas, 130 → 119; o que falta e quem o desbloqueia está em «U7 — fecho»)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `MIGRATION.md` §6–§7 (Etapa 4 «UI»: estado por proprietário, bootstrap,
@@ -1227,3 +1227,16 @@ U6: uma a duas cada. U7: uma. Cada fase fecha com commit próprio e verificaçã
   deixe de publicar também (tem de sair da lista, que só encolhe) — e os «shims de estado» do `ui-metrics.sh`
   passam de informativos a métrica que só desce (7); (2) o `ARCHITECTURE.md` (a secção da UI e a inicialização do
   frontend) e o `MIGRATION.md` (a etapa 4 e a §24, com a comparação com a baseline) ficam coerentes com o código.
+- **U7p (2026-11-25) — as features que ficaram paradas (decisão do dono).** As features que outras sessões tinham
+  em mãos e já não têm trabalho aberto (sem ramos por juntar nem alterações por gravar) entram na U7; as que ainda
+  têm (lsp, project) e os nomes que elas lêem ficam de fora até pararem. Por fatias, com o mesmo método.
+  **U7p1 — o que a ponte da infra lia dos outros donos.** Saem onze: `echo`, `echoCmd`, `newInput` e o registo `XC`
+  (`features/terminal.ts`; o termgit, o board e a infra acrescentam comandos ao `XC` por import, e o stack, que avalia
+  antes, escreve pelo registo `services.terminal`), `getVar` (as pontes do Co-Dev, da infra e do board usam
+  `services.shell`), `note` (importado das notificações), `TECH`/`KIND`/`isApp`/`sl` (`features/studio.ts`; os
+  geradores e a ponte do board importam, a ponte da infra usa `services.studio`; o `KIND` fica tipado como o global
+  que era, `Record<string, any>`), e `rerender` (o `core`, o Studio, a equipa, o grafo, o termgit e o resíduo da
+  infra, que avaliam antes dos separadores, usam `services.tabs`). As leituras por nome livre trocam-se com um
+  reescritor que usa o type-checker (só os identificadores que resolvem para a declaração global — o `board.ts` tem
+  um `echo` seu, importado da ponte). O `features/notifications.ts` deixa de publicar e sai da lista do A9 (o A9
+  apanhou-o). Ordem de avaliação igual. Globais publicadas 130 → 119.

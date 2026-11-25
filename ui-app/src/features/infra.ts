@@ -258,10 +258,10 @@ const ACTIONS: ActionTable = {
   "open-envs": { on: "click", run: () => window.openEnvs() },
   "observe": { on: "click", run: e => { const [env, n] = e.on.split("|"); window.openObserve(env, n); } },
   "promote": { on: "click", run: e => window.promote(e.on) },
-  "deploy-envs": { on: "click", run: () => { window.dxDeploy(); window.rerender("envs"); } },
+  "deploy-envs": { on: "click", run: () => { window.dxDeploy(); services.tabs!.rerender("envs"); } },
   "redeploy": { on: "click", run: e => window.redeployEnv(e.on) },
-  "env-select": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); window.rerender("envs"); window.infraDraw(); } },
-  "toggle-sec": { on: "click", run: () => { window.SHOWSEC = !window.SHOWSEC; window.rerender("envs"); } },
+  "env-select": { on: "click", run: e => { ENVX.cur = e.on; window.saveEnvx(); services.tabs!.rerender("envs"); window.infraDraw(); } },
+  "toggle-sec": { on: "click", run: () => { window.SHOWSEC = !window.SHOWSEC; services.tabs!.rerender("envs"); } },
   "sec-edit": { on: "change", run: e => { const [env, a, k] = e.on.split("|"); const S = ENVX.sec![env as keyof SecretSets]; S[a] = S[a] || {}; S[a][k] = e.value; window.saveEnvx(); } },
   "obs-clear": { on: "click", run: e => { const o = OBS[e.on]; if (!o) return; o.clearedAt = o.logs.length ? o.logs[o.logs.length - 1].iso || new Date().toISOString() : new Date().toISOString(); o.logs = []; window.show(window.cur); } },
   "obs-follow": { on: "click", run: e => { const i = e.on.indexOf(":"), t = obsTargetOf(e.on.slice(0, i), e.on.slice(i + 1)), src = desktopPorts.infra?.obs; if (t && src) src.follow(t); } },
@@ -314,7 +314,10 @@ publish({
    `kubectl get deploy|pods`, `devcontainer up` e `dx deploy`. Os subcomandos do `dx` que o
    app.ts acrescenta depois (test/sprint, run/stop) são disjuntos de `deploy`, por isso
    decorar antes deles não muda o resultado de nenhum. */
-const XC = window.XC;
+/* o registo de comandos do terminal (features/terminal.ts avalia antes): por import (ADR-0004, U7p1) */
+import { XC as XCImport } from "./terminal";
+import { services } from "../app/services";
+const XC = XCImport as Record<string, (a: string[], v?: string) => unknown>;
 /* o terminal emulado não fala com o cluster nem com o runtime (respondia com o estado K8S/DEVC
    simulado — ADR-0006, R5a): o kubectl/devcontainer reais correm no terminal da app desktop */
 XC.kubectl = () => { echo(`<span class="dim">${txe("noCluster")}</span>`); };

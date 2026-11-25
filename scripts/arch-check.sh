@@ -274,18 +274,16 @@ echo "== A9 · só os ficheiros da lista publicam no window (fecho da U7) =="
 # (`Object.assign(window, …)` ou `window.X = …`, depois do strip de comentários). Código novo não publica: lê por
 # import, pelo store ou pelo registo `app/services.ts`. A lista só encolhe — quando um ficheiro deixa de publicar,
 # sai daqui (o A9 avisa).
-A9_ALLOW="
-  app/boot-steps.ts app/commands.ts app/globals.ts app/store/agent.ts app/store/config.ts
+A9_ALLOW="  app/boot-steps.ts app/commands.ts app/globals.ts app/store/agent.ts app/store/config.ts
   app/store/registry.ts app/store/storage.ts boot.ts features/board/infrastructure/legacy-bridge.ts
   features/changelog.ts features/checkpoint.ts features/codereview/infrastructure/legacy-bridge.ts
   features/codev/infrastructure/legacy-bridge.ts features/codev.ts
   features/debug/infrastructure/legacy-bridge.ts features/diagnostics.ts features/diff.ts features/editor.ts
   features/explorer.ts features/ext/infrastructure/legacy-bridge.ts features/i18n.ts
   features/infra/infrastructure/legacy-bridge.ts features/infra.ts features/learn.ts features/menus.ts
-  features/notifications.ts features/palette.ts features/router.ts
-  features/scm/infrastructure/legacy-bridge.ts features/shell.ts features/stack.ts features/studio.ts
-  features/syntax.ts features/tabs.ts features/tasks.ts features/team.ts features/termgit.ts
-  features/terminal.ts features/testing/infrastructure/legacy-bridge.ts
+  features/palette.ts features/router.ts features/scm/infrastructure/legacy-bridge.ts features/shell.ts
+  features/stack.ts features/studio.ts features/syntax.ts features/tabs.ts features/tasks.ts features/team.ts
+  features/termgit.ts features/terminal.ts features/testing/infrastructure/legacy-bridge.ts
   features/visualizer/infrastructure/legacy-bridge.ts features/visualizer.ts features/workspace.ts pair.ts
   platform/desktop/context.ts
 "

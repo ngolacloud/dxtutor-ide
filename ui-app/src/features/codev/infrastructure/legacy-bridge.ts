@@ -30,6 +30,7 @@ import type { VerifyCommand, VerifyKind } from "../domain/project-commands";
 import { services } from "../../../app/services";
 import { diffStat } from "../../diff/domain/diff";
 import { THEMES, setTheme as setThemeImpl } from "../../theme";
+import { note as noteImpl } from "../../notifications";
 
 const G = window as unknown as Record<string, any>;
 
@@ -231,9 +232,9 @@ export const provFor = (role: string): string => services.codev!.provFor(role);
 export const setPanelTab = (...args: [pt: string, nofocus?: boolean]): void => G.setPanelTab(...args);
 export const goToPane = (p: string): void => G.goPane(p);
 export const palette = (...args: [pre?: string, cfg?: unknown]): void => G.palette(...args);
-export const getVar = (k: string): string => G.getVar(k);
+export const getVar = (k: string): string => services.shell!.getVar(k);
 export const setVar = (k: string, v: string): void => services.shell!.setVar(k, v);
-export const note = (m: string): void => window.note(m);
+export const note = (m: string): void => noteImpl(m);
 export const badges = (): void => services.shell!.badges();
 export const refresh = (...args: [fromEd?: boolean, force?: boolean]): unknown => window.refresh(...args);
 export const isDesktop = (): boolean => !!window.__TAURI__;

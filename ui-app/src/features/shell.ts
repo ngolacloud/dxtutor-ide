@@ -37,7 +37,6 @@ interface OverflowItem {
   sep?: boolean;
 }
 interface LegacyGlobals {
-  getVar: (k: string) => string;
   scrollTerm: () => void;
   changes: () => string[];
   BL: { issues: { stage: string }[] };
@@ -53,7 +52,7 @@ function hydrate(): void { $$('[data-ic]').forEach(el=>{if(el.dataset.done)retur
 function log(src: string, msg: string): void { const o=$('#pc-output')!;o.insertAdjacentHTML('beforeend',`<div>[${hhmm()}] <span class="r">${esc(src)}</span> ${esc(msg)}</div>`);o.scrollTop=o.scrollHeight; }
 
 
-const sideOpen = (): boolean => G.getVar("--side-w") !== "0px";
+const sideOpen = (): boolean => getVar("--side-w") !== "0px";
 
 /** Os contadores da barra de actividade: alterações por commitar e execução do Co-Dev. */
 function badges(): void {
@@ -102,14 +101,14 @@ function toggleSide(): void {
 }
 
 function togglePanel(): void {
-  const o = G.getVar("--panel-h") !== "0px";
+  const o = getVar("--panel-h") !== "0px";
   setVar("--panel-h", o ? "0px" : "230px");
   ($("#tgl-panel") as HTMLElement).classList.toggle("on", !o);
 }
 
 /** Mostra o separador `pt` do painel inferior (abre o painel se estiver fechado). */
 function setPanelTab(pt: string, nofocus?: boolean): void {
-  if (G.getVar("--panel-h") === "0px") togglePanel();
+  if (getVar("--panel-h") === "0px") togglePanel();
   $$(".ptab").forEach((b) => b.classList.toggle("on", (b as HTMLElement).dataset.pt === pt));
   $$(".pcontent").forEach((c) => c.classList.remove("show"));
   const el = $("#pc-" + pt);
@@ -202,8 +201,8 @@ function mkRz(el: HTMLElement, v: string, base: number, min: number, max: number
 }
 
 /* publicação transitória no window (o monólito, o v6 e os onclick inline usam por nome) */
-Object.assign(window, { hd, getVar, log, goPane, toggleSide, togglePanel, setPanelTab });
+Object.assign(window, { hd, log, goPane, toggleSide, togglePanel, setPanelTab });
 
 export { RP, setVar, getVar, hydrate, log, badges, sideOpen, setPane, goPane, toggleSide, togglePanel, setPanelTab, buildActivity, openOverflow, mkRz };
 /* o que o boot, os separadores e a ponte do Co-Dev lêem — avaliam antes (ADR-0004, U7h) */
-services.shell = { hydrate, setVar, badges };
+services.shell = { hydrate, setVar, badges, getVar };

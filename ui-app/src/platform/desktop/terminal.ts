@@ -8,7 +8,7 @@ import type { RunOpts } from "./context";
 import type { TerminalDesktop } from "../../features/terminal";
 import { desktopPorts } from "../../app/desktop";
 import type { DesktopContext } from "./context";
-import { scrollTerm, cwd } from "../../features/terminal";
+import { scrollTerm, cwd, echoCmd, newInput } from "../../features/terminal";
 
 export function installTerminal(ctx: DesktopContext): void {
 const { R, shell, fsx, sh, stream, escH, ansi } = ctx;

@@ -17,6 +17,7 @@ import type { EnvState, ObsTarget } from "../../features/infra/domain/types";
 import type { DesktopContext } from "./context";
 import { translator } from "../../app/i18n";
 import { DESKTOP_MESSAGES } from "./desktop-messages";
+import { echo, echoCmd, newInput } from "../../features/terminal";
 
 const tdk = translator(DESKTOP_MESSAGES);
 /** os erros das amostras de observabilidade na língua da interface (o domínio recebe-os por parâmetro) */

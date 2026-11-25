@@ -26,6 +26,7 @@ import { registerActions, globalCalls, callGlobal } from "../app/actions";
 import { translator } from "../app/i18n";
 import { GRAPH_MESSAGES } from "./graph.messages";
 import { GRAPH_DESKTOP_MESSAGES } from "./graph.desktop-messages";
+import { services } from "../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(GRAPH_MESSAGES);
 const txd = translator(GRAPH_DESKTOP_MESSAGES);
@@ -100,7 +101,7 @@ const UA = window as unknown as { GSEL: string | null; FS: Record<string, unknow
 registerActions({
   ...globalCalls("graph", ["pickBranch", "gfFinish"]),
   "graph:gfPrompt": { click: (c) => void callGlobal("gfPrompt", c.on) },
-  "graph:toDevelop": { click: () => { callGlobal("checkout", "develop"); callGlobal("rerender", "graph"); } },
-  "graph:select": { click: (c) => { UA.GSEL = UA.GSEL === c.on ? null : c.on; callGlobal("rerender", "graph"); } },
+  "graph:toDevelop": { click: () => { callGlobal("checkout", "develop"); services.tabs!.rerender("graph"); } },
+  "graph:select": { click: (c) => { UA.GSEL = UA.GSEL === c.on ? null : c.on; services.tabs!.rerender("graph"); } },
   "graph:file": { click: (c) => { c.stop(); if (UA.FS[c.on]) callGlobal("openPath", c.on); else callGlobal("toast", txd("notInBranch")); } },
 });
