@@ -186,6 +186,115 @@ pub fn project_audit(
     open(&app)?.audit(&root, issue.as_deref().filter(|k| !k.trim().is_empty()))
 }
 
+/// What the IDE (outside the Co-Dev) asks to record (r23 F1, RF-BK-L01): an operation that changed
+/// something outside the editor, the exact command, where it ran, the human's decision and what
+/// happened. Who and when are decided HERE, not by the UI.
+#[derive(serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeAudit {
+    /// the feature that asked (`ops`, `scm`, `debug`, …)
+    pub feature: String,
+    /// what it did (`kube.undo`, `iac.apply`, `git.push`, …)
+    pub action: String,
+    /// the exact command shown in the approval dialog
+    pub command: String,
+    /// where it ran (`context kind-dev · namespace shop`, `folder infra · tofu`, `branch main`)
+    #[serde(default)]
+    pub scope: Option<String>,
+    pub approved: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// `sent` (to a terminal), `ok`, `failed`; ignored when refused (`denied`)
+    #[serde(default)]
+    pub outcome: Option<String>,
+    /// when the human decided (ms); the backend's clock when absent
+    #[serde(default)]
+    pub decided_at: Option<i64>,
+}
+
+const IDE_OUTCOMES: [&str; 3] = ["sent", "ok", "failed"];
+const IDE_MAX_COMMAND: usize = 8 * 1024;
+
+fn invalid(message: String) -> ProjectError {
+    ProjectError {
+        code: "invalid".into(),
+        message,
+        overridable: false,
+    }
+}
+
+/// The audit row of an IDE operation: origin `ide`, the secrets masked (the `.env` values and the
+/// well-known patterns), the actor and the time from the backend. Pure (tests).
+pub fn ide_audit_entry(
+    a: &IdeAudit,
+    actor: &str,
+    now: i64,
+    redactor: &tutor_agent::redact::Redactor,
+) -> Result<AuditEntry, ProjectError> {
+    let slug = |v: &str| {
+        !v.is_empty()
+            && v.len() <= 64
+            && v.chars().all(|c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-')
+            })
+    };
+    if !slug(&a.feature) || !slug(&a.action) {
+        return Err(invalid(format!(
+            "feature/action inválidos: {:?}/{:?}",
+            a.feature, a.action
+        )));
+    }
+    if a.command.trim().is_empty() || a.command.len() > IDE_MAX_COMMAND {
+        return Err(invalid(
+            "o comando auditado tem de ter entre 1 e 8 KiB".into(),
+        ));
+    }
+    let outcome = if !a.approved {
+        "denied".to_string()
+    } else {
+        match a.outcome.as_deref() {
+            Some(o) if IDE_OUTCOMES.contains(&o) => o.to_string(),
+            None => "sent".to_string(),
+            Some(o) => return Err(invalid(format!("resultado desconhecido: {o:?}"))),
+        }
+    };
+    let clip = |s: &str| s.chars().take(2000).collect::<String>();
+    Ok(AuditEntry {
+        at: now,
+        session: "ide".into(),
+        event: "approval".into(),
+        origin: "ide".into(),
+        actor: actor.to_string(),
+        mode: "manual".into(),
+        tool: Some(a.feature.clone()),
+        call: Some(a.action.clone()),
+        path: a.scope.as_deref().map(|s| redactor.mask(&clip(s))),
+        command: Some(redactor.mask(&a.command)),
+        verdict: Some("ask".into()),
+        outcome: Some(outcome),
+        decided_by: Some(format!("human:{actor}")),
+        decided_at: Some(a.decided_at.unwrap_or(now)),
+        reason: a
+            .reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .map(|r| redactor.mask(&clip(r))),
+        ..AuditEntry::default()
+    })
+}
+
+/// Records an IDE operation in the project's audit log (r23 F1: every operation that changes
+/// something outside the editor goes there — who, when, command, approval, result). The same
+/// table and export as the Co-Dev's (`project_audit`), with origin `ide`.
+#[tauri::command]
+pub fn audit_record(app: AppHandle, root: String, entry: IdeAudit) -> Result<(), ProjectError> {
+    let root = root_of(&root)?;
+    let redactor = tutor_agent::redact::Redactor::for_root(Path::new(&root));
+    let e = ide_audit_entry(&entry, &actor(&root), now_ms(), &redactor)?;
+    open(&app)?.record_audit(&root, &e)
+}
+
 /// O prompt exacto com que a issue vai ao Co-Dev (RF-B03/B04): o template do projecto
 /// (`.dxtutor/prompts/issue.{pt,en}.md`) ou o embutido, com a story, os critérios, as regras do
 /// arquitecto, o âmbito e o código com números de linha; a versão do template e uma estimativa
@@ -313,6 +422,89 @@ pub fn board_save(app: AppHandle, root: Option<String>, backlog: Backlog) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ide(approved: bool) -> IdeAudit {
+        IdeAudit {
+            feature: "ops".into(),
+            action: "kube.undo".into(),
+            command: "kubectl --context kind-dev -n shop rollout undo deploy/web --to-revision=1"
+                .into(),
+            scope: Some("context kind-dev · namespace shop".into()),
+            approved,
+            reason: Some("  bad release ".into()),
+            outcome: None,
+            decided_at: Some(7),
+        }
+    }
+
+    #[test]
+    fn an_ide_operation_is_audited_with_origin_ide_and_the_actor_from_the_backend() {
+        let r = tutor_agent::redact::Redactor::new();
+        let e = ide_audit_entry(&ide(true), "ana", 100, &r).unwrap();
+        assert_eq!(
+            (e.origin.as_str(), e.event.as_str(), e.actor.as_str()),
+            ("ide", "approval", "ana")
+        );
+        assert_eq!(e.tool.as_deref(), Some("ops"));
+        assert_eq!(e.call.as_deref(), Some("kube.undo"));
+        assert_eq!(e.path.as_deref(), Some("context kind-dev · namespace shop"));
+        assert_eq!(e.outcome.as_deref(), Some("sent"));
+        assert_eq!(e.decided_by.as_deref(), Some("human:ana"));
+        assert_eq!((e.at, e.decided_at), (100, Some(7)));
+        assert_eq!(e.reason.as_deref(), Some("bad release"));
+        let refused = ide_audit_entry(
+            &IdeAudit {
+                outcome: Some("ok".into()),
+                ..ide(false)
+            },
+            "ana",
+            100,
+            &r,
+        )
+        .unwrap();
+        assert_eq!(refused.outcome.as_deref(), Some("denied"));
+    }
+
+    #[test]
+    fn an_ide_audit_masks_secrets_and_refuses_bad_input() {
+        let mut r = tutor_agent::redact::Redactor::new();
+        r.add_values(["s3cr3t-value-123".to_string()]);
+        let a = IdeAudit {
+            command: "vault kv put secret/app PASSWORD=s3cr3t-value-123".into(),
+            reason: Some("rotate s3cr3t-value-123".into()),
+            ..ide(true)
+        };
+        let e = ide_audit_entry(&a, "ana", 1, &r).unwrap();
+        assert!(
+            !e.command.as_deref().unwrap().contains("s3cr3t-value-123"),
+            "{:?}",
+            e.command
+        );
+        assert!(!e.reason.as_deref().unwrap().contains("s3cr3t-value-123"));
+        for bad in [
+            IdeAudit {
+                feature: "Ops!".into(),
+                ..ide(true)
+            },
+            IdeAudit {
+                command: "  ".into(),
+                ..ide(true)
+            },
+            IdeAudit {
+                command: "x".repeat(IDE_MAX_COMMAND + 1),
+                ..ide(true)
+            },
+            IdeAudit {
+                outcome: Some("maybe".into()),
+                ..ide(true)
+            },
+        ] {
+            assert_eq!(
+                ide_audit_entry(&bad, "ana", 1, &r).unwrap_err().code,
+                "invalid"
+            );
+        }
+    }
 
     #[test]
     fn the_last_commit_time_bounds_the_change_sets_and_is_zero_without_one() {

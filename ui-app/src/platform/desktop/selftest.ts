@@ -10,6 +10,7 @@ import type { DesktopContext } from "./context";
 import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
+import { auditClient } from "../tauri/audit";
 import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
@@ -631,6 +632,25 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         };
       } finally {
         delete FS[tf]; delete FS[kc]; flushSave(); await idle();
+      }
+    });
+    // r23 F1: uma operação do IDE no registo de auditoria (audit_record → project_audit), com origem `ide`, quem
+    // decidido pelo backend e o segredo do `.env` mascarado no comando e no motivo (a regra vive no Rust).
+    await step("audit", async () => {
+      const root = R.root as string, env = ROOT + ".env", secret = "selftest-secret-98765";
+      writeFile(env, `API_TOKEN=${secret}\n`);
+      flushSave(); await idle();
+      try {
+        await auditClient().record(root, { feature: "ops", action: "kube.undo", command: `kubectl rollout undo deploy/web # ${secret}`, scope: "context selftest · namespace default", approved: true, reason: `rotate ${secret}`, outcome: "sent", decidedAt: 1 });
+        const bad = await auditClient().record(root, { feature: "Ops!", action: "x", command: "c", approved: true }).then(() => "accepted", (e) => (e as { code?: string }).code ?? String(e));
+        const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; actor: string; command: string | null; reason: string | null; outcome: string | null; decidedBy: string | null; path: string | null }>;
+        const row = rows.filter((r) => r.origin === "ide").slice(-1)[0];
+        return {
+          recorded: !!row, tool: row?.tool, call: row?.call, outcome: row?.outcome, scope: row?.path, actorFromBackend: !!row?.actor && row?.decidedBy === `human:${row?.actor}`,
+          secretMasked: !!row && !`${row.command}${row.reason}`.includes(secret), badInput: bad,
+        };
+      } finally {
+        delete FS[env]; flushSave(); await idle();
       }
     });
     // A10: as lacunas aprovadas, contra o repositório temporário e esta máquina — o mapa de onboarding,

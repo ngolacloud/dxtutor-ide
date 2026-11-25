@@ -1048,6 +1048,7 @@ pub fn run() {
             board::project_change_sets,
             board::project_reports,
             board::project_audit,
+            board::audit_record,
             board::project_issue_prompt,
         ])
         .run(tauri::generate_context!())

@@ -68,3 +68,19 @@ describe("requestApproval", () => {
     expect((await second).approved).toBe(true);
   });
 });
+
+describe("o cliente do audit_record", () => {
+  it("envia a pasta e a linha tal como o backend a espera", async () => {
+    const { auditClient } = await import("../src/platform/tauri/audit");
+    const { tauriAudit } = await import("../src/features/ops/infrastructure/tauri");
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    const inv = (async (cmd: string, args?: Record<string, unknown>) => { calls.push([cmd, args]); return undefined; }) as never;
+    await auditClient(inv).record("/proj", { feature: "ops", action: "kube.undo", command: "kubectl x", approved: true });
+    await tauriAudit(() => "/proj", inv).record({ action: "kube.exec", command: "kubectl y", scope: "", approved: false, reason: "", decidedAt: 5 });
+    expect(calls).toEqual([
+      ["audit_record", { root: "/proj", entry: { feature: "ops", action: "kube.undo", command: "kubectl x", approved: true } }],
+      ["audit_record", { root: "/proj", entry: { feature: "ops", action: "kube.exec", command: "kubectl y", scope: undefined, approved: false, reason: undefined, decidedAt: 5, outcome: undefined } }],
+    ]);
+    await expect(tauriAudit(() => null, inv).record({ action: "a", command: "c", scope: "", approved: true, reason: "", decidedAt: 1 })).rejects.toThrow();
+  });
+});

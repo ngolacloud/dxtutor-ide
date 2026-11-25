@@ -11,7 +11,7 @@
 
 import { eventsFor, iacApply, kubeCmd, planText, servicePort } from "../domain/commands";
 import type { CloudCli, CloudInventory, IacPlan, KubeState, KubeTarget, Revision } from "../domain/types";
-import type { ApprovalRequest, CodevPort, HumanPort, OpsPort, OpsWorld } from "./ports";
+import type { ApprovalRequest, AuditPort, CodevPort, HumanPort, OpsPort, OpsWorld } from "./ports";
 
 export type Say = (key: string, params?: Record<string, string | number>) => string;
 
@@ -25,16 +25,19 @@ export interface OpsState {
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort; codev: CodevPort; say: Say }) {
-  const { ops, world, human, codev, say } = deps;
+export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort; audit: AuditPort; codev: CodevPort; say: Say }) {
+  const { ops, world, human, audit, codev, say } = deps;
   const st: OpsState = { iac: { dirs: null, dir: null, plan: null, busy: false, open: null }, kube: { target: null, state: null, busy: false, history: null }, cloud: { status: null, inventory: {}, busy: null }, ran: null };
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
 
-  /** The one way anything changes: the exact command, where it runs, the human's yes, a terminal. */
-  async function approveAndRun(r: ApprovalRequest & { scope: string }): Promise<boolean> {
+  /** The one way anything changes: the exact command, where it runs, the human's yes, the audit log, a
+   *  terminal. A refusal is audited too; an approval that cannot be audited does not run (r23 F1). */
+  async function approveAndRun(action: string, r: ApprovalRequest & { scope: string }): Promise<boolean> {
     const d = await human.approve(r);
-    if (!d.approved) return false;
+    const row = { action, command: r.command, scope: r.scope, approved: d.approved, reason: d.reason, decidedAt: d.decidedAt };
+    if (!d.approved) { void audit.record(row).catch(() => undefined); return false; }
+    try { await audit.record(row); } catch (e) { human.toast(say("notAudited", { e: msg(e) })); return false; }
     const cmd = r.command;
     world.runInTerminal(cmd);
     st.ran = cmd;
@@ -64,7 +67,7 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     const p = st.iac.plan;
     if (!p || !p.ok || (!p.changes.length && !(p.refreshOnly && p.drift.length))) return;
     const destroys = !p.refreshOnly && p.destroy > 0;
-    void approveAndRun({ title: say("applyWhat", { n: p.changes.length || p.drift.length, dir: p.dir }), command: iacApply(p), scope: say("scopeIac", { dir: p.dir, tool: p.tool }), destructive: destroys, confirmText: destroys ? p.dir : undefined });
+    void approveAndRun(p.refreshOnly ? "iac.apply-refresh" : "iac.apply", { title: say("applyWhat", { n: p.changes.length || p.drift.length, dir: p.dir }), command: iacApply(p), scope: say("scopeIac", { dir: p.dir, tool: p.tool }), destructive: destroys, confirmText: destroys ? p.dir : undefined });
   }
   function askPlan(intent: "explain" | "change"): void {
     const p = st.iac.plan;
@@ -94,10 +97,10 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     switch (kind) {
       case "logs-deploy": world.runInTerminal(kubeCmd.logs(t, "deploy", name)); st.ran = kubeCmd.logs(t, "deploy", name); emit(); return; // reading logs changes nothing
       case "logs-pod": world.runInTerminal(kubeCmd.logs(t, "pod", name)); st.ran = kubeCmd.logs(t, "pod", name); emit(); return;
-      case "exec": void approveAndRun({ title: say("execWhat", { pod: name }), command: kubeCmd.exec(t, name), scope: kubeScope(t) }); return;
-      case "restart": void approveAndRun({ title: say("restartWhat", { d: name }), command: kubeCmd.restart(t, name), scope: kubeScope(t) }); return;
-      case "delete-pod": void approveAndRun({ title: say("deletePodWhat", { pod: name }), command: kubeCmd.deletePod(t, name), scope: kubeScope(t), destructive: true, confirmText: name }); return;
-      case "undo": void approveAndRun({ title: say("undoWhat", { d: name, r: extra ?? "" }), command: kubeCmd.undo(t, name, Number(extra)), scope: kubeScope(t) }); return;
+      case "exec": void approveAndRun("kube.exec", { title: say("execWhat", { pod: name }), command: kubeCmd.exec(t, name), scope: kubeScope(t) }); return;
+      case "restart": void approveAndRun("kube.restart", { title: say("restartWhat", { d: name }), command: kubeCmd.restart(t, name), scope: kubeScope(t) }); return;
+      case "delete-pod": void approveAndRun("kube.delete-pod", { title: say("deletePodWhat", { pod: name }), command: kubeCmd.deletePod(t, name), scope: kubeScope(t), destructive: true, confirmText: name }); return;
+      case "undo": void approveAndRun("kube.undo", { title: say("undoWhat", { d: name, r: extra ?? "" }), command: kubeCmd.undo(t, name, Number(extra)), scope: kubeScope(t) }); return;
     }
   }
   async function scale(deployment: string): Promise<void> {
@@ -107,7 +110,7 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     if (v === null) return;
     const n = Number(v.trim());
     if (!Number.isInteger(n) || n < 0 || n > 500) { human.toast(say("badReplicas")); return; }
-    await approveAndRun({ title: say("scaleWhat", { d: deployment, n }), command: kubeCmd.scale(t, deployment, n), scope: kubeScope(t) });
+    await approveAndRun("kube.scale", { title: say("scaleWhat", { d: deployment, n }), command: kubeCmd.scale(t, deployment, n), scope: kubeScope(t) });
   }
   async function portForward(service: string): Promise<void> {
     const t = st.kube.target, svc = st.kube.state?.services.find((s) => s.name === service);
@@ -117,7 +120,7 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     if (v === null) return;
     const local = Number(v.trim());
     if (!Number.isInteger(local) || local < 1 || local > 65535) { human.toast(say("badPort")); return; }
-    await approveAndRun({ title: say("portWhat", { s: service, l: local }), command: kubeCmd.portForward(t, service, local, remote), scope: kubeScope(t) });
+    await approveAndRun("kube.port-forward", { title: say("portWhat", { s: service, l: local }), command: kubeCmd.portForward(t, service, local, remote), scope: kubeScope(t) });
   }
   function askPod(pod: string): void {
     const s = st.kube.state, p = s?.pods.find((x) => x.name === pod);

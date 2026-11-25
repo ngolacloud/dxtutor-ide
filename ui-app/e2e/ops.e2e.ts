@@ -93,6 +93,9 @@ test("the Ops tab: IaC plan diff, the namespace with its actions, cloud CLIs —
   await appr.locator("#appr-no").click();
   await expect(appr).toHaveCount(0);
   expect(await ran(page)).toEqual([]);
+  // the refusal is in the audit log too (r23 F1): the backend decides who and when
+  await expect.poll(async () => (await calls(page, "audit_record")).length).toBe(1);
+  expect((await calls(page, "audit_record"))[0]).toMatchObject({ root: "/proj", entry: { feature: "ops", action: "iac.apply", approved: false, command: "cd infra && tofu plan -out=tfplan && tofu apply tfplan", scope: "folder infra · tofu" } });
 
   // Kubernetes: the crashing pod, logs straight to the terminal, a rollback only once approved
   await expect(ops.locator(".ops-row.bad .ops-why").first()).toHaveText("CrashLoopBackOff");
@@ -105,6 +108,7 @@ test("the Ops tab: IaC plan diff, the namespace with its actions, cloud CLIs —
   await expect(appr.locator(".appr-scope")).toContainText("context kind-dev · namespace shop");
   await appr.locator("#appr-ok").click();
   await expect.poll(async () => (await ran(page)).at(-1)).toBe("kubectl --context kind-dev -n shop rollout undo deploy/web --to-revision=1");
+  expect((await calls(page, "audit_record")).at(-1)).toMatchObject({ entry: { action: "kube.undo", approved: true, outcome: "sent", scope: "context kind-dev · namespace shop" } });
 
   // cloud: the installed CLI's inventory; the others say how to install them
   await expect(ops.locator(".ops-card").first()).toContainText("Install the AWS CLI");

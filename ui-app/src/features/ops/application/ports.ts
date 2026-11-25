@@ -31,6 +31,11 @@ export interface HumanPort {
   toast(message: string): void;
 }
 
+/** O registo de auditoria (r23 F1, RF-BK-L01): cada operação aprovada ou recusada, com o comando. */
+export interface AuditPort {
+  record(e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number }): Promise<void>;
+}
+
 export interface CodevPort {
   available(): boolean;
   ask(r: { intent: "explain" | "change"; text: string; context: Array<{ kind: "problem" | "file"; label: string; text: string; path?: string }>; send?: boolean }): void;

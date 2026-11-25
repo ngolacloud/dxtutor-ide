@@ -9,7 +9,7 @@ import { translator } from "../../app/i18n";
 import { requestApproval } from "../../app/approval";
 import { isDesktop } from "../../platform/tauri/core";
 import { makeOps } from "./application/ops-service";
-import { tauriOps } from "./infrastructure/tauri";
+import { tauriOps, tauriAudit } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
 import { OPS_MESSAGES, type OpsKey } from "./ui/messages";
 import { renderOps } from "./ui/ops-view";
@@ -20,6 +20,7 @@ const t = translator(OPS_MESSAGES);
 export const ops = makeOps({
   ops: tauriOps(),
   world: { root: () => B.root(), kubeTarget: () => B.kubeTarget(), runInTerminal: (c) => B.runInTerminal(c) },
+  audit: tauriAudit(() => B.root()),
   human: { approve: (r) => requestApproval(r), text: (ph, initial) => B.textPrompt(ph, initial), toast: (m) => B.notify(m) },
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
   say: (k, p) => t(k as OpsKey, p),

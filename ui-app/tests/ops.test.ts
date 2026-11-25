@@ -43,6 +43,8 @@ function fakes(target: KubeTarget | null = T) {
   const texts: Array<string | null> = [];
   const asked: Array<{ intent: string; context: Array<{ text: string }> }> = [];
   const toasts: string[] = [];
+  const audited: Array<{ action: string; command: string; scope: string; approved: boolean }> = [];
+  let auditFails = false;
   const port: OpsPort = {
     iacDirs: async () => [".", "infra"],
     iacPlan: async (_r, dir, refreshOnly) => ({ ...PLAN, dir, refreshOnly }),
@@ -55,10 +57,11 @@ function fakes(target: KubeTarget | null = T) {
     ops: port,
     world: { root: () => "/proj", kubeTarget: () => target, runInTerminal: (c) => ran.push(c) },
     human: { approve: async (r) => { confirms.push(r); return { approved: answer, reason: "", decidedAt: 1 }; }, text: async () => texts.shift() ?? null, toast: (m) => toasts.push(m) },
+    audit: { record: async (e) => { if (auditFails) throw new Error("db locked"); audited.push(e); } },
     codev: { available: () => true, ask: (r) => asked.push(r) },
     say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
   });
-  return { o, ran, confirms, texts, asked, toasts, port, refuse: () => { answer = false; } };
+  return { o, ran, confirms, texts, asked, toasts, port, audited, refuse: () => { answer = false; }, breakAudit: () => { auditFails = true; } };
 }
 
 describe("o serviço", () => {
@@ -75,6 +78,8 @@ describe("o serviço", () => {
     expect(f.ran).toEqual([]);
     expect(f.confirms[0]).toMatchObject({ command: "cd infra && tofu plan -out=tfplan && tofu apply tfplan", scope: 'scopeIac {"dir":"infra","tool":"tofu"}', destructive: false });
     expect(f.confirms[0].confirmText).toBeUndefined();
+    await vi.waitFor(() => expect(f.audited).toHaveLength(1));
+    expect(f.audited[0]).toMatchObject({ action: "iac.apply", approved: false, command: "cd infra && tofu plan -out=tfplan && tofu apply tfplan" });
     f.o.askPlan("explain");
     expect(f.asked[0].context[0].text).toContain("create terraform_data.web");
   });
@@ -106,6 +111,17 @@ describe("o serviço", () => {
     f.o.kubeAction("delete-pod", "web-1");
     await vi.waitFor(() => expect(f.ran.at(-1)).toContain("delete pod web-1"));
     expect(f.confirms.at(-1)).toMatchObject({ destructive: true, confirmText: "web-1" });
+    expect(f.audited.map((a) => `${a.action}:${a.approved}`)).toEqual(["kube.undo:true", "kube.scale:true", "kube.port-forward:true", "kube.delete-pod:true"]);
+    expect(f.audited[0].scope).toBe('scopeKube {"c":"kind-dev","n":"shop"}');
+  });
+
+  it("uma aprovação que o registo de auditoria não guarda não corre", async () => {
+    const f = fakes();
+    await f.o.refresh();
+    f.breakAudit();
+    f.o.kubeAction("restart", "web");
+    await vi.waitFor(() => expect(f.toasts.at(-1)).toContain("notAudited"));
+    expect(f.ran).toEqual([]);
   });
 
   it("um apply que destrói pede o nome da pasta escrito; recusado, nada corre", async () => {
