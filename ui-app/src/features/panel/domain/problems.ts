@@ -16,6 +16,9 @@ export interface ProblemFilter {
   errors: boolean;
   warnings: boolean;
   infos: boolean;
+  /** RF-A05: only these files (relative paths) — an issue's, from the Project; `scope` names it. */
+  files?: string[];
+  scope?: string;
 }
 
 export const ALL: ProblemFilter = { text: "", errors: true, warnings: true, infos: true };
@@ -39,6 +42,7 @@ export function filterProblems(ps: readonly Problem[], f: ProblemFilter): Proble
     if (p.severity === "error" && !f.errors) return false;
     if (p.severity === "warning" && !f.warnings) return false;
     if (p.severity === "info" && !f.infos) return false;
+    if (f.files && !f.files.includes(p.file.replace(/^\.\//, ""))) return false;
     if (!terms.length) return true;
     const hay = `${p.message} ${p.file} ${p.code ?? ""} ${p.source}`.toLowerCase();
     return terms.every((t) => (t.startsWith("!") ? !hay.includes(t.slice(1)) : hay.includes(t)));

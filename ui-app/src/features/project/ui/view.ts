@@ -6,6 +6,10 @@
    Everything shown comes from the store; with nothing there the view says so. Buttons carry
    `data-action` (+ `data-on`); the effects live in the composition root's table. */
 
+import type { IssueDrift } from "../domain/drift";
+import { translator } from "../../../app/i18n";
+import { PROJECT_DRIFT_MESSAGES } from "./drift-messages";
+const dt = translator(PROJECT_DRIFT_MESSAGES);
 import { esc } from "../../../core";
 import type { ProjectService, ProjectState } from "../application/project-service";
 import {
@@ -142,6 +146,17 @@ function backlogView(p: Project): string {
 }
 
 /** What the issue lacks to be Ready (RF-B02), as the store computed it. */
+/** RF-A05: the architect's rules broken in the files Co-Dev changed for the issue. */
+export function driftBlock(d: IssueDrift): string {
+  if (!d.files.length) return "";
+  const head = `<div class="pj-dim">${esc(dt("driftTitle"))}</div>`;
+  if (!d.violations.length) return head + `<div class="pj-li ok">✓ ${esc(dt("driftNone", { n: d.files.length }))}</div>`;
+  const rows = d.violations
+    .map((v) => `<div class="pj-li pj-link bad" title="${esc(v.rule)}" data-action="pj-drift-open" data-on="${v.line ?? 1}:${esc(v.path)}"><code>${esc(v.path)}${v.line ? `:${v.line}` : ""}</code> ${esc(v.message)}</div>`)
+    .join("");
+  return head + rows + `<button class="pj-btn" data-action="pj-drift-problems" title="${esc(dt("driftProblemsTitle", { n: d.files.length }))}"><span>${esc(dt("driftProblems"))}</span></button>`;
+}
+
 /** `12.3k` — a token count, short. */
 const kTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? "" : "s"}`;
@@ -239,7 +254,7 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
               .map((c) => `<div class="pj-li pj-link" title="Open the diff" data-action="pj-diff" data-on="${esc(c.path)}"><code>${esc(c.path)}:${c.start}</code> <span class="ok">+${c.added}</span> <span class="bad">−${c.removed}</span> <span class="pj-dim">${esc(c.decidedBy)}</span></div>`)
               .join("")}`
           : ""
-      }${d && d.usage.turns ? usageLine(d.usage) : ""}
+      }${d && d.usage.turns ? usageLine(d.usage) : ""}${st.drift ? driftBlock(st.drift) : ""}
       <button class="pj-btn pri" data-action="pj-work"${i.missing.length ? ` disabled title="Not Ready: ${esc(i.missing.join("; "))}"` : !pairState.canDrive() ? ` disabled title="${esc(NAVIGATOR_MESSAGE)}"` : ""}><span>Work on it with Co-Dev</span></button>
       <button class="pj-btn" data-action="pj-prompt" title="The exact prompt this issue goes to Co-Dev with"><span>View prompt</span></button>${
         st.prompt && st.prompt.key === i.key

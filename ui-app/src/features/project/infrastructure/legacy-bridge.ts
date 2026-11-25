@@ -92,6 +92,9 @@ export async function openProjectFile(rel: string): Promise<void> {
   G.openPath?.((G.ROOT ?? "") + rel);
 }
 
+/** RF-A05: opens a file of the open folder at a line. */
+export const openAt = (rel: string, line: number): void => G.openPath?.((G.ROOT ?? "") + rel, line);
+
 /** Writes what the editor has to disk and waits for the write queue (before a commit). */
 export async function saveEditor(): Promise<void> {
   G.DXR?.flush?.();

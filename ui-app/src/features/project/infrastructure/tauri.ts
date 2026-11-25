@@ -16,6 +16,7 @@ export const tauriProjectGateway: ProjectGateway = {
   reports: (root) => client.reports(root),
   audit: (root, issue) => client.audit(root, issue),
   issuePrompt: (root, key) => client.issuePrompt(root, key),
+  conformance: (root) => client.conformance(root),
 };
 
 /** RF-B04: writes a template file inside the open folder (`write_file`). */

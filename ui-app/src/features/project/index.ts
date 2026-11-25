@@ -9,7 +9,8 @@ import { makeProjectService } from "./application/project-service";
 import { makeProjectView } from "./ui/view";
 import { bindActions, type ActionEvent, type ActionTable } from "./ui/actions";
 import { commitProjectFile, tauriProjectGateway, writeProjectFile } from "./infrastructure/tauri";
-import { codev, dialog, git, loadMe, notify, openDiff, openProjectFile, openTab, saveEditor, workspace } from "./infrastructure/legacy-bridge";
+import { codev, dialog, git, loadMe, notify, openAt, openDiff, openProjectFile, openTab, saveEditor, workspace } from "./infrastructure/legacy-bridge";
+import { problemsScope } from "../../app/problems-scope";
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { State } from "./domain/types";
 import { projectInbox } from "../../app/project-inbox";
@@ -30,6 +31,8 @@ export const projectService = makeProjectService({
   now: () => Date.now(),
   canDrive: () => pairState.canDrive(),
   navigatorMessage: NAVIGATOR_MESSAGE,
+  showInProblems: (label, files) => problemsScope.show({ label, files }),
+  openAt,
   templates: {
     write: writeProjectFile,
     open: openProjectFile,
@@ -161,6 +164,9 @@ const table: ActionTable = {
   "pj-sprint-budget": { change: (e) => void projectService.apply({ op: "set_sprint_budget", id: e.on, budget_usd: e.value.trim() === "" ? null : Math.max(0, Number(e.value)) }) },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-diff": { click: (e) => openDiff(e.on) },
+  /* RF-A05: the drift of the rules in the issue's files */
+  "pj-drift-open": { click: (e) => { const i = e.on.indexOf(":"); projectService.openViolation(e.on.slice(i + 1), Number(e.on.slice(0, i)) || null); } },
+  "pj-drift-problems": { click: () => projectService.driftInProblems() },
   "pj-delete": { click: (e) => void projectService.remove(e.on) },
   "pj-comment": { keydown: enter((e) => { const k = sel(); if (k) void projectService.comment(k, e.value); }) },
   "pj-submit": { click: submit },
