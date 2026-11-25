@@ -85,9 +85,9 @@ use commands::devcontainer::{
 use commands::dictation::{dictation_cancel, dictation_start, dictation_status, dictation_stop};
 use commands::git::{
     git_amend, git_blame, git_branch, git_branches, git_changes, git_checkout, git_clone,
-    git_commit, git_compare, git_create_branch, git_diff, git_diff_range, git_history, git_log,
-    git_rebase, git_show, git_show_path, git_stage, git_stage_all, git_stash, git_unstage,
-    git_worktree,
+    git_clone_plan, git_commit, git_compare, git_create_branch, git_diff, git_diff_range,
+    git_history, git_log, git_rebase, git_show, git_show_path, git_stage, git_stage_all, git_stash,
+    git_unstage, git_worktree,
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
@@ -875,6 +875,7 @@ pub fn run() {
             git_changes,
             git_diff,
             git_clone,
+            git_clone_plan,
             git_blame,
             git_history,
             git_show_path,

@@ -129,6 +129,16 @@ pub async fn git_diff(
     .map_err(|e| format!("git task failed: {e}"))
 }
 
+/// What `git_clone` will run (r23 F6): the exact command, the folder it creates and whether that
+/// folder exists — for the approval dialog. The same validation guards `git_clone`.
+#[tauri::command]
+pub fn git_clone_plan(
+    url: String,
+    parent_dir: String,
+) -> Result<tutor_eval::git::ClonePlan, String> {
+    gitops::clone_plan(&url, Path::new(&parent_dir)).map_err(|e| e.to_string())
+}
+
 /// Clone a git repository `url` into `parent_dir`, returning the new repo's path so the
 /// workspace can mount it. Runs off the UI thread; errors carry git's stderr.
 #[tauri::command]

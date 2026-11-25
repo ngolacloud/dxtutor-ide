@@ -537,34 +537,184 @@ pub fn diff(root: &Path, file: Option<&str>, staged: bool) -> String {
     tracked
 }
 
-/// Clone `url` into `parent_dir`, returning the path of the freshly created repository
-/// directory on success (so the caller can mount it). The destination name is derived by
-/// `git` from the URL; we discover it by reading the parent dir before/after the clone.
-/// Returns `Err` with git's stderr when the clone fails.
+/// What a clone will do, before it runs (r23 F6): the exact command the approval dialog shows, the
+/// folder it creates, and whether that folder already exists. The same validation guards
+/// [`clone_repo`], so the command shown is the command that runs.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClonePlan {
+    pub url: String,
+    pub parent: String,
+    /// the new folder's name (the last path segment of the URL, without `.git`)
+    pub name: String,
+    pub target: String,
+    pub exists: bool,
+    /// `git -C <parent> clone -- <url> <name>`, quoted for a POSIX shell
+    pub command: String,
+}
+
+fn sh_quote(s: &str) -> String {
+    if !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_./:=@%+,-~".contains(c))
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
+/// Validates a clone URL and plans the clone. Accepted: `https://`, `http://`, `ssh://`,
+/// `git://`, `file://`, and the scp form `user@host:path`. Refused: an option-looking URL (`-…`),
+/// whitespace or control characters, other transports (`ext::` runs commands), and a URL with no
+/// usable folder name.
+pub fn clone_plan(url: &str, parent_dir: &Path) -> Result<ClonePlan, String> {
+    let url = url.trim();
+    if url.is_empty() || url.len() > 2048 {
+        return Err("give a repository URL".into());
+    }
+    if url.starts_with('-') || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(format!("not a repository URL: {url:?}"));
+    }
+    let schemes = ["https://", "http://", "ssh://", "git://", "file://"];
+    let scp = !url.contains("://")
+        && !url.contains("::")
+        && url.split_once(':').is_some_and(|(host, path)| {
+            host.contains('@') && !host.contains('/') && !path.is_empty()
+        });
+    if !schemes.iter().any(|p| url.starts_with(p)) && !scp {
+        return Err(format!(
+            "unsupported repository URL: {url:?} (use https://, ssh://, git@host:path or file://)"
+        ));
+    }
+    if !parent_dir.is_absolute() {
+        return Err(format!(
+            "the destination folder must be absolute: {}",
+            parent_dir.display()
+        ));
+    }
+    let tail = url
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap_or("");
+    let name = tail.strip_suffix(".git").unwrap_or(tail).to_string();
+    if name.is_empty() || name == "." || name == ".." || name.starts_with('-') {
+        return Err(format!("cannot tell the folder name from {url:?}"));
+    }
+    let target = parent_dir.join(&name);
+    let parent = parent_dir.display().to_string();
+    Ok(ClonePlan {
+        command: format!(
+            "git -C {} clone -- {} {}",
+            sh_quote(&parent),
+            sh_quote(url),
+            sh_quote(&name)
+        ),
+        exists: target.exists(),
+        target: target.display().to_string(),
+        url: url.to_string(),
+        name,
+        parent,
+    })
+}
+
+/// Clones `url` into `parent_dir/<name>` exactly as [`clone_plan`] shows it (`--` before the URL,
+/// the folder named explicitly, no terminal prompt for credentials), returning the new folder.
+/// Refuses when the folder already exists. `Err` carries git's stderr.
 pub fn clone_repo(url: &str, parent_dir: &Path) -> Result<std::path::PathBuf, String> {
-    let before: std::collections::HashSet<std::path::PathBuf> = std::fs::read_dir(parent_dir)
-        .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).collect())
-        .unwrap_or_default();
+    let plan = clone_plan(url, parent_dir)?;
+    if plan.exists {
+        return Err(format!("{} already exists", plan.target));
+    }
     let out = Command::new("git")
         .arg("-C")
         .arg(parent_dir)
-        .args(["clone", url])
+        .args(["clone", "--", &plan.url, &plan.name])
+        .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .map_err(|e| format!("could not start git: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }
-    // The new directory is the one that appeared.
-    std::fs::read_dir(parent_dir)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .find(|p| p.is_dir() && !before.contains(p))
-        .ok_or_else(|| "clone succeeded but the new folder was not found".to_string())
+    Ok(PathBuf::from(plan.target))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_clone_plan_shows_the_exact_command_and_the_folder() {
+        let p = clone_plan(
+            "https://github.com/ngolacloud/dxtutor-ide.git",
+            Path::new("/home/ana/work dir"),
+        )
+        .unwrap();
+        assert_eq!(p.name, "dxtutor-ide");
+        assert_eq!(p.target, "/home/ana/work dir/dxtutor-ide");
+        assert_eq!(p.command, "git -C '/home/ana/work dir' clone -- https://github.com/ngolacloud/dxtutor-ide.git dxtutor-ide");
+        assert!(!p.exists);
+        assert_eq!(
+            clone_plan("git@github.com:ngolacloud/repo.git/", Path::new("/w"))
+                .unwrap()
+                .name,
+            "repo"
+        );
+        assert_eq!(
+            clone_plan("file:///tmp/x/origin", Path::new("/w"))
+                .unwrap()
+                .name,
+            "origin"
+        );
+        for bad in [
+            "",
+            "--upload-pack=touch /tmp/pwned",
+            "ext::sh -c touch% /tmp/p",
+            "https://h/a b",
+            "relative/path",
+            "https://h/..",
+            "foo:bar",
+        ] {
+            assert!(
+                clone_plan(bad, Path::new("/w")).is_err(),
+                "{bad:?} should be refused"
+            );
+        }
+        assert!(clone_plan("https://h/r", Path::new("rel")).is_err());
+    }
+
+    #[test]
+    fn clone_repo_clones_into_the_planned_folder_and_refuses_an_existing_one() {
+        let d = tempfile::tempdir().unwrap();
+        let origin = d.path().join("origin");
+        std::fs::create_dir(&origin).unwrap();
+        run(&origin, &["init", "-q", "-b", "main"]);
+        std::fs::write(origin.join("a.txt"), "a").unwrap();
+        run(&origin, &["add", "."]);
+        run(
+            &origin,
+            &[
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "init",
+            ],
+        );
+        let dest = d.path().join("dest");
+        std::fs::create_dir(&dest).unwrap();
+        let url = format!("file://{}", origin.display());
+        let got = clone_repo(&url, &dest).unwrap();
+        assert_eq!(got, dest.join("origin"));
+        assert!(got.join("a.txt").exists());
+        assert!(clone_plan(&url, &dest).unwrap().exists);
+        assert!(clone_repo(&url, &dest)
+            .unwrap_err()
+            .contains("already exists"));
+    }
 
     fn run(root: &Path, args: &[&str]) {
         let ok = Command::new("git")
