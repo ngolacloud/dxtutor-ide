@@ -641,3 +641,20 @@ test-results table), the Commit Composer, lanes (off by default).
 Known limits, reported: the merge check uses the folder's detected lint (else test) command; a folder without one
 completes with «no project check found» in the dialog's scope. Untracked files are not part of undo snapshots
 (`git stash create` covers tracked files only).
+
+### F3b status: done (git, second half)
+
+| Commit | What |
+|---|---|
+| `e41a852` | Sync: `git_sync_plan` builds the exact command (`fetch --all --prune`, `pull --rebase --autostash`, `push <remote> <b>:<dst>` or `push -u`; never `--force`) with upstream and ahead/behind; `git_sync` runs it only if it is still the approved one. Fetch/Pull ↓n/Push ↑n on the Commit Graph; approved, audited, an undo snapshot before a pull. |
+| `8a0be7d` | `tutor_eval::gh` (read-only, `--json`): status, PRs (review requested, mine, open), CI runs and PRs of a commit; «not installed» with the hint without gh. The Launchpad tab (by severity, checks, review, linked issue); «Checkout into a worktree» (`git_worktree {op: add_pr}`), approved and audited; links open the system browser. |
+| `e3faf41` | Commit lifecycle: Project DB migration 8 `test_results`; `test_results_record` (HEAD and dirty decided by the backend) written by the Testing pane after each whole-suite run; `test_results_for`; the graph's details panel shows issue → tests → CI → PR → environments, each from its real source or saying it has none (environments «not connected» until F4). |
+| `894887c` | Commit Composer (`git_commit_paths`): drafts per theme with a Conventional Commits prefix, edit/move/leave out, ask Co-Dev for a grouping (proposal only), commit in order with undo snapshots. Lanes (`git_lane_commit`, temp index + commit-tree + update-ref, no checkout) behind «Git: Lanes (experimental) on/off», off by default. |
+
+246 commands after F3b. Every new git write is tested against real repositories in `tutor_eval::gitwork`, and the
+desktop self-test drives each one against real git: `sync` (push to a local bare remote), `launchpad` (real gh,
+signed out), `lifecycle`, `composer` (two commits; a lane commit with HEAD unchanged). 60 self-test steps.
+
+Known limits, reported: the Launchpad and the CI/PR stages need `gh` signed in (they say so otherwise); a lane
+commit applies the diff against HEAD, so a change that does not apply on the target branch is refused rather than
+merged; environments wait for F4's deploy records.

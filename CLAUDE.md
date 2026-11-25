@@ -170,6 +170,10 @@ com testes contra repositórios reais. Regras:
 - Antes de cada operação, `undo.snapshot(rótulo)` (refs em `refs/dxtutor/undo/<n>`).
 - O commit do desktop respeita o índice (hunks em stage); a UI de hunks e o undo só aparecem no desktop com
   repositório, por isso os goldens do pane não mudam.
+- F3b: sync (`git_sync_plan`/`git_sync`, nunca `--force`, o backend só corre o comando aprovado), o módulo
+  `tutor_eval::gh` (só leitura; sem `gh` diz «not installed») com o Launchpad, o ciclo de vida do commit (tabela
+  `test_results` na base do Project, migração 8, gravada pelo Testing), o Commit Composer (`git_commit_paths`) e as
+  lanes (`git_lane_commit`, sem checkout) atrás de «Git: Lanes (experimental) on/off», desligadas por omissão.
 
 ## Quarta feature extraída: Run and Debug (`ui-app/src/features/debug/`)
 
