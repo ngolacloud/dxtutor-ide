@@ -1001,8 +1001,11 @@ impl DapSession {
 
     /// Run to `line` of `file`: a temporary breakpoint there (the file's own stay), continue, and
     /// take the temporary one away again wherever the program stops.
+    /// `file` is given as the breakpoints are (`set_breakpoints`): the same key finds the file's own
+    /// breakpoints, and the adapter resolves it the same way (not joined to the session's folder: a
+    /// test runs in its package's folder, not the project's).
     pub fn run_to(&self, file: &str, line: u32) -> Result<DapStop, String> {
-        let abs = self.absolute(file);
+        let abs = file.to_string();
         let mine = self
             .breakpoints
             .lock()
