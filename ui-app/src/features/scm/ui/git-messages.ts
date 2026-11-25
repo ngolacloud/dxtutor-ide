@@ -4,6 +4,8 @@ import type { Messages } from "../../../app/i18n";
 
 export const GIT_MESSAGES = {
   en: {
+    "sync-fetch": "Fetch from every remote", "sync-pull": "Pull (rebase your commits on top)", "sync-push": "Push", syncScope: "{b} → {u} · {a} to push · {n} to pull",
+    syncScopeNew: "{b} has no upstream yet: it is created on {r}", syncDone: "{cmd} — {out}", syncFailed: "Sync failed: {e}",
     mergeTab: "Merge", mergeNone: "No merge in progress.", mergeCommitTitle: "Complete the merge", mergeLeft: "{n} file(s) still in conflict", mergeComplete: "Complete merge…", mergeAbort: "Abort merge…",
     mergeAbortTitle: "Abort the merge: the files go back to before it started", mergeBase: "Base (common ancestor)", mergeOurs: "Ours (current branch)", mergeTheirs: "Theirs (merged branch)", mergeAbsent: "(absent on this side)",
     mergeResult: "Result ({n} conflict block(s) left)", mergeTakeOurs: "Take ours", mergeTakeTheirs: "Take theirs", mergeTakeBoth: "Take both", mergeAskBtn: "✦ Propose a resolution", mergeResolve: "Mark resolved",
@@ -61,6 +63,8 @@ export const GIT_MESSAGES = {
     csDiscardTitle: "Discard the changes of {set}: these files go back to the last commit, with every change in them — yours too",
   },
   ptAO: {
+    "sync-fetch": "Buscar de todos os remotos", "sync-pull": "Receber (os teus commits por cima, com rebase)", "sync-push": "Enviar", syncScope: "{b} → {u} · {a} por enviar · {n} por receber",
+    syncScopeNew: "{b} ainda não tem upstream: é criado em {r}", syncDone: "{cmd} — {out}", syncFailed: "O sync falhou: {e}",
     mergeTab: "Merge", mergeNone: "Não há nenhum merge em curso.", mergeCommitTitle: "Concluir o merge", mergeLeft: "{n} ficheiro(s) ainda em conflito", mergeComplete: "Concluir o merge…", mergeAbort: "Abortar o merge…",
     mergeAbortTitle: "Abortar o merge: os ficheiros voltam ao que eram antes de começar", mergeBase: "Base (antepassado comum)", mergeOurs: "Nossa (ramo actual)", mergeTheirs: "Deles (ramo juntado)", mergeAbsent: "(não existe deste lado)",
     mergeResult: "Resultado ({n} bloco(s) de conflito por resolver)", mergeTakeOurs: "Ficar com a nossa", mergeTakeTheirs: "Ficar com a deles", mergeTakeBoth: "Ficar com as duas", mergeAskBtn: "✦ Propor uma resolução", mergeResolve: "Marcar como resolvido",

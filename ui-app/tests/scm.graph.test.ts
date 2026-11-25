@@ -465,3 +465,39 @@ describe("o merge a três (UI-SCM-13)", () => {
     expect(d.querySelector('[data-action="gx-merge-complete"]')!.hasAttribute("disabled")).toBe(true);
   });
 });
+
+import { makeSync } from "../src/features/scm/application/sync";
+import type { SyncPlanData } from "../src/features/scm/application/extras-ports";
+
+describe("o sync (fetch, pull, push)", () => {
+  const P = (op: "fetch" | "pull" | "push", display: string, up: string | null = "origin/main"): SyncPlanData => ({ op, branch: "main", upstream: up, remote: "origin", ahead: 2, behind: 1, setsUpstream: !up, argv: [], display });
+  function fake(o: { approve?: boolean; fail?: boolean } = {}) {
+    const ran: string[] = [], snaps: string[] = [], audited: Array<{ action: string; outcome?: string; approved: boolean }> = [], asked: Array<{ title: string; command: string; scope?: string }> = [], toasts: string[] = [];
+    const s = makeSync({
+      git: { plan: async (_r, op) => P(op, op === "push" ? "git push origin main:main" : op === "pull" ? "git pull --rebase --autostash" : "git fetch --all --prune"), run: async (_r, op, exp) => { if (o.fail) throw new Error("rejected (non-fast-forward)"); ran.push(`${op}:${exp}`); return "done"; } },
+      root: () => "/w", changed: async () => {}, snapshot: async (l) => { snaps.push(l); },
+      human: { approve: async (r) => { asked.push(r); return { approved: o.approve ?? true, reason: "", decidedAt: 1 }; }, toast: (m) => toasts.push(m) },
+      audit: { record: async (_r, e) => { audited.push(e); } },
+      say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
+    });
+    return { s, ran, snaps, audited, asked, toasts };
+  }
+  it("o diálogo mostra o comando do backend e o upstream; aprovado, corre exactamente esse e audita; o pull tira a fotografia", async () => {
+    const f = fake();
+    expect(await f.s.run("push")).toBe(true);
+    expect(f.asked[0]).toMatchObject({ title: "sync-push", command: "git push origin main:main", scope: 'syncScope {"b":"main","u":"origin/main","a":2,"n":1}' });
+    expect(f.ran).toEqual(["push:git push origin main:main"]);
+    expect(f.audited.map((a) => `${a.action}:${a.outcome}`)).toEqual(["git.push:sent", "git.push:ok"]);
+    await f.s.run("pull");
+    expect(f.snaps).toEqual(["pull origin/main"]);
+  });
+  it("recusado: nada corre, fica auditado; uma falha fica auditada como failed", async () => {
+    const no = fake({ approve: false });
+    expect(await no.s.run("push")).toBe(false);
+    expect(no.ran).toEqual([]);
+    const bad = fake({ fail: true });
+    expect(await bad.s.run("push")).toBe(false);
+    expect(bad.audited.map((a) => a.outcome)).toEqual(["sent", "failed"]);
+    expect(bad.toasts.at(-1)).toContain("non-fast-forward");
+  });
+});

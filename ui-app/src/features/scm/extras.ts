@@ -19,7 +19,8 @@ import { blameText, renderCompare, renderHistory, renderRebase, renderReview, re
 import type { ActionTable } from "./ui/actions";
 import type { RebaseAction } from "./domain/git-extras";
 import { makeHunks } from "./application/hunks";
-import { tauriHunks, tauriUndo, tauriScmAudit, tauriMerge } from "./infrastructure/tauri";
+import { tauriHunks, tauriUndo, tauriScmAudit, tauriMerge, tauriSync } from "./infrastructure/tauri";
+import { makeSync } from "./application/sync";
 import { makeMerge3 } from "./application/merge3";
 import { renderMerge3 } from "./ui/merge3-view";
 import { makeUndo } from "./application/undo";
@@ -105,6 +106,13 @@ export const merge3 = makeMerge3({
 });
 merge3.subscribe(() => paint("git-merge"));
 
+/* ── r23 F3: fetch, pull and push, approved and audited ── */
+export const sync = makeSync({
+  git: tauriSync(), root: () => B.gitRoot(), changed: () => B.reloadFromGit(), snapshot: (l) => undo.snapshot(l),
+  human: { approve: (r) => requestApproval(r), toast: (m) => B.toast(m) },
+  audit: tauriScmAudit(), say,
+});
+
 /** The A4 git work is on (desktop app, the open folder is a git repository). */
 export const active = (): boolean => B.gitRoot() !== null;
 
@@ -187,6 +195,9 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
   ["Git: Interactive Rebase…", guard(() => gitExtras.openRebase())],
   ["Git: Undo Last Operation", guard(() => undo.undoLast())],
   ["Git: Resolve Merge Conflicts", guard(() => merge3.open())],
+  ["Git: Fetch", guard(() => sync.run("fetch"))],
+  ["Git: Pull", guard(() => sync.run("pull"))],
+  ["Git: Push", guard(() => sync.run("push"))],
   ["Git: Stash Changes", guard(() => gitExtras.stashPush(false))],
   ["Git: Stash Including Untracked", guard(() => gitExtras.stashPush(true))],
   ["Git: New Worktree…", guard(() => gitExtras.worktreeAdd())],

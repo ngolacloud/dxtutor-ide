@@ -14,6 +14,7 @@ import { LANE, authorOf, isFlow, graphLayout, graphSel, setGraphSel, gfPrompt, p
 import { makeGraphScreen } from "./application/graph-screen";
 import { tauriGitRefs } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
+import { sync } from "./extras";
 import { GRAPH_MESSAGES } from "./ui/graph.messages";
 import { GRAPH_SCREEN_MESSAGES } from "./ui/graph-screen-messages";
 import { renderGraphScreen, type GraphCommitVm, type GraphVm } from "./ui/graph-view";
@@ -72,6 +73,7 @@ function model(): GraphVm {
     wip: wipOf(), activity: activityBuckets(G.order.map((h) => ({ h, t: G.c[h].t, match: hit.has(h) }))),
     when: (t) => new Date(t).toISOString().slice(0, 10),
     predictions: st.predictions,
+    syncing: sync.busy(),
   };
 }
 
@@ -85,6 +87,7 @@ function paint(): void {
   if (typing) { const nbox = host.querySelector<HTMLInputElement>(".gl-search"); if (nbox) { nbox.focus(); if (caret !== null) nbox.setSelectionRange(caret, caret); } }
 }
 graphScreen.subscribe(paint);
+sync.subscribe(() => { paint(); if (!sync.busy()) graphScreen.invalidate(); });
 
 /** The graph tab's renderer (was `renderGraphView`; the desktop self-test and the tests call it). */
 export function renderGraphView(_t: unknown, h: HTMLElement): void {
@@ -118,6 +121,7 @@ registerActions({
   "graph:search": { input: (c) => graphScreen.setQuery((c.el as HTMLInputElement).value) },
   "graph:mode": { click: () => graphScreen.setMode(graphScreen.state().mode === "filter" ? "highlight" : "filter") },
   "graph:token": { click: (c) => { c.stop(); graphScreen.addToken(c.on); } },
+  "graph:sync": { click: (c) => { void sync.run(c.on as "fetch" | "pull" | "push"); } },
   "graph:wip": { click: () => B.goPane("scm") },
   "graph:file": { click: (c) => { c.stop(); if (B.files()[B.rootKey() + c.on]) B.openRel(c.on); else B.toast(t("notInBranch")); } },
 });

@@ -30,7 +30,7 @@ import { renderAccountPane } from "../../features/account";
 import { renderGraphView, graphScreen } from "../../features/scm/graph-screen";
 import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
 import { stage, gitMerge } from "../../features/scm";
-import { hunks, undo, merge3 } from "../../features/scm/extras";
+import { hunks, undo, merge3, sync } from "../../features/scm/extras";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
 import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
@@ -230,6 +230,28 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const content = (await git("show", "HEAD:" + (R.prefix || "") + rel)).stdout;
       await git("branch", "-D", "selftest/merge3"); delete FS[key]; flushSave(); await idle();
       return { opened, threeSides: !!(s3?.base && s3?.ours && s3?.theirs), resolved, dialog, cmd, done, mergeCommit: parents === 2, bothKept: /TWO from the branch/.test(content) && content.includes("two on " + start), check: merge3.state().check };
+    });
+    // r23 F3: push para um remoto local (bare) pelo diálogo de aprovação — o comando exacto, o ramo chega lá, auditado.
+    await step("sync", async () => {
+      const remoteDir = (await sh("mktemp", ["-d"], { cwd: R.info.home })).stdout.trim() + "/remote.git";
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 50)); return f(); };
+      await sh("git", ["init", "-q", "--bare", remoteDir], { cwd: R.info.home });
+      await git("remote", "add", "selftest-origin", remoteDir);
+      try {
+        const p = sync.run("push");
+        const dialog = await wait(() => !!document.querySelector("#approval .appr-cmd"), 10000);
+        const cmd = document.querySelector("#approval .appr-cmd")?.textContent ?? "";
+        (document.querySelector("#approval #appr-ok") as HTMLElement | null)?.click();
+        const ok = await p;
+        const there = (await sh("git", ["--git-dir", remoteDir, "rev-parse", "--verify", "refs/heads/" + BRANCH], { cwd: R.info.home })).stdout.trim();
+        const here = (await git("rev-parse", "HEAD")).stdout.trim();
+        const rows = await projectClient().audit(R.root as string, null) as Array<{ origin: string; tool: string | null; call: string | null; outcome: string | null }>;
+        return { dialog, cmd, ok, arrived: there === here, audited: rows.filter((r) => r.tool === "scm" && r.call === "git.push").map((r) => r.outcome) };
+      } finally {
+        await git("branch", "--unset-upstream").catch(() => undefined);
+        await git("remote", "remove", "selftest-origin");
+        await sh("rm", ["-rf", remoteDir.replace(/\/remote\.git$/, "")], { cwd: R.info.home });
+      }
     });
     // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
     await step("graph", async () => {

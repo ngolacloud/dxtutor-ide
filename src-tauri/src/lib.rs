@@ -89,7 +89,8 @@ use commands::git::{
     git_clone_plan, git_commit, git_compare, git_conflict_stages, git_create_branch, git_diff,
     git_diff_range, git_history, git_hunks, git_log, git_merge, git_predict_conflicts, git_rebase,
     git_refs, git_show, git_show_path, git_stage, git_stage_all, git_stage_hunks, git_stash,
-    git_undo_list, git_undo_plan, git_undo_restore, git_undo_snapshot, git_unstage, git_worktree,
+    git_sync, git_sync_plan, git_undo_list, git_undo_plan, git_undo_restore, git_undo_snapshot,
+    git_unstage, git_worktree,
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
@@ -894,6 +895,8 @@ pub fn run() {
             git_predict_conflicts,
             git_merge,
             git_conflict_stages,
+            git_sync_plan,
+            git_sync,
             git_rebase,
             git_amend,
             git_stage,

@@ -250,6 +250,25 @@ pub async fn git_conflict_stages(
     blocking(move || tutor_eval::gitwork::conflict_stages(Path::new(&root), &path)).await
 }
 
+/// What a sync (fetch, pull --rebase, push) will run — the exact command, upstream, ahead/behind (r23 F3).
+#[tauri::command]
+pub async fn git_sync_plan(
+    root: String,
+    op: tutor_eval::gitwork::SyncOp,
+) -> Result<tutor_eval::gitwork::SyncPlan, String> {
+    blocking(move || tutor_eval::gitwork::sync_plan(Path::new(&root), op)).await
+}
+
+/// Runs the sync, only if its command is still `expected` (the one the human approved).
+#[tauri::command]
+pub async fn git_sync(
+    root: String,
+    op: tutor_eval::gitwork::SyncOp,
+    expected: String,
+) -> Result<String, String> {
+    blocking(move || tutor_eval::gitwork::sync(Path::new(&root), op, &expected)).await
+}
+
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {

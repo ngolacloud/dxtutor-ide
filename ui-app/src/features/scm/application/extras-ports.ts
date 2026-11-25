@@ -36,6 +36,14 @@ export interface MergePort {
   stages(root: string, path: string): Promise<ConflictStagesData>;
 }
 
+/** Sync (r23 F3): the shape of `git_sync_plan` / `git_sync`. */
+export type SyncOp = "fetch" | "pull" | "push";
+export interface SyncPlanData { op: SyncOp; branch: string | null; upstream: string | null; remote: string | null; ahead: number; behind: number; setsUpstream: boolean; argv: string[]; display: string }
+export interface SyncPort {
+  plan(root: string, op: SyncOp): Promise<SyncPlanData>;
+  run(root: string, op: SyncOp, expected: string): Promise<string>;
+}
+
 /** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
 export interface ConflictPrediction { branch: string; clean: boolean; files: string[]; error: string | null }
 export interface GitRefsPort {

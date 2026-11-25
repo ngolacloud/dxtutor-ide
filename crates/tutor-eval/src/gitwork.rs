@@ -871,6 +871,138 @@ pub fn conflict_stages(root: &Path, path: &str) -> Result<ConflictStages, String
     })
 }
 
+// ───── sync: fetch, pull, push (r23 F3) ─────
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncOp {
+    Fetch,
+    Pull,
+    Push,
+}
+
+/// What a sync will run, built here so the approval dialog shows the exact command.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPlan {
+    pub op: SyncOp,
+    pub branch: Option<String>,
+    pub upstream: Option<String>,
+    pub remote: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    /// push without an upstream sets it (`-u`)
+    pub sets_upstream: bool,
+    pub argv: Vec<String>,
+    pub display: String,
+}
+
+fn current_branch(root: &Path) -> Option<String> {
+    out(root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+}
+
+pub fn sync_plan(root: &Path, op: SyncOp) -> Result<SyncPlan, String> {
+    let remotes: Vec<String> = git(root, &["remote"])?
+        .lines()
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map(str::to_string)
+        .collect();
+    if remotes.is_empty() {
+        return Err("this repository has no remote".into());
+    }
+    let branch = current_branch(root);
+    let upstream = out(
+        root,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    );
+    let (ahead, behind) = match &upstream {
+        Some(_) => out(
+            root,
+            &["rev-list", "--left-right", "--count", "HEAD...@{u}"],
+        )
+        .and_then(|t| {
+            let mut it = t.split_whitespace().map(|n| n.parse::<u32>().unwrap_or(0));
+            Some((it.next()?, it.next()?))
+        })
+        .unwrap_or((0, 0)),
+        None => (0, 0),
+    };
+    let remote = upstream
+        .as_ref()
+        .and_then(|u| {
+            remotes
+                .iter()
+                .filter(|r| u.starts_with(&format!("{r}/")))
+                .max_by_key(|r| r.len())
+                .cloned()
+        })
+        .or_else(|| remotes.iter().find(|r| *r == "origin").cloned())
+        .or_else(|| remotes.first().cloned());
+    let (argv, sets_upstream): (Vec<String>, bool) = match op {
+        SyncOp::Fetch => (
+            vec!["fetch".into(), "--all".into(), "--prune".into()],
+            false,
+        ),
+        SyncOp::Pull => {
+            let b = branch
+                .clone()
+                .ok_or("HEAD is detached: check out a branch to pull")?;
+            if upstream.is_none() {
+                return Err(format!("{b} has no upstream to pull from: push it first"));
+            }
+            (
+                vec!["pull".into(), "--rebase".into(), "--autostash".into()],
+                false,
+            )
+        }
+        SyncOp::Push => {
+            let b = branch
+                .clone()
+                .ok_or("HEAD is detached: check out a branch to push")?;
+            let r = remote.clone().ok_or("no remote")?;
+            match &upstream {
+                Some(u) => {
+                    let dst = u.strip_prefix(&format!("{r}/")).unwrap_or(&b).to_string();
+                    (vec!["push".into(), r, format!("{b}:{dst}")], false)
+                }
+                None => (vec!["push".into(), "-u".into(), r, b], true),
+            }
+        }
+    };
+    let display = format!(
+        "git {}",
+        argv.iter().map(|a| q(a)).collect::<Vec<_>>().join(" ")
+    );
+    Ok(SyncPlan {
+        op,
+        branch,
+        upstream,
+        remote,
+        ahead,
+        behind,
+        sets_upstream,
+        argv,
+        display,
+    })
+}
+
+/// Runs the plan of `op` — refused when it is no longer the command the human approved (`expected`).
+/// Never forces; prompts for credentials are off (a missing credential fails with git's message).
+pub fn sync(root: &Path, op: SyncOp, expected: &str) -> Result<String, String> {
+    let plan = sync_plan(root, op)?;
+    if plan.display != expected {
+        return Err(format!(
+            "the command changed since it was approved: now `{}`",
+            plan.display
+        ));
+    }
+    let a: Vec<&str> = plan.argv.iter().map(String::as_str).collect();
+    let ssh = std::env::var("GIT_SSH_COMMAND").unwrap_or_else(|_| "ssh -o BatchMode=yes".into());
+    let o = gitx::run(root, &a, &[("GIT_SSH_COMMAND", &ssh)])?;
+    Ok(o.trim().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1269,6 +1401,80 @@ mod tests {
             std::fs::read_to_string(d.path().join("f.txt")).unwrap(),
             "m\n"
         );
+    }
+
+    #[test]
+    fn sync_plans_the_exact_commands_and_runs_only_the_approved_one() {
+        let base = tempfile::tempdir().unwrap();
+        let bare = base.path().join("remote.git");
+        g(
+            base.path(),
+            &[
+                "init",
+                "-q",
+                "--bare",
+                "-b",
+                "main",
+                &bare.display().to_string(),
+            ],
+        );
+        let a = base.path().join("a");
+        g(
+            base.path(),
+            &["clone", "-q", &bare.display().to_string(), "a"],
+        );
+        for (k, v) in [
+            ("user.name", "Ana"),
+            ("user.email", "ana@x"),
+            ("commit.gpgsign", "false"),
+        ] {
+            g(&a, &["config", k, v]);
+        }
+        commit(&a, "f.txt", "1\n", "feat: one");
+        let p = sync_plan(&a, SyncOp::Push).unwrap();
+        assert!(p.sets_upstream);
+        assert_eq!(p.display, "git push -u origin main");
+        assert!(sync_plan(&a, SyncOp::Pull)
+            .unwrap_err()
+            .contains("no upstream"));
+        assert!(sync(&a, SyncOp::Push, "git push --force origin main")
+            .unwrap_err()
+            .contains("changed"));
+        sync(&a, SyncOp::Push, &p.display).unwrap();
+        // a second clone pushes; «a» is then behind by one and pulls it
+        let b = base.path().join("b");
+        g(
+            base.path(),
+            &["clone", "-q", &bare.display().to_string(), "b"],
+        );
+        for (k, v) in [
+            ("user.name", "Rui"),
+            ("user.email", "rui@x"),
+            ("commit.gpgsign", "false"),
+        ] {
+            g(&b, &["config", k, v]);
+        }
+        commit(&b, "g.txt", "2\n", "feat: two");
+        let pb = sync_plan(&b, SyncOp::Push).unwrap();
+        assert_eq!(
+            (pb.display.as_str(), pb.ahead),
+            ("git push origin main:main", 1)
+        );
+        sync(&b, SyncOp::Push, &pb.display).unwrap();
+        let f = sync_plan(&a, SyncOp::Fetch).unwrap();
+        sync(&a, SyncOp::Fetch, &f.display).unwrap();
+        let pull = sync_plan(&a, SyncOp::Pull).unwrap();
+        assert_eq!(
+            (pull.behind, pull.display.as_str()),
+            (1, "git pull --rebase --autostash")
+        );
+        sync(&a, SyncOp::Pull, &pull.display).unwrap();
+        assert!(a.join("g.txt").exists());
+        let lone = repo();
+        commit(lone.path(), "x", "x", "feat: x");
+        assert!(sync_plan(lone.path(), SyncOp::Push)
+            .unwrap_err()
+            .contains("no remote"));
     }
 
     #[test]

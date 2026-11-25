@@ -46,6 +46,8 @@ export interface GraphVm {
   when: (t: number) => string;
   /** UI-SCM-13: branches whose merge into HEAD would conflict */
   predictions: Record<string, ConflictPrediction>;
+  /** a sync running (its op) */
+  syncing: string | null;
 }
 
 function sidebar(t: T, vm: GraphVm): string {
@@ -93,6 +95,14 @@ function dag(vm: GraphVm): { paths: string; dots: string; gw: number; H: number 
   return { paths, dots, gw, H };
 }
 
+function syncButtons(t: T, vm: GraphVm): string {
+  const r = vm.refs;
+  if (!r || !r.remotes.length) return "";
+  const cur = r.branches.find((b) => b.current), dis = vm.syncing ? " disabled" : "";
+  const b = (op: string, label: string, title: string) => `<button class="mini" data-action="graph:sync" data-on="${op}" title="${esc(title)}"${dis}>${esc(label)}</button>`;
+  return `<span class="gl-sync">${b("fetch", t("fetch"), t("fetchTip"))}${b("pull", cur?.behind ? `${t("pull")} ↓${cur.behind}` : t("pull"), t("pullTip"))}${b("push", cur?.ahead ? `${t("push")} ↑${cur.ahead}` : t("push"), t("pushTip"))}</span>`;
+}
+
 function minimap(t: T, vm: GraphVm): string {
   if (vm.activity.length < 2) return "";
   const max = Math.max(...vm.activity.map((b) => b.count), 1), searching = vm.query.trim() !== "";
@@ -107,7 +117,7 @@ export function renderGraphScreen(t: T, vm: GraphVm): string {
     vm.flow === "develop" ? `<button class="mini" data-action="graph:gfPrompt" data-on="feature">+ feature</button><button class="mini" data-action="graph:gfPrompt" data-on="fix">+ fix</button><button class="mini" data-action="graph:gfPrompt" data-on="release">+ release</button>`
     : vm.flow === "flow" ? `<button class="mini pri" data-action="graph:gfFinish">${esc(t("finish", { b: vm.branch }))}</button>`
     : `<button class="mini" data-action="graph:toDevelop">${esc(vm.goToDevelop)}</button>`
-  }<span class="sp"></span><input class="gl-search inp" type="search" data-action="graph:search" value="${esc(vm.query)}" placeholder="${esc(t("searchPh"))}" spellcheck="false">`
+  }${syncButtons(t, vm)}<span class="sp"></span><input class="gl-search inp" type="search" data-action="graph:search" value="${esc(vm.query)}" placeholder="${esc(t("searchPh"))}" spellcheck="false">`
     + `<button class="mini${vm.mode === "filter" ? " on" : ""}" data-action="graph:mode" title="${esc(t(vm.mode === "filter" ? "modeFilterTip" : "modeHighlightTip"))}">${esc(t(vm.mode === "filter" ? "modeFilter" : "modeHighlight"))}</button>`
     + `<span class="gl-dim">${esc(vm.query.trim() ? t("matchCount", { n: vm.matchCount, total: vm.total }) : t("count", { c: vm.total, b: vm.branchCount }))}</span></div>`;
   const rows = L.rows.map((r) => {
