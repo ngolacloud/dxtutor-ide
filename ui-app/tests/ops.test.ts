@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { eventsFor, iacApply, kubeCmd, planText, podTrouble, q, servicePort } from "../src/features/ops/domain/commands";
 import { makeOps } from "../src/features/ops/application/ops-service";
-import type { OpsPort } from "../src/features/ops/application/ports";
+import type { ApprovalRequest, OpsPort } from "../src/features/ops/application/ports";
 import type { IacPlan, KubeTarget } from "../src/features/ops/domain/types";
 import { renderOps } from "../src/features/ops/ui/ops-view";
 
@@ -38,7 +38,7 @@ const PLAN: IacPlan = { ok: true, tool: "tofu", dir: "infra", refreshOnly: false
 
 function fakes(target: KubeTarget | null = T) {
   const ran: string[] = [];
-  const confirms: string[] = [];
+  const confirms: ApprovalRequest[] = [];
   let answer = true;
   const texts: Array<string | null> = [];
   const asked: Array<{ intent: string; context: Array<{ text: string }> }> = [];
@@ -54,7 +54,7 @@ function fakes(target: KubeTarget | null = T) {
   const o = makeOps({
     ops: port,
     world: { root: () => "/proj", kubeTarget: () => target, runInTerminal: (c) => ran.push(c) },
-    human: { confirm: (m) => { confirms.push(m); return answer; }, text: async () => texts.shift() ?? null, toast: (m) => toasts.push(m) },
+    human: { approve: async (r) => { confirms.push(r); return { approved: answer, reason: "", decidedAt: 1 }; }, text: async () => texts.shift() ?? null, toast: (m) => toasts.push(m) },
     codev: { available: () => true, ask: (r) => asked.push(r) },
     say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
   });
@@ -71,8 +71,10 @@ describe("o serviço", () => {
     expect(f.o.state().iac.plan?.changes[0].address).toBe("terraform_data.web");
     f.refuse();
     f.o.applyPlan();
+    await Promise.resolve();
     expect(f.ran).toEqual([]);
-    expect(f.confirms[0]).toContain("cd infra && tofu plan -out=tfplan && tofu apply tfplan");
+    expect(f.confirms[0]).toMatchObject({ command: "cd infra && tofu plan -out=tfplan && tofu apply tfplan", scope: 'scopeIac {"dir":"infra","tool":"tofu"}', destructive: false });
+    expect(f.confirms[0].confirmText).toBeUndefined();
     f.o.askPlan("explain");
     expect(f.asked[0].context[0].text).toContain("create terraform_data.web");
   });
@@ -87,6 +89,8 @@ describe("o serviço", () => {
     await f.o.history("web");
     expect(f.o.state().kube.history?.revisions.map((r) => r.revision)).toEqual([2, 1]);
     f.o.kubeAction("undo", "web", "1");
+    await vi.waitFor(() => expect(f.ran).toHaveLength(2));
+    expect(f.confirms[0].scope).toBe('scopeKube {"c":"kind-dev","n":"shop"}');
     expect(f.ran.at(-1)).toBe("kubectl --kubeconfig '/home/u/.kube/my config' --context kind-dev -n shop rollout undo deploy/web --to-revision=1");
     f.texts.push("3");
     await f.o.scale("web");
@@ -99,6 +103,21 @@ describe("o serviço", () => {
     expect(f.ran.at(-1)).toContain("port-forward svc/web 18080:80");
     f.o.askPod("web-1");
     expect(f.asked[0].context[0].text).toContain("Back-off restarting");
+    f.o.kubeAction("delete-pod", "web-1");
+    await vi.waitFor(() => expect(f.ran.at(-1)).toContain("delete pod web-1"));
+    expect(f.confirms.at(-1)).toMatchObject({ destructive: true, confirmText: "web-1" });
+  });
+
+  it("um apply que destrói pede o nome da pasta escrito; recusado, nada corre", async () => {
+    const f = fakes();
+    f.o.selectDir("infra");
+    (f.port as { iacPlan: OpsPort["iacPlan"] }).iacPlan = async (_r, dir, refreshOnly) => ({ ...PLAN, dir, refreshOnly, destroy: 1 });
+    await f.o.plan(false);
+    f.refuse();
+    f.o.applyPlan();
+    await vi.waitFor(() => expect(f.confirms).toHaveLength(1));
+    expect(f.confirms[0]).toMatchObject({ destructive: true, confirmText: "infra" });
+    expect(f.ran).toEqual([]);
   });
 
   it("sem cluster ligado no pane Infra, não lê nada", async () => {

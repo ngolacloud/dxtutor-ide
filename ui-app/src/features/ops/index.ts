@@ -6,6 +6,7 @@
 import { VIEW, RP } from "../../app/store/registry";
 import { codevAsk } from "../../app/codev-ask";
 import { translator } from "../../app/i18n";
+import { requestApproval } from "../../app/approval";
 import { isDesktop } from "../../platform/tauri/core";
 import { makeOps } from "./application/ops-service";
 import { tauriOps } from "./infrastructure/tauri";
@@ -19,7 +20,7 @@ const t = translator(OPS_MESSAGES);
 export const ops = makeOps({
   ops: tauriOps(),
   world: { root: () => B.root(), kubeTarget: () => B.kubeTarget(), runInTerminal: (c) => B.runInTerminal(c) },
-  human: { confirm: (m) => B.confirmBox(m), text: (ph, initial) => B.textPrompt(ph, initial), toast: (m) => B.notify(m) },
+  human: { approve: (r) => requestApproval(r), text: (ph, initial) => B.textPrompt(ph, initial), toast: (m) => B.notify(m) },
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
   say: (k, p) => t(k as OpsKey, p),
 });

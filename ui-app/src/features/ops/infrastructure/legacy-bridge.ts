@@ -1,7 +1,7 @@
 /* ═════════ feature `ops` — legacy bridge (A9) ═════════
    O ÚNICO ficheiro da feature `ops` que toca em `window`: a pasta aberta (DXR), para onde o pane Infra
    aponta o kubectl (ENVS: kubeconfig, contexto, namespace, ligado ou não), correr um comando num
-   terminal de tarefa, a confirmação, a paleta e os avisos. Tudo lido NO ACTO. */
+   terminal de tarefa, a paleta e os avisos. Tudo lido NO ACTO. */
 
 import { toast } from "../../../core";
 import type { KubeTarget } from "../domain/types";
@@ -10,7 +10,6 @@ interface Globals {
   DXR?: { root?: string | null };
   ENVS?: { kube?: string; ctx?: string; ns?: string; k8sOn?: boolean };
   runTask: (cmd: string) => unknown;
-  confirm: (m: string) => boolean;
   palette: (pre: string, cfg: { ph?: string; verb?: string; text?: (q: string) => void }) => void;
   openTab: (t: { id: string; title: string; kind: string }) => void;
 }
@@ -23,7 +22,6 @@ export const kubeTarget = (): KubeTarget | null => {
   return e && e.k8sOn && e.ctx ? { kubeconfig: (e.kube || "").trim(), context: e.ctx, namespace: (e.ns || "default").trim() || "default" } : null;
 };
 export const runInTerminal = (cmd: string): void => { G.runTask(cmd); };
-export const confirmBox = (m: string): boolean => G.confirm(m);
 export const textPrompt = (ph: string, initial = ""): Promise<string | null> =>
   new Promise((res) => {
     let done = false;

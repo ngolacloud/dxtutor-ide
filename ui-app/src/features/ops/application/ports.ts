@@ -20,8 +20,13 @@ export interface OpsWorld {
   runInTerminal(cmd: string): void;
 }
 
+/** O pedido de aprovação: a forma do `app/approval.ts` (a composição liga-os; tipagem estrutural). */
+export interface ApprovalRequest { title: string; command: string; scope?: string; destructive?: boolean; reasonRequired?: boolean; confirmText?: string }
+export interface ApprovalDecision { approved: boolean; reason: string; decidedAt: number }
+
 export interface HumanPort {
-  confirm(message: string): boolean;
+  /** mostra o comando exacto e onde corre; resolve com a decisão (não corre nada) */
+  approve(r: ApprovalRequest): Promise<ApprovalDecision>;
   text(placeholder: string, initial?: string): Promise<string | null>;
   toast(message: string): void;
 }

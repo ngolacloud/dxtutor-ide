@@ -11,7 +11,7 @@
 
 import { eventsFor, iacApply, kubeCmd, planText, servicePort } from "../domain/commands";
 import type { CloudCli, CloudInventory, IacPlan, KubeState, KubeTarget, Revision } from "../domain/types";
-import type { CodevPort, HumanPort, OpsPort, OpsWorld } from "./ports";
+import type { ApprovalRequest, CodevPort, HumanPort, OpsPort, OpsWorld } from "./ports";
 
 export type Say = (key: string, params?: Record<string, string | number>) => string;
 
@@ -31,14 +31,18 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
 
-  /** The one way anything changes: the exact command, the human's yes, a terminal. */
-  function approveAndRun(what: string, cmd: string): boolean {
-    if (!human.confirm(say("confirmCmd", { what, cmd }))) return false;
+  /** The one way anything changes: the exact command, where it runs, the human's yes, a terminal. */
+  async function approveAndRun(r: ApprovalRequest & { scope: string }): Promise<boolean> {
+    const d = await human.approve(r);
+    if (!d.approved) return false;
+    const cmd = r.command;
     world.runInTerminal(cmd);
     st.ran = cmd;
     emit();
     return true;
   }
+
+  const kubeScope = (t: KubeTarget): string => say("scopeKube", { c: t.context, n: t.namespace });
 
   /* ── IaC ── */
   async function loadDirs(): Promise<void> {
@@ -59,7 +63,8 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
   function applyPlan(): void {
     const p = st.iac.plan;
     if (!p || !p.ok || (!p.changes.length && !(p.refreshOnly && p.drift.length))) return;
-    approveAndRun(say("applyWhat", { n: p.changes.length || p.drift.length, dir: p.dir }), iacApply(p));
+    const destroys = !p.refreshOnly && p.destroy > 0;
+    void approveAndRun({ title: say("applyWhat", { n: p.changes.length || p.drift.length, dir: p.dir }), command: iacApply(p), scope: say("scopeIac", { dir: p.dir, tool: p.tool }), destructive: destroys, confirmText: destroys ? p.dir : undefined });
   }
   function askPlan(intent: "explain" | "change"): void {
     const p = st.iac.plan;
@@ -89,10 +94,10 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     switch (kind) {
       case "logs-deploy": world.runInTerminal(kubeCmd.logs(t, "deploy", name)); st.ran = kubeCmd.logs(t, "deploy", name); emit(); return; // reading logs changes nothing
       case "logs-pod": world.runInTerminal(kubeCmd.logs(t, "pod", name)); st.ran = kubeCmd.logs(t, "pod", name); emit(); return;
-      case "exec": approveAndRun(say("execWhat", { pod: name }), kubeCmd.exec(t, name)); return;
-      case "restart": approveAndRun(say("restartWhat", { d: name }), kubeCmd.restart(t, name)); return;
-      case "delete-pod": approveAndRun(say("deletePodWhat", { pod: name }), kubeCmd.deletePod(t, name)); return;
-      case "undo": approveAndRun(say("undoWhat", { d: name, r: extra ?? "" }), kubeCmd.undo(t, name, Number(extra))); return;
+      case "exec": void approveAndRun({ title: say("execWhat", { pod: name }), command: kubeCmd.exec(t, name), scope: kubeScope(t) }); return;
+      case "restart": void approveAndRun({ title: say("restartWhat", { d: name }), command: kubeCmd.restart(t, name), scope: kubeScope(t) }); return;
+      case "delete-pod": void approveAndRun({ title: say("deletePodWhat", { pod: name }), command: kubeCmd.deletePod(t, name), scope: kubeScope(t), destructive: true, confirmText: name }); return;
+      case "undo": void approveAndRun({ title: say("undoWhat", { d: name, r: extra ?? "" }), command: kubeCmd.undo(t, name, Number(extra)), scope: kubeScope(t) }); return;
     }
   }
   async function scale(deployment: string): Promise<void> {
@@ -102,7 +107,7 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     if (v === null) return;
     const n = Number(v.trim());
     if (!Number.isInteger(n) || n < 0 || n > 500) { human.toast(say("badReplicas")); return; }
-    approveAndRun(say("scaleWhat", { d: deployment, n }), kubeCmd.scale(t, deployment, n));
+    await approveAndRun({ title: say("scaleWhat", { d: deployment, n }), command: kubeCmd.scale(t, deployment, n), scope: kubeScope(t) });
   }
   async function portForward(service: string): Promise<void> {
     const t = st.kube.target, svc = st.kube.state?.services.find((s) => s.name === service);
@@ -112,7 +117,7 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     if (v === null) return;
     const local = Number(v.trim());
     if (!Number.isInteger(local) || local < 1 || local > 65535) { human.toast(say("badPort")); return; }
-    approveAndRun(say("portWhat", { s: service, l: local }), kubeCmd.portForward(t, service, local, remote));
+    await approveAndRun({ title: say("portWhat", { s: service, l: local }), command: kubeCmd.portForward(t, service, local, remote), scope: kubeScope(t) });
   }
   function askPod(pod: string): void {
     const s = st.kube.state, p = s?.pods.find((x) => x.name === pod);

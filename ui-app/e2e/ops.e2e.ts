@@ -85,10 +85,13 @@ test("the Ops tab: IaC plan diff, the namespace with its actions, cloud CLIs —
   expect((await calls(page, "ops_iac_plan")).at(-1)).toEqual({ root: "/proj", dir: "infra", refreshOnly: false });
   await ops.locator('.ops-res[data-on="terraform_data.web"]').click();
   await expect(ops.locator(".ops-attr")).toContainText("nginx:1.28");
-  let asked = "";
-  page.once("dialog", (d) => { asked = d.message(); void d.dismiss(); });
   await ops.locator('[data-action="ops-apply"]').click();
-  await expect.poll(() => asked).toContain("cd infra && tofu plan -out=tfplan && tofu apply tfplan");
+  const appr = page.locator("#approval");
+  await expect(appr.locator(".appr-cmd")).toHaveText("cd infra && tofu plan -out=tfplan && tofu apply tfplan");
+  await expect(appr.locator(".appr-scope")).toContainText("folder infra · tofu");
+  await page.screenshot({ path: test.info().outputPath("a9-ops-approval.png") });
+  await appr.locator("#appr-no").click();
+  await expect(appr).toHaveCount(0);
   expect(await ran(page)).toEqual([]);
 
   // Kubernetes: the crashing pod, logs straight to the terminal, a rollback only once approved
@@ -98,8 +101,9 @@ test("the Ops tab: IaC plan diff, the namespace with its actions, cloud CLIs —
   await expect.poll(() => ran(page)).toEqual(["kubectl --context kind-dev -n shop logs -f web-7c9f --tail=200"]);
   await ops.locator('[data-action="ops-history"][data-on="web"]').click();
   await expect(ops.locator(".ops-hist .ops-row")).toHaveCount(2);
-  page.once("dialog", (d) => void d.accept());
   await ops.locator('[data-action="ops-undo"][data-on="web|1"]').click();
+  await expect(appr.locator(".appr-scope")).toContainText("context kind-dev · namespace shop");
+  await appr.locator("#appr-ok").click();
   await expect.poll(async () => (await ran(page)).at(-1)).toBe("kubectl --context kind-dev -n shop rollout undo deploy/web --to-revision=1");
 
   // cloud: the installed CLI's inventory; the others say how to install them
