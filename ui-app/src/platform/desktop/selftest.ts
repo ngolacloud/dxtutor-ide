@@ -29,8 +29,8 @@ import { renderSearchPane } from "../../features/search";
 import { renderAccountPane } from "../../features/account";
 import { renderGraphView, graphScreen } from "../../features/scm/graph-screen";
 import { rtConnect, k8sConnect, dxDeploy, drawRemote, dcAttach, dcDetach, OBS, openObserve, ENVX, envState, devc, pDc, KCTX } from "../../features/infra";
-import { stage } from "../../features/scm";
-import { hunks, undo } from "../../features/scm/extras";
+import { stage, gitMerge } from "../../features/scm";
+import { hunks, undo, merge3 } from "../../features/scm/extras";
 import { clLog, clShow } from "../../features/changelog";
 import { gitCmd } from "../../features/termgit";
 import { startDebug, dbgStep, dbgCurrent, toggleBp, dbgBreaks } from "../../features/debug";
@@ -203,6 +203,33 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const audited = rows.filter((r) => r.origin === "ide" && r.tool === "scm" && r.call === "git.undo").map((r) => r.outcome);
       delete FS[key]; flushSave(); await idle();
       return { snapLabel: snap?.label ?? null, committed: headAfterCommit !== headBefore, dialog, showsCommands: /git (symbolic-ref|update-ref|read-tree)/.test(shown), ok, headRestored: headNow === headBefore, audited };
+    });
+    // r23 F3 (UI-SCM-13): um merge com conflito pelo IDE já não é abortado — abre o separador do merge a três com a
+    // base, a nossa e a deles; resolver escreve e faz stage; concluir corre a verificação do projecto e, aprovado no
+    // diálogo, faz o commit do merge (auditado).
+    await step("merge3", async () => {
+      const start = BRANCH, rel = "notes/merge3.txt", key = ROOT + rel;
+      const wait = async (f: () => boolean, ms: number) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 50)); return f(); };
+      writeFile(key, "one\ntwo\nthree\n"); flushSave(); await idle(); commit("test: merge3 base"); await idle(); await idle();
+      checkout("selftest/merge3", true); await idle();
+      writeFile(key, "one\nTWO from the branch\nthree\n"); flushSave(); await idle(); commit("test: merge3 branch"); await idle(); await idle();
+      checkout(start); await idle();
+      writeFile(key, "one\ntwo on " + start + "\nthree\n"); flushSave(); await idle(); commit("test: merge3 here"); await idle(); await idle();
+      gitMerge("selftest/merge3"); await idle();
+      const opened = await wait(() => !!merge3.state().merge?.merging && !!merge3.state().stages[rel], 8000);
+      const s3 = merge3.state().stages[rel];
+      merge3.take(rel, "both");
+      await merge3.resolve(rel);
+      const resolved = merge3.state().merge?.conflicts.length === 0;
+      const p = merge3.complete();
+      const dialog = await wait(() => !!document.querySelector("#approval .appr-cmd"), 120000);
+      const cmd = document.querySelector("#approval .appr-cmd")?.textContent ?? "";
+      (document.querySelector("#approval #appr-ok") as HTMLElement | null)?.click();
+      const done = await p; await idle();
+      const parents = (await git("log", "-1", "--format=%P")).stdout.trim().split(" ").length;
+      const content = (await git("show", "HEAD:" + (R.prefix || "") + rel)).stdout;
+      await git("branch", "-D", "selftest/merge3"); delete FS[key]; flushSave(); await idle();
+      return { opened, threeSides: !!(s3?.base && s3?.ours && s3?.theirs), resolved, dialog, cmd, done, mergeCommit: parents === 2, bothKept: /TWO from the branch/.test(content) && content.includes("two on " + start), check: merge3.state().check };
     });
     // r23 F3: o Commit Graph com a barra lateral lida do `git_refs` real (ramos, tags, worktrees, contribuidores).
     await step("graph", async () => {

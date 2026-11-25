@@ -5,7 +5,7 @@
    `git_diff`. Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, type Invoker } from "../../../platform/tauri/core";
-import type { ConflictPrediction, FileHunksData, GitExtrasPort, GitRefsPort, HunksPort, UndoEntryData, UndoPlanData, UndoPort } from "../application/extras-ports";
+import type { ConflictPrediction, ConflictStagesData, MergePort, MergeStateData, FileHunksData, GitExtrasPort, GitRefsPort, HunksPort, UndoEntryData, UndoPlanData, UndoPort } from "../application/extras-ports";
 import { auditClient } from "../../../platform/tauri/audit";
 import type { RefsSnapshot } from "../domain/refs";
 import type { Blame, Compare, HistCommit, RebasePlan, StashResult, Worktree } from "../domain/git-extras";
@@ -53,4 +53,10 @@ export const tauriUndo = (inv: Invoker = invoke): UndoPort => ({
 export const tauriScmAudit = (inv: Invoker = invoke) => ({
   record: (root: string, e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number; outcome?: "sent" | "ok" | "failed" }): Promise<void> =>
     auditClient(inv).record(root, { feature: "scm", ...e, scope: e.scope || undefined, reason: e.reason || undefined, outcome: e.approved ? e.outcome ?? "sent" : undefined }),
+});
+
+/** O merge a três (r23 F3, UI-SCM-13): `git_merge` e `git_conflict_stages`. */
+export const tauriMerge = (inv: Invoker = invoke): MergePort => ({
+  merge: (root, op) => inv<MergeStateData>("git_merge", { root, op }),
+  stages: (root, path) => inv<ConflictStagesData>("git_conflict_stages", { root, path }),
 });

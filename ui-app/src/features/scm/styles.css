@@ -73,3 +73,12 @@
 .hk-n .add,.hk-l.add{color:var(--green)}.hk-n .del,.hk-l.del{color:var(--red)}
 .hk-pre{grid-column:2;margin:0;font-family:var(--font-mono);font-size:11px;line-height:1.45;background:var(--bg-base);border:1px solid var(--border);border-radius:5px;padding:4px 6px;overflow:auto;max-height:140px;white-space:pre}
 .hk-dim{color:var(--fg-muted);font-size:11.5px}.hk-err{color:var(--red);font-size:11.5px}
+/* r23 F3 (UI-SCM-13): o separador do merge a três */
+.gm-cols{display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;margin-top:10px}
+.gm-files{display:flex;flex-direction:column;gap:2px}
+.gm-file{display:flex;gap:6px;align-items:center;text-align:left;background:none;border:1px solid transparent;border-radius:6px;padding:4px 8px;font-size:12px;color:var(--fg);cursor:pointer}
+.gm-file.on{border-color:var(--accent);background:var(--bg-elevated)}.gm-file span:first-child{color:var(--yellow,#e0b64a)}.gm-file.ok span:first-child{color:var(--green)}
+.gm-three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.gm-pre{margin:0;font-family:var(--font-mono);font-size:11.5px;line-height:1.45;background:var(--bg-base);border:1px solid var(--border);border-radius:6px;padding:6px 8px;overflow:auto;max-height:220px;white-space:pre}
+.gm-result{width:100%;min-height:200px;font-family:var(--font-mono);font-size:12px;line-height:1.45;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:6px;padding:8px;resize:vertical}
+.gm-check{font-size:12px;margin-top:6px}.gm-check.ok{color:var(--green)}.gm-check.bad{color:var(--red)}

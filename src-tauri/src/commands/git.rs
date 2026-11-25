@@ -231,6 +231,25 @@ pub async fn git_predict_conflicts(
     blocking(move || tutor_eval::gitwork::predict_conflicts(Path::new(&root), &branches)).await
 }
 
+/// The merge in progress (r23 F3, UI-SCM-13): status, resolve a file (write + stage), commit
+/// (refused while a file is unmerged) or abort.
+#[tauri::command]
+pub async fn git_merge(
+    root: String,
+    op: tutor_eval::gitwork::MergeOp,
+) -> Result<tutor_eval::gitwork::MergeState, String> {
+    blocking(move || tutor_eval::gitwork::merge(Path::new(&root), &op)).await
+}
+
+/// The three versions of a conflicted file (base, ours, theirs) and the working copy.
+#[tauri::command]
+pub async fn git_conflict_stages(
+    root: String,
+    path: String,
+) -> Result<tutor_eval::gitwork::ConflictStages, String> {
+    blocking(move || tutor_eval::gitwork::conflict_stages(Path::new(&root), &path)).await
+}
+
 /// Blame of `path` (por linha: commit, autor, data, assunto) + quem conhece o código (SCM-01/06).
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> Result<tutor_eval::gitx::Blame, String> {

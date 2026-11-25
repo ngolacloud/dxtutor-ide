@@ -136,3 +136,13 @@ export const decoratedDiscard = (p: string): void => services.scm!.discard(p);
 export const openDiffRel = (rel: string): void => G.openDiff(rootKey() + rel);
 /** Abre um ficheiro (caminho relativo à pasta) numa linha. */
 export const openRel = (rel: string, line?: number): void => (G.openPath as (p: string, l?: number) => void)((G.ROOT as string) + rel, line);
+
+/** r23 F3 (UI-SCM-13): a verificação do projecto antes de concluir um merge — o comando de lint (ou, sem ele, o de
+ *  testes) detectado na pasta, corrido pelo desktop (`DXR.exec`). `null` sem pasta ou sem comando. */
+export const projectCheck = async (): Promise<{ cmd: string; ok: boolean; summary: string } | null> => {
+  const d = dxr() as unknown as { projectCmd?: (k: "lint" | "test") => { cmd: string } | null; exec?: (c: string) => Promise<{ ok: boolean; sum: string }> } | null;
+  const c = d?.projectCmd?.("lint") ?? d?.projectCmd?.("test");
+  if (!c || !d?.exec) return null;
+  const r = await d.exec(c.cmd);
+  return { cmd: c.cmd, ok: r.ok, summary: r.sum };
+};

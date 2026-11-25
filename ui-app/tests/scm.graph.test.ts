@@ -369,3 +369,99 @@ describe("o undo do git (UI-SCM-12)", () => {
     expect(f.toasts.at(-1)).toBe("undoNone");
   });
 });
+
+import { blockCount, hasMarkers, takeSide } from "../src/features/scm/domain/conflicts";
+import { makeMerge3, type CheckResult } from "../src/features/scm/application/merge3";
+import type { MergeStateData } from "../src/features/scm/application/extras-ports";
+import { renderMerge3 } from "../src/features/scm/ui/merge3-view";
+
+describe("o merge a três (UI-SCM-13)", () => {
+  const W = "a\n<<<<<<< HEAD\nours 1\n||||||| base\nbase\n=======\ntheirs 1\n>>>>>>> feature/x\nb\n<<<<<<< HEAD\nours 2\n=======\ntheirs 2\n>>>>>>> feature/x\nc";
+  it("os marcadores: contar, ficar com um lado ou com os dois", () => {
+    expect([hasMarkers(W), blockCount(W)]).toEqual([true, 2]);
+    expect(takeSide(W, "ours")).toBe("a\nours 1\nb\nours 2\nc");
+    expect(takeSide(W, "theirs")).toBe("a\ntheirs 1\nb\ntheirs 2\nc");
+    expect(takeSide(W, "both")).toBe("a\nours 1\ntheirs 1\nb\nours 2\ntheirs 2\nc");
+    expect(hasMarkers("a\n=======\nb")).toBe(false);
+  });
+
+  function fake(o: { check?: CheckResult; approve?: boolean } = {}) {
+    let state: MergeStateData = { merging: true, message: "Merge feature/x into main", conflicts: ["f.txt", "g.txt"], output: "" };
+    const ops: string[] = [], audited: Array<{ action: string; outcome?: string; approved: boolean }> = [], toasts: string[] = [], asked: unknown[] = [];
+    let opened = 0, changed = 0;
+    const m = makeMerge3({
+      git: {
+        merge: async (_r, op) => {
+          ops.push(op.op === "resolve" ? `resolve:${op.path}:${op.content}` : op.op);
+          if (op.op === "resolve") state = { ...state, conflicts: state.conflicts.filter((f) => f !== op.path) };
+          if (op.op === "commit" || op.op === "abort") state = { merging: false, message: "", conflicts: [], output: "" };
+          return state;
+        },
+        stages: async (_r, path) => ({ path, base: "base", ours: "ours", theirs: "theirs", working: W }),
+      },
+      root: () => "/w", changed: async () => { changed++; }, openTab: () => { opened++; },
+      check: async () => o.check ?? { cmd: "cargo check", ok: true, summary: "✓ exit 0" },
+      human: { approve: async () => ({ approved: o.approve ?? true, reason: "", decidedAt: 1 }), toast: (t) => toasts.push(t) },
+      audit: { record: async (_r, e) => { audited.push(e); } },
+      codev: { available: () => true, ask: (r) => asked.push(r) },
+      say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
+    });
+    return { m, ops, audited, toasts, asked, opened: () => opened, changed: () => changed };
+  }
+
+  it("abre no primeiro ficheiro; com marcadores não marca como resolvido; ficar com um lado e resolver passa ao seguinte", async () => {
+    const f = fake();
+    await f.m.open();
+    expect(f.opened()).toBe(1);
+    expect(f.m.state().selected).toBe("f.txt");
+    expect(f.m.blocks("f.txt")).toBe(2);
+    await f.m.resolve("f.txt");
+    expect(f.toasts.at(-1)).toContain("mergeMarkersLeft");
+    f.m.take("f.txt", "theirs");
+    await f.m.resolve("f.txt");
+    expect(f.ops).toContain("resolve:f.txt:a\ntheirs 1\nb\ntheirs 2\nc");
+    expect(f.m.state().selected).toBe("g.txt");
+    f.m.askCodev("g.txt");
+    expect(f.asked[0]).toMatchObject({ intent: "change", send: false });
+  });
+
+  it("concluir: com conflitos recusa; a verificação falhada não deixa commitar; passada, aprova, audita e commita", async () => {
+    const bad = fake({ check: { cmd: "cargo check", ok: false, summary: "✖ exit 101" } });
+    await bad.m.open();
+    expect(await bad.m.complete()).toBe(false);
+    expect(bad.toasts.at(-1)).toContain("mergeStillUnmerged");
+    for (const p of ["f.txt", "g.txt"]) { await bad.m.select(p); bad.m.take(p, "ours"); await bad.m.resolve(p); }
+    expect(await bad.m.complete()).toBe(false);
+    expect(bad.toasts.at(-1)).toContain("mergeCheckFailed");
+    expect(bad.ops).not.toContain("commit");
+    const good = fake();
+    await good.m.open();
+    for (const p of ["f.txt", "g.txt"]) { await good.m.select(p); good.m.take(p, "both"); await good.m.resolve(p); }
+    expect(await good.m.complete()).toBe(true);
+    expect(good.ops.at(-2)).toBe("commit");
+    expect(good.audited.map((a) => `${a.action}:${a.outcome}`)).toEqual(["git.merge.commit:sent", "git.merge.commit:ok"]);
+  });
+
+  it("abortar é aprovado e auditado; recusado, nada", async () => {
+    const no = fake({ approve: false });
+    await no.m.open();
+    await no.m.abort();
+    expect(no.ops).not.toContain("abort");
+    const yes = fake();
+    await yes.m.open();
+    await yes.m.abort();
+    expect(yes.ops).toContain("abort");
+    expect(yes.audited.map((a) => `${a.action}:${a.outcome}`)).toEqual(["git.merge.abort:sent", "git.merge.abort:ok"]);
+  });
+
+  it("a vista: os ficheiros, as três versões e o resultado", async () => {
+    const f = fake();
+    await f.m.open();
+    const d = document.createElement("div");
+    d.innerHTML = renderMerge3(((k: string) => k) as never, f.m.state(), true, (p) => f.m.blocks(p));
+    expect([...d.querySelectorAll(".gm-file")].map((e) => e.textContent)).toEqual(["⚠f.txt", "⚠g.txt"]);
+    expect([...d.querySelectorAll(".gm-pre")].map((e) => e.textContent)).toEqual(["base", "ours", "theirs"]);
+    expect((d.querySelector(".gm-result") as HTMLTextAreaElement).value).toBe(W);
+    expect(d.querySelector('[data-action="gx-merge-complete"]')!.hasAttribute("disabled")).toBe(true);
+  });
+});

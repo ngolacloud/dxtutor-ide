@@ -19,7 +19,9 @@ import { blameText, renderCompare, renderHistory, renderRebase, renderReview, re
 import type { ActionTable } from "./ui/actions";
 import type { RebaseAction } from "./domain/git-extras";
 import { makeHunks } from "./application/hunks";
-import { tauriHunks, tauriUndo, tauriScmAudit } from "./infrastructure/tauri";
+import { tauriHunks, tauriUndo, tauriScmAudit, tauriMerge } from "./infrastructure/tauri";
+import { makeMerge3 } from "./application/merge3";
+import { renderMerge3 } from "./ui/merge3-view";
 import { makeUndo } from "./application/undo";
 import { requestApproval } from "../../app/approval";
 import type { GitExtrasPort } from "./application/extras-ports";
@@ -91,6 +93,18 @@ export function hunkBox(fsKey: string): string {
 }
 const escAttr = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
+/* ── r23 F3 (UI-SCM-13): the three-way merge tab ── */
+export const merge3 = makeMerge3({
+  git: tauriMerge(), root: () => B.gitRoot(), changed: () => B.reloadFromGit(),
+  openTab: () => B.openTab({ id: "git-merge", title: t("mergeTab"), kind: "git-merge" }),
+  check: async () => { const r = await B.projectCheck(); return r ?? { cmd: null, ok: true, summary: "" }; },
+  human: { approve: (r) => requestApproval(r), toast: (m) => B.toast(m) },
+  audit: tauriScmAudit(),
+  codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
+  say,
+});
+merge3.subscribe(() => paint("git-merge"));
+
 /** The A4 git work is on (desktop app, the open folder is a git repository). */
 export const active = (): boolean => B.gitRoot() !== null;
 
@@ -102,6 +116,7 @@ const RENDER: Record<string, () => string> = {
   "git-rebase": () => renderRebase(t, gitExtras.state().rebase),
   "git-text": () => renderText(gitExtras.state().text),
   "git-review": () => renderReview(t, gitExtras.state().review, codevAsk.available()),
+  "git-merge": () => renderMerge3(t, merge3.state(), codevAsk.available(), (p) => merge3.blocks(p)),
 };
 function paint(kind: string): void {
   const h = hosts[kind];
@@ -171,6 +186,7 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
   ["Git: Compare Branches…", guard(() => gitExtras.openCompare())],
   ["Git: Interactive Rebase…", guard(() => gitExtras.openRebase())],
   ["Git: Undo Last Operation", guard(() => undo.undoLast())],
+  ["Git: Resolve Merge Conflicts", guard(() => merge3.open())],
   ["Git: Stash Changes", guard(() => gitExtras.stashPush(false))],
   ["Git: Stash Including Untracked", guard(() => gitExtras.stashPush(true))],
   ["Git: New Worktree…", guard(() => gitExtras.worktreeAdd())],
@@ -183,6 +199,13 @@ export const GIT_COMMANDS: Array<[string, () => void]> = [
 
 const n = (s: string): number => Number(s) || 0;
 export const GIT_ACTIONS: ActionTable = {
+  "gx-merge-file": { on: "click", run: (e) => { void merge3.select(e.on); } },
+  "gx-merge-draft": { on: "input", run: (e) => merge3.setDraft(e.on, e.value) },
+  "gx-merge-take": { on: "click", run: (e) => { const [p, side] = e.on.split("|"); merge3.take(p, side as "ours" | "theirs" | "both"); } },
+  "gx-merge-ask": { on: "click", run: (e) => merge3.askCodev(e.on) },
+  "gx-merge-resolve": { on: "click", run: (e) => { void merge3.resolve(e.on); } },
+  "gx-merge-complete": { on: "click", run: () => { void merge3.complete(); } },
+  "gx-merge-abort": { on: "click", run: () => { void merge3.abort(); } },
   "gx-undo": { on: "click", run: (e) => { void undo.undo(n(e.on)); } },
   "scm-hunks": { on: "click", run: (e) => { void hunks.toggle(e.on); } },
   "scm-hunk": { on: "change", run: (e) => { const [path, id, op] = e.on.split("|"); void (op === "unstage" ? hunks.unstage(path, id) : hunks.stage(path, id)); } },

@@ -13,7 +13,7 @@ import { assistTrailers } from "../../features/scm/domain/trailers";
 import type { DesktopContext } from "./context";
 import { rerender } from "../../features/tabs";
 import { gitMerge, isFlow, commitMsg } from "../../features/scm";
-import { undo } from "../../features/scm/extras";
+import { undo, merge3 } from "../../features/scm/extras";
 
 export function installGit(ctx: DesktopContext): void {
 const { R, gitc, git, gitOk, enqueue, isReal, relOf, say } = ctx;
@@ -79,7 +79,13 @@ function realMerge(src: string, author?: string): CommitNode {
   enqueue(async () => {
     await undo.snapshot(`merge ${src} into ${dst}`);
     const r = await git("merge", "--no-ff", "-m", m, src);
-    if (r.code !== 0) { await git("merge", "--abort"); throw new Error(`merge of ${src} into ${dst} has conflicts — aborted. Run "git merge ${src}" in the terminal to resolve them by hand.`); }
+    if (r.code !== 0) {
+      /* r23 F3 (UI-SCM-13): conflicts stay in progress and open the three-way merge tab; anything else is undone */
+      const conflicted = (await git("diff", "--name-only", "--diff-filter=U")).stdout.trim() !== "" && (await git("rev-parse", "-q", "--verify", "MERGE_HEAD")).code === 0;
+      if (conflicted) { await reloadDisk(); await syncGit(); void merge3.open(); toast(`merge of ${src} into ${dst} has conflicts — resolve them in the Merge tab`); return; }
+      await git("merge", "--abort");
+      throw new Error(`merge of ${src} into ${dst} failed: ${(r.stderr || r.stdout).trim().split("\n")[0]}`);
+    }
     await reloadDisk();
     await syncGit();
   });

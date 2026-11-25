@@ -732,6 +732,145 @@ pub fn predict_conflicts(root: &Path, branches: &[String]) -> Result<Vec<Predict
     Ok(out)
 }
 
+// ───── the three-way merge (UI-SCM-13) ─────
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum MergeOp {
+    /// where the merge in progress stands
+    Status,
+    /// writes the resolved `content` of `path` and stages it
+    Resolve { path: String, content: String },
+    /// commits the merge (refused while a file is still unmerged)
+    Commit {
+        #[serde(default)]
+        message: Option<String>,
+    },
+    /// `git merge --abort`
+    Abort,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeState {
+    pub merging: bool,
+    /// the merge message git prepared («Merge branch 'feature/x' into develop»)
+    pub message: String,
+    /// files still unmerged
+    pub conflicts: Vec<String>,
+    /// git's output of the last operation
+    pub output: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictStages {
+    pub path: String,
+    /// stage 1, the common ancestor (`None`: both added the file)
+    pub base: Option<String>,
+    /// stage 2, HEAD's side (`None`: deleted on our side)
+    pub ours: Option<String>,
+    /// stage 3, the merged branch's side (`None`: deleted on theirs)
+    pub theirs: Option<String>,
+    /// the file in the working tree, with git's conflict markers
+    pub working: Option<String>,
+}
+
+fn merge_state(root: &Path, output: String) -> Result<MergeState, String> {
+    let merging = out(root, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).is_some();
+    let conflicts = git(root, &["diff", "--name-only", "--diff-filter=U"])?
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    let message = if merging {
+        out(root, &["rev-parse", "--git-path", "MERGE_MSG"])
+            .map(|p| {
+                if Path::new(&p).is_absolute() {
+                    p.into()
+                } else {
+                    root.join(p)
+                }
+            })
+            .and_then(|p: std::path::PathBuf| std::fs::read_to_string(p).ok())
+            .and_then(|m| m.lines().next().map(str::to_string))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Ok(MergeState {
+        merging,
+        message,
+        conflicts,
+        output,
+    })
+}
+
+/// A project path that stays inside the folder (no `..`, not absolute).
+fn inside(root: &Path, path: &str) -> Result<std::path::PathBuf, String> {
+    let p = gitx::check_path(path)?;
+    let rel = Path::new(p);
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(format!("not a path inside the project: {path}"));
+    }
+    Ok(root.join(rel))
+}
+
+pub fn merge(root: &Path, op: &MergeOp) -> Result<MergeState, String> {
+    match op {
+        MergeOp::Status => merge_state(root, String::new()),
+        MergeOp::Resolve { path, content } => {
+            if out(root, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).is_none() {
+                return Err("no merge in progress".into());
+            }
+            let file = inside(root, path)?;
+            std::fs::write(&file, content).map_err(|e| format!("could not write {path}: {e}"))?;
+            let p = gitx::check_path(path)?;
+            git(root, &["add", "--", p])?;
+            merge_state(root, format!("resolved {path}"))
+        }
+        MergeOp::Commit { message } => {
+            let st = merge_state(root, String::new())?;
+            if !st.merging {
+                return Err("no merge in progress".into());
+            }
+            if !st.conflicts.is_empty() {
+                return Err(format!("still unmerged: {}", st.conflicts.join(", ")));
+            }
+            let o = match message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+                Some(m) => git(root, &["commit", "-m", m])?,
+                None => git(root, &["commit", "--no-edit"])?,
+            };
+            merge_state(root, o.trim().to_string())
+        }
+        MergeOp::Abort => {
+            let o = git(root, &["merge", "--abort"])?;
+            merge_state(root, o.trim().to_string())
+        }
+    }
+}
+
+/// The three versions of a conflicted file and the working copy with the markers.
+pub fn conflict_stages(root: &Path, path: &str) -> Result<ConflictStages, String> {
+    let p = gitx::check_path(path)?;
+    let stage = |n: u8| git(root, &["show", &format!(":{n}:{p}")]).ok();
+    let working = inside(root, path)
+        .ok()
+        .and_then(|f| std::fs::read_to_string(f).ok());
+    Ok(ConflictStages {
+        path: path.to_string(),
+        base: stage(1),
+        ours: stage(2),
+        theirs: stage(3),
+        working,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1032,6 +1171,103 @@ mod tests {
         assert_eq!(
             parse_merge_tree("abc\na.rs\nb.rs\n\nmsg\n"),
             vec!["a.rs", "b.rs"]
+        );
+    }
+
+    #[test]
+    fn a_conflicted_merge_shows_its_stages_resolves_and_commits() {
+        let d = repo();
+        commit(d.path(), "f.txt", "one\ntwo\nthree\n", "feat: base");
+        g(d.path(), &["checkout", "-q", "-b", "feature/x"]);
+        commit(d.path(), "f.txt", "one\nTWO from x\nthree\n", "feat: x");
+        g(d.path(), &["checkout", "-q", "main"]);
+        commit(d.path(), "f.txt", "one\ntwo on main\nthree\n", "feat: main");
+        let o = Command::new("git")
+            .arg("-C")
+            .arg(d.path())
+            .args([
+                "merge",
+                "--no-ff",
+                "-m",
+                "Merge feature/x into main",
+                "feature/x",
+            ])
+            .output()
+            .unwrap();
+        assert!(!o.status.success(), "the merge conflicts");
+        let st = merge(d.path(), &MergeOp::Status).unwrap();
+        assert!(st.merging);
+        assert_eq!(st.conflicts, vec!["f.txt"]);
+        assert!(
+            st.message.starts_with("Merge feature/x into main"),
+            "{}",
+            st.message
+        );
+        let s3 = conflict_stages(d.path(), "f.txt").unwrap();
+        assert_eq!(s3.base.as_deref(), Some("one\ntwo\nthree\n"));
+        assert_eq!(s3.ours.as_deref(), Some("one\ntwo on main\nthree\n"));
+        assert_eq!(s3.theirs.as_deref(), Some("one\nTWO from x\nthree\n"));
+        assert!(s3.working.unwrap().contains("<<<<<<<"));
+        assert!(merge(d.path(), &MergeOp::Commit { message: None })
+            .unwrap_err()
+            .contains("unmerged"));
+        assert!(merge(
+            d.path(),
+            &MergeOp::Resolve {
+                path: "../x".into(),
+                content: "x".into()
+            }
+        )
+        .is_err());
+        let r = merge(
+            d.path(),
+            &MergeOp::Resolve {
+                path: "f.txt".into(),
+                content: "one\ntwo on main, TWO from x\nthree\n".into(),
+            },
+        )
+        .unwrap();
+        assert!(r.conflicts.is_empty());
+        let done = merge(d.path(), &MergeOp::Commit { message: None }).unwrap();
+        assert!(!done.merging);
+        assert_eq!(
+            out(d.path(), &["log", "-1", "--format=%P"])
+                .unwrap()
+                .split(' ')
+                .count(),
+            2,
+            "a merge commit"
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("f.txt")).unwrap(),
+            "one\ntwo on main, TWO from x\nthree\n"
+        );
+        assert!(
+            merge(d.path(), &MergeOp::Abort).is_err(),
+            "nothing to abort"
+        );
+    }
+
+    #[test]
+    fn a_conflicted_merge_can_be_aborted() {
+        let d = repo();
+        commit(d.path(), "f.txt", "a\n", "feat: a");
+        g(d.path(), &["checkout", "-q", "-b", "x"]);
+        commit(d.path(), "f.txt", "x\n", "feat: x");
+        g(d.path(), &["checkout", "-q", "main"]);
+        commit(d.path(), "f.txt", "m\n", "feat: m");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(d.path())
+            .args(["merge", "x"])
+            .output()
+            .unwrap();
+        assert!(merge(d.path(), &MergeOp::Status).unwrap().merging);
+        let st = merge(d.path(), &MergeOp::Abort).unwrap();
+        assert!(!st.merging && st.conflicts.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("f.txt")).unwrap(),
+            "m\n"
         );
     }
 

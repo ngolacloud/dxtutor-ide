@@ -27,6 +27,15 @@ export interface UndoPort {
   restore(root: string, id: number): Promise<UndoEntryData>;
 }
 
+/** The merge in progress (r23 F3, UI-SCM-13): the shape of `git_merge` / `git_conflict_stages`. */
+export interface MergeStateData { merging: boolean; message: string; conflicts: string[]; output: string }
+export interface ConflictStagesData { path: string; base: string | null; ours: string | null; theirs: string | null; working: string | null }
+export type MergeOp = { op: "status" } | { op: "resolve"; path: string; content: string } | { op: "commit"; message?: string | null } | { op: "abort" };
+export interface MergePort {
+  merge(root: string, op: MergeOp): Promise<MergeStateData>;
+  stages(root: string, path: string): Promise<ConflictStagesData>;
+}
+
 /** What the Commit Graph reads (r23 F3): the refs for its sidebar and a commit's patch (for its files). */
 export interface ConflictPrediction { branch: string; clean: boolean; files: string[]; error: string | null }
 export interface GitRefsPort {

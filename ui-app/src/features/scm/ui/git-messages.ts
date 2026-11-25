@@ -4,6 +4,13 @@ import type { Messages } from "../../../app/i18n";
 
 export const GIT_MESSAGES = {
   en: {
+    mergeTab: "Merge", mergeNone: "No merge in progress.", mergeCommitTitle: "Complete the merge", mergeLeft: "{n} file(s) still in conflict", mergeComplete: "Complete merge…", mergeAbort: "Abort merge…",
+    mergeAbortTitle: "Abort the merge: the files go back to before it started", mergeBase: "Base (common ancestor)", mergeOurs: "Ours (current branch)", mergeTheirs: "Theirs (merged branch)", mergeAbsent: "(absent on this side)",
+    mergeResult: "Result ({n} conflict block(s) left)", mergeTakeOurs: "Take ours", mergeTakeTheirs: "Take theirs", mergeTakeBoth: "Take both", mergeAskBtn: "✦ Propose a resolution", mergeResolve: "Mark resolved",
+    mergeMarkersLeft: "{n} conflict block(s) still have markers.", mergeStillUnmerged: "Still in conflict: {files}", mergeCheckFailed: "The project check failed, nothing committed: {cmd} · {sum}",
+    mergeCheckOk: "check passed: {cmd} · {sum}", mergeNoCheck: "no project check found for this folder", mergeDone: "Merge committed.",
+    mergeAsk: "Propose how to resolve the merge conflict in {path}, from the base, ours and theirs below. Keep both intents when they are compatible; say what you chose and why.",
+    mergeConflicted: "The merge has conflicts — resolve them in the Merge tab.",
     undo: "Undo", undoSection: "Undo", undoNone: "Nothing to undo yet.", undoBtn: "Undo", undoTitle: "Undo «{label}»", undoScope: "snapshot #{id} · HEAD back to {head}",
     undoDone: "Undone: {label} (the state before it is snapshot #{id})", undoFailed: "Undo failed: {e}", undoSnapFailed: "Could not snapshot before the operation: {e}",
     notAudited: "Not run: the audit log could not record it ({e}).",
@@ -54,6 +61,13 @@ export const GIT_MESSAGES = {
     csDiscardTitle: "Discard the changes of {set}: these files go back to the last commit, with every change in them — yours too",
   },
   ptAO: {
+    mergeTab: "Merge", mergeNone: "Não há nenhum merge em curso.", mergeCommitTitle: "Concluir o merge", mergeLeft: "{n} ficheiro(s) ainda em conflito", mergeComplete: "Concluir o merge…", mergeAbort: "Abortar o merge…",
+    mergeAbortTitle: "Abortar o merge: os ficheiros voltam ao que eram antes de começar", mergeBase: "Base (antepassado comum)", mergeOurs: "Nossa (ramo actual)", mergeTheirs: "Deles (ramo juntado)", mergeAbsent: "(não existe deste lado)",
+    mergeResult: "Resultado ({n} bloco(s) de conflito por resolver)", mergeTakeOurs: "Ficar com a nossa", mergeTakeTheirs: "Ficar com a deles", mergeTakeBoth: "Ficar com as duas", mergeAskBtn: "✦ Propor uma resolução", mergeResolve: "Marcar como resolvido",
+    mergeMarkersLeft: "{n} bloco(s) de conflito ainda têm marcadores.", mergeStillUnmerged: "Ainda em conflito: {files}", mergeCheckFailed: "A verificação do projecto falhou, nada foi commitado: {cmd} · {sum}",
+    mergeCheckOk: "verificação passou: {cmd} · {sum}", mergeNoCheck: "não há verificação do projecto para esta pasta", mergeDone: "Merge commitado.",
+    mergeAsk: "Propõe como resolver o conflito de merge em {path}, a partir da base, da nossa e da deles abaixo. Mantém as duas intenções quando forem compatíveis; diz o que escolheste e porquê.",
+    mergeConflicted: "O merge tem conflitos — resolve-os no separador Merge.",
     undo: "Desfazer", undoSection: "Desfazer", undoNone: "Ainda não há nada para desfazer.", undoBtn: "Desfazer", undoTitle: "Desfazer «{label}»", undoScope: "fotografia #{id} · HEAD de volta a {head}",
     undoDone: "Desfeito: {label} (o estado de antes está na fotografia #{id})", undoFailed: "O desfazer falhou: {e}", undoSnapFailed: "Não consegui tirar a fotografia antes da operação: {e}",
     notAudited: "Não correu: o registo de auditoria não o conseguiu guardar ({e}).",
