@@ -117,3 +117,61 @@ describe("na cadeia real (desktop com IPC falso)", () => {
     expect(calls.some(([c, a]) => c === "git_show" && a.hash === "0000aaa")).toBe(true);
   });
 });
+
+import { isEmptyQuery, matches, parseQuery, tokenFor } from "../src/features/scm/domain/search";
+import { conventionalOf } from "../src/features/scm/domain/conventional";
+
+describe("a pesquisa do grafo", () => {
+  const c = { m: "feat(api)!: paginate the list (DX-12)", a: "Ana Lima", files: ["src/api/list.rs", "README.md"], branches: ["main", "origin/main"] };
+  it("o tipo convencional", () => {
+    expect(conventionalOf(c.m)).toEqual({ type: "feat", scope: "api", breaking: true });
+    expect(conventionalOf("Merge branch x")).toBeNull();
+    expect(conventionalOf("wip: x")).toBeNull();
+  });
+  it("tokens, aspas, chaves diferentes AND e a mesma chave OR", () => {
+    expect(parseQuery('author:"Ana Lima" type:feat type:fix list')).toEqual({ free: ["list"], keys: { author: ["Ana Lima"], type: ["feat", "fix"] } });
+    expect(isEmptyQuery(parseQuery("  "))).toBe(true);
+    expect(matches(parseQuery('author:"ana lima" type:fix type:feat'), c)).toBe(true);
+    expect(matches(parseQuery("type:fix"), c)).toBe(false);
+    expect(matches(parseQuery("file:api/ issue:dx-12 branch:origin message:paginate"), c)).toBe(true);
+    expect(matches(parseQuery("file:Cargo.toml"), c)).toBe(false);
+    expect(matches(parseQuery("paginate ana"), c)).toBe(true);
+    expect(matches(parseQuery("unknown:x"), { ...c, m: "unknown:x" })).toBe(true); // an unknown key is free text
+    expect(tokenFor("author", "Ana Lima")).toBe('author:"Ana Lima"');
+  });
+});
+
+describe("a pesquisa na cadeia real", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let w: any;
+  beforeEach(async () => {
+    w = await bootApp();
+    Object.assign(w.GIT, {
+      c: {
+        c3: { h: "c3", m: "fix: off by one (DX-2)", p: ["c2"], b: "main", a: "Rui", t: 3, files: ["src/a.rs"] },
+        c2: { h: "c2", m: "docs: readme", p: ["c1"], b: "main", a: "Ana", t: 2, files: ["README.md"] },
+        c1: { h: "c1", m: "feat: start", p: [], b: "main", a: "Ana", t: 1, files: ["src/a.rs"] },
+      },
+      order: ["c3", "c2", "c1"], refs: { main: "c3" }, tags: {},
+    });
+  });
+  afterEach(() => { Object.assign(w.GIT, { c: {}, order: [], refs: {}, tags: {} }); });
+
+  it("realçar esbate, filtrar esconde; as etiquetas de tipo e de issue juntam um token", async () => {
+    const M = await import("../src/features/scm/graph-screen");
+    M.graphScreen.setQuery(""); M.graphScreen.setMode("highlight");
+    const h = document.createElement("div");
+    document.body.appendChild(h);
+    w.VIEW.graph({ id: "graph", kind: "graph" }, h);
+    expect([...h.querySelectorAll(".gl-row .gl-chip")].map((e) => e.textContent)).toEqual(["fix", "DX-2", "docs", "feat"]);
+    h.querySelector<HTMLElement>('.gl-chip[data-on="type:docs"]')!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(M.graphScreen.state().query).toBe("type:docs");
+    expect([...h.querySelectorAll(".gl-row")].map((r) => `${(r as HTMLElement).dataset.on}${r.classList.contains("dim") ? "-" : "+"}`)).toEqual(["c3-", "c2+", "c1-"]);
+    M.graphScreen.setQuery("file:src/a.rs");
+    M.graphScreen.setMode("filter");
+    expect([...h.querySelectorAll(".gl-row")].map((r) => (r as HTMLElement).dataset.on)).toEqual(["c3", "c1"]);
+    expect(h.querySelector(".gl-bar")!.textContent).toContain("2 of 3");
+    expect(h.querySelectorAll(".gl-svg path")).toHaveLength(0); // c1 is not c3's parent: no line between them
+    M.graphScreen.setQuery(""); M.graphScreen.setMode("highlight");
+  });
+});

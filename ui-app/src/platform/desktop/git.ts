@@ -25,13 +25,17 @@ const termLine = (t: string, e?: boolean) => ctx.termLine(t, e);
 async function syncGit(): Promise<void> {
   if (!R.git) return;
   const head = (await git("rev-parse", "--abbrev-ref", "HEAD")).stdout.trim();
-  const lg = await git("log", "--all", "--date-order", "-n", "400", "--format=%H%x1f%P%x1f%an%x1f%at%x1f%s%x1e");
+  /* r23 F3: --name-only traz os ficheiros de cada commit (o detalhe do grafo e a pesquisa `file:`); o separador de
+     registo vai à cabeça porque a lista de ficheiros vem depois do formato */
+  const lg = await git("log", "--all", "--date-order", "-n", "400", "--name-only", "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%s");
   const heads = (await git("for-each-ref", "--format=%(refname:short)%1f%(objectname)", "refs/heads")).stdout.trim().split("\n").filter(Boolean).map(l => l.split("\x1f"));
   const tags = (await git("for-each-ref", "--format=%(refname:short)%1f%(objectname)%1f%(*objectname)", "refs/tags")).stdout.trim().split("\n").filter(Boolean).map(l => l.split("\x1f"));
   const s = (h: string) => h.slice(0, 7), c: Record<string, CommitNode> = {}, order: string[] = [];
   lg.stdout.split("\x1e").map(x => x.trim()).filter(Boolean).forEach(x => {
-    const [h, p, a, t, m] = x.split("\x1f");
-    c[s(h)] = { h: s(h), m: m || "", p: (p || "").split(" ").filter(Boolean).map(s).filter(Boolean), b: null, a: a || "", t: (+t || 0) * 1000, files: [] };
+    const [head, ...names] = x.split("\n");
+    const [h, p, a, t, m] = head.split("\x1f");
+    const files = names.map(n => n.trim()).filter(Boolean);
+    c[s(h)] = { h: s(h), m: m || "", p: (p || "").split(" ").filter(Boolean).map(s).filter(Boolean), b: null, a: a || "", t: (+t || 0) * 1000, files };
     order.push(s(h));
   });
   Object.values(c).forEach(x => { x.p = x.p.filter(p => c[p]); });

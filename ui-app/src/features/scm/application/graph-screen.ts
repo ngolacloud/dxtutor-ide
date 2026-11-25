@@ -5,6 +5,7 @@
    No DOM, no window. */
 
 import { filesOfShow, type RefsSnapshot } from "../domain/refs";
+import type { SearchMode } from "../domain/search";
 import type { GitRefsPort } from "./extras-ports";
 
 export interface GraphScreenState {
@@ -13,13 +14,17 @@ export interface GraphScreenState {
   error: string | null;
   /** files per commit hash; `null` while reading */
   files: Record<string, string[] | null>;
+  /** the search box (`author:` `type:` `file:` `issue:` `branch:` `message:` and free text) */
+  query: string;
+  /** highlight: every commit, the others dimmed · filter: only the matches */
+  mode: SearchMode;
 }
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | null }) {
   const { git, root } = deps;
-  const st: GraphScreenState = { refs: null, loading: false, error: null, files: {} };
+  const st: GraphScreenState = { refs: null, loading: false, error: null, files: {}, query: "", mode: "highlight" };
   let forRoot: string | null = null, inFlight: Promise<void> | null = null, again = false;
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
@@ -53,6 +58,10 @@ export function makeGraphScreen(deps: { git: GitRefsPort; root: () => string | n
     subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; },
     load,
     filesOf,
+    setQuery: (q: string): void => { if (q !== st.query) { st.query = q; emit(); } },
+    setMode: (m: SearchMode): void => { if (m !== st.mode) { st.mode = m; emit(); } },
+    /** adds a token (a contributor, a chip) unless it is already there */
+    addToken: (tk: string): void => { if (!st.query.split(/\s+/).includes(tk)) { st.query = (st.query.trim() + " " + tk).trim(); emit(); } },
     /** the repository changed (commit, checkout, fetch…): read the refs again and forget the file lists of moved refs */
     invalidate: (): void => { void load(); },
   };

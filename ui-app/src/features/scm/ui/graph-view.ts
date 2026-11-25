@@ -6,13 +6,14 @@
 
 import type { GraphLayout } from "../domain/types";
 import { refLabelsAt, remoteGroups, trackOf, type RefLabel, type RefsSnapshot } from "../domain/refs";
+import { tokenFor, type SearchMode } from "../domain/search";
 import type { GraphScreenKey } from "./graph-screen-messages";
 
 export type T = (k: GraphScreenKey, p?: Record<string, string | number>) => string;
 
 const esc = (s: string): string => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
-export interface GraphCommitVm { h: string; m: string; p: string[]; author: { n: string; col: string }; time: string }
+export interface GraphCommitVm { h: string; m: string; p: string[]; author: { n: string; col: string }; time: string; type: string | null; issue: string | null; match: boolean }
 export interface GraphVm {
   repo: boolean;
   layout: GraphLayout;
@@ -31,6 +32,11 @@ export interface GraphVm {
   loading: boolean;
   error: string | null;
   branchCount: number;
+  query: string;
+  mode: SearchMode;
+  /** commits matching the query (all of them without one) and the commits loaded */
+  matchCount: number;
+  total: number;
 }
 
 function sidebar(t: T, vm: GraphVm): string {
@@ -49,7 +55,7 @@ function sidebar(t: T, vm: GraphVm): string {
   const tags = r.tags.map((x) => go(x.sha, `<span class="gl-nm">${esc(x.name)}</span>`)).join("");
   const stashes = r.stashes.map((s) => `<div class="gl-item" title="${esc(s.message)}"><span class="gl-nm">stash@{${s.index}}</span><span class="gl-dim">${esc(s.message)}</span></div>`).join("");
   const wts = r.worktrees.map((w) => `<div class="gl-item" title="${esc(w.path)}"><span class="gl-nm${w.current ? " cur" : ""}">${esc(w.branch ?? w.head.slice(0, 7))}</span><span class="gl-dim">${esc(w.path)}</span></div>`).join("");
-  const people = r.contributors.map((c) => `<div class="gl-item" title="${esc(c.email)}"><span class="gl-nm">${esc(c.name)}</span><span class="gl-dim">${esc(t("commitsBy", { n: c.commits }))}</span></div>`).join("");
+  const people = r.contributors.map((c) => `<button class="gl-item" data-action="graph:token" data-on="${esc(tokenFor("author", c.name))}" title="${esc(c.email)}"><span class="gl-nm">${esc(c.name)}</span><span class="gl-dim">${esc(t("commitsBy", { n: c.commits }))}</span></button>`).join("");
   return `<aside class="gl-side">${sec(t("branches"), r.branches.length, branches)}${sec(t("remotes"), r.remoteBranches.length, remotes)}${sec(t("tags"), r.tags.length, tags)}${sec(t("stashes"), r.stashes.length, stashes)}${sec(t("worktrees"), r.worktrees.length, wts)}${sec(t("contributors"), r.contributors.length, people)}</aside>`;
 }
 
@@ -84,7 +90,9 @@ export function renderGraphScreen(t: T, vm: GraphVm): string {
     vm.flow === "develop" ? `<button class="mini" data-action="graph:gfPrompt" data-on="feature">+ feature</button><button class="mini" data-action="graph:gfPrompt" data-on="fix">+ fix</button><button class="mini" data-action="graph:gfPrompt" data-on="release">+ release</button>`
     : vm.flow === "flow" ? `<button class="mini pri" data-action="graph:gfFinish">${esc(t("finish", { b: vm.branch }))}</button>`
     : `<button class="mini" data-action="graph:toDevelop">${esc(vm.goToDevelop)}</button>`
-  }<span class="sp"></span><span class="gl-dim">${esc(t("count", { c: L.rows.length, b: vm.branchCount }))}</span></div>`;
+  }<span class="sp"></span><input class="gl-search inp" type="search" data-action="graph:search" value="${esc(vm.query)}" placeholder="${esc(t("searchPh"))}" spellcheck="false">`
+    + `<button class="mini${vm.mode === "filter" ? " on" : ""}" data-action="graph:mode" title="${esc(t(vm.mode === "filter" ? "modeFilterTip" : "modeHighlightTip"))}">${esc(t(vm.mode === "filter" ? "modeFilter" : "modeHighlight"))}</button>`
+    + `<span class="gl-dim">${esc(vm.query.trim() ? t("matchCount", { n: vm.matchCount, total: vm.total }) : t("count", { c: vm.total, b: vm.branchCount }))}</span></div>`;
   const rows = L.rows.map((r) => {
     const c = vm.commits[r.h], col = vm.lanes[r.col % vm.lanes.length], sel = vm.selected === r.h;
     const labels = vm.refs ? refLabelsAt(vm.refs, r.h) : vm.fallbackLabels(r.h);
@@ -92,7 +100,8 @@ export function renderGraphScreen(t: T, vm: GraphVm): string {
       : `<span class="gl-ref${l.kind === "head" ? " head" : l.kind === "remote" ? " remote" : ""}" style="--c:${col}">${l.kind === "head" ? "● " : ""}${esc(l.name)}</span>`).join("");
     const det = !sel ? "" : `<div class="gl-det">${vm.files === null || vm.files === undefined ? `<span class="gl-dim">${esc(t("readingFiles"))}</span>`
       : vm.files.length ? vm.files.map((p) => `<button class="mini" data-action="graph:file" data-on="${esc(p)}">${esc(p)}</button>`).join("") : `<span class="gl-dim">${esc(t("noFiles"))}</span>`}${c.p.length > 1 ? `<span class="tag">${esc(t("mergeOf", { n: c.p.length }))}</span>` : ""}</div>`;
-    return `<div class="gl-row${sel ? " sel" : ""}" data-action="graph:select" data-on="${esc(r.h)}"><span class="gl-refs">${refsHtml}</span><span class="gl-msg">${esc(c.m)}</span><span class="gl-au"><i style="background:${c.author.col}">${esc(c.author.n.charAt(0))}</i>${esc(c.author.n)}</span><span class="gl-h">${esc(r.h)}</span><span class="gl-t">${esc(c.time)}</span></div>${det}`;
+    const chips = `${c.type ? `<button class="gl-chip t-${esc(c.type)}" data-action="graph:token" data-on="${esc(tokenFor("type", c.type))}">${esc(c.type)}</button>` : ""}${c.issue ? `<button class="gl-chip gl-issue" data-action="graph:token" data-on="${esc(tokenFor("issue", c.issue))}">${esc(c.issue)}</button>` : ""}`;
+    return `<div class="gl-row${sel ? " sel" : ""}${c.match ? "" : " dim"}" data-action="graph:select" data-on="${esc(r.h)}"><span class="gl-refs">${refsHtml}</span><span class="gl-msg">${chips}${esc(c.m)}</span><span class="gl-au"><i style="background:${c.author.col}">${esc(c.author.n.charAt(0))}</i>${esc(c.author.n)}</span><span class="gl-h">${esc(r.h)}</span><span class="gl-t">${esc(c.time)}</span></div>${det}`;
   }).join("");
   return `<div class="gl gl-screen">${sidebar(t, vm)}<div class="gl-main">${bar}<div class="gl-body" style="--gw:${gw}px"><svg class="gl-svg" width="${gw}" height="${L.rows.length * H}">${paths}${dots}</svg>${rows}</div></div></div>`;
 }

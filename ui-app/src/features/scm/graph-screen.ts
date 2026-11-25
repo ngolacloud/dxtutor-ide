@@ -17,7 +17,11 @@ import * as B from "./infrastructure/legacy-bridge";
 import { GRAPH_MESSAGES } from "./ui/graph.messages";
 import { GRAPH_SCREEN_MESSAGES } from "./ui/graph-screen-messages";
 import { renderGraphScreen, type GraphCommitVm, type GraphVm } from "./ui/graph-view";
-import type { RefLabel } from "./domain/refs";
+import { refLabelsAt, type RefLabel } from "./domain/refs";
+import { computeGraphLayout } from "./domain/graph";
+import { isEmptyQuery, matches, parseQuery } from "./domain/search";
+import { conventionalOf } from "./domain/conventional";
+import { issueKeyIn } from "./domain/trailers";
 
 const t = translator(GRAPH_SCREEN_MESSAGES);
 const tg = translator(GRAPH_MESSAGES);
@@ -27,29 +31,44 @@ export const graphScreen = makeGraphScreen({ git: tauriGitRefs(), root: () => B.
 let host: HTMLElement | null = null;
 
 function model(): GraphVm {
-  const G = B.git(), L = graphLayout(), br = B.branch(), sel = graphSel(), st = graphScreen.state();
-  const commits: Record<string, GraphCommitVm> = {};
-  for (const r of L.rows) { const c = G.c[r.h], a = authorOf(c.a); commits[r.h] = { h: c.h, m: c.m, p: c.p, author: { n: a.n, col: a.col }, time: B.rel(c.t) }; }
+  const G = B.git(), br = B.branch(), sel = graphSel(), st = graphScreen.state();
   const fallbackLabels = (h: string): RefLabel[] => [
     ...Object.keys(G.refs).filter((b) => G.refs[b] === h).map((b): RefLabel => ({ kind: b === br ? "head" : "branch", name: b })).sort((a) => (a.kind === "head" ? -1 : 0)),
     ...(G.tags[h] ? [{ kind: "tag" as const, name: G.tags[h] }] : []),
   ];
+  const labels = (h: string): RefLabel[] => (st.refs ? refLabelsAt(st.refs, h) : fallbackLabels(h));
+  const q = parseQuery(st.query), searching = !isEmptyQuery(q);
+  const filesOf = (h: string): string[] => (G.c[h]?.files?.length ? (G.c[h].files as string[]) : st.files[h] ?? []);
+  const hit = new Set(G.order.filter((h) => !searching || matches(q, { m: G.c[h].m, a: G.c[h].a, files: filesOf(h), branches: labels(h).map((l) => l.name) })));
+  /* filter: the DAG of the matches only (a parent outside them is dropped, so its line goes) */
+  const L = searching && st.mode === "filter"
+    ? computeGraphLayout({ order: G.order.filter((h) => hit.has(h)), c: Object.fromEntries([...hit].map((h) => [h, { ...G.c[h], p: G.c[h].p.filter((p) => hit.has(p)) }])) })
+    : graphLayout();
+  const commits: Record<string, GraphCommitVm> = {};
+  for (const r of L.rows) {
+    const c = G.c[r.h], a = authorOf(c.a);
+    commits[r.h] = { h: c.h, m: c.m, p: searching && st.mode === "filter" ? c.p.filter((p) => hit.has(p)) : c.p, author: { n: a.n, col: a.col }, time: B.rel(c.t),
+      type: conventionalOf(c.m)?.type ?? null, issue: issueKeyIn(c.m), match: hit.has(r.h) };
+  }
   const selFiles = sel ? (G.c[sel]?.files?.length ? (G.c[sel].files as string[]) : st.files[sel]) : undefined;
   return {
-    repo: L.rows.length > 0 || !!B.gitRoot(),
+    repo: G.order.length > 0 || !!B.gitRoot(),
     layout: L, commits, lanes: LANE, branch: br,
     flow: br === "develop" ? "develop" : isFlow(br) ? "flow" : "other", goToDevelop: tg("goToDevelop"),
     selected: sel, files: selFiles, refs: st.refs, fallbackLabels,
     loading: st.loading, error: st.error, branchCount: st.refs ? st.refs.branches.length : Object.keys(G.refs).length,
+    query: st.query, mode: st.mode, matchCount: hit.size, total: G.order.length,
   };
 }
 
 function paint(): void {
   if (!host || !host.isConnected) return;
   const body = host.querySelector(".gl-main"), top = body ? body.scrollTop : 0;
+  const box = host.querySelector<HTMLInputElement>(".gl-search"), typing = !!box && document.activeElement === box, caret = box?.selectionStart ?? null;
   host.innerHTML = renderGraphScreen(t, model());
   const nb = host.querySelector(".gl-main");
   if (nb) nb.scrollTop = top;
+  if (typing) { const nbox = host.querySelector<HTMLInputElement>(".gl-search"); if (nbox) { nbox.focus(); if (caret !== null) nbox.setSelectionRange(caret, caret); } }
 }
 graphScreen.subscribe(paint);
 
@@ -82,5 +101,8 @@ registerActions({
     select(h);
     host?.querySelector(`.gl-row[data-on="${h}"]`)?.scrollIntoView?.({ block: "center" });
   } },
+  "graph:search": { input: (c) => graphScreen.setQuery((c.el as HTMLInputElement).value) },
+  "graph:mode": { click: () => graphScreen.setMode(graphScreen.state().mode === "filter" ? "highlight" : "filter") },
+  "graph:token": { click: (c) => { c.stop(); graphScreen.addToken(c.on); } },
   "graph:file": { click: (c) => { c.stop(); if (B.files()[B.rootKey() + c.on]) B.openRel(c.on); else B.toast(t("notInBranch")); } },
 });

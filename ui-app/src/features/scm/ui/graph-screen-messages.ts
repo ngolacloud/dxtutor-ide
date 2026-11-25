@@ -11,6 +11,9 @@ export const GRAPH_SCREEN_MESSAGES = {
     ahead: "{n} to push", behind: "{n} to pull", readingFiles: "Reading the files…", noFiles: "No files changed.",
     noFileList: "Commit from before the prototype — no file list.", notInBranch: "The file does not exist in this branch",
     current: "current", commitsBy: "{n} commits",
+    searchPh: "Search: author: type: file: issue: branch: message:", matchCount: "{n} of {total}",
+    modeHighlight: "Highlight", modeFilter: "Filter", modeHighlightTip: "Every commit shows; the others are dimmed. Click to show only the matches.",
+    modeFilterTip: "Only the matches show. Click to show every commit.",
   },
   ptAO: {
     branches: "Ramos", remotes: "Remotos", tags: "Tags", stashes: "Stashes", worktrees: "Worktrees", contributors: "Contribuidores",
@@ -20,6 +23,9 @@ export const GRAPH_SCREEN_MESSAGES = {
     ahead: "{n} por enviar", behind: "{n} por receber", readingFiles: "A ler os ficheiros…", noFiles: "Nenhum ficheiro mudou.",
     noFileList: "Commit anterior ao protótipo — sem lista de ficheiros.", notInBranch: "O ficheiro não existe neste ramo",
     current: "actual", commitsBy: "{n} commits",
+    searchPh: "Pesquisar: author: type: file: issue: branch: message:", matchCount: "{n} de {total}",
+    modeHighlight: "Realçar", modeFilter: "Filtrar", modeHighlightTip: "Aparecem todos os commits; os outros ficam esbatidos. Clica para mostrar só os que batem.",
+    modeFilterTip: "Só aparecem os que batem. Clica para mostrar todos os commits.",
   },
 } satisfies Messages<string>;
 export type GraphScreenKey = keyof typeof GRAPH_SCREEN_MESSAGES.en;

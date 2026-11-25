@@ -32,3 +32,7 @@
   .gl-ab{font-size:10.5px;color:var(--fg-dim);font-family:var(--font-mono)}.gl-gone{font-size:10.5px;color:var(--red)}
   .gl-ref.remote{border-style:dotted}
   .gl-empty{padding:28px;color:var(--fg-muted)}
+  .gl-search{width:260px;max-width:40vw;font-size:12px;padding:3px 8px}
+  .gl-row.dim{opacity:.35}
+  .gl-chip{font-size:10px;font-family:var(--font-mono);border:1px solid var(--border-strong);border-radius:4px;padding:0 5px;margin-right:6px;line-height:16px;background:none;color:var(--fg-dim);cursor:pointer}
+  .gl-chip.t-feat{color:var(--green);border-color:var(--green)}.gl-chip.t-fix{color:var(--red);border-color:var(--red)}.gl-chip.gl-issue{color:var(--accent-hover);border-color:var(--accent)}
