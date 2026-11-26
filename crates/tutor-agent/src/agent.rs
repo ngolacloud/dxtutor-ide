@@ -31,8 +31,11 @@ use crate::tool::{Tool, ToolCtx, ToolOutput};
 use crate::types::{Message, Role, ToolResult, Transcript};
 
 /// Tamanho máximo de um resultado de ferramenta devolvido ao modelo (as ferramentas de
-/// F2 truncam primeiro com critério próprio; isto é a rede de segurança do loop).
-pub const MAX_RESULT_CHARS: usize = 100_000;
+/// F2 truncam primeiro com critério próprio e dizem como pedir o resto; isto é a rede de
+/// segurança do loop, para MCP, sub-agentes e o resto). Cada resultado fica no histórico e é
+/// reenviado em todos os pedidos seguintes: ~30k caracteres (~8k tokens) chegam para um
+/// excerto útil, e o modelo pede mais quando precisa.
+pub const MAX_RESULT_CHARS: usize = 30_000;
 /// Repetições de um pedido cujo stream falhou a meio (overloaded, rede).
 pub const MID_STREAM_RETRIES: u32 = 2;
 /// `max_tokens` usado para repetir uma resposta cortada a meio de uma ferramenta.
@@ -310,7 +313,8 @@ fn add_usage(t: &mut Usage, u: &Usage) {
     t.cache_creation_input_tokens += u.cache_creation_input_tokens;
 }
 
-/// Corta um resultado demasiado grande, mantendo o início e o fim.
+/// Corta um resultado demasiado grande, mantendo o início e o fim, e diz ao modelo como
+/// pedir menos de cada vez.
 pub fn clip(s: String) -> String {
     let n = s.chars().count();
     if n <= MAX_RESULT_CHARS {
@@ -319,7 +323,9 @@ pub fn clip(s: String) -> String {
     let head: String = s.chars().take(MAX_RESULT_CHARS * 4 / 5).collect();
     let tail: String = s.chars().skip(n - MAX_RESULT_CHARS / 5).collect();
     format!(
-        "{head}\n…[resultado truncado: {} caracteres omitidos]…\n{tail}",
+        "{head}\n…[resultado truncado: {} de {n} caracteres omitidos do meio. Pede menos de cada \
+         vez: `read` com offset/limit, `grep` com path/glob ou mode=\"count\", ou filtra a saída do \
+         comando (`| tail -n 80`, `| grep erro`)]…\n{tail}",
         n - MAX_RESULT_CHARS
     )
 }

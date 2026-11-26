@@ -279,6 +279,28 @@ fn grep_modes_filters_and_errors() {
     assert!(w.call("grep", json!({"pattern": "("})).is_error);
 }
 
+#[test]
+fn grep_content_shows_150_lines_and_counts_the_rest() {
+    let w = ws();
+    let many: String = (0..100).map(|i| format!("hit {i}\n")).collect();
+    for f in ["a.txt", "b.txt", "c.txt"] {
+        w.put(f, &many);
+    }
+    let r = w.call("grep", json!({"pattern": "hit", "mode": "content"}));
+    let shown = r.content.lines().filter(|l| l.contains(": hit ")).count();
+    assert_eq!(shown, 150);
+    // the note gives the total so the model can decide to narrow it down
+    assert!(
+        r.content.contains("150 de 300 linhas") && r.content.contains("300 linhas em 3 ficheiros"),
+        "{}",
+        r.content.lines().last().unwrap()
+    );
+    assert!(r.content.contains("mode=\"count\""));
+    // under the cap: no note
+    let r = w.call("grep", json!({"pattern": "hit 7$", "mode": "content"}));
+    assert!(!r.content.contains("mostradas"), "{}", r.content);
+}
+
 // ───── bash / run_tests / lint ─────
 
 #[test]

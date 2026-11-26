@@ -12,7 +12,9 @@ use crate::tool::{Tool, ToolCtx, ToolOutput};
 
 const GLOB_MAX: usize = 500;
 const GREP_MAX_FILES: usize = 300;
-const GREP_MAX_LINES: usize = 300;
+/// Linhas devolvidas em `mode: "content"`; o resto conta-se (o total vai na nota), para o
+/// modelo saber se vale a pena restringir ou pedir a contagem por ficheiro.
+const GREP_MAX_LINES: usize = 150;
 const GREP_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Percorre `base` (dentro da raiz) e devolve os ficheiros que batem com `globs`.
@@ -144,7 +146,9 @@ impl Tool for Grep {
             Err(e) => return ToolOutput::err(e),
         };
         let mut out: Vec<String> = vec![];
-        let (mut nfiles, mut nlines, mut more) = (0usize, 0usize, false);
+        // `shown_*`: o que entra na resposta; `total_*`: tudo o que bateu (a nota diz quanto ficou de fora)
+        let (mut shown_files, mut shown_lines) = (0usize, 0usize);
+        let (mut total_files, mut total_lines) = (0usize, 0usize);
         for p in files {
             if ctx.cancelled() {
                 return ToolOutput::err("cancelado");
@@ -170,36 +174,47 @@ impl Tool for Grep {
             if hits.is_empty() {
                 continue;
             }
-            nfiles += 1;
+            total_files += 1;
+            total_lines += hits.len();
+            if shown_files >= GREP_MAX_FILES || (mode == "content" && shown_lines >= GREP_MAX_LINES)
+            {
+                continue; // só conta
+            }
+            shown_files += 1;
             let rel = sandbox::rel(&ctx.root, &p);
             match mode {
                 "content" => {
                     for (i, l) in hits {
-                        if nlines >= GREP_MAX_LINES {
-                            more = true;
+                        if shown_lines >= GREP_MAX_LINES {
                             break;
                         }
                         let l: String = l.chars().take(300).collect();
                         out.push(format!("{rel}:{}: {}", i + 1, l.trim_end()));
-                        nlines += 1;
+                        shown_lines += 1;
                     }
                 }
                 "count" => out.push(format!("{rel}: {}", hits.len())),
                 _ => out.push(rel),
             }
-            if nfiles >= GREP_MAX_FILES || more {
-                more = true;
-                break;
-            }
         }
         if out.is_empty() {
             return ToolOutput::ok(format!("sem resultados para /{pattern}/"));
         }
-        if more {
-            out.push(
-                "…[resultados truncados; restringe com path/glob ou uma expressão mais precisa]"
-                    .into(),
-            );
+        let cut = match mode {
+            "content" => shown_lines < total_lines,
+            _ => shown_files < total_files,
+        };
+        if cut {
+            let shown = if mode == "content" {
+                format!("{shown_lines} de {total_lines} linhas")
+            } else {
+                format!("{shown_files} de {total_files} ficheiros")
+            };
+            out.push(format!(
+                "…[mostradas {shown} ({total_lines} linhas em {total_files} ficheiros no total); \
+                 restringe com path/glob ou uma expressão mais precisa, ou usa mode=\"count\" \
+                 para ver onde se concentram]"
+            ));
         }
         ToolOutput::ok(out.join("\n"))
     }

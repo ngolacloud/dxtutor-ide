@@ -8,10 +8,14 @@ use super::{looks_binary, FileState};
 use crate::sandbox;
 use crate::tool::{Tool, ToolCtx, ToolOutput};
 
-/// Linhas devolvidas por omissão e no máximo por `read`.
+/// Linhas devolvidas no máximo por `read` (o `limit` que o modelo pode pedir).
 pub const READ_MAX_LINES: usize = 2000;
-/// Bytes máximos devolvidos por `read`.
-pub const READ_MAX_BYTES: usize = 256 * 1024;
+/// Linhas devolvidas por `read` sem `limit`: cada leitura fica no histórico e é reenviada em
+/// todos os pedidos seguintes, por isso um ficheiro grande lê-se por excertos.
+pub const READ_DEFAULT_LINES: usize = 500;
+/// Bytes máximos devolvidos por `read` (abaixo da rede de segurança do loop,
+/// [`crate::agent::MAX_RESULT_CHARS`], para a nota de continuação nunca ser cortada).
+pub const READ_MAX_BYTES: usize = 28_000;
 /// Linhas mais longas são cortadas (minificados, dados).
 const LINE_MAX_CHARS: usize = 2000;
 
@@ -69,7 +73,7 @@ impl Tool for Read {
         let limit = input["limit"]
             .as_u64()
             .map(|l| l as usize)
-            .unwrap_or(READ_MAX_LINES)
+            .unwrap_or(READ_DEFAULT_LINES)
             .min(READ_MAX_LINES);
         if total == 0 {
             return ToolOutput::ok(format!("{given}: (ficheiro vazio)"));
@@ -100,7 +104,8 @@ impl Tool for Read {
         let last = offset + shown - 1;
         if last < total {
             out.push_str(&format!(
-                "…[mostradas as linhas {offset}–{last} de {total}; usa offset={} para continuar]\n",
+                "…[mostradas as linhas {offset}–{last} de {total}; usa offset={} para continuar, \
+                 ou localiza o que precisas com `outline`/`grep` e lê só esse excerto]\n",
                 last + 1
             ));
         }
