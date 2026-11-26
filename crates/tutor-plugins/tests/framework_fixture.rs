@@ -157,18 +157,29 @@ fn the_build_table_is_checked() {
     );
     let errs = errors_of(d.path());
     assert!(errs.contains("nothing to prepare"), "{errs}");
-    assert!(errs.contains("build.timeout_secs must be between"), "{errs}");
-    assert!(errs.contains("only available for courses graded in rust"), "{errs}");
+    assert!(
+        errs.contains("build.timeout_secs must be between"),
+        "{errs}"
+    );
+    assert!(
+        errs.contains("only available for courses graded in rust"),
+        "{errs}"
+    );
     // an undefined `${name}` makes the course unreadable, with the reason
     let d = variant(
         with_build("[build]\ndependencies = ['x = { ${nope} }']\n"),
         |m| m,
     );
     let errs = errors_of(d.path());
-    assert!(errs.contains("`${nope}`") && errs.contains("[build.vars]"), "{errs}");
+    assert!(
+        errs.contains("`${nope}`") && errs.contains("[build.vars]"),
+        "{errs}"
+    );
     // shared dependencies without a cache are fine (no preparation needed)
     let d = variant(
-        with_build("[build]\ndependencies = ['x = { ${v} }']\n[build.vars]\nv = 'version = \"1\"'\n"),
+        with_build(
+            "[build]\ndependencies = ['x = { ${v} }']\n[build.vars]\nv = 'version = \"1\"'\n",
+        ),
         |m| m,
     );
     assert_eq!(errors_of(d.path()), "");

@@ -124,9 +124,8 @@ use commands::runbook::{
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::study::{
-    course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide,
-    list_courses, list_phases, request_fix, request_hint, request_plan, study_policy, submit,
-    submit_step,
+    course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide, list_courses,
+    list_phases, request_fix, request_hint, request_plan, study_policy, submit, submit_step,
 };
 use commands::tests::{
     list_tests, run_all_tests, run_path, run_test, run_tests, test_history, test_run, test_runners,

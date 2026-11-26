@@ -226,7 +226,11 @@ fn prepare_dto(st: &study::PrepareStatus) -> CoursePrepareDto {
     CoursePrepareDto {
         needed: st.needed,
         state: st.state.to_string(),
-        command: st.plan.as_ref().map(|p| p.command.clone()).unwrap_or_default(),
+        command: st
+            .plan
+            .as_ref()
+            .map(|p| p.command.clone())
+            .unwrap_or_default(),
         dir: st
             .plan
             .as_ref()
@@ -308,9 +312,10 @@ pub async fn course_prepare(
     crate::board::audit_record(app.clone(), dir.clone(), row("sent"))
         .map_err(|e| format!("not audited, nothing ran: {}", e.message))?;
     let run = plan.clone();
-    let done = tauri::async_runtime::spawn_blocking(move || tutor_eval::course_cache::prepare(&run))
-        .await
-        .map_err(|e| e.to_string())?;
+    let done =
+        tauri::async_runtime::spawn_blocking(move || tutor_eval::course_cache::prepare(&run))
+            .await
+            .map_err(|e| e.to_string())?;
     let done = match done {
         Ok(d) => d,
         Err(e) => {
@@ -318,11 +323,7 @@ pub async fn course_prepare(
             return Err(e.to_string());
         }
     };
-    let _ = crate::board::audit_record(
-        app,
-        dir,
-        row(if done.ok { "ok" } else { "failed" }),
-    );
+    let _ = crate::board::audit_record(app, dir, row(if done.ok { "ok" } else { "failed" }));
     let status = study::prepare_status_in(&study::all_courses(), &course_id, &root)
         .map(|st| prepare_dto(&st))
         .map_err(|e| e.to_string())?;

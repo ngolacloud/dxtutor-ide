@@ -250,7 +250,8 @@ justification = ""
     #[test]
     fn the_source_is_written_once_and_reaches_every_step() {
         let c = Course::parse(COURSE, CourseFormat::Toml).expect("valid course");
-        let line = r#"fw = { git = "https://example.org/fw", tag = "v0.2.0", default-features = false }"#;
+        let line =
+            r#"fw = { git = "https://example.org/fw", tag = "v0.2.0", default-features = false }"#;
         assert_eq!(c.build.dependencies[0], line);
         // the drill: the course's lines first, then its own (no repeats)
         let d = c.step("d1").unwrap();
@@ -278,7 +279,10 @@ justification = ""
             p.build.dependencies[0],
             r#"fw = { version = "0.2.0", default-features = false }"#
         );
-        assert_eq!(p.build.dependencies[1], r#"fw-testing = { version = "0.2.0" }"#);
+        assert_eq!(
+            p.build.dependencies[1],
+            r#"fw-testing = { version = "0.2.0" }"#
+        );
     }
 
     #[test]

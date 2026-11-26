@@ -216,7 +216,12 @@ fn test(args: &[String]) -> Result<()> {
     }
     // A course graded offline against a prepared cache: say so once, before any step fails.
     for course in &report.courses {
-        let Some(cache) = course.units.iter().flat_map(|u| &u.steps).find_map(|s| s.build.cache.as_ref()) else {
+        let Some(cache) = course
+            .units
+            .iter()
+            .flat_map(|u| &u.steps)
+            .find_map(|s| s.build.cache.as_ref())
+        else {
             continue;
         };
         let root = tutor_eval::course_cache::root()
@@ -308,13 +313,18 @@ fn prepare(args: &[String]) -> Result<()> {
         };
         any = true;
         let plan = tutor_eval::course_cache::plan(&root, cache)?;
-        println!("{} — preparing (network: cargo fetch only)\n{}\n", course.id, plan.command);
+        println!(
+            "{} — preparing (network: cargo fetch only)\n{}\n",
+            course.id, plan.command
+        );
         let done = tutor_eval::course_cache::prepare(&plan)?;
         if !done.ok {
             println!("{}", done.output);
             bail!("preparing `{}` failed", course.id);
         }
-        let m = done.marker.expect("a successful preparation writes its marker");
+        let m = done
+            .marker
+            .expect("a successful preparation writes its marker");
         println!(
             "OK  {} prepared in {} — fetch {:.1} s, first build {:.1} s ({})",
             course.id,

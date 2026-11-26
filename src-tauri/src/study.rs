@@ -140,7 +140,10 @@ impl std::fmt::Display for StudyError {
             StudyError::NotPrepared(m) => f.write_str(m),
             StudyError::NoCourseId(id) => write!(f, "no course with id `{id}`"),
             StudyError::NothingToPrepare(id) => {
-                write!(f, "course `{id}` has nothing to prepare (no `[build] prepare`)")
+                write!(
+                    f,
+                    "course `{id}` has nothing to prepare (no `[build] prepare`)"
+                )
             }
             StudyError::Eval(e) => write!(f, "evaluation failed: {e}"),
         }
@@ -359,19 +362,25 @@ pub fn grade_in(
 /// Recusa com [`StudyError::NotPrepared`] um curso cuja cache não está pronta.
 fn prepared_or_refuse(cache: &tutor_core::CourseCache) -> Result<(), StudyError> {
     use tutor_eval::course_cache::{not_prepared_message, root, status, Status};
-    let root = root().ok_or_else(|| {
-        StudyError::NotPrepared(not_prepared_message(&cache.key, false))
-    })?;
+    let root =
+        root().ok_or_else(|| StudyError::NotPrepared(not_prepared_message(&cache.key, false)))?;
     match status(&root, cache).map_err(|e| StudyError::Eval(e.to_string()))? {
         Status::Ready(_) => Ok(()),
-        Status::Missing => Err(StudyError::NotPrepared(not_prepared_message(&cache.key, false))),
-        Status::Stale(_) => Err(StudyError::NotPrepared(not_prepared_message(&cache.key, true))),
+        Status::Missing => Err(StudyError::NotPrepared(not_prepared_message(
+            &cache.key, false,
+        ))),
+        Status::Stale(_) => Err(StudyError::NotPrepared(not_prepared_message(
+            &cache.key, true,
+        ))),
     }
 }
 
 /// A cache de um curso (pelo seu id) que se prepara uma vez, ou `None` quando o curso não tem
 /// nada a preparar.
-pub fn course_cache_of(courses: &[Course], course_id: &str) -> Result<Option<tutor_core::CourseCache>, StudyError> {
+pub fn course_cache_of(
+    courses: &[Course],
+    course_id: &str,
+) -> Result<Option<tutor_core::CourseCache>, StudyError> {
     let course = courses
         .iter()
         .find(|c| c.id == course_id)
