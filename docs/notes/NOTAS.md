@@ -6,7 +6,8 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 8 acções
+- [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
+- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
 
 ---
 
@@ -22,8 +23,9 @@ Ajuda a perceber e a melhorar o ficheiro aberto sem sair do editor. O Explain e 
 | [Code review](#code-review) | barra do editor «Code review» · Ctrl+K R · paleta: «Co-Dev: Code Review» |
 | [Revisão com IA](#revisao-com-ia) | painel Code review › separador «Revisão com IA» · tab de Code review › «Rever com IA» |
 | [Corrigir com IA (um achado)](#corrigir-com-ia-um-achado) | cartão de um achado › «Corrigir com IA» |
-| [Código melhorado: Código / Diferenças, Copiar, Aplicar, Reverter](#codigo-melhorado-codigo-diferencas-copiar-aplicar-reverter) | cartão «Código melhorado» no painel |
-| [Aplicar e testar](#aplicar-e-testar) | cartão «Código melhorado» › «Aplicar e testar» |
+| [Aplicar uma sugestão do Explain](#aplicar-uma-sugestao-do-explain) | documento do Explain › bloco de código › «Aplicar» |
+| [Código melhorado: Diferenças / Código, Copiar, Aceitar, Recusar, Reverter](#codigo-melhorado-diferencas-codigo-copiar-aceitar-recusar-reverter) | cartão «Código melhorado» no painel |
+| [Aceitar e testar: onde quebrou e como corrigir](#aceitar-e-testar-onde-quebrou-e-como-corrigir) | cartão «Código melhorado» › «Aceitar e testar» · «Correr os testes outra vez» |
 | [Barra do painel de documento](#barra-do-painel-de-documento) | cabeçalho do painel |
 | [Under the hood](#under-the-hood) | barra do editor «Under the hood» · Ctrl+K U · paleta: «Co-Dev: Under the Hood» |
 
@@ -39,6 +41,7 @@ Explica o ficheiro aberto — ou só a selecção — num documento markdown no 
 2. Carrega em «Explain» na barra por cima do código (ou Ctrl+K E).
 3. Lê o documento a chegar no painel; clica numa referência como `L12` para saltar para essa linha.
 4. Usa «Pré-visualização / Markdown», copiar, gerar de novo ou «Continuar no chat» na barra do painel.
+5. Gostaste de uma sugestão? Carrega em «Aplicar» no bloco de código dela (ver «Aplicar uma sugestão do Explain»).
 
 **Fluxo (por dentro)**
 
@@ -131,22 +134,53 @@ Pede ao modelo a correcção de UM achado: a causa, a correcção e o ficheiro i
 
 <sub>Cobre: `cr:fix-ai`</sub>
 
-### Código melhorado: Código / Diferenças, Copiar, Aplicar, Reverter
+### Aplicar uma sugestão do Explain
 
-**Onde:** cartão «Código melhorado» no painel
+**Onde:** documento do Explain › bloco de código › «Aplicar»
 
-Mostra o ficheiro proposto com realce ou como diferenças (+/−) contra o actual, e aplica-o ao ficheiro com possibilidade de voltar atrás.
+Integra uma sugestão do Explain no ficheiro e mostra as diferenças para aceitares ou recusares — nada muda no ficheiro sem o teu «Aceitar».
 
 **Como usar**
 
-1. Escolhe «Código» ou «Diferenças» no cartão.
-2. «Aplicar» escreve o código no ficheiro (o autosave do desktop leva-o ao disco).
-3. «Reverter» repõe o ficheiro como estava antes de aplicar.
+1. No documento do Explain, passa o rato por um bloco de código sugerido e carrega em «Aplicar».
+2. Lê o «O que muda» e as diferenças (+/−) no cartão «Código melhorado».
+3. «Aceitar e testar» aplica e corre os testes; «Recusar» deita a proposta fora.
+4. «← Voltar à explicação» regressa ao documento do Explain.
+
+**Fluxo (por dentro)**
+
+1. O bloco (o trecho sugerido), o texto da explicação e o ficheiro numerado vão ao modelo com o pedido de integrar só aquela mudança (`applySuggestionPrompt`).
+2. O modelo devolve o ficheiro inteiro num bloco ```<lang> improved; o painel compara-o com o ficheiro actual e abre nas diferenças.
+3. A proposta guarda o documento de onde veio, para o «Voltar».
+
+**Dicas**
+
+- Os blocos de comandos e de saída (bash, texto, JSON…) não têm «Aplicar»: copia-os.
+- Se a proposta mexer em mais do que devia, recusa e gera de novo — ou pede ao Co-Dev no chat.
+
+**Limites**
+
+- Precisa de um modelo ligado (o Explain sem modelo é só um resumo local).
+
+<sub>Cobre: `cr:apply-block`, `cr:back`</sub>
+
+### Código melhorado: Diferenças / Código, Copiar, Aceitar, Recusar, Reverter
+
+**Onde:** cartão «Código melhorado» no painel
+
+Mostra o ficheiro proposto como diferenças (+/−) contra o actual ou com realce, e aceita-o ou recusa-o com possibilidade de voltar atrás.
+
+**Como usar**
+
+1. O cartão abre nas «Diferenças»; «Código» mostra o ficheiro proposto inteiro.
+2. «Aceitar e testar» escreve o código no ficheiro e corre logo os testes (no browser: «Aceitar», sem testes).
+3. «Recusar» deita a proposta fora; o ficheiro não muda.
+4. Depois de aceitar, «Reverter» repõe o ficheiro como estava.
 
 **Fluxo (por dentro)**
 
 1. As diferenças são linha a linha (`features/diff/domain/diff.ts`) contra o conteúdo actual do editor.
-2. Aplicar guarda primeiro o conteúdo anterior; Reverter escreve-o de volta.
+2. Aceitar guarda primeiro o conteúdo anterior; Reverter (ou Recusar depois de aceite) escreve-o de volta.
 
 **Dicas**
 
@@ -154,34 +188,40 @@ Mostra o ficheiro proposto com realce ou como diferenças (+/−) contra o actua
 
 **Limites**
 
-- Se o ficheiro mudar entretanto, «Reverter» repõe a versão de antes de aplicar (perde as mudanças feitas depois).
+- Se o ficheiro mudar entretanto, «Reverter» repõe a versão de antes de aceitar (perde as mudanças feitas depois).
 
-<sub>Cobre: `cr:code-view`, `cr:copy-improved`, `cr:apply`, `cr:revert`</sub>
+<sub>Cobre: `cr:code-view`, `cr:copy-improved`, `cr:accept`, `cr:deny`, `cr:revert`</sub>
 
-### Aplicar e testar
+### Aceitar e testar: onde quebrou e como corrigir
 
-**Onde:** cartão «Código melhorado» › «Aplicar e testar»
+**Onde:** cartão «Código melhorado» › «Aceitar e testar» · «Correr os testes outra vez»
 
-Aplica o código melhorado e corre os testes do projecto com ele; mostra se passaram e a saída.
+Aplica o código proposto e corre os testes do projecto com ele. Se falharem, diz ONDE quebrou (ficheiro:linha clicável), que testes falharam, uma dica pelo tipo de falha, e deixa pedir a correcção.
 
 **Como usar**
 
-1. Carrega em «Aplicar e testar».
-2. Se passarem, fica aplicado. Se falharem, lê a saída e escolhe «Corrigir os testes que falham» ou «Reverter».
-3. Depois de mudar algo, «Correr os testes outra vez».
+1. Carrega em «Aceitar e testar».
+2. Verde: fica aplicado. Vermelho: lê a dica 💡 e clica no primeiro sítio de «Onde quebrou» para ir à linha.
+3. Escolhe «✦ Corrigir os testes que falham» (o modelo propõe nova versão, que voltas a aceitar e testar), «Perguntar ao Co-Dev» (leva o ficheiro e a falha para o chat) ou «Reverter».
 
 **Fluxo (por dentro)**
 
-1. Aplica (se ainda não), grava o editor no disco e espera pela fila de escrita.
+1. Aplica, grava o editor no disco e espera pela fila de escrita.
 2. Corre a suite pelo comando detectado no projecto (`run_tests`, o mesmo que o agente usa para verificar; dentro do contentor quando há sessão).
-3. A falhar, «Corrigir os testes que falham» manda ao modelo a saída e o ficheiro actual e pede o ficheiro corrigido; continua a ser possível reverter até ao original.
+3. A saída é lida por `domain/test-report.ts` (cargo/rustc, tsc, vitest/jest/node, pytest/unittest, go test): testes que falharam, sítios `ficheiro:linha` e o tipo — não compila, asserção, panic/excepção ou não percebido — que escolhe a dica.
+4. «Corrigir os testes que falham» manda ao modelo a saída, os sítios e o ficheiro actual; continua a ser possível reverter até ao original.
+
+**Dicas**
+
+- O primeiro sítio da lista costuma ser a causa; os seguintes, consequências.
+- Numa asserção, decide o que está certo — o teste ou a mudança — antes de pedir a correcção.
 
 **Limites**
 
-- Só na app desktop com uma pasta aberta; no browser o painel di-lo e não mexe no ficheiro.
+- Só na app desktop com uma pasta aberta; no browser o «Aceitar» aplica e diz que os testes correm na app.
 - Sem comando de testes detectado, o erro do backend aparece no cartão (define "test" em .dxtutor/commands.json).
 
-<sub>Cobre: `cr:test`, `cr:fix-tests`</sub>
+<sub>Cobre: `cr:test`, `cr:fix-tests`, `cr:fix-in-chat`</sub>
 
 ### Barra do painel de documento
 
@@ -192,7 +232,7 @@ Controla o documento: ver formatado ou o markdown, copiar, parar, gerar de novo,
 **Como usar**
 
 1. «Pré-visualização / Markdown» troca entre o documento formatado e o texto.
-2. ⧉ copia o documento; «Copiar» num bloco de código copia só esse bloco.
+2. ⧉ copia o documento; «Copiar» num bloco de código copia só esse bloco (funciona também no WebKitGTK da app desktop).
 3. ■ pára a resposta a chegar; ↻ volta a pedir.
 4. ✦ «Continuar no chat» põe o ficheiro e o documento como contexto no compositor do Co-Dev (não envia sozinho).
 5. No Code review, «Abrir em separador» mostra a mesma revisão em ecrã inteiro; ✕ fecha o painel.
@@ -219,6 +259,49 @@ Abre uma tab que mostra o que acontece ao ficheiro por baixo: as fases do compil
 2. Não dá nada por verificado: para confirmar, compila ou corre `EXPLAIN QUERY PLAN` na base de dados.
 
 <sub>Cobre: `tabs:hoodCmd`, `cmd:Co-Dev: Under the Hood`</sub>
+
+---
+
+## Servidor de linguagem (LSP)
+
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo.
+
+<sub>Código: `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `src-tauri/src/lsp.rs` · revisto em 2026-11-26</sub>
+
+| Acção | Onde |
+|---|---|
+| [Servidor de linguagem em falta: Copiar e Instalar](#servidor-de-linguagem-em-falta-copiar-e-instalar) | faixa amarela no topo do ficheiro «No … language server» |
+
+### Servidor de linguagem em falta: Copiar e Instalar
+
+**Onde:** faixa amarela no topo do ficheiro «No … language server»
+
+Mostra o servidor que falta e o comando para o instalar. «Copy» copia o comando; «Install» corre-o num terminal com a tua shell de login (o node do nvm, o go, o dotnet, o rustup), depois de aprovares, e liga o servidor quando acaba.
+
+**Como usar**
+
+1. Abre um ficheiro da linguagem; se faltar o servidor, aparece a faixa com o comando.
+2. «Install»: confirma o comando exacto no diálogo de aprovação; a instalação corre no painel Terminal.
+3. Quando termina bem, a faixa sai e o editor passa a ter diagnósticos, hover e definição.
+4. Prefere instalar à mão? «Copy» e cola no teu terminal. «Dismiss» esconde a faixa nesta sessão.
+
+**Fluxo (por dentro)**
+
+1. O backend diz se o servidor existe (`lsp_server_status`); a regra do aviso e o comando estão em `domain/server-status.ts`.
+2. «Install» só existe quando a instalação é um comando (npm, go install, dotnet tool, rustup); para jdtls, clangd, sourcekit-lsp e kotlin-language-server é uma instrução para seguir.
+3. Aprovação partilhada (`app/approval.ts`) com o comando e onde corre → registo de auditoria (`audit_record`, acção `lsp.install`) → terminal de tarefa (PTY com a shell de login, na pasta aberta) → código de saída.
+4. Saída 0: esquece o estado em cache, volta a perguntar ao backend e arranca o servidor no ficheiro aberto.
+
+**Dicas**
+
+- Um erro de permissões no `npm install -g` costuma querer dizer que o node não é o do nvm: `nvm use --lts` (ou `npm config set prefix ~/.npm-global`) e volta a carregar em «Install».
+- Se instalou mas o dxtutor não o encontra, reinicia a app para ela ler o PATH novo.
+
+**Limites**
+
+- Só na app desktop com uma pasta aberta. Sem auditoria possível, não instala.
+
+<sub>Cobre: `lsp:notice-copy`, `lsp:notice-install`</sub>
 
 ---
 

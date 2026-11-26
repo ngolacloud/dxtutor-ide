@@ -84,10 +84,33 @@ ${clip(numbered(r.content))}
 \`\`\``;
 }
 
-/** Pedido de correcção quando os testes falharam depois de aplicar o código melhorado. */
-export function fixTestsPrompt(path: string, ext: string, content: string, output: string, lang: DocLang): string {
-  return `The improved \`${path}\` was applied and the project tests failed. Find the cause from the output and give the whole corrected file in ONE fenced block with the info string \`${fenceLang(ext)} improved\`. Start with a short "## Why it failed" section. ${LANG_RULE[lang]}
+/** Aplicar UMA sugestão (um bloco de código do Explain) ao ficheiro: o modelo integra-a e devolve o
+ *  ficheiro inteiro, para o painel mostrar as diferenças e o humano aceitar ou recusar. */
+export function applySuggestionPrompt(r: { path: string; ext: string; content: string; snippet: string; snippetLang: string; context: string; lang: DocLang }): string {
+  const lang = fenceLang(r.ext);
+  return `Apply this suggestion to \`${r.path}\`. Integrate it where it belongs, keep everything else exactly as it is (same behaviour, style and comments), and do not make other changes.
 
+Start with a short "## What changes" section (two or three bullets, citing lines as L12), then give the WHOLE updated file in ONE fenced block whose info string is exactly \`${lang} improved\`. ${LANG_RULE[r.lang]}
+
+The suggestion:
+\`\`\`${r.snippetLang || lang}
+${r.snippet}
+\`\`\`
+
+Why it was suggested (from the explanation):
+${r.context.slice(0, 4000)}
+
+Current file:
+\`\`\`${lang}
+${clip(numbered(r.content))}
+\`\`\``;
+}
+
+/** Pedido de correcção quando os testes falharam depois de aplicar o código melhorado. `spots`: onde
+ *  quebrou, lido da saída (domain/test-report). */
+export function fixTestsPrompt(path: string, ext: string, content: string, output: string, lang: DocLang, spots = ""): string {
+  return `The improved \`${path}\` was applied and the project tests failed. Find the cause from the output and give the whole corrected file in ONE fenced block with the info string \`${fenceLang(ext)} improved\`. Start with a short "## Why it failed" section. ${LANG_RULE[lang]}
+${spots ? `\nWhere it broke:\n${spots}\n` : ""}
 Test output (last part):
 \`\`\`text
 ${output.slice(-6000)}
