@@ -5434,9 +5434,11 @@ name = "tutor-cli"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "tempfile",
  "tutor-core",
  "tutor-eval",
  "tutor-plugins",
+ "tutor-protect",
  "tutor-tui",
 ]
 

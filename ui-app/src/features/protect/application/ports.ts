@@ -1,7 +1,7 @@
 /* ═══════════ feature `protect` — application ports (r23 F4a) ═══════════
    The protection service depends only on these. The composition (`../index.ts`) gives the Tauri
    adapter, the shared approval dialog and the audit log. */
-import type { ScanReport } from "../domain/report";
+import type { HookPlan, ScanReport } from "../domain/report";
 
 export interface ProtectPort {
   /** the folder's `.env` secrets join what every LLM request is filtered for */
@@ -9,6 +9,10 @@ export interface ProtectPort {
   scan(root: string, scope?: "staged" | "tracked" | "working" | "paths", paths?: string[]): Promise<ScanReport>;
   /** the next commit in `root` goes ahead despite the scan (one, two minutes) */
   allow(root: string, reason: string): Promise<void>;
+  /** where the pre-commit hook would go and whether one is there */
+  hookPlan(root: string): Promise<HookPlan>;
+  /** writes the hook; the backend audits it first and never overwrites a hook that is not dxtutor's */
+  hookInstall(root: string): Promise<HookPlan>;
 }
 
 /** The shared approval dialog (`app/approval.ts`), by shape. */
@@ -21,7 +25,8 @@ export interface AuditPort {
   record(root: string, e: { feature: string; action: string; command: string; scope?: string; approved: boolean; reason?: string; outcome?: "sent" | "ok" | "failed"; decidedAt?: number }): Promise<void>;
 }
 
-export type ProtectKey = "blockedTitle" | "blockedScope" | "refused" | "redactedTitle" | "redacted";
+export type ProtectKey = "blockedTitle" | "blockedScope" | "refused" | "redactedTitle" | "redacted"
+  | "hookNoFolder" | "hookTitle" | "hookAlready" | "hookForeign" | "hookInstalled" | "hookFailed" | "hookDeclined";
 export type Copy = (k: ProtectKey, p?: Record<string, string | number>) => string;
 
 export interface ProtectDeps {

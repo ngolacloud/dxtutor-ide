@@ -36,3 +36,40 @@ pub async fn secret_scan(
 pub fn secret_scan_allow(root: String, reason: String) -> Result<(), String> {
     tutor_protect::scan::allow_once(std::path::Path::new(root.trim()), &reason)
 }
+
+/// The pre-commit hook (r23 hardening): where it would go in the open repository and whether one is
+/// there (`missing`, `installed` — ours —, `foreign` — never overwritten), with the text it writes.
+#[tauri::command]
+pub fn protect_hook_plan(root: String) -> Result<tutor_protect::hook::HookPlan, String> {
+    tutor_protect::hook::plan(std::path::Path::new(root.trim()))
+}
+
+/// Installs the pre-commit hook (`dxt secret-scan --staged`) after the human approved it in the UI.
+/// The install goes to the audit log first: one that cannot be audited is not done.
+#[tauri::command]
+pub fn protect_hook_install(
+    app: tauri::AppHandle,
+    root: String,
+) -> Result<tutor_protect::hook::HookPlan, String> {
+    let dir = std::path::Path::new(root.trim());
+    let plan = tutor_protect::hook::plan(dir)?;
+    if plan.state == "foreign" {
+        // the crate refuses it too; no audit entry for something that will not happen
+        return tutor_protect::hook::install(dir);
+    }
+    crate::board::audit_backend(
+        &app,
+        root.trim(),
+        "protect",
+        "hook.install",
+        &format!("write {} (runs dxt secret-scan --staged)", plan.path),
+        None,
+    )
+    .map_err(|e| {
+        format!(
+            "not done: the audit log could not record it ({})",
+            e.message
+        )
+    })?;
+    tutor_protect::hook::install(dir)
+}

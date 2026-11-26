@@ -93,23 +93,24 @@ export function providerErrorHtml(msg: string, active?: string | null): string {
   return `<b>${esc(title)}</b><div style="margin-top:4px">${esc(hint)}</div>${e.url ? `<div style="margin-top:6px">${tc("fixHere")} <code>${esc(e.url)}</code></div>` : ""}${actions}<details style="margin-top:8px;color:var(--fg-muted)"><summary>${tc("details")}</summary><code style="white-space:pre-wrap;word-break:break-word">${esc(e.detail)}</code></details>`;
 }
 
-export function user(t: string): void {
-  const i = $("#ag-intro");
+/** O balão do humano. `into`: o transcript de uma sessão Co-Dev que não está à vista (Multi Co-Dev). */
+export function user(t: string, into?: HTMLElement): void {
+  const i = into ? null : $("#ag-intro");
   if (i) i.remove();
-  $("#ag-msgs")!.insertAdjacentHTML(
+  (into ?? $("#ag-msgs")!).insertAdjacentHTML(
     "beforeend",
     `<div class="m user"><div class="bub"><div class="bh"><span class="br2">tu</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${userHtml(t)}</div></div></div>`,
   );
   scrollMsgs();
 }
 
-export function card(w: string, html: string): FullCard {
-  const i = $("#ag-intro");
+export function card(w: string, html: string, into?: HTMLElement): FullCard {
+  const i = into ? null : $("#ag-intro");
   if (i) i.remove();
   const d = document.createElement("div");
   d.className = "m ai";
   d.innerHTML = `<div class="bub"><div class="bh"><span class="br2">${esc(w || "co-dev")}</span><span class="bt">${bridge.hhmm()}</span></div><div class="bd">${html}</div><div class="tools"></div></div>`;
-  $("#ag-msgs")!.appendChild(d);
+  (into ?? $("#ag-msgs")!).appendChild(d);
   scrollMsgs();
   const bd = d.querySelector(".bd") as HTMLElement;
   return { el: d, bd, body: bd, tools: d.querySelector(".tools") as HTMLElement };
@@ -205,10 +206,21 @@ export function waiting(): void {
   bridge.note("O Co-Dev precisa da tua decisão");
 }
 
-export function ask<T>(host: ToolHost, btns: Array<{ l: string; v: T; pri?: unknown; done?: string }>): Promise<T> {
+/** A barra de decisão. `rs`: onde fica o «parar» pendente — a execução à vista (`RUN`) ou, numa sessão
+ *  Co-Dev em segundo plano, o registo dela (Multi Co-Dev); `onWait`: o aviso «à espera da tua decisão». */
+export function ask<T>(
+  host: ToolHost,
+  btns: Array<{ l: string; v: T; pri?: unknown; done?: string }>,
+  rs: { pend: (() => void) | null } = bridge.run(),
+  onWait: () => void = waiting,
+): Promise<T> {
   return new Promise((res, rej) => {
     const bar = document.createElement("div");
     bar.className = "gate";
+    const pend = (): void => {
+      bar.remove();
+      rej(bridge.stopSignal());
+    };
     btns.forEach((b) => {
       const x = document.createElement("button");
       x.className = "gb" + (b.pri ? " pri" : "");
@@ -219,19 +231,53 @@ export function ask<T>(host: ToolHost, btns: Array<{ l: string; v: T; pri?: unkn
         done.className = "gdone";
         done.textContent = b.done || b.l;
         bar.replaceChildren(done);
-        bridge.run().pend = null;
+        // só o «parar» desta barra: a sessão pode ter mudado de sítio (à vista ↔ segundo plano)
+        if (rs.pend === pend) rs.pend = null;
+        const R = bridge.run();
+        if (R.pend === pend) R.pend = null;
         res(b.v);
       };
       bar.appendChild(x);
     });
     (host as HTMLElement).appendChild(bar);
     scrollMsgs();
-    bridge.run().pend = () => {
-      bar.remove();
-      rej(bridge.stopSignal());
-    };
-    waiting();
+    rs.pend = pend;
+    onWait();
   });
+}
+
+/* ───── Multi Co-Dev: a execução de cada sessão (a à vista é o `RUN` partilhado) ───── */
+
+/** O que a barra de execução mostra de uma sessão. */
+export interface RunRecord {
+  active: boolean;
+  paused: boolean;
+  stop: boolean;
+  pend: (() => void) | null;
+  label: string;
+  t0: number;
+  abort: AbortController | null;
+}
+
+export const idleRun = (): RunRecord => ({ active: false, paused: false, stop: false, pend: null, label: "", t0: 0, abort: null });
+
+/** A execução à vista (para a guardar quando a sessão sai de vista). */
+export function snapshotRun(): RunRecord {
+  const R = bridge.run();
+  return { active: R.active, paused: R.paused, stop: R.stop, pend: R.pend, label: R.label, t0: R.t0, abort: R.abort };
+}
+
+/** Põe à vista a execução de uma sessão: a barra, o tempo e o compositor (enviar ↔ parar). */
+export function applyRun(r: RunRecord): void {
+  const R = bridge.run();
+  Object.assign(R, { active: r.active, paused: r.paused, stop: r.stop, pend: r.pend, label: r.label, t0: r.t0, abort: r.abort });
+  if (!r.active) R.M = null;
+  $("#ag-runctl")?.classList.toggle("hidden", !r.active);
+  const p = $("#rc-pause");
+  if (p) p.innerHTML = r.paused ? "<kbd>p</kbd> retomar" : "<kbd>p</kbd> pausar";
+  runLabel();
+  bridge.badges();
+  bus.emit("agent:run", { active: r.active, label: r.label });
 }
 
 export function tl(host: ToolHost, name: string, arg: unknown): HTMLElement {

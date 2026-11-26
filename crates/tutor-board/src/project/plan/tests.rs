@@ -605,3 +605,75 @@ fn the_sprint_keeps_its_codevs_and_the_source_comes_from_the_store() {
         "not_found"
     );
 }
+
+#[test]
+fn another_codev_may_start_only_without_an_overlap() {
+    let f = files(&["src/cart/a.rs", "src/pay/b.rs", "Cargo.toml"]);
+    let cart = issue("P-1", &["src/cart/**"]);
+    let pay = issue("P-2", &["src/pay/**"]);
+    let both = issue("P-3", &["src/**"]);
+    // separate scopes: it may start
+    assert!(overlaps_with(&cart, std::slice::from_ref(&pay), &f).is_empty());
+    // a scope that covers a running issue's files: refused, with the files
+    let o = overlaps_with(&both, &[cart.clone(), pay.clone()], &f);
+    assert_eq!(o.len(), 2);
+    assert_eq!((o[0].a.as_str(), o[0].b.as_str()), ("P-3", "P-1"));
+    assert_eq!(o[0].paths, vec!["src/cart/a.rs"]);
+    assert_eq!(o[1].paths, vec!["src/pay/b.rs"]);
+    // a file known to be touched by both (a change set), outside both scopes
+    let mut k1 = issue("P-4", &["docs/**"]);
+    k1.known_files = vec!["Cargo.toml".into()];
+    let mut k2 = issue("P-5", &["web/**"]);
+    k2.known_files = vec!["Cargo.toml".into()];
+    let o = overlaps_with(&k1, &[k2], &f);
+    assert_eq!(o[0].paths, vec!["Cargo.toml"]);
+    assert_eq!(o[0].globs, vec![["known".to_string(), "known".to_string()]]);
+    // a literal file that does not exist yet still collides with a glob
+    let newf = issue("P-6", &["src/cart/new.rs"]);
+    assert_eq!(
+        overlaps_with(&newf, std::slice::from_ref(&cart), &f)[0].paths,
+        vec!["src/cart/new.rs"]
+    );
+    // itself among the others does not count
+    assert!(overlaps_with(&cart, std::slice::from_ref(&cart), &f).is_empty());
+}
+
+#[test]
+fn the_scope_source_reads_any_issues_of_the_store() {
+    let mut s = super::super::ProjectStore::in_memory().unwrap();
+    let p = apply(
+        &mut s,
+        serde_json::json!({"op": "create_issue", "title": "Cart"}),
+    )
+    .unwrap();
+    let a = p.issues.last().unwrap().key.clone();
+    let p = apply(
+        &mut s,
+        serde_json::json!({"op": "create_issue", "title": "Pay"}),
+    )
+    .unwrap();
+    let b = p.issues.last().unwrap().key.clone();
+    apply(&mut s, serde_json::json!({"op": "update_issue", "key": a, "scope": ["src/cart/**"], "branch": "feature/cart"})).unwrap();
+    s.conn()
+        .execute(
+            "INSERT INTO change_sets (root, session, call, hunk, path, start, end_line, added, removed, decided_by, decided_at, issue_key)
+             VALUES (?1, 's', 'c', 'h', 'Cargo.toml', 1, 2, 1, 0, 'Walter', ?2, ?3)",
+            rusqlite::params![ROOT, T0, b],
+        )
+        .unwrap();
+    // no sprint needed: the issues of the running Co-Dev sessions
+    let src = s.scope_source(ROOT, &[a.clone(), b.clone()], T0).unwrap();
+    assert_eq!(src.issues.len(), 2);
+    assert_eq!(src.issues[0].scope, vec!["src/cart/**"]);
+    assert_eq!(src.issues[1].known_files, vec!["Cargo.toml"]);
+    assert_eq!(
+        src.branches.get(&a).map(String::as_str),
+        Some("feature/cart")
+    );
+    assert_eq!(
+        s.scope_source(ROOT, &["NOPE-1".into()], T0)
+            .unwrap_err()
+            .code,
+        "not_found"
+    );
+}

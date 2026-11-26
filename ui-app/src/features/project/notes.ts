@@ -7,12 +7,14 @@ export const PROJECT_NOTES: FeatureNotes = {
   id: "project",
   title: "Project",
   summary:
-    "O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo.",
+    "O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue.",
   code: [
     "crates/tutor-board/src/project/plan.rs",
     "src-tauri/src/board.rs (project_sprint_plan)",
     "ui-app/src/features/project/domain/plan.ts",
     "ui-app/src/features/project/ui/plan-view.ts",
+    "ui-app/src/features/project/domain/gate.ts",
+    "src-tauri/src/roles.rs (functional_check)",
   ],
   updated: "2026-11-26",
   actions: [
@@ -56,6 +58,37 @@ export const PROJECT_NOTES: FeatureNotes = {
         "Fases seguintes: uma sessão por Co-Dev, uma worktree e ficheiros reservados por Co-Dev, o revisor que integra num worktree temporário só com os testes a passar, e a autonomia delegada com PRs.",
       ],
       covers: ["pj-sprint-plan", "pj-plan-close"],
+    },
+    {
+      title: "Verificações obrigatórias",
+      where: ["Project › Settings › «Mandatory checks»"],
+      what:
+        "A lista das verificações que cada mudança tem de passar antes de ser integrada (o nome e o comando exacto, uma por linha: `tests: cargo test --workspace`). Sem nenhuma definida, vale o comando de testes detectado na pasta, e a página di-lo.",
+      howTo: ["Abre o Project e a vista «Settings».", "Escreve uma verificação por linha, `nome: comando`, e carrega em «Save»; deixa vazio para voltar ao comando detectado."],
+      flow: [
+        "O «Save» manda a operação `settings` com `checks` ao `project_apply`; o store guarda-as na coluna `projects.checks` (migração 15), aparadas, sem nomes repetidos, até 12.",
+        "O comando `project_checks` lê-as para as fases seguintes (a porta de integração corre-as no commit actual).",
+      ],
+      limits: ["Nesta fase a lista só se guarda: quem a corre é a porta de integração (fase 4)."],
+      covers: ["pj-submit"],
+    },
+    {
+      title: "Aprovação funcional",
+      where: ["Project › painel da issue › secção «Functional approval»"],
+      what:
+        "O responsável pela issue regista que ela faz o que os critérios de aceitação pedem. Fica na issue quem aprovou, quando e a nota, e vai para o registo de auditoria. É a terceira condição da porta de integração: uma mudança só é integrada quando todas as verificações obrigatórias passam no commit actual, o revisor Co-Dev confirma os critérios e o responsável registou a aprovação funcional.",
+      howTo: [
+        "Abre a issue (precisa de critérios de aceitação: sem eles o botão fica desligado).",
+        "Carrega em «Record functional approval» e escreve, se quiseres, como verificaste.",
+        "«Withdraw» retira-a, com um motivo.",
+      ],
+      flow: [
+        "As operações `approve_functional` e `revoke_functional` vão ao `project_apply`; o backend decide quem e quando (como em todas as operações), recusa sem critérios ou uma segunda aprovação, e grava a actividade e uma linha no registo de auditoria (origem `ide`, `functional.approve`/`functional.revoke`) na mesma transacção.",
+        "Quem pode: o responsável da issue (o campo «Assignee», pelo `user.name`/`user.email` do git) ou, com pessoas no `.dxtutor/team.json`, um Product Owner ou um Tech Lead (os mesmos que levam uma issue a Done). Sem equipa definida e sem responsável, quem está ao teclado.",
+        "Se os critérios de aceitação mudarem depois, a aprovação cai (fica na actividade): foi dada contra os critérios antigos.",
+      ],
+      limits: ["O código pode mudar depois da aprovação: confirmar que ela ainda vale no commit a integrar é da porta de integração (fase 4)."],
+      covers: ["pj-functional-approve", "pj-functional-revoke"],
     },
   ],
 };
