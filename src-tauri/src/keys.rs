@@ -98,6 +98,10 @@ pub fn resolve_in(store: &dyn Store, dir: &Path, provider: &str) -> Option<Strin
 /// (still-shipped) UI writes. Reuses `tutor_llm::chat::load_config` so the two UIs read
 /// one source of truth; Ollama needs no key, so only the three hosted providers map.
 fn legacy_key(provider: &str) -> Option<String> {
+    // only the hosted providers have a field there: reading it costs a file and three keychain reads
+    if !matches!(provider, "claude" | "codex" | "gemini") {
+        return None;
+    }
     legacy_key_from(&tutor_llm::chat::load_config(), provider)
 }
 

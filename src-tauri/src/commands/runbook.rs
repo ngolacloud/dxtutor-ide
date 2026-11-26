@@ -20,13 +20,13 @@ fn kind(k: Kind) -> &'static str {
 
 /// The project's runbooks (`runbooks/*.md`), each with its steps and why a check could not run.
 #[tauri::command]
-pub fn runbook_list(root: String) -> Vec<runbook::Runbook> {
+pub async fn runbook_list(root: String) -> Vec<runbook::Runbook> {
     runbook::list(&PathBuf::from(root.trim()))
 }
 
 /// One runbook (only under `runbooks/`).
 #[tauri::command]
-pub fn runbook_parse(root: String, path: String) -> Result<runbook::Runbook, String> {
+pub async fn runbook_parse(root: String, path: String) -> Result<runbook::Runbook, String> {
     runbook::load(&PathBuf::from(root.trim()), &path)
 }
 
@@ -121,7 +121,7 @@ pub async fn runbook_step(
 
 /// Records a decision step: what the person decided and why (nothing runs).
 #[tauri::command]
-pub fn runbook_decide(
+pub async fn runbook_decide(
     app: AppHandle,
     root: String,
     path: String,

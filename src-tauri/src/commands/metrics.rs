@@ -34,7 +34,7 @@ pub async fn metrics_status(root: String) -> Result<metrics::Overview, String> {
 
 /// Keeps the Prometheus read token in the keychain (`auth: keychain`); audited first, never returned.
 #[tauri::command]
-pub fn metrics_token_set(
+pub async fn metrics_token_set(
     app: AppHandle,
     root: String,
     url: String,
@@ -50,7 +50,7 @@ pub fn metrics_token_set(
 }
 
 #[tauri::command]
-pub fn metrics_token_clear(app: AppHandle, root: String, url: String) -> Result<(), String> {
+pub async fn metrics_token_clear(app: AppHandle, root: String, url: String) -> Result<(), String> {
     audited(
         &app,
         &root,

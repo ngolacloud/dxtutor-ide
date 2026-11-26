@@ -410,15 +410,21 @@ fn current(conn: &Connection) -> rusqlite::Result<u32> {
     Ok(v.unwrap_or(0))
 }
 
-/// Brings the base to [`SCHEMA_VERSION`]. A base newer than this code is refused rather
-/// than written with an older model.
-pub fn migrate(conn: &mut Connection) -> Result<(), String> {
+/// A base newer than this code is refused rather than written with an older model (one read).
+pub fn refuse_newer(conn: &Connection) -> Result<u32, String> {
     let from = current(conn).map_err(|e| e.to_string())?;
     if from > SCHEMA_VERSION {
         return Err(format!(
             "the project database is newer (schema {from}) than this app (schema {SCHEMA_VERSION}): update the app"
         ));
     }
+    Ok(from)
+}
+
+/// Brings the base to [`SCHEMA_VERSION`]. A base newer than this code is refused rather
+/// than written with an older model.
+pub fn migrate(conn: &mut Connection) -> Result<(), String> {
+    let from = refuse_newer(conn)?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(from as usize) {
         let v = i as u32 + 1;
         let tx = conn.transaction().map_err(|e| e.to_string())?;
