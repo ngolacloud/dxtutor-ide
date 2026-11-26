@@ -50,6 +50,9 @@
 //! # language are refused with a clear error.
 //! # project_test_cmd = "make test"
 //!
+//! # Optional: the command that prints the toolchain version, for `dxt plugin test`'s report.
+//! # version_cmd = "cc --version"
+//!
 //! # Optional: persistent package caches (mounted only in the container path).
 //! # [[cache_volumes]]
 //! # name = "dxtutor-npm"
@@ -165,6 +168,10 @@ pub struct LanguagePlugin {
     /// language does not grade project steps. Extra placeholder `{main}`.
     #[serde(default)]
     pub project_test_cmd: Option<String>,
+    /// Shell command that prints the toolchain version (first line used), for reports such as
+    /// `dxt plugin test`. Optional.
+    #[serde(default)]
+    pub version_cmd: Option<String>,
 
     /// Wall-clock timeout (seconds) on the host path.
     #[serde(default = "default_timeout_secs")]
@@ -318,8 +325,14 @@ impl PluginRunner {
     }
 
     /// Scaffold the student code (and, if `tests` is given and the plugin declares a `test_file`,
-    /// the phase tests) into a fresh temp dir. Returns the dir handle (kept alive by the caller).
-    fn scaffold(&self, code: &str, tests: Option<&str>) -> Result<tempfile::TempDir> {
+    /// the phase tests) into a fresh temp dir, then the course's read-only `support` files (see
+    /// [`write_support`]). Returns the dir handle (kept alive by the caller).
+    fn scaffold(
+        &self,
+        code: &str,
+        tests: Option<&str>,
+        support: &std::collections::BTreeMap<String, String>,
+    ) -> Result<tempfile::TempDir> {
         let dir = tempfile::Builder::new()
             .prefix("dxtutor-plugin-")
             .tempdir()
@@ -333,6 +346,8 @@ impl PluginRunner {
             std::fs::write(root.join(test_file), test_body)
                 .with_context(|| format!("write {test_file}"))?;
         }
+        let real = root.canonicalize().context("resolve plugin work dir")?;
+        write_support(&real, support)?;
         Ok(dir)
     }
 
@@ -340,13 +355,15 @@ impl PluginRunner {
     /// temp dir, each file at its relative path. Every path must pass
     /// [`tutor_core::safe_project_path`] (no `..`, no root, no `\\`), every file is created new
     /// (`create_new`: a test file can never overwrite a learner file, nor two entries the same
-    /// file), and each parent dir is checked to stay inside the work dir.
+    /// file), and each parent dir is checked to stay inside the work dir. The course's `support`
+    /// files come last, under the same rules (so they never replace a project file, nor the
+    /// reverse).
     fn scaffold_tree(
         &self,
         tree: &std::collections::BTreeMap<String, String>,
         tests: &std::collections::BTreeMap<String, String>,
+        support: &std::collections::BTreeMap<String, String>,
     ) -> Result<tempfile::TempDir> {
-        use std::io::Write;
         let dir = tempfile::Builder::new()
             .prefix("dxtutor-project-")
             .tempdir()
@@ -356,28 +373,9 @@ impl PluginRunner {
             .canonicalize()
             .context("resolve project work dir")?;
         for (rel, content) in tree.iter().chain(tests.iter()) {
-            if !tutor_core::safe_project_path(rel) {
-                anyhow::bail!("unsafe project path `{rel}`");
-            }
-            let path = root.join(rel);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("create folder for {rel}"))?;
-                let real = parent
-                    .canonicalize()
-                    .with_context(|| format!("resolve folder for {rel}"))?;
-                if !real.starts_with(&root) {
-                    anyhow::bail!("project path `{rel}` leaves the work dir");
-                }
-            }
-            let mut f = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-                .with_context(|| format!("write {rel} (already exists or not a file path)"))?;
-            f.write_all(content.as_bytes())
-                .with_context(|| format!("write {rel}"))?;
+            write_new_file(&root, rel, content, "project")?;
         }
+        write_support(&root, support)?;
         Ok(dir)
     }
 
@@ -439,7 +437,16 @@ impl PluginRunner {
     /// Run a **complete** program (with its own entry point) and return its output — the drill path,
     /// analogous to [`crate::runner::run_rust_snippet`] / [`crate::go_runner::run_go_program`].
     pub fn run_program(&self, code: &str) -> Result<RunOutput> {
-        let dir = self.scaffold(code, None)?;
+        self.run_program_with(code, &Default::default())
+    }
+
+    /// [`PluginRunner::run_program`] with a course's read-only `support` files next to the code.
+    pub fn run_program_with(
+        &self,
+        code: &str,
+        support: &std::collections::BTreeMap<String, String>,
+    ) -> Result<RunOutput> {
+        let dir = self.scaffold(code, None, support)?;
         let script = expand(&self.plugin.run_cmd, &self.plugin, "");
         self.run_script(dir.path(), &script)
     }
@@ -448,7 +455,7 @@ impl PluginRunner {
 impl LanguageRunner for PluginRunner {
     /// Correctness = run `test_cmd` over the student code + phase tests. **Exit 0 ⇒ passed.**
     fn check_correctness(&self, phase: &Phase, student_code: &str) -> Result<crate::Correctness> {
-        let dir = self.scaffold(student_code, Some(&phase.tests))?;
+        let dir = self.scaffold(student_code, Some(&phase.tests), &phase.support)?;
         let script = expand(&self.plugin.test_cmd, &self.plugin, &phase.entry);
         let out = self
             .run_script(dir.path(), &script)
@@ -482,7 +489,7 @@ impl LanguageRunner for PluginRunner {
             .project
             .as_ref()
             .with_context(|| format!("step `{}` is not a project step", phase.id))?;
-        let dir = self.scaffold_tree(tree, &project.tests)?;
+        let dir = self.scaffold_tree(tree, &project.tests, &phase.support)?;
         let script = expand(template, &self.plugin, &phase.entry).replace("{main}", &project.main);
         let out = self
             .run_script(dir.path(), &script)
@@ -504,6 +511,11 @@ impl LanguageRunner for PluginRunner {
         Ok(Vec::new())
     }
 
+    /// Descriptors write the course's support files ([`write_support`]).
+    fn grades_support_files(&self) -> bool {
+        true
+    }
+
     /// Diagnostics = run `diag_cmd` over the student code alone and parse `file:line:col: sev: msg`.
     /// No `diag_cmd` ⇒ no diagnostics.
     fn diagnostics(&self, student_code: &str) -> Result<Vec<Diagnostic>> {
@@ -511,7 +523,7 @@ impl LanguageRunner for PluginRunner {
             Some(c) => c,
             None => return Ok(Vec::new()),
         };
-        let dir = self.scaffold(student_code, None)?;
+        let dir = self.scaffold(student_code, None, &Default::default())?;
         let script = expand(diag_cmd, &self.plugin, "");
         let out = self
             .run_script(dir.path(), &script)
@@ -520,6 +532,46 @@ impl LanguageRunner for PluginRunner {
         diags.extend(parse_cc_diagnostics(&out.stdout));
         Ok(diags)
     }
+}
+
+// ── Writing files into the work dir ───────────────────────────────────────────────
+
+/// Create `rel` (a [`tutor_core::safe_project_path`]) under `root` with `content`: its parent
+/// folders are created and checked to stay inside `root` (canonical), and the file must not
+/// exist yet (`create_new`), so no entry ever replaces another.
+fn write_new_file(root: &Path, rel: &str, content: &str, what: &str) -> Result<()> {
+    use std::io::Write;
+    if !tutor_core::safe_project_path(rel) {
+        anyhow::bail!("unsafe {what} path `{rel}`");
+    }
+    let path = root.join(rel);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create folder for {rel}"))?;
+        let real = parent
+            .canonicalize()
+            .with_context(|| format!("resolve folder for {rel}"))?;
+        if !real.starts_with(root) {
+            anyhow::bail!("{what} path `{rel}` leaves the work dir");
+        }
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .with_context(|| format!("write {rel} (already exists or not a file path)"))?;
+    f.write_all(content.as_bytes())
+        .with_context(|| format!("write {rel}"))
+}
+
+/// Write a course's read-only **support** files (`tutor_core::support`) into the work dir
+/// `root` (canonical), after the step's own files: the same path rules as a project tree, and a
+/// clash with a file already written is an error, never an overwrite.
+fn write_support(root: &Path, support: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    for (rel, content) in support {
+        write_new_file(root, rel, content, "support")
+            .with_context(|| format!("course support file `{rel}`"))?;
+    }
+    Ok(())
 }
 
 // ── Output interpretation ─────────────────────────────────────────────────────────
@@ -595,6 +647,7 @@ run_cmd  = "cc -O2 -std=c11 {file} -o prog && ./prog"
 test_cmd = "cc -O2 -std=c11 {test_file} -o testbin && ./testbin"
 diag_cmd = "cc -std=c11 -fsyntax-only {file}"
 
+version_cmd = "cc --version"
 timeout_secs = 30
 "##;
 
@@ -633,6 +686,7 @@ try:
 except SyntaxError as e:
     print("student.py:%d:%d: error: %s" % (e.lineno or 0, e.offset or 0, e.msg))' '''
 
+version_cmd = "python3 --version"
 timeout_secs = 30
 "##;
 
@@ -723,6 +777,7 @@ run_cmd  = "g++ -std=c++20 -O2 -pthread {file} -o prog $(grep -qs sqlite3.h {fil
 test_cmd = "g++ -std=c++20 -O2 -pthread {test_file} -o testbin $(grep -qs sqlite3.h {file} {test_file} && echo -lsqlite3) && ./testbin"
 diag_cmd = "g++ -std=c++20 -fsyntax-only {file}"
 
+version_cmd = "g++ --version"
 timeout_secs = 60
 "##;
 
@@ -827,6 +882,8 @@ const dxt = (() => {
 
 run_cmd  = "printf '{\"type\":\"module\"}' > package.json && node --experimental-transform-types --no-warnings {file}"
 test_cmd = "printf '{\"type\":\"module\"}' > package.json && cat {file} {test_file} > run.ts && node --experimental-transform-types --no-warnings run.ts"
+project_test_cmd = '''[ -f package.json ] || printf '{"type":"module"}' > package.json; set -- $(find . -name node_modules -prune -o -type f -name '*.test.ts' -print | sort); if [ $# -eq 0 ]; then echo 'no hidden *.test.ts files'; exit 1; fi; node --experimental-transform-types --no-warnings --test --test-reporter=spec "$@"'''
+version_cmd = "node --version"
 diag_cmd = '''if command -v tsc >/dev/null 2>&1; then tsc --noEmit --pretty false --strict --target es2022 --module nodenext --allowImportingTsExtensions --skipLibCheck {file} | grep -v -e TS2307 -e TS2580 -e TS2591 | sed -E 's/^([^(]+)\(([0-9]+),([0-9]+)\): error (TS[0-9]+): (.*)$/\1:\2:\3: error: \5 (\4)/'; fi'''
 
 timeout_secs = 30
@@ -929,6 +986,7 @@ for n, line in enumerate(src.splitlines(True), 1):
             print("student.sql:%d:1: error: %s" % (start, e))
             break' '''
 
+version_cmd = 'python3 -c "import sqlite3; print(\"SQLite\", sqlite3.sqlite_version)"'
 timeout_secs = 30
 "##;
 
@@ -1054,6 +1112,7 @@ run_cmd  = "java -Xss16m {file}"
 test_cmd = "{ grep -h '^import ' {test_file} {file} | sort -u; grep -v '^import ' {test_file}; printf '\\n    }\\n}\\n\\n'; grep -v '^import ' {file}; } > Run.java && java -Xss16m Run.java"
 diag_cmd = "javac -Xlint:none -d .dxt-out {file} 2>&1 | sed -nE 's/^([^:]+[.]java):([0-9]+): (error|warning): (.*)$/\\1:\\2:0: \\3: \\4/p'"
 
+version_cmd = "java -version"
 timeout_secs = 60
 "##;
 
@@ -1173,6 +1232,7 @@ run_cmd  = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "
 test_cmd = '''{ grep -h '^import ' {test_file} {file} | sort -u; grep -v '^import ' {file}; grep -v '^import ' {test_file}; printf '\n}\n'; } > Run.kt && CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} Run.kt -include-runtime -d run.jar 2>&1 && java -Xss16m -cp "run.jar${CO:+:$CO}" RunKt'''
 diag_cmd = '''CO=$(for d in /snap/kotlin/current/lib "$(dirname "$(readlink -f "$(command -v kotlinc)")")/../lib"; do if [ -f "$d/kotlinx-coroutines-core-jvm.jar" ]; then echo "$d/kotlinx-coroutines-core-jvm.jar"; break; fi; done); kotlinc -J-XX:TieredStopAtLevel=1 -J-Xshare:auto -nowarn ${CO:+-cp "$CO"} {file} -d .dxt-out 2>&1'''
 
+version_cmd = "kotlinc -version"
 timeout_secs = 120
 "##;
 
@@ -1319,6 +1379,7 @@ run_cmd  = '''ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls 
 test_cmd = '''{ grep -h '^using ' {test_file}; grep -v '^using ' {test_file}; printf '\n    }\n}\n'; } > Tests.cs && ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); FW=$(ls "$ROOT"/shared/Microsoft.NETCore.App | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; printf '{"runtimeOptions":{"tfm":"net8.0","framework":{"name":"Microsoft.NETCore.App","version":"%s"}}}' "$FW" > run.runtimeconfig.json; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -optimize+ -nowarn:CS8321 -main:DxtProgram -out:run.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} Tests.cs && dotnet run.dll'''
 diag_cmd = '''ROOT=$(dirname "$(readlink -f "$(command -v dotnet)")"); CSC=$(ls -d "$ROOT"/sdk/*/Roslyn/bincore/csc.dll | sort -V | tail -1); REF=$(ls -d "$ROOT"/packs/Microsoft.NETCore.App.Ref/*/ref/net*/ | sort -V | tail -1); printf 'global using System;\nglobal using System.Collections.Generic;\nglobal using System.IO;\nglobal using System.Linq;\nglobal using System.Threading;\nglobal using System.Threading.Tasks;\n' > GlobalUsings.cs; dotnet "$CSC" -nologo -langversion:latest -nullable:enable -out:diag.dll -target:exe $(for r in "$REF"*.dll; do printf -- '-r:%s ' "$r"; done) GlobalUsings.cs {file} 2>&1 | grep -v CS5001 | sed -nE 's/^([^(]+)[(]([0-9]+),([0-9]+)[)]: (error|warning) (CS[0-9]+): (.*)$/\1:\2:\3: \4: \6 (\5)/p' '''
 
+version_cmd = "dotnet --version"
 timeout_secs = 60
 "##;
 
@@ -1407,6 +1468,7 @@ run_cmd  = "swiftc -O -swift-version 6 {file} -o prog 2>&1 && ./prog"
 test_cmd = "mv {file} Student.swift && { cat {test_file}; printf '\\n    }\\n}\\n'; } > main.swift && swiftc -O -swift-version 6 Student.swift main.swift -o testbin 2>&1 && ./testbin"
 diag_cmd = "swiftc -swift-version 6 -typecheck {file} 2>&1"
 
+version_cmd = "swiftc --version"
 timeout_secs = 120
 "##;
 
@@ -1438,14 +1500,58 @@ pub fn builtin_plugins() -> Vec<LanguagePlugin> {
 /// and Go (with their extra dependency lines), a registered declarative plugin for everything else
 /// (Python, C, user drop-ins), and Rust as the historical fallback.
 pub fn run_program(language: &str, code: &str, deps: &[String]) -> Result<RunOutput> {
-    match language.trim().to_ascii_lowercase().as_str() {
-        "go" | "golang" => crate::go_runner::run_go_program_with_deps(code, deps),
-        "rust" | "rs" => crate::runner::run_rust_snippet_with_deps(code, deps),
-        other => match find_plugin(other) {
-            Some(p) => PluginRunner::new(p).run_program(code),
-            None => crate::runner::run_rust_snippet_with_deps(code, deps),
-        },
+    run_program_with_support(language, code, deps, &Default::default())
+}
+
+/// [`run_program`] with a course's read-only `support` files (`tutor_core::support`) written next
+/// to the program. Only descriptor-graded languages write them: for the native Rust/Go runners a
+/// non-empty `support` is an error, never silently dropped.
+pub fn run_program_with_support(
+    language: &str,
+    code: &str,
+    deps: &[String],
+    support: &std::collections::BTreeMap<String, String>,
+) -> Result<RunOutput> {
+    let lang = language.trim().to_ascii_lowercase();
+    let plugin = match lang.as_str() {
+        "go" | "golang" | "rust" | "rs" => None,
+        other => find_plugin(other),
+    };
+    if plugin.is_none() && !support.is_empty() {
+        anyhow::bail!(
+            "course support files are not supported for `{language}` (only descriptor-graded languages write them)"
+        );
     }
+    match (lang.as_str(), plugin) {
+        ("go" | "golang", _) => crate::go_runner::run_go_program_with_deps(code, deps),
+        (_, Some(p)) => PluginRunner::new(p).run_program_with(code, support),
+        _ => crate::runner::run_rust_snippet_with_deps(code, deps),
+    }
+}
+
+/// The toolchain version a descriptor-graded language runs with — the first non-empty line its
+/// `version_cmd` prints (stdout, else stderr), run on the host like a grading run. `None` without
+/// a descriptor, without a `version_cmd`, off the host engine, or when the command fails.
+pub fn toolchain_version(language: &str) -> Option<String> {
+    let plugin = find_plugin(language)?;
+    let cmd = plugin.version_cmd.clone()?;
+    if current_engine() != SandboxEngine::Host || !plugin.host_available() {
+        return None;
+    }
+    let dir = tempfile::Builder::new()
+        .prefix("dxtutor-version-")
+        .tempdir()
+        .ok()?;
+    let out = PluginRunner::new(plugin).run_host(dir.path(), &cmd).ok()?;
+    if !out.ok {
+        return None;
+    }
+    out.stdout
+        .lines()
+        .chain(out.stderr.lines())
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_string)
 }
 
 /// The user plugin directory: `$XDG_CONFIG_HOME/dxtutor/plugins/` if set, else
@@ -1564,6 +1670,7 @@ mod tests {
             hints: Vec::new(),
             dependencies: Vec::new(),
             project: None,
+            support: Default::default(),
         }
     }
 
@@ -1750,18 +1857,26 @@ mod tests {
         );
         for bad in ["../escape.py", "/abs.py", "a/../../b.py", "a\\b.py"] {
             let err = runner
-                .scaffold_tree(&files(&[(bad, "x")]), &files(&[]))
+                .scaffold_tree(&files(&[(bad, "x")]), &files(&[]), &files(&[]))
                 .unwrap_err();
             assert!(err.to_string().contains("unsafe"), "{bad}: {err}");
         }
         // A test file can never overwrite a learner file.
         let err = runner
-            .scaffold_tree(&files(&[("t.py", "learner")]), &files(&[("t.py", "test")]))
+            .scaffold_tree(
+                &files(&[("t.py", "learner")]),
+                &files(&[("t.py", "test")]),
+                &files(&[]),
+            )
             .unwrap_err();
         assert!(format!("{err:#}").contains("already exists"), "{err:#}");
         // Nested folders are created inside the work dir.
         let dir = runner
-            .scaffold_tree(&files(&[("a/b/c.py", "x")]), &files(&[("test_a.py", "y")]))
+            .scaffold_tree(
+                &files(&[("a/b/c.py", "x")]),
+                &files(&[("test_a.py", "y")]),
+                &files(&[]),
+            )
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a/b/c.py")).unwrap(),
@@ -1895,6 +2010,144 @@ mod tests {
         );
         let out = run_program("ts", "const n: number = 6 * 7;\nconsole.log(n);\n", &[]).unwrap();
         assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+    }
+
+    fn support(
+        pairs: &[(&str, &str)],
+    ) -> std::sync::Arc<std::collections::BTreeMap<String, String>> {
+        std::sync::Arc::new(files(pairs))
+    }
+
+    /// A tiny "library" that only exists as a course support file, under node_modules.
+    const LIB: &[(&str, &str)] = &[
+        (
+            "node_modules/minilib/package.json",
+            "{\"name\":\"minilib\",\"type\":\"module\",\"exports\":\"./index.js\"}",
+        ),
+        (
+            "node_modules/minilib/index.js",
+            "export const triple = (n) => n * 3;\n",
+        ),
+    ];
+
+    /// Support files are written next to a single-file challenge, a drill and a project step,
+    /// so the learner's code can import a library the registry does not have (real Node;
+    /// skipped where it is missing).
+    #[test]
+    fn typescript_grades_with_course_support_files() {
+        let ts = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "typescript")
+            .unwrap();
+        if !ts.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(ts);
+        let mut phase = c_add_phase();
+        phase.language = "typescript".into();
+        phase.tests = "dxt.test(\"triples\", () => { dxt.equal(times3(2), 6); });\n".into();
+        let code = "import { triple } from \"minilib\";\nexport const times3 = (n: number) => triple(n);\n";
+        // Without the support files the import fails, so the step cannot pass.
+        assert!(!runner.check_correctness(&phase, code).unwrap().passed);
+        phase.support = support(LIB);
+        let ok = runner.check_correctness(&phase, code).unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+
+        let out = run_program_with_support(
+            "typescript",
+            "import { triple } from \"minilib\";\nconsole.log(triple(14));\n",
+            &[],
+            &files(LIB),
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+
+        // A project step graded with `node --test` over the hidden *.test.ts files.
+        phase.project = Some(tutor_core::ProjectFiles {
+            main: "src/calc.ts".into(),
+            starter: files(&[(
+                "src/calc.ts",
+                "export function nine(): number {\n  throw new Error(\"todo\");\n}\n",
+            )]),
+            tests: files(&[(
+                "calc.test.ts",
+                "import { test } from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { nine } from \"./src/calc.ts\";\ntest(\"nine\", () => assert.equal(nine(), 9));\n",
+            )]),
+            solution: files(&[(
+                "src/calc.ts",
+                "import { triple } from \"minilib\";\nexport function nine(): number {\n  return triple(3);\n}\n",
+            )]),
+            ..Default::default()
+        });
+        let project = phase.project.clone().unwrap();
+        let good = crate::assess_project(&phase, &project.solution).unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        let bad = crate::assess_project(&phase, &files(&[])).unwrap();
+        assert!(!bad.correctness.passed, "{}", bad.correctness.raw);
+        assert!(
+            bad.correctness.raw.contains("todo"),
+            "{}",
+            bad.correctness.raw
+        );
+
+        // A project with no hidden test file fails instead of passing vacuously.
+        let mut empty = phase.clone();
+        empty.project.as_mut().unwrap().tests = files(&[("notes.txt", "x")]);
+        let none = crate::assess_project(&empty, &project.solution).unwrap();
+        assert!(!none.correctness.passed && none.correctness.raw.contains("no hidden"));
+
+        assert!(toolchain_version("typescript").is_some_and(|v| v.starts_with('v')));
+    }
+
+    /// A support file never replaces a file of the step (nor the reverse), and the native runners
+    /// refuse a step with support files instead of grading it without them.
+    #[test]
+    fn support_files_never_overwrite_and_native_runners_refuse_them() {
+        let ts = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "typescript")
+            .unwrap();
+        let runner = PluginRunner::new(ts.clone());
+        let clash = files(&[("student.ts", "// course copy")]);
+        let err = runner
+            .scaffold("// learner", None, &clash)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("course support file `student.ts`"),
+            "{err:#}"
+        );
+        let unsafe_path = files(&[("../escape.js", "x")]);
+        assert!(runner.scaffold("", None, &unsafe_path).is_err());
+        let tree = files(&[("node_modules/minilib/index.js", "learner")]);
+        let err = runner
+            .scaffold_tree(&tree, &files(&[]), &files(LIB))
+            .map(|_| ())
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("already exists"), "{err:#}");
+
+        let mut phase = c_add_phase();
+        phase.language = "rust".into();
+        phase.support = support(LIB);
+        let refused = crate::assess(&phase, "pub fn add(a: i32, b: i32) -> i32 { a + b }")
+            .map(|_| ())
+            .unwrap_err();
+        assert!(
+            refused
+                .to_string()
+                .contains("support files are not supported"),
+            "{refused}"
+        );
+        let drill =
+            run_program_with_support("go", "package main\nfunc main() {}\n", &[], &files(LIB))
+                .map(|_| ())
+                .unwrap_err();
+        assert!(
+            drill
+                .to_string()
+                .contains("support files are not supported"),
+            "{drill}"
+        );
     }
 
     /// Real end-to-end with python3's SQLite (skipped where python3 is missing): a script runs and

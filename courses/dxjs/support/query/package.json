@@ -1,0 +1,6 @@
+{
+  "name": "@dxjs/query",
+  "version": "1.2.0",
+  "type": "module",
+  "exports": "./index.js"
+}
