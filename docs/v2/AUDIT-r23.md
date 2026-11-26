@@ -820,3 +820,17 @@ Reported: the agent's classifier calls `kubectl get deploy` dangerous («faz dep
 by command, with the infrastructure read verbs first, and does not change the agent's classifier (Co-Dev is out of
 scope). No connector for cost, metrics/logs or the cloud inventory exists yet: they stay «not connected».
 
+### F5b status: done (My queue, PR infra review, local incidents)
+
+| What | Where |
+|---|---|
+| «My queue» from real state: review requests (`gh`, with the CODEOWNERS rule), blocking IaC findings in `.tf` files I changed (90 days), recurring runbooks (`schedule:`) not completed in time, incidents I command, my last failed deploy per environment; each with why it is mine, one action, and a verification — done only when it passes (recorded with its proof); hand over with recipient and reason (Team); counts measured in this workspace; on-call «not connected» | `crates/tutor-platform/src/queue.rs` |
+| PR infra review: the masked diff and «Before you merge» — ci, plan/policy/cost from the IaC pipeline on the PR head in a temporary worktree, window, rollback, similar local incidents, capacity/error budget/on-call «not connected» — each with its source; the review is posted with `gh pr review`, approving with a failing check needs a reason (refused in Rust otherwise) that goes on the PR; audited before and after | `crates/tutor-platform/src/review.rs` |
+| Local incidents (project migration 13): open, evidence, checks run and not run (with why), mitigate, resolve with a summary, the top-cause feedback (Co-Dev's precision), confidence never above «low» without a metrics source; Co-Dev ranks causes and drafts the postmortem as proposals | `crates/tutor-board/src/project/incidents.rs` |
+| UI: the Platform view of the Ops feature (My queue, Review, Incidents), palette «Platform: …» | `ui-app/src/features/ops/` |
+| Commands `queue_items`, `queue_verify`, `queue_handover`, `pr_infra_review`, `pr_review_submit`, `incident_open`, `incident_list`, `incident_get`, `incident_add`, `incident_status`, `incident_feedback` (289 → 300) | `src-tauri/src/commands/platform.rs` |
+
+Reported: Co-Dev's comments on a PR are a reply in the chat, not comments anchored to the diff's lines; drift «where you are
+on call» is not in the queue (no on-call source); the PR review was tested with a fake `gh` and, in the real app, without a
+signed-in `gh` (it says why); no real pull request was reviewed here.
+

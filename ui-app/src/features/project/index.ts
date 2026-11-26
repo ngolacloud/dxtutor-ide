@@ -14,6 +14,7 @@ import { codev, dialog, git, loadMe, notify, openAt, openDiff, openProjectFile, 
 import { problemsScope } from "../../app/problems-scope";
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { State } from "./domain/types";
+import { parseCodevs } from "./domain/plan";
 import { projectInbox } from "../../app/project-inbox";
 import { NAVIGATOR_MESSAGE, pairState } from "../../app/pair-state";
 import { translator } from "../../app/i18n";
@@ -164,6 +165,10 @@ const table: ActionTable = {
   "pj-prompt-close": { click: () => projectService.closePrompt() },
   "pj-template": { click: () => void projectService.editTemplate() },
   "pj-template-commit": { click: () => void projectService.commitTemplate() },
+  /* Multi Co-Dev (phase 1): the sprint's Co-Devs and its parallel plan (read-only) */
+  "pj-sprint-codevs": { change: (e) => void projectService.setCodevs(e.on, parseCodevs(e.value)) },
+  "pj-sprint-plan": { click: (e) => void projectService.loadPlan(e.on) },
+  "pj-plan-close": { click: () => projectService.closePlan() },
   "pj-sprint-budget": { change: (e) => void projectService.apply({ op: "set_sprint_budget", id: e.on, budget_usd: e.value.trim() === "" ? null : Math.max(0, Number(e.value)) }) },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-diff": { click: (e) => openDiff(e.on) },

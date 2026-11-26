@@ -14,11 +14,13 @@ sha2 = "0.10"
 # r23 F5a: the runbooks' read-only allowlist builds on the agent's shell classifier
 tutor-agent = { path = "../tutor-agent" }
 regex = "1"
+# r23 F5b: the queue reads the project base's records (deploys, runbook runs, incidents)
+tutor-board = { path = "../tutor-board" }
 serde.workspace = true
 serde_json = "1"
 ureq = { version = "2.12", features = ["json"] }
 # the Secret Service over D-Bus (libdbus), with an encrypted session
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
-[dev-dependencies]
+# r23 F5b: the PR review plans the PR head in a temporary worktree
 tempfile.workspace = true

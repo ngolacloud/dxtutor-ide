@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 290 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 302 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -370,6 +370,25 @@ projecto (R3c):** os escopos dos assistentes (onde escrevem, que comandos correm
 da estrutura da pasta aberta (`features/team-scopes.ts`, pura) e o `.dxtutor/team.json` do
 projecto manda; gravar a equipa escreve-o lá (sem pasta, no LS). O custo das issues vem do uso
 real do agente (porta `onUsage` do agente v2 → contador de uso e `ctx`).
+
+## Multi Co-Dev — o plano paralelo da sprint (Project, fase 1)
+
+Assenta no Project (`board.sqlite3`, `crates/tutor-board/src/project/`), não no quadro Tasks. A sprint guarda
+quantos Co-Devs a trabalham (`sprints.codevs`, migração 14, `Op::SetSprintCodevs`, 1–8). O planeador puro
+`tutor_board::project::plan::plan_sprint` reparte as issues Ready da sprint por N lanes (uma por Co-Dev) em ondas:
+uma issue só começa depois das dependências (onda anterior ou Done) e duas issues que se SOBREPÕEM nunca partilham
+uma onda — a segunda fica em série. Sobrepõem-se quando um ficheiro pode ser mudado pelas duas: um ficheiro da pasta
+(ou conhecido: change sets, commits ligados, ramo da issue, conflitos do `merge-tree`) apanhado por um glob do âmbito
+de cada uma (as regras do `scope_matches` das permissões do Co-Dev, reimplementadas sem regex), ou conhecido das duas;
+uma entrada literal conta como ficheiro antes de existir. Dentro da onda, a issue mais pesada vai para a lane com menos
+pontos; determinístico (prioridade, rank, chave). Fica de fora, com motivo: não Ready (as dependências à parte), já no
+fluxo, dependência que não está em Done nem no plano, ciclo, sobreposição com uma issue no fluxo. O comando
+`project_sprint_plan` (SÓ LEITURA) junta a pasta (`tutor_agent::issue_prompt::project_files`, com o `.gitignore`) e o git
+(`gitwork::branch_files`/`commit_files`/`predict_conflicts`); a UI desenha-o no Planning (`ui/plan-view.ts`, «Parallel
+plan»). Testes: `cargo test -p tutor-board plan`, `board::tests::the_sprint_plan_…` e `tests/project.plan.test.ts`.
+Fases seguintes: (2) uma sessão de Co-Dev por lane na UI; (3) uma worktree e ficheiros reservados por Co-Dev; (4) o
+«Co-Dev reviewer» assistido, que revê cada merge request e integra num worktree temporário só com os testes a passar e
+sem partir o ramo por omissão (sem conflitos, regras do arquitecto); (5) autonomia delegada pelo humano e PRs.
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 
@@ -945,6 +964,30 @@ Oito passos — Destino, Identidade, Segredos, Verificações, Estratégia, Apro
   catálogo/scorecards, GitOps, custo e inventário adiados; F5 em duas partes (F5b: fila, revisão de PR, incidentes).
 - Testes: `cargo test -p tutor-platform runbook sources`, `cargo test -p tutor-board runbook_runs`, `tests/ops.test.ts` e
   o passo `runbook` do auto-teste.
+
+## A actividade Platform: a fila, a revisão de PR e os incidentes (r23 F5b, `tutor_platform::queue`/`review`, `features/ops`)
+
+Vista «Platform» da feature `ops` (`VIEW.platform`, paleta «Platform: …»; serviço `application/platform-service.ts`,
+vista `ui/platform-view.ts`, acções `pf:*` no despachante partilhado):
+- **A minha fila** (`queue_items`): itens calculados do estado real — revisões pedidas pelo `gh`
+  (`review-requested:@me`) com a regra do CODEOWNERS, achados de IaC bloqueantes em `.tf` que a pessoa mudou nos últimos
+  90 dias (`git log --author` + `iacfind`, menos os riscos aceites), runbooks com `schedule:` sem execução completa no
+  prazo, incidentes que comanda, o seu último deploy falhado num ambiente. Cada item diz porque é seu e tem UMA acção. Só
+  passa a «feito» quando `queue_verify` o prova contra o estado (gravado com a prova); «passar» exige destinatário e
+  motivo (vista Team, auditado). «Medido neste workspace» = só contagens locais. O on-call fica «not connected».
+- **Revisão de PR de infra** (`pr_infra_review`): o diff (mascarado) e «Before you merge» — ci (`statusCheckRollup`),
+  plan/policy/cost (o pipeline de IaC numa worktree temporária da cabeça do PR, `git fetch origin pull/N/head`, removida
+  no fim), window, rollback (migrações), incidentes locais semelhantes, capacity/error budget/on-call «not connected»;
+  cada uma com a fonte. `pr_review_submit`: o PR tem de ser o revisto (mesma cabeça); aprovar com uma verificação a
+  falhar exige motivo (no Rust), que vai para o PR; auditado antes e com o resultado.
+- **Incidentes locais** (migração 13: `incidents`, `incident_events`, `queue_events`; decisão §5 Q9): abrir (INC-n),
+  evidência, verificações feitas e NÃO feitas (com porquê), mitigar, resolver (com resumo), «a causa principal estava
+  certa?» (uma vez; precisão do Co-Dev). A confiança nunca passa de «low» sem uma fonte de métricas. O Co-Dev ordena
+  causas (proposta) e escreve o rascunho do postmortem em `docs/postmortems/INC-n.md` (proposta no editor).
+- GOTCHA: as leituras (fila, lista, um incidente, a revisão) não se bloqueiam umas às outras — abrir um incidente
+  enquanto a lista carrega era ignorado; só as acções que mudam algo vão uma de cada vez.
+- Testes: `cargo test -p tutor-platform queue review`, `cargo test -p tutor-board incidents`, `tests/platform.test.ts` e
+  o passo `platform` do auto-teste.
 
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 

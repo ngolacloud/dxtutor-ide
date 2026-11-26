@@ -3,6 +3,8 @@
 pub mod deploy;
 pub mod keychain;
 pub mod policy;
+pub mod queue;
+pub mod review;
 pub mod runbook;
 pub mod sources;
 pub mod vault;

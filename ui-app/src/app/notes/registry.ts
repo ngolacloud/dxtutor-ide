@@ -11,7 +11,16 @@ import { BOARD_NOTES } from "../../features/board/notes";
 import { LSP_NOTES } from "../../features/lsp/notes";
 import { TESTING_NOTES } from "../../features/testing/notes";
 import { CODEV_NOTES } from "../../features/codev/notes";
+import { PROJECT_NOTES } from "../../features/project/notes";
+import { OPS_NOTES, PLATFORM_NOTES } from "../../features/ops/notes";
+import { VAULT_NOTES } from "../../features/vault/notes";
+import { DEPLOY_NOTES } from "../../features/deploy/notes";
+import { PROTECT_NOTES } from "../../features/protect/notes";
 
-export const NOTES: FeatureNotes[] = [CODEV_NOTES, CODEREVIEW_NOTES, BOARD_NOTES, TESTING_NOTES, LSP_NOTES];
+export const NOTES: FeatureNotes[] = [
+  CODEV_NOTES, CODEREVIEW_NOTES, BOARD_NOTES, PROJECT_NOTES, TESTING_NOTES, LSP_NOTES,
+  /* r23 F4–F5 */
+  PROTECT_NOTES, OPS_NOTES, PLATFORM_NOTES, VAULT_NOTES, DEPLOY_NOTES,
+];
 
 export const PENDING: string[] = ["tabs:startDebug", "tabs:dxRun"];

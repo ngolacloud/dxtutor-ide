@@ -105,6 +105,8 @@ export interface Sprint {
   /** Co-Dev budget in dollars (RF-T03), and what Co-Dev spent on the sprint's issues. */
   budgetUsd: number | null;
   spentUsd: number;
+  /** How many Co-Devs work the sprint at the same time (Multi Co-Dev); `null`: not set (one). */
+  codevs: number | null;
 }
 
 export interface Release {
@@ -277,6 +279,7 @@ export function parseProject(v: unknown): Project | null {
         capacity: numOrNull(s.capacity),
         budgetUsd: numOrNull(s.budgetUsd),
         spentUsd: num(s.spentUsd),
+        codevs: numOrNull(s.codevs),
       })),
     releases: arr(v.releases).filter(isObj).map((r) => ({ version: str(r.version), date: num(r.date), goal: str(r.goal), epic: str(r.epic) })),
     retro: arr(v.retro)
