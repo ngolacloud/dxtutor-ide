@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 315 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 321 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -918,6 +918,24 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   linguagem na sessão.
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
+- **Recursos (LSP P6, `src-tauri/src/lsp/lifecycle.rs`, módulo filho do `lsp.rs`):** um servidor pára com
+  `shutdown` (só depois do `initialize`) + `exit`, espera 2 s + 1 s e depois é morto com o seu grupo de processos
+  (`process_group(0)`); é SEMPRE recolhido (no Linux o `waitid(WNOWAIT)` vê a saída sem recolher, para o
+  `kill(-pgid)` não apanhar um pid reutilizado). Pára ao fechar/trocar de pasta (`lsp_folder_closed`, pelo
+  `dx:workspace`), ao sair (`RunEvent::Exit` → `shutdown_all`), nos reinícios do P2 (o antigo sai do mapa já e pára
+  antes de a thread arrancar o novo) e com «Stop»/«Restart». Um servidor que morre sozinho sai do mapa pela thread
+  do stdout dele. `didClose` pelo bus `editor:tab-closed` e por um ficheiro aberto que desaparece do `FS`
+  (`workspace:changed`). Sem ficheiros abertos e sem uso durante `idleMinutes` pára (reaper de 30 s); no máximo
+  `maxServers` (pára o LRU sem ficheiros; nunca um com ficheiros: `lsp://limit`). Os `resources` só vêm do `lsp.json`
+  do utilizador (`lspconf::Resources`; num projecto é erro). GOTCHA-arranque continua fechado: o reaper decide e o
+  `get_or_start` entrega/toca o `last_used` com o lock do mapa, e um lock por chave (`start_lock`) faz com que
+  pedidos em corrida esperem pelo mesmo arranque em vez de lançar cada um o seu processo. O stderr e o
+  `window/logMessage` (≤ info) vão mascarados (`tutor_protect`) para um anel por servidor (500 linhas/256 KiB) com os
+  eventos do ciclo de vida: `lsp://log` → canal «Language servers» do Output (o painel junta o `lsp_server_log`
+  pelo `seq`); a paleta «LSP: Show Running Language Servers» lista os vivos (`lsp_servers`, memória do `/proc`).
+  Uma chave de sessão leva `\0`: nunca num atributo HTML (vira U+FFFD) — a lista usa o índice.
+  Testes: `cargo test -p dxtutor-ide --lib lifecycle` (servidor falso em Python), `tests/lsp.resources.test.ts`,
+  `tests/panel.lsp-log.test.ts` e o passo `lspResources` do auto-teste.
 - **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, `lsp.symbols.test.ts`, `lsp.workspace-symbols.test.ts`, `lsp.type-hierarchy.test.ts`, e o passo
   `lsp-java`/`lsp-kotlin` do auto-teste desktop (`DXTUTOR_SELFTEST`, Xvfb), que conduz o editor real.
   GOTCHA: o backend procura o `jdtls` no PATH e em `$HOME/.local/share/jdtls/bin`; sem servidor não
