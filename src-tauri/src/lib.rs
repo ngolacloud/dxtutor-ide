@@ -81,6 +81,7 @@ use commands::debug_cmds::{
     debug_step, debug_stop, debug_stop_on_panic, debug_test_targets, debug_threads, debug_travel,
     debug_variables, debug_writes,
 };
+use commands::deploy::{deploy_plan, deploy_rollout};
 use commands::devcontainer::{
     devcontainer_exec, devcontainer_info, devcontainer_session_down, devcontainer_session_exec,
     devcontainer_session_run, devcontainer_session_status, devcontainer_session_up,
@@ -1092,6 +1093,8 @@ pub fn run() {
             vault_reveal_read,
             vault_dynamic,
             vault_lease_revoke,
+            deploy_plan,
+            deploy_rollout,
             ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,
@@ -1125,6 +1128,7 @@ pub fn run() {
             board::iac_risk_accept,
             board::iac_risks,
             board::iac_risk_revoke,
+            board::deploy_records,
             board::project_issue_prompt,
         ])
         .run(tauri::generate_context!())

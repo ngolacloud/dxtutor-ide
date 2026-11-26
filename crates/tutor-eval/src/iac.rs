@@ -940,6 +940,45 @@ fn millis(t: Instant) -> u64 {
     t.elapsed().as_millis() as u64
 }
 
+/// What changed outside the code in a folder (`init` + `plan -refresh-only` + `show -json`): the
+/// drifted addresses (r23 F4c2: the deploy's «plan applied without drift» gate). Nothing is kept.
+pub fn drift(c: &Ctx) -> Result<Vec<String>, String> {
+    let tool = tool_of(c.has).ok_or_else(|| install_hint("tofu").to_string())?;
+    let wd = work_dir(c.root, c.dir)?;
+    let init = exec(with(c, tool, &["init", "-input=false", "-no-color"]), &wd);
+    if init.code != 0 {
+        return Err(format!("{tool} init failed:\n{}", words(&init.stderr)));
+    }
+    let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let out = tmp.path().join("drift.bin");
+    let out_arg = format!("-out={}", out.display());
+    let plan = exec(
+        with(
+            c,
+            tool,
+            &[
+                "plan",
+                "-refresh-only",
+                "-input=false",
+                "-no-color",
+                "-lock=false",
+                &out_arg,
+            ],
+        ),
+        &wd,
+    );
+    if plan.code != 0 {
+        return Err(format!(
+            "{tool} plan -refresh-only failed:\n{}",
+            words(&plan.stderr)
+        ));
+    }
+    let file = out.to_string_lossy().to_string();
+    let show = exec(with(c, tool, &["show", "-json", &file]), &wd);
+    let (_, drift) = ops::parse_plan(&show.stdout)?;
+    Ok(drift.into_iter().map(|d| d.address).collect())
+}
+
 /// Runs the pipeline in `ctx.dir`, telling `on` about each stage as it starts and ends. Keeps the
 /// plan (when there is one) under its hash for [`apply_command`].
 pub fn run(c: &Ctx, on: &mut dyn FnMut(&Stage)) -> PipelineRun {

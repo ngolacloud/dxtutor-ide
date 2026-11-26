@@ -14,6 +14,7 @@ pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
 pub mod debug_cmds;
+pub mod deploy;
 pub mod devcontainer;
 pub mod dictation;
 pub mod git;

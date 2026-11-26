@@ -261,6 +261,26 @@ const MIGRATIONS: &[&str] = &[
         expires  INTEGER NOT NULL
     );
     CREATE INDEX idx_iac_accepted ON iac_accepted(root, expires);",
+    // 11 — deploy records (r23 F4c2, D04): each rollout of the guided deploy, ok or not — commit, issue,
+    //      environment, cluster, who deployed and who approved, the checks and the waivers (JSON)
+    "CREATE TABLE deploys (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        env         TEXT NOT NULL,
+        context     TEXT NOT NULL,
+        namespace   TEXT NOT NULL,
+        version     TEXT NOT NULL,
+        issue_key   TEXT,
+        actor       TEXT NOT NULL,
+        approver    TEXT,
+        at          INTEGER NOT NULL,
+        ok          INTEGER NOT NULL,
+        failed_step TEXT,
+        waivers     TEXT NOT NULL DEFAULT '[]',
+        gates       TEXT NOT NULL DEFAULT '{}',
+        reason      TEXT
+    );
+    CREATE INDEX idx_deploys_version ON deploys(root, version, at);",
 ];
 
 /// The schema version this code expects.

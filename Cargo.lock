@@ -5487,7 +5487,9 @@ dependencies = [
  "keyring",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
+ "tutor-eval",
  "tutor-protect",
  "ureq",
 ]
