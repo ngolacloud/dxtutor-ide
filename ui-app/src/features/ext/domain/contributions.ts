@@ -9,6 +9,7 @@
 import type { VsTheme } from "./theme";
 import type { RawGrammar } from "./textmate";
 import type { Snippet } from "./snippets";
+import { REGISTRY, languageByExtension } from "../../lsp/domain/registry";
 
 /** O bloco `contributes` (só os campos declarativos que usamos). */
 export interface Contributes {
@@ -82,23 +83,15 @@ export function resolveRelative(fromZipPath: string, relative: string): string {
   return parts.join("/");
 }
 
-/** Linguagem VS Code de cada extensão de ficheiro conhecida do editor. */
-const DEFAULT_LANGUAGES: Record<string, string> = {
-  rs: "rust", go: "go", py: "python", ts: "typescript", tsx: "typescriptreact", js: "javascript",
-  jsx: "javascriptreact", java: "java", kt: "kotlin", kts: "kotlin", swift: "swift", cs: "csharp",
-  cpp: "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp", c: "c", h: "c", sql: "sql", md: "markdown",
-  json: "json", toml: "toml", yaml: "yaml", yml: "yaml", html: "html", css: "css", sh: "shellscript",
-  rb: "ruby", php: "php", lua: "lua", dart: "dart", zig: "zig", ex: "elixir", hs: "haskell",
-};
-
 /** A linguagem de uma extensão de ficheiro: primeiro as que as extensões instaladas
- *  declaram (`contributes.languages[].extensions`), depois o mapa por omissão. */
+ *  declaram (`contributes.languages[].extensions`), depois o registo de linguagens
+ *  (`languages/registry.json`, o mesmo que o backend lê). */
 export function languageOf(fileExt: string, installed: ExtensionContributions[]): string | undefined {
   const dotted = "." + fileExt.toLowerCase();
   for (const c of installed) {
     for (const l of c.languages) if (l.extensions.some(e => e.toLowerCase() === dotted)) return l.id;
   }
-  return DEFAULT_LANGUAGES[fileExt.toLowerCase()];
+  return languageByExtension(fileExt)?.id;
 }
 
 /** Lê um `language-configuration.json` já parseado. */
@@ -148,23 +141,8 @@ export function toggleLineComment(
 }
 
 /** Extensões VS Code que, no fundo, só arrancam um servidor de linguagem — e o servidor LSP
- *  que o dxtutor arranca no lugar delas. */
-export const KNOWN_LANGUAGE_SERVERS: Record<string, { language: string; server: string }> = {
-  "rust-lang.rust-analyzer": { language: "rust", server: "rust-analyzer" },
-  "golang.go": { language: "go", server: "gopls" },
-  "ms-python.python": { language: "python", server: "pyright-langserver" },
-  "ms-pyright.pyright": { language: "python", server: "pyright-langserver" },
-  "detachhead.basedpyright": { language: "python", server: "pyright-langserver" },
-  "ms-python.vscode-pylance": { language: "python", server: "pyright-langserver" },
-  "vscode.typescript-language-features": { language: "typescript", server: "typescript-language-server" },
-  "llvm-vs-code-extensions.vscode-clangd": { language: "cpp", server: "clangd" },
-  "ms-vscode.cpptools": { language: "cpp", server: "clangd" },
-  "redhat.java": { language: "java", server: "jdtls" },
-  "fwcd.kotlin": { language: "kotlin", server: "kotlin-language-server" },
-  "jetbrains.kotlin": { language: "kotlin", server: "kotlin-lsp" },
-  "ms-dotnettools.csharp": { language: "csharp", server: "csharp-ls" },
-  "ms-dotnettools.csdevkit": { language: "csharp", server: "csharp-ls" },
-  "swiftlang.swift-vscode": { language: "swift", server: "sourcekit-lsp" },
-  "sswg.swift-lang": { language: "swift", server: "sourcekit-lsp" },
-  "lighttiger2505.sqls": { language: "sql", server: "sqls" },
-};
+ *  que o dxtutor arranca no lugar delas (o `command` do servidor no registo de linguagens, o que
+ *  o backend procura de facto). */
+export const KNOWN_LANGUAGE_SERVERS: Record<string, { language: string; server: string }> = Object.fromEntries(
+  REGISTRY.servers.flatMap((s) => (s.vscodeExtensions ?? []).map((x) => [x, { language: s.id, server: s.command }] as const)),
+);

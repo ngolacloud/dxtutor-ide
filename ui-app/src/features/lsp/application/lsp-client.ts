@@ -232,7 +232,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   function docOf(key: string | null): Doc | null {
     if (!key) return null;
     const root = d.workspace.diskRoot();
-    const languageId = languageIdFor(key);
+    const languageId = languageIdFor(key, d.workspace.text(key)); // o texto só conta se o nome não diz nada (shebang)
     if (!root || !languageId) return null;
     const path = keyToAbsolute(key, d.workspace.virtualPrefix(), root);
     return path ? { key, path, languageId } : null;
