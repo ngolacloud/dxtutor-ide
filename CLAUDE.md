@@ -1256,8 +1256,11 @@ O IDE tem de ser leve e nunca travar a máquina. Regras medidas (amostragem da t
   `setup`.
 - **Keychain**: o `keys_status` lê-o fora da thread da UI; a configuração antiga só é lida para os fornecedores que lá têm
   campo.
-- Fica para a P2: o conteúdo dos ficheiros todos vai para a página ao abrir a pasta (até 4000 × 768 KB) e o JavaScript é
-  um só pacote; para a P3, o passo de desempenho no auto-teste.
+- **Abrir uma pasta (P2):** a página guarda ~1 MB por MB de texto carregado. O `workspace::load` não entra nas pastas que
+  o git ignora por inteiro (`git ls-files --others --ignored --directory`; um `.env` ignorado e um ficheiro versionado
+  ficam) e pára aos 48 MB (`LoadPolicy::max_total`), além dos 4000 ficheiros de 768 KB. O HEAD dos alterados vem de um só
+  `git cat-file --batch` (`platform/desktop/git-batch.ts`). O auto-teste é um chunk à parte (`import()` no `bridge.ts`).
+- Medidas e método em `docs/v2/NOTAS-desempenho.md`; fica para a P3 o passo de desempenho no auto-teste.
 
 ## Regras ao mexer aqui
 
