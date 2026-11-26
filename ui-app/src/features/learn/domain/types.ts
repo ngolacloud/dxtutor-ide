@@ -89,6 +89,22 @@ export interface Course {
   units: Unit[];
   /** De onde veio: embutido na UI ou servido pelo backend (plugin/curso do binário). */
   origin: "embedded" | "backend";
+  /** O curso compila contra dependências preparadas uma vez (só no backend): antes de avaliar,
+   *  «Prepare course». Falso/ausente nos outros. */
+  prepare?: boolean;
+}
+
+/** O estado da preparação de um curso que se avalia offline contra uma cache. */
+export interface PrepareStatus {
+  needed: boolean;
+  state: "not-needed" | "missing" | "stale" | "ready";
+  /** Os comandos exactos a aprovar (vêm do backend). */
+  command: string;
+  /** A pasta da cache do curso. */
+  dir: string;
+  timeoutSecs: number;
+  fetchSecs: number | null;
+  warmSecs: number | null;
 }
 
 /** Estado de um cartão no selector de linguagens. */

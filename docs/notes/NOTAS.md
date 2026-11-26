@@ -6,7 +6,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 4 acções
+- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 5 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Project](#project) — 11 acções
@@ -17,7 +17,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
-- [Learning Track](#learning-track) — 3 acções
+- [Learning Track](#learning-track) — 4 acções
 
 ---
 
@@ -25,14 +25,46 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».
 
-<sub>Código: `ui-app/src/features/codev/application/codev-sessions.ts`, `ui-app/src/features/codev/ui/session-view.ts`, `ui-app/src/features/codev/ui/codevs-view.ts`, `ui-app/src/features/codev/domain/scope-overlap.ts`, `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/codev/application/codev-sessions.ts`, `ui-app/src/features/codev/ui/session-view.ts`, `ui-app/src/features/codev/ui/codevs-view.ts`, `ui-app/src/features/codev/domain/scope-overlap.ts`, `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs`, `ui-app/src/features/codev/domain/backlog.ts`, `ui-app/src/features/codev/ui/backlog-view.ts`, `src-tauri/src/backlog.rs`, `crates/tutor-board/src/project/backlog.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
+| [Gerar o backlog e criar o Project (/backlog e /project)](#gerar-o-backlog-e-criar-o-project-backlog-e-project) | chat do Co-Dev › «/backlog …» e «/project …» (ou o menu «/» › Gerar o backlog do projecto) · Studio › «Generate backlog & delegate →» |
 | [Rever as mudanças no editor, bloco a bloco](#rever-as-mudancas-no-editor-bloco-a-bloco) | editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo |
 | [Mapa de agentes](#mapa-de-agentes) | chat do Co-Dev › barra do compositor › chip «● N agentes» |
 | [Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)](#varios-co-devs-ao-mesmo-tempo-a-faixa-co-devs) | Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat» |
 | [Uma worktree por Co-Dev e os ficheiros reservados](#uma-worktree-por-co-dev-e-os-ficheiros-reservados) | Project › painel da issue › «Work on it with Co-Dev» (com outro Co-Dev aberto) · chat do Co-Dev › faixa «Co-Devs» › ☰ «Ficheiros», ✓ «Commit», ⌫ «Limpar» · chat do Co-Dev › barra da revisão de hunks (o ramo, «Ver no editor») |
+
+### Gerar o backlog e criar o Project (/backlog e /project)
+
+**Onde:** chat do Co-Dev › «/backlog …» e «/project …» (ou o menu «/» › Gerar o backlog do projecto) · Studio › «Generate backlog & delegate →»
+
+O «/backlog» pede ao Co-Dev o backlog da pasta aberta: ele lê o código, o README e o desenho do Studio, e propõe épicos e issues, cada uma com a história, critérios em Dado/Quando/Então, os ficheiros onde mexe (ou que cria) e as dependências. O backlog fica em .dxtutor/backlog.json e aparece no chat. O «/project» transforma-o no Project da pasta: método, duração das iterações e sprints (as dependências primeiro); só é criado quando carregas em «Criar o Project» e confirmas.
+
+**Como usar**
+
+1. Abre a pasta do projecto (pode estar vazia) e escreve no chat «/backlog» seguido do contexto, p.ex. «/backlog uma loja com encomendas e pagamentos». No Studio, «Generate backlog & delegate →» faz o mesmo com os componentes do desenho.
+2. Revê o backlog no cartão (ou em .dxtutor/backlog.json, que podes editar).
+3. Escreve «/project» com o método e a capacidade, p.ex. «/project scrum, sprints de 2 semanas, 20 pontos», e revê o plano.
+4. Carrega em «Criar o Project» (ou «Criar e aprovar Ready») e confirma no diálogo. As issues prontas ficam com «Trabalhar … com o Co-Dev», que implementa cada uma nos ficheiros do seu âmbito.
+
+**Fluxo (por dentro)**
+
+1. O «/backlog» abre uma sessão de backlog do agente v2 (conjunto de ferramentas 11): só estas sessões têm `backlog_propose` e `project_propose`; o pedido é a skill embutida `backlog` (um `.dxtutor/commands/backlog.md` substitui-a).
+2. `backlog_propose` valida o backlog com as regras do Project (no Rust): o que falta volta ao modelo, que corrige; o bom grava-se em `.dxtutor/backlog.json` e chega ao chat pelo evento `backlog://proposal`.
+3. `project_propose` só lê o ficheiro e valida o plano; criar é o comando `project_create_from_backlog`, que confere que o ficheiro não mudou, regista no registo de auditoria e cria tudo numa só transacção.
+
+**Dicas**
+
+- Uma issue cujo título o Project já tem não é criada outra vez: podes correr o «/project» de novo depois de acrescentar issues ao backlog.
+- Um ficheiro do âmbito que ainda não existe vai no pedido da issue como «ainda não existe: cria-o».
+
+**Limites**
+
+- Só na app desktop, com uma pasta aberta e um provedor com agente.
+- «Criar e aprovar Ready» é do Product Owner ou do Tech Lead (quando a equipa está definida) e só aprova as issues a que não falta mais nada; as que esperam por uma dependência ficam por aprovar.
+
+<sub>Cobre: `codev-backlog:open`, `codev-backlog:next`, `codev-backlog:create`, `codev-backlog:create-ready`, `codev-backlog:project`, `codev-backlog:work`</sub>
 
 ### Rever as mudanças no editor, bloco a bloco
 
@@ -1690,13 +1722,14 @@ Aplica os manifestos (sem os `Secret`), anota a versão nos Deployments desses m
 
 Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: ler o conceito, escrever o programa linha a linha e aplicar num desafio que os testes ocultos avaliam. Os cursos chegam como plugins (`ngolacloud/dxtutor-course-<id>`).
 
-<sub>Código: `ui-app/src/features/learn/domain/catalog.ts`, `ui-app/src/features/learn/domain/project.ts`, `ui-app/src/features/learn/application/catalog-service.ts`, `ui-app/src/features/learn.ts`, `crates/tutor-core/src/project.rs`, `crates/tutor-core/src/support.rs`, `src-tauri/src/study.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/learn/domain/catalog.ts`, `ui-app/src/features/learn/domain/project.ts`, `ui-app/src/features/learn/application/catalog-service.ts`, `ui-app/src/features/learn.ts`, `crates/tutor-core/src/project.rs`, `crates/tutor-core/src/support.rs`, `crates/tutor-core/src/build.rs`, `crates/tutor-eval/src/course_cache.rs`, `ui-app/src/features/learn/application/prepare-service.ts`, `src-tauri/src/study.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Escolher o que aprender: linguagens e «Frameworks & tools»](#escolher-o-que-aprender-linguagens-e-frameworks-tools) | Learning Track › «Choose what to learn» · o selector que abre quando não há percurso |
 | [Passo de projecto: vários ficheiros](#passo-de-projecto-varios-ficheiros) | Learning Track › um desafio com a lista de ficheiros por cima do editor |
 | [O curso Dxjs: da primeira signal a uma pequena app](#o-curso-dxjs-da-primeira-signal-a-uma-pequena-app) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs |
+| [Preparar um curso (Seiva): descarregar as bibliotecas uma vez](#preparar-um-curso-seiva-descarregar-as-bibliotecas-uma-vez) | Learning Track › um passo do curso Seiva › cartão «Prepare this course» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
 
@@ -1725,7 +1758,7 @@ Mostra as 10 linguagens oficiais e, numa secção à parte, os frameworks e as f
 **Limites**
 
 - No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».
-- Dos frameworks e ferramentas oficiais só o Dxjs tem curso (embutido na app); os outros chegam em fases próximas.
+- Dos frameworks e ferramentas oficiais, o Dxjs e o Seiva têm curso (embutidos na app); os outros chegam em fases próximas.
 
 <sub>Cobre: `lt-pick`, `lt-onboard`, `lt-install`, `lt-remove`</sub>
 
@@ -1756,7 +1789,7 @@ Um desafio pode ser um pequeno projecto: vários ficheiros (um aberto primeiro, 
 **Limites**
 
 - Só na app desktop.
-- Hoje só os avaliadores de Python (`unittest`) e de TypeScript (`node --test`) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.
+- Hoje os avaliadores de Python (`unittest`), de TypeScript (`node --test`) e de Rust (`cargo test`, um crate ou um workspace) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.
 - Não se criam ficheiros novos: o passo traz todos os ficheiros com que se trabalha.
 
 <sub>Cobre: `lt-file`, `learn:go`</sub>
@@ -1790,6 +1823,38 @@ O curso oficial do dxjs, o motor de interfaces reactivas da NgolaCloud: 12 unida
 - No dxjs 1.2.0, uma ligação reactiva dentro de uma linha de `list` deixa de actualizar depois da primeira mudança da lista: o curso ensina a pôr na chave o que muda na linha.
 
 <sub>Cobre: `lt-pick`, `submit_step`</sub>
+
+### Preparar um curso (Seiva): descarregar as bibliotecas uma vez
+
+**Onde:** Learning Track › um passo do curso Seiva › cartão «Prepare this course»
+
+Um curso que compila contra bibliotecas de fora (o Seiva 0.2.0, o tokio, o axum) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso e compila-as; depois, cada passo compila offline em poucos segundos.
+
+**Como usar**
+
+1. Abre um passo do curso Seiva: enquanto o curso não está preparado, aparece o cartão «Prepare this course».
+2. Carrega em «Prepare course» e lê, no diálogo, os comandos exactos e a pasta onde correm.
+3. Aprova: a preparação demora cerca de um minuto; no fim o cartão desaparece e «Submit» já avalia.
+
+**Fluxo (por dentro)**
+
+1. O backend constrói os comandos (`course_prepare_status`): `cargo fetch` (a única ida à rede) e `cargo test --offline --no-run`, com um `CARGO_HOME` e um `target` só do curso — o `~/.cargo` não é tocado.
+2. O diálogo de aprovação partilhado mostra-os. Uma recusa vai para o registo de auditoria e nada corre.
+3. Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.
+4. No fim fica um marcador com a impressão digital das dependências e o `Cargo.lock`; cada avaliação corre com `--offline`, essa cache e o tempo limite do curso.
+5. Sem preparação (ou se o curso mudou as bibliotecas), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.
+
+**Dicas**
+
+- Na linha de comandos, `dxt plugin prepare courses/seiva` faz o mesmo para a mesma cache.
+- A cache fica em `<dados do utilizador>/dxtutor/course-cache/seiva-basics` (uns 650 MB); apagá-la só obriga a preparar outra vez.
+
+**Limites**
+
+- Só na app desktop, e só para cursos avaliados em Rust.
+- Precisa de rede na preparação (crates.io e GitHub).
+
+<sub>Cobre: `lt-prepare`</sub>
 
 ---
 

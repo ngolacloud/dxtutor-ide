@@ -27,6 +27,70 @@ pub struct Command {
     pub description: String,
     #[serde(skip)]
     pub body: String,
+    /// Comes with the IDE (`/backlog`, `/project`); a project command with the same name wins.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub builtin: bool,
+}
+
+/// `/backlog <contexto>`: o Co-Dev investiga a pasta e propõe o backlog (`backlog_propose`).
+pub const BACKLOG_COMMAND: &str = "backlog";
+/// `/project <contexto>`: o Co-Dev propõe o Project a partir do backlog (`project_propose`).
+pub const PROJECT_COMMAND: &str = "project";
+
+const BACKLOG_BODY: &str = "Build the product backlog of this project and propose it with the `backlog_propose` tool.
+
+Context from the human: $ARGUMENTS
+
+1. Investigate first, read-only: the README and docs, the manifests (package.json, Cargo.toml, pyproject.toml, go.mod…), the source tree (`glob`, `grep`, `outline`), the tests, any architecture (`*.arch.json`, docs/architecture, .dxtutor/architecture.toml) and the current `.dxtutor/backlog.json` if there is one. An empty folder is fine: then the backlog comes from the context alone, and the scopes are the paths the code will have.
+2. Group the work in epics. Each issue is small (1 to 8 points), as independent as it can be, and says WHERE it lives in the code:
+   - `scope`: the real files or folders it changes or creates, relative to the project (globs such as `src/orders/**` are allowed). A file that does not exist yet is listed with the path it will have.
+   - `acceptance`: 1 to 5 criteria, each in Given/When/Then (Dado/Quando/Então in Portuguese).
+   - a story has `storyAs`, `storyWant` and `storySo`; a bug, a task or a spike says what and why in `description`.
+   - `deps`: the refs of the issues that must be done first (no cycles). When the context names a Studio component, put it in `component`.
+3. Write the titles, stories and criteria in the language the human writes in; keep paths and code identifiers as they are.
+4. Call `backlog_propose` once with the whole backlog. If it returns problems, fix them and call it again. Change no other file.
+5. End with a short summary and the next step: `/project <context>` (method, sprint length, capacity, team) creates the Project from it.";
+
+const PROJECT_BODY: &str = "Create this folder's Project (the IDE's board) from the backlog in `.dxtutor/backlog.json`, and propose it with the `project_propose` tool.
+
+Context from the human: $ARGUMENTS
+
+1. Read `.dxtutor/backlog.json`. If it does not exist, tell the human to run `/backlog <context>` first, and stop.
+2. From the context, choose the method (`kanban`, `scrum`, `xp` or `scrumxp`; Kanban when nothing is said) and the iteration length in days. Except for Kanban, plan the sprints in order: each with a name, a goal and the refs of its issues — dependencies first, then by priority. When the human gives a capacity or a velocity, no sprint goes over it. Issues in no sprint stay in the product backlog.
+3. Add a Definition of Ready or of Done only when the context asks for one.
+4. Call `project_propose` once; if it returns problems, fix them and call it again. Nothing is created until the human confirms it in the chat.
+5. Summarise the plan in a few lines.";
+
+/// Os comandos que vêm com o IDE.
+pub fn builtin_commands() -> Vec<Command> {
+    vec![
+        Command {
+            name: BACKLOG_COMMAND.into(),
+            description: "Co-Dev drafts the product backlog from this folder and your context"
+                .into(),
+            body: BACKLOG_BODY.into(),
+            builtin: true,
+        },
+        Command {
+            name: PROJECT_COMMAND.into(),
+            description: "Co-Dev plans the Project (method, sprints) from .dxtutor/backlog.json"
+                .into(),
+            body: PROJECT_BODY.into(),
+            builtin: true,
+        },
+    ]
+}
+
+/// Os comandos do projecto e, depois, os do IDE que o projecto não substitui.
+pub fn all_commands(root: &Path) -> Vec<Command> {
+    let mut v = commands(root);
+    let own: Vec<String> = v.iter().map(|c| c.name.clone()).collect();
+    v.extend(
+        builtin_commands()
+            .into_iter()
+            .filter(|c| !own.contains(&c.name)),
+    );
+    v
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -104,6 +168,7 @@ pub fn commands(root: &Path) -> Vec<Command> {
                 name,
                 description: description.chars().take(160).collect(),
                 body: body.chars().take(MAX_BODY).collect(),
+                builtin: false,
             })
         })
         .collect();
@@ -111,11 +176,12 @@ pub fn commands(root: &Path) -> Vec<Command> {
     v
 }
 
-/// Expande `/nome argumentos` num comando do projecto. `None` se não for um comando dele.
+/// Expande `/nome argumentos` num comando do projecto (ou, sem um com esse nome, do IDE).
+/// `None` se não for um comando.
 pub fn expand(root: &Path, input: &str) -> Option<(String, String)> {
     let rest = input.trim_start().strip_prefix('/')?;
     let (name, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
-    let cmd = commands(root).into_iter().find(|c| c.name == name)?;
+    let cmd = all_commands(root).into_iter().find(|c| c.name == name)?;
     let args = args.trim();
     let prompt = if cmd.body.contains("$ARGUMENTS") {
         cmd.body.replace("$ARGUMENTS", args)
@@ -276,6 +342,31 @@ mod tests {
         );
         assert!(expand(d.path(), "/nao-existe x").is_none());
         assert!(expand(d.path(), "sem barra").is_none());
+    }
+
+    #[test]
+    fn the_ide_commands_expand_unless_the_project_has_its_own() {
+        let d = tempfile::tempdir().unwrap();
+        let (name, prompt) = expand(d.path(), "/backlog a shop with orders").unwrap();
+        assert_eq!(name, "backlog");
+        assert!(prompt.contains("Context from the human: a shop with orders"));
+        assert!(prompt.contains("`backlog_propose`"));
+        assert!(expand(d.path(), "/project scrum, 2 weeks")
+            .unwrap()
+            .1
+            .contains("`project_propose`"));
+        let all = all_commands(d.path());
+        assert!(all.iter().all(|c| c.builtin));
+        put(
+            d.path(),
+            ".dxtutor/commands/backlog.md",
+            "Our own: $ARGUMENTS",
+        );
+        assert_eq!(expand(d.path(), "/backlog x").unwrap().1, "Our own: x");
+        let all = all_commands(d.path());
+        assert_eq!(all.iter().filter(|c| c.name == "backlog").count(), 1);
+        assert!(!all.iter().find(|c| c.name == "backlog").unwrap().builtin);
+        assert!(commands(d.path()).iter().all(|c| !c.builtin));
     }
 
     #[test]

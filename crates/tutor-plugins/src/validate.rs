@@ -284,6 +284,19 @@ fn check_course(
     if c.units.is_empty() {
         e(r, "course has no units".into());
     }
+    // `[build]`: as dependências de todos os passos e a cache preparada uma vez.
+    for msg in c.build.check() {
+        e(r, msg);
+    }
+    if c.build.prepare && !matches!(c.language.as_str(), "rust" | "rs") {
+        e(
+            r,
+            format!(
+                "build.prepare: a prepared course cache is only available for courses graded in rust (this one is graded in `{}`)",
+                c.language
+            ),
+        );
+    }
     for u in &c.units {
         let at = format!("unit `{}`", u.id);
         if !LEVELS.contains(&u.level.as_str()) {

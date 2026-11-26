@@ -693,6 +693,11 @@ function doAction(id: string): void {
     case "lint":
       h.send("/" + id);
       return;
+    case "backlog":
+    case "project":
+      // the context goes after the command: the human writes it and sends
+      composerAsk(`/${id} `, [], false);
+      return;
   }
 }
 

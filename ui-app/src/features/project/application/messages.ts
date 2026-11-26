@@ -21,6 +21,10 @@ export const PROJECT_ENGINE_MESSAGES = {
     checksBad: "A mandatory check needs a command: «{line}»",
     methodPreviewBad: "invalid response from the method preview",
     startWip: "In progress is at its WIP limit ({count} of {limit}): {key} cannot start there.\n\nTo start it anyway, write the reason (it is recorded in the issue's activity):",
+    backlogNeedsDesktop: "The Project is created by the desktop app, with a folder open",
+    backlogCreateTitle: "Create the Project from the backlog: {issues} issues, {sprints} sprints",
+    backlogCreateReady: "Create the Project from the backlog and approve as Ready the issues that lack nothing else: {issues} issues, {sprints} sprints",
+    backlogBad: "invalid response from the Project store",
   },
   ptAO: {
     badResponse: "resposta inválida do store do projecto",
@@ -38,6 +42,10 @@ export const PROJECT_ENGINE_MESSAGES = {
     checksBad: "Uma verificação obrigatória precisa de um comando: «{line}»",
     methodPreviewBad: "resposta inválida da pré-visualização do método",
     startWip: "Em curso está no limite de WIP ({count} de {limit}): {key} não pode começar lá.\n\nPara começar mesmo assim, escreve o motivo (fica registado na actividade da issue):",
+    backlogNeedsDesktop: "O Project é criado pela app desktop, com uma pasta aberta",
+    backlogCreateTitle: "Criar o Project a partir do backlog: {issues} issues, {sprints} sprints",
+    backlogCreateReady: "Criar o Project a partir do backlog e aprovar como Ready as issues a que não falta mais nada: {issues} issues, {sprints} sprints",
+    backlogBad: "resposta inválida do store do projecto",
   },
 } satisfies Messages<string>;
 

@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::build::{BuildEnv, CourseBuild};
 use crate::model::{Gabarito, Level, Phase};
 use crate::project::ProjectFiles;
 
@@ -88,6 +89,11 @@ pub struct Course {
     /// curso vai construir. Lida antes da primeira unidade. Vazia no conteúdo antigo.
     #[serde(default)]
     pub overview: String,
+    /// Construção partilhada (`[build]`): as dependências de todos os passos, a origem num só
+    /// sítio (`[build.vars]`) e se a avaliação corre offline contra uma cache preparada uma vez
+    /// (ver [`crate::build`]). Vazia no conteúdo antigo.
+    #[serde(default)]
+    pub build: CourseBuild,
     /// `unit` no TOML (`[[unit]]`); `units` também é aceite (JSON dos plugins).
     #[serde(rename = "unit", alias = "units")]
     pub units: Vec<Unit>,
@@ -127,11 +133,16 @@ impl CourseFormat {
 impl Course {
     /// Lê um curso de texto, sem panic: o erro descreve o problema para o autor do conteúdo
     /// (é o caminho dos plugins, onde o conteúdo vem de fora e pode estar mal formado).
+    ///
+    /// Aplica a `[build]` do curso ([`crate::build::resolve`]): os passos saem com as dependências
+    /// do curso juntas às suas e com o seu [`BuildEnv`].
     pub fn parse(raw: &str, format: CourseFormat) -> Result<Course, String> {
-        match format {
-            CourseFormat::Toml => toml::from_str(raw).map_err(|e| e.to_string()),
-            CourseFormat::Json => serde_json::from_str(raw).map_err(|e| e.to_string()),
-        }
+        let mut course: Course = match format {
+            CourseFormat::Toml => toml::from_str(raw).map_err(|e| e.to_string())?,
+            CourseFormat::Json => serde_json::from_str(raw).map_err(|e| e.to_string())?,
+        };
+        crate::build::resolve(&mut course)?;
+        Ok(course)
     }
 }
 
@@ -315,6 +326,11 @@ pub struct Step {
     /// `challenge`, e no lugar de `starter`/`tests`/`gabarito`.
     #[serde(default)]
     pub project: Option<ProjectFiles>,
+
+    /// Como o passo se constrói e avalia, vindo da `[build]` do curso (preenchido no parse do
+    /// curso, nunca escrito no conteúdo).
+    #[serde(skip)]
+    pub build: BuildEnv,
 }
 
 impl Step {
@@ -360,6 +376,7 @@ impl Step {
             project: self.project.clone(),
             // Os ficheiros de apoio são do CURSO: junta-os o `Course::phase`.
             support: Default::default(),
+            build: self.build.clone(),
         })
     }
 }
@@ -460,6 +477,9 @@ const DXJS_SUPPORT: &[(&str, &str)] = &[
         include_str!("../../../courses/dxjs/support/dxtutor-dom/index.js"),
     ),
 ];
+/// Seiva (framework, avaliado em Rust): também só no backend; compila contra o Seiva 0.2.0 do
+/// repositório (`[build]` do curso), preparado uma vez e avaliado offline.
+const SEIVA_BASICS: &str = include_str!("../../../courses/seiva/courses/seiva.toml");
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -475,6 +495,7 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("csharp-basics", CSHARP_BASICS),
         parse("swift-basics", SWIFT_BASICS),
         with_support(parse("dxjs-basics", DXJS_BASICS), DXJS_SUPPORT),
+        parse("seiva-basics", SEIVA_BASICS),
     ]
 }
 

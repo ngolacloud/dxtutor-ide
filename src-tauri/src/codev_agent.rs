@@ -65,6 +65,9 @@ pub struct StartSpec {
     pub host_tools_v4: Vec<Arc<dyn Tool>>,
     /// Ferramentas do anfitrião do conjunto versão ≥ 8 (ex.: `outline`, RF-E04).
     pub host_tools_v8: Vec<Arc<dyn Tool>>,
+    /// Toolset 11: as ferramentas das sessões de backlog (`backlog_propose`, `project_propose`),
+    /// só nas sessões com `backlog`.
+    pub host_tools_v11: Vec<Arc<dyn Tool>>,
     /// Ficheiro de confiança (hooks/MCP do projecto). `None` = nada é confiado (o adaptador
     /// passa `~/.config/dxtutor/trusted.json`).
     pub trust_store: Option<PathBuf>,
@@ -91,6 +94,9 @@ pub struct StartSpec {
     /// or the first request is about architecture): it gets `arch_propose`. The others do not
     /// pay for its ~5 KB definition on every request. Saved with the session (`scopes`).
     pub architecture: bool,
+    /// Toolset 11: a backlog session (the UI opens one for `/backlog` and `/project`): it gets
+    /// `backlog_propose` and `project_propose`. Saved with the session (`scopes`).
+    pub backlog: bool,
     /// Multi Co-Dev (phase 3): the folder the session works in — the project folder inside a linked
     /// git worktree of `root` on the issue's branch. The adapter resolves it from the app's Co-Dev
     /// worktrees (`tutor_eval::gitwork::codev::find`), never from a path the UI typed; only with
@@ -916,6 +922,9 @@ fn session_scopes(spec: &StartSpec) -> Vec<String> {
     if spec.architecture {
         v.push(session::SCOPE_ARCH.to_string());
     }
+    if spec.backlog {
+        v.push(session::SCOPE_BACKLOG.to_string());
+    }
     v
 }
 
@@ -946,10 +955,14 @@ fn session_host_tools(spec: &StartSpec, meta: &SessionMeta) -> Vec<Arc<dyn Tool>
     let arch = meta.has_scope(session::SCOPE_ARCH);
     let v4 = spec.host_tools_v4.iter().filter(|_| toolset >= 4 && arch);
     let v8 = spec.host_tools_v8.iter().filter(|_| toolset >= 8);
+    // toolset 11: only the sessions that started as backlog sessions (never an older one)
+    let backlog = toolset >= 11 && meta.scopes.iter().any(|s| s == session::SCOPE_BACKLOG);
+    let v11 = spec.host_tools_v11.iter().filter(|_| backlog);
     spec.host_tools
         .iter()
         .chain(v4)
         .chain(v8)
+        .chain(v11)
         .cloned()
         .collect()
 }
@@ -2795,7 +2808,7 @@ pub fn extensions_status(
     servers.sort();
     servers.dedup();
     ExtensionsStatus {
-        commands: extensions::commands(&root),
+        commands: extensions::all_commands(&root),
         skills: extensions::skills(&root),
         hooks: file(HOOKS_FILE),
         mcp: file(mcp::PROJECT_FILE),
@@ -3212,6 +3225,58 @@ mod tests {
     }
 
     #[test]
+    fn backlog_tools_enter_only_backlog_sessions_of_toolset_11() {
+        struct T(&'static str);
+        impl Tool for T {
+            fn name(&self) -> &str {
+                self.0
+            }
+            fn description(&self) -> &str {
+                ""
+            }
+            fn input_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
+            fn read_only(&self) -> bool {
+                true
+            }
+            fn run(&self, _: &serde_json::Value, _: &ToolCtx) -> tutor_agent::ToolOutput {
+                tutor_agent::ToolOutput::ok("")
+            }
+        }
+        let spec = StartSpec {
+            host_tools: vec![Arc::new(T("lsp_diagnostics"))],
+            host_tools_v11: vec![
+                Arc::new(T("backlog_propose")),
+                Arc::new(T("project_propose")),
+            ],
+            backlog: true,
+            ..Default::default()
+        };
+        assert_eq!(session_scopes(&spec), [session::SCOPE_BACKLOG]);
+        let names = |v: u32, scopes: &[&str]| -> Vec<String> {
+            let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+                "id": "s", "root": "/p", "model": "m", "effort": "high", "system": [],
+                "test_cmd": null, "lint_cmd": null, "compaction": true, "created": 1,
+                "toolset": v, "scopes": scopes,
+            }))
+            .unwrap();
+            session_host_tools(&spec, &meta)
+                .iter()
+                .map(|t| t.name().to_string())
+                .collect()
+        };
+        assert_eq!(
+            names(11, &["backlog"]),
+            ["lsp_diagnostics", "backlog_propose", "project_propose"]
+        );
+        // a plain session, and any older one (toolset < 9 had every scope), stay as they were
+        assert_eq!(names(11, &[]), ["lsp_diagnostics"]);
+        assert_eq!(names(10, &["backlog"]), ["lsp_diagnostics"]);
+        assert_eq!(names(5, &[]), ["lsp_diagnostics"]);
+    }
+
+    #[test]
     fn arch_propose_enters_only_sessions_of_toolset_4() {
         let tool = |name: &'static str| -> Arc<dyn Tool> {
             struct T(&'static str);
@@ -3527,7 +3592,14 @@ mod tests {
         let r = root.display().to_string();
 
         let st = extensions_status(&r, Some(&store), None);
-        assert_eq!(st.commands.len(), 1);
+        // the project's command, then the IDE's (/backlog, /project)
+        assert_eq!(
+            st.commands
+                .iter()
+                .map(|c| (c.name.as_str(), c.builtin))
+                .collect::<Vec<_>>(),
+            [("rever", false), ("backlog", true), ("project", true)]
+        );
         assert_eq!(
             st.hooks,
             FileTrust {

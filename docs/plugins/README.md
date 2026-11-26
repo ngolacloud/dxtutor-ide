@@ -299,8 +299,14 @@ file in a submission is refused. The evaluator writes the learner's tree and the
 files into a fresh folder and runs the language's **project test command**. Exit 0 means the
 step passed. The reference solution files are revealed only after a pass.
 
-Project steps are graded only for languages whose evaluator has a project test command:
+Project steps are graded only for languages whose evaluator can run a project:
 
+- **Rust:** without a `Cargo.toml` in the tree, the tree is the `student` crate (`src/lib.rs`
+  and its modules from the starter, hidden tests in `tests/`) and dxtutor writes its `Cargo.toml`
+  with the step's dependencies. With a root `Cargo.toml` it is a **workspace** of several crates: it
+  must declare `[workspace]` and no `[workspace.dependencies]` table — dxtutor appends that from the
+  step's dependencies, and each member names the ones it uses with `{ workspace = true }` — and the
+  tests run with `cargo test --workspace`.
 - **Python:** `python3 -m unittest discover -s . -t . -p 'test*.py'`, so the hidden tests are
   `test*.py` files (in a folder, the folder needs an `__init__.py`), and a test file that
   defines no test fails.
@@ -339,6 +345,37 @@ evaluator writes the file → the file in your plugin.
 
 The official Dxjs course uses them to grade offline against the real dxjs 1.2.0
 ([`courses/dxjs/support/`](../../courses/dxjs/support/README.md)).
+
+### Shared dependencies and a prepared course cache: `[build]`
+
+A framework course compiles every step against the same libraries. Declare them once, at the top
+of the course, instead of repeating `dependencies` in every step:
+
+```toml
+[build]
+prepare = true        # grading runs offline against a course cache prepared once
+timeout_secs = 240    # wall-clock limit of each build/test of this course (10–1800; 0 = default)
+dependencies = [
+  'seiva = { ${seiva}, default-features = false }',
+  'seiva-testing = { ${seiva} }',
+  'tokio = { version = "1", features = ["rt", "macros"] }',
+]
+
+[build.vars]
+# The source of a library in ONE place: switching to crates.io is changing this line.
+seiva = 'git = "https://github.com/ngolacloud/seiva", tag = "v0.2.0"'
+```
+
+- `${name}` in any dependency line (the course's or a step's) is replaced by `[build.vars]`; an
+  undefined name makes the course invalid.
+- Every drill and challenge compiles with the course's lines plus its own `dependencies`.
+- `prepare = true` (Rust courses only): grading **never** uses the network. The dependencies are
+  downloaded once, in an explicit step the learner approves — «Prepare course» in the app, or
+  `dxt plugin prepare <folder>` — into a cache of the course (its own `CARGO_HOME` and a shared
+  `target`, under `$DXTUTOR_COURSE_CACHE` or the user data folder, `dxtutor/course-cache/<course
+  id>`), and built once. Each grading then runs `--offline` with that cache, its `Cargo.lock` and
+  `timeout_secs`. Until then, grading answers `COURSE_NOT_PREPARED` and says what to do. When the
+  course's dependency set changes, the cache is stale and has to be prepared again.
 
 ### Ids
 
@@ -427,7 +464,7 @@ evaluator, which must support the course language:
 
 | Language | Runner | Hidden tests are… | Toolchain |
 |---|---|---|---|
-| Rust | native | `#[test]` functions (`cargo test`) | `cargo` |
+| Rust | native | `#[test]` functions (`cargo test`); project steps too (one crate or a workspace) | `cargo` |
 | Go | native | `func TestXxx(t *testing.T)` (`go test`) | `go` |
 | Python | descriptor | `unittest.TestCase` classes. The test file starts with `import unittest` and `from student import *`, so don't import them yourself | `python3` |
 | C++ | descriptor | `TEST(name) { CHECK(…); CHECK_EQ(a, b); }` from a built-in mini framework. The test file `#include`s the student file, so student code has no `main` | `g++` (C++20), `libsqlite3-dev` for SQLite |

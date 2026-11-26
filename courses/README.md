@@ -17,10 +17,14 @@ The source of the official dxtutor course plugins. Each folder is a complete plu
 | `csharp/` | `ngolacloud/dxtutor-course-csharp` | `dxt plugin install csharp` |
 | `swift/` | `ngolacloud/dxtutor-course-swift` | `dxt plugin install swift` |
 | `dxjs/` | `ngolacloud/dxtutor-course-dxjs` | `dxt plugin install dxjs` (framework, graded by TypeScript; brings dxjs 1.2.0 in `support/`) |
+| `seiva/` (framework, graded in Rust) | `ngolacloud/dxtutor-course-seiva` | `dxt plugin install seiva` |
 
-These TOML files are also the **built-in** courses of the app (every language except Rust and Go: backend only — the browser prototype embeds just Rust and Go, to keep its bundle small):
+These TOML files are also the **built-in** courses of the app (every course except Rust and Go: backend only — the browser prototype embeds just Rust and Go, to keep its bundle small):
 - the backend embeds them (`crates/tutor-core/src/course.rs`, `include_str!`);
 - the browser prototype embeds a JSON projection of them (`ui-app/src/content/courses/*.json`).
+
+A course with `[build] prepare = true` (Seiva) compiles against dependencies that are downloaded
+once into a course cache: run `dxt plugin prepare courses/<id>` before `dxt plugin test`.
 
 After editing a course:
 

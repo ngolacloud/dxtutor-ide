@@ -26,6 +26,9 @@ export interface StartAgentArgs {
   language?: string | null;
   /** Sessão de arquitectura (conjunto 9): só estas levam a ferramenta `arch_propose`. Fica gravada com a sessão. */
   architecture?: boolean;
+  /** Sessão de backlog (conjunto 11, `/backlog` e `/project`): só estas levam `backlog_propose` e
+   *  `project_propose`. Fica gravada com a sessão. */
+  backlog?: boolean;
   /** Multi Co-Dev (fase 3): a sessão da issue trabalha na worktree dela (o backend encontra-a; tem de existir). */
   worktree?: boolean;
 }
@@ -45,6 +48,7 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     issue: a.issue ?? null,
     language: a.language ?? currentLocale(),
     architecture: a.architecture ?? false,
+    backlog: a.backlog ?? false,
     ...(a.worktree ? { worktree: true } : {}),
   });
 

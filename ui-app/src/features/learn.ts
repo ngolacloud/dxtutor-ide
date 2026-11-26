@@ -19,10 +19,12 @@ import goCourse from "../content/courses/go.json";
 import { LANGUAGE_CATALOG, findLanguage, findSubject, languageCards, subjectCards } from "./learn/domain/catalog";
 import { baseName, isReadonly, projectPaths, projectSubmission } from "./learn/domain/project";
 import { fromEmbedded } from "./learn/domain/course-adapter";
-import type { Course, PluginRow } from "./learn/domain/types";
+import type { Course, PluginRow, PrepareStatus } from "./learn/domain/types";
 import type { Grade } from "./learn/application/ports";
 import { gradeStep, installPlugin, loadCatalog, msg, removePlugin } from "./learn/application/catalog-service";
-import { tauriCourseGateway } from "./learn/infrastructure/legacy-bridge";
+import { isNotPrepared, needsPreparing, prepareCourse } from "./learn/application/prepare-service";
+import { tauriCourseGateway, tauriLearnAudit } from "./learn/infrastructure/legacy-bridge";
+import { requestApproval } from "../app/approval";
 import { bindActions } from "./learn/ui/actions";
 import { registerActions } from "../app/actions";
 import { translator } from "../app/i18n";
@@ -56,6 +58,11 @@ let LT_GRADING = false;
 const LT_READ: Record<string, boolean> = {};
 /** Passos de projecto: o ficheiro aberto de cada passo (id do passo → caminho relativo). */
 const LT_FILE: Record<string, string> = {};
+/** Cursos que se preparam uma vez (`prepare`): o estado de cada um (id do curso → estado), pedido
+ *  ao backend na primeira vez que um passo do curso abre; e o que a última preparação disse. */
+const LT_PREP: Record<string, PrepareStatus | "loading"> = {};
+let LT_PREPARING = false;
+let LT_PREP_MSG: {text:string;bad:boolean;output?:string}|null = null;
 
 /* ───── estado + motor do Learning Track ───── */
 /* LTS window-backed; hidrata de LS PREGUIÇOSAMENTE (como hydrateBps no debug.ts): a
@@ -139,7 +146,38 @@ bindActions({
   'lt-remove':{on:'click',run:e=>{ltRemove(e.on);}},
   'lt-read':{on:'click',run:e=>{const f=ltFind(LTS.cur);LT_READ[e.on]=!ltReadOpen(e.on,f);ltRes();}},
   'lt-file':{on:'click',run:e=>{ltPickFile(e.on);}},
+  'lt-prepare':{on:'click',run:()=>{void ltPrepare();}},
 });
+
+/* ───── preparar um curso (Learn P1): a única ida à rede, aprovada e auditada ───── */
+/** O estado da preparação do curso aberto (pede-o ao backend uma vez); `null` quando o curso não
+ *  se prepara. */
+function ltPrepState(c:Course):PrepareStatus|"loading"|null{
+  if(!c||c.origin!=='backend'||!c.prepare)return null;
+  if(!(c.id in LT_PREP)){LT_PREP[c.id]='loading';
+    tauriCourseGateway.prepareStatus(c.id).then(st=>{LT_PREP[c.id]=st;})
+      .catch(e=>{delete LT_PREP[c.id];LT_PREP_MSG={text:tt("prepareError",{e:msg(e)}),bad:true};}).finally(()=>ltRes());}
+  return LT_PREP[c.id];
+}
+/** O cartão «Prepare this course» enquanto o curso não está pronto (e o resultado da última vez). */
+function ltPrepareCard(c:Course):string{
+  const st=ltPrepState(c);
+  const note=LT_PREP_MSG?`<p class="lt-note${LT_PREP_MSG.bad?' bad':''}">${esc(LT_PREP_MSG.text)}</p>${LT_PREP_MSG.output?`<pre class="notr">${esc(LT_PREP_MSG.output.slice(-4000))}</pre>`:''}`:'';
+  if(!st||st==='loading'||!needsPreparing(st))return note?`<div class="lt-card">${note}</div>`:'';
+  return `<div class="lt-card lt-prep"><h3>${esc(tt("prepareHeading"))}</h3><p>${esc(st.state==='stale'?tt("prepareStale"):tt("prepareBody"))}</p>${note}<button class="mini pri" data-action="lt-prepare" ${LT_PREPARING?'disabled':''}>${esc(LT_PREPARING?tt("preparing"):tt("prepareButton"))}</button></div>`;
+}
+async function ltPrepare(){
+  const c=course();if(!c||LT_PREPARING)return;
+  LT_PREPARING=true;LT_PREP_MSG=null;ltRes();
+  try{
+    const r=await prepareCourse({gw:tauriCourseGateway,human:{approve:req=>requestApproval(req)},audit:tauriLearnAudit,title:tt("prepareTitle",{course:c.title})},c.id);
+    if(r.kind==='refused')LT_PREP_MSG={text:tt("prepareRefused"),bad:true};
+    else{LT_PREP[c.id]=r.status;
+      if(r.kind==='failed')LT_PREP_MSG={text:tt("prepareFailed"),bad:true,output:r.output};
+      else if(r.kind==='prepared')LT_PREP_MSG={text:tt("prepareDone",{fetch:Math.round(r.status.fetchSecs??0),warm:Math.round(r.status.warmSecs??0)}),bad:false};}
+  }catch(e){LT_PREP_MSG={text:`${tt("prepareFailed")} ${msg(e)}`,bad:true};}
+  finally{LT_PREPARING=false;ltRes();}
+}
 /** A leitura (visão geral da linguagem / conceitos do tópico) abre sozinha no 1.º passo. */
 function ltReadOpen(key:string,f:{u:any;s:any}|null):boolean{
   if(key in LT_READ)return LT_READ[key];
@@ -201,6 +239,7 @@ const tgt=(s:any)=>s.target.replace(/^\n/,'').replace(/\n+$/,'').split('\n');
 function drillState(s:any){const T=tgt(s),typed=(FS[ltPath(s)]?FS[ltPath(s)].content:'').replace(/\s+$/,'').split('\n'),ok=T.map((l:any,i:number)=>typed[i]!==undefined&&typed[i].trimEnd()===l.trimEnd());return{T,ok,n:ok.filter(Boolean).length,all:ok.every(Boolean)&&typed.length===T.length};}
 function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-go');if(!f||!el||!go)return;const{s}=f,done=ltDone(s.id);let h=`<div class="lt-kind"><span>${s.kind==='concept'?'Concept':s.kind==='drill'?'Drill':'Challenge'}</span><b>${done?'✓ ':''}+${s.points} pts</b></div>`;
   h+=ltReading(f);
+  h+=ltPrepareCard(course());
   if(LT_HOOD)h+=`<div class="lt-card hood"><h3>${txt("underTheHood")}</h3><div class="notr">${mdFull(s.intro)}</div><p class="lt-note">In the desktop app this view also compiles your code and shows measured CPU, memory and I/O. The browser prototype shows the explanation only.</p></div>`;
   if(s.kind==='concept'){h+=`<div class="lt-card notr"><h2>${esc(s.title)}</h2>${mdFull(s.body)}</div>`;go.textContent='Continue →';}
   else if(s.kind==='drill'){const d=drillState(s),hide=s.placeholder_policy!=='shown'&&!LTS.show[dk(s.id)]&&!done;if(d.all&&!done){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}const fin=ltDone(s.id);
@@ -238,7 +277,10 @@ function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:an
     const code=files?files[s.project.main]:FS[ltPath(s)].content;
     LT_GRADING=true;LT_SUB=null;LT_GRADE=null;ltRes();
     gradeStep(tauriCourseGateway,s.id,code,ltLang(),files).then(g=>{LT_GRADE={...g,step:s.id};if(g.passed){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}})
-      .catch(e=>{LT_SUB={ok:false,why:esc(msg(e))};}).finally(()=>{LT_GRADING=false;ltRes();});return;}
+      .catch(e=>{LT_SUB={ok:false,why:esc(msg(e))};
+        /* Um curso por preparar: o backend recusa antes de compilar; volta a perguntar o estado
+           para o cartão «Prepare this course» aparecer. */
+        if(isNotPrepared(msg(e)))delete LT_PREP[course().id];}).finally(()=>{LT_GRADING=false;ltRes();});return;}
   else if(s.kind==='challenge'&&!ltDone(s.id)){const c=FS[ltPath(s)].content,same=c.trim()===s.starter.trim(),todo=/todo!\(|unimplemented!\(|panic\("(TODO|todo|not implemented)|\/\/\s*TODO/.test(c),has=!s.entry||c.includes(s.entry);
     LT_SUB={ok:!same&&!todo&&has,why:same?'The file still equals the starter. Write your implementation first.':todo?'The implementation still has a TODO placeholder.':`The function <code>${esc(s.entry||'')}</code> is missing.`};if(LT_SUB.ok){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}ltRes();return;}
   if(nx)ltOpen(nx.id);else{toast('Track complete');if(PANE==='tutor')RP.tutor();}}

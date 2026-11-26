@@ -28,6 +28,7 @@ import { CODEV_STREAM_MESSAGES } from "./stream-messages";
 import { CODE_IN_EDITOR } from "../domain/prose";
 import { plannedLabel, rangeLabel, type LinesCheck, type PlanPlace } from "../domain/plan-order";
 import { codevAsk } from "../../../app/codev-ask";
+import { proposalHtml } from "./backlog-view";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
 const ts = translator(CODEV_STREAM_MESSAGES);
@@ -38,6 +39,7 @@ import type {
   ToolHost,
   ToolRef,
 } from "../application/ports";
+import type { BacklogProposal } from "../domain/backlog";
 
 /* animation speed multiplier; only ever 1 in production, left as a knob the
    engine used to carry locally. */
@@ -464,6 +466,14 @@ export const presenter: ChatPresenter = {
     body.innerHTML = md(markdown);
     d.appendChild(body);
     c.el.querySelector(".bub")!.appendChild(d);
+    scrollMsgs();
+  },
+  /* `/backlog` and `/project`: the proposal and what the human can do with it, under the reply */
+  backlogProposal(ref: CardRef, proposal: BacklogProposal) {
+    const c = asCard(ref);
+    const box = document.createElement("div");
+    box.innerHTML = proposalHtml(proposal);
+    c.el.querySelector(".bub")!.appendChild(box.firstElementChild!);
     scrollMsgs();
   },
   agentPlan(ref: ToolRef, markdown: string) {

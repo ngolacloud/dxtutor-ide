@@ -13,6 +13,7 @@
 pub mod agent;
 pub mod arch_rules;
 pub mod assistant;
+pub mod backlog;
 mod board;
 mod bridge;
 pub mod codeintel;
@@ -130,8 +131,8 @@ use commands::runbook::{
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::study::{
-    get_course, get_glossary, get_study_guide, list_courses, list_phases, request_fix,
-    request_hint, request_plan, study_policy, submit, submit_step,
+    course_prepare, course_prepare_status, get_course, get_glossary, get_study_guide, list_courses,
+    list_phases, request_fix, request_hint, request_plan, study_policy, submit, submit_step,
 };
 use commands::tests::{
     list_tests, run_all_tests, run_path, run_test, run_tests, test_history, test_run, test_runners,
@@ -346,6 +347,9 @@ pub(crate) struct CourseDto {
     summary: String,
     /// Reading text that introduces the language (markdown). May be empty.
     overview: String,
+    /// The course compiles against dependencies prepared once (`[build] prepare`): grade only
+    /// after `course_prepare` (`course_prepare_status` says whether it is ready).
+    prepare: bool,
     units: Vec<UnitDto>,
 }
 
@@ -575,6 +579,7 @@ pub(crate) fn course_dto(c: &tutor_core::Course) -> CourseDto {
         level: c.level.clone(),
         summary: c.summary.clone(),
         overview: c.overview.clone(),
+        prepare: c.build.prepare,
         units: c
             .units
             .iter()
@@ -1074,6 +1079,8 @@ pub fn run() {
             compile_pipeline,
             trace_execution,
             submit_step,
+            course_prepare_status,
+            course_prepare,
             get_glossary,
             get_study_guide,
             fsops::list_dir,
@@ -1246,6 +1253,7 @@ pub fn run() {
             board::runbook_runs,
             board::audit_export_evidence,
             board::project_issue_prompt,
+            board::project_create_from_backlog,
             board::project_sprint_plan,
             board::project_scope_overlap,
             board::project_checks,

@@ -144,3 +144,43 @@ fn project_step_authoring_errors_are_caught() {
     );
     assert!(errors_of(d.path()).contains("is also a starter file"));
 }
+
+#[test]
+fn the_build_table_is_checked() {
+    let with_build = |table: &'static str| {
+        move |c: String| c.replacen("\n[[unit]]", &format!("\n{table}\n[[unit]]"), 1)
+    };
+    // a prepared cache needs dependencies, a sane timeout, and a course graded in rust
+    let d = variant(
+        with_build("[build]\nprepare = true\ntimeout_secs = 5\n"),
+        |m| m,
+    );
+    let errs = errors_of(d.path());
+    assert!(errs.contains("nothing to prepare"), "{errs}");
+    assert!(
+        errs.contains("build.timeout_secs must be between"),
+        "{errs}"
+    );
+    assert!(
+        errs.contains("only available for courses graded in rust"),
+        "{errs}"
+    );
+    // an undefined `${name}` makes the course unreadable, with the reason
+    let d = variant(
+        with_build("[build]\ndependencies = ['x = { ${nope} }']\n"),
+        |m| m,
+    );
+    let errs = errors_of(d.path());
+    assert!(
+        errs.contains("`${nope}`") && errs.contains("[build.vars]"),
+        "{errs}"
+    );
+    // shared dependencies without a cache are fine (no preparation needed)
+    let d = variant(
+        with_build(
+            "[build]\ndependencies = ['x = { ${v} }']\n[build.vars]\nv = 'version = \"1\"'\n",
+        ),
+        |m| m,
+    );
+    assert_eq!(errors_of(d.path()), "");
+}

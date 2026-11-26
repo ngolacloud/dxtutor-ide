@@ -40,6 +40,7 @@ import { STAGES } from "./board/domain/issue";
 import { inView, points, autoSprint } from "./board/domain/kanban";
 import { makeBoardEngine } from "./board/application/board-engine";
 import { toBacklogDto, fromBacklogDto } from "./board/domain/persist";
+import { studioBacklogRequest, studioComponents } from "./board/domain/backlog-context";
 import { tauriBoard } from "./board/infrastructure/tauri";
 import { bindActions, type ActionTable } from "./board/ui/actions";
 import {
@@ -143,6 +144,14 @@ const { mkIssue, setStage, autoTest, runIssue, delegate, runSprint, approveIssue
    Project (desktop, folder open), where a human accepts or dismisses each one. The board
    above keeps working as before. */
 async function genBacklog(): Promise<void> {
+  // with the agent (desktop, a folder open): Co-Dev drafts the backlog from the folder and the design, for the
+  // folder's Project (`/backlog`, then `/project`) — each issue scoped to real files, worked by «Work on it with Co-Dev»
+  if (agentAvailable()) {
+    if (validateDesign().some((f) => f[0] === "e")) return void genBacklogBase(); // the card with the design's errors
+    const D = design();
+    handlePrompt(studioBacklogRequest(studioComponents(D, (k) => (tech()[k] || { n: k }).n, (n) => appDir(n))));
+    return;
+  }
   const before = new Set(BL.issues.map((i) => i.id));
   await genBacklogBase();
   const made = BL.issues.filter((i) => !before.has(i.id));

@@ -17,6 +17,7 @@
 //! - The files each Co-Dev session claims (Multi Co-Dev, phase 3, [`claims`]) and the issue branch
 //!   a session's worktree checks out ([`branches::branch_name`]).
 
+pub mod backlog;
 pub mod branches;
 pub mod breakpoints;
 pub mod claims;

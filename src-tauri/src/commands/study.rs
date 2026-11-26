@@ -198,3 +198,145 @@ pub async fn get_study_guide(language: String, unit_id: String) -> Result<StudyG
         .map(study_guide_dto)
         .map_err(|e| e.to_string())
 }
+
+// ── Preparar um curso (Learn P1): a única porta para a rede, aprovada pelo humano ────────
+
+/// What the Learning Track shows about preparing a course whose grading runs offline against a
+/// course cache (`[build] prepare = true`).
+#[derive(serde::Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CoursePrepareDto {
+    /// The course needs a one-time preparation.
+    pub needed: bool,
+    /// `not-needed`, `missing`, `stale` or `ready`.
+    pub state: String,
+    /// The exact commands to approve (empty when nothing to prepare).
+    pub command: String,
+    /// The course cache folder (the approval's scope and the audit row's root).
+    pub dir: String,
+    /// Wall-clock limit (s) of each build of this course (0 = the evaluator's default).
+    pub timeout_secs: u64,
+    /// When it was prepared (s since the epoch), and the measured times.
+    pub prepared_at: Option<u64>,
+    pub fetch_secs: Option<f64>,
+    pub warm_secs: Option<f64>,
+}
+
+fn prepare_dto(st: &study::PrepareStatus) -> CoursePrepareDto {
+    CoursePrepareDto {
+        needed: st.needed,
+        state: st.state.to_string(),
+        command: st
+            .plan
+            .as_ref()
+            .map(|p| p.command.clone())
+            .unwrap_or_default(),
+        dir: st
+            .plan
+            .as_ref()
+            .map(|p| p.layout.dir.display().to_string())
+            .unwrap_or_default(),
+        timeout_secs: st.timeout_secs,
+        prepared_at: st.marker.as_ref().map(|m| m.prepared_at),
+        fetch_secs: st.marker.as_ref().map(|m| m.fetch_secs),
+        warm_secs: st.marker.as_ref().map(|m| m.warm_secs),
+    }
+}
+
+fn cache_root() -> Result<std::path::PathBuf, String> {
+    tutor_eval::course_cache::root()
+        .ok_or_else(|| "cannot find the user data folder for the course cache".to_string())
+}
+
+/// Whether a course must be prepared before grading, its state, and the exact commands that
+/// preparing it runs (built here; the UI shows them in the approval dialog).
+#[tauri::command]
+pub async fn course_prepare_status(course_id: String) -> Result<CoursePrepareDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = cache_root()?;
+        study::prepare_status_in(&study::all_courses(), &course_id, &root)
+            .map(|st| prepare_dto(&st))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The human's decision in the approval dialog: the command they saw, and why.
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareDecision {
+    pub command: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub decided_at: Option<i64>,
+}
+
+/// The result of preparing a course.
+#[derive(serde::Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CoursePreparedDto {
+    pub ok: bool,
+    /// The last lines of the commands' output (shown when it fails).
+    pub output: String,
+    pub status: CoursePrepareDto,
+}
+
+/// Prepares a course: downloads its dependencies (the ONLY network step of the Learning Track)
+/// into the course cache and builds them once, running exactly the commands of
+/// `course_prepare_status` — refused when the approved command is not the current one. The run
+/// goes to the audit log first (an approval that cannot be audited does not run) and again with
+/// the result. A refusal in the dialog is recorded by the UI (`audit_record`).
+#[tauri::command]
+pub async fn course_prepare(
+    app: tauri::AppHandle,
+    course_id: String,
+    decision: PrepareDecision,
+) -> Result<CoursePreparedDto, String> {
+    // Everything here blocks (the course list, the audit log, cargo): off the async runtime.
+    tauri::async_runtime::spawn_blocking(move || prepare_blocking(&app, &course_id, &decision))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn prepare_blocking(
+    app: &tauri::AppHandle,
+    course_id: &str,
+    decision: &PrepareDecision,
+) -> Result<CoursePreparedDto, String> {
+    let root = cache_root()?;
+    let plan = study::approved_plan_in(&study::all_courses(), course_id, &root, &decision.command)
+        .map_err(|e| e.to_string())?;
+    let dir = plan.layout.dir.display().to_string();
+    std::fs::create_dir_all(&plan.layout.dir).map_err(|e| format!("{dir}: {e}"))?;
+    let row = |outcome: &str| crate::board::IdeAudit {
+        feature: "learn".into(),
+        action: "course.prepare".into(),
+        command: plan.command.clone(),
+        scope: Some(format!("course {course_id} · {dir}")),
+        approved: true,
+        reason: decision.reason.clone().filter(|r| !r.trim().is_empty()),
+        outcome: Some(outcome.into()),
+        decided_at: decision.decided_at,
+    };
+    crate::board::record_ide_audit(app, &dir, &row("sent"))
+        .map_err(|e| format!("not audited, nothing ran: {}", e.message))?;
+    let done = match tutor_eval::course_cache::prepare(&plan) {
+        Ok(d) => d,
+        Err(e) => {
+            let _ = crate::board::record_ide_audit(app, &dir, &row("failed"));
+            return Err(e.to_string());
+        }
+    };
+    let _ = crate::board::record_ide_audit(app, &dir, &row(if done.ok { "ok" } else { "failed" }));
+    let status = study::prepare_status_in(&study::all_courses(), course_id, &root)
+        .map(|st| prepare_dto(&st))
+        .map_err(|e| e.to_string())?;
+    let tail: Vec<&str> = done.output.lines().rev().take(40).collect();
+    Ok(CoursePreparedDto {
+        ok: done.ok,
+        output: tail.into_iter().rev().collect::<Vec<_>>().join("\n"),
+        status,
+    })
+}
