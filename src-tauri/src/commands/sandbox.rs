@@ -27,13 +27,13 @@ pub async fn compose_ps(root: String) -> Result<Vec<ComposeService>, String> {
 
 /// Current sandbox engine as a short string: `"host" | "delonix" | "docker" | "podman"`.
 #[tauri::command]
-pub fn get_sandbox_engine() -> String {
+pub async fn get_sandbox_engine() -> String {
     sandbox::current_engine_name()
 }
 
 /// Switch the sandbox engine at runtime. Accepts `"delonix" | "docker" | "podman" | "host"`
 /// (case-insensitive). Everything that executes student/user code afterwards honors it.
 #[tauri::command]
-pub fn set_sandbox_engine(engine: String) -> Result<String, String> {
+pub async fn set_sandbox_engine(engine: String) -> Result<String, String> {
     sandbox::set_engine(&engine).map_err(|e| e.to_string())
 }

@@ -132,7 +132,7 @@ pub async fn git_diff(
 /// What `git_clone` will run (r23 F6): the exact command, the folder it creates and whether that
 /// folder exists — for the approval dialog. The same validation guards `git_clone`.
 #[tauri::command]
-pub fn git_clone_plan(
+pub async fn git_clone_plan(
     url: String,
     parent_dir: String,
 ) -> Result<tutor_eval::git::ClonePlan, String> {

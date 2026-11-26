@@ -32,7 +32,7 @@ use tutor_llm::{
 
 /// List the project title and its phases (shown in the sidebar as "files").
 #[tauri::command]
-pub fn list_phases() -> Result<ProjectDto, String> {
+pub async fn list_phases() -> Result<ProjectDto, String> {
     study::load_project()
         .map(|p| project_dto(&p))
         .map_err(|e| e.to_string())
@@ -54,7 +54,7 @@ pub async fn submit(phase_id: String, code: String) -> Result<AssessmentDto, Str
 /// Produce a progressive hint (level 1..3) for a guided-course step. Offline-safe:
 /// without `ANTHROPIC_API_KEY` the OfflineProvider returns a useful generic message.
 #[tauri::command]
-pub fn request_hint(phase_id: String, code: String, level: u8) -> Result<HintDto, String> {
+pub async fn request_hint(phase_id: String, code: String, level: u8) -> Result<HintDto, String> {
     // Prefer a curated, offline progressive hint when the phase ships one (e.g. the
     // "count characters" scenario). Deterministic and model-free — the essential path
     // works with no provider. Falls through to the provider otherwise.
@@ -89,7 +89,11 @@ pub fn request_hint(phase_id: String, code: String, level: u8) -> Result<HintDto
 /// Turn a "what I want to solve" comment into a high-level PLAN (steps, no code)
 /// so the student types the solution themselves. Offline-safe.
 #[tauri::command]
-pub fn request_plan(phase_id: String, comment: String, code: String) -> Result<PlanDto, String> {
+pub async fn request_plan(
+    phase_id: String,
+    comment: String,
+    code: String,
+) -> Result<PlanDto, String> {
     let phase = study::load_phase(&phase_id).map_err(|e| e.to_string())?;
     let req = PlanRequest {
         language: phase.language.clone(),
@@ -105,7 +109,7 @@ pub fn request_plan(phase_id: String, comment: String, code: String) -> Result<P
 /// Explain a single diagnostic and how to fix THAT line — never rewrites the
 /// whole function or solves the exercise. Offline-safe.
 #[tauri::command]
-pub fn request_fix(
+pub async fn request_fix(
     phase_id: String,
     code: String,
     line: u32,
@@ -127,7 +131,7 @@ pub fn request_fix(
 /// tree (units → steps) the beginner mode renders. With `subject` (optional, backwards
 /// compatible), the course of that framework/tool instead (e.g. `"django"`).
 #[tauri::command]
-pub fn get_course(language: String, subject: Option<String>) -> Result<CourseDto, String> {
+pub async fn get_course(language: String, subject: Option<String>) -> Result<CourseDto, String> {
     study::course_for(&language, subject.as_deref())
         .map(|c| course_dto(&c))
         .map_err(|e| e.to_string())
@@ -138,7 +142,7 @@ pub fn get_course(language: String, subject: Option<String>) -> Result<CourseDto
 /// are available. Adding a course (or a plugin language with a course) makes it
 /// appear without any frontend change.
 #[tauri::command]
-pub fn list_courses() -> Vec<CourseSummaryDto> {
+pub async fn list_courses() -> Vec<CourseSummaryDto> {
     study::courses()
         .into_iter()
         .map(course_summary_dto)
@@ -180,7 +184,7 @@ pub async fn submit_step(
 /// Load the curated glossary for a language (e.g. `"rust"`). Each entry explains
 /// a reserved word or core item: what it does, when to use it, and an example.
 #[tauri::command]
-pub fn get_glossary(language: String) -> Result<GlossaryDto, String> {
+pub async fn get_glossary(language: String) -> Result<GlossaryDto, String> {
     study::glossary(&language)
         .map(glossary_dto)
         .map_err(|e| e.to_string())
@@ -189,7 +193,7 @@ pub fn get_glossary(language: String) -> Result<GlossaryDto, String> {
 /// Load the remediation study guide for a unit (e.g. `"u1-hello"`) in a language.
 /// Shown to a struggling learner so they can re-read the unit's concepts calmly.
 #[tauri::command]
-pub fn get_study_guide(language: String, unit_id: String) -> Result<StudyGuideDto, String> {
+pub async fn get_study_guide(language: String, unit_id: String) -> Result<StudyGuideDto, String> {
     study::study_guide(&language, &unit_id)
         .map(study_guide_dto)
         .map_err(|e| e.to_string())
