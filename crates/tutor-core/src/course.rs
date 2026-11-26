@@ -26,6 +26,9 @@
 //! `docker`) e `language` continua a ser a linguagem/runtime que AVALIA os passos (`python`):
 //! é por ela que o avaliador e a unicidade dos ids de passo se resolvem.
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Gabarito, Level, Phase};
@@ -88,6 +91,16 @@ pub struct Course {
     /// `unit` no TOML (`[[unit]]`); `units` também é aceite (JSON dos plugins).
     #[serde(rename = "unit", alias = "units")]
     pub units: Vec<Unit>,
+    /// Ficheiros de APOIO, como o curso os declara: caminho na pasta de trabalho → ficheiro do
+    /// plugin (relativo à sua raiz). Só de leitura e partilhados por todos os passos (ver
+    /// [`crate::support`]). Vazio na maioria dos cursos.
+    #[serde(default)]
+    pub support: BTreeMap<String, String>,
+    /// O conteúdo dos ficheiros de apoio (caminho na pasta de trabalho → texto), preenchido por
+    /// quem lê o curso ([`Course::load_support`]): o plugin do disco, o embutido do binário.
+    /// Partilhado (`Arc`): clonar um curso não copia os megabytes.
+    #[serde(skip)]
+    pub support_files: Arc<BTreeMap<String, String>>,
 }
 
 /// Formato de origem de um ficheiro de curso.
@@ -131,6 +144,27 @@ impl Course {
         } else {
             &self.language
         }
+    }
+
+    /// Carrega os ficheiros de apoio declarados em [`Course::support`] com `read` (fonte no
+    /// plugin → conteúdo). Com algum erro (forma, leitura, limites), o curso fica sem eles e
+    /// devolvem-se todos os erros.
+    pub fn load_support(
+        &mut self,
+        read: impl FnMut(&str) -> Result<String, String>,
+    ) -> Result<(), Vec<String>> {
+        let files = crate::support::resolve(&self.support, read)?;
+        self.support_files = Arc::new(files);
+        Ok(())
+    }
+
+    /// O [`Phase`] que avalia `step` neste curso: o de [`Step::as_phase`] (na linguagem do
+    /// curso) com os ficheiros de apoio do curso. `None` quando o passo não é um `challenge`
+    /// avaliável.
+    pub fn phase(&self, step: &Step, level: Level) -> Option<Phase> {
+        let mut phase = step.as_phase(&self.language, level)?;
+        phase.support = Arc::clone(&self.support_files);
+        Some(phase)
     }
 
     /// Procura um passo pelo seu `id`, percorrendo todas as unidades.
@@ -324,6 +358,8 @@ impl Step {
             hints: Vec::new(),
             dependencies: self.dependencies.clone(),
             project: self.project.clone(),
+            // Os ficheiros de apoio são do CURSO: junta-os o `Course::phase`.
+            support: Default::default(),
         })
     }
 }
@@ -354,6 +390,76 @@ const KOTLIN_BASICS: &str = include_str!("../../../courses/kotlin/courses/kotlin
 const CSHARP_BASICS: &str = include_str!("../../../courses/csharp/courses/csharp.toml");
 /// Swift: também só no backend; avaliado pelo descritor Swift (swiftc em modo Swift 6).
 const SWIFT_BASICS: &str = include_str!("../../../courses/swift/courses/swift.toml");
+/// Dxjs: o primeiro curso de FRAMEWORK embutido (só no backend), avaliado pelo descritor
+/// TypeScript. A biblioteca não está no npm: o curso traz o bundle de uma versão fixa e um DOM
+/// para o Node como ficheiros de apoio ([`DXJS_SUPPORT`]), e a avaliação corre sem rede.
+const DXJS_BASICS: &str = include_str!("../../../courses/dxjs/courses/dxjs.toml");
+
+/// Os ficheiros de apoio do curso Dxjs, embutidos como o TOML: fonte no plugin → conteúdo.
+/// Cada fonte que o `[support]` do curso declara tem de estar aqui, e só essas (um teste
+/// verifica as duas coisas).
+const DXJS_SUPPORT: &[(&str, &str)] = &[
+    (
+        "support/dxjs-1.2.0.js",
+        include_str!("../../../courses/dxjs/support/dxjs-1.2.0.js"),
+    ),
+    (
+        "support/core/package.json",
+        include_str!("../../../courses/dxjs/support/core/package.json"),
+    ),
+    (
+        "support/core/index.js",
+        include_str!("../../../courses/dxjs/support/core/index.js"),
+    ),
+    (
+        "support/dom/package.json",
+        include_str!("../../../courses/dxjs/support/dom/package.json"),
+    ),
+    (
+        "support/dom/index.js",
+        include_str!("../../../courses/dxjs/support/dom/index.js"),
+    ),
+    (
+        "support/component/package.json",
+        include_str!("../../../courses/dxjs/support/component/package.json"),
+    ),
+    (
+        "support/component/index.js",
+        include_str!("../../../courses/dxjs/support/component/index.js"),
+    ),
+    (
+        "support/query/package.json",
+        include_str!("../../../courses/dxjs/support/query/package.json"),
+    ),
+    (
+        "support/query/index.js",
+        include_str!("../../../courses/dxjs/support/query/index.js"),
+    ),
+    (
+        "support/forms/package.json",
+        include_str!("../../../courses/dxjs/support/forms/package.json"),
+    ),
+    (
+        "support/forms/index.js",
+        include_str!("../../../courses/dxjs/support/forms/index.js"),
+    ),
+    (
+        "support/happy-dom/package.json",
+        include_str!("../../../courses/dxjs/support/happy-dom/package.json"),
+    ),
+    (
+        "support/happy-dom-15.11.7.js",
+        include_str!("../../../courses/dxjs/support/happy-dom-15.11.7.js"),
+    ),
+    (
+        "support/dxtutor-dom/package.json",
+        include_str!("../../../courses/dxjs/support/dxtutor-dom/package.json"),
+    ),
+    (
+        "support/dxtutor-dom/index.js",
+        include_str!("../../../courses/dxjs/support/dxtutor-dom/index.js"),
+    ),
+];
 
 /// Todos os cursos guiados embebidos no binário.
 pub fn builtin_courses() -> Vec<Course> {
@@ -368,7 +474,25 @@ pub fn builtin_courses() -> Vec<Course> {
         parse("kotlin-basics", KOTLIN_BASICS),
         parse("csharp-basics", CSHARP_BASICS),
         parse("swift-basics", SWIFT_BASICS),
+        with_support(parse("dxjs-basics", DXJS_BASICS), DXJS_SUPPORT),
     ]
+}
+
+/// Liga a um curso embutido os seus ficheiros de apoio embutidos. Uma fonte declarada que não
+/// está embutida é um erro de construção (como um TOML inválido): o teste
+/// `embedded_support_matches_the_declaration` apanha-o no CI.
+fn with_support(mut course: Course, embedded: &[(&str, &str)]) -> Course {
+    let id = course.id.clone();
+    course
+        .load_support(|src| {
+            embedded
+                .iter()
+                .find(|(path, _)| *path == src)
+                .map(|(_, content)| content.to_string())
+                .ok_or_else(|| "not embedded in the binary".to_string())
+        })
+        .unwrap_or_else(|e| panic!("ficheiros de apoio inválidos em {id}: {}", e.join("; ")));
+    course
 }
 
 /// Carrega um curso guiado pelo seu `id`.
@@ -1075,5 +1199,128 @@ explanation = "Why."
             Some(CourseFormat::Toml)
         );
         assert_eq!(CourseFormat::from_path("x.yaml"), None);
+    }
+}
+
+#[cfg(test)]
+mod dxjs_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn embedded_support_matches_the_declaration() {
+        let c = load_course("dxjs-basics").expect("curso dxjs-basics");
+        let declared: BTreeSet<&str> = c.support.values().map(String::as_str).collect();
+        let embedded: BTreeSet<&str> = DXJS_SUPPORT.iter().map(|(p, _)| *p).collect();
+        assert_eq!(
+            declared, embedded,
+            "cada fonte do [support] tem de estar embutida, e só essas"
+        );
+        assert_eq!(c.support_files.len(), c.support.len());
+        // O bundle é o cdn/dxjs.js do dxjs 1.2.0 (67 125 bytes; o sha256 está em
+        // courses/dxjs/support/README.md e é verificado por scripts/vendor-dxjs.mjs --check).
+        let bundle = &c.support_files["node_modules/.dxjs/dxjs.js"];
+        assert_eq!(bundle.len(), 67_125);
+        assert!(bundle.contains("export{"));
+        // Cada shim reexporta do bundle pelo caminho relativo que o [support] cria.
+        for pkg in ["core", "dom", "component", "query", "forms"] {
+            let shim = &c.support_files[&format!("node_modules/@dxjs/{pkg}/index.js")];
+            assert!(shim.contains("from \"../../.dxjs/dxjs.js\""), "{pkg}");
+        }
+    }
+
+    #[test]
+    fn dxjs_is_a_framework_course_graded_by_typescript() {
+        let c = load_course("dxjs-basics").unwrap();
+        assert_eq!(
+            (c.language.as_str(), c.category, c.subject.as_str(), c.track()),
+            ("typescript", CourseCategory::Framework, "dxjs", "dxjs")
+        );
+        assert!(c.overview.contains("https://ngolacloud.github.io/dxjs/"));
+        let levels: BTreeSet<&str> = c.units.iter().map(|u| u.level.as_str()).collect();
+        assert_eq!(
+            levels,
+            BTreeSet::from(["basic", "intermediate", "advanced"])
+        );
+        let mut projects = 0;
+        for (n, u) in c.units.iter().enumerate() {
+            assert_eq!(u.difficulty as usize, n + 1, "{}", u.id);
+            assert!(u.concepts.len() > 1000, "{}: concepts", u.id);
+            assert_eq!(u.steps.first().map(|s| s.kind), Some(StepKind::Concept));
+            let last = u.steps.last().unwrap();
+            assert_eq!(last.kind, StepKind::Challenge, "{}", u.id);
+            for s in &u.steps {
+                assert!(s.id.starts_with("dxjs-"), "{}", s.id);
+            }
+            // O Phase do curso leva os ficheiros de apoio; o do passo sozinho não.
+            let phase = c.phase(last, Level::Basico).expect("desafio avaliável");
+            assert_eq!(phase.support.len(), c.support.len(), "{}", last.id);
+            assert!(last
+                .as_phase(&c.language, Level::Basico)
+                .unwrap()
+                .support
+                .is_empty());
+            if let Some(p) = &last.project {
+                projects += 1;
+                assert!(p.check().is_empty(), "{}: {:?}", last.id, p.check());
+                assert!(
+                    crate::support::project_clashes(&c.support, p).is_empty(),
+                    "{}",
+                    last.id
+                );
+            }
+        }
+        assert!(projects >= 4, "pelo menos 4 passos de projecto, há {projects}");
+    }
+
+    #[test]
+    fn course_phase_attaches_support_and_load_support_reports_errors() {
+        let raw = r#"
+id = "s"
+language = "typescript"
+title = "T"
+level = "x"
+summary = "s"
+
+[support]
+"node_modules/lib/index.js" = "support/lib.js"
+
+[[unit]]
+id = "u"
+title = "U"
+
+[[unit.step]]
+kind = "challenge"
+id = "s-x1"
+title = "X"
+instructions = "Do it."
+entry = "f"
+starter = "export function f() {}"
+tests = "dxt.test('t', () => {});"
+
+[unit.step.gabarito]
+solution = "export function f() {}"
+time = "O(1)"
+space = "O(1)"
+justification = "j"
+"#;
+        let mut c = Course::parse(raw, CourseFormat::Toml).unwrap();
+        assert!(
+            c.support_files.is_empty(),
+            "o parse só lê a declaração; o conteúdo carrega-se depois"
+        );
+        let errs = c
+            .load_support(|_| Err("file not found".into()))
+            .unwrap_err();
+        assert!(errs[0].contains("`support/lib.js`: file not found"), "{errs:?}");
+        c.load_support(|src| Ok(format!("// {src}"))).unwrap();
+        let phase = c.phase(&c.units[0].steps[0], Level::Basico).unwrap();
+        assert_eq!(
+            phase.support.get("node_modules/lib/index.js").map(String::as_str),
+            Some("// support/lib.js")
+        );
+        // Clonar o curso partilha os ficheiros (Arc), não os copia.
+        let clone = c.clone();
+        assert!(Arc::ptr_eq(&clone.support_files, &c.support_files));
     }
 }

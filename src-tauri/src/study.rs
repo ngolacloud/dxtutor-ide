@@ -310,8 +310,9 @@ pub fn grade_in(
             continue;
         }
         if let Some(step) = course.step(step_id) {
-            let phase = step
-                .as_phase(&course.language, Level::Basico)
+            // O `Phase` do curso: o passo com os ficheiros de apoio do curso (`[support]`).
+            let phase = course
+                .phase(step, Level::Basico)
                 .ok_or_else(|| StudyError::NotAChallenge(step_id.to_string()))?;
             // Sem avaliador para a linguagem, o `tutor_eval` cairia no Rust e compilaria o
             // desafio como Rust: melhor um erro honesto e claro.
