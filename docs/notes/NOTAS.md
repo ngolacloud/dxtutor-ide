@@ -803,49 +803,54 @@ Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, c
 
 ## Servidor de linguagem (LSP)
 
-Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo.
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e instala-o depois de aprovares o comando exacto, para a pasta do próprio dxtutor.
 
-<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `src-tauri/src/lsp.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `crates/tutor-eval/src/lspinstall.rs`, `src-tauri/src/commands/lsp_install.rs`, `src-tauri/src/lsp.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
-| [Servidor de linguagem em falta: Copiar e Instalar](#servidor-de-linguagem-em-falta-copiar-e-instalar) | faixa amarela no topo do ficheiro «No … language server» |
+| [Servidor de linguagem em falta: maneiras de instalar, Copiar, Instalar e Verificar outra vez](#servidor-de-linguagem-em-falta-maneiras-de-instalar-copiar-instalar-e-verificar-outra-vez) | faixa amarela no topo do ficheiro «No … language server» |
 | [As tuas definições de servidores de linguagem (lsp.json)](#as-tuas-definicoes-de-servidores-de-linguagem-lspjson) | paleta: «LSP: Open User Language Server Settings (lsp.json)» · faixa de servidor em falta: «Configure…» |
 | [As definições do projecto (.dxtutor/lsp.json)](#as-definicoes-do-projecto-dxtutorlspjson) | paleta: «LSP: Open Project Language Server Settings (.dxtutor/lsp.json)» |
 | [Aprovar o comando e as definições que um projecto pede](#aprovar-o-comando-e-as-definicoes-que-um-projecto-pede) | faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…» |
 | [Ver a configuração efectiva](#ver-a-configuracao-efectiva) | paleta: «LSP: Show Effective Language Server Configuration» |
 | [Aviso de definições ignoradas](#aviso-de-definicoes-ignoradas) | cartão vermelho no canto «Language server settings ignored» |
 
-### Servidor de linguagem em falta: Copiar e Instalar
+### Servidor de linguagem em falta: maneiras de instalar, Copiar, Instalar e Verificar outra vez
 
 **Onde:** faixa amarela no topo do ficheiro «No … language server»
 
-Mostra o servidor que falta e o comando para o instalar. «Copy» copia o comando; «Install» corre-o num terminal com a tua shell de login (o node do nvm, o go, o dotnet, o rustup), depois de aprovares, e liga o servidor quando acaba.
+Mostra o servidor que falta e as maneiras de o instalar nesta máquina (npm, pip, pipx, go, cargo, dotnet, gem, rustup, uma release do GitHub, ou apt/brew), cada uma com o comando EXACTO. «Install» corre a maneira escolhida depois de aprovares: num terminal, para a pasta do próprio dxtutor, ou — para uma release — o dxtutor descarrega-a e confere o SHA-256. Quando acaba bem, a faixa sai e o servidor arranca, sem reiniciar a app.
 
 **Como usar**
 
-1. Abre um ficheiro da linguagem; se faltar o servidor, aparece a faixa com o comando.
-2. «Install»: confirma o comando exacto no diálogo de aprovação; a instalação corre no painel Terminal.
-3. Quando termina bem, a faixa sai e o editor passa a ter diagnósticos, hover e definição.
-4. Prefere instalar à mão? «Copy» e cola no teu terminal. «Dismiss» esconde a faixa nesta sessão.
+1. Abre um ficheiro da linguagem; se faltar o servidor, aparece a faixa com a maneira proposta e o seu comando.
+2. Com mais de uma maneira, escolhe outra na lista (as que não servem nesta máquina aparecem desactivadas, com o motivo: o gestor que falta, ou nenhuma versão da release para ela).
+3. «Install»: confirma o comando exacto no diálogo de aprovação; a instalação corre no painel Terminal (ou, numa release, o dxtutor descarrega e confere-a).
+4. apt e Homebrew são gestores do sistema (o apt pede sudo): o dxtutor só mostra o comando. «Copy», corre-o no teu terminal e depois «Check again».
+5. «Check again» volta a procurar o servidor (depois de o instalares à mão). «Dismiss» esconde a faixa nesta sessão.
 
 **Fluxo (por dentro)**
 
-1. O backend diz se o servidor existe (`lsp_server_status`): procura-o como o registo de linguagens manda (variável de ambiente, PATH da shell de login e da app, pastas conhecidas; o rust-analyzer só de uma toolchain do rustup ou um binário verdadeiro, nunca o proxy do rustup). A regra do aviso está em `domain/server-status.ts`; o nome da linguagem e a instrução de instalação vêm do registo.
-2. «Install» só existe quando a instalação é um comando (npm, go install, dotnet tool, rustup) e esse comando é, letra a letra, um dos permitidos no código (`RUNNABLE`); para jdtls, clangd, sourcekit-lsp e kotlin-language-server é uma instrução para seguir.
-3. Aprovação partilhada (`app/approval.ts`) com o comando e onde corre → registo de auditoria (`audit_record`, acção `lsp.install`) → terminal de tarefa (PTY com a shell de login, na pasta aberta) → código de saída.
-4. Saída 0: esquece o estado em cache, volta a perguntar ao backend e arranca o servidor no ficheiro aberto.
+1. O backend diz se o servidor existe (`lsp_server_status`, que agora diz também onde o encontrou: `foundAt`, `managed`): procura-o primeiro na variável de ambiente do registo, depois na pasta do dxtutor (`<dados da app>/lsp-servers/<servidor>`), depois como o registo manda (PATH da shell de login e da app, pastas conhecidas; o rust-analyzer nunca como o proxy do rustup).
+2. As maneiras vêm de `lsp_install_plan`: o backend lê as receitas (`recipes`) do registo de confiança — o embutido mais o teu `lsp.json`, nunca o `.dxtutor/lsp.json` de um projecto —, procura cada gestor no PATH da shell de login e constrói o comando exacto (`tutor_eval::lspinstall`). A UI nunca compõe um comando.
+3. Gestores do utilizador instalam na pasta do dxtutor: npm `--global --prefix`, pip num venv, pipx/go/gem/dotnet/cargo com as suas opções de pasta; o rustup acrescenta o componente à toolchain.
+4. Aprovação partilhada (`app/approval.ts`) com o comando e onde fica → registo de auditoria (`audit_record`, acção `lsp.install`; sem auditoria não corre) → terminal de tarefa (`sh -c`, com o PATH da shell de login do plano) ou `lsp_install_download` (o id da maneira, nunca um URL) → auditoria do resultado.
+5. Release: o backend descarrega o ficheiro fixado no registo (URL do GitHub e SHA-256), confere o SHA-256 ANTES de desempacotar e, se não confere, não instala nada e deixa o que lá estava.
+6. Sucesso: esquece o estado em cache, volta a perguntar ao backend e arranca o servidor no ficheiro aberto.
 
 **Dicas**
 
-- Um erro de permissões no `npm install -g` costuma querer dizer que o node não é o do nvm: `nvm use --lts` (ou `npm config set prefix ~/.npm-global`) e volta a carregar em «Install».
-- Se instalou numa pasta nova do PATH e o dxtutor não o encontra, reinicia a app para ela ler o PATH novo.
+- Uma instalação pela faixa não mexe no teu sistema: fica toda em `<dados da app>/lsp-servers`. Para a desfazer, apaga a pasta do servidor.
+- Uma variável como `DXTUTOR_RUST_ANALYZER` continua a ganhar à pasta do dxtutor.
 
 **Limites**
 
 - Só na app desktop com uma pasta aberta. Sem auditoria possível, não instala.
+- Um servidor que o projecto acrescenta, ou cujo programa muda, não se instala daqui. Se o teu `lsp.json` troca o programa, dá-lhe as suas `recipes`.
+- O dxtutor nunca corre `sudo`, nem o apt ou o Homebrew.
 
-<sub>Cobre: `lsp:notice-copy`, `lsp:notice-install`</sub>
+<sub>Cobre: `lsp:notice-copy`, `lsp:notice-install`, `lsp:notice-way`, `lsp:notice-recheck`</sub>
 
 ### As tuas definições de servidores de linguagem (lsp.json)
 
