@@ -22,8 +22,10 @@ const t = translator(AGENT_MAP_MESSAGES);
 export interface AgentMapViewOptions {
   /** O nome da raiz (o assistente da conversa). */
   base(): string;
-  /** Leva à conversa (fecha o mapa e põe o foco no chat). */
-  showInChat(): void;
+  /** Leva à conversa (fecha o mapa e põe o foco no chat); `session`: a de outra sessão Co-Dev desta janela. */
+  showInChat(session?: string): void;
+  /** Multi Co-Dev: a sessão tem conversa nesta janela (a faixa «Co-Devs»)? */
+  inChat?(session: string): boolean;
   /** Abre o separador «Co-Dev run» (o turno da sessão da conversa, passo a passo). */
   openRun(): void;
   /** Milissegundos desde a época. */
@@ -89,7 +91,9 @@ export function makeAgentMapView(store: AgentMapStore, opts: AgentMapViewOptions
     const row = (k: string, v: string): string => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`;
     const links = ownChat
       ? `<div class="agmap-links"><button class="agmap-link" data-action="agmap-chat">${esc(t("showInChat"))}</button><button class="agmap-link" data-action="agmap-run">${esc(t("openRun"))}</button></div>`
-      : "";
+      : !agent && opts.inChat?.(session.id)
+        ? `<div class="agmap-links"><button class="agmap-link" data-action="agmap-chat" data-on="${esc(session.id)}">${esc(t("showInChat"))}</button></div>`
+        : "";
     return `<div class="agmap-dh">${dot(status)}<div><b class="notr">${esc(label)}</b><small>${esc(kind)}</small></div></div>
 <dl class="agmap-kv">${row(t("status"), t(status))}${session.model ? `<dt>${esc(t("model"))}</dt><dd class="notr">${esc(session.model)}</dd>` : ""}${row(t("elapsed"), elapsed)}${usageHtml(session.model, usage)}</dl>
 ${!agent && session.outcome ? `<p class="agmap-out">${esc(t("ended", { o: session.outcome }))}</p>` : ""}
@@ -192,9 +196,9 @@ ${links}`;
     },
     "agmap-chat": {
       on: "click",
-      run: () => {
+      run: (e) => {
         close();
-        opts.showInChat();
+        opts.showInChat(e.on || undefined);
       },
     },
     "agmap-run": {

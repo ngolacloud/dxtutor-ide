@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 302 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 306 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -389,6 +389,56 @@ plan»). Testes: `cargo test -p tutor-board plan`, `board::tests::the_sprint_pla
 Fases seguintes: (2) uma sessão de Co-Dev por lane na UI; (3) uma worktree e ficheiros reservados por Co-Dev; (4) o
 «Co-Dev reviewer» assistido, que revê cada merge request e integra num worktree temporário só com os testes a passar e
 sem partir o ramo por omissão (sem conflitos, regras do arquitecto); (5) autonomia delegada pelo humano e PRs.
+
+### Fase 2: várias sessões Co-Dev e os dados da porta de integração
+
+**A porta (regra do dono, `docs/v2/QUESTIONS.md` Q9):** uma mudança só é integrada se (1) TODAS as verificações
+obrigatórias passam no commit ACTUAL (correm de novo se o ramo andou), (2) o «Co-Dev reviewer» confirma os critérios de
+aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fase 2 guarda os dados; a 4 aplica a porta.
+- **Uma conversa por sessão** (`codev/application/codev-sessions.ts`): cada sessão é um `makeAgentChat` com o seu
+  presenter/gate (`ui/session-view.ts`); a à vista escreve no `#ag-msgs` e no `RUN` como antes, as outras num transcript
+  fora do documento e num registo de execução próprio (trocar MOVE os nós e aplica o registo, `applyRun`). Começar outra
+  issue do Project NÃO fecha a que corre: abre outra sessão — só se `project_scope_overlap` (só leitura; a regra
+  `plan::overlaps_with` da fase 1) não encontrar sobreposição com nenhuma issue que tenha sessão aberta. Com sobreposição
+  (ou se a verificação falhar), recusa com os ficheiros e oferece esperar: a issue fica na faixa e começa quando a sessão
+  com que choca FECHAR. Nesta fase todas correm na MESMA árvore de trabalho — por isso a verificação é obrigatória.
+- **Hunks por sessão** (`hunk-review.ts`): um overlay por sessão, as decisões vão para a sessão dona da chamada, o
+  `done` de uma não fecha as revisões das outras, e o editor só desenha as sessões não escondidas (`setHidden`: as que
+  não estão à vista). Com uma sessão é igual a antes (o overlay composto É o da sessão).
+- A faixa «Co-Devs» (`ui/codevs-view.ts`, `#ag-codevs`) só existe com 2+ sessões ou uma issue à espera — com uma
+  sessão o painel fica igual (nenhum golden mudou). O separador «Co-Dev run» e o `ctx` seguem a conversa à vista; o
+  modo da modebar vale para todas; «Nova conversa» só recomeça a à vista; o quadro Tasks antigo («Delegar») continua
+  na à vista.
+- **Verificações obrigatórias:** `projects.checks` (JSON `[{name, command}]`, migração 15; `Op::Settings{checks}`;
+  vazio = o comando de testes detectado, `R.projectCmd("test")`), editadas nas Settings (`nome: comando` por linha) e
+  lidas por `project_checks` para a fase 4.
+- **Aprovação funcional:** `Op::ApproveFunctional{key, note?}` / `RevokeFunctional{key, reason}` (colunas
+  `issues.functional_*`, migração 15): só com critérios, uma vez, quem/quando do backend, actividade + linha no registo
+  de auditoria na mesma transacção (`functional.approve`/`.revoke`); cai se os critérios mudarem. Quem pode:
+  `roles::functional_check` no `project_apply` — o `assignee` da issue, ou PO/Tech Lead com equipa no `team.json`.
+- Testes: `cargo test -p tutor-board` (`the_functional_approval_…`, `the_mandatory_checks_…`, `another_codev_may_start_…`),
+  `cargo test -p dxtutor-ide roles:: board::`, `tests/codev.sessions.test.ts`, `tests/project.gate.test.ts` e o e2e
+  `e2e/multi-codev.e2e.ts`. Para a fase 3/4: a worktree por sessão, as reservas de ficheiros, correr as verificações no
+  commit actual e confirmar que a aprovação ainda vale nesse commit.
+
+## Métricas honestas e insights do Project (Board A)
+
+Os relatórios da sprint já não reescrevem o passado. A migração 16 da base do Project grava o histórico: `sprint_scope`
+(cada issue que entra/sai de uma sprint — criada nela, `PlanIssue`, transitada no `CloseSprint`, apagada — com a
+estimativa desse momento), `estimate_changes` (antigo → novo; a actividade diz `estimativa 3 → 8`), `sprint_snapshots`
+(`start` no `StartSprint` = o compromisso; `close` no `CloseSprint`, antes da transição) e `sprints.started_at`/`closed_at`;
+`projects.history_since` diz quando o registo começou. O `TestsRun` passou a registar o `blocked` quando bloqueia. Quem
+mexe na sprint ou nos pontos de uma issue usa `record_scope`/`record_replan` e grava o `estimate_changes` (no `mod.rs`).
+`reports.rs` reconstrói cada dia (membros, estimativa e estado desse dia; uma issue já Done no início não conta): o
+burndown (ideal a partir do comprometido), o burnup (âmbito + feito) e a velocidade comprometido vs feito (das
+fotografias, sobrevive à transição). Nada é preenchido para trás: uma sprint começada antes da migração é `partial`
+(sem compromisso; antes do registo, o âmbito e as estimativas são os de hoje). `insights.rs` é PURO: previsão do fim
+(ritmo dos últimos ≤5 dias, pelo burnup), mudança de âmbito, sem estimativa, fiabilidade do compromisso, cartões
+envelhecidos (vs p85 do ciclo), bloqueios, custo por ponto/derrapagem (auditoria `turn`) e retrabalho (testes); cada
+um com gravidade, código, parâmetros e chaves, ou um `Withheld` com o que falta (nunca adivinha). A UI tem a frase de
+cada código em `ui/reports-messages.ts` (en + ptAO) e desenha-os em `ui/reports-view.ts`; uma chave abre a issue
+(`pj-open`). Testes: `cargo test -p tutor-board` (`insights::`, `tests::sprint_scope_…`, `the_burndown_…`,
+`velocity_…`, `a_sprint_started_before_…`, `schema::tests`) e `tests/project.reports.test.ts`.
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 

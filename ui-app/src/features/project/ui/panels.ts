@@ -1,12 +1,18 @@
 /* ═════════ feature `project` — Planning, Releases, Reports, Retro and Settings (PROJ-02/05) ═════════
    Reports are drawn only from the store's history (`project_reports`): with too little of
-   it, each chart says what it needs instead of showing invented numbers. */
+   it, each chart says what it needs instead of showing invented numbers. The sprint charts and
+   the manager's insights are drawn by `reports-view.ts` (Board A). */
 
 import { esc } from "../../../core";
 import type { ProjectState } from "../application/project-service";
 import { METHOD_INFO } from "../domain/board";
 import { METHODS, STATES, type Project, type Reports } from "../domain/types";
 import { planBlock, planControls } from "./plan-view";
+import { Hc, W, bars, burndownBody, burnupBody, burnupEmpty, burnupTitle, chartCard, insightsPanel, line, velocityBody } from "./reports-view";
+import { checksText, effectiveChecks } from "../domain/gate";
+import { translator } from "../../../app/i18n";
+import { PROJECT_GATE_MESSAGES } from "./gate-messages";
+const gt = translator(PROJECT_GATE_MESSAGES);
 
 const DAY = 86_400_000;
 const fmt = (ms: number): string => new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
@@ -69,29 +75,6 @@ function releases(p: Project): string {
   }`;
 }
 
-/* ───── charts (SVG, design tokens, no library) ───── */
-const W = 520;
-const Hc = 160;
-
-function bars(values: number[], labels: string[], cls: string): string {
-  const max = Math.max(1, ...values);
-  const bw = W / Math.max(1, values.length);
-  return `<svg class="pj-chart" viewBox="0 0 ${W} ${Hc + 18}">${values
-    .map((v, k) => {
-      const h = (v / max) * (Hc - 10);
-      return `<rect class="${cls}" x="${k * bw + 4}" y="${Hc - h}" width="${Math.max(2, bw - 8)}" height="${h}" rx="2"><title>${esc(labels[k])}: ${v}</title></rect><text class="pj-axis" x="${k * bw + bw / 2}" y="${Hc + 14}" text-anchor="middle">${esc(labels[k])}</text>`;
-    })
-    .join("")}</svg>`;
-}
-
-function line(points: number[], max: number, cls: string, step = W / Math.max(1, points.length - 1)): string {
-  if (points.length < 2) return "";
-  return `<polyline class="${cls}" fill="none" points="${points.map((v, k) => `${k * step},${Hc - (v / Math.max(1, max)) * (Hc - 10)}`).join(" ")}"/>`;
-}
-
-const chartCard = (title: string, body: string, empty: string): string =>
-  `<div class="pj-card-box"><div class="pj-sec"><span>${title}</span></div>${body || `<div class="pj-dim pj-pad">${empty}</div>`}</div>`;
-
 function reports(p: Project, r: Reports | null): string {
   if (!r) return `<div class="pj-dim pj-pad">Computing the reports from the history…</div>`;
   const cycle = chartCard(
@@ -123,26 +106,12 @@ function reports(p: Project, r: Reports | null): string {
       : "",
     "Needs at least two days of history.",
   );
-  const bd = chartCard(
-    "Burndown",
-    r.burndown && r.burndown.days.length
-      ? (() => {
-          const b = r.burndown!;
-          const span = Math.max(1, Math.round((b.end - b.start) / DAY));
-          const ideal = Array.from({ length: span + 1 }, (_, k) => b.total * (1 - k / span));
-          const real = b.days.map((d) => d.remaining);
-          const step = W / span; // one step per day, for both lines
-          return `<div class="pj-dim"><span>${b.total} points in ${esc(b.sprint)}</span></div><svg class="pj-chart" viewBox="0 0 ${W} ${Hc}">${line(ideal, b.total, "pj-ideal", step)}${line(real, b.total, "pj-real", step)}</svg>`;
-        })()
-      : "",
-    METHOD_INFO[p.method].box ? `Start a ${METHOD_INFO[p.method].box!.toLowerCase()} to see its burndown.` : "",
-  );
-  const vel = chartCard(
-    "Velocity",
-    r.velocity.length ? bars(r.velocity.map((v) => v.points), r.velocity.map((v) => v.name), "pj-bar") : "",
-    "Points finished per closed sprint, once one is closed.",
-  );
-  const order = p.method === "kanban" ? [cfd, cycle, thr] : [bd, vel, cfd, cycle, thr];
+  const box = METHOD_INFO[p.method].box;
+  const bd = chartCard("Burndown", r.burndown ? burndownBody(p, r.burndown, r.historySince) : "", box ? `Start a ${box.toLowerCase()} to see its burndown.` : "");
+  const bu = chartCard(burnupTitle(), r.burndown ? burnupBody(r.burndown) : "", burnupEmpty());
+  const vel = chartCard("Velocity", velocityBody(r.velocity), "Points finished per closed sprint, once one is closed.");
+  const ins = insightsPanel(p, r.insights, r.withheld);
+  const order = p.method === "kanban" ? [ins, cfd, cycle, thr] : [ins, bd, bu, vel, cfd, cycle, thr];
   return `<div class="pj-reports">${order.join("")}</div>`;
 }
 
@@ -157,7 +126,9 @@ function retro(p: Project): string {
   }`;
 }
 
-function settings(p: Project): string {
+function settings(p: Project, testCommand: string | null): string {
+  const eff = effectiveChecks(p.checks, testCommand);
+  const checksNote = eff.detected ? (eff.checks.length ? gt("checksDefault", { cmd: eff.checks[0].command }) : gt("checksNone")) : "";
   return `<div class="pj-card-box"><div class="pj-sec"><span>Method</span></div><div class="pj-methods">${METHODS.map(
     (m) => `<button class="pj-methodcard${p.method === m ? " on" : ""}" data-action="pj-method" data-on="${m}"><b>${esc(METHOD_INFO[m].name)}</b><span class="pj-dim">${esc(METHOD_INFO[m].desc)}</span></button>`,
   ).join("")}</div></div>
@@ -169,6 +140,7 @@ function settings(p: Project): string {
       .join("")}
     <label class="wide"><span>Definition of Ready (one item per line)</span><textarea class="pj-input" name="dor" rows="4">${esc(p.dor.join("\n"))}</textarea></label>
     <label class="wide"><span>Definition of Done (one item per line)</span><textarea class="pj-input" name="dod" rows="4">${esc(p.dod.join("\n"))}</textarea></label>
+    <label class="wide"><span>${esc(gt("checksLabel"))}</span><textarea class="pj-input notr" name="checks" rows="3" placeholder="${esc(testCommand ? `tests: ${testCommand}` : "tests: cargo test")}">${esc(checksText(p.checks))}</textarea><span class="pj-dim">${esc(gt("checksHint"))}${checksNote ? ` ${esc(checksNote)}` : ""}</span></label>
     <button class="pj-btn pri" data-action="pj-submit" data-on="settings"><span>Save</span></button></div></div>`;
 }
 
@@ -183,6 +155,6 @@ export function renderPanel(v: "planning" | "releases" | "reports" | "retro" | "
     case "retro":
       return retro(p);
     case "settings":
-      return settings(p);
+      return settings(p, st.testCommand);
   }
 }

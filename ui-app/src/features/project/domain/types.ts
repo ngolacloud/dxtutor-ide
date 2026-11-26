@@ -72,6 +72,21 @@ export interface Issue {
   /** Co-Dev budget in dollars (RF-T03) and what it spent (real cost of its turns, RF-T04). */
   budgetUsd: number | null;
   spentUsd: number;
+  /** Multi Co-Dev (the integration gate): the functional approval recorded on it; `null`: none. */
+  functional: FunctionalApproval | null;
+}
+
+/** The responsible person confirmed the issue does what its criteria ask (who and when: the store's). */
+export interface FunctionalApproval {
+  by: string;
+  at: number;
+  note: string;
+}
+
+/** A check every change must pass before it is integrated (a name and the exact command). */
+export interface Check {
+  name: string;
+  command: string;
 }
 
 export interface CriteriaRow {
@@ -142,6 +157,8 @@ export interface Project {
   wip: Partial<Record<State, number>>;
   dor: string[];
   dod: string[];
+  /** The mandatory checks (the integration gate); empty: not set — the detected test command. */
+  checks: Check[];
   issues: Issue[];
   sprints: Sprint[];
   releases: Release[];
@@ -189,14 +206,72 @@ export interface IssueDetail {
   usage: IssueUsage;
 }
 
+/** One day of the active sprint, with that day's scope and estimates (Board A). */
+export interface BurnDay {
+  day: number;
+  remaining: number;
+  scope: number;
+  done: number;
+}
+
+export interface Burndown {
+  sprint: string;
+  name: string;
+  start: number;
+  end: number;
+  /** Where the ideal line starts: the commitment, or (partial) the first day's scope. */
+  total: number;
+  committed: number | null;
+  scope: number;
+  days: BurnDay[];
+  /** Started before the sprint history was recorded. */
+  partial: boolean;
+  unestimated: string[];
+}
+
+export interface Velocity {
+  sprint: string;
+  name: string;
+  /** Points finished in the sprint. */
+  points: number;
+  committed: number | null;
+  committedDone: number | null;
+  added: number | null;
+  removed: number | null;
+  carried: number | null;
+  partial: boolean;
+}
+
+export const SEVERITIES = ["risk", "warn", "info"] as const;
+export type Severity = (typeof SEVERITIES)[number];
+export type InsightParams = Record<string, string | number | boolean | null>;
+
+/** Feedback for the manager, computed in the backend (`tutor_board::project::insights`). */
+export interface Insight {
+  code: string;
+  severity: Severity;
+  params: InsightParams;
+  keys: string[];
+}
+
+/** An insight the history cannot support yet, and what is missing. */
+export interface Withheld {
+  code: string;
+  params: InsightParams;
+}
+
 export interface Reports {
   cycle: Array<{ key: string; days: number; doneAt: number }>;
   cycleMedian: number | null;
   cycleP85: number | null;
   throughput: Array<{ start: number; done: number }>;
   cfd: Array<{ day: number; counts: number[] }>;
-  burndown: { sprint: string; start: number; end: number; total: number; days: Array<{ day: number; remaining: number }> } | null;
-  velocity: Array<{ sprint: string; name: string; points: number }>;
+  burndown: Burndown | null;
+  velocity: Velocity[];
+  insights: Insight[];
+  withheld: Withheld[];
+  /** When the sprint history began to be recorded for this project. */
+  historySince: number | null;
 }
 
 /** A refused change: which rule (`code`), and whether a reason may override it. */
@@ -251,6 +326,7 @@ function parseIssue(o: Record<string, unknown>): Issue {
     missing: arr(o.missing).filter((x): x is string => typeof x === "string"),
     budgetUsd: numOrNull(o.budgetUsd),
     spentUsd: num(o.spentUsd),
+    functional: isObj(o.functional) && typeof o.functional.by === "string" ? { by: o.functional.by, at: num(o.functional.at), note: str(o.functional.note) } : null,
   };
 }
 
@@ -266,6 +342,10 @@ export function parseProject(v: unknown): Project | null {
     wip,
     dor: arr(v.dor).map((x) => str(x)).filter(Boolean),
     dod: arr(v.dod).map((x) => str(x)).filter(Boolean),
+    checks: arr(v.checks)
+      .filter(isObj)
+      .map((c) => ({ name: str(c.name), command: str(c.command) }))
+      .filter((c) => c.name && c.command),
     issues: arr(v.issues).filter(isObj).map(parseIssue).filter((i) => i.key),
     sprints: arr(v.sprints)
       .filter(isObj)
@@ -345,10 +425,51 @@ export function parseReports(v: unknown): Reports {
     throughput: arr(o.throughput).filter(isObj).map((w) => ({ start: num(w.start), done: num(w.done) })),
     cfd: arr(o.cfd).filter(isObj).map((d) => ({ day: num(d.day), counts: arr(d.counts).map((n) => num(n)) })),
     burndown: bd
-      ? { sprint: str(bd.sprint), start: num(bd.start), end: num(bd.end), total: num(bd.total), days: arr(bd.days).filter(isObj).map((d) => ({ day: num(d.day), remaining: num(d.remaining) })) }
+      ? {
+          sprint: str(bd.sprint),
+          name: str(bd.name, str(bd.sprint)),
+          start: num(bd.start),
+          end: num(bd.end),
+          total: num(bd.total),
+          committed: numOrNull(bd.committed),
+          scope: num(bd.scope, num(bd.total)),
+          days: arr(bd.days)
+            .filter(isObj)
+            .map((d) => ({ day: num(d.day), remaining: num(d.remaining), scope: num(d.scope, num(d.remaining)), done: num(d.done) })),
+          partial: bd.partial === true,
+          unestimated: arr(bd.unestimated).filter((k): k is string => typeof k === "string"),
+        }
       : null,
-    velocity: arr(o.velocity).filter(isObj).map((x) => ({ sprint: str(x.sprint), name: str(x.name), points: num(x.points) })),
+    velocity: arr(o.velocity)
+      .filter(isObj)
+      .map((x) => ({
+        sprint: str(x.sprint),
+        name: str(x.name),
+        points: num(x.points),
+        committed: numOrNull(x.committed),
+        committedDone: numOrNull(x.committedDone),
+        added: numOrNull(x.added),
+        removed: numOrNull(x.removed),
+        carried: numOrNull(x.carried),
+        partial: x.partial === true,
+      })),
+    insights: arr(o.insights)
+      .filter(isObj)
+      .map((i) => ({ code: str(i.code), severity: oneOf(i.severity, SEVERITIES, "info"), params: parseParams(i.params), keys: arr(i.keys).filter((k): k is string => typeof k === "string") })),
+    withheld: arr(o.withheld)
+      .filter(isObj)
+      .map((w) => ({ code: str(w.code), params: parseParams(w.params) })),
+    historySince: numOrNull(o.historySince),
   };
+}
+
+function parseParams(v: unknown): InsightParams {
+  const out: InsightParams = {};
+  if (!isObj(v)) return out;
+  for (const [k, x] of Object.entries(v)) {
+    if (typeof x === "string" || typeof x === "boolean" || x === null || (typeof x === "number" && Number.isFinite(x))) out[k] = x;
+  }
+  return out;
 }
 
 /** A rejected IPC call as a ProjectError (rule errors carry their code; anything else is `db`). */

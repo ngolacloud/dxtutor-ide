@@ -99,6 +99,50 @@ pub fn check(roles: Option<&[String]>, need: &[&str], what: &str) -> Result<(), 
     }
 }
 
+/// Who may record (or withdraw) the functional approval of an issue — the integration gate's third
+/// condition (Multi Co-Dev, phase 2). The issue's responsible is its `assignee` (the «responsável»
+/// of the Project model, docs/v2/UI-AUDIT.md item 5); a Product Owner or a Tech Lead may also do it,
+/// as they move an issue to Done (RF-A06). `me`: the names the person at the keyboard goes by (git
+/// `user.name`, `user.email`); `also`: someone else allowed (who approved, for a withdrawal).
+///
+/// - The assignee (or `also`) may, always.
+/// - With people in `team.json` (`roles` is `Some`): a Product Owner or a Tech Lead may too.
+/// - Without people: when the issue has no assignee, whoever is at the keyboard (nothing else
+///   to go by); when it has one, only that person — the record says who is responsible.
+pub fn functional_check(
+    roles: Option<&[String]>,
+    assignee: &str,
+    also: Option<&str>,
+    me: &[&str],
+) -> Result<(), String> {
+    let is_me = |who: &str| {
+        let w = who.trim();
+        !w.is_empty()
+            && me
+                .iter()
+                .any(|m| !m.trim().is_empty() && m.trim().eq_ignore_ascii_case(w))
+    };
+    if is_me(assignee) || also.is_some_and(is_me) {
+        return Ok(());
+    }
+    match roles {
+        Some(_) => check(
+            roles,
+            &["product_owner", "tech_lead"],
+            "a aprovação funcional",
+        )
+        .map_err(|e| format!("{e} — ou do responsável da issue ({})", assignee.trim())),
+        None if assignee.trim().is_empty() => Ok(()),
+        None => Err(format!(
+            "a aprovação funcional é do responsável da issue ({}): és {}",
+            assignee.trim(),
+            me.iter()
+                .find(|m| !m.trim().is_empty())
+                .map_or("outra pessoa", |m| m.trim())
+        )),
+    }
+}
+
 /// Is `path` (relative to the project) an ADR? Anything under `docs/adr/` or `docs/decisions/`,
 /// and the files of `docs/architecture/` whose name starts with `ADR` — the folders where
 /// `conformance::adr_accepted` looks (the rest of `docs/architecture/` is ordinary documentation).
@@ -180,6 +224,28 @@ mod tests {
         assert!(is_adr("docs/decisions/0003-db.md") && !is_adr("docs/v2/ADR.md"));
         // no people defined: nothing is enforced
         assert!(check(None, &["architect"], "x").is_ok());
+    }
+
+    #[test]
+    fn the_functional_approval_is_the_responsibles_or_the_po_or_tech_leads() {
+        let po = vec!["product_owner".to_string()];
+        let dev = vec!["developer".to_string()];
+        // the assignee, with or without a team
+        assert!(functional_check(None, "Ana", None, &["ana", "ana@x.pt"]).is_ok());
+        assert!(functional_check(Some(&dev), "Ana", None, &["Ana"]).is_ok());
+        // someone else: refused without a team; with one, only a PO or a Tech Lead
+        let e = functional_check(None, "Ana", None, &["Rui"]).unwrap_err();
+        assert!(e.contains("Ana") && e.contains("Rui"), "{e}");
+        let e = functional_check(Some(&dev), "Ana", None, &["Rui"]).unwrap_err();
+        assert!(e.contains("Product Owner") && e.contains("Ana"), "{e}");
+        assert!(functional_check(Some(&po), "Ana", None, &["Rui"]).is_ok());
+        // no assignee and no team: whoever is at the keyboard; with a team, a PO or a Tech Lead
+        assert!(functional_check(None, "", None, &["Rui"]).is_ok());
+        assert!(functional_check(Some(&dev), "", None, &["Rui"]).is_err());
+        // a withdrawal: who approved may too
+        assert!(functional_check(None, "Ana", Some("Rui"), &["rui"]).is_ok());
+        // an empty identity never matches an empty assignee
+        assert!(functional_check(Some(&dev), "", None, &[""]).is_err());
     }
 
     #[test]

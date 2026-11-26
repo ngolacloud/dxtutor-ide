@@ -31,6 +31,20 @@ import {
 import { COS, KINDS, PRIORITIES, STATES, type Issue, type IssueUsage, type Project, type State } from "../domain/types";
 import { renderPanel } from "./panels";
 import { NAVIGATOR_MESSAGE, pairState } from "../../../app/pair-state";
+import { approvalBlocker } from "../domain/gate";
+import { PROJECT_GATE_MESSAGES } from "./gate-messages";
+const gt = translator(PROJECT_GATE_MESSAGES);
+
+/** Multi Co-Dev (the integration gate): the functional approval recorded on the issue, and the
+ *  button to record it (only with criteria) or to withdraw it. */
+function functionalBlock(i: Issue): string {
+  const a = i.functional;
+  const block = approvalBlocker(i);
+  const body = a
+    ? `<div class="pj-check pj-functional ok"><span>✓ ${esc(gt("functionalBy", { by: a.by, when: fmtDate(a.at) }))}${a.note ? ` — ${esc(a.note)}` : ""}</span><button class="pj-btn" data-action="pj-functional-revoke" title="${esc(gt("revokeTitle"))}"><span>${esc(gt("revoke"))}</span></button></div>`
+    : `<div class="pj-dim">${esc(gt(block === "noCriteria" ? "functionalNeedsCriteria" : "functionalNone"))}</div><button class="pj-btn" data-action="pj-functional-approve"${block ? " disabled" : ""} title="${esc(gt("approveTitle", { who: i.assignee || gt("nobody") }))}"><span>${esc(gt("approve"))}</span></button>`;
+  return `<div class="pj-sec"><span>${esc(gt("functional"))}</span></div>${body}`;
+}
 
 const KIND_MARK: Record<string, string> = { story: "▣", bug: "●", task: "☑", spike: "⚑" };
 const PRI_MARK: Record<string, string> = { high: "⬆", medium: "＝", low: "⬇" };
@@ -224,6 +238,7 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
             .join("")}</table>${i.templateVersion ? `<div class="pj-dim">Prompt template ${esc(i.templateVersion)}</div>` : ""}`
         : ""
     }
+    ${functionalBlock(i)}
     ${
       // RF-B02: the Definition of Ready holds in every method (Co-Dev needs a Ready issue), so the
       // section is always there — not only for Scrum or a project with its own DoR list
