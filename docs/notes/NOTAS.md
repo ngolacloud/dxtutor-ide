@@ -396,7 +396,7 @@ Diz quantos Co-Devs (agentes de código) trabalham a sprint ao mesmo tempo, de 1
 **Fluxo (por dentro)**
 
 1. O campo manda a operação `set_sprint_codevs` ao `project_apply`; o store recusa um número fora de 1–8 (o campo também o diz antes).
-2. A coluna `sprints.codevs` nasceu na migração 13 da base do Project.
+2. A coluna `sprints.codevs` nasceu na migração 14 da base do Project.
 3. Se o plano paralelo dessa sprint estiver aberto, é recalculado com o número novo.
 
 **Limites**
