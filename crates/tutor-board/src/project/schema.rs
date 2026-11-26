@@ -344,6 +344,13 @@ const MIGRATIONS: &[&str] = &[
     // 14 — how many Co-Devs work the sprint at the same time (Multi Co-Dev, phase 1: the parallel
     //      plan); `NULL`: not set (one)
     "ALTER TABLE sprints ADD COLUMN codevs INTEGER;",
+    // 15 — Multi Co-Dev, phase 2 (the integration gate's data): the project's mandatory checks
+    //      (`[{name, command}]` in JSON; `NULL`: not set — the detected test command) and the
+    //      functional approval recorded on an issue (who, when, the note)
+    "ALTER TABLE projects ADD COLUMN checks TEXT;
+    ALTER TABLE issues ADD COLUMN functional_by TEXT;
+    ALTER TABLE issues ADD COLUMN functional_at INTEGER;
+    ALTER TABLE issues ADD COLUMN functional_note TEXT;",
 ];
 
 /// The schema version this code expects.

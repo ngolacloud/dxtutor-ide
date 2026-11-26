@@ -5,9 +5,11 @@ import type { Messages } from "./i18n";
 export const COMMANDS_MESSAGES = {
   en: {
     theme: "Preferences: Theme — {name}", themeGrafite: "Graphite orange", themeSlate: "Slate indigo", themePapel: "Light paper", about: "dxtutor IDE · prototype v2",
+    hookDesktopOnly: "The pre-commit hook is installed by the desktop app, in an open folder.",
   },
   ptAO: {
     theme: "Preferências: Tema — {name}", themeGrafite: "Grafite laranja", themeSlate: "Slate índigo", themePapel: "Papel claro", about: "dxtutor IDE · protótipo v2",
+    hookDesktopOnly: "O hook de pre-commit instala-se na app desktop, numa pasta aberta.",
   },
 } satisfies Messages<string>;
 

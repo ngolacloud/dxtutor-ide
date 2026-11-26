@@ -30,5 +30,5 @@ if (isDesktop()) {
   protect.subscribe(() => drawStatus(protect.total(), t("redacted", { n: protect.total() }), t("redactedTitle", { n: protect.total() })));
   onRedacted((origin, count, total) => protect.redacted(origin, count, total));
   document.addEventListener("dx:workspace", () => { const r = root(); if (r) void protect.workspaceOpened(r); });
-  services.protect = { guard: protect.guard };
+  services.protect = { guard: protect.guard, installHook: protect.installHook };
 }

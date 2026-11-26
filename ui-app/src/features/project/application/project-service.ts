@@ -57,6 +57,8 @@ export interface ProjectState {
   drift: IssueDrift | null;
   /** Multi Co-Dev (phase 1): the parallel plan of one sprint, when open (read-only). */
   sprintPlan: { sprint: string; loading: boolean; data: SprintPlan | null; error: string | null } | null;
+  /** The folder's detected test command (the default mandatory check when the project sets none). */
+  testCommand: string | null;
 }
 
 export function makeProjectService(deps: ProjectDeps) {
@@ -74,6 +76,7 @@ export function makeProjectService(deps: ProjectDeps) {
     prompt: null,
     drift: null,
     sprintPlan: null,
+    testCommand: null,
   };
   const listeners = new Set<() => void>();
   const set = (patch: Partial<ProjectState>): void => {
@@ -91,7 +94,7 @@ export function makeProjectService(deps: ProjectDeps) {
       return;
     }
     planSeq++;
-    set({ status: "loading", error: null, sprintPlan: null, filters: { ...st.filters, me: deps.workspace.me() } });
+    set({ status: "loading", error: null, sprintPlan: null, filters: { ...st.filters, me: deps.workspace.me() }, testCommand: deps.workspace.testCommand?.() ?? null });
     try {
       const p = parseProject(await deps.gateway.load(r));
       if (!p) throw new Error(copy("badResponse"));
@@ -395,6 +398,25 @@ export function makeProjectService(deps: ProjectDeps) {
     closePlan(): void {
       planSeq++;
       set({ sprintPlan: null });
+    },
+    /** Multi Co-Dev (the integration gate): records that the issue does what its criteria ask. The store
+     *  decides who and when, and refuses without criteria; the command checks who may (the issue's
+     *  responsible, or a Product Owner / Tech Lead). The note is optional; cancelling the dialog stops. */
+    async approveFunctional(key: string): Promise<boolean> {
+      const note = deps.dialog.prompt(copy("approveNote", { key }), "");
+      if (note === null) return false;
+      const ok = await apply({ op: "approve_functional", key, note: note.trim() || null });
+      if (ok) deps.notify.toast(copy("approved", { key }));
+      return ok;
+    },
+    /** Withdraws the functional approval, with a reason (recorded and audited). */
+    async revokeFunctional(key: string): Promise<boolean> {
+      const by = issue(key)?.functional?.by ?? "";
+      const reason = deps.dialog.prompt(copy("revokeReason", { key, by }), "");
+      if (!reason || !reason.trim()) return false;
+      const ok = await apply({ op: "revoke_functional", key, reason: reason.trim() });
+      if (ok) deps.notify.toast(copy("revoked", { key }));
+      return ok;
     },
     /** How many Co-Devs work the sprint (1…8, `null` unsets it); the open plan is recomputed (as after any change). */
     async setCodevs(sprint: string, codevs: number | null | undefined): Promise<boolean> {

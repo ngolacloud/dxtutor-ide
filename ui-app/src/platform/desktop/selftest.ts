@@ -11,6 +11,7 @@ import { desktopPorts } from "../../app/desktop";
 import { RP } from "../../app/store/registry";
 import { projectClient } from "../tauri/project";
 import { auditClient } from "../tauri/audit";
+import { services } from "../../app/services";
 import { gitClient } from "../tauri/git";
 import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
@@ -950,8 +951,29 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         if (task) { await wait(() => I().text(task.id).split("\n").some(l => l.includes("DATABASE_URL") && !l.includes("Executing task")), 5000); shown = I().text(task.id).split("\n").find(l => l.includes("DATABASE_URL") && !l.includes("Executing task")) || ""; }
         masked = shown.includes("••••") && !shown.includes("s3cr3tpass");
       }
-      const out = { tfError, tfDiag, blockedCode: blocked.code, findings: report?.findings.map(f => `${f.file}:${f.line} ${f.rule}`), leaks, allowedCode: allowed.code, masked, shown: shown.slice(0, 80) };
+      // the pre-commit hook (r23 hardening), by the palette's path: the dialog shows the exact file, the backend audits
+      // the install before writing; then it is removed again (dxt is not on the self-test's PATH: it would block every
+      // commit of the steps that follow, which is what it is for)
+      type Plan = { path: string; state: string; content: string };
+      const before = await inv("protect_hook_plan", { root }) as Plan;
+      const installing = services.protect!.installHook();
+      const hookDialog = await wait(() => !!document.querySelector("#approval .appr-cmd"), 10000);
+      const hookCmd = document.querySelector("#approval .appr-cmd")?.textContent ?? "";
+      (document.querySelector("#approval #appr-ok") as HTMLElement | null)?.click();
+      await installing;
+      const after = await inv("protect_hook_plan", { root }) as Plan;
+      const hookRows = (await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; outcome: string | null }>)
+        .filter((r) => r.origin === "ide" && r.tool === "protect" && r.call === "hook.install").map((r) => r.outcome);
+      /* the hook runs on a commit: without dxt on the PATH it blocks and says why; with it, the scan passes an empty commit */
+      const viaHook = await sh("git", ["commit", "--allow-empty", "-m", "selftest: hook"]) as { code: number; stdout: string; stderr: string };
+      const hookText = (viaHook.stdout || "") + (viaHook.stderr || "");
+      const hookRan = viaHook.code !== 0 ? hookText.includes("dxt is not on the PATH") : hookText.includes("dxtutor secret scan");
+      if (viaHook.code === 0) await git("reset", "--hard", "HEAD~1");
+      await sh("rm", ["-f", after.path]);
+      const hook = { before: before.state, dialog: hookDialog && hookCmd.includes(before.path) && hookCmd.includes("dxt secret-scan --staged"), after: after.state, audited: hookRows, ran: hookRan, text: hookText.slice(0, 120) };
+      const out = { tfError, tfDiag, blockedCode: blocked.code, findings: report?.findings.map(f => `${f.file}:${f.line} ${f.rule}`), leaks, allowedCode: allowed.code, masked, shown: shown.slice(0, 80), hook };
       if (!tfError || blocked.code === 0 || !report || !report.findings.some(f => f.file === "db.rs" && f.rule === "url-credentials") || leaks || allowed.code !== 0 || !masked) throw new Error("protect: " + JSON.stringify(out));
+      if (hook.before !== "missing" || !hook.dialog || hook.after !== "installed" || hook.audited.length < 2 || !hook.ran) throw new Error("protect hook: " + JSON.stringify(out));
       return out;
     });
     // r23 F4b: o pipeline de IaC na app real — as etapas (os scanners que faltam dizem «not installed» com a dica), o
