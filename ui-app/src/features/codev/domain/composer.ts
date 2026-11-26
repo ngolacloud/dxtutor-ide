@@ -113,6 +113,8 @@ export const SLASH_ACTIONS: SlashAction[] = [
   { id: "commands", group: "Agente", label: "Comandos e extensões do projecto", hint: "/comandos" },
   { id: "test", group: "Agente", label: "Correr os testes", hint: "/test" },
   { id: "lint", group: "Agente", label: "Correr o lint", hint: "/lint" },
+  { id: "backlog", group: "Agente", label: "Gerar o backlog do projecto", hint: "/backlog" },
+  { id: "project", group: "Agente", label: "Criar o Project a partir do backlog", hint: "/project" },
 ];
 
 const fold = (s: string): string =>

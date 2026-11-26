@@ -354,6 +354,86 @@ pub fn ide_audit_entry(
     })
 }
 
+/// `/project`: creates the folder's Project from `.dxtutor/backlog.json` and the plan Co-Dev proposed
+/// (`project_propose`), after the person confirmed it in the chat. Only if the file is still the
+/// one the plan was made from (`hash`); with `ready`, the issues that lack nothing else are approved
+/// as Ready (the PO's or the Tech Lead's, like the `ready` of `project_apply`). The rules and the one
+/// transaction are the store's; recorded in the audit log before and with the result.
+#[tauri::command]
+pub async fn project_create_from_backlog(
+    app: AppHandle,
+    root: String,
+    hash: String,
+    plan: serde_json::Value,
+    ready: bool,
+    lang: Option<String>,
+) -> Result<tutor_board::project::backlog::Created, ProjectError> {
+    use tutor_board::project::backlog::{Plan, DRAFT_PATH};
+    let root = root_of(&root)?;
+    let (draft, now_hash) = crate::backlog::read_draft(Path::new(&root)).map_err(invalid)?;
+    if now_hash != hash.trim() {
+        return Err(ProjectError {
+            code: "stale".into(),
+            message: format!("{DRAFT_PATH} mudou depois deste plano: corre /project outra vez"),
+            overridable: false,
+        });
+    }
+    let plan: Plan =
+        serde_json::from_value(plan).map_err(|e| invalid(format!("o plano não é válido: {e}")))?;
+    if ready {
+        crate::roles::require(
+            Path::new(&root),
+            &["product_owner", "tech_lead"],
+            "aprovar o Ready (a Definition of Ready)",
+        )
+        .map_err(|message| ProjectError {
+            code: "role".into(),
+            message,
+            overridable: false,
+        })?;
+    }
+    let label = format!(
+        "create the Project from {DRAFT_PATH}: {} issues, {} sprints, method {}{}",
+        draft.issues.len(),
+        plan.sprints.len(),
+        plan.method.as_deref().unwrap_or("(unchanged)"),
+        if ready { ", approve Ready" } else { "" }
+    );
+    let entry = |outcome: &str, reason: Option<String>| IdeAudit {
+        feature: "project".into(),
+        action: "create-from-backlog".into(),
+        command: label.clone(),
+        scope: Some(DRAFT_PATH.into()),
+        approved: true,
+        reason,
+        outcome: (!outcome.is_empty()).then(|| outcome.to_string()),
+        decided_at: None,
+    };
+    // an operation that cannot be recorded does not run
+    record_ide_audit(&app, &root, &entry("", None))?;
+    let lang = if lang.as_deref().is_some_and(|l| l.starts_with("pt")) {
+        "pt"
+    } else {
+        "en"
+    };
+    let r =
+        open(&app)?.create_from_backlog(&root, &actor(&root), now_ms(), &draft, &plan, lang, ready);
+    let result = match &r {
+        Ok(c) => entry(
+            "ok",
+            Some(format!(
+                "{} created, {} already there, {} Ready",
+                c.created.len(),
+                c.existing.len(),
+                c.ready.len()
+            )),
+        ),
+        Err(e) => entry("failed", Some(e.message.clone())),
+    };
+    let _ = record_ide_audit(&app, &root, &result);
+    r
+}
+
 /// Records an IDE operation in the project's audit log (r23 F1: every operation that changes
 /// something outside the editor goes there — who, when, command, approval, result). The same
 /// table and export as the Co-Dev's (`project_audit`), with origin `ide`.

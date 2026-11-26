@@ -36,11 +36,13 @@ import { makeHarnessView } from "./ui/harness-view";
 import { makeAgentMapStore } from "./application/agent-map";
 import { agentMapGateway } from "./infrastructure/agent-map-gateway";
 import { makeAgentMapView } from "./ui/agent-map-view";
-import { setAgentCount } from "./ui/composer";
+import { composerAsk, setAgentCount } from "./ui/composer";
 import { makeCodevSessions } from "./application/codev-sessions";
 import { makeSessionView } from "./ui/session-view";
 import { makeCodevsView } from "./ui/codevs-view";
 import { scopeOverlap } from "./infrastructure/scope-gateway";
+import { subscribeBacklogProposals } from "./infrastructure/backlog-gateway";
+import { bindBacklogActions } from "./ui/backlog-view";
 import { VIEW } from "../../app/store/registry";
 import type {
   Workspace,
@@ -425,7 +427,23 @@ export const codevEngine = {
    *  (phase 2): another issue opens another session — only when its scope overlaps no running issue's. */
   agentIssue: (r: { key: string; text: string; scope: string[]; template: string }): Promise<boolean> | null =>
     agentChat().available() ? codevSessions.issue(r) : null,
+  /** `/backlog <contexto>` and `/project <contexto>` (toolset 11): a backlog session. `null` without the agent v2. */
+  agentBacklog: (q: string): Promise<boolean> | null => (agentChat().available() ? codevSessions.backlog(q) : null),
 };
+
+/* the proposals of `/backlog` and `/project` go to the conversation of the session that made them */
+subscribeBacklogProposals((p) => {
+  if (!codevSessions.showProposal(p)) codevSessions.current().showProposal(p);
+});
+/* the card's buttons: the draft opens in the editor; creating the Project and handing it an issue are the
+   Project's (it evaluates after this module: read at click time) */
+bindBacklogActions({
+  openFile: (rel) => void bridge.reloadDisk().then(() => bridge.openPath(bridge.root() + rel)),
+  prefill: (text) => composerAsk(text, [], false),
+  create: async (o) => (services.project ? services.project.createFromBacklog(o) : null),
+  openProject: () => services.project?.openProject("backlog"),
+  workOn: (key) => void services.project?.workOn(key),
+});
 
 /* ───── low-level transcript/run-control helpers, shared with board.ts ───── */
 export {

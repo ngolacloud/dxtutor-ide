@@ -13,6 +13,7 @@
 pub mod agent;
 pub mod arch_rules;
 pub mod assistant;
+pub mod backlog;
 mod board;
 mod bridge;
 pub mod codeintel;
@@ -1222,6 +1223,7 @@ pub fn run() {
             board::runbook_runs,
             board::audit_export_evidence,
             board::project_issue_prompt,
+            board::project_create_from_backlog,
             board::project_sprint_plan,
             board::project_scope_overlap,
             board::project_checks,

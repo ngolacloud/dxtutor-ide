@@ -10,6 +10,7 @@ import { ptCopy, type CodevCopy } from "./messages";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
 import { ago, callDiff, describeCall, describeSession, isNoToolsError, originFor, outcomeNotice, parseTodos, summarizeResult } from "../domain/agent-events";
 import type { BoardStory } from "../domain/agent-events";
+import type { BacklogProposal } from "../domain/backlog";
 import { costUSD, formatUsage } from "../domain/pricing";
 import { proseOnly } from "../domain/prose";
 import { parseSteps, type PlanStep } from "../domain/run-state";
@@ -68,6 +69,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
   let issueKey: string | null = null;
   /** F4: the issue's scope and prompt template version, sent with its origin (RF-G03/B04). */
   let issueExtra: { scope?: string[]; template?: string } = {};
+  /** Toolset 11: this conversation is a backlog session (`/backlog`, `/project`): it carries their tools. */
+  let backlogScope = false;
   let unsubscribe: (() => void) | null = null;
 
   // the chat keeps prose: long code blocks go to the editor, not the reply (RF-CODEV-STREAM §7)
@@ -279,7 +282,12 @@ export function makeAgentChat(deps: AgentChatDeps) {
 
   async function ensureSession(firstRequest = ""): Promise<string> {
     await ensureSubscribed();
-    if (session && sessionKey !== key()) reset(); // o seletor de modelo mudou
+    if (session && sessionKey !== key()) {
+      // o seletor de modelo mudou: outra sessão, do mesmo tipo
+      const b = backlogScope;
+      reset();
+      backlogScope = b;
+    }
     if (!session) {
       sessionKey = key();
       session = await gateway.start({
@@ -293,6 +301,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         reviewEdits: !!deps.hunks,
         issue: issueKey,
         architecture: deps.architecture?.(firstRequest) ?? false,
+        backlog: backlogScope,
       });
     }
     return session;
@@ -485,6 +494,25 @@ export function makeAgentChat(deps: AgentChatDeps) {
     return send(r.text);
   }
 
+  /** `/backlog <contexto>` and `/project <contexto>` (toolset 11): a backlog session — a new one, except that
+   *  `/project` goes on in the backlog session that is open (the model already read the draft there). The
+   *  backend expands the command into its instructions. */
+  function backlog(q: string): Promise<boolean> {
+    const goOn = backlogScope && !!session && /^\/project(\s|$)/.test(q.trim());
+    if (!goOn) {
+      reset();
+      backlogScope = true;
+    }
+    return send(q);
+  }
+
+  /** A proposal of this session's backlog tools: in the card of the turn that made it (or a card of its own). */
+  function showProposal(p: BacklogProposal): void {
+    const card = turn?.card ?? presenter.thinking(deps.speaker());
+    presenter.backlogProposal?.(card, p);
+    presenter.scrollMsgs();
+  }
+
   function reset(): void {
     if (session) {
       void gateway.close(session);
@@ -496,6 +524,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     planTouched = [];
     issueKey = null;
     issueExtra = {};
+    backlogScope = false;
   }
 
   return {
@@ -507,6 +536,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
     commandsMenu,
     story,
     issue,
+    backlog,
+    showProposal,
     /** A modebar mudou: vale a partir da próxima decisão da sessão em curso. */
     modeChanged(mode: string): void {
       if (session) void gateway.setMode(session, mode);

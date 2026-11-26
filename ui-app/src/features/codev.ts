@@ -42,6 +42,8 @@ import { isDesktop } from "../platform/tauri/core";
 import { currentLocale, translator } from "../app/i18n";
 import { CODEV_ENGINE_MESSAGES } from "./codev/application/messages";
 import { CODEV_CHAT_MESSAGES } from "./codev/ui/chat-messages";
+import { BACKLOG_MESSAGES } from "./codev/ui/backlog-messages";
+import { backlogCommand } from "./codev/domain/backlog";
 import { cacheHitPercent } from "./codev/domain/pricing";
 import {
   codevEngine,
@@ -67,6 +69,7 @@ import { services } from "../app/services";
 import type { ChatMessage } from "../app/store/agent";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
+const tb = translator(BACKLOG_MESSAGES);
 
 /* ───── dados de config/estado do Co-Dev: exportados; o config e a ponte (avaliam antes) lêem-nos pelo registo (U7j) ───── */
 export const ROLE: Record<string, string> = { plan: 'Planeador', code: 'Programador', review: 'Revisor', judge: 'Juiz', local: 'Privado / offline' };
@@ -195,6 +198,11 @@ function handlePrompt(q: string) {
     const pedido = q.replace(/^\/plano\s*/, '');
     if (!pedido) { user(q); card('co-dev', tc('planUsage', { example: `<code>${esc(tc('planExample'))}</code>` })); return; }
     if (!codevEngine.agentPlan(pedido)) { user(q); card('co-dev', tc('needsDesktopPlan')); }
+    return;
+  }
+  if (backlogCommand(q)) {
+    // /backlog and /project (toolset 11): a backlog session; the backend expands the command
+    if (!codevEngine.agentBacklog(q)) { user(q); card('co-dev', tb('needsDesktop')); }
     return;
   }
   if (q === '/comandos') {

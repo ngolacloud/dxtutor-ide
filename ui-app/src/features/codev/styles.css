@@ -367,3 +367,16 @@
   .cdv-m{color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-variant-numeric:tabular-nums}
   .cdv-x{color:var(--fg-muted);padding:2px 7px 2px 3px}.cdv-x:hover{color:var(--fg)}
   .cc-dot.warn{background:var(--yellow)}
+
+/* `/backlog` and `/project`: the proposal card in the chat (features/codev/ui/backlog-view.ts) */
+.bl-card{margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;background:var(--bg-panel)}
+.bl-h{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:6px;color:var(--fg-bright)}
+.bl-c{color:var(--fg-muted);font-weight:400}
+.bl-e{margin:4px 0}.bl-e summary{cursor:pointer;color:var(--fg-bright);font-weight:600}
+.bl-i{padding:4px 0 4px 10px;border-left:2px solid var(--border)}
+.bl-ih{display:flex;gap:6px;align-items:baseline}.bl-tt{flex:1;min-width:0}
+.bl-p{color:var(--fg-muted);font-variant-numeric:tabular-nums}
+.bl-s{color:var(--fg-muted);font-size:11.5px;margin-top:2px;overflow-wrap:anywhere}
+.bl-m,.bl-n{color:var(--fg-dim);margin:6px 0}
+.bl-act{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.bl-res:empty{display:none}.bl-res{margin-top:8px}.bl-ok{color:var(--fg-bright);font-weight:600}

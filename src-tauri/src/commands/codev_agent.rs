@@ -34,6 +34,7 @@ pub async fn codev_agent_start(
     issue: Option<String>,
     language: Option<String>,
     architecture: Option<bool>,
+    backlog: Option<bool>,
 ) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     // `arch_propose` (Studio, F6): a proposta chega à UI pelo evento `arch://proposal`
@@ -43,6 +44,16 @@ pub async fn codev_agent_start(
             let _ = emitter.emit("arch://proposal", p);
         }),
     };
+    // `/backlog` and `/project` (toolset 11): the chat shows the proposal of the session that made it
+    // (`backlog://proposal`); the session id is known once the session starts
+    let session_id: std::sync::Arc<std::sync::OnceLock<String>> = Default::default();
+    let (em, sid) = (app.clone(), session_id.clone());
+    let emit: crate::backlog::Emit = std::sync::Arc::new(move |p| {
+        let _ = em.emit(
+            "backlog://proposal",
+            serde_json::json!({ "session": sid.get(), "proposal": p }),
+        );
+    });
     let spec = StartSpec {
         root,
         model,
@@ -54,6 +65,10 @@ pub async fn codev_agent_start(
         host_tools: vec![std::sync::Arc::new(crate::lsp::LspDiagnosticsTool)],
         host_tools_v4: vec![std::sync::Arc::new(arch_propose)],
         host_tools_v8: vec![std::sync::Arc::new(crate::codeintel::OutlineTool)],
+        host_tools_v11: vec![
+            std::sync::Arc::new(crate::backlog::BacklogProposeTool { emit: emit.clone() }),
+            std::sync::Arc::new(crate::backlog::ProjectProposeTool { emit }),
+        ],
         trust_store: tutor_agent::trust::default_store(),
         user_mcp: tutor_agent::mcp::user_config(),
         provider,
@@ -63,14 +78,17 @@ pub async fn codev_agent_start(
         change_log: crate::board::db_path(&app).ok(),
         lang: language,
         architecture: architecture.unwrap_or(false),
+        backlog: backlog.unwrap_or(false),
         ..Default::default()
     };
-    tauri::async_runtime::spawn_blocking(move || {
+    let id = tauri::async_runtime::spawn_blocking(move || {
         let key_for = |p: &str| keys::resolve(&dir, p);
         codev_agent::start(spec, &key_for, keys::anthropic_workspace_id())
     })
     .await
-    .map_err(|e| format!("agent start task failed: {e}"))?
+    .map_err(|e| format!("agent start task failed: {e}"))??;
+    let _ = session_id.set(id.clone());
+    Ok(id)
 }
 
 /// Envia uma mensagem (ou, com `text: null`, repete a partir do histórico). Devolve logo;

@@ -28,6 +28,7 @@ import type { CodevCopy } from "./messages";
 import type { AgentEvent, AgentOrigin, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
 import type { LinesCheck, PlanPlace } from "../domain/plan-order";
 import type { LiveSession, SubagentStep } from "../domain/agent-map";
+import type { BacklogProposal } from "../domain/backlog";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -203,6 +204,8 @@ export interface ChatPresenter {
   toolDiffLink?(ref: ToolRef, onDiff: () => void): void;
   /** The report of a turn (HARNESS-07), built from its events: a collapsible block. */
   agentReport?(ref: CardRef, title: string, markdown: string): void;
+  /** `/backlog`/`/project`: the backlog or the Project plan Co-Dev proposed, with what the human can do with it. */
+  backlogProposal?(ref: CardRef, proposal: BacklogProposal): void;
   /** Live hunks waiting for a decision (RF-CODEV-STREAM): a bar on the tool line with
    *  «accept all / reject all / open in the editor». `settle` replaces it with the outcome
    *  when the review ends (from the chat or from the editor). */
@@ -268,6 +271,8 @@ export interface AgentGateway {
     issue?: string | null;
     /** An architecture session (toolset 9): only these carry `arch_propose`. */
     architecture?: boolean;
+    /** A backlog session (toolset 11, `/backlog` and `/project`): only these carry `backlog_propose`/`project_propose`. */
+    backlog?: boolean;
   }): Promise<string>;
   /** Decides the hunks of a `hunk_review` (hunks without a decision count as rejected). */
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;

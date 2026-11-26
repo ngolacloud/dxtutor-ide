@@ -15,6 +15,7 @@
 //! - The integration gate's data (Multi Co-Dev, phase 2): the project's mandatory checks and the
 //!   functional approval a person records on an issue ([`Op::ApproveFunctional`]).
 
+pub mod backlog;
 pub mod breakpoints;
 pub mod deploys;
 pub mod evidence;

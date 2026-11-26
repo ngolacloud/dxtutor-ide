@@ -121,6 +121,8 @@ test("abre a sessão com os comandos detectados e o modo, faz streaming do texto
     issue: null,
     // toolset 9: an architecture session only when the deps say so (Studio open / the request)
     architecture: false,
+    // toolset 11: a backlog session only for /backlog and /project
+    backlog: false,
   });
   expect(t.gateway.send).toHaveBeenCalledWith("S1", "olá", { kind: "chat" });
   expect(t.calls).toContain("reasoning vou ver");
@@ -502,6 +504,30 @@ test("o uso de cada pedido do agente segue para o contador e o ctx (entrada com 
   expect(onUsage.mock.calls.map((c) => c.slice(0, 2))).toEqual([[1230, 50], [400, 20]]);
   expect(onUsage.mock.calls[0][2]).toEqual({ cacheRead: 200, cacheWrite: 30, cost: costUSD("claude-opus-5-5", u(1000, 50, 200, 30)) });
   expect(onUsage.mock.calls[1][2]).toEqual({ cacheRead: 0, cacheWrite: 0, cost: costUSD("claude-opus-5-5", u(400, 20)) });
+});
+
+test("conjunto 11: /backlog abre uma sessão de backlog; o /project continua nela; a conversa normal não a tem", async () => {
+  const t = setup();
+  t.setScript(() => t.emit(done()));
+  await t.chat.backlog("/backlog uma loja com encomendas");
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ backlog: true, issue: null }));
+  expect(t.gateway.send).toHaveBeenLastCalledWith("S1", "/backlog uma loja com encomendas", { kind: "chat" });
+  // /project goes on in the open backlog session (the model already read the draft)
+  await t.chat.backlog("/project scrum, sprints de 2 semanas");
+  expect(t.gateway.start).toHaveBeenCalledTimes(1);
+  expect(t.gateway.send).toHaveBeenLastCalledWith("S1", "/project scrum, sprints de 2 semanas", { kind: "chat" });
+  // another /backlog is a new backlog session
+  await t.chat.backlog("/backlog outra vez");
+  expect(t.gateway.close).toHaveBeenCalledWith("S1");
+  expect(t.gateway.start).toHaveBeenCalledTimes(2);
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ backlog: true }));
+  // a new conversation is a plain one again; a /project there opens a backlog session
+  t.chat.reset();
+  await t.chat.send("olá");
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ backlog: false }));
+  await t.chat.backlog("/project kanban");
+  expect(t.gateway.start).toHaveBeenCalledTimes(4);
+  expect(t.gateway.start).toHaveBeenLastCalledWith(expect.objectContaining({ backlog: true }));
 });
 
 test("conjunto 9: a sessão nova é de arquitectura conforme as deps, com o primeiro pedido", async () => {

@@ -696,6 +696,16 @@ fn code_context(
             }
             continue;
         }
+        // a file the issue creates: say so (an empty file list read as «nothing to do»)
+        if plain && !p.exists() {
+            let line = if lang == "pt" {
+                format!("{s} — (ainda não existe: cria-o)\n")
+            } else {
+                format!("{s} — (does not exist yet: create it)\n")
+            };
+            push(&mut out, line, &mut budget);
+            continue;
+        }
         // folders and globs: the files that match
         let files: Vec<String> = project_files(root, usize::MAX)
             .into_iter()
@@ -959,6 +969,27 @@ mod tests {
             .text
             .contains("o código, os comentários e as mensagens de commit são sempre em inglês"));
         assert!(r.tokens > 50 && r.tokens == r.text.chars().count().div_ceil(4));
+    }
+
+    #[test]
+    fn a_scope_file_that_does_not_exist_yet_is_to_be_created() {
+        let d = tempfile::tempdir().unwrap();
+        let mut i = issue();
+        i.scope = vec!["src/orders/new.rs".into()];
+        let r = render(d.path(), &i, None);
+        assert!(
+            r.text
+                .contains("src/orders/new.rs — (ainda não existe: cria-o)"),
+            "{}",
+            r.text
+        );
+        let r = render(d.path(), &i, Some("en"));
+        assert!(
+            r.text
+                .contains("src/orders/new.rs — (does not exist yet: create it)"),
+            "{}",
+            r.text
+        );
     }
 
     #[test]

@@ -26,6 +26,9 @@ export interface StartAgentArgs {
   language?: string | null;
   /** Sessão de arquitectura (conjunto 9): só estas levam a ferramenta `arch_propose`. Fica gravada com a sessão. */
   architecture?: boolean;
+  /** Sessão de backlog (conjunto 11, `/backlog` e `/project`): só estas levam `backlog_propose` e
+   *  `project_propose`. Fica gravada com a sessão. */
+  backlog?: boolean;
 }
 
 /** Abre uma sessão; devolve o id. Falha se faltar a chave do provedor ou a pasta não existir. */
@@ -43,6 +46,7 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     issue: a.issue ?? null,
     language: a.language ?? currentLocale(),
     architecture: a.architecture ?? false,
+    backlog: a.backlog ?? false,
   });
 
 /** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */

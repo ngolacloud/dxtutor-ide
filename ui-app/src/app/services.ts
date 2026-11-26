@@ -25,6 +25,7 @@ import type * as Protect from "../features/protect/index";
 import type * as Testing from "../features/testing/index";
 import type * as CodevIndex from "../features/codev/index";
 import type { DeployRecord } from "../features/deploy/domain/types";
+import type { BacklogCreated } from "../features/project/domain/backlog";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -62,7 +63,12 @@ export interface Services {
   /** o atalho «a tecla é da shell» do terminal real (o painel, só no desktop): os atalhos globais (U7p6) */
   panel: { termOwnsKey: (e: KeyboardEvent) => boolean };
   /** abrir o Project (features/project/index.ts, que avalia depois das boas-vindas — r23 F6) */
-  project: Pick<typeof Project, "openProject">;
+  project: Pick<typeof Project, "openProject"> & {
+    /** `/project`: creates the Project from the backlog and the plan Co-Dev proposed (after the human confirms) */
+    createFromBacklog(o: { hash: string; plan: unknown; ready: boolean; issues: number; sprints: number }): Promise<BacklogCreated | null>;
+    /** hands a Project issue to Co-Dev («Work on it with Co-Dev») */
+    workOn(key: string): Promise<void>;
+  };
   /** r23 F4a: um commit da UI que o secret scan bloqueou pergunta ao humano (features/protect, que avalia depois);
    *  e o hook de pre-commit (endurecimento r23), pedido pela paleta */
   protect: Pick<typeof Protect.protect, "guard" | "installHook">;

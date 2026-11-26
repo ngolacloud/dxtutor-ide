@@ -62,6 +62,9 @@ pub struct SessionMeta {
 pub const SCOPE_ISSUE: &str = "issue";
 /// O conjunto extra das sessões de arquitectura (`arch_propose`, Studio).
 pub const SCOPE_ARCH: &str = "arch";
+/// Toolset 11: o conjunto extra das sessões de backlog (`/backlog`, `/project`): `backlog_propose`
+/// e `project_propose`.
+pub const SCOPE_BACKLOG: &str = "backlog";
 
 impl SessionMeta {
     /// Esta sessão tem o conjunto extra `scope`? Antes do toolset 9 todas as sessões tinham

@@ -21,6 +21,9 @@ export interface ProjectGateway {
   sprintPlan?(root: string, sprint: string | null, codevs: number | null): Promise<unknown>;
   /** Board B: what choosing a method changes in the settings (`project_method_preview`, read-only). */
   methodPreview?(root: string, method: string, lang: string): Promise<unknown>;
+  /** `/project`: creates the Project from `.dxtutor/backlog.json` and the plan Co-Dev proposed
+   *  (`project_create_from_backlog`; the file must still be the one the plan was made from — `hash`). */
+  createFromBacklog?(root: string, hash: string, plan: unknown, ready: boolean, lang: string): Promise<unknown>;
 }
 
 export interface Workspace {
@@ -85,6 +88,11 @@ export interface Notifier {
   toast(message: string): void;
 }
 
+/** The shared approval dialog (`app/approval.ts`), by its shape: the human confirms the exact action. */
+export interface HumanPort {
+  approve(req: { title: string; command: string; scope?: string }): Promise<{ approved: boolean }>;
+}
+
 export interface ProjectDeps {
   /** Os textos para o humano na língua da interface (`./messages`); sem ela, os de antes (português). */
   copy?: ProjectCopy;
@@ -108,4 +116,6 @@ export interface ProjectDeps {
   openAt?(rel: string, line: number): void;
   /** The language of the method's DoR/DoD suggestions (`pt` or `en`); without it, `pt`. */
   lang?(): "pt" | "en";
+  /** Confirms an action that changes the Project from outside its views (`/project`). */
+  human?: HumanPort;
 }
