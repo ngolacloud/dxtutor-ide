@@ -13,6 +13,7 @@ import { securityFindings } from "../domain/commands";
 import type { IacTab, OpsState } from "../application/ops-service";
 import type { IacFinding, ResourceChange, Stage, StageStatus } from "../domain/types";
 import type { OpsKey } from "./messages";
+import { budgetLine, capacityLine } from "../domain/metrics";
 
 export type T = (k: OpsKey, p?: Record<string, string | number>) => string;
 
@@ -195,6 +196,21 @@ function sourcesSection(t: T, st: OpsState): string {
   return st.sources.map((s) => `<div class="ops-row"><b>${t(SRC_KEY[s.kind])}</b>${s.connected ? `<span class="ops-ok">${t("srcConnected")}</span><span class="ops-dim notr">${esc(s.via ?? "")}</span>` : `<span class="ops-why">${t("srcNotConnected")}</span><span class="ops-dim notr">${esc(s.notes === "not connected" ? "" : s.notes)}</span>`}${!s.connected && s.hint ? `<span class="ops-msg notr">${esc(s.hint)}</span>` : ""}</div>`).join("");
 }
 
+/* NOTAS-r23 point 3: the metrics source — each SLO's budget and the capacity, as measured; the token (auth keychain) */
+function metricsSection(t: T, st: OpsState): string {
+  const m = st.metrics;
+  if (!m || !m.configured) return "";
+  const tok = m.auth === "keychain" ? btn("ops-metrics-token", t("metricsSetToken")) + btn("ops-metrics-clear", t("metricsClearToken")) : "";
+  const head = `<div class="ops-bar"><b>${t("metricsTitle")}</b><span class="ops-dim notr">${esc(m.url ?? "")}${m.version ? ` · ${esc(m.version)}` : ""} · ${esc(t("metricsAuth", { a: m.auth ?? "none" }))}</span><span class="ops-sp"></span>${tok}${btn("ops-metrics-reload", t("metricsReload"))}</div>`;
+  if (!m.connected) return head + `<div class="ops-why notr">${esc(m.notes)}</div>` + (m.hint ? `<div class="ops-msg notr">${esc(m.hint)}</div>` : "");
+  const budgets = m.budgets.length || m.budgetErrors.length
+    ? `<div class="ops-dim">${esc(t("metricsBudgets", { f: ".dxtutor/slo.json" }))}</div>` + m.budgets.map((b) => `<div class="ops-row"><span class="${b.exhausted ? "ops-why" : b.remaining === null ? "ops-dim" : "ops-ok"} notr">${esc(budgetLine(b))}</span><span class="ops-dim notr">${esc(t("metricsObjective", { o: b.objective }))}</span></div>`).join("")
+      + m.budgetErrors.map((e) => `<div class="ops-why notr">${esc(e)}</div>`).join("")
+    : `<div class="sec-empty">${t("metricsNoSlos")}</div>`;
+  const cap = `<div class="ops-row"><b>${t("metricsCapacity")}</b>${m.capacity ? `<span class="${m.capacity.over ? "ops-why" : "ops-ok"} notr">${esc(capacityLine(m.capacity))}</span>` : `<span class="ops-dim notr">${esc(m.capacityNotes)}</span>`}</div>`;
+  return head + budgets + cap;
+}
+
 export function renderOps(t: T, st: OpsState, canAsk: boolean, desktop: boolean): string {
   if (!desktop) return `<div class="ops"><div class="sec-empty">${t("needDesktop")}</div></div>`;
   return `<div class="ops"><div class="ops-top"><b>${t("title")}</b><span class="ops-dim">${t("sub")}</span><span class="ops-sp"></span>${btn("ops-evidence", st.evidence.busy ? t("running") : t("evidence"), "", "btn ghost", st.evidence.busy)}</div>${st.ran ? `<div class="ops-ran notr">${esc(t("ran", { c: st.ran }))}</div>` : ""}
@@ -202,5 +218,5 @@ export function renderOps(t: T, st: OpsState, canAsk: boolean, desktop: boolean)
     <section class="ops-sec"><h3>${t("kube")}</h3>${kubeSection(t, st, canAsk)}</section>
     <section class="ops-sec"><h3>${t("cloud")}</h3>${cloudSection(t, st)}</section>
     <section class="ops-sec ops-rb"><h3>${t("runbooks")}</h3>${runbookSection(t, st, canAsk)}</section>
-    <section class="ops-sec"><h3>${t("sources")}</h3>${sourcesSection(t, st)}</section></div>`;
+    <section class="ops-sec"><h3>${t("sources")}</h3>${sourcesSection(t, st)}${metricsSection(t, st)}</section></div>`;
 }

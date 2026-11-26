@@ -117,6 +117,9 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
   const only = (R.info.selftestOnly ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const step = async (n: string, f: () => unknown) => {
     if (only.length && !only.includes(n)) { rep.steps[n] = "skipped"; return; }
+    /* the step about to run, into DXTUTOR_SELFTEST_PROGRESS when it is set (outside the project: a new file in the
+       tree would make the deploy's version check refuse a dirty tree): when the self-test hangs, its last line says where */
+    await sh("sh", ["-c", '[ -n "$DXTUTOR_SELFTEST_PROGRESS" ] && printf "%s %s\\n" "$(date +%T)" "$1" >> "$DXTUTOR_SELFTEST_PROGRESS"; true', "_", n]).catch(() => undefined);
     const e0 = R.errors.length;
     try { rep.steps[n] = await f(); } catch (e) { rep.steps[n] = "FAIL: " + ((e as Error) && (e as Error).message || e); }
     if (R.errors.length > e0) rep.stepErrors[n] = R.errors.slice(e0);
@@ -1199,6 +1202,50 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         delete FS[tf]; delete FS[rb]; flushSave(); await idle();
         if (before) await git("reset", "--hard", before);
         await sh("rm", ["-rf", "infra-q", "runbooks"]);
+      }
+    });
+    // NOTAS-r23 ponto 3: a fonte de métricas na app real, contra um Prometheus que o runner arranca (DXTUTOR_SELFTEST_PROM)
+    // e cujo token de leitura vem do Vault dev (lido no backend, nunca devolvido): a fonte «obs» ligada, o orçamento de erro
+    // medido (as consultas inválidas à própria API do Prometheus são os erros), a capacidade que diz não ter o
+    // kube-state-metrics, e um incidente cuja confiança sobe de «low» com a verificação das métricas.
+    await step("metrics", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const env = async (k: string) => ((await sh("printenv", [k])) as { stdout: string }).stdout.trim();
+      const prom = await env("DXTUTOR_SELFTEST_PROM"), vaddr = await env("DXTUTOR_SELFTEST_VAULT"), vtok = await env("DXTUTOR_SELFTEST_VAULT_TOKEN2");
+      if (!prom || !vaddr || !vtok) return { skipped: "no Prometheus or Vault for the self-test (DXTUTOR_SELFTEST_PROM, DXTUTOR_SELFTEST_VAULT_TOKEN2)" };
+      const root = R.root as string, v = tauriVault(), w = { addr: vaddr, namespace: "" };
+      await v.loginToken(w, vtok);
+      writeFile(ROOT + ".dxtutor/metrics.json", JSON.stringify({ prometheus: { url: prom, auth: { kind: "vault", addr: vaddr, mount: "secret", path: "apps/obs/prometheus", field: "token" } } }, null, 2));
+      writeFile(ROOT + ".dxtutor/slo.json", JSON.stringify({ services: [{ name: "prometheus-api", objective: 99, window: "5m", errors: 'sum(increase(prometheus_http_requests_total{handler="/api/v1/query",code=~"4..|5.."}[$window]))', total: 'sum(increase(prometheus_http_requests_total{handler="/api/v1/query"}[$window]))' }] }, null, 2));
+      flushSave(); await idle();
+      const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
+      const hit = (q: string) => sh("curl", ["-s", "-o", "/dev/null", "-G", `${prom}/api/v1/query`, "--data-urlencode", `query=${q}`]);
+      /* two waves: the 400 series must exist before its increase counts */
+      await hit("bad("); await hit("up"); await wait(3000);
+      for (let i = 0; i < 10; i++) { await hit("bad("); await hit("up"); await hit("up"); }
+      await wait(4000);
+      try {
+        const sources = await inv("sources_status", { root }) as Array<{ kind: string; connected: boolean; via: string | null; notes: string }>;
+        const obs = sources.find((s) => s.kind === "obs");
+        type B = { service: string; errorRatio: number | null; remaining: number | null; exhausted: boolean };
+        const o = await inv("metrics_status", { root }) as { connected: boolean; auth: string; version: string | null; budgets: B[]; budgetErrors: string[]; capacity: unknown; capacityNotes: string };
+        const inc = await inv("incident_open", { root, title: "selftest error spike", severity: "SEV-3" }) as { id: number };
+        const lines = await inv("incident_metrics_check", { root, id: inc.id }) as string[];
+        await inv("incident_add", { root, id: inc.id, kind: "evidence", text: "the self-test sent bad queries", reason: null });
+        const view = await inv("incident_get", { root, id: inc.id }) as { confidence: { level: string; reasons: string[] } };
+        const json = JSON.stringify([sources, o, lines, view]);
+        const b = o.budgets[0];
+        const res = {
+          obs: obs?.connected, via: obs?.via, auth: o.auth, version: o.version, budget: b ? { ratio: b.errorRatio, remaining: b.remaining, exhausted: b.exhausted } : null,
+          budgetErrors: o.budgetErrors, capacity: o.capacity, capacityNotes: o.capacityNotes, lines, confidence: view.confidence.level, tokenShown: json.includes("st-prom-read-"),
+        };
+        if (!obs?.connected || !/token from Vault/.test(obs.via ?? "") || o.auth !== "vault" || !b || !b.exhausted || !(b.errorRatio! > 0.05) || o.capacity !== null
+          || !/kube-state-metrics/.test(o.capacityNotes) || lines.length !== 1 || !/prometheus-api: errors/.test(lines[0]) || view.confidence.level === "low" || res.tokenShown)
+          throw new Error("metrics: " + JSON.stringify(res));
+        return res;
+      } finally {
+        delete FS[ROOT + ".dxtutor/metrics.json"]; delete FS[ROOT + ".dxtutor/slo.json"]; flushSave(); await idle();
+        await v.revoke(w).catch(() => undefined);
       }
     });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e

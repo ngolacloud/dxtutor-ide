@@ -46,6 +46,8 @@ pub enum Status {
     NotInstalled,
     NotConnected,
     Skipped,
+    /// something is wrong but it does not block here (an exhausted error budget in staging)
+    Warning,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -385,13 +387,22 @@ fn utc_now() -> (u32, u32) {
 /// approved pull request, keeps production closed) and staging (production only takes a version that ran there).
 pub const NOT_WAIVABLE: &[&str] = &["approver", "staging", "version"];
 
-/// Which checks block, given the waivers: a failed check always; in production, «not installed» and
-/// «not connected» too unless waived (and never for [`NOT_WAIVABLE`]).
+/// The failed checks production can still waive with a reason (owner decision, 2026-11-26): an exhausted error
+/// budget — the urgent fix is exactly the deploy that has to go out.
+pub const FAILED_WAIVABLE: &[&str] = &["slo"];
+
+/// Which checks block, given the waivers: a failed check always (in production, [`FAILED_WAIVABLE`] unless
+/// waived); in production, «not installed» and «not connected» too unless waived (and never for
+/// [`NOT_WAIVABLE`]). A warning never blocks.
 pub fn blockers(env: &str, gates: &[Gate], waived: &[String]) -> Vec<String> {
     gates
         .iter()
         .filter(|g| match g.status {
-            Status::Failed => true,
+            Status::Failed => {
+                !(env == "production"
+                    && FAILED_WAIVABLE.contains(&g.id.as_str())
+                    && waived.contains(&g.id))
+            }
             Status::NotInstalled | Status::NotConnected => {
                 env == "production"
                     && (NOT_WAIVABLE.contains(&g.id.as_str()) || !waived.contains(&g.id))
@@ -402,14 +413,18 @@ pub fn blockers(env: &str, gates: &[Gate], waived: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// The checks a human can waive (with a reason): production's «not installed» / «not connected».
+/// The checks a human can waive (with a reason): production's «not installed» / «not connected», and its
+/// failed [`FAILED_WAIVABLE`] ones.
 pub fn waivable(env: &str, gates: &[Gate]) -> Vec<String> {
     if env != "production" {
         return vec![];
     }
     gates
         .iter()
-        .filter(|g| matches!(g.status, Status::NotInstalled | Status::NotConnected))
+        .filter(|g| {
+            matches!(g.status, Status::NotInstalled | Status::NotConnected)
+                || g.status == Status::Failed && FAILED_WAIVABLE.contains(&g.id.as_str())
+        })
         .filter(|g| !NOT_WAIVABLE.contains(&g.id.as_str()))
         .map(|g| g.id.clone())
         .collect()
@@ -1059,6 +1074,86 @@ fn approver_gate(t: &Tools, root: &Path, version: &str) -> (Gate, Option<String>
 }
 
 /// Builds the plan: every check, the rule, and the exact commands. Kept for [`rollout`].
+/// The error budget of the SLOs that cover these Deployments (`crate::metrics`): spent → production fails (a
+/// waiver with a reason lifts it), staging warns; no source → «not connected»; no SLO for them → skipped; a query
+/// that fails or finds no requests → «not connected» with why (never a number that was not measured).
+fn slo_gate(t: &Tools, root: &Path, env: &str, deployments: &[String]) -> Gate {
+    let l = match crate::metrics::live(t.store, root) {
+        Ok(l) => l,
+        Err(u) => {
+            let g = Gate::new(
+                "slo",
+                Status::NotConnected,
+                if u.notes == "not connected" {
+                    "no SLO source connected (an error budget needs metrics)".to_string()
+                } else {
+                    format!("metrics: {}", u.notes)
+                },
+            );
+            return match u.hint {
+                Some(h) => g.hint(&h),
+                None => g,
+            };
+        }
+    };
+    let mine = crate::metrics::slos_for(&l.slos, deployments);
+    if mine.is_empty() {
+        return Gate::new(
+            "slo",
+            Status::Skipped,
+            format!(
+                "no SLO in {} covers {}",
+                crate::metrics::SLO_FILE,
+                if deployments.is_empty() {
+                    "these manifests (no Deployment)".to_string()
+                } else {
+                    deployments.join(", ")
+                }
+            ),
+        );
+    }
+    let (mut lines, mut spent, mut unknown, mut queries) = (vec![], vec![], vec![], vec![]);
+    for s in mine {
+        match crate::metrics::budget(&l.prom, s) {
+            Ok(b) => {
+                lines.push(crate::metrics::budget_line(&b));
+                queries.extend(b.queries.clone());
+                if b.exhausted {
+                    spent.push(b.service.clone());
+                } else if b.remaining.is_none() {
+                    unknown.push(b.service.clone());
+                }
+            }
+            Err(e) => {
+                lines.push(format!("{}: {e}", s.name));
+                unknown.push(s.name.clone());
+            }
+        }
+    }
+    let summary = lines.join(" · ");
+    let detail = format!(
+        "Prometheus {} at {}\n{}",
+        l.version,
+        l.prom.url,
+        queries.join("\n")
+    );
+    if !spent.is_empty() {
+        return if env == "production" {
+            Gate::new("slo", Status::Failed, summary)
+                .detail(detail)
+                .hint("The error budget is spent: only a fix should go out — waive with the reason (it is audited), or wait for the budget to recover")
+        } else {
+            Gate::new("slo", Status::Warning, summary)
+                .detail(detail)
+                .hint("Informative in staging; production would need a waiver with a reason")
+        };
+    }
+    if !unknown.is_empty() {
+        return Gate::new("slo", Status::NotConnected, summary).detail(detail);
+    }
+    Gate::new("slo", Status::Ok, summary).detail(detail)
+}
+
 pub fn plan(t: &Tools, root: &Path, target: &Target) -> Result<DeployPlan, String> {
     if !matches!(target.env.as_str(), "staging" | "production") {
         return Err(format!("not an environment to deploy to: {:?}", target.env));
@@ -1120,11 +1215,7 @@ pub fn plan(t: &Tools, root: &Path, target: &Target) -> Result<DeployPlan, Strin
     gates.push(Gate::new("secret-check", Status::NotConnected, "dx-secret-check is not available: its image does not exist yet (it would read the mounted secrets in the cluster and say only exists / non-empty / host resolves / login ok)"));
     gates.push(drift_gate(t, root, target, &cfg));
     gates.push(admission_gate(t, root, target, &m, reachable));
-    gates.push(Gate::new(
-        "slo",
-        Status::NotConnected,
-        "no SLO source connected (an error budget needs metrics)",
-    ));
+    gates.push(slo_gate(t, root, &target.env, &m.deployments));
     gates.push(if cfg.windows.is_empty() {
         Gate::new(
             "window",

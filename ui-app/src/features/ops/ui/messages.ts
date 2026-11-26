@@ -61,6 +61,11 @@ export const OPS_MESSAGES = {
     rbDecidePh: "What was decided for «{t}», and why?", rbJudgePh: "Why? (kept with the run — optional)", rbRefused: "Not run: {e}",
     rbHistory: "{n} run(s) kept as evidence ({s} step(s))", rbAsk: "Comment this runbook step's output: does it meet the expectation, what does it mean, and what should the next step be? Do not run anything.",
     sources: "Data sources", srcCicd: "CI/CD", srcCost: "Cloud cost", srcObs: "Metrics and logs", srcCloud: "Cloud inventory", srcConnected: "connected, read-only", srcNotConnected: "not connected",
+    /* NOTAS-r23 point 3 — the metrics source (texto novo) */
+    metricsTitle: "Prometheus", cancel: "Cancel", metricsSetToken: "Set token…", metricsClearToken: "Clear token", metricsReload: "Measure again",
+    metricsTokenTitle: "Read token for {u} (kept in the OS keychain)", metricsTokenSaved: "Token kept in the keychain.", metricsTokenCleared: "Token removed from the keychain.",
+    metricsBudgets: "Error budgets ({f})", metricsNoSlos: "No SLOs yet: add .dxtutor/slo.json (per service: the objective, the period such as 30d, and the PromQL for the errors and the total).",
+    metricsObjective: "objective {o}%", metricsCapacity: "Capacity", metricsAuth: "auth: {a}",
     evidence: "Export evidence (ISO 27001)", evidenceDone: "Evidence written to {p}: review it before sending it to the auditor.", evidenceFailed: "No evidence exported: {e}",
   },
   ptAO: {
@@ -120,6 +125,10 @@ export const OPS_MESSAGES = {
     rbDecidePh: "O que se decidiu em «{t}», e porquê?", rbJudgePh: "Porquê? (fica com a execução — opcional)", rbRefused: "Não correu: {e}",
     rbHistory: "{n} execução(ões) guardadas como evidência ({s} passo(s))", rbAsk: "Comenta a saída deste passo do runbook: cumpre o esperado, o que significa, e qual deve ser o passo seguinte? Não corras nada.",
     sources: "Fontes de dados", srcCicd: "CI/CD", srcCost: "Custo da cloud", srcObs: "Métricas e logs", srcCloud: "Inventário da cloud", srcConnected: "ligada, só leitura", srcNotConnected: "não ligada",
+    metricsTitle: "Prometheus", cancel: "Cancelar", metricsSetToken: "Definir o token…", metricsClearToken: "Apagar o token", metricsReload: "Medir outra vez",
+    metricsTokenTitle: "Token de leitura de {u} (guardado no keychain do sistema)", metricsTokenSaved: "Token guardado no keychain.", metricsTokenCleared: "Token apagado do keychain.",
+    metricsBudgets: "Orçamentos de erro ({f})", metricsNoSlos: "Ainda sem SLOs: acrescenta o .dxtutor/slo.json (por serviço: o objectivo, o período como 30d, e o PromQL dos erros e do total).",
+    metricsObjective: "objectivo {o}%", metricsCapacity: "Capacidade", metricsAuth: "autenticação: {a}",
     evidence: "Exportar evidências (ISO 27001)", evidenceDone: "Evidências escritas em {p}: revê-as antes de as enviares ao auditor.", evidenceFailed: "Nada exportado: {e}",
   },
 } satisfies Messages<string>;

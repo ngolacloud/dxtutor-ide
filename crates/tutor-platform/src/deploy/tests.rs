@@ -454,3 +454,79 @@ fn a_dirty_tree_a_moved_head_or_changed_manifests_are_refused() {
     .unwrap_err()
     .contains("choose staging's cluster"));
 }
+
+/// The SLO gate against a (fake) Prometheus: production fails on a spent budget and only a waiver with a reason
+/// lifts it; staging warns and never blocks; no SLO for the Deployment skips; no source says how to connect one.
+#[test]
+fn the_slo_gate_and_its_waiver() {
+    use crate::metrics::testkit::{fake, vector, BUILD, EMPTY};
+    let url = fake(|path, q, _| match path {
+        "/api/v1/status/buildinfo" => (200, BUILD.into()),
+        _ if q.contains("web_errors") => (200, vector(50.0)),
+        _ if q.contains("web_total") => (200, vector(1000.0)),
+        _ if q.contains("api_errors") => (200, vector(1.0)),
+        _ if q.contains("api_total") => (200, vector(10_000.0)),
+        _ => (200, EMPTY.into()),
+    });
+    let d = tempfile::tempdir().unwrap();
+    let store = MemStore::default();
+    let cmd = |p: &str| Command::new(p);
+    let t = Tools {
+        cmd: &cmd,
+        has: &|_: &str| false,
+        store: &store,
+    };
+    let deps = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // no source
+    let g = slo_gate(&t, d.path(), "production", &deps(&["web"]));
+    assert_eq!(g.status, Status::NotConnected);
+    assert!(g.hint.unwrap().contains("metrics.json"));
+    std::fs::create_dir_all(d.path().join(".dxtutor")).unwrap();
+    std::fs::write(
+        d.path().join(".dxtutor/metrics.json"),
+        format!(r#"{{"prometheus": {{"url": "{url}"}}}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        d.path().join(".dxtutor/slo.json"),
+        r#"{"services": [
+          {"name": "web", "objective": 99.9, "errors": "sum(web_errors[$window])", "total": "sum(web_total[$window])"},
+          {"name": "api", "objective": 99, "errors": "sum(api_errors[$window])", "total": "sum(api_total[$window])", "deployments": ["api-v2"]}
+        ]}"#,
+    )
+    .unwrap();
+    // 5% errors at 99.9%: spent
+    let prod = slo_gate(&t, d.path(), "production", &deps(&["web"]));
+    assert_eq!(prod.status, Status::Failed, "{prod:?}");
+    assert!(prod.summary.starts_with("web: ") && prod.summary.contains("overspent"));
+    assert!(prod.detail.contains("sum(web_errors[30d])"));
+    let stg = slo_gate(&t, d.path(), "staging", &deps(&["web"]));
+    assert_eq!(stg.status, Status::Warning);
+    assert!(blockers("staging", &[stg], &[]).is_empty());
+    // production: blocks, is waivable, and the waiver lifts it
+    let gates = vec![prod];
+    assert_eq!(blockers("production", &gates, &[]), vec!["slo"]);
+    assert_eq!(waivable("production", &gates), vec!["slo"]);
+    assert!(blockers("production", &gates, &["slo".into()]).is_empty());
+    // in staging a failed check is never waivable (and the SLO never fails there)
+    assert!(waivable("staging", &gates).is_empty());
+    // another failed check stays unwaivable in production
+    let other = vec![Gate::new("vulns", Status::Failed, "x")];
+    assert!(waivable("production", &other).is_empty());
+    assert_eq!(
+        blockers("production", &other, &["vulns".into()]),
+        vec!["vulns"]
+    );
+    // 0.01% at 99%: fine; by its Deployment's name
+    let ok = slo_gate(&t, d.path(), "production", &deps(&["api-v2"]));
+    assert_eq!(ok.status, Status::Ok, "{ok:?}");
+    assert!(
+        ok.summary.starts_with("api: 99% of the 30d budget left"),
+        "{}",
+        ok.summary
+    );
+    // no SLO covers it
+    let none = slo_gate(&t, d.path(), "production", &deps(&["worker"]));
+    assert_eq!(none.status, Status::Skipped);
+    assert!(none.summary.contains("covers worker"));
+}

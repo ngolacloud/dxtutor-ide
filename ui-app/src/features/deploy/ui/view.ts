@@ -8,7 +8,7 @@ import type { DeployPlan, DeployRecord, Gate, GateStatus } from "../domain/types
 import type { DeployKey } from "./messages";
 
 export type T = (k: DeployKey, p?: Record<string, string | number>) => string;
-const ST: Record<GateStatus, DeployKey> = { ok: "stOk", failed: "stFailed", not_installed: "stNotInstalled", not_connected: "stNotConnected", skipped: "stSkipped" };
+const ST: Record<GateStatus, DeployKey> = { ok: "stOk", failed: "stFailed", not_installed: "stNotInstalled", not_connected: "stNotConnected", skipped: "stSkipped", warning: "stWarning" };
 const btn = (act: string, label: string, on = "", cls = "btn ghost", dis = false): string =>
   `<button class="${cls}" data-action="deploy:${act}"${on ? ` data-on="${esc(on)}"` : ""}${dis ? " disabled" : ""}>${label}</button>`;
 

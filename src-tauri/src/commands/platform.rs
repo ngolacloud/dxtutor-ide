@@ -181,12 +181,14 @@ pub async fn pr_infra_review(
     let acc = accepted(&app, &root);
     tauri::async_runtime::spawn_blocking(move || {
         let rp = PathBuf::from(root.trim());
+        let live = tutor_platform::metrics::live(crate::commands::metrics::store(), &rp);
         let c = tutor_platform::review::Ctx {
             root: &rp,
             cmd: &crate::shellenv::command,
             has: &crate::shellenv::has,
             incidents: &rec.incidents,
             accepted: &acc,
+            metrics: live.as_ref().map_err(|u| u.notes.clone()),
         };
         tutor_platform::review::review(&c, pr)
     })
@@ -214,6 +216,7 @@ pub async fn pr_review_submit(
             has: &crate::shellenv::has,
             incidents: &[],
             accepted: &none,
+            metrics: Err("not needed".into()),
         };
         tutor_platform::review::head_now(&c, pr)?
     };
@@ -318,13 +321,8 @@ pub async fn incident_get(app: AppHandle, root: String, id: i64) -> Result<Incid
     .map_err(err)?;
     let r2 = root.clone();
     let has_metrics = tauri::async_runtime::spawn_blocking(move || {
-        tutor_platform::sources::status(
-            &crate::shellenv::command,
-            &crate::shellenv::has,
-            &PathBuf::from(r2.trim()),
-        )
-        .iter()
-        .any(|s| s.kind == "obs" && s.connected)
+        tutor_platform::metrics::live(crate::commands::metrics::store(), &PathBuf::from(r2.trim()))
+            .is_ok()
     })
     .await
     .unwrap_or(false);

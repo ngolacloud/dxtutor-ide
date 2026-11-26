@@ -165,13 +165,15 @@ pub fn runbook_decide(
     crate::board::record_runbook_step(&app, &root, rec).map_err(|e| e.message)
 }
 
-/// The data sources (CI/CD, cost, metrics and logs, cloud inventory): «not connected» unless one is.
+/// The data sources (CI/CD, cost, metrics and logs, cloud inventory): «not connected» unless one is (metrics:
+/// the project's Prometheus, `.dxtutor/metrics.json`).
 #[tauri::command]
 pub async fn sources_status(root: String) -> Result<Vec<tutor_platform::sources::Source>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         tutor_platform::sources::status(
             &crate::shellenv::command,
             &crate::shellenv::has,
+            crate::commands::metrics::store(),
             &PathBuf::from(root.trim()),
         )
     })

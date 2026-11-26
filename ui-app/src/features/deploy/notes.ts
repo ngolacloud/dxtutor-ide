@@ -22,6 +22,7 @@ export const DEPLOY_NOTES: FeatureNotes = {
         "`deploy_plan` lê os manifestos de `deploy/k8s` (os `Secret` ficam de fora: o cluster lê-os do Vault), corre cada verificação e devolve os comandos exactos.",
         "O segredo vê-se só pelo nome no namespace e pelos metadados no Vault.",
         "Configuração opcional em `.dxtutor/deploy.json`: manifestos, pasta de IaC e caminho do Vault de cada ambiente, política do cosign, janelas de mudança.",
+        "O SLO vem do Prometheus do projecto (`.dxtutor/metrics.json` e `.dxtutor/slo.json`): com o orçamento de erro gasto, produção falha (dispensável com motivo) e staging só avisa.",
       ],
       limits: ["Só rolling update; canary e blue-green ainda não.", "O `dx-secret-check` aparece «não disponível» até a imagem existir."],
       covers: ["deploy:plan", "deploy:toggle", "cmd:Deploy: Guided Deploy to Staging or Production"],
@@ -29,7 +30,7 @@ export const DEPLOY_NOTES: FeatureNotes = {
     {
       title: "Excepções com motivo",
       where: ["Deploy › Verificações › «Waive…»"],
-      what: "Em produção, uma verificação «não instalada» ou «não ligada» bloqueia, a não ser que lhe dês uma excepção com motivo. Uma verificação falhada nunca tem excepção, nem o segundo aprovador ou a saúde de staging.",
+      what: "Em produção, uma verificação «não instalada» ou «não ligada» bloqueia, a não ser que lhe dês uma excepção com motivo. Uma verificação falhada nunca tem excepção — salvo o SLO, porque com o orçamento de erro gasto a correcção urgente é justamente o deploy que tem de sair —, nem o segundo aprovador ou a saúde de staging.",
       howTo: ["Carrega «Waive…» na verificação e escreve porquê; «Undo» tira a excepção."],
       flow: ["As excepções vão com o deploy para o registo de auditoria; o backend volta a verificá-las no rollout."],
       covers: ["deploy:waive", "deploy:unwaive"],
@@ -37,7 +38,7 @@ export const DEPLOY_NOTES: FeatureNotes = {
     {
       title: "Fazer o deploy",
       where: ["Deploy › Aprovar › «Deploy…»"],
-      what: "Aplica os manifestos (sem os `Secret`), anota a versão e espera pelo rollout de cada Deployment, com as linhas à vista; no fim fica o registo do deploy.",
+      what: "Aplica os manifestos (sem os `Secret`), anota a versão nos Deployments desses manifestos (não nos outros do namespace) e espera pelo rollout de cada um, com as linhas à vista; no fim fica o registo do deploy.",
       howTo: ["Quando nada bloqueia, carrega «Deploy…» e aprova os comandos.", "Em produção escreve um motivo e a palavra «production».", "O segundo aprovador é um PR fundido com este commit, aprovado por outra pessoa no GitHub."],
       flow: [
         "O backend verifica outra vez: excepções, HEAD, manifestos e um plano com menos de 30 minutos.",

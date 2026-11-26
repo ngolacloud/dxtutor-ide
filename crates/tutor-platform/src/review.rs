@@ -7,7 +7,9 @@
 //! - **window**: the change windows of `.dxtutor/deploy.json`;
 //! - **rollback**: a PR that touches migrations needs a down migration to roll back;
 //! - **incidents**: the local incidents that name what the PR touches;
-//! - **capacity, error budget, on-call**: no source here — «not connected».
+//! - **capacity, error budget**: the project's Prometheus (`crate::metrics`) — the cluster's requests over the
+//!   allocatable, and each SLO's budget; without the source, «not connected»;
+//! - **on-call**: no pager source — «not connected».
 //!
 //! The rule ([`submit_args`]): approving with a failing check needs a reason, posted on the PR with the approval;
 //! the PR must still be the one reviewed (same head). The caller audits it and runs `gh pr review`.
@@ -76,6 +78,73 @@ pub struct Ctx<'a> {
     pub incidents: &'a [Incident],
     /// accepted IaC risks (the pipeline does not block on them)
     pub accepted: &'a HashSet<String>,
+    /// the project's metrics source, connected (capacity, error budget), or why not
+    pub metrics: Result<&'a crate::metrics::Live, String>,
+}
+
+/// Capacity and error budget from the metrics source.
+fn metric_checks(m: &Result<&crate::metrics::Live, String>) -> [Check; 2] {
+    let l = match m {
+        Ok(l) => *l,
+        Err(why) => {
+            return [
+                check(
+                    "capacity",
+                    Status::NotConnected,
+                    format!("capacity needs a metrics source ({why})"),
+                    "not connected",
+                ),
+                check(
+                    "error-budget",
+                    Status::NotConnected,
+                    format!("the error budget needs a metrics source ({why})"),
+                    "not connected",
+                ),
+            ]
+        }
+    };
+    let src = format!("Prometheus {} at {}", l.version, l.prom.url);
+    let cap = match crate::metrics::capacity(&l.prom, &l.cfg.capacity) {
+        Ok(c) => check(
+            "capacity",
+            if c.over { Status::Failed } else { Status::Ok },
+            crate::metrics::capacity_line(&c),
+            &format!("{src} (kube-state-metrics)"),
+        ),
+        Err(e) => check("capacity", Status::NotConnected, e, &src),
+    };
+    let budget = if l.slos.is_empty() {
+        check(
+            "error-budget",
+            Status::Skipped,
+            format!("no SLOs in {}", crate::metrics::SLO_FILE),
+            crate::metrics::SLO_FILE,
+        )
+    } else {
+        let (mut lines, mut spent, mut unknown) = (vec![], false, false);
+        for s in &l.slos {
+            match crate::metrics::budget(&l.prom, s) {
+                Ok(b) => {
+                    spent |= b.exhausted;
+                    unknown |= b.remaining.is_none();
+                    lines.push(crate::metrics::budget_line(&b));
+                }
+                Err(e) => {
+                    unknown = true;
+                    lines.push(format!("{}: {e}", s.name));
+                }
+            }
+        }
+        let st = if spent {
+            Status::Failed
+        } else if unknown {
+            Status::NotConnected
+        } else {
+            Status::Ok
+        };
+        check("error-budget", st, lines.join(" · "), &src)
+    };
+    [cap, budget]
 }
 
 struct Out {
@@ -489,13 +558,13 @@ pub fn review(c: &Ctx, number: u64) -> Result<PrReview, String> {
     });
     checks.push(rollback_of(&files));
     checks.push(similar(c.incidents, &files));
-    for (id, what) in [
-        ("capacity", "capacity needs a metrics source"),
-        ("error-budget", "the error budget needs an SLO source"),
-        ("on-call", "on-call needs a pager source"),
-    ] {
-        checks.push(check(id, Status::NotConnected, what, "not connected"));
-    }
+    checks.extend(metric_checks(&c.metrics));
+    checks.push(check(
+        "on-call",
+        Status::NotConnected,
+        "on-call needs a pager source",
+        "not connected",
+    ));
     let failing: Vec<String> = checks
         .iter()
         .filter(|x| x.status == Status::Failed)
@@ -722,6 +791,7 @@ esac
             has: &has,
             incidents: &[],
             accepted: &none,
+            metrics: Err("not connected".into()),
         };
         let r = review(&c, 77).unwrap();
         assert_eq!(
@@ -770,5 +840,58 @@ esac
             ..c
         };
         assert!(review(&no_gh, 77).unwrap_err().contains("not installed"));
+    }
+
+    /// Capacity and error budget from a (fake) Prometheus: CPU over the limit fails, a healthy budget is ok, and
+    /// without the source both say why.
+    #[test]
+    fn capacity_and_error_budget_from_metrics() {
+        use crate::metrics::testkit::{fake, vector, BUILD, EMPTY};
+        use crate::metrics::{
+            Api, CapacityCfg, Config, Live, Slo, Q_CPU_ALLOC, Q_CPU_REQ, Q_MEM_ALLOC, Q_MEM_REQ,
+        };
+        let url = fake(|path, q, _| match path {
+            "/api/v1/status/buildinfo" => (200, BUILD.into()),
+            _ if q == Q_CPU_ALLOC => (200, vector(4.0)),
+            _ if q == Q_CPU_REQ => (200, vector(3.8)),
+            _ if q == Q_MEM_ALLOC => (200, vector(16e9)),
+            _ if q == Q_MEM_REQ => (200, vector(4e9)),
+            _ if q.contains("errs") => (200, vector(1.0)),
+            _ if q.contains("reqs") => (200, vector(10_000.0)),
+            _ => (200, EMPTY.into()),
+        });
+        let l = Live {
+            prom: Api::plain(&url),
+            version: "3.16.0".into(),
+            cfg: Config {
+                capacity: CapacityCfg { max_percent: 85.0 },
+                ..Default::default()
+            },
+            slos: vec![Slo {
+                name: "web".into(),
+                objective: 99.0,
+                window: "30d".into(),
+                errors: "sum(errs[$window])".into(),
+                total: "sum(reqs[$window])".into(),
+                deployments: vec![],
+            }],
+        };
+        let [cap, budget] = metric_checks(&Ok(&l));
+        assert_eq!(cap.status, Status::Failed, "{cap:?}");
+        assert_eq!(
+            cap.summary,
+            "CPU 95% · memory 25% of the allocatable requested (limit 85%)"
+        );
+        assert!(cap.source.contains("kube-state-metrics"));
+        assert_eq!(budget.status, Status::Ok, "{budget:?}");
+        assert!(budget
+            .summary
+            .starts_with("web: 99% of the 30d budget left"));
+        let [c2, b2] = metric_checks(&Err("no token".into()));
+        assert_eq!(
+            (c2.status, b2.status),
+            (Status::NotConnected, Status::NotConnected)
+        );
+        assert!(c2.summary.contains("no token"));
     }
 }

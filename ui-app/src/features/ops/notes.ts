@@ -120,11 +120,21 @@ export const OPS_NOTES: FeatureNotes = {
     {
       title: "Fontes de dados",
       where: ["Ops › Fontes de dados"],
-      what: "Diz que fontes estão ligadas: o CI/CD pelo `gh` (só leitura); custo, métricas e logs e inventário da cloud aparecem «não ligada», com como ligar — nunca um número estimado.",
-      howTo: ["Para o CI/CD, instala o GitHub CLI e corre `gh auth login`."],
-      flow: ["`sources_status` vê se o `gh` tem sessão e se a origin do projecto está no GitHub."],
-      limits: ["Ainda não há ligadores de custo, métricas/logs nem inventário."],
-      covers: ["sources_status"],
+      what: "Diz que fontes estão ligadas: o CI/CD pelo `gh` (só leitura) e as métricas pelo Prometheus do projecto, com o orçamento de erro de cada SLO e a capacidade do cluster; custo e inventário da cloud aparecem «não ligada», com como ligar — nunca um número estimado.",
+      howTo: [
+        "Para o CI/CD, instala o GitHub CLI e corre `gh auth login`.",
+        "Para as métricas, cria `.dxtutor/metrics.json` com o URL do Prometheus e a autenticação: `none`, `keychain` (depois «Set token…», que guarda o token no keychain do sistema) ou `vault` (o token lido de um caminho KV no Vault).",
+        "Os SLOs ficam em `.dxtutor/slo.json`, revistos em PR como o código: por serviço, o objectivo (p. ex. 99,9), a janela (`30d`) e as consultas PromQL de erros e de total, com `$window` onde vai o intervalo; `deployments` diz que Deployments o SLO cobre.",
+        "«Measure again» volta a perguntar ao Prometheus.",
+      ],
+      flow: [
+        "`sources_status` vê se o `gh` tem sessão e se a origin do projecto está no GitHub, e se o Prometheus responde.",
+        "`metrics_status` mede cada SLO: orçamento restante = 1 − taxa de erro ÷ (1 − objectivo) na janela, e a taxa de queima da última hora; a capacidade são os pedidos de CPU e memória sobre o alocável (kube-state-metrics).",
+        "O token nunca sai do backend: vai para o keychain ou vem do Vault, e entra na redacção.",
+      ],
+      tips: ["Sem pedidos na janela, o orçamento diz «no requests» em vez de um número."],
+      limits: ["Ainda não há ligadores de custo nem de inventário.", "Sem o kube-state-metrics no Prometheus, a capacidade diz que não o encontra."],
+      covers: ["sources_status", "ops-metrics-token", "ops-metrics-clear", "ops-metrics-reload"],
     },
     {
       title: "Exportar evidências (ISO 27001)",
@@ -163,7 +173,7 @@ export const PLATFORM_NOTES: FeatureNotes = {
     {
       title: "Revisão de PR de infra",
       where: ["paleta: «Platform: Review an Infrastructure PR…»", "a fila › «Review the PR»"],
-      what: "Mostra o diff de um PR e «Antes do merge»: o CI, o plano, a política e o custo (o pipeline de IaC sobre a cabeça do PR), a janela de mudança, o rollback e incidentes semelhantes; capacidade, orçamento de erro e on-call aparecem «não ligados». Cada verificação diz de onde vem.",
+      what: "Mostra o diff de um PR e «Antes do merge»: o CI, o plano, a política e o custo (o pipeline de IaC sobre a cabeça do PR), a janela de mudança, o rollback e incidentes semelhantes; a capacidade do cluster e o orçamento de erro de cada SLO (pelo Prometheus; sem ele, «não ligados»); o on-call aparece «não ligado». Cada verificação diz de onde vem.",
       howTo: ["Dá o número do PR.", "Lê as verificações e o diff; «✦ Review with Co-Dev» pede-lhe um comentário.", "«Approve…», «Request changes…» ou «Comment…» publicam a revisão depois de aprovares o comando `gh` exacto."],
       flow: [
         "O backend busca a cabeça do PR para uma worktree temporária, corre o pipeline nas pastas de IaC que ele toca e remove-a.",
@@ -182,9 +192,13 @@ export const PLATFORM_NOTES: FeatureNotes = {
         "«Mitigated…» e «Resolve…» (com o resumo do que aconteceu); depois de mitigado, responde se a causa principal estava certa.",
         "«✦ Likely causes» pede ao Co-Dev as causas pela evidência; «✦ Draft the postmortem» escreve o rascunho em `docs/postmortems/INC-n.md` como proposta.",
       ],
-      flow: ["Os incidentes vivem na base do Project; abrir e mudar de estado vão ao registo de auditoria.", "A confiança nunca passa de «baixa» sem uma fonte de métricas."],
+      flow: [
+        "Os incidentes vivem na base do Project; abrir e mudar de estado vão ao registo de auditoria.",
+        "A confiança nunca passa de «baixa» sem uma fonte de métricas.",
+        "«Check metrics» pergunta ao Prometheus a taxa de erro de cada SLO na hora antes da abertura e desde 15 minutos antes dela, e regista cada linha na cronologia como uma verificação feita.",
+      ],
       limits: ["Não há fonte de incidentes (PagerDuty, Opsgenie…): cada incidente é aberto à mão."],
-      covers: ["pf:new-incident", "pf:reload-incidents", "pf:incident", "pf:add", "pf:status", "pf:feedback", "pf:postmortem", "pf:ask-cause", "cmd:Platform: Incidents"],
+      covers: ["pf:new-incident", "pf:reload-incidents", "pf:incident", "pf:add", "pf:status", "pf:feedback", "pf:postmortem", "pf:ask-cause", "pf:metrics", "cmd:Platform: Incidents"],
     },
   ],
 };

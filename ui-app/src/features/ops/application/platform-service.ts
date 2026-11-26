@@ -22,6 +22,8 @@ export interface PlatformPort {
   add(root: string, id: number, kind: string, text: string, reason: string | null): Promise<void>;
   status(root: string, id: number, status: string, note: string): Promise<Incident>;
   feedback(root: string, id: number, right: boolean): Promise<void>;
+  /** each SLO's error ratio before the incident opened and since (Prometheus), recorded as checks run */
+  metricsCheck(root: string, id: number): Promise<string[]>;
 }
 
 export interface PlatformWorld {
@@ -191,6 +193,12 @@ export function makePlatform(deps: {
     if (!r || !v) return;
     if ((await busy("feedback", () => port.feedback(r, v.incident.id, right).then(() => true))) !== null) await openIncident(v.incident.id);
   }
+  /** The metrics check (NOTAS-r23 point 3): the backend queries Prometheus and records each line as a check run. */
+  async function metricsCheck(): Promise<void> {
+    const r = root(), v = st.incident;
+    if (!r || !v) return;
+    if ((await busy("metrics", () => port.metricsCheck(r, v.incident.id))) !== null) await openIncident(v.incident.id);
+  }
   /** Co-Dev drafts the postmortem as a proposal in the editor (docs/postmortems/INC-n.md). */
   function postmortem(): void {
     const v = st.incident;
@@ -209,7 +217,7 @@ export function makePlatform(deps: {
     setTab: (t: PfTab) => { st.tab = t; emit(); if (t === "home" && !st.queue) void loadQueue(); if (t === "incidents" && !st.incidents) void loadIncidents(); },
     refresh: async (): Promise<void> => { await loadQueue(); },
     loadQueue, verify, handover, act, openReview, askPr, submit, askCodevPr,
-    loadIncidents, openIncident, newIncident, addEvent, setStatus, feedback, postmortem, askCause,
+    loadIncidents, openIncident, newIncident, addEvent, setStatus, feedback, postmortem, askCause, metricsCheck,
     workspaceChanged: (): void => { Object.assign(st, { queue: null, review: null, prNumber: null, incidents: null, incident: null, error: null }); emit(); },
   };
 }

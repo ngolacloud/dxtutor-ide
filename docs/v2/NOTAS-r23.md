@@ -207,7 +207,7 @@ porque o motivo diz o que o desbloqueia. Nada disto foi esquecido: cada item est
 | Item | Fase | Porquê | O que desbloqueia |
 |---|---|---|---|
 | On-call, alertas e o drift «onde estás de on-call» na fila | F5b | Não há fonte de pager (PagerDuty, Opsgenie, Grafana OnCall); tu decidiste incidentes locais (Q9) | Escolher e ligar uma fonte de pager |
-| Capacidade, orçamento de erro (SLO) na revisão de PR e no deploy; confiança dos incidentes acima de «baixa» | F4c2, F5b | Não há fonte de métricas | Ligar Prometheus/Loki (ou a da cloud), só de leitura, com credenciais do Vault |
+| Capacidade, orçamento de erro (SLO) na revisão de PR e no deploy; confiança dos incidentes acima de «baixa» | F4c2, F5b | Não há fonte de métricas | **Feito para as métricas** (Prometheus, ver «Fonte de métricas», abaixo); os logs (Loki) são a parte (b) |
 | Custo da cloud e inventário (e a cobertura de IaC / «codify») | F5a | Não há ligadores; credenciais de leitura teriam de vir do Vault | Um ligador por fornecedor (AWS Cost Explorer, inventário com `aws/creds/…-readonly`) |
 | Quem mudou um recurso com drift | F4b | Precisa do registo de auditoria da cloud | Ligar o CloudTrail (ou equivalente) |
 | `dx-secret-check` (validar os segredos montados dentro do cluster) | F4c2 | A imagem do Job ainda não existe | Construir e publicar a imagem; o passo já está previsto e diz «não disponível» |
@@ -268,6 +268,7 @@ porque o motivo diz o que o desbloqueia. Nada disto foi esquecido: cada item est
    deploy num cluster de staging (kind serve) — sem código novo, só verificação.~~ **Feito**; a prova encontrou dois
    defeitos, corrigidos (ver «Ferramentas reais»).
 3. **Uma fonte de métricas** (Prometheus): desbloqueia de uma vez o SLO, a capacidade e a confiança dos incidentes.
+   Parte (a), métricas: **feita**. Parte (b), logs (Loki): a seguir.
 4. **Funcionalidades sem bloqueio:** canary, credenciais dinâmicas no rollout, Terragrunt/Helm.
 5. O resto (catálogo, GitOps, custo, inventário, pager) espera pelas tuas decisões sobre as fontes.
 
@@ -304,6 +305,25 @@ rollout aplica os manifestos SEM o Secret (o do cluster fica intacto), anota a v
   sem a correcção acima (o gitleaks a substituir as regras próprias). Teste de regressão sem depender do gitleaks
   instalado: `scan::tests::the_self_test_commit_is_blocked_with_or_without_gitleaks` (gitleaks falso pela fábrica). O
   relatório do gitleaks passou a ser um ficheiro por corrida (dois scans ao mesmo tempo partilhavam um nome por processo).
+
+## Fonte de métricas (ponto 3, parte a — 2026-11-26)
+
+Decisões do dono: os SLOs vivem no repositório (`.dxtutor/slo.json`); o token do Prometheus vem do keychain ou do Vault
+(ou nenhum); com o orçamento de erro gasto, produção falha mas é dispensável com motivo, e staging só avisa; métricas e
+logs, em duas partes.
+
+- **Backend** (`tutor_platform::metrics`): configuração em `.dxtutor/metrics.json`, cliente Prometheus só de leitura, o
+  orçamento e a queima de cada SLO, a capacidade (pedidos vs alocável do kube-state-metrics), as linhas de um incidente.
+  O token nunca sai do backend (keychain, ou `vault::credential`) e entra na redacção.
+- **Ligado a:** a fonte `obs` das Fontes de dados; o portão `slo` do deploy (estado novo `warning` em staging; `failed`
+  dispensável em produção); `capacity` e `error-budget` na revisão de PR; a confiança dos incidentes e o botão «Check
+  metrics». Comandos novos: `metrics_status`, `metrics_token_set`, `metrics_token_clear`, `incident_metrics_check` (311 comandos).
+- **Prova:** Prometheus 3.16.0 instalado (checksum verificado). Os testes Rust correm-no a sério quando está no PATH
+  (as consultas inválidas à própria API são os erros: 10 em 30 gastam um orçamento de 99 %); o passo `metrics` do
+  auto-teste usa um Prometheus e o Vault dev do runner — o token de leitura vem do Vault, a fonte fica ligada, o orçamento
+  medido está gasto, a capacidade diz que falta o kube-state-metrics e a confiança do incidente sobe de «low».
+- **Limites:** a capacidade é do cluster inteiro (não o delta do PR); o on-call continua «não ligado» (não há pager);
+  um Prometheus com autenticação básica (em vez de bearer) não é suportado.
 
 ## A seguir
 

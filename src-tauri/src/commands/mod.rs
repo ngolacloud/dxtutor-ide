@@ -20,6 +20,7 @@ pub mod dictation;
 pub mod git;
 pub mod hood;
 pub mod iac;
+pub mod metrics;
 pub mod missions;
 pub mod ops;
 pub mod pair;

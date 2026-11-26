@@ -9,6 +9,7 @@ import { invoke, isDesktop, listen, type Invoker } from "../../../platform/tauri
 import { auditClient } from "../../../platform/tauri/audit";
 import type { AuditPort, OpsPort } from "../application/ports";
 import type { DataSource, EvidenceFile, Runbook, StepRun } from "../domain/types";
+import type { MetricsOverview } from "../domain/metrics";
 import type { PlatformPort } from "../application/platform-service";
 import type { Incident, IncidentView, PrReview, Queue } from "../domain/platform-types";
 import type { AcceptedRisk, ApplyInfo, CloudCli, CloudInventory, IacPlan, IacState, KubeState, PipelineRun, Revision, Stage } from "../domain/types";
@@ -28,6 +29,7 @@ export const tauriPlatform = (inv: Invoker = invoke): PlatformPort => ({
   add: (root, id, kind, text, reason) => inv<void>("incident_add", { root, id, kind, text, reason }),
   status: (root, id, status, note) => inv<Incident>("incident_status", { root, id, status, note }),
   feedback: (root, id, right) => inv<void>("incident_feedback", { root, id, right }),
+  metricsCheck: (root, id) => inv<string[]>("incident_metrics_check", { root, id }),
 });
 
 export const tauriOps = (inv: Invoker = invoke, on: Listen = (e, f) => (isDesktop() ? listen(e, f) : null)): OpsPort => ({
@@ -57,6 +59,9 @@ export const tauriOps = (inv: Invoker = invoke, on: Listen = (e, f) => (isDeskto
   judge: (root, id, matched, note) => inv<boolean>("runbook_judge", { root, id, matched, note }),
   runs: (root, path) => inv<StepRun[]>("runbook_runs", { root, path }),
   sources: (root) => inv<DataSource[]>("sources_status", { root }),
+  metrics: (root) => inv<MetricsOverview>("metrics_status", { root }),
+  metricsTokenSet: (root, url, token) => inv<void>("metrics_token_set", { root, url, token }),
+  metricsTokenClear: (root, url) => inv<void>("metrics_token_clear", { root, url }),
   exportEvidence: (root) => inv<EvidenceFile>("audit_export_evidence", { root, from: null, to: null }),
 });
 
