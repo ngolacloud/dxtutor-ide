@@ -27,6 +27,12 @@ import * as L from "./infrastructure/legacy-bridge";
 import { codevAsk } from "../../app/codev-ask";
 import { translator } from "../../app/i18n";
 import { RUNS_MESSAGES } from "./application/messages";
+import { makeLiveRunner, type LiveResult } from "./application/live-runner";
+import { findTestDef } from "./domain/live";
+import { renderLive, fmtElapsed, type LiveUi } from "./ui/live-view";
+import { LIVE_MESSAGES } from "./ui/live-messages";
+import { isDesktop } from "../../platform/tauri/core";
+import { services } from "../../app/services";
 
 const workspace = { root: L.root, save: L.save, currentFile: L.currentFile };
 /* as duas corridas excluem-se: o cargo/go/python não gostam de corridas sobrepostas na mesma pasta */
@@ -82,7 +88,111 @@ document.addEventListener("dx:workspace", () => {
   if (L.activePane() === "test") renderTestPane();
 });
 
+/* ───── o separador «Tests» do painel inferior: a corrida ao vivo ─────
+   O separador nasce na primeira corrida (só no desktop; os goldens e o browser não o vêem). A vista
+   redesenha por `requestAnimationFrame` (uma suite manda centenas de linhas) e o tempo avança de
+   meio em meio segundo enquanto corre. Quem quer correr os testes chama `runLive` (registado em
+   `services.tests`): o «Accept & test» do Code review, a paleta. */
+const lt = translator(LIVE_MESSAGES);
+const LIVE_UI: LiveUi = { filter: "all", log: false };
+const live = makeLiveRunner({
+  proc: { run: (c, o) => L.streamCmd(c, o), kill: (id) => L.killCmd(id) },
+  root: L.root,
+  testCommand: L.projectTestCmd,
+  save: L.save,
+  reveal: () => { ensureTab(); L.setPanelTab("tests"); },
+  render: () => scheduleLive(),
+});
+
+function ensureTab(): HTMLElement | null {
+  let pc = document.getElementById("pc-tests");
+  if (pc) return pc;
+  const tools = document.querySelector(".panel-tabs .panel-tools"), body = document.querySelector(".panel-body");
+  if (!tools || !body) return null;
+  const b = document.createElement("button");
+  b.className = "ptab";
+  b.dataset.pt = "tests";
+  b.innerHTML = `${lt("tab")} <span class="pb tl-badge" id="pb-tests"></span>`;
+  b.addEventListener("click", () => L.setPanelTab("tests"));
+  tools.insertAdjacentElement("beforebegin", b);
+  pc = document.createElement("div");
+  pc.className = "pcontent";
+  pc.id = "pc-tests";
+  body.appendChild(pc);
+  return pc;
+}
+
+let liveRaf = 0;
+let wasRunning = false;
+let liveTimer: ReturnType<typeof setInterval> | null = null;
+function scheduleLive(): void {
+  /* acabada: desenha já (e desliga o relógio) — nada fica agendado depois da corrida */
+  if (!live.running()) {
+    if (liveRaf) { if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(liveRaf); clearTimeout(liveRaf); liveRaf = 0; }
+    drawLive();
+    return;
+  }
+  if (liveRaf) return;
+  const run = () => { liveRaf = 0; drawLive(); };
+  liveRaf = typeof requestAnimationFrame === "function" ? (requestAnimationFrame(run) as unknown as number) : (setTimeout(run, 0) as unknown as number);
+}
+function elapsed(): number {
+  const r = live.state();
+  return r ? (r.endedAt ?? Date.now()) - r.startedAt : 0;
+}
+function drawLive(): void {
+  const pc = ensureTab();
+  if (!pc) return;
+  const list = pc.querySelector<HTMLElement>("[data-live-list],[data-live-log]");
+  const atEnd = !list || list.scrollHeight - list.scrollTop - list.clientHeight < 30, top = list?.scrollTop ?? 0;
+  pc.innerHTML = renderLive(live.state(), LIVE_UI, lt, elapsed());
+  const nl = pc.querySelector<HTMLElement>("[data-live-list],[data-live-log]");
+  if (nl) nl.scrollTop = live.running() && atEnd ? nl.scrollHeight : top;
+  /* acabou agora com falhas: a lista salta para a primeira (a causa costuma estar lá) */
+  const justEnded = wasRunning && !live.running();
+  wasRunning = live.running();
+  const firstFail = justEnded && nl ? nl.querySelector<HTMLElement>(".tl-row.fail") : null;
+  if (nl && firstFail) nl.scrollTop = Math.max(0, firstFail.offsetTop - nl.offsetTop - 6);
+  const badge = document.getElementById("pb-tests"), r = live.state();
+  if (badge && r) {
+    const fail = r.cases.filter((c) => c.status === "fail").length;
+    badge.textContent = live.running() ? "…" : fail ? String(fail) : r.phase === "passed" ? "✓" : "";
+    badge.className = `pb tl-badge ${live.running() ? "run" : fail || r.phase === "failed" ? "bad" : r.phase === "passed" ? "ok" : ""}`;
+  }
+  if (live.running() && !liveTimer) liveTimer = setInterval(() => {
+    if (typeof document === "undefined" || !live.running()) { if (liveTimer) clearInterval(liveTimer); liveTimer = null; return; }
+    const el = document.querySelector("#pc-tests [data-live-time]");
+    if (el) el.textContent = fmtElapsed(elapsed());
+  }, 500);
+  if (!live.running() && liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+}
+
+/** Corre a suite do projecto no separador «Tests» e devolve o resultado (a forma do `run_tests`). */
+function runLive(o: { source: string; command?: string } = { source: "Tests" }): Promise<LiveResult> {
+  return live.start(o);
+}
+if (isDesktop()) {
+  services.tests = { runLive };
+  /* a paleta só existe depois do arranque: regista-se na primeira oportunidade */
+  setTimeout(() => L.addPaletteCommand("Tests: Run All (live)", "", () => { void runLive({ source: "Tests" }); }), 0);
+}
+
+/** Abre o teste `i` da corrida: o sítio da falha, senão onde o teste está definido. */
+function openLiveCase(i: number): void {
+  const c = live.state()?.cases[i];
+  if (!c) return;
+  const key = c.spot ? L.keyOf(c.spot.file) : null;
+  if (key && c.spot) { L.openKey(key, c.spot.line); return; }
+  const def = findTestDef(L.workspaceFiles(), c.name);
+  if (def) L.openKey(def.key, def.line);
+}
+
 const ACTIONS: ActionTable = {
+  "live:open": { on: "click", run: (e) => openLiveCase(+e.on) },
+  "live:stop": { on: "click", run: () => { void live.stop(); } },
+  "live:rerun": { on: "click", run: () => { void live.rerun(); } },
+  "live:filter": { on: "click", run: (e) => { LIVE_UI.filter = e.on === "failed" ? "failed" : "all"; drawLive(); } },
+  "live:log": { on: "click", run: () => { LIVE_UI.log = !LIVE_UI.log; drawLive(); } },
   refresh: { on: "click", run: () => { void testing.refresh().then(() => runs.reload()); } },
   "run-all": { on: "click", run: () => { void testing.runAll(); } },
   /* A6 */
@@ -110,4 +220,4 @@ bindActions(ACTIONS);
 /* a feature regista o seu pane (ADR-0004, U4j2) */
 RP.test = renderTestPane;
 /* o auto-teste importa-o (ADR-0004, U7p6 — era publicado no window) */
-export { renderTestPane };
+export { renderTestPane, runLive };

@@ -22,7 +22,10 @@ import { desktopPorts } from "../../app/desktop";
 import { languageIdFor } from "./domain/languages";
 import { makeLspClient } from "./application/lsp-client";
 import { tauriLsp } from "./infrastructure/tauri";
-import { workspace, editor, addPaletteCommand } from "./infrastructure/legacy-bridge";
+import { workspace, editor, addPaletteCommand, runTerminalTask } from "./infrastructure/legacy-bridge";
+import { copyText } from "../../app/clipboard";
+import { requestApproval } from "../../app/approval";
+import { auditClient } from "../../platform/tauri/audit";
 import { bindEditorHooks } from "./ui/editor-hooks";
 import { bindCompletionHooks } from "./ui/completion-hooks";
 import { bindSignatureHooks } from "./ui/signature-hooks";
@@ -32,7 +35,17 @@ import { bindWorkspaceSymbolHooks } from "./ui/workspace-symbol-hooks";
 import { bindTypeHierarchyHooks } from "./ui/type-hierarchy-hooks";
 
 if (isDesktop()) {
-  const client = makeLspClient({ lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0) });
+  const audit = auditClient();
+  const client = makeLspClient({
+    lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0),
+    /* «Copy» e «Install» no aviso de servidor em falta: instalar pede aprovação, fica auditado e corre num terminal */
+    installer: {
+      copy: (text) => copyText(text),
+      approve: (r) => requestApproval(r),
+      audit: (root, e) => audit.record(root, { feature: "lsp", ...e }),
+      run: (command, cwd) => runTerminalTask(command, cwd),
+    },
+  });
   tauriLsp.onDiagnostics((uri) => client.onDiagnostics(uri));
   /* um comando de code action executado no servidor devolve as edições por workspace/applyEdit */
   tauriLsp.onApplyEdit((edit) => void client.onApplyEdit(edit));

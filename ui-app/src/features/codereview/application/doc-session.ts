@@ -8,12 +8,13 @@
    os testes e a vista chegam por `deps`. Uma resposta de um pedido antigo (o humano pediu outro
    entretanto) nunca pinta por cima do novo: cada pedido tem o seu `id`. */
 
-import { explainPrompt, reviewPrompt, fixTestsPrompt, type DocLang } from "../domain/prompts";
+import { explainPrompt, reviewPrompt, fixTestsPrompt, applySuggestionPrompt, fitsWhole, type DocLang } from "../domain/prompts";
+import { parseTestOutput, spotsText } from "../domain/test-report";
 import { improvedCode } from "../domain/markdown";
 import type { ExplainCard } from "./ports";
 import type { DocCopyKey } from "./messages";
 
-export type DocKind = "explain" | "review" | "fix";
+export type DocKind = "explain" | "review" | "fix" | "apply";
 export type DocStatus = "idle" | "streaming" | "done" | "error" | "stopped" | "local";
 
 export interface TestOutcome {
@@ -36,7 +37,20 @@ export interface DocState {
   /** o conteúdo antes de «Apply» (para «Revert»); `null` sem nada aplicado */
   applied: { prev: string } | null;
   test: TestOutcome | null;
+  /** a proposta foi recusada («Deny»): o cartão do código sai */
+  denied: boolean;
+  /** de onde veio (o Explain, quando é «Apply» de uma sugestão): «Back» volta lá */
+  back: DocState | null;
+  /** a proposta está a ser revista no editor, bloco a bloco */
+  inEditor: boolean;
+  /** aplicada E os testes passaram: está feita, não se aplica outra vez */
+  done: boolean;
+  /** o trecho do Explain de onde veio («Apply» de uma sugestão), para o marcar como aplicado/feito */
+  snippet: string | null;
 }
+
+/** O estado de uma sugestão do Explain: aplicada (sem testes que a validem) ou feita (aplicada e os testes passaram). */
+export type SnippetMark = "applied" | "done";
 
 /* ───── portas do painel ───── */
 
@@ -66,11 +80,18 @@ export interface DocView {
   render(state: DocState): void;
 }
 
+/** Rever a proposta no editor: só as linhas que mudam, no sítio, Aceitar / Rejeitar cada bloco (as
+ *  propostas locais do Co-Dev). Resolve com o que ficou aceite e o ficheiro de antes. */
+export interface EditorReviewPort {
+  propose(path: string, content: string, reason: string): Promise<{ applied: number; total: number; before: string }>;
+}
+
 export interface DocDeps {
   ai: AiPort;
   files: FilesPort;
   tests: TestsPort;
   view: DocView;
+  editor?: EditorReviewPort;
   lang(): DocLang;
   copy(key: DocCopyKey, params?: Record<string, string | number>): string;
 }
@@ -88,10 +109,19 @@ export function makeDocSession(deps: DocDeps) {
   let abort: AbortController | null = null;
   /** o último pedido, para «Regenerate» */
   let last: (() => void) | null = null;
+  /** as sugestões do Explain já aplicadas / feitas, por ficheiro e trecho (não se aplicam outra vez) */
+  const marks = new Map<string, SnippetMark>();
+  const norm = (code: string): string => code.replace(/\s+/g, " ").trim();
+  const markKey = (path: string, code: string): string => `${path}\u0000${norm(code)}`;
+  const mark = (s: DocState, m: SnippetMark | null): void => {
+    if (!s.snippet) return;
+    const k = markKey(s.path, s.snippet);
+    if (m) marks.set(k, m); else marks.delete(k);
+  };
 
   const fresh = (kind: DocKind, path: string, from: number | null): DocState => ({
     id: ++seq, kind, path, from, status: "idle", text: "", error: null,
-    original: files.read(path) ?? "", improved: null, applied: null, test: null,
+    original: files.read(path) ?? "", improved: null, applied: null, test: null, denied: false, back: null, inEditor: false, done: false, snippet: null,
   });
   const paint = () => { if (state) view.render(state); };
 
@@ -116,12 +146,12 @@ export function makeDocSession(deps: DocDeps) {
       if (state !== s || ctl.signal.aborted) return;
       s.text = text || s.text;
       s.status = "done";
-      if (s.kind !== "explain") s.improved = improvedCode(s.text, s.original);
+      if (s.kind !== "explain") s.improved = fitsWhole(s.original) ? improvedCode(s.text, s.original) : null; // grande demais: nunca um ficheiro cortado
     } catch (e) {
       if (state !== s) return;
       if (ctl.signal.aborted) s.status = "stopped";
       else { s.status = "error"; s.error = e instanceof Error ? e.message : String(e); }
-      if (s.kind !== "explain") s.improved = improvedCode(s.text, s.original);
+      if (s.kind !== "explain") s.improved = fitsWhole(s.original) ? improvedCode(s.text, s.original) : null; // grande demais: nunca um ficheiro cortado
     } finally {
       if (abort === ctl) abort = null;
     }
@@ -169,6 +199,72 @@ export function makeDocSession(deps: DocDeps) {
 
   function regenerate(): void { if (last) last(); }
 
+  /** «Apply» num bloco de código do documento (as sugestões do Explain): o modelo integra-o no ficheiro
+   *  e devolve-o inteiro; o painel mostra as diferenças para «Accept» ou «Deny». «Back» volta ao documento. */
+  function applySuggestion(snippet: string, snippetLang: string): void {
+    const from = state;
+    if (!from) return;
+    const path = from.path;
+    if (marks.has(markKey(path, snippet))) return; // já aplicada: não se aplica outra vez
+    const run = () => {
+      const s = fresh("apply", path, null);
+      s.snippet = snippet;
+      s.back = from.kind === "apply" ? from.back : from;
+      void ask(s, applySuggestionPrompt({ path: files.short(path), ext: files.ext(path), content: s.original, snippet, snippetLang, context: from.text, lang: deps.lang() }));
+    };
+    last = run;
+    run();
+  }
+
+  /** «Back»: volta ao documento de onde veio a proposta (o Explain). Nada aplicado é desfeito. */
+  function goBack(): void {
+    const s = state;
+    if (!s || !s.back) return;
+    stop();
+    state = s.back;
+    last = null;
+    paint();
+  }
+
+  /** «Deny»: recusa a proposta (o ficheiro não muda; se já estava aplicada, repõe-no). */
+  function deny(): void {
+    const s = state;
+    if (!s || !s.improved) return;
+    if (s.applied) { files.write(s.path, s.applied.prev); s.applied = null; mark(s, null); }
+    s.improved = null;
+    s.denied = true;
+    s.test = null;
+    paint();
+  }
+
+  /** «Review in editor»: a proposta escreve-se no editor, bloco a bloco; o que o humano aceitar fica
+   *  escrito e, onde há testes, correm logo (no separador «Tests»). Nada aceite = recusada. */
+  async function reviewInEditor(): Promise<void> {
+    const s = state, ed = deps.editor;
+    if (!s || !s.improved || !ed || s.inEditor) return;
+    s.inEditor = true;
+    paint();
+    let r: { applied: number; total: number; before: string };
+    try { r = await ed.propose(s.path, s.improved.code, s.kind === "explain" || s.kind === "apply" ? "Explain" : "Code review"); }
+    catch (e) { s.inEditor = false; s.error = e instanceof Error ? e.message : String(e); paint(); return; }
+    if (state !== s) return;
+    s.inEditor = false;
+    if (!r.applied) { s.improved = null; s.denied = true; paint(); return; }
+    s.applied = { prev: r.before };
+    mark(s, "applied");
+    paint();
+    if (tests.unavailable()) { s.test = { status: "unavailable", output: tests.unavailable() ?? "" }; paint(); return; }
+    await test();
+  }
+
+  /** «Accept»: aplica e, onde há testes, corre-os logo para provar que nada quebrou. */
+  async function accept(): Promise<void> {
+    const s = state;
+    if (!s || !s.improved) return;
+    if (tests.unavailable()) { apply(); if (state === s) { s.test = { status: "unavailable", output: tests.unavailable() ?? "" }; paint(); } return; }
+    await test();
+  }
+
   /** Põe o código melhorado no ficheiro (guarda o anterior para «Revert»). */
   function apply(): boolean {
     const s = state;
@@ -178,6 +274,8 @@ export function makeDocSession(deps: DocDeps) {
     if (!s.applied) s.applied = { prev: now };
     files.write(s.path, s.improved.code);
     s.test = null;
+    s.done = false;
+    mark(s, "applied");
     paint();
     return true;
   }
@@ -188,6 +286,8 @@ export function makeDocSession(deps: DocDeps) {
     files.write(s.path, s.applied.prev);
     s.applied = null;
     s.test = null;
+    s.done = false;
+    mark(s, null);
     paint();
   }
 
@@ -204,6 +304,9 @@ export function makeDocSession(deps: DocDeps) {
       const r = await tests.run();
       if (state !== s || !s.test) return;
       s.test = { status: !r.ran ? "error" : r.passed ? "passed" : "failed", output: r.output };
+      /* aplicada e validada pelos testes: feita — não se volta a aplicar */
+      s.done = s.test.status === "passed" && !!s.applied;
+      if (s.done) mark(s, "done");
     } catch (e) {
       if (state !== s) return;
       s.test = { status: "error", output: e instanceof Error ? e.message : String(e) };
@@ -220,15 +323,19 @@ export function makeDocSession(deps: DocDeps) {
       const n = fresh("fix", s.path, null);
       n.applied = prev;            // continua a ser possível voltar ao ficheiro de antes de tudo
       if (prev) n.original = prev.prev;
-      void ask(n, fixTestsPrompt(files.short(s.path), files.ext(s.path), cur, out, deps.lang()));
+      n.back = s.back;
+      n.snippet = s.snippet;
+      void ask(n, fixTestsPrompt(files.short(s.path), files.ext(s.path), cur, out, deps.lang(), spotsText(parseTestOutput(out))));
     };
     last = run;
     run();
   }
 
   return {
-    explain, review, regenerate, stop, apply, revert, test, fixTests,
+    explain, review, regenerate, stop, apply, revert, test, fixTests, applySuggestion, goBack, deny, accept, reviewInEditor,
     state: (): DocState | null => state,
+    /** se uma sugestão do Explain já foi aplicada / feita neste ficheiro */
+    markOf: (path: string, code: string): SnippetMark | null => marks.get(markKey(path, code)) ?? null,
     /** fecha o painel: pára o pedido em curso e esquece o estado (o que foi aplicado fica) */
     close(): void { stop(); state = null; last = null; },
   };

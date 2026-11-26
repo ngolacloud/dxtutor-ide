@@ -80,7 +80,7 @@ function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.
   $('#ed-hl')!.innerHTML=lines.map((l,i)=>`<div class="l${dg[i+1]?' d-'+dg[i+1]:''}${hk(i)}">${(tm?tm[i]:hlLine(l,ext))||' '}</div>`).join('');
   const mm=$('#minimap')!;mm.classList.remove('hidden');$('#ebody')!.classList.add('with-mm');
   mm.innerHTML='<div class="mm-view"></div>'+lines.slice(0,120).map((l,i)=>`<div class="mm-line${dg[i+1]==='e'?' err':''}" style="width:${l.trim()?Math.max(6,Math.min(52,l.length*.9)):0}px"></div>`).join('');
-  const ov=editorOverlay.get(),wrap=$('#ed-hl')!.parentElement;if(v&&ov&&wrap)ov.decorate(p,{wrap,hl:$('#ed-hl')!,gut:$('#ed-gut')!},v);annotateLine();}
+  const ov=editorOverlay.get(),wrap=$('#ed-hl')!.parentElement;if(ov&&wrap)ov.decorate(p,{wrap,hl:$('#ed-hl')!,gut:$('#ed-gut')!},v??null);annotateLine();}
 
 /* ───── ajudantes da barra de estado ───── */
 function gotoLine(n:number){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta)return;const ls=ta.value.split('\n');n=Math.max(1,Math.min(ls.length,n|0));let o=0;for(let i=0;i<n-1;i++)o+=ls[i].length+1;ta.focus({preventScroll:true});ta.setSelectionRange(o,o+ls[n-1].length);$('#ebody')!.scrollTop=Math.max(0,(n-1)*22-90);stPos();}

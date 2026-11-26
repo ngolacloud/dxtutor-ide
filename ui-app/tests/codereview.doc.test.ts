@@ -287,7 +287,7 @@ describe("o painel ao lado do código (harness)", () => {
     side.querySelector<HTMLElement>('[data-action="cr:code-view"][data-on="diff"]')!.click();
     await new Promise((r) => setTimeout(r, 20));
     expect(side.querySelectorAll(".cr-diff .cr-cl.add").length).toBeGreaterThan(0);
-    side.querySelector<HTMLElement>('[data-action="cr:apply"]')!.click();
+    side.querySelector<HTMLElement>('[data-action="cr:accept"]')!.click();
     await new Promise((r) => setTimeout(r, 20));
     expect(w.FS[P].content).toContain("parse()?");
     side.querySelector<HTMLElement>('[data-action="cr:revert"]')!.click();

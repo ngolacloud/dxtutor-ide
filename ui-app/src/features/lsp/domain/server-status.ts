@@ -30,15 +30,34 @@ const INSTALL: Readonly<Record<string, string>> = {
   sqls: "go install github.com/sqls-server/sqls@latest",
 };
 
+/** Os servidores cuja instalação é UM comando que o dxtutor pode correr num terminal (com a shell de
+ *  login, para o `npm`/`go`/`dotnet`/`rustup` do utilizador). Os outros são instruções. */
+const RUNNABLE = new Set(["rust-analyzer", "gopls", "typescript-language-server", "pyright", "csharp-ls", "sqls"]);
+
 /** O nome da linguagem para o aviso. */
 export const languageName = (id: string): string => LANGUAGE_NAME[id] ?? id;
 
 /** O aviso para um servidor em falta, ou `null` se está instalado (ou o ficheiro não tem servidor). */
-export function missingServerNotice(st: ServerStatus | null): { title: string; detail: string; install: string } | null {
+export interface MissingNotice {
+  title: string;
+  detail: string;
+  /** como instalar (comando ou instrução) */
+  install: string;
+  /** o comando a correr no terminal, quando a instalação é um comando; `null` se é uma instrução */
+  command: string | null;
+  server: string;
+  language: string;
+}
+
+export function missingServerNotice(st: ServerStatus | null): MissingNotice | null {
   if (!st || st.installed) return null;
+  const install = INSTALL[st.server] ?? `install ${st.server} and put it on PATH`;
   return {
     title: `No ${languageName(st.language)} language server`,
     detail: `dxtutor looked for ${st.server} and did not find it, so this file has no live diagnostics, hover or go to definition.`,
-    install: INSTALL[st.server] ?? `install ${st.server} and put it on PATH`,
+    install,
+    command: RUNNABLE.has(st.server) ? install : null,
+    server: st.server,
+    language: st.language,
   };
 }

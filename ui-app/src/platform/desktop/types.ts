@@ -39,6 +39,10 @@ export interface Desktop {
   delegate?: (writes: [string, string][], o?: { signal?: AbortSignal | null; onStatus?: (s: string) => void }) => Promise<DelegateResult>;
   cancelTask?: (id: string) => Promise<boolean>;
   exec?: (cmd: string) => Promise<VerifyOutcome>;
+  /** Corre uma linha na pasta e entrega a saída linha a linha (`proc-line`); resolve com o código de saída. */
+  streamCmd?: (line: string, o: { line: (l: string, err?: boolean) => void; onId?: (id: string) => void }) => Promise<number>;
+  /** Pára um processo do `streamCmd` (o grupo inteiro: os filhos também). */
+  killCmd?: (id: string) => Promise<boolean>;
   projectCmd?: (kind: VerifyKind) => VerifyCommand | null;
   delegateReview?: (title: string, writes: [string, string][]) => Promise<void>;
   readStack?: () => Promise<void>;

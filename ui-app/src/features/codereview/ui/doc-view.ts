@@ -11,6 +11,7 @@ import { parseMarkdown, withoutImproved, type Block, type Inline } from "../doma
 import type { DocState } from "../application/doc-session";
 import type { DiffRow } from "../../diff/domain/diff";
 import type { DocMsgKey } from "./doc-messages";
+import { parseTestOutput, type TestReport } from "../domain/test-report";
 
 export type T = (k: DocMsgKey, p?: Record<string, string | number>) => string;
 /** Realce de uma linha (`hlLine` do editor). */
@@ -36,15 +37,22 @@ function inl(xs: Inline[]): string {
 }
 
 /** Um bloco de código com números de linha, realce e «Copy». `idx` identifica-o para a cópia. */
-export function codeBlock(code: string, ext: string, hl: Hl, t: T, idx: number | null, from = 1, mark: number | null = null): string {
+export function codeBlock(code: string, ext: string, hl: Hl, t: T, idx: number | null, from = 1, mark: number | null = null, canApply = false, applied: "applied" | "done" | null = null): string {
   const rows = code.split("\n");
   if (rows.length > 1 && rows[rows.length - 1] === "") rows.pop();
   const body = rows.map((l, i) => `<div class="cr-cl${mark === i + from ? " mark" : ""}"><span class="ln">${i + from}</span><span class="tx">${hl(l, ext) || " "}</span></div>`).join("");
   const copy = idx === null ? "" : `<button class="cr-copy" data-action="cr:copy-block" data-on="${idx}" title="${esc(t("copy"))}">${esc(t("copy"))}</button>`;
-  return `<div class="cr-code notr">${copy}${body}</div>`;
+  /* uma sugestão já aplicada não se aplica outra vez: mostra o estado (feita = validada pelos testes) */
+  const apply = idx === null || !canApply ? ""
+    : applied ? `<span class="cr-mark-b ${applied}" title="${esc(t(applied === "done" ? "doneMarkTip" : "appliedMarkTip"))}">${esc(t(applied === "done" ? "doneMark" : "appliedMark"))}</span>`
+    : `<button class="cr-apply-b" data-action="cr:apply-block" data-on="${idx}" title="${esc(t("applyBlockTip"))}">${esc(t("applyBlock"))}</button>`;
+  return `<div class="cr-code notr">${idx === null ? "" : `<span class="cr-code-acts">${apply}${copy}</span>`}${body}</div>`;
 }
 
-export function markdownHtml(blocks: Block[], hl: Hl, t: T): string {
+/** Blocos que não são código do ficheiro (comandos, saída): sem «Apply». */
+const NOT_CODE = new Set(["", "text", "txt", "bash", "sh", "shell", "console", "output", "plaintext", "diff", "json", "toml", "yaml", "yml", "markdown", "md"]);
+
+export function markdownHtml(blocks: Block[], hl: Hl, t: T, canApply = false, markOf: (code: string) => "applied" | "done" | null = () => null): string {
   let codeIdx = 0;
   return blocks.map((b) => {
     switch (b.k) {
@@ -59,7 +67,7 @@ export function markdownHtml(blocks: Block[], hl: Hl, t: T): string {
       case "table":
         return `<div class="cr-tblw"><table class="cr-tbl"><thead><tr>${b.head.map((c) => `<th>${inl(c)}</th>`).join("")}</tr></thead><tbody>${b.rows.map((r) => `<tr>${r.map((c) => `<td>${inl(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
       case "code":
-        return codeBlock(b.v, extOfLang(b.lang), hl, t, codeIdx++);
+        { const can = canApply && !b.open && !NOT_CODE.has(b.lang); return codeBlock(b.v, extOfLang(b.lang), hl, t, codeIdx++, 1, null, can, can ? markOf(b.v) : null); }
     }
   }).join("");
 }
@@ -76,6 +84,19 @@ export interface DocUi {
   codeView: "code" | "diff";
 }
 
+/** O que a view precisa de saber do mundo: se há modelo (o «Apply» das sugestões), se há onde
+ *  testar, e a chave do editor de um caminho que a saída dos testes cita (`null` se não está aberto). */
+export interface DocCtx {
+  canApply: boolean;
+  testsHere: boolean;
+  resolve: (file: string) => string | null;
+  canAskChat: boolean;
+  /** há o editor com a revisão bloco a bloco (o Co-Dev) */
+  canEditor: boolean;
+  /** se um trecho do documento já foi aplicado / feito neste ficheiro */
+  markOf: (code: string) => "applied" | "done" | null;
+}
+
 function statusNote(s: DocState, t: T): string {
   if (s.status === "error") {
     const msg = s.error === "no-model" ? t("noModel") : t("modelError", { e: s.error || "?" });
@@ -85,16 +106,30 @@ function statusNote(s: DocState, t: T): string {
   return "";
 }
 
-function testBox(s: DocState, t: T): string {
+function reportHtml(r: TestReport, t: T, ctx: DocCtx): string {
+  const tip = r.kind === "compile" ? "tipCompile" : r.kind === "assert" ? "tipAssert" : r.kind === "panic" ? "tipPanic" : "tipUnknown";
+  const spots = r.spots.length
+    ? `<div class="cr-rep-h">${esc(t("whereBroke"))}</div><ul class="cr-spots">${r.spots.map((sp) => {
+        const key = ctx.resolve(sp.file);
+        const loc = `${esc(sp.file)}:${sp.line}`;
+        return `<li>${key ? `<button class="cr-ln" data-action="cr:goto" data-on="${sp.line}:${esc(key)}">${loc}</button>` : `<code>${loc}</code>`}<span>${esc(sp.message)}</span></li>`;
+      }).join("")}</ul>`
+    : "";
+  const failed = r.failed.length ? `<div class="cr-rep-h">${esc(t("failedTests"))}</div><div class="cr-failed notr">${r.failed.slice(0, 12).map((f) => `<code>${esc(f)}</code>`).join(" ")}</div>` : "";
+  return `<div class="cr-tip">💡 ${esc(t(tip))}</div>${r.headline ? `<div class="cr-headline notr">${esc(r.headline)}</div>` : ""}${spots}${failed}`;
+}
+
+function testBox(s: DocState, t: T, ctx: DocCtx): string {
   const r = s.test;
   if (!r) return "";
   if (r.status === "running") return `<div class="cr-test run"><span class="cr-spin"></span>${esc(t("testing"))}</div>`;
-  if (r.status === "unavailable") return `<div class="cr-test">${esc(r.output)}</div>`;
+  if (r.status === "unavailable") return `<div class="cr-test">${esc(s.applied ? t("appliedNoTests") : r.output)}</div>`;
   const ok = r.status === "passed";
   const head = r.status === "error" ? t("testError", { e: r.output.split("\n")[0] }) : ok ? t("passed") : t("testsFailed");
-  const out = r.output.trim() ? `<details${ok ? "" : " open"}><summary>${esc(t("output"))}</summary><pre class="cr-out notr">${esc(r.output.slice(-8000))}</pre></details>` : "";
-  const fix = r.status === "failed" ? `<div class="cr-acts"><button class="btn pri" data-action="cr:fix-tests">${esc(t("fixTests"))}</button><button class="btn ghost" data-action="cr:revert">${esc(t("revert"))}</button></div>` : "";
-  return `<div class="cr-test ${ok ? "ok" : "bad"}"><b>${esc(head)}</b>${out}${fix}</div>`;
+  const rep = r.status === "failed" ? reportHtml(parseTestOutput(r.output), t, ctx) : "";
+  const out = r.output.trim() ? `<details${ok || rep ? "" : " open"}><summary>${esc(t("output"))}</summary><pre class="cr-out notr">${esc(r.output.slice(-8000))}</pre></details>` : "";
+  const fix = r.status === "failed" ? `<div class="cr-acts"><button class="btn pri" data-action="cr:fix-tests">${esc(t("fixTests"))}</button>${ctx.canAskChat ? `<button class="btn ghost" data-action="cr:fix-in-chat">${esc(t("askChat"))}</button>` : ""}<button class="btn ghost" data-action="cr:revert">${esc(t("revert"))}</button></div>` : "";
+  return `<div class="cr-test ${ok ? "ok" : "bad"}"><b>${esc(head)}</b>${rep}${out}${fix}</div>`;
 }
 
 function diffHtml(rows: DiffRow[], ext: string, hl: Hl): string {
@@ -102,26 +137,33 @@ function diffHtml(rows: DiffRow[], ext: string, hl: Hl): string {
 }
 
 /** O cartão do código melhorado: realce ou diferenças, e as acções. `diff` = as linhas do diff contra o ficheiro actual. */
-function improvedCard(s: DocState, ui: DocUi, hl: Hl, t: T, ext: string, diff: DiffRow[], ic: Icon): string {
+function improvedCard(s: DocState, ui: DocUi, hl: Hl, t: T, ext: string, diff: DiffRow[], ic: Icon, ctx: DocCtx): string {
   const imp = s.improved!;
   const add = diff.filter((r) => r[0] === "+").length, del = diff.filter((r) => r[0] === "-").length;
   const same = add === 0 && del === 0;
   const seg = `<span class="cr-seg"><button class="${ui.codeView === "code" ? "on" : ""}" data-action="cr:code-view" data-on="code">${esc(t("code"))}</button><button class="${ui.codeView === "diff" ? "on" : ""}" data-action="cr:code-view" data-on="diff">${esc(t("diff"))}</button></span>`;
   const running = s.test?.status === "running";
-  const acts = s.applied
-    ? `<button class="btn ghost" data-action="cr:revert"${running ? " disabled" : ""}>${ic("history")}${esc(t("revert"))}</button><button class="btn pri" data-action="cr:test"${running ? " disabled" : ""}>${ic("run")}${esc(t(s.test ? "retest" : "applyTest"))}</button>`
-    : `<button class="btn ghost" data-action="cr:apply"${same ? " disabled" : ""}>${ic("check")}${esc(t("apply"))}</button><button class="btn pri" data-action="cr:test"${same ? " disabled" : ""}>${ic("run")}${esc(t("applyTest"))}</button>`;
+  const busy = running || s.inEditor;
+  const acts = s.done
+    ? `<span class="cr-done-tag">✓ ${esc(t("doneTitle"))}</span><button class="btn ghost" data-action="cr:revert">${ic("history")}${esc(t("revert"))}</button>`
+    : s.applied
+    ? `<button class="btn ghost" data-action="cr:revert"${busy ? " disabled" : ""}>${ic("history")}${esc(t("revert"))}</button>${ctx.testsHere ? `<button class="btn pri" data-action="cr:test"${busy ? " disabled" : ""}>${ic("run")}${esc(t("retest"))}</button>` : ""}`
+    : ctx.canEditor
+      ? `<button class="btn ghost" data-action="cr:deny"${busy ? " disabled" : ""}>${ic("close")}${esc(t("deny"))}</button><button class="btn ghost" data-action="cr:accept"${same || busy ? " disabled" : ""}>${ic("check")}${esc(t(ctx.testsHere ? "acceptTest" : "acceptAll"))}</button><button class="btn pri" data-action="cr:review-editor" title="${esc(t("reviewEditorTip"))}"${same || busy ? " disabled" : ""}>${ic("review")}${esc(t("reviewEditor"))}</button>`
+      : `<button class="btn ghost" data-action="cr:deny">${ic("close")}${esc(t("deny"))}</button><button class="btn pri" data-action="cr:accept"${same ? " disabled" : ""}>${ic("check")}${esc(t(ctx.testsHere ? "acceptTest" : "accept"))}</button>`;
   const body = ui.codeView === "diff" ? diffHtml(diff, ext, hl) : codeBlock(imp.code, ext, hl, t, null);
-  return `<section class="cr-imp"><div class="cr-imp-h"><b>${esc(t("improved"))}</b><span class="cr-stat notr"><span class="add">+${add}</span> <span class="del">−${del}</span></span>${seg}<span class="sp"></span><button class="btn ghost" data-action="cr:copy-improved">${esc(t("copy"))}</button>${acts}</div>${s.applied ? `<div class="cr-note ok">${esc(t("applied"))}</div>` : same ? `<div class="cr-note">${esc(t("noChange"))}</div>` : ""}<div class="cr-imp-b">${body}</div>${testBox(s, t)}</section>`;
+  return `<section class="cr-imp${s.done ? " done" : ""}"><div class="cr-imp-h"><b>${esc(t("improved"))}</b><span class="cr-stat notr"><span class="add">+${add}</span> <span class="del">−${del}</span></span>${seg}<span class="sp"></span><button class="btn ghost" data-action="cr:copy-improved">${esc(t("copy"))}</button>${acts}</div>${s.inEditor ? `<div class="cr-note run"><span class="cr-spin"></span>${esc(t("inEditor"))}</div>` : s.done ? `<div class="cr-note ok">${esc(t("doneNote"))}</div>` : s.applied ? `<div class="cr-note ok">${esc(t("applied"))}</div>` : same ? `<div class="cr-note">${esc(t("noChange"))}</div>` : ""}<div class="cr-imp-b">${body}</div>${testBox(s, t, ctx)}</section>`;
 }
 
-export function docHtml(s: DocState, ui: DocUi, hl: Hl, t: T, ext: string, diff: DiffRow[] | null, ic: Icon): string {
+export function docHtml(s: DocState, ui: DocUi, hl: Hl, t: T, ext: string, diff: DiffRow[] | null, ic: Icon, ctx: DocCtx): string {
   const md = ui.view === "markdown"
     ? `<pre class="cr-raw notr">${esc(s.text)}</pre>`
-    : `<div class="cr-md">${markdownHtml(docBlocks(s), hl, t)}</div>`;
+    : `<div class="cr-md">${markdownHtml(docBlocks(s), hl, t, ctx.canApply && (s.kind === "explain") && s.status !== "streaming", ctx.markOf)}</div>`;
+  const back = s.back ? `<div class="cr-back"><button class="lnk" data-action="cr:back">${esc(t("back"))}</button></div>` : "";
   const writing = s.status === "streaming" ? `<div class="cr-writing"><span class="cr-dot"></span>${esc(t("writing"))}</div>` : "";
-  const imp = s.status !== "streaming" && s.improved && diff ? improvedCard(s, ui, hl, t, ext, diff, ic) : "";
-  return `${statusNote(s, t)}${s.text ? md : ""}${writing}${imp}`;
+  const imp = s.status !== "streaming" && s.improved && diff ? improvedCard(s, ui, hl, t, ext, diff, ic, ctx) : "";
+  const denied = s.denied ? `<div class="cr-note">${esc(t("denied"))}</div>` : "";
+  return `${back}${statusNote(s, t)}${s.text ? md : ""}${writing}${imp}${denied}`;
 }
 
 /* ───── a revisão interactiva (achados das regras) ───── */

@@ -109,7 +109,7 @@ export function makeHunkReview(deps: HunkReviewDeps) {
     if (e.kind === "hunk_applied") {
       // RF-E07: the text before the block, for Ctrl+Z (the editor still has it: reload comes next)
       const h = state.hunks.find((x) => x.id === e.hunk);
-      const before = h ? realOf(h.path) : null;
+      const before = e.before !== undefined ? e.before : h ? realOf(h.path) : null;
       if (h && before !== null) deps.applied?.(h.path, before);
       queueReload();
     }

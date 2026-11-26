@@ -1,3 +1,4 @@
+import { copyText as copyShared } from "../../../app/clipboard";
 /* ═════════ feature `debug` (Run and Debug): legacy bridge (ADR-0002, Fase 1) ═════════
    O ÚNICO ficheiro da feature `debug` autorizado a ler ou escrever `window.*`.
    `features/debug.ts` (e o motor em `application/`, por portas) importa daqui em vez de
@@ -87,4 +88,4 @@ export const kubeTarget = (): { context: string; namespace: string; kubeconfig: 
    (the exception helper's «Copy») — the only `window` they need, kept here. */
 export const viewport = (): { w: number; h: number } => ({ w: window.innerWidth, h: window.innerHeight });
 export const onResize = (f: () => void): void => window.addEventListener("resize", f);
-export const copyText = (text: string): void => { void navigator.clipboard?.writeText(text).catch(() => undefined); };
+export const copyText = (text: string): void => { void copyShared(text); };
