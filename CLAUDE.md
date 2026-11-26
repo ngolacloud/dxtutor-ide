@@ -775,7 +775,33 @@ desktop (teste Python real: list_tests → run_all_tests → run_test).
 Feature nova e tipada, só na app desktop (governada por A7/A8). Até aqui a UI oficial nunca
 chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`).
 
-- **`domain/`:** `languages.ts` (extensão → `languageId`, alinhado com `LANGS` do `lsp.rs`),
+- **Registo de linguagens (LSP P1): UM ficheiro de dados, `languages/registry.json`.** O backend embute-o
+  (`tutor_eval::langreg`, `include_str!`) e a UI importa o MESMO ficheiro pelo Vite
+  (`features/lsp/domain/registry.ts`; o browser não precisa do backend). Por linguagem: `id`, `name` (barra de
+  estado), `lspLanguageId`, `extensions` (sem distinguir maiúsculas), `filenames` (`Dockerfile`, `Makefile`; ganham à
+  extensão), `firstLine` (shebang, só quando o nome não diz nada), `lineComment` (Ctrl+/ sem VSIX), `outline` (a
+  linguagem do `file_outline`/codemap) e `server`. Por servidor (uma sessão por servidor e raiz: o `id` é a chave e
+  a `language` que a UI ouve): `label`, `command`+`args`, `resolver` (`path`/`node`/`go`/`rustup`), `envOverride`
+  (`DXTUTOR_RUST_ANALYZER`, `DXTUTOR_GOPLS`), `searchDirs` (`~/`, um `*` = a versão mais alta primeiro),
+  `rootMarkers`, `readySignal`, `initOptions` (o jdtls), `oneShot` (o cliente de um pedido do `tutor_eval::lsp`
+  pode arrancá-lo: rust/go/ts/python, nunca um JVM), `quirks` (só `nodePath` e `rustupProxy` mudam código; os
+  outros registam o que já é genérico), `install` (SÓ texto: o que a UI pode correr é o `RUNNABLE` do
+  `server-status.ts`, comando a comando) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
+  nove cópias antigas: `LANGS`/`server_cmd`/pistas/`init_options` do `lsp.rs`, a tabela do `tutor_eval::lsp`,
+  `codeintel::outline_lang`, `languages.ts`, `server-status.ts`, `ext/domain/contributions.ts`, os comentários do
+  `ext.ts`, o `OUTLINE_LANG` do explorador e os nomes da barra de estado (o `LANG` do `editor.ts` saiu, e com
+  ele as mutações do boot4/boot6). Uma linguagem nova é uma entrada no JSON; `langreg::validate` (teste
+  `the_bundled_registry_is_well_formed`) reprova ids repetidos, uma extensão/nome em duas linguagens, um servidor
+  inexistente, quirks/resolvers desconhecidos e campos com erros de escrita.
+- **Encontrar o servidor** (`lsp.rs::resolve_server`, com um `Host` injectável nos testes): o PATH é o da shell de
+  login (`shellenv`) + o da app + `/usr/local/go/bin` e `~/go/bin`, juntos com `join_paths` (sem versão do node
+  escrita no código); um servidor node arranca com a pasta dele à frente do PATH (o `node` com que foi instalado)
+  e o `NODE_PATH` é o `lib/node_modules` ao lado dele. O rust-analyzer vem de uma toolchain (`rustup which
+  --toolchain stable`, `~/.rustup/toolchains/*/bin`) ou de um binário no PATH que NÃO seja o proxy do rustup;
+  sem nenhum, `lsp_server_status` diz «não instalado» (antes caía num `rust-analyzer` solto e o aviso nunca
+  aparecia). Os resolvers que correm um programa (`rustup`, `go`) guardam só o que encontraram, nunca a falta.
+- **`domain/`:** `registry.ts` (o registo, `languageFor`/`languageForName`/`serverOf`), `languages.ts` (o
+  `languageId` LSP, só das linguagens com servidor),
   `positions.ts` (offset ↔ `{line, character}` e ponto do rato → offset, com tabs),
   `results.ts` (hover e definição normalizados; `plainMarkdown` limpa o markdown do servidor),
   `paths.ts` (chave do `FS` ↔ caminho absoluto). PURO.

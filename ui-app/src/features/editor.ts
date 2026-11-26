@@ -18,7 +18,7 @@
 
    Mecânica (igual às migrações anteriores): a feature avalia ANTES de `app.ts`
    (ordem do index.html) e publica tudo no `window` no eval. Nada é lido ansiosamente —
-   `FS`/`extOf`/`LANG`/`diagnostics`/`hlLine`/`tabOf`/`cur`/`short`/`refresh` só são
+   `FS`/`extOf`/`diagnostics`/`hlLine`/`tabOf`/`cur`/`short`/`refresh` só são
    tocados DENTRO das funções, chamadas depois do arranque, e resolvem no escopo GLOBAL
    em runtime. Do core importa-se só o que é dono de lá (`$`, `toast`). */
 
@@ -32,6 +32,7 @@ import { codevUndo } from "../app/codev-undo";
 import { authorOf } from "./scm";
 import { dbgBreaks, dbgCurrent } from "./debug";
 import { services } from "../app/services";
+import { languageFor } from "./lsp/domain/registry";
 
 /* ───── overlay (RF-CODEV-STREAM §8): live Co-Dev hunks drawn over the file ─────
    With an overlay view, the textarea shows the view's text (the file plus the proposed
@@ -85,7 +86,8 @@ function paintEd(p:string){const f=FS[p],v=VIEWS.get(p)??null,lines=(v?v.text:f.
 /* ───── ajudantes da barra de estado ───── */
 function gotoLine(n:number){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta)return;const ls=ta.value.split('\n');n=Math.max(1,Math.min(ls.length,n|0));let o=0;for(let i=0;i<n-1;i++)o+=ls[i].length+1;ta.focus({preventScroll:true});ta.setSelectionRange(o,o+ls[n-1].length);$('#ebody')!.scrollTop=Math.max(0,(n-1)*22-90);stPos();}
 function stPos(){const ta=$('#ed-ta') as HTMLTextAreaElement|null,el=$('#st-pos');if(!el)return;if(!ta){el.textContent='';return;}const b=ta.value.slice(0,ta.selectionStart).split('\n');el.textContent=`Ln ${b.length}, Col ${b[b.length-1].length+1}`;annotateLine();}
-function stLang(){const t=tabOf(cur);$('#st-lang')!.textContent=t&&t.path?(LANG[extOf(t.path)]||'Texto'):'';stPos();}
+/* o nome da linguagem vem do registo de linguagens (pelo nome do ficheiro, a extensão ou o shebang) */
+function stLang(){const t=tabOf(cur);$('#st-lang')!.textContent=t&&t.path?(languageFor(t.path,FS[t.path]?.content)?.name||'Texto'):'';stPos();}
 export function edCmd(c:string){const ta=$('#ed-ta') as HTMLTextAreaElement|null;if(!ta){toast('Abre um ficheiro primeiro');return;}ta.focus();if(c==='selectAll')ta.select();else if(c==='line'){const b=ta.value.slice(0,ta.selectionStart).split('\n').length;gotoLine(b);}else{document.execCommand(c);(ta.oninput as any)();}}
 function selText(){const ta=$('#ed-ta') as HTMLTextAreaElement|null;return ta?ta.value.slice(ta.selectionStart,ta.selectionEnd):'';}
 
@@ -119,8 +121,6 @@ function paintEdFull(p: string): void {
   if (PE.builtinOn('inline-diagnostics')) { /* «Inline diagnostics», do dxtutor (era o Error Lens a fingir — ADR-0006, R6b) */ const seen: Record<number, 1> = {}; services.diagnostics!.diagnostics().filter((x) => x.p === p).forEach((x) => { if (seen[x.line]) return; seen[x.line] = 1; const l = ls[x.line - 1]; if (l) l.insertAdjacentHTML('beforeend', `<span class="el ${x.sev}">  ${esc(x.msg)}</span>`); }); }
 }
 
-/* nomes das linguagens na barra de estado (ADR-0004, U4j3 — era do app.ts; o boot4/boot6 acrescentam) */
-const LANG: Record<string, string>={rs:'Rust',ts:'TypeScript',css:'CSS',json:'JSON',toml:'TOML',md:'Markdown',sql:'SQL',html:'HTML'};
 /* o último commit que tocou no ficheiro activo, na barra de estado (ADR-0004, U4j4a — era do app.ts). O stLang
    PUBLICADO acrescenta-o, como a decoração do app.ts fazia; as chamadas internas ao stLang local continuam sem ele. */
 /* A4 (docs/v2/UI-AUDIT.md item 9): o que o blame diz da linha do cursor, no fim dessa linha (o registo
@@ -144,6 +144,5 @@ Object.assign(window, { paintEd: paintEdFull, gotoLine, stPos, blame, selText })
 /* registo da vista pela própria feature (ADR-0004, U4j2 — era um shim no app.ts) */
 VIEW.file = (t, host) => renderFileView(t as { path: string }, host);
 
-export { LANG };
 /* o stLang com o blame (o publicado antes): os separadores importam-no (ADR-0004, U7m) */
 export { stLangWithBlame as stLang };

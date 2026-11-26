@@ -171,22 +171,10 @@ mod tests {
 /// symbols, or the syntax map as a fallback) — the plan then says `src/lib.rs: 40–52 (fn parse)`.
 pub struct OutlineTool;
 
-/// The outline language of a file, by extension (`None`: not a source file the map knows).
+/// The outline language of a file (`None`: not a source file the map knows). From the language
+/// registry (`languages/registry.json`, the `outline` of the file's language).
 pub fn outline_lang(path: &str) -> Option<&'static str> {
-    let ext = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
-    Some(match ext.as_str() {
-        "rs" => "rust",
-        "go" => "go",
-        "py" => "python",
-        "ts" | "tsx" | "mts" | "cts" => "typescript",
-        "js" | "jsx" | "mjs" | "cjs" => "javascript",
-        "java" => "java",
-        "kt" | "kts" => "kotlin",
-        "cs" => "csharp",
-        "swift" => "swift",
-        "c" | "h" | "cc" | "cpp" | "cxx" | "hpp" | "hh" => "cpp",
-        _ => return None,
-    })
+    tutor_eval::langreg::registry().outline_for_name(path)
 }
 
 impl tutor_agent::Tool for OutlineTool {
