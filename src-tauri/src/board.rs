@@ -792,3 +792,116 @@ pub fn deploy_records(
     let root = root_of(&root)?;
     open(&app)?.deploys(&root, shas.as_deref())
 }
+
+// ───── r23 F5a: runbook runs and the evidence export (RF-BK-R02, A03) ─────
+
+/// Keeps a runbook step that ran (or was decided); who and when are decided here.
+pub fn record_runbook_step(
+    app: &AppHandle,
+    root: &str,
+    mut r: tutor_board::project::runbooks::RunbookStepRun,
+) -> Result<tutor_board::project::runbooks::RunbookStepRun, ProjectError> {
+    let root = root_of(root)?;
+    r.actor = actor(&root);
+    r.at = now_ms();
+    let id = open(app)?.record_runbook_step(&root, &r)?;
+    Ok(tutor_board::project::runbooks::RunbookStepRun { id, ..r })
+}
+
+/// A person's judgement of a step's result (a prose expectation), with a note.
+#[tauri::command]
+pub fn runbook_judge(
+    app: AppHandle,
+    root: String,
+    id: i64,
+    matched: bool,
+    note: String,
+) -> Result<bool, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.judge_runbook_step(&root, id, matched, note.trim())
+}
+
+/// The runbook steps run in the last 90 days (of one runbook, or all), oldest first.
+#[tauri::command]
+pub fn runbook_runs(
+    app: AppHandle,
+    root: String,
+    path: Option<String>,
+) -> Result<Vec<tutor_board::project::runbooks::RunbookStepRun>, ProjectError> {
+    let root = root_of(&root)?;
+    let now = now_ms();
+    open(&app)?.runbook_runs(&root, path.as_deref(), now - 90 * 86_400_000, now + 1)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceFile {
+    /// relative to the project (`docs/audit/evidence-YYYY-MM.md`)
+    pub path: String,
+    pub content: String,
+}
+
+/// Writes the evidence of a period (`from`..`to`, ms; default: this month so far) to
+/// `docs/audit/evidence-YYYY-MM.md` INSIDE the project, grouped by ISO/IEC 27001:2022 control from the
+/// real audit rows, deploy records and runbook runs; the export itself goes to the audit log.
+#[tauri::command]
+pub fn audit_export_evidence(
+    app: AppHandle,
+    root: String,
+    from: Option<i64>,
+    to: Option<i64>,
+) -> Result<EvidenceFile, ProjectError> {
+    let root = root_of(&root)?;
+    let now = now_ms();
+    let to = to.unwrap_or(now + 1);
+    let from = from.unwrap_or_else(|| {
+        // the first day of `to`'s month (UTC)
+        let d = tutor_board::project::evidence::day(to - 1);
+        let (y, m) = (
+            d[..4].parse::<i64>().unwrap_or(1970),
+            d[5..7].parse::<i64>().unwrap_or(1),
+        );
+        let days_from_civil = |y: i64, m: i64| {
+            let y = if m <= 2 { y - 1 } else { y };
+            let era = y.div_euclid(400);
+            let yoe = y - era * 400;
+            let mp = (m + 9) % 12;
+            let doy = (153 * mp + 2) / 5;
+            let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+            era * 146_097 + doe - 719_468
+        };
+        days_from_civil(y, m) * 86_400_000
+    });
+    if from >= to {
+        return Err(invalid("the period is empty".into()));
+    }
+    let store = open(&app)?;
+    let audit = store.audit(&root, None)?;
+    let deploys = store.deploys(&root, None)?;
+    let runs = store.runbook_runs(&root, None, from, to)?;
+    drop(store);
+    let name = Path::new(&root)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".into());
+    let content =
+        tutor_board::project::evidence::markdown(&name, from, to, now, &audit, &deploys, &runs);
+    let rel = format!(
+        "docs/audit/evidence-{}.md",
+        &tutor_board::project::evidence::day(from)[..7]
+    );
+    crate::workspace::write(Path::new(&root), &rel, &content).map_err(invalid)?;
+    audit_backend(
+        &app,
+        &root,
+        "audit",
+        "export-evidence",
+        &format!(
+            "{rel} ({} to {})",
+            tutor_board::project::evidence::day(from),
+            tutor_board::project::evidence::day(to - 1)
+        ),
+        None,
+    )?;
+    Ok(EvidenceFile { path: rel, content })
+}

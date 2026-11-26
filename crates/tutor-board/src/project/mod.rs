@@ -15,8 +15,10 @@
 
 pub mod breakpoints;
 pub mod deploys;
+pub mod evidence;
 pub mod reports;
 pub mod risks;
+pub mod runbooks;
 pub mod schema;
 pub mod testhist;
 
@@ -981,6 +983,37 @@ impl ProjectStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Records a runbook step that ran or was decided (r23 F5a).
+    pub fn record_runbook_step(
+        &mut self,
+        root: &str,
+        r: &runbooks::RunbookStepRun,
+    ) -> Result<i64, ProjectError> {
+        runbooks::record(&self.conn, root, r)
+    }
+
+    /// The person's judgement of a step's result.
+    pub fn judge_runbook_step(
+        &mut self,
+        root: &str,
+        id: i64,
+        matched: bool,
+        note: &str,
+    ) -> Result<bool, ProjectError> {
+        runbooks::judge(&self.conn, root, id, matched, note)
+    }
+
+    /// The runbook steps run between `from` and `to` (ms), of one runbook or all.
+    pub fn runbook_runs(
+        &self,
+        root: &str,
+        path: Option<&str>,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<runbooks::RunbookStepRun>, ProjectError> {
+        runbooks::list(&self.conn, root, path, from, to)
     }
 
     /// Records a rollout of the guided deploy (r23 F4c2).

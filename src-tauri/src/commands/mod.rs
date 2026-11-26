@@ -27,6 +27,7 @@ pub mod panel;
 pub mod plugins;
 pub mod protect;
 pub mod review;
+pub mod runbook;
 pub mod sandbox;
 pub mod search;
 pub mod study;
