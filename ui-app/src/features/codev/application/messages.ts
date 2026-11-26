@@ -40,6 +40,13 @@ export const CODEV_ENGINE_MESSAGES = {
     hunksApplied: "✓ {n} change(s) applied", hunksRejected: "✗ changes rejected", hunksPartial: "{ok} of {n} applied{stale}", hunksStale: " · {n} out of date",
     rejectedEditLog: "rejected the edit of {path}", notRun: "✗ not run", notRunNoTerminal: "not run: no terminal available",
     askExplain: "Explain this.", askFix: "Fix this.", askReview: "Review this.", askPlan: "Propose a plan for this.",
+    overlapAsk: "{key} cannot start now: another Co-Dev works in this folder and both may change the same files —\n{list}\n\nTwo Co-Devs in one working tree never change the same files. Wait for {others} to close, and start {key} then?",
+    overlapRefused: "{key} not started: it may change the same files as {others} ({files}).",
+    overlapQueued: "{key} waits for {others}: it starts when that Co-Dev closes.",
+    overlapCheckFailed: "{key} not started: the scope check failed — {error}",
+    queuedStarted: "{key} started: the Co-Dev it waited for closed.",
+    bgDecision: "{label} needs your decision — open it in the Co-Devs strip.",
+    moreFiles: "+{n} more",
   },
   ptAO: {
     validRunning: "A validar as alterações provisórias ({cmds})…", validBaseline: "A medir a base antes das alterações (testes/lint)…",
@@ -72,6 +79,13 @@ export const CODEV_ENGINE_MESSAGES = {
     hunksApplied: "✓ {n} alteração(ões) aplicada(s)", hunksRejected: "✗ alterações rejeitadas", hunksPartial: "{ok} de {n} aplicada(s){stale}", hunksStale: " · {n} desactualizada(s)",
     rejectedEditLog: "rejeitou a edição de {path}", notRun: "✗ não executado", notRunNoTerminal: "não executado: sem terminal disponível",
     askExplain: "Explica isto.", askFix: "Corrige isto.", askReview: "Revê isto.", askPlan: "Propõe um plano para isto.",
+    overlapAsk: "{key} não pode começar agora: outro Co-Dev trabalha nesta pasta e os dois podem mudar os mesmos ficheiros —\n{list}\n\nDois Co-Devs na mesma árvore de trabalho nunca mudam os mesmos ficheiros. Esperar que {others} feche e começar {key} nessa altura?",
+    overlapRefused: "{key} não começou: pode mudar os mesmos ficheiros que {others} ({files}).",
+    overlapQueued: "{key} espera por {others}: começa quando esse Co-Dev fechar.",
+    overlapCheckFailed: "{key} não começou: a verificação de âmbito falhou — {error}",
+    queuedStarted: "{key} começou: o Co-Dev por que esperava fechou.",
+    bgDecision: "{label} precisa da tua decisão — abre-o na faixa dos Co-Devs.",
+    moreFiles: "+{n} mais",
   },
 } satisfies Messages<string>;
 

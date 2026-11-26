@@ -8,7 +8,7 @@ export const CODEV_NOTES: FeatureNotes = {
   title: "Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar",
   summary:
     "Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».",
-  code: ["ui-app/src/features/codev/domain/agent-map.ts", "ui-app/src/features/codev/application/agent-map.ts", "ui-app/src/features/codev/ui/agent-map-view.ts", "ui-app/src/features/codev/application/hunk-review.ts", "ui-app/src/features/codev/application/local-proposals.ts", "ui-app/src/features/codev/domain/proposal.ts", "crates/tutor-agent/src/hunks.rs"],
+  code: ["ui-app/src/features/codev/application/codev-sessions.ts", "ui-app/src/features/codev/ui/session-view.ts", "ui-app/src/features/codev/ui/codevs-view.ts", "ui-app/src/features/codev/domain/scope-overlap.ts", "ui-app/src/features/codev/domain/agent-map.ts", "ui-app/src/features/codev/application/agent-map.ts", "ui-app/src/features/codev/ui/agent-map-view.ts", "ui-app/src/features/codev/application/hunk-review.ts", "ui-app/src/features/codev/application/local-proposals.ts", "ui-app/src/features/codev/domain/proposal.ts", "crates/tutor-agent/src/hunks.rs"],
   updated: "2026-11-26",
   actions: [
     {
@@ -50,6 +50,32 @@ export const CODEV_NOTES: FeatureNotes = {
         "O texto que um sub-agente vai escrevendo não aparece em tempo real: só as ferramentas, os tokens e, no fim, o relatório.",
       ],
       covers: ["codev:agmap-open", "codev:agmap-pick", "codev:agmap-close", "codev:agmap-chat", "codev:agmap-run"],
+    },
+    {
+      title: "Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)",
+      where: ["Project › painel da issue › «Work on it with Co-Dev»", "chat do Co-Dev › faixa «Co-Devs» por cima da conversa", "mapa de agentes › detalhe de uma sessão › «Ver no chat»"],
+      what:
+        "Cada issue que mandas ao Co-Dev tem a sua sessão: começar outra issue já não fecha a que está a correr. A faixa «Co-Devs» aparece quando há mais de uma sessão, com um cartão por Co-Dev («Co-Dev · DX-12», a trabalhar / parado / precisa da tua decisão, o tempo e os tokens); clicar num cartão mostra a conversa dele. Os hunks de um Co-Dev em segundo plano só se pintam no editor quando abres a conversa dele, e as tuas decisões vão sempre para a sessão que as propôs.",
+      howTo: [
+        "No Project, abre uma issue Ready e carrega em «Work on it with Co-Dev»; depois faz o mesmo com outra issue.",
+        "Se os âmbitos das duas não se cruzarem, a segunda abre noutra sessão e a faixa «Co-Devs» aparece; a primeira continua a trabalhar.",
+        "Se se cruzarem, a app diz em que ficheiros e pergunta se a issue espera: com «OK» ela fica na faixa («espera por DX-12») e começa sozinha quando esse Co-Dev fechar; com «Cancelar» não começa.",
+        "Clica num cartão para ver a conversa desse Co-Dev (e os hunks dele no editor); o ✕ fecha o Co-Dev (a sessão acaba) e o ✕ de uma issue à espera desiste de esperar.",
+      ],
+      flow: [
+        "A conversa é uma por sessão (`makeAgentChat`): a à vista escreve no chat e na barra de execução como sempre; as outras escrevem num transcript fora do ecrã e guardam a sua execução (o tempo, o «parar», a decisão pendente) até as abrires.",
+        "Antes de abrir outra sessão, o comando `project_scope_overlap` (só leitura) compara o âmbito da issue nova com o de cada issue que tem uma sessão aberta, com a regra do plano paralelo: um ficheiro que as duas podem mudar, pelo âmbito ou por ser conhecido (change sets, commits ligados, o ramo).",
+        "Nesta fase todas as sessões trabalham na MESMA árvore de trabalho: por isso a verificação é obrigatória e, se falhar, a issue não começa.",
+        "Fechar um Co-Dev liberta o âmbito dele: as issues à espera voltam a ser verificadas e as que já não chocam começam em segundo plano.",
+      ],
+      tips: ["Com um só Co-Dev nada muda: não há faixa e a conversa é a de sempre.", "«Nova conversa» recomeça só a conversa à vista; os outros Co-Devs continuam."],
+      limits: [
+        "Uma issue segura o âmbito enquanto a sessão dela estiver aberta, mesmo parada: fecha-a (✕) quando acabares.",
+        "O separador «Co-Dev run» e o `ctx` da barra de estado seguem a conversa à vista.",
+        "O quadro Tasks antigo («Delegar») continua a usar a conversa à vista.",
+        "Fases seguintes: uma worktree e ficheiros reservados por Co-Dev (fase 3), o revisor e a porta de integração (fase 4).",
+      ],
+      covers: ["codev:codevs-pick", "codev:codevs-close", "codev:codevs-unqueue"],
     },
   ],
 };

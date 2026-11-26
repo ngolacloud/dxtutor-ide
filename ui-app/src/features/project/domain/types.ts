@@ -72,6 +72,21 @@ export interface Issue {
   /** Co-Dev budget in dollars (RF-T03) and what it spent (real cost of its turns, RF-T04). */
   budgetUsd: number | null;
   spentUsd: number;
+  /** Multi Co-Dev (the integration gate): the functional approval recorded on it; `null`: none. */
+  functional: FunctionalApproval | null;
+}
+
+/** The responsible person confirmed the issue does what its criteria ask (who and when: the store's). */
+export interface FunctionalApproval {
+  by: string;
+  at: number;
+  note: string;
+}
+
+/** A check every change must pass before it is integrated (a name and the exact command). */
+export interface Check {
+  name: string;
+  command: string;
 }
 
 export interface CriteriaRow {
@@ -142,6 +157,8 @@ export interface Project {
   wip: Partial<Record<State, number>>;
   dor: string[];
   dod: string[];
+  /** The mandatory checks (the integration gate); empty: not set — the detected test command. */
+  checks: Check[];
   issues: Issue[];
   sprints: Sprint[];
   releases: Release[];
@@ -251,6 +268,7 @@ function parseIssue(o: Record<string, unknown>): Issue {
     missing: arr(o.missing).filter((x): x is string => typeof x === "string"),
     budgetUsd: numOrNull(o.budgetUsd),
     spentUsd: num(o.spentUsd),
+    functional: isObj(o.functional) && typeof o.functional.by === "string" ? { by: o.functional.by, at: num(o.functional.at), note: str(o.functional.note) } : null,
   };
 }
 
@@ -266,6 +284,10 @@ export function parseProject(v: unknown): Project | null {
     wip,
     dor: arr(v.dor).map((x) => str(x)).filter(Boolean),
     dod: arr(v.dod).map((x) => str(x)).filter(Boolean),
+    checks: arr(v.checks)
+      .filter(isObj)
+      .map((c) => ({ name: str(c.name), command: str(c.command) }))
+      .filter((c) => c.name && c.command),
     issues: arr(v.issues).filter(isObj).map(parseIssue).filter((i) => i.key),
     sprints: arr(v.sprints)
       .filter(isObj)

@@ -355,3 +355,15 @@
     .agmap-card{min-width:0;max-width:100%}
     .agmap-detail{width:auto;border-left:none;border-top:1px solid var(--border)}
   }
+  /* Multi Co-Dev (fase 2): a faixa «Co-Devs» por cima da conversa — um cartão por sessão */
+  .ag-codevs{display:flex;flex-wrap:wrap;gap:6px;padding:8px 13px;border-bottom:1px solid var(--border);background:var(--bg-panel)}
+  .cdv-card{display:inline-flex;align-items:center;max-width:100%;min-width:0;border:1px solid var(--border-strong);border-radius:9px;background:var(--bg-elevated);font-size:11.5px}
+  .cdv-card.sel{border-color:var(--accent);background:var(--accent-soft)}
+  .cdv-card.st-failed{border-color:rgba(241,112,122,.45)}
+  .cdv-card.st-decision{border-color:var(--yellow)}
+  .cdv-card.st-queued{border-style:dashed;color:var(--fg-muted)}
+  .cdv-pick{display:inline-flex;align-items:center;gap:6px;min-width:0;padding:4px 4px 4px 9px;color:var(--fg);text-align:left}
+  .cdv-l{font-weight:600;white-space:nowrap}
+  .cdv-m{color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-variant-numeric:tabular-nums}
+  .cdv-x{color:var(--fg-muted);padding:2px 7px 2px 3px}.cdv-x:hover{color:var(--fg)}
+  .cc-dot.warn{background:var(--yellow)}

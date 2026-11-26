@@ -1419,3 +1419,239 @@ fn incidents_and_the_queue() {
     .unwrap();
     assert_eq!(incidents::queue_events(c, "/p").unwrap().len(), 2);
 }
+
+#[test]
+fn the_mandatory_checks_are_kept_on_the_project() {
+    let mut s = store();
+    assert!(s.load(ROOT, T0).unwrap().checks.is_empty());
+    assert!(s.checks(ROOT).unwrap().is_empty());
+    let p = s
+        .apply(
+            ROOT,
+            "Walter",
+            T0,
+            op(serde_json::json!({"op": "settings", "checks": [
+                {"name": " tests ", "command": " cargo test --workspace "},
+                {"name": "", "command": ""},
+                {"name": "lint", "command": "cargo clippy --workspace --all-targets"}
+            ]})),
+        )
+        .unwrap();
+    assert_eq!(
+        p.checks,
+        vec![
+            Check {
+                name: "tests".into(),
+                command: "cargo test --workspace".into()
+            },
+            Check {
+                name: "lint".into(),
+                command: "cargo clippy --workspace --all-targets".into()
+            },
+        ]
+    );
+    assert_eq!(s.checks(ROOT).unwrap(), p.checks);
+    // another setting leaves them as they are
+    let p = s
+        .apply(
+            ROOT,
+            "Walter",
+            T0,
+            op(serde_json::json!({"op": "settings", "iter_days": 7})),
+        )
+        .unwrap();
+    assert_eq!(p.checks.len(), 2);
+    for bad in [
+        serde_json::json!([{"name": "tests", "command": ""}]),
+        serde_json::json!([{"name": "t", "command": "a"}, {"name": "T", "command": "b"}]),
+        serde_json::json!([{"name": "t", "command": "a\nb"}]),
+        serde_json::json!((0..13)
+            .map(|i| serde_json::json!({"name": format!("c{i}"), "command": "x"}))
+            .collect::<Vec<_>>()),
+    ] {
+        let e = s
+            .apply(
+                ROOT,
+                "Walter",
+                T0,
+                op(serde_json::json!({"op": "settings", "checks": bad})),
+            )
+            .unwrap_err();
+        assert_eq!(e.code, "invalid", "{bad}");
+    }
+    // empty: back to the detected test command
+    let p = s
+        .apply(
+            ROOT,
+            "Walter",
+            T0,
+            op(serde_json::json!({"op": "settings", "checks": []})),
+        )
+        .unwrap();
+    assert!(p.checks.is_empty());
+    assert!(s.checks(ROOT).unwrap().is_empty());
+}
+
+#[test]
+fn the_functional_approval_is_recorded_audited_and_falls_with_the_criteria() {
+    let mut s = store();
+    let k = create(&mut s, "Cart", T0);
+    let ap = |s: &mut ProjectStore, who: &str, at: i64, v: serde_json::Value| {
+        s.apply(ROOT, who, at, op(v))
+    };
+    // without criteria there is nothing to confirm
+    let e = ap(
+        &mut s,
+        "Ana",
+        T0,
+        serde_json::json!({"op": "approve_functional", "key": k}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "invalid");
+    assert!(e.message.contains("critérios"), "{}", e.message);
+    let crit = |t: &str| serde_json::json!({"op": "set_acceptance", "key": k, "items": [{"text": t, "done": true}]});
+    ap(
+        &mut s,
+        "Ana",
+        T0,
+        crit("Given a cart When I add Then it counts"),
+    )
+    .unwrap();
+    let p = ap(
+        &mut s,
+        "Ana",
+        T0 + H,
+        serde_json::json!({"op": "approve_functional", "key": k, "note": " tried it on staging "}),
+    )
+    .unwrap();
+    let i = p.issues.iter().find(|i| i.key == k).unwrap();
+    assert_eq!(
+        i.functional,
+        Some(FunctionalApproval {
+            by: "Ana".into(),
+            at: T0 + H,
+            note: "tried it on staging".into()
+        })
+    );
+    // twice: refused (the record says who already approved)
+    let e = ap(
+        &mut s,
+        "Rui",
+        T0 + H,
+        serde_json::json!({"op": "approve_functional", "key": k}),
+    )
+    .unwrap_err();
+    assert!(e.message.contains("Ana"), "{}", e.message);
+    // in the activity and in the audit log
+    let d = s.detail(ROOT, &k).unwrap();
+    assert!(d
+        .activity
+        .iter()
+        .any(|a| a.kind == "functional" && a.actor == "Ana" && a.note == "tried it on staging"));
+    let audit = s.audit(ROOT, Some(&k)).unwrap();
+    let row = audit
+        .iter()
+        .find(|r| r.call.as_deref() == Some("functional.approve"))
+        .unwrap();
+    assert_eq!(row.actor, "Ana");
+    assert_eq!(row.decided_by.as_deref(), Some("human:Ana"));
+    assert_eq!(row.at, T0 + H);
+    assert_eq!(row.origin, "ide");
+    // the same criteria again: the approval stays
+    let p = ap(
+        &mut s,
+        "Ana",
+        T0 + 2 * H,
+        crit("Given a cart When I add Then it counts"),
+    )
+    .unwrap();
+    assert!(p
+        .issues
+        .iter()
+        .find(|i| i.key == k)
+        .unwrap()
+        .functional
+        .is_some());
+    // other criteria: it falls (it was given against the old ones)
+    let p = ap(
+        &mut s,
+        "Ana",
+        T0 + 3 * H,
+        crit("Given a cart When I remove Then it counts"),
+    )
+    .unwrap();
+    assert!(p
+        .issues
+        .iter()
+        .find(|i| i.key == k)
+        .unwrap()
+        .functional
+        .is_none());
+    assert!(s
+        .detail(ROOT, &k)
+        .unwrap()
+        .activity
+        .iter()
+        .any(|a| a.kind == "functional_reset"));
+    // revoke: needs a reason and an approval
+    ap(
+        &mut s,
+        "Ana",
+        T0 + 4 * H,
+        serde_json::json!({"op": "approve_functional", "key": k}),
+    )
+    .unwrap();
+    assert_eq!(
+        ap(
+            &mut s,
+            "Ana",
+            T0,
+            serde_json::json!({"op": "revoke_functional", "key": k, "reason": " "})
+        )
+        .unwrap_err()
+        .code,
+        "invalid"
+    );
+    let p = ap(
+        &mut s,
+        "Ana",
+        T0 + 5 * H,
+        serde_json::json!({"op": "revoke_functional", "key": k, "reason": "the total is wrong"}),
+    )
+    .unwrap();
+    assert!(p
+        .issues
+        .iter()
+        .find(|i| i.key == k)
+        .unwrap()
+        .functional
+        .is_none());
+    assert!(s
+        .audit(ROOT, Some(&k))
+        .unwrap()
+        .iter()
+        .any(|r| r.call.as_deref() == Some("functional.revoke")
+            && r.reason.as_deref() == Some("the total is wrong")));
+    assert_eq!(
+        ap(
+            &mut s,
+            "Ana",
+            T0,
+            serde_json::json!({"op": "revoke_functional", "key": k, "reason": "x"})
+        )
+        .unwrap_err()
+        .code,
+        "invalid"
+    );
+    assert_eq!(
+        ap(
+            &mut s,
+            "Ana",
+            T0,
+            serde_json::json!({"op": "approve_functional", "key": "NOPE-9"})
+        )
+        .unwrap_err()
+        .code,
+        "not_found"
+    );
+}
