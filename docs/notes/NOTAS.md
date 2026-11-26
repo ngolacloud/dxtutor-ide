@@ -976,7 +976,7 @@ Lista os servidores de linguagem que estão a correr: o nome, a pasta, o PID, o 
 
 1. `lsp_servers` devolve a lista (`src-tauri/src/lsp/lifecycle.rs::list`); a memória é a do servidor e dos processos que ele arrancou, lida do `/proc` (só em Linux). O ecrã (`ui/servers-view.ts`) relê-a de 2 em 2 s e logo que o backend avisa que mudou (`lsp://servers`).
 2. «Stop» (`lsp_server_stop`) e «Restart» (`lsp_server_restart`) param o servidor como o protocolo pede: `shutdown`, depois `exit`, e o processo é recolhido; se não sair a tempo (2 s + 1 s), é morto com o que arrancou (o grupo de processos dele).
-3. O registo de cada servidor (stderr e `window/logMessage` de erro, aviso e informação) fica no backend num anel limitado (500 linhas, 256 KiB), mascarado pelas regras de protecção de dados antes de sair; chega ao Output pelo evento `lsp://log` e lê-se de novo com `lsp_server_log` (por exemplo, depois de mudares de língua).
+3. O registo de cada servidor (stderr e as mensagens `logMessage` de erro, aviso e informação) fica no backend num anel limitado (500 linhas, 256 KiB), mascarado pelas regras de protecção de dados antes de sair; chega ao Output pelo evento `lsp://log` e lê-se de novo com `lsp_server_log` (por exemplo, depois de mudares de língua).
 
 **Dicas**
 

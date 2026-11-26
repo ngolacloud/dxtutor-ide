@@ -519,7 +519,11 @@ fn stderr_and_log_messages_are_kept_masked_and_sent_to_the_ui() {
     let (emit, got) = recorder();
     let s = start(&map, &emit, &f, "logs", "");
     assert!(wait_until(
-        || log_of(Some(&s.key)).iter().any(|l| l.text.contains("done")),
+        || {
+            // the stderr thread and the stdout reader write independently: wait for both
+            let l = log_of(Some(&s.key));
+            l.iter().any(|l| l.text.contains("done")) && l.iter().any(|l| l.kind == "log")
+        },
         Duration::from_secs(5)
     ));
     let all = log_of(Some(&s.key));
