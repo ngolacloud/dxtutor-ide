@@ -27,7 +27,7 @@ afterEach(() => {
 describe("selector de linguagens", () => {
   it("mostra as 10 linguagens oficiais; Rust e Go disponíveis, o resto «Coming soon»", () => {
     LM.ltOnboard(1);
-    const cards = [...document.querySelectorAll<HTMLButtonElement>("#onb .onb-lang")];
+    const cards = [...document.querySelectorAll<HTMLButtonElement>("#onb .onb-langs:not(.onb-fw) .onb-lang")];
     expect(cards.map(c => c.querySelector("b")!.textContent)).toEqual(["Rust", "Go", "Python", "TypeScript", "Java", "Kotlin", "Swift", "C#", "C++", "SQL"]);
     const live = cards.filter(c => !c.disabled).map(c => c.dataset.on);
     expect(live).toEqual(["rust", "go"]);
@@ -76,6 +76,19 @@ describe("leitura: apresentação do curso e conceitos do tópico", () => {
     expect(card(unit.id)!.querySelector(".lt-read-b")).not.toBeNull();
     card(unit.id)!.querySelector<HTMLButtonElement>("[data-action]")!.click();
     expect(card(unit.id)!.querySelector(".lt-read-b")).toBeNull();
+    host.remove();
+  });
+
+  it("o markup do passo fecha as etiquetas (regressão do codemod U6c: «UUnder the hood/button>»)", () => {
+    LM.LTS.lang = "rust";
+    LM.LTS.levels = ["basic"];
+    const unit = LM.course().units[0];
+    const host = openStep(unit.steps[0].id, `${unit.steps[0].id}.rs`);
+    // A barra é do `host`; o painel do passo (#lt-res) é o primeiro do documento.
+    expect(host.querySelector('[data-action="learn:hood"]')!.textContent).toBe("Under the hood");
+    const res = document.getElementById("lt-res")!;
+    expect(res.querySelector('[data-action="learn:ask"]')!.textContent).toBe("Ask the Tutor");
+    for (const el of [host, res]) expect(el.textContent).not.toMatch(/\/(button|h3|span|p)>/);
     host.remove();
   });
 

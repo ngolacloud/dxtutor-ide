@@ -37,7 +37,9 @@
 //! `probe.call`) passam a ser interpretados na nova linguagem, e o par `(n, t)` que a
 //! sonda produz é agnóstico. É por isso que o trait é a fronteira certa.
 
-use anyhow::Result;
+use std::collections::BTreeMap;
+
+use anyhow::{bail, Context, Result};
 use tutor_core::Phase;
 
 use crate::complexity::{self, Estimate, Sample};
@@ -81,6 +83,23 @@ pub trait LanguageRunner {
     /// Diagnósticos posicionais (erros de compilação/sintaxe/execução) sobre o código
     /// do aluno isolado. Lista vazia ⇒ sem erros detectados.
     fn diagnostics(&self, student_code: &str) -> Result<Vec<Diagnostic>>;
+
+    /// Julga a **correcção** de um passo de PROJECTO: `tree` é a árvore inteira do aluno
+    /// (caminho relativo → conteúdo, já montada por [`tutor_core::ProjectFiles::learner_tree`]);
+    /// o runner escreve-a com os testes ocultos de `phase.project` numa pasta nova e corre-os.
+    ///
+    /// Por omissão, recusa: só os runners que sabem correr um projecto o implementam (hoje os
+    /// descritores com `project_test_cmd`). Um erro claro, nunca um «passou» inventado.
+    fn check_project(
+        &self,
+        phase: &Phase,
+        _tree: &BTreeMap<String, String>,
+    ) -> Result<Correctness> {
+        bail!(
+            "project steps are not supported for `{}` yet (its evaluator has no project test command)",
+            phase.language
+        )
+    }
 }
 
 /// Avaliação completa de uma submissão a uma fase: corre a correcção na linguagem da
@@ -90,6 +109,12 @@ pub trait LanguageRunner {
 /// idênticos ao avaliador original — os consumidores (`tutor-cli`, `tutor-tui`) não
 /// notam a diferença.
 pub fn assess(phase: &Phase, student_code: &str) -> Result<Assessment> {
+    // Um passo de projecto avaliado pela forma de um só `code` (compatível com o
+    // `submit_step` antigo): o código é o ficheiro principal, o resto fica como no starter.
+    if let Some(project) = &phase.project {
+        let submitted = BTreeMap::from([(project.main.clone(), student_code.to_string())]);
+        return assess_project(phase, &submitted);
+    }
     let runner = runner_for(&phase.language);
 
     let correctness = runner.check_correctness(phase, student_code)?;
@@ -111,6 +136,30 @@ pub fn assess(phase: &Phase, student_code: &str) -> Result<Assessment> {
         correctness,
         complexity,
         expected,
+    })
+}
+
+/// Avaliação de um passo de PROJECTO: `submitted` são os ficheiros EDITÁVEIS que o aluno
+/// entrega (os que faltam ficam como no starter; um ficheiro só de leitura ou desconhecido é
+/// recusado). Monta a árvore, corre os testes ocultos pelo runner da linguagem e devolve o
+/// veredicto. Sem sonda de complexidade (um projecto não tem uma função a cronometrar).
+pub fn assess_project(phase: &Phase, submitted: &BTreeMap<String, String>) -> Result<Assessment> {
+    let project = phase
+        .project
+        .as_ref()
+        .with_context(|| format!("step `{}` is not a project step", phase.id))?;
+    let errs = project.check();
+    if !errs.is_empty() {
+        bail!("invalid project step `{}`: {}", phase.id, errs.join("; "));
+    }
+    let tree = project
+        .learner_tree(submitted)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let correctness = runner_for(&phase.language).check_project(phase, &tree)?;
+    Ok(Assessment {
+        correctness,
+        complexity: None,
+        expected: None,
     })
 }
 

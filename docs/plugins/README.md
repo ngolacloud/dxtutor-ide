@@ -1,6 +1,6 @@
 # Writing a course plugin for dxtutor
 
-A **course plugin** adds a language track to dxtutor's Learning Track. It is a GitHub
+A **course plugin** adds a language, framework or tool track to dxtutor's Learning Track. It is a GitHub
 repository with a manifest and one or more course files. Course files are data, not code.
 You don't need to touch the dxtutor source code to publish a course.
 
@@ -82,6 +82,54 @@ these `language.id` values: `rust`, `go`, `python`, `typescript`, `java`, `kotli
 `csharp`, `cpp`, `sql`. A plugin for any other language shows up as a **Community** card.
 
 A JSON Schema for editor completion is in [`dxtutor-plugin.schema.json`](dxtutor-plugin.schema.json).
+
+## Framework and tool courses
+
+Frameworks and tools are a **separate category** from the languages: they have their own
+section in the app («Frameworks & tools») and their own official catalog, and they don't count
+towards the 10 official languages. A framework or tool plugin adds two manifest fields:
+
+```json
+{
+  "kind": "course",
+  "category": "framework",
+  "subject": {
+    "id": "django",
+    "name": "Django",
+    "icon": "🎸",
+    "docs": "https://docs.djangoproject.com/"
+  },
+  "language": { "id": "python", "name": "Python", "icon": "🐍", "extension": "py", "indent": "4" },
+  "courses": ["courses/django.toml"]
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `category` | no | `language` (the default: leave it out for a language course), `framework` or `tool`. |
+| `subject.id` | with `framework`/`tool` | Id of what the course teaches (`django`, `docker`). Every course's `subject` must equal it, and it can't be the same as `language.id`. |
+| `subject.name` | with `framework`/`tool` | Display name. |
+| `subject.icon` | no | An emoji for the card. |
+| `subject.docs` | no | The official documentation (`https://…`), shown to the learner. |
+
+In a framework or tool plugin, `language` is the language the exercises are written in and
+**graded** by (`python` for Django), so the extension, the indentation and the evaluator come
+from it. Each course file repeats the category:
+
+```toml
+id = "django-basics"
+language = "python"      # graded by the Python evaluator
+category = "framework"   # must equal the manifest
+subject = "django"       # must equal subject.id
+```
+
+Step ids still have to be unique among the courses of the same `language`, because grading
+finds a step by (language, id): prefix them with the subject (`dj-p1-views`).
+
+The official frameworks and tools are Dxjs, Seiva, Django, Delonix Engine, Docker, Podman,
+Kubernetes and Odoo (ids `dxjs`, `seiva`, `django`, `delonix`, `docker`, `podman`,
+`kubernetes`, `odoo`), in `ngolacloud/dxtutor-course-<id>`. Any other subject shows up as a
+**Community** card.
 
 ## The course format
 
@@ -190,6 +238,73 @@ Optional step fields: `difficulty`, `install_commands` (package-manager commands
 learner), `run_command` (the CLI command to run the exercise, shown to the learner) and
 `dependencies` (extra Cargo dependency lines, Rust only).
 
+### Project steps: several files
+
+A challenge can be a small project instead of one function: a `project` table replaces
+`starter`, `tests` and `gabarito`. This is what framework and tool courses need (a package of
+modules, a manifest and its config).
+
+```toml
+[[unit.step]]
+kind = "challenge"
+id = "shop-p1-cart"
+title = "A cart that charges VAT"
+points = 30
+instructions = "Implement `with_vat` in `shop/prices.py` and `total` in `shop/cart.py`."
+entry = "total"                       # optional; fills the {entry} placeholder
+
+[unit.step.project]
+main = "shop/cart.py"                 # opened first; must be an editable starter file
+readonly = ["shop/__init__.py", "shop/config.py"]   # shown, never changed
+explanation = "Why the solution is shaped this way (markdown, shown after a pass)."
+
+[unit.step.project.starter]           # path → content: what the learner starts with
+"shop/__init__.py" = ""
+"shop/config.py" = '''
+VAT = 0.14
+'''
+"shop/prices.py" = '''
+def with_vat(amount):
+    raise NotImplementedError
+'''
+"shop/cart.py" = '''
+def total(items):
+    raise NotImplementedError
+'''
+
+[unit.step.project.tests]             # hidden: never sent to the app
+"test_shop.py" = '''
+import unittest
+...
+'''
+
+[unit.step.project.solution]          # the reference solution: editable files as they should end
+"shop/prices.py" = '''...'''
+"shop/cart.py" = '''...'''
+```
+
+The rules (checked by `dxt plugin validate` and again by the evaluator):
+
+- Paths are relative, use `/`, and each segment is made of `A–Z a–z 0–9 . _ - + @` (no `..`,
+  no empty or `.` segments, at most 10 levels). A path can't be both a file and a folder.
+- `main` and every `solution` path must be editable starter files; `readonly` paths must be
+  starter files; hidden test files must not also be starter files.
+- `starter`, `tests` and `solution` can't be empty. At most 64 files (starter + tests),
+  256 KiB per file and 2 MiB in all.
+- A project step has no `starter`, `tests` or `gabarito` of its own.
+
+When the learner submits, the app sends every editable file. Missing ones count as their
+starter version, and read-only files always use the course's copy. A read-only or unknown
+file in a submission is refused. The evaluator writes the learner's tree and the hidden test
+files into a fresh folder and runs the language's **project test command**. Exit 0 means the
+step passed. The reference solution files are revealed only after a pass.
+
+Project steps are graded only for languages whose evaluator has a project test command.
+Today that's Python: `python3 -m unittest discover -s . -t . -p 'test*.py'`, so the hidden
+tests are `test*.py` files (in a folder, the folder needs an `__init__.py`), and a test file
+that defines no test fails. A custom descriptor can add one with `project_test_cmd`
+(see the top of `crates/tutor-eval/src/plugin.rs`).
+
 ### Ids
 
 Step ids must be unique across **all** installed courses, including the ones built into
@@ -226,6 +341,8 @@ dxt plugin test . --only py-u05         # only units whose id starts with py-u05
 - every **drill** `target` must run and exit 0;
 - every **challenge** is graded twice. Its `gabarito.solution` must pass the hidden `tests`,
   and its `starter` must fail them. A starter that passes means the tests prove nothing.
+- every **project step** is graded the same way with file sets: the `project.solution` files
+  must pass and the `project.starter` files must fail.
 
 It needs the language toolchain on your machine (for example `python3`, `go`, `cargo`). Run
 it before every release.

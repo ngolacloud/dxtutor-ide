@@ -70,3 +70,13 @@
   .lt-help{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--fg-muted);padding:2px 2px 20px}
   @media(max-width:760px){.lt{flex-direction:column}.lt-res{width:100%;border-left:0;border-top:1px solid var(--seam);max-height:55%}}
   .lt-file{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}.lt-bar .mini{flex:none}
+  /* frameworks & tools (secção à parte das linguagens no selector) */
+  .onb-sec{font-size:13.5px;font-weight:600;margin:22px 0 4px}.onb-sec-hint{margin:0 0 12px}
+  .lt-sub{margin:8px 0 0!important;font-size:12.5px}.lt-sub a{color:var(--accent-hover);word-break:break-all}
+  /* passo de projecto: os ficheiros do passo por cima do editor */
+  .lt-files{display:flex;gap:2px;overflow-x:auto;padding:4px 8px 0;border-bottom:1px solid var(--seam);flex:none;background:var(--bg-base)}
+  .lt-fbtn{display:flex;align-items:baseline;gap:6px;padding:5px 10px;border:1px solid transparent;border-bottom:0;border-radius:6px 6px 0 0;font-family:var(--font-mono);font-size:12px;color:var(--fg-dim);white-space:nowrap}
+  .lt-fbtn:hover{color:var(--fg);background:var(--bg-hover)}.lt-fbtn.on{color:var(--fg);background:var(--bg-editor);border-color:var(--seam)}
+  .lt-fbtn small{color:var(--fg-muted);font-size:10.5px}.lt-fbtn small:empty{display:none}
+  .lt-fbtn i{font-style:normal;font-family:var(--font-ui);font-size:9.5px;color:var(--fg-muted);border:1px solid var(--border);border-radius:4px;padding:0 4px}
+  .lt-gfile{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-dim);margin-top:8px}
