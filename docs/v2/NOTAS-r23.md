@@ -24,7 +24,8 @@ critérios de aceitação também como testes unitários; 1113 testes da UI, `ar
 caminho; o `tutor-eval` passou a depender do `regex`.
 
 **Limitações:**
-- Um commit feito à mão no teu terminal não passa pelo scan (não instalo hooks de git no teu repositório).
+- Um commit feito à mão no teu terminal não passa pelo scan (não instalo hooks de git no teu repositório). Desde o
+  endurecimento: passa, se instalares o hook de pre-commit pela paleta (ver a secção 3, mais abaixo).
 - O terminal mascara pedaço a pedaço: um segredo partido entre duas leituras pode passar.
 - O cabeçalho «Executing task» das tarefas mostra o comando tal como foi escrito, porque vem da própria UI.
 
@@ -229,7 +230,7 @@ porque o motivo diz o que o desbloqueia. Nada disto foi esquecido: cada item est
 | «Restart frame» com o lldb-dap | F2a | O lldb-dap não anuncia `supportsRestartFrame` | Fica disponível no modo rr (gdb) |
 | codelldb | F2a | O `dapc` não o consegue conduzir (Q15b) | Só se houver motivo para trocar de adaptador |
 | Um segredo partido entre duas leituras do terminal pode passar | F4a | O eco interactivo não pode esperar pela linha inteira | **Feito para as tarefas** (`feat/r23-hardening`): retêm o possível início de um segredo até à leitura seguinte. Numa shell interactiva continua a poder passar |
-| Um commit feito à mão no teu próprio terminal não passa pelo secret scan | F4a | Não se instalam hooks de git no repositório sem o dono pedir | Oferecer (com o teu OK) um hook `pre-commit` que chame o mesmo scan |
+| Um commit feito à mão no teu próprio terminal não passa pelo secret scan | F4a | Não se instalam hooks de git no repositório sem o dono pedir | **Feito** (`feat/r23-hardening`): «Protect: Install the Pre-commit Hook…» instala, com aprovação e auditado, um hook que corre `dxt secret-scan --staged` (as mesmas regras). Precisa do `dxt` no PATH (`cargo install --path crates/tutor-cli`); sem ele, bloqueia e diz porquê. Um hook alheio nunca é substituído; `--no-verify` salta-o |
 | O ficheiro do plano guarda os valores (segredos incluídos) | F4b | É assim que o tofu/terraform gravam o plano | Já mitigado: 0600, pasta de dados da app, apagado ao fim de um dia |
 | O raio de impacto pára num módulo | F4b | Seguir as variáveis dentro de um módulo exige avaliar as expressões | Avaliar `module_calls` com os valores do plano |
 | O undo do git não cobre ficheiros não seguidos | F3a | O `git stash create` só cobre ficheiros seguidos | Guardar também os não seguidos (com cuidado com o tamanho) |
@@ -261,8 +262,8 @@ porque o motivo diz o que o desbloqueia. Nada disto foi esquecido: cada item est
 
 ### Recomendação de ordem
 
-1. **Segurança, pequeno:** mover as chaves do `providers.json` para o keychain; o hook `pre-commit` opcional (com o teu
-   OK); a retenção do `Masker` nas tarefas do terminal.
+1. ~~**Segurança, pequeno:** mover as chaves do `providers.json` para o keychain; o hook `pre-commit` opcional (com o teu
+   OK); a retenção do `Masker` nas tarefas do terminal.~~ **Feito** em `feat/r23-hardening`.
 2. **Provar o que só foi testado com falsos:** instalar tflint/checkov/trivy/conftest/infracost/gitleaks, e fazer um
    deploy num cluster de staging (kind serve) — sem código novo, só verificação.
 3. **Uma fonte de métricas** (Prometheus): desbloqueia de uma vez o SLO, a capacidade e a confiança dos incidentes.
