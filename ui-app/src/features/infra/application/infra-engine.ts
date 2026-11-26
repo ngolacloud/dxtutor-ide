@@ -23,13 +23,13 @@ import {
 } from "../domain/secrets";
 import {
   envDeps as domEnvDeps, envStateOf as domEnvStateOf, envHealthOf as domEnvHealthOf,
-  driftReport as domDriftReport, commitsBetween as domCommitsBetween, envManifest,
+  driftReport as domDriftReport, commitsBetween as domCommitsBetween,
 } from "../domain/environments";
 import type { Catalog, Design, DesignNode, EnvDep, EnvState, K8sDoc, SecretSets } from "../domain/types";
 import type { InfraDeps, InfraEngine, DeployResult, EnvTarget } from "./ports";
 
 export function makeInfraEngine(deps: InfraDeps): InfraEngine {
-  const { state, catalog, workspace, scm, persist, terminal, nav, notifier, view, clock, envCluster, copy } = deps;
+  const { state, catalog, workspace, scm, persist, terminal, nav, notifier, view, envCluster, copy } = deps;
   const cat = (): Catalog => ({ tech: catalog.tech(), kind: catalog.kind(), isApp: catalog.isApp, slug: catalog.slug });
 
   /* ───── hidratação preguiçosa (guard-once) ───── */
@@ -172,21 +172,16 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
     view.rerender("envs"); view.redraw();
   }
   /** Aplica o manifesto de `env` (com os seus segredos) e relê o ambiente. */
-  function applyTo(env: string, ver: string, after: (ok: boolean) => void): void {
-    const c = envCluster();
-    if (!c) { notifier.toast("Promover para um cluster precisa da app desktop (o kubectl real)"); return; }
-    const sec = state.envx().sec![env as keyof SecretSets];
-    void c.apply(target(env), envManifest(workspace.files(), sec), ver).then(async (ok) => {
-      after(ok);
-      await refreshEnv(env);
-      const bad = (envState(env)?.deps ?? []).filter((d) => d.status === "crash");
-      notifier.toast(!ok ? copy("deployFailed", { env: ENVL[env] }) : bad.length ? copy("workloadsFailing", { env: ENVL[env], n: bad.length }) : copy("envAt", { env: ENVL[env], ver }));
-      if (ok && bad.length) notifier.note(copy("notStarting", { env: ENVL[env], name: bad[0].n, error: bad[0].err ?? "" }));
-    });
+  /* r23 F4c2: promover e voltar a fazer deploy em staging/production é o deploy guiado (features/deploy): as verificações,
+     a aprovação, o rollout e o registo no backend; os segredos vêm do Vault (nunca da UI). Aqui ficam só os avisos de
+     antes: o local primeiro, o cluster escolhido, a production bloqueada por um staging a falhar (com os logs). */
+  function wizard(env: string): void {
+    const w = deps.deployWizard();
+    if (!w) { notifier.toast("Promover para um cluster precisa da app desktop (o kubectl real)"); return; }
+    w.open(env);
   }
 
   function promote(to: string): void {
-    initSecrets();
     const from = to === "staging" ? "local" : "staging", src = envState(from);
     if (!src) { notifier.toast(`Deploy to ${ENVL[from]} first`); openEnvs(); return; }
     const t = target(to);
@@ -196,29 +191,9 @@ export function makeInfraEngine(deps: InfraDeps): InfraEngine {
       nav.dlg({ title: "Production is blocked", body: `<p>Staging has failing workloads. Fix staging before promoting:</p>${bad.map((d) => `<div class="fixl"><b>✖ ${esc(d.n)}</b><span class="notr">${esc(d.err)}</span></div>`).join("")}<p style="margin-top:10px">The logs show why: <b>Observe → ${esc(bad[0].n)} (staging)</b>.</p>`, ok: "Open the logs", onOk: () => { openObserve("staging", bad[0].n); } });
       return;
     }
-    const sc = secretCheck(to), cur = envState(to), cs = cur ? commitsBetween(cur.ver, src.ver) : commitsBetween(null, src.ver).slice(0, 6), block = sc.miss.length || (to === "production" && sc.empty.length);
-    const x = state.envx(), commits = scm.commits(), ver = src.ver || "";
-    nav.dlg({
-      title: `Promote ${ENVL[from]} → ${ENVL[to]}`, block: !!block,
-      body: `<div class="pr-row"><span>Version</span><code class="notr">${esc(ver || "?")}</code><span class="notr">${esc((commits[ver] || {}).m || "")}</span></div><div class="pr-row"><span>Target now runs</span><code class="notr">${cur ? esc(cur.ver || "?") : "nothing"}</code></div>
-     <div class="pr-row"><span>Cluster</span><code class="notr">${esc(t.ctx)} / ${esc(t.ns)}</code></div><h3>${cs.length} commit(s) in this promotion</h3>${cs.slice(0, 6).map((c) => `<div class="pr-c notr"><code>${c.h}</code> ${esc(c.m)}</div>`).join("")}
-     <h3>Secrets</h3>${sc.miss.length ? `<div class="fixl"><b>✖ ${sc.miss.length} key(s) missing in ${ENVL[to]}</b><span class="notr">${sc.miss.slice(0, 6).join(", ")}</span></div>` : ""}${sc.empty.length ? `<div class="fixl"><b>${to === "production" ? "✖" : "⚠"} ${sc.empty.length} empty value(s)</b><span class="notr">${sc.empty.slice(0, 6).join(", ")}</span></div>` : ""}${!sc.miss.length && !sc.empty.length ? '<p style="color:var(--green)">✓ Every key the design needs is set.</p>' : ""}
-     <p class="pr-note">This applies <code>deploy/k8s</code> from your working tree with ${ENVL[to]}'s secrets (<code>kubectl apply</code>); the images must be in a registry that cluster can pull from. Keys are checked here; values are not — a wrong value only shows up when the workload starts. Deploying is always your decision.</p>${to === "production" ? `<p>${copy("type")} <b>production</b> to confirm.</p>` : ""}`,
-      input: to === "production" ? "production" : null, rows: 1, ok: `Approve and promote to ${ENVL[to]}`, validate: (v) => to === "production" && v !== "production" ? "Type production to confirm." : "",
-      onOk: () => {
-        applyTo(to, ver, (ok) => {
-          if (!ok) return;
-          x.hist.unshift({ from, to, ver, at: clock.now() }); saveEnvx();
-          notifier.log("environments", `promoted ${ver} ${from} → ${to} (approved by you)`);
-        });
-      },
-    });
+    wizard(to);
   }
-  function redeployEnv(env: string): void {
-    initSecrets();
-    const s = envState(env); if (!s) return;
-    applyTo(env, s.ver || "", (ok) => { if (ok) notifier.log("environments", `${env} redeployed with updated secrets`); });
-  }
+  function redeployEnv(env: string): void { wizard(env); }
   function openEnvs(): void { initSecrets(); nav.openTab({ id: "envs", title: "Environments", kind: "envs" }); void refreshEnvs(); }
   function openObserve(env: string, n: string): void {
     nav.openTab({ id: "obs:" + env + ":" + n, title: n + " · " + ENVL[env], kind: "observe", env, name: n });

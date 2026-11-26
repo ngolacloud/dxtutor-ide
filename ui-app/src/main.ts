@@ -90,5 +90,6 @@ import "./features/panel/index";
 /* r23 F4a: a protecção de dados (redacção, secret scan antes do commit) */
 import "./features/protect/index";
 import "./features/vault/index"; /* r23 F4c: o separador Vault e o #st-vault (só desktop) */
+import "./features/deploy/index"; /* r23 F4c2: o deploy guiado (services.deploy; a infra abre-o no Promote) */
 import "./features/lsp/index";
 import "./features/comments/index";

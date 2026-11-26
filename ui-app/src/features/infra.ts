@@ -32,7 +32,7 @@ import { spark, emptyObs, obsTarget as domObsTarget, parseLogLines, pushSample }
 import { urlHosts } from "./infra/domain/secrets";
 import { makeInfraEngine } from "./infra/application/infra-engine";
 import { bindActions, type ActionTable } from "./infra/ui/actions";
-import type { ObsData, ObsSample, ObsTarget, SecretSets } from "./infra/domain/types";
+import type { ObsData, ObsSample, ObsTarget } from "./infra/domain/types";
 import type { ObserveTab, ObsSource } from "./infra/application/ports";
 import {
   envs, envx, k8s, setK8s, stack, setStack, devc, setDevc, pDc, setPDc,
@@ -89,6 +89,7 @@ const engine = makeInfraEngine({
   view: { redraw: () => infraDraw(), rerender, drawStack },
   clock: { now: () => Date.now() },
   envCluster: () => desktopPorts.infra?.cluster ?? null,
+  deployWizard: () => services.deploy ?? null,
 });
 const {
   hydrateEnvs, hydrateEnvx, saveEnv, saveEnvx, cli, needRt, rtConnect, k8sConnect,
@@ -154,9 +155,9 @@ export function renderEnvsView(_t: unknown, host: HTMLElement) { initSecrets(); 
   host.innerHTML = `<div class="page" style="max-width:1000px"><h1>Environments</h1><div class="sub">One design, three environments. Only the secrets and the cluster change. Promotion always moves a version that already ran in the previous environment, and it never happens without your approval.</div>
    <div class="pgrid" style="grid-template-columns:repeat(3,1fr)">${['local', 'staging', 'production'].map(card).join('')}</div>
    <h2>Secrets<button class="mini" style="float:right;text-transform:none;letter-spacing:0" data-action="toggle-sec">${SHOWSEC ? 'Hide values' : 'Show values'}</button></h2>
-   <div class="sub">Local values come from the compose wiring. Staging and production need their own values: fill them in here — they stay in memory for this session only (never saved to disk), and promoting writes them to that cluster as Secrets through <code>kubectl apply</code>'s standard input (never to the project or the command line).</div>
-   ${Object.keys(L).length ? `<div class="tbl-wrap"><table class="tbl sec-t"><tr><th>Workload · key</th><th>Local</th><th>Staging</th><th>Production</th></tr>${Object.entries(L).map(([a, kv]) => Object.keys(kv).map(k => `<tr><td class="notr"><b>${esc(a)}</b><br><code>${esc(k)}</code></td><td class="c notr">${mask(kv[k])}</td>${['staging', 'production'].map(e => { const v = (ENVX.sec![e as keyof SecretSets][a] || {})[k]; return `<td class="notr">${SHOWSEC ? `<input value="${esc(v || '')}" data-action="sec-edit" data-on="${e}|${esc(a)}|${esc(k)}">` : mask(v == null ? '' : v)}</td>`; }).join('')}</tr>`).join('')).join('')}</table></div>` : '<div class="sub">The design has no applications yet.</div>'}
-   <h2>Promotion history</h2><div class="tbl-wrap">${ENVX.hist.map(h => `<div class="rowline"><span>${ENVL[h.from]} → <b>${ENVL[h.to]}</b></span><code class="notr">${h.ver}</code><span class="sp"></span><span style="color:var(--fg-muted)">approved by you · ${rel(h.at)}</span></div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">No promotions yet.</div>'}</div></div>`; }
+   <div class="sub">Local values come from the compose wiring. Staging and production values never come through the IDE: they live in Vault and the cluster reads them (Vault Secrets Operator). A deploy checks that they are there — names and metadata only — in <b>Deploy</b>.</div>
+   ${Object.keys(L).length ? `<div class="tbl-wrap"><table class="tbl sec-t"><tr><th>Workload · key</th><th>Local</th><th>Staging</th><th>Production</th></tr>${Object.entries(L).map(([a, kv]) => Object.keys(kv).map(k => `<tr><td class="notr"><b>${esc(a)}</b><br><code>${esc(k)}</code></td><td class="c notr">${mask(kv[k])}</td>${['staging', 'production'].map(() => `<td class="sec-vault">Vault</td>`).join('')}</tr>`).join('')).join('')}</table></div>` : '<div class="sub">The design has no applications yet.</div>'}
+   <h2>Deploys</h2><div class="tbl-wrap">${(services.deploy?.recent() ?? []).slice(0, 10).map(r => `<div class="rowline"><span><b>${esc(ENVL[r.env] ?? r.env)}</b> ${r.ok ? '✓' : '✗'}</span><code class="notr">${esc(r.version.slice(0, 10))}</code><span class="sp"></span><span style="color:var(--fg-muted)" class="notr">${esc(r.actor)}${r.approver ? ' · approved by ' + esc(r.approver) : ''} · ${rel(r.at)}</span></div>`).join('') || '<div class="rowline" style="color:var(--fg-muted)">No deploys yet.</div>'}</div></div>`; }
 
 /* ── observabilidade (ADR-0006, R5c2): as métricas e os logs REAIS do workload ──
    Na app desktop, a porta `desktopPorts.infra.obs` lê `docker`/`podman stats` + `compose logs`
@@ -248,7 +249,6 @@ const ACTIONS: ActionTable = {
   "redeploy": { on: "click", run: e => redeployEnv(e.on) },
   "env-select": { on: "click", run: e => { ENVX.cur = e.on; saveEnvx(); services.tabs!.rerender("envs"); infraDraw(); } },
   "toggle-sec": { on: "click", run: () => { SHOWSEC = !SHOWSEC; services.tabs!.rerender("envs"); } },
-  "sec-edit": { on: "change", run: e => { const [env, a, k] = e.on.split("|"); const S = ENVX.sec![env as keyof SecretSets]; S[a] = S[a] || {}; S[a][k] = e.value; saveEnvx(); } },
   "obs-clear": { on: "click", run: e => { const o = OBS[e.on]; if (!o) return; o.clearedAt = o.logs.length ? o.logs[o.logs.length - 1].iso || new Date().toISOString() : new Date().toISOString(); o.logs = []; window.show(window.cur); } },
   "obs-follow": { on: "click", run: e => { const i = e.on.indexOf(":"), t = obsTargetOf(e.on.slice(0, i), e.on.slice(i + 1)), src = desktopPorts.infra?.obs; if (t && src) src.follow(t); } },
 };

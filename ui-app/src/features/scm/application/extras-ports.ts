@@ -62,6 +62,8 @@ export interface LifecyclePort {
   ghStatus(): Promise<GhStatusData>;
   runsFor(root: string, sha: string): Promise<GhRun[]>;
   prsFor(root: string, sha: string): Promise<import("../domain/launchpad").Pr[]>;
+  /** r23 F4c2: the guided deploy's records of these commits */
+  deploysFor?(root: string, shas: string[]): Promise<import("../domain/lifecycle").DeployRow[]>;
 }
 
 export interface GitRefsPort {

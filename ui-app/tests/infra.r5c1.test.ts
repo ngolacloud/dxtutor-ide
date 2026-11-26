@@ -3,8 +3,9 @@ import { bootApp } from "./harness";
 
 /* ADR-0006, R5c1: os ambientes vêm do cluster real. Cada ambiente é um contexto do kubeconfig +
  * um namespace; o estado de staging/production lê-se do cluster pela porta desktop
- * (`desktopPorts.infra.cluster`, falsa aqui) e promover aplica os manifestos com os segredos do
- * ambiente. No browser não há cluster: nada se inventa (nem estado, nem crash, nem promoção). */
+ * (`desktopPorts.infra.cluster`, falsa aqui). r23 F4c2 (decisão do dono, 2026-11-26): promover e voltar a fazer
+ * deploy abrem o deploy guiado (features/deploy, `services.deploy`) — os segredos de staging/production vêm do Vault,
+ * nunca da UI. No browser não há cluster: nada se inventa (nem estado, nem crash, nem promoção). */
 
 let w: any;
 let INF: any; // eslint-disable-line @typescript-eslint/no-explicit-any — o módulo da infra da cadeia do bootApp (U7p2)
@@ -61,15 +62,13 @@ describe("no browser (sem cluster)", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/Escolhe o contexto e o namespace de Staging/));
   });
 
-  it("aprovar a promoção diz que precisa da app desktop e não regista nada", () => {
+  it("promover diz que precisa da app desktop e não regista nada (sem diálogo de segredos)", () => {
     deployLocal();
     INF.ENVX.ctx.staging = "kind-staging";
     const toast = vi.spyOn(w, "toast");
     INF.promote("staging");
-    expect(document.querySelector("#dlg .dlg-b")!.textContent).toMatch(/kind-staging \/ dxtutor-staging/);
-    expect(document.querySelector("#dlg .dlg-b")!.textContent).not.toMatch(/simulated/);
-    click(okBtn()!);
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/precisa da app desktop/));
+    expect(document.getElementById("dlg")?.classList.contains("show") ?? false).toBe(false);
     expect(INF.ENVX.hist).toEqual([]);
     expect(INF.ENVX.st.staging).toBe(null);
   });
@@ -84,35 +83,28 @@ describe("no desktop (porta do cluster, falsa)", () => {
     desktopPorts.infra = { rtConnect: vi.fn(), k8sConnect: vi.fn(), dxDeploy: vi.fn(), observe: vi.fn(), cluster: { apply, read } };
   });
 
-  it("promover aplica os manifestos com os segredos DE STAGING, regista a promoção e relê o ambiente", async () => {
-    deployLocal();
-    INF.ENVX.ctx.staging = "kind-staging";
-    infra.initSecrets();
-    const api = Object.keys(INF.ENVX.sec.staging).find((a) => "DATABASE_URL" in INF.ENVX.sec.staging[a])!;
-    INF.ENVX.sec.staging[api].DATABASE_URL = "postgres://u:p@db.staging:5432/app";
-    INF.promote("staging");
-    click(okBtn()!);
-    await vi.waitFor(() => expect(read).toHaveBeenCalled());
-    const [target, manifest, ver] = apply.mock.calls[0];
-    expect(target).toEqual({ env: "staging", ctx: "kind-staging", ns: "dxtutor-staging" });
-    expect(ver).toBe(w.GIT.refs.develop);
-    expect(manifest).toContain('DATABASE_URL: "postgres://u:p@db.staging:5432/app"');
-    expect(manifest).not.toContain("postgres://app:app@"); // os valores locais não vão para staging
-    await flush();
-    expect(INF.ENVX.hist[0]).toMatchObject({ from: "local", to: "staging", ver: w.GIT.refs.develop });
-    expect(INF.envState("staging")).toEqual(staged);
-    expect(INF.envHealth("staging")).toBe("bad");
-  });
-
-  it("um deploy que falha não fica no histórico", async () => {
-    apply.mockResolvedValueOnce(false);
-    deployLocal();
-    INF.ENVX.ctx.staging = "kind-staging";
-    INF.promote("staging");
-    click(okBtn()!);
-    await vi.waitFor(() => expect(read).toHaveBeenCalled());
-    await flush();
-    expect(INF.ENVX.hist).toEqual([]);
+  it("r23 F4c2: promover e voltar a fazer deploy abrem o deploy guiado; nada é aplicado daqui, nenhum segredo passa pela UI", async () => {
+    const services = (await import("../src/app/services")).services as Record<string, unknown>;
+    const open = vi.fn();
+    services.deploy = { open, recent: () => [] };
+    try {
+      deployLocal();
+      INF.ENVX.ctx.staging = "kind-staging";
+      INF.promote("staging");
+      expect(open).toHaveBeenCalledWith("staging");
+      INF.redeployEnv("production");
+      expect(open).toHaveBeenLastCalledWith("production");
+      expect(apply).not.toHaveBeenCalled();
+      expect(document.getElementById("dlg")?.classList.contains("show") ?? false).toBe(false);
+      // the Environments view: staging and production secrets live in Vault — no field to type a value in
+      const host = document.createElement("div");
+      infra.renderEnvsView(null, host);
+      expect(host.querySelector('[data-action="sec-edit"]')).toBeNull();
+      expect(host.querySelectorAll(".sec-vault").length).toBeGreaterThan(0);
+      expect(host.textContent).toMatch(/live in Vault/);
+    } finally {
+      delete services.deploy;
+    }
   });
 
   it("refreshEnvs lê só os ambientes com contexto escolhido e com o cluster ligado", async () => {

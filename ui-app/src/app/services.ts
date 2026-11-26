@@ -22,6 +22,7 @@ import type * as Scm from "../features/scm";
 import type * as Diagnostics from "../features/diagnostics";
 import type * as Project from "../features/project/index";
 import type * as Protect from "../features/protect/index";
+import type { DeployRecord } from "../features/deploy/domain/types";
 
 export interface Services {
   /** o Learning Track (features/learn.ts), lido pelo pane do tutor, que avalia antes */
@@ -62,6 +63,8 @@ export interface Services {
   project: Pick<typeof Project, "openProject">;
   /** r23 F4a: um commit da UI que o secret scan bloqueou pergunta ao humano (features/protect, que avalia depois) */
   protect: Pick<typeof Protect.protect, "guard">;
+  /** r23 F4c2: o deploy guiado (features/deploy, que avalia depois da infra): o «Promote»/«Redeploy» abrem-no */
+  deploy: { open: (env: string) => void; recent: () => DeployRecord[] };
 }
 
 export const services: Partial<Services> = {};
