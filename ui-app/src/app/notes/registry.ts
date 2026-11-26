@@ -7,7 +7,8 @@
 
 import type { FeatureNotes } from "./types";
 import { CODEREVIEW_NOTES } from "../../features/codereview/notes";
+import { BOARD_NOTES } from "../../features/board/notes";
 
-export const NOTES: FeatureNotes[] = [CODEREVIEW_NOTES];
+export const NOTES: FeatureNotes[] = [CODEREVIEW_NOTES, BOARD_NOTES];
 
 export const PENDING: string[] = ["tabs:startDebug", "tabs:dxRun"];

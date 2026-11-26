@@ -496,37 +496,38 @@ fn syntax_outline(path: &str, code: &str) -> Vec<tutor_agent::issue_prompt::Symb
 // ── O quadro Tasks (ADR-0006, R3b) ─────────────────────────────────────────────────────────
 // O quadro da actividade Tasks continua a gravar o backlog inteiro (`tutor_board::Backlog`) por
 // pasta. Vive num ficheiro próprio: o `board.sqlite3` é do Project, cuja migração 1 renomeia as
-// tabelas do Board antigo para `legacy_*` (e o `sprints` do Project tem outro esquema). Os dois
-// quadros coexistem até a Q3 (docs/v2/QUESTIONS.md) decidir se o Tasks passa a ser o Project.
+// tabelas do Board antigo para `legacy_*` (e o `sprints` do Project tem outro esquema). A Q3
+// (docs/v2/QUESTIONS.md) decidiu juntá-los no Project; até à fase 5 os dois quadros coexistem.
 
 /// Caminho do SQLite do quadro Tasks, criando o directório se preciso.
 fn tasks_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(db_path(app)?.with_file_name("tasks.sqlite3"))
 }
 
-/// Chave de workspace: a raiz aberta, ou `"default"` sem pasta.
-fn tasks_key(root: Option<String>) -> String {
+/// Chave de workspace: a raiz aberta. Sem pasta não há backlog (backlog fase 1, Q3): cada issue
+/// pertence a um projecto — nada de um backlog `"default"` solto.
+fn tasks_key(root: Option<String>) -> Result<String, String> {
     match root {
-        Some(r) if !r.trim().is_empty() => r,
-        _ => "default".to_string(),
+        Some(r) if !r.trim().is_empty() => Ok(r),
+        _ => Err("no project folder is open: the backlog belongs to a project".to_string()),
     }
 }
 
 /// Lê o backlog persistido de `root` (ou `null` se ainda não existe).
 #[tauri::command]
 pub fn board_load(app: AppHandle, root: Option<String>) -> Result<Option<Backlog>, String> {
+    let key = tasks_key(root)?;
     let store = BoardStore::open(&tasks_db_path(&app)?).map_err(|e| e.to_string())?;
-    store
-        .load_board(&tasks_key(root))
-        .map_err(|e| e.to_string())
+    store.load_board(&key).map_err(|e| e.to_string())
 }
 
 /// Grava (substitui atomicamente) o backlog de `root`. Idempotente.
 #[tauri::command]
 pub fn board_save(app: AppHandle, root: Option<String>, backlog: Backlog) -> Result<(), String> {
+    let key = tasks_key(root)?;
     let mut store = BoardStore::open(&tasks_db_path(&app)?).map_err(|e| e.to_string())?;
     store
-        .save_board(&tasks_key(root), &backlog, now_ms())
+        .save_board(&key, &backlog, now_ms())
         .map_err(|e| e.to_string())
 }
 
@@ -646,6 +647,14 @@ mod tests {
             "x",
         ]);
         assert_eq!(head_commit_ms(d.path()), 1_763_000_000_000);
+    }
+
+    #[test]
+    fn the_tasks_board_has_no_backlog_without_a_project_folder() {
+        assert_eq!(tasks_key(Some("/w/app".into())).unwrap(), "/w/app");
+        for none in [None, Some(String::new()), Some("   ".into())] {
+            assert!(tasks_key(none).unwrap_err().contains("no project folder"));
+        }
     }
 
     #[test]

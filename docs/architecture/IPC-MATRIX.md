@@ -675,8 +675,9 @@ Project (docs/v2/UI-AUDIT.md, item 5; fase A5): Kanban, Scrum, XP ou Scrum + XP 
 `tutor_board::project` (`app_local_data_dir/board.sqlite3`, tabela `schema_version` e migrações só
 para a frente; a migração 1 importa o Board antigo que lá estivesse). O quadro da actividade Tasks
 (ADR-0006, R3b) continua com `board_load`/`board_save`, mas num ficheiro próprio
-(`app_local_data_dir/tasks.sqlite3`): o `sprints` do Project tem outro esquema. Os dois coexistem
-até a Q3 decidir se o Tasks passa a ser o Project. As regras de fluxo (um passo, WIP, DoR, DoD, bloqueio) são verificadas no store, numa
+(`app_local_data_dir/tasks.sqlite3`): o `sprints` do Project tem outro esquema. Sem pasta (`root`
+vazio ou ausente) recusam — já não há backlog `"default"`. A Q3 decidiu juntá-los no Project; os dois
+coexistem até à fase 5, que retira o `tasks.sqlite3` e estes dois comandos. As regras de fluxo (um passo, WIP, DoR, DoD, bloqueio) são verificadas no store, numa
 transacção por operação; uma regra só se ultrapassa com motivo, registado na actividade. Erros:
 `ProjectError {code, message, overridable}`. Quem age = `git config user.name` do projecto (ou o
 utilizador do SO).

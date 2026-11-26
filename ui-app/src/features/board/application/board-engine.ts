@@ -31,6 +31,15 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
 
   function mkIssue(o: Partial<Issue>): Issue { const it = makeIssue(BL().seq++, o); BL().issues.push(it); return it; }
 
+  /** Backlog fase 1 (Q3): nada de issues soltas — as entradas da interface (nova issue, gerar
+   *  backlog) só criam com uma pasta de projecto aberta; sem ela, dizem-no e não criam. O
+   *  `mkIssue` fica sem guarda: é a fábrica que o harness e o auto-teste usam directamente. */
+  function hasProject(): boolean {
+    if (store.project()) return true;
+    notifier.toast(copy("needsProject"));
+    return false;
+  }
+
   function openBoard(): void { nav.openTab({ id: "board", title: "Quadro", kind: "board" }); }
 
   function setStage(it: Issue, st: string): void {
@@ -119,6 +128,7 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
   }
 
   function newIssue(): void {
+    if (!hasProject()) return;
     nav.palette("", { ph: 'Título da issue (prefixo "fix:" para correcções)', verb: "Criar issue", text: (q) => { q = q.trim(); if (!q) return; const fx = /^fix:/i.test(q); mkIssue({ custom: true, type: fx ? "fix" : "feature", title: q.replace(/^fix:\s*/i, ""), agent: "lead", sprint: BL().view < 0 ? 0 : BL().view, stage: "todo", pts: 2 }); view.rerender("board"); } });
   }
 
@@ -148,6 +158,7 @@ export function makeBoardEngine(deps: BoardDeps): BoardEngine {
   /** «Gerar backlog»: as issues dos componentes planeados no Studio (ver genBacklogIssues). */
   function genBacklog(): void {
     if (runctl.active()) { notifier.toast("Há uma execução em curso"); return; }
+    if (!hasProject()) return;
     const plan = store.design().nodes.filter((n) => n.st === "plan" && !BL().issues.some((i) => i.node === n.id)), errs = generators.validateDesign().filter((f) => f[0] === "e");
     chat.focusAgent(true);
     if (errs.length) { chat.card("quadro", `<p>O desenho tem erros, por isso não gero issues a partir dele:</p>${errs.map((e) => `<div class="fixl"><b>✖</b><span>${esc(e[1])}</span></div>`).join("")}`); return; }
