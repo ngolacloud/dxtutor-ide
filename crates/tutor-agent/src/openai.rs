@@ -6,6 +6,10 @@
 //! volta como blocos `text`/`tool_use` — o loop, as ferramentas, as permissões e as sessões
 //! são os mesmos para todos os provedores. O que é só da Anthropic (thinking, cache,
 //! compactação, fallbacks, effort) não é enviado.
+//!
+//! O Ollama vai pela API nativa (`/api/chat`, [`ollama_body`]): o endpoint OpenAI-compatível
+//! ignora `options`, e sem `num_ctx` o Ollama usa o contexto pequeno por omissão e corta o
+//! início do prompt em silêncio (o system prompt e as ferramentas!) — respostas sem sentido.
 
 use std::collections::BTreeMap;
 use std::io::BufRead;
@@ -40,6 +44,9 @@ pub struct Config {
     pub max_tokens_cap: u32,
     pub read_timeout: Duration,
     pub max_retries: u32,
+    /// Ollama: a API nativa (`/api/chat`, NDJSON) em vez da OpenAI-compatível, para poder
+    /// mandar `options.num_ctx` ([`ollama_num_ctx`]).
+    pub native_ollama: bool,
 }
 
 impl Config {
@@ -53,6 +60,7 @@ impl Config {
             max_tokens_cap: 32_000,
             read_timeout: Duration::from_secs(120),
             max_retries: 4,
+            native_ollama: false,
         }
     }
     pub fn gemini(api_key: String) -> Self {
@@ -66,6 +74,7 @@ impl Config {
             max_tokens_cap: 32_000,
             read_timeout: Duration::from_secs(120),
             max_retries: 4,
+            native_ollama: false,
         }
     }
     pub fn ollama(host: &str) -> Self {
@@ -75,7 +84,7 @@ impl Config {
             host.trim().trim_end_matches('/')
         };
         Config {
-            endpoint: format!("{host}/v1/chat/completions"),
+            endpoint: format!("{host}/api/chat"),
             api_key: None,
             max_tokens_field: "max_tokens",
             mid_system_as_user: true,
@@ -83,6 +92,7 @@ impl Config {
             max_tokens_cap: 16_000,
             read_timeout: Duration::from_secs(300), // modelos locais podem demorar a carregar
             max_retries: 1,
+            native_ollama: true,
         }
     }
 }
@@ -189,6 +199,163 @@ pub fn body(req: &Request, cfg: &Config) -> Result<Value, ProviderError> {
         );
     }
     Ok(b)
+}
+
+/// O contexto mínimo pedido ao Ollama (o por omissão dele é pequeno de mais para o system
+/// prompt, as ferramentas e um ficheiro).
+pub const OLLAMA_MIN_CTX: u32 = 16_384;
+/// O tecto do contexto pedido ao Ollama (a memória do KV cache cresce com ele).
+pub const OLLAMA_MAX_CTX: u32 = 131_072;
+/// Espaço reservado para a resposta no cálculo do contexto.
+const OLLAMA_OUTPUT_RESERVE: u32 = 8_192;
+
+/// O `num_ctx` a pedir ao Ollama para um prompt de `prompt_bytes` bytes: uma estimativa
+/// prudente dos tokens (3 bytes por token) mais a reserva da resposta, arredondada à potência
+/// de 2 seguinte entre [`OLLAMA_MIN_CTX`] e [`OLLAMA_MAX_CTX`]. Por degraus e não exacto: mudar
+/// o `num_ctx` obriga o Ollama a recarregar o modelo, por isso uma sessão muda-o poucas vezes
+/// (16k → 32k → 64k → 128k) e nunca para baixo enquanto a conversa cresce.
+pub fn ollama_num_ctx(prompt_bytes: usize) -> u32 {
+    let needed = (prompt_bytes / 3) as u64 + OLLAMA_OUTPUT_RESERVE as u64;
+    let mut ctx = OLLAMA_MIN_CTX as u64;
+    while ctx < needed && ctx < OLLAMA_MAX_CTX as u64 {
+        ctx *= 2;
+    }
+    ctx as u32
+}
+
+/// O corpo do pedido à API nativa do Ollama (`/api/chat`). As mensagens são as mesmas do
+/// formato OpenAI com o que a API nativa pede diferente: os argumentos das tool calls como
+/// objecto (não texto) e o nome da ferramenta nas mensagens `tool`.
+pub fn ollama_body(req: &Request, cfg: &Config) -> Result<Value, ProviderError> {
+    if req.messages.is_empty() {
+        return Err(ProviderError::InvalidRequest("conversa vazia".into()));
+    }
+    let names: std::collections::HashMap<String, String> = req
+        .messages
+        .iter()
+        .flat_map(|m| m.tool_uses())
+        .map(|u| (u.id, u.name))
+        .collect();
+    let mut messages = wire_messages(req, cfg);
+    for m in messages.iter_mut() {
+        if m["content"].is_null() {
+            m["content"] = json!("");
+        }
+        if let Some(calls) = m.get_mut("tool_calls").and_then(Value::as_array_mut) {
+            for c in calls {
+                let args = c["function"]["arguments"].as_str().unwrap_or("{}");
+                c["function"]["arguments"] =
+                    serde_json::from_str::<Value>(args).unwrap_or_else(|_| json!({}));
+            }
+        }
+        if m["role"] == "tool" {
+            if let Some(n) = m["tool_call_id"].as_str().and_then(|id| names.get(id)) {
+                m["tool_name"] = json!(n);
+            }
+        }
+    }
+    let tools: Vec<Value> = req
+        .tools
+        .iter()
+        .map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.input_schema } }))
+        .collect();
+    let prompt_bytes = serde_json::to_string(&messages).map_or(0, |s| s.len())
+        + serde_json::to_string(&tools).map_or(0, |s| s.len());
+    let mut b = json!({
+        "model": req.model,
+        "messages": messages,
+        "stream": true,
+        "options": {
+            "num_ctx": ollama_num_ctx(prompt_bytes),
+            "num_predict": req.max_tokens.min(cfg.max_tokens_cap),
+        },
+    });
+    if !tools.is_empty() {
+        b["tools"] = Value::Array(tools);
+    }
+    Ok(b)
+}
+
+/// Traduz cada linha NDJSON da API nativa do Ollama para o chunk equivalente do formato OpenAI,
+/// para o mesmo [`Accumulator`] reconstruir a resposta (texto, tool calls, uso, fim).
+#[derive(Default)]
+struct OllamaLines {
+    calls: u64,
+}
+
+impl OllamaLines {
+    fn translate(&mut self, line: &str) -> Result<Option<String>, ProviderError> {
+        let line = line.trim();
+        if line.is_empty() {
+            return Ok(None);
+        }
+        let v: Value = serde_json::from_str(line)
+            .map_err(|e| ProviderError::Protocol(format!("linha do Ollama não é JSON ({e})")))?;
+        if let Some(e) = v.get("error").filter(|e| !e.is_null()) {
+            return Err(ProviderError::Stream {
+                kind: "error".into(),
+                message: e
+                    .as_str()
+                    .map(String::from)
+                    .unwrap_or_else(|| e.to_string()),
+            });
+        }
+        let msg = &v["message"];
+        let mut delta = json!({});
+        if let Some(t) = msg["content"].as_str().filter(|t| !t.is_empty()) {
+            delta["content"] = json!(t);
+        }
+        let calls: Vec<Value> = msg["tool_calls"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|c| {
+                let i = self.calls;
+                self.calls += 1;
+                let args = match &c["function"]["arguments"] {
+                    Value::String(s) => s.clone(),
+                    Value::Null => "{}".into(),
+                    other => other.to_string(),
+                };
+                json!({ "index": i, "id": c["id"].as_str().unwrap_or(""), "type": "function",
+                        "function": { "name": c["function"]["name"], "arguments": args } })
+            })
+            .collect();
+        if !calls.is_empty() {
+            delta["tool_calls"] = Value::Array(calls);
+        }
+        let done = v["done"].as_bool().unwrap_or(false);
+        let mut chunk = json!({
+            "id": "ollama",
+            "model": v["model"].as_str().unwrap_or(""),
+            "choices": [{ "index": 0, "delta": delta, "finish_reason": if done {
+                json!(if v["done_reason"] == "length" { "length" } else { "stop" })
+            } else { Value::Null } }],
+        });
+        if done {
+            chunk["usage"] = json!({
+                "prompt_tokens": v["prompt_eval_count"].as_u64().unwrap_or(0),
+                "completion_tokens": v["eval_count"].as_u64().unwrap_or(0),
+            });
+        }
+        Ok(Some(chunk.to_string()))
+    }
+}
+
+/// Corre um stream NDJSON completo da API nativa do Ollama (transporte e testes).
+pub fn parse_ollama_stream<I: IntoIterator<Item = std::io::Result<String>>>(
+    lines: I,
+    emit: &mut dyn FnMut(StreamEvent) -> bool,
+) -> Result<Response, ProviderError> {
+    let mut tr = OllamaLines::default();
+    let mut acc = Accumulator::default();
+    for line in lines {
+        let line = line.map_err(|e| ProviderError::Transport(format!("leitura do stream: {e}")))?;
+        if let Some(chunk) = tr.translate(&line)? {
+            acc.on_data(&chunk, emit)?;
+        }
+    }
+    acc.finish()
 }
 
 /// Reconstrói a resposta a partir dos chunks do stream.
@@ -475,6 +642,12 @@ impl Provider for OpenAiCompat {
         req: &Request,
         on_event: &mut dyn FnMut(StreamEvent) -> bool,
     ) -> Result<Response, ProviderError> {
+        if self.cfg.native_ollama {
+            let b = ollama_body(req, &self.cfg)?;
+            let resp = self.send(&b.to_string())?;
+            let reader = std::io::BufReader::new(resp.into_reader());
+            return parse_ollama_stream(reader.lines(), on_event);
+        }
         let b = body(req, &self.cfg)?;
         let resp = self.send(&b.to_string())?;
         let reader = std::io::BufReader::new(resp.into_reader());
@@ -586,13 +759,94 @@ mod tests {
         );
         assert_eq!(g["max_tokens"], 32000);
         let o = Config::ollama("http://box:11434/");
-        assert_eq!(o.endpoint, "http://box:11434/v1/chat/completions");
-        assert!(o.api_key.is_none());
+        assert_eq!(o.endpoint, "http://box:11434/api/chat");
+        assert!(o.api_key.is_none() && o.native_ollama);
         assert_eq!(
             Config::ollama("").endpoint,
-            "http://localhost:11434/v1/chat/completions"
+            "http://localhost:11434/api/chat"
         );
-        assert_eq!(body(&req(), &o).unwrap()["max_tokens"], 16000);
+    }
+
+    #[test]
+    fn ollama_goes_native_with_num_ctx_object_arguments_and_tool_names() {
+        let o = Config::ollama("http://box:11434/");
+        let b = ollama_body(&req(), &o).unwrap();
+        // o contexto vai sempre: o do Ollama por omissão corta o prompt em silêncio
+        assert_eq!(b["options"]["num_ctx"], OLLAMA_MIN_CTX);
+        assert_eq!(b["options"]["num_predict"], 16000);
+        assert_eq!(b["stream"], true);
+        let m = b["messages"].as_array().unwrap();
+        assert_eq!(
+            m[0],
+            json!({"role":"system","content":"núcleo\n\nprojecto"})
+        );
+        assert_eq!(
+            m[2]["tool_calls"][0]["function"]["arguments"],
+            json!({"path":"a.rs"}),
+            "na API nativa os argumentos são um objecto"
+        );
+        assert_eq!(m[3]["role"], "tool");
+        assert_eq!(m[3]["tool_name"], "read");
+        assert_eq!(m[3]["content"], "fn main() {}");
+        assert_eq!(
+            m[4],
+            json!({"role":"user","content":"<system-note>Modo: Auto.</system-note>"})
+        );
+        assert_eq!(b["tools"][0]["function"]["name"], "read");
+        for k in ["max_tokens", "stream_options"] {
+            assert!(b.get(k).is_none(), "{k} é do endpoint OpenAI");
+        }
+        // um prompt grande pede mais contexto, por degraus
+        let mut big = req();
+        big.messages[0] = Message::user_text("x".repeat(90_000));
+        assert_eq!(ollama_body(&big, &o).unwrap()["options"]["num_ctx"], 65_536);
+    }
+
+    #[test]
+    fn ollama_num_ctx_grows_in_powers_of_two_and_has_a_ceiling() {
+        assert_eq!(ollama_num_ctx(0), 16_384);
+        assert_eq!(ollama_num_ctx(24_000), 16_384); // ~8k tokens + 8k de resposta
+        assert_eq!(ollama_num_ctx(25_000), 32_768);
+        assert_eq!(ollama_num_ctx(100_000), 65_536);
+        assert_eq!(ollama_num_ctx(10_000_000), OLLAMA_MAX_CTX);
+    }
+
+    #[test]
+    fn ollama_ndjson_stream_becomes_blocks_and_usage() {
+        let lines = [
+            r#"{"model":"qwen3","message":{"role":"assistant","content":"Vou "},"done":false}"#,
+            r#"{"model":"qwen3","message":{"role":"assistant","content":"ler."},"done":false}"#,
+            r#"{"model":"qwen3","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"read","arguments":{"path":"a.rs"}}}]},"done":false}"#,
+            r#"{"model":"qwen3","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":5000,"eval_count":42}"#,
+        ];
+        let r =
+            parse_ollama_stream(lines.iter().map(|l| Ok(l.to_string())), &mut |_| true).unwrap();
+        assert_eq!(r.stop_reason, StopReason::ToolUse);
+        assert_eq!(r.content[0], json!({"type":"text","text":"Vou ler."}));
+        assert_eq!(r.content[1]["name"], "read");
+        assert_eq!(r.content[1]["input"], json!({"path":"a.rs"}));
+        assert!(r.content[1]["id"].as_str().unwrap().starts_with("call_dx"));
+        assert_eq!((r.usage.input_tokens, r.usage.output_tokens), (5000, 42));
+        // texto só, cortado por num_predict
+        let lines = [
+            r#"{"model":"qwen3","message":{"role":"assistant","content":"abc"},"done":false}"#,
+            r#"{"model":"qwen3","message":{"role":"assistant","content":""},"done":true,"done_reason":"length","prompt_eval_count":1,"eval_count":1}"#,
+        ];
+        let r =
+            parse_ollama_stream(lines.iter().map(|l| Ok(l.to_string())), &mut |_| true).unwrap();
+        assert_eq!(r.stop_reason, StopReason::MaxTokens);
+        // um erro a meio do stream
+        let e = parse_ollama_stream(
+            [Ok(
+                r#"{"error":"model runner has unexpectedly stopped"}"#.to_string()
+            )],
+            &mut |_| true,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(e, ProviderError::Stream { ref message, .. } if message.contains("unexpectedly")),
+            "{e:?}"
+        );
     }
 
     fn feed(chunks: &[&str]) -> (Result<Response, ProviderError>, Vec<StreamEvent>) {
