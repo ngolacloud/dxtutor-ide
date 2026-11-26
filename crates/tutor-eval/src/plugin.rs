@@ -1857,18 +1857,18 @@ mod tests {
         );
         for bad in ["../escape.py", "/abs.py", "a/../../b.py", "a\\b.py"] {
             let err = runner
-                .scaffold_tree(&files(&[(bad, "x")]), &files(&[]))
+                .scaffold_tree(&files(&[(bad, "x")]), &files(&[]), &files(&[]))
                 .unwrap_err();
             assert!(err.to_string().contains("unsafe"), "{bad}: {err}");
         }
         // A test file can never overwrite a learner file.
         let err = runner
-            .scaffold_tree(&files(&[("t.py", "learner")]), &files(&[("t.py", "test")]))
+            .scaffold_tree(&files(&[("t.py", "learner")]), &files(&[("t.py", "test")]), &files(&[]))
             .unwrap_err();
         assert!(format!("{err:#}").contains("already exists"), "{err:#}");
         // Nested folders are created inside the work dir.
         let dir = runner
-            .scaffold_tree(&files(&[("a/b/c.py", "x")]), &files(&[("test_a.py", "y")]))
+            .scaffold_tree(&files(&[("a/b/c.py", "x")]), &files(&[("test_a.py", "y")]), &files(&[]))
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a/b/c.py")).unwrap(),
@@ -2002,6 +2002,124 @@ mod tests {
         );
         let out = run_program("ts", "const n: number = 6 * 7;\nconsole.log(n);\n", &[]).unwrap();
         assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+    }
+
+    fn support(pairs: &[(&str, &str)]) -> std::sync::Arc<std::collections::BTreeMap<String, String>> {
+        std::sync::Arc::new(files(pairs))
+    }
+
+    /// A tiny "library" that only exists as a course support file, under node_modules.
+    const LIB: &[(&str, &str)] = &[
+        (
+            "node_modules/minilib/package.json",
+            "{\"name\":\"minilib\",\"type\":\"module\",\"exports\":\"./index.js\"}",
+        ),
+        (
+            "node_modules/minilib/index.js",
+            "export const triple = (n) => n * 3;\n",
+        ),
+    ];
+
+    /// Support files are written next to a single-file challenge, a drill and a project step,
+    /// so the learner's code can import a library the registry does not have (real Node;
+    /// skipped where it is missing).
+    #[test]
+    fn typescript_grades_with_course_support_files() {
+        let ts = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "typescript")
+            .unwrap();
+        if !ts.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let runner = PluginRunner::new(ts);
+        let mut phase = c_add_phase();
+        phase.language = "typescript".into();
+        phase.tests = "dxt.test(\"triples\", () => { dxt.equal(times3(2), 6); });\n".into();
+        let code = "import { triple } from \"minilib\";\nexport const times3 = (n: number) => triple(n);\n";
+        // Without the support files the import fails, so the step cannot pass.
+        assert!(!runner.check_correctness(&phase, code).unwrap().passed);
+        phase.support = support(LIB);
+        let ok = runner.check_correctness(&phase, code).unwrap();
+        assert!(ok.passed, "{}", ok.raw);
+
+        let out = run_program_with_support(
+            "typescript",
+            "import { triple } from \"minilib\";\nconsole.log(triple(14));\n",
+            &[],
+            &files(LIB),
+        )
+        .unwrap();
+        assert!(out.ok && out.stdout.trim() == "42", "{out:?}");
+
+        // A project step graded with `node --test` over the hidden *.test.ts files.
+        phase.project = Some(tutor_core::ProjectFiles {
+            main: "src/calc.ts".into(),
+            starter: files(&[(
+                "src/calc.ts",
+                "export function nine(): number {\n  throw new Error(\"todo\");\n}\n",
+            )]),
+            tests: files(&[(
+                "calc.test.ts",
+                "import { test } from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { nine } from \"./src/calc.ts\";\ntest(\"nine\", () => assert.equal(nine(), 9));\n",
+            )]),
+            solution: files(&[(
+                "src/calc.ts",
+                "import { triple } from \"minilib\";\nexport function nine(): number {\n  return triple(3);\n}\n",
+            )]),
+            ..Default::default()
+        });
+        let project = phase.project.clone().unwrap();
+        let good = crate::assess_project(&phase, &project.solution).unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        let bad = crate::assess_project(&phase, &files(&[])).unwrap();
+        assert!(!bad.correctness.passed, "{}", bad.correctness.raw);
+        assert!(bad.correctness.raw.contains("todo"), "{}", bad.correctness.raw);
+
+        // A project with no hidden test file fails instead of passing vacuously.
+        let mut empty = phase.clone();
+        empty.project.as_mut().unwrap().tests = files(&[("notes.txt", "x")]);
+        let none = crate::assess_project(&empty, &project.solution).unwrap();
+        assert!(!none.correctness.passed && none.correctness.raw.contains("no hidden"));
+
+        assert!(toolchain_version("typescript").is_some_and(|v| v.starts_with('v')));
+    }
+
+    /// A support file never replaces a file of the step (nor the reverse), and the native runners
+    /// refuse a step with support files instead of grading it without them.
+    #[test]
+    fn support_files_never_overwrite_and_native_runners_refuse_them() {
+        let ts = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "typescript")
+            .unwrap();
+        let runner = PluginRunner::new(ts.clone());
+        let clash = files(&[("student.ts", "// course copy")]);
+        let err = runner
+            .scaffold("// learner", None, &clash)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("course support file `student.ts`"), "{err:#}");
+        let unsafe_path = files(&[("../escape.js", "x")]);
+        assert!(runner.scaffold("", None, &unsafe_path).is_err());
+        let tree = files(&[("node_modules/minilib/index.js", "learner")]);
+        let err = runner
+            .scaffold_tree(&tree, &files(&[]), &files(LIB))
+            .map(|_| ())
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("already exists"), "{err:#}");
+
+        let mut phase = c_add_phase();
+        phase.language = "rust".into();
+        phase.support = support(LIB);
+        let refused = crate::assess(&phase, "pub fn add(a: i32, b: i32) -> i32 { a + b }")
+            .map(|_| ())
+            .unwrap_err();
+        assert!(refused.to_string().contains("support files are not supported"), "{refused}");
+        let drill = run_program_with_support("go", "package main\nfunc main() {}\n", &[], &files(LIB))
+            .map(|_| ())
+            .unwrap_err();
+        assert!(drill.to_string().contains("support files are not supported"), "{drill}");
     }
 
     /// Real end-to-end with python3's SQLite (skipped where python3 is missing): a script runs and
