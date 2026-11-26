@@ -62,8 +62,9 @@ export function makeHunkOverlayView(review: HunkReview, translate: (el: HTMLElem
     review.stopFollowing();
   };
 
-  function decorate(_path: string, host: { wrap: HTMLElement; hl: HTMLElement; gut: HTMLElement }, view: VView): void {
+  function decorate(_path: string, host: { wrap: HTMLElement; hl: HTMLElement; gut: HTMLElement }, view: VView | null): void {
     host.wrap.querySelectorAll(".hk-bar").forEach((n) => n.remove());
+    if (!view) { backButton(); return; }
     const s = review.state();
     const active = activeHunk(s);
     for (const b of view.blocks) {
@@ -79,6 +80,14 @@ export function makeHunkOverlayView(review: HunkReview, translate: (el: HTMLElem
       translate(el); // the i18n layer skips the editor (it holds code)
     }
     const body = host.wrap.closest<HTMLElement>("#ebody");
+    /* a barra vai depois da linha mais larga do bloco; num editor estreito (o painel Explain / Code review
+       aberto ao lado) isso caía fora da vista: prende-se à margem direita do que se vê */
+    if (body) {
+      const right = body.scrollLeft + body.clientWidth - host.wrap.offsetLeft - 10;
+      host.wrap.querySelectorAll<HTMLElement>(".hk-bar").forEach((el) => {
+        if (el.offsetLeft + el.offsetWidth > right) el.style.left = `${Math.max(0, right - el.offsetWidth)}px`;
+      });
+    }
     if (body && body !== boundBody) {
       boundBody?.removeEventListener("scroll", onScroll);
       body.addEventListener("scroll", onScroll, { passive: true });

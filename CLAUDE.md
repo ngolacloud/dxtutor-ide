@@ -86,6 +86,12 @@ features/codev.ts  RESÍDUO strangler (fora da subárvore): publica os shims win
   subárvore (`domain/`/`application/`/`ui/`/`index.ts`) lê o mundo por imports do
   bridge ou por deps injectadas. Verificado por **A8** (`window` como código — pós
   strip de comentários — em qualquer outro ficheiro = falha).
+- **Propostas de ficheiro inteiro revêem-se no editor** (2026-11-26): quem só tem o ficheiro novo inteiro (o
+  `write_file` do chat antigo em Manual/Assistido, o painel Explain / Code review) chama `proposeInEditor`
+  (`codev/index.ts`, em `services.proposals`). `domain/proposal.ts` tira do diff os blocos (só as linhas que mudam)
+  e `application/local-proposals.ts` dá-os à MESMA revisão de hunks do agente v2 como sessão `local:` — o `review`
+  da composição encaminha essas sessões para lá em vez do backend; no fim só os aceites são escritos. O
+  `hunk_applied` aceita `before` (o texto de antes, para o Ctrl+Z, quando quem escreve já o tem).
 - O resíduo `features/codev.ts` é a excepção explícita: é o monólito a ser
   estrangulado, publica os shims e **não** é governado por A7/A8. Desaparece quando
   os consumidores (app.ts/board.ts) migrarem (passo 6 do ADR: trocar `window.FS`
@@ -605,6 +611,12 @@ features/testing/
                    window: DXR.root/projectCmd, openPath, runTask, PANE; publica renderTestPane).
   index.ts         raiz de composição; dona do `#st-tests` (o panel/diagnostics já não o limpam).
 ```
+
+**Separador «Tests» do painel (2026-11-26):** `domain/live.ts` lê a saída da suite linha a linha (cargo, go -v,
+pytest -v, unittest -v, vitest, jest), `application/live-runner.ts` corre-a pelo `DXR.streamCmd` (o `run_shell`
+→ `proc-line`, sem Rust novo) e `ui/live-view.ts` desenha-a; o separador nasce na primeira corrida (só desktop,
+fora dos goldens). `runLive` está em `services.tests`: o «Accept & test» do Code review e o `run_tests` do Co-Dev
+(desktop) correm lá. O parser das falhas (`domain/test-report.ts`) é desta feature.
 
 A descoberta do backend cobre Rust/Go/Python; para o resto (p.ex. `npm test`) o pane mostra o
 comando de testes detectado e corre-o num terminal de tarefa. Sem pasta (browser), o pane diz

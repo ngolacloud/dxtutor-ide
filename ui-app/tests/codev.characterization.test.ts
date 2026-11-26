@@ -34,6 +34,16 @@ async function resolved<T>(p: Promise<T>): Promise<T> {
   return p;
 }
 
+/** Decide, no editor, todos os blocos da proposta que está em revisão (as propostas locais do Co-Dev). */
+async function decideInEditor(accept: boolean): Promise<void> {
+  const CI = await import("../src/features/codev/index");
+  for (let i = 0; i < 50 && !CI.hunkReview.state().reviews.length; i++) await vi.advanceTimersByTimeAsync(10);
+  const r = CI.hunkReview.state().reviews[0];
+  expect(r, "uma proposta em revisão no editor").toBeTruthy();
+  CI.hunkReview.decideAll(r.call, accept);
+  await vi.advanceTimersByTimeAsync(10);
+}
+
 function host(): HTMLElement {
   return document.createElement("div");
 }
@@ -94,12 +104,15 @@ describe("1. política de aprovação por modo (doTool)", () => {
       expect(gate(h)).toBeNull();
       expect(await resolved(p)).toBe(true);
     }
+    /* 2026-11-26 (decisão do dono): em manual a edição já não pede no chat — escreve-se no editor, só as
+       linhas que mudam, e o humano aceita ou rejeita cada bloco (as hunks do agente v2) */
     AS.mode = "manual";
     const h = host();
     const p = CMD.doTool({ t: "edit", p: LX, content: w.FS[LX].content + "\n// y" }, h);
-    expect(gate(h)).not.toBeNull();
-    clickByLabel(h, "Aprovar edição");
+    expect(gate(h)).toBeNull();
+    await decideInEditor(true);
     expect(await resolved(p)).toBe(true);
+    expect(w.FS[LX].content).toContain("// y");
   });
 });
 
@@ -123,7 +136,7 @@ describe("3. skip vs reject: skip devolve null (não false), rejeição devolve 
     const h = host();
     const before = w.FS[LX].content;
     const p = CMD.doTool({ t: "edit", p: LX, content: before + "\n// rejected" }, h);
-    clickByLabel(h, "Rejeitar");
+    await decideInEditor(false);
     expect(await resolved(p)).toBe(false);
     expect(w.FS[LX].content).toBe(before);
   });

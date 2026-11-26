@@ -6,7 +6,50 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 8 acções
+- [Co-Dev: o assistente escreve no editor](#co-dev-o-assistente-escreve-no-editor) — 1 acção
+- [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
+- [Testes](#testes) — 1 acção
+- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
+
+---
+
+## Co-Dev: o assistente escreve no editor
+
+Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».
+
+<sub>Código: `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
+
+| Acção | Onde |
+|---|---|
+| [Rever as mudanças no editor, bloco a bloco](#rever-as-mudancas-no-editor-bloco-a-bloco) | editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo |
+
+### Rever as mudanças no editor, bloco a bloco
+
+**Onde:** editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo
+
+Cada mudança que o Co-Dev propõe aparece no ficheiro como um bloco: as linhas que saem riscadas e as que entram escritas a seguir, a um ritmo legível. Aceitas ou rejeitas cada bloco; o que aceitas fica escrito, o resto não.
+
+**Como usar**
+
+1. Pede uma mudança ao Co-Dev (ou usa «Rever no editor» no painel Explain / Code review).
+2. O ficheiro abre e o Co-Dev escreve cada bloco no sítio; podes acelerar, pausar ou continuar a editar o resto do ficheiro.
+3. Em cada bloco: ✓ aceita, ✗ rejeita, «Explicar» pergunta porquê. Ctrl+Z desfaz o que aceitaste.
+
+**Fluxo (por dentro)**
+
+1. O agente v2 (desktop) manda as edições já por linhas (`edit`, `edit_lines`) e o backend emite as hunks (`hunk_start`/`chunk`/`end`/`review`).
+2. Quem só tem o ficheiro inteiro — o chat ao vivo antigo em Manual/Assistido, o desktop sem ferramentas, o painel Explain / Code review — passa pelas propostas locais: o diff dá os blocos (só as linhas que mudam) e a mesma revisão de hunks mostra-os; no fim só os aceites são escritos e gravados.
+3. Uma decisão sobre um bloco cujo sítio já mudou não se aplica (fica «desactualizado»).
+
+**Dicas**
+
+- Rejeitar um bloco não perde os outros: aceitas o que serve e pedes de novo o resto.
+
+**Limites**
+
+- Em modo Automático o agente v2 aplica sem esperar (e valida com os testes no fim do turno).
+
+<sub>Cobre: `codev:hunk-accept`, `codev:hunk-reject`, `codev:local-proposal`</sub>
 
 ---
 
@@ -22,8 +65,9 @@ Ajuda a perceber e a melhorar o ficheiro aberto sem sair do editor. O Explain e 
 | [Code review](#code-review) | barra do editor «Code review» · Ctrl+K R · paleta: «Co-Dev: Code Review» |
 | [Revisão com IA](#revisao-com-ia) | painel Code review › separador «Revisão com IA» · tab de Code review › «Rever com IA» |
 | [Corrigir com IA (um achado)](#corrigir-com-ia-um-achado) | cartão de um achado › «Corrigir com IA» |
-| [Código melhorado: Código / Diferenças, Copiar, Aplicar, Reverter](#codigo-melhorado-codigo-diferencas-copiar-aplicar-reverter) | cartão «Código melhorado» no painel |
-| [Aplicar e testar](#aplicar-e-testar) | cartão «Código melhorado» › «Aplicar e testar» |
+| [Aplicar uma sugestão do Explain](#aplicar-uma-sugestao-do-explain) | documento do Explain › bloco de código › «Aplicar» |
+| [Código melhorado: Rever no editor, Diferenças / Código, Copiar, Aceitar, Recusar, Reverter](#codigo-melhorado-rever-no-editor-diferencas-codigo-copiar-aceitar-recusar-reverter) | cartão «Código melhorado» no painel |
+| [Aceitar e testar: onde quebrou e como corrigir](#aceitar-e-testar-onde-quebrou-e-como-corrigir) | cartão «Código melhorado» › «Aceitar e testar» · «Correr os testes outra vez» |
 | [Barra do painel de documento](#barra-do-painel-de-documento) | cabeçalho do painel |
 | [Under the hood](#under-the-hood) | barra do editor «Under the hood» · Ctrl+K U · paleta: «Co-Dev: Under the Hood» |
 
@@ -39,6 +83,7 @@ Explica o ficheiro aberto — ou só a selecção — num documento markdown no 
 2. Carrega em «Explain» na barra por cima do código (ou Ctrl+K E).
 3. Lê o documento a chegar no painel; clica numa referência como `L12` para saltar para essa linha.
 4. Usa «Pré-visualização / Markdown», copiar, gerar de novo ou «Continuar no chat» na barra do painel.
+5. Gostaste de uma sugestão? Carrega em «Aplicar» no bloco de código dela (ver «Aplicar uma sugestão do Explain»).
 
 **Fluxo (por dentro)**
 
@@ -131,22 +176,55 @@ Pede ao modelo a correcção de UM achado: a causa, a correcção e o ficheiro i
 
 <sub>Cobre: `cr:fix-ai`</sub>
 
-### Código melhorado: Código / Diferenças, Copiar, Aplicar, Reverter
+### Aplicar uma sugestão do Explain
 
-**Onde:** cartão «Código melhorado» no painel
+**Onde:** documento do Explain › bloco de código › «Aplicar»
 
-Mostra o ficheiro proposto com realce ou como diferenças (+/−) contra o actual, e aplica-o ao ficheiro com possibilidade de voltar atrás.
+Integra uma sugestão do Explain no ficheiro e mostra as diferenças para aceitares ou recusares — nada muda no ficheiro sem o teu «Aceitar».
 
 **Como usar**
 
-1. Escolhe «Código» ou «Diferenças» no cartão.
-2. «Aplicar» escreve o código no ficheiro (o autosave do desktop leva-o ao disco).
-3. «Reverter» repõe o ficheiro como estava antes de aplicar.
+1. No documento do Explain, passa o rato por um bloco de código sugerido e carrega em «Aplicar».
+2. Lê o «O que muda» e as diferenças (+/−) no cartão «Código melhorado».
+3. «Aceitar e testar» aplica e corre os testes; «Recusar» deita a proposta fora.
+4. «← Voltar à explicação» regressa ao documento do Explain.
+
+**Fluxo (por dentro)**
+
+1. O bloco (o trecho sugerido), o texto da explicação e o ficheiro numerado vão ao modelo com o pedido de integrar só aquela mudança (`applySuggestionPrompt`).
+2. O modelo devolve o ficheiro inteiro num bloco ```<lang> improved; o painel compara-o com o ficheiro actual e abre nas diferenças.
+3. A proposta guarda o documento de onde veio, para o «Voltar».
+
+**Dicas**
+
+- Os blocos de comandos e de saída (bash, texto, JSON…) não têm «Aplicar»: copia-os.
+- Se a proposta mexer em mais do que devia, recusa e gera de novo — ou pede ao Co-Dev no chat.
+
+**Limites**
+
+- Precisa de um modelo ligado (o Explain sem modelo é só um resumo local).
+
+<sub>Cobre: `cr:apply-block`, `cr:back`</sub>
+
+### Código melhorado: Rever no editor, Diferenças / Código, Copiar, Aceitar, Recusar, Reverter
+
+**Onde:** cartão «Código melhorado» no painel
+
+Mostra o ficheiro proposto como diferenças (+/−) contra o actual ou com realce. «Rever no editor» escreve as mudanças no próprio ficheiro, só nas linhas que mudam, e aceitas ou rejeitas cada bloco lá; ou aceitas tudo de uma vez, ou recusas.
+
+**Como usar**
+
+1. «Rever no editor» (o botão principal): o ficheiro abre, cada bloco é escrito no sítio dele com as linhas antigas riscadas, e decides cada um com ✓ / ✗ no próprio bloco; quando acabas, os testes correm no separador «Tests».
+2. O cartão abre nas «Diferenças»; «Código» mostra o ficheiro proposto inteiro.
+3. «Aceitar e testar» escreve o código no ficheiro e corre logo os testes (no browser: «Aceitar», sem testes).
+4. «Recusar» deita a proposta fora; o ficheiro não muda.
+5. Depois de aceitar, «Reverter» repõe o ficheiro como estava.
 
 **Fluxo (por dentro)**
 
 1. As diferenças são linha a linha (`features/diff/domain/diff.ts`) contra o conteúdo actual do editor.
-2. Aplicar guarda primeiro o conteúdo anterior; Reverter escreve-o de volta.
+2. «Rever no editor» entrega a proposta às propostas locais do Co-Dev (`codev/application/local-proposals.ts`): os blocos saem do diff (`codev/domain/proposal.ts`) e passam pela mesma revisão de hunks do agente v2; no fim só os aceites são escritos.
+3. Aceitar guarda primeiro o conteúdo anterior; Reverter (ou Recusar depois de aceite) escreve-o de volta.
 
 **Dicas**
 
@@ -154,34 +232,41 @@ Mostra o ficheiro proposto com realce ou como diferenças (+/−) contra o actua
 
 **Limites**
 
-- Se o ficheiro mudar entretanto, «Reverter» repõe a versão de antes de aplicar (perde as mudanças feitas depois).
+- Se o ficheiro mudar entretanto, «Reverter» repõe a versão de antes de aceitar (perde as mudanças feitas depois).
 
-<sub>Cobre: `cr:code-view`, `cr:copy-improved`, `cr:apply`, `cr:revert`</sub>
+<sub>Cobre: `cr:code-view`, `cr:copy-improved`, `cr:accept`, `cr:deny`, `cr:revert`, `cr:review-editor`</sub>
 
-### Aplicar e testar
+### Aceitar e testar: onde quebrou e como corrigir
 
-**Onde:** cartão «Código melhorado» › «Aplicar e testar»
+**Onde:** cartão «Código melhorado» › «Aceitar e testar» · «Correr os testes outra vez»
 
-Aplica o código melhorado e corre os testes do projecto com ele; mostra se passaram e a saída.
+Aplica o código proposto e corre os testes do projecto com ele. Se falharem, diz ONDE quebrou (ficheiro:linha clicável), que testes falharam, uma dica pelo tipo de falha, e deixa pedir a correcção.
 
 **Como usar**
 
-1. Carrega em «Aplicar e testar».
-2. Se passarem, fica aplicado. Se falharem, lê a saída e escolhe «Corrigir os testes que falham» ou «Reverter».
-3. Depois de mudar algo, «Correr os testes outra vez».
+1. Carrega em «Aceitar e testar».
+2. Verde: fica aplicado e marcado «✓ Feito». Vermelho: lê a dica 💡 e clica no primeiro sítio de «Onde quebrou» para ir à linha.
+3. Escolhe «✦ Corrigir os testes que falham» (o modelo propõe nova versão, que voltas a aceitar e testar), «Perguntar ao Co-Dev» (leva o ficheiro e a falha para o chat) ou «Reverter».
 
 **Fluxo (por dentro)**
 
-1. Aplica (se ainda não), grava o editor no disco e espera pela fila de escrita.
+1. Aplica, grava o editor no disco e espera pela fila de escrita.
 2. Corre a suite pelo comando detectado no projecto (`run_tests`, o mesmo que o agente usa para verificar; dentro do contentor quando há sessão).
-3. A falhar, «Corrigir os testes que falham» manda ao modelo a saída e o ficheiro actual e pede o ficheiro corrigido; continua a ser possível reverter até ao original.
+3. A saída é lida por `domain/test-report.ts` (cargo/rustc, tsc, vitest/jest/node, pytest/unittest, go test): testes que falharam, sítios `ficheiro:linha` e o tipo — não compila, asserção, panic/excepção ou não percebido — que escolhe a dica.
+4. «Corrigir os testes que falham» manda ao modelo a saída, os sítios e o ficheiro actual; continua a ser possível reverter até ao original.
+
+**Dicas**
+
+- Verde = «✓ Feito»: a proposta fica marcada como feita, os botões de aplicar desaparecem e a sugestão de onde veio mostra «✓ Feito» — não se aplica outra vez (só «Reverter» a desfaz).
+- O primeiro sítio da lista costuma ser a causa; os seguintes, consequências.
+- Numa asserção, decide o que está certo — o teste ou a mudança — antes de pedir a correcção.
 
 **Limites**
 
-- Só na app desktop com uma pasta aberta; no browser o painel di-lo e não mexe no ficheiro.
+- Só na app desktop com uma pasta aberta; no browser o «Aceitar» aplica e diz que os testes correm na app.
 - Sem comando de testes detectado, o erro do backend aparece no cartão (define "test" em .dxtutor/commands.json).
 
-<sub>Cobre: `cr:test`, `cr:fix-tests`</sub>
+<sub>Cobre: `cr:test`, `cr:fix-tests`, `cr:fix-in-chat`</sub>
 
 ### Barra do painel de documento
 
@@ -192,7 +277,7 @@ Controla o documento: ver formatado ou o markdown, copiar, parar, gerar de novo,
 **Como usar**
 
 1. «Pré-visualização / Markdown» troca entre o documento formatado e o texto.
-2. ⧉ copia o documento; «Copiar» num bloco de código copia só esse bloco.
+2. ⧉ copia o documento; «Copiar» num bloco de código copia só esse bloco (funciona também no WebKitGTK da app desktop).
 3. ■ pára a resposta a chegar; ↻ volta a pedir.
 4. ✦ «Continuar no chat» põe o ficheiro e o documento como contexto no compositor do Co-Dev (não envia sozinho).
 5. No Code review, «Abrir em separador» mostra a mesma revisão em ecrã inteiro; ✕ fecha o painel.
@@ -219,6 +304,95 @@ Abre uma tab que mostra o que acontece ao ficheiro por baixo: as fases do compil
 2. Não dá nada por verificado: para confirmar, compila ou corre `EXPLAIN QUERY PLAN` na base de dados.
 
 <sub>Cobre: `tabs:hoodCmd`, `cmd:Co-Dev: Under the Hood`</sub>
+
+---
+
+## Testes
+
+Os testes do projecto correm à vista, no separador «Tests» do painel inferior (ao lado do Terminal): cada teste a chegar com PASS/FAIL/SKIP, o progresso, o que está a acontecer agora, e cada falha com o sítio no código a um clique.
+
+<sub>Código: `ui-app/src/features/testing/domain/live.ts`, `ui-app/src/features/testing/application/live-runner.ts`, `ui-app/src/features/testing/ui/live-view.ts` · revisto em 2026-11-26</sub>
+
+| Acção | Onde |
+|---|---|
+| [Separador «Tests»: a corrida ao vivo](#separador-tests-a-corrida-ao-vivo) | painel inferior › «Tests» · paleta: «Tests: Run All (live)» · «Aceitar e testar» do painel Explain / Code review · o run_tests do Co-Dev |
+
+### Separador «Tests»: a corrida ao vivo
+
+**Onde:** painel inferior › «Tests» · paleta: «Tests: Run All (live)» · «Aceitar e testar» do painel Explain / Code review · o run_tests do Co-Dev
+
+Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, contadores ✓ ✗ ○, o tempo, a linha do que está a correr, e a lista de testes a chegar com a duração. As falhas vêm abertas, com o sítio `ficheiro:linha` e o detalhe.
+
+**Como usar**
+
+1. Corre os testes pela paleta («Tests: Run All (live)») ou pelo «Aceitar e testar»; o separador abre sozinho.
+2. Vê os testes a chegar; «Falharam» filtra só as falhas e «Saída» mostra a saída da ferramenta tal e qual.
+3. Clica num teste (ou no sítio da falha) para abrir o código no editor nessa linha.
+4. «Parar» mata a corrida (os processos filhos também); «Correr de novo» repete o mesmo pedido.
+
+**Fluxo (por dentro)**
+
+1. Grava o editor no disco e corre o comando de testes detectado no projecto, na pasta aberta, com a saída a chegar linha a linha (`run_shell` → `proc-line`).
+2. O go corre com `-v` e o pytest com `-v` (para dizerem cada teste); o cargo, o unittest, o vitest e o jest correm tal e qual.
+3. Cada linha alimenta `domain/live.ts`: a fase (a compilar, a correr), quantos testes há («running N tests», «collected N items», a percentagem do pytest), cada teste e o bloco de detalhe de cada falha, com o sítio lido por `domain/test-report.ts`.
+4. Quem pediu recebe o resultado no fim (passou/falhou e a saída), como com o `run_tests` do backend; o Co-Dev recebe o mesmo que antes.
+5. Abrir um teste: o sítio da falha, senão onde ele está definido (`fn`, `def`, `func`, `it(`/`test(` com o nome).
+
+**Dicas**
+
+- Uma corrida de cada vez: pedir outra pára a anterior.
+- Sem nenhum teste na lista e a vermelho, quase sempre não compilou: o primeiro erro aparece em baixo.
+
+**Limites**
+
+- Só na app desktop com uma pasta aberta.
+- Corre no anfitrião (não dentro da sessão de contentor, como o run_tests do backend faz quando há uma).
+- O agente v2 do Co-Dev corre os testes no backend; esses ainda não aparecem aqui ao vivo.
+
+<sub>Cobre: `live:open`, `live:stop`, `live:rerun`, `live:filter`, `live:log`</sub>
+
+---
+
+## Servidor de linguagem (LSP)
+
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo.
+
+<sub>Código: `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `src-tauri/src/lsp.rs` · revisto em 2026-11-26</sub>
+
+| Acção | Onde |
+|---|---|
+| [Servidor de linguagem em falta: Copiar e Instalar](#servidor-de-linguagem-em-falta-copiar-e-instalar) | faixa amarela no topo do ficheiro «No … language server» |
+
+### Servidor de linguagem em falta: Copiar e Instalar
+
+**Onde:** faixa amarela no topo do ficheiro «No … language server»
+
+Mostra o servidor que falta e o comando para o instalar. «Copy» copia o comando; «Install» corre-o num terminal com a tua shell de login (o node do nvm, o go, o dotnet, o rustup), depois de aprovares, e liga o servidor quando acaba.
+
+**Como usar**
+
+1. Abre um ficheiro da linguagem; se faltar o servidor, aparece a faixa com o comando.
+2. «Install»: confirma o comando exacto no diálogo de aprovação; a instalação corre no painel Terminal.
+3. Quando termina bem, a faixa sai e o editor passa a ter diagnósticos, hover e definição.
+4. Prefere instalar à mão? «Copy» e cola no teu terminal. «Dismiss» esconde a faixa nesta sessão.
+
+**Fluxo (por dentro)**
+
+1. O backend diz se o servidor existe (`lsp_server_status`); a regra do aviso e o comando estão em `domain/server-status.ts`.
+2. «Install» só existe quando a instalação é um comando (npm, go install, dotnet tool, rustup); para jdtls, clangd, sourcekit-lsp e kotlin-language-server é uma instrução para seguir.
+3. Aprovação partilhada (`app/approval.ts`) com o comando e onde corre → registo de auditoria (`audit_record`, acção `lsp.install`) → terminal de tarefa (PTY com a shell de login, na pasta aberta) → código de saída.
+4. Saída 0: esquece o estado em cache, volta a perguntar ao backend e arranca o servidor no ficheiro aberto.
+
+**Dicas**
+
+- Um erro de permissões no `npm install -g` costuma querer dizer que o node não é o do nvm: `nvm use --lts` (ou `npm config set prefix ~/.npm-global`) e volta a carregar em «Install».
+- Se instalou mas o dxtutor não o encontra, reinicia a app para ela ler o PATH novo.
+
+**Limites**
+
+- Só na app desktop com uma pasta aberta. Sem auditoria possível, não instala.
+
+<sub>Cobre: `lsp:notice-copy`, `lsp:notice-install`</sub>
 
 ---
 

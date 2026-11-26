@@ -17,6 +17,7 @@ import { translator } from "../../app/i18n";
 import { LLM_MESSAGES } from "./llm.messages";
 import { STOP } from "../../features/codev";
 import { agentStore } from "../../app/store";
+import { services } from "../../app/services";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(LLM_MESSAGES);
 
@@ -66,6 +67,14 @@ function askApproval(cmd: string): Promise<boolean> {
     Co-Dev recebiam sempre {ok:true} no desktop — o modelo "verificava" sem nada correr.
     A saída é ecoada no terminal integrado para o humano ver o mesmo que o modelo. */
 R.exec = async (cmd: string): Promise<VerifyOutcome> => {
+  /* os testes do projecto correm no separador «Tests» do painel, ao vivo (o humano vê cada teste e
+     as falhas com o sítio); o modelo recebe o mesmo resultado de sempre */
+  const liveRun = services.tests?.runLive;
+  if (liveRun && R.projectCmd?.("test")?.cmd === cmd) {
+    const r = await liveRun({ source: "Co-Dev", command: cmd });
+    const out = r.output;
+    return { ok: r.passed, code: r.passed ? 0 : 1, sum: summarizeRun(r.passed ? 0 : 1, false, out, ""), out: `exit ${r.passed ? 0 : 1}\n--- stdout\n${out.slice(-12000)}\n--- stderr\n` };
+  }
   flushSave();
   await idle();
   /* com o painel real, o eco vai para o canal «Co-Dev» do Output (o terminal é do humano) */
