@@ -51,6 +51,7 @@ fn custom_policy_truncates_the_file_set() {
         LoadPolicy {
             max_files: 2,
             max_bytes: 1024,
+            max_total: u64::MAX,
         },
     )
     .expect("abre com política apertada");
