@@ -19,7 +19,6 @@ import { installAgentTasks } from "./platform/desktop/agent-tasks";
 import { installInfra } from "./platform/desktop/infra";
 import { installExt } from "./platform/desktop/ext";
 import { installRemote } from "./platform/desktop/remote";
-import { selftest } from "./platform/desktop/selftest";
 import { mountBuildBadge } from "./app/build-info";
 
 (() => {
@@ -55,7 +54,8 @@ void (async () => {
   const start = R.info.openAtStart || LS.get("dx-last-folder", "");
   if (start) await ctx.openFolder(start);
   try { if (tabOf("welcome") && cur === "welcome") show("welcome"); } catch { /* sem tab welcome */ }
-  if (R.info.selftest && !R.info.pairtest) void selftest(ctx);
+  /* P2: o auto-teste (85 KB) só se carrega quando é pedido (DXTUTOR_SELFTEST): um chunk à parte, fora do arranque */
+  if (R.info.selftest && !R.info.pairtest) void import("./platform/desktop/selftest").then(m => m.selftest(ctx));
   R.ready = true;
 })();
 })();
