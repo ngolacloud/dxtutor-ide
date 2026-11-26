@@ -79,6 +79,19 @@ describe("leitura: apresentação do curso e conceitos do tópico", () => {
     host.remove();
   });
 
+  it("o markup do passo fecha as etiquetas (regressão do codemod U6c: «UUnder the hood/button>»)", () => {
+    LM.LTS.lang = "rust";
+    LM.LTS.levels = ["basic"];
+    const unit = LM.course().units[0];
+    const host = openStep(unit.steps[0].id, `${unit.steps[0].id}.rs`);
+    // A barra é do `host`; o painel do passo (#lt-res) é o primeiro do documento.
+    expect(host.querySelector('[data-action="learn:hood"]')!.textContent).toBe("Under the hood");
+    const res = document.getElementById("lt-res")!;
+    expect(res.querySelector('[data-action="learn:ask"]')!.textContent).toBe("Ask the Tutor");
+    for (const el of [host, res]) expect(el.textContent).not.toMatch(/\/(button|h3|span|p)>/);
+    host.remove();
+  });
+
   it("num passo seguinte a apresentação já não aparece e os conceitos ficam fechados", () => {
     LM.LTS.lang = "rust";
     LM.LTS.levels = ["basic"];

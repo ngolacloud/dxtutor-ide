@@ -153,14 +153,14 @@ function openLesson(){ltResume();}function nextLesson(){return[0,0];}
 
 /* ───── corpo da vista (editor + painel do passo); app.ts mantém o shim VIEW.lt ───── */
 export function renderLtView(t:any,host:HTMLElement){hydrateLT();const f=ltFind(LTS.cur);if(!f){host.innerHTML='<div class="empty">Open a step from the Learning Track.</div>';return;}const p=t.path;
-  host.innerHTML=`<div class="lt"><div class="lt-ed"><div class="lt-bar"><span class="lt-file notr">● ${esc(t.title)}</span><span class="sp"></span><button class="mini" data-action="learn:hood">U${txt("underTheHood")}/button><button class="mini pri" id="lt-go" data-action="learn:go"></button></div><div class="lt-scroll"><div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div></div></div><div class="lt-res" id="lt-res"></div></div>`;
+  host.innerHTML=`<div class="lt"><div class="lt-ed"><div class="lt-bar"><span class="lt-file notr">● ${esc(t.title)}</span><span class="sp"></span><button class="mini" data-action="learn:hood">${txt("underTheHood")}</button><button class="mini pri" id="lt-go" data-action="learn:go"></button></div><div class="lt-scroll"><div class="ed"><div class="ed-gut" id="ed-gut"></div><div class="ed-wrap"><div class="ed-hl" id="ed-hl"></div><textarea id="ed-ta" class="ed-ta" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div></div></div></div><div class="lt-res" id="lt-res"></div></div>`;
   const ta=$('#ed-ta') as HTMLTextAreaElement;ta.value=FS[p].content;paintEd(p);services.tabs!.miniOff();ta.oninput=()=>{FS[p].content=ta.value;paintEd(p);services.tabs!.miniOff();LT_SUB=null;ltRes();};
   ta.onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();const ind=findLanguage(LTS.lang!,PLUGINS)?.indent??'    ';if(!document.execCommand('insertText',false,ind))ta.setRangeText(ind,ta.selectionStart,ta.selectionEnd,'end');(ta.oninput as any)();}};ta.onkeyup=ta.onclick=()=>stPos();ltRes();}
 const tgt=(s:any)=>s.target.replace(/^\n/,'').replace(/\n+$/,'').split('\n');
 function drillState(s:any){const T=tgt(s),typed=(FS[ltPath(s)]?FS[ltPath(s)].content:'').replace(/\s+$/,'').split('\n'),ok=T.map((l:any,i:number)=>typed[i]!==undefined&&typed[i].trimEnd()===l.trimEnd());return{T,ok,n:ok.filter(Boolean).length,all:ok.every(Boolean)&&typed.length===T.length};}
 function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-go');if(!f||!el||!go)return;const{s}=f,done=ltDone(s.id);let h=`<div class="lt-kind"><span>${s.kind==='concept'?'Concept':s.kind==='drill'?'Drill':'Challenge'}</span><b>${done?'✓ ':''}+${s.points} pts</b></div>`;
   h+=ltReading(f);
-  if(LT_HOOD)h+=`<div class="lt-card hood"><h3>U${txt("underTheHood")}/h3><div class="notr">${mdFull(s.intro)}</div><p class="lt-note">In the desktop app this view also compiles your code and shows measured CPU, memory and I/O. The browser prototype shows the explanation only.</p></div>`;
+  if(LT_HOOD)h+=`<div class="lt-card hood"><h3>${txt("underTheHood")}</h3><div class="notr">${mdFull(s.intro)}</div><p class="lt-note">In the desktop app this view also compiles your code and shows measured CPU, memory and I/O. The browser prototype shows the explanation only.</p></div>`;
   if(s.kind==='concept'){h+=`<div class="lt-card notr"><h2>${esc(s.title)}</h2>${mdFull(s.body)}</div>`;go.textContent='Continue →';}
   else if(s.kind==='drill'){const d=drillState(s),hide=s.placeholder_policy!=='shown'&&!LTS.show[dk(s.id)]&&!done;if(d.all&&!done){LTS.done[dk(s.id)]=1;saveLT();if(PANE==='tutor')RP.tutor();}const fin=ltDone(s.id);
     h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.prompt)}</div><div class="lt-prog"><span class="lp-bar" style="flex:1;margin:0"><i style="width:${d.n/d.T.length*100}%"></i></span><span>${d.n}/${d.T.length} lines</span>${hide?`<button class="mini" data-action="learn:showTarget" data-on="${esc(dk(s.id))}">Show target</button>`:''}</div>
@@ -177,15 +177,15 @@ function ltRes(){hydrateLT();const f=ltFind(LTS.cur),el=$('#lt-res'),go=$('#lt-g
        Learning Track é em inglês, por isso o título é nosso e a saída crua mostra o detalhe. */
     if(g&&!g.passed)h+=`<div class="lt-card bad"><h3>✗ Not yet — the hidden tests did not pass</h3><pre class="notr">${esc(g.raw.slice(0,4000))}</pre></div>`;
     if(done){h+=`<div class="lt-card ok"><h3>✓ Passed</h3><p>The hidden tests passed.</p></div>`;
-      if(g&&g.gabarito)h+=`<div class="lt-card"><h3>R${txt("referenceSolution")}/h3><div class="lt-cx"><span>time <b>${esc(g.gabarito.time)}</b></span><span>space <b>${esc(g.gabarito.space)}</b></span></div><pre class="notr">${esc(g.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(g.gabarito.justification)}</div></div>`;}
+      if(g&&g.gabarito)h+=`<div class="lt-card"><h3>${txt("referenceSolution")}</h3><div class="lt-cx"><span>time <b>${esc(g.gabarito.time)}</b></span><span>space <b>${esc(g.gabarito.space)}</b></span></div><pre class="notr">${esc(g.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(g.gabarito.justification)}</div></div>`;}
     go.textContent=done?'Continue →':LT_GRADING?'Grading…':'Submit ▷';}
   else{const tests=[...s.tests.matchAll(LTS.lang==='go'?/func (Test\w+)/g:/fn (\w+)\s*\(\)/g)].map(m=>m[1]);
     h+=`<div class="lt-card"><h2 class="notr">${esc(s.title)}</h2><div class="notr">${mdFull(s.instructions)}</div></div>`;
-    if(LT_SUB&&!LT_SUB.ok)h+=`<div class="lt-card bad"><h3>✗${txt("notYet")}/h3><p>${LT_SUB.why}</p></div>`;
-    if(done){h+=`<div class="lt-card ok"><h3>✓${txt("submitted")}/h3>${tests.map(n=>`<div class="chk ok"><span class="g">✓</span><span class="notr">${esc(n)}</span><span class="w">s${txt("simulated")}/span></div>`).join('')}<p class="lt-note">H${txt("hiddenTestsDecideCorrectness")}code>${LTS.lang==='go'?'go test':'cargo test'}</code>)${txt("theBrowserCannotCompile")}/p></div>`;
-      if(s.gabarito)h+=`<div class="lt-card"><h3>R${txt("referenceSolution")}/h3><div class="lt-cx"><span>time <b>${esc(s.gabarito.time)}</b></span><span>space <b>${esc(s.gabarito.space)}</b></span></div><pre class="notr">${esc(s.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(s.gabarito.justification)}</div></div>`;}
+    if(LT_SUB&&!LT_SUB.ok)h+=`<div class="lt-card bad"><h3>${txt("notYet")}</h3><p>${LT_SUB.why}</p></div>`;
+    if(done){h+=`<div class="lt-card ok"><h3>${txt("submitted")}</h3>${tests.map(n=>`<div class="chk ok"><span class="g">✓</span><span class="notr">${esc(n)}</span><span class="w">${txt("simulated")}</span></div>`).join('')}<p class="lt-note">${txt("hiddenTestsDecideCorrectness")}<code>${LTS.lang==='go'?'go test':'cargo test'}</code>)${txt("theBrowserCannotCompile")}</p></div>`;
+      if(s.gabarito)h+=`<div class="lt-card"><h3>${txt("referenceSolution")}</h3><div class="lt-cx"><span>time <b>${esc(s.gabarito.time)}</b></span><span>space <b>${esc(s.gabarito.space)}</b></span></div><pre class="notr">${esc(s.gabarito.solution.replace(/\n$/,''))}</pre><div class="notr">${mdFull(s.gabarito.justification)}</div></div>`;}
     go.textContent=done?'Continue →':'Submit ▷';}
-  h+=`<div class="lt-help"><button class="mini" data-action="learn:ask">A${txt("askTheTutor")}/button><span>T${txt("theTutorExplainsAnd")}/span></div>`;const top=el.scrollTop;el.innerHTML=h;el.scrollTop=top;}
+  h+=`<div class="lt-help"><button class="mini" data-action="learn:ask">${txt("askTheTutor")}</button><span>${txt("theTutorExplainsAnd")}</span></div>`;const top=el.scrollTop;el.innerHTML=h;el.scrollTop=top;}
 function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:any)=>x.id===s.id)+1];
   if(s.kind==='concept'&&!ltDone(s.id)){LTS.done[dk(s.id)]=1;saveLT();}
   else if(s.kind==='drill'&&!ltDone(s.id)){const d=drillState(s);toast(`${d.n} of ${d.T.length} lines match — keep typing`);ltRes();return;}
@@ -198,7 +198,7 @@ function ltGo(){const{s}=ltFind(LTS.cur)!,seq=ltSeq(),nx=seq[seq.findIndex((x:an
   if(nx)ltOpen(nx.id);else{toast('Track complete');if(PANE==='tutor')RP.tutor();}}
 function ltAsk(){const{s}=ltFind(LTS.cur)!;agentStore.persona='tutor';agentPill();focusAgent(true);
   if(SAMPLE&&PROV.claude.on){ACTIVE='claude';updateAgentUI();liveChat(`I am on the ${s.kind} step "${s.title}" of the course "${course().title}". Help me move forward without giving me the solution.\nMy current code:\n${FS[ltPath(s)].content||'(empty)'}`);}
-  else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">W${txt("withClaudeLiveThe")}/p>`);}}
+  else{user(`Tutor, I need help with "${s.title}".`);card('tutor',`<div class="notr">${mdFull(s.intro)}</div><p style="color:var(--fg-dim)">${txt("withClaudeLiveThe")}</p>`);}}
 
 /* ── publicar no window: tutor.ts/visualizer.ts/v5.ts e os shims de app.ts lêem por global ── */
 Object.assign(window, { openLesson, nextLesson });
