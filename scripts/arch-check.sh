@@ -382,7 +382,7 @@ SYNC_ALLOW="
 pty_write pty_resize pty_kill pty_info
 pair_send pair_stop
 codev_agent_send codev_agent_approve codev_agent_review codev_agent_override codev_agent_set_mode
-codev_agent_cancel codev_agent_close codev_agent_set_plan codev_agent_live
+codev_agent_cancel codev_agent_set_plan codev_agent_live
 assistant_chat_stream assistant_cancel
 dictation_status dictation_start dictation_cancel
 board_save breakpoints_save debug_stop kill_shell agent_task_cancel agent_task_status
