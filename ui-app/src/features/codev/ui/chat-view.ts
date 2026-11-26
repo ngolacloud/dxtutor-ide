@@ -545,7 +545,7 @@ export const presenter: ChatPresenter = {
     (c.tools ?? c.bd).appendChild(line);
     scrollMsgs();
   },
-  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[] }, on: { acceptAll(): void; rejectAll(): void; open(): void; override?(): void }) {
+  hunkReview(ref: ToolRef, info: { path: string; count: number; reason: string; outside?: { n: number; planned: string }; violations?: string[]; where?: string }, on: { acceptAll(): void; rejectAll(): void; open(): void; override?(): void }) {
     const t = el(ref);
     const bar = document.createElement("div");
     bar.className = "gate hk-gate";
@@ -554,6 +554,13 @@ export const presenter: ChatPresenter = {
     const n = document.createElement("span");
     n.textContent = tc("editorChanges", { n: info.count });
     lead.appendChild(n);
+    // Multi Co-Dev (fase 3): a sessão trabalha numa worktree — os blocos são do ramo dela, não do editor
+    if (info.where) {
+      const w = document.createElement("span");
+      w.className = "tag hk-where notr";
+      w.textContent = info.where; // text, never HTML
+      lead.append(" ", w);
+    }
     if (info.outside?.n) {
       const w = document.createElement("span");
       w.className = "tag warn hk-plan";
