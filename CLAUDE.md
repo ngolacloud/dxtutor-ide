@@ -435,7 +435,7 @@ um motivo, gravado como `override` («excepção (código): motivo») na activid
   di-lo); o quadro ordena cada coluna por classe de serviço (`cardOrder`). Sem capacidade nem DoR nas mudanças.
 - **Scrum, XP, Scrum + XP:** capacidade da sprint (`capacity`) em `plan_issue`, `create_issue` com sprint e
   `update_issue` com pontos — recusa só quando a mudança acrescenta pontos e passa a capacidade; fechar uma sprint e
-  passar o resto à seguinte não é recusado. A DoR do projecto marca-se por issue (`issues.dor_done`, migração 16,
+  passar o resto à seguinte não é recusado. A DoR do projecto marca-se por issue (`issues.dor_done`, migração 17,
   como a `dod_done`): entra na prontidão (`DoR: «item»`) e na saída de To Do.
 - **XP, Scrum + XP — teste primeiro:** de Em curso para Review, uma issue com change sets do Co-Dev precisa de uma
   linha `tdd`/`red` do registo de auditoria (o anfitrião grava-a no primeiro `run_tests` que FALHOU com só testes
@@ -450,6 +450,25 @@ um motivo, gravado como `override` («excepção (código): motivo») na activid
 - Testes: `cargo test -p tutor-board` (`methods::`, e os `…method…`/`capacity`/`expedite`/`dor`/`codev_finished`/
   `test_first` do `project::tests`), `cargo test -p tutor-agent` (`issue_prompt`, `finish_v10`), os `codev_agent::tests`
   de início, `held` e passo vermelho, e `tests/project.methods.test.ts`.
+
+## Métricas honestas e insights do Project (Board A)
+
+Os relatórios da sprint já não reescrevem o passado. A migração 16 da base do Project grava o histórico: `sprint_scope`
+(cada issue que entra/sai de uma sprint — criada nela, `PlanIssue`, transitada no `CloseSprint`, apagada — com a
+estimativa desse momento), `estimate_changes` (antigo → novo; a actividade diz `estimativa 3 → 8`), `sprint_snapshots`
+(`start` no `StartSprint` = o compromisso; `close` no `CloseSprint`, antes da transição) e `sprints.started_at`/`closed_at`;
+`projects.history_since` diz quando o registo começou. O `TestsRun` passou a registar o `blocked` quando bloqueia. Quem
+mexe na sprint ou nos pontos de uma issue usa `record_scope`/`record_replan` e grava o `estimate_changes` (no `mod.rs`).
+`reports.rs` reconstrói cada dia (membros, estimativa e estado desse dia; uma issue já Done no início não conta): o
+burndown (ideal a partir do comprometido), o burnup (âmbito + feito) e a velocidade comprometido vs feito (das
+fotografias, sobrevive à transição). Nada é preenchido para trás: uma sprint começada antes da migração é `partial`
+(sem compromisso; antes do registo, o âmbito e as estimativas são os de hoje). `insights.rs` é PURO: previsão do fim
+(ritmo dos últimos ≤5 dias, pelo burnup), mudança de âmbito, sem estimativa, fiabilidade do compromisso, cartões
+envelhecidos (vs p85 do ciclo), bloqueios, custo por ponto/derrapagem (auditoria `turn`) e retrabalho (testes); cada
+um com gravidade, código, parâmetros e chaves, ou um `Withheld` com o que falta (nunca adivinha). A UI tem a frase de
+cada código em `ui/reports-messages.ts` (en + ptAO) e desenha-os em `ui/reports-view.ts`; uma chave abre a issue
+(`pj-open`). Testes: `cargo test -p tutor-board` (`insights::`, `tests::sprint_scope_…`, `the_burndown_…`,
+`velocity_…`, `a_sprint_started_before_…`, `schema::tests`) e `tests/project.reports.test.ts`.
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 
