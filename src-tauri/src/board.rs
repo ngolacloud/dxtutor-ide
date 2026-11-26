@@ -905,3 +905,21 @@ pub fn audit_export_evidence(
     )?;
     Ok(EvidenceFile { path: rel, content })
 }
+
+// ───── r23 F5b: the queue, the PR review and incidents read and write the project base through this ─────
+
+/// Runs `f` on the project base of `root` (a trimmed, non-empty root).
+pub fn with_store<T>(
+    app: &AppHandle,
+    root: &str,
+    f: impl FnOnce(&mut ProjectStore, &str) -> Result<T, ProjectError>,
+) -> Result<T, ProjectError> {
+    let root = root_of(root)?;
+    let mut s = open(app)?;
+    f(&mut s, &root)
+}
+
+/// Who acts in `root` and now (for the records the backend writes).
+pub fn who_and_when(root: &str) -> (String, i64) {
+    (actor(root.trim()), now_ms())
+}

@@ -303,6 +303,44 @@ const MIGRATIONS: &[&str] = &[
         ms        INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX idx_runbook_runs ON runbook_runs(root, path, at);",
+    // 13 — incidents (local records, owner decision §5 Q9) with their timeline, and the queue's events: an item
+    //      verified done (with its proof) or handed over (recipient and reason) — r23 F5b, Q01/Q02, A01–A03
+    "CREATE TABLE incidents (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        root         TEXT NOT NULL,
+        key          TEXT NOT NULL,
+        title        TEXT NOT NULL,
+        severity     TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        commander    TEXT NOT NULL,
+        opened_at    INTEGER NOT NULL,
+        mitigated_at INTEGER,
+        resolved_at  INTEGER
+    );
+    CREATE INDEX idx_incidents ON incidents(root, opened_at);
+    CREATE TABLE incident_events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        incident_id INTEGER NOT NULL REFERENCES incidents(id),
+        kind        TEXT NOT NULL,
+        text        TEXT NOT NULL,
+        reason      TEXT,
+        actor       TEXT NOT NULL,
+        at          INTEGER NOT NULL
+    );
+    CREATE INDEX idx_incident_events ON incident_events(incident_id, at);
+    CREATE TABLE queue_events (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        root      TEXT NOT NULL,
+        item      TEXT NOT NULL,
+        kind      TEXT NOT NULL,
+        title     TEXT NOT NULL,
+        proof     TEXT,
+        recipient TEXT,
+        reason    TEXT,
+        actor     TEXT NOT NULL,
+        at        INTEGER NOT NULL
+    );
+    CREATE INDEX idx_queue_events ON queue_events(root, at);",
 ];
 
 /// The schema version this code expects.

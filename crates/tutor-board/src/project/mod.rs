@@ -16,6 +16,7 @@
 pub mod breakpoints;
 pub mod deploys;
 pub mod evidence;
+pub mod incidents;
 pub mod reports;
 pub mod risks;
 pub mod runbooks;

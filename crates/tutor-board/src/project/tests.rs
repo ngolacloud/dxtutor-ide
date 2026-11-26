@@ -1238,3 +1238,184 @@ fn runbook_runs_and_the_evidence_file() {
     assert!(!md.contains("bash"), "Co-Dev rows are not IDE operations");
     assert_eq!(evidence::day(T0), "2025-11-13");
 }
+
+/// r23 F5b: incidents (local records) with their timeline and rules, Co-Dev's precision, and the queue's events.
+#[test]
+fn incidents_and_the_queue() {
+    let st = store();
+    let c = st.conn();
+    assert!(incidents::open(c, "/p", "x", "SEV-2", "ana", T0).is_err());
+    assert!(incidents::open(c, "/p", "checkout latency", "SEV-9", "ana", T0).is_err());
+    let i = incidents::open(
+        c,
+        "/p",
+        "checkout latency above the SLO",
+        "SEV-2",
+        "ana",
+        T0,
+    )
+    .unwrap();
+    assert_eq!(
+        (i.key.as_str(), i.status.as_str()),
+        ("INC-1", "investigating")
+    );
+    assert_eq!(
+        incidents::open(c, "/q", "other project", "SEV-3", "ana", T0)
+            .unwrap()
+            .key,
+        "INC-1"
+    );
+    incidents::add(
+        c,
+        "/p",
+        i.id,
+        "evidence",
+        "customers report timeouts since 10:30",
+        None,
+        "ana",
+        T0 + 1,
+    )
+    .unwrap();
+    incidents::add(
+        c,
+        "/p",
+        i.id,
+        "checked",
+        "kubectl get pods: 3/3 ready",
+        None,
+        "ana",
+        T0 + 2,
+    )
+    .unwrap();
+    assert!(incidents::add(
+        c,
+        "/p",
+        i.id,
+        "not-checked",
+        "database metrics",
+        None,
+        "ana",
+        T0 + 3
+    )
+    .unwrap_err()
+    .message
+    .contains("reason"));
+    incidents::add(
+        c,
+        "/p",
+        i.id,
+        "not-checked",
+        "database metrics",
+        Some("no metrics source connected"),
+        "ana",
+        T0 + 3,
+    )
+    .unwrap();
+    assert!(incidents::add(c, "/p", i.id, "bogus", "x", None, "ana", T0).is_err());
+    assert!(
+        incidents::feedback(c, "/p", i.id, true, "ana", T0 + 4).is_err(),
+        "only after mitigation"
+    );
+    assert!(
+        incidents::set_status(c, "/p", i.id, "resolved", " ", "ana", T0 + 5).is_err(),
+        "resolving needs a summary"
+    );
+    let m = incidents::set_status(
+        c,
+        "/p",
+        i.id,
+        "mitigated",
+        "rolled back web to rev 3",
+        "ana",
+        T0 + 5,
+    )
+    .unwrap();
+    assert_eq!(m.mitigated_at, Some(T0 + 5));
+    incidents::feedback(c, "/p", i.id, true, "ana", T0 + 6).unwrap();
+    assert!(
+        incidents::feedback(c, "/p", i.id, false, "ana", T0 + 7).is_err(),
+        "once"
+    );
+    let r = incidents::set_status(
+        c,
+        "/p",
+        i.id,
+        "resolved",
+        "pool exhausted after the 1.4 deploy",
+        "ana",
+        T0 + 8,
+    )
+    .unwrap();
+    assert_eq!(
+        (r.status.as_str(), r.resolved_at),
+        ("resolved", Some(T0 + 8))
+    );
+    assert!(incidents::set_status(c, "/p", i.id, "investigating", "", "ana", T0 + 9).is_err());
+    assert!(incidents::add(c, "/p", i.id, "evidence", "late", None, "ana", T0 + 9).is_err());
+    let (_, ev) = incidents::get(c, "/p", i.id).unwrap().unwrap();
+    assert_eq!(
+        ev.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(),
+        vec![
+            "status",
+            "evidence",
+            "checked",
+            "not-checked",
+            "status",
+            "feedback",
+            "status"
+        ]
+    );
+    assert_eq!(incidents::precision(c, "/p").unwrap(), (1, 1));
+    // confidence: never above «low» without a metrics source
+    let low = incidents::confidence(&ev, false);
+    assert_eq!(low.level, "low");
+    assert!(low.reasons[0].contains("no metrics source"));
+    assert_eq!(
+        incidents::confidence(&ev, true).level,
+        "medium",
+        "a check was not run"
+    );
+    let e = |k: &str| incidents::IncidentEvent {
+        kind: k.into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        incidents::confidence(
+            &[e("evidence"), e("checked"), e("checked"), e("checked")],
+            true
+        )
+        .level,
+        "high"
+    );
+    assert_eq!(incidents::confidence(&[], true).level, "low");
+    assert_eq!(incidents::list(c, "/p").unwrap().len(), 1);
+    // the queue: done with proof; a handover needs a recipient and a reason
+    let q = |kind: &str, recipient: Option<&str>, reason: Option<&str>| incidents::QueueEvent {
+        item: "pr:49".into(),
+        kind: kind.into(),
+        title: "Review PR #49".into(),
+        recipient: recipient.map(String::from),
+        reason: reason.map(String::from),
+        actor: "ana".into(),
+        at: T0,
+        ..Default::default()
+    };
+    assert!(incidents::queue_event(c, "/p", &q("handover", None, Some("on leave"))).is_err());
+    assert!(incidents::queue_event(c, "/p", &q("handover", Some("bruno"), Some(" "))).is_err());
+    incidents::queue_event(
+        c,
+        "/p",
+        &q("handover", Some("bruno"), Some("on leave until Monday")),
+    )
+    .unwrap();
+    incidents::queue_event(
+        c,
+        "/p",
+        &incidents::QueueEvent {
+            proof: Some("ana reviewed: APPROVED".into()),
+            ..q("done", None, None)
+        },
+    )
+    .unwrap();
+    assert_eq!(incidents::queue_events(c, "/p").unwrap().len(), 2);
+}
