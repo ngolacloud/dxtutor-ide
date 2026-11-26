@@ -91,6 +91,25 @@ features/codev.ts  RESÍDUO strangler (fora da subárvore): publica os shims win
   os consumidores (app.ts/board.ts) migrarem (passo 6 do ADR: trocar `window.FS`
   por comandos Tauri).
 
+### Tokens do agente v2 (fase 1)
+
+O primeiro pedido de uma conversa neste repositório desceu de ~17k para ~7k tokens
+(`cargo test -p dxtutor-ide --lib first_request_size -- --nocapture` mede-o). Regras:
+- **Instruções do projecto** (`tutor_agent::context`): cada ficheiro até 12 KB entra inteiro; maior,
+  entra o início (~6 KB, cortado no fim de uma linha) e o índice dos títulos com o número da linha,
+  e o modelo lê a secção com `read` quando a tarefa lhe toca. O total é 32 KB. Logo, o que o Co-Dev
+  tem de saber SEMPRE vai no início deste ficheiro.
+- **Resultados**: `read` dá 500 linhas sem `limit` (28 KB no máximo), `grep` 150 linhas com o total,
+  `bash` 20k caracteres (sobretudo o fim), a rede do loop 30k; cada corte diz como pedir o resto.
+- **Conjunto 9** (`TOOLSET_VERSION`): `finish_issue` só nas sessões de uma issue, `arch_propose` só
+  nas de arquitectura (`SessionMeta.scopes`, gravado; uma retoma usa o gravado). Mudar a descrição
+  de uma ferramenta muda o prefixo das sessões antigas: vai sempre atrás de uma versão nova.
+- **Cache**: o breakpoint do system prompt do Claude vive 1 hora (escrita a 2×, as pausas de revisão
+  passam dos 5 min); o custo conta as escritas de 1 h à parte (`cost.rs`, `pricing.ts`). O `ctx` da
+  barra de estado mostra a percentagem lida da cache e o título o custo da conversa.
+- **Ollama**: o agente usa a API nativa (`/api/chat`) com `num_ctx` por degraus (16k→128k); o
+  endpoint OpenAI-compatível ignora o `num_ctx` e o contexto por omissão cortava o prompt.
+
 ## Segunda feature extraída: Explain · Code review · Under the hood (`ui-app/src/features/codereview/`)
 
 Primeira aplicação do procedimento da skill `extract-feature` a uma segunda
@@ -730,7 +749,8 @@ features/arch/
 - **Harness:** a ferramenta do agente `arch_propose` (só leitura, `src-tauri/src/agent.rs`)
   valida e mostra a proposta por cima do desenho actual; só muda com «Accept». Entra no
   conjunto de ferramentas versão 4 (`StartSpec.host_tools_v4`): sessões antigas retomam
-  sem ela.
+  sem ela. Desde o conjunto 9, só nas sessões de arquitectura (`StartSpec.architecture`: o
+  Studio aberto ou o primeiro pedido fala de arquitectura — `codev/domain/session-kind.ts`).
 - **Sem dados de demonstração:** o desenho nasce vazio; a referência «Docker vs Kubernetes»
   vive só em `ui-app/tests/fixtures/arch-reference.ts` (testes e e2e).
 - **Testes:** `cargo test -p tutor-eval` (regras, Mermaid, fixtures do Delonix),
