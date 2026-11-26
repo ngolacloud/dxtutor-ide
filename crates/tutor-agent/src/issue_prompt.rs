@@ -21,6 +21,152 @@ pub struct IssueData {
     pub scope: Vec<String>,
     /// The error of the last failed test run (RF-B07), sent with the next attempt.
     pub previous_failure: Option<String>,
+    /// Where the issue lives in the project (backlog phase 1, docs/v2/QUESTIONS.md Q3): its
+    /// branch, epic, component, dependencies, linked commits and the files already changed for it.
+    pub links: IssueLinks,
+}
+
+/// What the agent knows of the issue beyond its text: where it lives in the project. Kept short
+/// (each list is capped when rendered) — never diffs, only names.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct IssueLinks {
+    pub branch: Option<String>,
+    pub epic: String,
+    /// The Studio component the issue belongs to (none is stored yet: phase 4).
+    pub component: Option<String>,
+    /// The issues that must be Done first, with their title and state.
+    pub deps: Vec<DepRef>,
+    /// The commits linked to the issue (`issue_links` of kind `commit`), newest first.
+    pub commits: Vec<CommitRef>,
+    /// The files Co-Dev already changed for the issue (its change sets), most recent first.
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DepRef {
+    pub key: String,
+    pub title: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CommitRef {
+    pub sha: String,
+    pub subject: String,
+}
+
+/// Caps of the issue's links in the prompt (token-aware).
+const MAX_DEPS: usize = 8;
+const MAX_COMMITS: usize = 8;
+const MAX_FILES: usize = 20;
+const MAX_SUBJECT: usize = 80;
+
+/// `a, b, c … (+n)` for at most `cap` items.
+fn capped(items: &[String], cap: usize) -> String {
+    let mut s = items
+        .iter()
+        .take(cap)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if items.len() > cap {
+        s.push_str(&format!(" … (+{})", items.len() - cap));
+    }
+    s
+}
+
+/// The «Issue links» block: one line per thing the project knows (branch, epic, component,
+/// dependencies, commits, files), each list capped; a line saying there is nothing otherwise.
+pub fn links_block(l: &IssueLinks, lang: &str) -> String {
+    let pt = lang == "pt";
+    let mut out: Vec<String> = Vec::new();
+    if let Some(b) = l.branch.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        out.push(format!("{}: {b}", if pt { "Ramo" } else { "Branch" }));
+    }
+    if !l.epic.trim().is_empty() {
+        out.push(format!(
+            "{}: {}",
+            if pt { "Épico" } else { "Epic" },
+            l.epic.trim()
+        ));
+    }
+    if let Some(c) = l
+        .component
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        out.push(format!(
+            "{}: {c}",
+            if pt { "Componente" } else { "Component" }
+        ));
+    }
+    if !l.deps.is_empty() {
+        let deps: Vec<String> = l
+            .deps
+            .iter()
+            .map(|d| {
+                let title = d.title.trim();
+                let state = if d.state.is_empty() {
+                    "?"
+                } else {
+                    d.state.as_str()
+                };
+                if title.is_empty() {
+                    format!("{} ({state})", d.key)
+                } else {
+                    format!("{} {title} ({state})", d.key)
+                }
+            })
+            .collect();
+        out.push(format!(
+            "{}: {}",
+            if pt { "Depende de" } else { "Depends on" },
+            capped(&deps, MAX_DEPS)
+        ));
+    }
+    if !l.commits.is_empty() {
+        let head = match (pt, l.commits.len() > MAX_COMMITS) {
+            (true, true) => format!(
+                "Commits ligados (os {MAX_COMMITS} mais recentes de {})",
+                l.commits.len()
+            ),
+            (true, false) => "Commits ligados".to_string(),
+            (false, true) => format!(
+                "Linked commits (the latest {MAX_COMMITS} of {})",
+                l.commits.len()
+            ),
+            (false, false) => "Linked commits".to_string(),
+        };
+        out.push(format!("{head}:"));
+        for c in l.commits.iter().take(MAX_COMMITS) {
+            let sha: String = c.sha.chars().take(7).collect();
+            let mut subject: String = c.subject.trim().chars().take(MAX_SUBJECT).collect();
+            if c.subject.trim().chars().count() > MAX_SUBJECT {
+                subject.push('…');
+            }
+            out.push(format!("- {sha} {subject}"));
+        }
+    }
+    if !l.files.is_empty() {
+        out.push(format!(
+            "{}: {}",
+            if pt {
+                "Ficheiros já alterados nesta issue"
+            } else {
+                "Files already changed for this issue"
+            },
+            capped(&l.files, MAX_FILES)
+        ));
+    }
+    if out.is_empty() {
+        return if pt {
+            "(sem ramo, épico, dependências nem commits ligados)".into()
+        } else {
+            "(no branch, epic, dependencies or linked commits)".into()
+        };
+    }
+    out.join("\n")
 }
 
 /// The prompt as it is sent, with where it came from.
@@ -58,6 +204,9 @@ Como {{persona}} quero {{objectivo}} para {{valor}}.
 # Âmbito permitido
 Ficheiros/pastas: {{ambito}}. Fora disto: pede autorização.
 
+# Ligações da issue
+{{ligacoes_da_issue}}
+
 # Contexto do código
 {{ficheiros_relevantes_com_numeros_de_linha}}
 
@@ -84,6 +233,9 @@ As {{persona}} I want {{objectivo}} so that {{valor}}.
 
 # Allowed scope
 Files/folders: {{ambito}}. Outside this: ask for permission.
+
+# Issue links
+{{ligacoes_da_issue}}
 
 # Code context
 {{ficheiros_relevantes_com_numeros_de_linha}}
@@ -544,6 +696,16 @@ pub fn render_with(root: &Path, i: &IssueData, lang: Option<&str>, outline: Outl
     } else {
         i.scope.join(", ")
     };
+    // a project template written before the links existed still gets them, above the code
+    let links = links_block(&i.links, lang);
+    if !template.contains("{{ligacoes_da_issue}}") && i.links != IssueLinks::default() {
+        let head = if lang == "pt" {
+            "Ligações da issue"
+        } else {
+            "Issue links"
+        };
+        context = format!("{head}:\n{links}\n\n{context}");
+    }
     let text = template
         .replace("{{id}}", &i.key)
         .replace("{{titulo}}", &dash(&i.title))
@@ -554,6 +716,7 @@ pub fn render_with(root: &Path, i: &IssueData, lang: Option<&str>, outline: Outl
         .replace("{{criterios_given_when_then}}", &criteria)
         .replace("{{regras_arquitectura}}", &architect_rules(root, lang))
         .replace("{{ambito}}", &scope)
+        .replace("{{ligacoes_da_issue}}", &links)
         .replace("{{ficheiros_relevantes_com_numeros_de_linha}}", &context);
     let tokens = text.chars().count().div_ceil(4);
     Rendered {
@@ -584,6 +747,7 @@ mod tests {
             ],
             scope: vec!["src/api.rs".into(), "tests/".into()],
             previous_failure: None,
+            links: IssueLinks::default(),
         }
     }
 
@@ -603,6 +767,7 @@ mod tests {
             "# Critérios de aceitação",
             "# Restrições do arquitecto",
             "# Âmbito permitido",
+            "# Ligações da issue",
             "# Contexto do código",
             "# Formato da resposta",
         ];
@@ -616,6 +781,9 @@ mod tests {
         assert!(r.text.contains("   1 │ fn main() {}\n   2 │ fn list() {}"));
         assert!(r.text.contains("tests/: tests/api.rs"));
         assert!(r.text.contains("Ficheiros/pastas: src/api.rs, tests/."));
+        assert!(r.text.contains(
+            "# Ligações da issue\n(sem ramo, épico, dependências nem commits ligados)\n"
+        ));
         assert!(r
             .text
             .contains("o código, os comentários e as mensagens de commit são sempre em inglês"));
@@ -655,6 +823,104 @@ mod tests {
         assert_ne!(a.version, b.version);
         assert_eq!(b.version, version_of("v2 {{id}}"));
         assert_eq!(b.template, "v2 {{id}}");
+    }
+
+    fn links() -> IssueLinks {
+        IssueLinks {
+            branch: Some("feature/DX-12-paginacao".into()),
+            epic: "Encomendas".into(),
+            component: None,
+            deps: vec![
+                DepRef {
+                    key: "DX-3".into(),
+                    title: "Modelo de encomendas".into(),
+                    state: "done".into(),
+                },
+                DepRef {
+                    key: "DX-5".into(),
+                    title: String::new(),
+                    state: "progress".into(),
+                },
+            ],
+            commits: (0..10)
+                .map(|n| CommitRef {
+                    sha: format!("{n:02}a1b2c3d4e5f6"),
+                    subject: format!("feat: page {n} (DX-12)"),
+                })
+                .collect(),
+            files: vec!["src/api.rs".into(), "tests/api.rs".into()],
+        }
+    }
+
+    #[test]
+    fn the_issue_links_go_in_their_own_block_capped() {
+        let d = tempfile::tempdir().unwrap();
+        let mut i = issue();
+        i.links = links();
+        let r = render(d.path(), &i, None);
+        let block = r
+            .text
+            .split("# Ligações da issue\n")
+            .nth(1)
+            .and_then(|t| t.split("\n\n# ").next())
+            .unwrap();
+        assert_eq!(
+            block,
+            "Ramo: feature/DX-12-paginacao\n\
+             Épico: Encomendas\n\
+             Depende de: DX-3 Modelo de encomendas (done), DX-5 (progress)\n\
+             Commits ligados (os 8 mais recentes de 10):\n\
+             - 00a1b2c feat: page 0 (DX-12)\n\
+             - 01a1b2c feat: page 1 (DX-12)\n\
+             - 02a1b2c feat: page 2 (DX-12)\n\
+             - 03a1b2c feat: page 3 (DX-12)\n\
+             - 04a1b2c feat: page 4 (DX-12)\n\
+             - 05a1b2c feat: page 5 (DX-12)\n\
+             - 06a1b2c feat: page 6 (DX-12)\n\
+             - 07a1b2c feat: page 7 (DX-12)\n\
+             Ficheiros já alterados nesta issue: src/api.rs, tests/api.rs"
+        );
+        let mut l = links();
+        l.component = Some("orders-api".into());
+        l.commits.truncate(1);
+        l.files = (0..25).map(|n| format!("f{n}.rs")).collect();
+        let en = links_block(&l, "en");
+        assert!(en.contains(
+            "Branch: feature/DX-12-paginacao\nEpic: Encomendas\nComponent: orders-api\n"
+        ));
+        assert!(en.contains("Linked commits:\n- 00a1b2c feat: page 0 (DX-12)\n"));
+        assert!(en.ends_with("f19.rs … (+5)"), "{en}");
+        assert_eq!(
+            links_block(&IssueLinks::default(), "en"),
+            "(no branch, epic, dependencies or linked commits)"
+        );
+    }
+
+    #[test]
+    fn a_project_template_without_the_links_placeholder_gets_them_above_the_code() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join(".dxtutor/prompts")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/prompts/issue.pt.md"),
+            "{{id}}\n{{ficheiros_relevantes_com_numeros_de_linha}}",
+        )
+        .unwrap();
+        let mut i = issue();
+        i.scope.clear();
+        i.links = IssueLinks {
+            branch: Some("feature/x".into()),
+            ..Default::default()
+        };
+        let r = render(d.path(), &i, None);
+        assert!(
+            r.text
+                .starts_with("DX-12\nLigações da issue:\nRamo: feature/x\n\n(sem ficheiros"),
+            "{}",
+            r.text
+        );
+        // without links, nothing is added
+        i.links = IssueLinks::default();
+        assert!(!render(d.path(), &i, None).text.contains("Ligações"));
     }
 
     #[test]

@@ -391,9 +391,10 @@ pub fn issue_prompt_from(
             message: format!("a issue {key} não existe"),
             overridable: false,
         })?;
+    let detail = st.detail(root, key)?;
     // RF-B07: the error of the last failed test run goes with the next attempt
     let previous_failure = if i.attempts > 0 {
-        st.detail(root, key)?
+        detail
             .activity
             .iter()
             .find(|a| a.kind == "tests" && a.note.starts_with("os testes falharam"))
@@ -416,6 +417,7 @@ pub fn issue_prompt_from(
         criteria: i.acceptance.iter().map(|c| c.text.clone()).collect(),
         scope: i.scope.clone(),
         previous_failure,
+        links: issue_links(&p, i, &detail),
     };
     Ok(tutor_agent::issue_prompt::render_with(
         Path::new(root),
@@ -423,6 +425,52 @@ pub fn issue_prompt_from(
         lang,
         &syntax_outline,
     ))
+}
+
+/// Where the issue lives in the project, for the prompt (backlog phase 1, Q3): its branch, epic,
+/// dependencies (title and state), the commits linked to it (newest first) and the files of its
+/// change sets (most recent first, each once). The prompt caps each list.
+fn issue_links(
+    p: &tutor_board::project::Project,
+    i: &tutor_board::project::Issue,
+    detail: &tutor_board::project::IssueDetail,
+) -> tutor_agent::issue_prompt::IssueLinks {
+    use tutor_agent::issue_prompt::{CommitRef, DepRef, IssueLinks};
+    let deps = i
+        .deps
+        .iter()
+        .map(|k| {
+            let d = p.issues.iter().find(|x| &x.key == k);
+            DepRef {
+                key: k.clone(),
+                title: d.map(|d| d.title.clone()).unwrap_or_default(),
+                state: d.map(|d| d.state.clone()).unwrap_or_default(),
+            }
+        })
+        .collect();
+    let commits = i
+        .links
+        .iter()
+        .filter(|l| l.kind == "commit")
+        .map(|l| CommitRef {
+            sha: l.reference.clone(),
+            subject: l.title.clone(),
+        })
+        .collect();
+    let mut files: Vec<String> = Vec::new();
+    for c in &detail.change_sets {
+        if !files.contains(&c.path) {
+            files.push(c.path.clone());
+        }
+    }
+    IssueLinks {
+        branch: i.branch.clone(),
+        epic: i.epic.clone(),
+        component: None,
+        deps,
+        commits,
+        files,
+    }
 }
 
 /// The symbols of a file for the prompt's code context (RF-E03): the syntax map — quick and the
@@ -598,6 +646,68 @@ mod tests {
             "x",
         ]);
         assert_eq!(head_commit_ms(d.path()), 1_763_000_000_000);
+    }
+
+    #[test]
+    fn the_issue_prompt_knows_the_branch_epic_deps_commits_and_changed_files() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().to_string_lossy().to_string();
+        let mut st = ProjectStore::in_memory().unwrap();
+        let op = |v: serde_json::Value| -> tutor_board::project::Op {
+            serde_json::from_value(v).unwrap()
+        };
+        let prefix = st.load(&root, 1).unwrap().key_prefix;
+        let k = |n: u32| format!("{prefix}-{n}");
+        st.apply(
+            &root,
+            "ana",
+            2,
+            op(serde_json::json!({"op": "create_issue", "title": "Order model"})),
+        )
+        .unwrap();
+        st.apply(&root, "ana", 3, op(serde_json::json!({"op": "create_issue", "title": "Paginate the orders", "epic": "Orders"})))
+            .unwrap();
+        st.apply(&root, "ana", 4, op(serde_json::json!({"op": "update_issue", "key": k(2), "branch": "feature/paginate", "deps": [k(1)]})))
+            .unwrap();
+        st.apply(
+            &root,
+            "ana",
+            5,
+            op(serde_json::json!({"op": "link_commits", "commits": [
+                {"hash": "aaaaaaa1111", "subject": format!("feat: page size ({})", k(2)), "at": 10},
+                {"hash": "bbbbbbb2222", "subject": format!("fix: last page ({})", k(2)), "at": 20}
+            ]})),
+        )
+        .unwrap();
+        for (path, at) in [("src/api.rs", 30), ("tests/api.rs", 40), ("src/api.rs", 50)] {
+            st.record_change_set(
+                &root,
+                &tutor_board::project::NewChangeSet {
+                    session: "s".into(),
+                    call: "c".into(),
+                    hunk: format!("h{at}"),
+                    path: path.into(),
+                    start: 1,
+                    end: 2,
+                    added: 1,
+                    removed: 0,
+                    decided_by: "human".into(),
+                    issue_key: Some(k(2)),
+                },
+                at,
+            )
+            .unwrap();
+        }
+        let r = issue_prompt_from(&st, &root, &k(2), Some("en")).unwrap();
+        let expected = format!(
+            "# Issue links\nBranch: feature/paginate\nEpic: Orders\nDepends on: {} Order model (todo)\n\
+             Linked commits:\n- bbbbbbb fix: last page ({})\n- aaaaaaa feat: page size ({})\n\
+             Files already changed for this issue: src/api.rs, tests/api.rs\n",
+            k(1),
+            k(2),
+            k(2)
+        );
+        assert!(r.text.contains(&expected), "{}", r.text);
     }
 
     #[test]
