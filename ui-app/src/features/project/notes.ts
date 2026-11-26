@@ -23,7 +23,7 @@ export const PROJECT_NOTES: FeatureNotes = {
       howTo: ["Abre o Project e a vista «Planning».", "No cartão da sprint, escreve o número no campo «Co-Devs» e sai do campo."],
       flow: [
         "O campo manda a operação `set_sprint_codevs` ao `project_apply`; o store recusa um número fora de 1–8 (o campo também o diz antes).",
-        "A coluna `sprints.codevs` nasceu na migração 13 da base do Project.",
+        "A coluna `sprints.codevs` nasceu na migração 14 da base do Project.",
         "Se o plano paralelo dessa sprint estiver aberto, é recalculado com o número novo.",
       ],
       limits: ["Nesta fase o número só desenha o plano: nada corre em paralelo ainda."],

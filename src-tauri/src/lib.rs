@@ -106,6 +106,10 @@ use commands::ops::{
 };
 use commands::pair::{pair_host, pair_join, pair_send, pair_stop};
 use commands::panel::{ports_list, problems_scan};
+use commands::platform::{
+    incident_add, incident_feedback, incident_get, incident_list, incident_open, incident_status,
+    pr_infra_review, pr_review_submit, queue_handover, queue_items, queue_verify,
+};
 use commands::plugins::{plugin_install, plugin_list, plugin_remove};
 use commands::protect::{protect_learn, secret_scan, secret_scan_allow};
 use commands::review::{list_review_analyzers, review_code, verify_review_fix};
@@ -1103,6 +1107,17 @@ pub fn run() {
             runbook_step,
             runbook_decide,
             sources_status,
+            queue_items,
+            queue_verify,
+            queue_handover,
+            pr_infra_review,
+            pr_review_submit,
+            incident_open,
+            incident_list,
+            incident_get,
+            incident_add,
+            incident_status,
+            incident_feedback,
             ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,

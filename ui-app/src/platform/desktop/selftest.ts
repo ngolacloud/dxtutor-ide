@@ -1126,6 +1126,55 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         await sh("rm", ["-rf", "runbooks", "selftest-marker.txt", "listing.txt", "docs/audit"]);
       }
     });
+    // r23 F5b: a actividade Platform na app real — a fila calculada do estado (um achado de IaC num .tf que eu commitei, um
+    // runbook com `schedule:` nunca completo, um incidente que comando, e o deploy falhado do passo `deploy`), «verificar» só
+    // marca feito quando o estado o prova, passar exige destinatário e motivo; os incidentes locais com as suas regras e a
+    // confiança «low» sem fonte de métricas; a revisão de PR sem `gh` com sessão diz porquê.
+    await step("platform", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string, tf = ROOT + "infra-q/main.tf", rb = ROOT + "runbooks/selftest-weekly.md";
+      writeFile(tf, 'resource "aws_db_instance" "main" {\n  password = var.db_password\n}\n');
+      writeFile(rb, "# selftest weekly check\n\nschedule: weekly\n\n## 1. list [check]\n```sh\nls\n```\nexpect: `x`\n");
+      flushSave(); await idle();
+      const before = ((await sh("git", ["rev-parse", "HEAD"])) as { stdout: string }).stdout.trim();
+      await git("add", "infra-q/main.tf", "runbooks/selftest-weekly.md");
+      await sh("git", ["commit", "-m", "chore: platform self-test"]);
+      type Q = { me: { name: string }; items: Array<{ id: string; why: string }>; team: Array<{ item: string; recipient: string }>; missing: string[]; measured: Array<[string, string]> };
+      try {
+        const inc = await inv("incident_open", { root, title: "selftest checkout latency", severity: "SEV-3" }) as { id: number; key: string };
+        const q1 = await inv("queue_items", { root }) as Q;
+        const ids = q1.items.map((i) => i.id);
+        const notYet = await inv("queue_verify", { root, id: "iac:infra-q/main.tf", title: "finding" }) as { done: boolean };
+        writeFile(tf, 'resource "aws_db_instance" "main" {\n  password_wo = var.db_password\n}\n');
+        flushSave(); await idle();
+        const done = await inv("queue_verify", { root, id: "iac:infra-q/main.tf", title: "finding" }) as { done: boolean; proof: string | null };
+        const noReason = await inv("queue_handover", { root, id: "recurring:runbooks/selftest-weekly.md", title: "weekly", recipient: "bruno", reason: " " }).then(() => "kept", (e) => String(e));
+        await inv("queue_handover", { root, id: "recurring:runbooks/selftest-weekly.md", title: "weekly", recipient: "bruno", reason: "self-test: his runbook" });
+        const unchecked = await inv("incident_add", { root, id: inc.id, kind: "not-checked", text: "db metrics", reason: null }).then(() => "kept", (e) => String(e));
+        await inv("incident_add", { root, id: inc.id, kind: "not-checked", text: "db metrics", reason: "no metrics source here" });
+        await inv("incident_add", { root, id: inc.id, kind: "evidence", text: "the self-test says so", reason: null });
+        await inv("incident_status", { root, id: inc.id, status: "mitigated", note: "self-test" });
+        await inv("incident_feedback", { root, id: inc.id, right: true });
+        const view = await inv("incident_get", { root, id: inc.id }) as { confidence: { level: string }; events: unknown[]; precision: [number, number] };
+        await inv("incident_status", { root, id: inc.id, status: "resolved", note: "self-test: nothing broke" });
+        const q2 = await inv("queue_items", { root }) as Q;
+        const review = await inv("pr_infra_review", { root, pr: 1 }).then(() => "reviewed", (e) => String(e));
+        const submit = await inv("pr_review_submit", { root, pr: 1, decision: "approve", body: "", reason: null }).then(() => "posted", (e) => String(e));
+        const out = {
+          me: q1.me.name, items: ids, missing: q1.missing, notYet: notYet.done, done: done.done, proof: done.proof, noReason: noReason.slice(0, 60), unchecked: unchecked.slice(0, 70),
+          confidence: view.confidence.level, events: view.events.length, precision: view.precision, after: q2.items.map((i) => i.id), team: q2.team.map((t) => `${t.item}→${t.recipient}`),
+          review: review.slice(0, 80), submit: submit.slice(0, 80),
+        };
+        if (!ids.includes("iac:infra-q/main.tf") || !ids.includes("recurring:runbooks/selftest-weekly.md") || !ids.includes(`incident:${inc.id}`) || notYet.done || !done.done
+          || !/recipient|reason/.test(noReason) || !/reason/.test(unchecked) || view.confidence.level !== "low" || q2.items.some((i) => i.id.startsWith("iac:infra-q") || i.id.startsWith("recurring:") || i.id === `incident:${inc.id}`)
+          || !q2.team.some((t) => t.recipient === "bruno") || review === "reviewed" || submit === "posted") throw new Error("platform: " + JSON.stringify(out));
+        return out;
+      } finally {
+        delete FS[tf]; delete FS[rb]; flushSave(); await idle();
+        if (before) await git("reset", "--hard", before);
+        await sh("rm", ["-rf", "infra-q", "runbooks"]);
+      }
+    });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e
     // em release, o bytecode Python, os estágios do compilador, uma execução medida, o crescimento com N
     // e o traço real (Rust e Python).

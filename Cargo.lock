@@ -5491,6 +5491,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tutor-agent",
+ "tutor-board",
  "tutor-eval",
  "tutor-protect",
  "ureq",

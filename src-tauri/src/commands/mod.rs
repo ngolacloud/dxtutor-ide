@@ -24,6 +24,7 @@ pub mod missions;
 pub mod ops;
 pub mod pair;
 pub mod panel;
+pub mod platform;
 pub mod plugins;
 pub mod protect;
 pub mod review;
