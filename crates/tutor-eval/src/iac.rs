@@ -271,14 +271,27 @@ pub fn infracost_signed_in(env: &dyn Fn(&str) -> Option<String>) -> bool {
     })
 }
 
+/// The variables through which a program reaches the desktop session. Measured: with only DISPLAY
+/// pointing at an Xvfb, `xdg-open` (GNOME mode) still asked the session's `systemd --user` over the
+/// bus at `$XDG_RUNTIME_DIR/bus`, and the browser opened on the user's real desktop.
+const DESKTOP_VARS: [&str; 6] = [
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "XDG_RUNTIME_DIR",
+    "XDG_CURRENT_DESKTOP",
+    "DESKTOP_SESSION",
+];
+
 /// What infracost runs with: no terminal (stdin is null) and nothing that can show a sign-in page —
-/// no display, no session bus, a browser that fails, the device flow (no local callback port) — and
-/// no update check or coding-agent check (2.x otherwise writes into the HOME's agent settings).
+/// no display, no session bus, no desktop (so `xdg-open` falls back to `$BROWSER`), a browser that
+/// fails, the device flow (no local callback port) — and no update check or coding-agent check (2.x
+/// otherwise writes into the HOME's agent settings).
 fn infracost_command(mut cmd: Command) -> Command {
-    cmd.env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DBUS_SESSION_BUS_ADDRESS")
-        .env("BROWSER", "false")
+    for k in DESKTOP_VARS {
+        cmd.env_remove(k);
+    }
+    cmd.env("BROWSER", "false")
         .env("INFRACOST_CLI_OAUTH_USE_DEVICE_FLOW", "true")
         .env("INFRACOST_SKIP_UPDATE_CHECK", "true")
         .env("INFRACOST_SKIP_AGENT_CHECK", "true")

@@ -467,7 +467,10 @@ fn fake_infracost(dir: &Path, body: &str) -> impl Fn(&str) -> Command {
             .env_remove("INFRACOST_CLI_OAUTH_TOKEN_CACHE_PATH")
             .env("DISPLAY", ":0")
             .env("WAYLAND_DISPLAY", "wayland-0")
-            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nowhere");
+            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nowhere")
+            .env("XDG_RUNTIME_DIR", "/run/user/0")
+            .env("XDG_CURRENT_DESKTOP", "GNOME")
+            .env("DESKTOP_SESSION", "ubuntu");
         for k in INFRACOST_KEY_VARS {
             c.env_remove(k);
         }
@@ -553,8 +556,8 @@ fn infracost_without_credentials_is_never_started() {
     assert!(t0.elapsed() < Duration::from_secs(5));
 }
 
-/// With credentials it runs with stdin on /dev/null, no display, no session bus, a browser that
-/// fails and the device flow — and its costs reach the stage.
+/// With credentials it runs with stdin on /dev/null, no display, no session bus or desktop, a
+/// browser that fails and the device flow — and its costs reach the stage.
 #[test]
 fn infracost_runs_without_a_terminal_or_a_display() {
     let d = tempfile::tempdir().unwrap();
@@ -562,7 +565,7 @@ fn infracost_runs_without_a_terminal_or_a_display() {
     let cmd = fake_infracost(
         d.path(),
         &format!(
-            "{{ echo \"stdin=$(readlink /proc/self/fd/0)\"; echo \"display=${{DISPLAY-unset}}\"; echo \"wayland=${{WAYLAND_DISPLAY-unset}}\"; echo \"dbus=${{DBUS_SESSION_BUS_ADDRESS-unset}}\"; echo \"browser=$BROWSER\"; echo \"device=$INFRACOST_CLI_OAUTH_USE_DEVICE_FLOW\"; echo \"args=$*\"; }} > '{}'\necho '{{\"currency\":\"USD\",\"totalMonthlyCost\":\"3.5\",\"projects\":[{{\"breakdown\":{{\"resources\":[{{\"name\":\"aws_instance.web\",\"monthlyCost\":\"3.5\"}}]}}}}]}}'",
+            "{{ echo \"stdin=$(readlink /proc/self/fd/0)\"; echo \"display=${{DISPLAY-unset}}\"; echo \"wayland=${{WAYLAND_DISPLAY-unset}}\"; echo \"dbus=${{DBUS_SESSION_BUS_ADDRESS-unset}}\"; echo \"runtime=${{XDG_RUNTIME_DIR-unset}}\"; echo \"desktop=${{XDG_CURRENT_DESKTOP-unset}}${{DESKTOP_SESSION-unset}}\"; echo \"browser=$BROWSER\"; echo \"device=$INFRACOST_CLI_OAUTH_USE_DEVICE_FLOW\"; echo \"args=$*\"; }} > '{}'\necho '{{\"currency\":\"USD\",\"totalMonthlyCost\":\"3.5\",\"projects\":[{{\"breakdown\":{{\"resources\":[{{\"name\":\"aws_instance.web\",\"monthlyCost\":\"3.5\"}}]}}}}]}}'",
             seen.display()
         ),
     );
@@ -580,6 +583,8 @@ fn infracost_runs_without_a_terminal_or_a_display() {
         "display=unset",
         "wayland=unset",
         "dbus=unset",
+        "runtime=unset",
+        "desktop=unsetunset",
         "browser=false",
         "device=true",
     ] {

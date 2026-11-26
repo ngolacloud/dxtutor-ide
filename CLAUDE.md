@@ -1018,9 +1018,10 @@ O separador IaC do Ops tem Pipeline · Plano · Segurança e política · Drift 
 - **O infracost nunca é interactivo** (o 2.x sem credenciais abre um login no browser, ou um código de dispositivo, e
   espera): sem chave (`INFRACOST_API_KEY`/…, o `token.json` do `infracost auth login` ou o `api_key` do `credentials.yml`
   do HOME que o comando recebe) a etapa é `not_connected` e o infracost NÃO corre (`infracost_signed_in`); com chave corre
-  sem stdin, sem `DISPLAY`/`WAYLAND_DISPLAY`/barramento D-Bus, `BROWSER=false`, fluxo de dispositivo, no seu grupo de
-  processos, morto a um pedido de login (→ `not_connected`) ou aos 180 s (→ `failed`). GOTCHA-auto-teste: correr o
-  infracost à mão só com `DISPLAY`/`WAYLAND_DISPLAY` desligados e `BROWSER=false` (ou no Xvfb).
+  sem stdin, sem `DISPLAY`/`WAYLAND_DISPLAY`/D-Bus/`XDG_RUNTIME_DIR`/`XDG_CURRENT_DESKTOP`, `BROWSER=false`, fluxo de
+  dispositivo, no seu grupo de processos, morto a um pedido de login (→ `not_connected`) ou aos 180 s (→ `failed`).
+  GOTCHA (medido): o Xvfb NÃO chega — com `DISPLAY=:99` o `xdg-open` pediu ao `systemd --user` da sessão, pelo
+  `$XDG_RUNTIME_DIR/bus`, e o browser abriu no ecrã real do utilizador. Correr o infracost à mão só sem essas variáveis.
 - GOTCHA: o ficheiro do plano guarda os valores (segredos incluídos) — por isso 0600 e apagado ao fim de um dia; o JSON
   do plano para conftest/infracost vive numa pasta temporária apagada no fim da corrida.
 - Testes: `cargo test -p tutor-eval iac::` (parsers dos scanners, raio de impacto, e um pipeline real com o `tofu`:
