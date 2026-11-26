@@ -353,6 +353,11 @@ impl Agent {
         }
     }
 
+    /// As definições das ferramentas tal como vão em cada pedido (pela ordem fixa da sessão).
+    pub fn tool_defs(&self) -> Vec<crate::provider::ToolDef> {
+        self.tools.iter().map(|x| x.def()).collect()
+    }
+
     /// Substitui a espera entre repetições (testes).
     pub fn with_sleeper(mut self, f: impl Fn(Duration) + Send + Sync + 'static) -> Self {
         self.sleep = Arc::new(f);
