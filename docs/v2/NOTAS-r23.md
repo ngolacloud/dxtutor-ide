@@ -148,6 +148,30 @@ admitem excepção (o auto-teste apanhou a primeira versão a deixar fazê-lo qu
 - O antigo histórico de promoções do Infra (`ENVX.hist`) já não é escrito; o ecrã Environments mostra os registos de
   deploy.
 
+## F5a — runbooks, fontes de dados e evidências
+
+**Decisões tuas (início da F5):** incidentes são registos locais (on-call e alertas «não ligados» até haver fonte);
+catálogo/scorecards, GitOps, custo e inventário ficam para depois; a F5 em duas partes.
+
+**O que mudou**
+- **Runbooks como código** em `runbooks/*.md`, na secção Runbooks do Ops: passos `[check|action|decision]` com o comando
+  e o esperado. Editar o ficheiro muda os passos.
+- **A regra, no Rust:** uma verificação só corre se cada comando for só de leitura (o classificador do agente mais os
+  verbos de leitura de kubectl, aws, tofu, gh, vault…; nada que escreva ficheiros nem que leia segredos) — senão é
+  recusada com `not_read_only`. Uma acção pede aprovação com o comando e um motivo, fica no registo antes de correr, e
+  recebe as credenciais do Vault só para esse passo. Uma decisão regista as tuas palavras.
+- **Cada passo fica guardado** (saída mascarada, código, resultado contra o esperado, quem e quando). Uma expectativa em
+  prosa julga-a a pessoa. «✦ Perguntar ao Co-Dev» comenta a saída e sugere o passo seguinte, sem correr nada.
+- **Fontes de dados:** CI/CD pelo `gh` (só leitura); custo, métricas/logs e inventário dizem «não ligada» e como ligar.
+- **Evidências ISO 27001:** o botão «Export evidence» escreve `docs/audit/evidence-AAAA-MM.md` dentro do projecto, a
+  partir das linhas reais do registo de auditoria, dos deploys e das execuções de runbooks, por controlo, e abre-o.
+- 8 comandos novos: de 281 para 289.
+
+**Limitações**
+- O classificador do agente chama «perigoso» a `kubectl get deploy` (vê a palavra «deploy»); a política dos runbooks
+  decide comando a comando e não mexe no classificador do Co-Dev.
+- Não há ligadores para custo, métricas/logs e inventário: ficam «não ligados».
+
 ## A seguir
 
-F5 — a actividade de Platform orientada ao trabalho (runbooks, a fila, as evidências), sobre os registos da F4.
+F5b — a fila «My queue» (com verificação e passagem a outra pessoa), a revisão de PR de infra e os incidentes locais.

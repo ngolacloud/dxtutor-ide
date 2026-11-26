@@ -799,3 +799,24 @@ available» until its image exists; canary and blue-green, and dynamic credentia
 the kubeconfig's identity), are later; the old `ENVX.hist` promotion history is no longer written (the Environments view
 shows the deploy records).
 
+### F5a status: done (runbooks as code, data sources, the evidence export)
+
+Owner decisions at the start of F5 (2026-11-26): incidents are local records opened by a person (on-call and alerts are
+«not connected» until a source exists — §5 Q9); the catalog/scorecards, GitOps, cost and inventory screens are deferred
+(§5 Q10); F5 is reviewed in two parts — F5a (runbooks, data sources, evidence: the brief's two acceptance criteria) and
+F5b (My queue with verification and handover, PR infra review, incidents).
+
+| What | Where |
+|---|---|
+| The runbook grammar (`## n. title [check\|action\|decision]`, a command block, `expect:` — backticks or `/regex/` checked against the output, prose judged by the person) and the runner (`sh -c` in the project, 10 min, output masked) | `crates/tutor-platform/src/runbook.rs` |
+| The read-only allowlist: the agent's classifier per simple command, plus the infrastructure tools' read verbs; file writes and secret-reading verbs refused. A check that is not read-only is refused in Rust (`not_read_only`); an action needs an approval (audited in Rust first) and gets Vault's environment for that step only; a decision records words | `crates/tutor-platform/src/policy.rs`, `runbook::may_run` |
+| Runbook runs kept per step (project migration 12, `runbook_runs`), a person's judgement with a note | `crates/tutor-board/src/project/runbooks.rs`, `board.rs` |
+| Data sources: CI/CD through `gh` (read-only), cost / metrics and logs / cloud inventory «not connected» with how | `crates/tutor-platform/src/sources.rs` |
+| The ISO/IEC 27001:2022 evidence file from the real audit rows, deploy records and runbook runs, by control, written inside the project (`docs/audit/evidence-YYYY-MM.md`) and audited | `crates/tutor-board/src/project/evidence.rs`, `board.rs::audit_export_evidence` |
+| UI: the Ops tab's Runbooks and Data sources sections, «Export evidence (ISO 27001)» (the file opens in the editor), «✦ Ask Co-Dev» on a step's output (a proposal only) | `ui-app/src/features/ops/` |
+| Commands `runbook_list`, `runbook_parse`, `runbook_step`, `runbook_decide`, `sources_status`, `runbook_judge`, `runbook_runs`, `audit_export_evidence` (281 → 289) | as listed |
+
+Reported: the agent's classifier calls `kubectl get deploy` dangerous («faz deploy»); the runbook policy decides command
+by command, with the infrastructure read verbs first, and does not change the agent's classifier (Co-Dev is out of
+scope). No connector for cost, metrics/logs or the cloud inventory exists yet: they stay «not connected».
+

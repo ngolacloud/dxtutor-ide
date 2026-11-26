@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 281 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 289 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -878,6 +878,31 @@ Oito passos — Destino, Identidade, Segredos, Verificações, Estratégia, Apro
 - Testes: `cargo test -p tutor-platform deploy` (kubectl e gh falsos por scripts, repositório git real),
   `cargo test -p tutor-board deploy_records`, `tests/deploy.test.ts`, `tests/infra.r5c1.test.ts` e o passo `deploy` do
   auto-teste (kubeconfig temporário vazio: nunca os clusters do utilizador).
+
+## Runbooks, fontes de dados e evidências (r23 F5a, `tutor_platform::runbook`/`policy`/`sources`, `features/ops`)
+
+- **Runbooks como código** em `runbooks/*.md`: `## n. título [check|action|decision]`, um bloco de comando, `expect:`
+  (entre crases ou `/regex/` verifica-se contra a saída; prosa julga-a a pessoa, com nota). Editar o ficheiro muda os
+  passos. O separador Ops tem a secção Runbooks (correr passo a passo, uma execução por «New run»).
+- **A regra (no Rust, `runbook::may_run`):** um `check` só corre se cada comando for só de leitura
+  (`policy::read_only`: o classificador do agente `tutor_agent::permissions::assess` comando a comando, mais os verbos de
+  leitura de kubectl/aws/gcloud/az/tofu/gh/helm/docker/vault/argocd/curl GET/psql SELECT; nada de `>` para ficheiros nem
+  de verbos que leiam segredos — `kubectl get secret -o yaml`, `vault kv get`, `get-secret-value`…) — senão
+  `not_read_only`; uma `action` só com aprovação e motivo (auditada no Rust antes) e com o ambiente do Vault só para esse
+  passo; uma `decision` regista palavras. GOTCHA: o classificador do agente vê «deploy» em `kubectl get deploy` e chama-lhe
+  perigoso — por isso a decisão é comando a comando, com os verbos de leitura de infra primeiro.
+- Cada passo fica na base do Project (migração 12, `runbook_runs`): comando, saída mascarada, código, resultado contra a
+  expectativa, quem e quando. «✦ Ask Co-Dev» comenta a saída e sugere o passo seguinte (não corre nada).
+- **Fontes de dados** (`sources_status`): CI/CD pelo `gh` (só leitura); custo, métricas/logs e inventário «not connected»
+  com como ligar — nunca um número estimado.
+- **Evidências ISO/IEC 27001:2022** (`audit_export_evidence`, botão «Export evidence» do Ops): escreve
+  `docs/audit/evidence-AAAA-MM.md` DENTRO do projecto a partir das linhas reais do registo (origem `ide`), dos deploys e
+  das execuções de runbooks, por controlo (A.8.32, A.8.9, A.5.17/A.8.12, A.8.13, A.5.24–A.5.27) e as «não mapeadas»;
+  gerador puro em `tutor_board::project::evidence`. A exportação vai ao registo.
+- Decisões do dono (2026-11-26): incidentes são registos locais (on-call e alertas «not connected» até haver fonte);
+  catálogo/scorecards, GitOps, custo e inventário adiados; F5 em duas partes (F5b: fila, revisão de PR, incidentes).
+- Testes: `cargo test -p tutor-platform runbook sources`, `cargo test -p tutor-board runbook_runs`, `tests/ops.test.ts` e
+  o passo `runbook` do auto-teste.
 
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 
