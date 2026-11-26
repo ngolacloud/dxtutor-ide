@@ -17,6 +17,7 @@ pub mod breakpoints;
 pub mod deploys;
 pub mod evidence;
 pub mod incidents;
+pub mod methods;
 pub mod plan;
 pub mod reports;
 pub mod risks;
@@ -76,6 +77,8 @@ pub struct Issue {
     pub acceptance: Vec<Criterion>,
     /// One flag per item of the project's Definition of Done.
     pub dod_done: Vec<bool>,
+    /// One flag per item of the project's own Definition of Ready (Board B), ticked like the DoD.
+    pub dor_done: Vec<bool>,
     pub links: Vec<Link>,
     pub change_sets: u32,
     pub created: i64,
@@ -113,10 +116,24 @@ pub fn is_gwt(text: &str) -> bool {
     has(&["given", "dado"]) && has(&["when", "quando"]) && has(&["then", "então", "entao"])
 }
 
+/// The prefix of a missing item of the project's own DoR (`DoR: «text»`).
+pub const DOR_ITEM: &str = "DoR: ";
+
+/// The items of the project's own Definition of Ready not yet ticked on the issue (`dor_done`,
+/// one flag per item, like the DoD).
+pub fn dor_open(dor: &[String], done: &[bool]) -> Vec<String> {
+    dor.iter()
+        .enumerate()
+        .filter(|(k, _)| !done.get(*k).copied().unwrap_or(false))
+        .map(|(_, t)| format!("{DOR_ITEM}«{t}»"))
+        .collect()
+}
+
 /// What an issue still lacks to be Ready (RF-B02, docs/v2/RF-DELONIX-PLANO.md F4.2): criteria
 /// in Given/When/Then, the user story (for stories), a file scope, its dependencies Done, no
-/// open question — and, last, a human's approval (`ready`). `states`: every issue's state.
-pub fn readiness(i: &Issue, states: &HashMap<String, String>) -> Vec<String> {
+/// open question, the project's own DoR items ticked (`dor`) — and, last, a human's approval
+/// (`ready`). `states`: every issue's state.
+pub fn readiness(i: &Issue, states: &HashMap<String, String>, dor: &[String]) -> Vec<String> {
     let mut m = vec![];
     if i.acceptance.is_empty() {
         m.push("critérios de aceitação".to_string());
@@ -143,6 +160,7 @@ pub fn readiness(i: &Issue, states: &HashMap<String, String>) -> Vec<String> {
     if let Some(b) = &i.blocked {
         m.push(format!("bloqueio em aberto: {b}"));
     }
+    m.extend(dor_open(dor, &i.dor_done));
     if !i.ready {
         m.push("aprovação humana (Ready)".to_string());
     }
@@ -403,6 +421,9 @@ pub enum Op {
         dod: Option<Vec<String>>,
         #[serde(default)]
         key_prefix: Option<String>,
+        /// The language of the method's DoR/DoD suggestions (`pt`, else English).
+        #[serde(default)]
+        lang: Option<String>,
     },
     CreateIssue {
         title: String,
@@ -420,6 +441,9 @@ pub enum Op {
         acceptance: Vec<String>,
         #[serde(default)]
         sprint: Option<String>,
+        /// Overrides the sprint capacity (Scrum/XP); recorded.
+        #[serde(default)]
+        reason: Option<String>,
     },
     UpdateIssue {
         key: String,
@@ -449,6 +473,9 @@ pub enum Op {
         branch: Option<Option<String>>,
         #[serde(default)]
         dod_done: Option<Vec<bool>>,
+        /// One flag per item of the project's own DoR.
+        #[serde(default)]
+        dor_done: Option<Vec<bool>>,
         #[serde(default)]
         story_as: Option<String>,
         #[serde(default)]
@@ -462,6 +489,9 @@ pub enum Op {
         /// RF-T03: the issue's budget in dollars (`null` removes it).
         #[serde(default, deserialize_with = "double")]
         budget_usd: Option<Option<f64>>,
+        /// Overrides the sprint capacity when the estimate changes (Scrum/XP); recorded.
+        #[serde(default)]
+        reason: Option<String>,
     },
     /// RF-T03: the sprint's Co-Dev budget in dollars (`null` removes it).
     SetSprintBudget {
@@ -475,8 +505,10 @@ pub enum Op {
         #[serde(default)]
         codevs: Option<u32>,
     },
-    /// Co-Dev answered every acceptance criterion (`finish_issue`, RF-B06): the table and the
-    /// template version are kept on the issue, which goes to Review. Done stays human.
+    /// Co-Dev answered every acceptance criterion (`finish_issue`, RF-B06) — and, from toolset 10,
+    /// every DoD item: the table and the template version are kept on the issue, which goes to
+    /// Review by the normal move (WIP, one step, the test-first proof); when a rule refuses it, it
+    /// stays where it is and the activity says why. Done stays human.
     CodevFinished {
         key: String,
         report: serde_json::Value,
@@ -538,6 +570,9 @@ pub enum Op {
         key: String,
         #[serde(default)]
         sprint: Option<String>,
+        /// Overrides the sprint capacity (Scrum/XP); recorded.
+        #[serde(default)]
+        reason: Option<String>,
     },
     CreateRelease {
         version: String,
@@ -594,10 +629,11 @@ fn medium() -> String {
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectError {
-    /// `not_found | invalid | step | wip | dor | dod | blocked | db`.
+    /// `not_found | invalid | step | wip | dor | dod | blocked | capacity | tdd | role | db`.
     pub code: String,
     pub message: String,
-    /// The rule may be overridden with a reason (`Op::Move { reason }`).
+    /// The rule may be overridden with a reason (`reason` of `move`, `plan_issue`, `update_issue`,
+    /// `create_issue`).
     pub overridable: bool,
 }
 
@@ -684,6 +720,20 @@ impl ProjectStore {
             params![root, default_prefix(root), r#"{"progress":3,"review":2,"accept":2}"#, now],
         )?;
         Ok(())
+    }
+
+    /// What choosing `method` would change in the settings of `root`, and what stays because the
+    /// user set it (Board B). Nothing is written: the Settings op applies the same change.
+    pub fn method_preview(
+        &self,
+        root: &str,
+        method: &str,
+        lang: &str,
+        now: i64,
+    ) -> Result<methods::MethodChange, ProjectError> {
+        one_of(method, &METHODS, "método")?;
+        Self::ensure(&self.conn, root, now)?;
+        Ok(methods::change(&current_settings(&self.conn, root)?, method, lang))
     }
 
     /// The whole project of `root` (created empty on first use).
@@ -1161,19 +1211,28 @@ struct IssueRow {
     ready: bool,
     blocked: Option<String>,
     dod_done: Vec<bool>,
+    dor_done: Vec<bool>,
+    cos: String,
+    sprint: Option<String>,
+    points: Option<u32>,
 }
 
 fn issue_row(c: &Connection, root: &str, key: &str) -> Result<IssueRow, ProjectError> {
     c.query_row(
-        "SELECT state, ready, blocked, dod_done FROM issues WHERE root = ?1 AND key = ?2",
+        "SELECT state, ready, blocked, dod_done, dor_done, cos, sprint, points FROM issues WHERE root = ?1 AND key = ?2",
         params![root, key],
         |r| {
             let dod: String = r.get(3)?;
+            let dor: String = r.get(4)?;
             Ok(IssueRow {
                 state: r.get(0)?,
                 ready: r.get(1)?,
                 blocked: r.get(2)?,
                 dod_done: serde_json::from_str(&dod).unwrap_or_default(),
+                dor_done: serde_json::from_str(&dor).unwrap_or_default(),
+                cos: r.get(5)?,
+                sprint: r.get(6)?,
+                points: r.get(7)?,
             })
         },
     )
@@ -1200,6 +1259,76 @@ fn settings(c: &Connection, root: &str) -> Result<Settings, ProjectError> {
             ))
         },
     )?)
+}
+
+/// The settings a method change reads and writes.
+fn current_settings(c: &Connection, root: &str) -> Result<methods::Current, ProjectError> {
+    let iter_days: u32 = c.query_row(
+        "SELECT iter_days FROM projects WHERE root = ?1",
+        params![root],
+        |r| r.get(0),
+    )?;
+    let (method, wip, dor, dod) = settings(c, root)?;
+    Ok(methods::Current {
+        method,
+        iter_days,
+        wip,
+        dor,
+        dod,
+    })
+}
+
+/// Board B: the sprint capacity (Scrum, XP, Scrum + XP) when `key` puts `points` in `sprint`
+/// (`before`: what it counted there before the change). Refused only when the change adds points
+/// and the sprint would pass its capacity; a closed sprint, a sprint without a capacity and Kanban
+/// have no rule.
+fn capacity_rule(
+    c: &Connection,
+    root: &str,
+    sprint: &str,
+    key: &str,
+    before: u32,
+    points: Option<u32>,
+) -> Result<Option<ProjectError>, ProjectError> {
+    let (method, ..) = settings(c, root)?;
+    if !methods::uses_capacity(&method) {
+        return Ok(None);
+    }
+    let Some((name, state, cap)): Option<(String, String, Option<u32>)> = c
+        .query_row(
+            "SELECT name, state, capacity FROM sprints WHERE root = ?1 AND id = ?2",
+            params![root, sprint],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let Some(cap) = cap.filter(|_| state != "closed") else {
+        return Ok(None);
+    };
+    let others: u32 = c.query_row(
+        "SELECT COALESCE(SUM(points), 0) FROM issues WHERE root = ?1 AND sprint = ?2 AND key <> ?3",
+        params![root, sprint, key],
+        |r| r.get(0),
+    )?;
+    let total = others + points.unwrap_or(0);
+    if total > cap && total > others + before {
+        return Ok(Some(rule(
+            "capacity",
+            format!("a capacidade de «{name}» é {cap} pontos e ficaria com {total}"),
+        )));
+    }
+    Ok(None)
+}
+
+/// A rule broken by a change that is not a move: with a reason it goes on (the note for the
+/// `override` activity), without one it is refused.
+fn need_reason(e: ProjectError, reason: Option<&str>) -> Result<String, ProjectError> {
+    match reason.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(r) => Ok(format!("excepção ({}): {r}", e.code)),
+        None => Err(e),
+    }
 }
 
 fn next_rank(c: &Connection, root: &str) -> rusqlite::Result<f64> {
@@ -1285,12 +1414,20 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             dor,
             dod,
             key_prefix,
+            lang,
         } => {
             if let Some(m) = &method {
                 one_of(m, &METHODS, "método")?;
+                // Board B: the method's defaults where the user has not set their own (the same
+                // change `method_preview` shows); the fields of this op, if any, win after it
+                let cur = current_settings(c, root)?;
+                let next = methods::apply(
+                    &cur,
+                    &methods::change(&cur, m, lang.as_deref().unwrap_or("pt")),
+                );
                 c.execute(
-                    "UPDATE projects SET method = ?2 WHERE root = ?1",
-                    params![root, m],
+                    "UPDATE projects SET method = ?2, iter_days = ?3, wip = ?4, dor = ?5, dod = ?6 WHERE root = ?1",
+                    params![root, m, next.iter_days, json(&next.wip), json(&next.dor), json(&next.dod)],
                 )?;
             }
             if let Some(d) = iter_days {
@@ -1346,11 +1483,16 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             description,
             acceptance,
             sprint,
+            reason,
         } => {
+            let mut overridden = None;
             if let Some(s) = &sprint {
                 sprint_exists(c, root, s)?;
+                if let Some(e) = capacity_rule(c, root, s, "", 0, points)? {
+                    overridden = Some(need_reason(e, reason.as_deref())?);
+                }
             }
-            insert_issue(
+            let key = insert_issue(
                 c,
                 root,
                 actor,
@@ -1365,6 +1507,9 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 sprint.as_deref(),
                 "",
             )?;
+            if let Some(note) = overridden {
+                log(c, root, &key, now, actor, "override", None, None, &note)?;
+            }
         }
         Op::UpdateIssue {
             key,
@@ -1387,8 +1532,20 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             scope,
             deps,
             budget_usd,
+            dor_done,
+            reason,
         } => {
-            issue_row(c, root, &key)?;
+            let row = issue_row(c, root, &key)?;
+            // Board B: a bigger estimate may not pass the sprint's capacity (Scrum/XP)
+            let mut overridden = None;
+            if let (Some(p), Some(s)) = (&points, &row.sprint) {
+                if let Some(e) = capacity_rule(c, root, s, &key, row.points.unwrap_or(0), *p)? {
+                    overridden = Some(need_reason(e, reason.as_deref())?);
+                }
+            }
+            if let Some(note) = &overridden {
+                log(c, root, &key, now, actor, "override", None, None, note)?;
+            }
             if let Some(b) = &budget_usd {
                 if b.is_some_and(|v| v.is_nan() || v < 0.0) {
                     return Err(err(
@@ -1491,6 +1648,11 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 set("deps", &json(&v))?;
                 changed.push("dependências");
             }
+            // before `ready`: ticking the DoR items and approving it may come in one change
+            if let Some(d) = &dor_done {
+                set("dor_done", &json(d))?;
+                changed.push("DoR");
+            }
             if let Some(r) = ready {
                 // RF-B02: Ready only with the rest of the Definition of Ready complete
                 if r {
@@ -1501,7 +1663,7 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                         .map(|i| (i.key.clone(), i.state.clone()))
                         .collect();
                     if let Some(i) = p.issues.iter().find(|i| i.key == key) {
-                        let missing: Vec<String> = readiness(i, &states)
+                        let missing: Vec<String> = readiness(i, &states, &p.dor)
                             .into_iter()
                             .filter(|m| m != "aprovação humana (Ready)")
                             .collect();
@@ -1585,6 +1747,8 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             template_version,
         } => {
             let row = issue_row(c, root, &key)?;
+            let (.., dod) = settings(c, root)?;
+            let dod_gap = unanswered_dod(&report, &dod);
             c.execute(
                 "UPDATE issues SET criteria_report = ?3, template_version = COALESCE(?4, template_version), updated = ?5 WHERE root = ?1 AND key = ?2",
                 params![root, key, json(&report), template_version, now],
@@ -1600,22 +1764,34 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 None,
                 "o Co-Dev respondeu aos critérios",
             )?;
+            // Board B: to Review by the normal move — WIP, one step, the test-first proof; a rule
+            // that refuses keeps the issue where it is (the human moves it, with a reason if needed)
             if row.state != "review" && row.state != "accept" && row.state != "done" {
-                c.execute(
-                    "UPDATE issues SET state = 'review', updated = ?3 WHERE root = ?1 AND key = ?2",
-                    params![root, key, now],
-                )?;
-                log(
-                    c,
-                    root,
-                    &key,
-                    now,
-                    actor,
-                    "moved",
-                    Some(&row.state),
-                    Some("review"),
-                    "critérios respondidos (RF-B06)",
-                )?;
+                let m = move_check(c, root, &key, "review")?;
+                let mut why: Vec<String> = m.broken.iter().map(|b| b.message.clone()).collect();
+                if let Some(g) = dod_gap {
+                    why.insert(0, g);
+                }
+                if why.is_empty() {
+                    let mut note = "critérios respondidos (RF-B06)".to_string();
+                    for n in &m.notes {
+                        note.push_str("; ");
+                        note.push_str(n);
+                    }
+                    do_move(c, root, actor, now, &key, &row.state, "review", "moved", &note)?;
+                } else {
+                    log(
+                        c,
+                        root,
+                        &key,
+                        now,
+                        actor,
+                        "held",
+                        None,
+                        None,
+                        &format!("fica em «{}»: {}", row.state, why.join("; ")),
+                    )?;
+                }
             }
         }
         Op::TestsRun {
@@ -1854,10 +2030,21 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 params![root, id],
             )?;
         }
-        Op::PlanIssue { key, sprint } => {
-            issue_row(c, root, &key)?;
+        Op::PlanIssue {
+            key,
+            sprint,
+            reason,
+        } => {
+            let row = issue_row(c, root, &key)?;
+            // Board B: the sprint's capacity (Scrum/XP); an override is recorded after the plan
+            let mut overridden = None;
             if let Some(s) = &sprint {
                 sprint_exists(c, root, s)?;
+                if row.sprint.as_deref() != Some(s.as_str()) {
+                    if let Some(e) = capacity_rule(c, root, s, &key, 0, row.points)? {
+                        overridden = Some(need_reason(e, reason.as_deref())?);
+                    }
+                }
             }
             c.execute(
                 "UPDATE issues SET sprint = ?3, updated = ?4 WHERE root = ?1 AND key = ?2",
@@ -1874,6 +2061,9 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 None,
                 sprint.as_deref().unwrap_or("backlog"),
             )?;
+            if let Some(note) = overridden {
+                log(c, root, &key, now, actor, "override", None, None, &note)?;
+            }
         }
         Op::CreateRelease {
             version,
@@ -2041,36 +2231,38 @@ fn sprint_exists(c: &Connection, root: &str, id: &str) -> Result<(), ProjectErro
     .ok_or_else(|| err("not_found", format!("a sprint {id} não existe")))
 }
 
-/// The flow rules (PROJ-02/03), checked before a move; `reason` overrides them.
-fn move_issue(
-    c: &Connection,
-    root: &str,
-    actor: &str,
-    now: i64,
-    key: &str,
-    to: &str,
-    reason: Option<&str>,
-) -> Result<(), ProjectError> {
-    one_of(to, &STATES, "estado")?;
+/// The rules a move breaks (PROJ-02/03 and Board B), before it happens; `notes` say what the
+/// activity records about an exception the method allows (an expedite past the WIP limit).
+struct MoveCheck {
+    from: String,
+    broken: Vec<ProjectError>,
+    notes: Vec<String>,
+}
+
+fn move_check(c: &Connection, root: &str, key: &str, to: &str) -> Result<MoveCheck, ProjectError> {
     let row = issue_row(c, root, key)?;
+    let mut m = MoveCheck {
+        from: row.state.clone(),
+        broken: vec![],
+        notes: vec![],
+    };
     if row.state == to {
-        return Ok(());
+        return Ok(m);
     }
-    let (method, wip, _dor, dod) = settings(c, root)?;
+    let (method, wip, dor, dod) = settings(c, root)?;
     let from_i = STATES.iter().position(|s| *s == row.state).unwrap_or(0);
     let to_i = STATES.iter().position(|s| *s == to).unwrap_or(0);
     let forward = to_i > from_i;
-    let reason = reason.map(str::trim).filter(|r| !r.is_empty());
-    let mut broken: Vec<ProjectError> = vec![];
     if from_i.abs_diff(to_i) > 1 {
-        broken.push(rule(
+        m.broken.push(rule(
             "step",
             format!("{key} só anda um passo de cada vez ({} → {to})", row.state),
         ));
     }
     if forward {
         if let Some(b) = &row.blocked {
-            broken.push(rule("blocked", format!("{key} está bloqueada: {b}")));
+            m.broken
+                .push(rule("blocked", format!("{key} está bloqueada: {b}")));
         }
         if let Some(limit) = wip.get(to) {
             let n: u32 = c.query_row(
@@ -2079,17 +2271,36 @@ fn move_issue(
                 |r| r.get(0),
             )?;
             if n >= *limit {
-                broken.push(rule(
-                    "wip",
-                    format!("o limite de WIP de «{to}» é {limit} e já há {n}"),
-                ));
+                // Kanban: an expedite may pass the limit — at most one over it per column
+                if methods::expedite_passes_wip(&method) && row.cos == "expedite" && n == *limit
+                {
+                    m.notes.push(format!(
+                        "expedite acima do limite de WIP de «{to}» ({}/{limit})",
+                        n + 1
+                    ));
+                } else {
+                    m.broken.push(rule(
+                        "wip",
+                        format!("o limite de WIP de «{to}» é {limit} e já há {n}"),
+                    ));
+                }
             }
         }
-        if row.state == "todo" && method != "kanban" && !row.ready {
-            broken.push(rule(
-                "dor",
-                format!("{key} ainda não cumpre a Definition of Ready"),
-            ));
+        if row.state == "todo" && methods::checks_dor_on_move(&method) {
+            let open = dor_open(&dor, &row.dor_done);
+            if !row.ready || !open.is_empty() {
+                m.broken.push(rule(
+                    "dor",
+                    if open.is_empty() {
+                        format!("{key} ainda não cumpre a Definition of Ready")
+                    } else {
+                        format!(
+                            "{key} ainda não cumpre a Definition of Ready (falta: {})",
+                            open.join("; ")
+                        )
+                    },
+                ));
+            }
         }
         if to == "done" {
             let open: u32 = c.query_row(
@@ -2101,26 +2312,129 @@ fn move_issue(
                 .filter(|i| !row.dod_done.get(*i).copied().unwrap_or(false))
                 .count();
             if open > 0 || dod_missing > 0 {
-                broken.push(rule(
+                m.broken.push(rule(
                     "dod",
                     format!("{key} não cumpre a Definition of Done ({open} critério(s) por cumprir, {dod_missing} item(ns) da DoD por marcar)"),
                 ));
             }
         }
-    }
-    if let Some(first) = broken.first() {
-        if reason.is_none() {
-            return Err(first.clone());
+        if to == "review" && row.state == "progress" && methods::test_first(&method) {
+            if let Some(gap) = tdd_gap(c, root, key)? {
+                m.broken.push(rule("tdd", format!("{key}: {gap}")));
+            }
         }
     }
+    Ok(m)
+}
+
+/// XP / Scrum + XP (Board B): the proof that Co-Dev's work on `key` was test-first. It applies to
+/// issues with Co-Dev change sets (the data the IDE has; a human's own work is not seen). The
+/// proof is a `tdd`/`red` row of the audit log — a `run_tests` that FAILED while the issue's
+/// session had changed tests and nothing else yet (the Co-Dev host records it) — whose test files
+/// are among the issue's accepted change sets (a test the human rejected proves nothing).
+/// `None`: proven, or not applicable; `Some(why)` otherwise.
+fn tdd_gap(c: &Connection, root: &str, key: &str) -> Result<Option<String>, ProjectError> {
+    let paths: std::collections::BTreeSet<String> = {
+        let mut st = c.prepare(
+            "SELECT DISTINCT path FROM change_sets WHERE root = ?1 AND issue_key = ?2",
+        )?;
+        let v = st
+            .query_map(params![root, key], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        v
+    };
+    if paths.is_empty() {
+        return Ok(None);
+    }
+    let reds: Vec<Option<String>> = {
+        let mut st = c.prepare(
+            "SELECT path FROM audit WHERE root = ?1 AND issue_key = ?2 AND event = 'tdd' AND outcome = 'red'",
+        )?;
+        let v = st
+            .query_map(params![root, key], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        v
+    };
+    let proven = reds.iter().flatten().any(|p| {
+        p.split('\n')
+            .map(str::trim)
+            .any(|f| !f.is_empty() && paths.contains(f))
+    });
+    Ok((!proven).then(|| {
+        if reds.is_empty() {
+            "sem prova de test-first: nenhum run_tests falhou antes da implementação (com só testes alterados)".to_string()
+        } else {
+            "sem prova de test-first: os testes do run_tests vermelho não estão nas alterações aceites".to_string()
+        }
+    }))
+}
+
+/// The DoD items a `finish_issue` report (toolset 10: `dod: [{index, item, met, evidence}]`)
+/// left unanswered; `None` when all are answered, or when the report has no `dod` (a session of
+/// an older toolset). An item answered for another text (the DoD changed) counts as unanswered.
+fn unanswered_dod(report: &serde_json::Value, dod: &[String]) -> Option<String> {
+    let answers = report.get("dod")?.as_array().cloned().unwrap_or_default();
+    let missing: Vec<String> = dod
+        .iter()
+        .enumerate()
+        .filter(|(k, item)| {
+            !answers.iter().any(|a| {
+                a["index"].as_u64() == Some(*k as u64 + 1)
+                    && a["item"].as_str().is_none_or(|t| t.trim() == item.trim())
+                    && a["evidence"].as_str().is_some_and(|e| !e.trim().is_empty())
+            })
+        })
+        .map(|(k, item)| format!("{} «{item}»", k + 1))
+        .collect();
+    (!missing.is_empty()).then(|| format!("a DoD ficou por responder: {}", missing.join(", ")))
+}
+
+/// Moves `key` and records it (`kind`: `moved` or `override`).
+#[allow(clippy::too_many_arguments)]
+fn do_move(
+    c: &Connection,
+    root: &str,
+    actor: &str,
+    now: i64,
+    key: &str,
+    from: &str,
+    to: &str,
+    kind: &str,
+    note: &str,
+) -> Result<(), ProjectError> {
     c.execute(
         "UPDATE issues SET state = ?3, updated = ?4 WHERE root = ?1 AND key = ?2",
         params![root, key, to, now],
     )?;
-    let note = match (broken.is_empty(), reason) {
+    log(c, root, key, now, actor, kind, Some(from), Some(to), note)?;
+    Ok(())
+}
+
+/// The flow rules (PROJ-02/03, Board B), checked before a move; `reason` overrides them.
+fn move_issue(
+    c: &Connection,
+    root: &str,
+    actor: &str,
+    now: i64,
+    key: &str,
+    to: &str,
+    reason: Option<&str>,
+) -> Result<(), ProjectError> {
+    one_of(to, &STATES, "estado")?;
+    let m = move_check(c, root, key, to)?;
+    if m.from == to {
+        return Ok(());
+    }
+    let reason = reason.map(str::trim).filter(|r| !r.is_empty());
+    if let Some(first) = m.broken.first() {
+        if reason.is_none() {
+            return Err(first.clone());
+        }
+    }
+    let mut note = match (m.broken.is_empty(), reason) {
         (false, Some(r)) => format!(
             "excepção ({}): {r}",
-            broken
+            m.broken
                 .iter()
                 .map(|b| b.code.as_str())
                 .collect::<Vec<_>>()
@@ -2128,22 +2442,18 @@ fn move_issue(
         ),
         _ => String::new(),
     };
-    log(
-        c,
-        root,
-        key,
-        now,
-        actor,
-        if broken.is_empty() {
-            "moved"
-        } else {
-            "override"
-        },
-        Some(&row.state),
-        Some(to),
-        &note,
-    )?;
-    Ok(())
+    for n in &m.notes {
+        if !note.is_empty() {
+            note.push_str("; ");
+        }
+        note.push_str(n);
+    }
+    let kind = if m.broken.is_empty() {
+        "moved"
+    } else {
+        "override"
+    };
+    do_move(c, root, actor, now, key, &m.from, to, kind, &note)
 }
 
 fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
@@ -2227,7 +2537,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
     }
     let mut st = c.prepare(
         "SELECT key, title, kind, priority, points, assignee, pair, epic, cos, blocked, rank, state, sprint, ready, description, branch, dod_done, created, updated,
-                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version, budget_usd
+                story_as, story_want, story_so, scope, deps, ready_by, attempts, criteria_report, template_version, budget_usd, dor_done
          FROM issues WHERE root = ?1 ORDER BY rank, key",
     )?;
     let issues = st
@@ -2253,6 +2563,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                 branch: r.get(15)?,
                 acceptance: acc.get(&key).cloned().unwrap_or_default(),
                 dod_done: serde_json::from_str(&dod_done).unwrap_or_default(),
+                dor_done: serde_json::from_str(&r.get::<_, String>(29)?).unwrap_or_default(),
                 links: links.get(&key).cloned().unwrap_or_default(),
                 change_sets: cs.get(&key).copied().unwrap_or(0),
                 created,
@@ -2293,10 +2604,11 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
             spent.insert(k, v);
         }
     }
+    let dor_list: Vec<String> = serde_json::from_str(&dor).unwrap_or_default();
     let issues: Vec<Issue> = issues
         .into_iter()
         .map(|mut i| {
-            i.missing = readiness(&i, &states);
+            i.missing = readiness(&i, &states, &dor_list);
             i.spent_usd = spent.get(&i.key).copied().unwrap_or(0.0);
             i
         })

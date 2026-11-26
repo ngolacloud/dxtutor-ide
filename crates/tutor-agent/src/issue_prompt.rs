@@ -24,6 +24,117 @@ pub struct IssueData {
     /// Where the issue lives in the project (backlog phase 1, docs/v2/QUESTIONS.md Q3): its
     /// branch, epic, component, dependencies, linked commits and the files already changed for it.
     pub links: IssueLinks,
+    /// How the board works (Board B): the method, the sprint, the DoD, the WIP, the pair and, for XP,
+    /// test-first. `None`: no board data (the CLI).
+    pub method: Option<Methodology>,
+}
+
+/// The board's method as the prompt tells it (Board B), filled by the IDE from the project. Kept
+/// compact: a few short lines.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Methodology {
+    /// `Kanban`, `Scrum`, `XP`, `Scrum + XP`.
+    pub label: String,
+    /// The running sprint the issue is in.
+    pub sprint: Option<SprintRef>,
+    /// The project's Definition of Done (`finish_issue` answers each item).
+    pub dod: Vec<String>,
+    /// The limited columns the work goes through (In progress, Review), with how many are there.
+    pub wip: Vec<WipRef>,
+    pub pair: String,
+    /// The class of service when it is not `standard` (Kanban).
+    pub cos: String,
+    /// XP / Scrum + XP: test-first is checked before Review.
+    pub test_first: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SprintRef {
+    pub name: String,
+    pub goal: String,
+    pub days_left: i64,
+}
+
+/// `state`: `progress` or `review`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WipRef {
+    pub state: String,
+    pub count: u32,
+    pub limit: u32,
+}
+
+/// The «Method» block: one line per thing the board says, the DoD numbered, and the TDD rule for XP.
+pub fn methodology_block(m: &Methodology, lang: &str) -> String {
+    let pt = lang == "pt";
+    let mut head = m.label.clone();
+    if let Some(s) = &m.sprint {
+        head.push_str(&format!(" · {}", s.name.trim()));
+        if !s.goal.trim().is_empty() {
+            head.push_str(&format!(" «{}»", s.goal.trim()));
+        }
+        let d = s.days_left.max(0);
+        head.push_str(&match (pt, d == 1) {
+            (true, true) => " · falta 1 dia".to_string(),
+            (true, false) => format!(" · faltam {d} dias"),
+            (false, true) => " · 1 day left".to_string(),
+            (false, false) => format!(" · {d} days left"),
+        });
+    }
+    let mut out = vec![head];
+    if !m.wip.is_empty() {
+        let cols: Vec<String> = m
+            .wip
+            .iter()
+            .map(|w| {
+                let name = match (w.state.as_str(), pt) {
+                    ("progress", true) => "Em curso",
+                    ("progress", false) => "In progress",
+                    _ => "Review",
+                };
+                let full = w.count >= w.limit;
+                let mark = match (full, w.state == "review", pt) {
+                    (true, true, true) => " (cheia: no fim a issue fica em Em curso)",
+                    (true, true, false) => " (full: at the end the issue stays In progress)",
+                    (true, false, true) => " (cheia)",
+                    (true, false, false) => " (full)",
+                    _ => "",
+                };
+                format!("{name} {}/{}{mark}", w.count, w.limit)
+            })
+            .collect();
+        out.push(format!("WIP: {}", cols.join(" · ")));
+    }
+    if !m.pair.trim().is_empty() {
+        out.push(format!("{}: {}", if pt { "Par" } else { "Pair" }, m.pair.trim()));
+    }
+    if !m.cos.trim().is_empty() && m.cos != "standard" {
+        out.push(format!(
+            "{}: {}",
+            if pt { "Classe de serviço" } else { "Class of service" },
+            m.cos.trim()
+        ));
+    }
+    if !m.dod.is_empty() {
+        out.push(
+            if pt {
+                "DoD (responde a cada item no finish_issue):"
+            } else {
+                "DoD (answer each item in finish_issue):"
+            }
+            .to_string(),
+        );
+        for (k, d) in m.dod.iter().enumerate() {
+            out.push(format!("{}. {}", k + 1, d.trim()));
+        }
+    }
+    if m.test_first {
+        out.push(if pt {
+            "TDD (obrigatório): escreve primeiro o teste e corre run_tests — tem de falhar; só depois o código mínimo para passar; passos pequenos. Sem esse vermelho a issue não passa a Review.".to_string()
+        } else {
+            "TDD (mandatory): write the test first and run run_tests — it must fail; only then the least code to pass; small steps. Without that red run the issue does not reach Review.".to_string()
+        });
+    }
+    out.join("\n")
 }
 
 /// What the agent knows of the issue beyond its text: where it lives in the project. Kept short
@@ -198,6 +309,9 @@ Como {{persona}} quero {{objectivo}} para {{valor}}.
 # Critérios de aceitação
 {{criterios_given_when_then}}
 
+# Método
+{{metodologia}}
+
 # Restrições do arquitecto (obrigatórias)
 {{regras_arquitectura}}
 
@@ -213,7 +327,7 @@ Ficheiros/pastas: {{ambito}}. Fora disto: pede autorização.
 # Formato da resposta
 1. Plano: ficheiro + intervalo de linhas + motivo (exit_plan).
 2. Patches por linha/bloco (nunca o ficheiro inteiro sem justificar).
-3. Tabela critério → cumprido/não → prova (finish_issue).
+3. Tabela critério (e item da DoD) → cumprido/não → prova (finish_issue).
 4. Dúvidas, se houver — e pára (ask_human).
 ";
 
@@ -227,6 +341,9 @@ As {{persona}} I want {{objectivo}} so that {{valor}}.
 
 # Acceptance criteria
 {{criterios_given_when_then}}
+
+# Method
+{{metodologia}}
 
 # Architect's constraints (mandatory)
 {{regras_arquitectura}}
@@ -243,7 +360,7 @@ Files/folders: {{ambito}}. Outside this: ask for permission.
 # Answer format
 1. Plan: file + line range + reason (exit_plan).
 2. Patches by line/block (never the whole file without a reason).
-3. Table criterion → met/not met → proof (finish_issue).
+3. Table criterion (and DoD item) → met/not met → proof (finish_issue).
 4. Questions, if any — and stop (ask_human).
 ";
 
@@ -696,8 +813,19 @@ pub fn render_with(root: &Path, i: &IssueData, lang: Option<&str>, outline: Outl
         };
         context = format!("{head}:\n{links}\n\n{context}");
     }
+    // the board's method (Board B); a project template without the placeholder gets it above the code
+    let method = i
+        .method
+        .as_ref()
+        .map(|m| methodology_block(m, lang))
+        .unwrap_or_else(|| "—".into());
+    if !template.contains("{{metodologia}}") && i.method.is_some() {
+        let head = if lang == "pt" { "Método" } else { "Method" };
+        context = format!("{head}:\n{method}\n\n{context}");
+    }
     let text = template
         .replace("{{id}}", &i.key)
+        .replace("{{metodologia}}", &method)
         .replace("{{titulo}}", &dash(&i.title))
         .replace("{{persona}}", &dash(&i.story_as))
         .replace("{{objectivo}}", &dash(&i.story_want))
@@ -760,6 +888,7 @@ mod tests {
             scope: vec!["src/api.rs".into(), "tests/".into()],
             previous_failure: None,
             links: IssueLinks::default(),
+            method: None,
         }
     }
 
@@ -798,6 +927,7 @@ mod tests {
             "# Papel",
             "# Issue DX-12 — Paginação na API",
             "# Critérios de aceitação",
+            "# Método",
             "# Restrições do arquitecto",
             "# Âmbito permitido",
             "# Ligações da issue",
@@ -1164,5 +1294,115 @@ mod tests {
         assert!(code.len() < MAX_CONTEXT_CHARS + 4_000, "{}", code.len());
         assert!(code.contains("src/m00.rs: 1–80 (fn shared_step)"));
         assert!(!code.contains("src/m59.rs: 1–80"), "past the budget");
+    }
+
+    fn xp() -> Methodology {
+        Methodology {
+            label: "Scrum + XP".into(),
+            sprint: Some(SprintRef {
+                name: "Sprint 2".into(),
+                goal: "Pagamentos".into(),
+                days_left: 4,
+            }),
+            dod: vec![
+                "Testes escritos antes do código (TDD)".into(),
+                "Revisto em par ou por outra pessoa".into(),
+                "Testes a passar".into(),
+                "Documentação actualizada".into(),
+            ],
+            wip: vec![
+                WipRef {
+                    state: "progress".into(),
+                    count: 2,
+                    limit: 2,
+                },
+                WipRef {
+                    state: "review".into(),
+                    count: 2,
+                    limit: 2,
+                },
+            ],
+            pair: "ana".into(),
+            cos: "standard".into(),
+            test_first: true,
+        }
+    }
+
+    #[test]
+    fn the_method_block_tells_the_board_compactly() {
+        let b = methodology_block(&xp(), "pt");
+        assert_eq!(
+            b,
+            "Scrum + XP · Sprint 2 «Pagamentos» · faltam 4 dias\n\
+             WIP: Em curso 2/2 (cheia) · Review 2/2 (cheia: no fim a issue fica em Em curso)\n\
+             Par: ana\n\
+             DoD (responde a cada item no finish_issue):\n\
+             1. Testes escritos antes do código (TDD)\n\
+             2. Revisto em par ou por outra pessoa\n\
+             3. Testes a passar\n\
+             4. Documentação actualizada\n\
+             TDD (obrigatório): escreve primeiro o teste e corre run_tests — tem de falhar; só depois o código mínimo para passar; passos pequenos. Sem esse vermelho a issue não passa a Review."
+        );
+        // the owner cares about tokens: the fullest block stays under ~150 tokens
+        assert!(b.chars().count() / 4 < 150, "{}", b.chars().count());
+        // Kanban: no sprint, no TDD; the class of service when it is not standard
+        let k = Methodology {
+            label: "Kanban".into(),
+            wip: vec![WipRef {
+                state: "review".into(),
+                count: 1,
+                limit: 2,
+            }],
+            cos: "expedite".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            methodology_block(&k, "en"),
+            "Kanban\nWIP: Review 1/2\nClass of service: expedite"
+        );
+        let one = Methodology {
+            label: "Scrum".into(),
+            sprint: Some(SprintRef {
+                name: "S1".into(),
+                goal: String::new(),
+                days_left: 1,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(methodology_block(&one, "en"), "Scrum · S1 · 1 day left");
+    }
+
+    #[test]
+    fn the_method_goes_in_its_block_or_above_the_code_of_a_project_template() {
+        let d = tempfile::tempdir().unwrap();
+        let mut i = issue();
+        i.method = Some(xp());
+        let r = render(d.path(), &i, None);
+        let block = r
+            .text
+            .split("# Método\n")
+            .nth(1)
+            .and_then(|t| t.split("\n\n# ").next())
+            .unwrap();
+        assert!(block.starts_with("Scrum + XP · Sprint 2"), "{block}");
+        assert!(block.ends_with("não passa a Review."));
+        // without board data the block says so in one character
+        i.method = None;
+        assert!(render(d.path(), &i, None).text.contains("# Método\n—\n"));
+        // a project template without the placeholder gets it above the code
+        std::fs::create_dir_all(d.path().join(".dxtutor/prompts")).unwrap();
+        std::fs::write(
+            d.path().join(".dxtutor/prompts/issue.pt.md"),
+            "{{id}}\n{{ficheiros_relevantes_com_numeros_de_linha}}",
+        )
+        .unwrap();
+        i.method = Some(xp());
+        i.scope.clear();
+        let r = render(d.path(), &i, None);
+        assert!(
+            r.text.starts_with("DX-12\nMétodo:\nScrum + XP · Sprint 2"),
+            "{}",
+            r.text
+        );
     }
 }

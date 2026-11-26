@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 302 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 303 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -389,6 +389,35 @@ plan»). Testes: `cargo test -p tutor-board plan`, `board::tests::the_sprint_pla
 Fases seguintes: (2) uma sessão de Co-Dev por lane na UI; (3) uma worktree e ficheiros reservados por Co-Dev; (4) o
 «Co-Dev reviewer» assistido, que revê cada merge request e integra num worktree temporário só com os testes a passar e
 sem partir o ramo por omissão (sem conflitos, regras do arquitecto); (5) autonomia delegada pelo humano e PRs.
+
+## Cada método muda as regras, e o Co-Dev segue-as (Project, Board B)
+
+As regras vivem no Rust: `tutor_board::project::methods` (puro: defaults por método, a mudança de método,
+`is_test_change`) e o `move_check`/`capacity_rule`/`tdd_gap` do `project/mod.rs`. Toda a regra é ultrapassável com
+um motivo, gravado como `override` («excepção (código): motivo») na actividade da issue.
+- **Método:** escolher um aplica os seus valores (iteração, WIP de `progress`/`review`/`accept`, sugestões de DoR/DoD,
+  na língua pedida) SÓ onde a definição ainda é a do método anterior (uma DoR/DoD vazia nunca é do utilizador). O
+  `project_method_preview` (só leitura) mostra o que muda e o que fica; o `settings` com `method` aplica a mesma
+  mudança, e os campos do mesmo op ganham depois dela. GOTCHA-testes: escolher Scrum/XP passa a trazer itens de DoR —
+  um teste que só quer as verificações fixas passa `"dor": []`.
+- **Kanban:** um `expedite` entra numa coluna exactamente no limite de WIP (no máximo um acima dele; a actividade
+  di-lo); o quadro ordena cada coluna por classe de serviço (`cardOrder`). Sem capacidade nem DoR nas mudanças.
+- **Scrum, XP, Scrum + XP:** capacidade da sprint (`capacity`) em `plan_issue`, `create_issue` com sprint e
+  `update_issue` com pontos — recusa só quando a mudança acrescenta pontos e passa a capacidade; fechar uma sprint e
+  passar o resto à seguinte não é recusado. A DoR do projecto marca-se por issue (`issues.dor_done`, migração 15,
+  como a `dod_done`): entra na prontidão (`DoR: «item»`) e na saída de To Do.
+- **XP, Scrum + XP — teste primeiro:** de Em curso para Review, uma issue com change sets do Co-Dev precisa de uma
+  linha `tdd`/`red` do registo de auditoria (o anfitrião grava-a no primeiro `run_tests` que FALHOU com só testes
+  mudados — `tdd_observe`) cujos ficheiros de teste estejam nas alterações aceites. Trabalho só humano não é verificado.
+- **Co-Dev:** começar move a issue para Em curso pela mudança normal (a UI pede o motivo; o `send` volta a fazê-lo e
+  bloqueia o pedido se o Project recusar). O `codev_finished` usa o `move_check` (WIP, um passo, teste primeiro) e,
+  recusado, deixa a issue onde está com uma entrada `held`. O prompt tem o bloco «Método» (`methodology_block`, um
+  marcador `{{metodologia}}`; ≈ 150 tokens no máximo). Conjunto de ferramentas 10: o `finish_issue` responde a cada
+  item da DoD (o anfitrião dá-a em `FlowState.dod`) e o store recusa a Review a um relatório com `dod` incompleto; as
+  sessões do conjunto 9 retomam com o esquema antigo.
+- Testes: `cargo test -p tutor-board` (`methods::`, e os `…method…`/`capacity`/`expedite`/`dor`/`codev_finished`/
+  `test_first` do `project::tests`), `cargo test -p tutor-agent` (`issue_prompt`, `finish_v10`), os `codev_agent::tests`
+  de início, `held` e passo vermelho, e `tests/project.methods.test.ts`.
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 

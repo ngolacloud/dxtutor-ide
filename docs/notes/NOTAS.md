@@ -9,7 +9,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 2 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
-- [Project](#project) — 2 acções
+- [Project](#project) — 7 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 3 acções
@@ -409,14 +409,145 @@ Cria as issues dos componentes planeados no Studio (o ADR, um serviço, aplicaç
 
 ## Project
 
-O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo.
+O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. O método do quadro (Kanban, Scrum, XP, Scrum + XP) muda as regras, e o Co-Dev segue-as. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo.
 
-<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan)`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts` · revisto em 2026-11-26</sub>
+<sub>Código: `crates/tutor-board/src/project/methods.rs`, `crates/tutor-board/src/project/mod.rs (move_check, capacity_rule, tdd_gap)`, `crates/tutor-agent/src/issue_prompt.rs (methodology_block)`, `src-tauri/src/codev_agent.rs (start_work, tdd_observe)`, `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan, project_method_preview)`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
+| [Escolher o método](#escolher-o-metodo) | Project › Settings › cartões «Method» |
+| [Definition of Ready do projecto, por issue](#definition-of-ready-do-projecto-por-issue) | Project › painel da issue › secção «Definition of Ready» |
+| [Capacidade da sprint](#capacidade-da-sprint) | Project › Planning › «Add to …» e o cartão da sprint · Project › Backlog › a selecção da sprint |
+| [Mover uma issue (regras do método)](#mover-uma-issue-regras-do-metodo) | Project › Board (arrastar o cartão) · Project › painel da issue › botões de estado |
+| [Trabalhar com o Co-Dev no método](#trabalhar-com-o-co-dev-no-metodo) | Project › painel da issue › «Work on it with Co-Dev» |
 | [Co-Devs da sprint](#co-devs-da-sprint) | Project › Planning › cartão da sprint, campo «Co-Devs» |
 | [Plano paralelo](#plano-paralelo) | Project › Planning › cartão da sprint, botão «Parallel plan» |
+
+### Escolher o método
+
+**Onde:** Project › Settings › cartões «Method»
+
+Escolhe Kanban, Scrum, XP ou Scrum + XP. Cada cartão diz as regras do método; ao escolher um, o Project mostra antes o que muda nas definições (duração da iteração, limites de WIP, Definition of Ready e of Done) e o que fica porque foste tu que o definiste. Só muda com «Apply».
+
+**Como usar**
+
+1. Abre o Project e a vista «Settings».
+2. Carrega no cartão do método: aparece a caixa «Switch to …» com o que muda e o que fica.
+3. Carrega em «Apply» para mudar, ou em «Cancel» para deixar como está.
+
+**Fluxo (por dentro)**
+
+1. O comando `project_method_preview` (só leitura) calcula a mudança no Rust (`tutor_board::project::methods::change`): uma definição é tua quando difere do valor do método anterior (uma DoR/DoD vazia nunca é tua); essas ficam, as outras passam aos valores do método novo.
+2. «Apply» manda `settings` com `method` (e a língua das sugestões) ao `project_apply`, que aplica a mesma mudança.
+3. Regras por método: os limites de WIP valem em todos; a Definition of Ready para sair de To Do, a capacidade da sprint e o teste primeiro do XP valem nos métodos com iterações; o expedite que passa o WIP só no Kanban.
+
+**Dicas**
+
+- Uma definição que mudares à mão depois de escolher o método fica tua: uma mudança de método seguinte já não lhe mexe.
+
+**Limites**
+
+- As sugestões de DoR/DoD ficam na língua da interface no momento em que escolhes o método.
+
+<sub>Cobre: `pj-method`, `pj-method-apply`, `pj-method-cancel`</sub>
+
+### Definition of Ready do projecto, por issue
+
+**Onde:** Project › painel da issue › secção «Definition of Ready»
+
+Os itens da Definition of Ready que o projecto escreveu nas definições aparecem em cada issue com uma caixa a marcar, como os da Definition of Done. Fazem parte do «Ready»: sem eles marcados a issue não fica Ready nem sai de To Do (Scrum e XP), e o Co-Dev não trabalha nela.
+
+**Como usar**
+
+1. Abre a issue.
+2. Marca cada item da Definition of Ready que a issue já cumpre.
+3. Marca «Ready to start» quando a lista de «Missing for Ready» ficar vazia.
+
+**Fluxo (por dentro)**
+
+1. A caixa manda `update_issue` com `dor_done` (uma marca por item, coluna `issues.dor_done`, migração 15).
+2. A prontidão (`readiness`) junta às verificações fixas um «DoR: «item»» por cada item por marcar; o «Ready» só se aprova sem nada em falta.
+3. Um item acrescentado depois de a issue estar Ready faz a saída de To Do pedir um motivo (Scrum e XP).
+
+**Limites**
+
+- As marcas são por posição: reordenar a lista nas definições muda a que item cada marca corresponde (o mesmo que na DoD).
+
+<sub>Cobre: `pj-dor`</sub>
+
+### Capacidade da sprint
+
+**Onde:** Project › Planning › «Add to …» e o cartão da sprint · Project › Backlog › a selecção da sprint
+
+Em Scrum, XP e Scrum + XP a capacidade da sprint é uma regra: planear uma issue, criar uma directamente na sprint ou aumentar uma estimativa que a passasse é recusado. Com um motivo, avança e o motivo fica na actividade da issue como excepção.
+
+**Como usar**
+
+1. Dá à sprint uma capacidade em pontos ao criá-la.
+2. Planeia as issues; o cartão da sprint diz quantos pontos faltam.
+3. Se o Project recusar, escreve o motivo para avançar mesmo assim, ou cancela.
+
+**Fluxo (por dentro)**
+
+1. O `project_apply` verifica `capacity_rule` em `plan_issue`, `create_issue` com sprint e `update_issue` com pontos: soma os pontos da sprint e recusa (`capacity`, ultrapassável) só quando a mudança acrescenta pontos e passa a capacidade.
+2. Com `reason`, a mudança faz-se e fica uma entrada `override` com «excepção (capacity): motivo» na actividade.
+
+**Limites**
+
+- Uma issue sem estimativa não conta pontos.
+- Fechar uma sprint e passar o trabalho por terminar para a seguinte não é recusado; o cartão da sprint mostra se ficou acima da capacidade.
+- O Kanban não tem capacidade.
+
+<sub>Cobre: `pj-plan-to`, `pj-plan`</sub>
+
+### Mover uma issue (regras do método)
+
+**Onde:** Project › Board (arrastar o cartão) · Project › painel da issue › botões de estado
+
+Cada mudança de coluna passa pelas regras do método: um passo de cada vez, limites de WIP, bloqueios, Definition of Ready para sair de To Do (Scrum e XP), Definition of Done para Done e, em XP e Scrum + XP, a prova de teste primeiro para o trabalho do Co-Dev chegar a Review. No Kanban um cartão «expedite» pode passar o limite de WIP de uma coluna por um, e os cartões ordenam-se por classe de serviço.
+
+**Como usar**
+
+1. Arrasta o cartão para a coluna seguinte, ou usa os botões do painel da issue.
+2. Se uma regra recusar, escreve o motivo para avançar mesmo assim.
+
+**Fluxo (por dentro)**
+
+1. O `move` do `project_apply` corre `move_check` no Rust; a primeira regra partida volta com o seu código (`step`, `wip`, `blocked`, `dor`, `dod`, `tdd`) e com motivo a mudança faz-se como `override`.
+2. Expedite (Kanban): entra numa coluna cheia se ela estiver exactamente no limite; a actividade diz «expedite acima do limite de WIP».
+3. Teste primeiro (XP, Scrum + XP): para uma issue com alterações do Co-Dev, de Em curso para Review exige uma linha `tdd`/`red` do registo de auditoria — um `run_tests` que falhou quando só os testes tinham mudado — cujos ficheiros de teste estejam nas alterações aceites.
+
+**Limites**
+
+- O trabalho feito à mão, sem alterações do Co-Dev, não tem como provar o teste primeiro: não é verificado.
+
+<sub>Cobre: `pj-col`, `pj-move`</sub>
+
+### Trabalhar com o Co-Dev no método
+
+**Onde:** Project › painel da issue › «Work on it with Co-Dev»
+
+Começar o trabalho move a issue para Em curso pelas regras normais (WIP, prontidão); se for recusado, pede o motivo e sem ele o Co-Dev não começa. O prompt leva um bloco curto do método: método, sprint e dias que faltam, DoD, WIP de Em curso e Review, par, classe de serviço e, em XP, a regra de TDD. No fim, o `finish_issue` responde também a cada item da DoD e a issue só passa a Review pelas regras.
+
+**Como usar**
+
+1. Prepara a issue até ficar Ready e carrega em «Work on it with Co-Dev».
+2. Se a coluna Em curso estiver cheia, escreve o motivo ou espera.
+3. No fim, vê na actividade se a issue passou a Review ou ficou em Em curso, e porquê.
+
+**Fluxo (por dentro)**
+
+1. A UI manda `move` para `progress` antes de abrir o Co-Dev; o anfitrião (`codev_agent::send`) volta a fazê-lo para qualquer pedido de issue em To Do e bloqueia o pedido se o Project recusar.
+2. O prompt (`project_issue_prompt`) ganhou o bloco «Método» (`methodology_block`), que um template do projecto sem o marcador `{{metodologia}}` recebe por cima do código.
+3. Conjunto de ferramentas 10: o `finish_issue` exige uma resposta com prova por item da DoD; o `codev_finished` usa a mudança normal para Review e, se uma regra a recusar (WIP, um passo, DoD por responder, teste primeiro), deixa a issue onde está com uma entrada `held` na actividade.
+4. XP: o anfitrião regista no registo de auditoria (`tdd`, `red`) o primeiro `run_tests` que falhou quando a sessão só tinha mudado testes (ficheiros de teste, ou texto com `#[test]`, `def test_`, `@Test`…).
+
+**Limites**
+
+- Sessões antigas (conjunto 9) retomam sem as respostas da DoD: o Project não as exige a esses relatórios.
+- Ficheiros escritos pelo `bash` não entram no rasto do teste primeiro.
+
+<sub>Cobre: `pj-work`</sub>
 
 ### Co-Devs da sprint
 

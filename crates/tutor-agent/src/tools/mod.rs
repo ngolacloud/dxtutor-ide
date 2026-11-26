@@ -116,8 +116,10 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// 6 = + `ask_human`/`suggest`; 7 = + `finish_issue`; 8 = + `edit_lines`;
 /// 9 = conjuntos por tipo de sessão (`finish_issue` só nas issues, `arch_propose` só nas
 /// sessões de arquitectura — o anfitrião decide) e as descrições de `read`/`edit_lines` que
-/// poupam tokens (ler por excertos, uma só ferramenta de edição preferida).
-pub const TOOLSET_VERSION: u32 = 9;
+/// poupam tokens (ler por excertos, uma só ferramenta de edição preferida);
+/// 10 = `finish_issue` responde também a cada item da Definition of Done (Board B: o anfitrião
+/// dá a DoD do projecto; o Project verifica-a antes da Review).
+pub const TOOLSET_VERSION: u32 = 10;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]
@@ -139,6 +141,9 @@ pub struct FlowState {
     /// Toolset 7: the table `finish_issue` answered; the issue is over for the agent (in Auto
     /// too, RF-G04) and the host sends it to Review.
     pub finished: Arc<Mutex<Option<serde_json::Value>>>,
+    /// Toolset 10 (Board B): the project's Definition of Done (set by the host with the
+    /// criteria); `finish_issue` answers each item.
+    pub dod: Arc<Mutex<Vec<String>>>,
 }
 
 /// O conjunto de ferramentas de uma sessão, na versão `version`, por ordem fixa.
@@ -193,6 +198,7 @@ pub fn agent_tools(
         v.push(Arc::new(flow::FinishIssue {
             criteria: flow_state.criteria.clone(),
             finished: flow_state.finished.clone(),
+            dod: (version >= 10).then(|| flow_state.dod.clone()),
         }));
     }
     // toolset 8 (F2.1): line edits anchored on the lines' text

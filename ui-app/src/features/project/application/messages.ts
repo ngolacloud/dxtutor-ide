@@ -14,6 +14,7 @@ export const PROJECT_ENGINE_MESSAGES = {
     noScm: "Source Control is not available",
     codevsRange: "A sprint has 1 to {max} Co-Devs", planNeedsDesktop: "The parallel plan is computed by the desktop app, with a folder open",
     planBad: "invalid response from the sprint planner",
+    methodPreviewBad: "invalid response from the method preview",
   },
   ptAO: {
     badResponse: "resposta inválida do store do projecto",
@@ -24,6 +25,7 @@ export const PROJECT_ENGINE_MESSAGES = {
     noScm: "Source Control não está disponível",
     codevsRange: "Uma sprint tem de 1 a {max} Co-Devs", planNeedsDesktop: "O plano paralelo é calculado pela app desktop, com uma pasta aberta",
     planBad: "resposta inválida do planeador da sprint",
+    methodPreviewBad: "resposta inválida da pré-visualização do método",
   },
 } satisfies Messages<string>;
 

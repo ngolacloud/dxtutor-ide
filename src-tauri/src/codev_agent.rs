@@ -309,6 +309,9 @@ struct Session {
     overrides: Mutex<HashMap<String, String>>,
     /// RF-G03: tool_use_id of a running `bash` → the working tree's dirty files before it.
     bash_snaps: Mutex<HashMap<String, DirtyState>>,
+    /// Board B (XP test-first): what this session changed for its issue, in order, until the first
+    /// failing `run_tests` — the proof the Project checks before Review.
+    tdd: Mutex<TddTrace>,
     /// When the session was opened in this run of the app (ms since the epoch; the Agent map).
     opened: u64,
 }
@@ -833,6 +836,7 @@ pub fn start(
         violating: Mutex::new(HashMap::new()),
         overrides: Mutex::new(HashMap::new()),
         bash_snaps: Mutex::new(HashMap::new()),
+        tdd: Mutex::new(TddTrace::default()),
         opened: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -913,11 +917,24 @@ pub fn send(
         *s.flow.question.lock().unwrap() = None;
         *s.flow.finished.lock().unwrap() = None;
         s.flow.criteria.lock().unwrap().clear();
+        s.flow.dod.lock().unwrap().clear();
         let mut o = o;
         if let Some(k) = o.as_ref().and_then(|o| o.issue.clone()) {
             *s.issue_key.lock().unwrap() = Some(k.clone());
             // RF-B02/G01: an issue request counts only when the issue is Ready
-            match issue_of(&s, &k) {
+            let project = project_of(&s);
+            let issue = project
+                .as_ref()
+                .and_then(|p| p.issues.iter().find(|i| i.key == k).cloned());
+            // Board B: starting work moves a Ready issue to In progress by the normal move (WIP,
+            // readiness); refused, the request does nothing until the human moves it
+            let started = match &issue {
+                Some(i) if i.missing.is_empty() && i.state == "todo" => {
+                    start_work(&s, &k, o.as_ref())
+                }
+                _ => Ok(()),
+            };
+            match issue {
                 Some(i) if !i.missing.is_empty() => {
                     (*on_event)(AgentEvent::Notice {
                         text: format!(
@@ -927,9 +944,20 @@ pub fn send(
                     });
                     o = None;
                 }
+                Some(_) if started.is_err() => {
+                    let why = started.err().unwrap_or_default();
+                    (*on_event)(AgentEvent::Notice {
+                        text: format!(
+                            "{k} não passou a Em curso ({why}): as acções deste pedido ficam bloqueadas. Move-a no quadro — com um motivo, se for uma excepção — e pede de novo."
+                        ),
+                    });
+                    o = None;
+                }
                 Some(i) => {
                     *s.flow.criteria.lock().unwrap() =
                         i.acceptance.iter().map(|c| c.text.clone()).collect();
+                    *s.flow.dod.lock().unwrap() =
+                        project.as_ref().map(|p| p.dod.clone()).unwrap_or_default();
                     if let Some(origin) = o.as_mut() {
                         if origin.scope.is_empty() {
                             origin.scope = i.scope.clone();
@@ -1046,6 +1074,7 @@ pub fn send(
                 hunk, provisional, ..
             } => {
                 let m = metas.borrow().get(hunk).cloned().unwrap_or_default();
+                tdd_observe(&session, &e, Some((&m.path, &m.text)));
                 if *provisional {
                     let mut a = auto.borrow_mut();
                     a.provisional.push(hunk.clone());
@@ -1066,6 +1095,16 @@ pub fn send(
             }
             AgentEvent::ToolResult { id, name, .. } if name == "bash" => {
                 bash_scope_end(&session, id, &mut |n| emit(n))
+            }
+            // Board B: a failing run_tests with only tests changed is the red step of TDD
+            AgentEvent::ToolResult { .. } => {
+                if let Some(tests) = tdd_observe(&session, &e, None) {
+                    let mut a = audit_entry(&session, "tdd");
+                    a.tool = Some("run_tests".into());
+                    a.path = Some(tests);
+                    a.outcome = Some("red".into());
+                    audit(&session, a);
+                }
             }
             _ => {}
         }
@@ -1665,14 +1704,112 @@ fn stop_review(s: &Session, checkpoint: Option<u32>, emit: &dyn Fn(AgentEvent)) 
     });
 }
 
-/// The issue `key` of the session's folder, from the project database.
-fn issue_of(s: &Session, key: &str) -> Option<tutor_board::project::Issue> {
+/// The project of the session's folder, from the project database.
+fn project_of(s: &Session) -> Option<tutor_board::project::Project> {
     let db = s.change_log.as_ref()?;
     let st = tutor_board::project::ProjectStore::open(db).ok()?;
-    let p = st
-        .load(&s.agent.ctx.root.display().to_string(), now_ms())
-        .ok()?;
-    p.issues.into_iter().find(|i| i.key == key)
+    st.load(&s.agent.ctx.root.display().to_string(), now_ms())
+        .ok()
+}
+
+/// Board B: why `key` did not go to Review after `finish_issue` (the store's `held` note), or
+/// `None` when it is in Review or past it.
+fn held_reason(s: &Session, key: &str) -> Option<String> {
+    let p = project_of(s)?;
+    let i = p.issues.iter().find(|i| i.key == key)?;
+    if matches!(i.state.as_str(), "review" | "accept" | "done") {
+        return None;
+    }
+    let db = s.change_log.as_ref()?;
+    let st = tutor_board::project::ProjectStore::open(db).ok()?;
+    let d = st.detail(&p.root, key).ok()?;
+    Some(
+        d.activity
+            .iter()
+            .find(|a| a.kind == "held")
+            .map(|a| a.note.clone())
+            .unwrap_or_else(|| format!("fica em «{}»", i.state)),
+    )
+}
+
+/// Board B: Co-Dev starts work on `key` — the normal move to In progress, by the human who asked
+/// (the store checks WIP and readiness; an override is the human's, on the board). `Err`: why not.
+fn start_work(s: &Session, key: &str, origin: Option<&Origin>) -> Result<(), String> {
+    let Some(db) = s.change_log.as_ref() else {
+        return Ok(());
+    };
+    let root = s.agent.ctx.root.display().to_string();
+    let actor = origin
+        .map(|o| o.by.clone())
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| crate::board::actor(&root));
+    let op = serde_json::from_value(serde_json::json!({"op": "move", "key": key, "to": "progress"}))
+        .map_err(|e| e.to_string())?;
+    tutor_board::project::ProjectStore::open(db)
+        .and_then(|mut st| st.apply(&root, &actor, now_ms(), op).map_err(|e| e.message))
+        .map(|_| ())
+}
+
+/// Board B (XP test-first): what a session changed for its issue until the first failing test
+/// run. A failing `run_tests` while only tests were changed is the red step of TDD.
+#[derive(Default)]
+struct TddTrace {
+    issue: Option<String>,
+    /// the test files changed so far (test hunks: by the file or by the text, `is_test_change`)
+    tests: std::collections::BTreeSet<String>,
+    /// a non-test hunk was applied
+    implementation: bool,
+    /// the red step was already recorded
+    recorded: bool,
+}
+
+/// A `run_tests` result that ran and failed (an exit code other than 0). A refused, cancelled or
+/// timed-out call is not a test run.
+pub fn is_red_run(name: &str, is_error: bool, content: &str) -> bool {
+    name == "run_tests"
+        && is_error
+        && content.starts_with("$ ")
+        && content
+            .lines()
+            .nth(1)
+            .is_some_and(|l| l.starts_with("exit ") && l.trim() != "exit 0")
+}
+
+/// Follows the session's hunks and test runs for the test-first proof; returns the test files
+/// of the red step the first time a failing `run_tests` comes with only tests changed.
+fn tdd_observe(s: &Session, e: &AgentEvent, path_text: Option<(&str, &str)>) -> Option<String> {
+    let issue = s.issue_key.lock().unwrap().clone()?;
+    let mut t = s.tdd.lock().unwrap();
+    if t.issue.as_deref() != Some(issue.as_str()) {
+        *t = TddTrace {
+            issue: Some(issue),
+            ..TddTrace::default()
+        };
+    }
+    match e {
+        AgentEvent::HunkApplied { .. } => {
+            let (path, text) = path_text?;
+            if tutor_board::project::methods::is_test_change(path, text) {
+                t.tests.insert(path.to_string());
+            } else {
+                t.implementation = true;
+            }
+            None
+        }
+        AgentEvent::ToolResult {
+            name,
+            is_error,
+            content,
+            ..
+        } if is_red_run(name, *is_error, content) => {
+            if t.recorded || t.implementation || t.tests.is_empty() {
+                return None;
+            }
+            t.recorded = true;
+            Some(t.tests.iter().cloned().collect::<Vec<_>>().join("\n"))
+        }
+        _ => None,
+    }
 }
 
 /// After a turn: the question the agent asked goes to the human (and blocks the turn's issue,
@@ -1726,10 +1863,25 @@ fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
         let r = apply(
             serde_json::json!({"op": "codev_finished", "key": k, "report": report, "template_version": template}),
         );
+        // Board B: the store moved it by the normal move — or kept it, and said why
+        let held = r.is_ok().then(|| held_reason(s, k)).flatten();
         let mut e = audit_entry(s, "finish");
-        e.outcome = Some(if r.is_ok() { "review" } else { "failed" }.into());
-        e.reason = r.err();
+        e.outcome = Some(
+            match (&r, &held) {
+                (Err(_), _) => "failed",
+                (Ok(_), Some(_)) => "held",
+                _ => "review",
+            }
+            .into(),
+        );
+        e.reason = r.err().or_else(|| held.clone());
         audit(s, e);
+        let place = match &held {
+            Some(why) => format!(
+                "a issue não passou a Review ({why}); move-a no quadro, com um motivo se for uma excepção"
+            ),
+            None => "a issue está em Review".to_string(),
+        };
         if !s.checks.is_empty() {
             let checks = hunks::run_checks(&s.checks, &s.agent.ctx);
             let passed = checks.iter().all(|c| c.ok);
@@ -1744,7 +1896,7 @@ fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
             );
             emit(AgentEvent::Notice {
                 text: if passed {
-                    format!("{k}: critérios respondidos e testes verdes — a issue está em Review; o Done é teu.")
+                    format!("{k}: critérios respondidos e testes verdes — {place}; o Done é teu.")
                 } else {
                     format!("{k}: os testes falharam ({summary}) — a issue volta a Em curso, com o erro no próximo pedido.")
                 },
@@ -1755,7 +1907,7 @@ fn settle_flow(s: &Session, emit: &dyn Fn(AgentEvent)) {
             audit(s, e);
         } else {
             emit(AgentEvent::Notice {
-                text: format!("{k}: critérios respondidos — a issue está em Review (sem testes detectados no projecto); o Done é teu."),
+                text: format!("{k}: critérios respondidos — {place} (sem testes detectados no projecto); o Done é teu."),
             });
         }
     }
@@ -3754,6 +3906,8 @@ mod tests {
             op(serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true})),
         )
         .unwrap();
+        st.apply(&root, "ana", 2, op(serde_json::json!({"op": "settings", "dod": ["Docs updated"]})))
+            .unwrap();
         let _ = send(
             &id,
             Some("implementa".into()),
@@ -3764,6 +3918,10 @@ mod tests {
         let o = s.origin.lock().unwrap().clone().unwrap();
         assert_eq!(o.scope, vec!["src/**"], "the issue's scope");
         assert_eq!(s.flow.criteria.lock().unwrap().len(), 1);
+        // Board B: the DoD goes to finish_issue, and starting work moved the issue to In progress
+        assert_eq!(*s.flow.dod.lock().unwrap(), ["Docs updated"]);
+        let p = st.load(&root, 3).unwrap();
+        assert_eq!(p.issues[0].state, "progress");
         // the prompt «Ver prompt» shows is the one the issue goes with
         let r = crate::board::issue_prompt_from(&st, &root, "DX-1", None).unwrap();
         assert_eq!(r.lang, "pt");
@@ -3778,6 +3936,8 @@ mod tests {
         for (check, state, attempts) in [("true", "review", 0), ("false", "progress", 1)] {
             let (d, _id, s, root) = issue_session(check);
             *s.issue_key.lock().unwrap() = Some("DX-1".into());
+            // Board B: Co-Dev's work is in progress when it finishes (the start moved it)
+            assert!(start_work(&s, "DX-1", None).is_ok());
             *s.flow.finished.lock().unwrap() =
                 Some(serde_json::json!({"criteria": [{"index": 1, "met": true, "evidence": "t"}]}));
             let evs = RefCell::new(vec![]);
@@ -3805,6 +3965,120 @@ mod tests {
                 .collect();
             assert_eq!(kinds, ["finish", "tests"]);
         }
+    }
+
+    #[test]
+    fn starting_codev_is_the_normal_move_and_a_refusal_blocks_the_request() {
+        let (d, id, s, root) = issue_session("true");
+        let db = d.path().join("board.sqlite3");
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        for v in [
+            serde_json::json!({"op": "update_issue", "key": "DX-1", "story_as": "cliente", "story_want": "páginas", "story_so": "menos linhas", "scope": ["src/**"]}),
+            serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true}),
+            serde_json::json!({"op": "create_issue", "title": "Outra"}),
+            serde_json::json!({"op": "move", "key": "DX-2", "to": "progress"}),
+            serde_json::json!({"op": "settings", "wip": {"progress": 1}}),
+        ] {
+            st.apply(&root, "ana", 2, op(v)).unwrap();
+        }
+        let notes = RefCell::new(vec![]);
+        let _ = send(
+            &id,
+            Some("implementa".into()),
+            Some(Origin {
+                kind: tutor_agent::permissions::OriginKind::Issue,
+                issue: Some("DX-1".into()),
+                by: String::new(),
+                scope: vec![],
+                template: None,
+            }),
+            &mut |e| {
+                if let AgentEvent::Notice { text } = e {
+                    notes.borrow_mut().push(text)
+                }
+            },
+            &mut |_| {},
+        );
+        assert!(s.origin.lock().unwrap().is_none(), "refused: no request");
+        assert!(
+            notes
+                .borrow()
+                .iter()
+                .any(|n| n.contains("DX-1 não passou a Em curso") && n.contains("limite de WIP")),
+            "{:?}",
+            notes.borrow()
+        );
+        assert_eq!(st.load(&root, 3).unwrap().issues[0].state, "todo");
+        // the human overrides on the board, with a reason; then the request goes
+        st.apply(&root, "ana", 3, op(serde_json::json!({"op": "move", "key": "DX-1", "to": "progress", "reason": "urgente"})))
+            .unwrap();
+        assert!(start_work(&s, "DX-1", None).is_ok(), "already in progress: nothing to do");
+    }
+
+    #[test]
+    fn a_full_review_column_keeps_the_finished_issue_in_progress_and_says_why() {
+        let (d, _id, s, root) = issue_session("true");
+        let db = d.path().join("board.sqlite3");
+        let mut st = tutor_board::project::ProjectStore::open(&db).unwrap();
+        let op = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+        for v in [
+            serde_json::json!({"op": "move", "key": "DX-1", "to": "progress"}),
+            serde_json::json!({"op": "settings", "wip": {"review": 0}}),
+        ] {
+            st.apply(&root, "ana", 2, op(v)).unwrap();
+        }
+        *s.issue_key.lock().unwrap() = Some("DX-1".into());
+        *s.flow.finished.lock().unwrap() =
+            Some(serde_json::json!({"criteria": [{"index": 1, "met": true, "evidence": "t"}]}));
+        let evs = RefCell::new(vec![]);
+        settle_flow(&s, &|e| evs.borrow_mut().push(e));
+        assert_eq!(st.load(&root, 3).unwrap().issues[0].state, "progress");
+        let finish = st
+            .audit(&root, Some("DX-1"))
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event == "finish")
+            .unwrap();
+        assert_eq!(finish.outcome.as_deref(), Some("held"));
+        assert!(finish.reason.unwrap().contains("limite de WIP de «review»"));
+        assert!(evs.borrow().iter().any(|e| matches!(e, AgentEvent::Notice { text } if text.contains("não passou a Review"))));
+    }
+
+    #[test]
+    fn a_failing_test_run_with_only_tests_changed_is_the_red_step() {
+        assert!(is_red_run("run_tests", true, "$ cargo test\nexit 101\nfailed"));
+        assert!(!is_red_run("run_tests", false, "$ cargo test\nexit 0\nok"));
+        assert!(!is_red_run("run_tests", true, "recusado pela política"), "a refusal did not run");
+        assert!(!is_red_run("lint", true, "$ clippy\nexit 1"));
+        let (d, _id, s, root) = issue_session("true");
+        *s.issue_key.lock().unwrap() = Some("DX-1".into());
+        let applied = AgentEvent::HunkApplied {
+            hunk: "h".into(),
+            provisional: false,
+            fingerprint: String::new(),
+        };
+        let red = AgentEvent::ToolResult {
+            id: "t".into(),
+            name: "run_tests".into(),
+            is_error: true,
+            content: "$ cargo test\nexit 101".into(),
+        };
+        // red before any test: nothing
+        assert_eq!(tdd_observe(&s, &red, None), None);
+        tdd_observe(&s, &applied, Some(("src/lib.rs", "    #[test]\n    fn pages() {}")));
+        tdd_observe(&s, &applied, Some(("tests/api.rs", "fn x() {}")));
+        assert_eq!(
+            tdd_observe(&s, &red, None).as_deref(),
+            Some("src/lib.rs\ntests/api.rs")
+        );
+        assert_eq!(tdd_observe(&s, &red, None), None, "recorded once");
+        // implementation first: no red step for this issue
+        *s.issue_key.lock().unwrap() = Some("DX-2".into());
+        tdd_observe(&s, &applied, Some(("src/lib.rs", "pub fn pages() {}")));
+        tdd_observe(&s, &applied, Some(("tests/api.rs", "#[test] fn p() {}")));
+        assert_eq!(tdd_observe(&s, &red, None), None);
+        drop((d, root));
     }
 
     #[test]

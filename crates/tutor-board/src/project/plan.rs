@@ -645,7 +645,7 @@ impl super::ProjectStore {
                     state: i.state.clone(),
                     scope: i.scope.clone(),
                     deps: i.deps.clone(),
-                    missing: super::readiness(i, &deps_done),
+                    missing: super::readiness(i, &deps_done, &p.dor),
                     known_files: files
                         .get(&i.key)
                         .map(|f| f.iter().cloned().collect())

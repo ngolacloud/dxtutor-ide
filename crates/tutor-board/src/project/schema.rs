@@ -344,6 +344,9 @@ const MIGRATIONS: &[&str] = &[
     // 14 — how many Co-Devs work the sprint at the same time (Multi Co-Dev, phase 1: the parallel
     //      plan); `NULL`: not set (one)
     "ALTER TABLE sprints ADD COLUMN codevs INTEGER;",
+    // 15 — the project's own Definition of Ready ticked per issue (Board B): one flag per item of
+    //      `projects.dor`, like `dod_done`; readiness lists the items not ticked
+    "ALTER TABLE issues ADD COLUMN dor_done TEXT NOT NULL DEFAULT '[]';",
 ];
 
 /// The schema version this code expects.
