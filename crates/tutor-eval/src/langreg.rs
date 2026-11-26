@@ -46,7 +46,11 @@
 //! - `oneShot` — cheap enough to start for a single request (the outline/navigation client in
 //!   `tutor_eval::lsp`, used by `file_outline` and the agent). JVM servers are not.
 //! - `quirks` — known per-server behaviour (see [`QUIRKS`]).
-//! - `install` — how to install it (display only; what the UI may RUN stays an allow-list in code).
+//! - `install` — how to install it by hand (text only, never run): the notice shows it when no
+//!   recipe applies.
+//! - `recipes` — how dxtutor can install it (see [`Recipe`], [`MANAGERS`] and
+//!   `tutor_eval::lspinstall`): the backend builds the exact command from them; nothing the UI
+//!   sends is run. Recipes from a project's `.dxtutor/lsp.json` are never offered.
 //! - `vscodeExtensions` — VS Code extensions that only start this server.
 //!
 //! # Overrides (P2: [`parse_overlay`], [`apply_overlay`])
@@ -83,6 +87,263 @@ pub const QUIRKS: &[&str] = &[
     "uriOnlyWorkspaceSymbols",
     "noRangeFormatting",
 ];
+
+/// The package managers a recipe may name, and how each one is run:
+/// - user-space, run by dxtutor in a terminal task, into its own folder (`<app data>/lsp-servers/<server>`):
+///   `npm`, `pip` (a venv), `pipx`, `go`, `cargo`, `dotnet`, `gem`;
+/// - `rustup`: run in a terminal task, adds a component to the Rust toolchain;
+/// - system, shown for the human to run (they may need sudo; dxtutor never runs them): `brew`, `apt`;
+/// - `github`: a release asset dxtutor downloads itself, pinned by URL and SHA-256.
+pub const MANAGERS: &[&str] = &[
+    "npm", "pip", "pipx", "go", "cargo", "dotnet", "gem", "rustup", "brew", "apt", "github",
+];
+
+/// The platforms a release asset may be for (VS Code's names), or `any` (a platform-free archive,
+/// e.g. a JVM server).
+pub const PLATFORMS: &[&str] = &[
+    "linux-x64",
+    "linux-arm64",
+    "darwin-x64",
+    "darwin-arm64",
+    "any",
+];
+
+/// The kinds of release archive: `zip`, `tar.gz` (unpacked with the system `tar`), `gz` (one
+/// gzip-compressed program) and `none` (the program itself).
+pub const ARCHIVES: &[&str] = &["zip", "tar.gz", "gz", "none"];
+
+/// One way to install a server (`servers[].recipes[]`).
+/// - `manager` — one of [`MANAGERS`].
+/// - `packages` — what the manager installs, as it spells it: `typescript@5` (npm), `gopls@latest`
+///   with its module path (go: a version is required), `pyright==1.1.390` (pip), a crate, a
+///   .NET tool, a gem, a brew formula, an apt package, a rustup component. Not for `github`.
+/// - `version` — `cargo`, `dotnet` and `gem` only, with exactly one package (their `--version`).
+/// - `assets` — `github` only: one per platform.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Recipe {
+    pub manager: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assets: Vec<Asset>,
+}
+
+/// A release asset (`github` recipes): the file of one platform, pinned.
+/// - `platform` — one of [`PLATFORMS`].
+/// - `url` — `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>`.
+/// - `sha256` — the file's SHA-256 (64 lowercase hex digits). A download that does not match it is
+///   thrown away and nothing is installed.
+/// - `archive` — one of [`ARCHIVES`].
+/// - `bin` — for `zip`/`tar.gz`, the folder inside the archive that holds the program (`.` = the
+///   top); `gz`/`none` put the program in `bin/`.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Asset {
+    pub platform: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub sha256: String,
+    pub archive: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin: Option<String>,
+}
+
+impl Recipe {
+    /// The asset for `platform` (an `any` asset fits every platform).
+    pub fn asset_for(&self, platform: &str) -> Option<&Asset> {
+        self.assets
+            .iter()
+            .find(|a| a.platform == platform)
+            .or_else(|| self.assets.iter().find(|a| a.platform == "any"))
+    }
+}
+
+/// Is `url` a GitHub release download (`https://github.com/<owner>/<repo>/releases/download/<tag>/<file>`)?
+pub fn is_github_release_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://github.com/") else {
+        return false;
+    };
+    let parts: Vec<&str> = rest.split('/').collect();
+    let seg_ok = |s: &str| {
+        !s.is_empty()
+            && s != "."
+            && s != ".."
+            && s.chars().all(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '%' | '~')
+            })
+    };
+    parts.len() == 6
+        && parts[2] == "releases"
+        && parts[3] == "download"
+        && [parts[0], parts[1], parts[4], parts[5]]
+            .iter()
+            .all(|s| seg_ok(s))
+}
+
+/// Is `s` a package or version as a manager spells it — never an option (`-…`), no blanks, no
+/// shell syntax? (They are quoted anyway; this keeps the data plain.)
+fn is_package_spec(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('-')
+        && s.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(
+                    c,
+                    '@' | '.'
+                        | '_'
+                        | '/'
+                        | ':'
+                        | '='
+                        | '<'
+                        | '>'
+                        | '~'
+                        | '^'
+                        | '+'
+                        | '-'
+                        | '['
+                        | ']'
+                        | ','
+                        | '!'
+                        | '*'
+                )
+        })
+}
+
+/// A relative folder inside an archive: `.` or segments without `..`, never absolute.
+fn is_inner_dir(s: &str) -> bool {
+    s == "."
+        || (!s.is_empty()
+            && !s.starts_with('/')
+            && !s.contains('\\')
+            && s.split('/')
+                .all(|seg| !seg.is_empty() && seg != "." && seg != ".."))
+}
+
+/// The rules of one server's `recipes` (see [`Recipe`]).
+fn validate_recipes(at: &str, recipes: &[Recipe], errs: &mut Vec<String>) {
+    use std::collections::HashSet;
+    let mut managers = HashSet::new();
+    for r in recipes {
+        let m = r.manager.as_str();
+        let rat = format!("{at}: recipe `{m}`");
+        if !MANAGERS.contains(&m) {
+            errs.push(format!(
+                "{at}: unknown package manager `{m}` (expected one of {})",
+                MANAGERS.join(", ")
+            ));
+            continue;
+        }
+        if !managers.insert(m) {
+            errs.push(format!("{rat}: the same manager twice"));
+        }
+        if m == "github" {
+            if !r.packages.is_empty() || r.version.is_some() {
+                errs.push(format!(
+                    "{rat}: a release recipe has assets, not packages/version"
+                ));
+            }
+            if r.assets.is_empty() {
+                errs.push(format!("{rat}: no assets"));
+            }
+            let mut platforms = HashSet::new();
+            for a in &r.assets {
+                let aat = format!("{rat}: asset `{}`", a.platform);
+                if !PLATFORMS.contains(&a.platform.as_str()) {
+                    errs.push(format!(
+                        "{aat}: unknown platform (expected one of {})",
+                        PLATFORMS.join(", ")
+                    ));
+                }
+                if !platforms.insert(a.platform.as_str()) {
+                    errs.push(format!("{aat}: the same platform twice"));
+                }
+                if a.url.is_empty() {
+                    errs.push(format!("{aat}: missing url"));
+                } else if !is_github_release_url(&a.url) {
+                    errs.push(format!(
+                        "{aat}: url must be https://github.com/<owner>/<repo>/releases/download/<tag>/<file>"
+                    ));
+                }
+                if a.sha256.is_empty() {
+                    errs.push(format!(
+                        "{aat}: missing sha256 (a release is pinned by its checksum)"
+                    ));
+                } else if a.sha256.len() != 64
+                    || !a
+                        .sha256
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+                {
+                    errs.push(format!("{aat}: sha256 must be 64 lowercase hex digits"));
+                }
+                if !ARCHIVES.contains(&a.archive.as_str()) {
+                    errs.push(format!(
+                        "{aat}: unknown archive `{}` (expected one of {})",
+                        a.archive,
+                        ARCHIVES.join(", ")
+                    ));
+                }
+                match (a.archive.as_str(), a.bin.as_deref()) {
+                    ("zip" | "tar.gz", None) => errs.push(format!(
+                        "{aat}: an archive needs `bin` (the folder that holds the program)"
+                    )),
+                    ("zip" | "tar.gz", Some(b)) if !is_inner_dir(b) => errs.push(format!(
+                        "{aat}: bin `{b}` must be a relative folder inside the archive"
+                    )),
+                    ("gz" | "none", Some(_)) => errs.push(format!(
+                        "{aat}: `bin` is only for zip and tar.gz (the program goes to bin/)"
+                    )),
+                    _ => {}
+                }
+            }
+            if platforms.contains("any") && platforms.len() > 1 {
+                errs.push(format!(
+                    "{rat}: an `any` asset fits every platform: no other asset"
+                ));
+            }
+            continue;
+        }
+        if !r.assets.is_empty() {
+            errs.push(format!("{rat}: only a github recipe has assets"));
+        }
+        if r.packages.is_empty() {
+            errs.push(format!("{rat}: no packages"));
+        }
+        for p in &r.packages {
+            if !is_package_spec(p) {
+                errs.push(format!(
+                    "{rat}: package `{p}` must be one word as the manager spells it (no blanks, no leading -)"
+                ));
+            }
+            if m == "go" && !p.contains('@') {
+                errs.push(format!(
+                    "{rat}: package `{p}` needs a version (`@latest`, `@v1.2.3`): go install asks for one"
+                ));
+            }
+        }
+        if m == "pipx" && r.packages.len() > 1 {
+            errs.push(format!("{rat}: pipx installs one package per recipe"));
+        }
+        if let Some(v) = &r.version {
+            if !matches!(m, "cargo" | "dotnet" | "gem") {
+                errs.push(format!(
+                    "{rat}: `version` is for cargo, dotnet and gem; write it in the package (`name@1.2`, `name==1.2`)"
+                ));
+            } else if r.packages.len() != 1 {
+                errs.push(format!("{rat}: `version` needs exactly one package"));
+            }
+            if !is_package_spec(v) {
+                errs.push(format!(
+                    "{rat}: version `{v}` must be one word, not an option"
+                ));
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -151,6 +412,8 @@ pub struct Server {
     pub quirks: Vec<String>,
     #[serde(default)]
     pub install: Option<String>,
+    #[serde(default)]
+    pub recipes: Vec<Recipe>,
     #[serde(default)]
     pub vscode_extensions: Vec<String>,
 }
@@ -445,6 +708,7 @@ pub fn validate(r: &Registry) -> Vec<String> {
         if s.install.as_deref().is_some_and(|i| i.trim().is_empty()) {
             errs.push(format!("{at}: empty install"));
         }
+        validate_recipes(&at, &s.recipes, &mut errs);
         for x in &s.vscode_extensions {
             if *x != x.to_ascii_lowercase() || !x.contains('.') {
                 errs.push(format!(
@@ -828,6 +1092,109 @@ mod tests {
             r#"{"version":1,"languages":[{"id":"a","name":"A","extension":["x"]}],"servers":[]}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn install_recipes_are_checked_field_by_field() {
+        let sha = "0".repeat(64);
+        let bad = format!(
+            r#"{{
+          "version": 1,
+          "languages": [ {{ "id": "a", "name": "A", "extensions": ["x"], "lspLanguageId": "a", "server": "s" }} ],
+          "servers": [
+            {{ "id": "s", "name": "S", "label": "s", "command": "s", "recipes": [
+              {{ "manager": "snap", "packages": ["s"] }},
+              {{ "manager": "npm", "packages": [] }},
+              {{ "manager": "pip", "packages": ["-e", "has space", "x;rm"] }},
+              {{ "manager": "go", "packages": ["golang.org/x/tools/gopls"] }},
+              {{ "manager": "pipx", "packages": ["a", "b"] }},
+              {{ "manager": "cargo", "packages": ["a", "b"], "version": "1" }},
+              {{ "manager": "gem", "packages": ["g"], "version": "--pre" }},
+              {{ "manager": "apt", "packages": ["clangd"], "version": "1" }},
+              {{ "manager": "brew", "packages": ["llvm"], "assets": [ {{ "platform": "any", "url": "", "archive": "zip" }} ] }},
+              {{ "manager": "dotnet", "packages": ["csharp-ls"] }},
+              {{ "manager": "dotnet", "packages": ["csharp-ls"] }},
+              {{ "manager": "github", "packages": ["x"], "assets": [
+                {{ "platform": "linux-x64", "archive": "rar", "bin": "bin" }},
+                {{ "platform": "linux-x64", "url": "https://example.com/s.zip", "sha256": "ABC", "archive": "tar.gz", "bin": "../up" }},
+                {{ "platform": "beos", "url": "https://github.com/o/r/releases/download/v1/s.gz", "sha256": "{sha}", "archive": "gz", "bin": "bin" }},
+                {{ "platform": "darwin-x64", "url": "https://github.com/o/r/releases/download/v1/s.zip", "sha256": "{sha}", "archive": "zip" }},
+                {{ "platform": "any", "url": "https://github.com/o/r/releases/download/v1/s.tgz", "sha256": "{sha}", "archive": "tar.gz", "bin": "/abs" }}
+              ] }}
+            ] }}
+          ]
+        }}"#
+        );
+        let errs = validate(&parse(&bad).unwrap()).join("\n");
+        for want in [
+            "unknown package manager `snap`",
+            "recipe `npm`: no packages",
+            "package `-e` must be one word",
+            "package `has space` must be one word",
+            "package `x;rm` must be one word",
+            "package `golang.org/x/tools/gopls` needs a version",
+            "pipx installs one package per recipe",
+            "recipe `cargo`: `version` needs exactly one package",
+            "version `--pre` must be one word, not an option",
+            "recipe `apt`: `version` is for cargo, dotnet and gem",
+            "recipe `brew`: only a github recipe has assets",
+            "recipe `dotnet`: the same manager twice",
+            "a release recipe has assets, not packages/version",
+            "asset `linux-x64`: missing url",
+            "asset `linux-x64`: missing sha256",
+            "asset `linux-x64`: the same platform twice",
+            "asset `linux-x64`: url must be https://github.com/",
+            "sha256 must be 64 lowercase hex digits",
+            "unknown archive `rar`",
+            "bin `../up` must be a relative folder",
+            "asset `beos`: unknown platform",
+            "asset `beos`: `bin` is only for zip and tar.gz",
+            "asset `darwin-x64`: an archive needs `bin`",
+            "bin `/abs` must be a relative folder",
+            "an `any` asset fits every platform",
+        ] {
+            assert!(errs.contains(want), "missing «{want}» in:\n{errs}");
+        }
+        // a recipe field nobody reads is a typo
+        assert!(parse(r#"{"version":1,"languages":[],"servers":[{"id":"s","name":"S","label":"s","command":"s","recipes":[{"manager":"npm","package":"x"}]}]}"#).is_err());
+    }
+
+    #[test]
+    fn github_release_urls_are_recognised_exactly() {
+        for ok in [
+            "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-unknown-linux-gnu.gz",
+            "https://github.com/fwcd/kotlin-language-server/releases/download/1.3.13/server.zip",
+        ] {
+            assert!(is_github_release_url(ok), "{ok}");
+        }
+        for bad in [
+            "http://github.com/o/r/releases/download/v1/a.zip",
+            "https://github.com.evil.io/o/r/releases/download/v1/a.zip",
+            "https://github.com/o/r/releases/download/v1/../a.zip",
+            "https://github.com/o/r/releases/download/v1/sub/a.zip",
+            "https://github.com/o/r/archive/v1.zip",
+            "https://github.com/o/r/releases/download/v1/a.zip?x=1",
+            "https://objects.githubusercontent.com/o/r/a.zip",
+        ] {
+            assert!(!is_github_release_url(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn every_bundled_release_asset_is_pinned_and_the_text_hint_stays() {
+        for s in &registry().servers {
+            for r in &s.recipes {
+                for a in &r.assets {
+                    assert_eq!(a.sha256.len(), 64, "{} {}", s.id, a.platform);
+                    assert!(is_github_release_url(&a.url), "{}", a.url);
+                }
+            }
+            assert!(
+                s.install.is_some(),
+                "{}: the hand-install hint stays for when no recipe applies",
+                s.id
+            );
+        }
     }
 
     #[test]

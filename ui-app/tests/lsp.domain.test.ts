@@ -149,12 +149,12 @@ describe("referências e rename (domínio)", () => {
 import { missingServerNotice, languageName } from "../src/features/lsp/domain/server-status";
 
 describe("aviso de servidor em falta", () => {
-  it("diz a linguagem, o servidor e como o instalar; instalado ou sem servidor não avisa", () => {
+  it("diz a linguagem e o servidor; as maneiras e a instrução vêm do plano do backend; instalado ou sem servidor não avisa", () => {
     const n = missingServerNotice({ language: "java", server: "jdtls", installed: false, problem: "x" })!;
-    expect(n.title).toBe("No Java language server");
-    expect(n.detail).toMatch(/jdtls/);
-    expect(n.install).toMatch(/~\/\.local\/share\/jdtls\/bin/);
-    expect(missingServerNotice({ language: "rust", server: "rust-analyzer", installed: false })!.install).toBe("rustup component add rust-analyzer");
+    expect(n.languageName).toBe("Java");
+    expect(n.server).toBe("jdtls");
+    expect(n.options).toEqual([]); // sem plano (o backend não respondeu): nenhuma maneira, nada a correr
+    expect(n.selected).toBe(null);
     expect(missingServerNotice({ language: "java", server: "jdtls", installed: true })).toBe(null);
     expect(missingServerNotice(null)).toBe(null);
     expect(languageName("csharp")).toBe("C#");

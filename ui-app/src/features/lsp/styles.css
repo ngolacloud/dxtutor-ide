@@ -47,6 +47,8 @@
 .lsp-eff-json{max-height:46vh;white-space:pre;margin-top:6px}
 .lsp-cfg-notice{position:fixed;right:16px;bottom:36px;z-index:470;width:min(520px,calc(100vw - 32px));max-height:50vh;overflow:auto;background:var(--bg-elevated);border:1px solid var(--border-strong);border-left:3px solid var(--red);border-radius:10px;box-shadow:var(--sh-pop);padding:12px 14px;font-size:12px;color:var(--fg)}
 .lsp-cfg-notice b{color:var(--red)}.lsp-cfg-notice p{margin:4px 0 8px;color:var(--fg-dim)}.lsp-cfg-file{margin:6px 0;word-break:break-all}.lsp-cfg-file code{font-family:var(--font-mono);color:var(--fg-bright)}
+/* LSP P3: the ways to install a missing server */
+.lsp-missing .lsp-way{font-size:12px;padding:1px 4px;background:var(--bg);color:var(--fg);border:1px solid var(--border-strong);border-radius:3px}.lsp-missing .lsp-way-one{color:var(--fg-dim)}.lsp-missing code{word-break:break-all}.lsp-missing .lsp-way-note{flex-basis:100%;color:var(--fg-dim)}
 /* os servidores de linguagem a correr (LSP P6): a lista com pid, pasta, ficheiros, tempo inactivo e memória */
 .lsp-srv-tbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}.lsp-srv-tbl th{text-align:left;font-weight:600;color:var(--fg-dim);padding:4px 6px;border-bottom:1px solid var(--border)}
 .lsp-srv-tbl td{padding:5px 6px;border-bottom:1px solid var(--border);vertical-align:middle}.lsp-srv-tbl td.num{font-family:var(--font-mono);white-space:nowrap}.lsp-srv-root{font-family:var(--font-mono);word-break:break-all;color:var(--fg-dim)}

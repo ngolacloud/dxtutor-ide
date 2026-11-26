@@ -2,7 +2,7 @@
    O que o cliente LSP precisa do mundo, injectado pela raiz de composição (`index.ts`):
    o backend (comandos `lsp_*` + evento `lsp://diagnostics`), o workspace aberto e o editor. */
 
-import type { ServerStatus } from "../domain/server-status";
+import type { InstallPlan, ServerStatus } from "../domain/server-status";
 import type { FileReport, LspConfigView } from "../domain/overrides";
 import type { LimitNotice, ServersView } from "../domain/servers";
 
@@ -72,7 +72,7 @@ export interface EditorPort {
   /** O «Format Document» do dxtutor (sem servidor, ou quando ele não formata). */
   builtinFormat(): void;
   /** Mostra (ou tira, com `null`) o aviso de servidor em falta no ficheiro `key`, se estiver aberto;
-   *  `onDismiss` corre quando o utilizador o fecha; `acts` são os botões «Copy» e «Install». */
+   *  `onDismiss` corre quando o utilizador o fecha; `acts` são os botões («Copy», «Install», «Check again»…). */
   notice(key: string, notice: EditorNotice | null, onDismiss?: () => void, acts?: NoticeActions): void;
 }
 
@@ -82,18 +82,48 @@ export interface EditorNotice {
   kind?: "missing" | "approval";
   title: string;
   detail: string;
-  /** como instalar (só `missing`) */
+  /** como instalar à mão, quando não há maneira (só `missing`) */
   install?: string;
-  command?: string | null;
+  /** as maneiras de instalar (só `missing`, LSP P3) e a escolhida à partida */
+  ways?: NoticeWay[];
+  way?: string | null;
   /** uma linha a mais (o lembrete dos overrides, ou «o programa está dentro do projecto») */
   hint?: string;
+  /** os textos dos botões e rótulos da faixa de servidor em falta, na língua da interface */
+  labels?: NoticeLabels;
 }
 
-/** Os botões da faixa. `install` só existe quando a instalação é um comando; `configure` abre o
- *  `lsp.json` do utilizador; `review` abre o diálogo de aprovação. */
+/** Uma maneira de instalar, já com o texto: o que se mostra no `<code>`, se o dxtutor a pode correr. */
+export interface NoticeWay {
+  id: string;
+  label: string;
+  /** o comando exacto (ou, para uma release, o que o dxtutor faz) */
+  shown: string;
+  /** o dxtutor corre-a («Install»); `false`: só se mostra e copia (apt, brew, ou o gestor em falta) */
+  runnable: boolean;
+  available: boolean;
+  /** uma frase: onde fica e como corre */
+  note: string;
+}
+
+export interface NoticeLabels {
+  toInstall: string;
+  way: string;
+  copy: string;
+  install: string;
+  installTip: string;
+  recheck: string;
+  dismiss: string;
+  configure: string;
+}
+
+/** Os botões da faixa. `install(maneira)` só serve uma maneira que o dxtutor corre; `copy(maneira)` copia o
+ *  comando da maneira (ou a instrução, sem maneira); `recheck` volta a procurar o servidor (depois de o
+ *  instalares à mão); `configure` abre o `lsp.json` do utilizador; `review` abre o diálogo de aprovação. */
 export interface NoticeActions {
-  copy?: () => void;
-  install?: () => void;
+  copy?: (way: string | null) => void;
+  install?: (way: string) => void;
+  recheck?: () => void;
   configure?: () => void;
   review?: () => void;
 }
@@ -128,15 +158,20 @@ export interface OverridesView {
   showInvalid(files: FileReport[], open: (f: FileReport) => void): void;
 }
 
-/** Instalar o servidor em falta: copiar o comando, ou corrê-lo num terminal de tarefa com a shell de
- *  login (o `npm`/`go`/`dotnet`/`rustup` do utilizador, p.ex. o node do nvm), depois de aprovado e
- *  auditado (r23 F1: muda algo fora do editor). */
+/** Instalar o servidor em falta (LSP P3): o backend dá as maneiras com o comando EXACTO
+ *  (`lsp_install_plan`); copiar o comando, ou — depois de aprovado e auditado (r23 F1: muda algo fora do
+ *  editor) — corrê-lo num terminal de tarefa, ou pedir ao backend o download conferido de uma release
+ *  (`lsp_install_download`, com o id da maneira, nunca um URL). */
 export interface InstallPort {
+  /** as maneiras de instalar o servidor de um ficheiro (`null`: o ficheiro não tem servidor) */
+  plan(path: string): Promise<InstallPlan | null>;
+  /** descarrega, confere e desempacota a release (maneira `option`); devolve o estado novo do servidor */
+  download(path: string, option: string): Promise<ServerStatus | null>;
   copy(text: string): Promise<boolean>;
   approve(r: { title: string; command: string; scope: string }): Promise<{ approved: boolean; reason: string; decidedAt: number }>;
   audit(root: string, e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number; outcome?: "sent" | "ok" | "failed" }): Promise<void>;
-  /** corre no terminal (PTY) e resolve com o código de saída */
-  run(command: string, cwd: string): Promise<number>;
+  /** corre a linha no terminal (PTY), na pasta e com o ambiente do plano, e resolve com o código de saída */
+  run(command: string, cwd: string, env: Record<string, string>, label: string): Promise<number>;
 }
 
 /** Os servidores de linguagem vivos (LSP P6): `lsp_servers`, `lsp_server_stop`, `lsp_server_restart` e os

@@ -73,7 +73,9 @@ Each entry names the `id` it changes or adds.
 | `readySignal` | lowercase text marking the end of indexing in the server's progress messages |
 | `initOptions` | `initializationOptions` sent once, when the server starts |
 | `settings` | the server's settings (see below) |
-| `oneShot`, `quirks`, `install`, `vscodeExtensions` | as in the bundled registry; `install` is text only |
+| `oneShot`, `quirks`, `vscodeExtensions` | as in the bundled registry |
+| `install` | how to install it by hand: text only, shown when no recipe applies |
+| `recipes` | how dxtutor may install it from the missing-server banner (see [Install recipes](#install-recipes)) |
 
 A field dxtutor does not know is an error (usually a typo).
 
@@ -131,7 +133,8 @@ Use basedpyright instead of pyright:
 {
   "servers": [
     { "id": "python", "label": "basedpyright", "command": "basedpyright-langserver",
-      "install": "pipx install basedpyright" }
+      "install": "pipx install basedpyright",
+      "recipes": [ { "manager": "pipx", "packages": ["basedpyright"] } ] }
   ]
 }
 ```
@@ -161,6 +164,27 @@ Turn the SQL language server off for a project:
 
 A bundled server that no language uses any more is fine. A **new** server that no language uses is an error,
 because it is most likely a typo in an id.
+
+## Install recipes
+
+When a server is missing, the banner offers the ways to install it on this machine. dxtutor builds each
+command from the server's `recipes`; it never runs a command you or a file typed. Each recipe names one
+`manager`:
+
+| `manager` | What dxtutor does | Fields |
+|---|---|---|
+| `npm`, `pip`, `pipx`, `go`, `cargo`, `dotnet`, `gem` | runs it in a terminal, after you approve the exact command, into dxtutor's own folder (`<app data>/lsp-servers/<server>`) | `packages`; `version` for `cargo`, `dotnet`, `gem` (one package). A go package needs `@version` |
+| `rustup` | runs `rustup component add` in a terminal | `packages` (components) |
+| `brew`, `apt` | shows the command for you to run (apt needs sudo; dxtutor never runs either) | `packages` |
+| `github` | downloads the release itself, checks its SHA-256 before unpacking, and installs nothing on a mismatch | `assets`: `platform` (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `any`), `url` (`https://github.com/<owner>/<repo>/releases/download/<tag>/<file>`), `sha256`, `archive` (`zip`, `tar.gz`, `gz`, `none`), `bin` (the folder holding the program, for `zip`/`tar.gz`) |
+
+Only recipes from the bundled registry and from **your** file are offered. A project file's recipes are never
+offered, and a server that the project adds, or whose program it changes, is not installed from the banner.
+If your file changes a server's `command`, give it its own `recipes` too: the bundled ones install the bundled
+program.
+
+dxtutor looks for an installed server in its own folder first (after the `envOverride` variable), so it starts
+right after the install, without restarting dxtutor.
 
 ## Errors
 
