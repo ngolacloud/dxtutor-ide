@@ -18,7 +18,13 @@ fn git(args: &[&str], ctx: &ToolCtx) -> ToolOutput {
         ToolOutput::ok(if out.is_empty() {
             "(sem alterações)".to_string()
         } else {
-            super::head_tail(out, 60_000)
+            // abaixo da rede do loop (30k); um diff grande pede-se ficheiro a ficheiro
+            let clipped = super::head_tail(out, 24_000);
+            if clipped.len() < out.len() {
+                format!("{clipped}\n…[diff grande: pede-o por ficheiro com `path`, ou vê primeiro a lista com `git_status`]")
+            } else {
+                clipped
+            }
         })
     } else {
         ToolOutput::err(r.render())

@@ -1,7 +1,8 @@
 /* ═══════════ Co-Dev — domínio: custo real de um turno (ADR-0003, F4) ═══════════
    Preço por milhão de tokens (API da Anthropic, primeira parte; tabela de 2026-11).
-   As leituras de cache têm preço próprio por modelo; as escritas de cache (TTL de 5 min)
-   custam 1,25× a entrada. Modelo desconhecido → sem custo (só tokens). Puro. */
+   As leituras de cache têm preço próprio por modelo; as escritas de cache custam 1,25× a
+   entrada com TTL de 5 min e 2× com TTL de 1 hora (o prefixo do Co-Dev do IDE). Modelo
+   desconhecido → sem custo (só tokens). Igual ao `cost.rs` do `tutor-agent`. Puro. */
 
 import type { Usage } from "./agent-events";
 
@@ -26,11 +27,14 @@ export function costUSD(model: string, u: Usage): number | null {
   const p = PRICES[model];
   if (!p) return null;
   const M = 1_000_000;
+  const write1h = Math.min(u.cache_creation_1h_input_tokens ?? 0, u.cache_creation_input_tokens);
+  const write5m = u.cache_creation_input_tokens - write1h;
   return (
     (u.input_tokens * p.input +
       u.output_tokens * p.output +
       u.cache_read_input_tokens * p.cacheRead +
-      u.cache_creation_input_tokens * p.input * 1.25) /
+      write5m * p.input * 1.25 +
+      write1h * p.input * 2) /
     M
   );
 }
@@ -47,4 +51,10 @@ export function formatUsage(model: string, u: Usage): string {
   const c = costUSD(model, u);
   if (c !== null) s += ` · $${c.toFixed(c < 0.01 ? 4 : c < 1 ? 3 : 2)}`;
   return s;
+}
+
+/** A percentagem da entrada que veio da cache (lida), ou `null` sem entrada. */
+export function cacheHitPercent(input: number, cacheRead: number): number | null {
+  if (input <= 0) return null;
+  return Math.round((Math.min(cacheRead, input) / input) * 100);
 }

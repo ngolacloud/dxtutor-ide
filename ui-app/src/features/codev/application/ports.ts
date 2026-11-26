@@ -267,6 +267,8 @@ export interface AgentGateway {
     reviewEdits?: boolean;
     /** The Project issue this conversation works on (accepted changes are linked to it). */
     issue?: string | null;
+    /** An architecture session (toolset 9): only these carry `arch_propose`. */
+    architecture?: boolean;
   }): Promise<string>;
   /** Decides the hunks of a `hunk_review` (hunks without a decision count as rejected). */
   review(session: string, call: string, decisions: Array<{ hunk: string; accept: boolean; reason?: string }>): Promise<void>;
@@ -297,6 +299,13 @@ export interface AgentGateway {
   }): Promise<() => void>;
 }
 
+/** A cache de um pedido do agente e o seu custo, para o `ctx` da barra de estado. */
+export interface UsageDetail {
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number | null;
+}
+
 export interface AgentChatDeps {
   /** Asks the human before something that cannot be undone from the chat (RF-G07: discarding a stopped turn). */
   confirm?(message: string): boolean;
@@ -321,8 +330,12 @@ export interface AgentChatDeps {
   /** Abre um diff (antes/depois) numa tab do editor. */
   openDiff(path: string, before: string, after: string, label: string): void;
   /** O uso real de cada pedido do agente (tokens de entrada — com os de cache — e de saída):
-   *  alimenta o contador de uso (custo das issues no Board) e o `ctx` (ADR-0006, R3c). */
-  onUsage?(input: number, output: number): void;
+   *  alimenta o contador de uso (custo das issues no Board) e o `ctx` (ADR-0006, R3c). O
+   *  `detail` traz a parte lida e escrita da cache e o custo do pedido (`null` sem preço). */
+  onUsage?(input: number, output: number, detail?: UsageDetail): void;
+  /** Toolset 9: does a new session start as an architecture session (Studio open, or a first
+   *  request about architecture)? Only those carry `arch_propose`. */
+  architecture?(firstRequest: string): boolean;
   /** Live hunks in the editor (RF-CODEV-STREAM); absent → edits are approved per call. */
   hunks?: HunkSink;
   /** Saves what the editor has to disk before the agent reads it (autosave flush). */
