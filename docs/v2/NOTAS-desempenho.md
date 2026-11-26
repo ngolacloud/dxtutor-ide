@@ -65,9 +65,28 @@ Rust/Go embutidos como literais (~700 KB, ~35 ms). Os ~2 s ocupados no WebKit s�
 (sem GPU). Partir mais o pacote dá pouco: o JavaScriptCore guarda o código-fonte de qualquer forma, e o `COURSES` do
 Learning Track é lido de forma síncrona.
 
-## A seguir
+## P3 — o auto-teste vigia (2026-11-27)
 
-- **P3 — vigilância:** um passo do auto-teste com a sonda, que falha acima de limites (bloqueio da thread da UI, CPU em
-  repouso, memória privada da página com uma pasta pesada).
-- Por medir: a app cresce ~40 MB privados ao abrir este repositório (não é o `load_workspace`: a pasta de 150 MB só
-  junta ~9 MB).
+O passo `perf` do auto-teste (`perfProbe` em `platform/desktop/selftest.ts`, o último antes do `csp`) lê a app e a página
+pelo `/proc` (o `$PPID` do `sh` é a app; a página é o filho `WebKitWebProcess`) e falha acima de um limite:
+
+| Medida | Limite | Medido (debug, Xvfb) |
+|---|---|---|
+| A thread da UI da app responde ao `app_info` (síncrono), de 50 em 50 ms durante ≥ 3 s em que a pasta é relida e correm `keys_status`, `workspace_tree`, `list_dir`, `board_load` | 1000 ms | máx. 3 ms (60 pings) |
+| A thread da página não pára (atraso de um `setInterval` de 50 ms) | 4000 ms | máx. 2 ms |
+| Uma `perf-out/` de 400 ficheiros, 80 MB, ignorada pelo `.git/info/exclude`: ficheiros no editor / crescimento da página | 0 / 30 MB | 0 / 0 MB |
+| CPU em repouso, 10 s (app / página) | 5 % | 0–0,1 % / 0,2–0,4 % |
+| Memória privada no fim do auto-teste completo (app / página) | 800 / 1200 MB | 152 / 336 MB |
+
+**Prova de que apanha a regressão:** com o `list_dir` de volta a síncrono e 1,5 s lento (mutação temporária, revertida),
+o passo falhou: «app UI thread answered in 1485 ms (> 1000)». Os limites deixam folga para uma máquina com outras sessões
+a compilar; só sobem com a medição que o justifique, aqui.
+
+O `lsp-java`/`lsp-kotlin` passaram a falhar sem diagnósticos. Antes registavam `null` e passavam: a 2026-11-26 uma corrida
+ficou 17 min no `lsp-java` (o jdtls parado, sem CPU, e as respostas a chegar no passo do Kotlin) sem nenhum `FAIL`.
+Intermitente (a repetição passou, com e sem a P2, e na `develop`); a causa está por encontrar no LSP.
+
+## Por medir
+
+- A app cresce ~40 MB privados ao abrir este repositório (não é o `load_workspace`: a pasta de 150 MB só junta ~9 MB).
+- O bloqueio intermitente do jdtls acima.

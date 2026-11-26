@@ -1348,7 +1348,12 @@ O IDE tem de ser leve e nunca travar a máquina. Regras medidas (amostragem da t
   o git ignora por inteiro (`git ls-files --others --ignored --directory`; um `.env` ignorado e um ficheiro versionado
   ficam) e pára aos 48 MB (`LoadPolicy::max_total`), além dos 4000 ficheiros de 768 KB. O HEAD dos alterados vem de um só
   `git cat-file --batch` (`platform/desktop/git-batch.ts`). O auto-teste é um chunk à parte (`import()` no `bridge.ts`).
-- Medidas e método em `docs/v2/NOTAS-desempenho.md`; fica para a P3 o passo de desempenho no auto-teste.
+- **Vigilância (P3):** o passo `perf` do auto-teste (último antes do `csp`) lê a app e a página pelo `/proc` e falha
+  acima dos limites (`LIMIT` no `perfProbe`): a thread da UI da app responde ao `app_info` (síncrono) enquanto a pasta é
+  relida, a página não pára, uma `perf-out/` de 80 MB ignorada pelo `.git/info/exclude` não entra nem a faz crescer, CPU
+  em repouso e memória privada no fim. Um limite só sobe com a medição que o justifica, nas notas. O `lsp-java`/`lsp-kotlin`
+  falham sem diagnósticos (antes registavam `null` e passavam).
+- Medidas e método em `docs/v2/NOTAS-desempenho.md`.
 
 ## Regras ao mexer aqui
 
