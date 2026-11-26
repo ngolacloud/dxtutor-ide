@@ -35,3 +35,15 @@
 .lsp-sig-label{font-family:var(--font-mono);font-size:12px;color:var(--fg);white-space:pre-wrap}
 .lsp-sig-label b{color:var(--fg-bright);font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .lsp-sig-n{color:var(--fg-muted);margin-right:8px}.lsp-sig-doc{margin-top:5px;color:var(--fg-dim);font-size:11.5px;white-space:pre-wrap}
+/* overrides do registo (LSP P2): a faixa de aprovação, o editor do lsp.json do utilizador, a configuração efectiva e o aviso dos ficheiros ignorados */
+.lsp-missing .lsp-hint{flex-basis:100%;color:var(--fg-dim)}.lsp-missing.lsp-approval{border-left-color:var(--accent)}.lsp-missing.lsp-approval b{color:var(--accent)}
+.lsp-modal{position:fixed;inset:0;z-index:480;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:16px}
+.lsp-modal-box{width:min(760px,100%)}.lsp-modal-box code{font-family:var(--font-mono);color:var(--fg-bright)}.lsp-cfg-path{margin:0 0 4px;font-size:12px;word-break:break-all}
+.lsp-modal-box .lsp-cfg-text{font-family:var(--font-mono);font-size:12px;line-height:1.5;white-space:pre;tab-size:2;min-height:300px}
+.lsp-cfg-out{font-size:12px;min-height:18px;margin-top:6px}.lsp-cfg-out.ok{color:var(--green)}.lsp-cfg-out.bad,.lsp-cfg-files .bad{color:var(--red)}
+.lsp-cfg-errs{margin:4px 0 0 18px;padding:0;font-family:var(--font-mono);font-size:11.5px;color:var(--red);word-break:break-word}
+.lsp-cfg-files{list-style:none;margin:0;padding:0;font-size:12px}.lsp-cfg-files li{margin:2px 0;word-break:break-all}
+.lsp-modal-box select.inp{width:100%}.lsp-eff-meta{margin:8px 0 4px;color:var(--fg-dim);font-size:12px}.lsp-eff-pending{color:var(--yellow)}.lsp-eff-ok{color:var(--green);font-size:12px}
+.lsp-eff-json{max-height:46vh;white-space:pre;margin-top:6px}
+.lsp-cfg-notice{position:fixed;right:16px;bottom:36px;z-index:470;width:min(520px,calc(100vw - 32px));max-height:50vh;overflow:auto;background:var(--bg-elevated);border:1px solid var(--border-strong);border-left:3px solid var(--red);border-radius:10px;box-shadow:var(--sh-pop);padding:12px 14px;font-size:12px;color:var(--fg)}
+.lsp-cfg-notice b{color:var(--red)}.lsp-cfg-notice p{margin:4px 0 8px;color:var(--fg-dim)}.lsp-cfg-file{margin:6px 0;word-break:break-all}.lsp-cfg-file code{font-family:var(--font-mono);color:var(--fg-bright)}

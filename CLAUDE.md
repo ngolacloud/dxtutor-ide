@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 307 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 315 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -800,6 +800,47 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   --toolchain stable`, `~/.rustup/toolchains/*/bin`) ou de um binário no PATH que NÃO seja o proxy do rustup;
   sem nenhum, `lsp_server_status` diz «não instalado» (antes caía num `rust-analyzer` solto e o aviso nunca
   aparecia). Os resolvers que correm um programa (`rustup`, `go`) guardam só o que encontraram, nunca a falta.
+- **Overrides do registo (LSP P2, `tutor_eval::lspconf`, `docs/lsp/overrides.md`).** Ordem: o registo embutido →
+  o `lsp.json` do utilizador (`app_config_dir`, p.ex. `~/.config/ao.ngolacloud.dxtutor-ide/lsp.json`) → o
+  `.dxtutor/lsp.json` da pasta aberta. Mesmo formato do registo (`languages[]`/`servers[]` por `id`), JSON com
+  comentários e vírgulas no fim (`langreg::strip_jsonc`). Uma entrada com id conhecido muda só os campos que dá
+  (`settings`/`initOptions` juntam-se chave a chave, `null` repõe o valor por omissão); um id novo é uma entrada
+  inteira. Cada ficheiro junta-se e passa pelo `langreg::validate` SOZINHO (`langreg::apply_overlay`): inválido →
+  ignorado inteiro, os de baixo ficam, e o `FileReport` diz o ficheiro e o sítio (`servers[1] (rust): unknown field
+  comand`, `line 4 column 3`). O `lsp.rs` guarda o registo efectivo por pasta (`effective`), um fio vê as datas dos
+  ficheiros de 2 em 2 s (`init`, `reload_changed`) e `reconcile` pára o servidor que saiu, reinicia o que mudou de
+  arranque (`fingerprint`: comando, args, resolver, pastas, initOptions, marcadores, quirks) e manda
+  `workspace/didChangeConfiguration` ao que só mudou de definições; o evento `lsp://config` avisa a UI. O
+  `workspace/configuration` responde pelas `settings` da entrada, por secção (`settings_section`: `java.format`
+  → `settings.java.format`; chaves com pontos no topo contam como aninhadas), `null` sem definições (como antes).
+  As sessões arrancam com `current_dir` na raiz. O editor guarda o texto dos documentos abertos (`docs()`): um
+  servidor que (re)arranca recebe o `didOpen` de cada um antes do primeiro pedido (`ensure_doc_open`).
+- **Confiança (regra no Rust).** O `lsp.json` do utilizador é dele: confiado. Do `.dxtutor/lsp.json` nada que possa
+  pôr um servidor a correr algo vale sem o humano: (1) um servidor que ele ACRESCENTA, ou cujo
+  `command`/`args`/`resolver`/`searchDirs`/`envOverride` muda em relação ao valor confiado (embutido + utilizador;
+  `LAUNCH_FIELDS`), não arranca; (2) `settings`/`initOptions` diferentes das de confiança (`CONFIG_FIELDS`; p.ex. o
+  `check.overrideCommand` do rust-analyzer corre um comando) não se aplicam — o servidor arranca com as de confiança
+  (`Effective::trusted_config`) para a linguagem continuar a funcionar. `lsp.rs::gate` decide (em `open_session`,
+  `lsp_start`, `restart` e `reconcile`); `lsp_server_status` devolve o `approval` (programa resolvido, args, pasta,
+  ficheiro, campos mudados, `blocksStart`, `config` — as definições/initOptions do projecto e o que substituem —,
+  hash); a faixa do editor tem «Review…», o diálogo partilhado mostra o comando e as definições, e
+  `lsp_approve_server` confere o hash, grava a decisão no registo de auditoria ANTES (`lsp.server.approve`, com o
+  comando e as definições; sem auditoria não aprova), guarda-a em `<app_config_dir>/lsp-trusted.json` (0600; nunca no
+  projecto) e reconcilia as sessões do projecto (definições → `didChangeConfiguration`; initOptions → reinício). O
+  hash (`approval_hash`) junta o projecto, o servidor, o programa encontrado, os campos de arranque, as definições e
+  initOptions efectivas e, para um programa DENTRO do projecto, o conteúdo dele: mudou → volta a pedir. Marcadores,
+  nomes e extensões não correm nada e não pedem aprovação. O `install` continua só texto, e o «Install» sai quando um
+  override troca o `command` (instalaria outro programa). O cliente de um pedido (`tutor_eval::lsp`) e o `codeintel`
+  continuam com o registo embutido.
+- **UI dos overrides** (`application/overrides.ts`, `ui/config-view.ts`, catálogo `application/override-messages.ts`):
+  o registo efectivo entra em uso ao abrir a pasta (`lsp_config` → `useRegistry`, lido também pelo editor, explorador
+  e extensões), a paleta tem «LSP: Open User Language Server Settings» (`#lsp-config`, um editor próprio: o ficheiro
+  vive fora da pasta; grava por `lsp_user_config_save`, que só escreve esse caminho), «LSP: Open Project Language
+  Server Settings» (num separador, com o modelo comentado do `lspconf::PROJECT_TEMPLATE` se não existe) e «LSP: Show
+  Effective Language Server Configuration» (`#lsp-effective`); os ficheiros ignorados aparecem em
+  `#lsp-config-errors`, e a faixa de servidor em falta lembra os overrides («Configure…»). Comandos: `lsp_config`,
+  `lsp_config_file`, `lsp_user_config_save`, `lsp_approve_server`. Testes: `cargo test -p tutor-eval lspconf langreg`,
+  `cargo test -p dxtutor-ide lsp::override_tests`, `tests/lsp.overrides.test.ts`, `tests/lsp.notice.test.ts`.
 - **`domain/`:** `registry.ts` (o registo, `languageFor`/`languageForName`/`serverOf`), `languages.ts` (o
   `languageId` LSP, só das linguagens com servidor),
   `positions.ts` (offset ↔ `{line, character}` e ponto do rato → offset, com tabs),

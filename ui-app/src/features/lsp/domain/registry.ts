@@ -4,7 +4,11 @@
    editor precisa (nome na barra de estado, marcador de comentário, outline), e para cada
    servidor de linguagem como se arranca. O backend embute o MESMO ficheiro
    (`tutor_eval::langreg`, `include_str!`) e valida-o nos testes; aqui importa-se pelo Vite, por
-   isso o browser não precisa do backend. Antes havia nove tabelas copiadas à mão. PURO. */
+   isso o browser não precisa do backend. Antes havia nove tabelas copiadas à mão.
+   Na app com uma pasta aberta, o registo EFECTIVO (o embutido com o `lsp.json` do utilizador e o
+   `.dxtutor/lsp.json` do projecto por cima, LSP P2) vem do backend (`lsp_config`) e troca-se aqui por
+   `useRegistry` — só a raiz de composição do lsp o faz; quem lê o registo (o editor, o explorador,
+   as extensões) passa a ver as linguagens dos overrides. PURO. */
 
 import data from "../../../../../languages/registry.json";
 
@@ -40,6 +44,8 @@ export interface RegServer {
   rootMarkers?: string[];
   readySignal?: string;
   initOptions?: unknown;
+  /** as definições do servidor (a resposta ao `workspace/configuration`), quase sempre de um override */
+  settings?: unknown;
   /** barato o bastante para arrancar só para um pedido (o `file_outline`) */
   oneShot?: boolean;
   quirks?: string[];
@@ -54,7 +60,19 @@ export interface Registry {
   servers: RegServer[];
 }
 
+/** O registo embutido (`languages/registry.json`). */
 export const REGISTRY: Registry = data as Registry;
+
+/** O registo em uso: o embutido, ou o efectivo da pasta aberta (com os overrides). */
+let active: Registry = REGISTRY;
+
+/** Troca o registo em uso pelo efectivo da pasta aberta (`null` volta ao embutido). */
+export function useRegistry(r: Registry | null): void {
+  active = r ?? REGISTRY;
+}
+
+/** O registo em uso (ver `useRegistry`). */
+export const activeRegistry = (): Registry => active;
 
 const fileName = (path: string): string => path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
 
@@ -64,7 +82,7 @@ const fileName = (path: string): string => path.slice(Math.max(path.lastIndexOf(
 export function languageForName(path: string): RegLanguage | null {
   const name = fileName(path), lower = name.toLowerCase();
   if (!name) return null;
-  const byName = REGISTRY.languages.find((l) => (l.filenames ?? []).some((f) => f.toLowerCase() === lower));
+  const byName = active.languages.find((l) => (l.filenames ?? []).some((f) => f.toLowerCase() === lower));
   if (byName) return byName;
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return null;
@@ -74,7 +92,7 @@ export function languageForName(path: string): RegLanguage | null {
 /** A linguagem de uma extensão (sem o ponto, sem distinguir maiúsculas). */
 export function languageByExtension(ext: string): RegLanguage | null {
   const e = ext.toLowerCase();
-  return REGISTRY.languages.find((l) => (l.extensions ?? []).includes(e)) ?? null;
+  return active.languages.find((l) => (l.extensions ?? []).includes(e)) ?? null;
 }
 
 /** A linguagem cuja `firstLine` casa com a primeira linha de `content`. */
@@ -82,7 +100,7 @@ export function languageForFirstLine(content: string): RegLanguage | null {
   const nl = content.indexOf("\n");
   const line = nl < 0 ? content : content.slice(0, nl);
   return (
-    REGISTRY.languages.find((l) => {
+    active.languages.find((l) => {
       if (!l.firstLine) return false;
       try {
         return new RegExp(l.firstLine).test(line);
@@ -98,8 +116,8 @@ export function languageFor(path: string, content?: string | null): RegLanguage 
   return languageForName(path) ?? (content ? languageForFirstLine(content) : null);
 }
 
-export const languageById = (id: string): RegLanguage | null => REGISTRY.languages.find((l) => l.id === id) ?? null;
-export const serverById = (id: string): RegServer | null => REGISTRY.servers.find((s) => s.id === id) ?? null;
+export const languageById = (id: string): RegLanguage | null => active.languages.find((l) => l.id === id) ?? null;
+export const serverById = (id: string): RegServer | null => active.servers.find((s) => s.id === id) ?? null;
 
 /** O servidor de uma linguagem, se tem. */
 export const serverOf = (lang: RegLanguage | null): RegServer | null => (lang?.server ? serverById(lang.server) : null);

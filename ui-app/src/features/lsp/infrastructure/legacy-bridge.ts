@@ -8,7 +8,9 @@
    `window` NO ACTO (a pasta abre de forma assíncrona). */
 
 import { toast, esc } from "../../../core";
+import { translator } from "../../../app/i18n";
 import { positionToOffset } from "../domain/positions";
+import { LSP_OVERRIDE_MESSAGES } from "../application/override-messages";
 import type { EditorPort, WorkspacePort } from "../application/ports";
 
 interface Tab {
@@ -30,6 +32,7 @@ interface Globals {
   CMD?: [string, string, () => void, string?][];
 }
 const G = window as unknown as Globals;
+const t = translator(LSP_OVERRIDE_MESSAGES);
 
 /** Acrescenta uma entrada à paleta de comandos (o array `CMD` já publicado; não cria globais). */
 export function addPaletteCommand(label: string, key: string, run: () => void): void {
@@ -80,7 +83,8 @@ export const editor: EditorPort = {
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   },
   builtinFormat: () => G.vsxFmt?.(),
-  /* o aviso de servidor em falta: uma faixa no topo da vista do ficheiro (antes do `.ed`) */
+  /* a faixa no topo da vista do ficheiro (antes do `.ed`): o servidor em falta, ou um servidor que o
+     projecto pede e espera pela aprovação (`kind: "approval"`, com «Review…») */
   notice: (key, n, onDismiss, acts) => {
     if (fileKeyOfTab(G.cur ?? null) !== key) return;
     const ed = document.getElementById("ed-ta")?.closest(".ed");
@@ -89,10 +93,18 @@ export const editor: EditorPort = {
     if (!n) return;
     const el = document.createElement("div");
     el.id = "lsp-missing"; el.className = "lsp-missing"; el.setAttribute("role", "status");
-    el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span><span class="lsp-install">To install: <code>${esc(n.install)}</code></span><span class="lsp-acts">${acts?.copy ? '<button class="mini" type="button" data-k="copy">Copy</button>' : ""}${acts?.install ? '<button class="mini pri" type="button" data-k="install" title="Runs the command in a terminal with your login shell (e.g. the node from nvm), after you approve it">Install</button>' : ""}<button class="mini" type="button" data-k="dismiss">Dismiss</button></span>`;
+    const hint = n.hint ? `<span class="lsp-hint">${esc(n.hint)}</span>` : "";
+    if (n.kind === "approval") {
+      el.classList.add("lsp-approval");
+      el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span>${hint}<span class="lsp-acts">${acts?.review ? `<button class="mini pri" type="button" data-k="review">${esc(t("review"))}</button>` : ""}<button class="mini" type="button" data-k="dismiss">${esc(t("dismiss"))}</button></span>`;
+    } else {
+      el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span><span class="lsp-install">To install: <code>${esc(n.install ?? "")}</code></span>${hint}<span class="lsp-acts">${acts?.copy ? '<button class="mini" type="button" data-k="copy">Copy</button>' : ""}${acts?.install ? '<button class="mini pri" type="button" data-k="install" title="Runs the command in a terminal with your login shell (e.g. the node from nvm), after you approve it">Install</button>' : ""}${acts?.configure ? `<button class="mini" type="button" data-k="configure">${esc(t("configure"))}</button>` : ""}<button class="mini" type="button" data-k="dismiss">Dismiss</button></span>`;
+    }
     el.querySelector('[data-k="dismiss"]')!.addEventListener("click", () => { el.remove(); onDismiss?.(); });
     el.querySelector('[data-k="copy"]')?.addEventListener("click", () => acts?.copy?.());
     el.querySelector('[data-k="install"]')?.addEventListener("click", () => acts?.install?.());
+    el.querySelector('[data-k="configure"]')?.addEventListener("click", () => acts?.configure?.());
+    el.querySelector('[data-k="review"]')?.addEventListener("click", () => acts?.review?.());
     ed.parentElement.insertBefore(el, ed);
   },
 };
