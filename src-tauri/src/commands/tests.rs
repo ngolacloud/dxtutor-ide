@@ -202,7 +202,7 @@ pub async fn test_run(
 /// The recent test runs of the project and each test's recent results (pass/fail flips,
 /// flaky, average duration) — computed from the kept runs, empty without them (TEST-03).
 #[tauri::command]
-pub fn test_history(
+pub async fn test_history(
     app: tauri::AppHandle,
     root: String,
 ) -> Result<tutor_board::project::testhist::TestHistory, String> {

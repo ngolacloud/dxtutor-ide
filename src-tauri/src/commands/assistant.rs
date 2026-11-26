@@ -17,7 +17,7 @@ use tauri::Emitter;
 
 /// Dev Assistant: the locally-available Ollama models (empty if none/offline).
 #[tauri::command]
-pub fn assistant_models() -> Vec<String> {
+pub async fn assistant_models() -> Vec<String> {
     assistant::ollama_models()
 }
 
@@ -37,19 +37,19 @@ pub async fn assistant_chat(
 
 /// The AI providers and what each can do right now (Ollama live; others gated).
 #[tauri::command]
-pub fn list_providers() -> Vec<ProviderInfo> {
+pub async fn list_providers() -> Vec<ProviderInfo> {
     assistant::list_providers()
 }
 
 /// The saved AI/provider settings for the settings form — keys come back masked.
 #[tauri::command]
-pub fn get_providers_config() -> ProvidersConfig {
+pub async fn get_providers_config() -> ProvidersConfig {
     assistant::load_config()
 }
 
 /// Persist AI/provider settings to `~/.config/dxtutor/providers.json` (mode 0600).
 #[tauri::command]
-pub fn save_providers_config(config: ProvidersConfig) -> Result<(), String> {
+pub async fn save_providers_config(config: ProvidersConfig) -> Result<(), String> {
     assistant::save_config(&config)
 }
 
@@ -57,7 +57,7 @@ pub fn save_providers_config(config: ProvidersConfig) -> Result<(), String> {
 /// underline. The runner is chosen by the phase's language (Rust via `cargo check`, JS via
 /// the embedded engine). Never judges the exercise.
 #[tauri::command]
-pub fn get_diagnostics(step_id: String, code: String) -> Result<Vec<Diagnostic>, String> {
+pub async fn get_diagnostics(step_id: String, code: String) -> Result<Vec<Diagnostic>, String> {
     let language = crate::study::step_language(&step_id);
     assistant::diagnostics(&language, &code)
 }

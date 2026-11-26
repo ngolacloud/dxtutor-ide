@@ -372,6 +372,37 @@ else
   [ -n "$a9stale" ] && { bad "já não publica no window — tira-o da lista A9_ALLOW em scripts/arch-check.sh:"; printf '%s' "$a9stale"; }
 fi
 
+echo "== A10 · comandos síncronos (correm na thread da UI) só os da lista =="
+# No Tauri, um #[tauri::command] sem `async` corre na thread principal: enquanto dura, a janela não responde
+# (medido: fsync do SQLite e leituras do keychain no arranque deram «not responding» com a máquina carregada).
+# Ficam síncronos só os que dependem da ORDEM de chegada (teclas e tamanho do terminal, mensagens a um agente,
+# a um par ou ao assistente em curso, o ditado, as gravações com debounce do quadro e dos breakpoints, parar o
+# depurador ou um processo) e os puros e baratos. Um comando novo nasce `async`; esta lista só encolhe.
+SYNC_ALLOW="
+pty_write pty_resize pty_kill pty_info
+pair_send pair_stop
+codev_agent_send codev_agent_approve codev_agent_review codev_agent_override codev_agent_set_mode
+codev_agent_cancel codev_agent_close codev_agent_set_plan codev_agent_live
+assistant_chat_stream assistant_cancel
+dictation_status dictation_start dictation_cancel
+board_save breakpoints_save debug_stop kill_shell agent_task_cancel agent_task_status
+app_info expand_path codev_policy study_policy llm_plan selftest_report
+"
+a10bad=""; a10stale=""
+sync_now=$(grep -rhzoP '#\[tauri::command\]\s*(#\[[^\]]*\]\s*)*pub\s+fn\s+\w+' src-tauri/src --include='*.rs' 2>/dev/null | tr '\0' '\n' | grep -oP 'pub\s+fn\s+\K\w+' | sort -u)
+for n in $sync_now; do
+  case " $(echo $SYNC_ALLOW) " in *" $n "*) ;; *) a10bad="$a10bad       $n\n";; esac
+done
+for n in $SYNC_ALLOW; do
+  printf '%s\n' $sync_now | grep -qx "$n" || a10stale="$a10stale       $n\n"
+done
+if [ -z "$a10bad" ] && [ -z "$a10stale" ]; then
+  pass "só os $(printf '%s\n' $SYNC_ALLOW | grep -c .) comandos da lista são síncronos"
+else
+  [ -n "$a10bad" ] && { bad "comando síncrono novo (corre na thread da UI) — torna-o async:"; printf "$a10bad"; }
+  [ -n "$a10stale" ] && { bad "já é async — tira-o da lista SYNC_ALLOW em scripts/arch-check.sh:"; printf "$a10stale"; }
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
   printf '\033[32march-check: TODAS AS VERIFICAÇÕES VERDES\033[0m\n'

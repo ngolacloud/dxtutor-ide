@@ -741,10 +741,51 @@ pub struct ProjectStore {
     conn: Connection,
 }
 
+/// The files already migrated by this process.
+static MIGRATED: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>,
+> = std::sync::OnceLock::new();
+
+/// How the IDE's SQLite files are opened (measured: in the default rollback journal every commit made two
+/// `fsync`s, on the UI thread when the command was synchronous — under disk load the window stopped responding):
+/// WAL with `synchronous=NORMAL` (a commit writes the log without `fsync`; durable at the checkpoint — a crash
+/// can lose the last commits, never corrupt the base), and a 5 s `busy_timeout` (two writers wait their turn
+/// instead of failing with `SQLITE_BUSY`). `journal_mode=WAL` is kept in the file.
+pub fn tune(conn: &Connection) -> Result<(), String> {
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| e.to_string())?;
+    let mode: String = conn
+        .query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if !mode.eq_ignore_ascii_case("wal") && !mode.eq_ignore_ascii_case("memory") {
+        return Err(format!(
+            "SQLite would not switch to WAL (journal_mode={mode})"
+        ));
+    }
+    conn.pragma_update(None, "synchronous", "NORMAL")
+        .map_err(|e| e.to_string())
+}
+
 impl ProjectStore {
+    /// Opens the base in a file: tuned for an editor (see [`tune`]) and migrated once per process and path
+    /// (every command opens its own short connection; checking the schema each time was I/O on every call).
     pub fn open(path: &Path) -> Result<Self, String> {
-        let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        Self::from_conn(conn)
+        let mut conn = Connection::open(path).map_err(|e| e.to_string())?;
+        tune(&conn)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+        let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let done = MIGRATED.get_or_init(Default::default);
+        if !done.lock().map(|d| d.contains(&key)).unwrap_or(false) {
+            schema::migrate(&mut conn)?;
+            if let Ok(mut d) = done.lock() {
+                d.insert(key);
+            }
+        } else {
+            // migrated by this process already: only refuse a base another (newer) app migrated since
+            schema::refuse_newer(&conn)?;
+        }
+        Ok(Self { conn })
     }
 
     pub fn in_memory() -> Result<Self, String> {

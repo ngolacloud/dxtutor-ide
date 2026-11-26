@@ -42,7 +42,7 @@ pub async fn arch_scaffold(
 /// mission can be reviewed as a worktree patch before anything lands. Empty if the design is
 /// invalid (same rule as scaffold).
 #[tauri::command]
-pub fn arch_scaffold_preview(arch: tutor_eval::arch::Architecture) -> Vec<(String, String)> {
+pub async fn arch_scaffold_preview(arch: tutor_eval::arch::Architecture) -> Vec<(String, String)> {
     agent::scaffold_preview(&arch)
 }
 
@@ -50,7 +50,7 @@ pub fn arch_scaffold_preview(arch: tutor_eval::arch::Architecture) -> Vec<(Strin
 /// `%% dxt:` comment lines carry what Mermaid cannot (kinds, protocols, panels), so
 /// importing the result gives the same design back. Pure; no I/O.
 #[tauri::command]
-pub fn arch_export_mermaid(arch: tutor_eval::arch::Architecture) -> String {
+pub async fn arch_export_mermaid(arch: tutor_eval::arch::Architecture) -> String {
     agent::export_mermaid(&arch)
 }
 
@@ -58,7 +58,7 @@ pub fn arch_export_mermaid(arch: tutor_eval::arch::Architecture) -> String {
 /// what could not be brought over exactly. Errors only when the source is not a flowchart.
 /// Parsed in Rust, never in the client. Pure; no I/O.
 #[tauri::command]
-pub fn arch_import_mermaid(source: String) -> Result<agent::MermaidImport, String> {
+pub async fn arch_import_mermaid(source: String) -> Result<agent::MermaidImport, String> {
     agent::import_mermaid(&source)
 }
 
@@ -116,7 +116,7 @@ pub fn agent_task_cancel(id: String) -> bool {
 /// O drift das regras do arquitecto (RF-A05): o repositório contra `.dxtutor/architecture.toml`
 /// (camadas, bibliotecas, nomes), com o que nenhum ADR aceite desculpa. `null`: sem regras.
 #[tauri::command]
-pub fn arch_conformance(
+pub async fn arch_conformance(
     root: String,
 ) -> Result<Option<Vec<tutor_agent::conformance::Violation>>, String> {
     tutor_agent::conformance::scan(std::path::Path::new(&root))
@@ -125,14 +125,14 @@ pub fn arch_conformance(
 /// As regras do arquitecto para o Studio (F5.2): `.dxtutor/architecture.toml` como formulário, e
 /// se quem está ao teclado as pode alterar (`.dxtutor/team.json`, F5.7).
 #[tauri::command]
-pub fn arch_rules_load(root: String) -> crate::arch_rules::RulesDoc {
+pub async fn arch_rules_load(root: String) -> crate::arch_rules::RulesDoc {
     crate::arch_rules::load(Path::new(&root))
 }
 
 /// Grava as regras do arquitecto (só o Arquitecto; recusadas com o que está mal quando não batem
 /// certo). Devolve-as como ficaram.
 #[tauri::command]
-pub fn arch_rules_save(
+pub async fn arch_rules_save(
     root: String,
     rules: tutor_agent::conformance::Rules,
 ) -> Result<crate::arch_rules::RulesDoc, String> {
@@ -141,13 +141,13 @@ pub fn arch_rules_save(
 
 /// Os ADR do projecto (`docs/adr/`, `docs/decisions/`, `docs/architecture/ADR*`) e o seu estado.
 #[tauri::command]
-pub fn adr_list(root: String) -> Vec<crate::arch_rules::Adr> {
+pub async fn adr_list(root: String) -> Vec<crate::arch_rules::Adr> {
     crate::arch_rules::adrs(Path::new(&root))
 }
 
 /// Aceita um ADR (F5.5, só o Arquitecto): o estado passa a aceite e fica escrito quem o aprovou.
 #[tauri::command]
-pub fn adr_accept(root: String, path: String) -> Result<crate::arch_rules::Adr, String> {
+pub async fn adr_accept(root: String, path: String) -> Result<crate::arch_rules::Adr, String> {
     crate::arch_rules::accept_adr(Path::new(&root), &path)
 }
 
