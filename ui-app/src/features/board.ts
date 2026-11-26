@@ -114,7 +114,7 @@ for (const ev of ["click", "change", "drop"]) document.addEventListener(ev, save
    estado BL é a MESMA referência que `backlog()` do bridge devolve (window.BL). ───── */
 const engine = makeBoardEngine({
   copy: (k, p) => (k in BOARD_DESKTOP_MESSAGES.en ? tbd(k as BoardDesktopKey, p) : tbe(k as BoardEngineKey, p)),
-  store: { backlog: () => backlog(), design: () => design(), saveDesign: () => saveDesign() },
+  store: { backlog: () => backlog(), design: () => design(), saveDesign: () => saveDesign(), project: () => boardRoot() },
   catalog: { tech: () => tech(), kind: () => kindTable(), cloud: () => cloudTable(), isApp: (n) => isApp(n), nodeSlug: (n) => nodeSlug(n), appDir: (n) => appDir(n), root: () => root() },
   generators: { validateDesign: () => validateDesign() },
   directory: { agents: () => agents(), provs: () => provs(), taskProfiles: () => taskProfiles() },

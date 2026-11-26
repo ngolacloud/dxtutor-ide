@@ -10,12 +10,14 @@ export const BOARD_DESKTOP_MESSAGES = {
     noAgent: "There is no agent available to implement the issue: it needs the desktop app, with a folder open and a provider with tools (Settings).",
     agentRefused: "The agent did not accept the request.",
     readFail: "could not read this folder's backlog: {error}", saveFail: "could not save the backlog: {error}",
+    needsProject: "Open the project's folder first: every issue belongs to a project (File → Open Folder… in the desktop app).",
   },
   ptAO: {
     noTests: "{id}: sem testes — abre a pasta do projecto na app desktop (comando de testes detectado ou .dxtutor/commands.json)",
     noAgent: "Não há um agente disponível para implementar a issue: precisa da app desktop, com uma pasta aberta e um provedor com ferramentas (Definições).",
     agentRefused: "O agente não aceitou o pedido.",
     readFail: "não consegui ler o backlog desta pasta: {error}", saveFail: "não consegui gravar o backlog: {error}",
+    needsProject: "Abre primeiro a pasta do projecto: cada issue pertence a um projecto (File → Open Folder… na app desktop).",
   },
 } satisfies Messages<string>;
 

@@ -8,6 +8,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 - [Co-Dev: o assistente escreve no editor](#co-dev-o-assistente-escreve-no-editor) — 1 acção
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
+- [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
 
@@ -304,6 +305,68 @@ Abre uma tab que mostra o que acontece ao ficheiro por baixo: as fases do compil
 2. Não dá nada por verificado: para confirmar, compila ou corre `EXPLAIN QUERY PLAN` na base de dados.
 
 <sub>Cobre: `tabs:hoodCmd`, `cmd:Co-Dev: Under the Hood`</sub>
+
+---
+
+## Quadro (backlog, sprints e kanban)
+
+O backlog da actividade Tasks e o quadro kanban: as issues de cada sprint, que o agente implementa quando as delegas. **Cada issue pertence a um projecto**: o quadro vive com a pasta aberta (gravado por pasta, na app desktop) e, sem pasta, não se criam issues.
+
+<sub>Código: `ui-app/src/features/board.ts`, `ui-app/src/features/board/application/board-engine.ts`, `ui-app/src/features/board/domain/persist.ts`, `src-tauri/src/board.rs` · revisto em 2026-11-26</sub>
+
+| Acção | Onde |
+|---|---|
+| [Nova issue](#nova-issue) | botão «+ Issue» do quadro · «+» e «New issue…» do painel Tasks · paleta: «Projecto: Nova issue…» |
+| [Gerar backlog a partir do Studio](#gerar-backlog-a-partir-do-studio) | botão «Generate backlog & delegate →» do Studio · botão do quadro vazio · menu Projecto · paleta: «Projecto: Gerar backlog a partir do Studio» |
+
+### Nova issue
+
+**Onde:** botão «+ Issue» do quadro · «+» e «New issue…» do painel Tasks · paleta: «Projecto: Nova issue…»
+
+Cria uma issue no backlog do projecto aberto a partir de um título (o prefixo «fix:» faz dela uma correcção).
+
+**Como usar**
+
+1. Abre a pasta do projecto (File → Open Folder…, na app desktop).
+2. Carrega em «+ Issue» (ou usa a paleta) e escreve o título.
+3. A issue entra em «A fazer» no sprint que estás a ver.
+
+**Fluxo (por dentro)**
+
+1. O motor (`board-engine.ts`, `newIssue`) confirma que há uma pasta de projecto aberta (porta `store.project()`).
+2. Sem pasta, mostra o aviso e não cria nada — nenhuma issue fica fora de um projecto.
+3. Com pasta, abre a paleta, cria a issue (`mkIssue`) e o quadro grava-se por pasta (`board_save`).
+
+**Limites**
+
+- No browser não há pastas: o quadro mostra-se, mas não cria issues.
+- O backend recusa ler ou gravar um backlog sem pasta (já não há um backlog «default»).
+
+<sub>Cobre: `board:new-issue`, `tasks:newIssue`, `cmd:Projecto: Nova issue…`</sub>
+
+### Gerar backlog a partir do Studio
+
+**Onde:** botão «Generate backlog & delegate →» do Studio · botão do quadro vazio · menu Projecto · paleta: «Projecto: Gerar backlog a partir do Studio»
+
+Cria as issues dos componentes planeados no Studio (o ADR, um serviço, aplicação web ou esquema por componente, os artefactos de execução e o teste de fumo) e envia-as como propostas para a caixa de entrada do Project.
+
+**Como usar**
+
+1. Abre a pasta do projecto.
+2. No Studio, acrescenta componentes planeados (contorno tracejado) e corrige os erros do desenho.
+3. Carrega em «Generate backlog & delegate →».
+
+**Fluxo (por dentro)**
+
+1. O motor (`genBacklog`) recusa sem pasta de projecto aberta, com o aviso.
+2. Recusa também um desenho com erros ou sem componentes planeados novos.
+3. Cria as issues (`genBacklogIssues`), marca os componentes como em curso e manda as propostas à caixa de entrada do Project (`projectInbox.propose`).
+
+**Dicas**
+
+- O contexto de cada componente vai na nota da issue, que segue para o agente.
+
+<sub>Cobre: `board:gen-backlog`, `studio:genBacklog`, `cmd:Projecto: Gerar backlog a partir do Studio`</sub>
 
 ---
 

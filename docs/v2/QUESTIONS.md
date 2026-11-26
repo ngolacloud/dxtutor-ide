@@ -10,10 +10,30 @@ diff, retirar o caminho `liveChat`).
 **Q2 · ~~Ordem das fases~~ — respondida (2026-11-24).**
 Segue a ordem da auditoria: A0.5 (base honesta) → A2 → A5 → A1 → A3 → A6/A4 → A7/A8/A9/A10.
 
-**Q3 · Remover as simulações existentes?**
+**Q3 · Remover as simulações existentes? — o backlog respondido (2026-11-26).**
 Missões guionadas, "conselho de modelos", Debug assistant guionado, métricas PRNG do Infra/Observe e o
 painel Testing por regex contrariam "nada de demo data". Recomendação: removê-los fase a fase, à medida
 que a versão real de cada um entra, e nunca deixar um ecrã vazio sem explicar porquê.
+
+Decisão do dono para os dois backlogs (o quadro Tasks antigo, `tasks.sqlite3`, e o Project,
+`board.sqlite3`): **juntam-se no Project.** Cada item do backlog pertence a um projecto (nunca solto),
+cada issue fica ligada aos ficheiros e commits em que mexe, e o Co-Dev, ao trabalhar uma issue, sabe os
+seus componentes, ficheiros e commits. Por fases, um PR cada:
+1. **Feita (este PR).** Nada de issues soltas: «Nova issue» e «Gerar backlog» recusam sem pasta de projecto
+   aberta (e dizem-no), e o `board_load`/`board_save` já não têm um backlog `"default"` sem pasta. O prompt
+   da issue (`project_issue_prompt`) ganha o bloco «Ligações da issue»: ramo, épico, componente (lugar
+   reservado), dependências com título e estado, os commits ligados (sha + assunto, os 8 mais recentes) e
+   os ficheiros já alterados nos change sets da issue — listas com tecto, sem diffs. O `persist.ts` do
+   quadro deixa de perder `role`/`soThat`/`acceptance`/`prompt`.
+2. Ligação automática dos commits: a chave tirada do nome do ramo (`feature/DXT-12-…`) e depois de cada
+   commit da app (hoje só pelo «Sync commits», que lê o assunto).
+3. Os ficheiros de cada issue a partir dos diffs reais dos commits ligados, e os resultados dos testes por
+   issue.
+4. A coluna «componente» na issue, vinda do nó do Studio.
+5. Um só backlog: o quadro Tasks passa a ser uma vista sobre o Project; sai o `tasks.sqlite3` e os comandos
+   `board_load`/`board_save` (actualizar a `IPC-MATRIX.md` e os A1–A3 do `arch-check`).
+
+As outras simulações continuam como recomendado acima.
 
 **Q4 · ~~Goldens~~ — respondida (2026-11-24).**
 Em cada fase listo os goldens afectados com o diff, e só regenero com o "sim" do dono. Primeira aplicação:
