@@ -1,10 +1,22 @@
 /* ═══════════ feature `ops` — application ports (A9) ═══════════ */
 
-import type { CloudCli, CloudInventory, IacPlan, KubeState, KubeTarget, Revision } from "../domain/types";
+import type { AcceptedRisk, ApplyInfo, CloudCli, CloudInventory, IacPlan, IacState, KubeState, KubeTarget, PipelineRun, Revision, Stage } from "../domain/types";
 
 export interface OpsPort {
   iacDirs(root: string): Promise<string[]>;
+  /** a plan or (refreshOnly) the drift — read only, nothing kept */
   iacPlan(root: string, dir: string, refreshOnly: boolean): Promise<IacPlan>;
+  /* r23 F4b */
+  pipeline(root: string, dir: string, target: string | null): Promise<PipelineRun>;
+  /** the stages as they start and end (`iac://stage`) */
+  onStage(f: (e: { root: string; dir: string; stage: Stage }) => void): void;
+  /** the command that applies the reviewed plan; rejects (in Rust) a blocked or changed one */
+  applyCommand(root: string, dir: string, planId: string): Promise<ApplyInfo>;
+  iacState(root: string, dir: string): Promise<IacState>;
+  risks(root: string): Promise<AcceptedRisk[]>;
+  /** kept for 30 days and audited by the backend */
+  acceptRisk(root: string, r: { key: string; kind: "finding" | "drift"; label: string; reason: string }): Promise<AcceptedRisk>;
+  revokeRisk(root: string, id: number): Promise<boolean>;
   kubeState(t: KubeTarget): Promise<KubeState>;
   kubeHistory(t: KubeTarget, deployment: string): Promise<Revision[]>;
   cloudStatus(): Promise<CloudCli[]>;
@@ -16,8 +28,13 @@ export interface OpsWorld {
   root(): string | null;
   /** where the Infra pane points kubectl (null when no cluster is connected there) */
   kubeTarget(): KubeTarget | null;
-  /** runs a command in a terminal task, from the project root */
-  runInTerminal(cmd: string): void;
+  /** runs a command in a terminal task, from the project root; resolves with its exit code */
+  runInTerminal(cmd: string): Promise<number> | void;
+  /** opens a project file (relative) at a line */
+  openFile(rel: string, line: number): void;
+  now(): number;
+  /** calls `f` every `ms` (the scheduled drift check); returns how to stop */
+  every(ms: number, f: () => void): () => void;
 }
 
 /** O pedido de aprovação: a forma do `app/approval.ts` (a composição liga-os; tipagem estrutural). */
@@ -33,7 +50,7 @@ export interface HumanPort {
 
 /** O registo de auditoria (r23 F1, RF-BK-L01): cada operação aprovada ou recusada, com o comando. */
 export interface AuditPort {
-  record(e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number }): Promise<void>;
+  record(e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number; outcome?: "sent" | "ok" | "failed" }): Promise<void>;
 }
 
 export interface CodevPort {

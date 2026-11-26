@@ -10,6 +10,8 @@ interface Globals {
   DXR?: { root?: string | null };
   ENVS?: { kube?: string; ctx?: string; ns?: string; k8sOn?: boolean };
   runTask: (cmd: string) => unknown;
+  openPath: (p: string, line?: number) => void;
+  ROOT?: string;
   palette: (pre: string, cfg: { ph?: string; verb?: string; text?: (q: string) => void }) => void;
   openTab: (t: { id: string; title: string; kind: string }) => void;
 }
@@ -21,7 +23,13 @@ export const kubeTarget = (): KubeTarget | null => {
   const e = G.ENVS;
   return e && e.k8sOn && e.ctx ? { kubeconfig: (e.kube || "").trim(), context: e.ctx, namespace: (e.ns || "default").trim() || "default" } : null;
 };
-export const runInTerminal = (cmd: string): void => { G.runTask(cmd); };
+/** Corre num terminal de tarefa; resolve com o código de saída quando o terminal o dá (PTY real). */
+export const runInTerminal = (cmd: string): Promise<number> | void => {
+  const r = G.runTask(cmd);
+  return r && typeof (r as Promise<unknown>).then === "function" ? (r as Promise<unknown>).then((c) => (typeof c === "number" ? c : -1)) : undefined;
+};
+/** Abre um ficheiro do projecto (relativo à pasta aberta) numa linha. */
+export const openFile = (rel: string, line: number): void => G.openPath((G.ROOT ?? "") + rel, line);
 export const textPrompt = (ph: string, initial = ""): Promise<string | null> =>
   new Promise((res) => {
     let done = false;

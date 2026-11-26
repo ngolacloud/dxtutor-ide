@@ -31,3 +31,7 @@ export function findingLines(r: ScanReport, max = 8): string[] {
 
 /** The distinct files with findings. */
 export const filesOf = (r: ScanReport): string[] => [...new Set(r.findings.map((f) => f.file))];
+
+/** A Terraform/OpenTofu state file (r23 F4b, P05): it holds every value of the infrastructure, secrets
+ *  included — the editor never opens one (the backend refuses to read or write it as well). */
+export const isStateFile = (path: string): boolean => /\.tfstate(\.backup|\.lock\.info)?$/.test(path);

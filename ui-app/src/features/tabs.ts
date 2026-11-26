@@ -18,6 +18,9 @@ import { tabMarks } from "../app/tab-marks";
 import { $, esc, svg, toast } from "../core";
 import { editorStore, type Tab } from "../app/store/editor";
 import { VIEW } from "../app/store/registry";
+import { translator } from "../app/i18n";
+import { isStateFile } from "./protect/domain/report";
+import { PROTECT_MESSAGES } from "./protect/ui/messages";
 import { registerActions, callGlobal } from "../app/actions";
 import { services } from "../app/services";
 import { ctxPill } from "./codev";
@@ -47,7 +50,14 @@ function openTab(t: Tab, act?: boolean): void {
   else G.show(t.id);
 }
 
+const tp = translator(PROTECT_MESSAGES);
+
 function openPath(p: string, line?: number): void {
+  /* r23 F4b (P05): um ficheiro de estado nunca se abre no editor */
+  if (isStateFile(p)) {
+    toast(tp("stateFile", { file: p.split("/").pop() as string }));
+    return;
+  }
   if (!G.FS[p]) {
     toast("Ficheiro não existe: " + G.short(p));
     return;

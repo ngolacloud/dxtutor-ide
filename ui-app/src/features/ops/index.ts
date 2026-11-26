@@ -8,7 +8,7 @@ import { codevAsk } from "../../app/codev-ask";
 import { translator } from "../../app/i18n";
 import { requestApproval } from "../../app/approval";
 import { isDesktop } from "../../platform/tauri/core";
-import { makeOps } from "./application/ops-service";
+import { makeOps, type IacTab } from "./application/ops-service";
 import { tauriOps, tauriAudit } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
 import { OPS_MESSAGES, type OpsKey } from "./ui/messages";
@@ -19,7 +19,11 @@ const t = translator(OPS_MESSAGES);
 
 export const ops = makeOps({
   ops: tauriOps(),
-  world: { root: () => B.root(), kubeTarget: () => B.kubeTarget(), runInTerminal: (c) => B.runInTerminal(c) },
+  world: {
+    root: () => B.root(), kubeTarget: () => B.kubeTarget(), runInTerminal: (c) => B.runInTerminal(c), openFile: (f, l) => B.openFile(f, l),
+    now: () => Date.now(),
+    every: (ms, f) => { const h = setInterval(f, ms); return () => clearInterval(h); },
+  },
   audit: tauriAudit(() => B.root()),
   human: { approve: (r) => requestApproval(r), text: (ph, initial) => B.textPrompt(ph, initial), toast: (m) => B.notify(m) },
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
@@ -30,6 +34,8 @@ let host: HTMLElement | null = null;
 const paint = (): void => { if (host && host.isConnected) host.innerHTML = renderOps(t, ops.state(), codevAsk.available(), isDesktop() && !!B.root()); };
 VIEW.ops = (_t, h) => { host = h; paint(); if (isDesktop() && B.root()) void ops.refresh(); };
 ops.subscribe(paint);
+/* r23 F4b: outra pasta — o pipeline, o drift agendado e o estado da anterior não valem para esta */
+document.addEventListener("dx:workspace", () => ops.workspaceChanged());
 
 /** Abre o separador Ops. */
 export function openOps(): void {
@@ -50,10 +56,22 @@ if (prevInfra) {
 const ACTIONS: ActionTable = {
   "ops-open": { on: "click", run: () => openOps() },
   "ops-dir": { on: "change", run: (e) => ops.selectDir(e.value) },
-  "ops-plan": { on: "click", run: () => { void ops.plan(false); } },
-  "ops-drift": { on: "click", run: () => { void ops.plan(true); } },
+  "ops-tab": { on: "click", run: (e) => ops.setTab(e.on as IacTab) },
+  "ops-run": { on: "click", run: () => { void ops.runPipeline(); } },
   "ops-res": { on: "click", run: (e) => ops.toggleResource(e.on) },
-  "ops-apply": { on: "click", run: () => ops.applyPlan() },
+  "ops-apply": { on: "click", run: () => { void ops.applyRun(); } },
+  "ops-accept": { on: "click", run: (e) => { void ops.acceptFinding(e.on); } },
+  "ops-revoke": { on: "click", run: (e) => { void ops.revokeRisk(Number(e.on)); } },
+  "ops-open-finding": { on: "click", run: (e) => ops.openFinding(e.on) },
+  "ops-fix": { on: "click", run: (e) => ops.fixFinding(e.on) },
+  "ops-drift": { on: "click", run: () => { void ops.checkDrift(); } },
+  "ops-drift-revert": { on: "click", run: (e) => ops.driftRevert(e.on) },
+  "ops-drift-code": { on: "click", run: (e) => ops.driftToCode(e.on) },
+  "ops-drift-ignore": { on: "click", run: (e) => { void ops.driftIgnore(e.on); } },
+  "ops-state": { on: "click", run: () => { void ops.loadState(); } },
+  "ops-unlock": { on: "click", run: () => ops.unlock() },
+  "ops-move": { on: "click", run: (e) => { void ops.moveResource(e.on); } },
+  "ops-import": { on: "click", run: () => { void ops.importResource(); } },
   "ops-ask-plan": { on: "click", run: () => ops.askPlan("explain") },
   "ops-ask-iac": { on: "click", run: () => ops.askPlan("change") },
   "ops-kube-reload": { on: "click", run: () => { void ops.loadKube(); } },

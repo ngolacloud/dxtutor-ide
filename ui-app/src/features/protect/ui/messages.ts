@@ -9,6 +9,7 @@ export const PROTECT_MESSAGES = {
     refused: "Commit blocked by the secret scan: {list}. Remove the secret (an environment variable or the vault) and commit again.",
     redactedTitle: "Secrets removed before any request to a model: {n} so far",
     redacted: "{n} redacted",
+    stateFile: "{file} is a state file: it holds the infrastructure's secrets, so it is not opened in the editor. Read the state in Ops › State (addresses and ids only).",
   },
   ptAO: {
     blockedTitle: "O secret scan encontrou {n} problema(s) neste commit",
@@ -16,6 +17,7 @@ export const PROTECT_MESSAGES = {
     refused: "Commit bloqueado pelo secret scan: {list}. Tira o segredo (uma variável de ambiente ou o vault) e volta a comitar.",
     redactedTitle: "Segredos tirados antes de qualquer pedido a um modelo: {n} até agora",
     redacted: "{n} redigidos",
+    stateFile: "{file} é um ficheiro de estado: guarda os segredos da infraestrutura, por isso não se abre no editor. Lê o estado em Ops › Estado (só endereços e ids).",
   },
 } satisfies Messages<string>;
 export type ProtectMessageKey = keyof typeof PROTECT_MESSAGES.en;
