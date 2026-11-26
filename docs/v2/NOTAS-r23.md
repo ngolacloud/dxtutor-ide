@@ -112,7 +112,42 @@ caminho; o `tutor-eval` passou a depender do `regex`.
   motor de base de dados no Vault dev.
 - O antigo `~/.config/dxtutor/providers.json` (UI pré-v7) continua com chaves em texto e só é lido, não movido.
 
+## F4c2 — deploy guiado
+
+**Decisões tuas (início da F4c2):** os segredos de staging e produção vêm só do Vault; o segundo aprovador da produção é
+um PR fundido e aprovado por outra pessoa no GitHub; uma verificação falhada bloqueia sempre, e em produção «não
+instalado»/«não ligado» também bloqueiam, salvo excepção com motivo. O segundo aprovador e a saúde de staging nunca
+admitem excepção (o auto-teste apanhou a primeira versão a deixar fazê-lo quando o `gh` não estava ligado).
+
+**O que mudou**
+- **O assistente de deploy** (paleta «Deploy: …», e o «Promote»/«Redeploy» do Infra abrem-no), em oito passos: destino,
+  identidade, segredos, verificações, estratégia, aprovar, rollout e registo.
+- **Verificações:** versão (HEAD sem alterações por commitar), SBOM, assinatura (cosign), vulnerabilidades, segredos,
+  `dx-secret-check` («não disponível» até a imagem existir), drift do IaC do ambiente, política de admissão do cluster
+  (dry-run no servidor), orçamento de SLO, janela de mudança, migrações e, em produção, a saúde e a versão de staging e o
+  segundo aprovador. Uma ferramenta em falta aparece «não instalado» com a dica, nunca a verde.
+- **Segredos:** o deploy não aplica os `Secret` dos manifestos — o cluster lê-os do Vault. A verificação vê só nomes no
+  namespace e metadados no Vault. O ecrã Environments deixou de aceitar valores de staging e produção (diz «Vault»).
+- **O bloqueio está no Rust** e é verificado outra vez no rollout (excepções com motivo, HEAD, manifestos, plano com
+  menos de 30 minutos). Produção: motivo e «production» escrito, também verificados no Rust.
+- **Rollout** rolling: namespace, `kubectl apply` sem os Secrets, anotação da versão, `rollout status`, com as linhas à
+  vista. Auditado antes e com o resultado, e registado na base do Project.
+- **Ciclo de vida do commit:** a coluna «environments» mostra os deploys de cada ambiente (antes, «não ligado»).
+- 3 comandos novos: de 278 para 281.
+
+**Verificação**
+- `cargo test -p tutor-platform`: um staging e uma produção completos com `kubectl` e `gh` falsos sobre um repositório
+  git real (o que é aplicado não leva o Secret nem o valor; a produção só passa com todas as excepções com motivo); a
+  árvore suja, o HEAD movido e a política de admissão a recusar bloqueiam.
+- O passo `deploy` do auto-teste, na app real, contra um kubeconfig temporário vazio: plano, produção recusada sem
+  «production» escrito, rollout de staging que falha no cluster inexistente, registado e auditado.
+
+**Limitações**
+- Não houve deploy num cluster real aqui.
+- Canary e blue-green, e credenciais dinâmicas durante o rollout (usa a identidade do kubeconfig), ficam para depois.
+- O antigo histórico de promoções do Infra (`ENVX.hist`) já não é escrito; o ecrã Environments mostra os registos de
+  deploy.
+
 ## A seguir
 
-F4c2 — o deploy guiado (Target, Identity, Secrets, Preflight, Strategy, Approve, Rollout, Record), os registos de
-deploy na base do Project e o `dx-secret-check` («not available» enquanto a imagem não existir).
+F5 — a actividade de Platform orientada ao trabalho (runbooks, a fila, as evidências), sobre os registos da F4.

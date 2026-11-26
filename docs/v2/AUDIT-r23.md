@@ -776,3 +776,26 @@ fake Vault only (no identity provider here); dynamic credentials too (the dev Va
 legacy `~/.config/dxtutor/providers.json` (pre-v7 UI) still holds keys in plain text and is only read, not moved;
 without a Secret Service the model keys stay in `keys.json` as before.
 
+### F4c2 status: done (the guided deploy)
+
+Owner decisions at the start of F4c2 (2026-11-26): staging and production secrets come only from Vault (the IDE no longer
+takes their values; the manifests' `Secret` objects are not applied — the cluster reads them through the Vault Secrets
+Operator); production's second approver is a merged pull request with the commit, approved by someone else on GitHub
+(`gh`); a failed check always blocks, and in production «not installed» / «not connected» block too unless waived with
+a reason (audited) — never the second approver or staging (`deploy::NOT_WAIVABLE`; the self-test found that the first
+draft let a «not connected» approver be waived, against the decision).
+
+| What | Where |
+|---|---|
+| `tutor_platform::deploy`: the plan (Target, Identity, Secrets, Preflight — version, sbom, signature, vulns, secrets, secret-check, drift, admission, slo, window, migrations, staging, approver —, Strategy, the exact commands), the rule (`blockers`, `waivable`), `check` (again at the rollout: waivers with reasons, HEAD, manifests, ≤ 30 min) and the rollout (namespace, `apply -f -` without the Secrets, version annotation, `rollout status`) | `crates/tutor-platform/src/deploy.rs` |
+| Commands `deploy_plan`, `deploy_rollout` (production: `production` typed and a reason, in Rust; audited before and with the result; `deploy://output`), `deploy_records` (278 → 281); project migration 11 `deploys` | `src-tauri/src/commands/deploy.rs`, `board.rs`, `crates/tutor-board/src/project/deploys.rs` |
+| `tutor_eval::iac::drift` (the drift check, reused) | `crates/tutor-eval/src/iac.rs` |
+| UI `features/deploy/` (A7/A8): the eight steps, waivers with a reason, the shared approval with the commands, the rollout's lines, the record and the history; Infra's Promote/Redeploy open it; Environments shows «Vault» for staging/production secrets and the deploy history | `ui-app/src/features/deploy/`, `features/infra*` |
+| A commit's lifecycle shows its deploys per environment (F3's «environments», until now «not connected») | `features/scm/domain/lifecycle.ts` |
+
+Tested with fake `kubectl`/`gh` (scripts) against a real git repository, and in the real app against an empty temporary
+kubeconfig (never the human's clusters). Reported: no real cluster was deployed to here; `dx-secret-check` (K03) is «not
+available» until its image exists; canary and blue-green, and dynamic credentials during the rollout (the rollout uses
+the kubeconfig's identity), are later; the old `ENVX.hist` promotion history is no longer written (the Environments view
+shows the deploy records).
+

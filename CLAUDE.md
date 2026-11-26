@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 278 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 281 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -42,7 +42,7 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   falha até sair). As métricas «globais publicadas» e «shims de estado» do `ui-metrics.sh` também só descem.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
-  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — `protect` — a protecção de dados da r23 F4a — e `vault` — o Vault da r23 F4c); cada nova
+  `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — `protect` — a protecção de dados da r23 F4a — `vault` — o Vault da r23 F4c — e `deploy` — o deploy guiado da r23 F4c2); cada nova
   extracção acrescenta-se lá. A `arch` (Studio de arquitectura de sistema, separador «Architecture»)
   é uma feature nova e tipada, separada do Studio do catálogo cloud (`features/studio.ts`). Nota: desde a U4i do ADR-0004 nenhuma
   feature tem `@ts-nocheck` (os resíduos `infra.ts`/`visualizer.ts` e o interpretador `vzRun`
@@ -855,6 +855,29 @@ correr). Nenhum comando os devolve à UI. Regras (no Rust, com testes):
 - Testes: `cargo test -p tutor-platform` (keychain real com serviço próprio; Vault real em modo dev: token, metadados,
   recusa de produção/staging, revelar local, renovar, sair; OIDC e credenciais dinâmicas com um servidor falso),
   `cargo test -p dxtutor-ide keys`, `tests/vault.test.ts` e o passo `vault` do auto-teste.
+
+## Deploy guiado (r23 F4c2, `tutor_platform::deploy`, `ui-app/src/features/deploy/`)
+
+Staging e produção só se mudam pelo deploy guiado: o «Promote» e o «Redeploy» do Infra abrem-no (`services.deploy`).
+Oito passos — Destino, Identidade, Segredos, Verificações, Estratégia, Aprovar, Rollout, Registo. Regras (no Rust):
+- **Segredos só pelo Vault** (decisão do dono, 2026-11-26): os `Secret` do `deploy/k8s` NÃO são aplicados — o cluster
+  lê-os do Vault (Vault Secrets Operator). O Infra já não aceita valores de staging/produção (as colunas dizem
+  «Vault»); a verificação vê só nomes (`kubectl get secret … -o name`) e metadados do Vault.
+- **O que bloqueia** (`deploy::blockers`): uma verificação falhada sempre; em produção, «not installed»/«not
+  connected» também, salvo excepção com motivo — nunca para o segundo aprovador nem para staging (`NOT_WAIVABLE`: sem
+  `gh` ou sem PR aprovado, a produção fica fechada). O rollout verifica outra vez (excepções, HEAD, manifestos, plano com
+  ≤ 30 min). Produção: motivo e `production` escrito (verificados no Rust) e um **segundo aprovador** = PR fundido com
+  o commit aprovado por outra pessoa (`gh`).
+- Verificações: version (HEAD limpo), sbom (syft), signature (cosign + política em `.dxtutor/deploy.json`), vulns
+  (trivy/grype), secrets, secret-check (`dx-secret-check`: «not available» até a imagem existir), drift (IaC do
+  ambiente: `iac::drift`), admission (`apply --dry-run=server`), slo («not connected»), window (janelas UTC), migrations,
+  staging (produção: saudável e com esta versão) e approver.
+- Rollout (rolling; canary/blue-green depois): namespace, `apply -f -` sem os Secrets, anotação `dxtutor.io/version`,
+  `rollout status`; linhas pelo `deploy://output`. Auditado antes e com o resultado; registo na base do Project
+  (migração 11, `deploys`), que alimenta a coluna «environments» do ciclo de vida do commit (F3).
+- Testes: `cargo test -p tutor-platform deploy` (kubectl e gh falsos por scripts, repositório git real),
+  `cargo test -p tutor-board deploy_records`, `tests/deploy.test.ts`, `tests/infra.r5c1.test.ts` e o passo `deploy` do
+  auto-teste (kubeconfig temporário vazio: nunca os clusters do utilizador).
 
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 
