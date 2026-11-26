@@ -413,7 +413,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     const p = d.lsp.didOpen(doc.path, text, doc.languageId).then(
       () => true,
       () => {
-        forget(doc.path);
+        forgetDoc(doc.path);
         return false;
       },
     );
@@ -423,7 +423,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   }
 
   /** Esquece um documento (o servidor deixa de o ter aberto). */
-  function forget(path: string): void {
+  function forgetDoc(path: string): void {
     versions.delete(path);
     sent.delete(path);
     keys.delete(path);
@@ -433,7 +433,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   async function closeDoc(path: string): Promise<void> {
     await opening.get(path);
     if (!versions.has(path)) return;
-    forget(path);
+    forgetDoc(path);
     await d.lsp.didClose(path).catch(() => {});
   }
 
@@ -452,7 +452,7 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     folder = root;
     if (!prev || prev === root) return;
     // o backend esquece os documentos dela e pára os servidores dela; aqui só se esquece o estado
-    for (const path of [...keys.keys()]) if (path === prev || path.startsWith(`${prev}/`)) forget(path);
+    for (const path of [...keys.keys()]) if (path === prev || path.startsWith(`${prev}/`)) forgetDoc(path);
     starting.delete(prev);
     servers.clear();
     await d.lsp.closeFolder(prev).catch(() => {});
