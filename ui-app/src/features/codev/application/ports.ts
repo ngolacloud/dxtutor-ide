@@ -27,6 +27,7 @@ import type { ReplyLanguage } from "../domain/reply-language";
 import type { CodevCopy } from "./messages";
 import type { AgentEvent, AgentOrigin, ApprovalRequest, Checkpoint, ExtensionsStatus, HistoryItem, Permissions, SessionSummary, Todo } from "../domain/agent-events";
 import type { LinesCheck, PlanPlace } from "../domain/plan-order";
+import type { LiveSession, SubagentStep } from "../domain/agent-map";
 
 /* ───────── infrastructure-shaped values the use cases pass around ───────── */
 
@@ -160,8 +161,6 @@ export interface ChatPresenter {
   /* general transcript + run control */
   scrollMsgs(): void;
   userMessage(text: string): void;
-  /** Um sub-agente (`task`) arrancou ou terminou — o chip «agentes» do compositor. */
-  subagent?(id: string, label: string, state: "running" | "done" | "error"): void;
   beginRun(label: string): void;
   endRun(): void;
   startAbort(): AbortSignal;
@@ -344,6 +343,25 @@ export interface AgentChatDeps {
   run?: { event(session: string, e: AgentEvent): void; turnStarted(): void };
   /** RF-P03: may this side approve the agent's proposals (PairCode: only the driver)? */
   canApprove?(): boolean;
+  /** The Agent map: what this chat asked each session, and when a session closes. */
+  agentMap?: AgentMapSink;
+}
+
+/** What the agent chat tells the Agent map (the events themselves it hears by itself). */
+export interface AgentMapSink {
+  turn(session: string, info: { request: string; model: string; issue: string | null }): void;
+  closed(session: string): void;
+}
+
+/** The Agent map's view of the backend: the events of EVERY agent session (with the sub-agents'
+ *  progress) and the sessions open now (`codev_agent_live`). */
+export interface AgentMapGateway {
+  available(): boolean;
+  subscribe(h: {
+    event(session: string, e: AgentEvent | null, sub: { call: string; step: SubagentStep } | null): void;
+    error(session: string, message: string): void;
+  }): Promise<() => void>;
+  live(): Promise<LiveSession[]>;
 }
 
 /** Where the agent chat sends the hunk events of a turn. */

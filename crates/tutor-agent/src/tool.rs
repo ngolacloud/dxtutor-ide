@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::provider::ToolDef;
+use crate::provider::{ToolDef, Usage};
 
 /// O que uma ferramenta recebe além do input.
 #[derive(Clone)]
@@ -70,6 +70,23 @@ pub trait Tool: Send + Sync {
     /// Corre com um input **já validado** contra [`Tool::input_schema`].
     fn run(&self, input: &Value, ctx: &ToolCtx) -> ToolOutput;
 
+    /// Esta ferramenta conta o que vai fazendo enquanto corre ([`Tool::run_observed`])? O loop
+    /// só então a corre numa thread e passa o progresso à UI em tempo real (o `task`).
+    fn reports_progress(&self) -> bool {
+        false
+    }
+    /// Como [`Tool::run`], mas a ferramenta pode contar o que vai fazendo (`progress`): o loop
+    /// embrulha cada passo num [`crate::agent::AgentEvent::Subagent`] com o id da chamada.
+    /// Por omissão, ignora-o.
+    fn run_observed(
+        &self,
+        input: &Value,
+        ctx: &ToolCtx,
+        _progress: &(dyn Fn(SubagentStep) + Sync),
+    ) -> ToolOutput {
+        self.run(input, ctx)
+    }
+
     fn def(&self) -> ToolDef {
         ToolDef {
             name: self.name().to_string(),
@@ -78,4 +95,27 @@ pub trait Tool: Send + Sync {
             eager: self.eager_input(),
         }
     }
+}
+
+/// Um passo de um sub-agente (`task`) enquanto corre: o mapa de agentes da UI mostra-o (o que
+/// pediu, que ferramentas correu, quantos tokens gastou). O relatório final continua a ser o
+/// resultado da chamada (`tool_result`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SubagentStep {
+    /// Começou, com este papel (explorer, reviewer, tester, architect).
+    Started { role: String },
+    /// Vai correr uma ferramenta (só leitura).
+    ToolStart {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    ToolResult {
+        id: String,
+        name: String,
+        is_error: bool,
+    },
+    /// Tokens acumulados do sub-agente até aqui (o total do seu turno).
+    Usage { turn: Usage },
 }

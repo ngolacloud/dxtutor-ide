@@ -48,6 +48,9 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
 /** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */
 export const listAgentSessions = (root: string): Promise<unknown> => invoke<unknown>("codev_agent_sessions", { root });
 
+/** As sessões abertas nesta execução da app (o mapa de agentes) — `Vec<LiveSession>`. */
+export const liveAgentSessions = (): Promise<unknown> => invoke<unknown>("codev_agent_live");
+
 /** O histórico simplificado de uma sessão aberta — `Vec<HistoryItem>`. */
 export const agentHistory = (sessionId: string): Promise<unknown> => invoke<unknown>("codev_agent_history", { sessionId });
 

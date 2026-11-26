@@ -281,3 +281,77 @@
   .hk-gate.hk-violation{border-color:var(--red)}.hk-gate .hk-rules{flex-basis:100%;color:var(--red);font-size:11.5px;margin:2px 0}.hk-gate .gb[disabled]{opacity:.45;cursor:not-allowed}
   /* RF-G07: after Stop, keep or discard what the turn left changed */
   .gate.stop-review{flex-wrap:wrap}.stop-review .sr-lead{flex-basis:100%;font-size:12px;color:var(--fg-dim);margin-bottom:4px}
+  /* mapa de agentes (ui/agent-map-view.ts): a conversa à esquerda, os agentes à direita */
+  .agmap-back{position:fixed;inset:0;z-index:470;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:16px}
+  .agmap{width:min(1040px,100%);max-height:min(720px,calc(100vh - 32px));display:flex;flex-direction:column;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:14px;box-shadow:var(--sh-pop);color:var(--fg);outline:none;overflow:hidden}
+  .agmap-h{display:flex;align-items:center;gap:12px;padding:14px 16px 12px;border-bottom:1px solid var(--border)}
+  .agmap-ht{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+  .agmap-ht b{font-size:14px;font-weight:600}
+  .agmap-sub-h{font-size:12px;color:var(--fg-muted)}
+  .agmap-x{margin-left:auto;width:28px;height:28px;display:grid;place-items:center;border-radius:8px;color:var(--fg-dim);font-size:14px;flex:none}
+  .agmap-x:hover{background:var(--bg-hover);color:var(--fg)}
+  .agmap-body{display:flex;min-height:0;flex:1;overflow:hidden}
+  .agmap-main{flex:1;min-width:0;overflow:auto;padding:22px 20px;display:flex;align-items:flex-start}
+  .agmap-tree{display:flex;align-items:center;min-width:0;margin:auto 0}
+  .agmap-tree.solo{flex-direction:column;align-items:flex-start;gap:14px}
+  .agmap-rootcol{position:relative;padding-right:30px;flex:none}
+  .agmap-tree.solo .agmap-rootcol{padding-right:0}
+  .agmap-rootcol::after{content:"";position:absolute;right:0;top:50%;width:30px;border-top:1.5px solid var(--border-strong)}
+  .agmap-tree.solo .agmap-rootcol::after{display:none}
+  .agmap-col{display:flex;flex-direction:column;gap:10px;padding-left:28px;min-width:0}
+  .agmap-row{position:relative;display:flex;flex-direction:column;gap:8px;min-width:0}
+  /* as linhas: um traço até cada cartão e a espinha vertical entre o primeiro e o último */
+  .agmap-row::before{content:"";position:absolute;left:-28px;top:19px;width:28px;border-top:1.5px solid var(--border-strong)}
+  .agmap-row::after{content:"";position:absolute;left:-28px;top:-5px;bottom:-5px;border-left:1.5px solid var(--border-strong)}
+  .agmap-row:first-child::after{top:19px}
+  .agmap-row:last-child::after{bottom:auto;height:24px}
+  .agmap-row:first-child:last-child::after{display:none}
+  .agmap-sub{display:flex;flex-direction:column;gap:8px;margin-left:22px;padding-left:22px}
+  .agmap-sub .agmap-row::before{left:-22px;width:22px}
+  /* dentro de um grupo, a espinha desce do cartão da sessão até ao último sub-agente */
+  .agmap-sub .agmap-row::after{left:-22px;top:-8px;bottom:-8px}
+  .agmap-sub .agmap-row:last-child::after{bottom:auto;height:27px}
+  .agmap-sub .agmap-row:first-child:last-child::after{display:block}
+  .agmap-card{display:flex;align-items:center;gap:9px;height:38px;padding:0 14px;min-width:220px;max-width:460px;border:1px solid var(--border-strong);border-radius:11px;background:var(--bg-panel);color:var(--fg);font-size:12.5px;text-align:left;box-shadow:var(--sh-card);transition:border-color .12s,background .12s}
+  .agmap-card:hover{background:var(--bg-hover)}
+  .agmap-card.sel{border-color:var(--accent);background:var(--accent-soft)}
+  .agmap-card.st-failed{border-color:rgba(241,112,122,.45)}
+  .agmap-rootcol .agmap-card{min-width:0;font-weight:600}
+  .agmap-l{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .agmap-m{margin-left:auto;padding-left:6px;color:var(--fg-muted);font-size:11.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .agmap-m::before{content:"· ";color:var(--fg-muted)}
+  .agmap-empty{font-size:12.5px;color:var(--fg-muted);line-height:1.55;max-width:440px;margin:0}
+  .agmap-detail{display:none;width:330px;flex:none;border-left:1px solid var(--border);overflow:auto;padding:14px 16px 18px;font-size:12.5px;background:var(--bg-panel)}
+  .agmap-detail.on{display:block}
+  .agmap-hint{color:var(--fg-muted);margin:0}
+  .agmap-dh{display:flex;align-items:flex-start;gap:9px;margin-bottom:10px}
+  .agmap-dh .cc-dot{margin-top:5px}
+  .agmap-dh b{display:block;font-size:13.5px;word-break:break-word}
+  .agmap-dh small{color:var(--fg-muted);font-size:11.5px}
+  .agmap-kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0 0 6px}
+  .agmap-kv dt{color:var(--fg-muted)}
+  .agmap-kv dd{margin:0;font-variant-numeric:tabular-nums;word-break:break-word}
+  .agmap-detail h4{font-size:11.5px;font-weight:600;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 6px}
+  .agmap-pre{margin:0;padding:8px 10px;border-radius:8px;background:var(--bg-input);border:1px solid var(--border);font-family:var(--font-mono);font-size:11.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}
+  .agmap-none{color:var(--fg-muted);margin:0}
+  .agmap-out{color:var(--yellow);margin:4px 0 0}
+  .agmap-tools{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+  .agmap-tools li{display:flex;gap:7px;align-items:baseline;min-width:0}
+  .agmap-tools li span:last-child{color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .agmap-tools code{font-family:var(--font-mono);font-size:11.5px}
+  .agmap-tm{width:12px;flex:none;text-align:center;color:var(--fg-muted)}
+  .agmap-tools li.ok .agmap-tm{color:var(--green)}.agmap-tools li.error .agmap-tm{color:var(--red)}
+  .agmap-links{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+  .agmap-link{height:28px;padding:0 12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--bg-hover);color:var(--fg);font-size:12px}
+  .agmap-link:hover{background:var(--bg-sel)}
+  @media (max-width:760px){
+    .agmap-body{flex-direction:column;overflow:auto}
+    .agmap-main{overflow:visible;padding:16px}
+    .agmap-tree{flex-direction:column;align-items:flex-start}
+    .agmap-rootcol{padding:0 0 18px}
+    .agmap-rootcol::after{right:auto;left:20px;top:auto;bottom:0;width:0;height:18px;border-top:none;border-left:1.5px solid var(--border-strong)}
+    .agmap-col{padding-left:48px}
+    .agmap-row::before{left:-28px}
+    .agmap-card{min-width:0;max-width:100%}
+    .agmap-detail{width:auto;border-left:none;border-top:1px solid var(--border)}
+  }

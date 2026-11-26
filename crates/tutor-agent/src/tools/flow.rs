@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use super::{coding_tools, ToolsetOptions};
 use crate::agent::{Agent, AgentConfig, Decision};
 use crate::provider::{Effort, Provider, SystemBlock};
-use crate::tool::{Tool, ToolCtx, ToolOutput};
+use crate::tool::{SubagentStep, Tool, ToolCtx, ToolOutput};
 use crate::types::{Message, Transcript};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -275,6 +275,19 @@ impl Tool for Task {
         true
     }
     fn run(&self, input: &Value, ctx: &ToolCtx) -> ToolOutput {
+        self.run_observed(input, ctx, &|_| {})
+    }
+    fn reports_progress(&self) -> bool {
+        true
+    }
+    /// O mapa de agentes da UI segue o sub-agente: o papel, cada ferramenta que corre e os
+    /// tokens acumulados (o texto em streaming dele não sai daqui).
+    fn run_observed(
+        &self,
+        input: &Value,
+        ctx: &ToolCtx,
+        progress: &(dyn Fn(SubagentStep) + Sync),
+    ) -> ToolOutput {
         let prompt = input["prompt"].as_str().unwrap_or_default();
         let tools: Vec<Arc<dyn Tool>> = coding_tools(&ToolsetOptions::default())
             .into_iter()
@@ -288,6 +301,9 @@ impl Tool for Task {
         } else {
             "explorer"
         };
+        progress(SubagentStep::Started {
+            role: role.to_string(),
+        });
         cfg.system = vec![SystemBlock {
             text: format!("{} {}", role_brief(role), self.spec.lang.reply_rule()),
             cache: true,
@@ -302,13 +318,21 @@ impl Tool for Task {
         let r = child.run_turn(
             &mut t,
             Some(Message::user_text(prompt)),
-            &mut |e| {
-                if let crate::agent::AgentEvent::Usage { turn, .. } = e {
+            &mut |e| match e {
+                crate::agent::AgentEvent::Usage { turn, .. } => {
                     usage = (
                         turn.input_tokens + turn.cache_read_input_tokens,
                         turn.output_tokens,
                     );
+                    progress(SubagentStep::Usage { turn });
                 }
+                crate::agent::AgentEvent::ToolStart { id, name, input } => {
+                    progress(SubagentStep::ToolStart { id, name, input })
+                }
+                crate::agent::AgentEvent::ToolResult {
+                    id, name, is_error, ..
+                } => progress(SubagentStep::ToolResult { id, name, is_error }),
+                _ => {}
             },
             &mut |_| Decision::Allow, // só ferramentas de leitura
         );

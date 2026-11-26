@@ -39,8 +39,10 @@ import type { DictationPort } from "../application/ports";
 import { bus } from "../../../app/bus";
 import { translator } from "../../../app/i18n";
 import { CODEV_CHAT_MESSAGES } from "./chat-messages";
+import { AGENT_MAP_MESSAGES } from "./agent-map-messages";
 
 const tc = translator(CODEV_CHAT_MESSAGES);
+const tm = translator(AGENT_MAP_MESSAGES);
 
 /* ───── o que o compositor precisa do resto da app ───── */
 
@@ -133,24 +135,20 @@ const MODE_ICON: Record<ComposerMode, string> = { manual: "hand", assist: "shiel
 
 /* ───── estado do compositor ───── */
 
-interface Subagent {
-  id: string;
-  label: string;
-  state: "running" | "done" | "error";
-}
 
 let host: ComposerHost | null = null;
 let attachments: Attachment[] = [];
 let queue: string[] = [];
 let planNext = false;
-let open: "" | "plus" | "slash" | "model" | "mode" | "agents" = "";
+let open: "" | "plus" | "slash" | "model" | "mode" = "";
 /** Microfone: parado, a gravar (whisper ou motor web) ou a transcrever. */
 let mic: "idle" | "rec" | "busy" = "idle";
 /** Os modelos do Ollama (carregados ao abrir a lista com o Ollama activo). */
 let ollamaList: string[] | null = null;
 let slashFilter = "";
 let slashSel = 0;
-let subagents: Subagent[] = [];
+/** Quantos agentes trabalham agora (o mapa de agentes conta-os: `setAgentCount`). */
+let agentCount = 0;
 let recog: SpeechLike | null = null;
 let attSeq = 0;
 
@@ -173,7 +171,7 @@ function skeleton(): string {
     <button class="cc-ib" id="cc-plus" title="Anexar e contexto" data-action="cc-open" data-on="plus">${icon("plus")}</button>
     <button class="cc-ib" id="cc-slash" title="Acções ( / )" data-action="cc-open" data-on="slash">${icon("slash")}</button>
     <span class="comp-bar cc-chips"><button class="pill" id="pill-agent" title="Assistente da conversa" data-action="cc-persona"></button></span>
-    <button class="cc-chip" id="cc-agents" title="Sub-agentes desta conversa" data-action="cc-open" data-on="agents"></button>
+    <button class="cc-chip" id="cc-agents" title="${esc(tm("chipTitle"))}" data-action="agmap-open"></button>
     <span class="cc-q" id="cc-queue" hidden></span>
     <span class="cc-sp"></span>
     <button class="cc-chip cc-model" id="cc-model" title="Modelo" data-action="cc-open" data-on="model"></button>
@@ -217,7 +215,7 @@ export function refreshComposer(): void {
   }
   const ag = el("cc-agents");
   if (ag) {
-    const live = subagents.filter((s) => s.state === "running").length;
+    const live = agentCount;
     ag.innerHTML = `<span class="cc-dot${live ? " live" : ""}"></span><span class="cc-agn">${live}</span><span class="cc-agl">${live} ${live === 1 ? "agente" : "agentes"}</span>`;
   }
   const q = el("cc-queue");
@@ -243,7 +241,7 @@ export function refreshComposer(): void {
             : planNext
               ? "O que queres planear?"
               : "Pede ao Co-Dev…";
-  for (const k of ["plus", "slash", "model", "agents"]) el("cc-" + k)?.classList.toggle("on", open === k);
+  for (const k of ["plus", "slash", "model"]) el("cc-" + k)?.classList.toggle("on", open === k);
 }
 
 function renderAttachments(): void {
@@ -360,16 +358,6 @@ function popMarkup(): string {
       return `<div class="cc-menu cc-modes"><div class="cc-gh cc-title">Modos<span class="cc-keys"><kbd>⇧</kbd>+<kbd>tab</kbd> muda</span></div>${MODE_OPTIONS.map((m) =>
         popItem("cc-mode", m.id, m.label, m.desc, { ic: MODE_ICON[m.id], check: m.id === cur, sel: m.id === cur }),
       ).join("")}${supportsEffort(host.provider()) ? effortRow() : ""}</div>`;
-    }
-    case "agents": {
-      const rows = subagents.length
-        ? subagents
-            .map((s) => `<div class="cc-ag"><span class="cc-dot ${s.state === "running" ? "live" : s.state}"></span><span>${esc(s.label)}</span><small>${s.state === "running" ? "a investigar…" : s.state === "done" ? "concluído" : "falhou"}</small></div>`)
-            .join("")
-        : '<div class="cc-empty">Ainda sem sub-agentes nesta conversa. O agente lança-os (ferramenta <code>task</code>) para investigar em paralelo, só com leitura.</div>';
-      return `<div class="cc-menu cc-small"><div class="cc-gh cc-title">Mapa de agentes</div><div class="cc-ag cc-main"><span class="cc-dot live"></span><b>Co-Dev</b><small>${esc(
-        modelLabel(host.provider(), host.model()),
-      )}</small></div><div class="cc-tree">${rows}</div></div>`;
     }
     default:
       return "";
@@ -913,25 +901,21 @@ function remount(): void {
   safe(() => h.refreshPersona(), undefined);
 }
 
-/* ───── sub-agentes (a ferramenta `task` do agente v2) ───── */
+/* ───── o mapa de agentes (ui/agent-map-view.ts) ───── */
 
-export function trackSubagent(id: string, label: string, state: Subagent["state"]): void {
-  const s = subagents.find((x) => x.id === id);
-  if (s) {
-    s.state = state;
-    if (label) s.label = label;
-  } else subagents.push({ id, label: label || "sub-agente", state });
+/** O chip conta os agentes que trabalham agora; clicá-lo abre o mapa. */
+export function setAgentCount(n: number): void {
+  if (n === agentCount) return;
+  agentCount = n;
   refreshComposer();
-  if (open === "agents") renderPop();
 }
 
-/** Nova conversa: esquece os sub-agentes, a fila e o modo Plano pendente. */
+/** Nova conversa: esquece a fila e o modo Plano pendente (o mapa de agentes esquece a sessão). */
 export function resetComposer(): void {
-  subagents = [];
   queue = [];
   planNext = false;
   refreshComposer();
 }
 
 /** Só para os testes: o estado interno. */
-export const _composerState = () => ({ attachments, queue, planNext, open, subagents });
+export const _composerState = () => ({ attachments, queue, planNext, open, agentCount });
