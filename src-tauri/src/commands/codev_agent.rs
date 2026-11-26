@@ -174,7 +174,7 @@ pub fn codev_agent_close(session_id: String) -> bool {
 
 /// As sessões gravadas do projecto `root` (mais recentes primeiro).
 #[tauri::command]
-pub fn codev_agent_sessions(root: String) -> Vec<tutor_agent::session::SessionSummary> {
+pub async fn codev_agent_sessions(root: String) -> Vec<tutor_agent::session::SessionSummary> {
     codev_agent::list_sessions(&root, None)
 }
 
@@ -187,7 +187,7 @@ pub fn codev_agent_live() -> Vec<codev_agent::LiveSession> {
 
 /// O histórico simplificado de uma sessão aberta (para redesenhar a conversa retomada).
 #[tauri::command]
-pub fn codev_agent_history(
+pub async fn codev_agent_history(
     session_id: String,
 ) -> Result<Vec<tutor_agent::session::HistoryItem>, String> {
     codev_agent::history(&session_id)
@@ -202,7 +202,7 @@ pub fn codev_agent_set_plan(session_id: String, on: bool) -> Result<(), String> 
 /// Os checkpoints de ficheiros da sessão (um por turno que alterou ficheiros); cada um diz se
 /// a conversa também pode voltar a esse ponto (`conversation`).
 #[tauri::command]
-pub fn codev_agent_checkpoints(
+pub async fn codev_agent_checkpoints(
     session_id: String,
 ) -> Result<Vec<codev_agent::CheckpointView>, String> {
     codev_agent::checkpoints(&session_id)
@@ -225,13 +225,13 @@ pub async fn codev_agent_rewind(
 
 /// As regras de permissões do projecto e do utilizador (painel de permissões, A3 HARNESS-05).
 #[tauri::command]
-pub fn codev_agent_permissions(root: String) -> codev_agent::PermissionsView {
+pub async fn codev_agent_permissions(root: String) -> codev_agent::PermissionsView {
     codev_agent::permissions(&root)
 }
 
 /// Grava as regras do projecto (`.dxtutor/permissions.json`) e aplica-as às sessões abertas.
 #[tauri::command]
-pub fn codev_agent_save_permissions(
+pub async fn codev_agent_save_permissions(
     root: String,
     rules: tutor_agent::permissions::Rules,
 ) -> Result<(), String> {
@@ -241,7 +241,7 @@ pub fn codev_agent_save_permissions(
 /// O que o projecto define para o agente: comandos, skills, hooks e servidores MCP (com o
 /// estado de confiança dos que fazem correr comandos).
 #[tauri::command]
-pub fn codev_agent_extensions(root: String) -> codev_agent::ExtensionsStatus {
+pub async fn codev_agent_extensions(root: String) -> codev_agent::ExtensionsStatus {
     codev_agent::extensions_status(
         &root,
         tutor_agent::trust::default_store().as_deref(),
@@ -252,6 +252,6 @@ pub fn codev_agent_extensions(root: String) -> codev_agent::ExtensionsStatus {
 /// Confia nos hooks (`kind: "hooks"`) ou nos servidores MCP (`"mcp"`) do projecto, tal como
 /// estão agora (deixa de valer se o ficheiro mudar). Vale para as sessões novas.
 #[tauri::command]
-pub fn codev_agent_trust(root: String, kind: String) -> Result<(), String> {
+pub async fn codev_agent_trust(root: String, kind: String) -> Result<(), String> {
     codev_agent::trust_project_file(&root, &kind, tutor_agent::trust::default_store().as_deref())
 }

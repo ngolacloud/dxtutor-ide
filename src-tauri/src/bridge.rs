@@ -39,12 +39,12 @@ pub async fn load_workspace(root: String) -> Result<workspace::Loaded, String> {
 }
 
 #[tauri::command]
-pub fn write_file(root: String, rel: String, content: String) -> Result<(), String> {
+pub async fn write_file(root: String, rel: String, content: String) -> Result<(), String> {
     workspace::write(std::path::Path::new(&root), &rel, &content)
 }
 
 #[tauri::command]
-pub fn delete_file(root: String, rel: String) -> Result<(), String> {
+pub async fn delete_file(root: String, rel: String) -> Result<(), String> {
     workspace::delete(std::path::Path::new(&root), &rel)
 }
 
@@ -98,7 +98,7 @@ pub async fn exec(
 }
 
 #[tauri::command]
-pub fn run_shell(
+pub async fn run_shell(
     app: AppHandle,
     procs_state: State<'_, procs::Procs>,
     id: String,
@@ -127,18 +127,27 @@ pub fn kill_shell(procs_state: State<'_, procs::Procs>, id: String) -> bool {
     procs::kill(&procs_state, &id)
 }
 
+/// Which providers have a key. Off the UI thread: it reads the OS keychain over D-Bus (measured: it was
+/// synchronous and ran at start-up, before the folder opened, up to ~16 keychain reads with the window frozen).
 #[tauri::command]
-pub fn keys_status(app: AppHandle) -> Result<HashMap<String, bool>, String> {
+pub async fn keys_status(app: AppHandle) -> Result<HashMap<String, bool>, String> {
     let dir = config_dir(&app)?;
-    Ok(["claude", "codex", "gemini", "ollama"]
-        .iter()
-        .map(|p| (p.to_string(), keys::resolve(&dir, p).is_some()))
-        .collect())
+    tauri::async_runtime::spawn_blocking(move || {
+        ["claude", "codex", "gemini", "ollama"]
+            .iter()
+            .map(|p| (p.to_string(), keys::resolve(&dir, p).is_some()))
+            .collect()
+    })
+    .await
+    .map_err(|e| format!("keys task failed: {e}"))
 }
 
 #[tauri::command]
-pub fn save_key(app: AppHandle, provider: String, key: String) -> Result<(), String> {
-    keys::save(&config_dir(&app)?, &provider, &key)
+pub async fn save_key(app: AppHandle, provider: String, key: String) -> Result<(), String> {
+    let dir = config_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || keys::save(&dir, &provider, &key))
+        .await
+        .map_err(|e| format!("keys task failed: {e}"))?
 }
 
 /// A Co-Dev chat turn. Routed through the tutor brain: `mode` ("study" | "project",
@@ -180,7 +189,7 @@ pub fn llm_plan(req: llm::ChatReq, mode: Option<String>) -> serde_json::Value {
 }
 
 #[tauri::command]
-pub fn vsix_manifest(b64: String) -> Result<serde_json::Value, String> {
+pub async fn vsix_manifest(b64: String) -> Result<serde_json::Value, String> {
     vsix::manifest_b64(&b64)
 }
 
