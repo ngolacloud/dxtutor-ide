@@ -29,13 +29,15 @@ fn issue_branch(db: &Path, root: &str, key: &str) -> Result<(String, bool), Stri
         .iter()
         .find(|i| i.key == key)
         .ok_or_else(|| format!("a issue {key} não existe"))?;
-    Ok(match i.branch.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
-        Some(b) => (b.to_string(), true),
-        None => (
-            tutor_board::project::branches::branch_name(&i.key, &i.title, &i.kind),
-            false,
-        ),
-    })
+    Ok(
+        match i.branch.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+            Some(b) => (b.to_string(), true),
+            None => (
+                tutor_board::project::branches::branch_name(&i.key, &i.title, &i.kind),
+                false,
+            ),
+        },
+    )
 }
 
 /// One row of the audit log for a worktree operation (origin `ide`, feature `codev`).
@@ -104,9 +106,17 @@ pub fn create(
         ));
     }
     let scope = format!("worktree {} · branch {}", p.path, p.branch);
-    record(db, root, "worktree.create", command, &scope, "sent", None, decided_at).map_err(
-        |e| format!("não foi feito: o registo de auditoria não o gravou ({e})"),
-    )?;
+    record(
+        db,
+        root,
+        "worktree.create",
+        command,
+        &scope,
+        "sent",
+        None,
+        decided_at,
+    )
+    .map_err(|e| format!("não foi feito: o registo de auditoria não o gravou ({e})"))?;
     let r = wt::create(dir, base, key, &branch, command);
     let _ = record(
         db,
@@ -121,8 +131,10 @@ pub fn create(
     let info = r?;
     if !recorded {
         // the issue keeps the branch its Co-Dev works on (as «Create branch» does)
-        let op = serde_json::from_value(serde_json::json!({"op": "update_issue", "key": key, "branch": branch}))
-            .map_err(|e| e.to_string())?;
+        let op = serde_json::from_value(
+            serde_json::json!({"op": "update_issue", "key": key, "branch": branch}),
+        )
+        .map_err(|e| e.to_string())?;
         let _ = store(db).and_then(|mut st| {
             st.apply(root, &actor(root), now_ms(), op)
                 .map(|_| ())
@@ -186,15 +198,26 @@ pub fn remove(
         }
     }
     let scope = format!("worktree of {key}");
-    record(db, root, "worktree.remove", command, &scope, "sent", None, decided_at).map_err(
-        |e| format!("não foi feito: o registo de auditoria não o gravou ({e})"),
-    )?;
+    record(
+        db,
+        root,
+        "worktree.remove",
+        command,
+        &scope,
+        "sent",
+        None,
+        decided_at,
+    )
+    .map_err(|e| format!("não foi feito: o registo de auditoria não o gravou ({e})"))?;
     let r = wt::remove(Path::new(root), base, key, Some(command));
     let (outcome, reason) = match &r {
         Ok(x) if x.removed => ("ok", None),
         Ok(x) => (
             "failed",
-            Some(format!("fica: alterações por commitar ({})", x.dirty.join(", "))),
+            Some(format!(
+                "fica: alterações por commitar ({})",
+                x.dirty.join(", ")
+            )),
         ),
         Err(e) => ("failed", Some(e.clone())),
     };
@@ -238,9 +261,7 @@ pub fn commit(
         &shown,
         &format!("worktree of {key}"),
         if r.is_ok() { "ok" } else { "failed" },
-        r.as_ref()
-            .err()
-            .map(|e| tutor_protect::scan::summary(e)),
+        r.as_ref().err().map(|e| tutor_protect::scan::summary(e)),
         None,
     );
     r
@@ -260,13 +281,27 @@ mod tests {
     use std::process::Command;
 
     fn g(d: &Path, a: &[&str]) -> String {
-        let o = Command::new("git").arg("-C").arg(d).args(a).output().unwrap();
-        assert!(o.status.success(), "git {a:?}: {}", String::from_utf8_lossy(&o.stderr));
+        let o = Command::new("git")
+            .arg("-C")
+            .arg(d)
+            .args(a)
+            .output()
+            .unwrap();
+        assert!(
+            o.status.success(),
+            "git {a:?}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
         String::from_utf8_lossy(&o.stdout).trim().to_string()
     }
 
     /// A repository with one commit and a project with one Ready issue (DX-1, «Pagar com cartão»).
-    fn setup() -> (tempfile::TempDir, tempfile::TempDir, std::path::PathBuf, String) {
+    fn setup() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        std::path::PathBuf,
+        String,
+    ) {
         let r = tempfile::tempdir().unwrap();
         g(r.path(), &["init", "-q", "-b", "main"]);
         g(r.path(), &["config", "user.name", "Ana"]);
@@ -290,7 +325,9 @@ mod tests {
         let st = ProjectStore::open(db).unwrap();
         let mut q = st
             .conn()
-            .prepare("SELECT call, outcome FROM audit WHERE root = ?1 AND tool = 'codev' ORDER BY id")
+            .prepare(
+                "SELECT call, outcome FROM audit WHERE root = ?1 AND tool = 'codev' ORDER BY id",
+            )
             .unwrap();
         q.query_map([root], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()
@@ -301,7 +338,9 @@ mod tests {
     #[test]
     fn creating_a_worktree_is_audited_before_and_after_and_records_the_branch() {
         let (_r, data, db, root) = setup();
-        let key = store(&db).unwrap().load(&root, 2).unwrap().issues[0].key.clone();
+        let key = store(&db).unwrap().load(&root, 2).unwrap().issues[0]
+            .key
+            .clone();
         let base = data.path().join("worktrees");
         let p = plan(&db, &base, &root, &key).unwrap();
         let want = format!("feature/{}-pagar-com-cartao", key.to_lowercase());
@@ -324,7 +363,10 @@ mod tests {
         // listed, with no open session; a file reads back; a state file never does
         let l = list(&base, &root).unwrap();
         assert_eq!((l.len(), l[0].session.clone()), (1, None));
-        assert_eq!(file(&base, &root, &key, "a.rs").unwrap().now.as_deref(), Some("fn a() {}\n"));
+        assert_eq!(
+            file(&base, &root, &key, "a.rs").unwrap().now.as_deref(),
+            Some("fn a() {}\n")
+        );
         assert!(file(&base, &root, &key, "infra/terraform.tfstate").is_err());
         // a change, committed by the human on the issue's branch
         std::fs::write(Path::new(&info.dir).join("a.rs"), "fn a() { 1 }\n").unwrap();
@@ -348,11 +390,16 @@ mod tests {
     fn an_unknown_issue_or_a_folder_without_git_never_gets_a_worktree() {
         let (_r, data, db, root) = setup();
         let base = data.path().join("worktrees");
-        assert!(plan(&db, &base, &root, "NOPE-1").unwrap_err().contains("não existe"));
+        assert!(plan(&db, &base, &root, "NOPE-1")
+            .unwrap_err()
+            .contains("não existe"));
         let plain = tempfile::tempdir().unwrap();
         let proot = plain.path().display().to_string();
         let mut st = ProjectStore::open(&db).unwrap();
-        let op = serde_json::from_value(serde_json::json!({"op": "create_issue", "title": "x", "kind": "story"})).unwrap();
+        let op = serde_json::from_value(
+            serde_json::json!({"op": "create_issue", "title": "x", "kind": "story"}),
+        )
+        .unwrap();
         let p = st.apply(&proot, "Ana", 1, op).unwrap();
         let k = p.issues[0].key.clone();
         let pl = plan(&db, &base, &proot, &k).unwrap();

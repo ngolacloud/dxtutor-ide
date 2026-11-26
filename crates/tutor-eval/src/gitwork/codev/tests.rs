@@ -73,7 +73,14 @@ fn a_worktree_is_created_only_with_the_approved_commands_and_reused_after() {
         )
     );
     // another command than the approved one runs nothing
-    let e = create(r.path(), base.path(), "DX-1", BRANCH, "git worktree add /tmp/x").unwrap_err();
+    let e = create(
+        r.path(),
+        base.path(),
+        "DX-1",
+        BRANCH,
+        "git worktree add /tmp/x",
+    )
+    .unwrap_err();
     assert!(e.contains("changed since the approval"), "{e}");
     assert!(!at.exists());
     let w = create(r.path(), base.path(), "DX-1", BRANCH, &p.command).unwrap();
@@ -94,7 +101,9 @@ fn a_worktree_is_created_only_with_the_approved_commands_and_reused_after() {
     assert!(again.exists && again.command.is_empty());
     assert_eq!(again.branch, BRANCH);
     assert_eq!(
-        create(r.path(), base.path(), "DX-1", BRANCH, "").unwrap().path,
+        create(r.path(), base.path(), "DX-1", BRANCH, "")
+            .unwrap()
+            .path,
         w.path
     );
     assert_eq!(list(r.path(), base.path()).unwrap().len(), 1);
@@ -118,7 +127,9 @@ fn a_branch_in_use_elsewhere_is_refused_and_an_existing_branch_is_checked_out() 
     g(r.path(), &["branch", BRANCH]);
     let p = plan(r.path(), base.path(), "DX-1", BRANCH).unwrap();
     assert!(!p.new_branch && p.base.is_none());
-    assert!(p.command.ends_with(&format!("worktree add -- {} {BRANCH}", p.path)));
+    assert!(p
+        .command
+        .ends_with(&format!("worktree add -- {} {BRANCH}", p.path)));
     create(r.path(), base.path(), "DX-1", BRANCH, &p.command).unwrap();
     // a second issue cannot take the same branch
     let e = plan(r.path(), base.path(), "DX-2", BRANCH).unwrap_err();
@@ -175,7 +186,11 @@ fn changes_keep_the_worktree_a_commit_lands_on_its_branch_and_then_it_goes() {
     assert_eq!(g(r.path(), &["status", "--porcelain", "-uall"]), "");
     let w = find(r.path(), base.path(), "DX-1").unwrap().unwrap();
     assert!(w.dirty.is_empty());
-    assert_eq!(w.changed.len(), 2, "committed changes still count against main");
+    assert_eq!(
+        w.changed.len(),
+        2,
+        "committed changes still count against main"
+    );
     assert!(commit(r.path(), base.path(), "DX-1", "again")
         .unwrap_err()
         .contains("nothing to commit"));
@@ -183,7 +198,11 @@ fn changes_keep_the_worktree_a_commit_lands_on_its_branch_and_then_it_goes() {
     let plan_rm = remove_plan(r.path(), base.path(), "DX-1").unwrap();
     assert_eq!(
         plan_rm.command,
-        format!("git -C {} worktree remove -- {}", r.path().display(), w.path)
+        format!(
+            "git -C {} worktree remove -- {}",
+            r.path().display(),
+            w.path
+        )
     );
     assert!(remove(r.path(), base.path(), "DX-1", Some("git worktree remove x")).is_err());
     let gone = remove(r.path(), base.path(), "DX-1", Some(&plan_rm.command)).unwrap();
@@ -208,10 +227,18 @@ fn a_worktree_whose_folder_vanished_is_listed_and_pruned() {
     assert!(find(r.path(), base.path(), "DX-1").unwrap().is_none());
     // planning it again forgets the old entry first
     let again = plan(r.path(), base.path(), "DX-1", BRANCH).unwrap();
-    assert!(again.command.contains("worktree prune\n"), "{}", again.command);
+    assert!(
+        again.command.contains("worktree prune\n"),
+        "{}",
+        again.command
+    );
     let rm = remove_plan(r.path(), base.path(), "DX-1").unwrap();
     assert!(rm.command.ends_with("worktree prune"));
-    assert!(remove(r.path(), base.path(), "DX-1", Some(&rm.command)).unwrap().removed);
+    assert!(
+        remove(r.path(), base.path(), "DX-1", Some(&rm.command))
+            .unwrap()
+            .removed
+    );
     assert!(list(r.path(), base.path()).unwrap().is_empty());
 }
 

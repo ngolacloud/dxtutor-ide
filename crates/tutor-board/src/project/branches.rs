@@ -84,9 +84,16 @@ mod tests {
             "a very long title that goes on and on beyond the limit",
             "story",
         );
-        assert_eq!(long, "feature/dx-6-a-very-long-title-that-goes-on-and-on-be");
         assert_eq!(
-            branch_name("DX-7", "abcdefghij abcdefghij abcdefghij abcdef gh", "story"),
+            long,
+            "feature/dx-6-a-very-long-title-that-goes-on-and-on-be"
+        );
+        assert_eq!(
+            branch_name(
+                "DX-7",
+                "abcdefghij abcdefghij abcdefghij abcdef gh",
+                "story"
+            ),
             "feature/dx-7-abcdefghij-abcdefghij-abcdefghij-abcdef"
         );
     }

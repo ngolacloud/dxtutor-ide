@@ -60,8 +60,12 @@ fn common_dir(root: &Path) -> Result<PathBuf, String> {
 /// Do `a` and `b` belong to the same repository, as two different worktrees?
 pub fn same_repo(a: &Path, b: &Path) -> bool {
     matches!((common_dir(a), common_dir(b)), (Ok(x), Ok(y)) if x == y)
-        && trimmed(a, &["rev-parse", "--show-toplevel"]).map(PathBuf::from).map(|p| canon(&p))
-            != trimmed(b, &["rev-parse", "--show-toplevel"]).map(PathBuf::from).map(|p| canon(&p))
+        && trimmed(a, &["rev-parse", "--show-toplevel"])
+            .map(PathBuf::from)
+            .map(|p| canon(&p))
+            != trimmed(b, &["rev-parse", "--show-toplevel"])
+                .map(PathBuf::from)
+                .map(|p| canon(&p))
 }
 
 /// The folder of this repository's Co-Dev worktrees under `base`.
@@ -97,7 +101,11 @@ fn shown(root: &Path, steps: &[Vec<String>]) -> String {
     steps
         .iter()
         .map(|s| {
-            let mut w = vec!["git".to_string(), "-C".into(), q(&root.display().to_string())];
+            let mut w = vec![
+                "git".to_string(),
+                "-C".into(),
+                q(&root.display().to_string()),
+            ];
             w.extend(s.iter().map(|a| q(a)));
             w.join(" ")
         })
@@ -212,11 +220,22 @@ pub fn plan(root: &Path, base: &Path, key: &str, branch: &str) -> Result<Worktre
     }
     let exists = git(
         root,
-        &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")],
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
     )
     .is_ok();
     steps.push(if exists {
-        vec!["worktree".into(), "add".into(), "--".into(), path_s.clone(), branch.into()]
+        vec![
+            "worktree".into(),
+            "add".into(),
+            "--".into(),
+            path_s.clone(),
+            branch.into(),
+        ]
     } else {
         vec![
             "worktree".into(),
@@ -333,7 +352,11 @@ fn changed_files(root: &Path, top: &Path) -> Vec<Changed> {
 fn info_of(root: &Path, key: &str, w: &Worktree) -> WorktreeInfo {
     let top = PathBuf::from(&w.path);
     let pre = prefix(root);
-    let dir = if pre.is_empty() { top.clone() } else { top.join(&pre) };
+    let dir = if pre.is_empty() {
+        top.clone()
+    } else {
+        top.join(&pre)
+    };
     let live = !w.prunable && top.is_dir();
     let rel = |v: Vec<String>| -> Vec<String> {
         v.iter()
@@ -399,7 +422,9 @@ pub fn create(
 ) -> Result<WorktreeInfo, String> {
     let p = plan(root, base, key, branch)?;
     if !p.available {
-        return Err(p.reason.unwrap_or_else(|| "worktrees are not available here".into()));
+        return Err(p
+            .reason
+            .unwrap_or_else(|| "worktrees are not available here".into()));
     }
     if !p.exists {
         if p.command != approved.trim() {
@@ -440,7 +465,12 @@ fn removal_of(root: &Path, w: WorktreeInfo) -> Removal {
     let step: Vec<String> = if w.prunable {
         vec!["worktree".into(), "prune".into()]
     } else {
-        vec!["worktree".into(), "remove".into(), "--".into(), w.path.clone()]
+        vec![
+            "worktree".into(),
+            "remove".into(),
+            "--".into(),
+            w.path.clone(),
+        ]
     };
     Removal {
         key: w.key,
@@ -549,7 +579,8 @@ pub struct FilePair {
 
 /// Reads `path` (project-relative) of the worktree of `key`. Never writes.
 pub fn file(root: &Path, base: &Path, key: &str, path: &str) -> Result<FilePair, String> {
-    let w = find(root, base, key)?.ok_or_else(|| format!("there is no Co-Dev worktree for {key}"))?;
+    let w =
+        find(root, base, key)?.ok_or_else(|| format!("there is no Co-Dev worktree for {key}"))?;
     let rel = gitx::check_path(path)?;
     if Path::new(rel)
         .components()
@@ -592,7 +623,8 @@ pub fn commit(root: &Path, base: &Path, key: &str, message: &str) -> Result<Stri
     if m.is_empty() {
         return Err("empty commit message".into());
     }
-    let w = find(root, base, key)?.ok_or_else(|| format!("there is no Co-Dev worktree for {key}"))?;
+    let w =
+        find(root, base, key)?.ok_or_else(|| format!("there is no Co-Dev worktree for {key}"))?;
     if w.branch.is_none() {
         return Err(format!(
             "the worktree of {key} is not on a branch (detached HEAD): check out its branch first"

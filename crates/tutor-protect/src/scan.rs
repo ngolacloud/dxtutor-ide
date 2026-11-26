@@ -354,7 +354,11 @@ pub fn guard_commit(root: &Path, scope: &Scope) -> Result<Option<String>, String
 /// [`guard_commit`] for a commit made in `dir` — a linked worktree of the project at `project`
 /// (Multi Co-Dev, phase 3: a Co-Dev session commits in its own worktree). The scan reads `dir`; the
 /// human's override is the one given for the project (the UI knows the project, not the worktree).
-pub fn guard_commit_as(dir: &Path, project: &Path, scope: &Scope) -> Result<Option<String>, String> {
+pub fn guard_commit_as(
+    dir: &Path,
+    project: &Path,
+    scope: &Scope,
+) -> Result<Option<String>, String> {
     let report = scan(dir, scope)?;
     if report.findings.is_empty() {
         return Ok(None);

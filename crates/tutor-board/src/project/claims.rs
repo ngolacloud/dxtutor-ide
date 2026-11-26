@@ -58,11 +58,12 @@ fn invalid(m: String) -> ProjectError {
 /// A project-relative path as claims keep it: `/` separators, no `./`, never absolute or with `..`.
 pub fn norm(path: &str) -> Result<String, ProjectError> {
     let p = path.trim().replace('\\', "/");
-    let parts: Vec<&str> = p.split('/').filter(|c| !c.is_empty() && *c != ".").collect();
+    let parts: Vec<&str> = p
+        .split('/')
+        .filter(|c| !c.is_empty() && *c != ".")
+        .collect();
     if p.starts_with('/') || parts.is_empty() || parts.iter().any(|c| *c == "..") {
-        return Err(invalid(format!(
-            "not a path inside the project: {path:?}"
-        )));
+        return Err(invalid(format!("not a path inside the project: {path:?}")));
     }
     Ok(parts.join("/"))
 }

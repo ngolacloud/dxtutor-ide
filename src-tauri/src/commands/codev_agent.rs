@@ -41,7 +41,9 @@ pub async fn codev_agent_start(
     // aprovação), nunca um caminho vindo da interface
     let worktree = match (worktree.unwrap_or(false), issue.as_deref()) {
         (false, _) => None,
-        (true, None) => return Err("uma worktree só serve uma sessão que trabalha numa issue".into()),
+        (true, None) => {
+            return Err("uma worktree só serve uma sessão que trabalha numa issue".into())
+        }
         (true, Some(key)) => {
             let base = super::codev_worktree::base(&app)?;
             let (r, k) = (root.clone(), key.to_string());
@@ -199,8 +201,8 @@ pub async fn codev_agent_close(session_id: String, keep_worktree: Option<bool>) 
     tauri::async_runtime::spawn_blocking(move || {
         codev_agent::close_keeping(&session_id, keep_worktree.unwrap_or(false))
     })
-        .await
-        .unwrap_or(false)
+    .await
+    .unwrap_or(false)
 }
 
 /// As sessões gravadas do projecto `root` (mais recentes primeiro).

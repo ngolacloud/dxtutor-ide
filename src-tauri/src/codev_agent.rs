@@ -727,8 +727,7 @@ pub fn start(
     let mut meta = meta;
     let new_session = log.is_none();
     let connected = if meta.toolset >= 3 {
-        let (tools, mut n) =
-            mcp::connect_all(&mcp_servers(&root, &spec, &mut notes), &work_root);
+        let (tools, mut n) = mcp::connect_all(&mcp_servers(&root, &spec, &mut notes), &work_root);
         notes.append(&mut n);
         tools
     } else {
@@ -1313,7 +1312,12 @@ pub fn send(
                 &metas.borrow(),
             )
         };
-        let verdict = role_gate(verdict, call, &session.project_root, &session.agent.ctx.root);
+        let verdict = role_gate(
+            verdict,
+            call,
+            &session.project_root,
+            &session.agent.ctx.root,
+        );
         // Multi Co-Dev (phase 3): a file another open session claimed is refused here
         let (verdict, claimed_now) = claim_gate(&session, call, verdict);
         asked_human.set(false);
@@ -1774,10 +1778,7 @@ fn held_text(path: &str, c: &tutor_board::project::claims::Claim) -> String {
 }
 
 /// Claims `path` (project-relative) for the session.
-fn claim_path(
-    s: &Session,
-    path: &str,
-) -> Result<tutor_board::project::claims::Outcome, String> {
+fn claim_path(s: &Session, path: &str) -> Result<tutor_board::project::claims::Outcome, String> {
     let db = s.change_log.as_ref().ok_or("sem base do Project")?;
     let issue = s.issue_key.lock().unwrap().clone();
     let who = tutor_board::project::claims::Claimant {
@@ -2907,10 +2908,7 @@ fn close_worktree(s: &Session, wt: &Path) {
                 e.command = Some(r.command.clone());
                 e.outcome = Some(if r.removed { "removed" } else { "kept" }.into());
                 if !r.removed {
-                    e.reason = Some(format!(
-                        "alterações por commitar: {}",
-                        r.dirty.join(", ")
-                    ));
+                    e.reason = Some(format!("alterações por commitar: {}", r.dirty.join(", ")));
                 }
             }
             Err(err) => {
@@ -4707,7 +4705,12 @@ mod tests {
         };
         // no people defined: an ADR change still asks (never accepted by Auto alone)
         assert!(matches!(
-            role_gate(Verdict::Allow, &call("docs/adr/ADR-0001.md"), d.path(), d.path()),
+            role_gate(
+                Verdict::Allow,
+                &call("docs/adr/ADR-0001.md"),
+                d.path(),
+                d.path()
+            ),
             Verdict::Ask {
                 dangerous: true,
                 ..
@@ -4739,7 +4742,12 @@ mod tests {
             dangerous: true,
             suggested_rule: None,
         };
-        match role_gate(ask.clone(), &call(".dxtutor/architecture.toml"), d.path(), d.path()) {
+        match role_gate(
+            ask.clone(),
+            &call(".dxtutor/architecture.toml"),
+            d.path(),
+            d.path(),
+        ) {
             Verdict::Deny { reason } => assert!(reason.contains("Arquitecto"), "{reason}"),
             v => panic!("{v:?}"),
         }
@@ -4749,7 +4757,12 @@ mod tests {
             .status()
             .unwrap();
         assert_eq!(
-            role_gate(ask.clone(), &call(".dxtutor/architecture.toml"), d.path(), d.path()),
+            role_gate(
+                ask.clone(),
+                &call(".dxtutor/architecture.toml"),
+                d.path(),
+                d.path()
+            ),
             ask
         );
     }

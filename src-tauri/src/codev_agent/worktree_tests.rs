@@ -9,7 +9,12 @@ fn key(k: &'static str) -> impl Fn(&str) -> Option<String> {
 }
 
 fn g(d: &Path, a: &[&str]) -> String {
-    let o = Command::new("git").arg("-C").arg(d).args(a).output().unwrap();
+    let o = Command::new("git")
+        .arg("-C")
+        .arg(d)
+        .args(a)
+        .output()
+        .unwrap();
     assert!(
         o.status.success(),
         "git {a:?}: {}",
@@ -40,8 +45,9 @@ impl Fixture {
         let data = tempfile::tempdir().unwrap();
         let base = data.path().join("worktrees");
         let p = tutor_eval::gitwork::codev::plan(r, &base, "DX-2", "feature/dx-2-pay").unwrap();
-        let w = tutor_eval::gitwork::codev::create(r, &base, "DX-2", "feature/dx-2-pay", &p.command)
-            .unwrap();
+        let w =
+            tutor_eval::gitwork::codev::create(r, &base, "DX-2", "feature/dx-2-pay", &p.command)
+                .unwrap();
         Fixture {
             wt: PathBuf::from(w.dir),
             repo,
@@ -72,7 +78,10 @@ impl Fixture {
             .prepare("SELECT event, outcome FROM audit WHERE root = ?1 ORDER BY id")
             .unwrap();
         q.query_map([self.root()], |r| {
-            Ok((r.get(0)?, r.get::<_, Option<String>>(1)?.unwrap_or_default()))
+            Ok((
+                r.get(0)?,
+                r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            ))
         })
         .unwrap()
         .map(Result::unwrap)
@@ -131,7 +140,10 @@ fn a_worktree_session_works_in_its_worktree_and_nothing_reaches_the_main_tree() 
     let live = live_sessions().into_iter().find(|l| l.id == id).unwrap();
     assert_eq!(live.root, f.root());
     assert_eq!(live.branch.as_deref(), Some("feature/dx-2-pay"));
-    assert_eq!(live.worktree.as_deref(), Some(wt.display().to_string().as_str()));
+    assert_eq!(
+        live.worktree.as_deref(),
+        Some(wt.display().to_string().as_str())
+    );
     // a resume works there again
     assert!(close_keeping(&id, true));
     let resumed = StartSpec {
@@ -181,19 +193,27 @@ fn a_file_another_open_session_claimed_is_refused_naming_it_until_it_closes() {
     let abs = format!("{}/src/cart.rs", sb.agent.ctx.root.display());
     match claim_gate(&sb, &write_call(&abs), Verdict::Allow) {
         (Verdict::Deny { reason }, None) => {
-            assert!(reason.contains("src/cart.rs") && reason.contains("DX-1") && reason.contains(&a), "{reason}");
+            assert!(
+                reason.contains("src/cart.rs") && reason.contains("DX-1") && reason.contains(&a),
+                "{reason}"
+            );
         }
         o => panic!("{o:?}"),
     }
     // reads and a denied verdict are not the claims' business
     let mut read = write_call("src/cart.rs");
     read.name = "read".into();
-    assert_eq!(claim_gate(&sb, &read, Verdict::Allow), (Verdict::Allow, None));
+    assert_eq!(
+        claim_gate(&sb, &read, Verdict::Allow),
+        (Verdict::Allow, None)
+    );
     // a write that did not happen gives its claim back
     let (_, c) = claim_gate(&sb, &write_call("src/total.rs"), Verdict::Allow);
     assert_eq!(c.as_deref(), Some("src/total.rs"));
     release_claim(&sb, "src/total.rs");
-    assert!(claim_gate(&sa, &write_call("src/total.rs"), Verdict::Allow).1.is_some());
+    assert!(claim_gate(&sa, &write_call("src/total.rs"), Verdict::Allow)
+        .1
+        .is_some());
     // A closes: its claims go; B may write the file now
     assert!(close(&a));
     let (v, c) = claim_gate(&sb, &write_call("src/cart.rs"), Verdict::Allow);
@@ -212,7 +232,9 @@ fn a_file_another_open_session_claimed_is_refused_naming_it_until_it_closes() {
         &|_| false,
     )
     .unwrap();
-    assert!(claim_gate(&sb, &write_call("src/ghost.rs"), Verdict::Allow).1.is_some());
+    assert!(claim_gate(&sb, &write_call("src/ghost.rs"), Verdict::Allow)
+        .1
+        .is_some());
     close_keeping(&b, true);
 }
 
@@ -235,7 +257,9 @@ fn a_bash_write_to_a_claimed_file_is_told_to_the_human_the_model_and_the_audit_l
         e => panic!("{e:?}"),
     }
     assert!(sb.notes.lock().unwrap()[0].contains("src/cart.rs"));
-    assert!(f.audit().contains(&("claim".to_string(), "held".to_string())));
+    assert!(f
+        .audit()
+        .contains(&("claim".to_string(), "held".to_string())));
     // the file it could take is B's now
     let held = claim_gate(&sa, &write_call("src/new.rs"), Verdict::Allow).0;
     assert!(matches!(held, Verdict::Deny { .. }));
@@ -252,7 +276,9 @@ fn closing_removes_a_clean_worktree_keeps_a_dirty_one_and_both_are_audited() {
     std::fs::write(f.wt.join("src/pay.rs"), "pub fn pay() {}\n").unwrap();
     assert!(close(&id));
     assert!(f.wt.is_dir());
-    assert!(f.audit().contains(&("worktree".to_string(), "kept".to_string())));
+    assert!(f
+        .audit()
+        .contains(&("worktree".to_string(), "kept".to_string())));
     // committed (nothing uncommitted): removed; the branch stays
     tutor_eval::gitwork::codev::commit(f.repo.path(), &base, "DX-2", "DX-2: pay").unwrap();
     let id = start(f.spec("DX-2", true), &key("sk"), None).unwrap();
@@ -262,7 +288,9 @@ fn closing_removes_a_clean_worktree_keeps_a_dirty_one_and_both_are_audited() {
     let id = start(f.spec("DX-2", true), &key("sk"), None).unwrap();
     assert!(close(&id));
     assert!(!f.wt.exists());
-    assert!(f.audit().contains(&("worktree".to_string(), "removed".to_string())));
+    assert!(f
+        .audit()
+        .contains(&("worktree".to_string(), "removed".to_string())));
     assert!(!g(f.repo.path(), &["rev-parse", "feature/dx-2-pay"]).is_empty());
     // a session that no longer has its worktree does not resume
     let resumed = StartSpec {
