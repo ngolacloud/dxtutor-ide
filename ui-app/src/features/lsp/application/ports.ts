@@ -4,12 +4,17 @@
 
 import type { ServerStatus } from "../domain/server-status";
 import type { FileReport, LspConfigView } from "../domain/overrides";
+import type { LimitNotice, ServersView } from "../domain/servers";
 
 /** Os comandos `lsp_*` do backend (caminhos absolutos; posições 0-based). */
 export interface LspPort {
   start(root: string): Promise<void>;
   didOpen(path: string, text: string, languageId: string): Promise<void>;
   didChange(path: string, text: string, version: number): Promise<void>;
+  /** O editor fechou o ficheiro (separador fechado, ficheiro apagado ou renomeado): `didClose` (LSP P6). */
+  didClose(path: string): Promise<void>;
+  /** A pasta fechou (ou abriu-se outra no lugar dela): os servidores dela param (LSP P6). */
+  closeFolder(root: string): Promise<void>;
   hover(path: string, line: number, character: number): Promise<unknown>;
   definition(path: string, line: number, character: number): Promise<unknown>;
   references(path: string, line: number, character: number): Promise<unknown>;
@@ -132,6 +137,31 @@ export interface InstallPort {
   audit(root: string, e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number; outcome?: "sent" | "ok" | "failed" }): Promise<void>;
   /** corre no terminal (PTY) e resolve com o código de saída */
   run(command: string, cwd: string): Promise<number>;
+}
+
+/** Os servidores de linguagem vivos (LSP P6): `lsp_servers`, `lsp_server_stop`, `lsp_server_restart` e os
+ *  eventos `lsp://servers` (a lista mudou) e `lsp://limit` (o tecto não se cumpre: todos têm ficheiros abertos). */
+export interface ServersPort {
+  list(): Promise<ServersView>;
+  stop(key: string): Promise<void>;
+  restart(key: string): Promise<void>;
+  onChanged(cb: () => void): void;
+  onLimit(cb: (l: LimitNotice) => void): void;
+}
+
+/** O ecrã da lista de servidores (`ui/servers-view.ts`). */
+export interface ServersScreen {
+  /** abre a lista (ou redesenha-a, se já está aberta) */
+  show(view: ServersView, acts: ServersActions): void;
+  /** está aberta? */
+  isOpen(): boolean;
+}
+
+export interface ServersActions {
+  stop(key: string): void;
+  restart(key: string): void;
+  /** abre o canal «Language servers» do Output */
+  showLog(): void;
 }
 
 /** Adiar uma acção (o relógio, injectado para os testes). */

@@ -5,13 +5,31 @@
    `lsp_signature_help` / `lsp_server_status` / `lsp_code_action` / `lsp_execute_command` / `lsp_format` /
    `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_prepare_type_hierarchy` / `lsp_type_hierarchy` e
    os eventos `lsp://diagnostics` e `lsp://apply-edit`; e a `LspConfigPort` dos overrides (LSP P2):
-   `lsp_config` / `lsp_config_file` / `lsp_user_config_save` / `lsp_approve_server` e o evento `lsp://config`.
+   `lsp_config` / `lsp_config_file` / `lsp_user_config_save` / `lsp_approve_server` e o evento `lsp://config`;
+   e os recursos (LSP P6): `lsp_did_close` / `lsp_folder_closed` e a `ServersPort` (`lsp_servers` /
+   `lsp_server_stop` / `lsp_server_restart`, eventos `lsp://servers` e `lsp://limit`).
    Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, listen } from "../../../platform/tauri/core";
-import type { LspConfigPort, LspPort } from "../application/ports";
+import type { LspConfigPort, LspPort, ServersPort } from "../application/ports";
 import type { ServerStatus } from "../domain/server-status";
 import type { FileReport, LspConfigView } from "../domain/overrides";
+import type { LimitNotice, ServersView } from "../domain/servers";
+
+export const tauriLspServers: ServersPort = {
+  list: () => invoke<ServersView>("lsp_servers"),
+  stop: (key) => invoke<void>("lsp_server_stop", { key }),
+  restart: (key) => invoke<void>("lsp_server_restart", { key }),
+  onChanged: (cb) => {
+    void listen("lsp://servers", () => cb());
+  },
+  onLimit: (cb) => {
+    void listen("lsp://limit", (p) => {
+      const l = p as Partial<LimitNotice>;
+      if (l && typeof l.running === "number" && typeof l.max === "number") cb({ running: l.running, max: l.max, servers: Array.isArray(l.servers) ? l.servers : [] });
+    });
+  },
+};
 
 export const tauriLspConfig: LspConfigPort = {
   config: (root) => invoke<LspConfigView>("lsp_config", { root }),
@@ -27,6 +45,8 @@ export const tauriLsp: LspPort = {
   start: (root) => invoke<void>("lsp_start", { root }),
   didOpen: (path, text, languageId) => invoke<void>("lsp_did_open", { path, text, languageId }),
   didChange: (path, text, version) => invoke<void>("lsp_did_change", { path, text, version }),
+  didClose: (path) => invoke<void>("lsp_did_close", { path }),
+  closeFolder: (root) => invoke<void>("lsp_folder_closed", { root }),
   hover: (path, line, character) => invoke<unknown>("lsp_hover", { path, line, character }),
   definition: (path, line, character) => invoke<unknown>("lsp_definition", { path, line, character }),
   references: (path, line, character) => invoke<unknown>("lsp_references", { path, line, character }),

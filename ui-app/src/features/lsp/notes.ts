@@ -1,5 +1,5 @@
 /* Notas para a documentação oficial da feature lsp (o editor ligado ao servidor de linguagem). Por agora
-   o aviso de servidor em falta e os overrides do registo (LSP P2); as outras acções (hover, F12, rename,
+   o aviso de servidor em falta, os overrides do registo (LSP P2) e os recursos dos servidores (LSP P6); as outras acções (hover, F12, rename,
    completion…) entram aqui quando forem documentadas. Ver `app/notes/types.ts`. */
 
 import type { FeatureNotes } from "../../app/notes/types";
@@ -8,7 +8,7 @@ export const LSP_NOTES: FeatureNotes = {
   id: "lsp",
   title: "Servidor de linguagem (LSP)",
   summary:
-    "Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo.",
+    "Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo. Os servidores não ficam a gastar a máquina: um servidor sem ficheiros abertos pára sozinho ao fim de algum tempo, há um limite de servidores ao mesmo tempo, e a paleta mostra os que estão a correr, com o registo de cada um.",
   code: [
     "languages/registry.json",
     "crates/tutor-eval/src/langreg.rs",
@@ -20,6 +20,10 @@ export const LSP_NOTES: FeatureNotes = {
     "ui-app/src/features/lsp/application/lsp-client.ts",
     "ui-app/src/features/lsp/domain/server-status.ts",
     "src-tauri/src/lsp.rs",
+    "src-tauri/src/lsp/lifecycle.rs",
+    "ui-app/src/features/lsp/application/servers.ts",
+    "ui-app/src/features/lsp/ui/servers-view.ts",
+    "ui-app/src/features/panel/domain/lsp-log.ts",
   ],
   updated: "2026-11-26",
   actions: [
@@ -116,6 +120,42 @@ export const LSP_NOTES: FeatureNotes = {
       howTo: ["«Open» abre o ficheiro para o corrigires; ao gravar, o cartão sai sozinho.", "«Dismiss» esconde-o até o erro mudar."],
       flow: ["Os erros vêm de `lsp_config` (`userFile`/`projectFile.errors`); o aviso só se repete quando os erros mudam."],
       covers: ["lsp:config-errors-open"],
+    },
+    {
+      title: "Ver os servidores de linguagem a correr",
+      where: ["paleta: «LSP: Show Running Language Servers»"],
+      what: "Lista os servidores de linguagem que estão a correr: o nome, a pasta, o PID, o estado (a arrancar, a indexar, pronto), os ficheiros abertos em cada um ou há quanto tempo está inactivo e quando vai parar, e a memória que gasta. «Restart» reinicia um servidor, «Stop» pára-o e «Show log» abre o registo dos servidores no painel Output.",
+      howTo: [
+        "Paleta (Ctrl+Shift+P) → «LSP: Show Running Language Servers». A lista actualiza-se sozinha enquanto está aberta.",
+        "Um servidor encravado ou a gastar memória a mais: «Restart» pára-o e arranca-o de novo, com os ficheiros que tens abertos.",
+        "Não precisas de um servidor agora: «Stop» pára-o já. Ele volta a arrancar sozinho quando um ficheiro da linguagem dele precisar.",
+        "«Show log» abre o canal «Language servers» do Output: o que cada servidor escreveu (erros, avisos) e quando arrancou, parou e porquê.",
+      ],
+      flow: [
+        "`lsp_servers` devolve a lista (`src-tauri/src/lsp/lifecycle.rs::list`); a memória é a do servidor e dos processos que ele arrancou, lida do `/proc` (só em Linux). O ecrã (`ui/servers-view.ts`) relê-a de 2 em 2 s e logo que o backend avisa que mudou (`lsp://servers`).",
+        "«Stop» (`lsp_server_stop`) e «Restart» (`lsp_server_restart`) param o servidor como o protocolo pede: `shutdown`, depois `exit`, e o processo é recolhido; se não sair a tempo (2 s + 1 s), é morto com o que arrancou (o grupo de processos dele).",
+        "O registo de cada servidor (stderr e as mensagens `logMessage` de erro, aviso e informação) fica no backend num anel limitado (500 linhas, 256 KiB), mascarado pelas regras de protecção de dados antes de sair; chega ao Output pelo evento `lsp://log` e lê-se de novo com `lsp_server_log` (por exemplo, depois de mudares de língua).",
+      ],
+      tips: ["Um servidor que morre sozinho também aparece no registo, com o código de saída, e arranca de novo no pedido seguinte."],
+      limits: ["A memória só se mostra em Linux.", "Parar um servidor não o desliga: o próximo pedido de um ficheiro da linguagem dele arranca-o outra vez. Para o desligar de vez, usa `\"server\": null` na linguagem, no teu `lsp.json`."],
+      covers: ["lsp:cmd-servers", "lsp:servers-restart", "lsp:servers-stop", "lsp:servers-log"],
+    },
+    {
+      title: "Servidores inactivos e o limite de servidores",
+      where: ["automático", "o teu `lsp.json`: «resources»"],
+      what: "Fechar um ficheiro avisa o servidor (`didClose`). Um servidor sem ficheiros abertos e sem uso durante 10 minutos pára sozinho, e correm no máximo 6 ao mesmo tempo: quando arranca um a mais, pára o usado há mais tempo que não tenha ficheiros abertos. Um servidor com ficheiros abertos nunca é parado por isto: se todos os que restam têm ficheiros abertos, o editor diz-to. Fechar a pasta (ou abrir outra) e sair do dxtutor param os servidores dela.",
+      howTo: [
+        "Não tens de fazer nada: fecha os separadores de que não precisas e o servidor dessa linguagem acaba por parar; volta a arrancar quando abrires um ficheiro dela.",
+        "Para mudar os tempos, no teu `lsp.json` (paleta → «LSP: Open User Language Server Settings»): `\"resources\": { \"idleMinutes\": 10, \"maxServers\": 6 }`. `idleMinutes` 0 deixa os servidores inactivos a correr até fechares a pasta; `maxServers` vai de 1 a 32.",
+      ],
+      flow: [
+        "Fechar um separador (bus `editor:tab-closed`), apagar ou renomear um ficheiro aberto (`workspace:changed`) → `lsp_did_close` → `didClose` aos servidores que o têm aberto, e o backend esquece-o.",
+        "De 30 em 30 s o backend procura servidores sem ficheiros abertos e sem uso há `idleMinutes`; ao arrancar um servidor, aplica o limite (`lifecycle::select_stops`). A decisão e a entrega de um servidor a um pedido acontecem com o mesmo lock, por isso um servidor parado nunca recebe um pedido: o pedido seguinte arranca outro, que só é usado depois do `initialize`.",
+        "Abrir outra pasta (`dx:workspace`) → `lsp_folder_closed` com a anterior; sair da app → todos param e são recolhidos antes de ela fechar.",
+        "Os `resources` só se lêem do TEU `lsp.json` (o de um projecto não os pode mudar: é um erro e o ficheiro é ignorado).",
+      ],
+      limits: ["O limite não pára um servidor com ficheiros abertos: com muitas linguagens abertas ao mesmo tempo, pode haver mais servidores do que o limite (o editor avisa)."],
+      covers: ["lsp:resources"],
     },
   ],
 };

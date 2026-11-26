@@ -137,6 +137,8 @@ export interface Published {
   drawProblems: () => void;
   /** O Services real é dono do #pc-services (o drawStack do resíduo escrevia lá a demo). */
   drawServices: () => void;
+  /** Mostra o canal «Language servers» do Output (a lista de servidores de linguagem, LSP P6). */
+  showLspLog: () => void;
 }
 
 /** Instala as fachadas reais. As versões do monólito continuam a servir quando não há
@@ -146,7 +148,7 @@ export function publish(p: Published): void {
   if (R) R.term = p.term;
   /* desde a U7p6 do ADR-0004 nada disto vai ao window: o atalho do terminal pelo registo, os problemas e o desenho dos
      serviços pelos ganchos dos donos (features/diagnostics.ts e features/stack.ts) */
-  services.panel = { termOwnsKey: p.ownsKey };
+  services.panel = { termOwnsKey: p.ownsKey, showLspLog: p.showLspLog };
   setProblemsOverride({
     diagnostics: (base) => (root() ? p.problems().map((x) => ({ p: fsKey(x.file), line: x.line, sev: x.severity === "error" ? "e" : "w", msg: x.message })) : base()),
     drawProblems: (base) => { if (!root()) base(); else p.drawProblems(); },

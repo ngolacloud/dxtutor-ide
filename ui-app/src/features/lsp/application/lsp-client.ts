@@ -103,6 +103,12 @@ export interface LspClient {
   /** Um ficheiro de overrides mudou (o registo novo já está em uso): esquece o estado dos servidores
    *  e revê o ficheiro aberto (a faixa, e abre-o no servidor se agora tem um). */
   onConfigChanged(): Promise<void>;
+  /** Um separador fechou (`key`: o ficheiro dele): o servidor recebe o `didClose` (LSP P6). */
+  onTabClosed(key: string | null): Promise<void>;
+  /** O workspace mudou: um documento aberto cujo ficheiro desapareceu (apagado, renomeado) fecha no servidor. */
+  onWorkspaceChanged(): Promise<void>;
+  /** Abriu-se a pasta `root`: se é outra, os servidores da anterior param e os documentos dela esquecem-se. */
+  onFolder(root: string): Promise<void>;
 }
 
 /** Uma referência: onde está (chave do editor, `null` se fora da pasta) e a linha de texto. */
@@ -192,6 +198,11 @@ export function makeLspClient(d: LspClientDeps): LspClient {
   const servers = new Map<string, Promise<ServerStatus | null>>();
   const dismissed = new Set<string>();
   const copy: Copy = d.copy ?? englishCopy;
+  /** A chave do editor de cada documento aberto no servidor (caminho → chave): fecha-se quando o separador
+   *  fecha ou o ficheiro desaparece. */
+  const keys = new Map<string, string>();
+  /** A pasta dos documentos abertos: quando abre outra, os servidores desta param. */
+  let folder: string | null = null;
 
   function statusOf(doc: Doc): Promise<ServerStatus | null> {
     let p = servers.get(doc.languageId);
@@ -294,19 +305,56 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (versions.has(doc.path)) return true;
     const text = d.workspace.text(doc.key);
     if (text == null) return false;
+    folder ??= root;
     versions.set(doc.path, 1);
     sent.set(doc.path, text);
+    keys.set(doc.path, doc.key);
     const p = d.lsp.didOpen(doc.path, text, doc.languageId).then(
       () => true,
       () => {
-        versions.delete(doc.path);
-        sent.delete(doc.path);
+        forget(doc.path);
         return false;
       },
     );
     opening.set(doc.path, p);
     void p.finally(() => opening.delete(doc.path));
     return p;
+  }
+
+  /** Esquece um documento (o servidor deixa de o ter aberto). */
+  function forget(path: string): void {
+    versions.delete(path);
+    sent.delete(path);
+    keys.delete(path);
+  }
+
+  /** Fecha um documento no servidor (depois do `didOpen` em curso, se houver). */
+  async function closeDoc(path: string): Promise<void> {
+    await opening.get(path);
+    if (!versions.has(path)) return;
+    forget(path);
+    await d.lsp.didClose(path).catch(() => {});
+  }
+
+  async function onTabClosed(key: string | null): Promise<void> {
+    if (!key) return;
+    // pela chave (a pasta pode já ser outra: ao abrir uma pasta, os separadores da anterior fecham depois)
+    for (const [path, k] of [...keys]) if (k === key) await closeDoc(path);
+  }
+
+  async function onWorkspaceChanged(): Promise<void> {
+    for (const [path, k] of [...keys]) if (d.workspace.text(k) == null) await closeDoc(path);
+  }
+
+  async function onFolder(root: string): Promise<void> {
+    const prev = folder;
+    folder = root;
+    if (!prev || prev === root) return;
+    // o backend esquece os documentos dela e pára os servidores dela; aqui só se esquece o estado
+    for (const path of [...keys.keys()]) if (path === prev || path.startsWith(`${prev}/`)) forget(path);
+    starting.delete(prev);
+    servers.clear();
+    await d.lsp.closeFolder(prev).catch(() => {});
   }
 
   /** O registo efectivo da pasta aberta em uso, antes de decidir que linguagem é um ficheiro. */
@@ -765,5 +813,5 @@ export function makeLspClient(d: LspClientDeps): LspClient {
     if (await ensureOpen(doc)) d.editor.repaint(doc.key);
   }
 
-  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, typeHierarchyAt, typeHierarchyChildren, openType, onDiagnostics, opened: () => versions, onFileView, onConfigChanged };
+  return { onTab, onEdit, hoverAt, definitionAt, referencesAt, prepareRenameAt, renameAt, completionAt, signatureHelpAt, codeActionsAt, applyCodeAction, onApplyEdit, formatAt, symbolsFor, workspaceSymbolsFor, openWorkspaceSymbol, typeHierarchyAt, typeHierarchyChildren, openType, onDiagnostics, opened: () => versions, onFileView, onConfigChanged, onTabClosed, onWorkspaceChanged, onFolder };
 }

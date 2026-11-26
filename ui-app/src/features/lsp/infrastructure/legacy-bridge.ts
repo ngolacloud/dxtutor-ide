@@ -109,6 +109,14 @@ export const editor: EditorPort = {
   },
 };
 
+/** Uma pasta abriu (o `dx:workspace` do desktop, depois de fechar os separadores da anterior). */
+export function onFolderOpened(cb: (root: string) => void): void {
+  document.addEventListener("dx:workspace", (e) => {
+    const root = (e as CustomEvent<{ root?: unknown }>).detail?.root;
+    if (typeof root === "string" && root) cb(root);
+  });
+}
+
 /** Corre um comando num terminal de tarefa (no desktop, um PTY com a shell de login — o `npm` do nvm,
  *  o `go`, o `dotnet`…) e resolve com o código de saída; sem terminais reais, `-1`. */
 export const runTerminalTask = async (command: string, cwd: string): Promise<number> => {

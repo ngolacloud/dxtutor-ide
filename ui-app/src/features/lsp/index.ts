@@ -19,6 +19,10 @@
    ficheiro muda (`lsp://config`), o cliente revê o ficheiro aberto; a paleta abre os dois ficheiros e
    mostra a configuração efectiva; um comando que o projecto pede só corre depois do diálogo de aprovação
    partilhado (o backend audita a decisão e guarda-a).
+   Os recursos (LSP P6): um separador que fecha (`editor:tab-closed`) ou um ficheiro que desaparece
+   (`workspace:changed`) dá `didClose`; abrir outra pasta (`dx:workspace`) pára os servidores da anterior; a
+   paleta lista os servidores a correr (`application/servers`, com «Restart»/«Stop» e «Show log», que abre o
+   canal «Language servers» do Output pelo `services.panel`); o tecto de servidores por cumprir é avisado.
    No browser/testes não arranca: o editor continua exactamente como antes. */
 
 import { isDesktop } from "../../platform/tauri/core";
@@ -28,10 +32,14 @@ import { languageIdFor } from "./domain/languages";
 import { makeLspClient } from "./application/lsp-client";
 import { makeOverrides } from "./application/overrides";
 import { LSP_OVERRIDE_MESSAGES } from "./application/override-messages";
-import { tauriLsp, tauriLspConfig } from "./infrastructure/tauri";
+import { tauriLsp, tauriLspConfig, tauriLspServers } from "./infrastructure/tauri";
+import { makeServers } from "./application/servers";
+import { LSP_SERVERS_MESSAGES } from "./application/servers-messages";
+import { serversScreen } from "./ui/servers-view";
+import { services } from "../../app/services";
 import { overridesView } from "./ui/config-view";
 import { translator } from "../../app/i18n";
-import { workspace, editor, addPaletteCommand, runTerminalTask } from "./infrastructure/legacy-bridge";
+import { workspace, editor, addPaletteCommand, runTerminalTask, onFolderOpened } from "./infrastructure/legacy-bridge";
 import { copyText } from "../../app/clipboard";
 import { requestApproval } from "../../app/approval";
 import { auditClient } from "../../platform/tauri/audit";
@@ -76,7 +84,26 @@ if (isDesktop()) {
   bus.on("editor:file-view", ({ path }) => void client.onFileView(path));
   bus.on("workspace:changed", ({ fromEditor }) => {
     if (fromEditor) void client.onEdit();
+    void client.onWorkspaceChanged(); // um ficheiro aberto que desapareceu (apagado, renomeado): didClose
   });
+  /* LSP P6: o separador fechou → didClose; outra pasta → os servidores da anterior param */
+  bus.on("editor:tab-closed", ({ path }) => void client.onTabClosed(path));
+  onFolderOpened((root) => void client.onFolder(root));
+  /* os servidores a correr: a lista com «Restart»/«Stop», e o aviso do tecto por cumprir */
+  const serversCopy = translator(LSP_SERVERS_MESSAGES);
+  const runningServers = makeServers({
+    port: tauriLspServers,
+    screen: serversScreen(() => workspace.diskRoot()),
+    copy: serversCopy,
+    notify: editor.notify,
+    showLog: () => services.panel?.showLspLog?.(),
+    every: (ms, f) => {
+      const t = setInterval(f, ms);
+      return () => clearInterval(t);
+    },
+  });
+  tauriLspServers.onLimit((l) => runningServers.onLimit(l));
+  addPaletteCommand(serversCopy("cmdServers"), "", () => void runningServers.show());
   bindEditorHooks({
     hoverAt: client.hoverAt,
     definitionAt: client.definitionAt,
