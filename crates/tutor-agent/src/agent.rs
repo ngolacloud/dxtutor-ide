@@ -22,8 +22,8 @@ use crate::hunks::{
     Check, HunkOp, HunkTracker, LineCount, LineRange, RejectedBy, ValidationStatus,
 };
 use crate::provider::{
-    Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent, SystemBlock,
-    ThinkingDisplay, Usage,
+    CacheTtl, Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent,
+    SystemBlock, ThinkingDisplay, Usage,
 };
 use crate::retry;
 use crate::schema;
@@ -53,6 +53,8 @@ pub struct AgentConfig {
     pub max_iterations: u32,
     /// Compactação no servidor (Claude).
     pub compaction: bool,
+    /// TTL dos breakpoints do system prompt (o Co-Dev do IDE usa 1 hora: as pausas de revisão).
+    pub cache_ttl: CacheTtl,
 }
 
 impl AgentConfig {
@@ -67,6 +69,7 @@ impl AgentConfig {
             fallbacks: base.fallbacks,
             max_iterations: 60,
             compaction: base.compaction,
+            cache_ttl: base.cache_ttl,
         }
     }
 }
@@ -311,6 +314,7 @@ fn add_usage(t: &mut Usage, u: &Usage) {
     t.output_tokens += u.output_tokens;
     t.cache_read_input_tokens += u.cache_read_input_tokens;
     t.cache_creation_input_tokens += u.cache_creation_input_tokens;
+    t.cache_creation_1h_input_tokens += u.cache_creation_1h_input_tokens;
 }
 
 /// Corta um resultado demasiado grande, mantendo o início e o fim, e diz ao modelo como
@@ -371,6 +375,7 @@ impl Agent {
             fallbacks: self.cfg.fallbacks,
             resume_paused,
             compaction: self.cfg.compaction,
+            cache_ttl: self.cfg.cache_ttl,
         }
     }
 

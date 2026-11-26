@@ -33,8 +33,8 @@ use tutor_agent::tools::flow::SubagentSpec;
 use tutor_agent::tools::{agent_tools, FileState, FlowState, ToolsetOptions, TOOLSET_VERSION};
 use tutor_agent::{trust, Tool};
 use tutor_agent::{
-    Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall, Provider,
-    SystemBlock, ToolCtx, Transcript, TurnOutcome,
+    Agent, AgentConfig, AgentError, AgentEvent, CacheTtl, Decision, Effort, Message, PendingCall,
+    Provider, SystemBlock, ToolCtx, Transcript, TurnOutcome,
 };
 
 /// Um pedido de aprovação à espera: o canal onde a UI responde e a regra sugerida.
@@ -671,6 +671,10 @@ pub fn start(
     let mut acfg = AgentConfig::new(meta.model.clone());
     acfg.effort = parse_effort(Some(&meta.effort));
     acfg.compaction = meta.compaction;
+    // the human's review pauses often pass 5 minutes: the prefix (tools + system) lives an hour
+    if meta.provider == "claude" {
+        acfg.cache_ttl = CacheTtl::OneHour;
+    }
     acfg.system = meta
         .system
         .iter()

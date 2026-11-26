@@ -250,6 +250,7 @@ impl Accumulator {
                 output_tokens: u["completion_tokens"].as_u64().unwrap_or(0),
                 cache_read_input_tokens: cached,
                 cache_creation_input_tokens: 0,
+                cache_creation_1h_input_tokens: 0,
             };
             go(emit(StreamEvent::Usage(self.usage)))?;
         }
@@ -630,7 +631,8 @@ mod tests {
                 input_tokens: 200,
                 output_tokens: 40,
                 cache_read_input_tokens: 1000,
-                cache_creation_input_tokens: 0
+                cache_creation_input_tokens: 0,
+                cache_creation_1h_input_tokens: 0
             }
         );
         assert!(evs.contains(&StreamEvent::BlockStart {
