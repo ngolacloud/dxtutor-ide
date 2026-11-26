@@ -11,7 +11,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Project](#project) — 11 acções
 - [Testes](#testes) — 1 acção
-- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
+- [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 6 acções
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 4 acções
 - [Ops — infraestrutura, Kubernetes, runbooks e evidências](#ops-infraestrutura-kubernetes-runbooks-e-evidencias) — 12 acções
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
@@ -803,13 +803,18 @@ Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, c
 
 ## Servidor de linguagem (LSP)
 
-Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo.
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. O teu `lsp.json` e o `.dxtutor/lsp.json` de cada projecto acrescentam linguagens e servidores e mudam o comando, os argumentos e as definições de cada servidor; o comando que um projecto pede só corre depois de o aprovares. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo.
 
-<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `src-tauri/src/lsp.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `crates/tutor-eval/src/lspconf.rs`, `ui-app/src/features/lsp/application/overrides.ts`, `ui-app/src/features/lsp/ui/config-view.ts`, `docs/lsp/overrides.md`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `src-tauri/src/lsp.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Servidor de linguagem em falta: Copiar e Instalar](#servidor-de-linguagem-em-falta-copiar-e-instalar) | faixa amarela no topo do ficheiro «No … language server» |
+| [As tuas definições de servidores de linguagem (lsp.json)](#as-tuas-definicoes-de-servidores-de-linguagem-lspjson) | paleta: «LSP: Open User Language Server Settings (lsp.json)» · faixa de servidor em falta: «Configure…» |
+| [As definições do projecto (.dxtutor/lsp.json)](#as-definicoes-do-projecto-dxtutorlspjson) | paleta: «LSP: Open Project Language Server Settings (.dxtutor/lsp.json)» |
+| [Aprovar o comando e as definições que um projecto pede](#aprovar-o-comando-e-as-definicoes-que-um-projecto-pede) | faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…» |
+| [Ver a configuração efectiva](#ver-a-configuracao-efectiva) | paleta: «LSP: Show Effective Language Server Configuration» |
+| [Aviso de definições ignoradas](#aviso-de-definicoes-ignoradas) | cartão vermelho no canto «Language server settings ignored» |
 
 ### Servidor de linguagem em falta: Copiar e Instalar
 
@@ -841,6 +846,116 @@ Mostra o servidor que falta e o comando para o instalar. «Copy» copia o comand
 - Só na app desktop com uma pasta aberta. Sem auditoria possível, não instala.
 
 <sub>Cobre: `lsp:notice-copy`, `lsp:notice-install`</sub>
+
+### As tuas definições de servidores de linguagem (lsp.json)
+
+**Onde:** paleta: «LSP: Open User Language Server Settings (lsp.json)» · faixa de servidor em falta: «Configure…»
+
+Abre o teu `lsp.json` (na pasta de configuração do dxtutor, vale para todas as pastas) num editor próprio. Lá acrescentas uma linguagem e o seu servidor, ou mudas o comando, os argumentos ou as definições de um servidor embutido. Gravar aplica logo: os servidores afectados reiniciam, sem reiniciar a app.
+
+**Como usar**
+
+1. Paleta (Ctrl+Shift+P) → «LSP: Open User Language Server Settings». Se o ficheiro ainda não existe, abre com um modelo comentado.
+2. Escreve só o que mudas: `{ "servers": [ { "id": "rust", "settings": { "rust-analyzer": { "check": { "command": "clippy" } } } } ] }`.
+3. «Save» (ou Ctrl+S). Se o ficheiro tiver um erro, fica gravado mas ignorado, e o editor diz qual é e onde.
+
+**Fluxo (por dentro)**
+
+1. `lsp_config_file("user")` dá o texto (ou o modelo `lspconf::USER_TEMPLATE`); `lsp_user_config_save` grava SÓ esse ficheiro (o caminho decide-o o backend: `<config da app>/lsp.json`) e relê o registo.
+2. A junção é do Rust (`tutor_eval::langreg::apply_overlay`): uma entrada com um id conhecido muda só os campos que dá (`settings` e `initOptions` juntam-se chave a chave; `null` repõe o valor por omissão); um id novo é uma entrada inteira. O resultado passa pelas mesmas regras do registo embutido; se falhar, o ficheiro inteiro é ignorado.
+3. Os servidores a correr cujo arranque mudou reiniciam e recebem os ficheiros abertos; os que só mudaram de definições recebem `workspace/didChangeConfiguration`. O editor ouve `lsp://config` e revê o ficheiro aberto.
+4. O teu ficheiro é de confiança: os comandos dele correm sem pedir aprovação.
+
+**Dicas**
+
+- Aceita comentários (`//`, `/* */`) e vírgulas no fim. A referência dos campos está em `docs/lsp/overrides.md`.
+
+**Limites**
+
+- Só na app desktop. O cliente de um pedido só (o outline do agente) continua com o registo embutido.
+
+<sub>Cobre: `lsp:cmd-user-config`, `lsp:notice-configure`</sub>
+
+### As definições do projecto (.dxtutor/lsp.json)
+
+**Onde:** paleta: «LSP: Open Project Language Server Settings (.dxtutor/lsp.json)»
+
+Abre o `.dxtutor/lsp.json` da pasta aberta num separador (criado com um modelo comentado, se não existe). Vai com o repositório: serve para a equipa partilhar as definições dos servidores do projecto.
+
+**Como usar**
+
+1. Paleta → «LSP: Open Project Language Server Settings». Escreve no mesmo formato do teu `lsp.json`.
+2. O autosave grava-o; em 2 segundos o dxtutor relê-o e aplica-o.
+3. Um servidor novo, ou um que o projecto põe a correr com outro comando, espera pela tua aprovação. As definições (`settings`) e as `initOptions` do projecto também: até as aprovares, o servidor corre com as tuas.
+
+**Fluxo (por dentro)**
+
+1. Ordem: o registo embutido → o teu `lsp.json` → o `.dxtutor/lsp.json` do projecto (`tutor_eval::lspconf::Effective::load`). Cada ficheiro junta-se e valida-se sozinho: um inválido é ignorado inteiro e os de baixo ficam como estavam.
+2. O backend vê as mudanças pela data e o tamanho dos ficheiros (de 2 em 2 segundos) e reinicia só os servidores afectados.
+
+**Limites**
+
+- Um ficheiro com mais de 512 KiB é recusado.
+
+<sub>Cobre: `lsp:cmd-project-config`</sub>
+
+### Aprovar o comando e as definições que um projecto pede
+
+**Onde:** faixa no topo do ficheiro «… is waiting for your approval» → «Review…» · a configuração efectiva → «Review…»
+
+Um projecto clonado pode trazer um `.dxtutor/lsp.json` que acrescenta um servidor, muda o programa, os argumentos, o resolvedor, as pastas de procura ou a variável de ambiente de um servidor, ou lhe dá `settings`/`initOptions` (que podem pôr o servidor a correr comandos, como o `check.overrideCommand` do rust-analyzer). Com outro arranque, o servidor não arranca até aprovares o comando EXACTO; só com definições, arranca com as tuas e as do projecto só se aplicam depois de as aprovares.
+
+**Como usar**
+
+1. Abre um ficheiro da linguagem: a faixa diz o servidor e o que espera (o comando, ou as definições).
+2. «Review…» abre o diálogo de aprovação com o programa (caminho completo), os argumentos, a pasta onde corre, as definições/initOptions do projecto e o que substituem, o ficheiro que o pediu e o que mudou. Se o programa estiver dentro da pasta do projecto, o diálogo di-lo.
+3. Aprova para o servidor arrancar (ou receber as definições do projecto); recusa e nada do que o projecto pediu corre (podes rever outra vez mais tarde).
+
+**Fluxo (por dentro)**
+
+1. A regra vive no Rust: `lspconf::approval_request` decide se um servidor precisa de aprovação; `lsp.rs::gate` não o lança (arranque mudado) ou lança-o com as definições de confiança (`Effective::trusted_config`), e `lsp_server_status` devolve o pedido (`blocksStart`, `config`).
+2. `lsp_approve_server` confere o hash mostrado (se o comando mudou entretanto, recusa), grava a decisão no registo de auditoria ANTES de tudo (`audit_record`, acção `lsp.server.approve`; sem auditoria não aprova) e guarda a aprovação em `<config da app>/lsp-trusted.json` (0600), nunca no projecto.
+3. A aprovação fica presa ao projecto, ao servidor, ao programa encontrado, aos campos de arranque, às definições e initOptions e, para um programa dentro do projecto, ao conteúdo dele: se algum mudar, volta a pedir. Aprovadas as definições, o servidor a correr recebe-as (`didChangeConfiguration`; initOptions novas reiniciam-no).
+
+**Dicas**
+
+- Os marcadores de raiz, o nome e as extensões não correm nada: não pedem aprovação. O teu `lsp.json` é de confiança.
+
+<sub>Cobre: `lsp:notice-review`, `lsp:effective-review`</sub>
+
+### Ver a configuração efectiva
+
+**Onde:** paleta: «LSP: Show Effective Language Server Configuration»
+
+Mostra, para cada servidor, a entrada que o dxtutor usa depois de juntar tudo: de onde veio (embutido, utilizador, projecto), as linguagens que serve, as definições, e se espera por aprovação. Diz também o estado dos dois ficheiros de overrides.
+
+**Como usar**
+
+1. Paleta → «LSP: Show Effective Language Server Configuration». Abre no servidor do ficheiro aberto.
+2. Escolhe outro servidor na lista (os marcados com * foram mudados por um override).
+
+**Fluxo (por dentro)**
+
+1. `lsp_config(root)` relê os ficheiros que mudaram e devolve o registo efectivo, os relatórios dos ficheiros e as aprovações em falta.
+
+<sub>Cobre: `lsp:cmd-effective`</sub>
+
+### Aviso de definições ignoradas
+
+**Onde:** cartão vermelho no canto «Language server settings ignored»
+
+Quando o teu `lsp.json` ou o `.dxtutor/lsp.json` têm um erro, o dxtutor ignora esse ficheiro (os de baixo continuam a valer) e diz qual é e o que está errado, com o sítio (`servers[2] (rust): unknown field comand`, `line 4 column 3`).
+
+**Como usar**
+
+1. «Open» abre o ficheiro para o corrigires; ao gravar, o cartão sai sozinho.
+2. «Dismiss» esconde-o até o erro mudar.
+
+**Fluxo (por dentro)**
+
+1. Os erros vêm de `lsp_config` (`userFile`/`projectFile.errors`); o aviso só se repete quando os erros mudam.
+
+<sub>Cobre: `lsp:config-errors-open`</sub>
 
 ---
 

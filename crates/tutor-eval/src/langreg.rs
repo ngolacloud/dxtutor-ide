@@ -40,16 +40,29 @@
 //! - `readySignal` — lowercase substring of the end-of-index `$/progress` token or begin-title;
 //!   empty = ready as soon as `initialized`.
 //! - `initOptions` — `initializationOptions` sent in `initialize`.
+//! - `settings` — the server's settings: the answer to `workspace/configuration` (by section,
+//!   `rust-analyzer` → `settings["rust-analyzer"]`; a top-level key with dots, `"a.b": 1`, counts as
+//!   nested) and the payload of `workspace/didChangeConfiguration`. Usually set by an override.
 //! - `oneShot` — cheap enough to start for a single request (the outline/navigation client in
 //!   `tutor_eval::lsp`, used by `file_outline` and the agent). JVM servers are not.
 //! - `quirks` — known per-server behaviour (see [`QUIRKS`]).
 //! - `install` — how to install it (display only; what the UI may RUN stays an allow-list in code).
 //! - `vscodeExtensions` — VS Code extensions that only start this server.
+//!
+//! # Overrides (P2: [`parse_overlay`], [`apply_overlay`])
+//! A user file and a project's `.dxtutor/lsp.json` have the same shape: `version` (optional, 1),
+//! `languages[]` and `servers[]`, each entry naming the `id` it changes or adds. JSON with `//` and
+//! `/* */` comments and trailing commas ([`strip_jsonc`]). An entry for a known id changes only the
+//! fields it gives: `initOptions` and `settings` merge key by key (a `null` value removes the key);
+//! every other field replaces the old value, and `null` resets it to its default (`"server": null`
+//! turns the server off for a language). An entry for a new id is a whole entry. The merged
+//! registry must pass [`validate`] (except that a server of the layer below may be left unused); if
+//! it does not, the whole file is ignored and its errors say the file and the entry.
 
 use std::path::Path;
 use std::sync::OnceLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// The bundled registry file.
@@ -71,7 +84,7 @@ pub const QUIRKS: &[&str] = &[
     "noRangeFormatting",
 ];
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Registry {
     #[serde(rename = "$comment", default)]
@@ -81,7 +94,7 @@ pub struct Registry {
     pub servers: Vec<Server>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Language {
     pub id: String,
@@ -109,7 +122,7 @@ impl Language {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Server {
     pub id: String,
@@ -130,6 +143,8 @@ pub struct Server {
     pub ready_signal: String,
     #[serde(default)]
     pub init_options: Value,
+    #[serde(default)]
+    pub settings: Value,
     #[serde(default)]
     pub one_shot: bool,
     #[serde(default)]
@@ -262,7 +277,7 @@ fn first_line_of(path: &Path) -> Option<String> {
 }
 
 /// Every rule a registry must follow; empty = well-formed. The bundled one is checked by the
-/// tests, and a future user/project overlay (P2) will be checked by the same function.
+/// tests, and every registry merged with an override file ([`apply_overlay`]) too.
 pub fn validate(r: &Registry) -> Vec<String> {
     use std::collections::{HashMap, HashSet};
     let mut errs = Vec::new();
@@ -419,6 +434,9 @@ pub fn validate(r: &Registry) -> Vec<String> {
         if !(s.init_options.is_null() || s.init_options.is_object()) {
             errs.push(format!("{at}: initOptions must be an object"));
         }
+        if !(s.settings.is_null() || s.settings.is_object()) {
+            errs.push(format!("{at}: settings must be an object"));
+        }
         for q in &s.quirks {
             if !QUIRKS.contains(&q.as_str()) {
                 errs.push(format!("{at}: unknown quirk `{q}`"));
@@ -441,6 +459,305 @@ pub fn validate(r: &Registry) -> Vec<String> {
         }
     }
     errs
+}
+
+// ── Overrides (P2) ──────────────────────────────────────────────────────────────────────────────
+
+/// An override file (user or project), parsed but not merged yet. The entries stay JSON objects:
+/// a partial entry (`{ "id": "rust", "args": ["-v"] }`) is not a [`Language`]/[`Server`] until it
+/// is merged over the entry it changes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Overlay {
+    pub languages: Vec<serde_json::Map<String, Value>>,
+    pub servers: Vec<serde_json::Map<String, Value>>,
+}
+
+impl Overlay {
+    /// The ids of the server entries in the file.
+    pub fn server_ids(&self) -> impl Iterator<Item = &str> {
+        self.servers.iter().filter_map(|m| m.get("id")?.as_str())
+    }
+    /// The ids of the language entries in the file.
+    pub fn language_ids(&self) -> impl Iterator<Item = &str> {
+        self.languages.iter().filter_map(|m| m.get("id")?.as_str())
+    }
+}
+
+/// The JSON of an override file without its `//` and `/* */` comments and without trailing commas
+/// (`[1, 2,]`). Newlines are kept, so a syntax error still points at the right line.
+pub fn strip_jsonc(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut it = text.chars().peekable();
+    let mut in_str = false;
+    // where the last comma went in `out`, until something other than blanks/comments follows it
+    let mut comma: Option<usize> = None;
+    while let Some(c) = it.next() {
+        if in_str {
+            out.push(c);
+            if c == '\\' {
+                if let Some(n) = it.next() {
+                    out.push(n);
+                }
+            } else if c == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            '/' if it.peek() == Some(&'/') => {
+                while it.peek().is_some_and(|&n| n != '\n') {
+                    it.next();
+                }
+            }
+            '/' if it.peek() == Some(&'*') => {
+                it.next();
+                let mut prev = '\0';
+                for n in it.by_ref() {
+                    if prev == '*' && n == '/' {
+                        break;
+                    }
+                    if n == '\n' {
+                        out.push('\n');
+                    }
+                    prev = n;
+                }
+                out.push(' ');
+            }
+            c if c.is_whitespace() => out.push(c),
+            ',' => {
+                comma = Some(out.len());
+                out.push(',');
+            }
+            ']' | '}' => {
+                if let Some(at) = comma.take() {
+                    out.replace_range(at..at + 1, " ");
+                }
+                out.push(c);
+            }
+            '"' => {
+                comma = None;
+                in_str = true;
+                out.push(c);
+            }
+            _ => {
+                comma = None;
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
+/// Parse an override file (JSON with comments). `Err` = the file is ignored; each error says
+/// where (`line 3 column 7` for the JSON, `servers[2]` for an entry).
+pub fn parse_overlay(text: &str) -> Result<Overlay, Vec<String>> {
+    let v: Value = serde_json::from_str(&strip_jsonc(text))
+        .map_err(|e| vec![format!("not valid JSON: {e}")])?;
+    let Value::Object(top) = v else {
+        return Err(vec![
+            "the file must be a JSON object ({ \"languages\": [...], \"servers\": [...] })".into(),
+        ]);
+    };
+    let mut errs = Vec::new();
+    let mut ov = Overlay::default();
+    for (k, val) in &top {
+        match k.as_str() {
+            "$comment" => {}
+            "version" => {
+                if val.as_u64() != Some(1) {
+                    errs.push(format!("version {val} (this build reads version 1)"));
+                }
+            }
+            "languages" | "servers" => {
+                let Some(arr) = val.as_array() else {
+                    errs.push(format!("`{k}` must be a list"));
+                    continue;
+                };
+                let mut seen = std::collections::HashSet::new();
+                for (i, e) in arr.iter().enumerate() {
+                    let at = format!("{k}[{i}]");
+                    let Value::Object(m) = e else {
+                        errs.push(format!("{at}: must be an object"));
+                        continue;
+                    };
+                    match m
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.trim().is_empty())
+                    {
+                        Some(id) if !seen.insert(id.to_string()) => {
+                            errs.push(format!("{at} (`{id}`): the same id twice in one file"))
+                        }
+                        Some(_) if k == "languages" => ov.languages.push(m.clone()),
+                        Some(_) => ov.servers.push(m.clone()),
+                        None => errs.push(format!("{at}: every entry needs an `id` (text)")),
+                    }
+                }
+            }
+            other => errs.push(format!(
+                "unknown field `{other}` (expected `version`, `languages` or `servers`)"
+            )),
+        }
+    }
+    if errs.is_empty() {
+        Ok(ov)
+    } else {
+        Err(errs)
+    }
+}
+
+/// `patch` merged into `base`, key by key: two objects merge, a `null` removes the key, anything
+/// else replaces the old value.
+pub fn deep_merge(base: &mut Value, patch: &Value) {
+    match (base, patch) {
+        (Value::Object(b), Value::Object(p)) => {
+            for (k, v) in p {
+                if v.is_null() {
+                    b.remove(k);
+                } else if let Some(old) = b.get_mut(k).filter(|o| o.is_object() && v.is_object()) {
+                    deep_merge(old, v);
+                } else {
+                    b.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        (b, p) => *b = p.clone(),
+    }
+}
+
+/// Settings with dotted top-level keys (`"python.analysis.typeCheckingMode": "strict"`, the VS Code
+/// way) as nested objects (`{ "python": { "analysis": { … } } }`), so a section lookup finds both.
+pub fn normalize_settings(v: &Value) -> Value {
+    let Value::Object(m) = v else {
+        return v.clone();
+    };
+    let mut out = Value::Object(serde_json::Map::new());
+    for (k, val) in m {
+        let mut nested = val.clone();
+        for part in k.split('.').rev() {
+            let mut one = serde_json::Map::new();
+            one.insert(part.to_string(), nested);
+            nested = Value::Object(one);
+        }
+        deep_merge(&mut out, &nested);
+    }
+    out
+}
+
+/// The answer to one `workspace/configuration` item: every setting when there is no section, else
+/// the value at the dotted path (`java.format` → `settings.java.format`), `null` when absent (what
+/// the protocol expects for a section the client does not know).
+pub fn settings_section(settings: &Value, section: Option<&str>) -> Value {
+    let Some(sec) = section.filter(|s| !s.is_empty()) else {
+        return settings.clone();
+    };
+    sec.split('.')
+        .try_fold(settings, |v, k| v.get(k))
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+/// One entry, `start` with `patch` over it (see the module docs): `id` never changes, a `null`
+/// resets the field, `initOptions`/`settings` merge key by key, the rest replaces.
+fn merge_entry<T: Serialize + serde::de::DeserializeOwned>(
+    start: serde_json::Map<String, Value>,
+    patch: &serde_json::Map<String, Value>,
+) -> Result<T, String> {
+    let mut obj = start;
+    for (k, v) in patch {
+        if k == "id" && obj.contains_key("id") {
+            continue;
+        }
+        if v.is_null() {
+            obj.remove(k);
+            continue;
+        }
+        let v = if k == "settings" {
+            normalize_settings(v)
+        } else {
+            v.clone()
+        };
+        match obj.get_mut(k) {
+            Some(old)
+                if (k == "initOptions" || k == "settings") && old.is_object() && v.is_object() =>
+            {
+                deep_merge(old, &v)
+            }
+            _ => {
+                obj.insert(k.clone(), v);
+            }
+        }
+    }
+    // the base serialises its unset options as `null`: drop them, so the defaults apply
+    obj.retain(|_, v| !v.is_null());
+    serde_json::from_value(Value::Object(obj)).map_err(|e| e.to_string())
+}
+
+fn as_map<T: Serialize>(entry: &T) -> serde_json::Map<String, Value> {
+    match serde_json::to_value(entry) {
+        Ok(Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    }
+}
+
+/// `base` with an override file over it, validated as a whole ([`validate`]). `Err` = the file is
+/// ignored and `base` stays as it was; each error names the entry (`servers[1] (`rust`)`) or the
+/// broken rule (`language `x`: …`).
+pub fn apply_overlay(base: &Registry, ov: &Overlay) -> Result<Registry, Vec<String>> {
+    let mut errs = Vec::new();
+    let mut languages = base.languages.clone();
+    for (i, patch) in ov.languages.iter().enumerate() {
+        let id = patch.get("id").and_then(Value::as_str).unwrap_or_default();
+        match languages.iter().position(|l| l.id == id) {
+            Some(p) => match merge_entry::<Language>(as_map(&languages[p]), patch) {
+                Ok(l) => languages[p] = l,
+                Err(e) => errs.push(format!("languages[{i}] (`{id}`): {e}")),
+            },
+            None => match merge_entry::<Language>(serde_json::Map::new(), patch) {
+                Ok(l) => languages.push(l),
+                Err(e) => errs.push(format!("languages[{i}] (new language `{id}`): {e}")),
+            },
+        }
+    }
+    let mut servers = base.servers.clone();
+    for (i, patch) in ov.servers.iter().enumerate() {
+        let id = patch.get("id").and_then(Value::as_str).unwrap_or_default();
+        match servers.iter().position(|s| s.id == id) {
+            Some(p) => match merge_entry::<Server>(as_map(&servers[p]), patch) {
+                Ok(s) => servers[p] = s,
+                Err(e) => errs.push(format!("servers[{i}] (`{id}`): {e}")),
+            },
+            None => match merge_entry::<Server>(serde_json::Map::new(), patch) {
+                Ok(s) => servers.push(s),
+                Err(e) => errs.push(format!("servers[{i}] (new server `{id}`): {e}")),
+            },
+        }
+    }
+    if !errs.is_empty() {
+        return Err(errs);
+    }
+    let merged = Registry {
+        comment: base.comment.clone(),
+        version: base.version,
+        languages,
+        servers,
+    };
+    // a server of the layer below that the file leaves unused (`"server": null` turns a language's
+    // server off) is fine; a NEW server no language uses is still an error (a typo, most likely)
+    let broken: Vec<String> = validate(&merged)
+        .into_iter()
+        .filter(|e| {
+            !base
+                .servers
+                .iter()
+                .any(|s| *e == format!("server `{}`: no language uses it", s.id))
+        })
+        .collect();
+    if broken.is_empty() {
+        Ok(merged)
+    } else {
+        Err(broken)
+    }
 }
 
 #[cfg(test)]

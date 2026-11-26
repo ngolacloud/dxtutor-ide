@@ -363,10 +363,16 @@ pub async fn audit_record(
     root: String,
     entry: IdeAudit,
 ) -> Result<(), ProjectError> {
-    let root = root_of(&root)?;
+    record_ide_audit(&app, &root, &entry)
+}
+
+/// The body of `audit_record`, for the backend code that records an approval the UI decided (blocking:
+/// call it off the UI thread).
+pub fn record_ide_audit(app: &AppHandle, root: &str, entry: &IdeAudit) -> Result<(), ProjectError> {
+    let root = root_of(root)?;
     let redactor = tutor_agent::redact::Redactor::for_root(Path::new(&root));
-    let e = ide_audit_entry(&entry, &actor(&root), now_ms(), &redactor)?;
-    open(&app)?.record_audit(&root, &e)
+    let e = ide_audit_entry(entry, &actor(&root), now_ms(), &redactor)?;
+    open(app)?.record_audit(&root, &e)
 }
 
 /// A test run as the Testing pane reports it (r23 F3, UI-SCM-09); the commit is decided here.

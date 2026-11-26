@@ -891,6 +891,8 @@ pub fn run() {
             std::thread::spawn(|| {
                 let _ = shellenv::get();
             });
+            // LSP P2: where the user's override file and the approvals live; reload on change
+            lsp::init(_app.handle());
             // r23 F4a (X02): each request that lost secrets is shown (and audited) by the UI
             let handle = _app.handle().clone();
             tutor_protect::redact::on_redact(move |origin, count| {
@@ -1196,6 +1198,11 @@ pub fn run() {
             lsp::lsp_rename,
             lsp::lsp_prepare_rename,
             lsp::lsp_server_status,
+            // LSP P2: the user's and the project's override files, and the project commands' approval
+            lsp::lsp_config,
+            lsp::lsp_config_file,
+            lsp::lsp_user_config_save,
+            lsp::lsp_approve_server,
             board::board_load,
             board::board_save,
             board::project_load,

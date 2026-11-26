@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (311 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (315 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 311 comandos, **228 são consumidos pela `ui-app`** e **83 não o são**: a UI
+Dos 315 comandos, **232 são consumidos pela `ui-app`** e **83 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -569,7 +569,7 @@ do `bridge.rs`).
 | `workspace_resolve` | `root: String`, `path: String` | `String` | String | — | — | R |
 | `workspace_action` | `root: String`, `op: String`, `path: String`, `content: Option<String>` | `String` | String | — | — | **W** |
 
-## 15. LSP — `lsp.rs` (18)
+## 15. LSP — `lsp.rs` (22)
 
 Todos usam `State<LspState>` + `AppHandle`. Na app desktop, a feature `features/lsp` liga o
 editor: `lsp_start` (uma vez por pasta aberta, que também passa a ser a raiz de reserva de um
@@ -586,6 +586,13 @@ sem servidor, ou se ele não formatar, fica o «Format Document» do dxtutor) e 
 `lsp_workspace_symbols` (Ctrl+T / «Go to Symbol in Workspace…»: pergunta a cada servidor já a
 correr na pasta) e `lsp_prepare_type_hierarchy` + `lsp_type_hierarchy` (Shift+Alt+T / «Show Type
 Hierarchy»: supertipos e subtipos; `supported: false` quando o servidor não a anuncia).
+Os overrides do registo (LSP P2, `tutor_eval::lspconf`): `lsp_config` (o registo efectivo da pasta — embutido +
+`lsp.json` do utilizador + `.dxtutor/lsp.json` — com o estado de cada ficheiro e as aprovações em falta),
+`lsp_config_file` (o texto de um dos ficheiros, ou o modelo comentado), `lsp_user_config_save` (grava SÓ o
+`lsp.json` do utilizador e aplica-o) e `lsp_approve_server` (a decisão do humano sobre um comando que o projecto
+pede: confere o hash, audita primeiro, guarda em `lsp-trusted.json` e arranca o servidor dos ficheiros abertos).
+Quando um ficheiro de overrides muda, o backend reinicia os servidores afectados e emite `lsp://config`;
+`lsp_server_status` passou a trazer `approval` (o comando por aprovar).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
@@ -606,7 +613,11 @@ Hierarchy»: supertipos e subtipos; `supported: false` quando o servidor não a 
 | `lsp_type_hierarchy` | `path: String`, `item: Value`, `direction: String` (`supertypes` \| `subtypes`) | `Value` (TypeHierarchyItem[] \| null) | String | — | `features/lsp` | R · S |
 | `lsp_rename` | `path: String`, `line: u32`, `character: u32`, `new_name: String` | `Value` | String | — | `features/lsp` | R · S |
 | `lsp_prepare_rename` | `path: String`, `line: u32`, `character: u32` | `Value` | String | — | `features/lsp` | R · S |
-| `lsp_server_status` | `path: String` | `Option<lsp::ServerStatus>` (`{ language, server, installed, problem }`) | String | — | `features/lsp` (aviso no editor quando falta o servidor) | R · async |
+| `lsp_server_status` | `path: String` | `Option<lsp::ServerStatus>` (`{ language, server, installed, problem, approval: lspconf::Approval \| null }`) | String | — | `features/lsp` (aviso no editor quando falta o servidor, ou quando o projecto pede um comando por aprovar) | R · async |
+| `lsp_config` | `root: Option<String>` | `lsp::LspConfigView` (`{ root, userFile, projectFile: FileReport \| null, languages, servers: [entrada + sources, projectLaunch, approval] }`) | String | `lsp://config` (quando um ficheiro muda) | `features/lsp` (registo efectivo, aviso dos ficheiros ignorados, configuração efectiva) | R · async |
+| `lsp_config_file` | `kind: String` (`user` \| `project`), `root: Option<String>` | `lsp::ConfigFile` (`{ path, exists, text }`; o modelo comentado se não existe) | String | — | `features/lsp` (paleta) | R · async |
+| `lsp_user_config_save` | `text: String` | `lspconf::FileReport` | String | `lsp://config` | `features/lsp` (editor do `lsp.json`) | **W** (só `<app_config_dir>/lsp.json`) · async |
+| `lsp_approve_server` | `root: String`, `server: String`, `hash: String`, `approved: bool`, `reason: Option<String>`, `decided_at: Option<i64>` | `()` | String (hash diferente, sem auditoria) | — | `features/lsp` (faixa «Review…») | **X** · **W** (auditoria + `lsp-trusted.json`) · async |
 
 ## 16. PTY — `pty.rs` (7)
 
@@ -787,12 +798,12 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **311** |
-| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 41 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 18 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 16 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 34 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 18 · `pty.rs` 7 · `commands/panel.rs` 2 · `commands/protect.rs` 5 · `board.rs` 12 |
-| Consumidos pela `ui-app` | **228** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 18 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5) · `audit_record` (`platform/tauri/audit.ts`, r23 F1) · `git_clone`/`git_clone_plan` (`features/welcome`, r23 F6) · `git_refs` (`features/scm`, r23 F3) · `git_hunks`/`git_stage_hunks` (`features/scm`, r23 F3) · `git_undo_*` (4: `features/scm`, r23 F3) · `git_predict_conflicts` (`features/scm`, r23 F3) · `git_merge`/`git_conflict_stages` (`features/scm`, r23 F3) · `git_sync_plan`/`git_sync` (`features/scm`, r23 F3) · `gh_status`/`gh_prs`/`gh_runs_for`/`gh_prs_for` (`features/scm`, r23 F3) · `test_results_record` (`features/testing`) e `test_results_for` (`features/scm`), r23 F3 · `git_commit_paths`/`git_lane_commit` (`features/scm`, r23 F3) · `protect_learn`/`secret_scan`/`secret_scan_allow` (`features/protect`, r23 F4a) e `protect_hook_plan`/`protect_hook_install` (`features/protect`, endurecimento r23) · `iac_pipeline_run`/`iac_apply_command`/`iac_state`/`iac_risks`/`iac_risk_accept`/`iac_risk_revoke` (`features/ops`, r23 F4b) · os 10 `vault_*` (`features/vault`, r23 F4c) · `deploy_plan`/`deploy_rollout` (`features/deploy`) e `deploy_records` (`features/deploy`, `features/scm`), r23 F4c2 · os 5 de `commands/runbook.rs` e `runbook_judge`/`runbook_runs`/`audit_export_evidence` (`features/ops`, r23 F5a) · os 11 de `commands/platform.rs` (`features/ops`, vista Platform, r23 F5b) · os 4 de `commands/metrics.rs` (`features/ops`: fontes e incidentes, NOTAS-r23 ponto 3) · `project_scope_overlap` (`features/codev`, Multi Co-Dev fase 2) · `project_method_preview` (`platform/tauri/project.ts`, Board B)) |
+| Comandos registados | **315** |
+| Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 41 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 18 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 16 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 34 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 22 · `pty.rs` 7 · `commands/panel.rs` 2 · `commands/protect.rs` 5 · `board.rs` 12 |
+| Consumidos pela `ui-app` | **232** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 22 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5) · `audit_record` (`platform/tauri/audit.ts`, r23 F1) · `git_clone`/`git_clone_plan` (`features/welcome`, r23 F6) · `git_refs` (`features/scm`, r23 F3) · `git_hunks`/`git_stage_hunks` (`features/scm`, r23 F3) · `git_undo_*` (4: `features/scm`, r23 F3) · `git_predict_conflicts` (`features/scm`, r23 F3) · `git_merge`/`git_conflict_stages` (`features/scm`, r23 F3) · `git_sync_plan`/`git_sync` (`features/scm`, r23 F3) · `gh_status`/`gh_prs`/`gh_runs_for`/`gh_prs_for` (`features/scm`, r23 F3) · `test_results_record` (`features/testing`) e `test_results_for` (`features/scm`), r23 F3 · `git_commit_paths`/`git_lane_commit` (`features/scm`, r23 F3) · `protect_learn`/`secret_scan`/`secret_scan_allow` (`features/protect`, r23 F4a) e `protect_hook_plan`/`protect_hook_install` (`features/protect`, endurecimento r23) · `iac_pipeline_run`/`iac_apply_command`/`iac_state`/`iac_risks`/`iac_risk_accept`/`iac_risk_revoke` (`features/ops`, r23 F4b) · os 10 `vault_*` (`features/vault`, r23 F4c) · `deploy_plan`/`deploy_rollout` (`features/deploy`) e `deploy_records` (`features/deploy`, `features/scm`), r23 F4c2 · os 5 de `commands/runbook.rs` e `runbook_judge`/`runbook_runs`/`audit_export_evidence` (`features/ops`, r23 F5a) · os 11 de `commands/platform.rs` (`features/ops`, vista Platform, r23 F5b) · os 4 de `commands/metrics.rs` (`features/ops`: fontes e incidentes, NOTAS-r23 ponto 3) · `project_scope_overlap` (`features/codev`, Multi Co-Dev fase 2) · `project_method_preview` (`platform/tauri/project.ts`, Board B)) |
 | Não consumidos pela `ui-app` | **83** (`project_checks`, Multi Co-Dev fase 2: lido pela porta de integração da fase 4) |
-| Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
-| Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |
+| Eventos distintos | **18** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `lsp://config`, `problems://check` |
+| Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, lsp_approve_server, pty, dictation_start/stop) |
 | Tocam segredos (**K**) | `save_key`, `keys_status`, `llm_chat`, `llm_plan`, `assistant_chat*`, `get/save_providers_config`, `codev_agent_start/send` |
 | Mutam git (**G**) | `git_stage/unstage/stage_all/commit/checkout/create_branch`, `git_clone`, `codev_session_*` |
 

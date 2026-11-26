@@ -222,6 +222,8 @@ pub fn app_info(app: AppHandle) -> serde_json::Value {
         "home": workspace::expand_home("~"),
         "configDir": config_dir(&app).map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
         "selftest": std::env::var("DXTUTOR_SELFTEST").ok(),
+        // só estes passos do auto-teste (separados por vírgulas; os outros ficam `skipped`)
+        "selftestOnly": std::env::var("DXTUTOR_SELFTEST_ONLY").ok(),
         "openAtStart": std::env::args().nth(1),
         "pairtest": std::env::var("DXTUTOR_PAIRTEST").ok(),
     })

@@ -46,4 +46,32 @@ describe("aviso de servidor em falta", () => {
     bridge.editor.notice(KEY(), null);
     expect(document.getElementById("lsp-missing")).toBe(null);
   });
+
+  it("a faixa de aprovação (LSP P2): o pedido do projecto, a linha a mais e «Review…»", () => {
+    w.openPath(KEY());
+    const review = vi.fn(), dismissed = vi.fn();
+    bridge.editor.notice(KEY(), { kind: "approval", title: "zls is waiting for your approval", detail: "This project's .dxtutor/lsp.json asks dxtutor to run /p/bin/zls.", hint: "The program is inside the project folder." }, dismissed, { review });
+    const el = document.getElementById("lsp-missing")!;
+    expect(el.classList.contains("lsp-approval")).toBe(true);
+    expect(el.textContent).toContain("zls is waiting for your approval");
+    expect(el.querySelector(".lsp-hint")!.textContent).toBe("The program is inside the project folder.");
+    expect(el.querySelector(".lsp-install")).toBe(null);
+    (el.querySelector('[data-k="review"]') as HTMLButtonElement).click();
+    expect(review).toHaveBeenCalled();
+    (el.querySelector('[data-k="dismiss"]') as HTMLButtonElement).click();
+    expect(dismissed).toHaveBeenCalled();
+  });
+
+  it("a faixa de servidor em falta lembra os overrides e «Configure…» abre o lsp.json", () => {
+    w.openPath(KEY());
+    const configure = vi.fn();
+    bridge.editor.notice(KEY(), { ...notice, kind: "missing", hint: "Have the server somewhere else, or want another one? Set it in your lsp.json." }, undefined, { configure });
+    const el = document.getElementById("lsp-missing")!;
+    expect(el.querySelector(".lsp-hint")!.textContent).toContain("lsp.json");
+    (el.querySelector('[data-k="configure"]') as HTMLButtonElement).click();
+    expect(configure).toHaveBeenCalled();
+    // sem a acção, não há botão
+    bridge.editor.notice(KEY(), notice);
+    expect(document.querySelector('#lsp-missing [data-k="configure"]')).toBe(null);
+  });
 });
