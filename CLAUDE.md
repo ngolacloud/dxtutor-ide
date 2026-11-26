@@ -110,7 +110,23 @@ features/codereview.ts  RESÍDUO strangler + raiz de composição: compõe o mot
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). No desktop com pasta, a tab de Code
 review junta às regras locais os analisadores reais do projecto (`review_code`, âmbito
-`file`, pelo adaptador `infrastructure/tauri.ts`; ADR-0006 R2e2). Nota: ao contrário do Co-Dev,
+`file`, pelo adaptador `infrastructure/tauri.ts`; ADR-0006 R2e2).
+
+**Painel de documento ao lado do código (2026-11-26).** O Explain e o Code review já NÃO respondem no chat
+do Co-Dev: abrem o `<aside id="cr-side">` dentro da `.ebody` (irmão do `#ebody`, sobrevive à troca de
+separadores; a classe `.cr-split` e a var `--cr-w` encolhem o editor e o minimapa; arrastável). O caso de
+uso é `application/doc-session.ts` (portas `ai`/`files`/`tests`/`view`; um pedido novo nunca deixa o antigo
+pintar), o markdown é analisado no domínio (`domain/markdown.ts`, sem lookbehind — WebKitGTK) e desenhado
+em `ui/doc-view.ts` com o `hlLine` do editor; os pedidos ao modelo estão em `domain/prompts.ts` (secções
+fixas, linhas `L12` clicáveis). Sem modelo, o Explain mostra o resumo local. A revisão pede o ficheiro inteiro
+num bloco ```<lang> improved: o painel mostra-o com realce ou diferenças, «Apply», «Apply & test» (a suite
+pelo `run_tests`, o mesmo do agente) e «Revert»; a falhar, «Fix the failing tests» manda a saída ao modelo.
+A revisão interactiva (filtros por severidade, excerto do código por achado, «Fix with AI», «Dismiss») é a
+mesma no painel e na tab `creview` (o «Open as tab»); as acções da revisão levam `caminho|valor` no `data-on`.
+Os 3 goldens da tab de Code review foram regenerados de propósito nesta mudança (ecrã novo pedido pelo
+dono); os do «Under the hood» não mudaram. Testes: `tests/codereview.doc.test.ts`.
+
+Nota: ao contrário do Co-Dev,
 o markup (`renderCreviewView`/`renderHoodView`) vive no resíduo de composição
 `features/codereview.ts`, não num `ui/*-view.ts` — por isso `ui/` só tem
 `actions.ts`. A tabela de acções fica no resíduo (único sítio com o bridge à mão).
