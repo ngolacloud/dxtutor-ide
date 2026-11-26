@@ -1474,7 +1474,9 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     await put('{ "servers": [ { "id": "sql", "comand": "sh" } ] }');
     out.invalidNotice = (await until(() => document.getElementById("lsp-config-errors")?.textContent?.includes("comand") && document.getElementById("lsp-config-errors")!.textContent!.slice(0, 160), 10_000)) ?? "FAIL: no notice";
     // 2. um comando do projecto → pedido de aprovação, nada arranca
-    await put('{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 0"] } ] }');
+    // um argumento diferente em cada corrida: uma aprovação de uma corrida anterior não conta
+    const run = String(Date.now());
+    await put(`{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 0", "${run}"] } ] }`);
     let cfg = await tauriLspConfig.config(root);
     out.invalidCleared = await until(() => !document.getElementById("lsp-config-errors"), 10_000) ?? "FAIL: notice stayed";
     const a = cfg.servers.find((s) => s.id === "sql")?.approval;
@@ -1490,15 +1492,17 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       cfg = await tauriLspConfig.config(root);
       out.approved = !cfg.servers.find((s) => s.id === "sql")?.approval;
       // o comando muda → volta a pedir
-      await put('{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 1"] } ] }');
+      await put(`{ "servers": [ { "id": "sql", "command": "sh", "args": ["-c", "exit 1", "${run}"] } ] }`);
       out.changedAsksAgain = !!(await tauriLspConfig.config(root)).servers.find((s) => s.id === "sql")?.approval;
     }
     // 3. o lsp.json do utilizador: grava, aplica; inválido → relatório com o erro
     const before = await tauriLspConfig.configFile("user", null);
     const good = await tauriLspConfig.saveUserConfig('{ "servers": [ { "id": "go", "settings": { "gopls": { "staticcheck": true } } } ] }');
+    out.goSettings = (await tauriLspConfig.config(root)).servers.find((s) => s.id === "go")?.settings ?? null;
     const bad = await tauriLspConfig.saveUserConfig('{ "servers": [ { "id": "go", "nope": 1 } ] }');
     out.user = { path: before.path.endsWith("lsp.json"), applied: good.applied, badIgnored: !bad.applied && bad.errors.some((e) => e.includes("nope")) };
-    out.goSettings = (await tauriLspConfig.config(root)).servers.find((s) => s.id === "go")?.settings ?? null;
+    // ignorado: volta ao registo de baixo (sem as definições)
+    out.goSettingsAfterBad = (await tauriLspConfig.config(root)).servers.find((s) => s.id === "go")?.settings ?? null;
     await tauriLspConfig.saveUserConfig(before.exists ? before.text : "{}");
     await sh("rm", ["-rf", ".dxtutor/lsp.json"], { cwd: root });
     return out;

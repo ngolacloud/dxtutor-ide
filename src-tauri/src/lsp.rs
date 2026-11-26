@@ -1059,12 +1059,15 @@ fn session_for(
     Ok(open_session(map, app, path)?.map(|(s, _)| s))
 }
 
+/// A session, and whether a file's `didOpen` was sent to it just now.
+type OpenedSession = (Arc<Mutex<Session>>, bool);
+
 /// [`session_for`], and whether the file's `didOpen` was sent just now.
 fn open_session(
     map: &SessionMap,
     app: &AppHandle,
     path: &str,
-) -> Result<Option<(Arc<Mutex<Session>>, bool)>, String> {
+) -> Result<Option<OpenedSession>, String> {
     let Some((lang, root)) = locate(path) else {
         return Ok(None);
     };
