@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 306 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 307 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -420,6 +420,55 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
   `cargo test -p dxtutor-ide roles:: board::`, `tests/codev.sessions.test.ts`, `tests/project.gate.test.ts` e o e2e
   `e2e/multi-codev.e2e.ts`. Para a fase 3/4: a worktree por sessão, as reservas de ficheiros, correr as verificações no
   commit actual e confirmar que a aprovação ainda vale nesse commit.
+
+## Cada método muda as regras, e o Co-Dev segue-as (Project, Board B)
+
+As regras vivem no Rust: `tutor_board::project::methods` (puro: defaults por método, a mudança de método,
+`is_test_change`) e o `move_check`/`capacity_rule`/`tdd_gap` do `project/mod.rs`. Toda a regra é ultrapassável com
+um motivo, gravado como `override` («excepção (código): motivo») na actividade da issue.
+- **Método:** escolher um aplica os seus valores (iteração, WIP de `progress`/`review`/`accept`, sugestões de DoR/DoD,
+  na língua pedida) SÓ onde a definição ainda é a do método anterior (uma DoR/DoD vazia nunca é do utilizador). O
+  `project_method_preview` (só leitura) mostra o que muda e o que fica; o `settings` com `method` aplica a mesma
+  mudança, e os campos do mesmo op ganham depois dela. GOTCHA-testes: escolher Scrum/XP passa a trazer itens de DoR —
+  um teste que só quer as verificações fixas passa `"dor": []`.
+- **Kanban:** um `expedite` entra numa coluna exactamente no limite de WIP (no máximo um acima dele; a actividade
+  di-lo); o quadro ordena cada coluna por classe de serviço (`cardOrder`). Sem capacidade nem DoR nas mudanças.
+- **Scrum, XP, Scrum + XP:** capacidade da sprint (`capacity`) em `plan_issue`, `create_issue` com sprint e
+  `update_issue` com pontos — recusa só quando a mudança acrescenta pontos e passa a capacidade; fechar uma sprint e
+  passar o resto à seguinte não é recusado. A DoR do projecto marca-se por issue (`issues.dor_done`, migração 17,
+  como a `dod_done`): entra na prontidão (`DoR: «item»`) e na saída de To Do.
+- **XP, Scrum + XP — teste primeiro:** de Em curso para Review, uma issue com change sets do Co-Dev precisa de uma
+  linha `tdd`/`red` do registo de auditoria (o anfitrião grava-a no primeiro `run_tests` que FALHOU com só testes
+  mudados — `tdd_observe`) cujos ficheiros de teste estejam nas alterações aceites. Trabalho só humano não é verificado.
+- **Co-Dev:** a issue passa a Em curso pela mudança normal quando a sessão COMEÇA mesmo (`codev_agent::send`, que
+  bloqueia o pedido se o Project recusar — uma sessão da fase 2 pode esperar pelos ficheiros de outra); se o WIP de Em
+  curso já a recusaria, a UI pergunta antes o motivo (`startWipRefusal`) e move-a como `override`. O `codev_finished` usa o `move_check` (WIP, um passo, teste primeiro) e,
+  recusado, deixa a issue onde está com uma entrada `held`. O prompt tem o bloco «Método» (`methodology_block`, um
+  marcador `{{metodologia}}`; ≈ 150 tokens no máximo). Conjunto de ferramentas 10: o `finish_issue` responde a cada
+  item da DoD (o anfitrião dá-a em `FlowState.dod`) e o store recusa a Review a um relatório com `dod` incompleto; as
+  sessões do conjunto 9 retomam com o esquema antigo.
+- Testes: `cargo test -p tutor-board` (`methods::`, e os `…method…`/`capacity`/`expedite`/`dor`/`codev_finished`/
+  `test_first` do `project::tests`), `cargo test -p tutor-agent` (`issue_prompt`, `finish_v10`), os `codev_agent::tests`
+  de início, `held` e passo vermelho, e `tests/project.methods.test.ts`.
+
+## Métricas honestas e insights do Project (Board A)
+
+Os relatórios da sprint já não reescrevem o passado. A migração 16 da base do Project grava o histórico: `sprint_scope`
+(cada issue que entra/sai de uma sprint — criada nela, `PlanIssue`, transitada no `CloseSprint`, apagada — com a
+estimativa desse momento), `estimate_changes` (antigo → novo; a actividade diz `estimativa 3 → 8`), `sprint_snapshots`
+(`start` no `StartSprint` = o compromisso; `close` no `CloseSprint`, antes da transição) e `sprints.started_at`/`closed_at`;
+`projects.history_since` diz quando o registo começou. O `TestsRun` passou a registar o `blocked` quando bloqueia. Quem
+mexe na sprint ou nos pontos de uma issue usa `record_scope`/`record_replan` e grava o `estimate_changes` (no `mod.rs`).
+`reports.rs` reconstrói cada dia (membros, estimativa e estado desse dia; uma issue já Done no início não conta): o
+burndown (ideal a partir do comprometido), o burnup (âmbito + feito) e a velocidade comprometido vs feito (das
+fotografias, sobrevive à transição). Nada é preenchido para trás: uma sprint começada antes da migração é `partial`
+(sem compromisso; antes do registo, o âmbito e as estimativas são os de hoje). `insights.rs` é PURO: previsão do fim
+(ritmo dos últimos ≤5 dias, pelo burnup), mudança de âmbito, sem estimativa, fiabilidade do compromisso, cartões
+envelhecidos (vs p85 do ciclo), bloqueios, custo por ponto/derrapagem (auditoria `turn`) e retrabalho (testes); cada
+um com gravidade, código, parâmetros e chaves, ou um `Withheld` com o que falta (nunca adivinha). A UI tem a frase de
+cada código em `ui/reports-messages.ts` (en + ptAO) e desenha-os em `ui/reports-view.ts`; uma chave abre a issue
+(`pj-open`). Testes: `cargo test -p tutor-board` (`insights::`, `tests::sprint_scope_…`, `the_burndown_…`,
+`velocity_…`, `a_sprint_started_before_…`, `schema::tests`) e `tests/project.reports.test.ts`.
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 
@@ -898,8 +947,9 @@ Nenhum segredo sai da máquina, e a regra vive no Rust:
 - **Secret scan antes de CADA commit da app** (X03): `tutor_protect::scan::guard_commit` corre no backend, em cada sítio
   que comita: o `exec` quando é `git commit` (o pane, Ctrl+Enter, o quadro, o amend), o merge/Composer/lanes do
   `gitwork`, `git::commit`, as regras de arquitectura e o bash do agente (âmbito = todas as mudanças; o agente não tem
-  excepção). Usa o gitleaks se estiver instalado (só no índice), senão as mesmas regras; ficheiros proibidos (`.env`,
-  `.tfstate`, chaves). Bloqueado, devolve `SECRET_SCAN_BLOCKED:{relatório}` (pré-visualizações MASCARADAS). Na UI,
+  excepção). As regras próprias correm SEMPRE; o gitleaks, se estiver instalado, junta as dele no índice (`tool:
+  gitleaks + built-in` — medido: o gitleaks 8.30 não apanha `postgres://u:p@h`, por isso nunca as substitui); ficheiros
+  proibidos (`.env`, `.tfstate`, chaves). Bloqueado, devolve `SECRET_SCAN_BLOCKED:{relatório}` (pré-visualizações MASCARADAS). Na UI,
   `services.protect.guard(f)` (o commit do desktop, o Composer e as lanes) mostra os achados no diálogo partilhado; passar
   exige motivo, auditado ANTES de `secret_scan_allow` (um commit, 2 min) e com o resultado. Um commit que o humano
   faz no seu terminal só passa por aqui com o hook de pre-commit: «Protect: Install the Pre-commit Hook…» (paleta,

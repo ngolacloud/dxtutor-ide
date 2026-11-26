@@ -19,6 +19,8 @@ export const PROJECT_ENGINE_MESSAGES = {
     approved: "{key}: functional approval recorded",
     revoked: "{key}: functional approval withdrawn",
     checksBad: "A mandatory check needs a command: «{line}»",
+    methodPreviewBad: "invalid response from the method preview",
+    startWip: "In progress is at its WIP limit ({count} of {limit}): {key} cannot start there.\n\nTo start it anyway, write the reason (it is recorded in the issue's activity):",
   },
   ptAO: {
     badResponse: "resposta inválida do store do projecto",
@@ -34,6 +36,8 @@ export const PROJECT_ENGINE_MESSAGES = {
     approved: "{key}: aprovação funcional registada",
     revoked: "{key}: aprovação funcional retirada",
     checksBad: "Uma verificação obrigatória precisa de um comando: «{line}»",
+    methodPreviewBad: "resposta inválida da pré-visualização do método",
+    startWip: "Em curso está no limite de WIP ({count} de {limit}): {key} não pode começar lá.\n\nPara começar mesmo assim, escreve o motivo (fica registado na actividade da issue):",
   },
 } satisfies Messages<string>;
 

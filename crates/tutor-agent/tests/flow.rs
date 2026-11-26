@@ -676,7 +676,20 @@ fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() 
     assert!(!desc(9, "edit_lines").contains("forma principal"));
     assert!(desc(9, "edit_lines").contains("prefere `edit`"));
     assert!(desc(9, "read").contains("500 linhas") && desc(9, "read").contains("outline"));
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 9);
+    // toolset 10 (Board B): the same tools in the same order; finish_issue answers the DoD too,
+    // and a toolset 9 session keeps the old schema byte for byte
+    assert_eq!(names(&tools(10, true)), n9i);
+    assert_eq!(names(&tools(10, false)), n9);
+    let schema = |v: u32| {
+        tools(v, true)
+            .into_iter()
+            .find(|t| t.name() == "finish_issue")
+            .unwrap()
+            .input_schema()
+    };
+    assert!(schema(9)["properties"].get("dod").is_none());
+    assert!(schema(10)["properties"]["dod"].is_object());
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 10);
 }
 
 #[test]

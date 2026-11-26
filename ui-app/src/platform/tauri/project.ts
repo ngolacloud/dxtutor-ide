@@ -23,6 +23,8 @@ export const projectClient = (inv: Invoker = invoke) => ({
   /** Multi Co-Dev (phase 2): may a Co-Dev session start `key` while the sessions of `running` work in the same
    *  tree? `{overlaps: [{a, b, paths, total, globs}], files}` — empty `overlaps`: it may (read-only). */
   scopeOverlap: (root: string, key: string, running: string[]): Promise<unknown> => inv<unknown>("project_scope_overlap", { root, key, running }),
+  /** Board B: what choosing `method` changes in the settings, and what stays (the user's); writes nothing. */
+  methodPreview: (root: string, method: string, lang: string): Promise<unknown> => inv<unknown>("project_method_preview", { root, method, lang }),
 });
 
 export type ProjectClient = ReturnType<typeof projectClient>;

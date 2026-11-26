@@ -257,7 +257,21 @@ fn real_pipeline_with_opentofu() {
                 s.hint.as_deref().unwrap_or("").contains(tool)
                     || s.hint.as_deref().unwrap_or("").contains("Install")
             );
+        } else if tool != "infracost" {
+            // installed: the scanner ran on this clean configuration and found nothing that blocks
+            // (conftest is skipped: this project has no `policy/` folder)
+            let want = if tool == "conftest" {
+                Status::Skipped
+            } else {
+                Status::Ok
+            };
+            assert_eq!(status(&r, tool), want, "{tool}: {:#?}", r.stages);
         }
+    }
+    // infracost installed without an API key: «not connected», and the hint is to sign in, not to install
+    let ic = r.stages.iter().find(|s| s.id == "infracost").unwrap();
+    if ic.status == Status::NotConnected {
+        assert_eq!(ic.hint.as_deref(), Some(CONNECT_INFRACOST));
     }
     let p = r.plan.as_ref().unwrap();
     assert_eq!((p.add, p.change, p.destroy), (2, 0, 0));

@@ -22,7 +22,7 @@ export const PROTECT_NOTES: FeatureNotes = {
       where: ["Source Control › Commit", "Commit Composer, lanes, quadro, Co-Dev"],
       what: "Cada commit que a app faz é verificado: um segredo no que vai ser comitado, ou ficheiros como `.env`, `.tfstate` e chaves, bloqueiam-no. O diálogo mostra os achados mascarados.",
       howTo: ["Tira o segredo do código (para uma variável de ambiente ou para o Vault) e comita outra vez.", "Se for mesmo preciso, o diálogo deixa passar um commit com um motivo, que fica registado."],
-      flow: ["Usa o gitleaks se estiver instalado, senão as regras próprias; a excepção vale um commit durante 2 minutos."],
+      flow: ["As regras próprias correm sempre; se o gitleaks estiver instalado, junta-lhes as dele (uma linha que os dois apontam aparece uma vez). A excepção vale um commit durante 2 minutos."],
       limits: ["Um commit feito à mão no teu próprio terminal só passa por aqui com o hook de pre-commit instalado (abaixo)."],
       covers: ["protect:secret-scan"],
     },
@@ -37,7 +37,7 @@ export const PROTECT_NOTES: FeatureNotes = {
       ],
       flow: [
         "O backend descobre a pasta de hooks pelo git (respeita worktrees e `core.hooksPath`), regista a instalação no registo de auditoria antes de escrever o ficheiro, e a UI regista o resultado.",
-        "O `dxt secret-scan` usa o gitleaks se estiver instalado, senão as regras próprias, e junta os valores secretos dos `.env` do repositório. Sai com 0 (limpo), 1 (achados) ou 2 (não conseguiu correr).",
+        "O `dxt secret-scan` usa as regras próprias (mais as do gitleaks, se estiver instalado) e junta os valores secretos dos `.env` do repositório. Sai com 0 (limpo), 1 (achados) ou 2 (não conseguiu correr).",
       ],
       tips: ["`dxt secret-scan --all` verifica o que um `git commit -a` levaria; `--working`, todas as mudanças."],
       limits: [

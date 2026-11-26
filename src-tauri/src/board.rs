@@ -161,6 +161,20 @@ pub fn project_apply(
     open(&app)?.apply(&root, &actor(&root), now_ms(), op)
 }
 
+/// O que escolher o método `method` muda nas definições da pasta (Board B): o que passa aos valores
+/// do método e o que fica porque o utilizador o definiu. Não escreve nada — o «settings» com
+/// `method` aplica a mesma mudança. `lang`: a língua das sugestões de DoR/DoD (`pt`, senão inglês).
+#[tauri::command]
+pub fn project_method_preview(
+    app: AppHandle,
+    root: String,
+    method: String,
+    lang: Option<String>,
+) -> Result<tutor_board::project::methods::MethodChange, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.method_preview(&root, &method, lang.as_deref().unwrap_or("pt"), now_ms())
+}
+
 fn git_config(dir: &Path, key: &str) -> String {
     std::process::Command::new("git")
         .args(["config", key])
@@ -474,6 +488,7 @@ pub fn issue_prompt_from(
         scope: i.scope.clone(),
         previous_failure,
         links: issue_links(&p, i, &detail),
+        method: Some(methodology(&p, i, now_ms())),
     };
     Ok(tutor_agent::issue_prompt::render_with(
         Path::new(root),
@@ -481,6 +496,52 @@ pub fn issue_prompt_from(
         lang,
         &syntax_outline,
     ))
+}
+
+/// How the board works, for the prompt (Board B): the method, the running sprint the issue is in
+/// (goal and days left), the DoD, the WIP of the columns the work goes through (In progress and
+/// Review, when limited), the pair, the class of service and, for XP, test-first.
+fn methodology(
+    p: &tutor_board::project::Project,
+    i: &tutor_board::project::Issue,
+    now: i64,
+) -> tutor_agent::issue_prompt::Methodology {
+    use tutor_agent::issue_prompt::{Methodology, SprintRef, WipRef};
+    use tutor_board::project::methods;
+    const DAY: i64 = 86_400_000;
+    let sprint = i
+        .sprint
+        .as_ref()
+        .filter(|_| methods::uses_capacity(&p.method))
+        .and_then(|id| {
+            p.sprints
+                .iter()
+                .find(|s| &s.id == id && s.state == "active")
+        })
+        .map(|s| SprintRef {
+            name: s.name.clone(),
+            goal: s.goal.clone(),
+            days_left: ((s.end - now).max(0) + DAY - 1) / DAY,
+        });
+    let wip = ["progress", "review"]
+        .iter()
+        .filter_map(|st| {
+            p.wip.get(*st).map(|limit| WipRef {
+                state: st.to_string(),
+                count: p.issues.iter().filter(|x| x.state == *st).count() as u32,
+                limit: *limit,
+            })
+        })
+        .collect();
+    Methodology {
+        label: methods::label(&p.method).to_string(),
+        sprint,
+        dod: p.dod.clone(),
+        wip,
+        pair: i.pair.clone(),
+        cos: i.cos.clone(),
+        test_first: methods::test_first(&p.method),
+    }
 }
 
 /// Where the issue lives in the project, for the prompt (backlog phase 1, Q3): its branch, epic,
@@ -1064,6 +1125,61 @@ mod tests {
             k(2)
         );
         assert!(r.text.contains(&expected), "{}", r.text);
+    }
+
+    #[test]
+    fn the_issue_prompt_tells_the_board_method_sprint_dod_wip_and_test_first() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().to_string_lossy().to_string();
+        let mut st = ProjectStore::in_memory().unwrap();
+        let op = |v: serde_json::Value| -> tutor_board::project::Op {
+            serde_json::from_value(v).unwrap()
+        };
+        let now = now_ms();
+        let day = 86_400_000;
+        let prefix = st.load(&root, now).unwrap().key_prefix;
+        let k = format!("{prefix}-1");
+        for v in [
+            serde_json::json!({"op": "settings", "method": "scrumxp", "lang": "en", "dor": [], "dod": ["Tests passing"], "wip": {"progress": 2, "review": 1}}),
+            serde_json::json!({"op": "create_sprint", "name": "Sprint 2", "goal": "Payments", "start": now - day, "end": now + 3 * day + 3_600_000}),
+            serde_json::json!({"op": "start_sprint", "id": "S1"}),
+            serde_json::json!({"op": "create_issue", "title": "Pay by card", "sprint": "S1"}),
+            serde_json::json!({"op": "update_issue", "key": k, "pair": "rui"}),
+        ] {
+            st.apply(&root, "ana", now, op(v)).unwrap();
+        }
+        let r = issue_prompt_from(&st, &root, &k, Some("en")).unwrap();
+        let block = r
+            .text
+            .split("# Method\n")
+            .nth(1)
+            .unwrap()
+            .split("\n\n# ")
+            .next()
+            .unwrap();
+        assert_eq!(
+            block,
+            "Scrum + XP · Sprint 2 «Payments» · 4 days left\n\
+             WIP: In progress 0/2 · Review 0/1\n\
+             Pair: rui\n\
+             DoD (answer each item in finish_issue):\n\
+             1. Tests passing\n\
+             TDD (mandatory): write the test first and run run_tests — it must fail; only then the least code to pass; small steps. Without that red run the issue does not reach Review."
+        );
+        // Kanban: no sprint and no TDD line
+        st.apply(
+            &root,
+            "ana",
+            now,
+            op(serde_json::json!({"op": "settings", "method": "kanban", "wip": {}, "dod": []})),
+        )
+        .unwrap();
+        let r = issue_prompt_from(&st, &root, &k, Some("en")).unwrap();
+        assert!(
+            r.text.contains("# Method\nKanban\nPair: rui\n\n# "),
+            "{}",
+            r.text
+        );
     }
 
     #[test]

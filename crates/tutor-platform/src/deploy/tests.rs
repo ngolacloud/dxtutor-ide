@@ -307,10 +307,16 @@ fn staging_then_production_with_a_fake_cluster() {
         "{applied}"
     );
     let calls = std::fs::read_to_string(tools_dir.path().join("calls.log")).unwrap();
-    assert!(calls.contains(&format!(
-        "annotate deploy --all dxtutor.io/version={}",
-        &sha[..12]
-    )));
+    // only this deploy's Deployments carry its version — measured on kind: `--all` marked the
+    // namespace's other Deployments with it too
+    assert!(
+        calls.contains(&format!(
+            "annotate deploy/web dxtutor.io/version={}",
+            &sha[..12]
+        )),
+        "{calls}"
+    );
+    assert!(!calls.contains("--all"), "{calls}");
     assert!(calls.contains("rollout status deploy/web --timeout=180s"));
     assert!(
         rollout(&plan.id, &t, &[], &mut |_| {})
