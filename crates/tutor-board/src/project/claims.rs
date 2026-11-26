@@ -62,7 +62,7 @@ pub fn norm(path: &str) -> Result<String, ProjectError> {
         .split('/')
         .filter(|c| !c.is_empty() && *c != ".")
         .collect();
-    if p.starts_with('/') || parts.is_empty() || parts.iter().any(|c| *c == "..") {
+    if p.starts_with('/') || parts.is_empty() || parts.contains(&"..") {
         return Err(invalid(format!("not a path inside the project: {path:?}")));
     }
     Ok(parts.join("/"))
