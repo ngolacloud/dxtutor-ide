@@ -1198,6 +1198,13 @@ pub fn run() {
             lsp::lsp_config_file,
             lsp::lsp_user_config_save,
             lsp::lsp_approve_server,
+            // LSP P6: documents and folders closed, the live servers, their log, stop and restart
+            lsp::lsp_did_close,
+            lsp::lsp_folder_closed,
+            lsp::lsp_servers,
+            lsp::lsp_server_log,
+            lsp::lsp_server_stop,
+            lsp::lsp_server_restart,
             board::board_load,
             board::board_save,
             board::project_load,
@@ -1222,8 +1229,14 @@ pub fn run() {
             board::project_checks,
             board::project_method_preview,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running dxtutor IDE");
+        .build(tauri::generate_context!())
+        .expect("error while running dxtutor IDE")
+        .run(|app, event| {
+            // LSP P6: the language servers end the way the protocol asks (shutdown, exit), reaped
+            if let tauri::RunEvent::Exit = event {
+                lsp::shutdown_all(app);
+            }
+        });
 }
 
 #[cfg(test)]
