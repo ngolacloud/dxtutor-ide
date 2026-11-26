@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 262 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 268 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -785,6 +785,33 @@ Nenhum segredo sai da máquina, e a regra vive no Rust:
 - Testes: `cargo test -p tutor-protect` (os critérios de aceitação: pedido redigido, commit com `postgres://u:p@h`
   bloqueado), `cargo test -p tutor-eval iacfind` (`password = var.x` é erro), `tests/protect.test.ts` e o passo `protect` do
   auto-teste.
+
+## Pipeline de IaC, plano revisto, drift e estado (r23 F4b, `tutor_eval::iac`, `features/ops`)
+
+O separador IaC do Ops tem Pipeline · Plano · Segurança e política · Drift · Estado. As regras vivem no Rust
+(`crates/tutor-eval/src/iac.rs`, ferramentas pela fábrica `shellenv::command` que o `commands/iac.rs` injecta):
+- **Etapas:** init → fmt → validate → regras internas (`iacfind`) → tflint → checkov → trivy → segredos guardados no
+  estado (`state pull`, só os nomes) → plan → drift → conftest (se houver `policy/`) → infracost. Cada uma `ok`/`failed`/
+  `not_installed` (com a dica; NUNCA verde)/`not_connected` (infracost sem chave)/`skipped`; evento `iac://stage`.
+- **Uma etapa falhada bloqueia o apply, no Rust:** o plano fica em `app_local_data_dir/iac-plans/<sha256>.bin` (0600, um
+  dia) com o hash da configuração; `iac_apply_command` só devolve `… apply -input=false <esse ficheiro>` se a corrida não
+  bloqueou, o ficheiro é o revisto e a configuração não mudou. A UI aprova, audita, corre num terminal e audita o código
+  de saída. O antigo `iacApply` (que re-planeava: `plan -out=tfplan && apply tfplan`) saiu.
+- **Achados com chave estável** (fonte, regra, ficheiro e o texto da linha ou o recurso): aceitar o risco pede motivo,
+  dura 30 dias (migração 10 do Project, `iac_accepted`) e vai primeiro para o registo de auditoria (`iac_risk_accept`, no
+  Rust); revogar expira-o. O drift ignorado usa o mesmo mecanismo (`drift:<dir>:<endereço>`).
+- **Drift:** verificado de 6 em 6 horas enquanto a pasta está aberta (e à mão); reverter = pipeline dirigido
+  (`-target`); escrever no código = Co-Dev; quem o mudou = «not connected» (precisa de uma fonte como o CloudTrail).
+- **Estado:** endereços, ids, backend, serial, lock e cópia (só no backend local); force-unlock aprovado; `moved` e
+  `import` são rascunhos que o Co-Dev escreve nos `.tf`. O editor nunca abre um `.tfstate` (o carregador do workspace
+  salta-o, `read_text_file`/`write_text_file`/`write_file` recusam-no, o `openPath` avisa).
+- O plano ganhou módulo, motivo do replace, atributos que o forçam, raio de impacto (do `configuration` do `show -json`;
+  um módulo conta como um todo), argumentos write-only e custo (infracost).
+- GOTCHA: o ficheiro do plano guarda os valores (segredos incluídos) — por isso 0600 e apagado ao fim de um dia; o JSON
+  do plano para conftest/infracost vive numa pasta temporária apagada no fim da corrida.
+- Testes: `cargo test -p tutor-eval iac::` (parsers dos scanners, raio de impacto, e um pipeline real com o `tofu`:
+  apply do ficheiro revisto, bloqueio, aceitação, segredo no estado), `cargo test -p tutor-board accepted_risks`,
+  `tests/ops.test.ts` e o passo `iac` do auto-teste.
 
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 

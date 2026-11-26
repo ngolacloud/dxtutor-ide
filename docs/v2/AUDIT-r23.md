@@ -736,3 +736,21 @@ the real app (the `.tf` error in the Problems, the blocked `exec git commit` and
 terminal). Reported: a commit made by hand in the human's own terminal does not pass the scan (no git hooks are
 installed in the user's repository); the terminal masks chunk by chunk, so a secret split across two reads of the PTY
 can pass; tflint/checkov/trivy findings come with the F4b pipeline.
+
+### F4b status: done (the IaC pipeline, the reviewed plan, drift and state)
+
+| What | Where |
+|---|---|
+| The pipeline (P01): init → fmt → validate → built-in rules → tflint → checkov → trivy → secrets kept in the state → plan → drift → conftest → infracost; each stage `ok`/`failed`/`not_installed` (with the install hint, never green)/`not_connected`/`skipped`, streamed as `iac://stage` | `crates/tutor-eval/src/iac.rs`, `src-tauri/src/commands/iac.rs` |
+| The apply applies the REVIEWED plan file, kept under its SHA-256 (0600, one day) with the configuration's hash; `iac_apply_command` refuses, in Rust, a blocked run, another file, a changed configuration or an old plan. The re-planning `iacApply` defect is gone | `iac::apply_command`, `features/ops` |
+| The plan model (P02): module, replace reason and paths, blast radius (from the plan's `configuration`; a module counts as a whole), write-only arguments, infracost's monthly cost | `crates/tutor-eval/src/ops.rs` |
+| Findings (P03) from the built-in rules, validate, fmt, tflint/checkov/trivy/conftest JSON, and the secrets the state keeps (names only); risk acceptance with a reason for 30 days (project DB migration 10, `iac_accepted`), audited in Rust before it is kept; revoking expires it | `iac.rs`, `crates/tutor-board/src/project/risks.rs`, `src-tauri/src/board.rs` |
+| Drift (P04): checked every 6 h while a folder is open and by hand; revert = a targeted pipeline; write into the code = Co-Dev; ignore = an accepted drift; who changed it: «not connected» | `features/ops` |
+| State (P05): addresses and ids, backend, serial, lock and backup (local backend), force-unlock with approval, `moved`/`import` drafts through Co-Dev; the editor refuses `.tfstate` (workspace loader, `read_text_file`/`write_text_file`/`write_file`, `openPath`) | `iac::state`, `src-tauri/src/workspace.rs`, `features/tabs.ts` |
+| Commands `iac_pipeline_run`, `iac_apply_command`, `iac_state`, `iac_risk_accept`, `iac_risks`, `iac_risk_revoke` (262 → 268) | as listed |
+
+Tested with OpenTofu 1.12.6 (the only IaC tool installed here): tflint, checkov, trivy, conftest and infracost are
+tested as «not installed» in the real app and through their JSON in unit tests. Reported: a plan file holds the
+values (secrets included) by nature — kept 0600 in the app's data folder and swept after a day; the blast radius does
+not follow variables into a module; who changed a drifted resource needs a cloud audit source (F5); Terragrunt/Helm
+and the «Golden paths» tab are not in F4b.

@@ -16,6 +16,7 @@ import { gitExtras } from "../../features/scm/extras";
 import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
 import { tauriOps } from "../../features/ops/infrastructure/tauri";
+import { listen } from "../tauri/core";
 import { tauriRulesGateway } from "../../features/arch/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
 import { sdAdd } from "../../features/studio";
@@ -951,6 +952,51 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
       const out = { tfError, tfDiag, blockedCode: blocked.code, findings: report?.findings.map(f => `${f.file}:${f.line} ${f.rule}`), leaks, allowedCode: allowed.code, masked, shown: shown.slice(0, 80) };
       if (!tfError || blocked.code === 0 || !report || !report.findings.some(f => f.file === "db.rs" && f.rule === "url-credentials") || leaks || allowed.code !== 0 || !masked) throw new Error("protect: " + JSON.stringify(out));
       return out;
+    });
+    // r23 F4b: o pipeline de IaC na app real — as etapas (os scanners que faltam dizem «not installed» com a dica), o
+    // evento iac://stage, o plano guardado e o apply DESSE ficheiro num terminal real, o estado (endereços e ids), um
+    // segredo no código que bloqueia o apply no Rust até o risco ser aceite (auditado), e o .tfstate fora do editor.
+    await step("iac", async () => {
+      const op = tauriOps(), root = R.root as string, dir = "iac-selftest";
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const seen: string[] = [];
+      const off = await listen("iac://stage", (payload) => { const p = payload as { dir: string; stage: { id: string; status: string } }; if (p.dir === dir) seen.push(`${p.stage.id}:${p.stage.status}`); });
+      const main = ROOT + dir + "/main.tf", extra = ROOT + dir + "/extra.tf";
+      writeFile(main, 'resource "terraform_data" "a" {\n  input = "v1"\n}\n\nresource "terraform_data" "b" {\n  input = terraform_data.a.output\n}\n');
+      flushSave(); await idle();
+      try {
+        const r1 = await op.pipeline(root, dir, null);
+        const statuses = Object.fromEntries(r1.stages.map((s) => [s.id, s.status]));
+        const hints = r1.stages.filter((s) => s.status === "not_installed").every((s) => !!s.hint);
+        const a1 = await op.applyCommand(root, dir, r1.id);
+        const code = R.term ? await R.term.runTask(a1.command, { label: "selftest-iac" }) : -1;
+        const st = await op.iacState(root, dir);
+        writeFile(extra, 'locals {\n  password = "not-a-real-one"\n}\n');
+        flushSave(); await idle();
+        const r2 = await op.pipeline(root, dir, null);
+        const refused = await op.applyCommand(root, dir, r2.id).then(() => "applied", (e) => String(e));
+        const f = r2.stages.find((s) => s.id === "rules")?.findings[0];
+        const acc = f ? await op.acceptRisk(root, { key: f.key, kind: "finding", label: `built-in ${f.rule} · ${f.file}:${f.line}`, reason: "self-test fixture" }) : null;
+        const r3 = await op.pipeline(root, dir, null);
+        if (acc) await op.revokeRisk(root, acc.id);
+        const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; reason: string | null }>;
+        const audited = rows.some((r) => r.origin === "ide" && r.tool === "iac" && r.call === "risk.accept" && r.reason === "self-test fixture");
+        const stateRead = await inv("read_text_file", { path: root.replace(/\/$/, "") + `/${dir}/terraform.tfstate` }).then(() => "read", (e) => String(e));
+        const out = {
+          statuses, hints, events: seen.length, blocked1: r1.blocked, add: r1.plan?.add, dependents: r1.plan?.changes.find((c) => c.address === "terraform_data.a")?.dependents,
+          applyCmd: a1.command.replace(a1.planFile, "<plan>"), code, resources: st.resources.map((r) => r.address), ids: st.resources.every((r) => !!r.id), backend: st.backend,
+          blocked2: r2.blockers, refused: refused.slice(0, 90), finding: f && `${f.file}:${f.line} ${f.rule}`, blocked3: r3.blocked, audited,
+          stateFile: stateRead.includes("state file") ? "refused" : stateRead.slice(0, 60), inFS: Object.keys(FS).some((k) => k.endsWith(".tfstate")),
+        };
+        const ok = statuses.init === "ok" && statuses.plan === "ok" && statuses.rules === "ok" && !r1.blocked && hints && seen.length >= 2 * r1.stages.length && r1.plan?.add === 2
+          && code === 0 && st.resources.length === 2 && out.ids && r2.blocked && r2.blockers.includes("rules") && refused.includes("pipeline failed") && !r3.blocked && audited && out.stateFile === "refused" && !out.inFS;
+        if (!ok) throw new Error("iac: " + JSON.stringify(out));
+        return out;
+      } finally {
+        off();
+        delete FS[main]; delete FS[extra]; flushSave(); await idle();
+        await sh("rm", ["-rf", dir]);
+      }
     });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e
     // em release, o bytecode Python, os estágios do compilador, uma execução medida, o crescimento com N
