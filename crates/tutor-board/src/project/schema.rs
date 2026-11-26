@@ -344,6 +344,49 @@ const MIGRATIONS: &[&str] = &[
     // 14 — how many Co-Devs work the sprint at the same time (Multi Co-Dev, phase 1: the parallel
     //      plan); `NULL`: not set (one)
     "ALTER TABLE sprints ADD COLUMN codevs INTEGER;",
+    // 15 — the history the sprint metrics read (Board A: honest burndown, velocity and insights): who joined
+    //      or left a sprint and when, with the estimate at that moment; every estimate change with the old and
+    //      the new points; what a sprint committed to when it started and what it held when it closed (`kind`
+    //      `start | close`); when each sprint really started and closed. Nothing is back-filled: a sprint that
+    //      started before this migration has no `started_at` and its reports say they are partial;
+    //      `projects.history_since` is when this recording began for the project.
+    "CREATE TABLE sprint_scope (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        root    TEXT NOT NULL,
+        sprint  TEXT NOT NULL,
+        key     TEXT NOT NULL,
+        at      INTEGER NOT NULL,
+        change  TEXT NOT NULL,
+        points  INTEGER,
+        reason  TEXT NOT NULL,
+        actor   TEXT NOT NULL
+    );
+    CREATE INDEX idx_sprint_scope ON sprint_scope(root, sprint, at);
+    CREATE TABLE estimate_changes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        root        TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        at          INTEGER NOT NULL,
+        old_points  INTEGER,
+        new_points  INTEGER,
+        sprint      TEXT,
+        actor       TEXT NOT NULL
+    );
+    CREATE INDEX idx_estimate_changes ON estimate_changes(root, key, at);
+    CREATE TABLE sprint_snapshots (
+        root    TEXT NOT NULL,
+        sprint  TEXT NOT NULL,
+        kind    TEXT NOT NULL,
+        key     TEXT NOT NULL,
+        points  INTEGER,
+        state   TEXT NOT NULL,
+        at      INTEGER NOT NULL,
+        PRIMARY KEY (root, sprint, kind, key)
+    );
+    ALTER TABLE sprints ADD COLUMN started_at INTEGER;
+    ALTER TABLE sprints ADD COLUMN closed_at INTEGER;
+    ALTER TABLE projects ADD COLUMN history_since INTEGER;
+    UPDATE projects SET history_since = CAST(strftime('%s', 'now') AS INTEGER) * 1000;",
 ];
 
 /// The schema version this code expects.
@@ -498,4 +541,49 @@ fn import_legacy_board(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A base at schema 14 (before the sprint history) gains it without back-filling: the
+    /// project records from the migration on, its sprints have no start or close recorded.
+    #[test]
+    fn the_sprint_history_starts_at_migration_15_and_invents_nothing() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+            .unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(14).enumerate() {
+            c.execute_batch(sql).unwrap();
+            c.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                params![i as u32 + 1],
+            )
+            .unwrap();
+        }
+        c.execute_batch(
+            "INSERT INTO projects (root, key_prefix, seq, method, iter_days, wip, dor, dod, created, updated)
+             VALUES ('/p', 'P', 0, 'scrum', 14, '{}', '[]', '[]', 1, 1);
+             INSERT INTO sprints (root, id, name, goal, start, end, state) VALUES ('/p', 'S1', 'S', '', 1, 2, 'active');",
+        )
+        .unwrap();
+        migrate(&mut c).unwrap();
+        let since: Option<i64> = c
+            .query_row("SELECT history_since FROM projects", [], |r| r.get(0))
+            .unwrap();
+        assert!(since.is_some_and(|t| t > 1_700_000_000_000), "{since:?}");
+        let (started, closed): (Option<i64>, Option<i64>) = c
+            .query_row("SELECT started_at, closed_at FROM sprints", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((started, closed), (None, None));
+        for t in ["sprint_scope", "estimate_changes", "sprint_snapshots"] {
+            let n: i64 = c
+                .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{t} is not back-filled");
+        }
+    }
 }

@@ -9,7 +9,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 2 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
-- [Project](#project) — 2 acções
+- [Project](#project) — 4 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 3 acções
@@ -409,14 +409,16 @@ Cria as issues dos componentes planeados no Studio (o ADR, um serviço, aplicaç
 
 ## Project
 
-O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo.
+O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Na vista «Reports», os gráficos da sprint lêem o âmbito e as estimativas como eram em cada dia, e o painel «Insights» diz ao gestor o que o histórico mostra: se a sprint acaba, o que mudou desde o início, quanto do compromisso se cumpre, o que está parado ou bloqueado, quanto custa e quanto se refaz.
 
-<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan)`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts` · revisto em 2026-11-26</sub>
+<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan, project_reports)`, `crates/tutor-board/src/project/reports.rs`, `crates/tutor-board/src/project/insights.rs`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts`, `ui-app/src/features/project/ui/reports-view.ts` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Co-Devs da sprint](#co-devs-da-sprint) | Project › Planning › cartão da sprint, campo «Co-Devs» |
 | [Plano paralelo](#plano-paralelo) | Project › Planning › cartão da sprint, botão «Parallel plan» |
+| [Burndown, burnup e velocidade](#burndown-burnup-e-velocidade) | Project › Reports (Scrum, XP e Scrum + XP) |
+| [Insights para o gestor](#insights-para-o-gestor) | Project › Reports, painel «Insights» (no topo, em todos os métodos) |
 
 ### Co-Devs da sprint
 
@@ -473,6 +475,67 @@ Mostra como as issues Ready da sprint se repartiriam pelos Co-Devs: uma coluna p
 - Fases seguintes: uma sessão por Co-Dev, uma worktree e ficheiros reservados por Co-Dev, o revisor que integra num worktree temporário só com os testes a passar, e a autonomia delegada com PRs.
 
 <sub>Cobre: `pj-sprint-plan`, `pj-plan-close`</sub>
+
+### Burndown, burnup e velocidade
+
+**Onde:** Project › Reports (Scrum, XP e Scrum + XP)
+
+O burndown mostra, dia a dia, os pontos que faltavam nesse dia, com o âmbito e as estimativas desse dia, contra a linha ideal que parte do que a sprint comprometeu ao começar. O burnup mostra os pontos feitos contra a linha do âmbito (sobe quando entra trabalho ou uma estimativa cresce, desce quando sai) e o compromisso a tracejado. A velocidade mostra, por sprint fechada, o comprometido ao lado do feito.
+
+**Como usar**
+
+1. Planeia a sprint e carrega em «Start»: o que está nela nesse momento fica registado como o compromisso.
+2. Abre a vista «Reports». Passa o rato por uma barra da velocidade para ver o comprometido, o feito, o acrescentado, o retirado e o que transitou.
+
+**Fluxo (por dentro)**
+
+1. Desde a migração 15 da base do Project, cada operação que mexe numa sprint grava o histórico: a issue que entra ou sai (criada já na sprint, planeada, retirada, transitada no fecho ou apagada), com a estimativa desse momento (`sprint_scope`); cada mudança de estimativa com o valor antigo e o novo (`estimate_changes`); e o que a sprint tinha ao começar e ao fechar (`sprint_snapshots`, `start` e `close`).
+2. O `project_reports` (`tutor_board::project::reports`) reconstrói cada dia a partir desse histórico: quem estava na sprint, com que estimativa e em que estado. Uma issue que já estava em Done quando a sprint começou não conta.
+3. A velocidade lê as fotografias do início e do fecho: o «comprometido vs feito» sobrevive à transição das issues por acabar para outra sprint.
+
+**Dicas**
+
+- Uma issue sem estimativa não aparece nos gráficos: o burndown lista-a por baixo, para a estimares.
+- Reestimar a meio da sprint é legítimo, mas aparece no burnup como mudança de âmbito.
+
+**Limites**
+
+- Uma sprint que começou antes da migração 15 aparece como parcial: o compromisso não se conhece e, antes de o registo começar, o âmbito e as estimativas são os de hoje. Nada é inventado para trás.
+- Os dias contam-se em UTC e por calendário (fins-de-semana incluídos).
+
+<sub>Cobre: `project_reports`</sub>
+
+### Insights para o gestor
+
+**Onde:** Project › Reports, painel «Insights» (no topo, em todos os métodos)
+
+Frases curtas para o gestor do projecto, cada uma com a gravidade (risco, atenção, info), os números por trás e as issues envolvidas: previsão do fim da sprint, mudança de âmbito desde o início, issues da sprint sem estimativa, fiabilidade do compromisso nas últimas sprints (com a velocidade recente como tamanho realista para a próxima), cartões envelhecidos, issues bloqueadas e o tempo bloqueado, custo do Co-Dev por ponto e issues que já gastaram demais, e a taxa de retrabalho (testes que falham depois do trabalho do Co-Dev).
+
+**Como usar**
+
+1. Abre a vista «Reports»: os insights mais graves vêm primeiro.
+2. Clica numa chave de issue para a abrir no painel da issue.
+3. Abre «Not enough data yet» para ver o que ainda falta ao histórico para cada insight.
+
+**Fluxo (por dentro)**
+
+1. O módulo puro `tutor_board::project::insights` recebe o que os relatórios reconstruíram e devolve, para cada insight, um código, a gravidade, os parâmetros e as chaves; a interface tem a frase de cada código em inglês e em português (`ui/reports-messages.ts`).
+2. Previsão: o ritmo é a média dos pontos terminados nos últimos dias da sprint (até 5); com ele diz se o que falta cabe nos dias que restam, quantos pontos ficariam feitos e quantos dias a mais seriam precisos.
+3. Âmbito: compara o compromisso do início com o que está na sprint agora (entradas, saídas e reestimativas).
+4. Fiabilidade: soma o comprometido e o feito do compromisso nas últimas 5 sprints fechadas com o compromisso registado.
+5. Envelhecidos: compara a idade de cada cartão no fluxo (desde que entrou em curso) com o percentil 85 do tempo de ciclo das issues terminadas.
+6. Bloqueios: lêem-se do registo de actividade (incluindo o bloqueio automático depois de duas falhas dos testes). Custo: os turnos do Co-Dev com preço no registo de auditoria. Retrabalho: as corridas de testes depois do Co-Dev.
+
+**Dicas**
+
+- Um insight sem dados suficientes não é adivinhado: aparece na lista do que falta, com quanto falta.
+
+**Limites**
+
+- A previsão precisa de 2 dias de sprint; a fiabilidade de 2 sprints fechadas com compromisso registado; os envelhecidos de 5 issues terminadas; o custo por ponto de 3 issues terminadas, estimadas e com custo; o retrabalho de 3 corridas de testes.
+- Quem mudou uma estimativa fica no histórico, mas o insight não o mostra.
+
+<sub>Cobre: `pj-open`</sub>
 
 ---
 

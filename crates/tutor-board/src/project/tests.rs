@@ -590,7 +590,13 @@ fn reports_come_from_the_history_and_are_empty_without_it() {
         vec![reports::Velocity {
             sprint: "S1".into(),
             name: "S".into(),
-            points: 3
+            points: 3,
+            committed: Some(6),
+            committed_done: Some(3),
+            added: Some(0),
+            removed: Some(0),
+            carried: Some(3),
+            partial: false,
         }]
     );
 }
@@ -1418,4 +1424,489 @@ fn incidents_and_the_queue() {
     )
     .unwrap();
     assert_eq!(incidents::queue_events(c, "/p").unwrap().len(), 2);
+}
+
+// ───── Board A: the sprint history the metrics read (migration 15) ─────
+
+const DAY: i64 = 24 * H;
+
+fn ap(s: &mut ProjectStore, at: i64, v: serde_json::Value) -> Project {
+    s.apply(ROOT, "Walter", at, op(v)).unwrap()
+}
+
+fn est(s: &mut ProjectStore, key: &str, points: Option<u32>, at: i64) {
+    ap(
+        s,
+        at,
+        serde_json::json!({"op": "update_issue", "key": key, "points": points}),
+    );
+}
+
+fn plan(s: &mut ProjectStore, key: &str, sprint: Option<&str>, at: i64) {
+    ap(
+        s,
+        at,
+        serde_json::json!({"op": "plan_issue", "key": key, "sprint": sprint}),
+    );
+}
+
+/// Walks an issue to Done one step at a time (no WIP, DoR or DoD in the way).
+fn finish(s: &mut ProjectStore, key: &str, at: i64) {
+    for to in ["progress", "review", "accept", "done"] {
+        s.apply(
+            ROOT,
+            "Walter",
+            at,
+            op(serde_json::json!({"op": "move", "key": key, "to": to, "reason": "test"})),
+        )
+        .unwrap();
+    }
+}
+
+fn sprint(s: &mut ProjectStore, name: &str, start: i64, days: i64) {
+    ap(
+        s,
+        start,
+        serde_json::json!({"op": "create_sprint", "name": name, "start": start, "end": start + days * DAY}),
+    );
+}
+
+fn scope_rows(s: &ProjectStore) -> Vec<(String, String, String, Option<u32>, String)> {
+    let mut st = s
+        .conn()
+        .prepare("SELECT sprint, key, change, points, reason FROM sprint_scope WHERE root = ?1 ORDER BY id")
+        .unwrap();
+    st.query_map(params![ROOT], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+    })
+    .unwrap()
+    .collect::<Result<_, _>>()
+    .unwrap()
+}
+
+#[test]
+fn sprint_scope_estimates_and_commitments_are_recorded_by_the_ops() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    sprint(&mut s, "S'", T0 + 10 * DAY, 10);
+    let a = create(&mut s, "a", T0);
+    let p = ap(
+        &mut s,
+        T0,
+        serde_json::json!({"op": "create_issue", "title": "b", "points": 5, "sprint": "S1"}),
+    );
+    let b = p.issues.last().unwrap().key.clone();
+    let c = create(&mut s, "c", T0);
+    plan(&mut s, &a, Some("S1"), T0);
+    plan(&mut s, &a, Some("S1"), T0); // same sprint: nothing new
+    ap(
+        &mut s,
+        T0 + H,
+        serde_json::json!({"op": "start_sprint", "id": "S1"}),
+    );
+    est(&mut s, &a, Some(8), T0 + DAY);
+    est(&mut s, &a, Some(8), T0 + DAY); // same estimate: not a change
+    plan(&mut s, &c, Some("S1"), T0 + 2 * DAY);
+    plan(&mut s, &c, None, T0 + 3 * DAY);
+    finish(&mut s, &b, T0 + 4 * DAY);
+    ap(
+        &mut s,
+        T0 + 10 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S1", "carry_to": "S2"}),
+    );
+
+    assert_eq!(
+        scope_rows(&s),
+        vec![
+            (
+                "S1".into(),
+                b.clone(),
+                "added".into(),
+                Some(5),
+                "created".into()
+            ),
+            (
+                "S1".into(),
+                a.clone(),
+                "added".into(),
+                Some(3),
+                "planned".into()
+            ),
+            (
+                "S1".into(),
+                c.clone(),
+                "added".into(),
+                Some(3),
+                "planned".into()
+            ),
+            (
+                "S1".into(),
+                c.clone(),
+                "removed".into(),
+                Some(3),
+                "planned".into()
+            ),
+            (
+                "S1".into(),
+                a.clone(),
+                "removed".into(),
+                Some(8),
+                "carried".into()
+            ),
+            (
+                "S2".into(),
+                a.clone(),
+                "added".into(),
+                Some(8),
+                "carried".into()
+            ),
+        ]
+    );
+    type Change = (String, Option<u32>, Option<u32>, Option<String>);
+    let ch: Vec<Change> = {
+        let mut st = s
+            .conn()
+            .prepare("SELECT key, old_points, new_points, sprint FROM estimate_changes ORDER BY id")
+            .unwrap();
+        let v = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        v
+    };
+    assert_eq!(ch, vec![(a.clone(), Some(3), Some(8), Some("S1".into()))]);
+    let act = s.detail(ROOT, &a).unwrap().activity;
+    assert!(
+        act.iter().any(|x| x.note == "estimativa 3 → 8"),
+        "the activity says old and new: {act:?}"
+    );
+    let snap = |kind: &str| -> Vec<(String, Option<u32>, String)> {
+        let mut st = s
+            .conn()
+            .prepare("SELECT key, points, state FROM sprint_snapshots WHERE sprint = 'S1' AND kind = ?1 ORDER BY key")
+            .unwrap();
+        let v = st
+            .query_map(params![kind], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        v
+    };
+    assert_eq!(
+        snap("start"),
+        vec![
+            (a.clone(), Some(3), "todo".into()),
+            (b.clone(), Some(5), "todo".into())
+        ]
+    );
+    assert_eq!(
+        snap("close"),
+        vec![
+            (a.clone(), Some(8), "todo".into()),
+            (b.clone(), Some(5), "done".into())
+        ],
+        "the close keeps what the carry-over moves away"
+    );
+    let (started, closed): (Option<i64>, Option<i64>) = s
+        .conn()
+        .query_row(
+            "SELECT started_at, closed_at FROM sprints WHERE id = 'S1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((started, closed), (Some(T0 + H), Some(T0 + 10 * DAY)));
+
+    // deleting an issue in a sprint takes it out of the scope
+    plan(&mut s, &c, Some("S2"), T0 + 11 * DAY);
+    ap(
+        &mut s,
+        T0 + 12 * DAY,
+        serde_json::json!({"op": "delete_issue", "key": c}),
+    );
+    let last = scope_rows(&s).pop().unwrap();
+    assert_eq!(
+        last,
+        ("S2".into(), c, "removed".into(), Some(3), "deleted".into())
+    );
+}
+
+#[test]
+fn the_burndown_keeps_each_day_as_it_was_when_scope_and_estimates_change() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    let c = create(&mut s, "c", T0);
+    est(&mut s, &c, Some(5), T0);
+    plan(&mut s, &a, Some("S1"), T0);
+    plan(&mut s, &b, Some("S1"), T0);
+    ap(
+        &mut s,
+        T0,
+        serde_json::json!({"op": "start_sprint", "id": "S1"}),
+    );
+    finish(&mut s, &b, T0 + DAY);
+    let before = s.reports(ROOT, T0 + DAY).unwrap().burndown.unwrap();
+    plan(&mut s, &c, Some("S1"), T0 + 2 * DAY); // +5 mid-sprint
+    est(&mut s, &a, Some(8), T0 + 3 * DAY); // 3 → 8
+
+    let bd = s.reports(ROOT, T0 + 4 * DAY).unwrap().burndown.unwrap();
+    assert_eq!((bd.committed, bd.total, bd.scope), (Some(6), 6, 16));
+    assert!(!bd.partial);
+    let rows: Vec<(u32, u32, u32)> = bd
+        .days
+        .iter()
+        .map(|d| (d.scope, d.done, d.remaining))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![(6, 0, 6), (6, 3, 3), (11, 3, 8), (16, 3, 13), (16, 3, 13)],
+        "each day with that day's scope and estimates"
+    );
+    assert_eq!(
+        &bd.days[..2],
+        &before.days[..],
+        "what happened later does not rewrite the past"
+    );
+    let r = s.reports(ROOT, T0 + 4 * DAY).unwrap();
+    // the names the UI reads (domain/types.ts::parseReports)
+    let j = serde_json::to_value(&r).unwrap();
+    for k in ["insights", "withheld", "historySince"] {
+        assert!(j.get(k).is_some(), "{k}");
+    }
+    for k in ["committed", "scope", "partial", "unestimated", "name"] {
+        assert!(j["burndown"].get(k).is_some(), "{k}");
+    }
+    assert_eq!(j["burndown"]["days"][2]["scope"], serde_json::json!(11));
+    assert_eq!(j["insights"][0]["severity"], serde_json::json!("risk"));
+    let creep = r.insights.iter().find(|i| i.code == "scope_creep").unwrap();
+    assert_eq!(creep.params["added"], serde_json::json!(5));
+    assert_eq!(creep.params["reestimated"], serde_json::json!(5));
+    assert_eq!(creep.params["net"], serde_json::json!(10));
+    assert_eq!(creep.keys, vec![c]);
+}
+
+#[test]
+fn velocity_keeps_committed_vs_done_through_the_carry_over() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    sprint(&mut s, "S'", T0 + 10 * DAY, 10);
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    let c = create(&mut s, "c", T0);
+    let d = create(&mut s, "d", T0);
+    est(&mut s, &b, Some(5), T0);
+    for k in [&a, &b, &d] {
+        plan(&mut s, k, Some("S1"), T0);
+    }
+    ap(
+        &mut s,
+        T0,
+        serde_json::json!({"op": "start_sprint", "id": "S1"}),
+    );
+    finish(&mut s, &a, T0 + DAY);
+    plan(&mut s, &c, Some("S1"), T0 + 2 * DAY);
+    finish(&mut s, &c, T0 + 3 * DAY);
+    plan(&mut s, &d, None, T0 + 4 * DAY);
+    ap(
+        &mut s,
+        T0 + 10 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S1", "carry_to": "S2"}),
+    );
+    // re-estimating the carried issue later does not change the closed sprint
+    est(&mut s, &b, Some(13), T0 + 11 * DAY);
+    let v = &s.reports(ROOT, T0 + 11 * DAY).unwrap().velocity[0];
+    assert_eq!(v.points, 6, "a (3) + c (3), finished in the sprint");
+    assert_eq!(v.committed, Some(11), "a 3 + b 5 + d 3");
+    assert_eq!(v.committed_done, Some(3));
+    assert_eq!((v.added, v.removed, v.carried), (Some(3), Some(3), Some(5)));
+    assert!(!v.partial);
+
+    // the next sprint commits to the carried issue with its new estimate
+    ap(
+        &mut s,
+        T0 + 11 * DAY,
+        serde_json::json!({"op": "start_sprint", "id": "S2"}),
+    );
+    let bd = s.reports(ROOT, T0 + 11 * DAY).unwrap().burndown.unwrap();
+    assert_eq!(bd.committed, Some(13));
+    finish(&mut s, &b, T0 + 12 * DAY);
+    ap(
+        &mut s,
+        T0 + 13 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S2"}),
+    );
+    let r = s.reports(ROOT, T0 + 13 * DAY).unwrap();
+    assert_eq!(r.velocity[1].committed_done, Some(13));
+    let rel = r.insights.iter().find(|i| i.code == "reliability").unwrap();
+    assert_eq!(rel.params["committed"], serde_json::json!(24));
+    assert_eq!(rel.params["delivered"], serde_json::json!(16));
+    assert_eq!(rel.params["pct"], serde_json::json!(67));
+}
+
+#[test]
+fn a_sprint_started_before_the_history_is_reported_as_partial() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    sprint(&mut s, "Old", T0 - 20 * DAY, 10);
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    plan(&mut s, &a, Some("S1"), T0);
+    plan(&mut s, &b, Some("S2"), T0);
+    finish(&mut s, &b, T0);
+    // as a base migrated from schema 14 has them: started/closed with no history recorded
+    s.conn()
+        .execute_batch(
+            "DELETE FROM sprint_scope; DELETE FROM sprint_snapshots;
+             UPDATE sprints SET state = 'active' WHERE id = 'S1';
+             UPDATE sprints SET state = 'closed' WHERE id = 'S2';",
+        )
+        .unwrap();
+    est(&mut s, &a, Some(5), T0 + DAY);
+    let r = s.reports(ROOT, T0 + 2 * DAY).unwrap();
+    let bd = r.burndown.unwrap();
+    assert!(bd.partial);
+    assert_eq!(bd.committed, None, "no commitment is invented");
+    assert_eq!(bd.total, 3, "the ideal starts at the first day's scope");
+    assert_eq!(
+        bd.days.iter().map(|d| d.scope).collect::<Vec<_>>(),
+        vec![3, 5, 5],
+        "the estimate change after the history began is still read per day"
+    );
+    assert!(r.withheld.iter().any(|w| w.code == "scope_creep_partial"));
+    assert_eq!(
+        r.velocity,
+        vec![reports::Velocity {
+            sprint: "S2".into(),
+            name: "Old".into(),
+            points: 3,
+            committed: None,
+            committed_done: None,
+            added: None,
+            removed: None,
+            carried: None,
+            partial: true,
+        }]
+    );
+    // closing it after the history began: what it held at the close is known, not its commitment
+    ap(
+        &mut s,
+        T0 + 3 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S1"}),
+    );
+    let v = s.reports(ROOT, T0 + 3 * DAY).unwrap().velocity;
+    let s1 = v.iter().find(|v| v.sprint == "S1").unwrap();
+    assert!(s1.partial);
+    assert_eq!((s1.points, s1.carried, s1.committed), (0, Some(5), None));
+}
+
+#[test]
+fn blocks_tests_and_cost_feed_the_insights() {
+    let mut s = store();
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    for k in [&a, &b] {
+        s.apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "move", "key": k, "to": "progress", "reason": "t"})),
+        )
+        .unwrap();
+    }
+    for (k, passed, at) in [
+        (&a, false, T0 + H),
+        (&a, false, T0 + 2 * H),
+        (&b, true, T0 + 3 * H),
+    ] {
+        ap(
+            &mut s,
+            at,
+            serde_json::json!({"op": "tests_run", "key": k, "passed": passed, "summary": "1 failed"}),
+        );
+    }
+    let act = s.detail(ROOT, &a).unwrap().activity;
+    assert_eq!(
+        act.iter().filter(|x| x.kind == "blocked").count(),
+        1,
+        "the second failure blocks it, and the block is in the activity"
+    );
+    let r = s.reports(ROOT, T0 + 2 * H + 3 * DAY).unwrap();
+    let bl = r.insights.iter().find(|i| i.code == "blocked").unwrap();
+    assert_eq!(bl.keys, vec![a.clone()]);
+    assert_eq!(bl.params["longestDays"], serde_json::json!(3.0));
+    let rw = r.insights.iter().find(|i| i.code == "rework").unwrap();
+    assert_eq!(rw.params["runs"], serde_json::json!(3));
+    assert_eq!(rw.params["failed"], serde_json::json!(2));
+    assert_eq!(rw.keys, vec![a.clone()]);
+    // one Co-Dev turn with a cost is not enough for a cost per point
+    let turn = |key: &str, usd: f64| AuditEntry {
+        id: 0,
+        at: T0,
+        session: "s".into(),
+        event: "turn".into(),
+        origin: "issue".into(),
+        issue_key: Some(key.into()),
+        actor: "W".into(),
+        mode: "auto".into(),
+        tool: None,
+        call: None,
+        path: None,
+        lines: None,
+        command: None,
+        verdict: None,
+        outcome: None,
+        decided_by: None,
+        decided_at: None,
+        reason: None,
+        model: None,
+        tokens_in: None,
+        tokens_out: None,
+        driver: None,
+        cost_usd: Some(usd),
+    };
+    s.record_audit(ROOT, &turn(&b, 0.5)).unwrap();
+    let r = s.reports(ROOT, T0 + DAY).unwrap();
+    assert!(r.withheld.iter().any(|w| w.code == "cost_wait"));
+    assert!(r.insights.iter().all(|i| !i.code.starts_with("cost")));
+}
+
+#[test]
+fn a_new_project_records_its_history_from_its_creation() {
+    let s = store();
+    s.load(ROOT, T0).unwrap();
+    assert_eq!(s.reports(ROOT, T0).unwrap().history_since, Some(T0));
+}
+
+#[test]
+fn an_issue_done_before_the_sprint_is_not_counted_as_its_work() {
+    let mut s = store();
+    sprint(&mut s, "S", T0, 10);
+    let a = create(&mut s, "a", T0);
+    let b = create(&mut s, "b", T0);
+    finish(&mut s, &b, T0);
+    plan(&mut s, &a, Some("S1"), T0);
+    ap(
+        &mut s,
+        T0 + H,
+        serde_json::json!({"op": "start_sprint", "id": "S1"}),
+    );
+    plan(&mut s, &b, Some("S1"), T0 + DAY);
+    let bd = s.reports(ROOT, T0 + DAY).unwrap().burndown.unwrap();
+    assert_eq!(
+        bd.days
+            .iter()
+            .map(|d| (d.scope, d.done))
+            .collect::<Vec<_>>(),
+        vec![(3, 0), (3, 0)]
+    );
+    ap(
+        &mut s,
+        T0 + 2 * DAY,
+        serde_json::json!({"op": "close_sprint", "id": "S1"}),
+    );
+    let v = &s.reports(ROOT, T0 + 2 * DAY).unwrap().velocity[0];
+    assert_eq!((v.points, v.added, v.carried), (0, Some(0), Some(3)));
 }

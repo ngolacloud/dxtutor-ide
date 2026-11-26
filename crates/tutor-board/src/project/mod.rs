@@ -17,6 +17,7 @@ pub mod breakpoints;
 pub mod deploys;
 pub mod evidence;
 pub mod incidents;
+pub mod insights;
 pub mod plan;
 pub mod reports;
 pub mod risks;
@@ -679,8 +680,8 @@ impl ProjectStore {
     /// Creates the project of `root` on first use: empty, with the method's defaults.
     fn ensure(conn: &Connection, root: &str, now: i64) -> Result<(), ProjectError> {
         conn.execute(
-            "INSERT OR IGNORE INTO projects (root, key_prefix, seq, method, iter_days, wip, dor, dod, created, updated)
-             VALUES (?1, ?2, 0, 'kanban', 14, ?3, '[]', '[]', ?4, ?4)",
+            "INSERT OR IGNORE INTO projects (root, key_prefix, seq, method, iter_days, wip, dor, dod, created, updated, history_since)
+             VALUES (?1, ?2, 0, 'kanban', 14, ?3, '[]', '[]', ?4, ?4, ?4)",
             params![root, default_prefix(root), r#"{"progress":3,"review":2,"accept":2}"#, now],
         )?;
         Ok(())
@@ -1350,7 +1351,7 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             if let Some(s) = &sprint {
                 sprint_exists(c, root, s)?;
             }
-            insert_issue(
+            let key = insert_issue(
                 c,
                 root,
                 actor,
@@ -1365,6 +1366,9 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 sprint.as_deref(),
                 "",
             )?;
+            if let Some(s) = &sprint {
+                record_scope(c, root, s, &key, now, "added", points, "created", actor)?;
+            }
         }
         Op::UpdateIssue {
             key,
@@ -1424,9 +1428,24 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 set("priority", p)?;
                 changed.push("prioridade");
             }
+            let estimate;
             if let Some(p) = &points {
+                let (old, sprint): (Option<u32>, Option<String>) = c.query_row(
+                    "SELECT points, sprint FROM issues WHERE root = ?1 AND key = ?2",
+                    params![root, key],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
                 set("points", p)?;
-                changed.push("estimativa");
+                if old != *p {
+                    // the metrics read the estimate as it was on each day (Board A)
+                    c.execute(
+                        "INSERT INTO estimate_changes (root, key, at, old_points, new_points, sprint, actor) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        params![root, key, now, old, p, sprint, actor],
+                    )?;
+                }
+                let pts = |v: Option<u32>| v.map_or("–".to_string(), |n| n.to_string());
+                estimate = format!("estimativa {} → {}", pts(old), pts(*p));
+                changed.push(&estimate);
             }
             if let Some(a) = &assignee {
                 set("assignee", a)?;
@@ -1678,6 +1697,10 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                         "testes falharam (RF-B07)",
                     )?;
                 }
+                if let (None, Some(b)) = (&row.blocked, &blocked) {
+                    // when it became blocked: the reports measure blocked time from this entry
+                    log(c, root, &key, now, actor, "blocked", None, None, b)?;
+                }
             }
         }
         Op::SetAcceptance { key, items } => {
@@ -1746,6 +1769,14 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
         }
         Op::DeleteIssue { key } => {
             issue_row(c, root, &key)?;
+            let (sprint, points): (Option<String>, Option<u32>) = c.query_row(
+                "SELECT sprint, points FROM issues WHERE root = ?1 AND key = ?2",
+                params![root, key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            if let Some(s) = &sprint {
+                record_scope(c, root, s, &key, now, "removed", points, "deleted", actor)?;
+            }
             for t in ["issues", "acceptance", "issue_links"] {
                 c.execute(
                     &format!("DELETE FROM {t} WHERE root = ?1 AND key = ?2"),
@@ -1811,29 +1842,37 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 ));
             }
             c.execute(
-                "UPDATE sprints SET state = 'active' WHERE root = ?1 AND id = ?2",
-                params![root, id],
+                "UPDATE sprints SET state = 'active', started_at = ?3, closed_at = NULL WHERE root = ?1 AND id = ?2",
+                params![root, id, now],
             )?;
+            // what the sprint commits to: kept after it closes, so «committed vs done» survives the carry-over
+            snapshot_sprint(c, root, &id, "start", now)?;
         }
         Op::CloseSprint { id, carry_to } => {
             sprint_exists(c, root, &id)?;
             if let Some(t) = &carry_to {
                 sprint_exists(c, root, t)?;
             }
-            let open: Vec<String> = {
+            // what the sprint held when it closed, before the carry-over empties it
+            snapshot_sprint(c, root, &id, "close", now)?;
+            let open: Vec<(String, Option<u32>)> = {
                 let mut st = c.prepare(
-                    "SELECT key FROM issues WHERE root = ?1 AND sprint = ?2 AND state <> 'done'",
+                    "SELECT key, points FROM issues WHERE root = ?1 AND sprint = ?2 AND state <> 'done'",
                 )?;
                 let v = st
-                    .query_map(params![root, id], |r| r.get(0))?
+                    .query_map(params![root, id], |r| Ok((r.get(0)?, r.get(1)?)))?
                     .collect::<Result<_, _>>()?;
                 v
             };
-            for k in &open {
+            for (k, points) in &open {
                 c.execute(
                     "UPDATE issues SET sprint = ?3 WHERE root = ?1 AND key = ?2",
                     params![root, k, carry_to],
                 )?;
+                record_scope(c, root, &id, k, now, "removed", *points, "carried", actor)?;
+                if let Some(t) = &carry_to {
+                    record_scope(c, root, t, k, now, "added", *points, "carried", actor)?;
+                }
                 log(
                     c,
                     root,
@@ -1850,8 +1889,8 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 )?;
             }
             c.execute(
-                "UPDATE sprints SET state = 'closed' WHERE root = ?1 AND id = ?2",
-                params![root, id],
+                "UPDATE sprints SET state = 'closed', closed_at = ?3 WHERE root = ?1 AND id = ?2",
+                params![root, id, now],
             )?;
         }
         Op::PlanIssue { key, sprint } => {
@@ -1859,6 +1898,7 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
             if let Some(s) = &sprint {
                 sprint_exists(c, root, s)?;
             }
+            record_replan(c, root, &key, sprint.as_deref(), now, actor)?;
             c.execute(
                 "UPDATE issues SET sprint = ?3, updated = ?4 WHERE root = ?1 AND key = ?2",
                 params![root, key, sprint, now],
@@ -2039,6 +2079,75 @@ fn sprint_exists(c: &Connection, root: &str, id: &str) -> Result<(), ProjectErro
     )
     .optional()?
     .ok_or_else(|| err("not_found", format!("a sprint {id} não existe")))
+}
+
+/// One issue joined (`added`) or left (`removed`) a sprint, with its estimate at that moment
+/// (Board A: the burndown reads the scope as it was each day, not as it is today).
+#[allow(clippy::too_many_arguments)]
+fn record_scope(
+    c: &Connection,
+    root: &str,
+    sprint: &str,
+    key: &str,
+    at: i64,
+    change: &str,
+    points: Option<u32>,
+    reason: &str,
+    actor: &str,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "INSERT INTO sprint_scope (root, sprint, key, at, change, points, reason, actor) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![root, sprint, key, at, change, points, reason, actor],
+    )?;
+    Ok(())
+}
+
+/// `PlanIssue` moves an issue between sprints (or the backlog): it leaves the old sprint and
+/// joins the new one; nothing is recorded when the sprint does not change.
+fn record_replan(
+    c: &Connection,
+    root: &str,
+    key: &str,
+    to: Option<&str>,
+    at: i64,
+    actor: &str,
+) -> rusqlite::Result<()> {
+    let (from, points): (Option<String>, Option<u32>) = c.query_row(
+        "SELECT sprint, points FROM issues WHERE root = ?1 AND key = ?2",
+        params![root, key],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if from.as_deref() == to {
+        return Ok(());
+    }
+    if let Some(f) = &from {
+        record_scope(c, root, f, key, at, "removed", points, "planned", actor)?;
+    }
+    if let Some(t) = to {
+        record_scope(c, root, t, key, at, "added", points, "planned", actor)?;
+    }
+    Ok(())
+}
+
+/// What a sprint holds at `kind` (`start`: its commitment; `close`: what it ended with), with
+/// each issue's estimate and state at that moment.
+fn snapshot_sprint(
+    c: &Connection,
+    root: &str,
+    sprint: &str,
+    kind: &str,
+    at: i64,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "DELETE FROM sprint_snapshots WHERE root = ?1 AND sprint = ?2 AND kind = ?3",
+        params![root, sprint, kind],
+    )?;
+    c.execute(
+        "INSERT INTO sprint_snapshots (root, sprint, kind, key, points, state, at)
+         SELECT root, sprint, ?3, key, points, state, ?4 FROM issues WHERE root = ?1 AND sprint = ?2",
+        params![root, sprint, kind, at],
+    )?;
+    Ok(())
 }
 
 /// The flow rules (PROJ-02/03), checked before a move; `reason` overrides them.
