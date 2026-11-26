@@ -4957,10 +4957,13 @@ mod tests {
             scope,
             template: None,
         };
-        // without a scope there is nothing to check
+        // without a scope there is no scope to check (Multi Co-Dev phase 3: the snapshot is still taken, for
+        // the file claims of what the command changes)
         *s.origin.lock().unwrap() = Some(origin(vec![]));
         bash_scope_start(&s, "b0");
-        assert!(s.bash_snaps.lock().unwrap().is_empty());
+        let none = RefCell::new(vec![]);
+        bash_scope_end(&s, "b0", &mut |e| none.borrow_mut().push(e));
+        assert!(none.borrow().is_empty());
         *s.origin.lock().unwrap() = Some(origin(vec!["src/**".into()]));
         std::fs::create_dir_all(d.path().join("src")).unwrap();
         bash_scope_start(&s, "b1");

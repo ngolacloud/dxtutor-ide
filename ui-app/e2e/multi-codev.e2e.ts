@@ -226,6 +226,7 @@ test("phase 3: a second Co-Dev gets its own worktree (approved), starts despite 
   await expect(page.locator("#ag-msgs")).toContainText("Working on DX-1");
   await expect(page.locator("#approval")).toHaveCount(0);
   await expect(page.locator("#ag-codevs")).toHaveCount(0);
+  await expect(page.locator(".hk-bar [data-action='hunk-accept']")).toHaveCount(1);
   expect((await calls(page, "codev_agent_start"))[0].worktree).toBeUndefined();
 
   // 2. DX-2 with DX-1 open: the shared approval dialog shows the exact command; approved, it works in its worktree
