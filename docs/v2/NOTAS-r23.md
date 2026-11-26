@@ -195,7 +195,80 @@ catálogo/scorecards, GitOps, custo e inventário ficam para depois; a F5 em dua
 - A revisão de PR foi testada com um `gh` falso e, na app real, sem sessão no `gh` (diz porquê); nenhum PR real foi
   revisto aqui.
 
+## O que ficou adiado e porquê (revisão de 2026-11-26)
+
+A r23 (F1–F6) está toda no `develop`. Esta revisão junta o que ficou de fora em cada fase, arrumado pelo **motivo** —
+porque o motivo diz o que o desbloqueia. Nada disto foi esquecido: cada item está registado na fase em que surgiu
+(`docs/v2/AUDIT-r23.md`).
+
+### 1. Falta uma fonte de dados real (não há de onde ler, e a regra é nunca inventar números)
+
+| Item | Fase | Porquê | O que desbloqueia |
+|---|---|---|---|
+| On-call, alertas e o drift «onde estás de on-call» na fila | F5b | Não há fonte de pager (PagerDuty, Opsgenie, Grafana OnCall); tu decidiste incidentes locais (Q9) | Escolher e ligar uma fonte de pager |
+| Capacidade, orçamento de erro (SLO) na revisão de PR e no deploy; confiança dos incidentes acima de «baixa» | F4c2, F5b | Não há fonte de métricas | Ligar Prometheus/Loki (ou a da cloud), só de leitura, com credenciais do Vault |
+| Custo da cloud e inventário (e a cobertura de IaC / «codify») | F5a | Não há ligadores; credenciais de leitura teriam de vir do Vault | Um ligador por fornecedor (AWS Cost Explorer, inventário com `aws/creds/…-readonly`) |
+| Quem mudou um recurso com drift | F4b | Precisa do registo de auditoria da cloud | Ligar o CloudTrail (ou equivalente) |
+| `dx-secret-check` (validar os segredos montados dentro do cluster) | F4c2 | A imagem do Job ainda não existe | Construir e publicar a imagem; o passo já está previsto e diz «não disponível» |
+| Catálogo/scorecards e GitOps (Argo CD) | F5 | Não têm ID UI-PLAT, precisam do `argocd` e de um catálogo de serviços; tu decidiste adiar (Q10) | Uma decisão tua sobre o catálogo e o `argocd` instalado |
+
+### 2. Decisão tua (adiado de propósito)
+
+| Item | Fase | Porquê |
+|---|---|---|
+| Ecrãs de catálogo, GitOps, custo e inventário | F5 | Q10: fora dos UI-PLAT-09…14 e sem fontes |
+| «New Project from a Template» nas boas-vindas | F6 | Q11: não há templates reais (o `delonix new` não existe) |
+| Lanes do git ligadas por omissão | F3b | Q6: experimentais, desligadas até provarem que não confundem a árvore de trabalho |
+| Incidentes sem fonte externa | F5b | Q9: registos locais abertos por uma pessoa |
+
+### 3. Limite técnico medido (a ferramenta não o permite hoje)
+
+| Item | Fase | Porquê | Caminho possível |
+|---|---|---|---|
+| Andar para trás com botões (`stepBack`/`reverseContinue` do DAP) | F2b | O gdb 15 em modo DAP não os tem; andar para trás é pela consola do rr | Uma versão do gdb que os implemente, ou um adaptador próprio sobre o gdb/MI |
+| «Restart frame» com o lldb-dap | F2a | O lldb-dap não anuncia `supportsRestartFrame` | Fica disponível no modo rr (gdb) |
+| codelldb | F2a | O `dapc` não o consegue conduzir (Q15b) | Só se houver motivo para trocar de adaptador |
+| Um segredo partido entre duas leituras do terminal pode passar | F4a | O eco interactivo não pode esperar pela linha inteira | Uma janela de retenção curta no `Masker` só para fluxos não interactivos (tarefas) |
+| Um commit feito à mão no teu próprio terminal não passa pelo secret scan | F4a | Não se instalam hooks de git no repositório sem o dono pedir | Oferecer (com o teu OK) um hook `pre-commit` que chame o mesmo scan |
+| O ficheiro do plano guarda os valores (segredos incluídos) | F4b | É assim que o tofu/terraform gravam o plano | Já mitigado: 0600, pasta de dados da app, apagado ao fim de um dia |
+| O raio de impacto pára num módulo | F4b | Seguir as variáveis dentro de um módulo exige avaliar as expressões | Avaliar `module_calls` com os valores do plano |
+| O undo do git não cobre ficheiros não seguidos | F3a | O `git stash create` só cobre ficheiros seguidos | Guardar também os não seguidos (com cuidado com o tamanho) |
+| O classificador do agente chama «perigoso» a `kubectl get deploy` | F5a | Vê a palavra «deploy»; o Co-Dev está fora do âmbito | Corrigir no classificador do Co-Dev numa sessão própria (os runbooks já decidem comando a comando) |
+
+### 4. Mais trabalho, sem bloqueio externo (candidatos a uma próxima fase)
+
+| Item | Fase | Notas |
+|---|---|---|
+| As chaves antigas em `~/.config/dxtutor/providers.json` (UI pré-v7) continuam em texto | F4c1 | Só são lidas; movê-las para o keychain é pequeno e fecha um buraco de segurança |
+| Canary e blue-green no deploy | F4c2 | O rollout é rolling; o plano já tem o passo «Estratégia» |
+| Credenciais dinâmicas do Vault durante o rollout | F4c2 | O rollout usa a identidade do kubeconfig |
+| Terragrunt e Helm no pipeline de IaC | F4b | O pipeline cobre tofu/terraform |
+| Separador «Golden paths» | F4b | Precisa de definir o que é um golden path no projecto |
+| Comentários do Co-Dev ancorados às linhas do diff de um PR | F5b | Hoje vêm no chat; exige um tipo de contexto novo no Co-Dev (fora do âmbito, Q3) |
+| Depurador: watches fixos no código, «condition insights», Parallel Stacks, vistas de deque, layout de memória, heap | F2a/F2b | Listados no brief; nenhum bloqueio |
+| Depurador: valores previstos e linhas esbatidas, cadeia de causas automática, «reconstruir e reproduzir até ao passo n» | F2b | Precisam de mais trabalho sobre o rr; o cartão oferece «última escrita a…» |
+| O histórico antigo de promoções do Infra (`ENVX.hist`) | F4c2 | Já não é escrito; o ecrã mostra os registos de deploy — pode sair |
+
+### 5. Feito, mas só testado com falsos (falta prová-lo num ambiente real)
+
+| Item | Fase | O que falta |
+|---|---|---|
+| OIDC do Vault | F4c1 | Um fornecedor de identidade real |
+| Credenciais dinâmicas | F4c1 | Um motor de base de dados no Vault |
+| Deploy para um cluster real | F4c2 | Um cluster de staging (o auto-teste usa um kubeconfig vazio, de propósito) |
+| Revisão de um PR real | F5b | `gh` com sessão e um PR de infra |
+| tflint, checkov, trivy, conftest, infracost, gitleaks | F4a/F4b | Instalar as ferramentas (hoje dizem «não instalado», testados pelos JSON); o syft e o grype já estão instalados e correm de verdade |
+
+### Recomendação de ordem
+
+1. **Segurança, pequeno:** mover as chaves do `providers.json` para o keychain; o hook `pre-commit` opcional (com o teu
+   OK); a retenção do `Masker` nas tarefas do terminal.
+2. **Provar o que só foi testado com falsos:** instalar tflint/checkov/trivy/conftest/infracost/gitleaks, e fazer um
+   deploy num cluster de staging (kind serve) — sem código novo, só verificação.
+3. **Uma fonte de métricas** (Prometheus): desbloqueia de uma vez o SLO, a capacidade e a confiança dos incidentes.
+4. **Funcionalidades sem bloqueio:** canary, credenciais dinâmicas no rollout, Terragrunt/Helm.
+5. O resto (catálogo, GitOps, custo, inventário, pager) espera pelas tuas decisões sobre as fontes.
+
 ## A seguir
 
-A r23 fica completa com a F5b. O que ficou adiado (catálogo/scorecards, GitOps, custo, inventário; canary/blue-green;
-o `dx-secret-check`) está registado nas limitações de cada fase.
+A r23 está completa. O que vem a seguir depende das tuas escolhas na secção anterior.
