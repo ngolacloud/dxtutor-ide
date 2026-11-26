@@ -373,7 +373,7 @@ function boot(): void {
       runTask: (line, o) => {
         L.setPanelTab("terminal");
         view.showShared(false);
-        return terminals.runTask(line, { label: o?.label, cwd: o?.cwd ?? null, env: o?.env ?? null });
+        return terminals.runTask(line, { label: o?.label, cwd: o?.cwd ?? null, env: o?.env ?? null, vault: o?.vault ?? null });
       },
       log: (ch, text, err) => output.append(ch, text, err ? "error" : "info"),
       inspect: () => ({

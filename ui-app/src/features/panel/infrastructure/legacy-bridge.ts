@@ -32,7 +32,7 @@ interface Dxr {
 
 /** O contrato que o `bridge.ts` consome em `DXR.term`. */
 export interface TermApi {
-  runTask(line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string }): Promise<number>;
+  runTask(line: string, o?: { env?: Record<string, string>; cwd?: string; label?: string; vault?: { addr: string; namespace?: string | null; lease?: string | null } }): Promise<number>;
   log(channel: string, text: string, err?: boolean): void;
   /** Inspecção para o selftest do bridge (estado real, sem DOM). */
   inspect(): TermInspect;
