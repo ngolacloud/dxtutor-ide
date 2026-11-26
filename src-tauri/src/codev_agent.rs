@@ -309,6 +309,40 @@ struct Session {
     overrides: Mutex<HashMap<String, String>>,
     /// RF-G03: tool_use_id of a running `bash` → the working tree's dirty files before it.
     bash_snaps: Mutex<HashMap<String, DirtyState>>,
+    /// When the session was opened in this run of the app (ms since the epoch; the Agent map).
+    opened: u64,
+}
+
+/// A session open in this run of the app, as the Agent map lists it (`codev_agent_live`): the
+/// map shows each one — today the chat's, later one per issue of a sprint — with its sub-agents.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveSession {
+    pub id: String,
+    pub root: String,
+    pub model: String,
+    pub issue: Option<String>,
+    pub busy: bool,
+    pub opened: u64,
+}
+
+/// The open sessions, oldest first (read-only: nothing changes).
+pub fn live_sessions() -> Vec<LiveSession> {
+    let mut v: Vec<LiveSession> = sessions()
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, s)| LiveSession {
+            id: id.clone(),
+            root: s.agent.ctx.root.display().to_string(),
+            model: s.agent.cfg.model.clone(),
+            issue: s.issue_key.lock().unwrap().clone(),
+            busy: s.busy.load(Ordering::Relaxed),
+            opened: s.opened,
+        })
+        .collect();
+    v.sort_by(|a, b| a.opened.cmp(&b.opened).then_with(|| a.id.cmp(&b.id)));
+    v
 }
 
 /// RF-P04: the UI says who drives a PairCode session when the human decides; the audit log
@@ -799,6 +833,10 @@ pub fn start(
         violating: Mutex::new(HashMap::new()),
         overrides: Mutex::new(HashMap::new()),
         bash_snaps: Mutex::new(HashMap::new()),
+        opened: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -2498,6 +2536,30 @@ mod tests {
             scope: vec![],
             template: None,
         });
+    }
+
+    #[test]
+    fn live_sessions_list_the_open_ones_with_their_issue_until_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = StartSpec {
+            root: dir.path().display().to_string(),
+            model: Some("claude-opus-5-5".into()),
+            sessions_base: Some(dir.path().join(".sessions")),
+            issue_key: Some("DX-7".into()),
+            ..Default::default()
+        };
+        let id = start(spec, &key("sk-test"), None).unwrap();
+        // other tests open sessions in parallel: look only at this one
+        let mine = || live_sessions().into_iter().find(|l| l.id == id);
+        let l = mine().expect("listed while open");
+        assert_eq!(l.issue.as_deref(), Some("DX-7"));
+        assert_eq!(l.model, "claude-opus-5-5");
+        assert_eq!(l.root, dir.path().display().to_string());
+        assert!(!l.busy && l.opened > 0);
+        let v = serde_json::to_value(&l).unwrap();
+        assert!(v.get("opened").is_some() && v.get("issue").is_some());
+        assert!(close(&id));
+        assert!(mine().is_none(), "a closed session leaves the map");
     }
 
     #[test]

@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 301 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 302 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -115,6 +115,16 @@ O primeiro pedido de uma conversa neste repositório desceu de ~17k para ~7k tok
   barra de estado mostra a percentagem lida da cache e o título o custo da conversa.
 - **Ollama**: o agente usa a API nativa (`/api/chat`) com `num_ctx` por degraus (16k→128k); o
   endpoint OpenAI-compatível ignora o `num_ctx` e o contexto por omissão cortava o prompt.
+
+### Mapa de agentes (`domain/agent-map.ts`, `application/agent-map.ts`, `ui/agent-map-view.ts`)
+
+O chip «● N agentes» do compositor abre um modal com a sessão da conversa (raiz, à esquerda) e os seus agentes
+(à direita). O modelo é «sessões e os seus sub-agentes»: a loja ouve o `codev-agent://event` de TODAS as sessões
+(a conversa só segue a sua) e pede `codev_agent_live` ao abrir; numa sprint, cada Co-Dev de uma issue é uma
+sessão-agente com os sub-agentes por baixo. O progresso de um `task` chega como `{kind: "subagent", call, step}`
+(`tutor_agent::tool::SubagentStep`: `started`/`tool_start`/`tool_result`/`usage`), emitido pelo loop porque o
+`Task` diz `reports_progress()`; o resultado da chamada continua a ser o relatório. Só no desktop; os goldens
+não mostram o compositor. Testes: `tests/codev.agent-map.test.ts`, `cargo test -p tutor-agent --test flow`.
 
 ## Segunda feature extraída: Explain · Code review · Under the hood (`ui-app/src/features/codereview/`)
 

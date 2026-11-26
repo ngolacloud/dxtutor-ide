@@ -218,6 +218,75 @@ fn task_runs_a_read_only_subagent_and_returns_its_report() {
 }
 
 #[test]
+fn the_loop_streams_the_subagent_progress_tagged_with_the_task_call() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("lexer.rs"), "fn tokenize() {}\n").unwrap();
+    let child = scripted(vec![
+        step(
+            StopReason::ToolUse,
+            vec![tool("g1", "grep", json!({"pattern": "fn tokenize"}))],
+        ),
+        step(StopReason::EndTurn, vec![text("em lexer.rs:1.")]),
+    ]);
+    let parent = scripted(vec![
+        step(
+            StopReason::ToolUse,
+            vec![tool(
+                "t1",
+                "task",
+                json!({"description": "onde está tokenize", "prompt": "Encontra tokenize.", "role": "tester"}),
+            )],
+        ),
+        step(StopReason::EndTurn, vec![text("feito")]),
+    ]);
+    let spec = SubagentSpec {
+        provider: child,
+        model: "claude-opus-5-5".into(),
+        effort: Effort::Low,
+        lang: tutor_agent::context::ReplyLang::Pt,
+    };
+    let opts = ToolsetOptions::default();
+    let tools = agent_tools(&opts, 5, &FlowState::default(), Some(spec), vec![]);
+    let agent = Agent::new(parent, tools, AgentConfig::new("m"), ctx(d.path()));
+    let mut t = Transcript::new();
+    let mut evs = vec![];
+    agent
+        .run_turn(
+            &mut t,
+            Some(Message::user_text("onde está?")),
+            &mut |e| evs.push(e),
+            &mut |_| Decision::Allow,
+        )
+        .unwrap();
+    let pos = |f: &dyn Fn(&AgentEvent) -> bool| evs.iter().position(f).expect("evento em falta");
+    let start = pos(&|e| matches!(e, AgentEvent::ToolStart { id, .. } if id == "t1"));
+    let end = pos(&|e| matches!(e, AgentEvent::ToolResult { id, .. } if id == "t1"));
+    let steps: Vec<Value> = evs[start..end]
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::Subagent { .. }))
+        .map(|e| serde_json::to_value(e).unwrap())
+        .collect();
+    // a forma que a UI lê: {kind: "subagent", call, step: {type, ...}}, entre o início e o fim da chamada
+    assert!(steps
+        .iter()
+        .all(|s| s["kind"] == "subagent" && s["call"] == "t1"));
+    let types: Vec<&str> = steps
+        .iter()
+        .map(|s| s["step"]["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        types,
+        ["started", "usage", "tool_start", "tool_result", "usage"]
+    );
+    assert_eq!(steps[0]["step"]["role"], "tester");
+    assert_eq!(steps[2]["step"]["name"], "grep");
+    assert_eq!(steps[3]["step"]["is_error"], false);
+    // o total do turno do sub-agente: dois pedidos de 7 + 3
+    assert_eq!(steps[4]["step"]["turn"]["input_tokens"], 14);
+    assert_eq!(steps[4]["step"]["turn"]["output_tokens"], 6);
+}
+
+#[test]
 fn the_loop_checkpoints_once_per_turn_before_the_first_change() {
     let d = tempfile::tempdir().unwrap();
     let root = d.path();

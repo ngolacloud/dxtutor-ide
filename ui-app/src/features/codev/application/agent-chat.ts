@@ -177,7 +177,6 @@ export function makeAgentChat(deps: AgentChatDeps) {
         }
         if (e.name === "todo_write") presenter.agentTodos?.(t.card, parseTodos(e.input));
         else toolRef(t, e.id, e.name, describeCall(e.name, e.input));
-        if (e.name === "task") presenter.subagent?.(e.id, typeof e.input.description === "string" ? e.input.description : "", "running");
         break;
       case "checkpoint":
         presenter.agentNote?.(t.card, "checkpoint", copy("checkpointSaved", { id: e.id }));
@@ -190,7 +189,6 @@ export function makeAgentChat(deps: AgentChatDeps) {
         presenter.agentNote?.(t.card, "question", `Pergunta do Co-Dev (responde na próxima mensagem): ${e.text}`);
         break;
       case "tool_result":
-        if (e.name === "task") presenter.subagent?.(e.id, "", e.is_error ? "error" : "done");
         if (e.name !== "todo_write") presenter.toolRunResult(toolRef(t, e.id, e.name, ""), !e.is_error, summarizeResult(e.content));
         break;
       case "usage":
@@ -311,6 +309,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     const signal = presenter.startAbort();
     try {
       const id = await ensureSession(q);
+      deps.agentMap?.turn(id, { request: q, model: deps.model(), issue: issueKey });
       await new Promise<void>((resolve) => {
         const tt: Turn = {
           card,
@@ -363,7 +362,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
       const btns = list.slice(0, 6).map((s, i) => ({ l: describeSession(s, now), v: s.id, pri: i === 0 }));
       const pick = await gate.ask<string>(card.tools, [...btns, { l: copy("cancel"), v: "" }]).catch(() => "");
       if (!pick) return;
-      if (session && session !== pick) void gateway.close(session);
+      if (session && session !== pick) {
+        void gateway.close(session);
+        deps.agentMap?.closed(session);
+      }
       await ensureSubscribed();
       sessionKey = key();
       session = await gateway.start({
@@ -484,7 +486,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
   }
 
   function reset(): void {
-    if (session) void gateway.close(session);
+    if (session) {
+      void gateway.close(session);
+      deps.agentMap?.closed(session);
+    }
     session = null;
     sessionKey = null;
     planSteps = [];
