@@ -432,6 +432,9 @@ mod tests {
 
     #[test]
     fn project_steps_grade_files_and_refuse_files_for_single_file_steps() {
+        // grading runs on the host here: hold the engine so a parallel test can't switch it
+        let _engine = crate::sandbox::EngineGuard::take();
+        crate::sandbox::set_engine("host").unwrap();
         let courses = vec![fixture_course()];
         let files = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
             pairs
