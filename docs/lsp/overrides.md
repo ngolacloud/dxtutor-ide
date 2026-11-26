@@ -29,7 +29,8 @@ trailing commas.
 {
   "version": 1,          // optional; this build reads version 1
   "languages": [ ... ],  // optional
-  "servers": [ ... ]     // optional
+  "servers": [ ... ],    // optional
+  "resources": { ... }   // optional; your file only (see Resources)
 }
 ```
 
@@ -77,6 +78,30 @@ Each entry names the `id` it changes or adds.
 | `recipes` | how dxtutor may install it from the missing-server banner (see [Install recipes](#install-recipes)) |
 
 A field dxtutor does not know is an error (usually a typo).
+
+## Resources
+
+A language server with no open file keeps memory for nothing, and some (jdtls, the Kotlin server) take a lot.
+dxtutor stops them for you:
+
+- A server with no open file, unused for `idleMinutes`, stops. It starts again the next time a file needs it.
+- At most `maxServers` run at once. When one more starts, the server used least recently that has no open file
+  stops. A server with open files is never stopped this way: if every server left has open files, dxtutor tells
+  you instead.
+
+```jsonc
+{ "resources": { "idleMinutes": 10, "maxServers": 6 } }
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `idleMinutes` | `10` | 0 to 1440; `0` keeps idle servers running until you close the folder |
+| `maxServers` | `6` | 1 to 32 |
+
+`resources` is read only from your own file. A project file that sets it is an error, and that file is ignored.
+The Command Palette entry **LSP: Show Running Language Servers** lists the servers that run now (process id,
+folder, open files, idle time, memory), with **Restart** and **Stop**. Their output (stderr and the error, warning
+and info messages they log) is in the **Language servers** channel of the Output panel, with secrets masked.
 
 ## Settings
 
