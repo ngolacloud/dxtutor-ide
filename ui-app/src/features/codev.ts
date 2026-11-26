@@ -42,6 +42,7 @@ import { isDesktop } from "../platform/tauri/core";
 import { currentLocale, translator } from "../app/i18n";
 import { CODEV_ENGINE_MESSAGES } from "./codev/application/messages";
 import { CODEV_CHAT_MESSAGES } from "./codev/ui/chat-messages";
+import { cacheHitPercent } from "./codev/domain/pricing";
 import {
   codevEngine,
   decisions as DECS_ARR,
@@ -143,25 +144,36 @@ function newChat() {
    O backend devolve, no fim de cada volta, os tokens que o provider reportou
    (platform/desktop/llm.ts anuncia-os em `dx:llm-usage`). O `ctx` mostra o tamanho do último
    contexto enviado (tokens de entrada da última volta) e o título dá a soma da conversa; antes
-   da primeira volta (e no browser, sem backend) fica vazio. «Nova conversa» repõe-no. */
-const CTX = { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0 };
+   da primeira volta (e no browser, sem backend) fica vazio. «Nova conversa» repõe-no.
+   O agente v2 também diz quanto da entrada veio da cache e o custo de cada pedido: o `ctx`
+   mostra a percentagem lida da cache na conversa e o título a cache e o custo acumulados. */
+const CTX = { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0, cacheIn: 0, cacheRead: 0, cacheWrite: 0, cost: 0, priced: false };
 const fmtTok = (n: number): string => (n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
 function drawCtx(): void {
   const st = $('#st-ctx');
   if (!st) return;
-  st.textContent = CTX.turns && CTX.last ? 'ctx ' + fmtTok(CTX.last) : '';
-  st.title = !CTX.turns ? 'Contexto usado na conversa' : CTX.last
+  const hit = CTX.cacheIn ? cacheHitPercent(CTX.cacheIn, CTX.cacheRead) : null;
+  st.textContent = CTX.turns && CTX.last ? 'ctx ' + fmtTok(CTX.last) + (hit !== null ? ' · ' + tc('ctxCacheShort', { pct: hit }) : '') : '';
+  let title = !CTX.turns ? 'Contexto usado na conversa' : CTX.last
     ? tc('ctxLast', { in: CTX.last, out: CTX.lastOut, inTotal: CTX.inTotal, outTotal: CTX.outTotal, turns: CTX.turns })
     : tc('ctxNoUsage');
+  if (hit !== null) title += '\n' + tc('ctxCache', { pct: hit, read: CTX.cacheRead, write: CTX.cacheWrite });
+  if (CTX.priced) title += '\n' + tc('ctxCost', { cost: CTX.cost.toFixed(CTX.cost < 0.01 ? 4 : CTX.cost < 1 ? 3 : 2) });
+  st.title = title;
 }
 document.addEventListener('dx:llm-usage', (e) => {
-  const d = (e as CustomEvent<{ input?: number; output?: number }>).detail || {};
+  const d = (e as CustomEvent<{ input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: number | null }>).detail || {};
   const i = Number(d.input) || 0, o = Number(d.output) || 0;
   CTX.turns++; CTX.last = i; CTX.lastOut = o; CTX.inTotal += i; CTX.outTotal += o;
+  /* só o agente v2 diz a cache (os outros caminhos não a mandam: o ctx fica como era) */
+  if (typeof d.cacheRead === 'number') {
+    CTX.cacheIn += i; CTX.cacheRead += Number(d.cacheRead) || 0; CTX.cacheWrite += Number(d.cacheWrite) || 0;
+  }
+  if (typeof d.cost === 'number' && Number.isFinite(d.cost)) { CTX.cost += d.cost; CTX.priced = true; }
   drawCtx();
 });
 const _newChatBase = newChat;
-function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0 }); drawCtx(); }
+function newChatWithCtx() { _newChatBase(); Object.assign(CTX, { turns: 0, last: 0, lastOut: 0, inTotal: 0, outTotal: 0, cacheIn: 0, cacheRead: 0, cacheWrite: 0, cost: 0, priced: false }); drawCtx(); }
 
 /* publica no window os helpers de transcript/UI (donos agora do chat-view) + a cola local
    de modos/providers, p/ o resíduo app.ts, os onclick inline e as outras features (board) */

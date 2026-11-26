@@ -10,7 +10,7 @@ import { ptCopy, type CodevCopy } from "./messages";
 import type { AgentEvent, ApprovalRequest } from "../domain/agent-events";
 import { ago, callDiff, describeCall, describeSession, isNoToolsError, originFor, outcomeNotice, parseTodos, summarizeResult } from "../domain/agent-events";
 import type { BoardStory } from "../domain/agent-events";
-import { formatUsage } from "../domain/pricing";
+import { costUSD, formatUsage } from "../domain/pricing";
 import { proseOnly } from "../domain/prose";
 import { parseSteps, type PlanStep } from "../domain/run-state";
 import { linesInPlan, placeInPlan, plannedLabel, plannedLines } from "../domain/plan-order";
@@ -193,7 +193,11 @@ export function makeAgentChat(deps: AgentChatDeps) {
         break;
       case "usage":
         presenter.agentNote?.(t.card, "usage", formatUsage(deps.model(), e.turn));
-        deps.onUsage?.(e.request.input_tokens + e.request.cache_read_input_tokens + e.request.cache_creation_input_tokens, e.request.output_tokens);
+        deps.onUsage?.(e.request.input_tokens + e.request.cache_read_input_tokens + e.request.cache_creation_input_tokens, e.request.output_tokens, {
+          cacheRead: e.request.cache_read_input_tokens,
+          cacheWrite: e.request.cache_creation_input_tokens,
+          cost: costUSD(deps.model(), e.request),
+        });
         break;
       case "served_by":
         presenter.agentNote?.(t.card, "fallback", copy("servedBy", { model: e.model }));
@@ -273,7 +277,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     }
   }
 
-  async function ensureSession(): Promise<string> {
+  async function ensureSession(firstRequest = ""): Promise<string> {
     await ensureSubscribed();
     if (session && sessionKey !== key()) reset(); // o seletor de modelo mudou
     if (!session) {
@@ -288,6 +292,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         mode: deps.mode(),
         reviewEdits: !!deps.hunks,
         issue: issueKey,
+        architecture: deps.architecture?.(firstRequest) ?? false,
       });
     }
     return session;
@@ -303,7 +308,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
     deps.run?.turnStarted();
     const signal = presenter.startAbort();
     try {
-      const id = await ensureSession();
+      const id = await ensureSession(q);
       deps.agentMap?.turn(id, { request: q, model: deps.model(), issue: issueKey });
       await new Promise<void>((resolve) => {
         const tt: Turn = {
@@ -394,7 +399,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
   /** `/plano <pedido>`: liga o modo plano (só leitura até o plano ser aprovado) e envia. */
   async function plan(q: string): Promise<void> {
     try {
-      const id = await ensureSession();
+      const id = await ensureSession(q);
       await gateway.setPlan(id, true);
     } catch (e: unknown) {
       const c = presenter.thinking(deps.speaker());

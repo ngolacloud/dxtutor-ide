@@ -22,8 +22,8 @@ use crate::hunks::{
     Check, HunkOp, HunkTracker, LineCount, LineRange, RejectedBy, ValidationStatus,
 };
 use crate::provider::{
-    Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent, SystemBlock,
-    ThinkingDisplay, Usage,
+    CacheTtl, Effort, Provider, ProviderError, Request, Response, StopReason, StreamEvent,
+    SystemBlock, ThinkingDisplay, Usage,
 };
 use crate::retry;
 use crate::schema;
@@ -31,8 +31,11 @@ use crate::tool::{SubagentStep, Tool, ToolCtx, ToolOutput};
 use crate::types::{Message, Role, ToolResult, Transcript};
 
 /// Tamanho máximo de um resultado de ferramenta devolvido ao modelo (as ferramentas de
-/// F2 truncam primeiro com critério próprio; isto é a rede de segurança do loop).
-pub const MAX_RESULT_CHARS: usize = 100_000;
+/// F2 truncam primeiro com critério próprio e dizem como pedir o resto; isto é a rede de
+/// segurança do loop, para MCP, sub-agentes e o resto). Cada resultado fica no histórico e é
+/// reenviado em todos os pedidos seguintes: ~30k caracteres (~8k tokens) chegam para um
+/// excerto útil, e o modelo pede mais quando precisa.
+pub const MAX_RESULT_CHARS: usize = 30_000;
 /// Repetições de um pedido cujo stream falhou a meio (overloaded, rede).
 pub const MID_STREAM_RETRIES: u32 = 2;
 /// `max_tokens` usado para repetir uma resposta cortada a meio de uma ferramenta.
@@ -50,6 +53,8 @@ pub struct AgentConfig {
     pub max_iterations: u32,
     /// Compactação no servidor (Claude).
     pub compaction: bool,
+    /// TTL dos breakpoints do system prompt (o Co-Dev do IDE usa 1 hora: as pausas de revisão).
+    pub cache_ttl: CacheTtl,
 }
 
 impl AgentConfig {
@@ -64,6 +69,7 @@ impl AgentConfig {
             fallbacks: base.fallbacks,
             max_iterations: 60,
             compaction: base.compaction,
+            cache_ttl: base.cache_ttl,
         }
     }
 }
@@ -314,9 +320,11 @@ fn add_usage(t: &mut Usage, u: &Usage) {
     t.output_tokens += u.output_tokens;
     t.cache_read_input_tokens += u.cache_read_input_tokens;
     t.cache_creation_input_tokens += u.cache_creation_input_tokens;
+    t.cache_creation_1h_input_tokens += u.cache_creation_1h_input_tokens;
 }
 
-/// Corta um resultado demasiado grande, mantendo o início e o fim.
+/// Corta um resultado demasiado grande, mantendo o início e o fim, e diz ao modelo como
+/// pedir menos de cada vez.
 pub fn clip(s: String) -> String {
     let n = s.chars().count();
     if n <= MAX_RESULT_CHARS {
@@ -325,7 +333,9 @@ pub fn clip(s: String) -> String {
     let head: String = s.chars().take(MAX_RESULT_CHARS * 4 / 5).collect();
     let tail: String = s.chars().skip(n - MAX_RESULT_CHARS / 5).collect();
     format!(
-        "{head}\n…[resultado truncado: {} caracteres omitidos]…\n{tail}",
+        "{head}\n…[resultado truncado: {} de {n} caracteres omitidos do meio. Pede menos de cada \
+         vez: `read` com offset/limit, `grep` com path/glob ou mode=\"count\", ou filtra a saída do \
+         comando (`| tail -n 80`, `| grep erro`)]…\n{tail}",
         n - MAX_RESULT_CHARS
     )
 }
@@ -347,6 +357,11 @@ impl Agent {
             hooks: None,
             hunks: None,
         }
+    }
+
+    /// As definições das ferramentas tal como vão em cada pedido (pela ordem fixa da sessão).
+    pub fn tool_defs(&self) -> Vec<crate::provider::ToolDef> {
+        self.tools.iter().map(|x| x.def()).collect()
     }
 
     /// Substitui a espera entre repetições (testes).
@@ -371,6 +386,7 @@ impl Agent {
             fallbacks: self.cfg.fallbacks,
             resume_paused,
             compaction: self.cfg.compaction,
+            cache_ttl: self.cfg.cache_ttl,
         }
     }
 

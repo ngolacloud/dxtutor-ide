@@ -41,6 +41,18 @@ pub enum ThinkingDisplay {
     Omitted,
 }
 
+/// Duração das entradas de cache dos breakpoints do system prompt (que cobrem ferramentas +
+/// system). `OneHour`: a escrita custa 2× a entrada (contra 1,25× nos 5 min), mas o prefixo
+/// sobrevive às pausas de revisão do humano, que passam muitas vezes dos 5 minutos — sem ele,
+/// cada pausa reescreve o prefixo inteiro. A cauda da conversa fica sempre nos 5 minutos (a API
+/// exige as entradas mais longas antes das mais curtas).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CacheTtl {
+    #[default]
+    FiveMinutes,
+    OneHour,
+}
+
 /// Um bloco do system prompt. `cache` marca um breakpoint de prompt caching no fim dele.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SystemBlock {
@@ -79,6 +91,8 @@ pub struct Request {
     /// Compactação no servidor quando o contexto cresce (beta `compact-2026-01-12`): os
     /// blocos `compaction` devolvidos ficam no histórico e o servidor ignora o que vem antes.
     pub compaction: bool,
+    /// TTL dos breakpoints do system prompt ([`CacheTtl`]).
+    pub cache_ttl: CacheTtl,
 }
 
 impl Request {
@@ -95,6 +109,7 @@ impl Request {
             fallbacks: true,
             resume_paused: false,
             compaction: true,
+            cache_ttl: CacheTtl::FiveMinutes,
         }
     }
 }
@@ -134,7 +149,11 @@ pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_read_input_tokens: u64,
+    /// Todas as escritas de cache (5 min + 1 h), como o servidor as soma.
     pub cache_creation_input_tokens: u64,
+    /// A parte de `cache_creation_input_tokens` escrita com TTL de 1 hora
+    /// (`usage.cache_creation.ephemeral_1h_input_tokens`): custa 2× a entrada, não 1,25×.
+    pub cache_creation_1h_input_tokens: u64,
 }
 
 /// A resposta completa de um pedido.

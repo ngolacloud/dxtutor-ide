@@ -322,3 +322,33 @@ fn agent_loop_runs_real_tools_through_an_openai_compatible_server() {
     // e a resposta final ficou no histórico canónico
     assert_eq!(t.messages().last().unwrap().text(), "Criado: ola.txt.");
 }
+
+#[test]
+fn ollama_streams_ndjson_from_the_native_api_with_num_ctx() {
+    let ndjson = [
+        r#"{"model":"qwen3","message":{"role":"assistant","content":"Olá"},"done":false}"#,
+        r#"{"model":"qwen3","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":900,"eval_count":3}"#,
+    ]
+    .join("\n");
+    let (url, seen) = fake_server(vec![Reply {
+        status: 200,
+        body: ndjson,
+    }]);
+    let p = provider(
+        Config::ollama("http://x"),
+        url,
+        Arc::new(Mutex::new(vec![])),
+    );
+    let r = p
+        .stream(
+            &Request::new("qwen3", vec![Message::user_text("olá")]),
+            &mut |_| true,
+        )
+        .unwrap();
+    assert_eq!(r.stop_reason, StopReason::EndTurn);
+    assert_eq!(r.content[0]["text"], "Olá");
+    assert_eq!(r.usage.input_tokens, 900);
+    let req = &seen.lock().unwrap()[0];
+    assert!(req.contains("\"num_ctx\":16384"), "{req}");
+    assert!(!req.contains("stream_options"));
+}
