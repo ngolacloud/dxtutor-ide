@@ -43,14 +43,7 @@ export const openPath = (...args: [p: string, line?: number]): void => G.openPat
 
 /* ───── agente / conversa (publicados por `features/codev.ts`; resolvidos por `G`) ───── */
 export const focusAgent = (nofocus?: boolean): void => G.focusAgent(nofocus);
-export const user = (msg: string): void => G.user(msg);
-export const card = (title: string, html: string): void => G.card(title, html);
 export const liveChat = (q: string): void => G.liveChat(q);
-export const updateAgentUI = (): void => window.updateAgentUI();
-/** Provedor LLM activo (escrita); `ACTIVE` é global solto do monólito. */
-export const setActiveProvider = (v: string): void => { G.ACTIVE = v; };
-/** Amostrador do Claude ao vivo; `null` quando não há backend ligado nesta vista. */
-export const sample = (): unknown => G.SAMPLE ?? null;
 
 /* ───── diagnósticos (os reais do painel Problems no desktop; tipados em `core.ts`) ───── */
 export const diagnostics = (): { p: string; line: number; sev: string; msg: string }[] => services.diagnostics!.diagnostics();
@@ -58,6 +51,38 @@ export const diagnostics = (): { p: string; line: number; sev: string; msg: stri
 /* ───── símbolos do ficheiro / selecção do editor (tipados em `core.ts`) ───── */
 export const symbols = (p: string): Array<{ k: string; n: string; line: number }> => window.symbols(p);
 export const selText = (): string => window.selText();
+/** A linha (1-based) onde começa a selecção do editor (1 sem editor). */
+export const selLine = (): number => {
+  const ta = document.getElementById("ed-ta") as HTMLTextAreaElement | null;
+  return ta ? ta.value.slice(0, ta.selectionStart).split("\n").length : 1;
+};
+
+/* ───── o painel de documento (Explain · Code review) ───── */
+/** Realce de uma linha (o `hlLine` do editor, publicado por `features/syntax.ts`). */
+export const hlLine = (s: string, ext: string): string => (typeof G.hlLine === "function" ? G.hlLine(s, ext) : s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`));
+/** Escreve um ficheiro do workspace pelo editor (o autosave do desktop leva-o ao disco). */
+export const writeFile = (p: string, content: string): void => window.writeFile(p, content);
+/** Há um modelo pronto: no desktop, o amostrador real e algum provider ligado; no browser, o Claude ao vivo. */
+export const aiReady = (): boolean => {
+  if (!G.SAMPLE) return false;
+  const P = G.PROV as Record<string, { on?: boolean }> | undefined;
+  if (!P) return false;
+  return G.DXR ? ["claude", "codex", "gemini", "ollama"].some((k) => !!P[k]?.on) : !!P.claude?.on;
+};
+/** Pede texto ao modelo, sem ferramentas (no desktop: o streaming real `assistant_chat_stream`). */
+export const aiStream = async (prompt: string, o: { signal: AbortSignal; onText: (text: string) => void }): Promise<string> => {
+  const sample = G.SAMPLE as (input: string, opts: { signal: AbortSignal; onText: (e: { text: string }) => void }) => Promise<{ text?: string }>;
+  const r = await sample(prompt, { signal: o.signal, onText: ({ text }) => o.onText(text) });
+  return (r && r.text) || "";
+};
+/** Grava o editor no disco (autosave do desktop) e espera pela fila de escrita. */
+export const saveAll = async (): Promise<void> => {
+  const d = G.DXR as { flush?: () => void; idle?: () => Promise<unknown> } | undefined;
+  d?.flush?.();
+  await d?.idle?.();
+};
+/** O comando de testes detectado no projecto aberto (null se nenhum). */
+export const projectTestCmd = (): string | null => (G.DXR?.projectCmd?.("test")?.cmd as string | undefined) ?? null;
 
 /* ───── serviços de um docker-compose (dono = `features/stack.ts`; tipado em `core.ts`) ───── */
 export interface Svc { name: string; deps: string[]; image?: string; build?: string; port?: string; route?: string; hc?: boolean }

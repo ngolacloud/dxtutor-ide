@@ -110,7 +110,23 @@ features/codereview.ts  RESÍDUO strangler + raiz de composição: compõe o mot
 
 Governada pelas mesmas A7/A8 (está em `FEATURES`). No desktop com pasta, a tab de Code
 review junta às regras locais os analisadores reais do projecto (`review_code`, âmbito
-`file`, pelo adaptador `infrastructure/tauri.ts`; ADR-0006 R2e2). Nota: ao contrário do Co-Dev,
+`file`, pelo adaptador `infrastructure/tauri.ts`; ADR-0006 R2e2).
+
+**Painel de documento ao lado do código (2026-11-26).** O Explain e o Code review já NÃO respondem no chat
+do Co-Dev: abrem o `<aside id="cr-side">` dentro da `.ebody` (irmão do `#ebody`, sobrevive à troca de
+separadores; a classe `.cr-split` e a var `--cr-w` encolhem o editor e o minimapa; arrastável). O caso de
+uso é `application/doc-session.ts` (portas `ai`/`files`/`tests`/`view`; um pedido novo nunca deixa o antigo
+pintar), o markdown é analisado no domínio (`domain/markdown.ts`, sem lookbehind — WebKitGTK) e desenhado
+em `ui/doc-view.ts` com o `hlLine` do editor; os pedidos ao modelo estão em `domain/prompts.ts` (secções
+fixas, linhas `L12` clicáveis). Sem modelo, o Explain mostra o resumo local. A revisão pede o ficheiro inteiro
+num bloco ```<lang> improved: o painel mostra-o com realce ou diferenças, «Apply», «Apply & test» (a suite
+pelo `run_tests`, o mesmo do agente) e «Revert»; a falhar, «Fix the failing tests» manda a saída ao modelo.
+A revisão interactiva (filtros por severidade, excerto do código por achado, «Fix with AI», «Dismiss») é a
+mesma no painel e na tab `creview` (o «Open as tab»); as acções da revisão levam `caminho|valor` no `data-on`.
+Os 3 goldens da tab de Code review foram regenerados de propósito nesta mudança (ecrã novo pedido pelo
+dono); os do «Under the hood» não mudaram. Testes: `tests/codereview.doc.test.ts`.
+
+Nota: ao contrário do Co-Dev,
 o markup (`renderCreviewView`/`renderHoodView`) vive no resíduo de composição
 `features/codereview.ts`, não num `ui/*-view.ts` — por isso `ui/` só tem
 `actions.ts`. A tabela de acções fica no resíduo (único sítio com o bridge à mão).
@@ -829,6 +845,22 @@ Learning Track; sem Cloud) e «Show welcome page on startup» (lido pelo `boot`,
   «Help: Walkthroughs» estão no `app/commands.ts`.
 - Testes: `tests/welcome.test.ts`, `tests/welcome.wiring.test.ts`, `e2e/welcome.e2e.ts` (a aceitação: uma pasta
   recente abre esse workspace) e o passo `clone` do auto-teste desktop (clone real por `file://`).
+
+## Notas para a documentação oficial (`docs/notes/NOTAS.md`)
+
+A base da documentação oficial do dxtutor-ide, acção a acção: o que faz, onde está, como usar, o fluxo por
+dentro, dicas e limites. **É gerada, não se edita à mão.** Cada feature descreve as suas acções em
+`features/<f>/notes.ts` (tipos em `app/notes/types.ts`, registo em `app/notes/registry.ts`, gerador
+`app/notes/render.ts`); `npm run docs:notes` regenera o ficheiro.
+
+- Ao acrescentar ou mudar uma acção (botão, atalho, comando da paleta, `data-action`), actualiza a nota da
+  feature no MESMO commit e corre `npm run docs:notes`. O `tests/notes.docs.test.ts` (corre no `ui:test`)
+  reprova: o ficheiro desactualizado, uma acção da tabela do codereview sem nota, uma acção nova da barra do
+  editor sem nota, e um comando `cmd:` citado que já não existe.
+- Uma feature que passa a ter notas entra no `NOTES` do registo (e o teste passa a cobrir a sua tabela de
+  acções). O `PENDING` (acções da barra ainda sem nota) só encolhe.
+- As notas escrevem-se em português de Angola (pré-AO90), para o utilizador final; os identificadores
+  técnicos ficam no `covers` e no «Fluxo».
 
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
