@@ -17,7 +17,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
-- [Learning Track](#learning-track) — 2 acções
+- [Learning Track](#learning-track) — 3 acções
 
 ---
 
@@ -1592,12 +1592,13 @@ Aplica os manifestos (sem os `Secret`), anota a versão nos Deployments desses m
 
 Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: ler o conceito, escrever o programa linha a linha e aplicar num desafio que os testes ocultos avaliam. Os cursos chegam como plugins (`ngolacloud/dxtutor-course-<id>`).
 
-<sub>Código: `ui-app/src/features/learn/domain/catalog.ts`, `ui-app/src/features/learn/domain/project.ts`, `ui-app/src/features/learn/application/catalog-service.ts`, `ui-app/src/features/learn.ts`, `crates/tutor-core/src/project.rs`, `src-tauri/src/study.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/learn/domain/catalog.ts`, `ui-app/src/features/learn/domain/project.ts`, `ui-app/src/features/learn/application/catalog-service.ts`, `ui-app/src/features/learn.ts`, `crates/tutor-core/src/project.rs`, `crates/tutor-core/src/build.rs`, `crates/tutor-eval/src/course_cache.rs`, `ui-app/src/features/learn/application/prepare-service.ts`, `src-tauri/src/study.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Escolher o que aprender: linguagens e «Frameworks & tools»](#escolher-o-que-aprender-linguagens-e-frameworks-tools) | Learning Track › «Choose what to learn» · o selector que abre quando não há percurso |
 | [Passo de projecto: vários ficheiros](#passo-de-projecto-varios-ficheiros) | Learning Track › um desafio com a lista de ficheiros por cima do editor |
+| [Preparar um curso (Seiva): descarregar as bibliotecas uma vez](#preparar-um-curso-seiva-descarregar-as-bibliotecas-uma-vez) | Learning Track › um passo do curso Seiva › cartão «Prepare this course» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
 
@@ -1626,7 +1627,7 @@ Mostra as 10 linguagens oficiais e, numa secção à parte, os frameworks e as f
 **Limites**
 
 - No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».
-- Os cursos oficiais de frameworks e ferramentas ainda não existem: chegam em fases próximas.
+- Dos frameworks oficiais, o Seiva já tem curso (embutido na app desktop); os outros chegam em fases próximas.
 
 <sub>Cobre: `lt-pick`, `lt-onboard`, `lt-install`, `lt-remove`</sub>
 
@@ -1657,10 +1658,42 @@ Um desafio pode ser um pequeno projecto: vários ficheiros (um aberto primeiro, 
 **Limites**
 
 - Só na app desktop.
-- Hoje só o avaliador de Python corre passos de projecto; as outras linguagens dizem que ainda não o suportam.
+- Hoje os avaliadores de Python e de Rust correm passos de projecto (no Rust, um crate ou um workspace de vários crates); as outras linguagens dizem que ainda não o suportam.
 - Não se criam ficheiros novos: o passo traz todos os ficheiros com que se trabalha.
 
 <sub>Cobre: `lt-file`, `learn:go`</sub>
+
+### Preparar um curso (Seiva): descarregar as bibliotecas uma vez
+
+**Onde:** Learning Track › um passo do curso Seiva › cartão «Prepare this course»
+
+Um curso que compila contra bibliotecas de fora (o Seiva 0.2.0, o tokio, o axum) avalia-se sempre sem rede. Antes da primeira avaliação, «Prepare course» descarrega essas bibliotecas uma vez para uma cache deste curso e compila-as; depois, cada passo compila offline em poucos segundos.
+
+**Como usar**
+
+1. Abre um passo do curso Seiva: enquanto o curso não está preparado, aparece o cartão «Prepare this course».
+2. Carrega em «Prepare course» e lê, no diálogo, os comandos exactos e a pasta onde correm.
+3. Aprova: a preparação demora cerca de um minuto; no fim o cartão desaparece e «Submit» já avalia.
+
+**Fluxo (por dentro)**
+
+1. O backend constrói os comandos (`course_prepare_status`): `cargo fetch` (a única ida à rede) e `cargo test --offline --no-run`, com um `CARGO_HOME` e um `target` só do curso — o `~/.cargo` não é tocado.
+2. O diálogo de aprovação partilhado mostra-os. Uma recusa vai para o registo de auditoria e nada corre.
+3. Aprovado, `course_prepare` só corre se o comando aprovado for o plano actual; regista a operação na auditoria antes de correr e outra vez com o resultado.
+4. No fim fica um marcador com a impressão digital das dependências e o `Cargo.lock`; cada avaliação corre com `--offline`, essa cache e o tempo limite do curso.
+5. Sem preparação (ou se o curso mudou as bibliotecas), a avaliação recusa com `COURSE_NOT_PREPARED` e o cartão volta a aparecer.
+
+**Dicas**
+
+- Na linha de comandos, `dxt plugin prepare courses/seiva` faz o mesmo para a mesma cache.
+- A cache fica em `<dados do utilizador>/dxtutor/course-cache/seiva-basics` (uns 650 MB); apagá-la só obriga a preparar outra vez.
+
+**Limites**
+
+- Só na app desktop, e só para cursos avaliados em Rust.
+- Precisa de rede na preparação (crates.io e GitHub).
+
+<sub>Cobre: `lt-prepare`</sub>
 
 ---
 
