@@ -15,6 +15,7 @@ export const LEARN_NOTES: FeatureNotes = {
     "ui-app/src/features/learn/application/catalog-service.ts",
     "ui-app/src/features/learn.ts",
     "crates/tutor-core/src/project.rs",
+    "crates/tutor-core/src/support.rs",
     "crates/tutor-core/src/build.rs",
     "crates/tutor-eval/src/course_cache.rs",
     "ui-app/src/features/learn/application/prepare-service.ts",
@@ -43,7 +44,7 @@ export const LEARN_NOTES: FeatureNotes = {
       ],
       limits: [
         "No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».",
-        "Dos frameworks oficiais, o Seiva já tem curso (embutido na app desktop); os outros chegam em fases próximas.",
+        "Dos frameworks e ferramentas oficiais, o Dxjs e o Seiva têm curso (embutidos na app); os outros chegam em fases próximas.",
       ],
       covers: ["lt-pick", "lt-onboard", "lt-install", "lt-remove"],
     },
@@ -68,10 +69,34 @@ export const LEARN_NOTES: FeatureNotes = {
       ],
       limits: [
         "Só na app desktop.",
-        "Hoje os avaliadores de Python e de Rust correm passos de projecto (no Rust, um crate ou um workspace de vários crates); as outras linguagens dizem que ainda não o suportam.",
+        "Hoje os avaliadores de Python (`unittest`), de TypeScript (`node --test`) e de Rust (`cargo test`, um crate ou um workspace) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.",
         "Não se criam ficheiros novos: o passo traz todos os ficheiros com que se trabalha.",
       ],
       covers: ["lt-file", "learn:go"],
+    },
+    {
+      title: "O curso Dxjs: da primeira signal a uma pequena app",
+      where: ["Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs"],
+      what: "O curso oficial do dxjs, o motor de interfaces reactivas da NgolaCloud: 12 unidades, das signals, computeds e effects ao `@dxjs/query`, ao `@dxjs/forms`, aos templates `html`, aos componentes e a uma app de tarefas. Os exercícios escrevem-se em TypeScript e correm contra o dxjs 1.2.0 verdadeiro.",
+      howTo: [
+        "Escolhe o cartão Dxjs na secção «Frameworks & tools» e os níveis que queres.",
+        "Lê o texto de conceitos de cada unidade, escreve os drills linha a linha e resolve os desafios; quatro deles são projectos de vários ficheiros.",
+        "Escreve `import { signal } from \"@dxjs/core\"` como num projecto real: o curso traz a biblioteca.",
+      ],
+      flow: [
+        "O curso vem embutido no backend (`courses/dxjs/`, `include_str!`), na categoria `framework`, avaliado pelo descritor de TypeScript (Node com remoção de tipos).",
+        "O dxjs não está no npm: o curso declara ficheiros de apoio (`[support]`), só de leitura — o bundle `cdn/dxjs.js` da versão 1.2.0, um módulo por pacote `@dxjs/*` e um DOM para o Node (happy-dom) — que o avaliador escreve ao lado dos ficheiros de cada passo. A avaliação corre sem rede.",
+        "Um ficheiro de apoio nunca substitui um ficheiro do passo, nem o contrário; os ficheiros de apoio nunca vão para a interface.",
+      ],
+      tips: [
+        "Precisa do Node.js 22.18 ou mais recente (também o encontrado pelo nvm, Volta ou fnm).",
+        "No primeiro passo, «About» leva à documentação oficial, em ngolacloud.github.io/dxjs.",
+      ],
+      limits: [
+        "Só na app desktop; no browser o cartão fica «Coming soon».",
+        "No dxjs 1.2.0, uma ligação reactiva dentro de uma linha de `list` deixa de actualizar depois da primeira mudança da lista: o curso ensina a pôr na chave o que muda na linha.",
+      ],
+      covers: ["lt-pick", "submit_step"],
     },
     {
       title: "Preparar um curso (Seiva): descarregar as bibliotecas uma vez",

@@ -185,13 +185,19 @@ pub fn validate_dir(dir: &Path, host_version: &str, taken: &Taken) -> Report {
                 continue;
             }
         };
-        let course = match Course::parse(&raw, format) {
+        let mut course = match Course::parse(&raw, format) {
             Ok(c) => c,
             Err(e) => {
                 r.errors.push(format!("{rel}: {e}"));
                 continue;
             }
         };
+        // Os ficheiros de apoio (`[support]`): lidos como a instalação os lê, para o
+        // `dxt plugin test` avaliar com eles e um ficheiro em falta ser um erro aqui.
+        if let Err(errs) = crate::support::load_support(dir, &mut course) {
+            r.errors
+                .extend(errs.into_iter().map(|e| format!("{rel}: {e}")));
+        }
         check_course(
             rel,
             &course,
@@ -384,6 +390,9 @@ fn check_course(
                         );
                     }
                     for msg in p.check() {
+                        e(r, format!("{at}: {msg}"));
+                    }
+                    for msg in tutor_core::support::project_clashes(&c.support, p) {
                         e(r, format!("{at}: {msg}"));
                     }
                 }

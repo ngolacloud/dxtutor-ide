@@ -94,6 +94,11 @@ pub struct Phase {
     /// Por omissão, o ambiente e os limites do avaliador.
     #[serde(skip)]
     pub build: crate::build::BuildEnv,
+    /// Os ficheiros de APOIO do curso (caminho na pasta de trabalho → conteúdo; ver
+    /// [`crate::support`]), escritos pelo avaliador ao lado dos do passo. Vazio fora de um curso
+    /// que os declare; nunca vem do TOML de uma fase (preenche-o [`crate::Course::phase`]).
+    #[serde(skip)]
+    pub support: std::sync::Arc<std::collections::BTreeMap<String, String>>,
 }
 
 /// Gabarito: a melhor forma de resolver, com a complexidade atada.

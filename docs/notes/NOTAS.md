@@ -17,7 +17,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
-- [Learning Track](#learning-track) — 3 acções
+- [Learning Track](#learning-track) — 4 acções
 
 ---
 
@@ -1597,12 +1597,13 @@ Aplica os manifestos (sem os `Secret`), anota a versão nos Deployments desses m
 
 Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: ler o conceito, escrever o programa linha a linha e aplicar num desafio que os testes ocultos avaliam. Os cursos chegam como plugins (`ngolacloud/dxtutor-course-<id>`).
 
-<sub>Código: `ui-app/src/features/learn/domain/catalog.ts`, `ui-app/src/features/learn/domain/project.ts`, `ui-app/src/features/learn/application/catalog-service.ts`, `ui-app/src/features/learn.ts`, `crates/tutor-core/src/project.rs`, `crates/tutor-core/src/build.rs`, `crates/tutor-eval/src/course_cache.rs`, `ui-app/src/features/learn/application/prepare-service.ts`, `src-tauri/src/study.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/learn/domain/catalog.ts`, `ui-app/src/features/learn/domain/project.ts`, `ui-app/src/features/learn/application/catalog-service.ts`, `ui-app/src/features/learn.ts`, `crates/tutor-core/src/project.rs`, `crates/tutor-core/src/support.rs`, `crates/tutor-core/src/build.rs`, `crates/tutor-eval/src/course_cache.rs`, `ui-app/src/features/learn/application/prepare-service.ts`, `src-tauri/src/study.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
 | [Escolher o que aprender: linguagens e «Frameworks & tools»](#escolher-o-que-aprender-linguagens-e-frameworks-tools) | Learning Track › «Choose what to learn» · o selector que abre quando não há percurso |
 | [Passo de projecto: vários ficheiros](#passo-de-projecto-varios-ficheiros) | Learning Track › um desafio com a lista de ficheiros por cima do editor |
+| [O curso Dxjs: da primeira signal a uma pequena app](#o-curso-dxjs-da-primeira-signal-a-uma-pequena-app) | Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs |
 | [Preparar um curso (Seiva): descarregar as bibliotecas uma vez](#preparar-um-curso-seiva-descarregar-as-bibliotecas-uma-vez) | Learning Track › um passo do curso Seiva › cartão «Prepare this course» |
 
 ### Escolher o que aprender: linguagens e «Frameworks & tools»
@@ -1632,7 +1633,7 @@ Mostra as 10 linguagens oficiais e, numa secção à parte, os frameworks e as f
 **Limites**
 
 - No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».
-- Dos frameworks oficiais, o Seiva já tem curso (embutido na app desktop); os outros chegam em fases próximas.
+- Dos frameworks e ferramentas oficiais, o Dxjs e o Seiva têm curso (embutidos na app); os outros chegam em fases próximas.
 
 <sub>Cobre: `lt-pick`, `lt-onboard`, `lt-install`, `lt-remove`</sub>
 
@@ -1663,10 +1664,40 @@ Um desafio pode ser um pequeno projecto: vários ficheiros (um aberto primeiro, 
 **Limites**
 
 - Só na app desktop.
-- Hoje os avaliadores de Python e de Rust correm passos de projecto (no Rust, um crate ou um workspace de vários crates); as outras linguagens dizem que ainda não o suportam.
+- Hoje os avaliadores de Python (`unittest`), de TypeScript (`node --test`) e de Rust (`cargo test`, um crate ou um workspace) correm passos de projecto; as outras linguagens dizem que ainda não o suportam.
 - Não se criam ficheiros novos: o passo traz todos os ficheiros com que se trabalha.
 
 <sub>Cobre: `lt-file`, `learn:go`</sub>
+
+### O curso Dxjs: da primeira signal a uma pequena app
+
+**Onde:** Learning Track › «Choose what to learn» › «Frameworks & tools» › Dxjs
+
+O curso oficial do dxjs, o motor de interfaces reactivas da NgolaCloud: 12 unidades, das signals, computeds e effects ao `@dxjs/query`, ao `@dxjs/forms`, aos templates `html`, aos componentes e a uma app de tarefas. Os exercícios escrevem-se em TypeScript e correm contra o dxjs 1.2.0 verdadeiro.
+
+**Como usar**
+
+1. Escolhe o cartão Dxjs na secção «Frameworks & tools» e os níveis que queres.
+2. Lê o texto de conceitos de cada unidade, escreve os drills linha a linha e resolve os desafios; quatro deles são projectos de vários ficheiros.
+3. Escreve `import { signal } from "@dxjs/core"` como num projecto real: o curso traz a biblioteca.
+
+**Fluxo (por dentro)**
+
+1. O curso vem embutido no backend (`courses/dxjs/`, `include_str!`), na categoria `framework`, avaliado pelo descritor de TypeScript (Node com remoção de tipos).
+2. O dxjs não está no npm: o curso declara ficheiros de apoio (`[support]`), só de leitura — o bundle `cdn/dxjs.js` da versão 1.2.0, um módulo por pacote `@dxjs/*` e um DOM para o Node (happy-dom) — que o avaliador escreve ao lado dos ficheiros de cada passo. A avaliação corre sem rede.
+3. Um ficheiro de apoio nunca substitui um ficheiro do passo, nem o contrário; os ficheiros de apoio nunca vão para a interface.
+
+**Dicas**
+
+- Precisa do Node.js 22.18 ou mais recente (também o encontrado pelo nvm, Volta ou fnm).
+- No primeiro passo, «About» leva à documentação oficial, em ngolacloud.github.io/dxjs.
+
+**Limites**
+
+- Só na app desktop; no browser o cartão fica «Coming soon».
+- No dxjs 1.2.0, uma ligação reactiva dentro de uma linha de `list` deixa de actualizar depois da primeira mudança da lista: o curso ensina a pôr na chave o que muda na linha.
+
+<sub>Cobre: `lt-pick`, `submit_step`</sub>
 
 ### Preparar um curso (Seiva): descarregar as bibliotecas uma vez
 

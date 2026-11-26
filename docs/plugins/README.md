@@ -299,16 +299,52 @@ file in a submission is refused. The evaluator writes the learner's tree and the
 files into a fresh folder and runs the language's **project test command**. Exit 0 means the
 step passed. The reference solution files are revealed only after a pass.
 
-Project steps are graded only for languages whose evaluator can run a project. **Rust**: without
-a `Cargo.toml` in the tree, the tree is the `student` crate (`src/lib.rs` and its modules from the
-starter, hidden tests in `tests/`) and dxtutor writes its `Cargo.toml` with the step's
-dependencies. With a root `Cargo.toml` it is a **workspace** of several crates: it must declare
-`[workspace]` and no `[workspace.dependencies]` — dxtutor appends those from the step's
-dependencies, and each member names the ones it uses with `{ workspace = true }` — and the tests
-run with `cargo test --workspace`. For the descriptor languages, today that's Python: `python3 -m unittest discover -s . -t . -p 'test*.py'`, so the hidden
-tests are `test*.py` files (in a folder, the folder needs an `__init__.py`), and a test file
-that defines no test fails. A custom descriptor can add one with `project_test_cmd`
-(see the top of `crates/tutor-eval/src/plugin.rs`).
+Project steps are graded only for languages whose evaluator can run a project:
+
+- **Rust:** without a `Cargo.toml` in the tree, the tree is the `student` crate (`src/lib.rs`
+  and its modules from the starter, hidden tests in `tests/`) and dxtutor writes its `Cargo.toml`
+  with the step's dependencies. With a root `Cargo.toml` it is a **workspace** of several crates: it
+  must declare `[workspace]` and no `[workspace.dependencies]` table — dxtutor appends that from the
+  step's dependencies, and each member names the ones it uses with `{ workspace = true }` — and the
+  tests run with `cargo test --workspace`.
+- **Python:** `python3 -m unittest discover -s . -t . -p 'test*.py'`, so the hidden tests are
+  `test*.py` files (in a folder, the folder needs an `__init__.py`), and a test file that
+  defines no test fails.
+- **TypeScript:** every hidden `*.test.ts` file (outside `node_modules`) runs with
+  `node --experimental-transform-types --test`, so the tests use `node:test` and
+  `node:assert/strict` and import the learner's files with their extension
+  (`import { total } from "./src/cart.ts"`). A step with no `*.test.ts` file fails. The
+  evaluator writes `package.json` with `{"type":"module"}` unless the step has one.
+
+A custom descriptor can add one with `project_test_cmd` (see the top of
+`crates/tutor-eval/src/plugin.rs`).
+
+### Support files: shared by every step
+
+Some courses need files that belong to no step: a library that is not in a public registry,
+a test environment, a shared configuration. Instead of copying them into every step, the course
+declares them once, in a `[support]` table (before the first `[[unit]]`): the path where the
+evaluator writes the file → the file in your plugin.
+
+```toml
+[support]
+"node_modules/.dxjs/dxjs.js" = "support/dxjs-1.2.0.js"
+"node_modules/@dxjs/core/package.json" = "support/core/package.json"
+"node_modules/@dxjs/core/index.js" = "support/core/index.js"
+```
+
+- They are written next to the files of **every** drill, challenge and project step, after
+  them. A support file never replaces a step's file, and a step's file never replaces a support
+  file: a clash is an error (`dxt plugin validate` reports it for project steps).
+- Both sides use the project path rules above. The plugin file must be a regular UTF-8 text
+  file inside the plugin (no symbolic links). At most 64 files, 2 MiB each and 4 MiB in all.
+- Keep them out of folders named `node_modules` in your repository: those are skipped on
+  install. Map them to `node_modules/…` in the work folder instead, as above.
+- They are never sent to the app. Only languages graded by a descriptor write them; the native
+  Rust and Go runners refuse a course that has them.
+
+The official Dxjs course uses them to grade offline against the real dxjs 1.2.0
+([`courses/dxjs/support/`](../../courses/dxjs/support/README.md)).
 
 ### Shared dependencies and a prepared course cache: `[build]`
 
@@ -380,8 +416,9 @@ dxt plugin test . --only py-u05         # only units whose id starts with py-u05
 - every **project step** is graded the same way with file sets: the `project.solution` files
   must pass and the `project.starter` files must fail.
 
-It needs the language toolchain on your machine (for example `python3`, `go`, `cargo`). Run
-it before every release.
+It needs the language toolchain on your machine (for example `python3`, `go`, `cargo`), and it
+prints the version it graded with (`graded as typescript with v22.18.0`). Run it before every
+release.
 
 ## Publishing and versions
 
@@ -431,7 +468,7 @@ evaluator, which must support the course language:
 | Go | native | `func TestXxx(t *testing.T)` (`go test`) | `go` |
 | Python | descriptor | `unittest.TestCase` classes. The test file starts with `import unittest` and `from student import *`, so don't import them yourself | `python3` |
 | C++ | descriptor | `TEST(name) { CHECK(…); CHECK_EQ(a, b); }` from a built-in mini framework. The test file `#include`s the student file, so student code has no `main` | `g++` (C++20), `libsqlite3-dev` for SQLite |
-| TypeScript | descriptor | `dxt.test("name", () => { dxt.equal(actual, expected); })` (deep equality; tests may be `async`). The student file and tests run as one ES module, so never import the student file | `node` 22.18+ (found on PATH or via nvm/Volta/fnm) |
+| TypeScript | descriptor | `dxt.test("name", () => { dxt.equal(actual, expected); })` (deep equality; tests may be `async`). The student file and tests run as one ES module, so never import the student file, and import anything else under an alias that cannot clash with the learner's names (`import { effect as effectForTest } from "…"`). Project steps: `node:test` files, see above | `node` 22.18+ (found on PATH or via nvm/Volta/fnm) |
 | SQL (SQLite) | descriptor | Python `unittest` cases using the prelude helpers `query(setup)` → `(columns, rows)`, `script(setup)` → connection, `connect(setup)` | `python3` (its built-in SQLite) |
 | Java | descriptor | the body of a method using `test("name", () -> equal(actual, expected))`, plus `check`, `near` and `assertThrows`. Imports go one per line at the start. The learner's classes are compiled with the tests, so they have no `main` and no `package` | JDK 21 (`java`) |
 | Kotlin | descriptor | the body of an extension on the harness: `test("name") { equal(actual, expected) }`, plus `expect`, `near` and `assertThrows<T> { }`. `kotlinx.coroutines` is on the classpath. The learner's code has no `main` and no `package` | `kotlinc` 2.x and a JDK |

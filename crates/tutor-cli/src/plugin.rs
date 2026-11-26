@@ -246,13 +246,26 @@ fn test(args: &[String]) -> Result<()> {
     }
     let (mut passed, mut failed) = (0usize, Vec::<String>::new());
     for course in &report.courses {
+        // O que avalia o curso, para o relatório dizer com que versão da ferramenta passou.
+        let toolchain = tutor_eval::toolchain_version(&course.language)
+            .map(|v| format!(" with {v}"))
+            .unwrap_or_default();
+        let support = match course.support_files.len() {
+            0 => String::new(),
+            n => format!(", {n} support files"),
+        };
         if course.category.has_subject() {
             println!(
-                "{} — {} `{}`, graded as {}",
+                "{} — {} `{}`, graded as {}{toolchain}{support}",
                 course.id,
                 course.category.as_str(),
                 course.subject,
                 course.language
+            );
+        } else {
+            println!(
+                "{} — graded as {}{toolchain}{support}",
+                course.id, course.language
             );
         }
         for unit in &course.units {
@@ -261,7 +274,7 @@ fn test(args: &[String]) -> Result<()> {
             }
             println!("{}", unit.id);
             for step in &unit.steps {
-                let verdict = check_step(&course.language, step);
+                let verdict = check_step(course, step);
                 match &verdict {
                     Ok(what) => {
                         passed += 1;
@@ -354,8 +367,13 @@ fn head(s: &str) -> String {
     lines.join(" | ")
 }
 
-fn check_step(language: &str, step: &tutor_core::Step) -> std::result::Result<String, String> {
+/// Prova um passo com o avaliador real, com os ficheiros de apoio do curso (`[support]`).
+fn check_step(
+    course: &tutor_core::Course,
+    step: &tutor_core::Step,
+) -> std::result::Result<String, String> {
     use tutor_core::StepKind;
+    let language = course.language.as_str();
     if step.kind != StepKind::Concept && !tutor_eval::language_supported(language) {
         return Err(format!(
             "no evaluator for `{language}` (add a descriptor, see docs/plugins/README.md)"
@@ -364,9 +382,14 @@ fn check_step(language: &str, step: &tutor_core::Step) -> std::result::Result<St
     match step.kind {
         StepKind::Concept => Ok(String::new()),
         StepKind::Drill => {
-            let out =
-                tutor_eval::run_program_in(language, &step.target, &step.dependencies, &step.build)
-                    .map_err(|e| format!("could not run: {e}"))?;
+            let out = tutor_eval::run_course_program(
+                language,
+                &step.target,
+                &step.dependencies,
+                &course.support_files,
+                &step.build,
+            )
+            .map_err(|e| format!("could not run: {e}"))?;
             if out.ok {
                 Ok(String::new())
             } else {
@@ -379,8 +402,8 @@ fn check_step(language: &str, step: &tutor_core::Step) -> std::result::Result<St
         StepKind::Challenge if step.project.is_some() => {
             // Passo de projecto: a árvore da solução (gabarito por cima do starter) tem de
             // passar e a árvore inicial tem de falhar, com o mesmo avaliador do `submit_step`.
-            let phase = step
-                .as_phase(language, tutor_core::Level::Basico)
+            let phase = course
+                .phase(step, tutor_core::Level::Basico)
                 .ok_or("project step did not build a phase")?;
             let project = step.project.as_ref().expect("guarded");
             let good = tutor_eval::assess_project(&phase, &project.solution)
@@ -399,8 +422,8 @@ fn check_step(language: &str, step: &tutor_core::Step) -> std::result::Result<St
             Ok(format!("({} files)", project.starter.len()))
         }
         StepKind::Challenge => {
-            let phase = step
-                .as_phase(language, tutor_core::Level::Basico)
+            let phase = course
+                .phase(step, tutor_core::Level::Basico)
                 .ok_or("challenge without gabarito")?;
             let good = tutor_eval::assess(&phase, &phase.gabarito.solution)
                 .map_err(|e| format!("evaluator error: {e}"))?;

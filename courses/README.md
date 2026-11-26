@@ -16,6 +16,7 @@ The source of the official dxtutor course plugins. Each folder is a complete plu
 | `kotlin/` | `ngolacloud/dxtutor-course-kotlin` | `dxt plugin install kotlin` |
 | `csharp/` | `ngolacloud/dxtutor-course-csharp` | `dxt plugin install csharp` |
 | `swift/` | `ngolacloud/dxtutor-course-swift` | `dxt plugin install swift` |
+| `dxjs/` | `ngolacloud/dxtutor-course-dxjs` | `dxt plugin install dxjs` (framework, graded by TypeScript; brings dxjs 1.2.0 in `support/`) |
 | `seiva/` (framework, graded in Rust) | `ngolacloud/dxtutor-course-seiva` | `dxt plugin install seiva` |
 
 These TOML files are also the **built-in** courses of the app (every course except Rust and Go: backend only — the browser prototype embeds just Rust and Go, to keep its bundle small):
