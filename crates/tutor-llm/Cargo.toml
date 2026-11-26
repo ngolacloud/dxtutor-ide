@@ -16,3 +16,6 @@ serde_json = "1"
 ureq = { version = "2.12", features = ["json"] }
 # r23 F4a (X02): every outgoing request is filtered for secrets
 tutor-protect = { path = "../tutor-protect" }
+
+[dev-dependencies]
+tempfile.workspace = true

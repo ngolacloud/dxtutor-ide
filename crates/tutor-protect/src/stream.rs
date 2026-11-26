@@ -67,7 +67,8 @@ fn may_continue(s: &str) -> bool {
     }
     w.contains("://")
         || w.contains('=')
-        || w.contains(':') && w.len() > 3
+        // `app:s3cr…` may continue; a prompt that ends in `:` (`Password:`) must show at once
+        || w.contains(':') && !w.ends_with(':') && w.len() > 3
         || [
             "sk-",
             "ghp_",
@@ -110,6 +111,12 @@ mod tests {
         let d = m.push("ABCDEFGHIJ done\n");
         assert!(!format!("{c}{d}").contains("0123456789"), "{c}{d}");
         assert_eq!(m.push("plain"), "plain");
+        // a task that asks for something shows the question at once (it ends in `:`, nothing follows yet)
+        assert_eq!(m.push("Password:"), "Password:");
+        assert_eq!(m.push("Enter the value: "), "Enter the value: ");
+        // what is held is shown when the process ends
+        assert_eq!(m.push("TOKEN="), "");
+        assert_eq!(m.flush(), "TOKEN=");
         assert_eq!(m.flush(), "");
     }
 }

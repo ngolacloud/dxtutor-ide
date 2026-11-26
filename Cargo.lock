@@ -5476,6 +5476,7 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_json",
+ "tempfile",
  "tutor-protect",
  "ureq",
 ]
@@ -5484,7 +5485,6 @@ dependencies = [
 name = "tutor-platform"
 version = "0.7.0"
 dependencies = [
- "keyring",
  "regex",
  "serde",
  "serde_json",
@@ -5516,6 +5516,7 @@ dependencies = [
 name = "tutor-protect"
 version = "0.7.0"
 dependencies = [
+ "keyring",
  "regex",
  "serde",
  "serde_json",

@@ -168,6 +168,7 @@ fn spawn_with_command(
     cmd: CommandBuilder,
     shell: String,
     on_exit: OnExit,
+    hold: bool,
 ) -> Result<(), String> {
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -215,7 +216,13 @@ fn spawn_with_command(
         let mut buf = [0u8; 16384];
         let mut carry: Vec<u8> = Vec::new();
         // r23 F4a (X04): secrets in the output are masked before they reach the webview
-        let mut mask = tutor_protect::stream::Masker::new();
+        // a task holds back a possible secret's start until the next read (a secret split between two
+        // reads is masked too); an interactive shell cannot wait — its echo comes a key at a time
+        let mut mask = if hold {
+            tutor_protect::stream::Masker::holding()
+        } else {
+            tutor_protect::stream::Masker::new()
+        };
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
@@ -234,6 +241,16 @@ fn spawn_with_command(
         if !carry.is_empty() {
             let data = mask.push(&String::from_utf8_lossy(&carry));
             let _ = app.emit("pty://data", DataEvent { id: &id, data });
+        }
+        let rest = mask.flush();
+        if !rest.is_empty() {
+            let _ = app.emit(
+                "pty://data",
+                DataEvent {
+                    id: &id,
+                    data: rest,
+                },
+            );
         }
         let code = child.wait().map(|s| i64::from(s.exit_code())).unwrap_or(-1);
         if let Ok(mut map) = app.state::<PtyState>().0.lock() {
@@ -316,6 +333,10 @@ pub fn pty_spawn(
             }));
         }
     }
+    let is_task = command
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|c| !c.is_empty());
     let (mut cmd, label) = match command.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
         Some(line) => {
             #[cfg(windows)]
@@ -350,7 +371,7 @@ pub fn pty_spawn(
     if let Some(d) = dir {
         cmd.cwd(d);
     }
-    spawn_with_command(app, state, id, rows, cols, cmd, label, on_exit)
+    spawn_with_command(app, state, id, rows, cols, cmd, label, on_exit, is_task)
 }
 
 /// Spawn a terminal instance INSIDE the persistent devcontainer session for `root`
@@ -385,6 +406,7 @@ pub fn pty_spawn_in_session(
         cmd,
         format!("{program} (container)"),
         None,
+        false,
     )
 }
 

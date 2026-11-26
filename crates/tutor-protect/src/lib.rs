@@ -7,7 +7,9 @@
 //! - [`scan`]: the secret scan that runs before a commit (gitleaks when installed, else the same
 //!   rules), with forbidden files and a one-time, reasoned override.
 //! - [`stream`]: masking of a terminal's output as it streams.
+//! - [`keychain`]: the OS keychain, where the model keys and the Vault token live (r23 F4c).
 
+pub mod keychain;
 pub mod redact;
 pub mod scan;
 pub mod stream;

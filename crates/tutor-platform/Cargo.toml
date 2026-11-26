@@ -19,8 +19,6 @@ tutor-board = { path = "../tutor-board" }
 serde.workspace = true
 serde_json = "1"
 ureq = { version = "2.12", features = ["json"] }
-# the Secret Service over D-Bus (libdbus), with an encrypted session
-keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 # r23 F5b: the PR review plans the PR head in a temporary worktree
 tempfile.workspace = true
