@@ -186,6 +186,10 @@ struct GabaritoDto {
     time: String,
     space: String,
     justification: String,
+    /// Project step: the reference solution files (path → content). Absent for a
+    /// single-file challenge, so its payload is unchanged.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    files: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Serialize)]
@@ -259,6 +263,19 @@ struct StepDto {
     entry: String,
     /// challenge: starter code.
     starter: String,
+    /// Project step (several files): the starter files, the file to open first and the
+    /// read-only ones. The hidden test files and the solution files are NOT here (honesty).
+    /// Absent for every other step, so their payload is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project: Option<StepProjectDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StepProjectDto {
+    main: String,
+    files: std::collections::BTreeMap<String, String>,
+    readonly: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -307,7 +324,12 @@ pub(crate) struct StudyGuideDto {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CourseDto {
     id: String,
+    /// The language the steps are written and graded in.
     language: String,
+    /// "language" | "framework" | "tool".
+    category: &'static str,
+    /// The framework/tool taught (empty for a language course).
+    subject: String,
     title: String,
     level: String,
     summary: String,
@@ -321,6 +343,10 @@ pub(crate) struct CourseDto {
 pub(crate) struct CourseSummaryDto {
     id: String,
     language: String,
+    /// "language" | "framework" | "tool".
+    category: &'static str,
+    /// The framework/tool taught (empty for a language course).
+    subject: String,
     title: String,
     level: String,
     summary: String,
@@ -520,6 +546,11 @@ fn step_dto(s: &tutor_core::Step) -> StepDto {
         instructions: s.instructions.clone(),
         entry: s.entry.clone(),
         starter: s.starter.clone(),
+        project: s.project.as_ref().map(|p| StepProjectDto {
+            main: p.main.clone(),
+            files: p.starter.clone(),
+            readonly: p.readonly.clone(),
+        }),
     }
 }
 
@@ -527,6 +558,8 @@ pub(crate) fn course_dto(c: &tutor_core::Course) -> CourseDto {
     CourseDto {
         id: c.id.clone(),
         language: c.language.clone(),
+        category: c.category.as_str(),
+        subject: c.subject.clone(),
         title: c.title.clone(),
         level: c.level.clone(),
         summary: c.summary.clone(),
@@ -553,6 +586,8 @@ pub(crate) fn course_summary_dto(c: tutor_core::Course) -> CourseSummaryDto {
     CourseSummaryDto {
         id: c.id,
         language: c.language,
+        category: c.category.as_str(),
+        subject: c.subject,
         title: c.title,
         level: c.level,
         summary: c.summary,
@@ -598,6 +633,7 @@ fn reveal_gabarito(passed: bool, g: &tutor_core::Gabarito) -> Option<GabaritoDto
         time: g.time.clone(),
         space: g.space.clone(),
         justification: g.justification.clone(),
+        files: std::collections::BTreeMap::new(),
     })
 }
 
@@ -613,7 +649,13 @@ pub(crate) fn assessment_dto(a: &Assessment, phase: &Phase) -> AssessmentDto {
         complexity: a.complexity.as_ref().map(complexity_dto),
         expected: a.expected.as_ref().map(|c| c.big_o().to_string()),
         // Honesty contract: no solution in the payload unless the tests passed.
-        gabarito: reveal_gabarito(a.correctness.passed, &phase.gabarito),
+        gabarito: reveal_gabarito(a.correctness.passed, &phase.gabarito).map(|mut g| {
+            // A project step's solution is its files; they follow the same gate.
+            if let Some(p) = &phase.project {
+                g.files = p.solution.clone();
+            }
+            g
+        }),
     }
 }
 
@@ -1249,5 +1291,42 @@ mod tests {
             json.contains("fn answer"),
             "passed payload should include the solution: {json}"
         );
+        assert!(!json.contains("\"files\""), "single-file payload unchanged: {json}");
+    }
+
+    /// A project step: the step DTO carries the starter files but never the hidden tests or
+    /// the solution files; the assessment reveals the solution files only after a pass.
+    #[test]
+    fn project_step_hides_tests_and_reveals_solution_files_only_on_pass() {
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../crates/tutor-plugins/tests/fixtures/framework-project/courses/minishop.toml"
+        ))
+        .expect("fixture");
+        let course = tutor_core::Course::parse(&raw, tutor_core::CourseFormat::Toml).unwrap();
+        let dto = serde_json::to_string(&course_dto(&course)).unwrap();
+        assert!(dto.contains(r#""category":"framework""#) && dto.contains(r#""subject":"minishop""#));
+        assert!(dto.contains(r#""main":"shop/cart.py""#), "{dto}");
+        assert!(dto.contains("shop/config.py") && dto.contains("readonly"));
+        assert!(!dto.contains("test_shop.py"), "hidden test files leaked");
+        assert!(!dto.contains("sum(quantity * price"), "solution files leaked");
+        assert!(!dto.contains("\"project\":null"), "other steps keep their payload");
+
+        let step = course.step("msf-p1-cart").unwrap();
+        let phase = step.as_phase("python", tutor_core::Level::Basico).unwrap();
+        let outcome = |passed: bool| Assessment {
+            correctness: tutor_eval::Correctness {
+                passed,
+                summary: String::new(),
+                raw: String::new(),
+            },
+            complexity: None,
+            expected: None,
+        };
+        let failed = serde_json::to_string(&assessment_dto(&outcome(false), &phase)).unwrap();
+        assert!(failed.contains("\"gabarito\":null") && !failed.contains("sum(quantity"));
+        let passed = serde_json::to_string(&assessment_dto(&outcome(true), &phase)).unwrap();
+        assert!(passed.contains("sum(quantity * price") && passed.contains("shop/prices.py"), "{passed}");
+        assert!(passed.contains("applies VAT once"), "the explanation travels as the justification");
     }
 }

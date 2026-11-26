@@ -132,11 +132,11 @@ Núcleo do «cérebro» dxtutor (currículo/avaliação). **Nenhum consumido pel
 |---|---|---|---|---|---|---|
 | `list_phases` | — | `ProjectDto` | String | — | — | R |
 | `submit` | `phase_id: String`, `code: String` | `AssessmentDto` | String | — | — | R |
-| `submit_step` | `step_id: String`, `code: String`, `language: Option<String>` (procura só nos cursos dessa linguagem: Rust e Go repetem ids de passo) | `AssessmentDto` | String | — | `platform/tauri/learn.ts` | R |
+| `submit_step` | `step_id: String`, `code: String`, `language: Option<String>` (procura só nos cursos dessa linguagem: Rust e Go repetem ids de passo), `files: Option<BTreeMap<String,String>>` (passo de projecto: os ficheiros editáveis) | `AssessmentDto` (+ `gabarito.files` de um projecto, só ao passar) | String | — | `platform/tauri/learn.ts` | R |
 | `request_hint` | `phase_id: String`, `code: String`, `level: u8` | `HintDto` | String | — | — | R |
 | `request_plan` | `phase_id: String`, `comment: String`, `code: String` | `PlanDto` | String | — | — | R |
 | `request_fix` | `phase_id: String`, `code: String`, `line: u32`, `message: String` | `String` | String | — | — | R |
-| `get_course` | `language: String` | `CourseDto` (+ `overview`, unidade + `concepts`) | String | — | `platform/tauri/learn.ts` | R |
+| `get_course` | `language: String`, `subject: Option<String>` (o curso desse framework/ferramenta) | `CourseDto` (+ `overview`, unidade + `concepts`, `category`/`subject`, passo + `project`) | String | — | `platform/tauri/learn.ts` | R |
 | `list_courses` | — | `Vec<CourseSummaryDto>` (embutidos + plugins) | — | — | `platform/tauri/learn.ts` | R |
 | `get_glossary` | `language: String` | `GlossaryDto` | String | — | — | R |
 | `get_study_guide` | `language: String`, `unit_id: String` | `StudyGuideDto` | String | — | — | R |

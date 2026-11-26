@@ -85,6 +85,11 @@ pub struct Phase {
     /// `go mod tidy`, so this stays empty there.
     #[serde(default)]
     pub dependencies: Vec<String>,
+    /// Passo de projecto (vários ficheiros): os ficheiros iniciais, os testes ocultos e a
+    /// solução em ficheiros (ver [`crate::project`]). `None` num desafio de um só ficheiro,
+    /// que usa `starter`/`tests`/`gabarito.solution`.
+    #[serde(default)]
+    pub project: Option<crate::project::ProjectFiles>,
 }
 
 /// Gabarito: a melhor forma de resolver, com a complexidade atada.

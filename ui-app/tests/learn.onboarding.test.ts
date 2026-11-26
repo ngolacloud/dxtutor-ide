@@ -27,7 +27,7 @@ afterEach(() => {
 describe("selector de linguagens", () => {
   it("mostra as 10 linguagens oficiais; Rust e Go disponíveis, o resto «Coming soon»", () => {
     LM.ltOnboard(1);
-    const cards = [...document.querySelectorAll<HTMLButtonElement>("#onb .onb-lang")];
+    const cards = [...document.querySelectorAll<HTMLButtonElement>("#onb .onb-langs:not(.onb-fw) .onb-lang")];
     expect(cards.map(c => c.querySelector("b")!.textContent)).toEqual(["Rust", "Go", "Python", "TypeScript", "Java", "Kotlin", "Swift", "C#", "C++", "SQL"]);
     const live = cards.filter(c => !c.disabled).map(c => c.dataset.on);
     expect(live).toEqual(["rust", "go"]);

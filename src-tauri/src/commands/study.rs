@@ -124,10 +124,11 @@ pub fn request_fix(
 }
 
 /// Load the guided course for a language (e.g. `"rust"`). Returns the course
-/// tree (units → steps) the beginner mode renders.
+/// tree (units → steps) the beginner mode renders. With `subject` (optional, backwards
+/// compatible), the course of that framework/tool instead (e.g. `"django"`).
 #[tauri::command]
-pub fn get_course(language: String) -> Result<CourseDto, String> {
-    study::course(&language)
+pub fn get_course(language: String, subject: Option<String>) -> Result<CourseDto, String> {
+    study::course_for(&language, subject.as_deref())
         .map(|c| course_dto(&c))
         .map_err(|e| e.to_string())
 }
@@ -155,16 +156,21 @@ pub fn study_policy(mode: String, step_id: Option<String>) -> StudyPolicy {
 /// Grade a `challenge` step: find it across the courses' units, build a `Phase`
 /// from it and reuse the honest evaluator (`tutor_eval::assess`). `language` (optional,
 /// backwards compatible) narrows the search to that language's courses: step ids repeat
-/// across languages.
+/// across languages. `files` (optional) grades a project step with the learner's editable
+/// files (path → content); without it, `code` is the single file (the main file of a project).
 #[tauri::command]
 pub async fn submit_step(
     step_id: String,
     code: String,
     language: Option<String>,
+    files: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<AssessmentDto, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<AssessmentDto, String> {
-        let (assessment, phase) = study::grade_step_in(&step_id, language.as_deref(), &code)
-            .map_err(|e| e.to_string())?;
+        let (assessment, phase) = match &files {
+            Some(files) => study::grade_step_files(&step_id, language.as_deref(), files),
+            None => study::grade_step_in(&step_id, language.as_deref(), &code),
+        }
+        .map_err(|e| e.to_string())?;
         Ok(assessment_dto(&assessment, &phase))
     })
     .await

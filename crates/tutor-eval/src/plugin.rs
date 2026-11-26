@@ -44,6 +44,12 @@
 //! test_cmd = "cc -O2 {test_file} -o testbin && ./testbin"  # CORRECTNESS: exit 0 == passed
 //! diag_cmd = "cc -fsyntax-only {file}"                   # DIAGNOSTICS: file:line:col: sev: msg
 //!
+//! # Optional: PROJECT steps (several files). The learner's whole tree and the hidden test
+//! # files are written as they are (no preludes) into the work dir, then this runs.
+//! # Extra placeholder: {main} → the project's main file. Without it, project steps in this
+//! # language are refused with a clear error.
+//! # project_test_cmd = "make test"
+//!
 //! # Optional: persistent package caches (mounted only in the container path).
 //! # [[cache_volumes]]
 //! # name = "dxtutor-npm"
@@ -154,6 +160,11 @@ pub struct LanguagePlugin {
     /// Shell script template to produce **diagnostics**. Optional. `file:line:col: sev: msg`.
     #[serde(default)]
     pub diag_cmd: Option<String>,
+    /// Shell script template to run the hidden tests of a **project** step (several files,
+    /// written as they are into the work dir). Exit 0 ⇒ passed. Optional: without it the
+    /// language does not grade project steps. Extra placeholder `{main}`.
+    #[serde(default)]
+    pub project_test_cmd: Option<String>,
 
     /// Wall-clock timeout (seconds) on the host path.
     #[serde(default = "default_timeout_secs")]
@@ -325,6 +336,50 @@ impl PluginRunner {
         Ok(dir)
     }
 
+    /// Scaffold a **project** tree (the learner's files plus the hidden `tests`) into a fresh
+    /// temp dir, each file at its relative path. Every path must pass
+    /// [`tutor_core::safe_project_path`] (no `..`, no root, no `\\`), every file is created new
+    /// (`create_new`: a test file can never overwrite a learner file, nor two entries the same
+    /// file), and each parent dir is checked to stay inside the work dir.
+    fn scaffold_tree(
+        &self,
+        tree: &std::collections::BTreeMap<String, String>,
+        tests: &std::collections::BTreeMap<String, String>,
+    ) -> Result<tempfile::TempDir> {
+        use std::io::Write;
+        let dir = tempfile::Builder::new()
+            .prefix("dxtutor-project-")
+            .tempdir()
+            .context("create project work dir")?;
+        let root = dir
+            .path()
+            .canonicalize()
+            .context("resolve project work dir")?;
+        for (rel, content) in tree.iter().chain(tests.iter()) {
+            if !tutor_core::safe_project_path(rel) {
+                anyhow::bail!("unsafe project path `{rel}`");
+            }
+            let path = root.join(rel);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).with_context(|| format!("create folder for {rel}"))?;
+                let real = parent
+                    .canonicalize()
+                    .with_context(|| format!("resolve folder for {rel}"))?;
+                if !real.starts_with(&root) {
+                    anyhow::bail!("project path `{rel}` leaves the work dir");
+                }
+            }
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .with_context(|| format!("write {rel} (already exists or not a file path)"))?;
+            f.write_all(content.as_bytes())
+                .with_context(|| format!("write {rel}"))?;
+        }
+        Ok(dir)
+    }
+
     /// Run a shell `script` in `dir`, host or container depending on [`current_engine`].
     fn run_script(&self, dir: &Path, script: &str) -> Result<RunOutput> {
         match current_engine() {
@@ -398,6 +453,39 @@ impl LanguageRunner for PluginRunner {
             .run_script(dir.path(), &script)
             .with_context(|| format!("run plugin `{}` tests", self.plugin.id))?;
 
+        let mut raw = String::new();
+        raw.push_str(&out.stdout);
+        raw.push_str(&out.stderr);
+        let summary = summarize(&raw, out.ok);
+        Ok(crate::Correctness {
+            passed: out.ok,
+            summary,
+            raw,
+        })
+    }
+
+    /// Project correctness = write the learner's tree + the hidden test files, run
+    /// `project_test_cmd`. **Exit 0 ⇒ passed.** No `project_test_cmd` ⇒ a clear error.
+    fn check_project(
+        &self,
+        phase: &Phase,
+        tree: &std::collections::BTreeMap<String, String>,
+    ) -> Result<crate::Correctness> {
+        let Some(template) = self.plugin.project_test_cmd.as_deref() else {
+            anyhow::bail!(
+                "project steps are not supported for `{}` yet (its descriptor has no project_test_cmd)",
+                self.plugin.id
+            );
+        };
+        let project = phase
+            .project
+            .as_ref()
+            .with_context(|| format!("step `{}` is not a project step", phase.id))?;
+        let dir = self.scaffold_tree(tree, &project.tests)?;
+        let script = expand(template, &self.plugin, &phase.entry).replace("{main}", &project.main);
+        let out = self
+            .run_script(dir.path(), &script)
+            .with_context(|| format!("run plugin `{}` project tests", self.plugin.id))?;
         let mut raw = String::new();
         raw.push_str(&out.stdout);
         raw.push_str(&out.stderr);
@@ -529,6 +617,9 @@ test_prelude = "import unittest\nfrom student import *\n\n"
 
 run_cmd  = "python3 -B {file}"
 test_cmd = "python3 -B -m unittest -q test_student"
+# Project steps: every `test*.py` from the work dir down (packages need an `__init__.py`).
+# unittest exits non-zero on a failure, an error, or when no test ran (5, Python 3.12+).
+project_test_cmd = "python3 -B -m unittest discover -q -s . -t . -p 'test*.py'"
 diag_cmd = '''python3 -B -c 'import sys
 try:
     compile(open("student.py").read(), "student.py", "exec")
@@ -1465,6 +1556,7 @@ mod tests {
             probe: None,
             hints: Vec::new(),
             dependencies: Vec::new(),
+            project: None,
         }
     }
 
@@ -1530,6 +1622,136 @@ mod tests {
         assert!(out.ok && out.stdout.trim() == "hi 42", "{out:?}");
         let d = runner.diagnostics("x = 1\ndef f(:\n    pass\n").unwrap();
         assert_eq!(d.first().map(|d| d.line), Some(2), "{d:?}");
+    }
+
+    fn files(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// A Python project step across two modules of a package plus a read-only config module.
+    fn python_project_phase() -> Phase {
+        let mut phase = c_add_phase();
+        phase.language = "python".into();
+        phase.id = "py-project".into();
+        phase.project = Some(tutor_core::ProjectFiles {
+            main: "shop/cart.py".into(),
+            starter: files(&[
+                ("shop/__init__.py", ""),
+                ("shop/config.py", "VAT = 0.14\n"),
+                (
+                    "shop/prices.py",
+                    "def with_vat(amount):\n    raise NotImplementedError\n",
+                ),
+                (
+                    "shop/cart.py",
+                    "from shop.prices import with_vat\n\ndef total(items):\n    raise NotImplementedError\n",
+                ),
+            ]),
+            readonly: vec!["shop/__init__.py".into(), "shop/config.py".into()],
+            tests: files(&[(
+                "test_shop.py",
+                concat!(
+                    "import unittest\n",
+                    "from shop.cart import total\n",
+                    "from shop.prices import with_vat\n",
+                    "\n",
+                    "class T(unittest.TestCase):\n",
+                    "    def test_vat(self):\n",
+                    "        self.assertAlmostEqual(with_vat(100), 114.0)\n",
+                    "\n",
+                    "    def test_total(self):\n",
+                    "        self.assertAlmostEqual(total([(2, 50.0), (1, 100.0)]), 228.0)\n",
+                ),
+            )]),
+            solution: files(&[
+                (
+                    "shop/prices.py",
+                    "from shop.config import VAT\n\ndef with_vat(amount):\n    return round(amount * (1 + VAT), 2)\n",
+                ),
+                (
+                    "shop/cart.py",
+                    "from shop.prices import with_vat\n\ndef total(items):\n    return with_vat(sum(q * p for q, p in items))\n",
+                ),
+            ]),
+            explanation: "Prices live in one module.".into(),
+        });
+        phase
+    }
+
+    /// Real end-to-end on the host's `python3` (skipped where it is missing): a project step with
+    /// two learner modules and a read-only one. The solution files pass, the starter fails, a
+    /// half-done tree fails, a single `code` maps to the main file, and a read-only or unknown
+    /// file in a submission is refused before anything runs.
+    #[test]
+    fn python_project_step_grades_the_whole_tree_on_the_host() {
+        let py = builtin_plugins().into_iter().find(|p| p.id == "python").unwrap();
+        if !py.host_available() || current_engine() != SandboxEngine::Host {
+            return;
+        }
+        let phase = python_project_phase();
+        let project = phase.project.clone().unwrap();
+        assert!(project.check().is_empty(), "{:?}", project.check());
+
+        let good = crate::assess_project(&phase, &project.solution).unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        let starter = crate::assess_project(&phase, &files(&[])).unwrap();
+        assert!(!starter.correctness.passed);
+        assert!(starter.correctness.raw.contains("NotImplementedError"), "{}", starter.correctness.raw);
+        // Only one of the two modules done: still fails.
+        let half = files(&[("shop/prices.py", project.solution["shop/prices.py"].as_str())]);
+        assert!(!crate::assess_project(&phase, &half).unwrap().correctness.passed);
+        // The single-`code` form grades the main file over the starter (prices.py still a stub).
+        let single = crate::assess(&phase, &project.solution["shop/cart.py"]).unwrap();
+        assert!(!single.correctness.passed);
+        // A read-only file (where cheating would go) or an unknown one is refused.
+        let ro = crate::assess_project(&phase, &files(&[("shop/config.py", "VAT = 1\n")]));
+        assert!(ro.unwrap_err().to_string().contains("read-only"));
+        let unknown = crate::assess_project(&phase, &files(&[("test_shop.py", "")]));
+        assert!(unknown.unwrap_err().to_string().contains("not a file"));
+        // Hidden tests that define no test case fail ("no tests ran"), they never pass by default.
+        let mut empty = phase.clone();
+        empty.project.as_mut().unwrap().tests = files(&[("test_shop.py", "# nothing\n")]);
+        let none = crate::assess_project(&empty, &project.solution).unwrap();
+        assert!(!none.correctness.passed, "{}", none.correctness.raw);
+    }
+
+    #[test]
+    fn project_scaffold_rejects_unsafe_paths_and_collisions() {
+        let runner = PluginRunner::new(builtin_plugins().into_iter().find(|p| p.id == "python").unwrap());
+        for bad in ["../escape.py", "/abs.py", "a/../../b.py", "a\\b.py"] {
+            let err = runner.scaffold_tree(&files(&[(bad, "x")]), &files(&[])).unwrap_err();
+            assert!(err.to_string().contains("unsafe"), "{bad}: {err}");
+        }
+        // A test file can never overwrite a learner file.
+        let err = runner
+            .scaffold_tree(&files(&[("t.py", "learner")]), &files(&[("t.py", "test")]))
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("already exists"), "{err:#}");
+        // Nested folders are created inside the work dir.
+        let dir = runner
+            .scaffold_tree(&files(&[("a/b/c.py", "x")]), &files(&[("test_a.py", "y")]))
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(dir.path().join("a/b/c.py")).unwrap(), "x");
+        assert_eq!(std::fs::read_to_string(dir.path().join("test_a.py")).unwrap(), "y");
+    }
+
+    #[test]
+    fn project_steps_need_a_project_test_cmd() {
+        let mut phase = python_project_phase();
+        phase.language = "c".into();
+        let err = crate::assess_project(&phase, &files(&[])).unwrap_err();
+        assert!(err.to_string().contains("not supported for `c`"), "{err}");
+        // A single-file phase is not a project.
+        let err = crate::assess_project(&c_add_phase(), &files(&[])).unwrap_err();
+        assert!(err.to_string().contains("not a project step"), "{err}");
+        assert!(builtin_plugins()
+            .iter()
+            .find(|p| p.id == "python")
+            .and_then(|p| p.project_test_cmd.as_deref())
+            .is_some_and(|c| c.contains("discover")));
     }
 
     /// Real end-to-end on the host's `g++` (skipped where it is missing): the mini test harness
