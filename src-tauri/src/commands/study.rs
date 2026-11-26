@@ -247,11 +247,15 @@ fn cache_root() -> Result<std::path::PathBuf, String> {
 /// Whether a course must be prepared before grading, its state, and the exact commands that
 /// preparing it runs (built here; the UI shows them in the approval dialog).
 #[tauri::command]
-pub fn course_prepare_status(course_id: String) -> Result<CoursePrepareDto, String> {
-    let root = cache_root()?;
-    study::prepare_status_in(&study::all_courses(), &course_id, &root)
-        .map(|st| prepare_dto(&st))
-        .map_err(|e| e.to_string())
+pub async fn course_prepare_status(course_id: String) -> Result<CoursePrepareDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = cache_root()?;
+        study::prepare_status_in(&study::all_courses(), &course_id, &root)
+            .map(|st| prepare_dto(&st))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The human's decision in the approval dialog: the command they saw, and why.
