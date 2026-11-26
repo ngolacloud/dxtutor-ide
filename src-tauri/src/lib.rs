@@ -1141,6 +1141,7 @@ pub fn run() {
             board::runbook_runs,
             board::audit_export_evidence,
             board::project_issue_prompt,
+            board::project_sprint_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dxtutor IDE");

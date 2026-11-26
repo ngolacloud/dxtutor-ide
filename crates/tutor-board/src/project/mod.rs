@@ -16,6 +16,7 @@
 pub mod breakpoints;
 pub mod deploys;
 pub mod evidence;
+pub mod plan;
 pub mod reports;
 pub mod risks;
 pub mod runbooks;
@@ -162,6 +163,8 @@ pub struct Sprint {
     pub budget_usd: Option<f64>,
     /// What Co-Dev spent on the sprint's issues (real cost of the turns, audit log).
     pub spent_usd: f64,
+    /// How many Co-Devs work the sprint at the same time (Multi Co-Dev); `None`: not set.
+    pub codevs: Option<u32>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -464,6 +467,12 @@ pub enum Op {
         id: String,
         #[serde(default)]
         budget_usd: Option<f64>,
+    },
+    /// Multi Co-Dev: how many Co-Devs work the sprint at the same time (1…8; `null` unsets it).
+    SetSprintCodevs {
+        id: String,
+        #[serde(default)]
+        codevs: Option<u32>,
     },
     /// Co-Dev answered every acceptance criterion (`finish_issue`, RF-B06): the table and the
     /// template version are kept on the issue, which goes to Review. Done stays human.
@@ -1556,6 +1565,19 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                 params![root, id, budget_usd],
             )?;
         }
+        Op::SetSprintCodevs { id, codevs } => {
+            sprint_exists(c, root, &id)?;
+            if codevs.is_some_and(|n| n == 0 || n > plan::MAX_CODEVS) {
+                return Err(err(
+                    "invalid",
+                    format!("uma sprint tem de 1 a {} Co-Devs", plan::MAX_CODEVS),
+                ));
+            }
+            c.execute(
+                "UPDATE sprints SET codevs = ?3 WHERE root = ?1 AND id = ?2",
+                params![root, id, codevs],
+            )?;
+        }
         Op::CodevFinished {
             key,
             report,
@@ -2279,7 +2301,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
         })
         .collect();
     let sprints = {
-        let mut st = c.prepare("SELECT id, name, goal, start, end, state, capacity, budget_usd FROM sprints WHERE root = ?1 ORDER BY start, id")?;
+        let mut st = c.prepare("SELECT id, name, goal, start, end, state, capacity, budget_usd, codevs FROM sprints WHERE root = ?1 ORDER BY start, id")?;
         let v = st
             .query_map(params![root], |r| {
                 Ok(Sprint {
@@ -2292,6 +2314,7 @@ fn read_project(c: &Connection, root: &str) -> Result<Project, ProjectError> {
                     capacity: r.get(6)?,
                     budget_usd: r.get(7)?,
                     spent_usd: 0.0,
+                    codevs: r.get(8)?,
                 })
             })?
             .collect::<Result<Vec<Sprint>, _>>()?;

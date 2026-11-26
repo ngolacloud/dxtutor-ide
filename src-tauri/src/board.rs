@@ -493,6 +493,79 @@ fn syntax_outline(path: &str, code: &str) -> Vec<tutor_agent::issue_prompt::Symb
         .collect()
 }
 
+// ── O plano paralelo da sprint (Multi Co-Dev, fase 1) ─────────────────────────────────────────
+
+/// Os ficheiros da pasta que o plano lê no máximo (o resto não entra nas sobreposições).
+const PLAN_MAX_FILES: usize = 50_000;
+
+/// O plano paralelo da sprint (Multi Co-Dev, fase 1): como as issues Ready da sprint se repartem por
+/// N Co-Devs a trabalhar ao mesmo tempo, sem dois nos mesmos ficheiros. SÓ LEITURA: lê a pasta (o
+/// `.gitignore` respeitado), os ficheiros dos change sets, dos commits ligados e do ramo de cada
+/// issue, e prevê os conflitos dos ramos com o HEAD (`merge-tree`, nada muda). `sprint`: sem ela,
+/// a activa ou a próxima planeada; `codevs`: sem ele, o da sprint (ou 1).
+#[tauri::command]
+pub async fn project_sprint_plan(
+    app: AppHandle,
+    root: String,
+    sprint: Option<String>,
+    codevs: Option<u32>,
+) -> Result<tutor_board::project::plan::SprintPlan, ProjectError> {
+    let root = root_of(&root)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = open(&app)?;
+        sprint_plan_from(&st, &root, sprint.as_deref(), codevs, now_ms())
+    })
+    .await
+    .map_err(|e| db_err(format!("o plano da sprint falhou: {e}")))?
+}
+
+/// O plano de `sprint` a partir do store e da pasta (separado do comando para os testes).
+pub fn sprint_plan_from(
+    st: &ProjectStore,
+    root: &str,
+    sprint: Option<&str>,
+    codevs: Option<u32>,
+    now: i64,
+) -> Result<tutor_board::project::plan::SprintPlan, ProjectError> {
+    use tutor_board::project::plan::{plan_sprint, MAX_CODEVS};
+    if codevs.is_some_and(|n| n == 0 || n > MAX_CODEVS) {
+        return Err(ProjectError {
+            code: "invalid".into(),
+            message: format!("uma sprint tem de 1 a {MAX_CODEVS} Co-Devs"),
+            overridable: false,
+        });
+    }
+    let mut src = st.plan_source(root, sprint, now)?;
+    let dir = Path::new(root);
+    let files = tutor_agent::issue_prompt::project_files(dir, PLAN_MAX_FILES);
+    let branches: Vec<String> = src.branches.values().cloned().collect();
+    let predicted = if branches.is_empty() {
+        vec![]
+    } else {
+        tutor_eval::gitwork::predict_conflicts(dir, &branches).unwrap_or_default()
+    };
+    for i in &mut src.issues {
+        if i.state == "done" {
+            continue;
+        }
+        let mut known: std::collections::BTreeSet<String> = i.known_files.drain(..).collect();
+        if let Some(shas) = src.commits.get(&i.key) {
+            known.extend(tutor_eval::gitwork::commit_files(dir, shas).unwrap_or_default());
+        }
+        if let Some(b) = src.branches.get(&i.key) {
+            known.extend(tutor_eval::gitwork::branch_files(dir, b).unwrap_or_default());
+            if let Some(p) = predicted.iter().find(|p| &p.branch == b) {
+                i.branch_conflicts = p.files.clone();
+            }
+        }
+        i.known_files = known.into_iter().collect();
+    }
+    let n = codevs.or(src.sprint.codevs).unwrap_or(1);
+    let mut plan = plan_sprint(&src.issues, &src.states, n, &files);
+    plan.sprint = Some(src.sprint.id.clone());
+    Ok(plan)
+}
+
 // ── O quadro Tasks (ADR-0006, R3b) ─────────────────────────────────────────────────────────
 // O quadro da actividade Tasks continua a gravar o backlog inteiro (`tutor_board::Backlog`) por
 // pasta. Vive num ficheiro próprio: o `board.sqlite3` é do Project, cuja migração 1 renomeia as
@@ -534,6 +607,120 @@ pub fn board_save(app: AppHandle, root: Option<String>, backlog: Backlog) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sprint_plan_reads_the_folder_the_commits_and_the_branches() {
+        use std::process::Command;
+        let d = tempfile::tempdir().unwrap();
+        let g = |a: &[&str]| {
+            let o = Command::new("git")
+                .arg("-C")
+                .arg(d.path())
+                .args(a)
+                .output()
+                .unwrap();
+            assert!(
+                o.status.success(),
+                "git {a:?}: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+        };
+        let w = |f: &str, t: &str| {
+            let p = d.path().join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, t).unwrap();
+        };
+        g(&["init", "-q", "-b", "main"]);
+        g(&["config", "user.name", "Ana"]);
+        g(&["config", "user.email", "ana@example.com"]);
+        g(&["config", "commit.gpgsign", "false"]);
+        w(".gitignore", "target/\n");
+        w("target/big.rs", "x");
+        w("src/cart.rs", "cart\n");
+        w("src/pay.rs", "pay\n");
+        w("docs/a.md", "a\n");
+        g(&["add", "."]);
+        g(&["commit", "-q", "-m", "base"]);
+        // the docs issue's branch also changes src/pay.rs
+        g(&["checkout", "-q", "-b", "feature/docs"]);
+        w("src/pay.rs", "pay on the branch\n");
+        g(&["commit", "-q", "-am", "docs touches pay"]);
+        g(&["checkout", "-q", "main"]);
+        let root = d.path().to_string_lossy().to_string();
+        let mut st = ProjectStore::in_memory().unwrap();
+        let ap = |st: &mut ProjectStore, v: serde_json::Value| {
+            st.apply(&root, "Ana", 1, serde_json::from_value(v).unwrap())
+                .unwrap()
+        };
+        let p = ap(
+            &mut st,
+            serde_json::json!({"op": "create_sprint", "name": "S1", "start": 0, "end": 10}),
+        );
+        let sid = p.sprints[0].id.clone();
+        ap(
+            &mut st,
+            serde_json::json!({"op": "set_sprint_codevs", "id": sid, "codevs": 2}),
+        );
+        let gwt = ["Given x When y Then z"];
+        let mut keys = vec![];
+        for (title, scope) in [
+            ("Pay", "src/pay.rs"),
+            ("Docs", "docs/**"),
+            ("Cart", "src/cart.rs"),
+        ] {
+            let p = ap(
+                &mut st,
+                serde_json::json!({"op": "create_issue", "title": title, "kind": "task", "sprint": sid, "acceptance": gwt}),
+            );
+            let k = p.issues.last().unwrap().key.clone();
+            ap(
+                &mut st,
+                serde_json::json!({"op": "update_issue", "key": k, "scope": [scope], "ready": true}),
+            );
+            keys.push(k);
+        }
+        ap(
+            &mut st,
+            serde_json::json!({"op": "update_issue", "key": keys[1], "branch": "feature/docs"}),
+        );
+        let plan = sprint_plan_from(&st, &root, None, None, 1).unwrap();
+        assert_eq!(plan.sprint.as_deref(), Some(sid.as_str()));
+        assert_eq!(plan.codevs, 2, "the sprint's own count");
+        assert_eq!(plan.files, 4, "the ignored folder is not read: {plan:?}");
+        // Pay and Docs meet in src/pay.rs (Docs' branch): never in the same wave
+        assert_eq!(plan.overlaps.len(), 1, "{plan:?}");
+        assert_eq!(plan.overlaps[0].paths, vec!["src/pay.rs"]);
+        let wave = |k: &str| {
+            plan.lanes
+                .iter()
+                .flat_map(|l| &l.issues)
+                .find(|i| i.key == k)
+                .map(|i| i.wave)
+        };
+        assert_eq!(
+            (wave(&keys[0]), wave(&keys[1]), wave(&keys[2])),
+            (Some(1), Some(2), Some(1))
+        );
+        // the count asked for wins; outside 1…8 it is refused
+        assert_eq!(
+            sprint_plan_from(&st, &root, Some(&sid), Some(3), 1)
+                .unwrap()
+                .codevs,
+            3
+        );
+        assert_eq!(
+            sprint_plan_from(&st, &root, None, Some(0), 1)
+                .unwrap_err()
+                .code,
+            "invalid"
+        );
+        assert_eq!(
+            sprint_plan_from(&st, &root, Some("nope"), None, 1)
+                .unwrap_err()
+                .code,
+            "not_found"
+        );
+    }
 
     fn ide(approved: bool) -> IdeAudit {
         IdeAudit {

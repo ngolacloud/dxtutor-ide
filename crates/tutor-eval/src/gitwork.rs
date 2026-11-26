@@ -732,6 +732,35 @@ pub fn predict_conflicts(root: &Path, branches: &[String]) -> Result<Vec<Predict
     Ok(out)
 }
 
+/// The files a branch changes since it left HEAD (`git diff --name-only HEAD...<branch>`), for the
+/// parallel sprint plan (Multi Co-Dev): what an issue already touches on its branch.
+pub fn branch_files(root: &Path, branch: &str) -> Result<Vec<String>, String> {
+    let r = gitx::check_rev(branch)?;
+    let text = git(root, &["diff", "--name-only", &format!("HEAD...{r}"), "--"])?;
+    Ok(name_lines(&text))
+}
+
+/// The files the given commits changed (`git show --name-only`), each once, sorted; commits that
+/// do not exist are skipped. At most 200 commits are read.
+pub fn commit_files(root: &Path, shas: &[String]) -> Result<Vec<String>, String> {
+    let mut files = std::collections::BTreeSet::new();
+    for sha in shas.iter().take(200) {
+        let r = gitx::check_rev(sha)?;
+        if let Ok(text) = git(root, &["show", "--name-only", "--format=", r, "--"]) {
+            files.extend(name_lines(&text));
+        }
+    }
+    Ok(files.into_iter().collect())
+}
+
+fn name_lines(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 // ───── the three-way merge (UI-SCM-13) ─────
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -1481,6 +1510,31 @@ mod tests {
             parse_merge_tree("abc\na.rs\nb.rs\n\nmsg\n"),
             vec!["a.rs", "b.rs"]
         );
+    }
+
+    #[test]
+    fn lists_the_files_of_a_branch_and_of_commits() {
+        let d = repo();
+        commit(d.path(), "f.txt", "one\n", "feat: base");
+        g(d.path(), &["checkout", "-q", "-b", "work"]);
+        commit(d.path(), "g.txt", "g\n", "feat: g");
+        let sha_g = out(d.path(), &["rev-parse", "HEAD"]).unwrap();
+        commit(d.path(), "h.txt", "h\n", "feat: h");
+        let sha_h = out(d.path(), &["rev-parse", "HEAD"]).unwrap();
+        g(d.path(), &["checkout", "-q", "main"]);
+        // main moves on: the branch's own files only (three dots)
+        commit(d.path(), "m.txt", "m\n", "feat: main");
+        assert_eq!(
+            branch_files(d.path(), "work").unwrap(),
+            vec!["g.txt", "h.txt"]
+        );
+        assert!(branch_files(d.path(), "nope").is_err());
+        assert!(branch_files(d.path(), "--output=x").is_err());
+        assert_eq!(
+            commit_files(d.path(), &[sha_h, sha_g, "0000000".into()]).unwrap(),
+            vec!["g.txt", "h.txt"]
+        );
+        assert!(commit_files(d.path(), &["-p".into()]).is_err());
     }
 
     #[test]

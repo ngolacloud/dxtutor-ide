@@ -303,6 +303,9 @@ const MIGRATIONS: &[&str] = &[
         ms        INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX idx_runbook_runs ON runbook_runs(root, path, at);",
+    // 13 — how many Co-Devs work the sprint at the same time (Multi Co-Dev, phase 1: the parallel
+    //      plan); `NULL`: not set (one)
+    "ALTER TABLE sprints ADD COLUMN codevs INTEGER;",
 ];
 
 /// The schema version this code expects.
