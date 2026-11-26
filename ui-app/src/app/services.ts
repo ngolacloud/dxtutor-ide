@@ -63,8 +63,9 @@ export interface Services {
   panel: { termOwnsKey: (e: KeyboardEvent) => boolean };
   /** abrir o Project (features/project/index.ts, que avalia depois das boas-vindas — r23 F6) */
   project: Pick<typeof Project, "openProject">;
-  /** r23 F4a: um commit da UI que o secret scan bloqueou pergunta ao humano (features/protect, que avalia depois) */
-  protect: Pick<typeof Protect.protect, "guard">;
+  /** r23 F4a: um commit da UI que o secret scan bloqueou pergunta ao humano (features/protect, que avalia depois);
+   *  e o hook de pre-commit (endurecimento r23), pedido pela paleta */
+  protect: Pick<typeof Protect.protect, "guard" | "installHook">;
   /** o runner ao vivo do separador «Tests» do painel (features/testing, só no desktop): o «Accept & test» do Code review */
   tests: Pick<typeof Testing, "runLive">;
   /** propostas de ficheiro inteiro revistas no editor, bloco a bloco (features/codev/index.ts): o painel Explain / Code review */

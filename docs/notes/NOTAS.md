@@ -12,7 +12,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Project](#project) — 2 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
-- [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 3 acções
+- [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 4 acções
 - [Ops — infraestrutura, Kubernetes, runbooks e evidências](#ops-infraestrutura-kubernetes-runbooks-e-evidencias) — 12 acções
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
@@ -544,6 +544,7 @@ O IDE tira os segredos de qualquer pedido a um modelo, verifica cada commit que 
 |---|---|
 | [Redacção antes de qualquer pedido a um modelo](#redaccao-antes-de-qualquer-pedido-a-um-modelo) | barra de estado › «N redacted» |
 | [Secret scan antes de cada commit](#secret-scan-antes-de-cada-commit) | Source Control › Commit · Commit Composer, lanes, quadro, Co-Dev |
+| [Hook de pre-commit — o mesmo scan nos commits do terminal](#hook-de-pre-commit-o-mesmo-scan-nos-commits-do-terminal) | paleta: «Protect: Install the Pre-commit Hook…» |
 | [Segredos mascarados e ficheiros de estado](#segredos-mascarados-e-ficheiros-de-estado) | terminal · depurador · editor (`.tf`, `.tfstate`) |
 
 ### Redacção antes de qualquer pedido a um modelo
@@ -579,9 +580,38 @@ Cada commit que a app faz é verificado: um segredo no que vai ser comitado, ou 
 
 **Limites**
 
-- Um commit feito à mão no teu próprio terminal não passa por aqui.
+- Um commit feito à mão no teu próprio terminal só passa por aqui com o hook de pre-commit instalado (abaixo).
 
 <sub>Cobre: `protect:secret-scan`</sub>
+
+### Hook de pre-commit — o mesmo scan nos commits do terminal
+
+**Onde:** paleta: «Protect: Install the Pre-commit Hook…»
+
+Instala no repositório aberto um hook de pre-commit que corre `dxt secret-scan --staged`: as mesmas regras da app, sobre o que o commit leva. Um commit feito num terminal com um segredo ou um `.env` fica bloqueado, com os achados mascarados.
+
+**Como usar**
+
+1. Instala o `dxt` uma vez, a partir do repositório do dxtutor-ide: `cargo install --path crates/tutor-cli`.
+2. Abre a pasta do projecto, corre o comando na paleta e aprova: o diálogo mostra o ficheiro e o texto exactos que vão ser escritos.
+3. Para o tirar, apaga o ficheiro `pre-commit` da pasta de hooks do repositório.
+
+**Fluxo (por dentro)**
+
+1. O backend descobre a pasta de hooks pelo git (respeita worktrees e `core.hooksPath`), regista a instalação no registo de auditoria antes de escrever o ficheiro, e a UI regista o resultado.
+2. O `dxt secret-scan` usa o gitleaks se estiver instalado, senão as regras próprias, e junta os valores secretos dos `.env` do repositório. Sai com 0 (limpo), 1 (achados) ou 2 (não conseguiu correr).
+
+**Dicas**
+
+- `dxt secret-scan --all` verifica o que um `git commit -a` levaria; `--working`, todas as mudanças.
+
+**Limites**
+
+- Um hook de pre-commit que não seja do dxtutor (husky, lint-staged…) nunca é substituído: acrescenta-lhe `dxt secret-scan --staged` à mão.
+- Sem o `dxt` no PATH, o hook bloqueia o commit e diz porquê.
+- O git deixa saltar qualquer hook com `git commit --no-verify`; o hook não é uma barreira contra quem o quer contornar.
+
+<sub>Cobre: `protect:hook`, `cmd:Protect: Install the Pre-commit Hook…`</sub>
 
 ### Segredos mascarados e ficheiros de estado
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKED, filesOf, findingLines, parseBlocked, type ScanReport } from "../src/features/protect/domain/report";
+import { BLOCKED, filesOf, findingLines, parseBlocked, type HookPlan, type ScanReport } from "../src/features/protect/domain/report";
 import { makeProtect } from "../src/features/protect/application/protect-service";
 import type { ProtectDeps } from "../src/features/protect/application/ports";
 import { tauriProtect } from "../src/features/protect/infrastructure/tauri";
@@ -22,8 +22,10 @@ describe("domínio", () => {
   });
 });
 
-function harness(answer: { approved: boolean; reason: string }) {
+function harness(answer: { approved: boolean; reason: string }, hook: { state?: HookPlan["state"]; root?: string | null; fail?: string } = {}) {
   const log: string[] = [];
+  const toasts: string[] = [];
+  const plan = (state: HookPlan["state"]): HookPlan => ({ path: "/w/.git/hooks/pre-commit", state, content: "#!/bin/sh\nexec dxt secret-scan --staged\n" });
   const audits: Array<Record<string, unknown>> = [];
   const asked: Array<Record<string, unknown>> = [];
   const deps: ProtectDeps = {
@@ -31,14 +33,16 @@ function harness(answer: { approved: boolean; reason: string }) {
       learn: async (r) => { log.push(`learn ${r}`); return 3; },
       scan: async () => REPORT,
       allow: async (r, why) => { log.push(`allow ${r} ${why}`); },
+      hookPlan: async () => { log.push("plan"); return plan(hook.state ?? "missing"); },
+      hookInstall: async () => { log.push("install"); if (hook.fail) throw new Error(hook.fail); return plan("installed"); },
     },
     approval: { approve: async (r) => { asked.push(r); log.push("approve"); return { ...answer, decidedAt: 7 }; } },
     audit: { record: async (_r, e) => { audits.push(e); log.push(`audit ${e.approved}${e.outcome ? " " + e.outcome : ""}`); } },
-    root: () => "/w",
-    toast: () => undefined,
+    root: () => (hook.root === undefined ? "/w" : hook.root),
+    toast: (m) => { toasts.push(m); },
     copy: (k, p) => (p ? `${k}:${Object.values(p).join("|")}` : k),
   };
-  return { p: makeProtect(deps), log, audits, asked };
+  return { p: makeProtect(deps), log, audits, asked, toasts };
 }
 
 describe("o serviço", () => {
@@ -79,19 +83,59 @@ describe("o serviço", () => {
   });
 });
 
+describe("o hook de pre-commit", () => {
+  it("mostra o ficheiro e o texto exactos, instala só aprovado e audita o resultado", async () => {
+    const h = harness({ approved: true, reason: "" });
+    await h.p.installHook();
+    expect(h.log).toEqual(["plan", "approve", "install", "audit true ok"]);
+    expect(h.asked[0]).toMatchObject({ title: "hookTitle", scope: "/w" });
+    expect(String(h.asked[0].command)).toBe("write /w/.git/hooks/pre-commit (chmod 755)\n\n#!/bin/sh\nexec dxt secret-scan --staged\n");
+    expect(h.audits[0]).toMatchObject({ feature: "protect", action: "hook.install", command: "write /w/.git/hooks/pre-commit", approved: true, outcome: "ok", decidedAt: 7 });
+    expect(h.toasts).toEqual(["hookInstalled:/w/.git/hooks/pre-commit"]);
+  });
+
+  it("recusado: não instala e audita a recusa; a falhar, audita «failed» e diz o erro", async () => {
+    const no = harness({ approved: false, reason: "" });
+    await no.p.installHook();
+    expect(no.log).toEqual(["plan", "approve", "audit false"]);
+    expect(no.toasts).toEqual(["hookDeclined"]);
+    const bad = harness({ approved: true, reason: "" }, { fail: "not done: the audit log could not record it (x)" });
+    await bad.p.installHook();
+    expect(bad.log).toEqual(["plan", "approve", "install", "audit true failed"]);
+    expect(bad.toasts).toEqual(["hookFailed:not done: the audit log could not record it (x)"]);
+  });
+
+  it("já instalado, de outro, ou sem pasta: não pergunta nem escreve", async () => {
+    for (const [state, toast] of [["installed", "hookAlready:/w/.git/hooks/pre-commit"], ["foreign", "hookForeign:/w/.git/hooks/pre-commit"]] as const) {
+      const h = harness({ approved: true, reason: "" }, { state });
+      await h.p.installHook();
+      expect(h.log).toEqual(["plan"]);
+      expect(h.toasts).toEqual([toast]);
+    }
+    const none = harness({ approved: true, reason: "" }, { root: null });
+    await none.p.installHook();
+    expect(none.log).toEqual([]);
+    expect(none.toasts).toEqual(["hookNoFolder"]);
+  });
+});
+
 describe("o adaptador Tauri", () => {
-  it("os três comandos", async () => {
+  it("os cinco comandos", async () => {
     const seen: Array<[string, unknown]> = [];
     const port = tauriProtect(async (cmd: string, args?: unknown) => { seen.push([cmd, args]); return null as never; });
     await port.learn("/w");
     await port.scan("/w", "paths", ["a.rs"]);
     await port.scan("/w");
     await port.allow("/w", "why");
+    await port.hookPlan("/w");
+    await port.hookInstall("/w");
     expect(seen).toEqual([
       ["protect_learn", { root: "/w" }],
       ["secret_scan", { root: "/w", scope: "paths", paths: ["a.rs"] }],
       ["secret_scan", { root: "/w", scope: null, paths: null }],
       ["secret_scan_allow", { root: "/w", reason: "why" }],
+      ["protect_hook_plan", { root: "/w" }],
+      ["protect_hook_install", { root: "/w" }],
     ]);
   });
 });

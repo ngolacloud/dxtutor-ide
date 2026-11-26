@@ -843,7 +843,11 @@ Nenhum segredo sai da máquina, e a regra vive no Rust:
   `.tfstate`, chaves). Bloqueado, devolve `SECRET_SCAN_BLOCKED:{relatório}` (pré-visualizações MASCARADAS). Na UI,
   `services.protect.guard(f)` (o commit do desktop, o Composer e as lanes) mostra os achados no diálogo partilhado; passar
   exige motivo, auditado ANTES de `secret_scan_allow` (um commit, 2 min) e com o resultado. Um commit que o humano
-  faz no seu terminal não passa por aqui.
+  faz no seu terminal só passa por aqui com o hook de pre-commit: «Protect: Install the Pre-commit Hook…» (paleta,
+  `services.protect.installHook`) mostra o ficheiro e o texto exactos no diálogo partilhado; `protect_hook_install`
+  audita no Rust antes de escrever e nunca substitui um hook alheio (`tutor_protect::hook`, pasta pelo
+  `git rev-parse --git-path hooks`). O hook corre `dxt secret-scan --staged` (`crates/tutor-cli`, o mesmo `scan`);
+  sem o `dxt` no PATH bloqueia e diz porquê. Teste ponta a ponta: `cargo test -p tutor-cli --test secret_scan`.
 - **Máscara** (X04): o PTY (`tutor_protect::stream::Masker`) e a saída do depurador. Uma shell interactiva mascara
   pedaço a pedaço (o eco não pode esperar: um segredo partido entre duas leituras pode passar); uma TAREFA (`pty_spawn`
   com `command`) retém o fim de uma linha que pode ser o início de um segredo até à leitura seguinte e despeja o resto
