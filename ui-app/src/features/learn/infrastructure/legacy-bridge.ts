@@ -11,13 +11,13 @@ export const tauriCourseGateway: CourseGateway = {
   listPlugins: async () => (await ipc.pluginList()).map(toPluginRow),
   install: async (source) => {
     const o = await ipc.pluginInstall(source);
-    return { id: o.entry.id, version: o.entry.version, languageName: o.language.name, replaced: o.replaced, warnings: o.warnings };
+    return { id: o.entry.id, version: o.entry.version, languageName: o.subject ? o.subject.name : o.language.name, replaced: o.replaced, warnings: o.warnings };
   },
   remove: async (id) => { await ipc.pluginRemove(id); },
-  courseLanguages: async () => [...new Set((await ipc.listCourses()).map(c => c.language))],
-  getCourse: async (language) => fromCourseDto(await ipc.getCourse(language)),
-  submitStep: async (stepId, code, language) => {
-    const a = await ipc.submitStep(stepId, code, language);
+  listCourses: async () => (await ipc.listCourses()).map(c => ({ id: c.id, language: c.language, category: c.category ?? "language", subject: c.subject ?? "" })),
+  getCourse: async (language, subject) => fromCourseDto(await ipc.getCourse(language, subject)),
+  submitStep: async (stepId, code, language, files) => {
+    const a = await ipc.submitStep(stepId, code, language, files);
     return { passed: a.correctness.passed, summary: a.correctness.summary, raw: a.correctness.raw, gabarito: a.gabarito };
   },
 };

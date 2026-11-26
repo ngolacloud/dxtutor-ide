@@ -1,6 +1,7 @@
 # ADR-0005 — Learning Track em plugins de curso (10 linguagens, texto de conceitos, VS Code)
 
-- **Estado:** aceite; Fases 1–4 implementadas (branch `feat/learning-plugins`)
+- **Estado:** aceite; Fases 1–4 implementadas (branch `feat/learning-plugins`); emendado a
+  2026-11-26 (frameworks e ferramentas, passos de projecto — ver «Emenda» no fim)
 - **Data:** 2026-11-23
 - **Decisor:** responsável do projecto
 - **Relacionado:** `ADR-0002` (Clean Architecture das features), `IPC-MATRIX.md` §10d,
@@ -250,3 +251,75 @@ ainda não tiver avaliador, a UI mostra o erro do backend.
 - O template de CI instala o `dxt` com `cargo install --git
   https://github.com/ngolacloud/dxtutor-ide`. Isto exige que esse repositório seja público,
   ou que o `dxt` passe a ser publicado como binário de release.
+
+## Emenda (2026-11-26): frameworks e ferramentas; passos de projecto
+
+- **Decisor:** responsável do projecto. **Implementação:** fase P0, branch `feat/learn-frameworks`.
+
+### Contexto
+
+O dono quer cursos de frameworks e ferramentas: Dxjs, Seiva, Django, Delonix Engine, Docker,
+Podman, Kubernetes (sandbox: kind sobre Podman rootless) e Odoo 18–20 (Community, e Enterprise só
+com licença). A auditoria do Learning Track (2026-11-26) mostrou dois bloqueios: (1) o catálogo de
+10 linguagens está cheio e um curso de Django teria de fingir ser a «linguagem» `django`, o que
+desfaz o sentido da decisão das 10; (2) um desafio é um só ficheiro (`starter`, `tests`,
+`submit_step(code)`), e estes cursos precisam de vários (um módulo, um manifesto e a sua
+configuração).
+
+### Decisão
+
+1. **Frameworks e ferramentas são uma categoria SEPARADA das linguagens.** O tecto de 10 fica só
+   para as linguagens (`MAX_OFFICIAL_LANGUAGES`, o teste continua a exigir as 10). Os frameworks e
+   ferramentas têm o seu catálogo oficial (`FRAMEWORK_CATALOG` em `learn/domain/catalog.ts`: id,
+   nome, ícone, categoria, documentação oficial, o que instalar, repositório
+   `ngolacloud/dxtutor-course-<id>`) e a sua secção no selector («Frameworks & tools»).
+2. **O modelo: `category` + `subject` + `language`.** `Course.category` (`language`, o omisso;
+   `framework`; `tool`) e `Course.subject` (o id do que se ensina, `django`). O `language`
+   continua a ser a linguagem que **avalia** os passos (`python` num curso de Django): é por ele
+   que se escolhe o avaliador e que se garante a unicidade dos ids de passo. Assim não há segundo
+   eixo de avaliação, e um curso de framework reusa os descritores que já existem. O manifesto
+   ganha `category` e `subject {id, name, icon, docs}`, ambos opcionais: um plugin antigo é de
+   linguagem e serializa como antes.
+3. **Regras de validação (no Rust, `tutor-plugins`):** `subject` só com `framework`/`tool`, e
+   obrigatório aí; `subject.id` válido e diferente de `language.id`; `docs` em `https://`; cada
+   curso com a categoria e o `subject` do manifesto; `language` do curso igual a `language.id`
+   (agora com o sentido de «avaliado em»); um curso de linguagem sem `subject`. Um plugin que
+   substitui um curso embutido tem de ter a mesma categoria e `subject`.
+4. **O backend não confunde os dois:** `study::course(language)` só devolve cursos de linguagem
+   (um curso de Django avaliado em Python nunca passa a ser «o curso de Python»);
+   `get_course(language, subject?)` dá o do framework. `list_courses`/`get_course` levam
+   `category` e `subject`. Nenhum comando novo (os parâmetros são opcionais).
+5. **Antes de um curso existir**, o cartão de um framework oficial mostra-se exactamente como o
+   de uma linguagem oficial sem plugin: «Coming soon», desactivado, sem progresso nem conteúdo
+   de demonstração (ADR-0006).
+6. **Passos de projecto.** Um desafio pode trazer `project` (`tutor_core::ProjectFiles`) em vez de
+   `starter`/`tests`/`gabarito`: `starter` (caminho → conteúdo), `tests` ocultos, `solution` (o
+   gabarito em ficheiros), `main` (aberto primeiro) e `readonly`. As regras vivem no modelo
+   (`ProjectFiles::check`, `learner_tree`): caminhos relativos seguros, `main`/`solution`
+   editáveis, testes separados dos ficheiros iniciais, limites (64 ficheiros, 256 KiB cada, 2 MiB).
+   Na avaliação, só se aceitam ficheiros editáveis; os que faltam ficam como no início e os só de
+   leitura com a cópia do curso. O descritor escreve a árvore e os testes numa pasta nova
+   (`create_new`, pastas verificadas dentro da pasta de trabalho) e corre o seu
+   `project_test_cmd` (o do Python: `unittest discover`). `submit_step` ganhou `files`; a forma
+   `code` continua (num projecto, é o ficheiro principal). `dxt plugin test`: a solução passa e os
+   ficheiros iniciais falham. Os testes e a solução nunca vão para o webview; a solução em
+   ficheiros só depois de passar.
+7. **Prova sem curso real:** um plugin-fixture só de testes
+   (`crates/tutor-plugins/tests/fixtures/framework-project`, categoria `framework`, um projecto
+   Python em dois módulos) atravessa `dxt plugin test`, `submit_step` (fachada `study`, com o
+   registo de plugins real) e a UI (`ui-app/tests/learn.frameworks.test.ts`).
+
+### Fica para as fases seguintes (pontos de extensão deixados)
+
+- **Endurecimento do contentor** (memória, pids, `cap-drop`, só leitura) no `ContainerSpec`.
+- **Imagens de curso** (Django, Odoo com PostgreSQL, Dxjs com o `cdn` vendido, Rust com registo
+  e `target` aquecidos) e tempos maiores: o descritor já tem `image`, `network`,
+  `container_timeout_secs`; um descritor de framework (ex. `django`) declara o seu
+  `project_test_cmd`.
+- **A sandbox das ferramentas** (Docker/Podman aninhados, kind sobre Podman rootless com um
+  `KUBECONFIG` próprio, Delonix) e os seus avaliadores.
+- **Os 8 cursos**, cada um com `dxt plugin test courses/<id>` a 0 falhas antes de entrar.
+- Um passo de projecto que crie ficheiros novos (hoje o passo traz todos os ficheiros) e passos
+  de projecto nas outras linguagens (falta-lhes o `project_test_cmd`).
+- O `dxt plugin test` dizer as versões das ferramentas usadas (auditoria, ponto 5).
+

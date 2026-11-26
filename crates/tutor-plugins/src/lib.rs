@@ -13,7 +13,7 @@ pub mod source;
 pub mod store;
 pub mod validate;
 
-pub use manifest::{LanguageInfo, Manifest, MANIFEST_FILE, SCHEMA_VERSION};
+pub use manifest::{LanguageInfo, Manifest, SubjectInfo, MANIFEST_FILE, SCHEMA_VERSION};
 pub use source::{official_repo, Source, OFFICIAL_ORG, OFFICIAL_REPO_PREFIX};
 pub use store::{Entry, Installed, Outcome, Store};
 pub use validate::{validate_dir, Report, Taken};

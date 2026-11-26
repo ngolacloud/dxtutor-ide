@@ -2,10 +2,12 @@
    remover plugins, avaliar um desafio. Deps injectadas por argumento; sem DOM, sem window. */
 
 import type { Course, PluginRow } from "../domain/types";
-import type { CourseGateway, Grade, InstallResult } from "./ports";
+import type { CourseGateway, CourseSummary, Grade, InstallResult } from "./ports";
+import { trackKey } from "../domain/catalog";
 
 export interface CatalogState {
   plugins: PluginRow[];
+  /** Indexado pela chave do percurso: a linguagem, ou o subject de um framework/ferramenta. */
   courses: Record<string, Course>;
   /** Erros não fatais ao carregar (um curso que não abriu, por exemplo). */
   problems: string[];
@@ -16,22 +18,37 @@ export interface CatalogState {
  * (o comportamento de sempre de Rust/Go: o protótipo traz os testes e simula a avaliação),
  * EXCEPTO quando um plugin instalado traz essa linguagem: aí o plugin é conteúdo mais recente
  * (ex. `ngolacloud/dxtutor-course-rust` substitui o curso Rust embutido) e o backend serve-o.
+ * Os cursos de framework/ferramenta indexam-se pelo `subject` (nunca há embutido); um subject
+ * que coincida com uma linguagem é recusado (seria o mesmo cartão) e fica nos problemas.
  */
 export async function loadCatalog(gw: CourseGateway, embedded: Readonly<Record<string, Course>>): Promise<CatalogState> {
   const courses: Record<string, Course> = { ...embedded };
   if (!gw.available()) return { plugins: [], courses, problems: [] };
   const problems: string[] = [];
-  const [plugins, langs] = await Promise.all([
+  const [plugins, list] = await Promise.all([
     gw.listPlugins().catch((e: unknown) => { problems.push(`plugins: ${msg(e)}`); return [] as PluginRow[]; }),
-    gw.courseLanguages().catch((e: unknown) => { problems.push(`courses: ${msg(e)}`); return [] as string[]; }),
+    gw.listCourses().catch((e: unknown) => { problems.push(`courses: ${msg(e)}`); return [] as CourseSummary[]; }),
   ]);
-  const fromPlugin = new Set(plugins.flatMap(p => (p.language && !p.error ? [p.language.id] : [])));
-  for (const lang of langs) {
-    if (courses[lang] && !fromPlugin.has(lang)) continue;
+  const fromPlugin = new Set(plugins.flatMap(p => (p.language && !p.subject && !p.error ? [p.language.id] : [])));
+  /* Uma entrada por percurso (o backend pode ter mais de um curso por chave: vale o 1.º, o
+     mesmo que o `get_course` devolve). As linguagens primeiro, para um subject que choque
+     com uma linguagem perder. */
+  const tracks = new Map<string, CourseSummary>();
+  for (const c of [...list.filter(c => c.category === "language"), ...list.filter(c => c.category !== "language")]) {
+    const key = trackKey(c);
+    if (!key) continue;
+    const prev = tracks.get(key);
+    if (prev && prev.category !== c.category) problems.push(`${c.id}: \`${key}\` is already a language track`);
+    if (!prev) tracks.set(key, c);
+  }
+  for (const [key, c] of tracks) {
+    const isLang = c.category === "language";
+    if (isLang && courses[key] && !fromPlugin.has(key)) continue;
+    if (!isLang && courses[key]) { problems.push(`${c.id}: \`${key}\` is already a language track`); continue; }
     try {
-      courses[lang] = await gw.getCourse(lang);
+      courses[key] = isLang ? await gw.getCourse(c.language) : await gw.getCourse(c.language, c.subject);
     } catch (e) {
-      problems.push(`${lang}: ${msg(e)}`);
+      problems.push(`${key}: ${msg(e)}`);
     }
   }
   for (const p of plugins) if (p.error) problems.push(`${p.id}: ${p.error}`);
@@ -50,9 +67,9 @@ export async function removePlugin(gw: CourseGateway, id: string): Promise<void>
   await gw.remove(id);
 }
 
-export async function gradeStep(gw: CourseGateway, stepId: string, code: string, language: string): Promise<Grade> {
+export async function gradeStep(gw: CourseGateway, stepId: string, code: string, language: string, files?: Record<string, string>): Promise<Grade> {
   if (!gw.available()) throw new Error("Grading runs in the desktop app.");
-  return gw.submitStep(stepId, code, language);
+  return gw.submitStep(stepId, code, language, files);
 }
 
 export function msg(e: unknown): string {

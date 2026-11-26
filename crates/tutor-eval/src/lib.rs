@@ -63,7 +63,8 @@ pub use container::{
 };
 pub use go_runner::{run_go_program, run_go_program_with_deps};
 pub use lang::{
-    assess, diagnostics, diagnostics_for, language_supported, Diagnostic, LanguageRunner, Severity,
+    assess, assess_project, diagnostics, diagnostics_for, language_supported, Diagnostic,
+    LanguageRunner, Severity,
 };
 pub use measured::{compile_pipeline, run_rust_snippet_measured, MemSample, Pipeline, Telemetry};
 pub use plugin::{

@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "id": "fixture-minishop",
+  "name": "MiniShop (test fixture)",
+  "version": "0.1.0",
+  "description": "Test fixture only, never shipped: a framework-category course with a multi-file project step.",
+  "license": "MIT",
+  "engine": ">=0.1.0",
+  "kind": "course",
+  "category": "framework",
+  "subject": {
+    "id": "minishop",
+    "name": "MiniShop",
+    "icon": "🛒",
+    "docs": "https://example.org/minishop/"
+  },
+  "language": {
+    "id": "python",
+    "name": "Python",
+    "icon": "🐍",
+    "extension": "py",
+    "indent": "4",
+    "testCommand": "python3 -m unittest"
+  },
+  "courses": ["courses/minishop.toml"]
+}

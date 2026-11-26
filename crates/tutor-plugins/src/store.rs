@@ -64,6 +64,10 @@ pub struct Installed {
 pub struct Outcome {
     pub entry: Entry,
     pub language: crate::manifest::LanguageInfo,
+    /// `language`, `framework` ou `tool`.
+    pub category: tutor_core::CourseCategory,
+    /// O framework/ferramenta ensinado (`None` num plugin de linguagem).
+    pub subject: Option<crate::manifest::SubjectInfo>,
     pub course_ids: Vec<String>,
     /// Versão anterior, quando a instalação substituiu um plugin com o mesmo id.
     pub replaced: Option<String>,
@@ -296,6 +300,8 @@ impl Store {
         Ok(Outcome {
             entry,
             language: manifest.language.clone(),
+            category: manifest.category,
+            subject: manifest.subject.clone(),
             course_ids: report.courses.iter().map(|c| c.id.clone()).collect(),
             replaced,
             warnings: report.warnings,

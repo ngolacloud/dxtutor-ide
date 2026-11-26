@@ -43,6 +43,7 @@ fn go_phase(tests: &str) -> Phase {
         probe: None,
         hints: Vec::new(),
         dependencies: Vec::new(),
+        project: None,
     }
 }
 
