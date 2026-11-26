@@ -75,8 +75,44 @@ caminho; o `tutor-eval` passou a depender do `regex`.
 - O raio de impacto pára num módulo como um todo; não segue as variáveis lá dentro.
 - Terragrunt, Helm e o separador «Golden paths» ficam fora da F4b.
 
+## F4c1 — keychain e Vault
+
+**O que mudou**
+- **Crate novo `tutor-platform`** (sem Tauri): o keychain do sistema (crate `keyring`, Secret Service por D-Bus) e o
+  cliente do Vault pela API HTTP.
+- **Entrar no Vault** pelo browser (OIDC: o browser volta a `127.0.0.1:8250`, como o CLI do Vault) ou colando um token.
+  Os dois vão para o keychain e nunca voltam à UI. Renovar e sair (o Vault revoga o token e ele sai do keychain).
+- **Segredos KV:** metadados de todos os ambientes (versões, datas, metadados); os nomes das chaves e os valores só
+  de `local`. O ambiente vem do caminho (`…/local/…`, `…/staging/…`, `…/production/…`); um caminho que não o diz
+  conta como não-local. A recusa está no Rust.
+- **Mostrar um valor local** pede aprovação com motivo, fica no registo de auditoria (no Rust, antes de ler) e só se
+  lê durante 20 segundos; o valor passa a ser filtrado dos pedidos aos modelos e do terminal.
+- **Mudar um valor** é no terminal: `vault kv patch … chave=-` lê-o do stdin, por isso o IDE nunca o vê. O terminal
+  recebe o token do Rust (`VAULT_TOKEN`) e mascara-o na saída. Aprovado e auditado, com o código de saída.
+- **Credenciais dinâmicas:** a UI só recebe o lease (id, TTL, nomes dos campos); um terminal aberto com ele recebe os
+  valores como `VAULT_DYN_*`, e o lease é revogado quando esse terminal acaba (ou à mão).
+- **Chaves de API dos modelos no keychain:** uma chave que ainda esteja no `keys.json` passa para o keychain na
+  primeira leitura e sai do ficheiro. Sem keychain, fica no `keys.json` como antes.
+- O separador «Vault» (paleta: «Vault: …») e o estado do token na barra de estado (`#st-vault`).
+- 10 comandos novos: de 268 para 278.
+
+**Verificação**
+- `cargo test -p tutor-platform`: o keychain real desta sessão (com um serviço só do teste) e um Vault 2.2.2 real em
+  modo dev (token, metadados, recusa de staging e produção, mostrar local durante 20 s, renovar, sair); OIDC e
+  credenciais dinâmicas contra um Vault falso.
+- O passo `vault` do auto-teste, contra um Vault dev que o runner arranca, com um serviço de keychain próprio (o HOME
+  temporário não isola o keychain da sessão).
+
+**Decisões para rever**
+- A F4c foi partida em duas: F4c1 (isto) e F4c2 (deploy guiado, registos de deploy, `dx-secret-check`).
+- O ambiente de um segredo vem de um segmento do caminho; sem segmento, os valores não se mostram.
+
+**Limitações**
+- O OIDC e as credenciais dinâmicas só foram testados contra um Vault falso: aqui não há fornecedor de identidade nem
+  motor de base de dados no Vault dev.
+- O antigo `~/.config/dxtutor/providers.json` (UI pré-v7) continua com chaves em texto e só é lido, não movido.
+
 ## A seguir
 
-F4c — Vault (login OIDC e token colado, ambos no keychain do SO e nunca devolvidos à UI; metadados KV, revelar só
-em `local`, credenciais dinâmicas), o deploy guiado, e as chaves de API dos modelos a passar do `keys.json` para o
-keychain.
+F4c2 — o deploy guiado (Target, Identity, Secrets, Preflight, Strategy, Approve, Rollout, Record), os registos de
+deploy na base do Project e o `dx-secret-check` («not available» enquanto a imagem não existir).

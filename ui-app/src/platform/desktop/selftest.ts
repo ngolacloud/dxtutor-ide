@@ -17,6 +17,7 @@ import { tauriGitExtras } from "../../features/scm/infrastructure/tauri";
 import { tauriHood } from "../../features/hood/infrastructure/tauri";
 import { tauriOps } from "../../features/ops/infrastructure/tauri";
 import { listen } from "../tauri/core";
+import { tauriVault } from "../../features/vault/infrastructure/tauri";
 import { tauriRulesGateway } from "../../features/arch/infrastructure/tauri";
 import { gfAsk } from "../../features/checkpoint";
 import { sdAdd } from "../../features/studio";
@@ -997,6 +998,45 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         delete FS[main]; delete FS[extra]; flushSave(); await idle();
         await sh("rm", ["-rf", dir]);
       }
+    });
+    // r23 F4c: o Vault na app real, contra um Vault dev que o runner arranca (DXTUTOR_SELFTEST_VAULT) e com um serviço de
+    // keychain só do auto-teste (DXTUTOR_KEYCHAIN_SERVICE): entrar com um token (vai para o keychain e nunca volta), os
+    // metadados de produção sem chaves nem valores, a recusa de revelar staging/produção (no Rust), revelar local (auditado,
+    // 20 s), um terminal que recebe o token do backend (a CLI vault funciona e o token aparece mascarado), e sair.
+    await step("vault", async () => {
+      const env = async (k: string) => ((await sh("printenv", [k])) as { stdout: string }).stdout.trim();
+      const addr = await env("DXTUTOR_SELFTEST_VAULT"), token = await env("DXTUTOR_SELFTEST_VAULT_TOKEN");
+      if (!addr || !token) return { skipped: "no dev Vault (DXTUTOR_SELFTEST_VAULT)" };
+      const v = tauriVault(), root = R.root as string, w = { addr, namespace: "" };
+      const before = await v.status(w);
+      const st = await v.loginToken(w, token);
+      const prod = await v.kvMeta(w, "secret", "apps/shop/production/db");
+      const local = await v.kvMeta(w, "secret", "apps/shop/local/db");
+      const refused = await v.reveal(root, w, "secret", "apps/shop/production/db", "DB_PASSWORD", "self-test").then(() => "revealed", (e) => String(e));
+      const r = await v.reveal(root, w, "secret", "apps/shop/local/db", "DB_PASSWORD", "self-test");
+      const value = await v.revealRead(r.id);
+      let cli = -1, masked = false, shown = "";
+      if (R.term) {
+        /* `-field` prints no newline: the echo starts its own line */
+        cli = await R.term.runTask("vault kv get -mount=secret -field=DB_USER apps/shop/local/db && echo && echo \"tok=$VAULT_TOKEN\"", { label: "selftest-vault", vault: { addr, namespace: null } });
+        const I = () => R.term!.inspect(), task = I().terminals.find((t) => t.label === "selftest-vault");
+        /* the program's own line (`tok=…`); the task header — the command, with `$VAULT_TOKEN` literal — can wrap */
+        const out = (id: string) => I().text(id).split("\n").find((l) => l.trim().startsWith("tok=") && !l.includes("$VAULT_TOKEN"));
+        if (task) { const t0 = Date.now(); while (!out(task.id) && Date.now() - t0 < 5000) await new Promise((res) => setTimeout(res, 200)); shown = out(task.id) ?? I().text(task.id).slice(-200); }
+        masked = shown.trim().startsWith("tok=") && shown.trim().length > 4 && !shown.includes(token);
+      }
+      const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null; reason: string | null }>;
+      const audited = rows.some((x) => x.origin === "ide" && x.tool === "vault" && x.call === "reveal-local" && x.reason === "self-test");
+      const out = await v.revoke(w);
+      const json = JSON.stringify([before, st, prod, local, out]);
+      const res = {
+        before: before.signedIn, signedIn: st.signedIn, who: st.displayName, keychain: st.keychain, tokenInAnswers: json.includes(token),
+        prodKeys: prod.keys, prodVersions: prod.versions.length, prodValue: json.includes("st-production-pw-4821"), localKeys: local.keys,
+        refused: refused.slice(0, 80), value, ttlMs: r.ttlMs, cli, masked, shown: shown.slice(0, 40), audited, after: out.signedIn,
+      };
+      if (before.signedIn || !st.signedIn || !st.keychain || res.tokenInAnswers || prod.keys !== null || res.prodValue || !local.keys?.includes("DB_PASSWORD")
+        || !refused.includes("never leave Vault") || value !== "st-local-pw-4821" || cli !== 0 || !masked || !audited || out.signedIn) throw new Error("vault: " + JSON.stringify(res));
+      return res;
     });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e
     // em release, o bytecode Python, os estágios do compilador, uma execução medida, o crescimento com N
