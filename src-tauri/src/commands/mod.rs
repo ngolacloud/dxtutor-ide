@@ -4,7 +4,7 @@
 //! Esta pasta recolhe-os por feature como **adaptadores finos** sobre casos de uso
 //! Tauri-free (ex. `commands::review` → `crate::review`), deixando `lib.rs` a
 //! compor/registar. Grupos extraídos: `review`, `codeintel`, `tests`, `git`, `codev`,
-//! `codev_agent`, `dictation`, `search`, `agent`, `assistant`, `debug_cmds`, `devcontainer`, `sandbox`, `pair`,
+//! `codev_agent`, `codev_worktree`, `dictation`, `search`, `agent`, `assistant`, `debug_cmds`, `devcontainer`, `sandbox`, `pair`,
 //! `study`, `missions`, `panel`.
 
 pub mod agent;
@@ -13,6 +13,7 @@ pub mod codebase;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+pub mod codev_worktree;
 pub mod debug_cmds;
 pub mod deploy;
 pub mod devcontainer;

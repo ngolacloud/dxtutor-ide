@@ -26,6 +26,8 @@ export interface StartAgentArgs {
   language?: string | null;
   /** Sessão de arquitectura (conjunto 9): só estas levam a ferramenta `arch_propose`. Fica gravada com a sessão. */
   architecture?: boolean;
+  /** Multi Co-Dev (fase 3): a sessão da issue trabalha na worktree dela (o backend encontra-a; tem de existir). */
+  worktree?: boolean;
 }
 
 /** Abre uma sessão; devolve o id. Falha se faltar a chave do provedor ou a pasta não existir. */
@@ -43,6 +45,7 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     issue: a.issue ?? null,
     language: a.language ?? currentLocale(),
     architecture: a.architecture ?? false,
+    ...(a.worktree ? { worktree: true } : {}),
   });
 
 /** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */
@@ -83,7 +86,8 @@ export const cancelAgent = (sessionId: string): Promise<boolean> => invoke<boole
 export const setAgentMode = (sessionId: string, mode: string): Promise<boolean> =>
   invoke<boolean>("codev_agent_set_mode", { sessionId, mode });
 
-export const closeAgent = (sessionId: string): Promise<boolean> => invoke<boolean>("codev_agent_close", { sessionId });
+export const closeAgent = (sessionId: string, keepWorktree?: boolean): Promise<boolean> =>
+  invoke<boolean>("codev_agent_close", keepWorktree ? { sessionId, keepWorktree: true } : { sessionId });
 
 /** `codev-agent://event` `{session, event}` — eventos do loop. */
 export const onAgentEvent = (h: (payload: unknown) => void): Promise<() => void> => listen("codev-agent://event", h);

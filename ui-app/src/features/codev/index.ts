@@ -41,6 +41,12 @@ import { makeCodevSessions } from "./application/codev-sessions";
 import { makeSessionView } from "./ui/session-view";
 import { makeCodevsView } from "./ui/codevs-view";
 import { scopeOverlap } from "./infrastructure/scope-gateway";
+import { worktreeGateway } from "./infrastructure/worktree-gateway";
+import { makeWorktrees } from "./application/worktrees";
+import { CODEV_WORKTREE_MESSAGES } from "./application/worktree-messages";
+import { branchLabel, type WorktreeRef } from "./domain/worktrees";
+import { requestApproval } from "../../app/approval";
+import { auditClient } from "../../platform/tauri/audit";
 import { VIEW } from "../../app/store/registry";
 import type {
   Workspace,
@@ -306,6 +312,23 @@ export const agentMapView = makeAgentMapView(agentMapStore, {
 agentMapStore.onChange(() => setAgentCount(agentMapStore.working()));
 void agentMapStore.start();
 
+/* ───── Multi Co-Dev (fase 3): as worktrees do Co-Dev e as reservas de ficheiros ───── */
+const wtCopy = translator(CODEV_WORKTREE_MESSAGES);
+const audits = auditClient();
+export const worktrees = makeWorktrees({
+  copy: wtCopy,
+  gateway: worktreeGateway,
+  root: () => bridge.diskRoot(),
+  approve: (r) => requestApproval(r),
+  audit: (root, entry) => audits.record(root, entry),
+  guard: (f) => (services.protect ? services.protect.guard(f) : f()),
+  openReadOnly: (abs, before, after, label) => bridge.openDiff(abs, before, after, label),
+  ask: async (q, initial) => bridge.prompt(q, initial),
+  notify: (m) => bridge.toast(m),
+});
+/* ao abrir uma pasta: as worktrees de uma execução anterior (só na app desktop) */
+if (bridge.isDesktop()) document.addEventListener("dx:workspace", () => void worktrees.workspaceOpened());
+
 /* ───── Multi Co-Dev (fase 2): uma conversa por sessão; a à vista é a seleccionada ───── */
 let firstSession = true;
 export const codevSessions = makeCodevSessions({
@@ -357,6 +380,18 @@ export const codevSessions = makeCodevSessions({
           hunkReview.sink.event(s, e);
           pairState.codevOut(e);
         },
+        // fase 3: os blocos de uma sessão numa worktree são de outra árvore — vêem-se só de leitura
+        open: (path) => {
+          const wt = ctx.worktree();
+          const session = chat.sessionId();
+          if (wt && session) void worktrees.openProposal(wt, path, (now) => hunkReview.proposal(session, path, now));
+          else hunkReview.sink.open(path);
+        },
+      },
+      /* fase 3: a revisão de hunks diz em que worktree a sessão trabalha */
+      where: () => {
+        const wt = ctx.worktree();
+        return wt ? `${branchLabel(wt)} · worktree` : null;
       },
       flush: () => bridge.flushSave(),
       // the «Co-Dev run» tab follows the conversation on screen
@@ -376,6 +411,9 @@ export const codevSessions = makeCodevSessions({
     const root = bridge.diskRoot();
     return root ? scopeOverlap(root, key, running) : [];
   },
+  wtCopy,
+  // fase 3: só a app desktop tem worktrees (no browser não há agente v2)
+  ...(bridge.isDesktop() ? { worktree: { prepare: (key: string, needed: boolean) => worktrees.prepare(key, needed), sessionClosed: (ref: WorktreeRef) => void worktrees.sessionClosed(ref) } } : {}),
   hunks: hunkReview,
   confirm: (m) => bridge.confirm(m),
   notify: (m) => bridge.toast(m),
@@ -386,6 +424,8 @@ sessionOf = () => codevSessions.sessionId();
 stopTurn = () => agentChat().cancel();
 /** A faixa «Co-Devs» por cima da conversa (só com mais de uma sessão). */
 export const codevsView = makeCodevsView(codevSessions, agentMapStore, {
+  worktrees,
+  pick: (ph, items) => bridge.palette("", { ph, items: items.map((i) => ({ l: i.label, d: i.detail, run: i.run })) }),
   now: () => Date.now(),
   every: (ms, f) => {
     const id = setInterval(f, ms);

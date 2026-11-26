@@ -397,6 +397,20 @@ const MIGRATIONS: &[&str] = &[
     // 17 — the project's own Definition of Ready ticked per issue (Board B): one flag per item of
     //      `projects.dor`, like `dod_done`; readiness lists the items not ticked
     "ALTER TABLE issues ADD COLUMN dor_done TEXT NOT NULL DEFAULT '[]';",
+    // 18 — Multi Co-Dev, phase 3: the files each Co-Dev session claims (`claims`). One owner per
+    //      path of a project: the session that wrote it first (with its issue, the app's process and
+    //      when); another session's write to it is refused until the owner closes. A claim whose
+    //      session is gone (closed elsewhere, the app crashed) is abandoned and taken over.
+    "CREATE TABLE file_claims (
+        root       TEXT NOT NULL,
+        path       TEXT NOT NULL,
+        session    TEXT NOT NULL,
+        issue_key  TEXT,
+        pid        INTEGER NOT NULL,
+        at         INTEGER NOT NULL,
+        PRIMARY KEY (root, path)
+    );
+    CREATE INDEX idx_file_claims_session ON file_claims(root, session);",
 ];
 
 /// The schema version this code expects.

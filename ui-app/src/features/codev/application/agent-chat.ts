@@ -68,6 +68,10 @@ export function makeAgentChat(deps: AgentChatDeps) {
   let issueKey: string | null = null;
   /** F4: the issue's scope and prompt template version, sent with its origin (RF-G03/B04). */
   let issueExtra: { scope?: string[]; template?: string } = {};
+  /** Multi Co-Dev (fase 3): a sessão desta issue trabalha na worktree dela (o backend resolve-a). */
+  let inWorktree = false;
+  /** O fecho da última sessão (o backend pode demorar: espera que o turno pare). */
+  let closingNow: Promise<unknown> = Promise.resolve();
   let unsubscribe: (() => void) | null = null;
 
   // the chat keeps prose: long code blocks go to the editor, not the reply (RF-CODEV-STREAM §7)
@@ -112,7 +116,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
           const n = t.planOutside.get(e.call) ?? 0;
           const outside = n ? { n, planned: plannedLabel(plannedLines(planSteps, path)) } : undefined;
           const violations = e.violations?.length ? e.violations.map((v) => v.message) : undefined;
-          const bar = presenter.hunkReview(ref, { path, count: e.hunks.length, reason: e.reason, outside, violations }, {
+          const where = deps.where?.() ?? undefined;
+          const bar = presenter.hunkReview(ref, { path, count: e.hunks.length, reason: e.reason, outside, violations, ...(where ? { where } : {}) }, {
             acceptAll: () => sink.decideAll(e.call, true),
             rejectAll: () => sink.decideAll(e.call, false),
             open: () => sink.open(path),
@@ -293,6 +298,7 @@ export function makeAgentChat(deps: AgentChatDeps) {
         reviewEdits: !!deps.hunks,
         issue: issueKey,
         architecture: deps.architecture?.(firstRequest) ?? false,
+        ...(inWorktree ? { worktree: true } : {}),
       });
     }
     return session;
@@ -478,16 +484,19 @@ export function makeAgentChat(deps: AgentChatDeps) {
 
   /** F4 (RF-B03): an issue goes to the agent with the exact prompt the IDE assembled from the
    *  project's template, its scope and the template version — in a new session that knows it. */
-  function issue(r: { key: string; text: string; scope: string[]; template: string }): Promise<boolean> {
-    reset();
+  function issue(r: { key: string; text: string; scope: string[]; template: string }, where?: { worktree?: boolean; keepWorktree?: boolean }): Promise<boolean> {
+    reset({ keepWorktree: !!where?.keepWorktree });
     issueKey = r.key;
     issueExtra = { scope: r.scope, template: r.template };
+    inWorktree = !!where?.worktree;
     return send(r.text);
   }
 
-  function reset(): void {
+  /** Fecha a sessão. Fase 3: com `keepWorktree`, a worktree dela fica (a mesma issue recomeça nela);
+   *  sem isso, sai se não tiver alterações por commitar. Devolve o fecho (que o backend pode demorar). */
+  function reset(o?: { keepWorktree?: boolean }): Promise<unknown> {
     if (session) {
-      void gateway.close(session);
+      closingNow = Promise.resolve(o?.keepWorktree ? gateway.close(session, true) : gateway.close(session)).catch(() => undefined);
       deps.agentMap?.closed(session);
     }
     session = null;
@@ -496,6 +505,8 @@ export function makeAgentChat(deps: AgentChatDeps) {
     planTouched = [];
     issueKey = null;
     issueExtra = {};
+    inWorktree = false;
+    return closingNow;
   }
 
   return {
@@ -512,7 +523,9 @@ export function makeAgentChat(deps: AgentChatDeps) {
       if (session) void gateway.setMode(session, mode);
     },
     /** Nova conversa: fecha a sessão (o histórico vive no backend). */
-    reset,
+    reset: (): Promise<unknown> => reset(),
+    /** O fecho da última sessão (fase 3: a worktree dela só se relê depois). */
+    closing: (): Promise<unknown> => closingNow,
     /** The open session, if any (the harness view acts on it). */
     sessionId: (): string | null => session,
     /** Multi Co-Dev: the Project issue this conversation works on (it holds the issue's scope). */
