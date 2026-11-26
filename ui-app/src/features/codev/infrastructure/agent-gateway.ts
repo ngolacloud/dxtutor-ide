@@ -26,6 +26,7 @@ export const agentGateway: AgentGateway = {
       resume: o.resume ?? null,
       reviewEdits: o.reviewEdits ?? false,
       issue: o.issue ?? null,
+      architecture: o.architecture ?? false,
     }),
   review: (s, call, decisions) => ipc.reviewAgentHunks(s, call, decisions, pairState.driver()),
   override: (s, call, adr) => ipc.overrideAgentViolation(s, call, adr),

@@ -44,6 +44,12 @@ export interface Issue {
   owner?: string;
   /** Custo medido das corridas do runner (tokens, dólares, segundos, por provedor). */
   cost?: IssueCost;
+  /** A user story e os critérios que o backend guarda (`tutor_board::Story`): só existem quando
+   *  vieram de lá, e voltam tal-e-qual ao gravar (backlog fase 1). */
+  role?: string;
+  soThat?: string;
+  acceptance?: string[];
+  prompt?: string;
 }
 
 /** O custo acumulado das corridas de uma issue. */

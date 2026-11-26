@@ -24,6 +24,8 @@ export interface StartAgentArgs {
   issue?: string | null;
   /** A língua em que o Co-Dev responde (`en`/`ptAO`); por omissão, a da interface. Fica gravada com a sessão. */
   language?: string | null;
+  /** Sessão de arquitectura (conjunto 9): só estas levam a ferramenta `arch_propose`. Fica gravada com a sessão. */
+  architecture?: boolean;
 }
 
 /** Abre uma sessão; devolve o id. Falha se faltar a chave do provedor ou a pasta não existir. */
@@ -40,6 +42,7 @@ export const startAgent = (a: StartAgentArgs): Promise<string> =>
     reviewEdits: a.reviewEdits ?? false,
     issue: a.issue ?? null,
     language: a.language ?? currentLocale(),
+    architecture: a.architecture ?? false,
   });
 
 /** As sessões gravadas do projecto (mais recentes primeiro) — `Vec<SessionSummary>`. */

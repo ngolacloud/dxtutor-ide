@@ -33,8 +33,8 @@ use tutor_agent::tools::flow::SubagentSpec;
 use tutor_agent::tools::{agent_tools, FileState, FlowState, ToolsetOptions, TOOLSET_VERSION};
 use tutor_agent::{trust, Tool};
 use tutor_agent::{
-    Agent, AgentConfig, AgentError, AgentEvent, Decision, Effort, Message, PendingCall, Provider,
-    SystemBlock, ToolCtx, Transcript, TurnOutcome,
+    Agent, AgentConfig, AgentError, AgentEvent, CacheTtl, Decision, Effort, Message, PendingCall,
+    Provider, SystemBlock, ToolCtx, Transcript, TurnOutcome,
 };
 
 /// Um pedido de aprovação à espera: o canal onde a UI responde e a regra sugerida.
@@ -60,7 +60,8 @@ pub struct StartSpec {
     /// conjunto versão ≥ 3, sempre pela mesma ordem.
     pub host_tools: Vec<Arc<dyn Tool>>,
     /// Ferramentas do anfitrião que só entram no conjunto versão ≥ 4 (ex.: `arch_propose`):
-    /// uma sessão gravada antes retoma sem elas (o prefixo do pedido não pode mudar).
+    /// uma sessão gravada antes retoma sem elas (o prefixo do pedido não pode mudar). Desde o
+    /// conjunto 9 são as ferramentas de arquitectura: só nas sessões com `architecture`.
     pub host_tools_v4: Vec<Arc<dyn Tool>>,
     /// Ferramentas do anfitrião do conjunto versão ≥ 8 (ex.: `outline`, RF-E04).
     pub host_tools_v8: Vec<Arc<dyn Tool>>,
@@ -86,6 +87,10 @@ pub struct StartSpec {
     /// The interface language (`en`, `ptAO`): Co-Dev answers in it. Saved with the session,
     /// so a resume keeps the language it started with. `None` → Portuguese (older UIs).
     pub lang: Option<String>,
+    /// Toolset 9: an architecture session (the UI says so when the Architecture Studio is open
+    /// or the first request is about architecture): it gets `arch_propose`. The others do not
+    /// pay for its ~5 KB definition on every request. Saved with the session (`scopes`).
+    pub architecture: bool,
 }
 
 /// Prefixo do erro de um modelo sem tool calling nativo: a UI reconhece-o e recua para o
@@ -302,6 +307,8 @@ struct Session {
     violating: Mutex<HashMap<String, Vec<tutor_agent::conformance::Violation>>>,
     /// … and → the accepted ADR the architect overrode them with.
     overrides: Mutex<HashMap<String, String>>,
+    /// RF-G03: tool_use_id of a running `bash` → the working tree's dirty files before it.
+    bash_snaps: Mutex<HashMap<String, DirtyState>>,
 }
 
 /// RF-P04: the UI says who drives a PairCode session when the human decides; the audit log
@@ -621,6 +628,7 @@ pub fn start(
                 mcp_tools: vec![], // preenchido abaixo, depois de ligar os servidores
                 provider,
                 lang: spec.lang.clone().filter(|l| !l.trim().is_empty()),
+                scopes: session_scopes(&spec),
             };
             (meta, Transcript::new(), None)
         }
@@ -671,6 +679,10 @@ pub fn start(
     let mut acfg = AgentConfig::new(meta.model.clone());
     acfg.effort = parse_effort(Some(&meta.effort));
     acfg.compaction = meta.compaction;
+    // the human's review pauses often pass 5 minutes: the prefix (tools + system) lives an hour
+    if meta.provider == "claude" {
+        acfg.cache_ttl = CacheTtl::OneHour;
+    }
     acfg.system = meta
         .system
         .iter()
@@ -726,12 +738,13 @@ pub fn start(
             test_cmd: meta.test_cmd.clone(),
             lint_cmd: meta.lint_cmd.clone(),
             files: files.clone(),
+            issue: meta.has_scope(session::SCOPE_ISSUE),
             ..Default::default()
         },
         meta.toolset,
         &flow,
         Some(subagent),
-        session_host_tools(&spec, meta.toolset)
+        session_host_tools(&spec, &meta)
             .into_iter()
             .chain(mcp_tools)
             .collect(),
@@ -785,16 +798,37 @@ pub fn start(
         driver: Mutex::new(None),
         violating: Mutex::new(HashMap::new()),
         overrides: Mutex::new(HashMap::new()),
+        bash_snaps: Mutex::new(HashMap::new()),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
 }
 
+/// The extra toolsets of a new session (toolset 9): `issue` when it works on a Project issue
+/// (the board/Project always open a new session for one), `arch` when the UI marks it as an
+/// architecture session.
+fn session_scopes(spec: &StartSpec) -> Vec<String> {
+    let mut v = vec![];
+    if spec
+        .issue_key
+        .as_deref()
+        .is_some_and(|k| !k.trim().is_empty())
+    {
+        v.push(session::SCOPE_ISSUE.to_string());
+    }
+    if spec.architecture {
+        v.push(session::SCOPE_ARCH.to_string());
+    }
+    v
+}
+
 /// As ferramentas do anfitrião de uma sessão com o conjunto `toolset`: as da versão 3
 /// sempre, as da versão 4 só a partir dela (uma sessão antiga retoma sem elas — o prefixo
-/// do pedido não pode mudar). Ordem fixa.
-fn session_host_tools(spec: &StartSpec, toolset: u32) -> Vec<Arc<dyn Tool>> {
-    let v4 = spec.host_tools_v4.iter().filter(|_| toolset >= 4);
+/// do pedido não pode mudar) e, desde a 9, só nas sessões de arquitectura. Ordem fixa.
+fn session_host_tools(spec: &StartSpec, meta: &SessionMeta) -> Vec<Arc<dyn Tool>> {
+    let toolset = meta.toolset;
+    let arch = meta.has_scope(session::SCOPE_ARCH);
+    let v4 = spec.host_tools_v4.iter().filter(|_| toolset >= 4 && arch);
     let v8 = spec.host_tools_v8.iter().filter(|_| toolset >= 8);
     spec.host_tools
         .iter()
@@ -986,6 +1020,14 @@ pub fn send(
             AgentEvent::Done { .. } => {
                 *held_done.borrow_mut() = Some(e);
                 return;
+            }
+            // RF-G03: a `bash` command may write outside the issue's scope without the policy seeing
+            // the files — the working tree before and after it says what it changed
+            AgentEvent::ToolStart { id, name, .. } if name == "bash" => {
+                bash_scope_start(&session, id)
+            }
+            AgentEvent::ToolResult { id, name, .. } if name == "bash" => {
+                bash_scope_end(&session, id, &mut |n| emit(n))
             }
             _ => {}
         }
@@ -1388,6 +1430,113 @@ fn violations_of(
         .unwrap_or(path);
     let found = tutor_agent::conformance::check(&rules, rel, &text);
     Ok(tutor_agent::conformance::unexcused(&rules, root, found))
+}
+
+/// The working tree's changed files (path relative to the project → size and modification time;
+/// a deleted file has none). What `git status` lists, untracked files one by one.
+type DirtyState = HashMap<String, Option<(u64, i128)>>;
+
+/// RF-G03 (sessão de fecho dos RF, bloco 5): the dirty files of the working tree now, or `None`
+/// without git (then a `bash` command cannot be checked against the scope).
+fn dirty_state(root: &Path) -> Option<DirtyState> {
+    let out = std::process::Command::new("git")
+        .args(["status", "--porcelain=v1", "-z", "-uall"])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut parts = text.split('\0');
+    let mut state = DirtyState::new();
+    while let Some(entry) = parts.next() {
+        if entry.len() < 4 {
+            continue;
+        }
+        let (xy, path) = (&entry[..2], &entry[3..]);
+        if xy.starts_with('R') || xy.starts_with('C') {
+            parts.next(); // the old path of a rename or copy
+        }
+        let meta = std::fs::metadata(root.join(path)).ok().map(|m| {
+            let t = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos() as i128);
+            (m.len(), t)
+        });
+        state.insert(path.to_string(), meta);
+    }
+    Some(state)
+}
+
+/// The files a command changed: dirty now and not before, dirty before and changed again, or dirty
+/// before and clean now (reverting a file is writing it too). Sorted.
+fn changed_files(before: &DirtyState, after: &DirtyState) -> Vec<String> {
+    let mut out: Vec<String> = after
+        .iter()
+        .filter(|(p, m)| before.get(*p) != Some(m))
+        .map(|(p, _)| p.clone())
+        .chain(before.keys().filter(|p| !after.contains_key(*p)).cloned())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Before a `bash` of a request with a scope: the working tree as it is.
+fn bash_scope_start(s: &Session, call: &str) {
+    let scoped = s
+        .origin
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|o| !o.scope.is_empty());
+    if !scoped {
+        return;
+    }
+    if let Some(snap) = dirty_state(&s.agent.ctx.root) {
+        s.bash_snaps.lock().unwrap().insert(call.to_string(), snap);
+    }
+}
+
+/// After it: what it changed outside the scope goes to the chat (a notice), to the model (a note in
+/// the next request) and to the audit log. The command already ran — this cannot refuse it; the
+/// human keeps or undoes it («Rewind to here»), and the model is told not to do it again.
+fn bash_scope_end(s: &Session, call: &str, emit: &mut dyn FnMut(AgentEvent)) {
+    let Some(before) = s.bash_snaps.lock().unwrap().remove(call) else {
+        return;
+    };
+    let Some(origin) = s.origin.lock().unwrap().clone() else {
+        return;
+    };
+    let Some(after) = dirty_state(&s.agent.ctx.root) else {
+        return;
+    };
+    let outside: Vec<String> = changed_files(&before, &after)
+        .into_iter()
+        .filter(|p| !origin.in_scope(p))
+        .collect();
+    if outside.is_empty() {
+        return;
+    }
+    let scope = origin.scope.join(", ");
+    let files = outside.join(", ");
+    emit(AgentEvent::Notice {
+        text: format!(
+            "O `bash` alterou ficheiros fora do âmbito do pedido ({scope}): {files}. Confirma que ficam, ou desfaz com «Rewind to here»."
+        ),
+    });
+    s.notes.lock().unwrap().push(format!(
+        "O teu último comando bash alterou ficheiros fora do âmbito do pedido ({scope}): {files}. Não escrevas fora do âmbito: se for preciso, pede autorização com ask_human ou sugere-o com suggest."
+    ));
+    let mut e = audit_entry(s, "scope");
+    e.tool = Some("bash".into());
+    e.call = Some(call.to_string());
+    e.path = Some(files);
+    e.verdict = Some("warn".into());
+    e.outcome = Some("outside_scope".into());
+    e.reason = Some(format!("o bash escreveu fora do âmbito ({scope})"));
+    audit(s, e);
 }
 
 /// RF-E05 (docs/v2/RF-DELONIX-PLANO.md F2.4): a `write` over an existing file is turned into
@@ -2516,14 +2665,25 @@ mod tests {
             host_tools_v4: vec![tool("arch_propose")],
             ..Default::default()
         };
-        let names = |v: u32| -> Vec<String> {
-            session_host_tools(&spec, v)
+        let names = |v: u32, scopes: &[&str]| -> Vec<String> {
+            let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+                "id": "s", "root": "/p", "model": "m", "effort": "high", "system": [],
+                "test_cmd": null, "lint_cmd": null, "compaction": true, "created": 1,
+                "toolset": v, "scopes": scopes,
+            }))
+            .unwrap();
+            session_host_tools(&spec, &meta)
                 .iter()
                 .map(|t| t.name().to_string())
                 .collect()
         };
-        assert_eq!(names(3), ["lsp_diagnostics"]);
-        assert_eq!(names(4), ["lsp_diagnostics", "arch_propose"]);
+        assert_eq!(names(3, &[]), ["lsp_diagnostics"]);
+        assert_eq!(names(4, &[]), ["lsp_diagnostics", "arch_propose"]);
+        assert_eq!(names(8, &[]), ["lsp_diagnostics", "arch_propose"]);
+        // toolset 9: only architecture sessions carry it
+        assert_eq!(names(9, &[]), ["lsp_diagnostics"]);
+        assert_eq!(names(9, &["issue"]), ["lsp_diagnostics"]);
+        assert_eq!(names(9, &["arch"]), ["lsp_diagnostics", "arch_propose"]);
 
         // uma sessão nova grava o conjunto actual (4 com o arch_propose; 5 desde a A3)
         let proj = tempfile::tempdir().unwrap();
@@ -2568,6 +2728,176 @@ mod tests {
                 "the arch_propose tool needs toolset 4 or later"
             )
         };
+    }
+
+    #[test]
+    fn toolset_9_sessions_get_the_tools_of_their_kind_and_resume_with_them() {
+        let tool = |name: &'static str| -> Arc<dyn Tool> {
+            struct T(&'static str);
+            impl Tool for T {
+                fn name(&self) -> &str {
+                    self.0
+                }
+                fn description(&self) -> &str {
+                    ""
+                }
+                fn input_schema(&self) -> serde_json::Value {
+                    serde_json::json!({"type": "object"})
+                }
+                fn read_only(&self) -> bool {
+                    true
+                }
+                fn run(&self, _: &serde_json::Value, _: &ToolCtx) -> tutor_agent::ToolOutput {
+                    tutor_agent::ToolOutput::ok("")
+                }
+            }
+            Arc::new(T(name))
+        };
+        let proj = tempfile::tempdir().unwrap();
+        let base = tempfile::tempdir().unwrap();
+        let spec = |architecture: bool, issue: Option<&str>, resume: Option<String>| StartSpec {
+            root: proj.path().display().to_string(),
+            sessions_base: Some(base.path().to_path_buf()),
+            host_tools_v4: vec![tool("arch_propose")],
+            architecture,
+            issue_key: issue.map(String::from),
+            resume,
+            ..Default::default()
+        };
+        let names = |id: &str| -> Vec<String> {
+            get(id)
+                .unwrap()
+                .agent
+                .tool_defs()
+                .into_iter()
+                .map(|d| d.name)
+                .collect()
+        };
+        // a plain chat: neither arch_propose nor finish_issue
+        let chat = start(spec(false, None, None), &key("sk"), None).unwrap();
+        let n = names(&chat);
+        assert!(
+            !n.iter().any(|t| t == "arch_propose" || t == "finish_issue"),
+            "{n:?}"
+        );
+        assert!(n.iter().any(|t| t == "ask_human") && n.iter().any(|t| t == "suggest"));
+        // the Claude prefix lives an hour (the review pauses)
+        assert_eq!(get(&chat).unwrap().agent.cfg.cache_ttl, CacheTtl::OneHour);
+        // an issue run: finish_issue; an architecture session: arch_propose
+        let issue = start(spec(false, Some("DX-1"), None), &key("sk"), None).unwrap();
+        assert!(names(&issue).iter().any(|t| t == "finish_issue"));
+        assert!(!names(&issue).iter().any(|t| t == "arch_propose"));
+        let arch = start(spec(true, None, None), &key("sk"), None).unwrap();
+        let before = names(&arch);
+        assert!(before.iter().any(|t| t == "arch_propose"));
+        assert!(!before.iter().any(|t| t == "finish_issue"));
+        // a resume keeps the saved kind, whatever the UI says now
+        close(&arch);
+        let again = start(spec(false, None, Some(arch.clone())), &key("sk"), None).unwrap();
+        assert_eq!(names(&again), before);
+        close(&issue);
+        let again = start(spec(true, None, Some(issue.clone())), &key("sk"), None).unwrap();
+        assert!(names(&again).iter().any(|t| t == "finish_issue"));
+        assert!(!names(&again).iter().any(|t| t == "arch_propose"));
+        for id in [chat, again, arch] {
+            close(&id);
+        }
+    }
+
+    /// The first request of a Co-Dev chat in THIS repository (system + tool definitions, before
+    /// the human types): before phase 1 of the token work (toolset 8 with every tool, the
+    /// instruction files cut at 40k characters) and now (toolset 9, a plain chat session).
+    /// `cargo test -p dxtutor-ide --lib first_request_size -- --nocapture` prints the numbers.
+    #[test]
+    fn first_request_size_of_this_repository() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let host: Vec<Arc<dyn Tool>> = vec![Arc::new(crate::lsp::LspDiagnosticsTool)];
+        let arch: Arc<dyn Tool> = Arc::new(crate::agent::ArchProposeTool {
+            emit: Arc::new(|_| {}),
+        });
+        let outline: Arc<dyn Tool> = Arc::new(crate::codeintel::OutlineTool);
+        let opts = |issue: bool| ToolsetOptions {
+            test_cmd: Some("cargo test".into()),
+            lint_cmd: Some("cargo clippy".into()),
+            issue,
+            ..Default::default()
+        };
+        let subagent = || SubagentSpec {
+            provider: Arc::new(tutor_agent::anthropic::Anthropic::new(Config::new("k"))),
+            model: "claude-opus-5-5".into(),
+            effort: Effort::High,
+            lang: ReplyLang::Pt,
+        };
+        let tools_bytes = |tools: &[Arc<dyn Tool>]| -> usize {
+            tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({"name": t.name(), "description": t.description(), "input_schema": t.input_schema()})
+                        .to_string()
+                        .len()
+                })
+                .sum()
+        };
+        let extras = |with_arch: bool| -> Vec<Arc<dyn Tool>> {
+            let mut v = host.clone();
+            if with_arch {
+                v.push(arch.clone());
+            }
+            v.push(outline.clone());
+            v
+        };
+        // before: toolset 8, every tool, and the old instruction files (40k chars each, 120 KB in all)
+        let before_tools = agent_tools(
+            &opts(false),
+            8,
+            &FlowState::default(),
+            Some(subagent()),
+            extras(true),
+        );
+        let mut old = String::new();
+        for name in tutor_agent::context::INSTRUCTION_FILES {
+            let Ok(text) = std::fs::read_to_string(root.join(name)) else {
+                continue;
+            };
+            let mut body: String = text.chars().take(40 * 1024).collect();
+            if body.len() < text.len() {
+                body.push_str("\n…[ficheiro cortado]");
+            }
+            if old.len() + body.len() > 120 * 1024 {
+                continue;
+            }
+            old.push_str(&format!(
+                "\n\n<instructions file=\"{name}\">\n{}\n</instructions>",
+                body.trim_end()
+            ));
+        }
+        let core_len = session_system(root, true, ReplyLang::Pt)[0].0.len();
+        let before_system = core_len + old.len();
+        // now: toolset 9, a plain chat (no arch_propose, no finish_issue), condensed instructions
+        let after_tools = agent_tools(
+            &opts(false),
+            9,
+            &FlowState::default(),
+            Some(subagent()),
+            extras(false),
+        );
+        let after_system: usize = session_system(root, true, ReplyLang::Pt)
+            .iter()
+            .map(|b| b.0.len())
+            .sum();
+        let (b_tools, a_tools) = (tools_bytes(&before_tools), tools_bytes(&after_tools));
+        let tok = |b: usize| b * 10 / 35; // ~3.5 bytes per token (Portuguese prose, code, JSON)
+        println!(
+            "first request (bytes ≈ tokens): before system {} ≈ {}, tools {} ({}) ≈ {}, total ≈ {}; \
+             after system {} ≈ {}, tools {} ({}) ≈ {}, total ≈ {}; issue run +finish_issue, architecture +arch_propose {} bytes",
+            before_system, tok(before_system), b_tools, before_tools.len(), tok(b_tools), tok(before_system + b_tools),
+            after_system, tok(after_system), a_tools, after_tools.len(), tok(a_tools), tok(after_system + a_tools),
+            tools_bytes(std::slice::from_ref(&arch)),
+        );
+        assert!(
+            after_system + a_tools < (before_system + b_tools) / 2,
+            "the first request must at least halve"
+        );
     }
 
     #[test]
@@ -3828,6 +4158,122 @@ mod tests {
                 .contains("viola as regras do arquitecto: biblioteca proibida: moment")),
             x => panic!("{x:?}"),
         }
+    }
+
+    fn git_in(d: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+            .args(args)
+            .current_dir(d)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+
+    #[test]
+    fn the_working_tree_before_and_after_a_command_says_which_files_it_changed() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(
+            dirty_state(d.path()).is_none(),
+            "no git: nothing to compare"
+        );
+        git_in(d.path(), &["init", "-q"]);
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        for f in ["src/a.rs", "src/b.rs", "README.md", "old.txt"] {
+            std::fs::write(d.path().join(f), "x\n").unwrap();
+        }
+        git_in(d.path(), &["add", "."]);
+        git_in(d.path(), &["commit", "-qm", "init"]);
+        std::fs::write(d.path().join("src/b.rs"), "dirty before\n").unwrap();
+        let before = dirty_state(d.path()).unwrap();
+        assert_eq!(before.keys().cloned().collect::<Vec<_>>(), ["src/b.rs"]);
+        // what a command does: a new file, a tracked file changed, the dirty one changed again
+        // (another size), a tracked file deleted
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        std::fs::write(d.path().join("new.txt"), "n\n").unwrap();
+        std::fs::write(d.path().join("README.md"), "changed\n").unwrap();
+        std::fs::write(d.path().join("src/b.rs"), "dirty before, and again\n").unwrap();
+        std::fs::remove_file(d.path().join("old.txt")).unwrap();
+        let after = dirty_state(d.path()).unwrap();
+        assert_eq!(
+            changed_files(&before, &after),
+            ["README.md", "new.txt", "old.txt", "src/b.rs"]
+        );
+        // nothing ran: nothing changed
+        assert!(changed_files(&after, &dirty_state(d.path()).unwrap()).is_empty());
+        // reverting a dirty file to the commit is a change too
+        git_in(d.path(), &["checkout", "--", "src/b.rs"]);
+        assert_eq!(
+            changed_files(&after, &dirty_state(d.path()).unwrap()),
+            ["src/b.rs"]
+        );
+        // a rename lists the new path
+        git_in(d.path(), &["mv", "src/a.rs", "src/c.rs"]);
+        assert!(dirty_state(d.path()).unwrap().contains_key("src/c.rs"));
+    }
+
+    #[test]
+    fn a_bash_command_that_writes_outside_the_scope_is_told_to_the_human_the_model_and_the_audit_log(
+    ) {
+        let (d, _id, s, root) = issue_session("true");
+        git_in(d.path(), &["init", "-q"]);
+        let origin = |scope: Vec<String>| Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some("DX-1".into()),
+            by: String::new(),
+            scope,
+            template: None,
+        };
+        // without a scope there is nothing to check
+        *s.origin.lock().unwrap() = Some(origin(vec![]));
+        bash_scope_start(&s, "b0");
+        assert!(s.bash_snaps.lock().unwrap().is_empty());
+        *s.origin.lock().unwrap() = Some(origin(vec!["src/**".into()]));
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        bash_scope_start(&s, "b1");
+        std::fs::write(d.path().join("src/lib.rs"), "in scope\n").unwrap();
+        std::fs::write(d.path().join("deploy.sh"), "outside\n").unwrap();
+        let events = RefCell::new(vec![]);
+        bash_scope_end(&s, "b1", &mut |e| events.borrow_mut().push(e));
+        let notices: Vec<String> = events
+            .borrow()
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::Notice { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notices.len(), 1);
+        assert!(
+            notices[0].contains("fora do âmbito do pedido (src/**): deploy.sh"),
+            "{}",
+            notices[0]
+        );
+        assert!(!notices[0].contains("src/lib.rs"));
+        assert!(s
+            .notes
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|n| n.contains("deploy.sh") && n.contains("ask_human")));
+        let st = tutor_board::project::ProjectStore::open(&d.path().join("board.sqlite3")).unwrap();
+        let e = st
+            .audit(&root, None)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event == "scope")
+            .expect("the scope warning in the audit log");
+        assert_eq!(
+            (e.tool.as_deref(), e.path.as_deref(), e.outcome.as_deref()),
+            (Some("bash"), Some("deploy.sh"), Some("outside_scope"))
+        );
+        // only in scope: nothing to say
+        bash_scope_start(&s, "b2");
+        std::fs::write(d.path().join("src/lib.rs"), "in scope, again\n").unwrap();
+        let quiet = RefCell::new(vec![]);
+        bash_scope_end(&s, "b2", &mut |e| quiet.borrow_mut().push(e));
+        assert!(quiet.borrow().is_empty());
     }
 
     #[test]

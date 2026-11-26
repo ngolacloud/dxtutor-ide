@@ -349,7 +349,7 @@ histórico, default de diff, erro tipado `GitError` — mesmas mensagens).
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>`, `mode: Option<String>`, `resume: Option<String>`, `provider: Option<String>`, `review_edits: Option<bool>`, `issue: Option<String>` (as alterações aceites ficam ligadas a esta issue do Project), `language: Option<String>` (a língua da interface, `en`/`ptAO`: o Co-Dev e os sub-agentes respondem nela; fica gravada com a sessão) | `String` (id da sessão) | String | — | `platform/tauri/codev-agent.ts` | **K** · S |
+| `codev_agent_start` | `root: String`, `model: Option<String>`, `effort: Option<String>`, `test_cmd: Option<String>`, `lint_cmd: Option<String>`, `mode: Option<String>`, `resume: Option<String>`, `provider: Option<String>`, `review_edits: Option<bool>`, `issue: Option<String>` (as alterações aceites ficam ligadas a esta issue do Project), `language: Option<String>` (a língua da interface, `en`/`ptAO`: o Co-Dev e os sub-agentes respondem nela; fica gravada com a sessão), `architecture: Option<bool>` (conjunto 9: sessão de arquitectura — o Studio aberto ou o primeiro pedido sobre arquitectura —, a única que leva `arch_propose`; fica gravada com a sessão, como o `issue` dá o `finish_issue`) | `String` (id da sessão) | String | — | `platform/tauri/codev-agent.ts` | **K** · S |
 | `codev_agent_send` | `session_id: String`, `text: Option<String>` | `()` (via eventos) | — | `codev-agent://event` `{session,event}`, `codev-agent://approval` `{session,request:{call,reason,dangerous,suggestedRule}}`, `codev-agent://error` `{session,error}` | `platform/tauri/codev-agent.ts` | **N** · K · **W** · **X** · S · E |
 | `codev_agent_approve` | `session_id: String`, `tool_use_id: String`, `allow: bool`, `reason: Option<String>`, `remember: Option<bool>` | `bool` | — | — | `platform/tauri/codev-agent.ts` | S · W (`remember` grava `.dxtutor/permissions.json`) |
 | `codev_agent_review` | `session_id: String`, `call: String`, `decisions: Vec<{hunk: String, accept: bool, reason?: String}>` | `()` | String | — | `platform/tauri/codev-agent.ts` | S · **W** (escreve só os hunks aceites) |
@@ -713,8 +713,9 @@ Project (docs/v2/UI-AUDIT.md, item 5; fase A5): Kanban, Scrum, XP ou Scrum + XP 
 `tutor_board::project` (`app_local_data_dir/board.sqlite3`, tabela `schema_version` e migrações só
 para a frente; a migração 1 importa o Board antigo que lá estivesse). O quadro da actividade Tasks
 (ADR-0006, R3b) continua com `board_load`/`board_save`, mas num ficheiro próprio
-(`app_local_data_dir/tasks.sqlite3`): o `sprints` do Project tem outro esquema. Os dois coexistem
-até a Q3 decidir se o Tasks passa a ser o Project. As regras de fluxo (um passo, WIP, DoR, DoD, bloqueio) são verificadas no store, numa
+(`app_local_data_dir/tasks.sqlite3`): o `sprints` do Project tem outro esquema. Sem pasta (`root`
+vazio ou ausente) recusam — já não há backlog `"default"`. A Q3 decidiu juntá-los no Project; os dois
+coexistem até à fase 5, que retira o `tasks.sqlite3` e estes dois comandos. As regras de fluxo (um passo, WIP, DoR, DoD, bloqueio) são verificadas no store, numa
 transacção por operação; uma regra só se ultrapassa com motivo, registado na actividade. Erros:
 `ProjectError {code, message, overridable}`. Quem age = `git config user.name` do projecto (ou o
 utilizador do SO).

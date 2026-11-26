@@ -560,7 +560,76 @@ fn toolset_8_adds_edit_lines_at_the_end_and_it_writes_only_its_lines() {
         &c,
     );
     assert!(r.is_error);
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 8);
+}
+
+#[test]
+fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() {
+    let fs = FlowState::default();
+    let tools = |v: u32, issue: bool| {
+        agent_tools(
+            &ToolsetOptions {
+                issue,
+                ..Default::default()
+            },
+            v,
+            &fs,
+            None,
+            vec![],
+        )
+    };
+    // toolset 8: finish_issue for everyone and the old descriptions, issue or not
+    assert_eq!(names(&tools(8, false)), names(&tools(8, true)));
+    assert!(names(&tools(8, false)).contains(&"finish_issue".to_string()));
+    let desc = |v: u32, name: &str| {
+        tools(v, false)
+            .into_iter()
+            .find(|t| t.name() == name)
+            .unwrap()
+            .description()
+            .to_string()
+    };
+    assert!(desc(8, "edit_lines").starts_with("A forma principal"));
+    assert!(!desc(8, "read").contains("500"));
+    // toolset 9: the same tools in the same order, minus finish_issue outside an issue
+    let (n8, n9, n9i) = (
+        names(&tools(8, false)),
+        names(&tools(9, false)),
+        names(&tools(9, true)),
+    );
+    assert_eq!(
+        n9i, n8,
+        "an issue session keeps every tool, in the same order"
+    );
+    let mut without = n8.clone();
+    without.retain(|n| n != "finish_issue");
+    assert_eq!(n9, without);
+    // one preferred edit tool, and read by excerpts
+    assert!(!desc(9, "edit_lines").contains("forma principal"));
+    assert!(desc(9, "edit_lines").contains("prefere `edit`"));
+    assert!(desc(9, "read").contains("500 linhas") && desc(9, "read").contains("outline"));
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 9);
+}
+
+#[test]
+fn read_gives_500_lines_by_default_and_says_how_to_get_more() {
+    let fs = FlowState::default();
+    let tools = agent_tools(&ToolsetOptions::default(), 9, &fs, None, vec![]);
+    let read = tools.iter().find(|t| t.name() == "read").unwrap();
+    let d = tempfile::tempdir().unwrap();
+    let text: String = (1..=1200).map(|i| format!("linha {i}\n")).collect();
+    std::fs::write(d.path().join("big.txt"), text).unwrap();
+    let c = ctx(d.path());
+    let r = read.run(&json!({"path": "big.txt"}), &c);
+    assert!(!r.is_error);
+    assert!(r.content.contains("linha 500\n") && !r.content.contains("linha 501\n"));
+    assert!(
+        r.content.contains("offset=501") && r.content.contains("outline"),
+        "{}",
+        r.content
+    );
+    // an explicit limit still goes up to 2000
+    let r = read.run(&json!({"path": "big.txt", "limit": 1200}), &c);
+    assert!(r.content.contains("linha 1200\n"));
 }
 
 #[test]

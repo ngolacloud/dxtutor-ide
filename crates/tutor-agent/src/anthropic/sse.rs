@@ -94,6 +94,13 @@ fn merge_usage(u: &mut Usage, v: &Value) {
     if let Some(x) = get("cache_creation_input_tokens") {
         u.cache_creation_input_tokens = x;
     }
+    if let Some(x) = v
+        .get("cache_creation")
+        .and_then(|c| c.get("ephemeral_1h_input_tokens"))
+        .and_then(Value::as_u64)
+    {
+        u.cache_creation_1h_input_tokens = x;
+    }
 }
 
 fn append_str(block: &mut Value, field: &str, s: &str) {
@@ -365,6 +372,25 @@ mod tests {
             json!({"type":"compaction","content":"Resumo: o utilizador pediu X."})
         );
         assert_eq!(r.content[1]["text"], "Continuo.");
+    }
+
+    #[test]
+    fn the_one_hour_cache_writes_are_read_from_the_breakdown() {
+        let events = [
+            r#"{"type":"message_start","message":{"id":"m","model":"claude-opus-5-5","usage":{"input_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":7000,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":6000}}}}"#,
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}"#,
+            r#"{"type":"content_block_stop","index":0}"#,
+            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}"#,
+        ];
+        let mut acc = Accumulator::new();
+        for e in events {
+            acc.on_data(e, &mut |_| true).unwrap();
+        }
+        let u = acc.finish().unwrap().usage;
+        assert_eq!(u.cache_creation_input_tokens, 7000);
+        assert_eq!(u.cache_creation_1h_input_tokens, 6000);
+        assert_eq!(u.output_tokens, 2);
     }
 
     #[test]

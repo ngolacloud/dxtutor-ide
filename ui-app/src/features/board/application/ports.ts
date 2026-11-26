@@ -38,6 +38,9 @@ export interface Store {
   backlog(): Backlog;
   design(): Design;
   saveDesign(): void;
+  /** A pasta do projecto aberta (desktop); `null` sem pasta. Cada issue pertence a um projecto
+   *  (backlog fase 1, docs/v2/QUESTIONS.md Q3): sem pasta, criar ou gerar issues recusa e di-lo. */
+  project(): string | null;
 }
 
 /** Sistema de ficheiros virtual (os predicados dos testes de uma issue lêem-no). */
