@@ -348,11 +348,18 @@ fn take_allowance(root: &Path) -> Option<String> {
 /// Before a commit: `Ok(None)` clean, `Ok(Some(reason))` allowed despite findings (the override
 /// was used), `Err(text)` blocked — the text starts with [`BLOCKED`] and carries the JSON report.
 pub fn guard_commit(root: &Path, scope: &Scope) -> Result<Option<String>, String> {
-    let report = scan(root, scope)?;
+    guard_commit_as(root, root, scope)
+}
+
+/// [`guard_commit`] for a commit made in `dir` — a linked worktree of the project at `project`
+/// (Multi Co-Dev, phase 3: a Co-Dev session commits in its own worktree). The scan reads `dir`; the
+/// human's override is the one given for the project (the UI knows the project, not the worktree).
+pub fn guard_commit_as(dir: &Path, project: &Path, scope: &Scope) -> Result<Option<String>, String> {
+    let report = scan(dir, scope)?;
     if report.findings.is_empty() {
         return Ok(None);
     }
-    if let Some(why) = take_allowance(root) {
+    if let Some(why) = take_allowance(project) {
         return Ok(Some(why));
     }
     Err(format!(
