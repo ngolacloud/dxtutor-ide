@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 331 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 333 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -774,8 +774,10 @@ cpp, sql.
   desafio com `project` (starter/tests/solution em ficheiros, `main`, `readonly`) no lugar de
   `starter`/`tests`/`gabarito`. As regras (caminhos seguros, só editáveis na entrega, só de leitura
   com a cópia do curso) vivem no modelo; o descritor escreve a árvore e corre o `project_test_cmd`
-  (só o Python o tem). `submit_step` ganhou `files` (o `code` continua). Na UI, a lista de
-  ficheiros por cima do editor (`lt-file`). Testes e solução nunca vão para o webview.
+  (o Python e o TypeScript; o `RustRunner` corre-os também: um crate `student`, ou um workspace cujo
+  `Cargo.toml` raiz declara `[workspace]` e recebe as `[workspace.dependencies]` do passo).
+  `submit_step` ganhou `files` (o `code` continua). Na UI, a lista de ficheiros por cima do editor
+  (`lt-file`). Testes e solução nunca vão para o webview.
 - **Ficheiros de apoio** (`tutor_core::support`, Learn P1): um curso declara uma vez `[support]`
   (caminho na pasta de trabalho → ficheiro do plugin), só de leitura e partilhados por TODOS os passos.
   Quem lê o curso carrega-os (`tutor_plugins::support::load_support` do disco, sem ligações simbólicas;
@@ -793,6 +795,20 @@ cpp, sql.
   reactiva dentro de uma linha de `list` morre na 1.ª mudança da lista (os efeitos da linha pertencem
   ao efeito da lista): o curso põe na chave o que muda (`t.id + ":" + t.done`). O `dxt plugin test`
   diz a versão da ferramenta (`version_cmd` dos descritores).
+- **Curso Seiva e cache preparada (Learn P1):** `courses/seiva/` (framework, avaliado em `rust`,
+  embutido só no backend como o Python e o Dxjs; sem ficheiros de apoio). As dependências vivem UMA vez na `[build]` do curso
+  (`tutor_core::build`): `[build.vars]` tem a origem do Seiva (`git … tag = "v0.2.0"`; passar ao
+  crates.io é mudar essa linha), `resolve` junta-as às de cada passo no parse. Com `prepare = true` a
+  avaliação NUNCA vai à rede: `tutor_eval::course_cache` (raiz `DXTUTOR_COURSE_CACHE` ou
+  `<data>/dxtutor/course-cache/<id>`, partilhada com o `dxt`) tem o `CARGO_HOME`, o `target`, o
+  `Cargo.lock` e o marcador com a impressão digital das dependências; sem ele (ou desactualizado) a
+  avaliação recusa com `COURSE_NOT_PREPARED`. A única ida à rede é «Prepare course»: o backend
+  constrói os comandos (`course_prepare_status`), o diálogo partilhado mostra-os, e `course_prepare`
+  só corre o comando aprovado se for o plano actual, auditado antes e com o resultado (a recusa
+  audita-a a UI). Na linha de comandos, `dxt plugin prepare courses/seiva` antes do `dxt plugin test`.
+  `timeout_secs` do curso dá o tempo limite de cada compilação. Testes: `cargo test -p tutor-core
+  build`, `-p tutor-eval course_cache` e `--test course_cache_real` (git `file://`, sem rede),
+  `tests/learn.prepare.test.ts`.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
   `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`

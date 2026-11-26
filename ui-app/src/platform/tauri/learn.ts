@@ -135,6 +135,8 @@ export interface CourseDto {
   level: string;
   summary: string;
   overview: string;
+  /** Compila contra dependências preparadas uma vez (`[build] prepare`): ver `course_prepare_status`. */
+  prepare?: boolean;
   units: UnitDto[];
 }
 
@@ -156,3 +158,36 @@ export const getCourse = (language: string, subject?: string): Promise<CourseDto
 /** `files`: os ficheiros editáveis de um passo de projecto (caminho → conteúdo). */
 export const submitStep = (stepId: string, code: string, language: string, files?: Record<string, string>): Promise<StepAssessment> =>
   invoke<StepAssessment>("submit_step", files ? { stepId, code, language, files } : { stepId, code, language });
+
+/** Estado da preparação de um curso que se avalia offline contra uma cache (`course_prepare_status`). */
+export interface CoursePrepareDto {
+  needed: boolean;
+  state: "not-needed" | "missing" | "stale" | "ready";
+  /** Os comandos exactos a aprovar (construídos no backend). */
+  command: string;
+  /** A pasta da cache do curso. */
+  dir: string;
+  timeoutSecs: number;
+  preparedAt: number | null;
+  fetchSecs: number | null;
+  warmSecs: number | null;
+}
+
+/** A decisão do diálogo de aprovação: o comando que se viu e o motivo. */
+export interface PrepareDecisionDto {
+  command: string;
+  reason?: string;
+  decidedAt?: number;
+}
+
+export interface CoursePreparedDto {
+  ok: boolean;
+  output: string;
+  status: CoursePrepareDto;
+}
+
+export const coursePrepareStatus = (courseId: string): Promise<CoursePrepareDto> =>
+  invoke<CoursePrepareDto>("course_prepare_status", { courseId });
+/** Descarrega (rede) e compila uma vez as dependências do curso; o backend audita antes e depois. */
+export const coursePrepare = (courseId: string, decision: PrepareDecisionDto): Promise<CoursePreparedDto> =>
+  invoke<CoursePreparedDto>("course_prepare", { courseId, decision });

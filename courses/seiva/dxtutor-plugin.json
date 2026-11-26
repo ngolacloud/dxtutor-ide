@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "seiva",
+  "name": "Seiva",
+  "version": "1.0.0",
+  "description": "Seiva: Backends That Keep Their Shape — build a Seiva module from the domain up: rules, ports, transactional use cases, a versioned contract, generated HTTP routes and the five-crate layout.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-seiva",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "category": "framework",
+  "subject": {
+    "id": "seiva",
+    "name": "Seiva",
+    "icon": "🌿",
+    "docs": "https://ngolacloud.github.io/seiva/"
+  },
+  "language": {
+    "id": "rust",
+    "name": "Rust",
+    "icon": "🦀",
+    "extension": "rs",
+    "indent": "4",
+    "testCommand": "cargo test"
+  },
+  "courses": ["courses/seiva.toml"]
+}

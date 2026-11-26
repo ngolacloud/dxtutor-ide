@@ -5456,6 +5456,7 @@ name = "tutor-eval"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "flate2",
  "libc",
  "proc-macro2",

@@ -1500,7 +1500,13 @@ pub fn builtin_plugins() -> Vec<LanguagePlugin> {
 /// and Go (with their extra dependency lines), a registered declarative plugin for everything else
 /// (Python, C, user drop-ins), and Rust as the historical fallback.
 pub fn run_program(language: &str, code: &str, deps: &[String]) -> Result<RunOutput> {
-    run_program_with_support(language, code, deps, &Default::default())
+    run_course_program(
+        language,
+        code,
+        deps,
+        &Default::default(),
+        &Default::default(),
+    )
 }
 
 /// [`run_program`] with a course's read-only `support` files (`tutor_core::support`) written next
@@ -1511,6 +1517,19 @@ pub fn run_program_with_support(
     code: &str,
     deps: &[String],
     support: &std::collections::BTreeMap<String, String>,
+) -> Result<RunOutput> {
+    run_course_program(language, code, deps, support, &Default::default())
+}
+
+/// The drill path of a course step: [`run_program_with_support`] plus the course's `[build]`
+/// (`Step::build`): a Rust drill of a prepared course compiles offline against the course cache,
+/// with the course's timeout (`tutor_core::build`).
+pub fn run_course_program(
+    language: &str,
+    code: &str,
+    deps: &[String],
+    support: &std::collections::BTreeMap<String, String>,
+    build: &tutor_core::BuildEnv,
 ) -> Result<RunOutput> {
     let lang = language.trim().to_ascii_lowercase();
     let plugin = match lang.as_str() {
@@ -1525,7 +1544,7 @@ pub fn run_program_with_support(
     match (lang.as_str(), plugin) {
         ("go" | "golang", _) => crate::go_runner::run_go_program_with_deps(code, deps),
         (_, Some(p)) => PluginRunner::new(p).run_program_with(code, support),
-        _ => crate::runner::run_rust_snippet_with_deps(code, deps),
+        _ => crate::runner::run_rust_snippet_in(code, deps, build),
     }
 }
 
@@ -1671,6 +1690,7 @@ mod tests {
             dependencies: Vec::new(),
             project: None,
             support: Default::default(),
+            build: Default::default(),
         }
     }
 
