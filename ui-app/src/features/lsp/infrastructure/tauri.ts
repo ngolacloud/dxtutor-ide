@@ -5,13 +5,21 @@
    `lsp_signature_help` / `lsp_server_status` / `lsp_code_action` / `lsp_execute_command` / `lsp_format` /
    `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_prepare_type_hierarchy` / `lsp_type_hierarchy` e
    os eventos `lsp://diagnostics` e `lsp://apply-edit`; e a `LspConfigPort` dos overrides (LSP P2):
-   `lsp_config` / `lsp_config_file` / `lsp_user_config_save` / `lsp_approve_server` e o evento `lsp://config`.
+   `lsp_config` / `lsp_config_file` / `lsp_user_config_save` / `lsp_approve_server` e o evento `lsp://config`; e a
+   instalação a partir das receitas do registo (LSP P3): `lsp_install_plan` / `lsp_install_download`.
    Não toca em `window` (o cliente tipado é que o faz, fora da subárvore). */
 
 import { invoke, listen } from "../../../platform/tauri/core";
 import type { LspConfigPort, LspPort } from "../application/ports";
-import type { ServerStatus } from "../domain/server-status";
+import type { InstallPlan, ServerStatus } from "../domain/server-status";
 import type { FileReport, LspConfigView } from "../domain/overrides";
+
+/** As maneiras de instalar um servidor em falta (o backend constrói os comandos) e o download conferido
+ *  de uma release (com o id da maneira, nunca um URL). */
+export const tauriLspInstall = {
+  plan: (path: string) => invoke<InstallPlan | null>("lsp_install_plan", { path }),
+  download: (path: string, option: string) => invoke<ServerStatus | null>("lsp_install_download", { path, option }),
+};
 
 export const tauriLspConfig: LspConfigPort = {
   config: (root) => invoke<LspConfigView>("lsp_config", { root }),

@@ -74,4 +74,40 @@ describe("aviso de servidor em falta", () => {
     bridge.editor.notice(KEY(), notice);
     expect(document.querySelector('#lsp-missing [data-k="configure"]')).toBe(null);
   });
+
+  it("as maneiras de instalar (LSP P3): escolher troca o comando e a frase; «Install» só para as que o dxtutor corre", () => {
+    w.openPath(KEY());
+    const install = vi.fn(), copy = vi.fn(), recheck = vi.fn();
+    const ways = [
+      { id: "rustup", label: "rustup", shown: "/u/.cargo/bin/rustup component add rust-analyzer", runnable: true, available: true, note: "Adds the component to your Rust toolchain." },
+      { id: "github", label: "GitHub release", shown: "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/ra.gz", runnable: true, available: true, note: "dxtutor downloads this pinned release." },
+      { id: "brew", label: "Homebrew (you run it) — brew not found", shown: "brew install rust-analyzer", runnable: false, available: false, note: "Install brew first." },
+      { id: "apt", label: "apt (you run it)", shown: "sudo apt-get install x", runnable: false, available: true, note: "it may ask for sudo" },
+    ];
+    bridge.editor.notice(KEY(), { ...notice, kind: "missing", ways, way: "github" }, undefined, { install, copy, recheck });
+    const el = document.getElementById("lsp-missing")!;
+    const sel = el.querySelector("select.lsp-way") as HTMLSelectElement;
+    expect([...sel.options].map((o) => [o.value, o.disabled])).toEqual([["rustup", false], ["github", false], ["brew", true], ["apt", false]]);
+    expect(sel.value).toBe("github");
+    expect(el.querySelector(".lsp-install code")!.textContent).toBe(ways[1].shown);
+    expect(el.querySelector(".lsp-way-note")!.textContent).toBe(ways[1].note);
+    const btn = el.querySelector('[data-k="install"]') as HTMLButtonElement;
+    expect(btn.hidden).toBe(false);
+    btn.click();
+    expect(install).toHaveBeenCalledWith("github");
+    // apt: só se mostra e copia
+    sel.value = "apt";
+    sel.dispatchEvent(new Event("change"));
+    expect(el.querySelector(".lsp-install code")!.textContent).toBe("sudo apt-get install x");
+    expect(btn.hidden).toBe(true);
+    (el.querySelector('[data-k="copy"]') as HTMLButtonElement).click();
+    expect(copy).toHaveBeenCalledWith("apt");
+    (el.querySelector('[data-k="recheck"]') as HTMLButtonElement).click();
+    expect(recheck).toHaveBeenCalled();
+    // uma só maneira: sem lista, o rótulo
+    bridge.editor.notice(KEY(), { ...notice, kind: "missing", ways: [ways[0]], way: "rustup" }, undefined, { install });
+    const one = document.getElementById("lsp-missing")!;
+    expect(one.querySelector("select")).toBe(null);
+    expect(one.querySelector(".lsp-way-one")!.textContent).toBe("rustup");
+  });
 });

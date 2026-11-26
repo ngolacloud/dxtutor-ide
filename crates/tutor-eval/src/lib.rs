@@ -40,6 +40,7 @@ pub mod lang;
 pub mod langreg;
 pub mod lsp;
 pub mod lspconf;
+pub mod lspinstall;
 pub mod measured;
 pub mod onboard;
 pub mod ops;

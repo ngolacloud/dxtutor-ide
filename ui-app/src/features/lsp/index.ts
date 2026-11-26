@@ -12,8 +12,9 @@
    das linguagens que o `file_outline` não cobre (`desktopPorts.outline`, consultada pelo explorador).
    Os diagnósticos já chegam ao Problems e ao gutter pelo painel (`features/panel`); aqui
    só se volta a pintar o ficheiro aberto quando os dele mudam. Quando o servidor da linguagem
-   não está instalado, o editor mostra um aviso com o que falta e como o instalar
-   (`editor:file-view` repõe-no a cada desenho da vista).
+   não está instalado, o editor mostra um aviso com o que falta e as maneiras de o instalar que o backend
+   constrói a partir das receitas do registo (LSP P3: `lsp_install_plan`; aprovação, auditoria e terminal,
+   ou o download conferido `lsp_install_download`); `editor:file-view` repõe-no a cada desenho da vista.
    Os overrides do registo (LSP P2, `application/overrides`): o registo efectivo da pasta (embutido +
    `lsp.json` do utilizador + `.dxtutor/lsp.json` do projecto) entra em uso ao abrir a pasta; quando um
    ficheiro muda (`lsp://config`), o cliente revê o ficheiro aberto; a paleta abre os dois ficheiros e
@@ -28,7 +29,8 @@ import { languageIdFor } from "./domain/languages";
 import { makeLspClient } from "./application/lsp-client";
 import { makeOverrides } from "./application/overrides";
 import { LSP_OVERRIDE_MESSAGES } from "./application/override-messages";
-import { tauriLsp, tauriLspConfig } from "./infrastructure/tauri";
+import { LSP_INSTALL_MESSAGES } from "./application/install-messages";
+import { tauriLsp, tauriLspConfig, tauriLspInstall } from "./infrastructure/tauri";
 import { overridesView } from "./ui/config-view";
 import { translator } from "../../app/i18n";
 import { workspace, editor, addPaletteCommand, runTerminalTask } from "./infrastructure/legacy-bridge";
@@ -54,12 +56,16 @@ if (isDesktop()) {
   const client = makeLspClient({
     lsp: tauriLsp, workspace, editor, defer: (f) => setTimeout(f, 0),
     overrides, copy, configure: () => void overrides.openUserFile(),
-    /* «Copy» e «Install» no aviso de servidor em falta: instalar pede aprovação, fica auditado e corre num terminal */
+    installCopy: translator(LSP_INSTALL_MESSAGES),
+    /* o aviso de servidor em falta (LSP P3): o backend dá as maneiras com o comando exacto; instalar pede
+       aprovação, fica auditado e corre num terminal (ou é o download conferido pelo backend) */
     installer: {
+      plan: (path) => tauriLspInstall.plan(path),
+      download: (path, option) => tauriLspInstall.download(path, option),
       copy: (text) => copyText(text),
       approve: (r) => requestApproval(r),
       audit: (root, e) => audit.record(root, { feature: "lsp", ...e }),
-      run: (command, cwd) => runTerminalTask(command, cwd),
+      run: (command, cwd, env, label) => runTerminalTask(command, cwd, env, label),
     },
   });
   tauriLsp.onDiagnostics((uri) => client.onDiagnostics(uri));

@@ -5457,6 +5457,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "dirs",
+ "flate2",
  "libc",
  "proc-macro2",
  "quote",
@@ -5470,6 +5471,8 @@ dependencies = [
  "toml 0.8.2",
  "tutor-core",
  "tutor-protect",
+ "ureq",
+ "zip",
 ]
 
 [[package]]
