@@ -9,8 +9,9 @@
    Fiel ao comportamento anterior (UI/comportamento congelados): a mesma escolha de
    ficheiro, os mesmos prompts de conversa, a mesma ordem de efeitos. Só mudou a
    PROVENIÊNCIA das capacidades — antes globais resolvidos pelo bridge, agora
-   injectadas por argumento. O Explain não monta markup: colhe os factos e
-   entrega-os à porta `view.explainCard`, que é dona do cartão. */
+   injectadas por argumento. O Explain e o Code review não montam markup nem falam
+   com o chat: colhem os factos e entregam-nos à porta `doc` (o painel de documento
+   ao lado do código, `doc-session.ts`). */
 
 import type { Finding } from "../domain/types";
 import { reviewFindings as reviewRules } from "../domain/review";
@@ -25,10 +26,11 @@ export interface ReviewEngine {
   reviewCmd(): void;
   hoodCmd(): void;
   explainCmd(): void;
+  reviewTab(path: string): void;
 }
 
 export function makeReviewEngine(deps: ReviewDeps): ReviewEngine {
-  const { workspace, agent, diagnostics, code, view } = deps;
+  const { workspace, diagnostics, code, doc } = deps;
 
   /** O ficheiro a que os comandos se aplicam: o separador activo se for um ficheiro
    *  de `FS`, senão a 1ª alteração não-commitada, senão o primeiro ficheiro do
@@ -52,9 +54,16 @@ export function makeReviewEngine(deps: ReviewDeps): ReviewEngine {
     });
   }
 
+  /** Code review: abre a revisão interactiva no painel ao lado do código (as regras, os
+   *  analisadores e a revisão com IA), já não numa tab que tapa o ficheiro. */
   function reviewCmd(): void {
     const p = curFile();
     if (!p) return;
+    doc.review({ path: p });
+  }
+
+  /** A revisão em tab inteira (o «Open as tab» do painel e as sessões antigas). */
+  function reviewTab(p: string): void {
     workspace.open({ id: "creview:" + p, title: "Review · " + p.split("/").pop(), kind: "creview", path: p });
   }
 
@@ -64,28 +73,26 @@ export function makeReviewEngine(deps: ReviewDeps): ReviewEngine {
     workspace.open({ id: "hood:" + p, title: "Under the hood · " + p.split("/").pop(), kind: "hood", path: p });
   }
 
+  /** Explain: a resposta abre no painel de documento ao lado do código (não no chat). Com
+   *  modelo, o painel pede-a e mostra-a a chegar; sem modelo, mostra o resumo local destes factos. */
   function explainCmd(): void {
     const p = curFile(), sel = code.selText(), f = workspace.files()[p];
     if (!f) return;
-    agent.focus(true);
-    const what = sel ? `this excerpt from ${workspace.short(p)}` : workspace.short(p);
-    if (agent.sample() && agent.claudeOn()) {
-      agent.setActiveProvider("claude"); agent.updateUI();
-      agent.liveChat(`Explain ${what}: what it does, how, and what a senior would watch out for. Be concrete.\n${sel || f.content.slice(0, 5000)}`);
-      return;
-    }
-    agent.user(`Explain ${what}.`);
-    const sy = code.symbols(p), dg = diagnostics.all().filter(d => d.p === p), rv = reviewFindings(p).slice(0, 2);
+    const sy = code.symbols(p), dg = diagnostics.all().filter(d => d.p === p), rv = reviewFindings(p).slice(0, 3);
     const m = f.content.match(/^\s*(\/\/|#|--)\s*(.+)$/m);
-    view.explainCard({
+    doc.explain({
       path: p,
-      lineCount: f.content.split("\n").length,
-      symbols: sy.map(s => ({ n: s.n })),
-      firstComment: m?.[2] ?? null,
-      diagnostics: dg.map(d => d.msg),
-      findings: rv.map(r => ({ t: r.t, l: r.l })),
+      selection: sel.trim() ? { text: sel, line: code.selLine() } : null,
+      card: {
+        path: p,
+        lineCount: f.content.split("\n").length,
+        symbols: sy.map(s => ({ n: s.n, line: s.line })),
+        firstComment: m?.[2] ?? null,
+        diagnostics: dg.map(d => ({ line: d.line, msg: d.msg })),
+        findings: rv.map(r => ({ t: r.t, l: r.l })),
+      },
     });
   }
 
-  return { curFile, reviewFindings, reviewCmd, hoodCmd, explainCmd };
+  return { curFile, reviewFindings, reviewCmd, reviewTab, hoodCmd, explainCmd };
 }

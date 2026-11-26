@@ -1,34 +1,35 @@
 /* ═════════ dxtutor IDE — feature: Explain · Code review · Under the hood ═════════
    Resíduo strangler + raiz de COMPOSIÇÃO da feature (FORA de `features/codereview/`,
-   logo não governado por A7/A8). Faz três coisas: (1) liga os adaptadores do bridge
-   (infra) às portas do motor (application) — constrói-os e injecta-os em
-   `makeReviewEngine`; (2) é DONO do DOM/markup — `renderCreviewView` (VIEW.creview),
-   `renderHoodView` (VIEW.hood), o presenter `explainCard` e o conteúdo `KNOW`/`SEVC`;
-   (3) re-publica a superfície pública no `window`.
+   logo não governado por A7/A8). Faz quatro coisas: (1) liga os adaptadores do bridge
+   (infra) às portas do motor (`makeReviewEngine`) e do painel (`makeDocSession`); (2) é
+   DONO do DOM — o painel de documento ao lado do código (`#cr-side`), a tab
+   `renderCreviewView` (VIEW.creview) e `renderHoodView` (VIEW.hood); (3) tem a tabela de
+   acções; (4) re-publica no `window` o que ainda é lido por nome (`hoodCmd`).
 
-   ADR-0002, Fase 3: a orquestração — `curFile`/`reviewFindings`/`reviewCmd`/`hoodCmd`/
-   `explainCmd` — saiu daqui para `codereview/application/review-engine.ts`, pura e com
-   deps injectadas por porta (`codereview/application/ports.ts`). Este ficheiro deixou
-   de a conter: só a COMPÕE (com os adaptadores do bridge) e a RE-PUBLICA. O motor não
-   monta markup — o Explain colhe os factos e entrega-os à porta `view.explainCard`,
-   implementada aqui (a view é dona do cartão e do mapa `KNOW`).
+   O Explain e o Code review já não respondem no chat do Co-Dev: abrem o painel à direita
+   do editor. O Explain mostra o documento markdown a chegar (pré-visualização com realce, ou
+   o texto); sem modelo, o resumo local. O Code review mostra a revisão interactiva (pontuação,
+   filtros por severidade, cartões com o excerto, «Fix with AI», «Dismiss», os analisadores)
+   e a revisão com IA, de onde sai o ficheiro inteiro melhorado com «Compare», «Apply»,
+   «Apply & test» (a suite do projecto, `run_tests`) e «Revert». A tab de Code review continua
+   (o «Open as tab» do painel) com a mesma revisão interactiva.
 
-   Fronteira: fica em v6.ts a barra de acções do editor (EACT), o handler global de
-   keydown (chords Ctrl+K E/R/U, F5/F9/F10), `badges`, `boot6` e os menus — chamam
-   `explainCmd`/`reviewCmd`/`hoodCmd` por nome livre (resolvem via `window`, publicados
-   por `publish(...)` no fim deste módulo). `dlg()` fica em v6.ts (partilhado com
-   infra.ts). Mecânica (igual às migrações strict anteriores): publica-se
-   `renderCreviewView`/`renderHoodView`, e `VIEW.creview`/`VIEW.hood` registam-se aqui
-   (ADR-0004, U4g1 — antes eram shims no v6.ts). */
+   Fronteira: a barra de acções do editor (EACT, `tabs.ts`), os atalhos (Ctrl+K E/R/U,
+   `shortcuts.ts`) e os comandos (`app/commands.ts`) chamam `explainCmd`/`reviewCmd` por
+   import e o `hoodCmd` pelo `window`. */
 
-import { esc, svg, S, prov } from "../core";
+import { esc, svg, S, toast, rerender } from "../core";
 import { VIEW } from "../app/store/registry";
 import type { AnalyzerReport, Finding } from "./codereview/domain/types";
-import { tauriReview } from "./codereview/infrastructure/tauri";
+import { tauriReview, tauriSuite } from "./codereview/infrastructure/tauri";
 import { scoreFor } from "./codereview/domain/scoring";
 import { makeReviewEngine } from "./codereview/application/review-engine";
-import type { ExplainCard } from "./codereview/application/ports";
+import { makeDocSession, type DocState } from "./codereview/application/doc-session";
+import { DOC_COPY } from "./codereview/application/messages";
 import { bindActions, type ActionTable } from "./codereview/ui/actions";
+import { docHtml, docBlocks, filterBar, findingCards, scoreRing, extOfLang, type ReviewFindingView, type ReviewUi } from "./codereview/ui/doc-view";
+import { diffLines, MAX_CELLS } from "./diff/domain/diff";
+import { codevAsk } from "../app/codev-ask";
 import {
   files,
   currentTabId,
@@ -38,35 +39,246 @@ import {
   changes,
   openTab,
   openPath,
-  focusAgent,
-  user,
-  card,
-  liveChat,
-  updateAgentUI,
-  setActiveProvider,
-  sample,
   diagnostics,
   symbols,
   selText,
+  selLine,
+  hlLine,
+  writeFile,
+  aiReady,
+  aiStream,
+  saveAll,
   composeServices,
   publish,
   desktopRoot,
   fsRoot,
   type Svc,
 } from "./codereview/infrastructure/legacy-bridge";
-import { translator } from "../app/i18n";
+import { translator, currentLocale } from "../app/i18n";
 import { CODEREVIEW_MESSAGES } from "./codereview/ui/messages";
 import { ANALYZER_MESSAGES } from "./codereview/ui/analyzer-messages";
+import { DOC_MESSAGES } from "./codereview/ui/doc-messages";
 /** Os textos deste módulo vêm do catálogo (ADR-0004, U6c). */
 const txt = translator(CODEREVIEW_MESSAGES);
 const txa = translator(ANALYZER_MESSAGES);
+const td = translator(DOC_MESSAGES);
+const ic = (n: string): string => svg(n);
 
-/* Presenter do cartão de Explain: a porta `view.explainCard` que o motor chama com
-   dados simples. A view é dona do markup (o texto fixo `KNOW` dos ficheiros de demonstração
-   saiu — ADR-0006, R1c1). */
-function explainCard(c: ExplainCard): void {
-  card('co-dev · explain', `<p><b>${esc(short(c.path))}</b> — ${c.lineCount} lines${c.symbols.length ? `, defines ${c.symbols.slice(0, 6).map(s => `<code>${esc(s.n)}</code>`).join(', ')}` : ''}.</p>${c.firstComment ? `<p>${esc(c.firstComment)}</p>` : ''}
-   ${c.diagnostics.length ? `<p><b>Right now:</b> ${c.diagnostics.map(m => esc(m)).join('; ')}.</p>` : ''}${c.findings.length ? `<p><b>What I would watch:</b></p><ul>${c.findings.map(r => `<li>${r.t} (line ${r.l})</li>`).join('')}</ul>` : ''}<p style="color:var(--fg-dim)">With Claude live, Explain answers about the exact code or selection instead of this summary.</p>`);
+/* ───── o painel de documento ao lado do código ─────
+   O Explain e a revisão com IA respondem num painel à direita do editor (não no chat): o
+   caso de uso `doc-session.ts` pede ao modelo e guarda o estado; aqui vive o DOM (o `<aside
+   id="cr-side">` dentro da `.ebody`, irmão do `#ebody` — sobrevive à troca de separadores) e
+   o estado de apresentação. Desenha-se por `requestAnimationFrame` (um stream manda muitos
+   pedaços) e o corpo mantém o scroll; colado ao fundo, acompanha o texto a chegar. */
+interface PanelUi {
+  mode: "explain" | "review";
+  path: string;
+  tab: "findings" | "ai";
+  view: "preview" | "markdown";
+  codeView: "code" | "diff";
+  width: number;
+}
+const PANEL: PanelUi = { mode: "explain", path: "", tab: "findings", view: "preview", codeView: "code", width: 480 };
+/** filtros, descartados e «mostrar descartados» da revisão, por ficheiro (o painel e a tab partilham-nos) */
+const RV = new Map<string, ReviewUi>();
+const rvUi = (p: string): ReviewUi => { let u = RV.get(p); if (!u) RV.set(p, (u = { filter: [], dismissed: [], showDismissed: false })); return u; };
+/** o relatório dos analisadores no painel, por ficheiro (não se repete a cada pedaço do stream) */
+const AN = new Map<string, { html: string; done: boolean }>();
+
+const session = makeDocSession({
+  ai: { ready: () => aiReady(), stream: (q, o) => aiStream(q, o) },
+  files: {
+    read: (p) => files()[p]?.content ?? null,
+    write: (p, c) => writeFile(p, c),
+    ext: (p) => extOf(p),
+    short: (p) => short(p),
+  },
+  tests: {
+    unavailable: () => (!desktopRoot() ? td("noTestsBrowser") : null),
+    run: async () => {
+      await saveAll();
+      const r = await tauriSuite().run(desktopRoot()!);
+      return { ran: true, passed: r.ok, output: `$ ${r.command}\n${r.stdout}${r.stderr ? "\n" + r.stderr : ""}` };
+    },
+  },
+  view: { render: () => schedule() },
+  lang: () => currentLocale(),
+  copy: translator(DOC_COPY),
+});
+
+const ebodyHost = (): HTMLElement | null => document.getElementById("ebody")?.parentElement ?? null;
+const sideEl = (): HTMLElement | null => document.getElementById("cr-side");
+
+function ensurePanel(): HTMLElement | null {
+  const host = ebodyHost();
+  if (!host) return null;
+  let el = sideEl();
+  if (!el) {
+    el = document.createElement("aside");
+    el.id = "cr-side";
+    el.className = "cr-side";
+    el.innerHTML = `<div class="cr-resize" title="${esc(td("resize"))}"></div><div class="cr-hd"></div><div class="cr-sub"></div><div class="cr-body"></div>`;
+    host.appendChild(el);
+    bindResize(el, host);
+  }
+  host.classList.add("cr-split");
+  host.style.setProperty("--cr-w", PANEL.width + "px");
+  return el;
+}
+
+function bindResize(el: HTMLElement, host: HTMLElement): void {
+  const grip = el.querySelector<HTMLElement>(".cr-resize")!;
+  grip.addEventListener("mousedown", (ev) => {
+    ev.preventDefault();
+    const x0 = ev.clientX, w0 = PANEL.width;
+    const move = (e: MouseEvent) => {
+      const max = Math.max(320, host.clientWidth - 260);
+      PANEL.width = Math.round(Math.min(max, Math.max(300, w0 + (x0 - e.clientX))));
+      host.style.setProperty("--cr-w", PANEL.width + "px");
+    };
+    const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.body.classList.remove("cr-dragging"); };
+    document.body.classList.add("cr-dragging");
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  });
+}
+
+function closePanel(): void {
+  session.close();
+  sideEl()?.remove();
+  const host = ebodyHost();
+  if (host) { host.classList.remove("cr-split"); host.style.removeProperty("--cr-w"); }
+}
+
+let raf = 0;
+function schedule(): void {
+  if (raf) return;
+  const run = () => { raf = 0; renderPanel(); };
+  if (typeof requestAnimationFrame === "function") raf = requestAnimationFrame(run) as unknown as number;
+  else { raf = 1; setTimeout(run, 0); }
+}
+
+/** O estado do documento que o painel mostra agora (no modo revisão, só o deste ficheiro). */
+function shownDoc(): DocState | null {
+  const s = session.state();
+  if (!s) return null;
+  if (PANEL.mode === "explain") return s.kind === "explain" ? s : null;
+  return s.kind !== "explain" && s.path === PANEL.path ? s : null;
+}
+
+function statusTag(s: DocState | null): string {
+  if (!s) return "";
+  const k = s.status === "streaming" ? "writing" : s.status === "local" ? "local" : s.status === "stopped" ? "stopped" : s.status === "error" ? "failed" : s.status === "done" ? "done" : null;
+  return k ? `<span class="cr-st st-${s.status}">${s.status === "streaming" ? '<span class="cr-dot"></span>' : ""}${esc(td(k))}</span>` : "";
+}
+
+function docTools(s: DocState | null): string {
+  if (!s) return "";
+  const seg = `<span class="cr-seg"><button class="${PANEL.view === "preview" ? "on" : ""}" data-action="cr:view" data-on="preview">${esc(td("preview"))}</button><button class="${PANEL.view === "markdown" ? "on" : ""}" data-action="cr:view" data-on="markdown">${esc(td("markdown"))}</button></span>`;
+  const run = s.status === "streaming"
+    ? `<button class="cr-ib" data-action="cr:stop" title="${esc(td("stop"))}">■</button>`
+    : s.status !== "local" ? `<button class="cr-ib" data-action="cr:regenerate" title="${esc(td("regenerate"))}">${ic("refresh")}</button>` : "";
+  const chat = codevAsk.available() && s.text ? `<button class="cr-ib" data-action="cr:to-chat" title="${esc(td("toChat"))}">${ic("sparkle")}</button>` : "";
+  return `${seg}${s.text ? `<button class="cr-ib" data-action="cr:copy-doc" title="${esc(td("copy"))}">⧉</button>` : ""}${run}${chat}`;
+}
+
+function reviewFindingViews(p: string): ReviewFindingView[] {
+  const ls = (files()[p]?.content ?? "").split("\n");
+  return reviewFindings(p).map((f) => {
+    const from = Math.max(1, f.l - 2), to = Math.min(ls.length, f.l + 2);
+    return { key: `${f.l}:${f.t}`, line: f.l, sev: f.sev, title: f.t, why: f.why, fix: f.fix, snippet: { from, code: ls.slice(from - 1, to).join("\n") } };
+  });
+}
+
+function improvedDiff(s: DocState) {
+  if (!s.improved) return null;
+  const cur = files()[s.path]?.content ?? s.original;
+  const base = s.applied ? s.applied.prev : cur;
+  const a = base.split("\n").length, b = s.improved.code.split("\n").length;
+  return a * b > MAX_CELLS ? [] : diffLines(base, s.improved.code);
+}
+
+function renderPanel(): void {
+  const el = sideEl();
+  if (!el) return;
+  const p = PANEL.path, s = shownDoc(), name = p.split("/").pop() || p;
+  el.dataset.mode = PANEL.mode;
+  const title = PANEL.mode === "explain"
+    ? `${ic("bulb")}<div class="cr-ttl"><b>${esc(td("explain"))}</b><small class="notr" title="${esc(short(p))}">${esc(name)}${s?.from ? " · " + esc(td("excerpt", { n: s.from })) : ""}</small></div>`
+    : `${ic("review")}<div class="cr-ttl"><b>${esc(td("review"))}</b><small class="notr" title="${esc(short(p))}">${esc(name)}</small></div>`;
+  const right = PANEL.mode === "review"
+    ? `${PANEL.tab === "ai" ? docTools(s) : `<button class="cr-ib" data-action="cr:rerun" title="${esc(td("rerun"))}">${ic("refresh")}</button>`}<button class="cr-ib" data-action="cr:as-tab" title="${esc(td("asTab"))}">${ic("popout")}</button>`
+    : docTools(s);
+  el.querySelector(".cr-hd")!.innerHTML = `${title}${statusTag(PANEL.mode === "review" && PANEL.tab !== "ai" ? null : s)}<span class="sp"></span>${right}<button class="cr-ib" data-action="cr:close" title="${esc(td("close"))}">${ic("close")}</button>`;
+  const sub = el.querySelector<HTMLElement>(".cr-sub")!;
+  const body = el.querySelector<HTMLElement>(".cr-body")!;
+  /* o mesmo conteúdo (o stream, um filtro) mantém o scroll; outro documento, modo ou separador começa no topo */
+  const key = `${PANEL.mode}|${p}|${PANEL.tab}|${s ? s.id : ""}`, same = el.dataset.key === key;
+  el.dataset.key = key;
+  const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 40, top = same ? body.scrollTop : 0;
+  if (PANEL.mode === "review") {
+    const fv = reviewFindingViews(p), ui = rvUi(p), score = scoreFor(reviewFindings(p));
+    sub.innerHTML = `<div class="cr-rsum">${scoreRing(score, score >= S.THRESH)}<div class="cr-rsum-t">${filterBar(p, fv, ui, td)}</div></div><div class="cr-tabs"><button class="${PANEL.tab === "findings" ? "on" : ""}" data-action="cr:tab" data-on="findings">${esc(td("findings"))} <b>${fv.filter((f) => !ui.dismissed.includes(f.key)).length}</b></button><button class="${PANEL.tab === "ai" ? "on" : ""}" data-action="cr:tab" data-on="ai">${ic("sparkle")} ${esc(td("aiReview"))}</button></div>`;
+    if (PANEL.tab === "findings") {
+      const an = AN.get(p);
+      body.innerHTML = `<div class="sub cr-rules">${esc(td("rulesNote"))}</div>${findingCards(p, fv, ui, hlLine, td, extOf(p), aiReady(), ic)}${an ? `<div class="cr-analyzers">${an.html}</div>` : ""}`;
+    } else {
+      body.innerHTML = s
+        ? docHtml(s, PANEL, hlLine, td, s.improved ? extOfLang(s.improved.lang) || extOf(p) : extOf(p), improvedDiff(s), ic)
+        : aiCta();
+    }
+  } else {
+    sub.innerHTML = "";
+    body.innerHTML = s ? docHtml(s, PANEL, hlLine, td, extOf(s.path), null, ic) : "";
+  }
+  body.scrollTop = same && s?.status === "streaming" && atEnd ? body.scrollHeight : top;
+}
+
+function aiCta(): string {
+  const ready = aiReady();
+  return `<div class="cr-cta">${ic("sparkle")}<h3>${esc(td("aiCta"))}</h3><p>${esc(td("aiCtaSub"))}</p>${ready ? `<button class="btn pri" data-action="cr:ai-review">${esc(td("aiCta"))}</button>` : `<div class="cr-note">${esc(td("aiNeedsModel"))}</div>`}</div>`;
+}
+
+/** O ficheiro fica à vista ao lado do painel: se o separador activo não é ele, abre-o. */
+function showFile(p: string): void {
+  const t = tabOf(currentTabId());
+  if (!t || t.path !== p || (t.kind !== "file" && t.kind !== "creview")) openPath(p);
+}
+
+function openDoc(mode: "explain" | "review", p: string): void {
+  PANEL.mode = mode;
+  PANEL.path = p;
+  if (!ensurePanel()) return;
+  renderPanel();
+}
+
+function openReviewPanel(p: string, tab: "findings" | "ai" = "findings"): void {
+  showFile(p);
+  PANEL.tab = tab;
+  openDoc("review", p);
+  loadAnalyzers(p);
+}
+
+function loadAnalyzers(p: string, force = false): void {
+  const root = desktopRoot(), pre = fsRoot();
+  if (!root || !p.startsWith(pre) || (AN.get(p) && !force)) return;
+  AN.set(p, { html: '<h2>Analisadores do projecto</h2><div class="sub">' + txa("running") + "</div>", done: false });
+  tauriReview().file(root, p.slice(pre.length)).then(
+    (r) => { AN.set(p, { html: analyzersHtml(r, pre), done: true }); schedule(); },
+    (e) => { AN.set(p, { html: `<h2>Analisadores do projecto</h2><div class="sub" style="color:var(--red)">A revisão falhou: ${esc(e instanceof Error ? e.message : String(e))}</div>`, done: true }); schedule(); },
+  );
+}
+
+function findingsFor(p: string): { line: number; sev: string; title: string }[] {
+  const strip = (h: string) => h.replace(/<[^>]+>/g, "");
+  const ui = rvUi(p);
+  return reviewFindings(p).filter((f) => !ui.dismissed.includes(`${f.l}:${f.t}`)).map((f) => ({ line: f.l, sev: f.sev, title: strip(f.t) }));
+}
+
+function startAiReview(p: string, focusKey: string | null = null): void {
+  const f = focusKey ? reviewFindings(p).find((x) => `${x.l}:${x.t}` === focusKey) : null;
+  openReviewPanel(p, "ai");
+  session.review(p, findingsFor(p), f ? { line: f.l, title: f.t.replace(/<[^>]+>/g, "") } : null);
 }
 
 /* ───── raiz de composição: adaptadores do bridge (infra) → portas do motor (application).
@@ -81,31 +293,23 @@ const engine = makeReviewEngine({
     changes: () => changes(),
     open: tab => openTab(tab),
   },
-  agent: {
-    focus: nofocus => focusAgent(nofocus),
-    user: msg => user(msg),
-    liveChat: q => liveChat(q),
-    updateUI: () => updateAgentUI(),
-    setActiveProvider: v => setActiveProvider(v),
-    sample: () => sample(),
-    claudeOn: () => prov().claude.on,
-  },
   diagnostics: { all: () => diagnostics() },
-  code: { symbols: p => symbols(p), selText: () => selText() },
-  view: { explainCard },
+  code: { symbols: p => symbols(p), selText: () => selText(), selLine: () => selLine() },
+  doc: {
+    explain: (req) => { openDoc("explain", req.path); session.explain(req); },
+    review: (req) => openReviewPanel(req.path),
+  },
 });
-const { curFile, reviewFindings, reviewCmd, hoodCmd, explainCmd } = engine;
+const { curFile, reviewFindings, reviewCmd, reviewTab, hoodCmd, explainCmd } = engine;
 
-/* ───── Code review — markup da tab (dono da view) ───── */
-
-const SEVC: Record<string, string> = { bug: 'var(--red)', risk: 'var(--yellow)', perf: 'var(--blue)', style: 'var(--fg-muted)' };
+/* ───── Code review — a tab (a mesma revisão interactiva, em ecrã inteiro) ───── */
 
 function renderCreviewView(tab: unknown, host: HTMLElement): void {
   const t = tab as { path: string };
   const fs: Finding[] = reviewFindings(t.path), score = scoreFor(fs);
-  host.innerHTML = `<div class="page" style="max-width:860px"><div style="display:flex;align-items:center;gap:14px"><div class="score ${score >= S.THRESH ? 'ok' : 'bad'}">${score}<small>/100</small></div><div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" data-action="open-file" data-on="${esc(t.path)}">${txt("openFile")}</button>${sample() && prov().claude.on ? `<button class="mini pri" data-action="deeper-review" data-on="${esc(t.path)}">Deeper review with Claude</button>` : ''}</div>
-   <div class="sub" style="margin-top:12px">Rule-based checks for correctness, security, performance and the project rules. They point at evidence; you decide what to change.</div>
-   ${fs.length ? fs.map(f => `<div class="rv"><div class="rv-h"><span class="tag" style="color:${SEVC[f.sev]};border-color:${SEVC[f.sev]}">${f.sev}</span><b>${f.t}</b><span class="sp"></span><button class="lnk" data-action="open-line" data-on="${f.l}:${esc(t.path)}">line ${f.l}</button></div><div class="rv-b"><p>${f.why}</p><p><b>Suggested:</b> ${f.fix}</p></div></div>`).join('') : '<div class="adv agent" style="margin-top:16px">' + svg('check') + '<div>No findings from the rule set. That is not proof of correctness — the tests are.</div></div>'}</div>`;
+  const fv = reviewFindingViews(t.path), ui = rvUi(t.path), P = esc(t.path), ai = aiReady();
+  host.innerHTML = `<div class="page cr-page" style="max-width:900px"><div class="cr-top">${scoreRing(score, score >= S.THRESH)}<div><h1 style="margin:0">Code review</h1><div class="sub notr" style="margin:0">${esc(short(t.path))}</div></div><span style="flex:1"></span><button class="mini" data-action="open-file" data-on="${P}">${txt("openFile")}</button>${ai ? `<button class="mini pri" data-action="cr:ai-review" data-on="${P}">${ic("sparkle")}<span>${esc(td("aiCta"))}</span></button>` : ""}</div>
+   <div class="sub" style="margin-top:12px">${esc(td("rulesNote"))}</div>${filterBar(t.path, fv, ui, td)}${findingCards(t.path, fv, ui, hlLine, td, extOf(t.path), ai, ic)}</div>`;
   analyzersSection(t.path, host);
 }
 
@@ -180,46 +384,86 @@ function renderHoodView(tab: unknown, host: HTMLElement): void {
   host.innerHTML = `<div class="page" style="max-width:860px"><h1>${txt("underTheHood")}</h1><div class="sub notr">${esc(short(p))}</div>${h}<div class="sub" style="margin-top:20px">Derived from the code in this workspace.</div></div>`;
 }
 
-/* ── publicação no window (confinada ao bridge via `publish`): `renderCreviewView`/
-   `renderHoodView` (também registados em VIEW.creview/VIEW.hood, abaixo); o resto
-   (curFile/explainCmd/reviewCmd/hoodCmd/reviewFindings) é lido por nome livre pelo
-   resíduo @ts-nocheck de v6.ts (EACT, keydown, boot6/menus). ── */
+/* ── publicação no window (confinada ao bridge via `publish`): só o `hoodCmd` (o e2e do hood
+   chama-o); o resto lê-se por import desde a U7p5 do ADR-0004. ── */
 publish({ hoodCmd });
-/* o resto lê-se por import desde a U7p5 do ADR-0004; o hoodCmd fica no window (o e2e do hood chama-o) */
-export { renderCreviewView, renderHoodView, curFile, explainCmd, reviewCmd, reviewFindings };
+export { renderCreviewView, renderHoodView, curFile, explainCmd, reviewCmd, reviewFindings, closePanel };
 
 /* ───── tabela de acções (ADR-0002, Fase 4) ─────
-   Liga o nome de acção (emitido como `data-action` pelo markup de
-   `renderCreviewView`) ao efeito. Fica aqui — no resíduo de composição, não na
-   subárvore `features/codereview/` governada por A7/A8 — porque só este ficheiro tem
-   à mão o bridge (`openPath`/`focusAgent`/`liveChat`/`files`). Os três handlers
-   substituem os `onclick` inline, todos `click`:
-     • open-file     — `openPath(p)`         (botão «Open file»)
-     • open-line     — `openPath(p, linha)`  (botão «line N» de cada achado)
-     • deeper-review — lê o ficheiro NO CLIQUE e pede revisão ao Claude ao vivo
-   O payload viaja SÓ em `data-on` (o golden strippa data-action/data-on; um `data-*`
-   à medida vazava). `open-line` carrega `linha:caminho` — linha primeiro (inteiro
-   puro, sem `:`), por isso parte-se no PRIMEIRO `:` e o resto é o caminho intacto.
-   O caminho é escapado com `esc` à saída (era interpolado cru num literal JS dentro
-   do `onclick` — o vector de injecção que o ADR apontou); nos caminhos semeados/de
-   teste (`crates/lexer/src/lib.rs`, `svc/load.rs`, …) `esc` é no-op, logo a saída
-   visível não muda. `deeper-review` reproduz o antigo `focusAgent(true);liveChat(…)`
-   que compunha o prompt a partir de `FS[path].content.slice(0,6000)` no momento do
-   clique — aqui `files()[e.on].content`, idêntico. */
-const DEEPER_PROMPT =
-  "Review this file as a senior engineer: bugs first, then risks, performance and style. Cite line numbers.\n";
+   Liga o nome de acção (`data-action`) ao efeito; o payload viaja SÓ em `data-on` (o golden
+   strippa data-action/data-on; um `data-*` à medida vazava). Fica no resíduo porque só ele tem à
+   mão o bridge e o painel.
+     • open-file / open-line — abrir o ficheiro (na linha `linha:caminho`, partido no 1.º `:`)
+     • cr:* — o painel de documento e a revisão interactiva. As da revisão levam `caminho|valor`
+       (o painel e a tab partilham filtros e descartados por ficheiro); `cr:goto` leva `linha` (o
+       ficheiro do painel) ou `linha:caminho`. */
+const splitOn = (on: string): [string, string] => { const i = on.indexOf("|"); return i < 0 ? [PANEL.path, on] : [on.slice(0, i), on.slice(i + 1)]; };
+/** Redesenha o que mostra a revisão: o painel e, se estiver à vista, a tab. */
+const refreshReview = (): void => { renderPanel(); rerender("creview"); };
+const copyText = (s: string): void => {
+  const done = () => toast(td("copied"));
+  try { void navigator.clipboard.writeText(s).then(done, () => toast(s.slice(0, 60))); } catch { toast(s.slice(0, 60)); }
+};
 const ACTIONS: ActionTable = {
   "open-file": { on: "click", run: (e) => openPath(e.on) },
   "open-line": {
     on: "click",
     run: (e) => { const i = e.on.indexOf(":"); openPath(e.on.slice(i + 1), +e.on.slice(0, i)); },
   },
-  "deeper-review": {
+  "cr:goto": {
     on: "click",
-    run: (e) => { focusAgent(true); liveChat(DEEPER_PROMPT + files()[e.on].content.slice(0, 6000)); },
+    run: (e) => { const i = e.on.indexOf(":"); const line = +(i < 0 ? e.on : e.on.slice(0, i)), p = i < 0 ? PANEL.path : e.on.slice(i + 1); if (p) openPath(p, line); },
   },
+  "cr:close": { on: "click", run: () => closePanel() },
+  "cr:view": { on: "click", run: (e) => { PANEL.view = e.on === "markdown" ? "markdown" : "preview"; renderPanel(); } },
+  "cr:code-view": { on: "click", run: (e) => { PANEL.codeView = e.on === "diff" ? "diff" : "code"; renderPanel(); } },
+  "cr:tab": { on: "click", run: (e) => { PANEL.tab = e.on === "ai" ? "ai" : "findings"; renderPanel(); } },
+  "cr:stop": { on: "click", run: () => session.stop() },
+  "cr:regenerate": { on: "click", run: () => session.regenerate() },
+  "cr:copy-doc": { on: "click", run: () => { const s = shownDoc(); if (s) copyText(s.text); } },
+  "cr:copy-improved": { on: "click", run: () => { const s = shownDoc(); if (s?.improved) copyText(s.improved.code); } },
+  "cr:copy-block": {
+    on: "click",
+    run: (e) => { const s = shownDoc(); if (!s) return; const b = docBlocks(s).filter((x) => x.k === "code")[+e.on]; if (b && b.k === "code") copyText(b.v); },
+  },
+  "cr:to-chat": {
+    on: "click",
+    run: () => {
+      const s = shownDoc();
+      if (!s) return;
+      const name = s.path.split("/").pop() || s.path;
+      void codevAsk.ask({
+        intent: "chat", text: "", send: false, scope: "file",
+        context: [
+          { kind: "file", label: name, path: s.path, text: (files()[s.path]?.content ?? "").slice(0, 16000) },
+          { kind: "comment", label: `${td(s.kind === "explain" ? "explain" : "review")} · ${name}`, text: s.text.slice(0, 16000) },
+        ],
+      });
+    },
+  },
+  "cr:apply": { on: "click", run: () => { session.apply(); } },
+  "cr:revert": { on: "click", run: () => session.revert() },
+  "cr:test": { on: "click", run: () => { void session.test(); } },
+  "cr:fix-tests": { on: "click", run: () => session.fixTests() },
+  "cr:as-tab": { on: "click", run: () => { if (PANEL.path) reviewTab(PANEL.path); } },
+  "cr:rerun": { on: "click", run: () => { loadAnalyzers(PANEL.path, true); renderPanel(); } },
+  "cr:ai-review": { on: "click", run: (e) => { const p = e.on || PANEL.path; if (p) startAiReview(p); } },
+  "cr:fix-ai": { on: "click", run: (e) => { const [p, key] = splitOn(e.on); startAiReview(p, key); } },
+  "cr:filter": {
+    on: "click",
+    run: (e) => {
+      const [p, sev] = splitOn(e.on), ui = rvUi(p);
+      ui.filter = !sev ? [] : ui.filter.includes(sev) ? ui.filter.filter((x) => x !== sev) : [...ui.filter, sev];
+      refreshReview();
+    },
+  },
+  "cr:dismiss": { on: "click", run: (e) => { const [p, key] = splitOn(e.on), ui = rvUi(p); if (!ui.dismissed.includes(key)) ui.dismissed.push(key); refreshReview(); } },
+  "cr:restore": { on: "click", run: (e) => { const [p, key] = splitOn(e.on), ui = rvUi(p); ui.dismissed = ui.dismissed.filter((k) => k !== key); refreshReview(); } },
+  "cr:show-dismissed": { on: "click", run: (e) => { const ui = rvUi(splitOn(e.on)[0]); ui.showDismissed = !ui.showDismissed; refreshReview(); } },
 };
 bindActions(ACTIONS);
+/** os nomes das acções da feature — o teste das notas (`tests/notes.docs.test.ts`) prova que cada um tem nota */
+export const CODEREVIEW_ACTION_NAMES = Object.keys(ACTIONS);
 
 /* registo das vistas (ADR-0004, U4g1 — antes eram shims no v6.ts; o visualizer decora o
    VIEW.hood no boot7, e continua a decorar esta versão) */

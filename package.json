@@ -11,6 +11,7 @@
     "test": "npm run ui:test && cargo test --workspace",
     "ui:build": "tsc --noEmit -p ui-app/tsconfig.json && vite build --config ui-app/vite.config.ts",
     "ui:test": "vitest run --config ui-app/vitest.config.ts",
+    "docs:notes": "UPDATE_NOTES=1 vitest run --config ui-app/vitest.config.ts tests/notes.docs.test.ts",
     "lint": "eslint ui-app/src",
     "format": "prettier --write ui-app/src/features/diff/domain ui-app/src/features/router/domain ui-app/src/features/codev/domain/project-commands.ts eslint.config.js",
     "format:check": "prettier --check ui-app/src/features/diff/domain ui-app/src/features/router/domain ui-app/src/features/codev/domain/project-commands.ts eslint.config.js",
