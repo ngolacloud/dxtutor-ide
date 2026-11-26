@@ -33,6 +33,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tutor_eval::langreg::{self, Server};
 use tutor_eval::lspconf::{self, Effective, TrustStore};
+use tutor_eval::lspinstall;
 
 struct Session {
     child: Option<Child>,
@@ -151,6 +152,8 @@ struct Host {
     home: Option<PathBuf>,
     path: OsString,
     var: EnvLookup,
+    /// dxtutor's own folder of installed servers (`<app data>/lsp-servers`, LSP P3): looked in first
+    managed: Option<PathBuf>,
 }
 
 /// Reads an environment variable (the process's, or a test's).
@@ -162,6 +165,7 @@ impl Host {
             home: home_dir(),
             path: augmented_path(None),
             var: Box::new(|k| std::env::var(k).ok()),
+            managed: managed_root(),
         }
     }
 }
@@ -249,10 +253,30 @@ fn newest_glob(path: &str) -> Option<PathBuf> {
     glob_candidates(path).into_iter().next()
 }
 
+/// `<app data>/lsp-servers`: where dxtutor installs servers from the registry's recipes (LSP P3,
+/// `tutor_eval::lspinstall`). `None` in unit tests and before start-up.
+pub(crate) fn managed_root() -> Option<PathBuf> {
+    conf().lock().unwrap().managed.clone()
+}
+
+/// The server's program in dxtutor's own folder (an install from a recipe) — unless its
+/// `envOverride` variable is set, which still wins.
+fn managed_hit(server: &Server, host: &Host) -> Option<PathBuf> {
+    let env_set = server
+        .env_override
+        .as_ref()
+        .and_then(|var| (host.var)(var))
+        .is_some_and(|v| !v.is_empty());
+    if env_set {
+        return None;
+    }
+    lspinstall::managed_program(host.managed.as_deref()?, &server.id, &server.command)
+}
+
 /// The binary a registry server runs, found the way its `resolver` says (see `tutor_eval::langreg`).
 /// An `envOverride` variable that is set wins; if it names no file, that is the answer (not a
-/// silent fall-through to another binary). A human error when nothing is found lets the UI tell
-/// the student what to add.
+/// silent fall-through to another binary). Then dxtutor's own folder of installed servers (LSP P3),
+/// then the resolver. A human error when nothing is found lets the UI tell the student what to add.
 fn resolve_server(server: &Server, host: &Host) -> Result<String, String> {
     if let Some(var) = &server.env_override {
         if let Some(v) = (host.var)(var).filter(|v| !v.is_empty()) {
@@ -262,6 +286,9 @@ fn resolve_server(server: &Server, host: &Host) -> Result<String, String> {
                 Err(format!("{var}={v}: esse ficheiro não existe"))
             };
         }
+    }
+    if let Some(p) = managed_hit(server, host) {
+        return Ok(p.to_string_lossy().into_owned());
     }
     let name = server.command.as_str();
     let dirs = &server.search_dirs;
@@ -365,8 +392,13 @@ fn gopath_bin(host: &Host, program: &str) -> Option<PathBuf> {
 /// Resolve the language server command (program + args) of a registry server. A human error
 /// when the server isn't installed lets the UI tell the student what to add. The resolvers that
 /// run a program (`rustup`, `go`) remember what they found for the rest of the run — never a
-/// miss, so a server installed from the notice is found without restarting the app.
+/// miss, so a server installed from the notice is found without restarting the app. dxtutor's own
+/// folder is looked in before that memory (a stat): what it installs wins at once.
 fn server_cmd(server: &Server) -> Result<(String, Vec<String>), String> {
+    let host = Host::current();
+    if let Some(p) = managed_hit(server, &host) {
+        return Ok((p.to_string_lossy().into_owned(), server.args.clone()));
+    }
     static FOUND: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
     let cache = FOUND.get_or_init(Default::default);
     let cacheable = matches!(server.resolver(), "rustup" | "go");
@@ -384,7 +416,7 @@ fn server_cmd(server: &Server) -> Result<(String, Vec<String>), String> {
             return Ok((p.clone(), server.args.clone()));
         }
     }
-    let program = resolve_server(server, &Host::current())?;
+    let program = resolve_server(server, &host)?;
     if cacheable {
         cache.lock().unwrap().insert(key, program.clone());
     }
@@ -409,6 +441,7 @@ fn node_global_modules(program: &str) -> Option<String> {
                 home: home_dir(),
                 path: OsString::new(),
                 var: Box::new(|_| None),
+                managed: None,
             };
             expand_dir(&host, "~/.nvm/versions/node/*/lib/node_modules")
                 .into_iter()
@@ -876,6 +909,9 @@ fn get_or_start(
             cmd.env("NODE_PATH", nm); // so typescript-language-server can require('typescript')
         }
     }
+    for (k, v) in managed_launch_env(program) {
+        cmd.env(k, v); // a server dxtutor installed: a gem's GEM_PATH, a .NET tool's DOTNET_ROOT
+    }
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to start {}: {e}", lang.server_label))?;
@@ -1161,6 +1197,10 @@ pub struct ServerStatus {
     pub installed: bool,
     /// Porque não foi encontrado (a mensagem de `server_cmd`).
     pub problem: Option<String>,
+    /// Onde foi encontrado: o programa que arranca (LSP P3).
+    pub found_at: Option<String>,
+    /// Foi o dxtutor que o instalou (`<dados da app>/lsp-servers`).
+    pub managed: bool,
     /// O `.dxtutor/lsp.json` do projecto pede um comando que o humano ainda não aprovou: o servidor
     /// não arranca até lá (o editor mostra o pedido com o comando exacto).
     pub approval: Option<lspconf::Approval>,
@@ -1171,22 +1211,55 @@ pub struct ServerStatus {
 /// os ficheiros de overrides do utilizador e do projecto.
 pub fn server_status(path: &str) -> Option<ServerStatus> {
     let lang = lang_for_path(path)?;
-    let (installed, problem, approval) = match server_cmd(&lang.server) {
+    let (installed, problem, approval, found_at) = match server_cmd(&lang.server) {
         Ok((program, _)) => {
             let cwd = project_root_for(path, &lang.markers)
                 .or_else(|| lang.project.clone())
                 .unwrap_or_default();
-            (true, None, pending_approval(&lang, &program, &cwd))
+            let approval = pending_approval(&lang, &program, &cwd);
+            (true, None, approval, Some(program))
         }
-        Err(e) => (false, Some(e), None),
+        Err(e) => (false, Some(e), None, None),
+    };
+    let managed = match (&found_at, managed_root()) {
+        (Some(p), Some(m)) => Path::new(p).starts_with(m),
+        _ => false,
     };
     Some(ServerStatus {
         language: lang.id.clone(),
         server: lang.server_label.clone(),
         installed,
         problem,
+        found_at,
+        managed,
         approval,
     })
+}
+
+/// The environment a server dxtutor installed needs to start (`lspinstall::launch_env`).
+fn managed_launch_env(program: &str) -> Vec<(String, String)> {
+    let Some(m) = managed_root() else {
+        return Vec::new();
+    };
+    lspinstall::launch_env(
+        &m,
+        Path::new(program),
+        &augmented_path(None),
+        std::env::var_os("DOTNET_ROOT").is_some(),
+    )
+}
+
+/// What the install commands (LSP P3, `commands/lsp_install.rs`) need for a file: the server the
+/// editor uses for it and the registries it came from (the trusted one = bundled + the user's file).
+pub(crate) fn install_target(path: &str) -> Option<(Server, Arc<Effective>)> {
+    let lang = lang_for_path(path)?;
+    Some((lang.server, lang.eff))
+}
+
+/// The PATH the install commands look for the package managers in (the login shell's, with the go
+/// folders), and give the terminal task.
+pub(crate) fn login_path() -> OsString {
+    augmented_path(None)
 }
 
 // ── Commands — all async: the blocking work runs on spawn_blocking, off the UI thread. ──
@@ -1206,6 +1279,8 @@ pub async fn lsp_server_status(path: String) -> Result<Option<ServerStatus>, Str
 struct Conf {
     /// the app's config folder (`lsp.json`, `lsp-trusted.json`); `None` in unit tests
     dir: Option<PathBuf>,
+    /// `<app local data>/lsp-servers` (LSP P3); `None` in unit tests
+    managed: Option<PathBuf>,
     /// open folder (`""` = none) → bundled + user + project, as read
     cache: HashMap<String, Arc<Effective>>,
 }
@@ -1254,6 +1329,9 @@ fn register_root(root: &str) -> String {
 pub fn init(app: &AppHandle) {
     if let Ok(dir) = app.path().app_config_dir() {
         conf().lock().unwrap().dir = Some(dir);
+    }
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        conf().lock().unwrap().managed = Some(dir.join(lspinstall::INSTALL_DIR));
     }
     let app = app.clone();
     thread::spawn(move || loop {
@@ -2596,6 +2674,7 @@ mod registry_resolution_tests {
             home: Some(home.to_path_buf()),
             path: path.as_os_str().to_os_string(),
             var: Box::new(|_| None),
+            managed: None,
         }
     }
 
@@ -2622,6 +2701,51 @@ mod registry_resolution_tests {
         assert!(
             err.contains("rust-analyzer") && err.contains("não encontrado"),
             "{err}"
+        );
+    }
+
+    #[test]
+    fn dxtutors_own_folder_is_looked_in_first_and_an_env_override_still_wins() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let managed = tempfile::tempdir().unwrap();
+        let py = langreg::registry().server("python").unwrap();
+        touch_exe(&bin.path().join("pyright-langserver"));
+        let h = Host {
+            managed: Some(managed.path().to_path_buf()),
+            ..host(home.path(), bin.path())
+        };
+        assert_eq!(
+            resolve_server(py, &h).unwrap(),
+            bin.path().join("pyright-langserver").display().to_string()
+        );
+        // an npm install into <managed>/python (`--global --prefix`) puts it in bin/
+        let mine = managed.path().join("python/bin/pyright-langserver");
+        touch_exe(&mine);
+        assert_eq!(resolve_server(py, &h).unwrap(), mine.display().to_string());
+        // rust-analyzer: a release there beats the rustup toolchain; DXTUTOR_RUST_ANALYZER beats both
+        let ra = managed.path().join("rust/bin/rust-analyzer");
+        touch_exe(&ra);
+        touch_exe(
+            &home
+                .path()
+                .join(".rustup/toolchains/stable-x/bin/rust-analyzer"),
+        );
+        assert_eq!(
+            resolve_server(rust(), &h).unwrap(),
+            ra.display().to_string()
+        );
+        let mine_too = home.path().join("my-ra");
+        touch_exe(&mine_too);
+        let v = mine_too.display().to_string();
+        let he = Host {
+            var: Box::new(move |k| (k == "DXTUTOR_RUST_ANALYZER").then(|| v.clone())),
+            managed: Some(managed.path().to_path_buf()),
+            ..host(home.path(), bin.path())
+        };
+        assert_eq!(
+            resolve_server(rust(), &he).unwrap(),
+            mine_too.display().to_string()
         );
     }
 
