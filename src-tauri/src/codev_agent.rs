@@ -307,6 +307,8 @@ struct Session {
     violating: Mutex<HashMap<String, Vec<tutor_agent::conformance::Violation>>>,
     /// … and → the accepted ADR the architect overrode them with.
     overrides: Mutex<HashMap<String, String>>,
+    /// RF-G03: tool_use_id of a running `bash` → the working tree's dirty files before it.
+    bash_snaps: Mutex<HashMap<String, DirtyState>>,
 }
 
 /// RF-P04: the UI says who drives a PairCode session when the human decides; the audit log
@@ -796,6 +798,7 @@ pub fn start(
         driver: Mutex::new(None),
         violating: Mutex::new(HashMap::new()),
         overrides: Mutex::new(HashMap::new()),
+        bash_snaps: Mutex::new(HashMap::new()),
     };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(s));
     Ok(id)
@@ -1017,6 +1020,14 @@ pub fn send(
             AgentEvent::Done { .. } => {
                 *held_done.borrow_mut() = Some(e);
                 return;
+            }
+            // RF-G03: a `bash` command may write outside the issue's scope without the policy seeing
+            // the files — the working tree before and after it says what it changed
+            AgentEvent::ToolStart { id, name, .. } if name == "bash" => {
+                bash_scope_start(&session, id)
+            }
+            AgentEvent::ToolResult { id, name, .. } if name == "bash" => {
+                bash_scope_end(&session, id, &mut |n| emit(n))
             }
             _ => {}
         }
@@ -1419,6 +1430,113 @@ fn violations_of(
         .unwrap_or(path);
     let found = tutor_agent::conformance::check(&rules, rel, &text);
     Ok(tutor_agent::conformance::unexcused(&rules, root, found))
+}
+
+/// The working tree's changed files (path relative to the project → size and modification time;
+/// a deleted file has none). What `git status` lists, untracked files one by one.
+type DirtyState = HashMap<String, Option<(u64, i128)>>;
+
+/// RF-G03 (sessão de fecho dos RF, bloco 5): the dirty files of the working tree now, or `None`
+/// without git (then a `bash` command cannot be checked against the scope).
+fn dirty_state(root: &Path) -> Option<DirtyState> {
+    let out = std::process::Command::new("git")
+        .args(["status", "--porcelain=v1", "-z", "-uall"])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut parts = text.split('\0');
+    let mut state = DirtyState::new();
+    while let Some(entry) = parts.next() {
+        if entry.len() < 4 {
+            continue;
+        }
+        let (xy, path) = (&entry[..2], &entry[3..]);
+        if xy.starts_with('R') || xy.starts_with('C') {
+            parts.next(); // the old path of a rename or copy
+        }
+        let meta = std::fs::metadata(root.join(path)).ok().map(|m| {
+            let t = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos() as i128);
+            (m.len(), t)
+        });
+        state.insert(path.to_string(), meta);
+    }
+    Some(state)
+}
+
+/// The files a command changed: dirty now and not before, dirty before and changed again, or dirty
+/// before and clean now (reverting a file is writing it too). Sorted.
+fn changed_files(before: &DirtyState, after: &DirtyState) -> Vec<String> {
+    let mut out: Vec<String> = after
+        .iter()
+        .filter(|(p, m)| before.get(*p) != Some(m))
+        .map(|(p, _)| p.clone())
+        .chain(before.keys().filter(|p| !after.contains_key(*p)).cloned())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Before a `bash` of a request with a scope: the working tree as it is.
+fn bash_scope_start(s: &Session, call: &str) {
+    let scoped = s
+        .origin
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|o| !o.scope.is_empty());
+    if !scoped {
+        return;
+    }
+    if let Some(snap) = dirty_state(&s.agent.ctx.root) {
+        s.bash_snaps.lock().unwrap().insert(call.to_string(), snap);
+    }
+}
+
+/// After it: what it changed outside the scope goes to the chat (a notice), to the model (a note in
+/// the next request) and to the audit log. The command already ran — this cannot refuse it; the
+/// human keeps or undoes it («Rewind to here»), and the model is told not to do it again.
+fn bash_scope_end(s: &Session, call: &str, emit: &mut dyn FnMut(AgentEvent)) {
+    let Some(before) = s.bash_snaps.lock().unwrap().remove(call) else {
+        return;
+    };
+    let Some(origin) = s.origin.lock().unwrap().clone() else {
+        return;
+    };
+    let Some(after) = dirty_state(&s.agent.ctx.root) else {
+        return;
+    };
+    let outside: Vec<String> = changed_files(&before, &after)
+        .into_iter()
+        .filter(|p| !origin.in_scope(p))
+        .collect();
+    if outside.is_empty() {
+        return;
+    }
+    let scope = origin.scope.join(", ");
+    let files = outside.join(", ");
+    emit(AgentEvent::Notice {
+        text: format!(
+            "O `bash` alterou ficheiros fora do âmbito do pedido ({scope}): {files}. Confirma que ficam, ou desfaz com «Rewind to here»."
+        ),
+    });
+    s.notes.lock().unwrap().push(format!(
+        "O teu último comando bash alterou ficheiros fora do âmbito do pedido ({scope}): {files}. Não escrevas fora do âmbito: se for preciso, pede autorização com ask_human ou sugere-o com suggest."
+    ));
+    let mut e = audit_entry(s, "scope");
+    e.tool = Some("bash".into());
+    e.call = Some(call.to_string());
+    e.path = Some(files);
+    e.verdict = Some("warn".into());
+    e.outcome = Some("outside_scope".into());
+    e.reason = Some(format!("o bash escreveu fora do âmbito ({scope})"));
+    audit(s, e);
 }
 
 /// RF-E05 (docs/v2/RF-DELONIX-PLANO.md F2.4): a `write` over an existing file is turned into
@@ -4040,6 +4158,122 @@ mod tests {
                 .contains("viola as regras do arquitecto: biblioteca proibida: moment")),
             x => panic!("{x:?}"),
         }
+    }
+
+    fn git_in(d: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+            .args(args)
+            .current_dir(d)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+
+    #[test]
+    fn the_working_tree_before_and_after_a_command_says_which_files_it_changed() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(
+            dirty_state(d.path()).is_none(),
+            "no git: nothing to compare"
+        );
+        git_in(d.path(), &["init", "-q"]);
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        for f in ["src/a.rs", "src/b.rs", "README.md", "old.txt"] {
+            std::fs::write(d.path().join(f), "x\n").unwrap();
+        }
+        git_in(d.path(), &["add", "."]);
+        git_in(d.path(), &["commit", "-qm", "init"]);
+        std::fs::write(d.path().join("src/b.rs"), "dirty before\n").unwrap();
+        let before = dirty_state(d.path()).unwrap();
+        assert_eq!(before.keys().cloned().collect::<Vec<_>>(), ["src/b.rs"]);
+        // what a command does: a new file, a tracked file changed, the dirty one changed again
+        // (another size), a tracked file deleted
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        std::fs::write(d.path().join("new.txt"), "n\n").unwrap();
+        std::fs::write(d.path().join("README.md"), "changed\n").unwrap();
+        std::fs::write(d.path().join("src/b.rs"), "dirty before, and again\n").unwrap();
+        std::fs::remove_file(d.path().join("old.txt")).unwrap();
+        let after = dirty_state(d.path()).unwrap();
+        assert_eq!(
+            changed_files(&before, &after),
+            ["README.md", "new.txt", "old.txt", "src/b.rs"]
+        );
+        // nothing ran: nothing changed
+        assert!(changed_files(&after, &dirty_state(d.path()).unwrap()).is_empty());
+        // reverting a dirty file to the commit is a change too
+        git_in(d.path(), &["checkout", "--", "src/b.rs"]);
+        assert_eq!(
+            changed_files(&after, &dirty_state(d.path()).unwrap()),
+            ["src/b.rs"]
+        );
+        // a rename lists the new path
+        git_in(d.path(), &["mv", "src/a.rs", "src/c.rs"]);
+        assert!(dirty_state(d.path()).unwrap().contains_key("src/c.rs"));
+    }
+
+    #[test]
+    fn a_bash_command_that_writes_outside_the_scope_is_told_to_the_human_the_model_and_the_audit_log(
+    ) {
+        let (d, _id, s, root) = issue_session("true");
+        git_in(d.path(), &["init", "-q"]);
+        let origin = |scope: Vec<String>| Origin {
+            kind: tutor_agent::permissions::OriginKind::Issue,
+            issue: Some("DX-1".into()),
+            by: String::new(),
+            scope,
+            template: None,
+        };
+        // without a scope there is nothing to check
+        *s.origin.lock().unwrap() = Some(origin(vec![]));
+        bash_scope_start(&s, "b0");
+        assert!(s.bash_snaps.lock().unwrap().is_empty());
+        *s.origin.lock().unwrap() = Some(origin(vec!["src/**".into()]));
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        bash_scope_start(&s, "b1");
+        std::fs::write(d.path().join("src/lib.rs"), "in scope\n").unwrap();
+        std::fs::write(d.path().join("deploy.sh"), "outside\n").unwrap();
+        let events = RefCell::new(vec![]);
+        bash_scope_end(&s, "b1", &mut |e| events.borrow_mut().push(e));
+        let notices: Vec<String> = events
+            .borrow()
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::Notice { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notices.len(), 1);
+        assert!(
+            notices[0].contains("fora do âmbito do pedido (src/**): deploy.sh"),
+            "{}",
+            notices[0]
+        );
+        assert!(!notices[0].contains("src/lib.rs"));
+        assert!(s
+            .notes
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|n| n.contains("deploy.sh") && n.contains("ask_human")));
+        let st = tutor_board::project::ProjectStore::open(&d.path().join("board.sqlite3")).unwrap();
+        let e = st
+            .audit(&root, None)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event == "scope")
+            .expect("the scope warning in the audit log");
+        assert_eq!(
+            (e.tool.as_deref(), e.path.as_deref(), e.outcome.as_deref()),
+            (Some("bash"), Some("deploy.sh"), Some("outside_scope"))
+        );
+        // only in scope: nothing to say
+        bash_scope_start(&s, "b2");
+        std::fs::write(d.path().join("src/lib.rs"), "in scope, again\n").unwrap();
+        let quiet = RefCell::new(vec![]);
+        bash_scope_end(&s, "b2", &mut |e| quiet.borrow_mut().push(e));
+        assert!(quiet.borrow().is_empty());
     }
 
     #[test]
