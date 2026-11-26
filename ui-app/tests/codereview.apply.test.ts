@@ -275,3 +275,17 @@ describe("feito: aplicado e validado pelos testes não se aplica outra vez", () 
     expect(n.s.markOf("p/a.rs", "fn c() {}")).toBe(null);
   });
 });
+
+describe("ficheiro grande demais para reescrever inteiro", () => {
+  it("o pedido não pede o ficheiro inteiro e um bloco «improved» cortado nunca vira proposta", async () => {
+    const big = "// x\n".repeat(6000); // 30 000 caracteres
+    expect(applySuggestionPrompt({ path: "a.rs", ext: "rs", content: big, snippet: "x", snippetLang: "rust", context: "", lang: "en" })).toContain("too large to rewrite");
+    const r = rig();
+    r.fs["p/a.rs"] = big;
+    r.replies.push("```rust improved\nfn cut() {}\n```");
+    r.s.review("p/a.rs", []);
+    await flush();
+    expect(r.prompts[0]).toContain("do NOT write the whole file");
+    expect(r.s.state()!.improved).toBe(null);
+  });
+});

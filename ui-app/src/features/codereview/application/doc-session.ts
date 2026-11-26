@@ -8,7 +8,7 @@
    os testes e a vista chegam por `deps`. Uma resposta de um pedido antigo (o humano pediu outro
    entretanto) nunca pinta por cima do novo: cada pedido tem o seu `id`. */
 
-import { explainPrompt, reviewPrompt, fixTestsPrompt, applySuggestionPrompt, type DocLang } from "../domain/prompts";
+import { explainPrompt, reviewPrompt, fixTestsPrompt, applySuggestionPrompt, fitsWhole, type DocLang } from "../domain/prompts";
 import { parseTestOutput, spotsText } from "../domain/test-report";
 import { improvedCode } from "../domain/markdown";
 import type { ExplainCard } from "./ports";
@@ -146,12 +146,12 @@ export function makeDocSession(deps: DocDeps) {
       if (state !== s || ctl.signal.aborted) return;
       s.text = text || s.text;
       s.status = "done";
-      if (s.kind !== "explain") s.improved = improvedCode(s.text, s.original);
+      if (s.kind !== "explain") s.improved = fitsWhole(s.original) ? improvedCode(s.text, s.original) : null; // grande demais: nunca um ficheiro cortado
     } catch (e) {
       if (state !== s) return;
       if (ctl.signal.aborted) s.status = "stopped";
       else { s.status = "error"; s.error = e instanceof Error ? e.message : String(e); }
-      if (s.kind !== "explain") s.improved = improvedCode(s.text, s.original);
+      if (s.kind !== "explain") s.improved = fitsWhole(s.original) ? improvedCode(s.text, s.original) : null; // grande demais: nunca um ficheiro cortado
     } finally {
       if (abort === ctl) abort = null;
     }
