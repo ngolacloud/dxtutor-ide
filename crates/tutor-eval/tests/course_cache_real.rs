@@ -26,7 +26,11 @@ fn git(dir: &Path, args: &[&str]) {
         .env("GIT_COMMITTER_EMAIL", "t@example.org")
         .output()
         .expect("git");
-    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// A git repository with a `mini` crate tagged `v0.1.0`.
@@ -37,7 +41,11 @@ fn mini_repo(dir: &Path) {
         "[package]\nname = \"mini\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    std::fs::write(dir.join("src/lib.rs"), "pub fn add(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
+    std::fs::write(
+        dir.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )
+    .unwrap();
     git(dir, &["init", "-q", "-b", "main"]);
     git(dir, &["add", "."]);
     git(dir, &["commit", "-q", "-m", "mini"]);
@@ -69,7 +77,10 @@ fn phase(build: &BuildEnv, deps: &[String]) -> Phase {
 }
 
 fn files(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[test]
@@ -80,7 +91,10 @@ fn a_prepared_course_grades_offline_against_its_cache() {
     let root = tmp.path().join("cache");
     std::env::set_var("DXTUTOR_COURSE_CACHE", &root);
 
-    let dep = format!("mini = {{ git = \"file://{}\", tag = \"v0.1.0\" }}", repo.display());
+    let dep = format!(
+        "mini = {{ git = \"file://{}\", tag = \"v0.1.0\" }}",
+        repo.display()
+    );
     let deps = vec![dep];
     let cache = CourseCache {
         key: "fixture-course".into(),
@@ -93,9 +107,17 @@ fn a_prepared_course_grades_offline_against_its_cache() {
     let ph = phase(&build, &deps);
 
     // 1. not prepared: a clear refusal, nothing compiled
-    assert_eq!(course_cache::status(&root, &cache).unwrap(), Status::Missing);
-    let err = tutor_eval::assess(&ph, &ph.gabarito.solution).unwrap_err().to_string();
-    assert!(err.starts_with(NOT_PREPARED) && err.contains("Prepare course"), "{err}");
+    assert_eq!(
+        course_cache::status(&root, &cache).unwrap(),
+        Status::Missing
+    );
+    let err = tutor_eval::assess(&ph, &ph.gabarito.solution)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.starts_with(NOT_PREPARED) && err.contains("Prepare course"),
+        "{err}"
+    );
 
     // 2. prepare: the planned commands, the marker, the lock
     let plan = course_cache::plan(&root, &cache).unwrap();
@@ -104,8 +126,14 @@ fn a_prepared_course_grades_offline_against_its_cache() {
     let marker = done.marker.expect("marker");
     assert!(marker.cargo.starts_with("cargo "), "{marker:?}");
     assert!(course_cache::status(&root, &cache).unwrap().is_ready());
-    assert!(plan.layout.cargo_home.join("git").is_dir(), "the source sits in the course CARGO_HOME");
-    assert!(plan.layout.target.join("debug").is_dir(), "the target is warm");
+    assert!(
+        plan.layout.cargo_home.join("git").is_dir(),
+        "the source sits in the course CARGO_HOME"
+    );
+    assert!(
+        plan.layout.target.join("debug").is_dir(),
+        "the target is warm"
+    );
 
     // 3. a single-file challenge: the answer passes, the starter fails
     let good = tutor_eval::assess(&ph, &ph.gabarito.solution).unwrap();
@@ -137,20 +165,31 @@ fn a_prepared_course_grades_offline_against_its_cache() {
             "tests/hidden.rs",
             "#[test] fn doubles() { assert_eq!(student::calc::double(21), 42); }\n",
         )]),
-        solution: files(&[("src/calc.rs", "pub fn double(x: i32) -> i32 { mini::add(x, x) }\n")]),
+        solution: files(&[(
+            "src/calc.rs",
+            "pub fn double(x: i32) -> i32 { mini::add(x, x) }\n",
+        )]),
         explanation: String::new(),
     });
     let p = one.project.clone().unwrap();
     let good = tutor_eval::assess_project(&one, &p.solution).unwrap();
     assert!(good.correctness.passed, "{}", good.correctness.raw);
-    assert!(!tutor_eval::assess_project(&one, &BTreeMap::new()).unwrap().correctness.passed);
+    assert!(
+        !tutor_eval::assess_project(&one, &BTreeMap::new())
+            .unwrap()
+            .correctness
+            .passed
+    );
 
     // 6. a workspace project: the course dependency becomes [workspace.dependencies]
     let mut ws = phase(&build, &deps);
     ws.project = Some(ProjectFiles {
         main: "app/src/lib.rs".into(),
         starter: files(&[
-            ("Cargo.toml", "[workspace]\nresolver = \"2\"\nmembers = [\"app\"]\n"),
+            (
+                "Cargo.toml",
+                "[workspace]\nresolver = \"2\"\nmembers = [\"app\"]\n# the course writes [workspace.dependencies] below\n",
+            ),
             (
                 "app/Cargo.toml",
                 "[package]\nname = \"app\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\nmini = { workspace = true }\n",
@@ -171,20 +210,38 @@ fn a_prepared_course_grades_offline_against_its_cache() {
     let p = ws.project.clone().unwrap();
     let good = tutor_eval::assess_project(&ws, &p.solution).unwrap();
     assert!(good.correctness.passed, "{}", good.correctness.raw);
-    assert!(!tutor_eval::assess_project(&ws, &BTreeMap::new()).unwrap().correctness.passed);
+    assert!(
+        !tutor_eval::assess_project(&ws, &BTreeMap::new())
+            .unwrap()
+            .correctness
+            .passed
+    );
     // a root Cargo.toml that is not a workspace is refused with a clear message
     let mut not_ws = ws.clone();
     let pj = not_ws.project.as_mut().unwrap();
-    pj.starter.insert("Cargo.toml".into(), "[package]\nname = \"x\"\n".into());
+    pj.starter
+        .insert("Cargo.toml".into(), "[package]\nname = \"x\"\n".into());
     let e = tutor_eval::assess_project(&not_ws, &BTreeMap::new()).unwrap_err();
     assert!(e.to_string().contains("must be a workspace"), "{e}");
+    // …and so is one that declares its own [workspace.dependencies] (they come from the course)
+    let mut own_deps = ws.clone();
+    let pj = own_deps.project.as_mut().unwrap();
+    pj.starter.insert(
+        "Cargo.toml".into(),
+        "[workspace]\nmembers = [\"app\"]\n\n[workspace.dependencies]\nmini = \"1\"\n".into(),
+    );
+    let e = tutor_eval::assess_project(&own_deps, &BTreeMap::new()).unwrap_err();
+    assert!(e.to_string().contains("must not declare"), "{e}");
 
     // 7. the course changed its dependencies: stale until prepared again
     let changed = CourseCache {
         key: cache.key.clone(),
         dependencies: vec![format!("{} # v2", deps[0])],
     };
-    assert!(matches!(course_cache::status(&root, &changed).unwrap(), Status::Stale(_)));
+    assert!(matches!(
+        course_cache::status(&root, &changed).unwrap(),
+        Status::Stale(_)
+    ));
     let stale = phase(
         &BuildEnv {
             cache: Some(changed),
@@ -192,6 +249,8 @@ fn a_prepared_course_grades_offline_against_its_cache() {
         },
         &deps,
     );
-    let e = tutor_eval::assess(&stale, &stale.gabarito.solution).unwrap_err().to_string();
+    let e = tutor_eval::assess(&stale, &stale.gabarito.solution)
+        .unwrap_err()
+        .to_string();
     assert!(e.contains("changed its dependencies"), "{e}");
 }

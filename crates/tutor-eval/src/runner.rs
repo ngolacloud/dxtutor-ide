@@ -183,7 +183,10 @@ impl LanguageRunner for RustRunner {
                         "the project's root Cargo.toml must be a workspace (`[workspace]`); a single crate needs no Cargo.toml"
                     );
                 }
-                if manifest.contains("[workspace.dependencies]") {
+                if manifest
+                    .lines()
+                    .any(|l| l.trim() == "[workspace.dependencies]")
+                {
                     anyhow::bail!(
                         "the project's Cargo.toml must not declare [workspace.dependencies]: they come from the course's [build]"
                     );

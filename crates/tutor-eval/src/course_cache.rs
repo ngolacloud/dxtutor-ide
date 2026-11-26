@@ -92,7 +92,9 @@ pub fn key_ok(key: &str) -> bool {
 /// As pastas do curso `key` dentro de `root`.
 pub fn layout(root: &Path, key: &str) -> Result<Layout> {
     if !key_ok(key) {
-        bail!("`{key}` is not a valid course cache key (use the course id: a-z, 0-9, `.`, `_`, `-`)");
+        bail!(
+            "`{key}` is not a valid course cache key (use the course id: a-z, 0-9, `.`, `_`, `-`)"
+        );
     }
     let dir = root.join(key);
     Ok(Layout {
@@ -313,10 +315,7 @@ pub fn prepare(plan: &Plan) -> Result<Prepared> {
         output.push_str(&out.stdout);
         output.push_str(&out.stderr);
         if out.timed_out {
-            output.push_str(&format!(
-                "\ntimed out after {}s\n",
-                timeout.as_secs()
-            ));
+            output.push_str(&format!("\ntimed out after {}s\n", timeout.as_secs()));
         }
         if out.timed_out || !out.status.map(|s| s.success()).unwrap_or(false) {
             return Ok(Prepared {
@@ -387,7 +386,10 @@ pub(crate) fn cargo_env(build: &BuildEnv) -> Result<CargoEnv> {
 pub(crate) fn cargo_env_in(root: Option<&Path>, build: &BuildEnv) -> Result<CargoEnv> {
     let timeout = match build.timeout_secs {
         0 => CARGO_TIMEOUT,
-        s => Duration::from_secs(s.clamp(tutor_core::build::MIN_TIMEOUT_SECS, tutor_core::build::MAX_TIMEOUT_SECS)),
+        s => Duration::from_secs(s.clamp(
+            tutor_core::build::MIN_TIMEOUT_SECS,
+            tutor_core::build::MAX_TIMEOUT_SECS,
+        )),
     };
     let Some(cache) = &build.cache else {
         return Ok(CargoEnv {
@@ -444,7 +446,8 @@ mod tests {
 
     #[test]
     fn the_plan_is_the_exact_commands_and_only_fetch_uses_the_network() {
-        let c = cache(&[r#"seiva = { git = "https://github.com/ngolacloud/seiva", tag = "v0.2.0" }"#]);
+        let c =
+            cache(&[r#"seiva = { git = "https://github.com/ngolacloud/seiva", tag = "v0.2.0" }"#]);
         let p = plan(Path::new("/data/cc"), &c).unwrap();
         assert_eq!(p.steps.len(), 2);
         assert!(p.steps[0].network && !p.steps[1].network);
@@ -461,7 +464,11 @@ mod tests {
         assert!(p.manifest.contains("[dependencies]\nseiva = "));
         // a folder with spaces is quoted in the shown command
         let q = plan(Path::new("/my data"), &c).unwrap();
-        assert!(q.command.contains("cd '/my data/fw-basics/prepare'"), "{}", q.command);
+        assert!(
+            q.command.contains("cd '/my data/fw-basics/prepare'"),
+            "{}",
+            q.command
+        );
         assert!(plan(Path::new("/r"), &cache(&[])).is_err());
     }
 
@@ -475,7 +482,10 @@ mod tests {
             timeout_secs: 90,
         };
         let e = cargo_env_in(Some(root), &env).unwrap_err().to_string();
-        assert!(e.starts_with(NOT_PREPARED) && e.contains("not been prepared"), "{e}");
+        assert!(
+            e.starts_with(NOT_PREPARED) && e.contains("not been prepared"),
+            "{e}"
+        );
 
         // a complete preparation: marker + lock
         let l = layout(root, &c.key).unwrap();
@@ -499,13 +509,22 @@ mod tests {
             cache: Some(cache(&["a = \"2\""])),
             timeout_secs: 0,
         };
-        assert!(matches!(status(root, changed.cache.as_ref().unwrap()).unwrap(), Status::Stale(_)));
+        assert!(matches!(
+            status(root, changed.cache.as_ref().unwrap()).unwrap(),
+            Status::Stale(_)
+        ));
         let e = cargo_env_in(Some(root), &changed).unwrap_err().to_string();
         assert!(e.contains("changed its dependencies"), "{e}");
 
         // a course without a cache keeps the evaluator's environment
         let plain = cargo_env_in(None, &BuildEnv::default()).unwrap();
-        assert_eq!(plain, CargoEnv { cache: None, timeout: CARGO_TIMEOUT });
+        assert_eq!(
+            plain,
+            CargoEnv {
+                cache: None,
+                timeout: CARGO_TIMEOUT
+            }
+        );
         // the order of the lines does not change the fingerprint
         assert_eq!(
             fingerprint(&["b".into(), "a".into()]),
