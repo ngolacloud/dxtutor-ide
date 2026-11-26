@@ -41,7 +41,7 @@ strip_comments() {
 }
 
 # Baseline esperada (Etapa 0 — MIGRATION §2/§3). Actualizar DELIBERADAMENTE.
-EXPECT_TOTAL=289
+EXPECT_TOTAL=290
 # @ts-nocheck: contamos a DIRECTIVA real (linha-comentário `// @ts-nocheck`), não
 # a palavra por substring (A6 antigo contava 24 com `grep -rl`, inflado por 13
 # ficheiros que só a mencionam em prosa/JSDoc). Baseline = 0 desde a U4j5b do ADR-0004
@@ -135,7 +135,8 @@ EXPECT_TSNOCHECK=0
 # (15→16): 278 + 3 = 281.
 # r23 F5a (runbooks, fontes, evidências): commands/runbook.rs (novo) com runbook_list, runbook_parse, runbook_step,
 # runbook_decide e sources_status; board.rs ganha runbook_judge, runbook_runs e audit_export_evidence (16→19): 281 + 8 = 289.
-declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=17 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=3 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [board.rs]=19 )
+# Mapa de agentes do Co-Dev: commands/codev_agent.rs ganha codev_agent_live (17→18): 289 + 1 = 290.
+declare -A EXPECT_PER_FILE=( [lib.rs]=0 [commands/review.rs]=3 [commands/codeintel.rs]=10 [commands/tests.rs]=8 [commands/git.rs]=41 [commands/codev.rs]=5 [commands/codev_agent.rs]=18 [commands/dictation.rs]=4 [commands/search.rs]=4 [commands/agent.rs]=16 [commands/assistant.rs]=8 [commands/debug_cmds.rs]=34 [commands/hood.rs]=3 [commands/ops.rs]=6 [commands/codebase.rs]=2 [commands/devcontainer.rs]=8 [commands/sandbox.rs]=3 [commands/pair.rs]=4 [commands/plugins.rs]=3 [commands/study.rs]=11 [commands/missions.rs]=4 [bridge.rs]=16 [fsops.rs]=10 [lsp.rs]=18 [pty.rs]=7 [commands/panel.rs]=2 [commands/protect.rs]=3 [commands/iac.rs]=3 [commands/vault.rs]=10 [commands/deploy.rs]=2 [commands/runbook.rs]=5 [board.rs]=19 )
 
 echo "== A1 · comandos registados em generate_handler! =="
 # Extrai o bloco generate_handler!, remove comentários //, apanha os identificadores

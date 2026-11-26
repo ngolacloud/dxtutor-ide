@@ -27,7 +27,7 @@ use crate::provider::{
 };
 use crate::retry;
 use crate::schema;
-use crate::tool::{Tool, ToolCtx, ToolOutput};
+use crate::tool::{SubagentStep, Tool, ToolCtx, ToolOutput};
 use crate::types::{Message, Role, ToolResult, Transcript};
 
 /// Tamanho máximo de um resultado de ferramenta devolvido ao modelo (as ferramentas de
@@ -147,6 +147,12 @@ pub enum AgentEvent {
         name: String,
         is_error: bool,
         content: String,
+    },
+    /// Progresso de uma ferramenta que o conta enquanto corre (o sub-agente de um `task`):
+    /// `call` é o id da chamada (o mesmo do `tool_start`/`tool_result`).
+    Subagent {
+        call: String,
+        step: SubagentStep,
     },
     /// Tokens do último pedido e o total do turno.
     Usage {
@@ -788,6 +794,8 @@ impl Agent {
                     t.settle(&job.plan);
                 }
                 vec![r]
+            } else if group.iter().any(|(_, t)| t.reports_progress()) {
+                run_observed_group(group, calls, &self.ctx, events)
             } else if group.len() == 1 {
                 vec![group[0].1.run(&calls[group[0].0].input, &self.ctx)]
             } else {
@@ -851,6 +859,48 @@ impl Agent {
             })
             .collect()
     }
+}
+
+/// Corre um grupo em que alguma ferramenta conta o progresso: cada chamada numa thread, e o
+/// progresso chega por um canal que esta thread despeja em `events` enquanto elas correm (o
+/// `events` não atravessa threads). Os resultados voltam pela ordem do grupo.
+fn run_observed_group(
+    group: &[(usize, Arc<dyn Tool>)],
+    calls: &[crate::types::ToolUse],
+    ctx: &ToolCtx,
+    events: &mut dyn FnMut(AgentEvent),
+) -> Vec<ToolOutput> {
+    let (tx, rx) = std::sync::mpsc::channel::<AgentEvent>();
+    std::thread::scope(|s| {
+        let hs: Vec<_> = group
+            .iter()
+            .map(|(i, t)| {
+                let input = &calls[*i].input;
+                let call = calls[*i].id.clone();
+                let tx = tx.clone();
+                s.spawn(move || {
+                    let progress = move |step: SubagentStep| {
+                        let _ = tx.send(AgentEvent::Subagent {
+                            call: call.clone(),
+                            step,
+                        });
+                    };
+                    t.run_observed(input, ctx, &progress)
+                })
+            })
+            .collect();
+        drop(tx);
+        // termina quando todas as threads acabam (e largam o seu `tx`)
+        for e in rx {
+            events(e);
+        }
+        hs.into_iter()
+            .map(|h| {
+                h.join()
+                    .unwrap_or_else(|_| ToolOutput::err("a ferramenta falhou (panic)"))
+            })
+            .collect()
+    })
 }
 
 /// Rejects every hunk still open (`by: cancel`).

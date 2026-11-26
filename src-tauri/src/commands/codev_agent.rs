@@ -176,6 +176,13 @@ pub fn codev_agent_sessions(root: String) -> Vec<tutor_agent::session::SessionSu
     codev_agent::list_sessions(&root, None)
 }
 
+/// As sessões abertas nesta execução da app (o mapa de agentes do Co-Dev): id, pasta, modelo,
+/// issue e se há um turno a correr. Só leitura.
+#[tauri::command]
+pub fn codev_agent_live() -> Vec<codev_agent::LiveSession> {
+    codev_agent::live_sessions()
+}
+
 /// O histórico simplificado de uma sessão aberta (para redesenhar a conversa retomada).
 #[tauri::command]
 pub fn codev_agent_history(
