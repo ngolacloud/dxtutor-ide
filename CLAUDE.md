@@ -819,6 +819,22 @@ Learning Track; sem Cloud) e «Show welcome page on startup» (lido pelo `boot`,
 - Testes: `tests/welcome.test.ts`, `tests/welcome.wiring.test.ts`, `e2e/welcome.e2e.ts` (a aceitação: uma pasta
   recente abre esse workspace) e o passo `clone` do auto-teste desktop (clone real por `file://`).
 
+## Notas para a documentação oficial (`docs/notes/NOTAS.md`)
+
+A base da documentação oficial do dxtutor-ide, acção a acção: o que faz, onde está, como usar, o fluxo por
+dentro, dicas e limites. **É gerada, não se edita à mão.** Cada feature descreve as suas acções em
+`features/<f>/notes.ts` (tipos em `app/notes/types.ts`, registo em `app/notes/registry.ts`, gerador
+`app/notes/render.ts`); `npm run docs:notes` regenera o ficheiro.
+
+- Ao acrescentar ou mudar uma acção (botão, atalho, comando da paleta, `data-action`), actualiza a nota da
+  feature no MESMO commit e corre `npm run docs:notes`. O `tests/notes.docs.test.ts` (corre no `ui:test`)
+  reprova: o ficheiro desactualizado, uma acção da tabela do codereview sem nota, uma acção nova da barra do
+  editor sem nota, e um comando `cmd:` citado que já não existe.
+- Uma feature que passa a ter notas entra no `NOTES` do registo (e o teste passa a cobrir a sua tabela de
+  acções). O `PENDING` (acções da barra ainda sem nota) só encolhe.
+- As notas escrevem-se em português de Angola (pré-AO90), para o utilizador final; os identificadores
+  técnicos ficam no `covers` e no «Fluxo».
+
 ### O golden é a rede de segurança — nunca o actualizes para passar
 
 `ui-app/tests/codev.golden.test.ts`, `codereview.golden.test.ts`,

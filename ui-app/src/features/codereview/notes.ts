@@ -1,0 +1,159 @@
+/* Notas para a documentação oficial da feature Explain · Code review · Under the hood. Dados
+   puros (ver `app/notes/types.ts`); `npm run docs:notes` escreve-as em `docs/notes/NOTAS.md`.
+   Ao acrescentar ou mudar uma acção desta feature, actualiza a nota aqui — o teste
+   `tests/notes.docs.test.ts` falha se uma acção da tabela não estiver em nenhum `covers`. */
+
+import type { FeatureNotes } from "../../app/notes/types";
+
+export const CODEREVIEW_NOTES: FeatureNotes = {
+  id: "codereview",
+  title: "Explain · Code review · Under the hood",
+  summary:
+    "Ajuda a perceber e a melhorar o ficheiro aberto sem sair do editor. O Explain e o Code review respondem num **painel de documento à direita do código** (não no chat do Co-Dev): o código continua à vista, as referências de linha são clicáveis e o código sugerido vem com realce, diferenças e testes. O Under the hood mostra o que acontece ao ficheiro por baixo (compilador, plano da query, camadas da imagem).",
+  code: [
+    "ui-app/src/features/codereview.ts",
+    "ui-app/src/features/codereview/application/doc-session.ts",
+    "ui-app/src/features/codereview/domain/markdown.ts",
+    "ui-app/src/features/codereview/domain/prompts.ts",
+    "ui-app/src/features/codereview/ui/doc-view.ts",
+  ],
+  updated: "2026-11-26",
+  actions: [
+    {
+      title: "Explain",
+      where: ["barra do editor «Explain»", "Ctrl+K E", "paleta: «Co-Dev: Explain»"],
+      what: "Explica o ficheiro aberto — ou só a selecção — num documento markdown no painel à direita: resumo, como funciona, peças principais, a que ter atenção e sugestões.",
+      howTo: [
+        "Abre um ficheiro. Para explicar só um excerto, selecciona-o primeiro.",
+        "Carrega em «Explain» na barra por cima do código (ou Ctrl+K E).",
+        "Lê o documento a chegar no painel; clica numa referência como `L12` para saltar para essa linha.",
+        "Usa «Pré-visualização / Markdown», copiar, gerar de novo ou «Continuar no chat» na barra do painel.",
+      ],
+      flow: [
+        "O motor (`review-engine.ts`) escolhe o ficheiro (o separador activo, senão a primeira alteração) e colhe a selecção e a linha onde começa.",
+        "O caso de uso `doc-session.ts` monta o pedido (`domain/prompts.ts`): código numerado, secções fixas, citar linhas como `L12`, na língua da interface.",
+        "Com um modelo ligado (desktop: qualquer provider activo; browser: o Claude ao vivo), pede o texto em streaming sem ferramentas e desenha-o a cada pedaço.",
+        "Sem modelo, mostra um resumo local tirado do código: símbolos, primeiro comentário, problemas actuais e achados das regras.",
+        "O markdown é analisado no domínio (`domain/markdown.ts`) e desenhado com o realce do editor (`ui/doc-view.ts`).",
+      ],
+      tips: [
+        "Explica uma selecção pequena para respostas mais precisas: as linhas citadas são as reais do ficheiro.",
+        "Um pedido novo cancela o anterior; o painel nunca mistura respostas.",
+        "O painel fica aberto quando trocas de separador; arrasta a margem esquerda para o alargar.",
+      ],
+      limits: [
+        "O Explain não muda o ficheiro.",
+        "O ficheiro vai até ~24 000 caracteres no pedido; o resto é cortado.",
+      ],
+      covers: ["tabs:explainCmd", "cmd:Co-Dev: Explain"],
+    },
+    {
+      title: "Code review",
+      where: ["barra do editor «Code review»", "Ctrl+K R", "paleta: «Co-Dev: Code Review»"],
+      what: "Abre a revisão interactiva do ficheiro no painel: pontuação, achados das regras por severidade com o excerto do código, os analisadores do projecto e a revisão com IA.",
+      howTo: [
+        "Com o ficheiro aberto, carrega em «Code review» (ou Ctrl+K R).",
+        "Vê a pontuação e filtra por severidade (bug, risk, perf, style) nos botões por cima da lista.",
+        "Em cada achado: «Ir para a linha», «Corrigir com IA» ou «Descartar».",
+        "Passa para «Revisão com IA» para uma revisão sénior com o ficheiro melhorado.",
+      ],
+      flow: [
+        "As regras locais (`domain/review.ts`) correm logo, sobre o conteúdo do editor; a pontuação é 100 menos as penalidades (`domain/scoring.ts`).",
+        "No desktop com pasta, os analisadores instalados (clippy/rustc, go vet, ruff, …) correm uma vez sobre o ficheiro gravado (`review_code`) e juntam-se por baixo.",
+        "Filtros e descartados guardam-se por ficheiro e valem no painel e na tab.",
+      ],
+      tips: [
+        "Descartar não apaga nada: «Mostrar» lista os descartados e «Repor» trá-los de volta; os descartados não vão para a revisão com IA.",
+        "«Verificar de novo» volta a correr os analisadores (depois de gravares mudanças).",
+      ],
+      limits: ["As regras apontam evidência; não provam que o código está certo — os testes provam."],
+      covers: ["tabs:reviewCmd", "cmd:Co-Dev: Code Review", "cr:filter", "cr:dismiss", "cr:restore", "cr:show-dismissed", "cr:rerun", "cr:tab", "cr:goto", "open-line"],
+    },
+    {
+      title: "Revisão com IA",
+      where: ["painel Code review › separador «Revisão com IA»", "tab de Code review › «Rever com IA»"],
+      what: "Uma revisão sénior do ficheiro inteiro: veredicto, achados confirmados, o ficheiro todo melhorado com as correcções aplicadas e como testar.",
+      howTo: [
+        "No painel de Code review abre «Revisão com IA» e carrega em «Rever com IA».",
+        "Lê o veredicto e os achados; o código melhorado aparece num cartão à parte quando a resposta termina.",
+      ],
+      flow: [
+        "O pedido leva o código numerado e os achados das regras (sem os descartados) para o modelo confirmar ou descartar.",
+        "O modelo devolve o ficheiro inteiro num bloco ```<lang> improved; o painel tira-o do documento e mostra-o no cartão «Código melhorado».",
+        "Se o modelo não marcar o bloco, vale o maior bloco com pelo menos metade das linhas do original.",
+      ],
+      tips: ["Sem modelo ligado, o separador diz como ligar um (Definições: Claude, OpenAI, Gemini ou Ollama)."],
+      covers: ["cr:ai-review"],
+    },
+    {
+      title: "Corrigir com IA (um achado)",
+      where: ["cartão de um achado › «Corrigir com IA»"],
+      what: "Pede ao modelo a correcção de UM achado: a causa, a correcção e o ficheiro inteiro corrigido.",
+      howTo: ["Num cartão de achado, carrega em «Corrigir com IA».", "O painel passa para a «Revisão com IA» com a resposta."],
+      flow: ["O pedido foca a linha e o título do achado; o resto é igual à revisão com IA (o ficheiro corrigido no bloco `improved`)."],
+      covers: ["cr:fix-ai"],
+    },
+    {
+      title: "Código melhorado: Código / Diferenças, Copiar, Aplicar, Reverter",
+      where: ["cartão «Código melhorado» no painel"],
+      what: "Mostra o ficheiro proposto com realce ou como diferenças (+/−) contra o actual, e aplica-o ao ficheiro com possibilidade de voltar atrás.",
+      howTo: [
+        "Escolhe «Código» ou «Diferenças» no cartão.",
+        "«Aplicar» escreve o código no ficheiro (o autosave do desktop leva-o ao disco).",
+        "«Reverter» repõe o ficheiro como estava antes de aplicar.",
+      ],
+      flow: [
+        "As diferenças são linha a linha (`features/diff/domain/diff.ts`) contra o conteúdo actual do editor.",
+        "Aplicar guarda primeiro o conteúdo anterior; Reverter escreve-o de volta.",
+      ],
+      tips: ["O cabeçalho do cartão fica colado ao topo enquanto percorres o código, com as acções sempre à mão."],
+      limits: ["Se o ficheiro mudar entretanto, «Reverter» repõe a versão de antes de aplicar (perde as mudanças feitas depois)."],
+      covers: ["cr:code-view", "cr:copy-improved", "cr:apply", "cr:revert"],
+    },
+    {
+      title: "Aplicar e testar",
+      where: ["cartão «Código melhorado» › «Aplicar e testar»"],
+      what: "Aplica o código melhorado e corre os testes do projecto com ele; mostra se passaram e a saída.",
+      howTo: [
+        "Carrega em «Aplicar e testar».",
+        "Se passarem, fica aplicado. Se falharem, lê a saída e escolhe «Corrigir os testes que falham» ou «Reverter».",
+        "Depois de mudar algo, «Correr os testes outra vez».",
+      ],
+      flow: [
+        "Aplica (se ainda não), grava o editor no disco e espera pela fila de escrita.",
+        "Corre a suite pelo comando detectado no projecto (`run_tests`, o mesmo que o agente usa para verificar; dentro do contentor quando há sessão).",
+        "A falhar, «Corrigir os testes que falham» manda ao modelo a saída e o ficheiro actual e pede o ficheiro corrigido; continua a ser possível reverter até ao original.",
+      ],
+      limits: [
+        "Só na app desktop com uma pasta aberta; no browser o painel di-lo e não mexe no ficheiro.",
+        "Sem comando de testes detectado, o erro do backend aparece no cartão (define \"test\" em .dxtutor/commands.json).",
+      ],
+      covers: ["cr:test", "cr:fix-tests"],
+    },
+    {
+      title: "Barra do painel de documento",
+      where: ["cabeçalho do painel"],
+      what: "Controla o documento: ver formatado ou o markdown, copiar, parar, gerar de novo, continuar no chat, abrir a revisão em separador e fechar.",
+      howTo: [
+        "«Pré-visualização / Markdown» troca entre o documento formatado e o texto.",
+        "⧉ copia o documento; «Copiar» num bloco de código copia só esse bloco.",
+        "■ pára a resposta a chegar; ↻ volta a pedir.",
+        "✦ «Continuar no chat» põe o ficheiro e o documento como contexto no compositor do Co-Dev (não envia sozinho).",
+        "No Code review, «Abrir em separador» mostra a mesma revisão em ecrã inteiro; ✕ fecha o painel.",
+      ],
+      flow: ["Fechar o painel pára o pedido em curso; o que já foi aplicado ao ficheiro fica."],
+      covers: ["cr:view", "cr:copy-doc", "cr:copy-block", "cr:stop", "cr:regenerate", "cr:to-chat", "cr:as-tab", "cr:close", "open-file"],
+    },
+    {
+      title: "Under the hood",
+      where: ["barra do editor «Under the hood»", "Ctrl+K U", "paleta: «Co-Dev: Under the Hood»"],
+      what: "Abre uma tab que mostra o que acontece ao ficheiro por baixo: as fases do compilador (Rust), o plano de uma query SQL, o build e o runtime (TS/JS), as camadas de uma imagem (Dockerfile) ou a ordem de arranque (docker-compose).",
+      howTo: ["Com o ficheiro aberto, carrega em «Under the hood» (ou Ctrl+K U)."],
+      flow: [
+        "Deriva tudo do código do workspace: o plano da query vem do WHERE e dos CREATE INDEX das migrações; as camadas, das instruções do Dockerfile.",
+        "Não dá nada por verificado: para confirmar, compila ou corre `EXPLAIN QUERY PLAN` na base de dados.",
+      ],
+      covers: ["tabs:hoodCmd", "cmd:Co-Dev: Under the Hood"],
+    },
+  ],
+};

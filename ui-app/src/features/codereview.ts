@@ -462,6 +462,8 @@ const ACTIONS: ActionTable = {
   "cr:show-dismissed": { on: "click", run: (e) => { const ui = rvUi(splitOn(e.on)[0]); ui.showDismissed = !ui.showDismissed; refreshReview(); } },
 };
 bindActions(ACTIONS);
+/** os nomes das acções da feature — o teste das notas (`tests/notes.docs.test.ts`) prova que cada um tem nota */
+export const CODEREVIEW_ACTION_NAMES = Object.keys(ACTIONS);
 
 /* registo das vistas (ADR-0004, U4g1 — antes eram shims no v6.ts; o visualizer decora o
    VIEW.hood no boot7, e continua a decorar esta versão) */
