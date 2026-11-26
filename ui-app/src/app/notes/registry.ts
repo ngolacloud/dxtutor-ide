@@ -11,7 +11,8 @@ import { BOARD_NOTES } from "../../features/board/notes";
 import { LSP_NOTES } from "../../features/lsp/notes";
 import { TESTING_NOTES } from "../../features/testing/notes";
 import { CODEV_NOTES } from "../../features/codev/notes";
+import { PROJECT_NOTES } from "../../features/project/notes";
 
-export const NOTES: FeatureNotes[] = [CODEV_NOTES, CODEREVIEW_NOTES, BOARD_NOTES, TESTING_NOTES, LSP_NOTES];
+export const NOTES: FeatureNotes[] = [CODEV_NOTES, CODEREVIEW_NOTES, BOARD_NOTES, PROJECT_NOTES, TESTING_NOTES, LSP_NOTES];
 
 export const PENDING: string[] = ["tabs:startDebug", "tabs:dxRun"];

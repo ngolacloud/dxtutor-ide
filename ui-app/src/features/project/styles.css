@@ -86,3 +86,20 @@
 /* RF-B08 (F4.7): change sets open their diff; what Co-Dev used on the issue */
 .pj-link{cursor:pointer}.pj-link:hover code{text-decoration:underline}
 .pj-usage{font-size:12px;line-height:1.5}
+/* Multi Co-Dev, fase 1: o plano paralelo da sprint (só leitura) */
+.pj-plan-ctl{display:inline-flex;align-items:center;gap:6px;margin-left:10px}
+.pj-codevs{width:52px;display:inline-block;margin-left:4px;padding:1px 4px}
+.pj-plan{margin-top:10px;border-top:1px solid var(--border);padding-top:8px}
+.pj-plan.loading{opacity:.7}
+.pj-plan-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.pj-plan-grid{display:grid;gap:6px;overflow-x:auto}
+.pj-plan-lane{font-size:12px;padding:4px 6px;border-bottom:2px solid var(--accent)}
+.pj-plan-wave{grid-column:1/-1;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-muted);border-top:1px dashed var(--border-strong);padding-top:4px;margin-top:2px}
+.pj-plan-card{background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:7px;padding:6px 8px;cursor:pointer;min-width:0}
+.pj-plan-card:hover{border-color:var(--accent)}
+.pj-plan-idle{border:1px dashed var(--border);border-radius:7px;padding:6px 8px;text-align:center}
+.pj-plan-tag{display:block;font-size:11px;color:var(--fg-muted);margin-top:2px}
+.pj-plan-tag.warn{color:var(--yellow)}.pj-plan-tag.bad{color:var(--red)}
+.pj-plan-why{flex:2;min-width:0;font-size:11.5px;color:var(--fg-muted)}
+.pj-plan-ov{padding:4px 0;border-bottom:1px solid var(--border);font-size:12px}
+.pj-plan-paths{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;font-size:11px}

@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 289 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 290 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -341,6 +341,25 @@ projecto (R3c):** os escopos dos assistentes (onde escrevem, que comandos correm
 da estrutura da pasta aberta (`features/team-scopes.ts`, pura) e o `.dxtutor/team.json` do
 projecto manda; gravar a equipa escreve-o lá (sem pasta, no LS). O custo das issues vem do uso
 real do agente (porta `onUsage` do agente v2 → contador de uso e `ctx`).
+
+## Multi Co-Dev — o plano paralelo da sprint (Project, fase 1)
+
+Assenta no Project (`board.sqlite3`, `crates/tutor-board/src/project/`), não no quadro Tasks. A sprint guarda
+quantos Co-Devs a trabalham (`sprints.codevs`, migração 13, `Op::SetSprintCodevs`, 1–8). O planeador puro
+`tutor_board::project::plan::plan_sprint` reparte as issues Ready da sprint por N lanes (uma por Co-Dev) em ondas:
+uma issue só começa depois das dependências (onda anterior ou Done) e duas issues que se SOBREPÕEM nunca partilham
+uma onda — a segunda fica em série. Sobrepõem-se quando um ficheiro pode ser mudado pelas duas: um ficheiro da pasta
+(ou conhecido: change sets, commits ligados, ramo da issue, conflitos do `merge-tree`) apanhado por um glob do âmbito
+de cada uma (as regras do `scope_matches` das permissões do Co-Dev, reimplementadas sem regex), ou conhecido das duas;
+uma entrada literal conta como ficheiro antes de existir. Dentro da onda, a issue mais pesada vai para a lane com menos
+pontos; determinístico (prioridade, rank, chave). Fica de fora, com motivo: não Ready (as dependências à parte), já no
+fluxo, dependência que não está em Done nem no plano, ciclo, sobreposição com uma issue no fluxo. O comando
+`project_sprint_plan` (SÓ LEITURA) junta a pasta (`tutor_agent::issue_prompt::project_files`, com o `.gitignore`) e o git
+(`gitwork::branch_files`/`commit_files`/`predict_conflicts`); a UI desenha-o no Planning (`ui/plan-view.ts`, «Parallel
+plan»). Testes: `cargo test -p tutor-board plan`, `board::tests::the_sprint_plan_…` e `tests/project.plan.test.ts`.
+Fases seguintes: (2) uma sessão de Co-Dev por lane na UI; (3) uma worktree e ficheiros reservados por Co-Dev; (4) o
+«Co-Dev reviewer» assistido, que revê cada merge request e integra num worktree temporário só com os testes a passar e
+sem partir o ramo por omissão (sem conflitos, regras do arquitecto); (5) autonomia delegada pelo humano e PRs.
 
 ## Sexta feature extraída: Visualize execution (`ui-app/src/features/visualizer/`)
 

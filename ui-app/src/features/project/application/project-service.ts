@@ -25,6 +25,7 @@ export function parsePrompt(v: unknown): IssuePrompt | null {
 }
 import { branchName, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
 import { ptCopy } from "./messages";
+import { MAX_CODEVS, parseSprintPlan, type SprintPlan } from "../domain/plan";
 import {
   parseDetail,
   parseError,
@@ -54,6 +55,8 @@ export interface ProjectState {
   /** RF-A05: the architect's rules broken in the files Co-Dev changed for the selected issue
    *  (`null`: not loaded, no rules file, or no change sets). */
   drift: IssueDrift | null;
+  /** Multi Co-Dev (phase 1): the parallel plan of one sprint, when open (read-only). */
+  sprintPlan: { sprint: string; loading: boolean; data: SprintPlan | null; error: string | null } | null;
 }
 
 export function makeProjectService(deps: ProjectDeps) {
@@ -70,6 +73,7 @@ export function makeProjectService(deps: ProjectDeps) {
     swim: "epic",
     prompt: null,
     drift: null,
+    sprintPlan: null,
   };
   const listeners = new Set<() => void>();
   const set = (patch: Partial<ProjectState>): void => {
@@ -77,6 +81,8 @@ export function makeProjectService(deps: ProjectDeps) {
     listeners.forEach((f) => f());
   };
   const root = (): string | null => deps.workspace.root();
+  /** The parallel plan's requests: only the newest one paints. */
+  let planSeq = 0;
 
   async function open(): Promise<void> {
     const r = root();
@@ -84,7 +90,8 @@ export function makeProjectService(deps: ProjectDeps) {
       set({ status: "unavailable", project: null });
       return;
     }
-    set({ status: "loading", error: null, filters: { ...st.filters, me: deps.workspace.me() } });
+    planSeq++;
+    set({ status: "loading", error: null, sprintPlan: null, filters: { ...st.filters, me: deps.workspace.me() } });
     try {
       const p = parseProject(await deps.gateway.load(r));
       if (!p) throw new Error(copy("badResponse"));
@@ -104,6 +111,8 @@ export function makeProjectService(deps: ProjectDeps) {
       const p = parseProject(await deps.gateway.apply(r, op));
       if (p) set({ project: p, error: null });
       if (st.selected) void loadDetail(st.selected);
+      // the open parallel plan follows the project (a new issue in the sprint, a scope, a dependency…)
+      if (st.sprintPlan) void loadPlan(st.sprintPlan.sprint);
       if (st.view === "reports") void loadReports();
       return true;
     } catch (e: unknown) {
@@ -142,6 +151,26 @@ export function makeProjectService(deps: ProjectDeps) {
       set({ reports: parseReports(await deps.gateway.reports(r)) });
     } catch (e: unknown) {
       deps.notify.toast(parseError(e).message);
+    }
+  }
+
+  /** Multi Co-Dev (phase 1): asks the planner for the sprint's parallel plan (nothing runs). A newer request wins. */
+  async function loadPlan(sprint: string): Promise<void> {
+    const r = root();
+    if (!r || !deps.gateway.sprintPlan) {
+      deps.notify.toast(copy("planNeedsDesktop"));
+      return;
+    }
+    const seq = ++planSeq;
+    set({ sprintPlan: { sprint, loading: true, data: st.sprintPlan?.sprint === sprint ? st.sprintPlan.data : null, error: null } });
+    try {
+      const data = parseSprintPlan(await deps.gateway.sprintPlan(r, sprint, null));
+      if (seq !== planSeq) return;
+      if (!data) throw new Error(copy("planBad"));
+      set({ sprintPlan: { sprint, loading: false, data, error: null } });
+    } catch (e: unknown) {
+      if (seq !== planSeq) return;
+      set({ sprintPlan: { sprint, loading: false, data: null, error: parseError(e).message } });
     }
   }
 
@@ -362,6 +391,19 @@ export function makeProjectService(deps: ProjectDeps) {
       }
     },
     loadReports,
+    loadPlan,
+    closePlan(): void {
+      planSeq++;
+      set({ sprintPlan: null });
+    },
+    /** How many Co-Devs work the sprint (1…8, `null` unsets it); the open plan is recomputed (as after any change). */
+    async setCodevs(sprint: string, codevs: number | null | undefined): Promise<boolean> {
+      if (codevs === undefined) {
+        deps.notify.toast(copy("codevsRange", { max: MAX_CODEVS }));
+        return false;
+      }
+      return apply({ op: "set_sprint_codevs", id: sprint, codevs });
+    },
   };
 }
 
