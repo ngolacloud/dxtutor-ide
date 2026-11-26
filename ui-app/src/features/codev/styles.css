@@ -366,4 +366,9 @@
   .cdv-l{font-weight:600;white-space:nowrap}
   .cdv-m{color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-variant-numeric:tabular-nums}
   .cdv-x{color:var(--fg-muted);padding:2px 7px 2px 3px}.cdv-x:hover{color:var(--fg)}
+  /* Multi Co-Dev, fase 3: a worktree de cada sessão e as worktrees sem sessão */
+  .cdv-wt{font-family:var(--font-mono);font-size:10.5px;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:18ch}
+  .cdv-a{color:var(--fg-muted);padding:2px 4px}.cdv-a:hover{color:var(--fg)}
+  .cdv-card.st-kept{border-style:dashed}
+  .hk-where{font-family:var(--font-mono);font-size:10.5px;color:var(--accent)}
   .cc-dot.warn{background:var(--yellow)}

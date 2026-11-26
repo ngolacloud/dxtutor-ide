@@ -18,6 +18,7 @@ mod bridge;
 pub mod codeintel;
 pub mod codev;
 pub mod codev_agent;
+mod codev_worktree;
 mod commands;
 pub mod debug;
 pub mod devcontainer;
@@ -71,6 +72,10 @@ use commands::codev_agent::{
     codev_agent_permissions, codev_agent_review, codev_agent_rewind, codev_agent_save_permissions,
     codev_agent_send, codev_agent_sessions, codev_agent_set_mode, codev_agent_set_plan,
     codev_agent_start, codev_agent_trust,
+};
+use commands::codev_worktree::{
+    codev_claims, codev_worktree_commit, codev_worktree_create, codev_worktree_file,
+    codev_worktree_plan, codev_worktree_remove, codev_worktrees,
 };
 use commands::debug_cmds::{
     breakpoints_load, breakpoints_save, debug_attach, debug_attach_targets, debug_available,
@@ -1037,6 +1042,14 @@ pub fn run() {
             codev_agent_rewind,
             codev_agent_extensions,
             codev_agent_trust,
+            // Multi Co-Dev, fase 3 — worktrees e reservas de ficheiros (commands/codev_worktree.rs)
+            codev_worktree_plan,
+            codev_worktree_create,
+            codev_worktrees,
+            codev_worktree_remove,
+            codev_worktree_file,
+            codev_worktree_commit,
+            codev_claims,
             dictation_status,
             dictation_start,
             dictation_stop,

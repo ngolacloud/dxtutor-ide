@@ -15,6 +15,7 @@
 import type { AgentEvent } from "../domain/agent-events";
 import type { HunkReviewDeps, HunkSink } from "./ports";
 import { ptCopy } from "./messages";
+import { applyEdits } from "../domain/worktrees";
 import { activeHunk, choose, completeReview, initialOverlay, isOpen, mapEdit, openPaths, reduceOverlay, revealAll, revealStep, setPaused, shiftAnchors, virtualView, type OverlayState, type VView, blockedReview, overrideReview } from "../domain/hunk-overlay";
 
 /** How often the typing advances. */
@@ -311,6 +312,12 @@ export function makeHunkReview(deps: HunkReviewDeps) {
         following = true;
         follow(a.path);
       }
+    },
+    /** Multi Co-Dev (phase 3): the file as a session's open hunks would leave it (a session in a worktree
+     *  is reviewed from the chat and seen read-only — its hunks are another tree's). */
+    proposal(session: string, path: string, real: string): string {
+      const hs = (states.get(session)?.hunks ?? []).filter((h) => h.path === path && isOpen(h));
+      return applyEdits(real, hs.map((h) => ({ start: h.start, end: h.end, text: h.text })));
     },
     /** The session closed: its hunks go away (whatever it left open was refused by the backend). */
     forget(session: string): void {

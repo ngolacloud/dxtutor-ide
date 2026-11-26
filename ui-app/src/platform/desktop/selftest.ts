@@ -1329,6 +1329,39 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         await sh("rm", ["-rf", parent], { cwd: R.info.home });
       }
     });
+    // Multi Co-Dev, fase 3: a worktree de uma issue contra o git real — o plano (o comando exacto), criar só com
+    // esse comando (auditado no Rust), a árvore principal intacta, ler um ficheiro só de leitura, commitar no ramo
+    // dela, limpar com o comando listado (o ramo fica) e as reservas de ficheiros (nenhuma sem sessões).
+    await step("worktrees", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string, dir = root.replace(/\/$/, "");
+      const p = (await projectClient().apply(root, { op: "create_issue", title: "Selftest worktree" })) as { issues: Array<{ key: string; title: string }> };
+      const key = p.issues.filter((i) => i.title === "Selftest worktree").slice(-1)[0].key;
+      const plan = await inv("codev_worktree_plan", { root, key }) as { available: boolean; branch: string; path: string; command: string; exists: boolean };
+      const wrong = await inv("codev_worktree_create", { root, key, command: "git worktree add /tmp/x", decidedAt: 1 }).then(() => "accepted", () => "refused");
+      const before = (await sh("git", ["-C", dir, "status", "--porcelain"], { cwd: dir })).stdout;
+      const w = await inv("codev_worktree_create", { root, key, command: plan.command, decidedAt: 1 }) as { dir: string; branch: string };
+      const after = (await sh("git", ["-C", dir, "status", "--porcelain"], { cwd: dir })).stdout;
+      try {
+        await sh("sh", ["-c", `printf 'selftest\n' > "${w.dir}/SELFTEST-WT.txt"`], { cwd: dir });
+        const f = await inv("codev_worktree_file", { root, key, path: "SELFTEST-WT.txt" }) as { now: string | null; before: string | null };
+        const sha = await inv("codev_worktree_commit", { root, key, message: `${key}: selftest` }) as string;
+        const onBranch = (await sh("git", ["-C", dir, "rev-parse", "--short", w.branch], { cwd: dir })).stdout.trim();
+        const listed = await inv("codev_worktrees", { root }) as Array<{ key: string; session: string | null; remove: string; dirty: string[] }>;
+        const mine = listed.find((x) => x.key === key)!;
+        const rm = await inv("codev_worktree_remove", { root, key, command: mine.remove, decidedAt: 1 }) as { removed: boolean };
+        const branchKept = (await sh("git", ["-C", dir, "rev-parse", "--verify", "--quiet", w.branch], { cwd: dir })).stdout.trim() !== "";
+        const claims = await inv("codev_claims", { root }) as unknown[];
+        const outside = !w.dir.startsWith(dir + "/");
+        return {
+          available: plan.available, command: plan.command.startsWith(`git -C ${dir} worktree add -b ${plan.branch} -- `), wrong, outside,
+          mainTreeUntouched: before === after, readBack: f.now === "selftest\n" && f.before === null, committedOnBranch: sha === onBranch,
+          listedWithoutSession: mine.session === null && mine.dirty.length === 0, removed: rm.removed, branchKept, claims: claims.length,
+        };
+      } finally {
+        await sh("git", ["-C", dir, "worktree", "remove", "--force", "--", w.dir], { cwd: dir }).catch(() => undefined);
+      }
+    });
     // A10: as lacunas aprovadas, contra o repositório temporário e esta máquina — o mapa de onboarding,
     // o diff de um ramo contra outro (git_diff_range), o relatório de dependências (sem rede), e onde
     // anexar o depurador (os processos locais e o adaptador; a lista de contentores, só de leitura).

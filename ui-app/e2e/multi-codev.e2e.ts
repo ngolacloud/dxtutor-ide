@@ -5,10 +5,15 @@
    (`project_scope_overlap`) answers like the Rust rule: DX-3 overlaps whatever runs. Proves: a second
    issue opens a second session (the first keeps running), the «Co-Devs» strip switches the chat and
    the hunks in the editor, a decision goes to its own session, an overlapping issue is refused with the
-   files, and the functional approval is recorded with its note. */
+   files, and the functional approval is recorded with its note.
+
+   Phase 3 (`{ worktrees: true }`): the folder is a git repository, so a second issue gets its own worktree
+   after the shared approval dialog (the exact command), starts even when it overlaps (the claims decide),
+   its hunks stay out of the editor (the review bar names its branch and opens the proposal read-only), and
+   the strip shows the branch and, after it closes, the worktree left without a session. */
 import { test, expect, type Page } from "@playwright/test";
 
-function fakeBackend(): void {
+function fakeBackend(opts?: { worktrees?: boolean }): void {
   type Handler = (e: { payload: unknown }) => void;
   const listeners: Record<string, Handler[]> = {};
   const files: Record<string, string> = { "src/a/cart.rs": "pub fn cart() {}\n", "src/b/pay.rs": "pub fn pay() {}\n" };
@@ -29,6 +34,15 @@ function fakeBackend(): void {
   const fileOf: Record<string, string> = { "DX-1": "src/a/cart.rs", "DX-2": "src/b/pay.rs" };
   let sessions = 0;
   const issueOf: Record<string, string> = {};
+  // phase 3: the worktrees the fake repository has, and the sessions open in them
+  const wts: Record<string, { branch: string; session: string | null }> = {};
+  const branchOf: Record<string, string> = { "DX-1": "feature/dx-1-cart", "DX-2": "feature/dx-2-pay", "DX-3": "feature/dx-3-everything" };
+  const open = new Set<string>();
+  const wtInfo = (key: string) => ({
+    key, path: `/data/wt/${key}`, dir: `/data/wt/${key}`, branch: wts[key].branch, head: "abc12345", prunable: false, dirty: [],
+    changed: fileOf[key] ? [{ path: fileOf[key], status: "M" }] : [], session: wts[key].session && open.has(wts[key].session!) ? wts[key].session : null,
+    remove: `git -C /proj worktree remove -- /data/wt/${key}`,
+  });
   function turn(session: string, text: string): void {
     const key = /Issue (DX-\d)/.exec(text)?.[1] ?? "";
     issueOf[session] = key;
@@ -84,8 +98,35 @@ function fakeBackend(): void {
           files: 2,
         };
       }
-      case "codev_agent_start":
-        return `S${++sessions}`;
+      case "codev_agent_start": {
+        const id = `S${++sessions}`;
+        open.add(id);
+        const key = args.issue as string | null;
+        if (args.worktree && key && wts[key]) wts[key].session = id;
+        return id;
+      }
+      case "codev_agent_close":
+        open.delete(String(args.sessionId));
+        return true;
+      case "codev_worktree_plan": {
+        const key = String(args.key);
+        if (!opts?.worktrees) return { available: false, reason: "not a git repository", key, branch: "", path: "", exists: false, newBranch: false, base: null, command: "" };
+        const exists = !!wts[key];
+        return { available: true, reason: null, key, branch: branchOf[key], path: `/data/wt/${key}`, exists, newBranch: !exists, base: exists ? null : "abc12345", command: exists ? "" : `git -C /proj worktree add -b ${branchOf[key]} -- /data/wt/${key} abc12345` };
+      }
+      case "codev_worktree_create": {
+        const key = String(args.key);
+        wts[key] = { branch: branchOf[key], session: null };
+        return wtInfo(key);
+      }
+      case "codev_worktrees":
+        return Object.keys(wts).map(wtInfo);
+      case "codev_worktree_file": {
+        const path = String(args.path);
+        return { path, abs: `/data/wt/${String(args.key)}/${path}`, branch: branchOf[String(args.key)], before: files[path] ?? null, now: files[path] ?? null };
+      }
+      case "codev_claims":
+        return [];
       case "codev_agent_send":
         setTimeout(() => turn(String(args.sessionId), String(args.text)), 30);
         return null;
@@ -106,8 +147,8 @@ function fakeBackend(): void {
   w.__fake = { calls };
 }
 
-async function boot(page: Page): Promise<void> {
-  await page.addInitScript(fakeBackend);
+async function boot(page: Page, opts: { worktrees?: boolean } = {}): Promise<void> {
+  await page.addInitScript(fakeBackend, opts);
   await page.goto("/index.html");
   await page.waitForFunction(() => document.querySelectorAll("#activity .act").length > 5);
   await page.waitForFunction(() => Object.keys((window as unknown as { FS: Record<string, unknown> }).FS).some((k) => k.endsWith("src/a/cart.rs")));
@@ -174,6 +215,49 @@ test("two Co-Devs at once: a session per issue, the strip switches the chat and 
   await page.locator("#ag-codevs .cdv-card", { hasText: "DX-2" }).locator(".cdv-x").click();
   await expect.poll(async () => (await calls(page, "codev_agent_close")).map((a) => a.sessionId)).toEqual(["S2"]);
   await expect(page.locator("#ag-codevs")).toHaveCount(0);
+});
+
+test("phase 3: a second Co-Dev gets its own worktree (approved), starts despite an overlap, and its hunks stay out of the editor", async ({ page }) => {
+  await boot(page, { worktrees: true });
+  await page.locator('#activity .act[title="Project"]').click();
+
+  // 1. DX-1 alone: the main tree, no approval, no strip (as before)
+  await work(page, "DX-1");
+  await expect(page.locator("#ag-msgs")).toContainText("Working on DX-1");
+  await expect(page.locator("#approval")).toHaveCount(0);
+  await expect(page.locator("#ag-codevs")).toHaveCount(0);
+  await expect(page.locator(".hk-bar [data-action='hunk-accept']")).toHaveCount(1);
+  expect((await calls(page, "codev_agent_start"))[0].worktree).toBeUndefined();
+
+  // 2. DX-2 with DX-1 open: the shared approval dialog shows the exact command; approved, it works in its worktree
+  await work(page, "DX-2");
+  await expect(page.locator("#approval .appr-cmd")).toHaveText("git -C /proj worktree add -b feature/dx-2-pay -- /data/wt/DX-2 abc12345");
+  await page.locator("#approval #appr-ok").click();
+  await expect.poll(async () => (await calls(page, "codev_worktree_create")).length).toBe(1);
+  expect((await calls(page, "codev_worktree_create"))[0]).toMatchObject({ root: "/proj", key: "DX-2", command: "git -C /proj worktree add -b feature/dx-2-pay -- /data/wt/DX-2 abc12345" });
+  await expect.poll(async () => (await calls(page, "codev_agent_start")).length).toBe(2);
+  expect((await calls(page, "codev_agent_start"))[1]).toMatchObject({ issue: "DX-2", worktree: true });
+  await expect(page.locator("#ag-msgs")).toContainText("Working on DX-2");
+  await expect(page.locator("#ag-codevs .cdv-card.sel .cdv-wt")).toHaveText("⎇ feature/dx-2-pay");
+  // its hunks are another tree's: the review bar names the branch, the editor shows none
+  await expect(page.locator("#ag-msgs .hk-where")).toContainText("feature/dx-2-pay");
+  await expect(page.locator(".hk-bar [data-action='hunk-accept']")).toHaveCount(0);
+  await page.locator("#ag-msgs .hk-gate .gb").nth(2).click();
+  await expect.poll(async () => (await calls(page, "codev_worktree_file")).length).toBe(1);
+  expect((await calls(page, "codev_worktree_file"))[0]).toEqual({ root: "/proj", key: "DX-2", path: "src/b/pay.rs" });
+  await expect(page.locator(".tab.active")).toContainText("pay.rs");
+  await page.screenshot({ path: test.info().outputPath("multi-codev-worktree.png") });
+
+  // 3. DX-3 overlaps both: no refusal any more — approved, it starts in its own worktree; the human is told the claims decide
+  await work(page, "DX-3");
+  await page.locator("#approval #appr-ok").click();
+  await expect.poll(async () => (await calls(page, "codev_agent_start")).length).toBe(3);
+  await expect(page.locator("#ag-codevs .cdv-card:not(.st-kept)")).toHaveCount(3);
+
+  // 4. closing DX-2's Co-Dev: its session ends; its worktree is listed without a session
+  await page.locator("#ag-codevs .cdv-card", { hasText: "DX-2" }).locator(".cdv-x").click();
+  await expect.poll(async () => (await calls(page, "codev_agent_close")).map((a) => a.sessionId)).toContain("S2");
+  await expect(page.locator("#ag-codevs .cdv-card.st-kept")).toContainText("DX-2");
 });
 
 test("the functional approval is recorded on the issue with its note", async ({ page }) => {

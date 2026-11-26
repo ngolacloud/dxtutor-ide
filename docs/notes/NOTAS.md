@@ -6,7 +6,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 3 acções
+- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 4 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Project](#project) — 11 acções
@@ -32,6 +32,7 @@ Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o fich
 | [Rever as mudanças no editor, bloco a bloco](#rever-as-mudancas-no-editor-bloco-a-bloco) | editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo |
 | [Mapa de agentes](#mapa-de-agentes) | chat do Co-Dev › barra do compositor › chip «● N agentes» |
 | [Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)](#varios-co-devs-ao-mesmo-tempo-a-faixa-co-devs) | Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat» |
+| [Uma worktree por Co-Dev e os ficheiros reservados](#uma-worktree-por-co-dev-e-os-ficheiros-reservados) | Project › painel da issue › «Work on it with Co-Dev» (com outro Co-Dev aberto) · chat do Co-Dev › faixa «Co-Devs» › ☰ «Ficheiros», ✓ «Commit», ⌫ «Limpar» · chat do Co-Dev › barra da revisão de hunks (o ramo, «Ver no editor») |
 
 ### Rever as mudanças no editor, bloco a bloco
 
@@ -100,16 +101,15 @@ Cada issue que mandas ao Co-Dev tem a sua sessão: começar outra issue já não
 **Como usar**
 
 1. No Project, abre uma issue Ready e carrega em «Work on it with Co-Dev»; depois faz o mesmo com outra issue.
-2. Se os âmbitos das duas não se cruzarem, a segunda abre noutra sessão e a faixa «Co-Devs» aparece; a primeira continua a trabalhar.
-3. Se se cruzarem, a app diz em que ficheiros e pergunta se a issue espera: com «OK» ela fica na faixa («espera por DX-12») e começa sozinha quando esse Co-Dev fechar; com «Cancelar» não começa.
+2. A segunda abre noutra sessão e a faixa «Co-Devs» aparece; a primeira continua a trabalhar.
+3. Numa pasta sem git, as duas trabalham na mesma árvore: se os âmbitos se cruzarem, a app diz em que ficheiros e pergunta se a issue espera — com «OK» ela fica na faixa («espera por DX-12») e começa sozinha quando esse Co-Dev fechar; com «Cancelar» não começa.
 4. Clica num cartão para ver a conversa desse Co-Dev (e os hunks dele no editor); o ✕ fecha o Co-Dev (a sessão acaba) e o ✕ de uma issue à espera desiste de esperar.
 
 **Fluxo (por dentro)**
 
 1. A conversa é uma por sessão (`makeAgentChat`): a à vista escreve no chat e na barra de execução como sempre; as outras escrevem num transcript fora do ecrã e guardam a sua execução (o tempo, o «parar», a decisão pendente) até as abrires.
-2. Antes de abrir outra sessão, o comando `project_scope_overlap` (só leitura) compara o âmbito da issue nova com o de cada issue que tem uma sessão aberta, com a regra do plano paralelo: um ficheiro que as duas podem mudar, pelo âmbito ou por ser conhecido (change sets, commits ligados, o ramo).
-3. Nesta fase todas as sessões trabalham na MESMA árvore de trabalho: por isso a verificação é obrigatória e, se falhar, a issue não começa.
-4. Fechar um Co-Dev liberta o âmbito dele: as issues à espera voltam a ser verificadas e as que já não chocam começam em segundo plano.
+2. Num repositório git, cada Co-Dev a mais trabalha numa worktree própria (nota «Uma worktree por Co-Dev»); sem git, o comando `project_scope_overlap` (só leitura) compara o âmbito da issue nova com o de cada issue que tem uma sessão aberta, com a regra do plano paralelo — e, como todas trabalham na mesma árvore, a issue que choca (ou cuja verificação falha) não começa.
+3. Fechar um Co-Dev liberta o âmbito dele: as issues à espera voltam a ser verificadas e as que já não chocam começam em segundo plano.
 
 **Dicas**
 
@@ -121,9 +121,46 @@ Cada issue que mandas ao Co-Dev tem a sua sessão: começar outra issue já não
 - Uma issue segura o âmbito enquanto a sessão dela estiver aberta, mesmo parada: fecha-a (✕) quando acabares.
 - O separador «Co-Dev run» e o `ctx` da barra de estado seguem a conversa à vista.
 - O quadro Tasks antigo («Delegar») continua a usar a conversa à vista.
-- Fases seguintes: uma worktree e ficheiros reservados por Co-Dev (fase 3), o revisor e a porta de integração (fase 4).
+- Fase seguinte: o revisor e a porta de integração (fase 4).
 
 <sub>Cobre: `codev:codevs-pick`, `codev:codevs-close`, `codev:codevs-unqueue`</sub>
+
+### Uma worktree por Co-Dev e os ficheiros reservados
+
+**Onde:** Project › painel da issue › «Work on it with Co-Dev» (com outro Co-Dev aberto) · chat do Co-Dev › faixa «Co-Devs» › ☰ «Ficheiros», ✓ «Commit», ⌫ «Limpar» · chat do Co-Dev › barra da revisão de hunks (o ramo, «Ver no editor»)
+
+Quando já há um Co-Dev aberto, a issue seguinte trabalha numa worktree git própria, no ramo dela (`feature/dx-12-…`), numa pasta fora do projecto: os ficheiros dos dois nunca se misturam e a tua árvore de trabalho não muda. Cada Co-Dev reserva os ficheiros que escreve; se outro tentar escrever num ficheiro reservado, é recusado e sabe por quem. Por isso a sobreposição de âmbitos já não impede ninguém de começar: as reservas decidem.
+
+**Como usar**
+
+1. Com um Co-Dev a trabalhar, manda outra issue ao Co-Dev: aparece o diálogo de aprovação com o comando exacto (`git -C … worktree add -b <ramo> -- <pasta> <commit>`); aprova para ele começar (recusar fica registado e a issue não começa).
+2. Na faixa «Co-Devs», o cartão dele mostra o ramo (⎇) e quantos ficheiros reservou (passa o rato para ver quais).
+3. ☰ «Ficheiros» lista o que ele mudou na worktree; escolher um abre-o só de leitura, ao lado de como estava quando o ramo saiu.
+4. Os hunks dele não se pintam no editor (são de outra árvore): revê-os na conversa — «Aceitar todas»/«Rejeitar todas» — e «Ver no editor» mostra a proposta só de leitura.
+5. ✓ «Commit» pede a mensagem e commita tudo o que a worktree tem, no ramo da issue (o secret scan corre antes; nada é integrado no ramo principal).
+6. Ao fechar o Co-Dev (✕), a worktree sai se não tiver alterações por commitar (o ramo fica); senão fica na faixa como «guardada». Começar a mesma issue outra vez volta a ela.
+7. Ao abrir a pasta, as worktrees deixadas por uma execução anterior aparecem na faixa; ⌫ «Limpar» remove uma limpa, com aprovação.
+
+**Fluxo (por dentro)**
+
+1. `codev_worktree_plan` (só leitura) diz o que vai correr: nada (a worktree existe, ou a pasta não tem git — então vale a regra da fase 2) ou os comandos exactos; o ramo é o registado na issue ou o nome do Project para ela, que fica registado.
+2. `codev_worktree_create` só corre o comando aprovado e regista-o no registo de auditoria antes e com o resultado (sem auditoria, não corre). A pasta é `<dados da app>/worktrees/<repositório>/<issue>`: fora do projecto, nunca no `git status` nem nas ferramentas dele.
+3. A sessão abre com a worktree (`codev_agent_start` com `worktree`, que o backend encontra — nunca um caminho vindo da interface): ler, escrever, editar, procurar, `bash` e `run_tests` ficam lá dentro; o Project, a auditoria, os papéis e as permissões continuam os da pasta.
+4. Antes de cada escrita, o backend reserva o ficheiro para a sessão (tabela `file_claims`, migração 18); se outra sessão aberta o reservou, a escrita é recusada com a issue e a sessão dona. O que um `bash` mudou também é reservado (e um ficheiro de outro vai para a conversa e para o registo). As reservas voltam quando a sessão fecha; as de uma sessão que já não existe são retomadas.
+5. Fechar uma sessão remove a worktree com `git worktree remove` (nunca forçado) e regista-o; `codev_worktree_remove` faz o mesmo a uma que ficou, com aprovação. `codev_worktree_commit` commita na worktree depois do secret scan.
+
+**Dicas**
+
+- Com um só Co-Dev nada muda: trabalha na tua árvore, como sempre.
+- Uma issue com worktree volta sempre a ela, mesmo sozinha: assim nada do que lá ficou se perde.
+
+**Limites**
+
+- Um ramo só pode estar numa worktree de cada vez: se o ramo da issue estiver na tua árvore principal, muda-a de ramo primeiro.
+- As reservas valem enquanto a sessão estiver aberta: fecha os Co-Devs que acabaram.
+- Integrar o ramo no principal é a fase 4 (o revisor e a porta de integração).
+
+<sub>Cobre: `codev:codevs-files`, `codev:codevs-commit`, `codev:codevs-cleanup`</sub>
 
 ---
 
