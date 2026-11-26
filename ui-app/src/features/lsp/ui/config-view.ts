@@ -18,7 +18,7 @@ import type { OverridesView } from "../application/ports";
 const t = translator(LSP_OVERRIDE_MESSAGES);
 
 /** Um diálogo por cima de tudo (fecha com Esc, com «Close» ou ao clicar fora). */
-function modal(id: string, inner: string): { box: HTMLElement; close: () => void } {
+export function modal(id: string, inner: string): { box: HTMLElement; close: () => void } {
   document.getElementById(id)?.remove();
   const box = document.createElement("div");
   box.id = id;

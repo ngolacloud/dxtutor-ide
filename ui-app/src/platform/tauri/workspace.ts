@@ -16,7 +16,7 @@ export interface WorkspaceFile {
 /**
  * Workspace carregado — espelho tipado de `workspace::Loaded` do backend (serde camelCase).
  * `skipped`/`truncated` são sempre devolvidos pelo comando (binários/grandes ignorados; limite
- * de ficheiros atingido), por isso não são opcionais.
+ * de ficheiros ou de tamanho total atingido), por isso não são opcionais.
  */
 export interface LoadedWorkspace {
   root: string;
@@ -24,6 +24,8 @@ export interface LoadedWorkspace {
   files: WorkspaceFile[];
   skipped: number;
   truncated: boolean;
+  /** Pastas que o git ignora por inteiro (build, caches, coverage…), não carregadas (P2). */
+  ignoredDirs?: number;
 }
 
 /**

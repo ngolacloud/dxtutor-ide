@@ -61,7 +61,11 @@ export interface Services {
   /** os problemas (features/diagnostics.ts, com o painel real por cima no desktop): o editor, o workspace e os geradores (U7p6) */
   diagnostics: Pick<typeof Diagnostics, "diagnostics" | "drawProblems" | "has">;
   /** o atalho «a tecla é da shell» do terminal real (o painel, só no desktop): os atalhos globais (U7p6) */
-  panel: { termOwnsKey: (e: KeyboardEvent) => boolean };
+  panel: {
+    termOwnsKey: (e: KeyboardEvent) => boolean;
+    /** mostra o canal «Language servers» do Output (o registo dos servidores de linguagem, LSP P6) */
+    showLspLog?: () => void;
+  };
   /** abrir o Project (features/project/index.ts, que avalia depois das boas-vindas — r23 F6) */
   project: Pick<typeof Project, "openProject"> & {
     /** `/project`: creates the Project from the backlog and the plan Co-Dev proposed (after the human confirms) */

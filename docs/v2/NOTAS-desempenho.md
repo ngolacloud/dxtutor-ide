@@ -33,10 +33,41 @@ Causas e correcções:
 - **O ambiente da shell de login** (`bash -ilc env`, 0,4 s; segundos com carga) era pago pelo primeiro comando que o
   pedisse. → aquecido numa thread no arranque.
 
+## P2 — o que uma pasta custa à página (2026-11-26)
+
+Medida nova: a memória PRIVADA de cada processo (`/proc/<pid>/smaps_rollup`, páginas privadas), porque o RSS conta as
+bibliotecas do WebKit partilhadas com o resto do sistema. 70 s depois de abrir, binário debug, Xvfb, HOME novo. Entre
+corridas iguais há ±20 MB de ruído.
+
+| Página (privada) | Antes | Depois |
+|---|---|---|
+| Sem pasta | 205 MB | 226 MB (ruído) |
+| Este repositório (1113 ficheiros, 16 MB de texto) | 246 MB | 273 MB (ruído: nada é ignorado) |
+| Projecto com um `out/` gerado e ignorado (1500 ficheiros, 150 MB) | **358 MB** | **233 MB** |
+
+A página guarda tanto quanto recebe (~1 MB por MB de texto), e o limite era 4000 × 768 KB = 3 GB. Correcções
+(`src-tauri/src/workspace.rs`, `LoadPolicy`):
+- **As pastas que o git ignora por inteiro não se carregam** (`git ls-files --others --ignored --exclude-standard
+  --directory`): build, caches, coverage. O `--directory` só junta uma pasta quando nada nela está versionado, por isso um
+  ficheiro versionado nunca desaparece; um ficheiro ignorado solto (o `.env`) continua no editor. Sem repositório ou sem
+  git, nada muda.
+- **Tecto de 48 MB no total**, além dos 4000 ficheiros de 768 KB: atingido, o resto não se carrega e a abertura di-lo
+  («load limit reached»), como o limite de ficheiros.
+- **O HEAD dos ficheiros alterados num processo** (`platform/desktop/git-batch.ts`): o `markChanged` pedia um `git show`
+  por ficheiro, em série; agora um `git cat-file --batch`. Os tamanhos da resposta são em bytes e o `exec` devolve
+  texto: se não baterem (um blob binário), volta ao `git show` por ficheiro.
+- **O auto-teste (85 KB) é um chunk à parte**, carregado só com `DXTUTOR_SELFTEST` — o primeiro `import()` dinâmico da
+  app (o CSP `script-src 'self'` aceita-o; o auto-teste prova-o ao arrancar).
+
+Medido e deixado como está: o arranque da página em Chromium (perfil do CDP, mapeado pelo sourcemap) gasta ~600 ms de
+JavaScript, o mais pesado a `show()` dos separadores (`innerHTML` + layout forçado, 160 ms), o xterm (50 ms) e os cursos
+Rust/Go embutidos como literais (~700 KB, ~35 ms). Os ~2 s ocupados no WebKit são sobretudo desenho por software no Xvfb
+(sem GPU). Partir mais o pacote dá pouco: o JavaScriptCore guarda o código-fonte de qualquer forma, e o `COURSES` do
+Learning Track é lido de forma síncrona.
+
 ## A seguir
 
-- **P2 — memória e I/O ao abrir uma pasta:** o conteúdo de todos os ficheiros (até 4000 × 768 KB) vai para a página
-  numa só transferência (a página: ~400 MB e 1,6 s de JavaScript no arranque); o JavaScript é um pacote só (> 500 KB).
-  Ler o conteúdo quando o ficheiro abre; carregar à parte as features raras.
 - **P3 — vigilância:** um passo do auto-teste com a sonda, que falha acima de limites (bloqueio da thread da UI, CPU em
-  repouso, memória).
+  repouso, memória privada da página com uma pasta pesada).
+- Por medir: a app cresce ~40 MB privados ao abrir este repositório (não é o `load_workspace`: a pasta de 150 MB só
+  junta ~9 MB).

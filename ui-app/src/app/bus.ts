@@ -22,6 +22,9 @@ export interface AppEvents {
   "layout:locale": { locale: string; prev: string };
   /** Separador activo do editor (`null` = nenhum). */
   "editor:tab": { id: string | null; prev: string | null };
+  /** Um separador do editor fechou (`path`: a chave do `FS` de um separador de ficheiro, senão `null`):
+   *  o servidor de linguagem recebe o `didClose` (features/lsp). */
+  "editor:tab-closed": { id: string; path: string | null };
   /** O editor acabou de desenhar a vista de um ficheiro (a chave do `FS`): o `innerHTML` foi
    *  refeito, por isso quem a decora (o aviso de servidor em falta, `features/lsp`) repõe-se. */
   "editor:file-view": { path: string };

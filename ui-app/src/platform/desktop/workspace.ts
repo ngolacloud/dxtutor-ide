@@ -14,6 +14,7 @@ import { registerActions } from "../../app/actions";
 import type { Desktop } from "./types";
 import type { DesktopContext } from "./context";
 import { changedFromDisk, withDiskEol } from "./eol";
+import { catFileRequests, parseCatFileBatch } from "./git-batch";
 import { closeTab } from "../../features/tabs";
 import { workspaceStore } from "../../app/store";
 import { TREE } from "../../boot";
@@ -21,7 +22,7 @@ import { cwd, echo, newInput } from "../../features/terminal";
 import { buildMenubar } from "../../features/menus";
 
 export function installWorkspace(ctx: DesktopContext): void {
-const { R, fsx, git, enqueue, escH, isReal, relOf, say } = ctx;
+const { R, fsx, git, sh, enqueue, escH, isReal, relOf, say } = ctx;
 const syncGit = () => ctx.syncGit();
 /* ───── folders and autosave ───── */
 async function openFolder(path?: string): Promise<boolean> {
@@ -46,7 +47,7 @@ async function openFolder(path?: string): Promise<boolean> {
   document.title = `${R.name} — dxtutor IDE`;
   refresh(false, true);
   try { termBanner(); } catch { /* sem terminal */ }
-  say(`opened ${R.root} · ${L.files.length} files${L.skipped ? ` · ${L.skipped} skipped (binary, large or ignored)` : ""}${L.truncated ? " · file limit reached" : ""}`);
+  say(`opened ${R.root} · ${L.files.length} files${L.skipped ? ` · ${L.skipped} skipped (binary, large or ignored)` : ""}${L.ignoredDirs ? ` · ${L.ignoredDirs} git-ignored folder(s) not loaded` : ""}${L.truncated ? " · load limit reached (4000 files or 48 MB)" : ""}`);
   toast(`${R.name}: ${L.files.length} files${R.git ? " · git " + BRANCH : " · not a git repository"}`);
   document.dispatchEvent(new CustomEvent("dx:workspace", { detail: { root: R.root } }));
   if (!R.git) { try { card("desktop", `<b>${escH(R.name)}</b> is not a git repository. The graph, gitflow and commits need one.<div style="margin-top:8px"><button class="mini pri" data-action="desktop:gitInit">git init</button></div>`); } catch { /* sem chat */ } }
@@ -71,6 +72,8 @@ async function markChanged(): Promise<void> {
   const r = await git("status", "--porcelain=v1", "-z", "--untracked-files=all");
   if (r.code !== 0) return;
   const parts = r.stdout.split("\0");
+  /* os ficheiros cujo HEAD é preciso: os alterados (o `orig`) e os apagados (voltam ao FS para o diff) */
+  const need: { k: string; p: string; deleted: boolean }[] = [];
   for (let i = 0; i < parts.length; i++) {
     const e = parts[i];
     if (!e) continue;
@@ -80,12 +83,20 @@ async function markChanged(): Promise<void> {
     if (R.prefix) { if (!p.startsWith(R.prefix)) continue; p = p.slice(R.prefix.length); }
     const k = ROOT + p;
     if (xy === "??") { if (FS[k]) FS[k].orig = null; continue; }
-    if (!FS[k]) {
-      if (xy.includes("D")) { const h = await git("show", "HEAD:./" + p); if (h.code === 0) FS[k] = { content: h.stdout, orig: h.stdout, _deleted: 1 } as unknown as typeof FS[string]; }
-      continue;
-    }
-    const h = await git("show", "HEAD:./" + p);
-    FS[k].orig = h.code === 0 ? h.stdout : null;
+    if (!FS[k]) { if (xy.includes("D")) need.push({ k, p, deleted: true }); continue; }
+    need.push({ k, p, deleted: false });
+  }
+  /* P2: todos num só processo (`git cat-file --batch`); se a resposta não servir, um `git show` por ficheiro */
+  const stdin = need.length ? catFileRequests(need.map(n => n.p)) : null;
+  const batch = stdin ? await sh("git", ["cat-file", "--batch"], { stdin }) : null;
+  const heads = batch && batch.code === 0 ? parseCatFileBatch(batch.stdout, need.length) : null;
+  for (let j = 0; j < need.length; j++) {
+    const { k, p, deleted } = need[j];
+    let head: string | null;
+    if (heads) head = heads[j];
+    else { const h = await git("show", "HEAD:./" + p); head = h.code === 0 ? h.stdout : null; }
+    if (deleted) { if (head !== null) FS[k] = { content: head, orig: head, _deleted: 1 } as unknown as typeof FS[string]; }
+    else FS[k].orig = head;
   }
   Object.keys(FS).forEach(k => { if ((FS[k] as { _deleted?: number })._deleted) { delete FS[k]; } });
 }

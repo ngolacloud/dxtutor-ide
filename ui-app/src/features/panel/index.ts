@@ -4,7 +4,9 @@
        com integração de shell; as tarefas da IDE (compose, deploy, logs) correm num
        terminal de tarefa com o código de saída real;
      • Problems — os checkers do projecto (cargo/tsc/go vet/ruff/eslint) + LSP;
-     • Output — canais reais (dxtutor, Tasks, Problems, Co-Dev, Language Server, …);
+     • Output — canais reais (dxtutor, Tasks, Problems, Co-Dev, Language servers, …); o dos servidores de
+       linguagem junta o progresso de indexação ao registo de cada servidor (stderr, logMessage e o que lhe
+       aconteceu: arrancou, parou e porquê, morreu — LSP P6);
      • Services — portas TCP em escuta e o compose do workspace, lidos a sério;
      • Debug assistant — comandos que falharam e erros reais, enviados ao Co-Dev num clique.
    No browser (sem Tauri) e no harness de testes este módulo não faz nada: o caminho de
@@ -19,11 +21,14 @@ import { translator } from "../../app/i18n";
 import { PANEL_SCOPE_MESSAGES } from "./ui/scope-messages";
 import { problemsScope } from "../../app/problems-scope";
 const scopeText = translator(PANEL_SCOPE_MESSAGES);
+const lspLogCopy = translator(PANEL_LSP_LOG_MESSAGES);
 import { makeOutput } from "./application/output";
 import { makeTerminals, TASKS_CHANNEL } from "./application/terminals";
 import { makeProblems } from "./application/problems-service";
 import type { Clock, WorkspacePort } from "./application/ports";
-import { tauriPorts, tauriProblems, tauriPty, openExternal, onLspStatus } from "./infrastructure/tauri";
+import { tauriPorts, tauriProblems, tauriPty, openExternal, onLspStatus, onLspLog, lspLogBacklog } from "./infrastructure/tauri";
+import { LSP_CHANNEL, lspLogLevel, lspLogText, newLines, type LspLogLine } from "./domain/lsp-log";
+import { PANEL_LSP_LOG_MESSAGES } from "./ui/lsp-log-messages";
 import * as L from "./infrastructure/legacy-bridge";
 import { mountTerminalView, isAppKey, type TerminalView } from "./ui/terminal-view";
 import { renderProblems, problemCounts } from "./ui/problems-view";
@@ -57,7 +62,7 @@ function boot(): void {
     openFile: L.openFile,
     openUrl: (url) => openExternal(url, L.os()),
   };
-  const output = makeOutput(clock.now, ["dxtutor", TASKS_CHANNEL, "Problems", "Co-Dev", "Language Server"]);
+  const output = makeOutput(clock.now, ["dxtutor", TASKS_CHANNEL, "Problems", "Co-Dev", LSP_CHANNEL]);
   const terminals = makeTerminals({ pty: tauriPty, workspace, output, clock });
   const problems = makeProblems({ port: tauriProblems, workspace, output, clock });
 
@@ -81,7 +86,24 @@ function boot(): void {
     [...outEl.childNodes].forEach(adoptLegacy);
     new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach(adoptLegacy))).observe(outEl, { childList: true });
   }
-  void onLspStatus((s) => output.append("Language Server", `${s.server}${s.kind ? ` · ${s.kind}` : ""}${s.title ? ` · ${s.title}` : ""}${s.message ? ` — ${s.message}` : ""}${s.percentage != null ? ` (${s.percentage}%)` : ""}`));
+  void onLspStatus((s) => output.append(LSP_CHANNEL, `${s.server}${s.kind ? ` · ${s.kind}` : ""}${s.title ? ` · ${s.title}` : ""}${s.message ? ` — ${s.message}` : ""}${s.percentage != null ? ` (${s.percentage}%)` : ""}`));
+  /* o registo de cada servidor de linguagem (LSP P6): o guardado no backend (a interface recarrega ao mudar de
+     língua) e cada linha nova, sem repetir nenhuma (`seq`) */
+  let lspSeen = 0;
+  const appendLsp = (lines: readonly LspLogLine[]): void => {
+    const { fresh, seen } = newLines(lines, lspSeen);
+    lspSeen = seen;
+    for (const l of fresh) output.append(LSP_CHANNEL, lspLogText(l, lspLogCopy), lspLogLevel(l));
+  };
+  const early: LspLogLine[] = [];
+  let backlogRead = false;
+  void onLspLog((lines) => (backlogRead ? appendLsp(lines) : early.push(...lines)));
+  void lspLogBacklog()
+    .catch(() => [] as LspLogLine[])
+    .then((lines) => {
+      backlogRead = true;
+      appendLsp([...lines, ...early]);
+    });
 
   /* ───── Terminal ───── */
   const view: TerminalView = mountTerminalView({
@@ -392,6 +414,13 @@ function boot(): void {
     ownsKey: (e) => inTerminal(e) && !isAppKey(e),
     problems: (): Problem[] => problems.all(),
     drawProblems: drawProblemsAll,
+    showLspLog: () => {
+      L.setPanelTab("output");
+      channel = LSP_CHANNEL;
+      channelPicked = true;
+      drawToolbar();
+      drawOutput();
+    },
     drawServices: () => {
       svc.stack = L.stack();
       svc.compose = L.root() ? L.composeFile() : null;
