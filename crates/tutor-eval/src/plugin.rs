@@ -619,8 +619,14 @@ test_prelude = "import unittest\nfrom student import *\n\n"
 run_cmd  = "python3 -B {file}"
 test_cmd = "python3 -B -m unittest -q test_student"
 # Project steps: every `test*.py` from the work dir down (packages need an `__init__.py`).
-# unittest exits non-zero on a failure, an error, or when no test ran (5, Python 3.12+).
-project_test_cmd = "python3 -B -m unittest discover -q -s . -t . -p 'test*.py'"
+# Fails on a failure, an error, or when no test ran — checked here, not left to unittest (only
+# Python 3.12+ exits non-zero when nothing ran; older hosts would pass an empty suite).
+project_test_cmd = '''python3 -B -c 'import sys, unittest
+suite = unittest.defaultTestLoader.discover(".", pattern="test*.py", top_level_dir=".")
+result = unittest.TextTestRunner(verbosity=0).run(suite)
+if result.testsRun == 0:
+    print("no tests ran", file=sys.stderr)
+sys.exit(0 if result.wasSuccessful() and result.testsRun > 0 else 1)' '''
 diag_cmd = '''python3 -B -c 'import sys
 try:
     compile(open("student.py").read(), "student.py", "exec")
