@@ -583,8 +583,11 @@ pub(super) fn reader_ended(map: &SessionMap, session: &Arc<Mutex<Session>>) {
     }
 }
 
+/// A session to stop, and why.
+pub(super) type Stop = (Arc<Mutex<Session>>, Reason);
+
 /// Shut these down, each on a thread of its own (the handles let a caller wait).
-fn shutdown_each(stops: Vec<(Arc<Mutex<Session>>, Reason)>) -> Vec<JoinHandle<()>> {
+fn shutdown_each(stops: Vec<Stop>) -> Vec<JoinHandle<()>> {
     stops
         .into_iter()
         .map(|(s, why)| thread::spawn(move || shutdown(&s, why)))
@@ -603,7 +606,7 @@ pub(super) fn select_stops(
     now: Instant,
     limits: Limits,
     keep: Option<&str>,
-) -> (Vec<(Arc<Mutex<Session>>, Reason)>, Option<usize>) {
+) -> (Vec<Stop>, Option<usize>) {
     let Ok(mut m) = map.lock() else {
         return (Vec::new(), None);
     };
@@ -735,7 +738,7 @@ pub(super) fn close_folder(map: &SessionMap, root: &str) -> Vec<JoinHandle<()>> 
     workspace_roots().lock().unwrap().remove(&root);
     conf().lock().unwrap().cache.remove(&root);
     docs().lock().unwrap().retain(|p, _| !under(p, &root));
-    let stops: Vec<(Arc<Mutex<Session>>, Reason)> = match map.lock() {
+    let stops: Vec<Stop> = match map.lock() {
         Ok(mut m) => {
             let keys: Vec<String> = m
                 .iter()
@@ -758,7 +761,7 @@ pub(super) fn close_folder(map: &SessionMap, root: &str) -> Vec<JoinHandle<()>> 
 
 /// Shut every server down and wait for them (in parallel: a few seconds at most).
 pub(super) fn stop_all(map: &SessionMap, reason: Reason) {
-    let all: Vec<(Arc<Mutex<Session>>, Reason)> = match map.lock() {
+    let all: Vec<Stop> = match map.lock() {
         Ok(mut m) => m.drain().map(|(_, s)| (s, reason)).collect(),
         Err(_) => Vec::new(),
     };

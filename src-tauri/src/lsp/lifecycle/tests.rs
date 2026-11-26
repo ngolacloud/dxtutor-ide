@@ -674,7 +674,7 @@ fn the_list_shows_each_server_with_its_files_idle_time_and_memory() {
     // with a file open: no idle countdown, the file listed
     ensure_doc_open(&s.session, &path).unwrap();
     let v = list(&map, limits);
-    assert_eq!(v.servers[0].documents, [path.clone()]);
+    assert_eq!(v.servers[0].documents, std::slice::from_ref(&path));
     assert_eq!(v.servers[0].stops_in_secs, None);
     close_document(&map, &path);
     stop_all(&map, Reason::AppExit);
