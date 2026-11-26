@@ -1,0 +1,6 @@
+{
+  "name": "happy-dom",
+  "version": "15.11.7",
+  "type": "module",
+  "exports": "./index.js"
+}

@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "dxjs",
+  "name": "Dxjs",
+  "version": "1.0.0",
+  "description": "Dxjs: Reactive UIs from Signals Up — fine-grained reactivity with @dxjs/core, cached queries, forms, safe html templates and components, up to a small app. Graded offline against the real dxjs 1.2.0.",
+  "authors": ["dxtutor"],
+  "license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ngolacloud/dxtutor-course-dxjs",
+  "engine": ">=0.7.0",
+  "kind": "course",
+  "category": "framework",
+  "subject": {
+    "id": "dxjs",
+    "name": "Dxjs",
+    "icon": "⚡",
+    "docs": "https://ngolacloud.github.io/dxjs/"
+  },
+  "language": {
+    "id": "typescript",
+    "name": "TypeScript",
+    "icon": "🔷",
+    "extension": "ts",
+    "indent": "2",
+    "testCommand": "node --experimental-transform-types"
+  },
+  "courses": ["courses/dxjs.toml"]
+}

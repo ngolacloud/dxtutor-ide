@@ -750,6 +750,23 @@ cpp, sql.
   com a cópia do curso) vivem no modelo; o descritor escreve a árvore e corre o `project_test_cmd`
   (só o Python o tem). `submit_step` ganhou `files` (o `code` continua). Na UI, a lista de
   ficheiros por cima do editor (`lt-file`). Testes e solução nunca vão para o webview.
+- **Ficheiros de apoio** (`tutor_core::support`, Learn P1): um curso declara uma vez `[support]`
+  (caminho na pasta de trabalho → ficheiro do plugin), só de leitura e partilhados por TODOS os passos.
+  Quem lê o curso carrega-os (`tutor_plugins::support::load_support` do disco, sem ligações simbólicas;
+  os embutidos por `include_str!`, uma tabela por curso em `course.rs` que um teste compara com a
+  declaração); `Course::phase(step)` junta-os ao `Phase.support` e o descritor escreve-os depois dos do
+  passo, sem nunca substituir nada (`create_new`). Os runners nativos (Rust/Go) recusam-nos. Nunca vão
+  para o webview. Use SEMPRE `course.phase(step, …)` (não `step.as_phase`) onde se avalia.
+- **Curso Dxjs** (`courses/dxjs/`, o 1.º framework oficial, embutido só no backend, avaliado pelo
+  descritor TypeScript): o dxjs não está no npm, por isso o `support/` traz o `cdn/dxjs.js` 1.2.0
+  (reconstruído dos tarballs da release, sha256 fixo), um shim por pacote `@dxjs/*`, o happy-dom 15.11.7
+  num só ficheiro e o `@dxtutor/dom` (DOM no `globalThis`, como os testes do dxjs). Regenerar/verificar
+  com `node scripts/vendor-dxjs.mjs <checkout dxjs> <tarballs> --check`. Os passos de projecto TS correm
+  `node --test` sobre os `*.test.ts` ocultos; os desafios de um ficheiro importam por alias
+  (`effect as effectForTest`) para não chocar com os nomes do aluno. GOTCHA (dxjs 1.2.0): uma ligação
+  reactiva dentro de uma linha de `list` morre na 1.ª mudança da lista (os efeitos da linha pertencem
+  ao efeito da lista): o curso põe na chave o que muda (`t.id + ":" + t.done`). O `dxt plugin test`
+  diz a versão da ferramenta (`version_cmd` dos descritores).
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
   `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
   `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`
