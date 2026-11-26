@@ -19,6 +19,8 @@ export interface ProjectGateway {
   conformance?(root: string): Promise<unknown>;
   /** Multi Co-Dev (phase 1): the parallel plan of a sprint (`project_sprint_plan`, read-only). */
   sprintPlan?(root: string, sprint: string | null, codevs: number | null): Promise<unknown>;
+  /** Board B: what choosing a method changes in the settings (`project_method_preview`, read-only). */
+  methodPreview?(root: string, method: string, lang: string): Promise<unknown>;
 }
 
 export interface Workspace {
@@ -104,4 +106,6 @@ export interface ProjectDeps {
   showInProblems?(label: string, files: string[]): void;
   /** Opens a file of the open folder at a line. */
   openAt?(rel: string, line: number): void;
+  /** The language of the method's DoR/DoD suggestions (`pt` or `en`); without it, `pt`. */
+  lang?(): "pt" | "en";
 }

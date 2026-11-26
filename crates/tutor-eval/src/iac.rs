@@ -210,6 +210,295 @@ fn words(s: &str) -> String {
     tutor_protect::redact::current().mask(&t)
 }
 
+// ───── infracost: never interactive ─────
+//
+// infracost 2.x without credentials starts a sign-in (a browser page, or a device code) and waits
+// for a human; `breakdown` runs `scan`, which does the same. The pipeline must never do that: without
+// credentials the stage is `not_connected` and infracost does not run; with them it runs with no
+// terminal and nothing that can show a page, is stopped at a sign-in prompt, and has a deadline.
+
+/// How long infracost may run (it fetches prices over the network).
+pub const INFRACOST_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// The variables infracost takes a key or a token from.
+const INFRACOST_KEY_VARS: [&str; 3] = [
+    "INFRACOST_API_KEY",
+    "INFRACOST_CLI_AUTHENTICATION_TOKEN",
+    "INFRACOST_CLI_PRICING_API_KEY",
+];
+
+/// The value a command will see for `name`: what the factory set on it, else the app's own.
+fn env_of(c: &Command, name: &str) -> Option<String> {
+    match c.get_envs().find(|(k, _)| *k == name) {
+        Some((_, v)) => v.map(|v| v.to_string_lossy().into_owned()),
+        None => std::env::var(name).ok(),
+    }
+}
+
+/// Does infracost have credentials, without running it? A key in the environment, the token
+/// `infracost auth login` caches (2.x: `token.json`, or `INFRACOST_CLI_OAUTH_TOKEN_CACHE_PATH`), or
+/// the `api_key` of `credentials.yml` (0.10) — under the HOME the command gets.
+pub fn infracost_signed_in(env: &dyn Fn(&str) -> Option<String>) -> bool {
+    let set = |k: &str| env(k).is_some_and(|v| !v.trim().is_empty());
+    if INFRACOST_KEY_VARS.iter().any(|k| set(k)) {
+        return true;
+    }
+    let mut dirs: Vec<PathBuf> = vec![];
+    if let Some(x) = env("XDG_CONFIG_HOME").filter(|x| !x.trim().is_empty()) {
+        dirs.push(PathBuf::from(x).join("infracost"));
+    }
+    if let Some(h) = env("HOME").filter(|h| !h.trim().is_empty()) {
+        dirs.push(PathBuf::from(h).join(".config").join("infracost"));
+    }
+    let tokens: Vec<PathBuf> = match env("INFRACOST_CLI_OAUTH_TOKEN_CACHE_PATH") {
+        Some(t) if !t.trim().is_empty() => vec![PathBuf::from(t)],
+        _ => dirs.iter().map(|d| d.join("token.json")).collect(),
+    };
+    if tokens
+        .iter()
+        .any(|t| std::fs::metadata(t).is_ok_and(|m| m.is_file() && m.len() > 0))
+    {
+        return true;
+    }
+    dirs.iter().any(|d| {
+        std::fs::read_to_string(d.join("credentials.yml")).is_ok_and(|t| {
+            t.lines().any(|l| {
+                l.trim()
+                    .strip_prefix("api_key:")
+                    .is_some_and(|v| !v.trim().trim_matches(['"', '\'']).is_empty())
+            })
+        })
+    })
+}
+
+/// The variables through which a program reaches the desktop session. Measured: with only DISPLAY
+/// pointing at an Xvfb, `xdg-open` (GNOME mode) still asked the session's `systemd --user` over the
+/// bus at `$XDG_RUNTIME_DIR/bus`, and the browser opened on the user's real desktop.
+const DESKTOP_VARS: [&str; 6] = [
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "XDG_RUNTIME_DIR",
+    "XDG_CURRENT_DESKTOP",
+    "DESKTOP_SESSION",
+];
+
+/// What infracost runs with: no terminal (stdin is null) and nothing that can show a sign-in page —
+/// no display, no session bus, no desktop (so `xdg-open` falls back to `$BROWSER`), a browser that
+/// fails, the device flow (no local callback port) — and no update check or coding-agent check (2.x
+/// otherwise writes into the HOME's agent settings).
+fn infracost_command(mut cmd: Command) -> Command {
+    for k in DESKTOP_VARS {
+        cmd.env_remove(k);
+    }
+    cmd.env("BROWSER", "false")
+        .env("INFRACOST_CLI_OAUTH_USE_DEVICE_FLOW", "true")
+        .env("INFRACOST_SKIP_UPDATE_CHECK", "true")
+        .env("INFRACOST_SKIP_AGENT_CHECK", "true")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null());
+    cmd
+}
+
+/// infracost is asking a human to sign in (2.x prints a device code and waits).
+fn asks_to_sign_in(text: &str) -> bool {
+    let t = text.to_lowercase();
+    [
+        "to log in",
+        "login.infracost.io",
+        "enter the code",
+        "auth login",
+    ]
+    .iter()
+    .any(|w| t.contains(w))
+}
+
+struct Bounded {
+    out: Out,
+    timed_out: bool,
+    sign_in: bool,
+}
+
+/// Runs infracost hardened ([`infracost_command`]) in its own process group, which is killed at a
+/// sign-in prompt or after `timeout`.
+fn exec_infracost(cmd: Command, wd: &Path, timeout: Duration) -> Bounded {
+    use std::io::Read;
+    use std::sync::{Arc, Mutex};
+    let mut cmd = infracost_command(cmd);
+    cmd.current_dir(wd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return Bounded {
+                out: Out {
+                    code: -1,
+                    stdout: String::new(),
+                    stderr: e.to_string(),
+                },
+                timed_out: false,
+                sign_in: false,
+            }
+        }
+    };
+    fn pump(
+        r: Option<impl Read + Send + 'static>,
+    ) -> (Arc<Mutex<Vec<u8>>>, std::thread::JoinHandle<()>) {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let b = buf.clone();
+        let h = std::thread::spawn(move || {
+            let Some(mut r) = r else { return };
+            let mut chunk = [0u8; 8192];
+            while let Ok(n) = r.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                if let Ok(mut b) = b.lock() {
+                    b.extend_from_slice(&chunk[..n]);
+                }
+            }
+        });
+        (buf, h)
+    }
+    let text = |b: &Arc<Mutex<Vec<u8>>>| {
+        b.lock()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default()
+    };
+    let (out, ho) = pump(child.stdout.take());
+    let (err, he) = pump(child.stderr.take());
+    let start = Instant::now();
+    let (mut timed_out, mut sign_in) = (false, false);
+    let code = loop {
+        if let Ok(Some(st)) = child.try_wait() {
+            break st.code().unwrap_or(-1);
+        }
+        sign_in = asks_to_sign_in(&text(&out)) || asks_to_sign_in(&text(&err));
+        timed_out = !sign_in && start.elapsed() > timeout;
+        if sign_in || timed_out {
+            #[cfg(unix)]
+            // SAFETY: the child leads its own process group (process_group(0) above)
+            unsafe {
+                libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            break -1;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    // the readers end when the pipes close; a helper that kept them open is not waited for
+    let t0 = Instant::now();
+    while !(ho.is_finished() && he.is_finished()) && t0.elapsed() < Duration::from_secs(2) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Bounded {
+        out: Out {
+            code,
+            stdout: text(&out),
+            stderr: text(&err),
+        },
+        timed_out,
+        sign_in,
+    }
+}
+
+/// The infracost stage and each resource's monthly cost: `not_connected` without credentials
+/// (infracost is not run), otherwise `breakdown` of the plan's JSON, never interactive.
+fn infracost_stage(
+    c: &Ctx,
+    wd: &Path,
+    plan_json: &Path,
+    timeout: Duration,
+) -> (Stage, HashMap<String, f64>) {
+    let id = "infracost";
+    let command = shown(
+        "infracost",
+        &["breakdown", "--path", "<plan.json>", "--format", "json"],
+    );
+    let not_connected = |detail: String| Stage {
+        command: command.clone(),
+        // installed but not signed in: the hint is the sign-in, not the install
+        hint: Some(CONNECT_INFRACOST.into()),
+        detail,
+        ..Stage::new(id, Status::NotConnected, "infracost has no API key")
+    };
+    let probe = (c.cmd)("infracost");
+    if !infracost_signed_in(&|k| env_of(&probe, k)) {
+        return (not_connected(String::new()), HashMap::new());
+    }
+    let jp = plan_json.to_string_lossy().to_string();
+    let args = [
+        "breakdown",
+        "--path",
+        jp.as_str(),
+        "--format",
+        "json",
+        "--no-color",
+        "--log-level=error",
+    ];
+    let r = exec_infracost(with(c, "infracost", &args), wd, timeout);
+    let o = r.out;
+    let low = o.stderr.to_lowercase();
+    if r.sign_in
+        || (o.code != 0
+            && (low.contains("api_key") || low.contains("api key") || low.contains("auth login")))
+    {
+        // the sign-in prompt's words carry a device code: only the tool's errors are shown
+        let detail = if r.sign_in {
+            "infracost asked to sign in; it was stopped".to_string()
+        } else {
+            words(&o.stderr)
+        };
+        return (not_connected(detail), HashMap::new());
+    }
+    if r.timed_out {
+        return (
+            Stage {
+                command,
+                detail: words(&o.stderr),
+                ..Stage::new(
+                    id,
+                    Status::Failed,
+                    format!("infracost did not finish in {} s", timeout.as_secs()),
+                )
+            },
+            HashMap::new(),
+        );
+    }
+    if o.code != 0 {
+        return (
+            Stage {
+                command,
+                detail: words(&o.stderr),
+                ..Stage::new(id, Status::Failed, "infracost failed")
+            },
+            HashMap::new(),
+        );
+    }
+    let (costs, total, currency) = parse_infracost(&o.stdout);
+    (
+        Stage {
+            command,
+            ..Stage::new(
+                id,
+                Status::Ok,
+                match total {
+                    Some(t) => format!("{t:.2} {currency}/month"),
+                    None => "no cost data".into(),
+                },
+            )
+        },
+        costs,
+    )
+}
+
 /// POSIX single-quoting, only when needed.
 pub fn q(s: &str) -> String {
     if !s.is_empty()
@@ -662,35 +951,6 @@ fn pull(c: &Ctx, tool: &str, wd: &Path) -> Result<String, String> {
         return Err(format!("{tool} state pull failed:\n{}", words(&out.stderr)));
     }
     Ok(out.stdout)
-}
-
-/// Whether infracost has an API key: `INFRACOST_API_KEY` (in the environment the tools run with, or this
-/// process'), or a non-empty `api_key:` in `credentials.yml`.
-pub fn infracost_key(env_key: Option<&str>, credentials: Option<&str>) -> bool {
-    env_key.is_some_and(|k| !k.trim().is_empty())
-        || credentials.is_some_and(|t| {
-            t.lines().any(|l| {
-                l.trim()
-                    .strip_prefix("api_key:")
-                    .map(|v| !v.trim().trim_matches(['"', '\'']).is_empty())
-                    .unwrap_or(false)
-            })
-        })
-}
-
-fn infracost_has_key(c: &Ctx) -> bool {
-    let probe = (c.cmd)("infracost");
-    let var = |name: &str| -> Option<String> {
-        probe
-            .get_envs()
-            .find(|(k, _)| *k == name)
-            .and_then(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
-            .or_else(|| std::env::var(name).ok())
-    };
-    let creds = var("HOME").and_then(|h| {
-        std::fs::read_to_string(Path::new(&h).join(".config/infracost/credentials.yml")).ok()
-    });
-    infracost_key(var("INFRACOST_API_KEY").as_deref(), creds.as_deref())
 }
 
 fn with(c: &Ctx, tool: &str, args: &[&str]) -> Command {
@@ -1387,72 +1647,16 @@ pub fn run(c: &Ctx, on: &mut dyn FnMut(&Stage)) -> PipelineRun {
                 }
             }
             "infracost" if !(c.has)("infracost") => not_installed(id, "infracost"),
-            // never run without a key: on a first run (no config folder) infracost 0.10 starts a browser sign-in
-            // and waits — measured in the self-test, the pipeline hung there
-            "infracost" if !infracost_has_key(c) => Stage {
-                hint: Some(CONNECT_INFRACOST.into()),
-                command: shown(
-                    "infracost",
-                    &["breakdown", "--path", "<plan.json>", "--format", "json"],
-                ),
-                ..Stage::new(id, Status::NotConnected, "infracost has no API key")
-            },
             "infracost" => match &plan_json {
                 None => Stage::new(id, Status::Skipped, "no plan"),
                 Some(jp) => {
-                    let jp = jp.to_string_lossy().to_string();
-                    let args = [
-                        "breakdown",
-                        "--path",
-                        jp.as_str(),
-                        "--format",
-                        "json",
-                        "--no-color",
-                        "--log-level=error",
-                    ];
-                    let o = exec(with(c, "infracost", &args), &wd);
-                    let command = shown(
-                        "infracost",
-                        &["breakdown", "--path", "<plan.json>", "--format", "json"],
-                    );
-                    let low = o.stderr.to_lowercase();
-                    if o.code != 0
-                        && (low.contains("api_key")
-                            || low.contains("api key")
-                            || low.contains("auth login"))
-                    {
-                        Stage {
-                            command,
-                            // installed but not signed in: the hint is the sign-in, not the install
-                            hint: Some(CONNECT_INFRACOST.into()),
-                            detail: words(&o.stderr),
-                            ..Stage::new(id, Status::NotConnected, "infracost has no API key")
-                        }
-                    } else if o.code != 0 {
-                        Stage {
-                            command,
-                            detail: words(&o.stderr),
-                            ..Stage::new(id, Status::Failed, "infracost failed")
-                        }
-                    } else {
-                        let (costs, total, currency) = parse_infracost(&o.stdout);
-                        if let Some(p) = plan.as_mut() {
-                            for ch in p.changes.iter_mut() {
-                                ch.monthly_cost = costs.get(&ch.address).copied();
-                            }
-                        }
-                        Stage {
-                            command,
-                            ..Stage::new(
-                                id,
-                                Status::Ok,
-                                match total {
-                                    Some(t) => format!("{t:.2} {currency}/month"),
-                                    None => "no cost data".into(),
-                                },
-                            )
+                    let (stage, costs) = infracost_stage(c, &wd, jp, INFRACOST_TIMEOUT);
+                    if let Some(p) = plan.as_mut() {
+                        for ch in p.changes.iter_mut() {
+                            ch.monthly_cost = costs.get(&ch.address).copied();
                         }
                     }
+                    stage
                 }
             },
             _ => Stage::new(id, Status::Skipped, ""),

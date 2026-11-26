@@ -297,10 +297,14 @@ rollout aplica os manifestos SEM o Secret (o do cluster fica intacto), anota a v
   ficavam com a versão deste deploy (medido no kind). Agora só os Deployments dos manifestos — também no deploy do pane
   Infra e na promoção de ambientes (`platform/desktop/infra.ts`).
 - A dica do infracost sem chave dizia para o instalar; agora diz para fazer `infracost auth login`.
-- O infracost 0.10, na primeira execução (sem pasta de configuração, como num HOME novo), abre um browser para o
-  login e fica à espera: o pipeline de IaC pendurava-se (apanhado pelo auto-teste, que corre com um HOME temporário).
-  Agora o pipeline só o corre com uma chave (`INFRACOST_API_KEY` ou `api_key` no `credentials.yml`); sem ela, a etapa
-  fica «not connected» sem correr nada. Teste: `iac::tests::infracost_runs_only_with_a_key`.
+- No auto-teste (HOME temporário, sem chave) o infracost 2.21 abriu um login no browser do utilizador e ficou à espera
+  até ser morto (o `breakdown` passou a correr o `scan`, que pede login). Agora, sem credenciais, a etapa é «not
+  connected» sem correr o infracost; com elas, corre sem stdin nem ecrã, é parado num pedido de login e tem um prazo.
+  Testes: `iac::tests::infracost_*` (com um infracost falso pela fábrica de comandos).
+- O protect do auto-teste deixou passar o commit com `postgres://u:p@h` (`blockedCode: 0`): o binário era de um ramo
+  sem a correcção acima (o gitleaks a substituir as regras próprias). Teste de regressão sem depender do gitleaks
+  instalado: `scan::tests::the_self_test_commit_is_blocked_with_or_without_gitleaks` (gitleaks falso pela fábrica). O
+  relatório do gitleaks passou a ser um ficheiro por corrida (dois scans ao mesmo tempo partilhavam um nome por processo).
 
 ## Fonte de métricas (ponto 3, parte a — 2026-11-26)
 
@@ -313,7 +317,7 @@ logs, em duas partes.
   O token nunca sai do backend (keychain, ou `vault::credential`) e entra na redacção.
 - **Ligado a:** a fonte `obs` das Fontes de dados; o portão `slo` do deploy (estado novo `warning` em staging; `failed`
   dispensável em produção); `capacity` e `error-budget` na revisão de PR; a confiança dos incidentes e o botão «Check
-  metrics». Comandos novos: `metrics_status`, `metrics_token_set`, `metrics_token_clear`, `incident_metrics_check` (310).
+  metrics». Comandos novos: `metrics_status`, `metrics_token_set`, `metrics_token_clear`, `incident_metrics_check` (311 comandos).
 - **Prova:** Prometheus 3.16.0 instalado (checksum verificado). Os testes Rust correm-no a sério quando está no PATH
   (as consultas inválidas à própria API são os erros: 10 em 30 gastam um orçamento de 99 %); o passo `metrics` do
   auto-teste usa um Prometheus e o Vault dev do runner — o token de leitura vem do Vault, a fonte fica ligada, o orçamento

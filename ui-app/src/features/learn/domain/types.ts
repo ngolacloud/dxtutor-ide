@@ -12,6 +12,34 @@ export interface Language {
   indent: string;
 }
 
+/** O que um curso ensina: uma linguagem, um framework ou uma ferramenta. */
+export type Category = "language" | "framework" | "tool";
+
+/** Um framework ou uma ferramenta que o Learning Track conhece (do catálogo oficial ou de um
+ *  plugin). Categoria SEPARADA das linguagens: o tecto de 10 é só das linguagens. */
+export interface Subject {
+  id: string;
+  name: string;
+  icon: string;
+  category: Exclude<Category, "language">;
+  /** URL da documentação oficial (vazio quando o plugin não a dá). */
+  docs: string;
+  /** O que instalar para praticar (texto curto). Vazio quando não se sabe. */
+  install: string;
+  /** Repositório do plugin oficial (`ngolacloud/dxtutor-course-<id>`); vazio na comunidade. */
+  repo: string;
+}
+
+/** Um passo de projecto: vários ficheiros (os testes ocultos e a solução ficam no backend). */
+export interface StepProject {
+  /** O ficheiro aberto primeiro. */
+  main: string;
+  /** caminho relativo → conteúdo inicial */
+  files: Record<string, string>;
+  /** Os que o aluno vê mas não muda. */
+  readonly: string[];
+}
+
 /** Um passo, na forma que o motor (features/learn.ts) lê — a mesma dos JSON embutidos. */
 export interface Step {
   kind: "concept" | "drill" | "challenge";
@@ -32,6 +60,8 @@ export interface Step {
   /** Só nos cursos embutidos (protótipo de browser); os de plugin são avaliados no backend. */
   tests?: string;
   gabarito?: { solution: string; time: string; space: string; justification: string };
+  /** Só nos passos de projecto (vários ficheiros). */
+  project?: StepProject;
 }
 
 export interface Unit {
@@ -47,6 +77,11 @@ export interface Unit {
 
 export interface Course {
   id: string;
+  /** A linguagem em que os passos se escrevem e se avaliam. */
+  language: string;
+  category: Category;
+  /** O framework/ferramenta ensinado; vazio num curso de linguagem. */
+  subject: string;
   title: string;
   summary: string;
   /** Texto que apresenta a linguagem (markdown). Pode ser vazio. */
@@ -68,6 +103,14 @@ export interface LanguageCard {
   community: boolean;
 }
 
+/** Um cartão de framework/ferramenta no selector (mesmos estados das linguagens). */
+export interface SubjectCard {
+  subject: Subject;
+  state: CardState;
+  summary: string;
+  community: boolean;
+}
+
 /** Um plugin instalado, como o selector o mostra. */
 export interface PluginRow {
   id: string;
@@ -75,5 +118,7 @@ export interface PluginRow {
   version: string;
   source: string;
   language: Language | null;
+  /** O framework/ferramenta, num plugin dessa categoria. */
+  subject: Subject | null;
   error: string | null;
 }

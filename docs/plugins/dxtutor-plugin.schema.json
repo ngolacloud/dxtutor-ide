@@ -17,6 +17,23 @@
     "repository": { "type": "string" },
     "engine": { "type": "string", "description": "Supported dxtutor versions as a semver requirement, e.g. >=0.7.0." },
     "kind": { "const": "course" },
+    "category": {
+      "enum": ["language", "framework", "tool"],
+      "default": "language",
+      "description": "What the courses teach. A framework or tool plugin needs `subject`; `language` is then the language the exercises are written and graded in."
+    },
+    "subject": {
+      "type": "object",
+      "description": "The framework or tool taught (only when category is framework or tool). Every course's `subject` must equal subject.id.",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$", "examples": ["dxjs", "seiva", "django", "delonix", "docker", "podman", "kubernetes", "odoo"] },
+        "name": { "type": "string", "minLength": 1 },
+        "icon": { "type": "string", "description": "An emoji for the card." },
+        "docs": { "type": "string", "pattern": "^https://", "description": "The official documentation URL." }
+      },
+      "additionalProperties": false
+    },
     "language": {
       "type": "object",
       "required": ["id", "name", "extension"],
@@ -36,5 +53,8 @@
       "items": { "type": "string", "pattern": "\\.(toml|json)$", "description": "Relative path to a course file." }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "if": { "properties": { "category": { "enum": ["framework", "tool"] } }, "required": ["category"] },
+  "then": { "required": ["subject"] },
+  "else": { "not": { "required": ["subject"] } }
 }

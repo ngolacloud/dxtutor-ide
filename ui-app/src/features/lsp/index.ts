@@ -99,7 +99,7 @@ if (isDesktop()) {
   addPaletteCommand("Show Type Hierarchy", "Shift+Alt+T", showTypes);
   /* o Outline das linguagens que o file_outline não cobre: os símbolos do servidor */
   desktopPorts.outline = {
-    covers: (p) => !!workspace.diskRoot() && !!languageIdFor(p),
+    covers: (p) => !!workspace.diskRoot() && !!languageIdFor(p, workspace.text(p)),
     symbols: async (p) => (await client.symbolsFor(p))?.map((s) => ({ k: s.label, n: s.name, line: s.line, d: s.depth })) ?? null,
   };
 }

@@ -3,7 +3,7 @@
    brings its own practices and views. The selectors turn a project into what the board
    draws: columns, swimlanes, quick filters, WIP status, the sprint summary. Pure. */
 
-import { STATES, type Issue, type Method, type Project, type Sprint, type State } from "./types";
+import { STATES, type Cos, type Issue, type Method, type Project, type Sprint, type State } from "./types";
 
 export interface MethodInfo {
   name: string;
@@ -101,10 +101,20 @@ export interface Lane {
 
 const emptyColumns = (): Record<State, Issue[]> => ({ todo: [], progress: [], review: [], accept: [], done: [] });
 
-/** Groups the issues into swimlanes (by epic or assignee), each with the five columns. */
-export function lanes(issues: Issue[], by: Swim): Lane[] {
+/** Kanban orders cards by class of service (Board B, the same order as `methods::cos_rank`): expedite
+ *  first, then fixed date, standard, intangible. */
+export const COS_ORDER: Record<Cos, number> = { expedite: 0, fixed: 1, standard: 2, intangible: 3 };
+
+/** The order a board lists cards in: by rank; in Kanban by class of service first. */
+export function cardOrder(method: Method): (a: Issue, b: Issue) => number {
+  return method === "kanban" ? (a, b) => COS_ORDER[a.cos] - COS_ORDER[b.cos] || a.rank - b.rank : (a, b) => a.rank - b.rank;
+}
+
+/** Groups the issues into swimlanes (by epic or assignee), each with the five columns. Kanban (`method`)
+ *  lists each column by class of service, then rank. */
+export function lanes(issues: Issue[], by: Swim, method: Method = "scrum"): Lane[] {
   const groups = new Map<string, Issue[]>();
-  for (const i of [...issues].sort((a, b) => a.rank - b.rank)) {
+  for (const i of [...issues].sort(cardOrder(method))) {
     const k = by === "epic" ? i.epic : by === "assignee" ? i.assignee : "";
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k)!.push(i);
@@ -155,6 +165,27 @@ export function summary(p: Project, now: number): SprintSummary {
   if (!s) return { title: box ? `No active ${box.toLowerCase()}` : "Continuous flow", goal: "", daysLeft: null, points, donePoints };
   return { title: s.name, goal: s.goal, daysLeft: Math.max(0, Math.ceil((s.end - now) / DAY)), points, donePoints };
 }
+
+/** Board B: the points planned in a sprint against its capacity (`left` < 0: over it). */
+export function sprintLoad(p: Project, sprint: Sprint): { points: number; capacity: number | null; left: number | null } {
+  const points = p.issues.filter((i) => i.sprint === sprint.id).reduce((n, i) => n + (i.points ?? 0), 0);
+  return { points, capacity: sprint.capacity, left: sprint.capacity === null ? null : sprint.capacity - points };
+}
+
+/** Board B: would the WIP limit of In progress refuse starting `i` (the store's rule, for the question
+ *  before Co-Dev starts)? `null`: it would not — the backend moves the issue when the session really
+ *  starts. Kanban lets one expedite pass a column that is exactly at its limit. */
+export function startWipRefusal(p: Project, i: Issue): { count: number; limit: number } | null {
+  const limit = p.wip.progress;
+  if (i.state !== "todo" || limit === undefined) return null;
+  const count = p.issues.filter((x) => x.state === "progress" && x.key !== i.key).length;
+  if (count < limit) return null;
+  if (p.method === "kanban" && i.cos === "expedite" && count === limit) return null;
+  return { count, limit };
+}
+
+/** The items of the project's own DoR not ticked on the issue (Board B). */
+export const dorOpen = (i: Issue, p: Project): string[] => p.dor.filter((_, k) => !i.dorDone[k]);
 
 /** Definition of Done progress of an issue: criteria met and DoD items checked. */
 export function doneProgress(i: Issue, p: Project): { done: number; total: number } {

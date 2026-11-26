@@ -5,7 +5,8 @@
 // (Cargo.toml for Rust, go.mod for Go, tsconfig/package.json for TS, pyproject for
 // Python). Rooting the server at the file's own project keeps the index small, fast
 // and correct, and makes a DETACHED project resolve — which a single server rooted
-// at a huge monorepo never would. The language registry (`LANGS` + `server_cmd`)
+// at a huge monorepo never would. The language registry (`languages/registry.json`, through
+// `tutor_eval::langreg`: languages, servers, root markers, init options, ready signals, quirks)
 // is the ONLY language-specific part; everything below is protocol-generic.
 //
 // THREADING: every command is `async` and runs its blocking work (the LSP
@@ -19,7 +20,9 @@
 // waits (bounded) for it, hover does not.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::io::{BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -28,6 +31,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
+use tutor_eval::langreg::{self, Server};
 
 struct Session {
     child: Option<Child>,
@@ -44,8 +48,6 @@ struct Session {
     /// «este servidor não tem isto» em vez de um erro ou de uma lista vazia.
     server_caps: Value,
     ready: bool,
-    /// Human label of the backing server ("rust-analyzer", "gopls", …) for the pill.
-    label: &'static str,
     /// Substring marking the end-of-index `$/progress` for this server (see `Lang`).
     ready_signal: &'static str,
     /// token → begin-title, so an `end` event (whose own title is empty) can be matched
@@ -58,345 +60,361 @@ type SessionMap = Arc<Mutex<HashMap<String, Arc<Mutex<Session>>>>>;
 #[derive(Default, Clone)]
 pub struct LspState(SessionMap);
 
-/// A supported language: how to recognise its files and find its project root.
-/// This (+ `server_cmd`) is the ONLY place that knows about specific languages.
+/// A session group — ONE server per (group, project root): its registry server entry plus what
+/// a session needs. Everything language-specific comes from the language registry
+/// (`languages/registry.json`, read through `tutor_eval::langreg`); this is only a view of it.
+#[derive(Clone, Copy)]
 struct Lang {
-    /// LSP `languageId` — also the session-key prefix and the UI's language tag.
+    /// The server id (`rust`, `typescript`, `cpp`, …) — the session-key prefix and the
+    /// `language` the UI hears (`ServerStatus`, workspace symbols).
     id: &'static str,
-    /// File extensions (no dot) that map to this language.
-    exts: &'static [&'static str],
     /// Project-root markers: the session roots at the nearest ancestor holding ANY.
-    markers: &'static [&'static str],
-    /// Human label of the server binary, for the progress pill ("rust-analyzer", "gopls", …).
+    markers: &'static [String],
+    /// Human label of the server, for the progress pill ("rust-analyzer", "gopls", …).
     server_label: &'static str,
-    /// Lowercase substring that, in the TOKEN or the BEGIN-title of a finishing
-    /// `$/progress`, marks the symbol index as built (session becomes `ready`). MEASURED
-    /// per server: rust-analyzer's token is `rustAnalyzer/cachePriming`; gopls titles its
-    /// startup "Setting up workspace". The ts/python signals are best-effort until their
-    /// servers are installed and measured the same way.
+    /// Lowercase substring that, in the TOKEN or the BEGIN-title of a finishing `$/progress`,
+    /// marks the symbol index as built (session becomes `ready`). MEASURED per server:
+    /// rust-analyzer's token is `rustAnalyzer/cachePriming`; gopls titles its startup "Setting up
+    /// workspace"; pyright sends nothing (empty ⇒ ready as soon as `initialized`).
     ready_signal: &'static str,
+    server: &'static Server,
 }
 
-const LANGS: &[Lang] = &[
-    Lang {
-        id: "rust",
-        exts: &["rs"],
-        markers: &["Cargo.toml"],
-        server_label: "rust-analyzer",
-        ready_signal: "cachepriming",
-    },
-    Lang {
-        id: "go",
-        exts: &["go"],
-        markers: &["go.work", "go.mod"],
-        server_label: "gopls",
-        ready_signal: "setting up workspace",
-    },
-    Lang {
-        id: "typescript",
-        exts: &["ts", "tsx", "js", "jsx", "mjs", "cjs"],
-        markers: &["tsconfig.json", "jsconfig.json", "package.json"],
-        server_label: "typescript-language-server",
-        ready_signal: "initializ",
-    },
-    Lang {
-        id: "python",
-        exts: &["py", "pyi"],
-        markers: &[
-            "pyproject.toml",
-            "setup.py",
-            "setup.cfg",
-            "requirements.txt",
-            "Pipfile",
-            ".git",
-        ],
-        server_label: "pyright",
-        // Measured: pyright emits NO startup indexing progress (only transient per-request
-        // tokens) and answers immediately. Empty signal ⇒ ready as soon as `initialized`.
-        ready_signal: "",
-    },
-    // ── ADR-0005, Fase 4: as linguagens novas do Learning Track. Os servidores arrancam quando
-    // estão instalados; até haver medição, ficam prontos logo após `initialized`. ──
-    Lang {
-        id: "cpp",
-        exts: &["cpp", "cc", "cxx", "hpp", "hh", "hxx", "c", "h"],
-        markers: &[
-            "compile_commands.json",
-            "CMakeLists.txt",
-            ".clangd",
-            "Makefile",
-        ],
-        server_label: "clangd",
-        ready_signal: "",
-    },
-    Lang {
-        id: "swift",
-        exts: &["swift"],
-        markers: &["Package.swift"],
-        server_label: "sourcekit-lsp",
-        ready_signal: "",
-    },
-    Lang {
-        id: "csharp",
-        exts: &["cs"],
-        markers: &["global.json", "Directory.Build.props"],
-        server_label: "csharp-ls",
-        ready_signal: "",
-    },
-    Lang {
-        id: "java",
-        exts: &["java"],
-        markers: &["pom.xml", "build.gradle"],
-        server_label: "jdtls",
-        ready_signal: "",
-    },
-    Lang {
-        id: "kotlin",
-        exts: &["kt", "kts"],
-        markers: &["settings.gradle.kts", "build.gradle.kts"],
-        server_label: "kotlin-language-server",
-        ready_signal: "",
-    },
-    Lang {
-        id: "sql",
-        exts: &["sql"],
-        markers: &[],
-        server_label: "sqls",
-        ready_signal: "",
-    },
-];
+impl Lang {
+    fn of(server: &'static Server) -> Lang {
+        Lang {
+            id: &server.id,
+            markers: &server.root_markers,
+            server_label: &server.label,
+            ready_signal: &server.ready_signal,
+            server,
+        }
+    }
+}
 
-/// Resolve um servidor nativo: primeiro o PATH (aumentado), depois pastas conhecidas —
+/// Every session group the registry knows.
+fn langs() -> impl Iterator<Item = Lang> {
+    langreg::registry().servers.iter().map(Lang::of)
+}
+
+/// The session group of a file: its language (by file name or extension, case-insensitive; by the
+/// first line for a file whose name says nothing) and that language's server.
+fn lang_for_path(path: &str) -> Option<Lang> {
+    let reg = langreg::registry();
+    reg.server_of(reg.language_for_file(path)?).map(Lang::of)
+}
+
+/// Where programs are looked for: the home folder, a PATH and the environment variables. In the
+/// app it is [`Host::current`]; the tests build one with an empty PATH and a temporary home.
+struct Host {
+    home: Option<PathBuf>,
+    path: OsString,
+    var: EnvLookup,
+}
+
+/// Reads an environment variable (the process's, or a test's).
+type EnvLookup = Box<dyn Fn(&str) -> Option<String>>;
+
+impl Host {
+    fn current() -> Host {
+        Host {
+            home: home_dir(),
+            path: augmented_path(None),
+            var: Box::new(|k| std::env::var(k).ok()),
+        }
+    }
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `program` on the host's PATH.
+fn on_path(host: &Host, program: &str) -> Option<PathBuf> {
+    std::env::split_paths(&host.path)
+        .map(|d| d.join(program))
+        .find(|p| p.is_file())
+}
+
+/// The folders a `searchDirs` entry stands for: `~/` is the home folder and ONE `*` segment
+/// expands to every match, the highest version first.
+fn expand_dir(host: &Host, hint: &str) -> Vec<PathBuf> {
+    let expanded = match hint.strip_prefix("~/") {
+        Some(rest) => match &host.home {
+            Some(h) => h.join(rest).to_string_lossy().into_owned(),
+            None => return Vec::new(),
+        },
+        None => hint.to_string(),
+    };
+    glob_candidates(&expanded)
+}
+
+/// `program` in the first of `dirs` that holds it.
+fn in_dirs(host: &Host, program: &str, dirs: &[String]) -> Option<PathBuf> {
+    dirs.iter()
+        .flat_map(|d| expand_dir(host, d))
+        .map(|d| d.join(program))
+        .find(|p| p.is_file())
+}
+
+/// (Para os testes.) Resolve um servidor nativo: primeiro o PATH (aumentado), depois pastas conhecidas —
 /// `~/` é a pasta do utilizador e um segmento `*` escolhe a versão mais recente (ex.: a
 /// toolchain do swiftly, que traz o `sourcekit-lsp`). Erro legível se não estiver instalado.
+#[cfg(test)]
 fn native_server(name: &str, hints: &[&str]) -> Result<String, String> {
-    for dir in std::env::split_paths(&augmented_path()) {
-        let p = dir.join(name);
-        if p.is_file() {
-            return Ok(p.to_string_lossy().into_owned());
-        }
-    }
-    let home = std::env::var("HOME").unwrap_or_default();
-    for hint in hints {
-        let expanded = match hint.strip_prefix("~/") {
-            Some(rest) => format!("{home}/{rest}"),
-            None => hint.to_string(),
-        };
-        if let Some(dir) = newest_glob(&expanded) {
-            let p = dir.join(name);
-            if p.is_file() {
-                return Ok(p.to_string_lossy().into_owned());
-            }
-        }
-    }
-    Err(format!(
-        "servidor de linguagem `{name}` não encontrado — instala-o e põe-no no PATH"
-    ))
+    let host = Host::current();
+    let dirs: Vec<String> = hints.iter().map(|h| h.to_string()).collect();
+    on_path(&host, name)
+        .or_else(|| in_dirs(&host, name, &dirs))
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| not_found(name))
 }
 
-/// Expande um único segmento `*` para a entrada com a versão mais alta (`6.4.3` > `6.10.0`
-/// comparado numericamente, segmento a segmento).
-fn newest_glob(path: &str) -> Option<std::path::PathBuf> {
+fn not_found(name: &str) -> String {
+    format!("servidor de linguagem `{name}` não encontrado — instala-o e põe-no no PATH")
+}
+
+/// Every expansion of a single `*` segment, the highest version first (`6.10.0` > `6.4.3`,
+/// compared numerically, segment by segment). A path without `*` is itself.
+fn glob_candidates(path: &str) -> Vec<PathBuf> {
     let Some((before, after)) = path.split_once('*') else {
-        return Some(std::path::PathBuf::from(path));
+        return vec![PathBuf::from(path)];
     };
     let key = |s: &str| -> Vec<u64> {
         s.split(|c: char| !c.is_ascii_digit())
             .filter_map(|p| p.parse().ok())
             .collect()
     };
-    let mut names: Vec<String> = std::fs::read_dir(before)
-        .ok()?
+    let Ok(rd) = std::fs::read_dir(before) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = rd
         .flatten()
         .filter(|e| e.path().is_dir())
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    names.sort_by_key(|n| key(n));
-    let newest = names.pop()?;
-    Some(std::path::PathBuf::from(format!("{before}{newest}{after}")))
+    names.sort_by_key(|n| std::cmp::Reverse(key(n)));
+    names
+        .into_iter()
+        .map(|n| PathBuf::from(format!("{before}{n}{after}")))
+        .collect()
 }
 
-fn lang_for_path(path: &str) -> Option<&'static Lang> {
-    let ext = std::path::Path::new(path).extension()?.to_str()?;
-    LANGS.iter().find(|l| l.exts.contains(&ext))
+/// Expande um único segmento `*` para a entrada com a versão mais alta.
+#[cfg(test)]
+fn newest_glob(path: &str) -> Option<PathBuf> {
+    glob_candidates(path).into_iter().next()
 }
 
-/// The rust-analyzer binary to spawn. The bare `rust-analyzer` on PATH is often the
-/// rustup PROXY, which INFINITELY RECURSES (and crashes) when the active toolchain of the
-/// opened project lacks the rust-analyzer component (common with a nightly-pinned fuzz
-/// crate). We therefore resolve a CONCRETE toolchain binary. Cached for the process.
-fn ra_bin() -> String {
-    static BIN: OnceLock<String> = OnceLock::new();
-    BIN.get_or_init(|| {
-        if let Ok(p) = std::env::var("DXTUTOR_RUST_ANALYZER") {
-            if !p.is_empty() {
-                return p;
-            }
+/// The binary a registry server runs, found the way its `resolver` says (see `tutor_eval::langreg`).
+/// An `envOverride` variable that is set wins; if it names no file, that is the answer (not a
+/// silent fall-through to another binary). A human error when nothing is found lets the UI tell
+/// the student what to add.
+fn resolve_server(server: &Server, host: &Host) -> Result<String, String> {
+    if let Some(var) = &server.env_override {
+        if let Some(v) = (host.var)(var).filter(|v| !v.is_empty()) {
+            return if Path::new(&v).is_file() {
+                Ok(v)
+            } else {
+                Err(format!("{var}={v}: esse ficheiro não existe"))
+            };
         }
-        if let Ok(out) = Command::new("rustup")
-            .args(["which", "--toolchain", "stable", "rust-analyzer"])
+    }
+    let name = server.command.as_str();
+    let dirs = &server.search_dirs;
+    let found = match server.resolver() {
+        "rustup" => rustup_toolchain_bin(host, name)
+            .or_else(|| on_path(host, name).filter(|p| !is_rustup_proxy(host, p)))
+            .or_else(|| in_dirs(host, name, dirs)),
+        "go" => gopath_bin(host, name)
+            .or_else(|| in_dirs(host, name, dirs))
+            .or_else(|| on_path(host, name)),
+        "node" => in_dirs(host, name, dirs).or_else(|| on_path(host, name)),
+        _ => on_path(host, name).or_else(|| in_dirs(host, name, dirs)),
+    };
+    found
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| not_found(name))
+}
+
+/// rust-analyzer from a CONCRETE toolchain. The bare `rust-analyzer` on PATH is often the rustup
+/// PROXY, which INFINITELY RECURSES (and crashes) when the active toolchain of the opened project
+/// lacks the component (common with a nightly-pinned fuzz crate): `rustup which --toolchain
+/// stable`, else a `~/.rustup/toolchains/*/bin` that has it (stable first).
+fn rustup_toolchain_bin(host: &Host, name: &str) -> Option<PathBuf> {
+    let rustup = on_path(host, "rustup").or_else(|| {
+        let p = host.home.as_ref()?.join(".cargo/bin/rustup");
+        p.is_file().then_some(p)
+    });
+    if let Some(rustup) = rustup {
+        if let Ok(out) = Command::new(rustup)
+            .env("PATH", &host.path)
+            .args(["which", "--toolchain", "stable", name])
             .output()
         {
             if out.status.success() {
-                let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if std::path::Path::new(&p).is_file() {
-                    return p;
+                let p = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+                if p.is_file() {
+                    return Some(p);
                 }
             }
         }
-        if let Ok(home) = std::env::var("HOME") {
-            if let Ok(rd) =
-                std::fs::read_dir(std::path::Path::new(&home).join(".rustup/toolchains"))
-            {
-                let mut fallback = None;
-                for e in rd.flatten() {
-                    let b = e.path().join("bin/rust-analyzer");
-                    if b.is_file() {
-                        if e.file_name().to_string_lossy().starts_with("stable") {
-                            return b.to_string_lossy().to_string();
-                        }
-                        fallback.get_or_insert_with(|| b.to_string_lossy().to_string());
-                    }
-                }
-                if let Some(f) = fallback {
-                    return f;
-                }
+    }
+    let rd = std::fs::read_dir(host.home.as_ref()?.join(".rustup/toolchains")).ok()?;
+    let mut fallback = None;
+    for e in rd.flatten() {
+        let b = e.path().join("bin").join(name);
+        if b.is_file() {
+            if e.file_name().to_string_lossy().starts_with("stable") {
+                return Some(b);
             }
+            fallback.get_or_insert(b);
         }
-        "rust-analyzer".to_string()
-    })
-    .clone()
+    }
+    fallback
 }
 
-/// First existing file among `$HOME/<rel>` candidates, else None.
-fn home_bin(rels: &[&str]) -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
-    rels.iter()
-        .map(|r| std::path::Path::new(&home).join(r))
+/// Is `p` a rustup proxy (a link to the `rustup` binary)? rustup installs its proxies as hard
+/// links (symbolic on some systems) next to `rustup`.
+fn is_rustup_proxy(host: &Host, p: &Path) -> bool {
+    let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    if canon
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with("rustup"))
+    {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let id = |q: &Path| std::fs::metadata(q).ok().map(|m| (m.dev(), m.ino()));
+        let me = id(p);
+        let rustups = [
+            p.parent().map(|d| d.join("rustup")),
+            on_path(host, "rustup"),
+        ];
+        if me.is_some() && rustups.iter().flatten().any(|r| id(r) == me) {
+            return true;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = host;
+    false
+}
+
+/// `program` in `$(go env GOPATH)/bin` (every GOPATH entry).
+fn gopath_bin(host: &Host, program: &str) -> Option<PathBuf> {
+    let go = on_path(host, "go")?;
+    let out = Command::new(go)
+        .env("PATH", &host.path)
+        .args(["env", "GOPATH"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let gp = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    std::env::split_paths(&gp)
+        .map(|d| d.join("bin").join(program))
         .find(|p| p.is_file())
-        .map(|p| p.to_string_lossy().to_string())
 }
 
-/// gopls: `$DXTUTOR_GOPLS`, then `$(go env GOPATH)/bin`, then `~/go/bin`, then PATH.
-fn gopls_bin() -> Result<String, String> {
-    static BIN: OnceLock<Option<String>> = OnceLock::new();
-    BIN.get_or_init(|| {
-        if let Ok(p) = std::env::var("DXTUTOR_GOPLS") {
-            if std::path::Path::new(&p).is_file() {
-                return Some(p);
-            }
-        }
-        if let Ok(out) = Command::new("go")
-            .env("PATH", augmented_path())
-            .args(["env", "GOPATH"])
-            .output()
-        {
-            if out.status.success() {
-                let gp = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let b = std::path::Path::new(&gp).join("bin/gopls");
-                if b.is_file() {
-                    return Some(b.to_string_lossy().to_string());
-                }
-            }
-        }
-        home_bin(&["go/bin/gopls"])
-    })
-    .clone()
-    .ok_or_else(|| {
-        "gopls não encontrado (instala com `go install golang.org/x/tools/gopls@latest`)".into()
-    })
-}
-
-/// A node-based stdio server (typescript-language-server, pyright-langserver): look in
-/// the active nvm node bin dir, then PATH.
-fn node_server(name: &'static str) -> Result<String, String> {
-    if let Some(p) = home_bin(&[
-        &format!(".nvm/versions/node/v25.0.0/bin/{name}"),
-        &format!(".local/bin/{name}"),
-    ]) {
-        return Ok(p);
-    }
-    // nvm has many node versions — pick the newest that carries the binary.
-    if let Ok(home) = std::env::var("HOME") {
-        if let Ok(rd) = std::fs::read_dir(std::path::Path::new(&home).join(".nvm/versions/node")) {
-            let mut cands: Vec<_> = rd
-                .flatten()
-                .map(|e| e.path().join("bin").join(name))
-                .filter(|p| p.is_file())
-                .collect();
-            cands.sort();
-            if let Some(p) = cands.pop() {
-                return Ok(p.to_string_lossy().to_string());
-            }
+/// Resolve the language server command (program + args) of a registry server. A human error
+/// when the server isn't installed lets the UI tell the student what to add. The resolvers that
+/// run a program (`rustup`, `go`) remember what they found for the rest of the run — never a
+/// miss, so a server installed from the notice is found without restarting the app.
+fn server_cmd(server: &Server) -> Result<(String, Vec<String>), String> {
+    static FOUND: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    let cache = FOUND.get_or_init(Default::default);
+    let cacheable = matches!(server.resolver(), "rustup" | "go");
+    if cacheable {
+        if let Some(p) = cache.lock().unwrap().get(&server.id) {
+            return Ok((p.clone(), server.args.clone()));
         }
     }
-    Err(format!(
-        "{name} não encontrado (instala com `npm i -g {name}`)"
-    ))
+    let program = resolve_server(server, &Host::current())?;
+    if cacheable {
+        cache
+            .lock()
+            .unwrap()
+            .insert(server.id.clone(), program.clone());
+    }
+    Ok((program, server.args.clone()))
 }
 
-/// The newest nvm node's GLOBAL `node_modules`, for `NODE_PATH`. typescript-language-server
-/// does `require('typescript')` and does NOT bundle it, so without this it can't find the
-/// globally-installed `typescript` and silently answers nothing. (pyright bundles its own.)
-/// NOTE: it needs the classic TypeScript 5.x `tsserver.js`; `typescript@7` (the native tsgo
-/// preview) ships no tsserver and breaks it — keep the global `typescript` on the 5.x line.
-fn node_global_modules() -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
-    let rd = std::fs::read_dir(std::path::Path::new(&home).join(".nvm/versions/node")).ok()?;
-    let mut cands: Vec<_> = rd
-        .flatten()
-        .map(|e| e.path().join("lib/node_modules"))
-        .filter(|p| p.is_dir())
+/// The global `node_modules` for `NODE_PATH` (quirk `nodePath`): typescript-language-server does
+/// `require('typescript')` and does NOT bundle it, so without this it can't find the
+/// globally-installed `typescript` and silently answers nothing. The one next to the server
+/// (`<prefix>/bin/server` → `<prefix>/lib/node_modules`, where `npm install -g` put both), else
+/// the newest nvm node's. NOTE: it needs the classic TypeScript 5.x `tsserver.js`; `typescript@7`
+/// (the native tsgo preview) ships no tsserver and breaks it — keep the global `typescript` on 5.x.
+fn node_global_modules(program: &str) -> Option<String> {
+    let beside = Path::new(program)
+        .parent()
+        .and_then(Path::parent)
+        .map(|prefix| prefix.join("lib/node_modules"))
+        .filter(|p| p.is_dir());
+    beside
+        .or_else(|| {
+            let host = Host {
+                home: home_dir(),
+                path: OsString::new(),
+                var: Box::new(|_| None),
+            };
+            expand_dir(&host, "~/.nvm/versions/node/*/lib/node_modules")
+                .into_iter()
+                .find(|p| p.is_dir())
+        })
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// The login shell's PATH (`shellenv`: a desktop app started from the launcher inherits a bare
+/// PATH, without nvm's node or `~/go/bin`). Not asked in unit tests, which must not start a shell.
+fn login_shell_path() -> Option<String> {
+    if cfg!(test) {
+        None
+    } else {
+        crate::shellenv::get().get("PATH").cloned()
+    }
+}
+
+/// PATH for finding and running the servers, so they find their runtimes (gopls needs `go`; the
+/// node servers need `node`) regardless of the app's own PATH: `front` (the node server's own
+/// bin folder, whose `node` is the one it was installed with), the go folders, the login shell's
+/// PATH and the app's — without repeats, joined the platform's way (`;` on Windows).
+fn augmented_path(front: Option<&Path>) -> OsString {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    dirs.extend(front.map(Path::to_path_buf));
+    dirs.push(PathBuf::from("/usr/local/go/bin"));
+    dirs.extend(home_dir().map(|h| h.join("go/bin")));
+    let base = std::env::var_os("PATH").unwrap_or_default();
+    join_dirs(
+        dirs,
+        login_shell_path().map(OsString::from).as_deref(),
+        &base,
+    )
+}
+
+/// `extra` then every entry of `login` and `base`, first occurrence kept.
+fn join_dirs(
+    extra: Vec<PathBuf>,
+    login: Option<&std::ffi::OsStr>,
+    base: &std::ffi::OsStr,
+) -> OsString {
+    let mut seen = HashSet::new();
+    let all: Vec<PathBuf> = extra
+        .into_iter()
+        .chain(
+            login
+                .map(|l| std::env::split_paths(l).collect::<Vec<_>>())
+                .unwrap_or_default(),
+        )
+        .chain(std::env::split_paths(base))
+        .filter(|d| !d.as_os_str().is_empty() && seen.insert(d.clone()))
         .collect();
-    cands.sort();
-    cands.pop().map(|p| p.to_string_lossy().to_string())
-}
-
-/// Resolve the language server command (program + args) for `lang_id`. A human error
-/// when the server isn't installed lets the UI tell the student what to add.
-fn server_cmd(lang_id: &str) -> Result<(String, Vec<String>), String> {
-    match lang_id {
-        "rust" => Ok((ra_bin(), vec![])),
-        "go" => Ok((gopls_bin()?, vec![])),
-        "typescript" => Ok((
-            node_server("typescript-language-server")?,
-            vec!["--stdio".into()],
-        )),
-        "python" => Ok((node_server("pyright-langserver")?, vec!["--stdio".into()])),
-        "cpp" => Ok((native_server("clangd", &[])?, vec![])),
-        "swift" => Ok((
-            native_server(
-                "sourcekit-lsp",
-                &[
-                    "~/.local/share/swiftly/toolchains/*/usr/bin",
-                    "/usr/share/swift/usr/bin",
-                    "/opt/swift/usr/bin",
-                ],
-            )?,
-            vec![],
-        )),
-        "csharp" => Ok((native_server("csharp-ls", &["~/.dotnet/tools"])?, vec![])),
-        "java" => Ok((
-            native_server("jdtls", &["~/.local/share/jdtls/bin"])?,
-            vec![],
-        )),
-        "kotlin" => Ok((native_server("kotlin-language-server", &[])?, vec![])),
-        "sql" => Ok((native_server("sqls", &["~/go/bin"])?, vec![])),
-        other => Err(format!("linguagem sem servidor LSP: {other}")),
-    }
-}
-
-/// PATH augmented with the host's go + node toolchains so spawned servers find their
-/// runtimes (gopls needs `go`; the node servers need `node`) regardless of the app's PATH.
-fn augmented_path() -> String {
-    let base = std::env::var("PATH").unwrap_or_default();
-    let mut extra = vec!["/usr/local/go/bin".to_string()];
-    if let Ok(home) = std::env::var("HOME") {
-        extra.push(format!("{home}/go/bin"));
-        extra.push(format!("{home}/.nvm/versions/node/v25.0.0/bin"));
-    }
-    extra.push(base);
-    extra.join(":")
+    std::env::join_paths(all).unwrap_or_else(|_| base.to_os_string())
 }
 
 /// Pastas abertas na app (registadas por `lsp_start`). São a raiz de reserva de um ficheiro
@@ -421,7 +439,7 @@ fn fallback_root(path: &str, roots: &HashSet<String>) -> Option<String> {
 }
 
 /// Nearest ancestor directory of `path` holding any of `markers` (the file's project root).
-fn project_root_for(path: &str, markers: &[&str]) -> Option<String> {
+fn project_root_for(path: &str, markers: &[String]) -> Option<String> {
     let mut dir = std::path::Path::new(path).parent();
     while let Some(d) = dir {
         if markers.iter().any(|m| d.join(m).exists()) {
@@ -644,19 +662,16 @@ fn wait_ready(session: &Arc<Mutex<Session>>, budget: Duration) {
     }
 }
 
-/// Opções de arranque (`initializationOptions`) por linguagem. O jdtls tem o signatureHelp
-/// DESLIGADO por omissão: sem `java.signatureHelp.enabled` responde sempre sem assinaturas
-/// (medido directamente contra o jdtls 1.61). Os outros servidores não precisam de nada.
-fn init_options(lang: &str) -> Value {
-    match lang {
-        // `symbols.includeSourceMethodDeclarations`: sem isto o workspace/symbol do jdtls só
-        // devolve tipos (medido: «ad» não encontrava `add`).
-        "java" => json!({ "settings": { "java": {
-            "signatureHelp": { "enabled": true },
-            "symbols": { "includeSourceMethodDeclarations": true }
-        } } }),
-        _ => Value::Null,
-    }
+/// Opções de arranque (`initializationOptions`) do servidor `id`, do registo de linguagens
+/// (`initOptions`). O jdtls tem o signatureHelp DESLIGADO por omissão: sem
+/// `java.signatureHelp.enabled` responde sempre sem assinaturas (medido directamente contra o
+/// jdtls 1.61), e sem `symbols.includeSourceMethodDeclarations` o workspace/symbol dele só devolve
+/// tipos (medido: «ad» não encontrava `add`). Os outros servidores não precisam de nada.
+fn init_options(id: &str) -> Value {
+    langreg::registry()
+        .server(id)
+        .map(|s| s.init_options.clone())
+        .unwrap_or(Value::Null)
 }
 
 fn capabilities() -> Value {
@@ -734,7 +749,7 @@ fn get_or_start(
     app: &AppHandle,
     key: &str,
     root: &str,
-    lang: &Lang,
+    lang: Lang,
     program: &str,
     args: &[String],
 ) -> Result<Arc<Mutex<Session>>, String> {
@@ -749,14 +764,20 @@ fn get_or_start(
             return Ok(s);
         }
     }
+    // so gopls finds `go`, and a node server finds the `node` it was installed with
+    let front = (lang.server.resolver() == "node")
+        .then(|| Path::new(program).parent())
+        .flatten();
     let mut cmd = Command::new(program);
     cmd.args(args)
-        .env("PATH", augmented_path()) // so gopls finds `go`, the node servers find `node`
+        .env("PATH", augmented_path(front))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    if let Some(nm) = node_global_modules() {
-        cmd.env("NODE_PATH", nm); // so typescript-language-server can require('typescript')
+    if lang.server.has_quirk("nodePath") {
+        if let Some(nm) = node_global_modules(program) {
+            cmd.env("NODE_PATH", nm); // so typescript-language-server can require('typescript')
+        }
     }
     let mut child = cmd
         .spawn()
@@ -772,7 +793,6 @@ fn get_or_start(
         initialized: false,
         server_caps: Value::Null,
         ready: false,
-        label: lang.server_label,
         ready_signal: lang.ready_signal,
         progress_titles: HashMap::new(),
     }));
@@ -828,9 +848,9 @@ fn get_or_start(
     Ok(session)
 }
 
-/// Resolve the session a file belongs to: its language (by extension), its project root
+/// Resolve the session a file belongs to: its language (by name/extension, or first line), its project root
 /// (nearest marker), and the server for that language — starting it if needed. Blocking.
-/// `None` when the file's extension is unsupported, no project root is found, or the
+/// `None` when the file's language has no server, no project root is found, or the
 /// language's server is not installed (the UI then falls back to the intra-file heuristic).
 fn session_for(
     map: &SessionMap,
@@ -845,7 +865,7 @@ fn session_for(
     else {
         return Ok(None);
     };
-    let (program, args) = match server_cmd(lang.id) {
+    let (program, args) = match server_cmd(lang.server) {
         Ok(c) => c,
         Err(_) => return Ok(None), // server not installed → no session; frontend falls back
     };
@@ -891,7 +911,7 @@ pub struct ServerStatus {
 /// Resolve-o exactamente como uma sessão o resolveria (`server_cmd`: PATH aumentado + pistas).
 pub fn server_status(path: &str) -> Option<ServerStatus> {
     let lang = lang_for_path(path)?;
-    let (installed, problem) = match server_cmd(lang.id) {
+    let (installed, problem) = match server_cmd(lang.server) {
         Ok(_) => (true, None),
         Err(e) => (false, Some(e)),
     };
@@ -927,13 +947,13 @@ pub async fn lsp_start(
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         // Warm up every language whose project marker sits AT the opened folder, so the
         // (possibly minutes-long) first index starts before the student navigates.
-        for lang in LANGS {
+        for lang in langs() {
             if lang
                 .markers
                 .iter()
                 .any(|m| std::path::Path::new(&root).join(m).exists())
             {
-                if let Ok((program, args)) = server_cmd(lang.id) {
+                if let Ok((program, args)) = server_cmd(lang.server) {
                     let key = format!("{}\u{0}{}", lang.id, root);
                     let _ = get_or_start(&map, &app, &key, &root, lang, &program, &args);
                 }
@@ -1828,5 +1848,186 @@ mod phase4_lang_tests {
         assert!(err.contains("não encontrado"), "{err}");
         // A shell existe em qualquer máquina: prova o caminho do PATH.
         assert!(native_server("sh", &[]).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod registry_resolution_tests {
+    use super::*;
+
+    fn host(home: &Path, path: &Path) -> Host {
+        Host {
+            home: Some(home.to_path_buf()),
+            path: path.as_os_str().to_os_string(),
+            var: Box::new(|_| None),
+        }
+    }
+
+    fn touch_exe(p: &Path) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    fn rust() -> &'static Server {
+        langreg::registry().server("rust").unwrap()
+    }
+
+    #[test]
+    fn rust_analyzer_missing_from_path_and_toolchains_is_not_installed() {
+        // Antes caía num `rust-analyzer` solto e o aviso «servidor em falta» nunca aparecia.
+        let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let err = resolve_server(rust(), &host(home.path(), bin.path())).unwrap_err();
+        assert!(
+            err.contains("rust-analyzer") && err.contains("não encontrado"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rust_analyzer_is_found_in_a_toolchain_or_on_path_but_never_as_the_rustup_proxy() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        // só o proxy do rustup no PATH (uma ligação ao `rustup`): não conta
+        touch_exe(&bin.path().join("rustup-real"));
+        #[cfg(unix)]
+        {
+            std::fs::hard_link(bin.path().join("rustup-real"), bin.path().join("rustup")).unwrap();
+            std::fs::hard_link(bin.path().join("rustup"), bin.path().join("rust-analyzer"))
+                .unwrap();
+            assert!(is_rustup_proxy(
+                &host(home.path(), bin.path()),
+                &bin.path().join("rust-analyzer")
+            ));
+        }
+        // o `rustup` falso não responde a `which`: sem toolchain, não está instalado
+        std::fs::write(bin.path().join("rustup-real"), "#!/bin/sh\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        assert!(resolve_server(rust(), &host(home.path(), bin.path())).is_err());
+        // uma toolchain com o componente resolve (a stable primeiro)
+        let nightly = home
+            .path()
+            .join(".rustup/toolchains/nightly-x/bin/rust-analyzer");
+        let stable = home
+            .path()
+            .join(".rustup/toolchains/stable-x/bin/rust-analyzer");
+        touch_exe(&nightly);
+        touch_exe(&stable);
+        assert_eq!(
+            resolve_server(rust(), &host(home.path(), bin.path())).unwrap(),
+            stable.display().to_string()
+        );
+        // um rust-analyzer verdadeiro no PATH (não ligado ao rustup) também serve
+        let home2 = tempfile::tempdir().unwrap();
+        let bin2 = tempfile::tempdir().unwrap();
+        touch_exe(&bin2.path().join("rust-analyzer"));
+        assert_eq!(
+            resolve_server(rust(), &host(home2.path(), bin2.path())).unwrap(),
+            bin2.path().join("rust-analyzer").display().to_string()
+        );
+    }
+
+    #[test]
+    fn an_env_override_wins_and_a_wrong_one_is_reported() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let ra = bin.path().join("my-ra");
+        touch_exe(&ra);
+        let ra_s = ra.display().to_string();
+        let mut h = host(home.path(), Path::new(""));
+        h.var = Box::new(move |k| (k == "DXTUTOR_RUST_ANALYZER").then(|| ra_s.clone()));
+        assert_eq!(
+            resolve_server(rust(), &h).unwrap(),
+            ra.display().to_string()
+        );
+        h.var = Box::new(|k| (k == "DXTUTOR_RUST_ANALYZER").then(|| "/no/such/ra".to_string()));
+        let err = resolve_server(rust(), &h).unwrap_err();
+        assert!(err.contains("DXTUTOR_RUST_ANALYZER=/no/such/ra"), "{err}");
+    }
+
+    #[test]
+    fn node_servers_come_from_the_newest_nvm_that_has_them_then_path() {
+        let reg = langreg::registry();
+        let ts = reg.server("typescript").unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let empty = tempfile::tempdir().unwrap();
+        assert!(resolve_server(ts, &host(home.path(), empty.path())).is_err());
+        // v9 < v25 numericamente; a v26 não tem o servidor
+        let nvm = home.path().join(".nvm/versions/node");
+        touch_exe(&nvm.join("v9.0.0/bin/typescript-language-server"));
+        touch_exe(&nvm.join("v25.0.0/bin/typescript-language-server"));
+        std::fs::create_dir_all(nvm.join("v26.1.0/bin")).unwrap();
+        let got = resolve_server(ts, &host(home.path(), empty.path())).unwrap();
+        assert!(
+            got.ends_with("v25.0.0/bin/typescript-language-server"),
+            "{got}"
+        );
+        // o NODE_PATH é o node_modules global ao lado do servidor
+        std::fs::create_dir_all(nvm.join("v25.0.0/lib/node_modules/typescript")).unwrap();
+        assert_eq!(
+            node_global_modules(&got).unwrap(),
+            nvm.join("v25.0.0/lib/node_modules").display().to_string()
+        );
+        // sem nvm, o PATH
+        let home2 = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        touch_exe(&bin.path().join("pyright-langserver"));
+        let py = reg.server("python").unwrap();
+        assert!(resolve_server(py, &host(home2.path(), bin.path())).is_ok());
+        // só o typescript-language-server precisa do NODE_PATH
+        assert!(ts.has_quirk("nodePath") && !py.has_quirk("nodePath"));
+    }
+
+    #[test]
+    fn path_entries_are_split_and_joined_the_platform_way_without_repeats() {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let login = OsString::from(["/a", "/b"].join(sep));
+        let base = OsString::from(["/b", "/c", ""].join(sep));
+        let got = join_dirs(
+            vec![PathBuf::from("/x"), PathBuf::from("/a")],
+            Some(&login),
+            &base,
+        );
+        let dirs: Vec<PathBuf> = std::env::split_paths(&got).collect();
+        assert_eq!(dirs, ["/x", "/a", "/b", "/c"].map(PathBuf::from).to_vec());
+        // nenhuma versão do node fica escrita no código
+        assert!(!std::env::split_paths(&augmented_path(None))
+            .any(|d| d.to_string_lossy().contains("v25.0.0")));
+    }
+
+    #[test]
+    fn every_registry_server_is_a_session_group_with_its_markers_and_signal() {
+        let ids: Vec<&str> = langs().map(|l| l.id).collect();
+        assert_eq!(
+            ids,
+            [
+                "rust",
+                "go",
+                "typescript",
+                "python",
+                "cpp",
+                "swift",
+                "csharp",
+                "java",
+                "kotlin",
+                "sql"
+            ]
+        );
+        let ra = lang_for_path("/w/src/MAIN.RS").unwrap();
+        assert_eq!((ra.id, ra.ready_signal), ("rust", "cachepriming"));
+        assert_eq!(ra.markers, ["Cargo.toml".to_string()]);
+        assert_eq!(
+            lang_for_path("/w/a.mjs").unwrap().server_label,
+            "typescript-language-server"
+        );
+        assert!(
+            lang_for_path("/w/Dockerfile").is_none(),
+            "a language without a server"
+        );
     }
 }

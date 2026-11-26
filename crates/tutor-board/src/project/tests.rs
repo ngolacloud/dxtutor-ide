@@ -160,7 +160,8 @@ fn moves_go_one_step_and_respect_wip() {
 #[test]
 fn scrum_needs_ready_to_start_and_done_needs_the_dod() {
     let mut s = store();
-    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "settings", "method": "scrum", "dod": ["Code reviewed"], "wip": {}}))).unwrap();
+    // the fixed checks only: no DoR items of the project (Scrum would suggest some, Board B)
+    s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "settings", "method": "scrum", "dor": [], "dod": ["Code reviewed"], "wip": {}}))).unwrap();
     let p = s
         .apply(
             ROOT,
@@ -731,6 +732,8 @@ fn readiness_lists_what_is_missing_and_dependencies_must_be_done() {
 fn codev_answers_the_criteria_then_tests_send_it_back_and_twice_block_it() {
     let mut s = store();
     let k = create(&mut s, "x", T0);
+    // Board B: Co-Dev's work starts with the normal move to In progress
+    mv(&mut s, &k, "progress", T0).unwrap();
     let p = s
         .apply(ROOT, "Co-Dev", T0, op(serde_json::json!({"op": "codev_finished", "key": k, "report": [{"criterion": 0, "met": true, "evidence": "test a"}], "template_version": "abc123"})))
         .unwrap();
@@ -1424,6 +1427,505 @@ fn incidents_and_the_queue() {
     )
     .unwrap();
     assert_eq!(incidents::queue_events(c, "/p").unwrap().len(), 2);
+}
+
+// ── Board B: each method drives the rules ─────────────────────────────────────────────────────
+
+fn apply_ok(s: &mut ProjectStore, j: serde_json::Value) -> Project {
+    s.apply(ROOT, "W", T0, op(j)).unwrap()
+}
+
+fn apply_err(s: &mut ProjectStore, j: serde_json::Value) -> ProjectError {
+    s.apply(ROOT, "W", T0, op(j)).unwrap_err()
+}
+
+fn issue_of<'a>(p: &'a Project, k: &str) -> &'a Issue {
+    p.issues.iter().find(|i| i.key == k).unwrap()
+}
+
+fn change_set(s: &mut ProjectStore, k: &str, path: &str) {
+    s.record_change_set(
+        ROOT,
+        &NewChangeSet {
+            session: "cda-1".into(),
+            call: format!("c-{path}"),
+            hunk: format!("h-{path}"),
+            path: path.into(),
+            start: 1,
+            end: 2,
+            added: 2,
+            removed: 0,
+            decided_by: "human".into(),
+            issue_key: Some(k.to_string()),
+        },
+        T0,
+    )
+    .unwrap();
+}
+
+fn red_run(s: &mut ProjectStore, k: &str, tests: &str) {
+    s.record_audit(
+        ROOT,
+        &AuditEntry {
+            at: T0,
+            session: "cda-1".into(),
+            event: "tdd".into(),
+            origin: "issue".into(),
+            issue_key: Some(k.to_string()),
+            actor: "W".into(),
+            mode: "assist".into(),
+            tool: Some("run_tests".into()),
+            path: Some(tests.into()),
+            outcome: Some("red".into()),
+            ..AuditEntry::default()
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn choosing_a_method_applies_its_defaults_but_keeps_what_the_user_set() {
+    let mut s = store();
+    // the preview says what will change, and writes nothing
+    let ch = s.method_preview(ROOT, "xp", "en", T0).unwrap();
+    assert_eq!((ch.from.as_str(), ch.to.as_str()), ("kanban", "xp"));
+    assert!(ch
+        .changes
+        .iter()
+        .any(|c| c.field == "iter_days" && c.to == 7));
+    assert_eq!(s.load(ROOT, T0).unwrap().method, "kanban");
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "xp", "lang": "en"}),
+    );
+    assert_eq!(p.method, "xp");
+    assert_eq!(p.iter_days, 7);
+    assert_eq!(p.wip.get("progress"), Some(&2));
+    assert_eq!(p.wip.get("accept"), None);
+    assert_eq!(p.dod[0], "Tests written before the code (TDD)");
+    assert_eq!(p.dor, ["Estimated by the pair", "Acceptance test written"]);
+    // the user's own WIP and DoD stay when the method changes again (and the preview lists them)
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "wip": {"progress": 5, "review": 2}, "dod": ["Deployed"]}),
+    );
+    let ch = s.method_preview(ROOT, "scrum", "pt", T0).unwrap();
+    let kept: Vec<&str> = ch.kept.iter().map(|c| c.field.as_str()).collect();
+    assert_eq!(kept, ["wip.progress", "dod"]);
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "lang": "pt"}),
+    );
+    assert_eq!(p.iter_days, 14);
+    assert_eq!(p.wip.get("progress"), Some(&5));
+    assert_eq!(p.dod, ["Deployed"]);
+    // the English suggestion was XP's, so the DoR follows the new method (in the asked language)
+    assert_eq!(p.dor, ["Estimada em pontos", "Cabe numa sprint"]);
+    // fields in the same change win over the defaults
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "kanban", "iter_days": 21}),
+    );
+    assert_eq!(p.iter_days, 21);
+    assert!(s.method_preview(ROOT, "agile", "pt", T0).is_err());
+}
+
+#[test]
+fn scrum_and_xp_enforce_the_sprint_capacity_with_an_override() {
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "dor": []}),
+    );
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "create_sprint", "name": "Sprint 1", "start": T0, "end": T0 + 14 * 24 * H, "capacity": 5}),
+    );
+    let a = create(&mut s, "a", T0); // 3 points each
+    let b = create(&mut s, "b", T0);
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "plan_issue", "key": a, "sprint": "S1"}),
+    );
+    let e = apply_err(
+        &mut s,
+        serde_json::json!({"op": "plan_issue", "key": b, "sprint": "S1"}),
+    );
+    assert_eq!((e.code.as_str(), e.overridable), ("capacity", true));
+    assert!(
+        e.message.contains("5 pontos e ficaria com 6"),
+        "{}",
+        e.message
+    );
+    assert_eq!(issue_of(&s.load(ROOT, T0).unwrap(), &b).sprint, None);
+    // an empty reason is no reason; a reason plans it and is recorded
+    apply_err(
+        &mut s,
+        serde_json::json!({"op": "plan_issue", "key": b, "sprint": "S1", "reason": " "}),
+    );
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "plan_issue", "key": b, "sprint": "S1", "reason": "the PO asked"}),
+    );
+    assert_eq!(issue_of(&p, &b).sprint.as_deref(), Some("S1"));
+    let d = s.detail(ROOT, &b).unwrap();
+    assert_eq!(
+        (d.activity[0].kind.as_str(), d.activity[0].note.as_str()),
+        ("override", "excepção (capacity): the PO asked")
+    );
+    assert_eq!(
+        d.activity[1].kind, "planned",
+        "the plan itself is logged as before"
+    );
+    // a bigger estimate in the sprint is refused; a smaller one is always fine
+    assert_eq!(
+        apply_err(
+            &mut s,
+            serde_json::json!({"op": "update_issue", "key": a, "points": 5})
+        )
+        .code,
+        "capacity"
+    );
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": a, "points": 2}),
+    );
+    // an unestimated issue adds nothing; creating straight into the sprint is checked too
+    let c = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "create_issue", "title": "c", "sprint": "S1"}),
+    );
+    assert!(c.issues.iter().any(|i| i.title == "c"));
+    assert_eq!(
+        apply_err(
+            &mut s,
+            serde_json::json!({"op": "create_issue", "title": "d", "sprint": "S1", "points": 8})
+        )
+        .code,
+        "capacity"
+    );
+    // Kanban has no capacity
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "kanban"}),
+    );
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": a, "points": 13}),
+    );
+    // XP enforces it as Scrum does
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "xp"}),
+    );
+    assert_eq!(
+        apply_err(
+            &mut s,
+            serde_json::json!({"op": "update_issue", "key": a, "points": 21})
+        )
+        .code,
+        "capacity"
+    );
+}
+
+#[test]
+fn kanban_lets_one_expedite_pass_the_wip_limit() {
+    let mut s = store(); // kanban: progress 3
+    for k in ["a", "b", "c"] {
+        let k = create(&mut s, k, T0);
+        mv(&mut s, &k, "progress", T0).unwrap();
+    }
+    let std = create(&mut s, "std", T0);
+    assert_eq!(mv(&mut s, &std, "progress", T0).unwrap_err().code, "wip");
+    let x = create(&mut s, "x", T0);
+    let y = create(&mut s, "y", T0);
+    for k in [&x, &y] {
+        apply_ok(
+            &mut s,
+            serde_json::json!({"op": "update_issue", "key": k, "cos": "expedite"}),
+        );
+    }
+    mv(&mut s, &x, "progress", T0).unwrap();
+    let d = s.detail(ROOT, &x).unwrap();
+    assert_eq!(d.activity[0].kind, "moved");
+    assert_eq!(
+        d.activity[0].note,
+        "expedite acima do limite de WIP de «progress» (4/3)"
+    );
+    // at most one over the limit per column
+    assert_eq!(mv(&mut s, &y, "progress", T0).unwrap_err().code, "wip");
+    // only Kanban has the class of service rule
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "dor": [], "wip": {"progress": 1}}),
+    );
+    let a = create(&mut s, "a", T0);
+    s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+    mv(&mut s, &a, "progress", T0).unwrap();
+    let e = create(&mut s, "e", T0);
+    s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": e, "cos": "expedite"}),
+    );
+    assert_eq!(mv(&mut s, &e, "progress", T0).unwrap_err().code, "wip");
+}
+
+#[test]
+fn the_projects_own_dor_is_part_of_readiness_and_ticked_per_issue() {
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "dor": ["Estimated", "UX approved"], "wip": {}}),
+    );
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "create_issue", "title": "x", "kind": "task", "acceptance": ["Dado X, quando Y, então Z"]}),
+    );
+    let k = p.issues[0].key.clone();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": k, "scope": ["src/**"]}),
+    );
+    let i = issue_of(&s.load(ROOT, T0).unwrap(), &k).clone();
+    assert_eq!(
+        i.missing,
+        [
+            "DoR: «Estimated»",
+            "DoR: «UX approved»",
+            "aprovação humana (Ready)"
+        ]
+    );
+    // Ready waits for the items
+    let e = apply_err(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": k, "ready": true}),
+    );
+    assert!(e.message.contains("DoR: «UX approved»"), "{}", e.message);
+    // ticking them and approving in one change works
+    let p = apply_ok(
+        &mut s,
+        serde_json::json!({"op": "update_issue", "key": k, "dor_done": [true, true], "ready": true}),
+    );
+    assert!(issue_of(&p, &k).missing.is_empty());
+    assert_eq!(issue_of(&p, &k).dor_done, [true, true]);
+    // an item added after the approval: the move out of To Do waits for it (or a reason)
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "dor": ["Estimated", "UX approved", "Security reviewed"]}),
+    );
+    let e = mv(&mut s, &k, "progress", T0).unwrap_err();
+    assert_eq!(e.code, "dor");
+    assert!(
+        e.message.contains("falta: DoR: «Security reviewed»"),
+        "{}",
+        e.message
+    );
+    let p = s
+        .apply(
+            ROOT,
+            "W",
+            T0,
+            op(serde_json::json!({"op": "move", "key": k, "to": "progress", "reason": "hotfix"})),
+        )
+        .unwrap();
+    assert_eq!(issue_of(&p, &k).state, "progress");
+    // Kanban does not check the DoR on moves, but readiness still lists the item (Co-Dev needs it)
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "dor": ["Estimated"]}),
+    );
+    let k = create(&mut s, "y", T0);
+    assert!(mv(&mut s, &k, "progress", T0).is_ok());
+    assert!(issue_of(&s.load(ROOT, T0).unwrap(), &k)
+        .missing
+        .contains(&"DoR: «Estimated»".to_string()));
+}
+
+#[test]
+fn codev_finished_goes_to_review_only_by_the_normal_move() {
+    let mut s = store(); // kanban: review 2
+    for k in ["a", "b"] {
+        let k = create(&mut s, k, T0);
+        for to in ["progress", "review"] {
+            mv(&mut s, &k, to, T0).unwrap();
+        }
+    }
+    let k = create(&mut s, "x", T0);
+    mv(&mut s, &k, "progress", T0).unwrap();
+    let report = serde_json::json!({"criteria": [], "summary": "done"});
+    let p = s
+        .apply(
+            ROOT,
+            "Co-Dev",
+            T0,
+            op(serde_json::json!({"op": "codev_finished", "key": k, "report": report})),
+        )
+        .unwrap();
+    let i = issue_of(&p, &k);
+    assert_eq!(i.state, "progress", "the review column is full");
+    assert!(i.criteria_report.is_some(), "the answer is kept");
+    let d = s.detail(ROOT, &k).unwrap();
+    assert_eq!(d.activity[0].kind, "held");
+    assert!(
+        d.activity[0]
+            .note
+            .contains("o limite de WIP de «review» é 2"),
+        "{}",
+        d.activity[0].note
+    );
+    // one step at a time: from To Do it stays in To Do
+    let t = create(&mut s, "t", T0);
+    let p = s
+        .apply(
+            ROOT,
+            "Co-Dev",
+            T0,
+            op(serde_json::json!({"op": "codev_finished", "key": t, "report": report})),
+        )
+        .unwrap();
+    assert_eq!(issue_of(&p, &t).state, "todo");
+    assert!(s.detail(ROOT, &t).unwrap().activity[0]
+        .note
+        .contains("só anda um passo"));
+    // with room in Review it moves, with the RF-B06 note
+    apply_ok(&mut s, serde_json::json!({"op": "settings", "wip": {}}));
+    let p = s
+        .apply(
+            ROOT,
+            "Co-Dev",
+            T0,
+            op(serde_json::json!({"op": "codev_finished", "key": k, "report": report})),
+        )
+        .unwrap();
+    assert_eq!(issue_of(&p, &k).state, "review");
+    let d = s.detail(ROOT, &k).unwrap();
+    assert_eq!(
+        (d.activity[0].kind.as_str(), d.activity[0].note.as_str()),
+        ("moved", "critérios respondidos (RF-B06)")
+    );
+}
+
+#[test]
+fn codev_finished_checks_the_dod_answers_of_toolset_10() {
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "dod": ["Docs updated", "Reviewed"], "wip": {}}),
+    );
+    let fin = |s: &mut ProjectStore, k: &str, report: serde_json::Value| {
+        let p = s
+            .apply(
+                ROOT,
+                "Co-Dev",
+                T0,
+                op(serde_json::json!({"op": "codev_finished", "key": k, "report": report})),
+            )
+            .unwrap();
+        issue_of(&p, k).state.clone()
+    };
+    let k = create(&mut s, "x", T0);
+    mv(&mut s, &k, "progress", T0).unwrap();
+    // one item left out, one for another text: both unanswered
+    let r = serde_json::json!({"criteria": [], "dod": [{"index": 1, "item": "Docs updated", "met": true, "evidence": "README.md:12"}, {"index": 2, "item": "Old item", "met": true, "evidence": "x"}]});
+    assert_eq!(fin(&mut s, &k, r), "progress");
+    let note = s.detail(ROOT, &k).unwrap().activity[0].note.clone();
+    assert!(
+        note.contains("a DoD ficou por responder: 2 «Reviewed»"),
+        "{note}"
+    );
+    let r = serde_json::json!({"criteria": [], "dod": [{"index": 1, "item": "Docs updated", "met": true, "evidence": "README.md:12"}, {"index": 2, "item": "Reviewed", "met": false, "evidence": "needs a human"}]});
+    assert_eq!(
+        fin(&mut s, &k, r),
+        "review",
+        "answered (met or not): the human decides in Review"
+    );
+    // a report of an older toolset has no DoD answers: not checked
+    let k = create(&mut s, "y", T0);
+    mv(&mut s, &k, "progress", T0).unwrap();
+    assert_eq!(
+        fin(&mut s, &k, serde_json::json!({"criteria": []})),
+        "review"
+    );
+}
+
+#[test]
+fn xp_needs_the_test_first_proof_to_reach_review() {
+    for method in ["xp", "scrumxp"] {
+        let mut s = store();
+        apply_ok(
+            &mut s,
+            serde_json::json!({"op": "settings", "method": method, "dor": [], "dod": [], "wip": {}}),
+        );
+        let k = create(&mut s, "x", T0);
+        s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+        mv(&mut s, &k, "progress", T0).unwrap();
+        // without Co-Dev change sets there is nothing to prove (a human's own work)
+        let h = create(&mut s, "human", T0);
+        s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+        mv(&mut s, &h, "progress", T0).unwrap();
+        assert!(mv(&mut s, &h, "review", T0).is_ok());
+        // Co-Dev changed code with no red run first
+        change_set(&mut s, &k, "src/lib.rs");
+        let report = serde_json::json!({"criteria": []});
+        let p = s
+            .apply(
+                ROOT,
+                "Co-Dev",
+                T0,
+                op(serde_json::json!({"op": "codev_finished", "key": k, "report": report})),
+            )
+            .unwrap();
+        assert_eq!(issue_of(&p, &k).state, "progress");
+        assert!(s.detail(ROOT, &k).unwrap().activity[0]
+            .note
+            .contains("sem prova de test-first"));
+        let e = mv(&mut s, &k, "review", T0).unwrap_err();
+        assert_eq!((e.code.as_str(), e.overridable), ("tdd", true));
+        // a red run whose tests are not in the accepted changes proves nothing
+        red_run(&mut s, &k, "tests/other.rs");
+        assert!(mv(&mut s, &k, "review", T0)
+            .unwrap_err()
+            .message
+            .contains("não estão nas alterações aceites"));
+        // the red run of tests that are in the changes: proven
+        change_set(&mut s, &k, "tests/pages.rs");
+        red_run(&mut s, &k, "tests/pages.rs\nsrc/lib.rs");
+        assert_eq!(
+            mv(&mut s, &k, "review", T0)
+                .unwrap()
+                .issues
+                .iter()
+                .find(|i| i.key == k)
+                .unwrap()
+                .state,
+            "review"
+        );
+        // the override, for another issue
+        let o = create(&mut s, "o", T0);
+        s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+        mv(&mut s, &o, "progress", T0).unwrap();
+        change_set(&mut s, &o, "src/x.rs");
+        s.apply(ROOT, "W", T0, op(serde_json::json!({"op": "move", "key": o, "to": "review", "reason": "a refactor with the tests unchanged"})))
+            .unwrap();
+        assert_eq!(
+            s.detail(ROOT, &o).unwrap().activity[0].note,
+            "excepção (tdd): a refactor with the tests unchanged"
+        );
+    }
+    // Scrum does not ask for it
+    let mut s = store();
+    apply_ok(
+        &mut s,
+        serde_json::json!({"op": "settings", "method": "scrum", "dor": [], "wip": {}}),
+    );
+    let k = create(&mut s, "x", T0);
+    s.conn().execute("UPDATE issues SET ready = 1", []).unwrap();
+    mv(&mut s, &k, "progress", T0).unwrap();
+    change_set(&mut s, &k, "src/lib.rs");
+    assert!(mv(&mut s, &k, "review", T0).is_ok());
 }
 
 // ───── Board A: the sprint history the metrics read (migration 16) ─────

@@ -9,7 +9,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 3 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
-- [Project](#project) — 6 acções
+- [Project](#project) — 11 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 4 acções
@@ -17,6 +17,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Platform — a minha fila, revisão de PR de infra e incidentes](#platform-a-minha-fila-revisao-de-pr-de-infra-e-incidentes) — 3 acções
 - [Vault — segredos, sessão e credenciais dinâmicas](#vault-segredos-sessao-e-credenciais-dinamicas) — 3 acções
 - [Deploy guiado — staging e produção](#deploy-guiado-staging-e-producao) — 3 acções
+- [Learning Track](#learning-track) — 2 acções
 
 ---
 
@@ -444,18 +445,150 @@ Cria as issues dos componentes planeados no Studio (o ADR, um serviço, aplicaç
 
 ## Project
 
-O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue. Na vista «Reports», os gráficos da sprint lêem o âmbito e as estimativas como eram em cada dia, e o painel «Insights» diz ao gestor o que o histórico mostra: se a sprint acaba, o que mudou desde o início, quanto do compromisso se cumpre, o que está parado ou bloqueado, quanto custa e quanto se refaz.
+O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. O método do quadro (Kanban, Scrum, XP, Scrum + XP) muda as regras, e o Co-Dev segue-as. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue. Na vista «Reports», os gráficos da sprint lêem o âmbito e as estimativas como eram em cada dia, e o painel «Insights» diz ao gestor o que o histórico mostra: se a sprint acaba, o que mudou desde o início, quanto do compromisso se cumpre, o que está parado ou bloqueado, quanto custa e quanto se refaz.
 
-<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan, project_reports)`, `crates/tutor-board/src/project/reports.rs`, `crates/tutor-board/src/project/insights.rs`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts`, `ui-app/src/features/project/ui/reports-view.ts`, `ui-app/src/features/project/domain/gate.ts`, `src-tauri/src/roles.rs (functional_check)` · revisto em 2026-11-26</sub>
+<sub>Código: `crates/tutor-board/src/project/methods.rs`, `crates/tutor-board/src/project/mod.rs (move_check, capacity_rule, tdd_gap)`, `crates/tutor-agent/src/issue_prompt.rs (methodology_block)`, `src-tauri/src/codev_agent.rs (start_work, tdd_observe)`, `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan, project_method_preview, project_reports)`, `crates/tutor-board/src/project/reports.rs`, `crates/tutor-board/src/project/insights.rs`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts`, `ui-app/src/features/project/ui/reports-view.ts`, `ui-app/src/features/project/domain/gate.ts`, `src-tauri/src/roles.rs (functional_check)` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
+| [Escolher o método](#escolher-o-metodo) | Project › Settings › cartões «Method» |
+| [Definition of Ready do projecto, por issue](#definition-of-ready-do-projecto-por-issue) | Project › painel da issue › secção «Definition of Ready» |
+| [Capacidade da sprint](#capacidade-da-sprint) | Project › Planning › «Add to …» e o cartão da sprint · Project › Backlog › a selecção da sprint |
+| [Mover uma issue (regras do método)](#mover-uma-issue-regras-do-metodo) | Project › Board (arrastar o cartão) · Project › painel da issue › botões de estado |
+| [Trabalhar com o Co-Dev no método](#trabalhar-com-o-co-dev-no-metodo) | Project › painel da issue › «Work on it with Co-Dev» |
 | [Co-Devs da sprint](#co-devs-da-sprint) | Project › Planning › cartão da sprint, campo «Co-Devs» |
 | [Plano paralelo](#plano-paralelo) | Project › Planning › cartão da sprint, botão «Parallel plan» |
 | [Burndown, burnup e velocidade](#burndown-burnup-e-velocidade) | Project › Reports (Scrum, XP e Scrum + XP) |
 | [Insights para o gestor](#insights-para-o-gestor) | Project › Reports, painel «Insights» (no topo, em todos os métodos) |
 | [Verificações obrigatórias](#verificacoes-obrigatorias) | Project › Settings › «Mandatory checks» |
 | [Aprovação funcional](#aprovacao-funcional) | Project › painel da issue › secção «Functional approval» |
+
+### Escolher o método
+
+**Onde:** Project › Settings › cartões «Method»
+
+Escolhe Kanban, Scrum, XP ou Scrum + XP. Cada cartão diz as regras do método; ao escolher um, o Project mostra antes o que muda nas definições (duração da iteração, limites de WIP, Definition of Ready e of Done) e o que fica porque foste tu que o definiste. Só muda com «Apply».
+
+**Como usar**
+
+1. Abre o Project e a vista «Settings».
+2. Carrega no cartão do método: aparece a caixa «Switch to …» com o que muda e o que fica.
+3. Carrega em «Apply» para mudar, ou em «Cancel» para deixar como está.
+
+**Fluxo (por dentro)**
+
+1. O comando `project_method_preview` (só leitura) calcula a mudança no Rust (`tutor_board::project::methods::change`): uma definição é tua quando difere do valor do método anterior (uma DoR/DoD vazia nunca é tua); essas ficam, as outras passam aos valores do método novo.
+2. «Apply» manda `settings` com `method` (e a língua das sugestões) ao `project_apply`, que aplica a mesma mudança.
+3. Regras por método: os limites de WIP valem em todos; a Definition of Ready para sair de To Do, a capacidade da sprint e o teste primeiro do XP valem nos métodos com iterações; o expedite que passa o WIP só no Kanban.
+
+**Dicas**
+
+- Uma definição que mudares à mão depois de escolher o método fica tua: uma mudança de método seguinte já não lhe mexe.
+
+**Limites**
+
+- As sugestões de DoR/DoD ficam na língua da interface no momento em que escolhes o método.
+
+<sub>Cobre: `pj-method`, `pj-method-apply`, `pj-method-cancel`</sub>
+
+### Definition of Ready do projecto, por issue
+
+**Onde:** Project › painel da issue › secção «Definition of Ready»
+
+Os itens da Definition of Ready que o projecto escreveu nas definições aparecem em cada issue com uma caixa a marcar, como os da Definition of Done. Fazem parte do «Ready»: sem eles marcados a issue não fica Ready nem sai de To Do (Scrum e XP), e o Co-Dev não trabalha nela.
+
+**Como usar**
+
+1. Abre a issue.
+2. Marca cada item da Definition of Ready que a issue já cumpre.
+3. Marca «Ready to start» quando a lista de «Missing for Ready» ficar vazia.
+
+**Fluxo (por dentro)**
+
+1. A caixa manda `update_issue` com `dor_done` (uma marca por item, coluna `issues.dor_done`, migração 17).
+2. A prontidão (`readiness`) junta às verificações fixas um «DoR: «item»» por cada item por marcar; o «Ready» só se aprova sem nada em falta.
+3. Um item acrescentado depois de a issue estar Ready faz a saída de To Do pedir um motivo (Scrum e XP).
+
+**Limites**
+
+- As marcas são por posição: reordenar a lista nas definições muda a que item cada marca corresponde (o mesmo que na DoD).
+
+<sub>Cobre: `pj-dor`</sub>
+
+### Capacidade da sprint
+
+**Onde:** Project › Planning › «Add to …» e o cartão da sprint · Project › Backlog › a selecção da sprint
+
+Em Scrum, XP e Scrum + XP a capacidade da sprint é uma regra: planear uma issue, criar uma directamente na sprint ou aumentar uma estimativa que a passasse é recusado. Com um motivo, avança e o motivo fica na actividade da issue como excepção.
+
+**Como usar**
+
+1. Dá à sprint uma capacidade em pontos ao criá-la.
+2. Planeia as issues; o cartão da sprint diz quantos pontos faltam.
+3. Se o Project recusar, escreve o motivo para avançar mesmo assim, ou cancela.
+
+**Fluxo (por dentro)**
+
+1. O `project_apply` verifica `capacity_rule` em `plan_issue`, `create_issue` com sprint e `update_issue` com pontos: soma os pontos da sprint e recusa (`capacity`, ultrapassável) só quando a mudança acrescenta pontos e passa a capacidade.
+2. Com `reason`, a mudança faz-se e fica uma entrada `override` com «excepção (capacity): motivo» na actividade.
+
+**Limites**
+
+- Uma issue sem estimativa não conta pontos.
+- Fechar uma sprint e passar o trabalho por terminar para a seguinte não é recusado; o cartão da sprint mostra se ficou acima da capacidade.
+- O Kanban não tem capacidade.
+
+<sub>Cobre: `pj-plan-to`, `pj-plan`</sub>
+
+### Mover uma issue (regras do método)
+
+**Onde:** Project › Board (arrastar o cartão) · Project › painel da issue › botões de estado
+
+Cada mudança de coluna passa pelas regras do método: um passo de cada vez, limites de WIP, bloqueios, Definition of Ready para sair de To Do (Scrum e XP), Definition of Done para Done e, em XP e Scrum + XP, a prova de teste primeiro para o trabalho do Co-Dev chegar a Review. No Kanban um cartão «expedite» pode passar o limite de WIP de uma coluna por um, e os cartões ordenam-se por classe de serviço.
+
+**Como usar**
+
+1. Arrasta o cartão para a coluna seguinte, ou usa os botões do painel da issue.
+2. Se uma regra recusar, escreve o motivo para avançar mesmo assim.
+
+**Fluxo (por dentro)**
+
+1. O `move` do `project_apply` corre `move_check` no Rust; a primeira regra partida volta com o seu código (`step`, `wip`, `blocked`, `dor`, `dod`, `tdd`) e com motivo a mudança faz-se como `override`.
+2. Expedite (Kanban): entra numa coluna cheia se ela estiver exactamente no limite; a actividade diz «expedite acima do limite de WIP».
+3. Teste primeiro (XP, Scrum + XP): para uma issue com alterações do Co-Dev, de Em curso para Review exige uma linha `tdd`/`red` do registo de auditoria — um `run_tests` que falhou quando só os testes tinham mudado — cujos ficheiros de teste estejam nas alterações aceites.
+
+**Limites**
+
+- O trabalho feito à mão, sem alterações do Co-Dev, não tem como provar o teste primeiro: não é verificado.
+
+<sub>Cobre: `pj-col`, `pj-move`</sub>
+
+### Trabalhar com o Co-Dev no método
+
+**Onde:** Project › painel da issue › «Work on it with Co-Dev»
+
+Quando a sessão do Co-Dev começa, a issue passa a Em curso pelas regras normais (WIP, prontidão); se a coluna Em curso já estiver no limite, o Project pergunta antes o motivo e sem ele o Co-Dev não começa. O prompt leva um bloco curto do método: método, sprint e dias que faltam, DoD, WIP de Em curso e Review, par, classe de serviço e, em XP, a regra de TDD. No fim, o `finish_issue` responde também a cada item da DoD e a issue só passa a Review pelas regras.
+
+**Como usar**
+
+1. Prepara a issue até ficar Ready e carrega em «Work on it with Co-Dev».
+2. Se a coluna Em curso estiver cheia, escreve o motivo ou espera.
+3. No fim, vê na actividade se a issue passou a Review ou ficou em Em curso, e porquê.
+
+**Fluxo (por dentro)**
+
+1. O anfitrião (`codev_agent::send`) faz o `move` para `progress` quando a sessão manda o primeiro pedido da issue em To Do e bloqueia o pedido se o Project recusar; uma sessão que espera pelos ficheiros de outra só move a issue quando começa.
+2. Antes, se o limite de WIP de Em curso já a recusaria (`startWipRefusal`), a UI pede o motivo e manda o `move` com ele (fica como `override`).
+3. O prompt (`project_issue_prompt`) ganhou o bloco «Método» (`methodology_block`), que um template do projecto sem o marcador `{{metodologia}}` recebe por cima do código.
+4. Conjunto de ferramentas 10: o `finish_issue` exige uma resposta com prova por item da DoD; o `codev_finished` usa a mudança normal para Review e, se uma regra a recusar (WIP, um passo, DoD por responder, teste primeiro), deixa a issue onde está com uma entrada `held` na actividade.
+5. XP: o anfitrião regista no registo de auditoria (`tdd`, `red`) o primeiro `run_tests` que falhou quando a sessão só tinha mudado testes (ficheiros de teste, ou texto com `#[test]`, `def test_`, `@Test`…).
+
+**Limites**
+
+- Sessões antigas (conjunto 9) retomam sem as respostas da DoD: o Project não as exige a esses relatórios.
+- Ficheiros escritos pelo `bash` não entram no rasto do teste primeiro.
+
+<sub>Cobre: `pj-work`</sub>
 
 ### Co-Devs da sprint
 
@@ -670,9 +803,9 @@ Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, c
 
 ## Servidor de linguagem (LSP)
 
-Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo.
+Na app desktop, o editor fala com o servidor de linguagem de cada ficheiro (rust-analyzer, typescript-language-server, pyright, gopls, jdtls…) para os diagnósticos ao vivo, o hover, o «ir para a definição», o rename e o completion. Que linguagem é cada ficheiro (pela extensão, sem distinguir maiúsculas, pelo nome inteiro como `Dockerfile` e `Makefile`, ou pelo shebang) e que servidor a serve diz um só ficheiro de dados, `languages/registry.json`, lido pelo editor e pelo backend. Quando o servidor não está instalado, o editor diz qual falta e ajuda a instalá-lo.
 
-<sub>Código: `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `src-tauri/src/lsp.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `languages/registry.json`, `crates/tutor-eval/src/langreg.rs`, `ui-app/src/features/lsp/domain/registry.ts`, `ui-app/src/features/lsp/application/lsp-client.ts`, `ui-app/src/features/lsp/domain/server-status.ts`, `src-tauri/src/lsp.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
@@ -693,15 +826,15 @@ Mostra o servidor que falta e o comando para o instalar. «Copy» copia o comand
 
 **Fluxo (por dentro)**
 
-1. O backend diz se o servidor existe (`lsp_server_status`); a regra do aviso e o comando estão em `domain/server-status.ts`.
-2. «Install» só existe quando a instalação é um comando (npm, go install, dotnet tool, rustup); para jdtls, clangd, sourcekit-lsp e kotlin-language-server é uma instrução para seguir.
+1. O backend diz se o servidor existe (`lsp_server_status`): procura-o como o registo de linguagens manda (variável de ambiente, PATH da shell de login e da app, pastas conhecidas; o rust-analyzer só de uma toolchain do rustup ou um binário verdadeiro, nunca o proxy do rustup). A regra do aviso está em `domain/server-status.ts`; o nome da linguagem e a instrução de instalação vêm do registo.
+2. «Install» só existe quando a instalação é um comando (npm, go install, dotnet tool, rustup) e esse comando é, letra a letra, um dos permitidos no código (`RUNNABLE`); para jdtls, clangd, sourcekit-lsp e kotlin-language-server é uma instrução para seguir.
 3. Aprovação partilhada (`app/approval.ts`) com o comando e onde corre → registo de auditoria (`audit_record`, acção `lsp.install`) → terminal de tarefa (PTY com a shell de login, na pasta aberta) → código de saída.
 4. Saída 0: esquece o estado em cache, volta a perguntar ao backend e arranca o servidor no ficheiro aberto.
 
 **Dicas**
 
 - Um erro de permissões no `npm install -g` costuma querer dizer que o node não é o do nvm: `nvm use --lts` (ou `npm config set prefix ~/.npm-global`) e volta a carregar em «Install».
-- Se instalou mas o dxtutor não o encontra, reinicia a app para ela ler o PATH novo.
+- Se instalou numa pasta nova do PATH e o dxtutor não o encontra, reinicia a app para ela ler o PATH novo.
 
 **Limites**
 
@@ -1337,6 +1470,82 @@ Aplica os manifestos (sem os `Secret`), anota a versão nos Deployments desses m
 2. Vai ao registo de auditoria antes e com o resultado; o registo do deploy alimenta a coluna «environments» do ciclo de vida do commit e o histórico em Environments.
 
 <sub>Cobre: `deploy:rollout`</sub>
+
+---
+
+## Learning Track
+
+Percursos guiados para aprender uma linguagem, um framework ou uma ferramenta: ler o conceito, escrever o programa linha a linha e aplicar num desafio que os testes ocultos avaliam. Os cursos chegam como plugins (`ngolacloud/dxtutor-course-<id>`).
+
+<sub>Código: `ui-app/src/features/learn/domain/catalog.ts`, `ui-app/src/features/learn/domain/project.ts`, `ui-app/src/features/learn/application/catalog-service.ts`, `ui-app/src/features/learn.ts`, `crates/tutor-core/src/project.rs`, `src-tauri/src/study.rs` · revisto em 2026-11-26</sub>
+
+| Acção | Onde |
+|---|---|
+| [Escolher o que aprender: linguagens e «Frameworks & tools»](#escolher-o-que-aprender-linguagens-e-frameworks-tools) | Learning Track › «Choose what to learn» · o selector que abre quando não há percurso |
+| [Passo de projecto: vários ficheiros](#passo-de-projecto-varios-ficheiros) | Learning Track › um desafio com a lista de ficheiros por cima do editor |
+
+### Escolher o que aprender: linguagens e «Frameworks & tools»
+
+**Onde:** Learning Track › «Choose what to learn» · o selector que abre quando não há percurso
+
+Mostra as 10 linguagens oficiais e, numa secção à parte, os frameworks e as ferramentas oficiais (Dxjs, Seiva, Django, Delonix Engine, Docker, Podman, Kubernetes, Odoo). Um cartão com curso instalado diz «Available» e abre a escolha do nível; sem curso diz «Coming soon» e fica desactivado.
+
+**Como usar**
+
+1. Abre o Learning Track e carrega em «Choose what to learn».
+2. Escolhe uma linguagem, ou um cartão da secção «Frameworks & tools».
+3. Escolhe os níveis (Basic, Intermediate, Advanced) e carrega em «Start».
+
+**Fluxo (por dentro)**
+
+1. No desktop, o catálogo pergunta ao backend os plugins instalados (`plugin_list`) e os cursos (`list_courses`, com a categoria e o `subject` de cada um).
+2. Um curso de linguagem carrega-se com `get_course(language)`; um de framework/ferramenta com `get_course(language, subject)`, e o percurso fica com a chave do `subject` (por exemplo `django`).
+3. A linguagem do curso (por exemplo `python` num curso de Django) é a que escreve e avalia os exercícios: dá a extensão dos ficheiros, a indentação e o avaliador.
+4. Os cartões oficiais sem curso não têm progresso nem conteúdo de demonstração; os frameworks de plugins da comunidade com curso entram no fim, como «Community».
+
+**Dicas**
+
+- Um framework ou ferramenta instala-se como uma linguagem: em «Course plugins», escreve o id (`django`) para o plugin oficial, ou `owner/repo` para outro.
+- No primeiro passo, «About» mostra a documentação oficial e o que instalar para praticar.
+
+**Limites**
+
+- No browser só há os cursos embutidos de Rust e Go: os frameworks ficam todos «Coming soon».
+- Os cursos oficiais de frameworks e ferramentas ainda não existem: chegam em fases próximas.
+
+<sub>Cobre: `lt-pick`, `lt-onboard`, `lt-install`, `lt-remove`</sub>
+
+### Passo de projecto: vários ficheiros
+
+**Onde:** Learning Track › um desafio com a lista de ficheiros por cima do editor
+
+Um desafio pode ser um pequeno projecto: vários ficheiros (um aberto primeiro, alguns só de leitura) e testes ocultos que correm sobre o projecto inteiro. «Submit» envia todos os ficheiros que podes editar.
+
+**Como usar**
+
+1. Abre o desafio: o ficheiro principal abre no editor.
+2. Carrega no nome de outro ficheiro, na lista por cima do editor, para o abrir; os marcados «read-only» lêem-se mas não se mudam.
+3. Escreve a solução nos ficheiros que for preciso e carrega em «Submit».
+
+**Fluxo (por dentro)**
+
+1. Cada ficheiro do passo entra no workspace do Learning Track com o conteúdo inicial, uma só vez (o que escreveste fica).
+2. «Submit» chama `submit_step` com `files`: os ficheiros editáveis com o conteúdo actual. Os só de leitura nunca vão.
+3. O backend monta a árvore (`ProjectFiles::learner_tree`): recusa um ficheiro só de leitura ou desconhecido, põe os que faltam como no início e os só de leitura sempre com a cópia do curso.
+4. O avaliador escreve a árvore e os testes ocultos numa pasta nova (caminhos verificados, sem `..`) e corre o comando de projecto do avaliador da linguagem (`project_test_cmd`). Código de saída 0 = passou.
+5. Ao passar, a solução de referência chega em ficheiros, com a explicação; antes disso, nem os testes nem a solução saem do backend.
+
+**Dicas**
+
+- Os testes ocultos correm sobre todos os ficheiros: um módulo por fazer faz falhar o passo, mesmo com o principal certo.
+
+**Limites**
+
+- Só na app desktop.
+- Hoje só o avaliador de Python corre passos de projecto; as outras linguagens dizem que ainda não o suportam.
+- Não se criam ficheiros novos: o passo traz todos os ficheiros com que se trabalha.
+
+<sub>Cobre: `lt-file`, `learn:go`</sub>
 
 ---
 

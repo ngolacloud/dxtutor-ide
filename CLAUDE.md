@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 306 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 307 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -421,6 +421,36 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
   `e2e/multi-codev.e2e.ts`. Para a fase 3/4: a worktree por sessão, as reservas de ficheiros, correr as verificações no
   commit actual e confirmar que a aprovação ainda vale nesse commit.
 
+## Cada método muda as regras, e o Co-Dev segue-as (Project, Board B)
+
+As regras vivem no Rust: `tutor_board::project::methods` (puro: defaults por método, a mudança de método,
+`is_test_change`) e o `move_check`/`capacity_rule`/`tdd_gap` do `project/mod.rs`. Toda a regra é ultrapassável com
+um motivo, gravado como `override` («excepção (código): motivo») na actividade da issue.
+- **Método:** escolher um aplica os seus valores (iteração, WIP de `progress`/`review`/`accept`, sugestões de DoR/DoD,
+  na língua pedida) SÓ onde a definição ainda é a do método anterior (uma DoR/DoD vazia nunca é do utilizador). O
+  `project_method_preview` (só leitura) mostra o que muda e o que fica; o `settings` com `method` aplica a mesma
+  mudança, e os campos do mesmo op ganham depois dela. GOTCHA-testes: escolher Scrum/XP passa a trazer itens de DoR —
+  um teste que só quer as verificações fixas passa `"dor": []`.
+- **Kanban:** um `expedite` entra numa coluna exactamente no limite de WIP (no máximo um acima dele; a actividade
+  di-lo); o quadro ordena cada coluna por classe de serviço (`cardOrder`). Sem capacidade nem DoR nas mudanças.
+- **Scrum, XP, Scrum + XP:** capacidade da sprint (`capacity`) em `plan_issue`, `create_issue` com sprint e
+  `update_issue` com pontos — recusa só quando a mudança acrescenta pontos e passa a capacidade; fechar uma sprint e
+  passar o resto à seguinte não é recusado. A DoR do projecto marca-se por issue (`issues.dor_done`, migração 17,
+  como a `dod_done`): entra na prontidão (`DoR: «item»`) e na saída de To Do.
+- **XP, Scrum + XP — teste primeiro:** de Em curso para Review, uma issue com change sets do Co-Dev precisa de uma
+  linha `tdd`/`red` do registo de auditoria (o anfitrião grava-a no primeiro `run_tests` que FALHOU com só testes
+  mudados — `tdd_observe`) cujos ficheiros de teste estejam nas alterações aceites. Trabalho só humano não é verificado.
+- **Co-Dev:** a issue passa a Em curso pela mudança normal quando a sessão COMEÇA mesmo (`codev_agent::send`, que
+  bloqueia o pedido se o Project recusar — uma sessão da fase 2 pode esperar pelos ficheiros de outra); se o WIP de Em
+  curso já a recusaria, a UI pergunta antes o motivo (`startWipRefusal`) e move-a como `override`. O `codev_finished` usa o `move_check` (WIP, um passo, teste primeiro) e,
+  recusado, deixa a issue onde está com uma entrada `held`. O prompt tem o bloco «Método» (`methodology_block`, um
+  marcador `{{metodologia}}`; ≈ 150 tokens no máximo). Conjunto de ferramentas 10: o `finish_issue` responde a cada
+  item da DoD (o anfitrião dá-a em `FlowState.dod`) e o store recusa a Review a um relatório com `dod` incompleto; as
+  sessões do conjunto 9 retomam com o esquema antigo.
+- Testes: `cargo test -p tutor-board` (`methods::`, e os `…method…`/`capacity`/`expedite`/`dor`/`codev_finished`/
+  `test_first` do `project::tests`), `cargo test -p tutor-agent` (`issue_prompt`, `finish_v10`), os `codev_agent::tests`
+  de início, `held` e passo vermelho, e `tests/project.methods.test.ts`.
+
 ## Métricas honestas e insights do Project (Board A)
 
 Os relatórios da sprint já não reescrevem o passado. A migração 16 da base do Project grava o histórico: `sprint_scope`
@@ -662,8 +692,26 @@ cpp, sql.
   (CourseGateway + catalog-service), `ui/actions.ts`, `infrastructure/legacy-bridge.ts`. O
   resíduo `features/learn.ts` é dono do DOM e do motor. Rust/Go embutidos continuam com
   avaliação simulada no browser; os cursos do backend usam `submit_step` real.
+- **Frameworks e ferramentas** (emenda de 2026-11-26 ao ADR-0005): categoria À PARTE das
+  linguagens (o tecto de 10 é só delas). `Course.category` (`language` omisso, `framework`, `tool`)
+  + `Course.subject` (`django`); o `language` continua a ser o que AVALIA (`python`) e a chave da
+  unicidade dos ids de passo. Manifesto: `category` + `subject {id,name,icon,docs}`, validados no
+  `tutor-plugins`. `study::course(language)` só devolve cursos de linguagem;
+  `get_course(language, subject?)` o do framework. Na UI, `FRAMEWORK_CATALOG` (8 oficiais) e a
+  secção «Frameworks & tools»; o percurso fica com a chave do subject (`LTS.lang = "django"`) e a
+  linguagem do curso dá extensão, indentação e avaliador. Sem curso: «Coming soon», como uma
+  linguagem sem plugin.
+- **Passos de projecto** (`tutor_core::ProjectFiles`, `crates/tutor-core/src/project.rs`): um
+  desafio com `project` (starter/tests/solution em ficheiros, `main`, `readonly`) no lugar de
+  `starter`/`tests`/`gabarito`. As regras (caminhos seguros, só editáveis na entrega, só de leitura
+  com a cópia do curso) vivem no modelo; o descritor escreve a árvore e corre o `project_test_cmd`
+  (só o Python o tem). `submit_step` ganhou `files` (o `code` continua). Na UI, a lista de
+  ficheiros por cima do editor (`lt-file`). Testes e solução nunca vão para o webview.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
-  `learn.onboarding.test.ts`. Guia de autoria: `docs/plugins/README.md`.
+  `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
+  `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`
+  (`tutor-cli/tests/plugin_test_project.rs`), pelo `study` (`src-tauri/tests/learn_project_step.rs`)
+  e pela UI. Guia de autoria: `docs/plugins/README.md`.
 
 ## Extensões VS Code — contribuições declarativas (ADR-0005, Fase 4)
 
@@ -727,7 +775,33 @@ desktop (teste Python real: list_tests → run_all_tests → run_test).
 Feature nova e tipada, só na app desktop (governada por A7/A8). Até aqui a UI oficial nunca
 chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`).
 
-- **`domain/`:** `languages.ts` (extensão → `languageId`, alinhado com `LANGS` do `lsp.rs`),
+- **Registo de linguagens (LSP P1): UM ficheiro de dados, `languages/registry.json`.** O backend embute-o
+  (`tutor_eval::langreg`, `include_str!`) e a UI importa o MESMO ficheiro pelo Vite
+  (`features/lsp/domain/registry.ts`; o browser não precisa do backend). Por linguagem: `id`, `name` (barra de
+  estado), `lspLanguageId`, `extensions` (sem distinguir maiúsculas), `filenames` (`Dockerfile`, `Makefile`; ganham à
+  extensão), `firstLine` (shebang, só quando o nome não diz nada), `lineComment` (Ctrl+/ sem VSIX), `outline` (a
+  linguagem do `file_outline`/codemap) e `server`. Por servidor (uma sessão por servidor e raiz: o `id` é a chave e
+  a `language` que a UI ouve): `label`, `command`+`args`, `resolver` (`path`/`node`/`go`/`rustup`), `envOverride`
+  (`DXTUTOR_RUST_ANALYZER`, `DXTUTOR_GOPLS`), `searchDirs` (`~/`, um `*` = a versão mais alta primeiro),
+  `rootMarkers`, `readySignal`, `initOptions` (o jdtls), `oneShot` (o cliente de um pedido do `tutor_eval::lsp`
+  pode arrancá-lo: rust/go/ts/python, nunca um JVM), `quirks` (só `nodePath` e `rustupProxy` mudam código; os
+  outros registam o que já é genérico), `install` (SÓ texto: o que a UI pode correr é o `RUNNABLE` do
+  `server-status.ts`, comando a comando) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
+  nove cópias antigas: `LANGS`/`server_cmd`/pistas/`init_options` do `lsp.rs`, a tabela do `tutor_eval::lsp`,
+  `codeintel::outline_lang`, `languages.ts`, `server-status.ts`, `ext/domain/contributions.ts`, os comentários do
+  `ext.ts`, o `OUTLINE_LANG` do explorador e os nomes da barra de estado (o `LANG` do `editor.ts` saiu, e com
+  ele as mutações do boot4/boot6). Uma linguagem nova é uma entrada no JSON; `langreg::validate` (teste
+  `the_bundled_registry_is_well_formed`) reprova ids repetidos, uma extensão/nome em duas linguagens, um servidor
+  inexistente, quirks/resolvers desconhecidos e campos com erros de escrita.
+- **Encontrar o servidor** (`lsp.rs::resolve_server`, com um `Host` injectável nos testes): o PATH é o da shell de
+  login (`shellenv`) + o da app + `/usr/local/go/bin` e `~/go/bin`, juntos com `join_paths` (sem versão do node
+  escrita no código); um servidor node arranca com a pasta dele à frente do PATH (o `node` com que foi instalado)
+  e o `NODE_PATH` é o `lib/node_modules` ao lado dele. O rust-analyzer vem de uma toolchain (`rustup which
+  --toolchain stable`, `~/.rustup/toolchains/*/bin`) ou de um binário no PATH que NÃO seja o proxy do rustup;
+  sem nenhum, `lsp_server_status` diz «não instalado» (antes caía num `rust-analyzer` solto e o aviso nunca
+  aparecia). Os resolvers que correm um programa (`rustup`, `go`) guardam só o que encontraram, nunca a falta.
+- **`domain/`:** `registry.ts` (o registo, `languageFor`/`languageForName`/`serverOf`), `languages.ts` (o
+  `languageId` LSP, só das linguagens com servidor),
   `positions.ts` (offset ↔ `{line, character}` e ponto do rato → offset, com tabs),
   `results.ts` (hover e definição normalizados; `plainMarkdown` limpa o markdown do servidor),
   `paths.ts` (chave do `FS` ↔ caminho absoluto). PURO.
@@ -941,6 +1015,13 @@ O separador IaC do Ops tem Pipeline · Plano · Segurança e política · Drift 
   salta-o, `read_text_file`/`write_text_file`/`write_file` recusam-no, o `openPath` avisa).
 - O plano ganhou módulo, motivo do replace, atributos que o forçam, raio de impacto (do `configuration` do `show -json`;
   um módulo conta como um todo), argumentos write-only e custo (infracost).
+- **O infracost nunca é interactivo** (o 2.x sem credenciais abre um login no browser, ou um código de dispositivo, e
+  espera): sem chave (`INFRACOST_API_KEY`/…, o `token.json` do `infracost auth login` ou o `api_key` do `credentials.yml`
+  do HOME que o comando recebe) a etapa é `not_connected` e o infracost NÃO corre (`infracost_signed_in`); com chave corre
+  sem stdin, sem `DISPLAY`/`WAYLAND_DISPLAY`/D-Bus/`XDG_RUNTIME_DIR`/`XDG_CURRENT_DESKTOP`, `BROWSER=false`, fluxo de
+  dispositivo, no seu grupo de processos, morto a um pedido de login (→ `not_connected`) ou aos 180 s (→ `failed`).
+  GOTCHA (medido): o Xvfb NÃO chega — com `DISPLAY=:99` o `xdg-open` pediu ao `systemd --user` da sessão, pelo
+  `$XDG_RUNTIME_DIR/bus`, e o browser abriu no ecrã real do utilizador. Correr o infracost à mão só sem essas variáveis.
 - GOTCHA: o ficheiro do plano guarda os valores (segredos incluídos) — por isso 0600 e apagado ao fim de um dia; o JSON
   do plano para conftest/infracost vive numa pasta temporária apagada no fim da corrida.
 - Testes: `cargo test -p tutor-eval iac::` (parsers dos scanners, raio de impacto, e um pipeline real com o `tofu`:

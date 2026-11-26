@@ -40,6 +40,7 @@ import { isDesktop } from "../platform/tauri/core";
 import { fetchOpenVsx, searchOpenVsx } from "../platform/tauri/extensions";
 import { bindActions } from "./ext/ui/actions";
 import { toggleLineComment, type ExtensionContributions } from "./ext/domain/contributions";
+import { languageFor } from "./lsp/domain/registry";
 import {
   initExs,
   lsGet,
@@ -138,13 +139,6 @@ const contrib = makeContribEngine({
   editorScope: ".ed",
 });
 
-/** Marcador de comentário por omissão quando nenhuma extensão traz language-configuration. */
-const DEFAULT_LINE_COMMENT: Record<string, string> = {
-  rs: "//", go: "//", ts: "//", tsx: "//", js: "//", jsx: "//", java: "//", kt: "//", swift: "//", cs: "//",
-  cpp: "//", cc: "//", hpp: "//", c: "//", h: "//", py: "#", sh: "#", rb: "#", toml: "#", yaml: "#", yml: "#",
-  sql: "--", lua: "--",
-};
-
 /** Tab no editor: expande o snippet cujo prefixo acaba no cursor. `true` se expandiu. */
 function vsxSnippet(ta: HTMLTextAreaElement, path: string): boolean {
   if (ta.selectionStart !== ta.selectionEnd) return false;
@@ -164,7 +158,9 @@ function vsxSnippet(ta: HTMLTextAreaElement, path: string): boolean {
 /** Ctrl+/ no editor: comenta/descomenta as linhas da selecção. `true` se mudou. */
 function vsxToggleComment(ta: HTMLTextAreaElement, path: string): boolean {
   const ext = extOf(path);
-  const marker = contrib.lineCommentFor(ext) || DEFAULT_LINE_COMMENT[ext];
+  /* sem language-configuration de uma extensão instalada: o marcador do registo de linguagens
+     (pelo nome do ficheiro — `Dockerfile`, `Makefile` — ou pela extensão, ou pelo shebang) */
+  const marker = contrib.lineCommentFor(ext) || languageFor(path, ta.value)?.lineComment;
   if (!marker) return false;
   const r = toggleLineComment(ta.value, ta.selectionStart, ta.selectionEnd, marker);
   ta.value = r.text;

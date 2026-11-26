@@ -5,12 +5,21 @@
 
 import { esc } from "../../../core";
 import type { ProjectState } from "../application/project-service";
-import { METHOD_INFO } from "../domain/board";
-import { METHODS, STATES, type Project, type Reports } from "../domain/types";
+import { METHOD_INFO, sprintLoad } from "../domain/board";
+import { METHODS, STATES, type FieldChange, type Method, type MethodChange, type Project, type Reports } from "../domain/types";
+import { translator } from "../../../app/i18n";
+import { PROJECT_METHOD_MESSAGES } from "./method-messages";
+
+const mt = translator(PROJECT_METHOD_MESSAGES);
+const RULES: Record<Method, "rulesKanban" | "rulesScrum" | "rulesXp" | "rulesScrumxp"> = {
+  kanban: "rulesKanban",
+  scrum: "rulesScrum",
+  xp: "rulesXp",
+  scrumxp: "rulesScrumxp",
+};
 import { planBlock, planControls } from "./plan-view";
 import { Hc, W, bars, burndownBody, burnupBody, burnupEmpty, burnupTitle, chartCard, insightsPanel, line, velocityBody } from "./reports-view";
 import { checksText, effectiveChecks } from "../domain/gate";
-import { translator } from "../../../app/i18n";
 import { PROJECT_GATE_MESSAGES } from "./gate-messages";
 const gt = translator(PROJECT_GATE_MESSAGES);
 
@@ -33,12 +42,15 @@ function planning(st: ProjectState, p: Project, now: number): string {
   const list = sprints
     .map((s) => {
       const items = p.issues.filter((i) => i.sprint === s.id);
-      const pts = items.reduce((n, i) => n + (i.points ?? 0), 0);
-      const over = s.capacity !== null && pts > s.capacity;
+      const load = sprintLoad(p, s);
+      const pts = load.points;
+      const over = load.left !== null && load.left < 0;
+      // Board B: the capacity is a rule (planning past it needs a reason), so say what is left
+      const left = load.left === null ? "" : ` · ${esc(load.left >= 0 ? mt("capacityLeft", { left: load.left }) : mt("capacityOver"))}`;
       return `<div class="pj-card-box"><div class="pj-sec"><span>${esc(s.name)}</span> <span class="pj-dim">${fmt(s.start)} – ${fmt(s.end)} · ${s.state}</span><span class="sp"></span>${
         s.state === "planned" ? `<button class="pj-btn pri" data-action="pj-sprint-start" data-on="${esc(s.id)}"><span>Start</span></button>` : `<button class="pj-btn" data-action="pj-sprint-close" data-on="${esc(s.id)}"><span>Close</span></button>`
       }</div>${s.goal ? `<div class="pj-goal">${esc(s.goal)}</div>` : ""}
-      <div class="pj-dim${over ? " bad" : ""}"><span>${pts} points planned${s.capacity !== null ? ` of ${s.capacity} capacity` : ""}</span></div>
+      <div class="pj-dim${over ? " bad" : ""}"><span>${pts} points planned${s.capacity !== null ? ` of ${s.capacity} capacity` : ""}</span>${left}</div>
       <div class="pj-dim${s.budgetUsd !== null && s.spentUsd >= s.budgetUsd ? " bad" : ""}"><span>Co-Dev $${s.spentUsd.toFixed(2)}${s.budgetUsd !== null ? ` of $${s.budgetUsd.toFixed(2)} budget` : ""}</span> <input class="pj-input pj-budget" type="number" min="0" step="1" title="Co-Dev budget for this sprint (USD); empty = no limit" data-action="pj-sprint-budget" data-on="${esc(s.id)}" value="${s.budgetUsd ?? ""}" placeholder="budget $"> ${planControls(s)}</div>
       ${items.map((i) => `<div class="pj-row" data-action="pj-open" data-on="${esc(i.key)}"><span class="pj-key">${esc(i.key)}</span><span class="pj-row-t">${esc(i.title)}</span><span class="pj-pts">${i.points ?? "–"}</span><button class="pj-icon" title="Back to the backlog" data-action="pj-unplan" data-on="${esc(i.key)}">✕</button></div>`).join("")}${planBlock(st, p, s.id)}</div>`;
     })
@@ -126,12 +138,42 @@ function retro(p: Project): string {
   }`;
 }
 
-function settings(p: Project, testCommand: string | null): string {
+/** A setting's value as people read it (Board B preview). */
+function shown(field: string, v: unknown): string {
+  if (field === "dor" || field === "dod") {
+    const l = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    return l.length ? l.map((x) => `«${x}»`).join(", ") : mt("emptyList");
+  }
+  if (field.startsWith("wip.")) return typeof v === "number" ? String(v) : mt("noLimit");
+  return typeof v === "number" ? String(v) : "—";
+}
+
+function fieldName(p: Project, field: string): string {
+  if (field === "iter_days") return mt("fieldIter");
+  if (field === "dor") return mt("fieldDor");
+  if (field === "dod") return mt("fieldDod");
+  const s = field.replace(/^wip\./, "") as keyof typeof METHOD_INFO.kanban.labels;
+  return mt("fieldWip", { state: METHOD_INFO[p.method].labels[s] ?? s });
+}
+
+/** Board B: what choosing the method changes and what stays (the store's preview), with Apply / Cancel. */
+export function methodPreviewBox(p: Project, ch: MethodChange): string {
+  const row = (c: FieldChange, kept: boolean) =>
+    `<div class="pj-li${kept ? " pj-dim" : ""}"><b>${esc(fieldName(p, c.field))}</b>: ${kept ? esc(shown(c.field, c.from)) : `${esc(shown(c.field, c.from))} → ${esc(shown(c.field, c.to))}`}</div>`;
+  const changes = ch.changes.length ? `<div class="pj-dim">${esc(mt("previewChanges"))}</div>${ch.changes.map((c) => row(c, false)).join("")}` : `<div class="pj-dim">${esc(mt("previewNothing"))}</div>`;
+  const kept = ch.kept.length ? `<div class="pj-dim">${esc(mt("previewKept"))}</div>${ch.kept.map((c) => row(c, true)).join("")}` : "";
+  return `<div class="pj-card-box accent pj-method-preview"><div class="pj-sec"><span>${esc(mt("previewTitle", { method: METHOD_INFO[ch.to].name }))}</span></div>
+    <div class="pj-dim">${esc(mt(RULES[ch.to]))}</div>${changes}${kept}<div class="pj-dim">${esc(mt("previewNote"))}</div>
+    <button class="pj-btn pri" data-action="pj-method-apply"><span>${esc(mt("previewApply"))}</span></button> <button class="pj-btn" data-action="pj-method-cancel"><span>${esc(mt("previewCancel"))}</span></button></div>`;
+}
+
+function settings(st: ProjectState, p: Project): string {
+  const testCommand = st.testCommand;
   const eff = effectiveChecks(p.checks, testCommand);
   const checksNote = eff.detected ? (eff.checks.length ? gt("checksDefault", { cmd: eff.checks[0].command }) : gt("checksNone")) : "";
   return `<div class="pj-card-box"><div class="pj-sec"><span>Method</span></div><div class="pj-methods">${METHODS.map(
-    (m) => `<button class="pj-methodcard${p.method === m ? " on" : ""}" data-action="pj-method" data-on="${m}"><b>${esc(METHOD_INFO[m].name)}</b><span class="pj-dim">${esc(METHOD_INFO[m].desc)}</span></button>`,
-  ).join("")}</div></div>
+    (m) => `<button class="pj-methodcard${p.method === m ? " on" : ""}" data-action="pj-method" data-on="${m}"><b>${esc(METHOD_INFO[m].name)}</b><span class="pj-dim">${esc(METHOD_INFO[m].desc)}</span><span class="pj-dim pj-rules">${esc(mt(RULES[m]))}</span></button>`,
+  ).join("")}</div>${st.methodPreview ? methodPreviewBox(p, st.methodPreview) : ""}</div>
   <div class="pj-card-box"><div class="pj-form" data-action="pj-form" data-on="settings">
     <label><span>Issue key prefix</span><input class="pj-input" name="key_prefix" value="${esc(p.keyPrefix)}"></label>
     <label><span>Iteration length (days)</span><input class="pj-input" type="number" min="1" max="60" name="iter_days" value="${p.iterDays}"></label>
@@ -155,6 +197,6 @@ export function renderPanel(v: "planning" | "releases" | "reports" | "retro" | "
     case "retro":
       return retro(p);
     case "settings":
-      return settings(p, st.testCommand);
+      return settings(st, p);
   }
 }

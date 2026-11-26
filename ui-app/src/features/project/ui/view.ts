@@ -9,7 +9,9 @@
 import type { IssueDrift } from "../domain/drift";
 import { translator } from "../../../app/i18n";
 import { PROJECT_DRIFT_MESSAGES } from "./drift-messages";
+import { PROJECT_METHOD_MESSAGES } from "./method-messages";
 const dt = translator(PROJECT_DRIFT_MESSAGES);
+const mt = translator(PROJECT_METHOD_MESSAGES);
 import { esc } from "../../../core";
 import type { ProjectService, ProjectState } from "../application/project-service";
 import {
@@ -67,6 +69,8 @@ function card(i: Issue, p: Project, now: number): string {
   const commits = i.links.filter((l) => l.kind === "commit").length;
   return `<div class="pj-card k-${i.kind}${i.blocked ? " blocked" : ""}${i.cos === "expedite" ? " expedite" : ""}" draggable="true" data-action="pj-card" data-on="${esc(i.key)}">
     <div class="pj-card-top"><span class="pj-kind k-${i.kind}" title="${esc(i.kind)}">${KIND_MARK[i.kind]}</span><span class="pj-key">${esc(i.key)}</span>${
+      i.cos === "expedite" ? `<span class="pj-flag exp" title="${esc(mt("expediteTitle"))}"><span>⚡ ${esc(mt("expedite"))}</span></span>` : ""
+    }${
       i.blocked ? `<span class="pj-flag bad" title="${esc(i.blocked)}"><span>blocked</span></span>` : !i.ready && i.state === "todo" && p.method !== "kanban" ? `<span class="pj-flag"><span>not ready</span></span>` : ""
     }</div>
     <div class="pj-title">${esc(i.title)}</div>
@@ -94,7 +98,7 @@ function header(st: ProjectState, p: Project, now: number): string {
 
 function board(st: ProjectState, p: Project, now: number): string {
   const issues = boardIssues(p, st.filters);
-  const ls = lanes(issues, st.swim);
+  const ls = lanes(issues, st.swim, p.method);
   const labels = METHOD_INFO[p.method].labels;
   const chip = (action: string, on: string, label: string, active: boolean) =>
     `<button class="pj-chip${active ? " on" : ""}" data-action="${action}" data-on="${on}"><span>${label}</span></button>`;
@@ -183,7 +187,8 @@ export function usageLine(u: IssueUsage): string {
 }
 
 function missingList(i: Issue): string {
-  const rest = i.missing.filter((m) => m !== "aprovação humana (Ready)");
+  // the project's own DoR items have their checkboxes below (Board B)
+  const rest = i.missing.filter((m) => m !== "aprovação humana (Ready)" && !m.startsWith("DoR: "));
   return rest.length ? `<div class="pj-missing"><span class="pj-dim">Missing for Ready:</span>${rest.map((m) => `<div class="pj-li bad">· ${esc(m)}</div>`).join("")}</div>` : "";
 }
 
@@ -243,8 +248,10 @@ function issuePanel(st: ProjectState, p: Project, now: number): string {
       // RF-B02: the Definition of Ready holds in every method (Co-Dev needs a Ready issue), so the
       // section is always there — not only for Scrum or a project with its own DoR list
       true
-        ? `<div class="pj-sec"><span>Definition of Ready</span></div><div class="pj-check"><input type="checkbox"${i.ready ? " checked" : ""} data-action="pj-ready"><span>Ready to start${i.readyBy ? ` <span class="pj-dim">(${esc(i.readyBy)})</span>` : ""}</span></div>${missingList(i)}${p.dor
-            .map((t) => `<div class="pj-dim pj-li">· ${esc(t)}</div>`)
+        ? `<div class="pj-sec"><span>Definition of Ready</span></div><div class="pj-check"><input type="checkbox"${i.ready ? " checked" : ""} data-action="pj-ready"><span>Ready to start${i.readyBy ? ` <span class="pj-dim">(${esc(i.readyBy)})</span>` : ""}</span></div>${missingList(i)}${
+            p.dor.length ? `<div class="pj-dim">${esc(mt("dorItems"))}</div>` : ""
+          }${p.dor
+            .map((t, k) => `<div class="pj-check"><input type="checkbox"${i.dorDone[k] ? " checked" : ""} data-action="pj-dor" data-on="${k}"><span>${esc(t)}</span></div>`)
             .join("")}`
         : ""
     }

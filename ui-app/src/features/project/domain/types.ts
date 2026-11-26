@@ -45,6 +45,8 @@ export interface Issue {
   branch: string | null;
   acceptance: Criterion[];
   dodDone: boolean[];
+  /** One flag per item of the project's own Definition of Ready (Board B), ticked like the DoD. */
+  dorDone: boolean[];
   links: Link[];
   changeSets: number;
   created: number;
@@ -309,6 +311,7 @@ function parseIssue(o: Record<string, unknown>): Issue {
     branch: strOrNull(o.branch),
     acceptance: arr(o.acceptance).filter(isObj).map((c) => ({ text: str(c.text), done: c.done === true })),
     dodDone: arr(o.dodDone).map((b) => b === true),
+    dorDone: arr(o.dorDone).map((b) => b === true),
     links: arr(o.links).filter(isObj).map((l) => ({ kind: str(l.kind), ref: str(l.ref), title: str(l.title), at: num(l.at) })),
     changeSets: num(o.changeSets),
     created: num(o.created),
@@ -461,6 +464,28 @@ export function parseReports(v: unknown): Reports {
       .map((w) => ({ code: str(w.code), params: parseParams(w.params) })),
     historySince: numOrNull(o.historySince),
   };
+}
+
+/** One setting a method change sets (`changes`) or keeps because the user set it (`kept`): `field` is
+ *  `iter_days`, `wip.progress`, `wip.review`, `wip.accept`, `dor` or `dod`; `from`/`to` as JSON
+ *  (`null`: no WIP limit). From `project_method_preview` (Board B). */
+export interface FieldChange {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+export interface MethodChange {
+  from: Method;
+  to: Method;
+  changes: FieldChange[];
+  kept: FieldChange[];
+}
+
+export function parseMethodChange(v: unknown): MethodChange | null {
+  if (!isObj(v) || !METHODS.includes(v.to as Method)) return null;
+  const rows = (x: unknown): FieldChange[] => arr(x).filter(isObj).map((r) => ({ field: str(r.field), from: r.from ?? null, to: r.to ?? null })).filter((r) => r.field);
+  return { from: oneOf(v.from, METHODS, "kanban"), to: v.to as Method, changes: rows(v.changes), kept: rows(v.kept) };
 }
 
 function parseParams(v: unknown): InsightParams {

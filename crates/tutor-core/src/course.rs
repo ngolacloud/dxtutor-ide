@@ -17,16 +17,64 @@
 //! *internally-tagged enum* + `flatten` do serde (que não casa bem com o parser
 //! TOML de arrays-de-tabelas). Assim cada passo é só uma `[[unit.step]]` com os
 //! campos que o seu tipo precisa.
+//!
+//! # Categorias: linguagens, frameworks e ferramentas
+//!
+//! Um curso ensina uma LINGUAGEM (`category = "language"`, o omisso: o conteúdo antigo não
+//! muda) ou um FRAMEWORK/FERRAMENTA (`"framework"`/`"tool"`, ADR-0005, emenda de 2026-11-26).
+//! Num curso de framework ou ferramenta, `subject` é o id do que se ensina (`django`,
+//! `docker`) e `language` continua a ser a linguagem/runtime que AVALIA os passos (`python`):
+//! é por ela que o avaliador e a unicidade dos ids de passo se resolvem.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::model::{Gabarito, Level, Phase};
+use crate::project::ProjectFiles;
 
-/// Uma trilha de aprendizado guiado numa linguagem, para principiantes.
+/// O que um curso ensina. Serializa como `"language"`/`"framework"`/`"tool"`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CourseCategory {
+    /// Uma linguagem de programação (o catálogo oficial tem no máximo 10).
+    #[default]
+    Language,
+    /// Um framework sobre uma linguagem (Django, Dxjs, Seiva, Odoo…).
+    Framework,
+    /// Uma ferramenta (Docker, Podman, Kubernetes, Delonix…).
+    Tool,
+}
+
+impl CourseCategory {
+    /// O nome serializado (`"language"`, `"framework"`, `"tool"`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CourseCategory::Language => "language",
+            CourseCategory::Framework => "framework",
+            CourseCategory::Tool => "tool",
+        }
+    }
+
+    /// `false` para uma linguagem; `true` para um framework ou uma ferramenta (que precisam
+    /// de um `subject`).
+    pub fn has_subject(self) -> bool {
+        self != CourseCategory::Language
+    }
+}
+
+/// Uma trilha de aprendizado guiado (numa linguagem, num framework ou numa ferramenta).
 #[derive(Debug, Clone, Deserialize)]
 pub struct Course {
     pub id: String,
+    /// A linguagem/runtime que avalia os passos (`rust`, `python`…). Num curso de linguagem
+    /// é também o que o curso ensina.
     pub language: String,
+    /// O que o curso ensina: uma linguagem (omisso), um framework ou uma ferramenta.
+    #[serde(default)]
+    pub category: CourseCategory,
+    /// Id do framework/ferramenta ensinado (`django`, `docker`). Vazio num curso de
+    /// linguagem.
+    #[serde(default)]
+    pub subject: String,
     pub title: String,
     /// Nível pedagógico do curso em texto livre (ex.: `"beginner"`). É puramente
     /// de apresentação — os passos `challenge` recebem um [`Level`] tipado via
@@ -75,6 +123,16 @@ impl Course {
 }
 
 impl Course {
+    /// A chave do percurso na interface: o `subject` de um framework/ferramenta, senão a
+    /// linguagem.
+    pub fn track(&self) -> &str {
+        if self.category.has_subject() {
+            &self.subject
+        } else {
+            &self.language
+        }
+    }
+
     /// Procura um passo pelo seu `id`, percorrendo todas as unidades.
     pub fn step(&self, id: &str) -> Option<&Step> {
         self.units
@@ -216,6 +274,13 @@ pub struct Step {
     /// the scaffolded `Cargo.toml` so drills and challenges compile.
     #[serde(default)]
     pub dependencies: Vec<String>,
+
+    // ── project (challenge de vários ficheiros) ──────────────────────────────
+    /// Passo de PROJECTO: ficheiros iniciais, testes ocultos, solução em ficheiros, ficheiro
+    /// principal e ficheiros só de leitura (ver [`crate::project`]). Só em passos
+    /// `challenge`, e no lugar de `starter`/`tests`/`gabarito`.
+    #[serde(default)]
+    pub project: Option<ProjectFiles>,
 }
 
 impl Step {
@@ -226,11 +291,23 @@ impl Step {
     /// O passo guiado não cronometra complexidade, por isso o [`Phase`] resultante
     /// não tem sonda (`probe = None`) — a avaliação resume-se à correcção pelos
     /// testes, que é o que o modo guiado precisa.
+    ///
+    /// Um passo de PROJECTO não tem `gabarito` (a solução são os ficheiros de
+    /// `project.solution`, que viajam no `Phase::project`): o gabarito do `Phase` fica com a
+    /// solução vazia, sem complexidade, e com a `project.explanation` como justificação.
     pub fn as_phase(&self, language: &str, level: Level) -> Option<Phase> {
         if self.kind != StepKind::Challenge {
             return None;
         }
-        let gabarito = self.gabarito.clone()?;
+        let gabarito = match &self.project {
+            Some(p) => Gabarito {
+                solution: String::new(),
+                time: String::new(),
+                space: String::new(),
+                justification: p.explanation.clone(),
+            },
+            None => self.gabarito.clone()?,
+        };
         Some(Phase {
             id: self.id.clone(),
             title: self.title.clone(),
@@ -246,6 +323,7 @@ impl Step {
             // course's own (course.rs/request_hint), not Phase::hint.
             hints: Vec::new(),
             dependencies: self.dependencies.clone(),
+            project: self.project.clone(),
         })
     }
 }
@@ -920,6 +998,72 @@ mod parse_tests {
         assert_eq!(c.units[0].concepts, "Variáveis são nomes.");
         assert_eq!(c.units[0].level, "basic");
         assert_eq!(c.step("c1").unwrap().kind, StepKind::Concept);
+    }
+
+    #[test]
+    fn categoria_por_omissao_e_curso_de_framework() {
+        let lang = load_course("python-basics").unwrap();
+        assert_eq!(lang.category, CourseCategory::Language);
+        assert_eq!(lang.track(), "python");
+        let raw = r#"
+id = "fw"
+language = "python"
+category = "framework"
+subject = "django"
+title = "T"
+level = "beginner"
+summary = "s"
+
+[[unit]]
+id = "u1"
+title = "U1"
+
+[[unit.step]]
+kind = "challenge"
+id = "fw-p1"
+title = "P"
+instructions = "Do it."
+
+[unit.step.project]
+main = "app/views.py"
+readonly = ["app/__init__.py"]
+explanation = "Why."
+
+[unit.step.project.starter]
+"app/__init__.py" = ""
+"app/views.py" = "def index():\n    raise NotImplementedError\n"
+
+[unit.step.project.tests]
+"test_app.py" = "import unittest\n"
+
+[unit.step.project.solution]
+"app/views.py" = "def index():\n    return 'ok'\n"
+"#;
+        let c = Course::parse(raw, CourseFormat::Toml).expect("toml válido");
+        assert_eq!(c.category, CourseCategory::Framework);
+        assert_eq!(c.track(), "django");
+        let s = c.step("fw-p1").unwrap();
+        let p = s.project.as_ref().expect("project");
+        assert!(p.check().is_empty(), "{:?}", p.check());
+        assert_eq!(p.main, "app/views.py");
+        let phase = s
+            .as_phase(&c.language, Level::Basico)
+            .expect("projecto vira Phase");
+        assert_eq!(phase.gabarito.solution, "");
+        assert_eq!(phase.gabarito.justification, "Why.");
+        assert_eq!(phase.project.as_ref(), Some(p));
+        // Um desafio de um só ficheiro sem gabarito continua a não virar Phase.
+        let mut single = s.clone();
+        single.project = None;
+        assert!(single.as_phase("python", Level::Basico).is_none());
+
+        let json = r#"{"id":"t","language":"python","category":"tool","subject":"docker","title":"T",
+          "level":"b","summary":"s","units":[]}"#;
+        let t = Course::parse(json, CourseFormat::Json).unwrap();
+        assert_eq!((t.category, t.track()), (CourseCategory::Tool, "docker"));
+        assert!(
+            Course::parse(&json.replace("\"tool\"", "\"library\""), CourseFormat::Json).is_err()
+        );
     }
 
     #[test]

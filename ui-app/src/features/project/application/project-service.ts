@@ -23,16 +23,19 @@ export function parsePrompt(v: unknown): IssuePrompt | null {
     template: typeof o.template === "string" ? o.template : "",
   };
 }
-import { branchName, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
+import { branchName, startWipRefusal, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
 import { ptCopy } from "./messages";
 import { MAX_CODEVS, parseSprintPlan, type SprintPlan } from "../domain/plan";
 import {
   parseDetail,
   parseError,
+  parseMethodChange,
   parseProject,
   parseReports,
   type Issue,
   type IssueDetail,
+  type Method,
+  type MethodChange,
   type Project,
   type ProjectError,
   type Reports,
@@ -59,7 +62,13 @@ export interface ProjectState {
   sprintPlan: { sprint: string; loading: boolean; data: SprintPlan | null; error: string | null } | null;
   /** The folder's detected test command (the default mandatory check when the project sets none). */
   testCommand: string | null;
+  /** Board B: what choosing a method would change, shown in Settings until applied or cancelled. */
+  methodPreview: MethodChange | null;
 }
+
+/** Operations whose rule refusals a reason may override (the store records it): moves, and the sprint
+ *  capacity when planning, estimating or creating into a sprint (Board B). */
+const OVERRIDABLE_OPS = new Set(["move", "plan_issue", "update_issue", "create_issue"]);
 
 export function makeProjectService(deps: ProjectDeps) {
   const copy = deps.copy ?? ptCopy;
@@ -77,6 +86,7 @@ export function makeProjectService(deps: ProjectDeps) {
     drift: null,
     sprintPlan: null,
     testCommand: null,
+    methodPreview: null,
   };
   const listeners = new Set<() => void>();
   const set = (patch: Partial<ProjectState>): void => {
@@ -84,6 +94,7 @@ export function makeProjectService(deps: ProjectDeps) {
     listeners.forEach((f) => f());
   };
   const root = (): string | null => deps.workspace.root();
+  const lang = (): "pt" | "en" => deps.lang?.() ?? "pt";
   /** The parallel plan's requests: only the newest one paints. */
   let planSeq = 0;
 
@@ -120,7 +131,7 @@ export function makeProjectService(deps: ProjectDeps) {
       return true;
     } catch (e: unknown) {
       const err: ProjectError = parseError(e);
-      if (err.overridable && op.op === "move" && !op.reason) {
+      if (err.overridable && OVERRIDABLE_OPS.has(String(op.op)) && !op.reason) {
         const reason = deps.dialog.prompt(copy("overrideReason", { error: err.message }));
         if (reason && reason.trim()) return apply({ ...op, reason: reason.trim() });
         return false;
@@ -227,6 +238,44 @@ export function makeProjectService(deps: ProjectDeps) {
       if (!i) return Promise.resolve(false);
       return apply({ op: "set_acceptance", key, items: i.acceptance.filter((_, k) => k !== idx) });
     },
+    /** Board B: ticks an item of the project's own Definition of Ready on the issue (like the DoD). */
+    toggleDor(key: string, idx: number): Promise<boolean> {
+      const i = issue(key);
+      const p = st.project;
+      if (!i || !p) return Promise.resolve(false);
+      const flags = p.dor.map((_, k) => (k === idx ? !i.dorDone[k] : !!i.dorDone[k]));
+      return apply({ op: "update_issue", key, dor_done: flags });
+    },
+    /** Board B: choosing a method first shows what it changes (the store's preview: its defaults where the
+     *  user set nothing, and what stays); `applyMethod` makes it so. Without a preview (no desktop), at once. */
+    async chooseMethod(method: Method): Promise<boolean> {
+      const r = root();
+      if (!r || !st.project) return false;
+      if (method === st.project.method) {
+        set({ methodPreview: null });
+        return true;
+      }
+      if (!deps.gateway.methodPreview) return apply({ op: "settings", method, lang: lang() });
+      try {
+        const ch = parseMethodChange(await deps.gateway.methodPreview(r, method, lang()));
+        if (!ch) throw new Error(copy("methodPreviewBad"));
+        set({ methodPreview: ch });
+        return true;
+      } catch (e: unknown) {
+        deps.notify.toast(parseError(e).message);
+        return false;
+      }
+    },
+    async applyMethod(): Promise<boolean> {
+      const ch = st.methodPreview;
+      if (!ch) return false;
+      const ok = await apply({ op: "settings", method: ch.to, lang: lang() });
+      if (ok) set({ methodPreview: null });
+      return ok;
+    },
+    cancelMethod(): void {
+      set({ methodPreview: null });
+    },
     toggleDod(key: string, idx: number): Promise<boolean> {
       const i = issue(key);
       const p = st.project;
@@ -310,6 +359,15 @@ export function makeProjectService(deps: ProjectDeps) {
         if (i.missing.length) {
           deps.notify.toast(`${key} ainda não está Ready — falta: ${i.missing.join("; ")}`);
           return;
+        }
+        // Board B: the issue goes to In progress by the normal move when its Co-Dev session really starts
+        // (the backend, `codev_agent::send`: a session may wait for another's files). When the WIP limit
+        // would refuse it, ask now: with a reason it moves as a recorded override; without one, no start
+        const full = startWipRefusal(st.project, i);
+        if (full) {
+          const reason = deps.dialog.prompt(copy("startWip", { key, count: full.count, limit: full.limit }));
+          if (!reason || !reason.trim()) return;
+          if (!(await apply({ op: "move", key, to: "progress", reason: reason.trim() }))) return;
         }
         try {
           const p = parsePrompt(await deps.gateway.issuePrompt(r, key));

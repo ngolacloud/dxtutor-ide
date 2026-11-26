@@ -394,6 +394,9 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE sprints ADD COLUMN closed_at INTEGER;
     ALTER TABLE projects ADD COLUMN history_since INTEGER;
     UPDATE projects SET history_since = CAST(strftime('%s', 'now') AS INTEGER) * 1000;",
+    // 17 — the project's own Definition of Ready ticked per issue (Board B): one flag per item of
+    //      `projects.dor`, like `dod_done`; readiness lists the items not ticked
+    "ALTER TABLE issues ADD COLUMN dor_done TEXT NOT NULL DEFAULT '[]';",
 ];
 
 /// The schema version this code expects.

@@ -455,6 +455,59 @@ impl Tool for Suggest {
 pub struct FinishIssue {
     pub criteria: Arc<Mutex<Vec<String>>>,
     pub finished: Arc<Mutex<Option<Value>>>,
+    /// Toolset 10 (Board B): the project's Definition of Done, answered item by item like the
+    /// criteria. `None`: an older session (its schema and description stay byte for byte).
+    pub dod: Option<Arc<Mutex<Vec<String>>>>,
+}
+
+/// Why the answers to a list do not close it.
+enum Unanswered {
+    /// A wrong answer (an index that does not exist, no proof): the message.
+    Bad(String),
+    /// The items left unanswered (`2, 3`).
+    Missing(String),
+}
+
+/// The rows of `given` (`[{index, met, evidence}]`) for `items`, each answered once with a proof;
+/// `what` names them in the errors («critério», «item da DoD»).
+fn answer_rows(
+    given: &[Value],
+    items: &[String],
+    what: &str,
+    key: &str,
+) -> Result<Vec<Value>, Unanswered> {
+    let mut rows: Vec<Option<Value>> = vec![None; items.len()];
+    for g in given {
+        let i = g["index"].as_u64().unwrap_or(0) as usize;
+        if i == 0 || i > items.len() {
+            return Err(Unanswered::Bad(format!(
+                "{what} {i} não existe (há {})",
+                items.len()
+            )));
+        }
+        let evidence = g["evidence"].as_str().unwrap_or("").trim();
+        if evidence.is_empty() {
+            return Err(Unanswered::Bad(format!(
+                "o {what} {i} precisa de uma prova"
+            )));
+        }
+        rows[i - 1] = Some(json!({
+            "index": i,
+            key: items[i - 1],
+            "met": g["met"].as_bool().unwrap_or(false),
+            "evidence": evidence,
+        }));
+    }
+    let missing: Vec<String> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.is_none())
+        .map(|(i, _)| (i + 1).to_string())
+        .collect();
+    if !missing.is_empty() {
+        return Err(Unanswered::Missing(missing.join(", ")));
+    }
+    Ok(rows.into_iter().flatten().collect())
 }
 
 impl Tool for FinishIssue {
@@ -462,11 +515,44 @@ impl Tool for FinishIssue {
         "finish_issue"
     }
     fn description(&self) -> &str {
+        if self.dod.is_some() {
+            return "No fim de uma issue, responde a cada critério de aceitação e a cada item da \
+             Definition of Done (`dod`): cumprido ou não, com a prova (teste, ficheiro:linha, saída \
+             de um comando). A issue passa a Review pelas regras do quadro (o Done é sempre do \
+             humano) e não alteras mais nada a seguir.";
+        }
         "No fim de uma issue, responde a cada critério de aceitação: cumprido ou não, com a \
          prova (teste, ficheiro:linha, saída de um comando). A issue passa a Review (o Done é \
          sempre do humano) e não alteras mais nada a seguir."
     }
     fn input_schema(&self) -> Value {
+        if self.dod.is_some() {
+            let rows = |n: &str| {
+                json!({
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {"type": "integer", "minimum": 1, "description": n},
+                            "met": {"type": "boolean"},
+                            "evidence": {"type": "string", "description": "a prova: teste, ficheiro:linha, saída"}
+                        },
+                        "required": ["index", "met", "evidence"],
+                        "additionalProperties": false
+                    }
+                })
+            };
+            return json!({
+                "type": "object",
+                "properties": {
+                    "criteria": rows("o número do critério (1, 2, …)"),
+                    "dod": rows("o número do item da DoD (1, 2, …)"),
+                    "summary": {"type": "string"}
+                },
+                "required": ["criteria"],
+                "additionalProperties": false
+            });
+        }
         json!({
             "type": "object",
             "properties": {
@@ -501,6 +587,9 @@ impl Tool for FinishIssue {
             return ToolOutput::err(
                 "este pedido não é uma issue com critérios: não há nada para fechar",
             );
+        }
+        if let Some(dod) = &self.dod {
+            return self.run_v10(input, &criteria, &dod.lock().unwrap().clone());
         }
         let given = input["criteria"].as_array().cloned().unwrap_or_default();
         let mut rows: Vec<Option<Value>> = vec![None; criteria.len()];
@@ -543,6 +632,147 @@ impl Tool for FinishIssue {
              Termina aqui, sem mais alterações.",
             criteria.len()
         ))
+    }
+}
+
+impl FinishIssue {
+    /// Toolset 10: the criteria and the DoD items, each answered with a proof.
+    fn run_v10(&self, input: &Value, criteria: &[String], dod: &[String]) -> ToolOutput {
+        let given = |k: &str| input[k].as_array().cloned().unwrap_or_default();
+        let crit = match answer_rows(&given("criteria"), criteria, "critério", "criterion") {
+            Ok(r) => r,
+            Err(Unanswered::Bad(e)) => return ToolOutput::err(e),
+            Err(Unanswered::Missing(e)) => {
+                return ToolOutput::err(format!("responde a todos os critérios: faltam {e}"))
+            }
+        };
+        let items = match answer_rows(&given("dod"), dod, "item da DoD", "item") {
+            Ok(r) => r,
+            Err(Unanswered::Bad(e)) => return ToolOutput::err(e),
+            Err(Unanswered::Missing(e)) => {
+                return ToolOutput::err(format!(
+                    "responde a todos os itens da Definition of Done (`dod`): faltam {e}"
+                ))
+            }
+        };
+        let met = |rows: &[Value]| rows.iter().filter(|r| r["met"] == true).count();
+        let (cm, dm) = (met(&crit), met(&items));
+        *self.finished.lock().unwrap() = Some(json!({
+            "criteria": crit,
+            "dod": items,
+            "summary": input["summary"].as_str().unwrap_or(""),
+        }));
+        let dod_line = if dod.is_empty() {
+            String::new()
+        } else {
+            format!(", {dm}/{} itens da DoD", dod.len())
+        };
+        ToolOutput::ok(format!(
+            "Registado: {cm}/{} critérios cumpridos{dod_line}. A issue passa a Review se as regras do \
+             quadro o deixarem (WIP, test-first); o Done é do humano. Termina aqui, sem mais alterações.",
+            criteria.len()
+        ))
+    }
+}
+
+#[cfg(test)]
+mod finish_v10_tests {
+    use super::*;
+
+    fn tool(dod: &[&str]) -> FinishIssue {
+        FinishIssue {
+            criteria: Arc::new(Mutex::new(vec!["a".into(), "b".into()])),
+            finished: Arc::new(Mutex::new(None)),
+            dod: Some(Arc::new(Mutex::new(
+                dod.iter().map(|s| s.to_string()).collect(),
+            ))),
+        }
+    }
+
+    fn ctx() -> ToolCtx {
+        ToolCtx {
+            root: PathBuf::from("/tmp"),
+            cancel: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn row(i: u64, met: bool) -> Value {
+        json!({"index": i, "met": met, "evidence": format!("proof {i}")})
+    }
+
+    #[test]
+    fn toolset_10_answers_the_dod_items_too() {
+        let t = tool(&["Docs updated", "Reviewed"]);
+        assert!(t.input_schema()["properties"]["dod"].is_object());
+        assert!(t.description().contains("Definition of Done"));
+        // every DoD item must be answered
+        let out = t.run(
+            &json!({"criteria": [row(1, true), row(2, true)], "dod": [row(1, true)]}),
+            &ctx(),
+        );
+        assert!(
+            out.is_error && out.content.contains("Definition of Done (`dod`): faltam 2"),
+            "{}",
+            out.content
+        );
+        let out = t.run(
+            &json!({"criteria": [row(1, true), row(2, true)], "dod": [row(3, true)]}),
+            &ctx(),
+        );
+        assert!(
+            out.is_error && out.content.contains("item da DoD 3 não existe"),
+            "{}",
+            out.content
+        );
+        let out = t.run(
+            &json!({"criteria": [row(1, true)], "dod": [row(1, true), row(2, true)]}),
+            &ctx(),
+        );
+        assert!(
+            out.is_error && out.content.contains("critérios: faltam 2"),
+            "{}",
+            out.content
+        );
+        assert!(t.finished.lock().unwrap().is_none());
+        let out = t.run(
+            &json!({"criteria": [row(1, true), row(2, false)], "dod": [row(2, false), row(1, true)], "summary": "s"}),
+            &ctx(),
+        );
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content
+                .contains("1/2 critérios cumpridos, 1/2 itens da DoD"),
+            "{}",
+            out.content
+        );
+        let f = t.finished.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            f["dod"][0],
+            json!({"index": 1, "item": "Docs updated", "met": true, "evidence": "proof 1"})
+        );
+        assert_eq!(f["criteria"][1]["criterion"], "b");
+        // a project without a DoD: only the criteria
+        let t = tool(&[]);
+        let out = t.run(&json!({"criteria": [row(1, true), row(2, true)]}), &ctx());
+        assert!(
+            !out.is_error && !out.content.contains("DoD"),
+            "{}",
+            out.content
+        );
+        assert_eq!(
+            t.finished.lock().unwrap().clone().unwrap()["dod"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn an_older_session_keeps_its_schema_and_description() {
+        let old = FinishIssue {
+            dod: None,
+            ..tool(&["x"])
+        };
+        assert!(old.input_schema()["properties"].get("dod").is_none());
+        assert!(!old.description().contains("Definition of Done"));
     }
 }
 

@@ -188,7 +188,8 @@ fn new(args: &[String]) -> Result<()> {
 
 /// `dxt plugin test`: prova o conteúdo com o avaliador REAL (o mesmo do `submit_step`).
 /// Cada drill tem de correr (saída 0); cada desafio tem de passar com o gabarito e falhar com
-/// o starter (senão os testes ocultos não provam nada). É o que o CI de um curso deve correr.
+/// o starter (senão os testes ocultos não provam nada). Num passo de PROJECTO, o mesmo com
+/// conjuntos de ficheiros: os da solução passam, os iniciais falham. É o que o CI de um curso deve correr.
 fn test(args: &[String]) -> Result<()> {
     let mut dir = ".";
     let mut only: Option<&str> = None;
@@ -210,6 +211,15 @@ fn test(args: &[String]) -> Result<()> {
     }
     let (mut passed, mut failed) = (0usize, Vec::<String>::new());
     for course in &report.courses {
+        if course.category.has_subject() {
+            println!(
+                "{} — {} `{}`, graded as {}",
+                course.id,
+                course.category.as_str(),
+                course.subject,
+                course.language
+            );
+        }
         for unit in &course.units {
             if only.is_some_and(|p| !unit.id.starts_with(p)) {
                 continue;
@@ -271,6 +281,28 @@ fn check_step(language: &str, step: &tutor_core::Step) -> std::result::Result<St
                     head(&format!("{}{}", out.stdout, out.stderr))
                 ))
             }
+        }
+        StepKind::Challenge if step.project.is_some() => {
+            // Passo de projecto: a árvore da solução (gabarito por cima do starter) tem de
+            // passar e a árvore inicial tem de falhar, com o mesmo avaliador do `submit_step`.
+            let phase = step
+                .as_phase(language, tutor_core::Level::Basico)
+                .ok_or("project step did not build a phase")?;
+            let project = step.project.as_ref().expect("guarded");
+            let good = tutor_eval::assess_project(&phase, &project.solution)
+                .map_err(|e| format!("evaluator error: {e}"))?;
+            if !good.correctness.passed {
+                return Err(format!(
+                    "reference solution files fail the tests: {}",
+                    head(&good.correctness.raw)
+                ));
+            }
+            let starter = tutor_eval::assess_project(&phase, &Default::default())
+                .map_err(|e| format!("evaluator error: {e}"))?;
+            if starter.correctness.passed {
+                return Err("the starter files already pass the tests (they prove nothing)".into());
+            }
+            Ok(format!("({} files)", project.starter.len()))
         }
         StepKind::Challenge => {
             let phase = step

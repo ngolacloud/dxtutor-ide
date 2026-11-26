@@ -25,6 +25,8 @@
 //! Os DTOs serializáveis (`ProjectDto`, `AssessmentDto`, …) continuam em `lib.rs`
 //! `pub(crate)`: são a fronteira de serialização para o webview, partilhados entre grupos.
 
+use std::collections::BTreeMap;
+
 use tutor_core::{Course, Glossary, Level, Phase, Project, StepKind, StudyGuide};
 use tutor_eval::Assessment;
 use tutor_llm::policy::{policy_for, Mode, StudyPolicy};
@@ -102,6 +104,10 @@ pub enum StudyError {
     NotAChallenge(String),
     /// Não há curso para esta linguagem.
     NoCourse(String),
+    /// Não há curso para este framework/ferramenta (`subject`).
+    NoSubjectCourse(String),
+    /// Foram entregues ficheiros para um passo que não é de projecto.
+    NotAProject(String),
     /// Não há glossário para esta linguagem.
     NoGlossary(String),
     /// Não há guia de estudo para esta linguagem/unidade.
@@ -118,6 +124,8 @@ impl std::fmt::Display for StudyError {
             StudyError::StepNotFound(id) => write!(f, "step `{id}` not found"),
             StudyError::NotAChallenge(id) => write!(f, "step `{id}` is not a challenge"),
             StudyError::NoCourse(lang) => write!(f, "no course for language `{lang}`"),
+            StudyError::NoSubjectCourse(s) => write!(f, "no course for `{s}`"),
+            StudyError::NotAProject(id) => write!(f, "step `{id}` is not a project step"),
             StudyError::NoGlossary(lang) => write!(f, "no glossary for language `{lang}`"),
             StudyError::NoStudyGuide { language, unit } => {
                 write!(f, "no study guide for language `{language}` unit `{unit}`")
@@ -186,11 +194,35 @@ pub fn load_phase(phase_id: &str) -> Result<Phase, StudyError> {
 }
 
 /// Carrega o curso guiado de uma linguagem (ex. `"rust"`), ou [`StudyError::NoCourse`].
+/// Só cursos de LINGUAGEM: um curso de Django também se avalia em `python`, mas não é «o
+/// curso de Python».
 pub fn course(language: &str) -> Result<Course, StudyError> {
-    all_courses()
-        .into_iter()
-        .find(|c| c.language.eq_ignore_ascii_case(language.trim()))
-        .ok_or_else(|| StudyError::NoCourse(language.to_string()))
+    find_course(&all_courses(), language, None)
+}
+
+/// [`course`] ou, com `subject`, o curso do framework/ferramenta com esse id
+/// ([`StudyError::NoSubjectCourse`] quando não há).
+pub fn course_for(language: &str, subject: Option<&str>) -> Result<Course, StudyError> {
+    find_course(&all_courses(), language, subject)
+}
+
+fn find_course(
+    courses: &[Course],
+    language: &str,
+    subject: Option<&str>,
+) -> Result<Course, StudyError> {
+    match subject.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(sub) => courses
+            .iter()
+            .find(|c| c.category.has_subject() && c.subject.eq_ignore_ascii_case(sub))
+            .cloned()
+            .ok_or_else(|| StudyError::NoSubjectCourse(sub.to_string())),
+        None => courses
+            .iter()
+            .find(|c| !c.category.has_subject() && c.language.eq_ignore_ascii_case(language.trim()))
+            .cloned()
+            .ok_or_else(|| StudyError::NoCourse(language.to_string())),
+    }
 }
 
 /// Todos os cursos embutidos (um por currículo/linguagem), para o onboarding construir o
@@ -239,8 +271,38 @@ pub fn grade_step_in(
     language: Option<&str>,
     code: &str,
 ) -> Result<(Assessment, Phase), StudyError> {
+    grade_in(&all_courses(), step_id, language, Submission::Code(code))
+}
+
+/// Avalia um passo de PROJECTO com os ficheiros editáveis que o aluno entrega (caminho →
+/// conteúdo). Os que faltam ficam como no starter; um ficheiro só de leitura ou desconhecido
+/// é recusado (ver `tutor_core::ProjectFiles::learner_tree`). Um passo de um só ficheiro dá
+/// [`StudyError::NotAProject`].
+pub fn grade_step_files(
+    step_id: &str,
+    language: Option<&str>,
+    files: &BTreeMap<String, String>,
+) -> Result<(Assessment, Phase), StudyError> {
+    grade_in(&all_courses(), step_id, language, Submission::Files(files))
+}
+
+/// O que o aluno entrega: o código de um ficheiro (num passo de projecto, o ficheiro
+/// principal) ou os ficheiros de um passo de projecto.
+#[derive(Debug, Clone, Copy)]
+pub enum Submission<'a> {
+    Code(&'a str),
+    Files(&'a BTreeMap<String, String>),
+}
+
+/// A regra da avaliação sobre uma lista de cursos dada (testável sem o registo de plugins).
+pub fn grade_in(
+    courses: &[Course],
+    step_id: &str,
+    language: Option<&str>,
+    submission: Submission<'_>,
+) -> Result<(Assessment, Phase), StudyError> {
     let wanted = language.map(|l| l.trim().to_ascii_lowercase());
-    for course in all_courses() {
+    for course in courses {
         if wanted
             .as_deref()
             .is_some_and(|l| !course.language.eq_ignore_ascii_case(l))
@@ -259,8 +321,16 @@ pub fn grade_step_in(
                     course.language
                 )));
             }
-            let assessment =
-                tutor_eval::assess(&phase, code).map_err(|e| StudyError::Eval(e.to_string()))?;
+            let assessment = match submission {
+                Submission::Code(code) => tutor_eval::assess(&phase, code),
+                Submission::Files(files) => {
+                    if phase.project.is_none() {
+                        return Err(StudyError::NotAProject(step_id.to_string()));
+                    }
+                    tutor_eval::assess_project(&phase, files)
+                }
+            }
+            .map_err(|e| StudyError::Eval(e.to_string()))?;
             return Ok((assessment, phase));
         }
     }
@@ -326,6 +396,126 @@ mod tests {
             grade_phase("no-such-phase", "fn main() {}").unwrap_err(),
             StudyError::PhaseNotFound("no-such-phase".to_string())
         );
+    }
+
+    fn fixture_course() -> Course {
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../crates/tutor-plugins/tests/fixtures/framework-project/courses/minishop.toml"
+        ))
+        .expect("fixture");
+        Course::parse(&raw, tutor_core::CourseFormat::Toml).unwrap()
+    }
+
+    #[test]
+    fn framework_courses_are_found_by_subject_never_as_the_language_course() {
+        let mut courses = vec![fixture_course()];
+        // Nem com o curso de framework PRIMEIRO na lista o «curso de Python» passa a ser ele.
+        courses.extend(tutor_core::builtin_courses());
+        assert_eq!(
+            find_course(&courses, "python", None).unwrap().id,
+            "python-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "python", Some("minishop"))
+                .unwrap()
+                .id,
+            "minishop-fixture"
+        );
+        assert_eq!(
+            find_course(&courses, "python", Some("django"))
+                .unwrap_err()
+                .to_string(),
+            "no course for `django`"
+        );
+    }
+
+    #[test]
+    fn project_steps_grade_files_and_refuse_files_for_single_file_steps() {
+        // grading runs on the host here: hold the engine so a parallel test can't switch it
+        let _engine = crate::sandbox::EngineGuard::take();
+        crate::sandbox::set_engine("host").unwrap();
+        let courses = vec![fixture_course()];
+        let files = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        // Ficheiros para um passo que não é de projecto: erro tipado, sem correr nada.
+        let mut single = fixture_course();
+        single.units[0].steps[2].project = None;
+        single.units[0].steps[2].gabarito = Some(tutor_core::Gabarito {
+            solution: String::new(),
+            time: String::new(),
+            space: String::new(),
+            justification: String::new(),
+        });
+        assert_eq!(
+            grade_in(
+                &[single],
+                "msf-p1-cart",
+                Some("python"),
+                Submission::Files(&files(&[]))
+            )
+            .unwrap_err(),
+            StudyError::NotAProject("msf-p1-cart".into())
+        );
+        // Um ficheiro só de leitura é recusado antes de avaliar.
+        let err = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Files(&files(&[("shop/config.py", "VAT = 0\n")])),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("read-only"), "{err}");
+        // A linguagem que filtra é a do runtime (python), não o subject.
+        assert_eq!(
+            grade_in(
+                &courses,
+                "msf-p1-cart",
+                Some("minishop"),
+                Submission::Files(&files(&[]))
+            )
+            .unwrap_err(),
+            StudyError::StepNotFound("msf-p1-cart".into())
+        );
+        if !tutor_eval::find_plugin("python").is_some_and(|p| p.host_available()) {
+            return;
+        }
+        let project = courses[0]
+            .step("msf-p1-cart")
+            .unwrap()
+            .project
+            .clone()
+            .unwrap();
+        let (good, phase) = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Files(&project.solution),
+        )
+        .unwrap();
+        assert!(good.correctness.passed, "{}", good.correctness.raw);
+        assert!(phase.project.is_some());
+        let (bad, _) = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Files(&files(&[])),
+        )
+        .unwrap();
+        assert!(!bad.correctness.passed);
+        // A forma antiga (`code`) num passo de projecto: é o ficheiro principal.
+        let (main_only, _) = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Code(&project.solution["shop/cart.py"]),
+        )
+        .unwrap();
+        assert!(!main_only.correctness.passed, "prices.py is still the stub");
     }
 
     #[test]
