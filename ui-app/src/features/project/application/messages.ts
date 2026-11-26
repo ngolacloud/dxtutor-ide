@@ -12,6 +12,8 @@ export const PROJECT_ENGINE_MESSAGES = {
     needsAgent: "Co-Dev with an agent needs the desktop app, a folder open and a provider with an agent",
     sprintNeeds: "The sprint needs a name, a start and an end", releaseNeeds: "The release needs a version and a date",
     noScm: "Source Control is not available",
+    codevsRange: "A sprint has 1 to {max} Co-Devs", planNeedsDesktop: "The parallel plan is computed by the desktop app, with a folder open",
+    planBad: "invalid response from the sprint planner",
   },
   ptAO: {
     badResponse: "resposta inválida do store do projecto",
@@ -20,6 +22,8 @@ export const PROJECT_ENGINE_MESSAGES = {
     needsAgent: "O Co-Dev com agente precisa da app desktop, de uma pasta aberta e de um provedor com agente",
     sprintNeeds: "A sprint precisa de nome, início e fim", releaseNeeds: "A release precisa de versão e data",
     noScm: "Source Control não está disponível",
+    codevsRange: "Uma sprint tem de 1 a {max} Co-Devs", planNeedsDesktop: "O plano paralelo é calculado pela app desktop, com uma pasta aberta",
+    planBad: "resposta inválida do planeador da sprint",
   },
 } satisfies Messages<string>;
 

@@ -341,6 +341,9 @@ const MIGRATIONS: &[&str] = &[
         at        INTEGER NOT NULL
     );
     CREATE INDEX idx_queue_events ON queue_events(root, at);",
+    // 14 — how many Co-Devs work the sprint at the same time (Multi Co-Dev, phase 1: the parallel
+    //      plan); `NULL`: not set (one)
+    "ALTER TABLE sprints ADD COLUMN codevs INTEGER;",
 ];
 
 /// The schema version this code expects.
