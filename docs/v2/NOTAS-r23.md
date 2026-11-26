@@ -172,6 +172,30 @@ catálogo/scorecards, GitOps, custo e inventário ficam para depois; a F5 em dua
   decide comando a comando e não mexe no classificador do Co-Dev.
 - Não há ligadores para custo, métricas/logs e inventário: ficam «não ligados».
 
+## F5b — a fila, a revisão de PR de infra e os incidentes
+
+**O que mudou** — uma vista nova, «Platform» (paleta «Platform: …»), com três separadores:
+- **A minha fila:** só o que é teu, calculado do estado real — PRs que pedem a tua revisão (com a regra do CODEOWNERS),
+  achados de IaC bloqueantes em `.tf` que mudaste, runbooks recorrentes em atraso, incidentes que comandas, o teu último
+  deploy falhado. Cada item diz porque é teu e tem uma acção. «Verificar» só o marca feito quando o estado o prova, e
+  guarda a prova; «Passar» pede a quem e porquê, e aparece na vista da equipa. «Medido neste workspace» são só contagens
+  locais; o on-call diz «não ligado».
+- **Revisão de PR de infra:** o diff e «Antes do merge» — o CI do PR, o plano, a política e o custo (o pipeline de IaC
+  corre sobre a cabeça do PR numa worktree temporária), a janela de mudança, o rollback (migrações), incidentes
+  semelhantes; capacidade, orçamento de erro e on-call «não ligados». Cada verificação diz de onde vem. Publicar a revisão
+  mostra o comando `gh` exacto; aprovar com uma verificação a falhar pede um motivo (no Rust), que vai para o PR.
+- **Incidentes locais** (decisão tua): abrir, evidência, verificações feitas e não feitas (com porquê), mitigar, resolver
+  com um resumo, «a causa principal estava certa?» (mede a precisão do Co-Dev). A confiança nunca passa de «baixa» sem
+  uma fonte de métricas. O Co-Dev ordena as causas prováveis e escreve o rascunho do postmortem (propostas).
+- 11 comandos novos: de 289 para 300.
+
+**Limitações**
+- Os comentários do Co-Dev a um PR vêm no chat, não ancorados às linhas do diff.
+- O drift «onde estás de on-call» não entra na fila (não há fonte de on-call).
+- A revisão de PR foi testada com um `gh` falso e, na app real, sem sessão no `gh` (diz porquê); nenhum PR real foi
+  revisto aqui.
+
 ## A seguir
 
-F5b — a fila «My queue» (com verificação e passagem a outra pessoa), a revisão de PR de infra e os incidentes locais.
+A r23 fica completa com a F5b. O que ficou adiado (catálogo/scorecards, GitOps, custo, inventário; canary/blue-green;
+o `dx-secret-check`) está registado nas limitações de cada fase.
