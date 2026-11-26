@@ -4,6 +4,7 @@
 //! julga correcção pelos testes e estima a complexidade empiricamente.
 
 mod plugin;
+mod secret_scan;
 
 use anyhow::{bail, Result};
 use tutor_core::{load_project, Phase, Project};
@@ -31,11 +32,17 @@ fn main() -> Result<()> {
             let rest: Vec<String> = std::env::args().skip(2).collect();
             plugin::run(&rest)
         }
+        "secret-scan" => {
+            let rest: Vec<String> = std::env::args().skip(2).collect();
+            std::process::exit(secret_scan::run(&rest))
+        }
         "-h" | "--help" | "help" => {
-            println!("dxt — editor-tutor\n\n  dxt          abre o editor TUI\n  dxt demo     prova o avaliador no terminal\n  dxt list     lista as fases do projecto\n  dxt plugin   gere plugins de curso (dxt plugin help)");
+            println!("dxt — editor-tutor\n\n  dxt          abre o editor TUI\n  dxt demo     prova o avaliador no terminal\n  dxt list     lista as fases do projecto\n  dxt plugin   gere plugins de curso (dxt plugin help)\n  dxt secret-scan   o secret scan antes de um commit (dxt secret-scan --help)");
             Ok(())
         }
-        other => bail!("comando desconhecido: {other} (usa: tui | demo | list | plugin)"),
+        other => {
+            bail!("comando desconhecido: {other} (usa: tui | demo | list | plugin | secret-scan)")
+        }
     }
 }
 

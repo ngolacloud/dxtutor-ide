@@ -17,6 +17,9 @@ const RULES: Record<Method, "rulesKanban" | "rulesScrum" | "rulesXp" | "rulesScr
   scrumxp: "rulesScrumxp",
 };
 import { planBlock, planControls } from "./plan-view";
+import { checksText, effectiveChecks } from "../domain/gate";
+import { PROJECT_GATE_MESSAGES } from "./gate-messages";
+const gt = translator(PROJECT_GATE_MESSAGES);
 
 const DAY = 86_400_000;
 const fmt = (ms: number): string => new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
@@ -200,6 +203,9 @@ export function methodPreviewBox(p: Project, ch: MethodChange): string {
 }
 
 function settings(st: ProjectState, p: Project): string {
+  const testCommand = st.testCommand;
+  const eff = effectiveChecks(p.checks, testCommand);
+  const checksNote = eff.detected ? (eff.checks.length ? gt("checksDefault", { cmd: eff.checks[0].command }) : gt("checksNone")) : "";
   return `<div class="pj-card-box"><div class="pj-sec"><span>Method</span></div><div class="pj-methods">${METHODS.map(
     (m) => `<button class="pj-methodcard${p.method === m ? " on" : ""}" data-action="pj-method" data-on="${m}"><b>${esc(METHOD_INFO[m].name)}</b><span class="pj-dim">${esc(METHOD_INFO[m].desc)}</span><span class="pj-dim pj-rules">${esc(mt(RULES[m]))}</span></button>`,
   ).join("")}</div>${st.methodPreview ? methodPreviewBox(p, st.methodPreview) : ""}</div>
@@ -211,6 +217,7 @@ function settings(st: ProjectState, p: Project): string {
       .join("")}
     <label class="wide"><span>Definition of Ready (one item per line)</span><textarea class="pj-input" name="dor" rows="4">${esc(p.dor.join("\n"))}</textarea></label>
     <label class="wide"><span>Definition of Done (one item per line)</span><textarea class="pj-input" name="dod" rows="4">${esc(p.dod.join("\n"))}</textarea></label>
+    <label class="wide"><span>${esc(gt("checksLabel"))}</span><textarea class="pj-input notr" name="checks" rows="3" placeholder="${esc(testCommand ? `tests: ${testCommand}` : "tests: cargo test")}">${esc(checksText(p.checks))}</textarea><span class="pj-dim">${esc(gt("checksHint"))}${checksNote ? ` ${esc(checksNote)}` : ""}</span></label>
     <button class="pj-btn pri" data-action="pj-submit" data-on="settings"><span>Save</span></button></div></div>`;
 }
 

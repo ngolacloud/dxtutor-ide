@@ -172,6 +172,18 @@ export function sprintLoad(p: Project, sprint: Sprint): { points: number; capaci
   return { points, capacity: sprint.capacity, left: sprint.capacity === null ? null : sprint.capacity - points };
 }
 
+/** Board B: would the WIP limit of In progress refuse starting `i` (the store's rule, for the question
+ *  before Co-Dev starts)? `null`: it would not — the backend moves the issue when the session really
+ *  starts. Kanban lets one expedite pass a column that is exactly at its limit. */
+export function startWipRefusal(p: Project, i: Issue): { count: number; limit: number } | null {
+  const limit = p.wip.progress;
+  if (i.state !== "todo" || limit === undefined) return null;
+  const count = p.issues.filter((x) => x.state === "progress" && x.key !== i.key).length;
+  if (count < limit) return null;
+  if (p.method === "kanban" && i.cos === "expedite" && count === limit) return null;
+  return { count, limit };
+}
+
 /** The items of the project's own DoR not ticked on the issue (Board B). */
 export const dorOpen = (i: Issue, p: Project): string[] => p.dor.filter((_, k) => !i.dorDone[k]);
 

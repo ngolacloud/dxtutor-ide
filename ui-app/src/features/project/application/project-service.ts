@@ -23,7 +23,7 @@ export function parsePrompt(v: unknown): IssuePrompt | null {
     template: typeof o.template === "string" ? o.template : "",
   };
 }
-import { branchName, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
+import { branchName, startWipRefusal, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
 import { ptCopy } from "./messages";
 import { MAX_CODEVS, parseSprintPlan, type SprintPlan } from "../domain/plan";
 import {
@@ -60,6 +60,8 @@ export interface ProjectState {
   drift: IssueDrift | null;
   /** Multi Co-Dev (phase 1): the parallel plan of one sprint, when open (read-only). */
   sprintPlan: { sprint: string; loading: boolean; data: SprintPlan | null; error: string | null } | null;
+  /** The folder's detected test command (the default mandatory check when the project sets none). */
+  testCommand: string | null;
   /** Board B: what choosing a method would change, shown in Settings until applied or cancelled. */
   methodPreview: MethodChange | null;
 }
@@ -83,6 +85,7 @@ export function makeProjectService(deps: ProjectDeps) {
     prompt: null,
     drift: null,
     sprintPlan: null,
+    testCommand: null,
     methodPreview: null,
   };
   const listeners = new Set<() => void>();
@@ -102,7 +105,7 @@ export function makeProjectService(deps: ProjectDeps) {
       return;
     }
     planSeq++;
-    set({ status: "loading", error: null, sprintPlan: null, filters: { ...st.filters, me: deps.workspace.me() } });
+    set({ status: "loading", error: null, sprintPlan: null, filters: { ...st.filters, me: deps.workspace.me() }, testCommand: deps.workspace.testCommand?.() ?? null });
     try {
       const p = parseProject(await deps.gateway.load(r));
       if (!p) throw new Error(copy("badResponse"));
@@ -357,9 +360,15 @@ export function makeProjectService(deps: ProjectDeps) {
           deps.notify.toast(`${key} ainda não está Ready — falta: ${i.missing.join("; ")}`);
           return;
         }
-        // Board B: Co-Dev starts by the normal move to In progress (WIP and readiness checked); a refusal
-        // asks for a reason (recorded as an override), and without one Co-Dev does not start
-        if (i.state === "todo" && !(await apply({ op: "move", key, to: "progress" }))) return;
+        // Board B: the issue goes to In progress by the normal move when its Co-Dev session really starts
+        // (the backend, `codev_agent::send`: a session may wait for another's files). When the WIP limit
+        // would refuse it, ask now: with a reason it moves as a recorded override; without one, no start
+        const full = startWipRefusal(st.project, i);
+        if (full) {
+          const reason = deps.dialog.prompt(copy("startWip", { key, count: full.count, limit: full.limit }));
+          if (!reason || !reason.trim()) return;
+          if (!(await apply({ op: "move", key, to: "progress", reason: reason.trim() }))) return;
+        }
         try {
           const p = parsePrompt(await deps.gateway.issuePrompt(r, key));
           if (!p) throw new Error("o prompt da issue veio vazio");
@@ -447,6 +456,25 @@ export function makeProjectService(deps: ProjectDeps) {
     closePlan(): void {
       planSeq++;
       set({ sprintPlan: null });
+    },
+    /** Multi Co-Dev (the integration gate): records that the issue does what its criteria ask. The store
+     *  decides who and when, and refuses without criteria; the command checks who may (the issue's
+     *  responsible, or a Product Owner / Tech Lead). The note is optional; cancelling the dialog stops. */
+    async approveFunctional(key: string): Promise<boolean> {
+      const note = deps.dialog.prompt(copy("approveNote", { key }), "");
+      if (note === null) return false;
+      const ok = await apply({ op: "approve_functional", key, note: note.trim() || null });
+      if (ok) deps.notify.toast(copy("approved", { key }));
+      return ok;
+    },
+    /** Withdraws the functional approval, with a reason (recorded and audited). */
+    async revokeFunctional(key: string): Promise<boolean> {
+      const by = issue(key)?.functional?.by ?? "";
+      const reason = deps.dialog.prompt(copy("revokeReason", { key, by }), "");
+      if (!reason || !reason.trim()) return false;
+      const ok = await apply({ op: "revoke_functional", key, reason: reason.trim() });
+      if (ok) deps.notify.toast(copy("revoked", { key }));
+      return ok;
     },
     /** How many Co-Devs work the sprint (1…8, `null` unsets it); the open plan is recomputed (as after any change). */
     async setCodevs(sprint: string, codevs: number | null | undefined): Promise<boolean> {

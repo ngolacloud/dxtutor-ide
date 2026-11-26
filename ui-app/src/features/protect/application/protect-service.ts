@@ -5,8 +5,10 @@
    - A commit the secret scan blocked (`guard`): the findings in the shared approval dialog; going
      ahead needs a reason — audited before the override and with the result — and the commit runs
      again. Refused, the error says what was found, in words. Any other error passes as it was.
+   - The pre-commit hook (`installHook`): the exact file and text in the shared dialog; the backend audits
+     the install before writing it and never overwrites a hook that is not dxtutor's.
    No DOM, no window: ports only. */
-import { findingLines, parseBlocked } from "../domain/report";
+import { findingLines, parseBlocked, type HookPlan } from "../domain/report";
 import type { ProtectDeps } from "./ports";
 
 export function makeProtect(deps: ProtectDeps) {
@@ -60,8 +62,35 @@ export function makeProtect(deps: ProtectDeps) {
     }
   }
 
+  /** The pre-commit hook in the open repository: shown in the shared dialog with the exact file and text,
+   *  installed only when approved; the backend audits it before writing, and the result is audited too. */
+  async function installHook(): Promise<void> {
+    const root = deps.root();
+    if (!root) { deps.toast(deps.copy("hookNoFolder")); return; }
+    let plan: HookPlan;
+    try { plan = await deps.protect.hookPlan(root); } catch (e) { deps.toast(deps.copy("hookFailed", { error: e instanceof Error ? e.message : String(e) })); return; }
+    if (plan.state === "installed") { deps.toast(deps.copy("hookAlready", { path: plan.path })); return; }
+    if (plan.state === "foreign") { deps.toast(deps.copy("hookForeign", { path: plan.path })); return; }
+    const command = `write ${plan.path} (chmod 755)\n\n${plan.content}`;
+    const d = await deps.approval.approve({ title: deps.copy("hookTitle"), command, scope: root });
+    const entry = { feature: "protect", action: "hook.install", command: `write ${plan.path}`, scope: root, decidedAt: d.decidedAt };
+    if (!d.approved) {
+      await deps.audit.record(root, { ...entry, approved: false }).catch(() => undefined);
+      deps.toast(deps.copy("hookDeclined"));
+      return;
+    }
+    try {
+      const done = await deps.protect.hookInstall(root);
+      await deps.audit.record(root, { ...entry, approved: true, outcome: "ok" }).catch(() => undefined);
+      deps.toast(deps.copy("hookInstalled", { path: done.path }));
+    } catch (e) {
+      await deps.audit.record(root, { ...entry, approved: true, outcome: "failed" }).catch(() => undefined);
+      deps.toast(deps.copy("hookFailed", { error: e instanceof Error ? e.message : String(e) }));
+    }
+  }
+
   return {
-    workspaceOpened, redacted, guard,
+    workspaceOpened, redacted, guard, installHook,
     total: (): number => total,
     subscribe(f: () => void): () => void { subs.add(f); return () => subs.delete(f); },
   };

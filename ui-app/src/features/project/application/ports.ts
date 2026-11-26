@@ -28,6 +28,8 @@ export interface Workspace {
   root(): string | null;
   /** Who "mine" means (the project's git user). */
   me(): string;
+  /** The folder's detected test command (`cargo test`, `npm test`…): the default mandatory check. */
+  testCommand?(): string | null;
 }
 
 export interface Commit {

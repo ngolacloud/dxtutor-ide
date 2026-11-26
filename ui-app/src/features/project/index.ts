@@ -15,6 +15,7 @@ import { problemsScope } from "../../app/problems-scope";
 import type { QuickFilter, Swim, View } from "./domain/board";
 import type { Method, State } from "./domain/types";
 import { parseCodevs } from "./domain/plan";
+import { parseChecks } from "./domain/gate";
 import { projectInbox } from "../../app/project-inbox";
 import { NAVIGATOR_MESSAGE, pairState } from "../../app/pair-state";
 import { currentLocale, translator } from "../../app/i18n";
@@ -104,7 +105,10 @@ function submit(e: ActionEvent): void {
       const n = v[`wip_${st}`];
       if (n && Number(n) > 0) wip[st] = Number(n);
     }
-    void s.apply({ op: "settings", key_prefix: v.key_prefix, iter_days: Number(v.iter_days), wip, dor: lines(v.dor), dod: lines(v.dod) });
+    // Multi Co-Dev (the integration gate): the mandatory checks, `name: command` per line
+    const checks = parseChecks(v.checks ?? "");
+    if ("error" in checks) return notify.toast(copy("checksBad", { line: checks.error }));
+    void s.apply({ op: "settings", key_prefix: v.key_prefix, iter_days: Number(v.iter_days), wip, dor: lines(v.dor), dod: lines(v.dod), checks: checks.checks });
   }
 }
 
@@ -172,6 +176,9 @@ const table: ActionTable = {
   "pj-sprint-plan": { click: (e) => void projectService.loadPlan(e.on) },
   "pj-plan-close": { click: () => projectService.closePlan() },
   "pj-sprint-budget": { change: (e) => void projectService.apply({ op: "set_sprint_budget", id: e.on, budget_usd: e.value.trim() === "" ? null : Math.max(0, Number(e.value)) }) },
+  /* Multi Co-Dev (the integration gate): the functional approval of the selected issue */
+  "pj-functional-approve": { click: () => { const k = sel(); if (k) void projectService.approveFunctional(k); } },
+  "pj-functional-revoke": { click: () => { const k = sel(); if (k) void projectService.revokeFunctional(k); } },
   "pj-audit": { click: () => { const k = sel(); if (k) void projectService.exportAudit(k); } },
   "pj-diff": { click: (e) => openDiff(e.on) },
   /* RF-A05: the drift of the rules in the issue's files */

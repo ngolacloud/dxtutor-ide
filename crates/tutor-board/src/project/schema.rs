@@ -344,7 +344,14 @@ const MIGRATIONS: &[&str] = &[
     // 14 — how many Co-Devs work the sprint at the same time (Multi Co-Dev, phase 1: the parallel
     //      plan); `NULL`: not set (one)
     "ALTER TABLE sprints ADD COLUMN codevs INTEGER;",
-    // 15 — the project's own Definition of Ready ticked per issue (Board B): one flag per item of
+    // 15 — Multi Co-Dev, phase 2 (the integration gate's data): the project's mandatory checks
+    //      (`[{name, command}]` in JSON; `NULL`: not set — the detected test command) and the
+    //      functional approval recorded on an issue (who, when, the note)
+    "ALTER TABLE projects ADD COLUMN checks TEXT;
+    ALTER TABLE issues ADD COLUMN functional_by TEXT;
+    ALTER TABLE issues ADD COLUMN functional_at INTEGER;
+    ALTER TABLE issues ADD COLUMN functional_note TEXT;",
+    // 16 — the project's own Definition of Ready ticked per issue (Board B): one flag per item of
     //      `projects.dor`, like `dod_done`; readiness lists the items not ticked
     "ALTER TABLE issues ADD COLUMN dor_done TEXT NOT NULL DEFAULT '[]';",
 ];

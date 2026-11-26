@@ -37,6 +37,10 @@ import { makeAgentMapStore } from "./application/agent-map";
 import { agentMapGateway } from "./infrastructure/agent-map-gateway";
 import { makeAgentMapView } from "./ui/agent-map-view";
 import { setAgentCount } from "./ui/composer";
+import { makeCodevSessions } from "./application/codev-sessions";
+import { makeSessionView } from "./ui/session-view";
+import { makeCodevsView } from "./ui/codevs-view";
+import { scopeOverlap } from "./infrastructure/scope-gateway";
 import { VIEW } from "../../app/store/registry";
 import type {
   Workspace,
@@ -285,10 +289,13 @@ export const agentMapStore = makeAgentMapStore({
 });
 export const agentMapView = makeAgentMapView(agentMapStore, {
   base: () => bridge.agents()?.[bridge.monolith.activeAgent]?.n ?? "Co-Dev",
-  showInChat: () => {
+  showInChat: (session) => {
+    // Multi Co-Dev: a sessão de outra issue mostra a conversa dela
+    if (session) codevSessions.selectSession(session);
     presenter.scrollMsgs();
     document.getElementById("ag-input")?.focus();
   },
+  inChat: (session) => codevSessions.has(session),
   openRun: () => openCodevRun(),
   now: () => Date.now(),
   every: (ms, f) => {
@@ -299,56 +306,100 @@ export const agentMapView = makeAgentMapView(agentMapStore, {
 agentMapStore.onChange(() => setAgentCount(agentMapStore.working()));
 void agentMapStore.start();
 
-const agentChat = makeAgentChat({
+/* ───── Multi Co-Dev (fase 2): uma conversa por sessão; a à vista é a seleccionada ───── */
+let firstSession = true;
+export const codevSessions = makeCodevSessions({
   copy,
+  make: (ctx) => {
+    const view = makeSessionView(
+      {
+        label: ctx.label,
+        notify: (label) => bridge.toast(copy("bgDecision", { label })),
+        changed: () => codevSessions.touch(),
+      },
+      firstSession,
+    );
+    firstSession = false;
+    const chat = makeAgentChat({
+      copy,
+      confirm: (m) => bridge.confirm(m),
+      gateway: agentGateway,
+      presenter: view.presenter,
+      gate: view.gate,
+      verify,
+      workspace: { root: () => bridge.diskRoot() ?? "" },
+      reloadFromDisk: () => bridge.reloadDisk(),
+      provider: () => bridge.monolith.activeProvider,
+      effort: () => bridge.effort(),
+      model: () => {
+        const p = bridge.providers() as unknown as Record<string, { model?: string }>;
+        const active = p[bridge.monolith.activeProvider];
+        return (active && active.model) || "";
+      },
+      mode: () => bridge.monolith.mode,
+      speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
+      nowSecs: () => Math.floor(Date.now() / 1000),
+      openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
+      /* o uso de cada pedido do agente: o contador de uso (o custo medido das issues do Board) e o
+         `ctx` da barra de estado, como as voltas do chat ao vivo (ADR-0006, R3c) — o `ctx` é o da
+         conversa à vista */
+      onUsage: (input, output, detail) => {
+        const provider = bridge.monolith.activeProvider;
+        bridge.recordUsage(provider, input + output);
+        if (ctx.selected()) document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output, ...detail } }));
+      },
+      /* conjunto 9: só as sessões de arquitectura levam `arch_propose` */
+      architecture: (first) => architectureSession(bridge.studioOpen(), first),
+      // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
+      hunks: {
+        ...hunkReview.sink,
+        event: (s, e) => {
+          hunkReview.sink.event(s, e);
+          pairState.codevOut(e);
+        },
+      },
+      flush: () => bridge.flushSave(),
+      // the «Co-Dev run» tab follows the conversation on screen
+      run: {
+        event: (s, e) => {
+          if (ctx.selected()) codevRun.event(s, e);
+        },
+        turnStarted: () => {
+          if (ctx.selected()) codevRun.turnStarted();
+        },
+      },
+      agentMap: agentMapStore.sink,
+    });
+    return { chat, view };
+  },
+  overlap: async (key, running) => {
+    const root = bridge.diskRoot();
+    return root ? scopeOverlap(root, key, running) : [];
+  },
+  hunks: hunkReview,
   confirm: (m) => bridge.confirm(m),
-  gateway: agentGateway,
-  presenter,
-  gate,
-  verify,
-  workspace: { root: () => bridge.diskRoot() ?? "" },
-  reloadFromDisk: () => bridge.reloadDisk(),
-  provider: () => bridge.monolith.activeProvider,
-  effort: () => bridge.effort(),
-  model: () => {
-    const p = bridge.providers() as unknown as Record<string, { model?: string }>;
-    const active = p[bridge.monolith.activeProvider];
-    return (active && active.model) || "";
-  },
-  mode: () => bridge.monolith.mode,
-  speaker: () => bridge.agents()[bridge.monolith.activeAgent].n.toLowerCase() + " · agente",
-  nowSecs: () => Math.floor(Date.now() / 1000),
-  openDiff: (path, before, after, label) => bridge.openDiff(bridge.root() + path, before, after, label),
-  /* o uso de cada pedido do agente: o contador de uso (o custo medido das issues do Board) e o
-     `ctx` da barra de estado, como as voltas do chat ao vivo (ADR-0006, R3c) */
-  onUsage: (input, output, detail) => {
-    const provider = bridge.monolith.activeProvider;
-    bridge.recordUsage(provider, input + output);
-    document.dispatchEvent(new CustomEvent("dx:llm-usage", { detail: { provider, input, output, ...detail } }));
-  },
-  /* conjunto 9: só as sessões de arquitectura levam `arch_propose` */
-  architecture: (first) => architectureSession(bridge.studioOpen(), first),
-  // RF-S09: the live hunks also go to a PairCode guest (same stream, same highlight)
-  hunks: {
-    ...hunkReview.sink,
-    event: (s, e) => {
-      hunkReview.sink.event(s, e);
-      pairState.codevOut(e);
-    },
-  },
-  flush: () => bridge.flushSave(),
-  run: { event: (s, e) => codevRun.event(s, e), turnStarted: () => codevRun.turnStarted() },
-  agentMap: agentMapStore.sink,
+  notify: (m) => bridge.toast(m),
 });
-sessionOf = () => agentChat.sessionId();
-stopTurn = () => agentChat.cancel();
+/** A conversa à vista. */
+const agentChat = (): ReturnType<typeof makeAgentChat> => codevSessions.current();
+sessionOf = () => codevSessions.sessionId();
+stopTurn = () => agentChat().cancel();
+/** A faixa «Co-Devs» por cima da conversa (só com mais de uma sessão). */
+export const codevsView = makeCodevsView(codevSessions, agentMapStore, {
+  now: () => Date.now(),
+  every: (ms, f) => {
+    const id = setInterval(f, ms);
+    return () => clearInterval(id);
+  },
+});
 
 /** Conversa livre: o agente v2 quando disponível (desktop + pasta real + Claude/Codex/
  *  Gemini/Ollama), senão o harness antigo (protótipo, a flag `dx2.codevLegacy`, ou um modelo
  *  sem tool calling nativo — descoberto no 1.º pedido, a mensagem é reenviada por aqui). */
 const chat = async (q: string): Promise<void> => {
-  if (!agentChat.available()) return liveChat(q);
-  if (await agentChat.send(q)) return;
+  const c = agentChat();
+  if (!c.available()) return liveChat(q);
+  if (await c.send(q)) return;
   return liveChat(q, { echoed: true }); // o agente já mostrou a mensagem
 };
 
@@ -357,21 +408,23 @@ export const codevEngine = {
   doTool: doTool as (t: RuntimeTool, host: ToolHost, role?: string, signal?: AbortSignal) => Promise<unknown>,
   liveChat,
   chat,
-  agentModeChanged: (mode: string): void => agentChat.modeChanged(mode),
-  agentReset: (): void => agentChat.reset(),
+  /** A modebar mudou: vale para todas as sessões abertas (o modo é um só). */
+  agentModeChanged: (mode: string): void => codevSessions.chats().forEach((c) => c.modeChanged(mode)),
+  agentReset: (): void => codevSessions.resetCurrent(),
   /** `/retomar`: lista e retoma uma conversa anterior do agente v2 (se disponível). */
-  agentResume: (): Promise<void> | null => (agentChat.available() ? agentChat.resumeMenu() : null),
+  agentResume: (): Promise<void> | null => (agentChat().available() ? agentChat().resumeMenu() : null),
   /** `/plano <pedido>` e `/reverter` (agente v2). */
-  agentPlan: (q: string): Promise<void> | null => (agentChat.available() ? agentChat.plan(q) : null),
-  agentRewind: (): Promise<void> | null => (agentChat.available() ? agentChat.rewindMenu() : null),
-  agentCommands: (): Promise<void> | null => (agentChat.available() ? agentChat.commandsMenu() : null),
+  agentPlan: (q: string): Promise<void> | null => (agentChat().available() ? agentChat().plan(q) : null),
+  agentRewind: (): Promise<void> | null => (agentChat().available() ? agentChat().rewindMenu() : null),
+  agentCommands: (): Promise<void> | null => (agentChat().available() ? agentChat().commandsMenu() : null),
   /** Board (opção 2): a issue vai ao agente em modo plano. `null` se o agente v2 não está disponível. */
   agentStory: (s: { id: string; title: string; type: string; pts: number; note?: string }): Promise<void> | null =>
-    agentChat.available() ? agentChat.story(s) : null,
-  agentAvailable: (): boolean => agentChat.available(),
-  /** F4: «Work on it with Co-Dev» sends the issue's exact prompt (from `project_issue_prompt`). */
+    agentChat().available() ? agentChat().story(s) : null,
+  agentAvailable: (): boolean => agentChat().available(),
+  /** F4: «Work on it with Co-Dev» sends the issue's exact prompt (from `project_issue_prompt`). Multi Co-Dev
+   *  (phase 2): another issue opens another session — only when its scope overlaps no running issue's. */
   agentIssue: (r: { key: string; text: string; scope: string[]; template: string }): Promise<boolean> | null =>
-    agentChat.available() ? agentChat.issue(r) : null,
+    agentChat().available() ? codevSessions.issue(r) : null,
 };
 
 /* ───── low-level transcript/run-control helpers, shared with board.ts ───── */

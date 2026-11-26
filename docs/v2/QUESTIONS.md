@@ -61,3 +61,23 @@ passo futuro. Confirmar.
 **Q8 · ~~Nome do produto nos textos~~ — respondida (2026-11-24): `dxtutor-ide`.**
 O prompt e o protótipo dizem "delonix-ide"; a app e o código dizem "dxtutor IDE". O dono decidiu
 `dxtutor-ide`: onde um prompt ou RF disser `delonix` (pasta `.delonix/`, trailers), usa-se `dxtutor`.
+
+**Q9 · ~~Multi Co-Dev: quando é que uma mudança é integrada?~~ — respondida (2026-11-26).**
+Depois de a sprint ser planeada, o humano diz quantos Co-Devs a trabalham; cada Co-Dev é dono de UMA issue; correm
+em paralelo sem se sobreporem nos ficheiros; um «Co-Dev reviewer» (fase 4) integra no ramo por omissão, assistido pelo
+humano (autónomo só quando o humano delega). A regra da porta de integração, nas palavras do dono:
+
+> a change is integrated only if (1) every MANDATORY test passes on the CURRENT commit (re-run if the branch moved),
+> (2) the Co-Dev reviewer confirms the change meets the issue's acceptance criteria, and (3) the responsible person
+> has RECORDED the functional approval.
+
+Fases: 1 o plano paralelo (só leitura, PR #53) e o mapa de agentes (PR #52); 2 várias sessões Co-Dev na UI e os
+dados de que a porta precisa — as verificações obrigatórias do projecto (`projects.checks`, `project_checks`) e a
+aprovação funcional na issue (`Op::ApproveFunctional`/`RevokeFunctional`, migração 15); 3 uma worktree e ficheiros
+reservados por Co-Dev e uma onda a correr em paralelo; 4 o revisor e a porta; 5 a autonomia delegada e os PRs.
+
+Quem regista a aprovação funcional (decidido na fase 2, com base no modelo do Project): o **responsável** da issue é
+o campo `assignee` (o «responsável» do modelo do Project, `docs/v2/UI-AUDIT.md` item 5), comparado com o `user.name`
+/`user.email` do git; com pessoas no `.dxtutor/team.json`, também um Product Owner ou um Tech Lead (os papéis que já
+aprovam o Ready e o Done, RF-A06). Sem equipa definida e sem responsável, quem está ao teclado; sem equipa e com
+responsável, só ele. A aprovação exige critérios de aceitação e cai se os critérios mudarem.

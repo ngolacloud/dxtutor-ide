@@ -549,6 +549,19 @@ pub fn plan_sprint(
     }
 }
 
+/// The overlaps of `issue` with each of `others` (Multi Co-Dev, phase 2): may a Co-Dev session
+/// start on `issue` while the others run in the same working tree? The same rule as the plan —
+/// one file both may change, by a scope glob of each or known to be touched by each.
+pub fn overlaps_with(issue: &PlanIssue, others: &[PlanIssue], files: &[String]) -> Vec<Overlap> {
+    let all: Vec<&PlanIssue> = std::iter::once(issue)
+        .chain(others.iter().filter(|o| o.key != issue.key))
+        .collect();
+    let tt = touched(&all, files);
+    (1..all.len())
+        .filter_map(|k| overlap_of(all[0], &tt[0], all[k], &tt[k]))
+        .collect()
+}
+
 // ───── from the store ─────
 
 /// What the plan of one sprint is computed from: the sprint, its issues (with the files of their
@@ -565,7 +578,63 @@ pub struct PlanSource {
     pub branches: BTreeMap<String, String>,
 }
 
+/// What the scope check of a few issues is computed from (Multi Co-Dev, phase 2): the issues, and
+/// — for the command to read from git — their linked commits and branches.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScopeSource {
+    pub issues: Vec<PlanIssue>,
+    pub commits: BTreeMap<String, Vec<String>>,
+    pub branches: BTreeMap<String, String>,
+}
+
 impl super::ProjectStore {
+    /// The files each issue is known to touch: the paths of its change sets.
+    fn change_set_files(
+        &self,
+        root: &str,
+    ) -> Result<HashMap<String, BTreeSet<String>>, super::ProjectError> {
+        let mut files: HashMap<String, BTreeSet<String>> = HashMap::new();
+        let mut st = self.conn().prepare(
+            "SELECT DISTINCT issue_key, path FROM change_sets WHERE root = ?1 AND issue_key IS NOT NULL",
+        )?;
+        let rows = st.query_map(rusqlite::params![root], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (k, path) = row?;
+            files.entry(k).or_default().insert(path);
+        }
+        Ok(files)
+    }
+
+    /// The issues `keys` as the planner sees them (Multi Co-Dev, phase 2: the scope check before
+    /// another Co-Dev session starts). An unknown key is `not_found`.
+    pub fn scope_source(
+        &self,
+        root: &str,
+        keys: &[String],
+        now: i64,
+    ) -> Result<ScopeSource, super::ProjectError> {
+        let p = self.load(root, now)?;
+        if let Some(k) = keys.iter().find(|k| !p.issues.iter().any(|i| &i.key == *k)) {
+            return Err(super::err("not_found", format!("a issue {k} não existe")));
+        }
+        let files = self.change_set_files(root)?;
+        let mut commits = BTreeMap::new();
+        let mut branches = BTreeMap::new();
+        let issues = p
+            .issues
+            .iter()
+            .filter(|i| keys.contains(&i.key))
+            .map(|i| plan_issue(i, &p.dor, &files, &mut commits, &mut branches))
+            .collect();
+        Ok(ScopeSource {
+            issues,
+            commits,
+            branches,
+        })
+    }
+
     /// The source of the parallel plan of `sprint` — or, without one, of the active sprint, else
     /// of the next planned one.
     pub fn plan_source(
@@ -598,61 +667,14 @@ impl super::ProjectStore {
             .iter()
             .map(|i| (i.key.clone(), i.state.clone()))
             .collect();
-        let mut files: HashMap<String, BTreeSet<String>> = HashMap::new();
-        {
-            let mut st = self.conn().prepare(
-                "SELECT DISTINCT issue_key, path FROM change_sets WHERE root = ?1 AND issue_key IS NOT NULL",
-            )?;
-            let rows = st.query_map(rusqlite::params![root], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })?;
-            for row in rows {
-                let (k, path) = row?;
-                files.entry(k).or_default().insert(path);
-            }
-        }
+        let files = self.change_set_files(root)?;
         let mut commits = BTreeMap::new();
         let mut branches = BTreeMap::new();
         let issues = p
             .issues
             .iter()
             .filter(|i| i.sprint.as_deref() == Some(sp.id.as_str()))
-            .map(|i| {
-                // its own dependencies count as Done here: they become waves
-                let deps_done: HashMap<String, String> = i
-                    .deps
-                    .iter()
-                    .map(|d| (d.clone(), "done".to_string()))
-                    .collect();
-                let shas: Vec<String> = i
-                    .links
-                    .iter()
-                    .filter(|l| l.kind == "commit")
-                    .map(|l| l.reference.clone())
-                    .collect();
-                if !shas.is_empty() {
-                    commits.insert(i.key.clone(), shas);
-                }
-                if let Some(b) = i.branch.as_ref().filter(|b| !b.trim().is_empty()) {
-                    branches.insert(i.key.clone(), b.clone());
-                }
-                PlanIssue {
-                    key: i.key.clone(),
-                    title: i.title.clone(),
-                    points: i.points,
-                    priority: i.priority.clone(),
-                    rank: i.rank,
-                    state: i.state.clone(),
-                    scope: i.scope.clone(),
-                    deps: i.deps.clone(),
-                    missing: super::readiness(i, &deps_done, &p.dor),
-                    known_files: files
-                        .get(&i.key)
-                        .map(|f| f.iter().cloned().collect())
-                        .unwrap_or_default(),
-                    branch_conflicts: vec![],
-                }
-            })
+            .map(|i| plan_issue(i, &p.dor, &files, &mut commits, &mut branches))
             .collect();
         Ok(PlanSource {
             sprint: sp,
@@ -661,6 +683,50 @@ impl super::ProjectStore {
             commits,
             branches,
         })
+    }
+}
+
+/// One issue of the store as the planner sees it; its linked commits and branch go to the maps.
+fn plan_issue(
+    i: &super::Issue,
+    dor: &[String],
+    files: &HashMap<String, BTreeSet<String>>,
+    commits: &mut BTreeMap<String, Vec<String>>,
+    branches: &mut BTreeMap<String, String>,
+) -> PlanIssue {
+    // its own dependencies count as Done here: they become waves
+    let deps_done: HashMap<String, String> = i
+        .deps
+        .iter()
+        .map(|d| (d.clone(), "done".to_string()))
+        .collect();
+    let shas: Vec<String> = i
+        .links
+        .iter()
+        .filter(|l| l.kind == "commit")
+        .map(|l| l.reference.clone())
+        .collect();
+    if !shas.is_empty() {
+        commits.insert(i.key.clone(), shas);
+    }
+    if let Some(b) = i.branch.as_ref().filter(|b| !b.trim().is_empty()) {
+        branches.insert(i.key.clone(), b.clone());
+    }
+    PlanIssue {
+        key: i.key.clone(),
+        title: i.title.clone(),
+        points: i.points,
+        priority: i.priority.clone(),
+        rank: i.rank,
+        state: i.state.clone(),
+        scope: i.scope.clone(),
+        deps: i.deps.clone(),
+        missing: super::readiness(i, &deps_done, dor),
+        known_files: files
+            .get(&i.key)
+            .map(|f| f.iter().cloned().collect())
+            .unwrap_or_default(),
+        branch_conflicts: vec![],
     }
 }
 

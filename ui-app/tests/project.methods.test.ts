@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cardOrder, dorOpen, lanes, sprintLoad } from "../src/features/project/domain/board";
+import { cardOrder, dorOpen, lanes, sprintLoad, startWipRefusal } from "../src/features/project/domain/board";
 import { parseMethodChange, parseProject, type Project } from "../src/features/project/domain/types";
 import { makeProjectService } from "../src/features/project/application/project-service";
 import type { ProjectDeps } from "../src/features/project/application/ports";
@@ -120,27 +120,33 @@ describe("Board B — the use case", () => {
     ]);
   });
 
-  it("Co-Dev starts with the normal move to In progress; refused and no reason, it does not start", async () => {
-    const wip = { code: "wip", message: "o limite de WIP de «progress» é 3 e já há 3", overridable: true };
-    const { d, calls } = deps({ dialog: { prompt: vi.fn(() => null), confirm: () => true } }, (op) => (op.op === "move" && !op.reason ? wip : null));
+  it("Co-Dev: a full In progress asks for a reason first; otherwise the backend moves it when the session starts", async () => {
+    // In progress holds 3 of 3: PRJ-4 would be refused
+    const { d, calls } = deps({ dialog: { prompt: vi.fn(() => null), confirm: () => true } });
     const s = makeProjectService(d);
     await s.open();
+    expect(startWipRefusal(s.state().project!, s.state().project!.issues[3])).toEqual({ count: 3, limit: 3 });
     await s.work("PRJ-4");
-    expect(calls).toEqual([{ op: "move", key: "PRJ-4", to: "progress" }]);
+    expect(d.dialog.prompt).toHaveBeenCalledWith(expect.stringContaining("limite de WIP (3 de 3)"));
+    expect(calls).toEqual([]);
     expect(d.codev.workWith).not.toHaveBeenCalled();
-    // with a reason, the override is recorded and Co-Dev starts
-    const ok = deps({}, (op) => (op.op === "move" && !op.reason ? wip : null));
+    // with a reason: the override is recorded, then Co-Dev starts
+    const ok = deps();
     const s2 = makeProjectService(ok.d);
     await s2.open();
     await s2.work("PRJ-4");
-    expect(ok.calls).toEqual([
-      { op: "move", key: "PRJ-4", to: "progress" },
-      { op: "move", key: "PRJ-4", to: "progress", reason: "the PO asked" },
-    ]);
+    expect(ok.calls).toEqual([{ op: "move", key: "PRJ-4", to: "progress", reason: "the PO asked" }]);
     expect(ok.d.codev.workWith).toHaveBeenCalledOnce();
-    // an issue already in progress starts without a move
-    await s2.work("PRJ-1");
-    expect(ok.calls).toHaveLength(2);
+    // with room (or an expedite in Kanban exactly at the limit): no move here, the session's start does it
+    const room = deps({ gateway: { ...deps().d.gateway, load: vi.fn(async () => raw({ wip: { progress: 4 } })) } });
+    const s3 = makeProjectService(room.d);
+    await s3.open();
+    await s3.work("PRJ-4");
+    expect(room.calls).toEqual([]);
+    expect(room.d.codev.workWith).toHaveBeenCalledOnce();
+    const p = s3.state().project!;
+    expect(startWipRefusal({ ...p, wip: { progress: 3 } }, { ...p.issues[3], cos: "expedite" })).toBeNull();
+    expect(startWipRefusal({ ...p, wip: { progress: 3 }, method: "scrum" }, { ...p.issues[3], cos: "expedite" })).toEqual({ count: 3, limit: 3 });
   });
 
   it("ticks the project's DoR items on the issue", async () => {

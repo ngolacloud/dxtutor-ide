@@ -8,7 +8,9 @@
 //!   rules), with forbidden files and a one-time, reasoned override.
 //! - [`stream`]: masking of a terminal's output as it streams.
 //! - [`keychain`]: the OS keychain, where the model keys and the Vault token live (r23 F4c).
+//! - [`hook`]: the pre-commit hook that runs the same scan on a commit made in a terminal.
 
+pub mod hook;
 pub mod keychain;
 pub mod redact;
 pub mod scan;

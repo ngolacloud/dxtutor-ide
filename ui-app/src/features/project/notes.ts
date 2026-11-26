@@ -7,7 +7,7 @@ export const PROJECT_NOTES: FeatureNotes = {
   id: "project",
   title: "Project",
   summary:
-    "O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. O método do quadro (Kanban, Scrum, XP, Scrum + XP) muda as regras, e o Co-Dev segue-as. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo.",
+    "O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. O método do quadro (Kanban, Scrum, XP, Scrum + XP) muda as regras, e o Co-Dev segue-as. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue.",
   code: [
     "crates/tutor-board/src/project/methods.rs",
     "crates/tutor-board/src/project/mod.rs (move_check, capacity_rule, tdd_gap)",
@@ -17,6 +17,8 @@ export const PROJECT_NOTES: FeatureNotes = {
     "src-tauri/src/board.rs (project_sprint_plan, project_method_preview)",
     "ui-app/src/features/project/domain/plan.ts",
     "ui-app/src/features/project/ui/plan-view.ts",
+    "ui-app/src/features/project/domain/gate.ts",
+    "src-tauri/src/roles.rs (functional_check)",
   ],
   updated: "2026-11-26",
   actions: [
@@ -92,14 +94,15 @@ export const PROJECT_NOTES: FeatureNotes = {
       title: "Trabalhar com o Co-Dev no método",
       where: ["Project › painel da issue › «Work on it with Co-Dev»"],
       what:
-        "Começar o trabalho move a issue para Em curso pelas regras normais (WIP, prontidão); se for recusado, pede o motivo e sem ele o Co-Dev não começa. O prompt leva um bloco curto do método: método, sprint e dias que faltam, DoD, WIP de Em curso e Review, par, classe de serviço e, em XP, a regra de TDD. No fim, o `finish_issue` responde também a cada item da DoD e a issue só passa a Review pelas regras.",
+        "Quando a sessão do Co-Dev começa, a issue passa a Em curso pelas regras normais (WIP, prontidão); se a coluna Em curso já estiver no limite, o Project pergunta antes o motivo e sem ele o Co-Dev não começa. O prompt leva um bloco curto do método: método, sprint e dias que faltam, DoD, WIP de Em curso e Review, par, classe de serviço e, em XP, a regra de TDD. No fim, o `finish_issue` responde também a cada item da DoD e a issue só passa a Review pelas regras.",
       howTo: [
         "Prepara a issue até ficar Ready e carrega em «Work on it with Co-Dev».",
         "Se a coluna Em curso estiver cheia, escreve o motivo ou espera.",
         "No fim, vê na actividade se a issue passou a Review ou ficou em Em curso, e porquê.",
       ],
       flow: [
-        "A UI manda `move` para `progress` antes de abrir o Co-Dev; o anfitrião (`codev_agent::send`) volta a fazê-lo para qualquer pedido de issue em To Do e bloqueia o pedido se o Project recusar.",
+        "O anfitrião (`codev_agent::send`) faz o `move` para `progress` quando a sessão manda o primeiro pedido da issue em To Do e bloqueia o pedido se o Project recusar; uma sessão que espera pelos ficheiros de outra só move a issue quando começa.",
+        "Antes, se o limite de WIP de Em curso já a recusaria (`startWipRefusal`), a UI pede o motivo e manda o `move` com ele (fica como `override`).",
         "O prompt (`project_issue_prompt`) ganhou o bloco «Método» (`methodology_block`), que um template do projecto sem o marcador `{{metodologia}}` recebe por cima do código.",
         "Conjunto de ferramentas 10: o `finish_issue` exige uma resposta com prova por item da DoD; o `codev_finished` usa a mudança normal para Review e, se uma regra a recusar (WIP, um passo, DoD por responder, teste primeiro), deixa a issue onde está com uma entrada `held` na actividade.",
         "XP: o anfitrião regista no registo de auditoria (`tdd`, `red`) o primeiro `run_tests` que falhou quando a sessão só tinha mudado testes (ficheiros de teste, ou texto com `#[test]`, `def test_`, `@Test`…).",
@@ -150,6 +153,37 @@ export const PROJECT_NOTES: FeatureNotes = {
         "Fases seguintes: uma sessão por Co-Dev, uma worktree e ficheiros reservados por Co-Dev, o revisor que integra num worktree temporário só com os testes a passar, e a autonomia delegada com PRs.",
       ],
       covers: ["pj-sprint-plan", "pj-plan-close"],
+    },
+    {
+      title: "Verificações obrigatórias",
+      where: ["Project › Settings › «Mandatory checks»"],
+      what:
+        "A lista das verificações que cada mudança tem de passar antes de ser integrada (o nome e o comando exacto, uma por linha: `tests: cargo test --workspace`). Sem nenhuma definida, vale o comando de testes detectado na pasta, e a página di-lo.",
+      howTo: ["Abre o Project e a vista «Settings».", "Escreve uma verificação por linha, `nome: comando`, e carrega em «Save»; deixa vazio para voltar ao comando detectado."],
+      flow: [
+        "O «Save» manda a operação `settings` com `checks` ao `project_apply`; o store guarda-as na coluna `projects.checks` (migração 15), aparadas, sem nomes repetidos, até 12.",
+        "O comando `project_checks` lê-as para as fases seguintes (a porta de integração corre-as no commit actual).",
+      ],
+      limits: ["Nesta fase a lista só se guarda: quem a corre é a porta de integração (fase 4)."],
+      covers: ["pj-submit"],
+    },
+    {
+      title: "Aprovação funcional",
+      where: ["Project › painel da issue › secção «Functional approval»"],
+      what:
+        "O responsável pela issue regista que ela faz o que os critérios de aceitação pedem. Fica na issue quem aprovou, quando e a nota, e vai para o registo de auditoria. É a terceira condição da porta de integração: uma mudança só é integrada quando todas as verificações obrigatórias passam no commit actual, o revisor Co-Dev confirma os critérios e o responsável registou a aprovação funcional.",
+      howTo: [
+        "Abre a issue (precisa de critérios de aceitação: sem eles o botão fica desligado).",
+        "Carrega em «Record functional approval» e escreve, se quiseres, como verificaste.",
+        "«Withdraw» retira-a, com um motivo.",
+      ],
+      flow: [
+        "As operações `approve_functional` e `revoke_functional` vão ao `project_apply`; o backend decide quem e quando (como em todas as operações), recusa sem critérios ou uma segunda aprovação, e grava a actividade e uma linha no registo de auditoria (origem `ide`, `functional.approve`/`functional.revoke`) na mesma transacção.",
+        "Quem pode: o responsável da issue (o campo «Assignee», pelo `user.name`/`user.email` do git) ou, com pessoas no `.dxtutor/team.json`, um Product Owner ou um Tech Lead (os mesmos que levam uma issue a Done). Sem equipa definida e sem responsável, quem está ao teclado.",
+        "Se os critérios de aceitação mudarem depois, a aprovação cai (fica na actividade): foi dada contra os critérios antigos.",
+      ],
+      limits: ["O código pode mudar depois da aprovação: confirmar que ela ainda vale no commit a integrar é da porta de integração (fase 4)."],
+      covers: ["pj-functional-approve", "pj-functional-revoke"],
     },
   ],
 };

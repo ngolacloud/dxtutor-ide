@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 303 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 307 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -390,6 +390,37 @@ Fases seguintes: (2) uma sessão de Co-Dev por lane na UI; (3) uma worktree e fi
 «Co-Dev reviewer» assistido, que revê cada merge request e integra num worktree temporário só com os testes a passar e
 sem partir o ramo por omissão (sem conflitos, regras do arquitecto); (5) autonomia delegada pelo humano e PRs.
 
+### Fase 2: várias sessões Co-Dev e os dados da porta de integração
+
+**A porta (regra do dono, `docs/v2/QUESTIONS.md` Q9):** uma mudança só é integrada se (1) TODAS as verificações
+obrigatórias passam no commit ACTUAL (correm de novo se o ramo andou), (2) o «Co-Dev reviewer» confirma os critérios de
+aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fase 2 guarda os dados; a 4 aplica a porta.
+- **Uma conversa por sessão** (`codev/application/codev-sessions.ts`): cada sessão é um `makeAgentChat` com o seu
+  presenter/gate (`ui/session-view.ts`); a à vista escreve no `#ag-msgs` e no `RUN` como antes, as outras num transcript
+  fora do documento e num registo de execução próprio (trocar MOVE os nós e aplica o registo, `applyRun`). Começar outra
+  issue do Project NÃO fecha a que corre: abre outra sessão — só se `project_scope_overlap` (só leitura; a regra
+  `plan::overlaps_with` da fase 1) não encontrar sobreposição com nenhuma issue que tenha sessão aberta. Com sobreposição
+  (ou se a verificação falhar), recusa com os ficheiros e oferece esperar: a issue fica na faixa e começa quando a sessão
+  com que choca FECHAR. Nesta fase todas correm na MESMA árvore de trabalho — por isso a verificação é obrigatória.
+- **Hunks por sessão** (`hunk-review.ts`): um overlay por sessão, as decisões vão para a sessão dona da chamada, o
+  `done` de uma não fecha as revisões das outras, e o editor só desenha as sessões não escondidas (`setHidden`: as que
+  não estão à vista). Com uma sessão é igual a antes (o overlay composto É o da sessão).
+- A faixa «Co-Devs» (`ui/codevs-view.ts`, `#ag-codevs`) só existe com 2+ sessões ou uma issue à espera — com uma
+  sessão o painel fica igual (nenhum golden mudou). O separador «Co-Dev run» e o `ctx` seguem a conversa à vista; o
+  modo da modebar vale para todas; «Nova conversa» só recomeça a à vista; o quadro Tasks antigo («Delegar») continua
+  na à vista.
+- **Verificações obrigatórias:** `projects.checks` (JSON `[{name, command}]`, migração 15; `Op::Settings{checks}`;
+  vazio = o comando de testes detectado, `R.projectCmd("test")`), editadas nas Settings (`nome: comando` por linha) e
+  lidas por `project_checks` para a fase 4.
+- **Aprovação funcional:** `Op::ApproveFunctional{key, note?}` / `RevokeFunctional{key, reason}` (colunas
+  `issues.functional_*`, migração 15): só com critérios, uma vez, quem/quando do backend, actividade + linha no registo
+  de auditoria na mesma transacção (`functional.approve`/`.revoke`); cai se os critérios mudarem. Quem pode:
+  `roles::functional_check` no `project_apply` — o `assignee` da issue, ou PO/Tech Lead com equipa no `team.json`.
+- Testes: `cargo test -p tutor-board` (`the_functional_approval_…`, `the_mandatory_checks_…`, `another_codev_may_start_…`),
+  `cargo test -p dxtutor-ide roles:: board::`, `tests/codev.sessions.test.ts`, `tests/project.gate.test.ts` e o e2e
+  `e2e/multi-codev.e2e.ts`. Para a fase 3/4: a worktree por sessão, as reservas de ficheiros, correr as verificações no
+  commit actual e confirmar que a aprovação ainda vale nesse commit.
+
 ## Cada método muda as regras, e o Co-Dev segue-as (Project, Board B)
 
 As regras vivem no Rust: `tutor_board::project::methods` (puro: defaults por método, a mudança de método,
@@ -404,13 +435,14 @@ um motivo, gravado como `override` («excepção (código): motivo») na activid
   di-lo); o quadro ordena cada coluna por classe de serviço (`cardOrder`). Sem capacidade nem DoR nas mudanças.
 - **Scrum, XP, Scrum + XP:** capacidade da sprint (`capacity`) em `plan_issue`, `create_issue` com sprint e
   `update_issue` com pontos — recusa só quando a mudança acrescenta pontos e passa a capacidade; fechar uma sprint e
-  passar o resto à seguinte não é recusado. A DoR do projecto marca-se por issue (`issues.dor_done`, migração 15,
+  passar o resto à seguinte não é recusado. A DoR do projecto marca-se por issue (`issues.dor_done`, migração 16,
   como a `dod_done`): entra na prontidão (`DoR: «item»`) e na saída de To Do.
 - **XP, Scrum + XP — teste primeiro:** de Em curso para Review, uma issue com change sets do Co-Dev precisa de uma
   linha `tdd`/`red` do registo de auditoria (o anfitrião grava-a no primeiro `run_tests` que FALHOU com só testes
   mudados — `tdd_observe`) cujos ficheiros de teste estejam nas alterações aceites. Trabalho só humano não é verificado.
-- **Co-Dev:** começar move a issue para Em curso pela mudança normal (a UI pede o motivo; o `send` volta a fazê-lo e
-  bloqueia o pedido se o Project recusar). O `codev_finished` usa o `move_check` (WIP, um passo, teste primeiro) e,
+- **Co-Dev:** a issue passa a Em curso pela mudança normal quando a sessão COMEÇA mesmo (`codev_agent::send`, que
+  bloqueia o pedido se o Project recusar — uma sessão da fase 2 pode esperar pelos ficheiros de outra); se o WIP de Em
+  curso já a recusaria, a UI pergunta antes o motivo (`startWipRefusal`) e move-a como `override`. O `codev_finished` usa o `move_check` (WIP, um passo, teste primeiro) e,
   recusado, deixa a issue onde está com uma entrada `held`. O prompt tem o bloco «Método» (`methodology_block`, um
   marcador `{{metodologia}}`; ≈ 150 tokens no máximo). Conjunto de ferramentas 10: o `finish_issue` responde a cada
   item da DoD (o anfitrião dá-a em `FlowState.dod`) e o store recusa a Review a um relatório com `dod` incompleto; as
@@ -882,7 +914,11 @@ Nenhum segredo sai da máquina, e a regra vive no Rust:
   `.tfstate`, chaves). Bloqueado, devolve `SECRET_SCAN_BLOCKED:{relatório}` (pré-visualizações MASCARADAS). Na UI,
   `services.protect.guard(f)` (o commit do desktop, o Composer e as lanes) mostra os achados no diálogo partilhado; passar
   exige motivo, auditado ANTES de `secret_scan_allow` (um commit, 2 min) e com o resultado. Um commit que o humano
-  faz no seu terminal não passa por aqui.
+  faz no seu terminal só passa por aqui com o hook de pre-commit: «Protect: Install the Pre-commit Hook…» (paleta,
+  `services.protect.installHook`) mostra o ficheiro e o texto exactos no diálogo partilhado; `protect_hook_install`
+  audita no Rust antes de escrever e nunca substitui um hook alheio (`tutor_protect::hook`, pasta pelo
+  `git rev-parse --git-path hooks`). O hook corre `dxt secret-scan --staged` (`crates/tutor-cli`, o mesmo `scan`);
+  sem o `dxt` no PATH bloqueia e diz porquê. Teste ponta a ponta: `cargo test -p tutor-cli --test secret_scan`.
 - **Máscara** (X04): o PTY (`tutor_protect::stream::Masker`) e a saída do depurador. Uma shell interactiva mascara
   pedaço a pedaço (o eco não pode esperar: um segredo partido entre duas leituras pode passar); uma TAREFA (`pty_spawn`
   com `command`) retém o fim de uma linha que pode ser o início de um segredo até à leitura seguinte e despeja o resto
