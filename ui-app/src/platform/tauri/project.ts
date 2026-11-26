@@ -17,6 +17,9 @@ export const projectClient = (inv: Invoker = invoke) => ({
   audit: (root: string, issue: string | null): Promise<unknown> => inv<unknown>("project_audit", { root, issue }),
   /** RF-A05: the repository against the architect's rules (`arch_conformance`; `null`: no rules file). */
   conformance: (root: string): Promise<unknown> => inv<unknown>("arch_conformance", { root }),
+  /** Multi Co-Dev (phase 1): the parallel plan of a sprint (read-only) — `sprint: null` the active one, else the next
+   *  planned; `codevs: null` the sprint's own count. */
+  sprintPlan: (root: string, sprint: string | null, codevs: number | null): Promise<unknown> => inv<unknown>("project_sprint_plan", { root, sprint, codevs }),
 });
 
 export type ProjectClient = ReturnType<typeof projectClient>;

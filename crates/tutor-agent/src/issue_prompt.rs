@@ -572,20 +572,10 @@ fn code_context(
             continue;
         }
         // folders and globs: the files that match
-        let mut files: Vec<String> = ignore::WalkBuilder::new(root)
-            .hidden(false)
-            .build()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-            .filter_map(|e| {
-                e.path()
-                    .strip_prefix(root)
-                    .ok()
-                    .map(|r| r.to_string_lossy().replace('\\', "/"))
-            })
-            .filter(|r| !r.starts_with(".git/") && crate::permissions::scope_matches(s, r))
+        let files: Vec<String> = project_files(root, usize::MAX)
+            .into_iter()
+            .filter(|r| crate::permissions::scope_matches(s, r))
             .collect();
-        files.sort();
         let n = files.len();
         out.push_str(&format!(
             "{s}: {}{}\n",
@@ -729,6 +719,28 @@ pub fn render_with(root: &Path, i: &IssueData, lang: Option<&str>, outline: Outl
     }
 }
 
+/// The project's files (relative, `/` separators, sorted), as git sees them: `.gitignore` and the
+/// other ignore files respected, hidden files kept, `.git/` skipped; at most `max`. The prompt's
+/// scope listing and the parallel sprint plan (Multi Co-Dev) read the folder through it.
+pub fn project_files(root: &Path, max: usize) -> Vec<String> {
+    let mut files: Vec<String> = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+        .filter_map(|e| {
+            e.path()
+                .strip_prefix(root)
+                .ok()
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+        })
+        .filter(|r| !r.starts_with(".git/"))
+        .take(max)
+        .collect();
+    files.sort();
+    files
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -749,6 +761,27 @@ mod tests {
             previous_failure: None,
             links: IssueLinks::default(),
         }
+    }
+
+    #[test]
+    fn project_files_respect_gitignore_and_skip_git() {
+        let d = tempfile::tempdir().unwrap();
+        for f in [
+            ".git/config",
+            "src/a.rs",
+            "target/debug/x",
+            ".github/ci.yml",
+        ] {
+            let p = d.path().join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "x").unwrap();
+        }
+        std::fs::write(d.path().join(".gitignore"), "target/\n").unwrap();
+        assert_eq!(
+            project_files(d.path(), usize::MAX),
+            vec![".github/ci.yml", ".gitignore", "src/a.rs"]
+        );
+        assert_eq!(project_files(d.path(), 1).len(), 1);
     }
 
     #[test]

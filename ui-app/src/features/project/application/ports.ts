@@ -17,6 +17,8 @@ export interface ProjectGateway {
   audit?(root: string, issue: string | null): Promise<unknown>;
   /** RF-A05: the repository against the architect's rules (`arch_conformance`). */
   conformance?(root: string): Promise<unknown>;
+  /** Multi Co-Dev (phase 1): the parallel plan of a sprint (`project_sprint_plan`, read-only). */
+  sprintPlan?(root: string, sprint: string | null, codevs: number | null): Promise<unknown>;
 }
 
 export interface Workspace {
