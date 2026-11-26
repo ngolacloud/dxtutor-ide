@@ -72,6 +72,7 @@ fn phase(build: &BuildEnv, deps: &[String]) -> Phase {
         hints: Vec::new(),
         dependencies: deps.to_vec(),
         project: None,
+        support: Default::default(),
         build: build.clone(),
     }
 }
@@ -142,10 +143,11 @@ fn a_prepared_course_grades_offline_against_its_cache() {
     assert!(!bad.correctness.passed);
 
     // 4. a drill runs against the cache
-    let out = tutor_eval::run_program_in(
+    let out = tutor_eval::run_course_program(
         "rust",
         "fn main() { println!(\"{}\", mini::add(40, 2)); }",
         &deps,
+        &Default::default(),
         &build,
     )
     .unwrap();
