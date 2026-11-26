@@ -6,7 +6,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 ## Índice
 
-- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 4 acções
+- [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 5 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
 - [Project](#project) — 11 acções
@@ -25,14 +25,46 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 
 Quando o Co-Dev cria ou edita código, escreve-o no próprio editor: abre o ficheiro, escreve só as linhas que mudam, no sítio delas (as antigas riscadas, as novas a aparecer), e no fim aceitas ou rejeitas cada bloco com as diferenças à vista. Nada fica no ficheiro sem o teu «Aceitar».
 
-<sub>Código: `ui-app/src/features/codev/application/codev-sessions.ts`, `ui-app/src/features/codev/ui/session-view.ts`, `ui-app/src/features/codev/ui/codevs-view.ts`, `ui-app/src/features/codev/domain/scope-overlap.ts`, `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs` · revisto em 2026-11-26</sub>
+<sub>Código: `ui-app/src/features/codev/application/codev-sessions.ts`, `ui-app/src/features/codev/ui/session-view.ts`, `ui-app/src/features/codev/ui/codevs-view.ts`, `ui-app/src/features/codev/domain/scope-overlap.ts`, `ui-app/src/features/codev/domain/agent-map.ts`, `ui-app/src/features/codev/application/agent-map.ts`, `ui-app/src/features/codev/ui/agent-map-view.ts`, `ui-app/src/features/codev/application/hunk-review.ts`, `ui-app/src/features/codev/application/local-proposals.ts`, `ui-app/src/features/codev/domain/proposal.ts`, `crates/tutor-agent/src/hunks.rs`, `ui-app/src/features/codev/domain/backlog.ts`, `ui-app/src/features/codev/ui/backlog-view.ts`, `src-tauri/src/backlog.rs`, `crates/tutor-board/src/project/backlog.rs` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
+| [Gerar o backlog e criar o Project (/backlog e /project)](#gerar-o-backlog-e-criar-o-project-backlog-e-project) | chat do Co-Dev › «/backlog …» e «/project …» (ou o menu «/» › Gerar o backlog do projecto) · Studio › «Generate backlog & delegate →» |
 | [Rever as mudanças no editor, bloco a bloco](#rever-as-mudancas-no-editor-bloco-a-bloco) | editor › barra de cada bloco (✓ Aceitar / ✗ Rejeitar / Explicar) · chat do Co-Dev › Aceitar tudo / Rejeitar tudo |
 | [Mapa de agentes](#mapa-de-agentes) | chat do Co-Dev › barra do compositor › chip «● N agentes» |
 | [Vários Co-Devs ao mesmo tempo (a faixa «Co-Devs»)](#varios-co-devs-ao-mesmo-tempo-a-faixa-co-devs) | Project › painel da issue › «Work on it with Co-Dev» · chat do Co-Dev › faixa «Co-Devs» por cima da conversa · mapa de agentes › detalhe de uma sessão › «Ver no chat» |
 | [Uma worktree por Co-Dev e os ficheiros reservados](#uma-worktree-por-co-dev-e-os-ficheiros-reservados) | Project › painel da issue › «Work on it with Co-Dev» (com outro Co-Dev aberto) · chat do Co-Dev › faixa «Co-Devs» › ☰ «Ficheiros», ✓ «Commit», ⌫ «Limpar» · chat do Co-Dev › barra da revisão de hunks (o ramo, «Ver no editor») |
+
+### Gerar o backlog e criar o Project (/backlog e /project)
+
+**Onde:** chat do Co-Dev › «/backlog …» e «/project …» (ou o menu «/» › Gerar o backlog do projecto) · Studio › «Generate backlog & delegate →»
+
+O «/backlog» pede ao Co-Dev o backlog da pasta aberta: ele lê o código, o README e o desenho do Studio, e propõe épicos e issues, cada uma com a história, critérios em Dado/Quando/Então, os ficheiros onde mexe (ou que cria) e as dependências. O backlog fica em .dxtutor/backlog.json e aparece no chat. O «/project» transforma-o no Project da pasta: método, duração das iterações e sprints (as dependências primeiro); só é criado quando carregas em «Criar o Project» e confirmas.
+
+**Como usar**
+
+1. Abre a pasta do projecto (pode estar vazia) e escreve no chat «/backlog» seguido do contexto, p.ex. «/backlog uma loja com encomendas e pagamentos». No Studio, «Generate backlog & delegate →» faz o mesmo com os componentes do desenho.
+2. Revê o backlog no cartão (ou em .dxtutor/backlog.json, que podes editar).
+3. Escreve «/project» com o método e a capacidade, p.ex. «/project scrum, sprints de 2 semanas, 20 pontos», e revê o plano.
+4. Carrega em «Criar o Project» (ou «Criar e aprovar Ready») e confirma no diálogo. As issues prontas ficam com «Trabalhar … com o Co-Dev», que implementa cada uma nos ficheiros do seu âmbito.
+
+**Fluxo (por dentro)**
+
+1. O «/backlog» abre uma sessão de backlog do agente v2 (conjunto de ferramentas 11): só estas sessões têm `backlog_propose` e `project_propose`; o pedido é a skill embutida `backlog` (um `.dxtutor/commands/backlog.md` substitui-a).
+2. `backlog_propose` valida o backlog com as regras do Project (no Rust): o que falta volta ao modelo, que corrige; o bom grava-se em `.dxtutor/backlog.json` e chega ao chat pelo evento `backlog://proposal`.
+3. `project_propose` só lê o ficheiro e valida o plano; criar é o comando `project_create_from_backlog`, que confere que o ficheiro não mudou, regista no registo de auditoria e cria tudo numa só transacção.
+
+**Dicas**
+
+- Uma issue cujo título o Project já tem não é criada outra vez: podes correr o «/project» de novo depois de acrescentar issues ao backlog.
+- Um ficheiro do âmbito que ainda não existe vai no pedido da issue como «ainda não existe: cria-o».
+
+**Limites**
+
+- Só na app desktop, com uma pasta aberta e um provedor com agente.
+- «Criar e aprovar Ready» é do Product Owner ou do Tech Lead (quando a equipa está definida) e só aprova as issues a que não falta mais nada; as que esperam por uma dependência ficam por aprovar.
+
+<sub>Cobre: `codev-backlog:open`, `codev-backlog:next`, `codev-backlog:create`, `codev-backlog:create-ready`, `codev-backlog:project`, `codev-backlog:work`</sub>
 
 ### Rever as mudanças no editor, bloco a bloco
 

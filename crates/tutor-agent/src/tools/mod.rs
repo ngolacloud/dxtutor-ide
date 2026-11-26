@@ -118,8 +118,10 @@ pub fn coding_tools(opts: &ToolsetOptions) -> Vec<Arc<dyn Tool>> {
 /// sessões de arquitectura — o anfitrião decide) e as descrições de `read`/`edit_lines` que
 /// poupam tokens (ler por excertos, uma só ferramenta de edição preferida);
 /// 10 = `finish_issue` responde também a cada item da Definition of Done (Board B: o anfitrião
-/// dá a DoD do projecto; o Project verifica-a antes da Review).
-pub const TOOLSET_VERSION: u32 = 10;
+/// dá a DoD do projecto; o Project verifica-a antes da Review);
+/// 11 = + as ferramentas do anfitrião das sessões de backlog (`backlog_propose`,
+/// `project_propose`; `/backlog` e `/project`), só nessas sessões — as outras ficam iguais.
+pub const TOOLSET_VERSION: u32 = 11;
 
 /// O estado partilhado entre as ferramentas de fluxo e a sessão.
 #[derive(Clone, Default)]

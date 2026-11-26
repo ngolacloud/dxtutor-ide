@@ -22,6 +22,7 @@ import type { AgentChat } from "./agent-chat";
 import type { CodevCopy } from "./messages";
 import { ptCopy } from "./messages";
 import { clashFiles, clashLines, type ScopeClash } from "../domain/scope-overlap";
+import type { BacklogProposal } from "../domain/backlog";
 import type { Placement, WorktreeRef } from "../domain/worktrees";
 import { ptWorktreeCopy, type WorktreeCopy } from "./worktree-messages";
 
@@ -272,7 +273,25 @@ export function makeCodevSessions(deps: CodevSessionsDeps) {
     drain();
   }
 
+  /** `/backlog`/`/project`: na conversa à vista, se não trabalha uma issue (nunca se perde uma issue em curso);
+   *  senão numa nova, que passa a estar à vista. */
+  function backlog(q: string): Promise<boolean> {
+    const slot = selected.chat.issueKey() ? newSlot() : selected;
+    select(slot);
+    const done = slot.chat.backlog(q);
+    changed();
+    return done;
+  }
+
   return {
+    backlog,
+    /** Uma proposta do `/backlog`/`/project` vai para a conversa da sessão que a fez (`false`: nenhuma destas). */
+    showProposal(p: BacklogProposal): boolean {
+      const s = slots.find((x) => x.chat.sessionId() === p.session);
+      if (!s) return false;
+      s.chat.showProposal(p);
+      return true;
+    },
     /** A conversa à vista (o compositor, os comandos `/plano`, `/retomar`… falam com ela). */
     current: (): AgentChat => selected.chat,
     /** Todas as conversas abertas (o modo da modebar vale para todas). */

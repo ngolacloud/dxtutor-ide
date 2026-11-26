@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 332 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 333 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -463,6 +463,32 @@ aceitação da issue e (3) o responsável REGISTOU a aprovação funcional. A fa
 - Testes: `cargo test -p tutor-eval gitwork::codev`, `cargo test -p tutor-board claims branches`,
   `cargo test -p dxtutor-ide codev_worktree codev_agent::worktree_tests`, `tests/codev.worktrees.test.ts`,
   `tests/codev.sessions.test.ts`, o e2e `e2e/multi-codev.e2e.ts` e o passo `worktrees` do auto-teste.
+
+## `/backlog` e `/project`: o backlog e o Project feitos pelo Co-Dev (conjunto 11)
+
+O backlog nasce da pasta seleccionada (código, README, desenho) ou de um pedido, e vai para o Project — nunca para o
+quadro Tasks. Duas skills embutidas (`tutor_agent::extensions::builtin_commands`; um `.dxtutor/commands/<nome>.md` com
+o mesmo nome substitui-as) e duas ferramentas do anfitrião (`src-tauri/src/backlog.rs`), só nas sessões de backlog
+(`StartSpec.backlog`, âmbito `backlog`, `TOOLSET_VERSION` 11 — as outras sessões ficam iguais):
+- **`/backlog <contexto>`**: o Co-Dev investiga a pasta e chama `backlog_propose` (não é só de leitura: em Manual o
+  humano permite-a). As regras são do Rust (`tutor_board::project::backlog::validate`): critérios em
+  Dado/Quando/Então, história nas stories, âmbito com ficheiros reais (relativos, dentro da pasta; um ficheiro novo com
+  o caminho que vai ter), dependências sem ciclos — o que sai dele pode ficar Ready. Os problemas voltam ao modelo; um
+  rascunho bom grava-se em `.dxtutor/backlog.json` e aparece no chat (`backlog://proposal`).
+- **`/project <contexto>`** (na mesma sessão, se aberta): `project_propose` (só leitura) lê o ficheiro e valida o plano
+  (`validate_plan`: método, iteração, sprints por ordem com as dependências antes, capacidade). O cartão oferece «Create
+  the Project» e «Create and approve Ready»; o diálogo partilhado confirma, e `project_create_from_backlog` cria tudo
+  numa transacção (`ProjectStore::create_from_backlog`), só se o ficheiro ainda for o do plano (`hash`), auditado antes
+  e com o resultado. Uma issue cujo título o projecto já tem não é criada outra vez. Ready só com o papel (PO/Tech Lead)
+  e só às issues a que não falta mais nada (a aprovação cobre os itens da DoR do projecto). Depois, cada issue Ready
+  tem «Work on it with Co-Dev» (o prompt da issue, `project_issue_prompt`, com o âmbito e o código; um ficheiro do
+  âmbito que ainda não existe diz «cria-o»).
+- **O Studio**: o «Generate backlog & delegate» (e a paleta, e o quadro vazio) com o agente manda `/backlog` com o
+  desenho (`board/domain/backlog-context.ts`: componente, tecnologia, pasta, estado, ligações); sem agente (browser)
+  fica o gerador antigo do quadro Tasks.
+- Testes: `cargo test -p tutor-board backlog`, `cargo test -p dxtutor-ide backlog`, `cargo test -p tutor-agent`
+  (`the_ide_commands_expand…`, `a_scope_file_that_does_not_exist_yet…`), `tests/codev.backlog.test.ts` e o caso do
+  conjunto 11 em `tests/codev.agent-chat.test.ts`.
 
 ## Cada método muda as regras, e o Co-Dev segue-as (Project, Board B)
 

@@ -689,7 +689,11 @@ fn toolset_9_offers_finish_issue_only_to_issue_sessions_and_keeps_8_as_it_was() 
     };
     assert!(schema(9)["properties"].get("dod").is_none());
     assert!(schema(10)["properties"]["dod"].is_object());
-    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 10);
+    // toolset 11: the backlog tools are the host's, only in backlog sessions — the core is the same
+    assert_eq!(names(&tools(11, true)), n9i);
+    assert_eq!(names(&tools(11, false)), n9);
+    assert_eq!(schema(11), schema(10));
+    assert_eq!(tutor_agent::tools::TOOLSET_VERSION, 11);
 }
 
 #[test]

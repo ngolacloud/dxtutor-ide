@@ -23,6 +23,7 @@ export function parsePrompt(v: unknown): IssuePrompt | null {
     template: typeof o.template === "string" ? o.template : "",
   };
 }
+import { parseBacklogCreated, type BacklogCreated } from "../domain/backlog";
 import { branchName, startWipRefusal, viewsFor, type Filters, type QuickFilter, type Swim, type View } from "../domain/board";
 import { ptCopy } from "./messages";
 import { MAX_CODEVS, parseSprintPlan, type SprintPlan } from "../domain/plan";
@@ -338,6 +339,34 @@ export function makeProjectService(deps: ProjectDeps) {
         deps.notify.toast(`git checkout -b ${name}`);
       } catch (e: unknown) {
         deps.notify.toast(parseError(e).message);
+      }
+    },
+    /** `/project` (from the Co-Dev chat): creates the Project from `.dxtutor/backlog.json` and the plan Co-Dev
+     *  proposed, after the human confirms the exact action (the shared dialog). The store creates it all in one
+     *  transaction (and audits it); `null` when refused, outside the desktop app or when the store says no. */
+    async createFromBacklog(o: { hash: string; plan: unknown; ready: boolean; issues: number; sprints: number }): Promise<BacklogCreated | null> {
+      const r = root();
+      if (!r || !deps.gateway.available() || !deps.gateway.createFromBacklog) {
+        deps.notify.toast(copy("backlogNeedsDesktop"));
+        return null;
+      }
+      if (deps.human) {
+        const n = { issues: o.issues, sprints: o.sprints };
+        const d = await deps.human.approve({
+          title: copy(o.ready ? "backlogCreateReady" : "backlogCreateTitle", n),
+          command: `project_create_from_backlog .dxtutor/backlog.json · ${o.issues} issues · ${o.sprints} sprints${o.ready ? " · ready" : ""}`,
+          scope: r,
+        });
+        if (!d.approved) return null;
+      }
+      try {
+        const c = parseBacklogCreated(await deps.gateway.createFromBacklog(r, o.hash, o.plan, o.ready, lang()));
+        if (!c) throw new Error(copy("backlogBad"));
+        set({ status: "ready", project: c.project, error: null, view: "backlog" });
+        return c;
+      } catch (e: unknown) {
+        deps.notify.toast(parseError(e).message);
+        return null;
       }
     },
     /** Hands the issue to Co-Dev (the agent's changes are recorded as its change sets). With the

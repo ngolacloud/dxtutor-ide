@@ -200,6 +200,10 @@ export function describeCall(name: string, input: Record<string, unknown>, comma
       return `/${s("pattern")}/` + (s("glob") ? ` ${s("glob")}` : "") + (s("path") ? ` em ${s("path")}` : "");
     case "git_diff":
       return (input.staged === true ? "--staged " : "") + s("path");
+    case "backlog_propose":
+      return `${s("title")} → .dxtutor/backlog.json (${Array.isArray(input.issues) ? input.issues.length : 0} issues)`;
+    case "project_propose":
+      return `${s("method") || "—"} · ${Array.isArray(input.sprints) ? input.sprints.length : 0} sprints`;
     default:
       return "";
   }

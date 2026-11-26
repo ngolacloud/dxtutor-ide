@@ -20,6 +20,7 @@ import { projectInbox } from "../../app/project-inbox";
 import { NAVIGATOR_MESSAGE, pairState } from "../../app/pair-state";
 import { currentLocale, translator } from "../../app/i18n";
 import { PROJECT_ENGINE_MESSAGES } from "./application/messages";
+import { requestApproval } from "../../app/approval";
 
 const copy = translator(PROJECT_ENGINE_MESSAGES);
 
@@ -37,6 +38,7 @@ export const projectService = makeProjectService({
   showInProblems: (label, files) => problemsScope.show({ label, files }),
   openAt,
   lang: () => (currentLocale() === "ptAO" ? "pt" : "en"),
+  human: { approve: (req) => requestApproval(req) },
   templates: {
     write: writeProjectFile,
     open: openProjectFile,
@@ -62,8 +64,17 @@ export function openProject(sub?: View): void {
   if (sub) projectService.setView(sub);
   openTab({ id: "project", title: "Project", kind: "project" });
 }
-/* the Welcome walkthroughs open it; they evaluate before this module (r23 F6) */
-services.project = { openProject };
+/* the Welcome walkthroughs open it; they evaluate before this module (r23 F6). Co-Dev's `/project` card creates the
+   Project from the backlog and hands an issue to Co-Dev through it (Co-Dev evaluates before this module too). */
+services.project = {
+  openProject,
+  createFromBacklog: (o) => projectService.createFromBacklog(o),
+  workOn: async (key) => {
+    if (projectService.state().status !== "ready") await projectService.open();
+    projectService.select(key);
+    await projectService.work(key);
+  },
+};
 
 const sel = (): string | null => projectService.state().selected;
 const DAY = 86_400_000;
