@@ -83,16 +83,26 @@ describe("o registo de linguagens", () => {
     expect(languageOf("MJS", [])).toBe("javascript");
   });
 
-  it("o aviso de servidor em falta: nomes e instruções do registo, comando só se for o permitido", () => {
+  it("o aviso de servidor em falta: o nome da linguagem vem do registo; sem plano do backend nada se corre", () => {
     expect(languageName("cpp")).toBe("C/C++");
     expect(languageName("typescript")).toBe("TypeScript/JavaScript");
     expect(languageName("nada")).toBe("nada");
-    const runnable = ["rust-analyzer", "gopls", "typescript-language-server", "pyright", "csharp-ls", "sqls"];
     for (const s of REGISTRY.servers) {
       const n = missingServerNotice({ language: s.id, server: s.label, installed: false })!;
-      expect(n.install).toBe(s.install);
-      expect(n.command !== null, s.label).toBe(runnable.includes(s.label));
+      expect(n.languageName).toBe(s.name);
+      expect(n.options).toEqual([]);
     }
-    expect(missingServerNotice({ language: "x", server: "who-knows", installed: false })!.command).toBeNull();
+  });
+
+  it("as receitas de instalação estão no registo (o backend valida-as e constrói os comandos)", () => {
+    const managers = (id: string) => (REGISTRY.servers.find((s) => s.id === id)?.recipes ?? []).map((r) => r.manager);
+    expect(managers("rust")).toEqual(["rustup", "github"]);
+    expect(managers("typescript")).toEqual(["npm"]);
+    expect(managers("cpp")).toEqual(["github", "apt", "brew"]);
+    // cada release fixa o URL e o SHA-256
+    for (const s of REGISTRY.servers) for (const r of s.recipes ?? []) for (const a of r.assets ?? []) {
+      expect(a.url).toMatch(/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/[^/]+\/[^/]+$/);
+      expect(a.sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
   });
 });

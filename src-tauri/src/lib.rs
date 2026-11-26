@@ -104,6 +104,7 @@ use commands::git::{
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::iac::{iac_apply_command, iac_pipeline_run, iac_state};
+use commands::lsp_install::{lsp_install_download, lsp_install_plan};
 use commands::metrics::{
     incident_metrics_check, metrics_status, metrics_token_clear, metrics_token_set,
 };
@@ -1216,6 +1217,9 @@ pub fn run() {
             lsp::lsp_config_file,
             lsp::lsp_user_config_save,
             lsp::lsp_approve_server,
+            // LSP P3: install a missing server from the registry's recipes
+            lsp_install_plan,
+            lsp_install_download,
             board::board_load,
             board::board_save,
             board::project_load,

@@ -27,7 +27,7 @@ do binário. O binário fica em `<repo>/target/debug/` (não em `src-tauri/targe
 `scripts/arch-check.sh` é a porta de CI leve (estática, sem compilar, sem
 dependências — só `bash`/`awk`/`grep`). Verifica:
 
-- **A1–A3** — os 322 comandos Tauri registados em `generate_handler!` batem certo
+- **A1–A3** — os 324 comandos Tauri registados em `generate_handler!` batem certo
   com os `#[tauri::command]` por ficheiro e com a matriz `docs/architecture/IPC-MATRIX.md` (1:1).
 - **A4–A5** — a cadeia de build aponta para a UI oficial única (`../ui-app/dist`);
   nenhuma config referencia `ui/` ou `ui-next/`. **Nunca** trocar `frontendDist`
@@ -828,8 +828,8 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   (`DXTUTOR_RUST_ANALYZER`, `DXTUTOR_GOPLS`), `searchDirs` (`~/`, um `*` = a versão mais alta primeiro),
   `rootMarkers`, `readySignal`, `initOptions` (o jdtls), `oneShot` (o cliente de um pedido do `tutor_eval::lsp`
   pode arrancá-lo: rust/go/ts/python, nunca um JVM), `quirks` (só `nodePath` e `rustupProxy` mudam código; os
-  outros registam o que já é genérico), `install` (SÓ texto: o que a UI pode correr é o `RUNNABLE` do
-  `server-status.ts`, comando a comando) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
+  outros registam o que já é genérico), `install` (SÓ texto, a instrução à mão quando nenhuma receita serve),
+  `recipes` (LSP P3, abaixo) e `vscodeExtensions` (o `KNOWN_LANGUAGE_SERVERS`). Leram-se daqui as
   nove cópias antigas: `LANGS`/`server_cmd`/pistas/`init_options` do `lsp.rs`, a tabela do `tutor_eval::lsp`,
   `codeintel::outline_lang`, `languages.ts`, `server-status.ts`, `ext/domain/contributions.ts`, os comentários do
   `ext.ts`, o `OUTLINE_LANG` do explorador e os nomes da barra de estado (o `LANG` do `editor.ts` saiu, e com
@@ -955,10 +955,25 @@ chamava os comandos `lsp_*` (quem os usava era a `ui-next`, apagada em `e2a89b3`
   aos ficheiros da pasta pelo `writeFile` (o autosave leva-as ao disco), envia `didChange` dos que o
   servidor tem abertos e conta o que salta (fora da pasta, operações de ficheiro).
 - **Servidor em falta:** sem servidor instalado o backend não abre sessão nem dá erro; o cliente
-  pergunta `lsp_server_status` (uma vez por linguagem) e o editor mostra uma faixa
-  (`#lsp-missing`, `domain/server-status.ts`) com o servidor que falta e como o instalar, reposta
-  a cada desenho da vista pelo evento `editor:file-view` do bus; «Dismiss» fecha-a para essa
-  linguagem na sessão.
+  pergunta `lsp_server_status` (uma vez por linguagem; diz também onde o encontrou: `foundAt`, `managed`) e o
+  editor mostra uma faixa (`#lsp-missing`, `domain/server-status.ts`) com o servidor que falta e as maneiras de o
+  instalar, reposta a cada desenho da vista pelo evento `editor:file-view` do bus; «Check again» volta a procurar
+  (depois de uma instalação à mão); «Dismiss» fecha-a para essa linguagem na sessão.
+- **Instalar a partir das receitas (LSP P3, `tutor_eval::lspinstall`, `commands/lsp_install.rs`):** cada servidor tem
+  `recipes` no registo (npm, pip, pipx, go, cargo, dotnet, gem, rustup, brew, apt, github; `langreg::validate` reprova
+  um gestor desconhecido, uma release sem `sha256` ou com um URL que não seja `https://github.com/<o>/<r>/releases/download/…`,
+  um pacote que pareça uma opção). O BACKEND constrói o comando (`lsp_install_plan`, só leitura, como o `git_clone_plan`):
+  só das receitas do registo de confiança (embutido + `lsp.json` do utilizador; as de um `.dxtutor/lsp.json` nunca, nem
+  as do embutido quando o `lsp.json` troca o programa — `withheld`), com os gestores achados no PATH da shell de login. A
+  UI nunca compõe nem envia um comando: mostra o do plano no diálogo partilhado, audita (`lsp.install`; sem auditoria não
+  corre) e corre-o num terminal de tarefa com o `cwd`/`env` do plano; uma release vai por `lsp_install_download(path,
+  id da maneira)`, que descarrega o ficheiro fixado, confere o SHA-256 ANTES de desempacotar (não confere → nada
+  instalado, o que lá estava fica) e desempacota em `<app_local_data_dir>/lsp-servers/<servidor>`. Os gestores do
+  utilizador instalam também lá (npm `--global --prefix`, venv, `GOBIN`, `--root`, `--tool-path`, `PIPX_*`,
+  `--install-dir`); o `resolve_server` procura lá primeiro (depois do `envOverride`), por isso o servidor arranca sem
+  reiniciar. apt e brew só se mostram (o apt pede sudo: o dxtutor nunca os corre). Um servidor instalado assim arranca
+  com o `GEM_PATH`/`DOTNET_ROOT` de que precisa (`lspinstall::launch_env`). Testes: `cargo test -p tutor-eval langreg
+  lspinstall` (gestores falsos num PATH temporário, servidor HTTP falso para o checksum) e `tests/lsp.install.test.ts`.
 - Os diagnósticos já chegavam ao Problems e ao gutter pelo `features/panel`. O backend usa a pasta
   aberta como raiz de reserva de um ficheiro sem marcador de projecto (o SQL não tem nenhum).
 - **Testes:** `lsp.domain.test.ts`, `lsp.client.test.ts`, `lsp.editor-hooks.test.ts`, `lsp.symbols.test.ts`, `lsp.workspace-symbols.test.ts`, `lsp.type-hierarchy.test.ts`, e o passo
