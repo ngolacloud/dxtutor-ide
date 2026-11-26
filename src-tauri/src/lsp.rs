@@ -35,6 +35,11 @@ use tutor_eval::langreg::{self, Server};
 use tutor_eval::lspconf::{self, Effective, TrustStore};
 use tutor_eval::lspinstall;
 
+// LSP P6: how a server ends (`shutdown`/`exit`, reaped), idle servers and the cap, its log
+mod lifecycle;
+pub use lifecycle::shutdown_all;
+use lifecycle::{emitter, Emit, Reason};
+
 struct Session {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
@@ -63,6 +68,24 @@ struct Session {
     /// token → begin-title, so an `end` event (whose own title is empty) can be matched
     /// against `ready_signal` by the title announced when the work began.
     progress_titles: HashMap<String, String>,
+    // ── LSP P6 (`lifecycle`) ──
+    /// Its key in the session map ([`session_key`]).
+    key: String,
+    /// The server's label (`rust-analyzer`) and the root it runs at: the list of servers, the log.
+    label: String,
+    root: String,
+    /// The process id (`None` once it has ended).
+    pid: Option<u32>,
+    started: Instant,
+    /// The last time something was sent to it (a request, a notification, a document opened or
+    /// closed) or it was handed out for one: a server with no open document is idle from here.
+    last_used: Instant,
+    /// `initialize` was answered: a stop sends `shutdown` first (before it, only `exit` is allowed).
+    handshaken: bool,
+    /// Being shut down (or ended): nothing new is sent to it.
+    stopping: bool,
+    /// Where its events go (`lsp://diagnostics`, `lsp://status`, `lsp://log`, …).
+    emit: Emit,
 }
 
 type SessionMap = Arc<Mutex<HashMap<String, Arc<Mutex<Session>>>>>;
@@ -592,7 +615,7 @@ fn server_request_id(msg: &Value) -> Option<Value> {
     .then(|| id.clone())
 }
 
-fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &str, msg: Value) {
+fn dispatch(session: &Arc<Mutex<Session>>, emit: &Emit, root: &str, label: &str, msg: Value) {
     if let Some(id) = server_request_id(&msg) {
         let method = msg["method"].as_str().unwrap_or_default();
         {
@@ -606,7 +629,7 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
             } else if method == "workspace/applyEdit" {
                 // Um comando executado no servidor (code action) quer mudar ficheiros: a UI
                 // (features/lsp) aplica a WorkspaceEdit pelo mesmo caminho do rename.
-                let _ = app.emit(
+                emit(
                     "lsp://apply-edit",
                     json!({
                         "root": root,
@@ -636,7 +659,7 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
     } else if let Some(method) = msg.get("method").and_then(Value::as_str) {
         if method == "textDocument/publishDiagnostics" {
             cache_diagnostics(msg.get("params").unwrap_or(&Value::Null));
-            let _ = app.emit(
+            emit(
                 "lsp://diagnostics",
                 msg.get("params").cloned().unwrap_or(Value::Null),
             );
@@ -647,7 +670,7 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
             let title = v["title"].as_str().unwrap_or("");
             // Surface the server's own indexing progress so the UI can show it (with the
             // server's label, so the pill reads "gopls · …" for Go, "rust-analyzer · …" etc.).
-            let _ = app.emit(
+            emit(
                 "lsp://status",
                 json!({
                     "root": root,
@@ -679,6 +702,9 @@ fn dispatch(session: &Arc<Mutex<Session>>, app: &AppHandle, root: &str, label: &
                     _ => {}
                 }
             }
+        } else if method == "window/logMessage" {
+            // errors, warnings and info go to the server's log (the «Language servers» output)
+            lifecycle::log_message(session, &msg["params"]);
         }
     }
 }
@@ -700,6 +726,10 @@ fn session_request_within(
     let (tx, rx) = channel();
     {
         let mut g = session.lock().map_err(|_| "lsp lock")?;
+        if g.stopping {
+            return Err(format!("{} was stopped", g.label));
+        }
+        g.last_used = Instant::now();
         g.next_id += 1;
         let id = g.next_id;
         g.pending.insert(id, tx);
@@ -717,6 +747,10 @@ fn session_notify(
     params: Value,
 ) -> Result<(), String> {
     let mut g = session.lock().map_err(|_| "lsp lock")?;
+    if g.stopping {
+        return Err(format!("{} was stopped", g.label));
+    }
+    g.last_used = Instant::now();
     let msg = json!({ "jsonrpc": "2.0", "method": method, "params": params });
     let si = g.stdin.as_mut().ok_or("lsp not started")?;
     write_msg(si, &msg).map_err(|e| e.to_string())
@@ -862,11 +896,13 @@ fn capabilities() -> Value {
 
 /// Get the session for `key` (languageId + root), starting and initializing the resolved
 /// server at `root` if needed. `program`/`args` come from `server_cmd`. A session started from an
-/// older entry (its `fingerprint` differs: an override file changed how it starts) is stopped and
-/// replaced. Blocking.
+/// older entry (its `fingerprint` differs: an override file changed how it starts) is shut down and
+/// replaced. A new server may stop the least recently used one with no open document, to stay
+/// under the cap (`lifecycle::enforce`). It is handed out only after its `initialize` (the
+/// GOTCHA-arranque race), so a server reaped while idle comes back the same way. Blocking.
 fn get_or_start(
     map: &SessionMap,
-    app: &AppHandle,
+    emit: &Emit,
     key: &str,
     root: &str,
     lang: &Lang,
@@ -878,11 +914,25 @@ fn get_or_start(
         .unwrap()
         .insert(format!("{} ({})", root, lang.id));
     let fp = fingerprint(&lang.server);
+    // one start at a time per key: requests that race for a server that is not running (after an
+    // idle stop, say) wait for the one being started instead of each spawning their own
+    let start_lock = start_lock(key);
+    let starting = start_lock.lock().map_err(|_| "lsp start lock")?;
     {
         let mut m = map.lock().map_err(|_| "lsp map lock")?;
         if let Some(s) = m.get(key).cloned() {
-            if s.lock().map(|g| g.fingerprint == fp).unwrap_or(false) {
+            // touched under the map's lock: the idle reaper (which decides under it too) either
+            // removed it already — and it is not found — or sees it in use now
+            let same = s
+                .lock()
+                .map(|mut g| {
+                    g.last_used = Instant::now();
+                    g.fingerprint == fp && !g.stopping
+                })
+                .unwrap_or(false);
+            if same {
                 drop(m);
+                drop(starting);
                 wait_initialized(&s, INIT_BUDGET);
                 // the same start-up, maybe newer settings (an approval, or a reload not seen yet)
                 sync_settings(&s, &lang.server.settings);
@@ -890,7 +940,7 @@ fn get_or_start(
             }
             m.remove(key);
             drop(m);
-            stop_session(&s);
+            lifecycle::shutdown(&s, Reason::Config);
         }
     }
     // so gopls finds `go`, and a node server finds the `node` it was installed with
@@ -903,7 +953,10 @@ fn get_or_start(
         .env("PATH", augmented_path(front))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
+    // its own process group: a server that does not exit is killed with what it started
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     if lang.server.has_quirk("nodePath") {
         if let Some(nm) = node_global_modules(program) {
             cmd.env("NODE_PATH", nm); // so typescript-language-server can require('typescript')
@@ -917,8 +970,11 @@ fn get_or_start(
         .map_err(|e| format!("failed to start {}: {e}", lang.server_label))?;
     let stdin = child.stdin.take().ok_or("lsp server: no stdin")?;
     let stdout = child.stdout.take().ok_or("lsp server: no stdout")?;
+    let stderr = child.stderr.take();
     let settings = langreg::normalize_settings(&lang.server.settings);
+    let now = Instant::now();
     let session = Arc::new(Mutex::new(Session {
+        pid: Some(child.id()),
         child: Some(child),
         stdin: Some(stdin),
         next_id: 0,
@@ -932,30 +988,52 @@ fn get_or_start(
         settings: settings.clone(),
         project: lang.project.clone(),
         progress_titles: HashMap::new(),
+        key: key.to_string(),
+        label: lang.server_label.clone(),
+        root: root.to_string(),
+        started: now,
+        last_used: now,
+        handshaken: false,
+        stopping: false,
+        emit: emit.clone(),
     }));
+    lifecycle::started(&session);
+    if let Some(err) = stderr {
+        lifecycle::read_stderr(&session, err);
+    }
     {
         let mut m = map.lock().map_err(|_| "lsp map lock")?;
         if let Some(existing) = m.get(key) {
-            stop_session(&session);
+            // another thread started this one first: ours goes (it never had an `initialize`)
             let existing = existing.clone();
             drop(m);
+            let ours = session.clone();
+            thread::spawn(move || lifecycle::shutdown(&ours, Reason::Replaced));
+            drop(starting);
             wait_initialized(&existing, INIT_BUDGET);
             return Ok(existing);
         }
         m.insert(key.to_string(), session.clone());
     }
+    // in the map: whoever comes next finds it (and waits for its `initialize`)
+    drop(starting);
+    emit("lsp://servers", json!({}));
     let rsession = session.clone();
-    let rapp = app.clone();
+    let rmap = map.clone();
+    let remit = emit.clone();
     let rroot = root.to_string();
     let rlabel = lang.server_label.clone();
     thread::spawn(move || {
         let mut r = BufReader::new(stdout);
         while let Some(msg) = read_message(&mut r) {
-            dispatch(&rsession, &rapp, &rroot, &rlabel, msg);
+            dispatch(&rsession, &remit, &rroot, &rlabel, msg);
         }
+        // its stdout closed: it was stopped, or it died (removed and reaped here)
+        lifecycle::reader_ended(&rmap, &rsession);
     });
     let uri = path_to_uri(root);
-    let init = session_request(
+    // as long as the others wait for it (a JVM server's first start is slow)
+    let init = session_request_within(
         &session,
         "initialize",
         json!({
@@ -965,7 +1043,20 @@ fn get_or_start(
             "capabilities": capabilities(),
             "initializationOptions": lang.server.init_options
         }),
-    )?;
+        INIT_BUDGET,
+    );
+    let init = match init {
+        Ok(v) => v,
+        Err(e) => {
+            // no answer: it never becomes usable — out of the map, and stopped
+            lifecycle::detach(map, key, &session);
+            lifecycle::shutdown(&session, Reason::Failed);
+            return Err(e);
+        }
+    };
+    if let Ok(mut g) = session.lock() {
+        g.handshaken = true;
+    }
     session_notify(&session, "initialized", json!({}))?;
     // the settings, pushed too (some servers never ask `workspace/configuration`); none → nothing
     // sent, as before overrides existed
@@ -987,23 +1078,20 @@ fn get_or_start(
             g.ready = true;
         }
     }
+    // a new server: over the cap, the least recently used one with no open document stops
+    lifecycle::enforce(map, emit, lifecycle::Limits::current(), Some(key), true);
     Ok(session)
 }
 
-/// Stop a session's server: its pending requests fail at once, the process is killed (and reaped
-/// on a thread of its own).
-fn stop_session(session: &Arc<Mutex<Session>>) {
-    if let Ok(mut g) = session.lock() {
-        g.stdin = None;
-        g.pending.clear();
-        g.initialized = true; // nobody waits for an `initialize` that will not come
-        if let Some(mut c) = g.child.take() {
-            let _ = c.kill();
-            thread::spawn(move || {
-                let _ = c.wait();
-            });
-        }
-    }
+/// The lock that lets one thread at a time start the session `key` ([`get_or_start`]).
+fn start_lock(key: &str) -> Arc<Mutex<()>> {
+    static L: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    L.get_or_init(Default::default)
+        .lock()
+        .unwrap()
+        .entry(key.to_string())
+        .or_default()
+        .clone()
 }
 
 /// The session key: one server per (server id, session root, open folder) — the open folder
@@ -1162,7 +1250,7 @@ fn open_session(
         return Ok(None);
     };
     let key = session_key(&lang, &root);
-    let session = get_or_start(map, app, &key, &root, &lang, &program, &args)?;
+    let session = get_or_start(map, &emitter(app), &key, &root, &lang, &program, &args)?;
     let opened = ensure_doc_open(&session, path)?;
     Ok(Some((session, opened)))
 }
@@ -1325,7 +1413,8 @@ fn register_root(root: &str) -> String {
 }
 
 /// Called once at start-up: where the user file and the approvals live, and a thread that applies a
-/// change to any override file without restarting the app (checked every 2 s: one `stat` per file).
+/// change to any override file without restarting the app (checked every 2 s: one `stat` per file);
+/// and the thread that stops idle servers (LSP P6, `lifecycle`).
 pub fn init(app: &AppHandle) {
     if let Ok(dir) = app.path().app_config_dir() {
         conf().lock().unwrap().dir = Some(dir);
@@ -1333,6 +1422,7 @@ pub fn init(app: &AppHandle) {
     if let Ok(dir) = app.path().app_local_data_dir() {
         conf().lock().unwrap().managed = Some(dir.join(lspinstall::INSTALL_DIR));
     }
+    lifecycle::spawn_reaper(app);
     let app = app.clone();
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(2));
@@ -1416,9 +1506,14 @@ fn reconcile(app: &AppHandle, map: &SessionMap, old: &HashMap<String, Arc<Effect
             continue;
         };
         if fingerprint(&run.server) != fp {
-            remove_session(map, &key, &s);
-            let (map, app, key, root) = (map.clone(), app.clone(), key.clone(), root.to_string());
-            thread::spawn(move || restart(&map, &app, &key, &root, &lang));
+            // out of the map now (a request starts the new entry at once); the old server is shut
+            // down before this thread starts the new one with the open documents
+            lifecycle::detach(map, &key, &s);
+            let (map, emit, key, root) = (map.clone(), emitter(app), key.clone(), root.to_string());
+            thread::spawn(move || {
+                lifecycle::shutdown(&s, Reason::Config);
+                restart(&map, &emit, &key, &root, &lang);
+            });
             continue;
         }
         if langreg::normalize_settings(&run.server.settings) != settings {
@@ -1427,25 +1522,24 @@ fn reconcile(app: &AppHandle, map: &SessionMap, old: &HashMap<String, Arc<Effect
     }
 }
 
+/// Take a session out of the map and shut its server down (on a thread of its own: `shutdown` and
+/// `exit`, then reaped).
 fn remove_session(map: &SessionMap, key: &str, s: &Arc<Mutex<Session>>) {
-    if let Ok(mut m) = map.lock() {
-        if m.get(key).is_some_and(|x| Arc::ptr_eq(x, s)) {
-            m.remove(key);
-        }
-    }
-    stop_session(s);
+    lifecycle::detach(map, key, s);
+    let s = s.clone();
+    thread::spawn(move || lifecycle::shutdown(&s, Reason::Config));
 }
 
 /// Start a session group again (after its entry changed) and give it the documents the editor has
 /// open in it. Nothing starts when the server is not installed or waits for an approval.
-fn restart(map: &SessionMap, app: &AppHandle, key: &str, root: &str, lang: &Lang) {
+fn restart(map: &SessionMap, emit: &Emit, key: &str, root: &str, lang: &Lang) {
     let Ok((program, args)) = server_cmd(&lang.server) else {
         return;
     };
     let Ok(lang) = gate(lang, &program, root) else {
         return;
     };
-    let Ok(session) = get_or_start(map, app, key, root, &lang, &program, &args) else {
+    let Ok(session) = get_or_start(map, emit, key, root, &lang, &program, &args) else {
         return;
     };
     for path in docs_in(key) {
@@ -1737,7 +1831,7 @@ pub async fn lsp_start(
                         continue;
                     };
                     let key = session_key(&lang, &root);
-                    let _ = get_or_start(&map, &app, &key, &root, &lang, &program, &args);
+                    let _ = get_or_start(&map, &emitter(&app), &key, &root, &lang, &program, &args);
                 }
             }
         }
@@ -2299,6 +2393,72 @@ pub async fn lsp_prepare_rename(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ── Resources (LSP P6, `lifecycle`): documents closed, folders closed, the live servers ──
+
+/// The editor closed a file (its tab, or the file was deleted or renamed): `didClose` to the
+/// servers that have it open, and it is forgotten (a server that starts later does not get it).
+#[tauri::command]
+pub async fn lsp_did_close(state: State<'_, LspState>, path: String) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        lifecycle::close_document(&map, &path);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The folder `root` was closed or another one opened: its servers are shut down (`shutdown`,
+/// `exit`, reaped), its documents and override files forgotten.
+#[tauri::command]
+pub async fn lsp_folder_closed(state: State<'_, LspState>, root: String) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        lifecycle::close_folder(&map, &root);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The live language servers (pid, root, open documents, idle time, memory) and the limits.
+#[tauri::command]
+pub async fn lsp_servers(state: State<'_, LspState>) -> Result<lifecycle::ServersView, String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        lifecycle::list(&map, lifecycle::Limits::current())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The log of one server (`key`) or of all of them: its stderr and `window/logMessage` (masked)
+/// and what happened to it (started, stopped, crashed), oldest first.
+#[tauri::command]
+pub async fn lsp_server_log(key: Option<String>) -> Result<Vec<lifecycle::LogLine>, String> {
+    Ok(lifecycle::log_of(key.as_deref()))
+}
+
+/// «Stop» in the list of servers: shut it down now; it starts again when a file needs it.
+#[tauri::command]
+pub async fn lsp_server_stop(state: State<'_, LspState>, key: String) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lifecycle::stop_key(&map, &key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// «Restart» in the list of servers: shut it down and start it again with the open documents.
+#[tauri::command]
+pub async fn lsp_server_restart(
+    app: AppHandle,
+    state: State<'_, LspState>,
+    key: String,
+) -> Result<(), String> {
+    let map = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lifecycle::restart_key(&map, &emitter(&app), &key))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // ── Diagnósticos em cache, para o agente (ferramenta `lsp_diagnostics`, ADR-0003 F7) ──

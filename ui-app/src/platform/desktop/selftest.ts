@@ -1524,6 +1524,10 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
     // inválido aparece no aviso, um comando do projecto espera pela aprovação (recusa e aprovação auditadas), as
     // definições do projecto também, e o lsp.json do utilizador grava-se e aplica-se. O comando do projecto é um `sh` que sai logo (nada corre).
     await step("lspOverrides", () => lspOverridesProbe());
+    // LSP P6: um servidor REAL (o typescript-language-server, se estiver instalado) no editor — fechar o
+    // separador dá didClose, «Stop» pára-o (shutdown/exit, processo recolhido), o pedido seguinte arranca-o de
+    // novo, «Restart» troca o processo, e com `idleMinutes: 1` no lsp.json do utilizador o reaper pára-o sozinho.
+    await step("lspResources", () => lspResourcesProbe());
   }
   /* sem handlers inline em lado nenhum do DOM vivo (depois de o auto-teste ter aberto as vistas) e sem violações do CSP */
   await step("csp", async () => {
@@ -1539,6 +1543,58 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
   });
   rep.errors = R.errors;
   await app.selftestReport(rep);
+
+  async function lspResourcesProbe(): Promise<unknown> {
+    type Info = { key: string; label: string; pid: number | null; documents: string[]; state: string };
+    const root = R.root as string;
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const until = async <T>(f: () => Promise<T | null | undefined | false>, ms: number): Promise<T | null> => {
+      const t0 = Date.now();
+      for (;;) { const v = await f(); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(300); }
+    };
+    const key = ROOT + "lsp-res/main.ts", path = root + "/lsp-res/main.ts";
+    const st = await invoke<{ installed: boolean; server: string } | null>("lsp_server_status", { path });
+    if (!st?.installed) return { skipped: `${st?.server ?? "typescript-language-server"} not installed (put the nvm node bin folder on PATH)` };
+    const list = async () => (await invoke<{ servers: Info[] }>("lsp_servers")).servers.filter((s) => s.label === st.server);
+    const alive = async (pid: number) => (await sh("sh", ["-c", `test -e /proc/${pid} && echo yes || echo no`])).stdout.trim() === "yes";
+    writeFile(key, "export const answer: number = 42;\nexport function twice(n: number): number { return n * 2; }\n");
+    flushSave(); await idle();
+    const out: Record<string, unknown> = {};
+    const W = window as unknown as { openPath: (k: string) => void };
+    W.openPath(key);
+    const first = await until(async () => (await list()).find((s) => s.documents.includes(path) && s.pid), 90_000);
+    if (!first) return { ...out, opened: "FAIL: the server never listed the file" };
+    out.opened = { pid: !!first.pid, state: first.state };
+    // «Stop»: shutdown + exit, o processo recolhido
+    await invoke("lsp_server_stop", { key: first.key });
+    out.stopped = !(await list()).some((s) => s.key === first.key) && !(await alive(first.pid!));
+    // o pedido seguinte arranca-o de novo (outro processo), com o ficheiro aberto
+    await invoke("lsp_hover", { path, line: 1, character: 17 }).catch(() => null);
+    const back = await until(async () => (await list()).find((s) => s.key === first.key && s.pid), 60_000);
+    out.cameBack = back ? { newPid: back.pid !== first.pid, hasFile: back.documents.includes(path) } : "FAIL: did not come back";
+    // «Restart»: outro processo, o ficheiro aberto outra vez
+    if (back) {
+      await invoke("lsp_server_restart", { key: back.key });
+      const again = (await list()).find((s) => s.key === back.key);
+      out.restarted = again ? { newPid: again.pid !== back.pid, oldGone: !(await alive(back.pid!)), hasFile: again.documents.includes(path) } : "FAIL: not running after restart";
+    }
+    // fechar o separador → didClose: o servidor deixa de ter o ficheiro
+    services.tabs!.closeTab(key);
+    out.didClose = !!(await until(async () => (await list()).find((s) => s.key === first.key && !s.documents.length), 10_000));
+    // inactivo: com idleMinutes 1, o reaper (de 30 em 30 s) pára-o sozinho
+    const before = await tauriLspConfig.configFile("user", null);
+    await tauriLspConfig.saveUserConfig('{ "resources": { "idleMinutes": 1 } }');
+    const pidNow = (await list()).find((s) => s.key === first.key)?.pid ?? null;
+    out.idleStopped = !!(await until(async () => !(await list()).some((s) => s.key === first.key), 120_000)) && (pidNow == null || !(await alive(pidNow)));
+    await tauriLspConfig.saveUserConfig(before.exists ? before.text : "{}");
+    // o registo diz porquê (e passou pela máscara)
+    const log = await invoke<{ code: string | null; detail: { reason?: string } | null }[]>("lsp_server_log", { key: first.key });
+    out.logReasons = log.filter((l) => l.code === "stopped" || l.code === "killed").map((l) => l.detail?.reason);
+    out.started = log.filter((l) => l.code === "started").length;
+    delete FS[key];
+    flushSave(); await idle();
+    return out;
+  }
 
   async function lspOverridesProbe(): Promise<unknown> {
     const root = R.root as string;
