@@ -119,12 +119,68 @@ pub fn project_apply(
             },
         )?;
     }
+    // Multi Co-Dev (phase 2): the functional approval is the issue's responsible's (or a PO's / a
+    // Tech Lead's); the store records who and when
+    if let Some(k @ ("approve_functional" | "revoke_functional")) =
+        op.get("op").and_then(|v| v.as_str())
+    {
+        let key = op.get("key").and_then(|v| v.as_str()).unwrap_or_default();
+        let p = open(&app)?.load(&root, now_ms())?;
+        let i = p
+            .issues
+            .iter()
+            .find(|i| i.key == key)
+            .ok_or_else(|| ProjectError {
+                code: "not_found".into(),
+                message: format!("a issue {key} não existe"),
+                overridable: false,
+            })?;
+        let also = (k == "revoke_functional")
+            .then(|| i.functional.as_ref().map(|a| a.by.as_str()))
+            .flatten();
+        let dir = Path::new(&root);
+        let email = git_config(dir, "user.email");
+        let me = actor(&root);
+        crate::roles::functional_check(
+            crate::roles::my_roles(dir).as_deref(),
+            &i.assignee,
+            also,
+            &[me.as_str(), email.as_str()],
+        )
+        .map_err(|message| ProjectError {
+            code: "role".into(),
+            message,
+            overridable: false,
+        })?;
+    }
     let op: Op = serde_json::from_value(op).map_err(|e| ProjectError {
         code: "invalid".into(),
         message: format!("operação inválida: {e}"),
         overridable: false,
     })?;
     open(&app)?.apply(&root, &actor(&root), now_ms(), op)
+}
+
+fn git_config(dir: &Path, key: &str) -> String {
+    std::process::Command::new("git")
+        .args(["config", key])
+        .current_dir(dir)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+/// As verificações obrigatórias do projecto (Multi Co-Dev: a porta de integração da fase 4 corre-as
+/// no commit actual). Vazio: não foram definidas — vale o comando de testes detectado.
+#[tauri::command]
+pub fn project_checks(
+    app: AppHandle,
+    root: String,
+) -> Result<Vec<tutor_board::project::Check>, ProjectError> {
+    let root = root_of(&root)?;
+    open(&app)?.checks(&root)
 }
 
 /// A actividade e os change sets do Co-Dev de uma issue (o painel da issue).
@@ -538,21 +594,36 @@ pub fn sprint_plan_from(
     let mut src = st.plan_source(root, sprint, now)?;
     let dir = Path::new(root);
     let files = tutor_agent::issue_prompt::project_files(dir, PLAN_MAX_FILES);
-    let branches: Vec<String> = src.branches.values().cloned().collect();
-    let predicted = if branches.is_empty() {
+    known_from_git(dir, &mut src.issues, &src.commits, &src.branches);
+    let n = codevs.or(src.sprint.codevs).unwrap_or(1);
+    let mut plan = plan_sprint(&src.issues, &src.states, n, &files);
+    plan.sprint = Some(src.sprint.id.clone());
+    Ok(plan)
+}
+
+/// Junta aos ficheiros conhecidos de cada issue (não Done) os dos commits ligados e do ramo, e os
+/// conflitos previstos do ramo com o HEAD (`merge-tree`, nada muda).
+fn known_from_git(
+    dir: &Path,
+    issues: &mut [tutor_board::project::plan::PlanIssue],
+    commits: &std::collections::BTreeMap<String, Vec<String>>,
+    branches: &std::collections::BTreeMap<String, String>,
+) {
+    let names: Vec<String> = branches.values().cloned().collect();
+    let predicted = if names.is_empty() {
         vec![]
     } else {
-        tutor_eval::gitwork::predict_conflicts(dir, &branches).unwrap_or_default()
+        tutor_eval::gitwork::predict_conflicts(dir, &names).unwrap_or_default()
     };
-    for i in &mut src.issues {
+    for i in issues {
         if i.state == "done" {
             continue;
         }
         let mut known: std::collections::BTreeSet<String> = i.known_files.drain(..).collect();
-        if let Some(shas) = src.commits.get(&i.key) {
+        if let Some(shas) = commits.get(&i.key) {
             known.extend(tutor_eval::gitwork::commit_files(dir, shas).unwrap_or_default());
         }
-        if let Some(b) = src.branches.get(&i.key) {
+        if let Some(b) = branches.get(&i.key) {
             known.extend(tutor_eval::gitwork::branch_files(dir, b).unwrap_or_default());
             if let Some(p) = predicted.iter().find(|p| &p.branch == b) {
                 i.branch_conflicts = p.files.clone();
@@ -560,10 +631,76 @@ pub fn sprint_plan_from(
         }
         i.known_files = known.into_iter().collect();
     }
-    let n = codevs.or(src.sprint.codevs).unwrap_or(1);
-    let mut plan = plan_sprint(&src.issues, &src.states, n, &files);
-    plan.sprint = Some(src.sprint.id.clone());
-    Ok(plan)
+}
+
+// ── A verificação de âmbito antes de outro Co-Dev (Multi Co-Dev, fase 2) ─────────────────────
+
+/// O que a verificação de âmbito devolve: as sobreposições de `key` com cada issue em curso e
+/// quantos ficheiros da pasta entraram na conta.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeCheck {
+    pub overlaps: Vec<tutor_board::project::plan::Overlap>,
+    pub files: u32,
+}
+
+/// Pode outra sessão Co-Dev começar `key` enquanto as de `running` correm na MESMA árvore de
+/// trabalho (fase 2; as worktrees são a fase 3)? SÓ LEITURA: a regra das sobreposições do plano
+/// paralelo (`plan::overlaps_with`) — um ficheiro que as duas podem mudar, pelo âmbito de cada uma
+/// ou por ser conhecido de cada uma (change sets, commits ligados, o ramo). Vazio: pode.
+#[tauri::command]
+pub async fn project_scope_overlap(
+    app: AppHandle,
+    root: String,
+    key: String,
+    running: Vec<String>,
+) -> Result<ScopeCheck, ProjectError> {
+    let root = root_of(&root)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = open(&app)?;
+        scope_overlap_from(&st, &root, &key, &running, now_ms())
+    })
+    .await
+    .map_err(|e| db_err(format!("a verificação de âmbito falhou: {e}")))?
+}
+
+/// A verificação de `key` contra `running` a partir do store e da pasta (separada para os testes).
+pub fn scope_overlap_from(
+    st: &ProjectStore,
+    root: &str,
+    key: &str,
+    running: &[String],
+    now: i64,
+) -> Result<ScopeCheck, ProjectError> {
+    let others: Vec<String> = running
+        .iter()
+        .filter(|k| k.as_str() != key)
+        .cloned()
+        .collect();
+    if others.is_empty() {
+        return Ok(ScopeCheck {
+            overlaps: vec![],
+            files: 0,
+        });
+    }
+    let mut keys = vec![key.to_string()];
+    keys.extend(others.iter().cloned());
+    let mut src = st.scope_source(root, &keys, now)?;
+    let dir = Path::new(root);
+    let files = tutor_agent::issue_prompt::project_files(dir, PLAN_MAX_FILES);
+    known_from_git(dir, &mut src.issues, &src.commits, &src.branches);
+    let Some(me) = src.issues.iter().find(|i| i.key == key).cloned() else {
+        return Err(ProjectError {
+            code: "not_found".into(),
+            message: format!("a issue {key} não existe"),
+            overridable: false,
+        });
+    };
+    let rest: Vec<_> = src.issues.into_iter().filter(|i| i.key != key).collect();
+    Ok(ScopeCheck {
+        overlaps: tutor_board::project::plan::overlaps_with(&me, &rest, &files),
+        files: files.len() as u32,
+    })
 }
 
 // ── O quadro Tasks (ADR-0006, R3b) ─────────────────────────────────────────────────────────
@@ -716,6 +853,29 @@ mod tests {
         );
         assert_eq!(
             sprint_plan_from(&st, &root, Some("nope"), None, 1)
+                .unwrap_err()
+                .code,
+            "not_found"
+        );
+        // Multi Co-Dev, phase 2: another session starts only without an overlap with the running
+        // ones — Docs' branch changes src/pay.rs, which Pay's session may change
+        let c =
+            scope_overlap_from(&st, &root, &keys[1], std::slice::from_ref(&keys[0]), 1).unwrap();
+        assert_eq!(c.overlaps.len(), 1, "{c:?}");
+        assert_eq!(c.overlaps[0].paths, vec!["src/pay.rs"]);
+        assert_eq!(
+            (c.overlaps[0].a.as_str(), c.overlaps[0].b.as_str()),
+            (keys[1].as_str(), keys[0].as_str())
+        );
+        let c = scope_overlap_from(&st, &root, &keys[2], &[keys[0].clone(), keys[2].clone()], 1)
+            .unwrap();
+        assert!(c.overlaps.is_empty(), "Cart and Pay do not meet: {c:?}");
+        assert!(scope_overlap_from(&st, &root, &keys[2], &[], 1)
+            .unwrap()
+            .overlaps
+            .is_empty());
+        assert_eq!(
+            scope_overlap_from(&st, &root, "NOPE-1", std::slice::from_ref(&keys[0]), 1)
                 .unwrap_err()
                 .code,
             "not_found"
