@@ -30,6 +30,7 @@ import { bindActions, type ActionTable } from "./codereview/ui/actions";
 import { docHtml, docBlocks, filterBar, findingCards, scoreRing, extOfLang, type ReviewFindingView, type ReviewUi } from "./codereview/ui/doc-view";
 import { diffLines, MAX_CELLS } from "./diff/domain/diff";
 import { codevAsk } from "../app/codev-ask";
+import { services } from "../app/services";
 import { copyText } from "../app/clipboard";
 import { parseTestOutput, spotsText } from "./codereview/domain/test-report";
 import {
@@ -99,6 +100,9 @@ const session = makeDocSession({
   tests: {
     unavailable: () => (!desktopRoot() ? td("noTestsBrowser") : null),
     run: async () => {
+      /* com o separador «Tests» do painel (desktop), a corrida vê-se ao vivo lá: cada teste, o progresso, as falhas */
+      const liveRun = services.tests?.runLive;
+      if (liveRun) return liveRun({ source: "Code review" });
       await saveAll();
       const r = await tauriSuite().run(desktopRoot()!);
       return { ran: true, passed: r.ok, output: `$ ${r.command}\n${r.stdout}${r.stderr ? "\n" + r.stderr : ""}` };

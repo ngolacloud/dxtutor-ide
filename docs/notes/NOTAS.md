@@ -7,6 +7,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 ## Índice
 
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
+- [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
 
 ---
@@ -259,6 +260,52 @@ Abre uma tab que mostra o que acontece ao ficheiro por baixo: as fases do compil
 2. Não dá nada por verificado: para confirmar, compila ou corre `EXPLAIN QUERY PLAN` na base de dados.
 
 <sub>Cobre: `tabs:hoodCmd`, `cmd:Co-Dev: Under the Hood`</sub>
+
+---
+
+## Testes
+
+Os testes do projecto correm à vista, no separador «Tests» do painel inferior (ao lado do Terminal): cada teste a chegar com PASS/FAIL/SKIP, o progresso, o que está a acontecer agora, e cada falha com o sítio no código a um clique.
+
+<sub>Código: `ui-app/src/features/testing/domain/live.ts`, `ui-app/src/features/testing/application/live-runner.ts`, `ui-app/src/features/testing/ui/live-view.ts` · revisto em 2026-11-26</sub>
+
+| Acção | Onde |
+|---|---|
+| [Separador «Tests»: a corrida ao vivo](#separador-tests-a-corrida-ao-vivo) | painel inferior › «Tests» · paleta: «Tests: Run All (live)» · «Aceitar e testar» do painel Explain / Code review · o run_tests do Co-Dev |
+
+### Separador «Tests»: a corrida ao vivo
+
+**Onde:** painel inferior › «Tests» · paleta: «Tests: Run All (live)» · «Aceitar e testar» do painel Explain / Code review · o run_tests do Co-Dev
+
+Corre a suite do projecto e mostra-a a acontecer: spinner, barra de progresso, contadores ✓ ✗ ○, o tempo, a linha do que está a correr, e a lista de testes a chegar com a duração. As falhas vêm abertas, com o sítio `ficheiro:linha` e o detalhe.
+
+**Como usar**
+
+1. Corre os testes pela paleta («Tests: Run All (live)») ou pelo «Aceitar e testar»; o separador abre sozinho.
+2. Vê os testes a chegar; «Falharam» filtra só as falhas e «Saída» mostra a saída da ferramenta tal e qual.
+3. Clica num teste (ou no sítio da falha) para abrir o código no editor nessa linha.
+4. «Parar» mata a corrida (os processos filhos também); «Correr de novo» repete o mesmo pedido.
+
+**Fluxo (por dentro)**
+
+1. Grava o editor no disco e corre o comando de testes detectado no projecto, na pasta aberta, com a saída a chegar linha a linha (`run_shell` → `proc-line`).
+2. O go corre com `-v` e o pytest com `-v` (para dizerem cada teste); o cargo, o unittest, o vitest e o jest correm tal e qual.
+3. Cada linha alimenta `domain/live.ts`: a fase (a compilar, a correr), quantos testes há («running N tests», «collected N items», a percentagem do pytest), cada teste e o bloco de detalhe de cada falha, com o sítio lido por `domain/test-report.ts`.
+4. Quem pediu recebe o resultado no fim (passou/falhou e a saída), como com o `run_tests` do backend; o Co-Dev recebe o mesmo que antes.
+5. Abrir um teste: o sítio da falha, senão onde ele está definido (`fn`, `def`, `func`, `it(`/`test(` com o nome).
+
+**Dicas**
+
+- Uma corrida de cada vez: pedir outra pára a anterior.
+- Sem nenhum teste na lista e a vermelho, quase sempre não compilou: o primeiro erro aparece em baixo.
+
+**Limites**
+
+- Só na app desktop com uma pasta aberta.
+- Corre no anfitrião (não dentro da sessão de contentor, como o run_tests do backend faz quando há uma).
+- O agente v2 do Co-Dev corre os testes no backend; esses ainda não aparecem aqui ao vivo.
+
+<sub>Cobre: `live:open`, `live:stop`, `live:rerun`, `live:filter`, `live:log`</sub>
 
 ---
 
