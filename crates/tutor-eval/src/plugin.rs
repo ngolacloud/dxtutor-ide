@@ -1438,12 +1438,23 @@ pub fn builtin_plugins() -> Vec<LanguagePlugin> {
 /// and Go (with their extra dependency lines), a registered declarative plugin for everything else
 /// (Python, C, user drop-ins), and Rust as the historical fallback.
 pub fn run_program(language: &str, code: &str, deps: &[String]) -> Result<RunOutput> {
+    run_program_in(language, code, deps, &tutor_core::BuildEnv::default())
+}
+
+/// [`run_program`] for a drill of a course with a `[build]` (`Step::build`): a Rust drill of a
+/// prepared course compiles offline against the course cache with the course's timeout.
+pub fn run_program_in(
+    language: &str,
+    code: &str,
+    deps: &[String],
+    build: &tutor_core::BuildEnv,
+) -> Result<RunOutput> {
     match language.trim().to_ascii_lowercase().as_str() {
         "go" | "golang" => crate::go_runner::run_go_program_with_deps(code, deps),
-        "rust" | "rs" => crate::runner::run_rust_snippet_with_deps(code, deps),
+        "rust" | "rs" => crate::runner::run_rust_snippet_in(code, deps, build),
         other => match find_plugin(other) {
             Some(p) => PluginRunner::new(p).run_program(code),
-            None => crate::runner::run_rust_snippet_with_deps(code, deps),
+            None => crate::runner::run_rust_snippet_in(code, deps, build),
         },
     }
 }
@@ -1564,6 +1575,7 @@ mod tests {
             hints: Vec::new(),
             dependencies: Vec::new(),
             project: None,
+            build: Default::default(),
         }
     }
 

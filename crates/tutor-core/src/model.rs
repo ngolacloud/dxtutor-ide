@@ -90,6 +90,10 @@ pub struct Phase {
     /// que usa `starter`/`tests`/`gabarito.solution`.
     #[serde(default)]
     pub project: Option<crate::project::ProjectFiles>,
+    /// Como a fase se constrói e avalia (a `[build]` do curso: cache preparada, tempo limite).
+    /// Por omissão, o ambiente e os limites do avaliador.
+    #[serde(skip)]
+    pub build: crate::build::BuildEnv,
 }
 
 /// Gabarito: a melhor forma de resolver, com a complexidade atada.

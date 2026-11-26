@@ -25,6 +25,9 @@ dxt plugin — course plugins
   dxt plugin test [dir] [--only <unit-id-prefix>]
                                   run every drill, and grade every challenge with its
                                   reference solution (must pass) and starter (must fail)
+  dxt plugin prepare [dir]        download (network) and build once the dependencies of a
+                                  course with `[build] prepare = true`, into its course cache;
+                                  grading then runs offline against it
 
 Sources:
   python                          official course (github.com/ngolacloud/dxtutor-course-python)
@@ -33,7 +36,8 @@ Sources:
   https://host/plugin.zip         a zip over HTTPS
   ./folder  |  ./plugin.zip       a local folder or zip (for course authors)
 
-Plugins are stored in $DXTUTOR_PLUGINS_DIR or the user data folder.";
+Plugins are stored in $DXTUTOR_PLUGINS_DIR or the user data folder; prepared course caches in
+$DXTUTOR_COURSE_CACHE or the user data folder (dxtutor/course-cache), shared with the app.";
 
 pub fn run(args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("help");
@@ -45,6 +49,7 @@ pub fn run(args: &[String]) -> Result<()> {
         "validate" | "check" => validate(rest),
         "new" | "init" => new(rest),
         "test" => test(rest),
+        "prepare" => prepare(rest),
         "-h" | "--help" | "help" => {
             println!("{HELP}");
             Ok(())
@@ -209,6 +214,31 @@ fn test(args: &[String]) -> Result<()> {
         }
         bail!("the plugin is not valid; fix it first (dxt plugin validate)");
     }
+    // A course graded offline against a prepared cache: say so once, before any step fails.
+    for course in &report.courses {
+        let Some(cache) = course.units.iter().flat_map(|u| &u.steps).find_map(|s| s.build.cache.as_ref()) else {
+            continue;
+        };
+        let root = tutor_eval::course_cache::root()
+            .ok_or_else(|| anyhow!("cannot find the user data folder; set DXTUTOR_COURSE_CACHE"))?;
+        match tutor_eval::course_cache::status(&root, cache)? {
+            tutor_eval::course_cache::Status::Ready(m) => println!(
+                "{} — graded offline against its prepared cache ({}, prepared with {})",
+                course.id,
+                root.join(&cache.key).display(),
+                m.cargo
+            ),
+            other => bail!(
+                "course `{}` {}: run `dxt plugin prepare {dir}` first (it downloads its dependencies once)",
+                course.id,
+                if matches!(other, tutor_eval::course_cache::Status::Stale(_)) {
+                    "changed its dependencies since it was prepared"
+                } else {
+                    "has not been prepared"
+                }
+            ),
+        }
+    }
     let (mut passed, mut failed) = (0usize, Vec::<String>::new());
     for course in &report.courses {
         if course.category.has_subject() {
@@ -247,6 +277,59 @@ fn test(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// `dxt plugin prepare`: the explicit, one-time network step of a course with `[build] prepare =
+/// true` — the same commands the app shows in its approval dialog (`course_cache::plan`), run
+/// into the shared course cache. Grading never touches the network.
+fn prepare(args: &[String]) -> Result<()> {
+    let dir = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .map(String::as_str)
+        .unwrap_or(".");
+    let builtin = tutor_core::builtin_courses();
+    let report = validate_dir(Path::new(dir), HOST_VERSION, &Taken::builtin(&builtin));
+    if !report.ok() {
+        for e in &report.errors {
+            println!("error:   {e}");
+        }
+        bail!("the plugin is not valid; fix it first (dxt plugin validate)");
+    }
+    let root = tutor_eval::course_cache::root()
+        .ok_or_else(|| anyhow!("cannot find the user data folder; set DXTUTOR_COURSE_CACHE"))?;
+    let mut any = false;
+    for course in &report.courses {
+        let Some(cache) = course
+            .units
+            .iter()
+            .flat_map(|u| &u.steps)
+            .find_map(|s| s.build.cache.as_ref())
+        else {
+            continue;
+        };
+        any = true;
+        let plan = tutor_eval::course_cache::plan(&root, cache)?;
+        println!("{} — preparing (network: cargo fetch only)\n{}\n", course.id, plan.command);
+        let done = tutor_eval::course_cache::prepare(&plan)?;
+        if !done.ok {
+            println!("{}", done.output);
+            bail!("preparing `{}` failed", course.id);
+        }
+        let m = done.marker.expect("a successful preparation writes its marker");
+        println!(
+            "OK  {} prepared in {} — fetch {:.1} s, first build {:.1} s ({})",
+            course.id,
+            plan.layout.dir.display(),
+            m.fetch_secs,
+            m.warm_secs,
+            m.cargo
+        );
+    }
+    if !any {
+        println!("Nothing to prepare: no course in {dir} has `[build] prepare = true`.");
+    }
+    Ok(())
+}
+
 fn kind_name(k: tutor_core::StepKind) -> &'static str {
     match k {
         tutor_core::StepKind::Concept => "concept",
@@ -271,8 +354,9 @@ fn check_step(language: &str, step: &tutor_core::Step) -> std::result::Result<St
     match step.kind {
         StepKind::Concept => Ok(String::new()),
         StepKind::Drill => {
-            let out = tutor_eval::run_program(language, &step.target, &step.dependencies)
-                .map_err(|e| format!("could not run: {e}"))?;
+            let out =
+                tutor_eval::run_program_in(language, &step.target, &step.dependencies, &step.build)
+                    .map_err(|e| format!("could not run: {e}"))?;
             if out.ok {
                 Ok(String::new())
             } else {

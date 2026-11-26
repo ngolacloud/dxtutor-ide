@@ -27,6 +27,7 @@
 //! cgroups (estilo Delonix) — não está aqui implementado e deve ser adicionado
 //! quando quisermos correr submissões verdadeiramente hostis em produção.
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -34,9 +35,10 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use tutor_core::{Phase, Probe};
+use tutor_core::{BuildEnv, Phase, Probe};
 
 use crate::complexity::{self, Estimate, Sample};
+use crate::course_cache::{cargo_env, CargoEnv};
 use crate::lang::{Diagnostic, LanguageRunner, Severity};
 
 // ── Limites do sandbox (configuráveis por constante) ────────────────────────
@@ -116,9 +118,13 @@ impl LanguageRunner for RustRunner {
             .tempdir()
             .context("criar directório temporário da submissão")?;
         let root = dir.path();
+        // Num curso preparado, a cache do curso e o seu tempo limite (ou a recusa clara de um
+        // curso por preparar, antes de escrever o que quer que seja).
+        let env = cargo_env(&phase.build)?;
         // Sem sonda aqui: a correcção não precisa do binário da sonda.
         scaffold_package(root, student_code, &phase.tests, None, &phase.dependencies)?;
-        run_tests(root)
+        env.seed_lock(root)?;
+        run_tests(root, &env, &["test", "--quiet"])
     }
 
     /// Complexidade = compilar a sonda em `--release` e cronometrar a solução do
@@ -147,6 +153,75 @@ impl LanguageRunner for RustRunner {
     /// primário (linha/coluna) de cada mensagem de erro/aviso do compilador.
     fn diagnostics(&self, student_code: &str) -> Result<Vec<Diagnostic>> {
         rust_diagnostics(student_code)
+    }
+
+    /// Correcção de um passo de PROJECTO: a árvore do aluno e os testes ocultos numa pasta nova.
+    ///
+    /// - Sem `Cargo.toml` na raiz da árvore, a árvore é o pacote `student` (o `src/lib.rs` e os
+    ///   módulos vêm do starter, os testes em `tests/`): o `Cargo.toml` é escrito aqui, com as
+    ///   dependências do passo.
+    /// - Com um `Cargo.toml` na raiz, é um WORKSPACE de vários crates (os cinco de um módulo
+    ///   Seiva, por exemplo): tem de declarar `[workspace]`, e as dependências do passo entram
+    ///   como `[workspace.dependencies]` (os membros citam-nas com `{ workspace = true }`), por
+    ///   isso a origem de cada biblioteca continua a viver só na `[build]` do curso. Corre
+    ///   `cargo test --workspace`.
+    fn check_project(&self, phase: &Phase, tree: &BTreeMap<String, String>) -> Result<Correctness> {
+        let project = phase
+            .project
+            .as_ref()
+            .with_context(|| format!("step `{}` is not a project step", phase.id))?;
+        let env = cargo_env(&phase.build)?;
+        let dir = tempfile::Builder::new()
+            .prefix("dxtutor-project-")
+            .tempdir()
+            .context("criar directório temporário do projecto")?;
+        let root = dir.path();
+        let args: &[&str] = match tree.get("Cargo.toml") {
+            Some(manifest) => {
+                if !manifest.lines().any(|l| l.trim() == "[workspace]") {
+                    anyhow::bail!(
+                        "the project's root Cargo.toml must be a workspace (`[workspace]`); a single crate needs no Cargo.toml"
+                    );
+                }
+                if manifest.contains("[workspace.dependencies]") {
+                    anyhow::bail!(
+                        "the project's Cargo.toml must not declare [workspace.dependencies]: they come from the course's [build]"
+                    );
+                }
+                &["test", "--workspace", "--quiet"]
+            }
+            None => &["test", "--quiet"],
+        };
+        for (path, content) in tree.iter().chain(project.tests.iter()) {
+            let p = root.join(path);
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&p, content)?;
+        }
+        let manifest = match tree.get("Cargo.toml") {
+            Some(m) => format!(
+                "{}\n{}",
+                m.trim_end(),
+                cargo_deps_toml(&phase.dependencies).replacen(
+                    "[dependencies]",
+                    "[workspace.dependencies]",
+                    1
+                )
+            ),
+            None => format!(
+                "[package]\n\
+                 name = \"student\"\n\
+                 version = \"0.0.0\"\n\
+                 edition = \"2021\"\n\n\
+                 [lib]\n\
+                 path = \"src/lib.rs\"\n{}",
+                cargo_deps_toml(&phase.dependencies)
+            ),
+        };
+        std::fs::write(root.join("Cargo.toml"), manifest)?;
+        env.seed_lock(root)?;
+        run_tests(root, &env, args)
     }
 }
 
@@ -180,9 +255,20 @@ pub fn run_rust_snippet(code: &str) -> Result<RunOutput> {
 /// (e.g. `rusqlite` for the database track) compiles and runs. `deps` empty ⇒
 /// identical to [`run_rust_snippet`].
 pub fn run_rust_snippet_with_deps(code: &str, deps: &[String]) -> Result<RunOutput> {
+    run_rust_snippet_in(code, deps, &BuildEnv::default())
+}
+
+/// Like [`run_rust_snippet_with_deps`] for a drill of a course with a `[build]`: a prepared
+/// course compiles offline against its course cache with its own timeout (and is refused with
+/// [`crate::course_cache::NOT_PREPARED`] before it is prepared).
+pub fn run_rust_snippet_in(code: &str, deps: &[String], build: &BuildEnv) -> Result<RunOutput> {
+    let env = cargo_env(build)?;
     // Motor != Host ⇒ compila+corre dentro do container `rust:1-slim` (com cache de
-    // cargo e rede), deixando o caminho host intacto a seguir.
-    if crate::container::current_engine() != crate::container::SandboxEngine::Host {
+    // cargo e rede), deixando o caminho host intacto a seguir. Um curso preparado usa a sua
+    // cache no host (é lá que ela vive).
+    if env.cache.is_none()
+        && crate::container::current_engine() != crate::container::SandboxEngine::Host
+    {
         return crate::container::run_rust_snippet_in_container_deps(code, deps);
     }
 
@@ -192,19 +278,21 @@ pub fn run_rust_snippet_with_deps(code: &str, deps: &[String]) -> Result<RunOutp
         .context("criar directório temporário do drill")?;
     let root = dir.path();
     scaffold_bin_deps(root, code, deps)?;
+    env.seed_lock(root)?;
 
     let mut cmd = Command::new("cargo");
     cmd.args(["run", "--quiet"]).current_dir(root);
     configure_cargo_env(&mut cmd);
+    env.apply(&mut cmd);
 
     let outcome =
-        run_guarded(cmd, root, "run", CARGO_TIMEOUT, None).context("executar `cargo run`")?;
+        run_guarded(cmd, root, "run", env.timeout, None).context("executar `cargo run`")?;
 
     if outcome.timed_out {
         return Ok(RunOutput {
             ok: false,
             stdout: outcome.stdout,
-            stderr: format!("excedeu o tempo limite ({}s)", CARGO_TIMEOUT.as_secs()),
+            stderr: format!("excedeu o tempo limite ({}s)", env.timeout.as_secs()),
         });
     }
 
@@ -351,24 +439,25 @@ fn main() {
         .replace("//CALL//", &p.call)
 }
 
-/// Corre `cargo test` (com timeout + grupo próprio + rede cortada) e interpreta o
-/// resultado.
-fn run_tests(root: &Path) -> Result<Correctness> {
+/// Corre `cargo <args>` (com timeout + grupo próprio + rede cortada; num curso preparado, a
+/// cache do curso e `--offline`) e interpreta o resultado.
+fn run_tests(root: &Path, env: &CargoEnv, args: &[&str]) -> Result<Correctness> {
     let mut cmd = Command::new("cargo");
-    cmd.args(["test", "--quiet"]).current_dir(root);
+    cmd.args(args).current_dir(root);
     configure_cargo_env(&mut cmd);
+    env.apply(&mut cmd);
 
     // Sem rlimits estritos: o compilador precisa de folga de memória e de escrever
     // artefactos. A guarda aqui é o timeout de parede + grupo de processos próprio.
     let outcome =
-        run_guarded(cmd, root, "test", CARGO_TIMEOUT, None).context("executar `cargo test`")?;
+        run_guarded(cmd, root, "test", env.timeout, None).context("executar `cargo test`")?;
 
     let mut raw = String::new();
     raw.push_str(&outcome.stdout);
     raw.push_str(&outcome.stderr);
 
     if outcome.timed_out {
-        let summary = format!("excedeu o tempo limite ({}s)", CARGO_TIMEOUT.as_secs());
+        let summary = format!("excedeu o tempo limite ({}s)", env.timeout.as_secs());
         return Ok(Correctness {
             passed: false,
             summary,

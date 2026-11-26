@@ -22,6 +22,7 @@ pub mod attach;
 pub mod codemap;
 pub mod complexity;
 pub mod container;
+pub mod course_cache;
 pub mod dap;
 pub mod dapc;
 pub mod deps;
@@ -70,10 +71,12 @@ pub use lang::{
 };
 pub use measured::{compile_pipeline, run_rust_snippet_measured, MemSample, Pipeline, Telemetry};
 pub use plugin::{
-    available_languages, builtin_plugins, find_plugin, registry, run_program, LanguageInfo,
+    available_languages, builtin_plugins, find_plugin, registry, run_program, run_program_in,
+    LanguageInfo,
     LanguagePlugin, PluginRunner,
 };
 pub use runner::{
-    run_rust_snippet, run_rust_snippet_with_deps, Assessment, Correctness, RunOutput,
+    run_rust_snippet, run_rust_snippet_in, run_rust_snippet_with_deps, Assessment, Correctness,
+    RunOutput,
 };
 pub use tracer::{trace_execution, trace_python, ExecutionTrace, TraceStep, Var};

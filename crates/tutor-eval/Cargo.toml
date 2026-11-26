@@ -12,6 +12,7 @@ tutor-protect = { path = "../tutor-protect" }
 regex = "1"
 # r23 F4b: a reviewed plan is kept under its SHA-256
 sha2 = "0.10"
+dirs = "7"
 tutor-core = { path = "../tutor-core" }
 anyhow.workspace = true
 tempfile.workspace = true
