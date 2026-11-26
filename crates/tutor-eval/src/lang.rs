@@ -100,6 +100,25 @@ pub trait LanguageRunner {
             phase.language
         )
     }
+
+    /// `true` se este runner escreve os ficheiros de APOIO do curso (`phase.support`, ver
+    /// `tutor_core::support`) ao lado dos do passo. Por omissão não: um runner que os ignorasse
+    /// avaliaria contra outra coisa, por isso [`assess`] recusa antes de correr.
+    fn grades_support_files(&self) -> bool {
+        false
+    }
+}
+
+/// Recusa um passo com ficheiros de apoio num runner que não os escreve (um erro claro em vez
+/// de uma avaliação contra a biblioteca errada).
+fn ensure_support(runner: &dyn LanguageRunner, phase: &Phase) -> Result<()> {
+    if !phase.support.is_empty() && !runner.grades_support_files() {
+        bail!(
+            "course support files are not supported for `{}` (only descriptor-graded languages write them)",
+            phase.language
+        );
+    }
+    Ok(())
 }
 
 /// Avaliação completa de uma submissão a uma fase: corre a correcção na linguagem da
@@ -116,6 +135,7 @@ pub fn assess(phase: &Phase, student_code: &str) -> Result<Assessment> {
         return assess_project(phase, &submitted);
     }
     let runner = runner_for(&phase.language);
+    ensure_support(runner.as_ref(), phase)?;
 
     let correctness = runner.check_correctness(phase, student_code)?;
 
@@ -155,7 +175,9 @@ pub fn assess_project(phase: &Phase, submitted: &BTreeMap<String, String>) -> Re
     let tree = project
         .learner_tree(submitted)
         .map_err(|e| anyhow::anyhow!(e))?;
-    let correctness = runner_for(&phase.language).check_project(phase, &tree)?;
+    let runner = runner_for(&phase.language);
+    ensure_support(runner.as_ref(), phase)?;
+    let correctness = runner.check_project(phase, &tree)?;
     Ok(Assessment {
         correctness,
         complexity: None,

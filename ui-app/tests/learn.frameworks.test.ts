@@ -106,6 +106,44 @@ describe("selector: «Frameworks & tools» à parte das linguagens", () => {
   });
 });
 
+describe("o curso Dxjs embutido (Learn P1)", () => {
+  const DXJS = {
+    id: "dxjs-basics", language: "typescript", category: "framework", subject: "dxjs", title: "Dxjs: Reactive UIs from Signals Up",
+    level: "intermediate", summary: "Learn dxjs from signals up.", overview: "dxjs is a fine-grained reactive UI engine.",
+    units: [{ id: "dxjs-u01-signals", title: "Signals: reactive values", intro: "", concepts: "A signal holds a value.", difficulty: 1, level: "basic", steps: [
+      step({ kind: "concept", id: "dxjs-u01-c1-signal", title: "A signal is a reactive cell", body: "Read by calling." }),
+    ] }],
+  };
+
+  it("servido pelo backend sem plugin instalado, acende o cartão Dxjs e mostra a documentação e o Node exigido", async () => {
+    const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {
+      plugin_list: () => [],
+      list_courses: () => [{ id: "dxjs-basics", language: "typescript", category: "framework", subject: "dxjs", title: DXJS.title, level: "intermediate", summary: DXJS.summary }],
+      get_course: (a) => (a.subject === "dxjs" && a.language === "typescript" ? DXJS : Promise.reject(new Error("no course"))),
+    };
+    w.__TAURI__ = { core: { invoke: async (cmd: string, args: Record<string, unknown>) => {
+      calls.push([cmd, args]);
+      if (!handlers[cmd]) throw new Error("comando inesperado: " + cmd);
+      return handlers[cmd](args);
+    } } };
+    LM.ltOnboard(1);
+    await vi.waitFor(() => expect(fwCards().find(c => c.dataset.on === "dxjs")?.disabled).toBe(false));
+    const dxjs = fwCards().find(c => c.dataset.on === "dxjs")!;
+    expect(dxjs.querySelector(".tag")!.textContent).toBe("Available");
+    expect(dxjs.querySelector("small")!.textContent).toBe("Learn dxjs from signals up.");
+    // Os outros sete continuam «Coming soon», e as linguagens não ganham um cartão TypeScript a mais.
+    expect(fwCards().filter(c => c.disabled)).toHaveLength(7);
+    expect(document.querySelectorAll("#onb .onb-langs:not(.onb-fw) .onb-lang")).toHaveLength(10);
+    expect(calls).toContainEqual(["get_course", { language: "typescript", subject: "dxjs" }]);
+    document.getElementById("onb")!.classList.remove("show");
+    LM.LTS.lang = "dxjs"; LM.LTS.levels = ["basic"];
+    LM.ltOpen("dxjs-u01-c1-signal");
+    await vi.waitFor(() => expect(res().textContent).toMatch(/About Dxjs/));
+    expect(res().querySelector<HTMLAnchorElement>(".lt-sub a")!.getAttribute("href")).toBe("https://ngolacloud.github.io/dxjs/");
+    expect(res().textContent).toContain("Node.js 22.18 or newer. dxjs 1.2.0 itself comes with the course");
+  });
+});
+
 describe("passo de projecto (vários ficheiros)", () => {
   async function openProject() {
     fakeTauri((a) => a);

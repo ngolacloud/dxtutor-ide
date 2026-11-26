@@ -39,6 +39,7 @@ pub mod lang;
 pub mod langreg;
 pub mod lsp;
 pub mod lspconf;
+pub mod lspinstall;
 pub mod measured;
 pub mod onboard;
 pub mod ops;
@@ -70,8 +71,8 @@ pub use lang::{
 };
 pub use measured::{compile_pipeline, run_rust_snippet_measured, MemSample, Pipeline, Telemetry};
 pub use plugin::{
-    available_languages, builtin_plugins, find_plugin, registry, run_program, LanguageInfo,
-    LanguagePlugin, PluginRunner,
+    available_languages, builtin_plugins, find_plugin, registry, run_program,
+    run_program_with_support, toolchain_version, LanguageInfo, LanguagePlugin, PluginRunner,
 };
 pub use runner::{
     run_rust_snippet, run_rust_snippet_with_deps, Assessment, Correctness, RunOutput,

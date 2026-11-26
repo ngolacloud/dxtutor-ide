@@ -14,8 +14,12 @@
 //!   cite an issue key are linked to the issue.
 //! - The integration gate's data (Multi Co-Dev, phase 2): the project's mandatory checks and the
 //!   functional approval a person records on an issue ([`Op::ApproveFunctional`]).
+//! - The files each Co-Dev session claims (Multi Co-Dev, phase 3, [`claims`]) and the issue branch
+//!   a session's worktree checks out ([`branches::branch_name`]).
 
+pub mod branches;
 pub mod breakpoints;
+pub mod claims;
 pub mod deploys;
 pub mod evidence;
 pub mod incidents;
@@ -851,6 +855,62 @@ impl ProjectStore {
         )?;
         tx.commit()?;
         read_project(&self.conn, root)
+    }
+
+    /// Multi Co-Dev (phase 3): claims `path` for a Co-Dev session, in one immediate transaction (two
+    /// sessions asking at once never both get it). See [`claims::claim`].
+    pub fn claim(
+        &mut self,
+        root: &str,
+        path: &str,
+        who: &claims::Claimant,
+        now: i64,
+        abandoned: &dyn Fn(&claims::Claim) -> bool,
+    ) -> Result<claims::Outcome, ProjectError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let o = claims::claim(&tx, root, path, who, now, abandoned)?;
+        tx.commit()?;
+        Ok(o)
+    }
+
+    /// Gives back one path a session claimed (its write did not happen).
+    pub fn release_claim(
+        &mut self,
+        root: &str,
+        session: &str,
+        path: &str,
+    ) -> Result<bool, ProjectError> {
+        claims::release(&self.conn, root, session, path)
+    }
+
+    /// Gives back every path of a session (it closed).
+    pub fn release_session_claims(
+        &mut self,
+        root: &str,
+        session: &str,
+    ) -> Result<usize, ProjectError> {
+        claims::release_session(&self.conn, root, session)
+    }
+
+    /// Drops the claims whose holder is gone.
+    pub fn release_abandoned_claims(
+        &mut self,
+        root: &str,
+        abandoned: &dyn Fn(&claims::Claim) -> bool,
+    ) -> Result<usize, ProjectError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let n = claims::release_abandoned(&tx, root, abandoned)?;
+        tx.commit()?;
+        Ok(n)
+    }
+
+    /// Every file claim of the project, by path.
+    pub fn claims(&self, root: &str) -> Result<Vec<claims::Claim>, ProjectError> {
+        claims::list(&self.conn, root)
     }
 
     /// The project's mandatory checks (the integration gate, Multi Co-Dev phases 2 and 4); empty
