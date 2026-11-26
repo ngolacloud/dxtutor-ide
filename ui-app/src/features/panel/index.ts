@@ -11,6 +11,7 @@
    demonstração e os goldens ficam intactos. Liga as portas (Tauri + legado) aos casos de
    uso e às vistas; o `window` só é tocado através do `legacy-bridge`. */
 
+import { copyText } from "../../app/clipboard";
 import { isDesktop } from "../../platform/tauri/core";
 import type { Problem, ShellProfile } from "./domain/types";
 import { ALL, type ProblemFilter } from "./domain/problems";
@@ -267,7 +268,7 @@ function boot(): void {
     "sv-toggle-all": { on: "change", run: (e) => { svc.showAll = (e.el as HTMLInputElement).checked; drawServices(); } },
     "sv-all": { on: "click", run: () => { svc.showAll = true; drawServices(); } },
     "sv-open": { on: "click", run: (e) => workspace.openUrl(e.on) },
-    "sv-copy": { on: "click", run: (e) => { void navigator.clipboard?.writeText(e.on).then(() => L.toast(`Copied ${e.on}`)).catch(() => L.toast(e.on)); } },
+    "sv-copy": { on: "click", run: (e) => { void copyText(e.on).then((ok) => L.toast(ok ? `Copied ${e.on}` : e.on)); } },
     "sv-up": { on: "click", run: () => { L.composeUp(); } },
     "sv-down": { on: "click", run: () => { L.composeDown(); } },
     "dx-ask-cmd": { on: "click", run: (e) => {

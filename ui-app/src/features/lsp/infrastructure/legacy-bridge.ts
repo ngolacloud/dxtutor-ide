@@ -81,7 +81,7 @@ export const editor: EditorPort = {
   },
   builtinFormat: () => G.vsxFmt?.(),
   /* o aviso de servidor em falta: uma faixa no topo da vista do ficheiro (antes do `.ed`) */
-  notice: (key, n, onDismiss) => {
+  notice: (key, n, onDismiss, acts) => {
     if (fileKeyOfTab(G.cur ?? null) !== key) return;
     const ed = document.getElementById("ed-ta")?.closest(".ed");
     if (!ed || !ed.parentElement) return;
@@ -89,8 +89,18 @@ export const editor: EditorPort = {
     if (!n) return;
     const el = document.createElement("div");
     el.id = "lsp-missing"; el.className = "lsp-missing"; el.setAttribute("role", "status");
-    el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span><span>To install: <code>${esc(n.install)}</code></span><button class="mini" type="button">Dismiss</button>`;
-    el.querySelector("button")!.addEventListener("click", () => { el.remove(); onDismiss?.(); });
+    el.innerHTML = `<b>⚠ ${esc(n.title)}</b><span class="lsp-detail">${esc(n.detail)}</span><span class="lsp-install">To install: <code>${esc(n.install)}</code></span><span class="lsp-acts">${acts?.copy ? '<button class="mini" type="button" data-k="copy">Copy</button>' : ""}${acts?.install ? '<button class="mini pri" type="button" data-k="install" title="Runs the command in a terminal with your login shell (e.g. the node from nvm), after you approve it">Install</button>' : ""}<button class="mini" type="button" data-k="dismiss">Dismiss</button></span>`;
+    el.querySelector('[data-k="dismiss"]')!.addEventListener("click", () => { el.remove(); onDismiss?.(); });
+    el.querySelector('[data-k="copy"]')?.addEventListener("click", () => acts?.copy?.());
+    el.querySelector('[data-k="install"]')?.addEventListener("click", () => acts?.install?.());
     ed.parentElement.insertBefore(el, ed);
   },
+};
+
+/** Corre um comando num terminal de tarefa (no desktop, um PTY com a shell de login — o `npm` do nvm,
+ *  o `go`, o `dotnet`…) e resolve com o código de saída; sem terminais reais, `-1`. */
+export const runTerminalTask = async (command: string, cwd: string): Promise<number> => {
+  const term = (G as unknown as { DXR?: { term?: { runTask?: (c: string, o?: { cwd?: string; label?: string }) => Promise<number> } } }).DXR?.term;
+  if (term?.runTask) return term.runTask(command, { cwd, label: command });
+  return -1;
 };

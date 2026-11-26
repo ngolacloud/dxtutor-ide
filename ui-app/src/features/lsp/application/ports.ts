@@ -66,8 +66,25 @@ export interface EditorPort {
   /** O «Format Document» do dxtutor (sem servidor, ou quando ele não formata). */
   builtinFormat(): void;
   /** Mostra (ou tira, com `null`) o aviso de servidor em falta no ficheiro `key`, se estiver aberto;
-   *  `onDismiss` corre quando o utilizador o fecha. */
-  notice(key: string, notice: { title: string; detail: string; install: string } | null, onDismiss?: () => void): void;
+   *  `onDismiss` corre quando o utilizador o fecha; `acts` são os botões «Copy» e «Install». */
+  notice(key: string, notice: { title: string; detail: string; install: string; command?: string | null } | null, onDismiss?: () => void, acts?: NoticeActions): void;
+}
+
+/** Os botões do aviso de servidor em falta. `install` só existe quando a instalação é um comando. */
+export interface NoticeActions {
+  copy?: () => void;
+  install?: () => void;
+}
+
+/** Instalar o servidor em falta: copiar o comando, ou corrê-lo num terminal de tarefa com a shell de
+ *  login (o `npm`/`go`/`dotnet`/`rustup` do utilizador, p.ex. o node do nvm), depois de aprovado e
+ *  auditado (r23 F1: muda algo fora do editor). */
+export interface InstallPort {
+  copy(text: string): Promise<boolean>;
+  approve(r: { title: string; command: string; scope: string }): Promise<{ approved: boolean; reason: string; decidedAt: number }>;
+  audit(root: string, e: { action: string; command: string; scope: string; approved: boolean; reason: string; decidedAt: number; outcome?: "sent" | "ok" | "failed" }): Promise<void>;
+  /** corre no terminal (PTY) e resolve com o código de saída */
+  run(command: string, cwd: string): Promise<number>;
 }
 
 /** Adiar uma acção (o relógio, injectado para os testes). */
