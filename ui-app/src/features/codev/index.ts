@@ -49,6 +49,8 @@ import type {
 } from "./application/ports";
 import type { CommandRules } from "./domain/policy";
 import { currentLocale, translator } from "../../app/i18n";
+import { makeLocalProposals, type ProposalResult } from "./application/local-proposals";
+import { services } from "../../app/services";
 import { CODEV_ENGINE_MESSAGES } from "./application/messages";
 
 /* os textos dos casos de uso na língua da interface, e a língua em que o modelo responde (i18n dos motores) */
@@ -138,7 +140,9 @@ const clock: Clock = {
 
 const mode = (): Mode => bridge.monolith.mode as Mode;
 /* ───── wire the use cases ───── */
-const doTool = makeDoTool({ workspace, terminal, providers, notifier, presenter, gate, clock, rules, mode, copy });
+const doTool = makeDoTool({ workspace, terminal, providers, notifier, presenter, gate, clock, rules, mode, copy,
+  /* em Manual/Assistido a edição é revista no editor, bloco a bloco */
+  proposals: { propose: (p, content, reason) => proposeInEditor(p, content, reason) } });
 
 const liveChat = makeLiveChat({
   replyLanguage,
@@ -175,7 +179,9 @@ export const hunkReview = makeHunkReview({
   recorded: () => changeSetsSignal.notify(),
   // RF-P03: in a PairCode session the navigator's decisions are refusals
   review: (s, call, d) =>
-    s === MIRROR
+    localProposals.isLocal(s)
+      ? localProposals.review(s, call, d)
+      : s === MIRROR
       ? Promise.reject(new Error("Estes hunks são do Co-Dev do anfitrião: decide-os quem conduz, do lado dele."))
       : agentGateway.review(s, call, pairState.canDrive() ? d : d.map((x) => ({ hunk: x.hunk, accept: false, reason: "na sessão PairCode só quem conduz aceita" }))),
   // RF-A03/A04: the architect's override of a change that breaks the rules (the host's session only)
@@ -207,6 +213,21 @@ export const hunkReview = makeHunkReview({
   notify: (m) => bridge.toast(m),
   cancel: () => stopTurn(),
 });
+/* Whole-file proposals (the legacy live chat, the Explain / Code review panel) reviewed in the editor
+   with the same live hunks as the agent v2: only the changed lines, in place, Accept / Reject each. */
+export const localProposals = makeLocalProposals({
+  emit: (session, e) => hunkReview.sink.event(session, e),
+  read: (rel) => bridge.files()[bridge.root() + rel]?.content ?? null,
+  write: (rel, content) => bridge.writeFile(bridge.root() + rel, content),
+  flush: () => bridge.flushSave(),
+});
+/** Review `content` for the file `key` (an editor/FS key) in the editor, block by block. */
+export function proposeInEditor(key: string, content: string, reason: string): Promise<ProposalResult> {
+  const pre = bridge.root();
+  return localProposals.propose(key.startsWith(pre) ? key.slice(pre.length) : key, content, reason);
+}
+services.proposals = { proposeInEditor };
+
 /* RF-S09: in a PairCode session the guest mirrors the host's live hunks (read-only there: the
    decisions belong to the host's agent session) */
 pairState.onCodev((e) => {

@@ -30,6 +30,7 @@ import { bindActions, type ActionTable } from "./codereview/ui/actions";
 import { docHtml, docBlocks, filterBar, findingCards, scoreRing, extOfLang, type ReviewFindingView, type ReviewUi } from "./codereview/ui/doc-view";
 import { diffLines, MAX_CELLS } from "./diff/domain/diff";
 import { codevAsk } from "../app/codev-ask";
+import { services } from "../app/services";
 import { copyText } from "../app/clipboard";
 import { parseTestOutput, spotsText } from "./codereview/domain/test-report";
 import {
@@ -99,12 +100,17 @@ const session = makeDocSession({
   tests: {
     unavailable: () => (!desktopRoot() ? td("noTestsBrowser") : null),
     run: async () => {
+      /* com o separador «Tests» do painel (desktop), a corrida vê-se ao vivo lá: cada teste, o progresso, as falhas */
+      const liveRun = services.tests?.runLive;
+      if (liveRun) return liveRun({ source: "Code review" });
       await saveAll();
       const r = await tauriSuite().run(desktopRoot()!);
       return { ran: true, passed: r.ok, output: `$ ${r.command}\n${r.stdout}${r.stderr ? "\n" + r.stderr : ""}` };
     },
   },
   view: { render: () => schedule() },
+  /* a proposta escreve-se no editor, bloco a bloco (as propostas locais do Co-Dev) */
+  editor: { propose: (p, content, reason) => services.proposals!.proposeInEditor(p, content, reason) },
   lang: () => currentLocale(),
   copy: translator(DOC_COPY),
 });
@@ -245,6 +251,9 @@ function docCtx() {
     canApply: aiReady(),
     testsHere: !!desktopRoot(),
     canAskChat: codevAsk.available(),
+    canEditor: !!services.proposals,
+    /* as sugestões já aplicadas / feitas não voltam a ter «Apply» */
+    markOf: (code: string) => { const d = shownDoc(); return d ? session.markOf(d.path, code) : null; },
     /** um caminho citado pela saída dos testes → a chave do editor (relativo à pasta, ou absoluto dentro dela) */
     resolve: (file: string): string | null => {
       const root = desktopRoot();
@@ -469,6 +478,7 @@ const ACTIONS: ActionTable = {
   "cr:back": { on: "click", run: () => session.goBack() },
   "cr:accept": { on: "click", run: () => { void session.accept(); } },
   "cr:deny": { on: "click", run: () => session.deny() },
+  "cr:review-editor": { on: "click", run: () => { void session.reviewInEditor(); } },
   "cr:revert": { on: "click", run: () => session.revert() },
   "cr:test": { on: "click", run: () => { void session.test(); } },
   "cr:fix-tests": { on: "click", run: () => session.fixTests() },
