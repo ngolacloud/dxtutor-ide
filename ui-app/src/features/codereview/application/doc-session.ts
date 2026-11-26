@@ -43,7 +43,14 @@ export interface DocState {
   back: DocState | null;
   /** a proposta está a ser revista no editor, bloco a bloco */
   inEditor: boolean;
+  /** aplicada E os testes passaram: está feita, não se aplica outra vez */
+  done: boolean;
+  /** o trecho do Explain de onde veio («Apply» de uma sugestão), para o marcar como aplicado/feito */
+  snippet: string | null;
 }
+
+/** O estado de uma sugestão do Explain: aplicada (sem testes que a validem) ou feita (aplicada e os testes passaram). */
+export type SnippetMark = "applied" | "done";
 
 /* ───── portas do painel ───── */
 
@@ -102,10 +109,19 @@ export function makeDocSession(deps: DocDeps) {
   let abort: AbortController | null = null;
   /** o último pedido, para «Regenerate» */
   let last: (() => void) | null = null;
+  /** as sugestões do Explain já aplicadas / feitas, por ficheiro e trecho (não se aplicam outra vez) */
+  const marks = new Map<string, SnippetMark>();
+  const norm = (code: string): string => code.replace(/\s+/g, " ").trim();
+  const markKey = (path: string, code: string): string => `${path}\u0000${norm(code)}`;
+  const mark = (s: DocState, m: SnippetMark | null): void => {
+    if (!s.snippet) return;
+    const k = markKey(s.path, s.snippet);
+    if (m) marks.set(k, m); else marks.delete(k);
+  };
 
   const fresh = (kind: DocKind, path: string, from: number | null): DocState => ({
     id: ++seq, kind, path, from, status: "idle", text: "", error: null,
-    original: files.read(path) ?? "", improved: null, applied: null, test: null, denied: false, back: null, inEditor: false,
+    original: files.read(path) ?? "", improved: null, applied: null, test: null, denied: false, back: null, inEditor: false, done: false, snippet: null,
   });
   const paint = () => { if (state) view.render(state); };
 
@@ -189,8 +205,10 @@ export function makeDocSession(deps: DocDeps) {
     const from = state;
     if (!from) return;
     const path = from.path;
+    if (marks.has(markKey(path, snippet))) return; // já aplicada: não se aplica outra vez
     const run = () => {
       const s = fresh("apply", path, null);
+      s.snippet = snippet;
       s.back = from.kind === "apply" ? from.back : from;
       void ask(s, applySuggestionPrompt({ path: files.short(path), ext: files.ext(path), content: s.original, snippet, snippetLang, context: from.text, lang: deps.lang() }));
     };
@@ -212,7 +230,7 @@ export function makeDocSession(deps: DocDeps) {
   function deny(): void {
     const s = state;
     if (!s || !s.improved) return;
-    if (s.applied) { files.write(s.path, s.applied.prev); s.applied = null; }
+    if (s.applied) { files.write(s.path, s.applied.prev); s.applied = null; mark(s, null); }
     s.improved = null;
     s.denied = true;
     s.test = null;
@@ -233,6 +251,7 @@ export function makeDocSession(deps: DocDeps) {
     s.inEditor = false;
     if (!r.applied) { s.improved = null; s.denied = true; paint(); return; }
     s.applied = { prev: r.before };
+    mark(s, "applied");
     paint();
     if (tests.unavailable()) { s.test = { status: "unavailable", output: tests.unavailable() ?? "" }; paint(); return; }
     await test();
@@ -255,6 +274,8 @@ export function makeDocSession(deps: DocDeps) {
     if (!s.applied) s.applied = { prev: now };
     files.write(s.path, s.improved.code);
     s.test = null;
+    s.done = false;
+    mark(s, "applied");
     paint();
     return true;
   }
@@ -265,6 +286,8 @@ export function makeDocSession(deps: DocDeps) {
     files.write(s.path, s.applied.prev);
     s.applied = null;
     s.test = null;
+    s.done = false;
+    mark(s, null);
     paint();
   }
 
@@ -281,6 +304,9 @@ export function makeDocSession(deps: DocDeps) {
       const r = await tests.run();
       if (state !== s || !s.test) return;
       s.test = { status: !r.ran ? "error" : r.passed ? "passed" : "failed", output: r.output };
+      /* aplicada e validada pelos testes: feita — não se volta a aplicar */
+      s.done = s.test.status === "passed" && !!s.applied;
+      if (s.done) mark(s, "done");
     } catch (e) {
       if (state !== s) return;
       s.test = { status: "error", output: e instanceof Error ? e.message : String(e) };
@@ -298,6 +324,7 @@ export function makeDocSession(deps: DocDeps) {
       n.applied = prev;            // continua a ser possível voltar ao ficheiro de antes de tudo
       if (prev) n.original = prev.prev;
       n.back = s.back;
+      n.snippet = s.snippet;
       void ask(n, fixTestsPrompt(files.short(s.path), files.ext(s.path), cur, out, deps.lang(), spotsText(parseTestOutput(out))));
     };
     last = run;
@@ -307,6 +334,8 @@ export function makeDocSession(deps: DocDeps) {
   return {
     explain, review, regenerate, stop, apply, revert, test, fixTests, applySuggestion, goBack, deny, accept, reviewInEditor,
     state: (): DocState | null => state,
+    /** se uma sugestão do Explain já foi aplicada / feita neste ficheiro */
+    markOf: (path: string, code: string): SnippetMark | null => marks.get(markKey(path, code)) ?? null,
     /** fecha o painel: pára o pedido em curso e esquece o estado (o que foi aplicado fica) */
     close(): void { stop(); state = null; last = null; },
   };

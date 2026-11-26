@@ -252,6 +252,8 @@ function docCtx() {
     testsHere: !!desktopRoot(),
     canAskChat: codevAsk.available(),
     canEditor: !!services.proposals,
+    /* as sugestões já aplicadas / feitas não voltam a ter «Apply» */
+    markOf: (code: string) => { const d = shownDoc(); return d ? session.markOf(d.path, code) : null; },
     /** um caminho citado pela saída dos testes → a chave do editor (relativo à pasta, ou absoluto dentro dela) */
     resolve: (file: string): string | null => {
       const root = desktopRoot();

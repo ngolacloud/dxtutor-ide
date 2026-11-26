@@ -142,7 +142,7 @@ export const CODEREVIEW_NOTES: FeatureNotes = {
       what: "Aplica o código proposto e corre os testes do projecto com ele. Se falharem, diz ONDE quebrou (ficheiro:linha clicável), que testes falharam, uma dica pelo tipo de falha, e deixa pedir a correcção.",
       howTo: [
         "Carrega em «Aceitar e testar».",
-        "Verde: fica aplicado. Vermelho: lê a dica 💡 e clica no primeiro sítio de «Onde quebrou» para ir à linha.",
+        "Verde: fica aplicado e marcado «✓ Feito». Vermelho: lê a dica 💡 e clica no primeiro sítio de «Onde quebrou» para ir à linha.",
         "Escolhe «✦ Corrigir os testes que falham» (o modelo propõe nova versão, que voltas a aceitar e testar), «Perguntar ao Co-Dev» (leva o ficheiro e a falha para o chat) ou «Reverter».",
       ],
       flow: [
@@ -152,6 +152,7 @@ export const CODEREVIEW_NOTES: FeatureNotes = {
         "«Corrigir os testes que falham» manda ao modelo a saída, os sítios e o ficheiro actual; continua a ser possível reverter até ao original.",
       ],
       tips: [
+        "Verde = «✓ Feito»: a proposta fica marcada como feita, os botões de aplicar desaparecem e a sugestão de onde veio mostra «✓ Feito» — não se aplica outra vez (só «Reverter» a desfaz).",
         "O primeiro sítio da lista costuma ser a causa; os seguintes, consequências.",
         "Numa asserção, decide o que está certo — o teste ou a mudança — antes de pedir a correcção.",
       ],

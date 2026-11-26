@@ -151,3 +151,8 @@
   .cr-spots .cr-ln,.cr-spots code{flex:none;font-family:var(--font-mono);font-size:11px}
   .cr-failed{display:flex;flex-wrap:wrap;gap:5px}.cr-failed code{font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border);border-radius:4px;padding:0 5px}
   .cr-note.run{display:flex;align-items:center;gap:8px;color:var(--accent-hover);border-color:var(--accent-soft);background:var(--accent-soft)}
+  /* feito: aplicado e validado pelos testes */
+  .cr-mark-b{font-size:10.5px;padding:2px 8px;border-radius:5px;border:1px solid var(--border);color:var(--fg-dim);background:var(--bg-input)}
+  .cr-mark-b.done{color:var(--green);border-color:rgba(92,201,167,.4);background:rgba(92,201,167,.1)}
+  .cr-done-tag{font-size:11.5px;font-weight:600;color:var(--green);background:rgba(92,201,167,.12);border:1px solid rgba(92,201,167,.4);border-radius:6px;padding:3px 10px}
+  .cr-imp.done{border-color:rgba(92,201,167,.45)}

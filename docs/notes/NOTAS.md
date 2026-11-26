@@ -245,7 +245,7 @@ Aplica o código proposto e corre os testes do projecto com ele. Se falharem, di
 **Como usar**
 
 1. Carrega em «Aceitar e testar».
-2. Verde: fica aplicado. Vermelho: lê a dica 💡 e clica no primeiro sítio de «Onde quebrou» para ir à linha.
+2. Verde: fica aplicado e marcado «✓ Feito». Vermelho: lê a dica 💡 e clica no primeiro sítio de «Onde quebrou» para ir à linha.
 3. Escolhe «✦ Corrigir os testes que falham» (o modelo propõe nova versão, que voltas a aceitar e testar), «Perguntar ao Co-Dev» (leva o ficheiro e a falha para o chat) ou «Reverter».
 
 **Fluxo (por dentro)**
@@ -257,6 +257,7 @@ Aplica o código proposto e corre os testes do projecto com ele. Se falharem, di
 
 **Dicas**
 
+- Verde = «✓ Feito»: a proposta fica marcada como feita, os botões de aplicar desaparecem e a sugestão de onde veio mostra «✓ Feito» — não se aplica outra vez (só «Reverter» a desfaz).
 - O primeiro sítio da lista costuma ser a causa; os seguintes, consequências.
 - Numa asserção, decide o que está certo — o teste ou a mudança — antes de pedir a correcção.
 
