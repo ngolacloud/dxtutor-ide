@@ -649,10 +649,21 @@ mod tests {
             return;
         }
         let code = "fn main() {\n    let n: u64 = std::env::args().nth(1).unwrap().parse().unwrap();\n    let mut s = 0u64;\n    for i in 0..n { for j in 0..n { s = s.wrapping_add(std::hint::black_box(i ^ j)); } }\n    println!(\"{s}\");\n}\n";
-        let g = measure_growth(code, &[2000, 4000, 8000, 12000, 16000]);
-        assert!(g.ok, "{}", g.notes);
-        assert_eq!(g.samples.len(), 5);
-        assert_eq!(g.big_o.as_deref(), Some("O(n²)"), "{g:?}");
+        // tempos reais numa máquina partilhada (o CI): com n = 2000 uma corrida dura ~3 ms e o ruído do runner
+        // pesava tanto como o trabalho (o ajuste saía O(n log n) de vez em quando). Tamanhos maiores, para o
+        // trabalho dominar, e até três medições: a classificação tem de sair O(n²) numa delas.
+        let mut misfit = None;
+        for _ in 0..3 {
+            let g = measure_growth(code, &[3000, 6000, 12000, 18000, 24000]);
+            assert!(g.ok, "{}", g.notes);
+            assert_eq!(g.samples.len(), 5);
+            if g.big_o.as_deref() == Some("O(n²)") {
+                misfit = None;
+                break;
+            }
+            misfit = Some(g);
+        }
+        assert!(misfit.is_none(), "{misfit:?}");
         let few = measure_growth(code, &[1, 2, 3]);
         assert!(!few.ok);
         let bad = measure_growth("fn main() { if std::env::args().nth(1).as_deref() != Some(\"1\") { std::process::exit(3) } }", &[2, 3, 4, 5]);
