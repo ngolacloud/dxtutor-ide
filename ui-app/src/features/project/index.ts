@@ -13,12 +13,12 @@ import { commitProjectFile, tauriProjectGateway, writeProjectFile } from "./infr
 import { codev, dialog, git, loadMe, notify, openAt, openDiff, openProjectFile, openTab, saveEditor, workspace } from "./infrastructure/legacy-bridge";
 import { problemsScope } from "../../app/problems-scope";
 import type { QuickFilter, Swim, View } from "./domain/board";
-import type { State } from "./domain/types";
+import type { Method, State } from "./domain/types";
 import { parseCodevs } from "./domain/plan";
 import { parseChecks } from "./domain/gate";
 import { projectInbox } from "../../app/project-inbox";
 import { NAVIGATOR_MESSAGE, pairState } from "../../app/pair-state";
-import { translator } from "../../app/i18n";
+import { currentLocale, translator } from "../../app/i18n";
 import { PROJECT_ENGINE_MESSAGES } from "./application/messages";
 
 const copy = translator(PROJECT_ENGINE_MESSAGES);
@@ -36,6 +36,7 @@ export const projectService = makeProjectService({
   navigatorMessage: NAVIGATOR_MESSAGE,
   showInProblems: (label, files) => problemsScope.show({ label, files }),
   openAt,
+  lang: () => (currentLocale() === "ptAO" ? "pt" : "en"),
   templates: {
     write: writeProjectFile,
     open: openProjectFile,
@@ -163,6 +164,7 @@ const table: ActionTable = {
   "pj-crit-add": { keydown: enter((e) => { const k = sel(); if (k) void projectService.addCriterion(k, e.value); }) },
   "pj-ready": { change: (e) => { const k = sel(); if (k) void projectService.update(k, { ready: e.checked }); } },
   "pj-dod": { change: (e) => { const k = sel(); if (k) void projectService.toggleDod(k, Number(e.on)); } },
+  "pj-dor": { change: (e) => { const k = sel(); if (k) void projectService.toggleDor(k, Number(e.on)); } },
   "pj-branch": { click: () => { const k = sel(); if (k) void projectService.createBranch(k); } },
   "pj-work": { click: () => { const k = sel(); if (k) void projectService.work(k); } },
   "pj-prompt": { click: () => { const k = sel(); if (k) void projectService.viewPrompt(k); } },
@@ -213,7 +215,10 @@ const table: ActionTable = {
       projectService.setView("backlog");
     },
   },
-  "pj-method": { click: (e) => void projectService.apply({ op: "settings", method: e.on }) },
+  /* Board B: a method shows what it changes first; Apply makes it so */
+  "pj-method": { click: (e) => void projectService.chooseMethod(e.on as Method) },
+  "pj-method-apply": { click: () => void projectService.applyMethod() },
+  "pj-method-cancel": { click: () => projectService.cancelMethod() },
   "pj-reload": { click: () => void projectService.open() },
 };
 bindActions(table);

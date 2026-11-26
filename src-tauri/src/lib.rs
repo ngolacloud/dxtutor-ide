@@ -1164,6 +1164,7 @@ pub fn run() {
             board::project_sprint_plan,
             board::project_scope_overlap,
             board::project_checks,
+            board::project_method_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dxtutor IDE");

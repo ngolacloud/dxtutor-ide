@@ -1176,14 +1176,23 @@ pub fn plan(t: &Tools, root: &Path, target: &Target) -> Result<DeployPlan, Strin
                 m.secrets.join(", ")
             }
         ),
-        shown_kubectl(
+    ];
+    // only this deploy's Deployments carry its version (`--all` would mark the namespace's others too)
+    if !m.deployments.is_empty() {
+        let names: Vec<String> = m
+            .deployments
+            .iter()
+            .map(|d| format!("deploy/{d}"))
+            .collect();
+        commands.push(shown_kubectl(
             target,
             &format!(
-                "-n {} annotate deploy --all {ANN_VER}={ver} {ANN_AT}=<now> --overwrite",
-                target.namespace
+                "-n {} annotate {} {ANN_VER}={ver} {ANN_AT}=<now> --overwrite",
+                target.namespace,
+                names.join(" ")
             ),
-        ),
-    ];
+        ));
+    }
     for d in &m.deployments {
         commands.push(shown_kubectl(
             target,
@@ -1356,21 +1365,18 @@ pub fn rollout(
             Some(&manifests),
             on,
         )
-        && step(
-            "annotate",
-            &[
-                "-n",
-                &target.namespace,
-                "annotate",
-                "deploy",
-                "--all",
-                &ann_ver,
-                &ann_at,
-                "--overwrite",
-            ],
-            None,
-            on,
-        )
+        && (p.deployments.is_empty() || {
+            // only this deploy's Deployments carry its version
+            let names: Vec<String> = p
+                .deployments
+                .iter()
+                .map(|d| format!("deploy/{d}"))
+                .collect();
+            let mut args: Vec<&str> = vec!["-n", &target.namespace, "annotate"];
+            args.extend(names.iter().map(String::as_str));
+            args.extend([ann_ver.as_str(), ann_at.as_str(), "--overwrite"]);
+            step("annotate", &args, None, on)
+        })
         && p.deployments.iter().all(|d| {
             let r = format!("deploy/{d}");
             step(

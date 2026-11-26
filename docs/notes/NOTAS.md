@@ -9,7 +9,7 @@ Notas de trabalho, acção a acção: o que faz, como usar, o fluxo por dentro, 
 - [Co-Dev: o assistente escreve no editor e mostra quem está a trabalhar](#co-dev-o-assistente-escreve-no-editor-e-mostra-quem-esta-a-trabalhar) — 3 acções
 - [Explain · Code review · Under the hood](#explain-code-review-under-the-hood) — 9 acções
 - [Quadro (backlog, sprints e kanban)](#quadro-backlog-sprints-e-kanban) — 2 acções
-- [Project](#project) — 4 acções
+- [Project](#project) — 11 acções
 - [Testes](#testes) — 1 acção
 - [Servidor de linguagem (LSP)](#servidor-de-linguagem-lsp) — 1 acção
 - [Protecção de dados — nenhum segredo sai da máquina](#proteccao-de-dados-nenhum-segredo-sai-da-maquina) — 4 acções
@@ -444,16 +444,150 @@ Cria as issues dos componentes planeados no Studio (o ADR, um serviço, aplicaç
 
 ## Project
 
-O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue.
+O Project guarda o trabalho da pasta aberta (issues, sprints, releases, relatórios) na base SQLite da app desktop. O método do quadro (Kanban, Scrum, XP, Scrum + XP) muda as regras, e o Co-Dev segue-as. Na vista «Planning», cada sprint diz quantos Co-Devs a trabalham ao mesmo tempo e mostra o plano paralelo: que issue cada Co-Dev faz, por que ordem, e porque é que nenhum par mexe nos mesmos ficheiros ao mesmo tempo. Guarda também os dados da porta de integração: as verificações obrigatórias do projecto e a aprovação funcional de cada issue. Na vista «Reports», os gráficos da sprint lêem o âmbito e as estimativas como eram em cada dia, e o painel «Insights» diz ao gestor o que o histórico mostra: se a sprint acaba, o que mudou desde o início, quanto do compromisso se cumpre, o que está parado ou bloqueado, quanto custa e quanto se refaz.
 
-<sub>Código: `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan)`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts`, `ui-app/src/features/project/domain/gate.ts`, `src-tauri/src/roles.rs (functional_check)` · revisto em 2026-11-26</sub>
+<sub>Código: `crates/tutor-board/src/project/methods.rs`, `crates/tutor-board/src/project/mod.rs (move_check, capacity_rule, tdd_gap)`, `crates/tutor-agent/src/issue_prompt.rs (methodology_block)`, `src-tauri/src/codev_agent.rs (start_work, tdd_observe)`, `crates/tutor-board/src/project/plan.rs`, `src-tauri/src/board.rs (project_sprint_plan, project_method_preview, project_reports)`, `crates/tutor-board/src/project/reports.rs`, `crates/tutor-board/src/project/insights.rs`, `ui-app/src/features/project/domain/plan.ts`, `ui-app/src/features/project/ui/plan-view.ts`, `ui-app/src/features/project/ui/reports-view.ts`, `ui-app/src/features/project/domain/gate.ts`, `src-tauri/src/roles.rs (functional_check)` · revisto em 2026-11-26</sub>
 
 | Acção | Onde |
 |---|---|
+| [Escolher o método](#escolher-o-metodo) | Project › Settings › cartões «Method» |
+| [Definition of Ready do projecto, por issue](#definition-of-ready-do-projecto-por-issue) | Project › painel da issue › secção «Definition of Ready» |
+| [Capacidade da sprint](#capacidade-da-sprint) | Project › Planning › «Add to …» e o cartão da sprint · Project › Backlog › a selecção da sprint |
+| [Mover uma issue (regras do método)](#mover-uma-issue-regras-do-metodo) | Project › Board (arrastar o cartão) · Project › painel da issue › botões de estado |
+| [Trabalhar com o Co-Dev no método](#trabalhar-com-o-co-dev-no-metodo) | Project › painel da issue › «Work on it with Co-Dev» |
 | [Co-Devs da sprint](#co-devs-da-sprint) | Project › Planning › cartão da sprint, campo «Co-Devs» |
 | [Plano paralelo](#plano-paralelo) | Project › Planning › cartão da sprint, botão «Parallel plan» |
+| [Burndown, burnup e velocidade](#burndown-burnup-e-velocidade) | Project › Reports (Scrum, XP e Scrum + XP) |
+| [Insights para o gestor](#insights-para-o-gestor) | Project › Reports, painel «Insights» (no topo, em todos os métodos) |
 | [Verificações obrigatórias](#verificacoes-obrigatorias) | Project › Settings › «Mandatory checks» |
 | [Aprovação funcional](#aprovacao-funcional) | Project › painel da issue › secção «Functional approval» |
+
+### Escolher o método
+
+**Onde:** Project › Settings › cartões «Method»
+
+Escolhe Kanban, Scrum, XP ou Scrum + XP. Cada cartão diz as regras do método; ao escolher um, o Project mostra antes o que muda nas definições (duração da iteração, limites de WIP, Definition of Ready e of Done) e o que fica porque foste tu que o definiste. Só muda com «Apply».
+
+**Como usar**
+
+1. Abre o Project e a vista «Settings».
+2. Carrega no cartão do método: aparece a caixa «Switch to …» com o que muda e o que fica.
+3. Carrega em «Apply» para mudar, ou em «Cancel» para deixar como está.
+
+**Fluxo (por dentro)**
+
+1. O comando `project_method_preview` (só leitura) calcula a mudança no Rust (`tutor_board::project::methods::change`): uma definição é tua quando difere do valor do método anterior (uma DoR/DoD vazia nunca é tua); essas ficam, as outras passam aos valores do método novo.
+2. «Apply» manda `settings` com `method` (e a língua das sugestões) ao `project_apply`, que aplica a mesma mudança.
+3. Regras por método: os limites de WIP valem em todos; a Definition of Ready para sair de To Do, a capacidade da sprint e o teste primeiro do XP valem nos métodos com iterações; o expedite que passa o WIP só no Kanban.
+
+**Dicas**
+
+- Uma definição que mudares à mão depois de escolher o método fica tua: uma mudança de método seguinte já não lhe mexe.
+
+**Limites**
+
+- As sugestões de DoR/DoD ficam na língua da interface no momento em que escolhes o método.
+
+<sub>Cobre: `pj-method`, `pj-method-apply`, `pj-method-cancel`</sub>
+
+### Definition of Ready do projecto, por issue
+
+**Onde:** Project › painel da issue › secção «Definition of Ready»
+
+Os itens da Definition of Ready que o projecto escreveu nas definições aparecem em cada issue com uma caixa a marcar, como os da Definition of Done. Fazem parte do «Ready»: sem eles marcados a issue não fica Ready nem sai de To Do (Scrum e XP), e o Co-Dev não trabalha nela.
+
+**Como usar**
+
+1. Abre a issue.
+2. Marca cada item da Definition of Ready que a issue já cumpre.
+3. Marca «Ready to start» quando a lista de «Missing for Ready» ficar vazia.
+
+**Fluxo (por dentro)**
+
+1. A caixa manda `update_issue` com `dor_done` (uma marca por item, coluna `issues.dor_done`, migração 17).
+2. A prontidão (`readiness`) junta às verificações fixas um «DoR: «item»» por cada item por marcar; o «Ready» só se aprova sem nada em falta.
+3. Um item acrescentado depois de a issue estar Ready faz a saída de To Do pedir um motivo (Scrum e XP).
+
+**Limites**
+
+- As marcas são por posição: reordenar a lista nas definições muda a que item cada marca corresponde (o mesmo que na DoD).
+
+<sub>Cobre: `pj-dor`</sub>
+
+### Capacidade da sprint
+
+**Onde:** Project › Planning › «Add to …» e o cartão da sprint · Project › Backlog › a selecção da sprint
+
+Em Scrum, XP e Scrum + XP a capacidade da sprint é uma regra: planear uma issue, criar uma directamente na sprint ou aumentar uma estimativa que a passasse é recusado. Com um motivo, avança e o motivo fica na actividade da issue como excepção.
+
+**Como usar**
+
+1. Dá à sprint uma capacidade em pontos ao criá-la.
+2. Planeia as issues; o cartão da sprint diz quantos pontos faltam.
+3. Se o Project recusar, escreve o motivo para avançar mesmo assim, ou cancela.
+
+**Fluxo (por dentro)**
+
+1. O `project_apply` verifica `capacity_rule` em `plan_issue`, `create_issue` com sprint e `update_issue` com pontos: soma os pontos da sprint e recusa (`capacity`, ultrapassável) só quando a mudança acrescenta pontos e passa a capacidade.
+2. Com `reason`, a mudança faz-se e fica uma entrada `override` com «excepção (capacity): motivo» na actividade.
+
+**Limites**
+
+- Uma issue sem estimativa não conta pontos.
+- Fechar uma sprint e passar o trabalho por terminar para a seguinte não é recusado; o cartão da sprint mostra se ficou acima da capacidade.
+- O Kanban não tem capacidade.
+
+<sub>Cobre: `pj-plan-to`, `pj-plan`</sub>
+
+### Mover uma issue (regras do método)
+
+**Onde:** Project › Board (arrastar o cartão) · Project › painel da issue › botões de estado
+
+Cada mudança de coluna passa pelas regras do método: um passo de cada vez, limites de WIP, bloqueios, Definition of Ready para sair de To Do (Scrum e XP), Definition of Done para Done e, em XP e Scrum + XP, a prova de teste primeiro para o trabalho do Co-Dev chegar a Review. No Kanban um cartão «expedite» pode passar o limite de WIP de uma coluna por um, e os cartões ordenam-se por classe de serviço.
+
+**Como usar**
+
+1. Arrasta o cartão para a coluna seguinte, ou usa os botões do painel da issue.
+2. Se uma regra recusar, escreve o motivo para avançar mesmo assim.
+
+**Fluxo (por dentro)**
+
+1. O `move` do `project_apply` corre `move_check` no Rust; a primeira regra partida volta com o seu código (`step`, `wip`, `blocked`, `dor`, `dod`, `tdd`) e com motivo a mudança faz-se como `override`.
+2. Expedite (Kanban): entra numa coluna cheia se ela estiver exactamente no limite; a actividade diz «expedite acima do limite de WIP».
+3. Teste primeiro (XP, Scrum + XP): para uma issue com alterações do Co-Dev, de Em curso para Review exige uma linha `tdd`/`red` do registo de auditoria — um `run_tests` que falhou quando só os testes tinham mudado — cujos ficheiros de teste estejam nas alterações aceites.
+
+**Limites**
+
+- O trabalho feito à mão, sem alterações do Co-Dev, não tem como provar o teste primeiro: não é verificado.
+
+<sub>Cobre: `pj-col`, `pj-move`</sub>
+
+### Trabalhar com o Co-Dev no método
+
+**Onde:** Project › painel da issue › «Work on it with Co-Dev»
+
+Quando a sessão do Co-Dev começa, a issue passa a Em curso pelas regras normais (WIP, prontidão); se a coluna Em curso já estiver no limite, o Project pergunta antes o motivo e sem ele o Co-Dev não começa. O prompt leva um bloco curto do método: método, sprint e dias que faltam, DoD, WIP de Em curso e Review, par, classe de serviço e, em XP, a regra de TDD. No fim, o `finish_issue` responde também a cada item da DoD e a issue só passa a Review pelas regras.
+
+**Como usar**
+
+1. Prepara a issue até ficar Ready e carrega em «Work on it with Co-Dev».
+2. Se a coluna Em curso estiver cheia, escreve o motivo ou espera.
+3. No fim, vê na actividade se a issue passou a Review ou ficou em Em curso, e porquê.
+
+**Fluxo (por dentro)**
+
+1. O anfitrião (`codev_agent::send`) faz o `move` para `progress` quando a sessão manda o primeiro pedido da issue em To Do e bloqueia o pedido se o Project recusar; uma sessão que espera pelos ficheiros de outra só move a issue quando começa.
+2. Antes, se o limite de WIP de Em curso já a recusaria (`startWipRefusal`), a UI pede o motivo e manda o `move` com ele (fica como `override`).
+3. O prompt (`project_issue_prompt`) ganhou o bloco «Método» (`methodology_block`), que um template do projecto sem o marcador `{{metodologia}}` recebe por cima do código.
+4. Conjunto de ferramentas 10: o `finish_issue` exige uma resposta com prova por item da DoD; o `codev_finished` usa a mudança normal para Review e, se uma regra a recusar (WIP, um passo, DoD por responder, teste primeiro), deixa a issue onde está com uma entrada `held` na actividade.
+5. XP: o anfitrião regista no registo de auditoria (`tdd`, `red`) o primeiro `run_tests` que falhou quando a sessão só tinha mudado testes (ficheiros de teste, ou texto com `#[test]`, `def test_`, `@Test`…).
+
+**Limites**
+
+- Sessões antigas (conjunto 9) retomam sem as respostas da DoD: o Project não as exige a esses relatórios.
+- Ficheiros escritos pelo `bash` não entram no rasto do teste primeiro.
+
+<sub>Cobre: `pj-work`</sub>
 
 ### Co-Devs da sprint
 
@@ -510,6 +644,67 @@ Mostra como as issues Ready da sprint se repartiriam pelos Co-Devs: uma coluna p
 - Fases seguintes: uma sessão por Co-Dev, uma worktree e ficheiros reservados por Co-Dev, o revisor que integra num worktree temporário só com os testes a passar, e a autonomia delegada com PRs.
 
 <sub>Cobre: `pj-sprint-plan`, `pj-plan-close`</sub>
+
+### Burndown, burnup e velocidade
+
+**Onde:** Project › Reports (Scrum, XP e Scrum + XP)
+
+O burndown mostra, dia a dia, os pontos que faltavam nesse dia, com o âmbito e as estimativas desse dia, contra a linha ideal que parte do que a sprint comprometeu ao começar. O burnup mostra os pontos feitos contra a linha do âmbito (sobe quando entra trabalho ou uma estimativa cresce, desce quando sai) e o compromisso a tracejado. A velocidade mostra, por sprint fechada, o comprometido ao lado do feito.
+
+**Como usar**
+
+1. Planeia a sprint e carrega em «Start»: o que está nela nesse momento fica registado como o compromisso.
+2. Abre a vista «Reports». Passa o rato por uma barra da velocidade para ver o comprometido, o feito, o acrescentado, o retirado e o que transitou.
+
+**Fluxo (por dentro)**
+
+1. Desde a migração 16 da base do Project, cada operação que mexe numa sprint grava o histórico: a issue que entra ou sai (criada já na sprint, planeada, retirada, transitada no fecho ou apagada), com a estimativa desse momento (`sprint_scope`); cada mudança de estimativa com o valor antigo e o novo (`estimate_changes`); e o que a sprint tinha ao começar e ao fechar (`sprint_snapshots`, `start` e `close`).
+2. O `project_reports` (`tutor_board::project::reports`) reconstrói cada dia a partir desse histórico: quem estava na sprint, com que estimativa e em que estado. Uma issue que já estava em Done quando a sprint começou não conta.
+3. A velocidade lê as fotografias do início e do fecho: o «comprometido vs feito» sobrevive à transição das issues por acabar para outra sprint.
+
+**Dicas**
+
+- Uma issue sem estimativa não aparece nos gráficos: o burndown lista-a por baixo, para a estimares.
+- Reestimar a meio da sprint é legítimo, mas aparece no burnup como mudança de âmbito.
+
+**Limites**
+
+- Uma sprint que começou antes da migração 16 aparece como parcial: o compromisso não se conhece e, antes de o registo começar, o âmbito e as estimativas são os de hoje. Nada é inventado para trás.
+- Os dias contam-se em UTC e por calendário (fins-de-semana incluídos).
+
+<sub>Cobre: `project_reports`</sub>
+
+### Insights para o gestor
+
+**Onde:** Project › Reports, painel «Insights» (no topo, em todos os métodos)
+
+Frases curtas para o gestor do projecto, cada uma com a gravidade (risco, atenção, info), os números por trás e as issues envolvidas: previsão do fim da sprint, mudança de âmbito desde o início, issues da sprint sem estimativa, fiabilidade do compromisso nas últimas sprints (com a velocidade recente como tamanho realista para a próxima), cartões envelhecidos, issues bloqueadas e o tempo bloqueado, custo do Co-Dev por ponto e issues que já gastaram demais, e a taxa de retrabalho (testes que falham depois do trabalho do Co-Dev).
+
+**Como usar**
+
+1. Abre a vista «Reports»: os insights mais graves vêm primeiro.
+2. Clica numa chave de issue para a abrir no painel da issue.
+3. Abre «Not enough data yet» para ver o que ainda falta ao histórico para cada insight.
+
+**Fluxo (por dentro)**
+
+1. O módulo puro `tutor_board::project::insights` recebe o que os relatórios reconstruíram e devolve, para cada insight, um código, a gravidade, os parâmetros e as chaves; a interface tem a frase de cada código em inglês e em português (`ui/reports-messages.ts`).
+2. Previsão: o ritmo é a média dos pontos terminados nos últimos dias da sprint (até 5); com ele diz se o que falta cabe nos dias que restam, quantos pontos ficariam feitos e quantos dias a mais seriam precisos.
+3. Âmbito: compara o compromisso do início com o que está na sprint agora (entradas, saídas e reestimativas).
+4. Fiabilidade: soma o comprometido e o feito do compromisso nas últimas 5 sprints fechadas com o compromisso registado.
+5. Envelhecidos: compara a idade de cada cartão no fluxo (desde que entrou em curso) com o percentil 85 do tempo de ciclo das issues terminadas.
+6. Bloqueios: lêem-se do registo de actividade (incluindo o bloqueio automático depois de duas falhas dos testes). Custo: os turnos do Co-Dev com preço no registo de auditoria. Retrabalho: as corridas de testes depois do Co-Dev.
+
+**Dicas**
+
+- Um insight sem dados suficientes não é adivinhado: aparece na lista do que falta, com quanto falta.
+
+**Limites**
+
+- A previsão precisa de 2 dias de sprint; a fiabilidade de 2 sprints fechadas com compromisso registado; os envelhecidos de 5 issues terminadas; o custo por ponto de 3 issues terminadas, estimadas e com custo; o retrabalho de 3 corridas de testes.
+- Quem mudou uma estimativa fica no histórico, mas o insight não o mostra.
+
+<sub>Cobre: `pj-open`</sub>
 
 ### Verificações obrigatórias
 
@@ -690,7 +885,7 @@ Cada commit que a app faz é verificado: um segredo no que vai ser comitado, ou 
 
 **Fluxo (por dentro)**
 
-1. Usa o gitleaks se estiver instalado, senão as regras próprias; a excepção vale um commit durante 2 minutos.
+1. As regras próprias correm sempre; se o gitleaks estiver instalado, junta-lhes as dele (uma linha que os dois apontam aparece uma vez). A excepção vale um commit durante 2 minutos.
 
 **Limites**
 
@@ -713,7 +908,7 @@ Instala no repositório aberto um hook de pre-commit que corre `dxt secret-scan 
 **Fluxo (por dentro)**
 
 1. O backend descobre a pasta de hooks pelo git (respeita worktrees e `core.hooksPath`), regista a instalação no registo de auditoria antes de escrever o ficheiro, e a UI regista o resultado.
-2. O `dxt secret-scan` usa o gitleaks se estiver instalado, senão as regras próprias, e junta os valores secretos dos `.env` do repositório. Sai com 0 (limpo), 1 (achados) ou 2 (não conseguiu correr).
+2. O `dxt secret-scan` usa as regras próprias (mais as do gitleaks, se estiver instalado) e junta os valores secretos dos `.env` do repositório. Sai com 0 (limpo), 1 (achados) ou 2 (não conseguiu correr).
 
 **Dicas**
 

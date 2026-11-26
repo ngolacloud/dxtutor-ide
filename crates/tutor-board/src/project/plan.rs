@@ -626,7 +626,7 @@ impl super::ProjectStore {
             .issues
             .iter()
             .filter(|i| keys.contains(&i.key))
-            .map(|i| plan_issue(i, &files, &mut commits, &mut branches))
+            .map(|i| plan_issue(i, &p.dor, &files, &mut commits, &mut branches))
             .collect();
         Ok(ScopeSource {
             issues,
@@ -674,7 +674,7 @@ impl super::ProjectStore {
             .issues
             .iter()
             .filter(|i| i.sprint.as_deref() == Some(sp.id.as_str()))
-            .map(|i| plan_issue(i, &files, &mut commits, &mut branches))
+            .map(|i| plan_issue(i, &p.dor, &files, &mut commits, &mut branches))
             .collect();
         Ok(PlanSource {
             sprint: sp,
@@ -689,6 +689,7 @@ impl super::ProjectStore {
 /// One issue of the store as the planner sees it; its linked commits and branch go to the maps.
 fn plan_issue(
     i: &super::Issue,
+    dor: &[String],
     files: &HashMap<String, BTreeSet<String>>,
     commits: &mut BTreeMap<String, Vec<String>>,
     branches: &mut BTreeMap<String, String>,
@@ -720,7 +721,7 @@ fn plan_issue(
         state: i.state.clone(),
         scope: i.scope.clone(),
         deps: i.deps.clone(),
-        missing: super::readiness(i, &deps_done),
+        missing: super::readiness(i, &deps_done, dor),
         known_files: files
             .get(&i.key)
             .map(|f| f.iter().cloned().collect())
