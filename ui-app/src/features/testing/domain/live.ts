@@ -48,7 +48,9 @@ export interface LiveRun {
 }
 
 const MAX_LOG = 4000;
-const strip = (s: string): string => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "");
+/* as sequências ANSI (cores, cursor) que as ferramentas escrevem: ESC [ … letra */
+const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;?]*[A-Za-z]", "g");
+const strip = (s: string): string => s.replace(ANSI, "").replace(/\r/g, "");
 
 export function newRun(command: string, source: string, startedAt = 0): LiveRun {
   return { command, source, phase: "starting", now: "", total: null, percent: null, cases: [], log: [], exit: null, error: null, startedAt, endedAt: null, block: null, goRunning: null, pending: {} };
@@ -113,7 +115,7 @@ export function feed(r: LiveRun, raw: string): void {
   if ((m = l.match(/^\s*Doc-tests\s+(\S+)/))) { r.now = `Doc-tests ${m[1]}`; return; }
   if ((m = l.match(/^running (\d+) tests?$/))) { r.total = (r.total ?? 0) + +m[1]; r.phase = "running"; return; }
   if ((m = l.match(/^collected (\d+) items?/))) { r.total = +m[1]; r.phase = "running"; r.now = l.trim(); return; }
-  if ((m = l.match(/^\s*(?:RUN|>)\s+v?\d[\d.]*\s+(.+)$/))) { r.now = l.trim(); r.phase = "running"; return; } // vitest «RUN v1.6.0 /path»
+  if (/^\s*(?:RUN|>)\s+v?\d[\d.]*\s+(.+)$/.test(l)) { r.now = l.trim(); r.phase = "running"; return; } // vitest «RUN v1.6.0 /path»
 
   /* ── cargo / libtest ── */
   if ((m = l.match(/^test (\S+)(?: - \S+)? \.\.\. (ok|FAILED|ignored)(?:, finished in ([\d.]+)s)?/))) {

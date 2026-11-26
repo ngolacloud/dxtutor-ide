@@ -24,7 +24,9 @@ export interface TestReport {
   headline: string | null;
 }
 
-const strip = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+/* as cores ANSI que as ferramentas escrevem (ESC [ … m) */
+const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
+const strip = (s: string): string => s.replace(ANSI, "");
 const SRC = String.raw`[\w./@+-]+\.(?:rs|ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|cs|cpp|cc|c|h|swift|sql)`;
 /** ficheiros que não interessam: bibliotecas, o runtime, node_modules */
 const noise = (f: string): boolean => /(^|\/)(node_modules|\.cargo|rustc|library\/(core|std|alloc)|site-packages|go\/src|internal\/)\//.test(f) || f.startsWith("node:");
@@ -74,9 +76,9 @@ export function parseTestOutput(output: string): TestReport {
     }
     if ((m = l.match(new RegExp(String.raw`panicked at '(.+)', (${SRC}):(\d+)`)))) { if (/assert/.test(m[1])) mark("assert", m[1]); else mark("panic", l); spot(m[2], +m[3], m[1]); }
     if ((m = l.match(new RegExp(String.raw`^\s*File "(${SRC})", line (\d+)`)))) spot(m[1], +m[2], ls[i + 1] || "");
-    if ((m = l.match(/^\s*(AssertionError|AssertionFailedError)\b:?\s*(.*)$/))) mark("assert", l);
+    if (/^\s*(AssertionError|AssertionFailedError)\b:?\s*(.*)$/.test(l)) mark("assert", l);
     if ((m = l.match(/^\s*(\w*Error|\w*Exception)\b: (.+)$/)) && !/^(AssertionError)/.test(m[1]) && !/^\s*error/.test(l)) mark("panic", l);
-    if ((m = l.match(/^\s*(?:AssertionError: )?expected .+ to (?:be|equal|deeply equal|contain|match|have)/i))) mark("assert", l);
+    if (/^\s*(?:AssertionError: )?expected .+ to (?:be|equal|deeply equal|contain|match|have)/i.test(l)) mark("assert", l);
 
     /* sítios de stack traces JS e do vitest («❯ src/x.ts:12:5») e asserções do go («x_test.go:12: …») */
     if ((m = l.match(new RegExp(String.raw`(?:❯|at .*?\(|at )\s*(?:file:\/\/)?(${SRC}):(\d+):\d+\)?`)))) spot(m[1], +m[2], lastError || l.trim());
