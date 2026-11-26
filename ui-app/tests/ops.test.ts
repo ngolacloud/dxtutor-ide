@@ -1,3 +1,5 @@
+import type { MetricsOverview } from "../src/features/ops/domain/metrics";
+import { budgetLine, capacityLine } from "../src/features/ops/domain/metrics";
 import { describe, expect, it, vi } from "vitest";
 import { driftDue, driftKey, eventsFor, findingLabel, forceUnlock, importDraft, isAddress, kubeCmd, movedDraft, planText, podTrouble, q, securityFindings, servicePort, DRIFT_EVERY_MS } from "../src/features/ops/domain/commands";
 import { makeOps } from "../src/features/ops/application/ops-service";
@@ -101,6 +103,9 @@ function fakes(target: KubeTarget | null = T) {
   const stepCalls: Array<{ n: number; runId: string; approval: { reason: string } | null; vault: unknown }> = [];
   const judged: Array<{ id: number; matched: boolean; note: string }> = [];
   const shown: string[] = [];
+  const tokens: string[] = [];
+  const secrets: Array<string | null> = [];
+  let metricsNow: MetricsOverview = { configured: false, url: null, auth: null, connected: false, version: null, notes: "not connected", hint: null, budgets: [], budgetErrors: [], capacity: null, capacityNotes: "" };
   let evidenceFails = false;
   const port: OpsPort = {
     iacDirs: async () => [".", "infra"],
@@ -136,6 +141,9 @@ function fakes(target: KubeTarget | null = T) {
     runs: async () => [],
     sources: async () => [{ kind: "cicd", connected: true, via: "gh as ana, read-only (runs, pull requests)", notes: "", hint: null }, { kind: "cost", connected: false, via: null, notes: "not connected", hint: "A read-only cost source…" }],
     exportEvidence: async () => { if (evidenceFails) throw new Error("db locked"); return { path: "docs/audit/evidence-2026-11.md", content: "# Evidence export — proj\n" }; },
+    metrics: async () => metricsNow,
+    metricsTokenSet: async (_r, url, token) => { tokens.push(`set ${url} ${token}`); },
+    metricsTokenClear: async (_r, url) => { tokens.push(`clear ${url}`); },
   };
   const o = makeOps({
     ops: port,
@@ -145,13 +153,14 @@ function fakes(target: KubeTarget | null = T) {
       openFile: (f, l) => opened.push(`${f}:${l}`), now: () => 7_000, every: (_ms, f) => { ticks.push(f); return () => { ticks.length = 0; }; },
       showFile: (rel, content) => shown.push(`${rel}|${content}`), vault: () => ({ addr: "http://127.0.0.1:8200", namespace: null }),
     },
-    human: { approve: async (r) => { confirms.push(r); return { approved: answer, reason: answer && r.reasonRequired ? "fixture bucket, not public" : "", decidedAt: 1 }; }, text: async () => texts.shift() ?? null, toast: (m) => toasts.push(m) },
+    human: { approve: async (r) => { confirms.push(r); return { approved: answer, reason: answer && r.reasonRequired ? "fixture bucket, not public" : "", decidedAt: 1 }; }, text: async () => texts.shift() ?? null, toast: (m) => toasts.push(m), secret: async () => secrets.shift() ?? null },
     audit: { record: async (e) => { if (auditFails) throw new Error("db locked"); audited.push(e); } },
     codev: { available: () => true, ask: (r) => asked.push(r) },
     say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
   });
   return {
-    o, ran, confirms, texts, asked, toasts, port, audited, opened, ticks, pipelines, accepted, stepCalls, judged, shown, breakEvidence: () => { evidenceFails = true; },
+    o, ran, confirms, texts, asked, toasts, port, audited, opened, ticks, pipelines, accepted, stepCalls, judged, shown, tokens, secrets, breakEvidence: () => { evidenceFails = true; },
+    metricsAre: (m: MetricsOverview) => { metricsNow = m; },
     refuse: () => { answer = false; }, breakAudit: () => { auditFails = true; }, exitWith: (c: number) => { exit = c; },
     runs: (f: (dir: string, target: string | null) => PipelineRun) => { nextRun = f; }, refuseApply: (m: string) => { applyRefusal = m; },
   };
@@ -467,3 +476,56 @@ describe("r23 F5a: runbooks como código", () => {
   });
 });
 
+
+describe("NOTAS-r23 ponto 3: a fonte de métricas no Ops", () => {
+  const LIVE: MetricsOverview = {
+    configured: true, url: "http://prom:9090", auth: "keychain", connected: true, version: "3.16.0", notes: "", hint: null,
+    budgets: [
+      { service: "web", objective: 99.9, period: "30d", errorRatio: 0.0003, remaining: 0.7, burn1h: 0.4, exhausted: false, queries: [], notes: "" },
+      { service: "api", objective: 99, period: "30d", errorRatio: 0.02, remaining: -1, burn1h: 3.2, exhausted: true, queries: [], notes: "" },
+      { service: "idle", objective: 99, period: "7d", errorRatio: null, remaining: null, burn1h: null, exhausted: false, queries: [], notes: "no requests in the last 7d" },
+    ],
+    budgetErrors: ["batch: Prometheus answered 400: parse error"],
+    capacity: { cpu: { requested: 3.8, allocatable: 4, percent: 95 }, memory: { requested: 4e9, allocatable: 16e9, percent: 25 }, maxPercent: 85, over: true, queries: [] },
+    capacityNotes: "",
+  };
+  it("as linhas do orçamento e da capacidade dizem o mesmo que o backend", () => {
+    expect(budgetLine(LIVE.budgets[0])).toBe("web: 70% of the 30d budget left (burn 0.4× in the last hour)");
+    expect(budgetLine(LIVE.budgets[1])).toBe("api: 100% of the 30d budget overspent (burn 3.2× in the last hour)");
+    expect(budgetLine(LIVE.budgets[2])).toBe("idle: no requests in the last 7d");
+    expect(capacityLine(LIVE.capacity!)).toBe("CPU 95% · memory 25% of the allocatable requested (limit 85%)");
+  });
+  it("o token vai para o keychain por um campo escondido; apagar também; e a vista mostra orçamentos e capacidade", async () => {
+    const f = fakes();
+    f.metricsAre(LIVE);
+    await f.o.refresh();
+    f.secrets.push("s3cr3t-read");
+    await f.o.setMetricsToken();
+    f.secrets.push(null);
+    await f.o.setMetricsToken();
+    await f.o.clearMetricsToken();
+    expect(f.tokens).toEqual(["set http://prom:9090 s3cr3t-read", "clear http://prom:9090"]);
+    expect(f.toasts).toEqual(["metricsTokenSaved", "metricsTokenCleared"]);
+    expect(JSON.stringify(f.o.state())).not.toContain("s3cr3t");
+    const host = document.createElement("div");
+    const t = (k: string, p?: Record<string, unknown>) => (p ? `${k} ${JSON.stringify(p)}` : k);
+    host.innerHTML = renderOps(t as never, f.o.state(), true, true);
+    const text = host.textContent ?? "";
+    expect(text).toContain("web: 70% of the 30d budget left");
+    expect(text).toContain("api: 100% of the 30d budget overspent");
+    expect(text).toContain("batch: Prometheus answered 400");
+    expect(text).toContain("CPU 95%");
+    expect(host.querySelector('[data-action="ops-metrics-token"]')).not.toBeNull();
+    // auth none: no token buttons; not connected: why and how
+    f.metricsAre({ ...LIVE, auth: "none", connected: false, notes: "http://prom:9090 is not reachable", hint: "check the URL", budgets: [], budgetErrors: [], capacity: null });
+    await f.o.loadSources();
+    host.innerHTML = renderOps(t as never, f.o.state(), true, true);
+    expect(host.querySelector('[data-action="ops-metrics-token"]')).toBeNull();
+    expect(host.textContent).toContain("is not reachable");
+    // not configured: nothing beyond the source row
+    f.metricsAre({ ...LIVE, configured: false, url: null, auth: null, connected: false });
+    await f.o.loadSources();
+    host.innerHTML = renderOps(t as never, f.o.state(), true, true);
+    expect(host.querySelector('[data-action="ops-metrics-reload"]')).toBeNull();
+  });
+});

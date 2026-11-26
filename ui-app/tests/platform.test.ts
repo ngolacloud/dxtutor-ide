@@ -48,6 +48,7 @@ function fakes(opts: { approve?: boolean } = {}) {
   const world: string[] = [];
   let verifyDone = true;
   let inc = INC;
+  let metricsFail: string | null = null;
   const port: PlatformPort = {
     queue: async () => { calls.push("queue"); return QUEUE; },
     verify: async (_r, id, title) => { calls.push(`verify ${id} ${title}`); return verifyDone ? { done: true, proof: "ana reviewed: APPROVED" } : { done: false, proof: null }; },
@@ -60,6 +61,7 @@ function fakes(opts: { approve?: boolean } = {}) {
     add: async (_r, id, kind, text, reason) => { calls.push(`add ${id} ${kind} ${text} ${reason}`); },
     status: async (_r, id, status, note) => { calls.push(`status ${id} ${status} ${note}`); inc = { ...inc, incident: { ...inc.incident, status: status as never } }; return inc.incident; },
     feedback: async (_r, id, right) => { calls.push(`feedback ${id} ${right}`); },
+    metricsCheck: async (_r, id) => { calls.push(`metrics ${id}`); if (metricsFail) throw new Error(metricsFail); return ["metrics · web: errors 0.01% in the hour before, 4.20% since 15 min before it opened"]; },
   };
   const p = makePlatform({
     port,
@@ -68,7 +70,7 @@ function fakes(opts: { approve?: boolean } = {}) {
     codev: { available: () => true, ask: (r) => asked.push(r as never) },
     say: (k, prm) => (prm ? `${k} ${JSON.stringify(prm)}` : k),
   });
-  return { p, calls, confirms, texts, toasts, asked, world, notDone: () => { verifyDone = false; } };
+  return { p, calls, confirms, texts, toasts, asked, world, notDone: () => { verifyDone = false; }, metricsFails: (m: string) => { metricsFail = m; } };
 }
 
 describe("a fila", () => {
@@ -150,6 +152,19 @@ describe("os incidentes", () => {
   });
 });
 
+describe("NOTAS-r23 ponto 3: as métricas no incidente", () => {
+  it("«Verificar as métricas» pede ao backend e relê o incidente; sem fonte, o erro diz porquê", async () => {
+    const f = fakes();
+    await f.p.openIncident(INC.incident.id);
+    await f.p.metricsCheck();
+    expect(f.calls).toContain(`metrics ${INC.incident.id}`);
+    expect(f.p.state().error).toBeNull();
+    f.metricsFails("no metrics source: not connected");
+    await f.p.metricsCheck();
+    expect(f.p.state().error).toBe("no metrics source: not connected");
+  });
+});
+
 describe("a vista", () => {
   it("a fila com porquê, acção, verificar e passar; feito, equipa, medido e o que não foi lido; a revisão com as fontes; o incidente com a confiança", async () => {
     const f = fakes();
@@ -185,10 +200,12 @@ describe("o adaptador Tauri", () => {
     await port.verify("/p", "review:49", "t");
     await port.submit("/p", 49, "approve", "", "why");
     await port.add("/p", 3, "not-checked", "db", "no source");
+    await port.metricsCheck("/p", 3);
     expect(seen).toEqual([
       ["queue_verify", { root: "/p", id: "review:49", title: "t" }],
       ["pr_review_submit", { root: "/p", pr: 49, decision: "approve", body: "", reason: "why" }],
       ["incident_add", { root: "/p", id: 3, kind: "not-checked", text: "db", reason: "no source" }],
+      ["incident_metrics_check", { root: "/p", id: 3 }],
     ]);
   });
 });

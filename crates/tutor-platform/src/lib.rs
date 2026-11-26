@@ -2,6 +2,7 @@
 
 pub mod deploy;
 pub mod keychain;
+pub mod metrics;
 pub mod policy;
 pub mod queue;
 pub mod review;

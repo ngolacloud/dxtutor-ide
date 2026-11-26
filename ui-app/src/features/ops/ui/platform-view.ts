@@ -37,12 +37,12 @@ function review(t: T, st: PlatformState, canAsk: boolean): string {
     + `<div class="pf-ct">${t("files")}</div><div class="pf-dim notr">${esc(r.files.join(", "))}</div><div class="pf-ct">${t("diff")}</div><pre class="pf-diff notr">${esc(r.diff)}</pre>`;
 }
 
-function incident(t: T, v: IncidentView, canAsk: boolean): string {
+function incident(t: T, v: IncidentView, canAsk: boolean, busy: string | null): string {
   const i = v.incident;
   const acts = i.status === "investigating" ? btn("status", t("mitigate"), "mitigated") + btn("status", t("resolve"), "resolved") : i.status === "mitigated" ? btn("status", t("resolve"), "resolved", "btn") + btn("status", t("reopen"), "investigating") : "";
   const judged = v.events.some((e) => e.kind === "feedback");
   const fb = i.status !== "investigating" && !judged ? `<div class="pf-bar"><span>${t("topCause")}</span>${btn("feedback", t("yes"), "1")}${btn("feedback", t("no"), "0")}</div>` : "";
-  const add = i.status !== "resolved" ? `<div class="pf-bar">${btn("add", t("addEvidence"), "evidence")}${btn("add", t("addChecked"), "checked")}${btn("add", t("addNotChecked"), "not-checked")}${btn("add", t("addNote"), "note")}</div>` : `<div class="pf-bar">${btn("add", t("addNote"), "note")}</div>`;
+  const add = i.status !== "resolved" ? `<div class="pf-bar">${btn("metrics", busy === "metrics" ? t("loading") : t("metricsCheck"), "", "btn", busy !== null)}${btn("add", t("addEvidence"), "evidence")}${btn("add", t("addChecked"), "checked")}${btn("add", t("addNotChecked"), "not-checked")}${btn("add", t("addNote"), "note")}</div>` : `<div class="pf-bar">${btn("add", t("addNote"), "note")}</div>`;
   const tl = v.events.map((e) => `<div class="pf-row ev-${esc(e.kind)}"><span class="pf-dim">${esc(when(e.at))}</span><span class="pf-chip">${t(`ev_${e.kind}` as PlatformKey)}</span><span class="notr">${esc(e.text)}</span>${e.reason ? `<span class="pf-dim notr">— ${esc(e.reason)}</span>` : ""}<span class="pf-dim notr">${esc(e.actor)}</span></div>`).join("");
   return `<div class="pf-inc"><div class="pf-bar"><b class="notr">${esc(i.key)} · ${esc(i.title)}</b><span class="pf-chip sev">${esc(i.severity)}</span><span class="pf-chip s-${i.status}">${esc(i.status)}</span><span class="pf-dim notr">${esc(t("commander", { c: i.commander }))} · ${esc(t("opened", { t: when(i.openedAt) }))}</span></div>`
     + `<div class="pf-conf c-${v.confidence.level}">${esc(t("confidence", { l: v.confidence.level }))} — <span class="notr">${esc(v.confidence.reasons.join("; "))}</span></div>`
@@ -55,7 +55,7 @@ function incidents(t: T, st: PlatformState, canAsk: boolean): string {
   const l = st.incidents;
   if (!l) return head + `<div class="sec-empty">${t("loading")}</div>`;
   const list = l.length ? l.map((i) => `<div class="pf-row pf-li${st.incident?.incident.id === i.id ? " on" : ""}" data-action="pf:incident" data-on="${i.id}"><b class="notr">${esc(i.key)}</b><span class="notr">${esc(i.title)}</span><span class="pf-chip sev">${esc(i.severity)}</span><span class="pf-chip s-${i.status}">${esc(i.status)}</span></div>`).join("") : `<div class="sec-empty">${t("noIncidents")}</div>`;
-  return head + list + (st.incident ? incident(t, st.incident, canAsk) : "");
+  return head + list + (st.incident ? incident(t, st.incident, canAsk, st.busy) : "");
 }
 
 const TABS: Array<[PlatformState["tab"], PlatformKey]> = [["home", "tabHome"], ["review", "tabReview"], ["incidents", "tabIncidents"]];

@@ -1,7 +1,8 @@
 //! The data sources of the Platform activity (r23 F5a, docs/v2/AUDIT-r23.md §4.5 — RF-BK-Q03): CI/CD,
 //! cloud cost, metrics and logs, cloud inventory. Always read-only, connected explicitly; without one the
 //! state is «not connected», never an estimated number. Here, CI/CD is GitHub through `gh` (signed in,
-//! read verbs only); the others have no connector yet and say how one would be connected.
+//! read verbs only) and metrics are Prometheus (`crate::metrics`, `.dxtutor/metrics.json`); the others have no
+//! connector yet and say how one would be connected.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -37,6 +38,7 @@ fn out(cmd: &dyn Fn(&str) -> Command, root: &Path, program: &str, args: &[&str])
 pub fn status(
     cmd: &dyn Fn(&str) -> Command,
     has: &dyn Fn(&str) -> bool,
+    store: &dyn crate::keychain::Store,
     root: &Path,
 ) -> Vec<Source> {
     let cicd = if !has("gh") {
@@ -88,7 +90,7 @@ pub fn status(
     vec![
         cicd,
         none("cost", "A read-only cost source (AWS Cost Explorer, GCP Billing export, Azure Cost Management, or Kubecost) with credentials from Vault — no connector yet"),
-        none("obs", "A read-only metrics and logs source (Prometheus and Loki, or the cloud's) with credentials from Vault — no connector yet"),
+        crate::metrics::source(store, root),
         none("cloud", "A read-only cloud inventory with short-lived credentials from Vault (e.g. vault read aws/creds/inventory-readonly) — no connector yet"),
     ]
 }
@@ -101,7 +103,12 @@ mod tests {
     fn without_a_source_nothing_is_connected() {
         let d = tempfile::tempdir().unwrap();
         let cmd = |p: &str| Command::new(p);
-        let s = status(&cmd, &|_| false, d.path());
+        let s = status(
+            &cmd,
+            &|_| false,
+            &crate::keychain::MemStore::default(),
+            d.path(),
+        );
         assert_eq!(
             s.iter()
                 .map(|x| (x.kind.as_str(), x.connected))

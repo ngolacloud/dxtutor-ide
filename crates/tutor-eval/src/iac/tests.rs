@@ -451,3 +451,21 @@ fn an_unformatted_file_fails_fmt() {
     assert!(r.blocked);
     assert!(apply_command(d.path(), ".", &r.id, plans.path()).is_err());
 }
+
+/// Measured: on a first run infracost 0.10 opens a browser to sign in and waits, so the pipeline only runs it
+/// with a key.
+#[test]
+fn infracost_runs_only_with_a_key() {
+    assert!(!infracost_key(None, None));
+    assert!(!infracost_key(Some("  "), None));
+    assert!(infracost_key(Some("ico-abc"), None));
+    assert!(infracost_key(
+        None,
+        Some("version: \"0.1\"\napi_key: ico-abc\npricing_api_endpoint: https://pricing.api.infracost.io\n")
+    ));
+    assert!(!infracost_key(
+        None,
+        Some("version: \"0.1\"\napi_key: \"\"\n")
+    ));
+    assert!(!infracost_key(None, Some("version: \"0.1\"\n")));
+}

@@ -19,6 +19,7 @@ import * as B from "./infrastructure/legacy-bridge";
 import { OPS_MESSAGES, type OpsKey } from "./ui/messages";
 import { renderOps } from "./ui/ops-view";
 import { bindActions, type ActionTable } from "./ui/actions";
+import { askSecret } from "../vault/ui/secret-prompt";
 
 const t = translator(OPS_MESSAGES);
 
@@ -32,7 +33,7 @@ export const ops = makeOps({
     every: (ms, f) => { const h = setInterval(f, ms); return () => clearInterval(h); },
   },
   audit: tauriAudit(() => B.root()),
-  human: { approve: (r) => requestApproval(r), text: (ph, initial) => B.textPrompt(ph, initial), toast: (m) => B.notify(m) },
+  human: { approve: (r) => requestApproval(r), text: (ph, initial) => B.textPrompt(ph, initial), toast: (m) => B.notify(m), secret: (title) => askSecret(title, "OK", t("cancel")) },
   codev: { available: () => codevAsk.available(), ask: (r) => { void codevAsk.ask(r); } },
   say: (k, p) => t(k as OpsKey, p),
 });
@@ -103,6 +104,10 @@ const ACTIONS: ActionTable = {
   "ops-rb-ask": { on: "click", run: (e) => ops.askStep(Number(e.on)) },
   "ops-rb-reload": { on: "click", run: () => { void ops.loadRunbooks(); } },
   "ops-evidence": { on: "click", run: () => { void ops.exportEvidence(); } },
+  /* NOTAS-r23 point 3: the metrics source */
+  "ops-metrics-token": { on: "click", run: () => { void ops.setMetricsToken(); } },
+  "ops-metrics-clear": { on: "click", run: () => { void ops.clearMetricsToken(); } },
+  "ops-metrics-reload": { on: "click", run: () => { void ops.loadSources(); } },
 };
 bindActions(ACTIONS);
 
@@ -149,5 +154,6 @@ registerActions({
   "pf:feedback": { click: (c) => { void platform.feedback(c.on === "1"); } },
   "pf:postmortem": { click: () => platform.postmortem() },
   "pf:ask-cause": { click: () => platform.askCause() },
+  "pf:metrics": { click: () => { void platform.metricsCheck(); } },
 });
 

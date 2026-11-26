@@ -1,6 +1,7 @@
 /* ═══════════ feature `ops` — application ports (A9) ═══════════ */
 
 import type { DataSource, EvidenceFile, Runbook, StepRun } from "../domain/types";
+import type { MetricsOverview } from "../domain/metrics";
 import type { AcceptedRisk, ApplyInfo, CloudCli, CloudInventory, IacPlan, IacState, KubeState, KubeTarget, PipelineRun, Revision, Stage } from "../domain/types";
 
 export interface OpsPort {
@@ -26,6 +27,11 @@ export interface OpsPort {
   judge(root: string, id: number, matched: boolean, note: string): Promise<boolean>;
   runs(root: string, path: string | null): Promise<StepRun[]>;
   sources(root: string): Promise<DataSource[]>;
+  /** the metrics source: the budgets and the capacity, as measured now */
+  metrics(root: string): Promise<MetricsOverview>;
+  /** the Prometheus read token into the keychain (audited by the backend, never returned) */
+  metricsTokenSet(root: string, url: string, token: string): Promise<void>;
+  metricsTokenClear(root: string, url: string): Promise<void>;
   /** writes docs/audit/evidence-YYYY-MM.md inside the project (this month so far) */
   exportEvidence(root: string): Promise<EvidenceFile>;
   kubeState(t: KubeTarget): Promise<KubeState>;
@@ -60,6 +66,8 @@ export interface HumanPort {
   /** mostra o comando exacto e onde corre; resolve com a decisão (não corre nada) */
   approve(r: ApprovalRequest): Promise<ApprovalDecision>;
   text(placeholder: string, initial?: string): Promise<string | null>;
+  /** a hidden field for a pasted secret (the token): resolved once, not kept */
+  secret(title: string): Promise<string | null>;
   toast(message: string): void;
 }
 

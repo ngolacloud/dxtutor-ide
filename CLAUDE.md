@@ -1050,6 +1050,27 @@ vista `ui/platform-view.ts`, acções `pf:*` no despachante partilhado):
 - Testes: `cargo test -p tutor-platform queue review`, `cargo test -p tutor-board incidents`, `tests/platform.test.ts` e
   o passo `platform` do auto-teste.
 
+## Fonte de métricas (NOTAS-r23 ponto 3, `tutor_platform::metrics`)
+
+O Prometheus do projecto, só lido (`GET /api/v1/…`). Desbloqueia o portão `slo` do deploy, as verificações `capacity` e
+`error-budget` da revisão de PR e a confiança dos incidentes (decisões do dono, 2026-11-26):
+- **Configuração no projecto:** `.dxtutor/metrics.json` (`prometheus.url` e `auth`: `none`, `keychain` — o token em
+  `metrics:<url>`, posto pelo Ops com `metrics_token_set` —, ou `vault` — `addr`/`mount`/`path`/`field`, lido no backend por
+  `vault::credential`; nenhum comando o devolve e entra na redacção) e `.dxtutor/slo.json` (por serviço: `objective` em
+  percentagem, `window`, `errors` e `total` em PromQL com `$window`, `deployments`).
+- **Orçamento:** `1 − taxa_de_erro ÷ (1 − objectivo)` na janela; a queima é a taxa da última hora sobre a permitida. Sem
+  pedidos, nenhum número (`remaining: null`, «no requests»). Capacidade = pedidos ÷ alocável do kube-state-metrics
+  (`capacity.maxPercent`, 85 por omissão); sem essas séries diz que não o encontra.
+- **Deploy:** orçamento gasto → produção `failed`, mas DISPENSÁVEL com motivo (`FAILED_WAIVABLE`, a única falha que se
+  dispensa); staging → `warning` (estado novo: amarelo, nunca bloqueia). Consulta falhada ou sem pedidos → «not connected».
+- **Incidentes:** «Check metrics» (`incident_metrics_check`) regista na cronologia, como verificação feita, a taxa de erro
+  de cada SLO na hora antes da abertura e desde 15 min antes dela; com o Prometheus a responder a confiança deixa de estar
+  presa em «low».
+- GOTCHA-A8: o código da subárvore de uma feature não pode dizer `window` (nem em texto): o orçamento sai como `period`.
+- Testes: `cargo test -p tutor-platform metrics` (um Prometheus real quando está no PATH: as consultas inválidas à própria
+  API são os erros), `deploy::tests::the_slo_gate_and_its_waiver`, `review::…capacity_and_error_budget_from_metrics`,
+  `tests/ops.test.ts`, `tests/platform.test.ts` e o passo `metrics` do auto-teste (Prometheus e Vault dev do runner).
+
 ## Boas-vindas e walkthroughs (`ui-app/src/features/welcome/`, r23 F6)
 
 Feature tipada e em camadas (governada por A7/A8), no lugar do antigo `features/welcome.ts`: Start (New File,

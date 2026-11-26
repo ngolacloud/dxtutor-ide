@@ -664,6 +664,35 @@ fn pull(c: &Ctx, tool: &str, wd: &Path) -> Result<String, String> {
     Ok(out.stdout)
 }
 
+/// Whether infracost has an API key: `INFRACOST_API_KEY` (in the environment the tools run with, or this
+/// process'), or a non-empty `api_key:` in `credentials.yml`.
+pub fn infracost_key(env_key: Option<&str>, credentials: Option<&str>) -> bool {
+    env_key.is_some_and(|k| !k.trim().is_empty())
+        || credentials.is_some_and(|t| {
+            t.lines().any(|l| {
+                l.trim()
+                    .strip_prefix("api_key:")
+                    .map(|v| !v.trim().trim_matches(['"', '\'']).is_empty())
+                    .unwrap_or(false)
+            })
+        })
+}
+
+fn infracost_has_key(c: &Ctx) -> bool {
+    let probe = (c.cmd)("infracost");
+    let var = |name: &str| -> Option<String> {
+        probe
+            .get_envs()
+            .find(|(k, _)| *k == name)
+            .and_then(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
+            .or_else(|| std::env::var(name).ok())
+    };
+    let creds = var("HOME").and_then(|h| {
+        std::fs::read_to_string(Path::new(&h).join(".config/infracost/credentials.yml")).ok()
+    });
+    infracost_key(var("INFRACOST_API_KEY").as_deref(), creds.as_deref())
+}
+
 fn with(c: &Ctx, tool: &str, args: &[&str]) -> Command {
     let mut cmd = (c.cmd)(tool);
     cmd.args(args);
@@ -1358,6 +1387,16 @@ pub fn run(c: &Ctx, on: &mut dyn FnMut(&Stage)) -> PipelineRun {
                 }
             }
             "infracost" if !(c.has)("infracost") => not_installed(id, "infracost"),
+            // never run without a key: on a first run (no config folder) infracost 0.10 starts a browser sign-in
+            // and waits — measured in the self-test, the pipeline hung there
+            "infracost" if !infracost_has_key(c) => Stage {
+                hint: Some(CONNECT_INFRACOST.into()),
+                command: shown(
+                    "infracost",
+                    &["breakdown", "--path", "<plan.json>", "--format", "json"],
+                ),
+                ..Stage::new(id, Status::NotConnected, "infracost has no API key")
+            },
             "infracost" => match &plan_json {
                 None => Stage::new(id, Status::Skipped, "no plan"),
                 Some(jp) => {

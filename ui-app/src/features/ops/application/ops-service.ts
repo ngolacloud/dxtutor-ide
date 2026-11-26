@@ -17,6 +17,7 @@
 
 import { DRIFT_EVERY_MS, driftKey, eventsFor, findingLabel, forceUnlock, importDraft, isAddress, kubeCmd, movedDraft, planText, securityFindings, servicePort } from "../domain/commands";
 import type { DataSource, Runbook, StepRun } from "../domain/types";
+import type { MetricsOverview } from "../domain/metrics";
 import type { AcceptedRisk, CloudCli, CloudInventory, IacFinding, IacPlan, IacState, KubeState, KubeTarget, PipelineRun, Revision, Stage } from "../domain/types";
 import type { ApprovalRequest, AuditPort, CodevPort, HumanPort, OpsPort, OpsWorld } from "./ports";
 
@@ -44,6 +45,8 @@ export interface OpsState {
   /** r23 F5a: runbooks as code (the selected one, the current run's results by step, its past runs) */
   rb: { list: Runbook[] | null; sel: string | null; runId: string | null; results: Record<number, StepRun>; busy: number | null; history: StepRun[] };
   sources: DataSource[] | null;
+  /** the metrics source (Prometheus): the budgets and the capacity, as measured when the tab loaded */
+  metrics: MetricsOverview | null;
   evidence: { busy: boolean; last: string | null };
 }
 
@@ -57,7 +60,7 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
   });
   const st: OpsState = {
     iac: freshIac(), kube: { target: null, state: null, busy: false, history: null }, cloud: { status: null, inventory: {}, busy: null }, ran: null,
-    rb: { list: null, sel: null, runId: null, results: {}, busy: null, history: [] }, sources: null, evidence: { busy: false, last: null },
+    rb: { list: null, sel: null, runId: null, results: {}, busy: null, history: [] }, sources: null, metrics: null, evidence: { busy: false, last: null },
   };
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
@@ -317,8 +320,24 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
   async function loadSources(): Promise<void> {
     const root = world.root();
     if (!root) return;
-    st.sources = await ops.sources(root).catch(() => []);
+    const [src, m] = await Promise.all([ops.sources(root).catch(() => []), ops.metrics(root).catch(() => null)]);
+    st.sources = src; st.metrics = m;
     emit();
+  }
+  /** The Prometheus read token (auth `keychain`): pasted in a hidden field, kept in the keychain by the backend. */
+  async function setMetricsToken(): Promise<void> {
+    const root = world.root(), url = st.metrics?.url;
+    if (!root || !url) return;
+    const tok = await human.secret(say("metricsTokenTitle", { u: url }));
+    if (!tok || !tok.trim()) return;
+    try { await ops.metricsTokenSet(root, url, tok); human.toast(say("metricsTokenSaved")); } catch (e) { human.toast(msg(e)); }
+    await loadSources();
+  }
+  async function clearMetricsToken(): Promise<void> {
+    const root = world.root(), url = st.metrics?.url;
+    if (!root || !url) return;
+    try { await ops.metricsTokenClear(root, url); human.toast(say("metricsTokenCleared")); } catch (e) { human.toast(msg(e)); }
+    await loadSources();
   }
   async function exportEvidence(): Promise<void> {
     const root = world.root();
@@ -404,7 +423,7 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; },
     /** Everything the tab reads when it opens. */
     refresh: async (): Promise<void> => { await Promise.all([loadDirs(), loadKube(), loadCloud(), loadRisks(), loadRunbooks(), loadSources()]); },
-    loadRunbooks, selectRunbook, newRun, runStep, judge, askStep, editRunbook, loadSources, exportEvidence,
+    loadRunbooks, selectRunbook, newRun, runStep, judge, askStep, editRunbook, loadSources, exportEvidence, setMetricsToken, clearMetricsToken,
     selectDir, setTab,
     runPipeline, applyRun, askPlan,
     acceptFinding, revokeRisk, openFinding, fixFinding,
@@ -417,7 +436,7 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     /** Another folder opened: what was read of the last one goes (and its drift schedule). */
     workspaceChanged: (): void => {
       stopDrift?.(); stopDrift = null; st.iac = freshIac();
-      st.rb = { list: null, sel: null, runId: null, results: {}, busy: null, history: [] }; st.sources = null; st.evidence = { busy: false, last: null };
+      st.rb = { list: null, sel: null, runId: null, results: {}, busy: null, history: [] }; st.sources = null; st.metrics = null; st.evidence = { busy: false, last: null };
       emit();
     },
     loadKube, history, kubeAction, scale, portForward, askPod,

@@ -560,6 +560,30 @@ pub struct Reveal {
     pub ttl_ms: u64,
 }
 
+/// A credential the backend itself uses (the metrics source's read token): one key of a KV v2 secret,
+/// any environment. It is NEVER returned by a command — the caller keeps it in the backend — and it joins
+/// what the redaction filters, so it cannot reach a model, a log or the terminal either.
+pub fn credential(
+    store: &dyn Store,
+    t: &Target,
+    mount: &str,
+    path: &str,
+    key: &str,
+) -> Result<String, String> {
+    let mount = path_part(mount)?;
+    let path = path_part(path)?;
+    let v = authed(store, t, "GET", &format!("{mount}/data/{path}"), None)?
+        .ok_or_else(|| format!("no secret at {mount}/{path}"))?;
+    let value = match &v["data"]["data"][key] {
+        Value::String(s) if !s.is_empty() => s.clone(),
+        Value::Null => return Err(format!("{mount}/{path} has no key {key:?}")),
+        Value::String(_) => return Err(format!("{mount}/{path} {key:?} is empty")),
+        other => other.to_string(),
+    };
+    tutor_protect::redact::learn_values([value.clone()]);
+    Ok(value)
+}
+
 /// Reads one key of a `local` secret (refused for any other environment, here). The value can be
 /// read with [`reveal_read`] for [`REVEAL_TTL`]; it also joins what the redaction filters.
 pub fn reveal_local(

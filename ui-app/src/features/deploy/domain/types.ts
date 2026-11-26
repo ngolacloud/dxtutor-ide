@@ -1,6 +1,6 @@
 /* ═══════════ feature `deploy` — domain: the shapes of `tutor_platform::deploy` (r23 F4c2, D01–D04) ═══════════
    serde camelCase. No secret value is in any of them (the Secrets are names). PURE. */
-export type GateStatus = "ok" | "failed" | "not_installed" | "not_connected" | "skipped";
+export type GateStatus = "ok" | "failed" | "not_installed" | "not_connected" | "skipped" | "warning";
 export interface Gate { id: string; status: GateStatus; summary: string; detail: string; hint: string | null }
 export interface Identity { git: string; cluster: string | null; vault: string | null }
 export interface DeployPlan {

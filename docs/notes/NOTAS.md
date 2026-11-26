@@ -1051,21 +1051,31 @@ Corre os runbooks do repositório (`runbooks/*.md`) passo a passo. As verificaç
 
 **Onde:** Ops › Fontes de dados
 
-Diz que fontes estão ligadas: o CI/CD pelo `gh` (só leitura); custo, métricas e logs e inventário da cloud aparecem «não ligada», com como ligar — nunca um número estimado.
+Diz que fontes estão ligadas: o CI/CD pelo `gh` (só leitura) e as métricas pelo Prometheus do projecto, com o orçamento de erro de cada SLO e a capacidade do cluster; custo e inventário da cloud aparecem «não ligada», com como ligar — nunca um número estimado.
 
 **Como usar**
 
 1. Para o CI/CD, instala o GitHub CLI e corre `gh auth login`.
+2. Para as métricas, cria `.dxtutor/metrics.json` com o URL do Prometheus e a autenticação: `none`, `keychain` (depois «Set token…», que guarda o token no keychain do sistema) ou `vault` (o token lido de um caminho KV no Vault).
+3. Os SLOs ficam em `.dxtutor/slo.json`, revistos em PR como o código: por serviço, o objectivo (p. ex. 99,9), a janela (`30d`) e as consultas PromQL de erros e de total, com `$window` onde vai o intervalo; `deployments` diz que Deployments o SLO cobre.
+4. «Measure again» volta a perguntar ao Prometheus.
 
 **Fluxo (por dentro)**
 
-1. `sources_status` vê se o `gh` tem sessão e se a origin do projecto está no GitHub.
+1. `sources_status` vê se o `gh` tem sessão e se a origin do projecto está no GitHub, e se o Prometheus responde.
+2. `metrics_status` mede cada SLO: orçamento restante = 1 − taxa de erro ÷ (1 − objectivo) na janela, e a taxa de queima da última hora; a capacidade são os pedidos de CPU e memória sobre o alocável (kube-state-metrics).
+3. O token nunca sai do backend: vai para o keychain ou vem do Vault, e entra na redacção.
+
+**Dicas**
+
+- Sem pedidos na janela, o orçamento diz «no requests» em vez de um número.
 
 **Limites**
 
-- Ainda não há ligadores de custo, métricas/logs nem inventário.
+- Ainda não há ligadores de custo nem de inventário.
+- Sem o kube-state-metrics no Prometheus, a capacidade diz que não o encontra.
 
-<sub>Cobre: `sources_status`</sub>
+<sub>Cobre: `sources_status`, `ops-metrics-token`, `ops-metrics-clear`, `ops-metrics-reload`</sub>
 
 ### Exportar evidências (ISO 27001)
 
@@ -1131,7 +1141,7 @@ Lista o que está à tua espera, calculado do estado real: PRs que pedem a tua r
 
 **Onde:** paleta: «Platform: Review an Infrastructure PR…» · a fila › «Review the PR»
 
-Mostra o diff de um PR e «Antes do merge»: o CI, o plano, a política e o custo (o pipeline de IaC sobre a cabeça do PR), a janela de mudança, o rollback e incidentes semelhantes; capacidade, orçamento de erro e on-call aparecem «não ligados». Cada verificação diz de onde vem.
+Mostra o diff de um PR e «Antes do merge»: o CI, o plano, a política e o custo (o pipeline de IaC sobre a cabeça do PR), a janela de mudança, o rollback e incidentes semelhantes; a capacidade do cluster e o orçamento de erro de cada SLO (pelo Prometheus; sem ele, «não ligados»); o on-call aparece «não ligado». Cada verificação diz de onde vem.
 
 **Como usar**
 
@@ -1167,12 +1177,13 @@ Incidentes locais, abertos por uma pessoa: a cronologia (evidência, verificaç�
 
 1. Os incidentes vivem na base do Project; abrir e mudar de estado vão ao registo de auditoria.
 2. A confiança nunca passa de «baixa» sem uma fonte de métricas.
+3. «Check metrics» pergunta ao Prometheus a taxa de erro de cada SLO na hora antes da abertura e desde 15 minutos antes dela, e regista cada linha na cronologia como uma verificação feita.
 
 **Limites**
 
 - Não há fonte de incidentes (PagerDuty, Opsgenie…): cada incidente é aberto à mão.
 
-<sub>Cobre: `pf:new-incident`, `pf:reload-incidents`, `pf:incident`, `pf:add`, `pf:status`, `pf:feedback`, `pf:postmortem`, `pf:ask-cause`, `cmd:Platform: Incidents`</sub>
+<sub>Cobre: `pf:new-incident`, `pf:reload-incidents`, `pf:incident`, `pf:add`, `pf:status`, `pf:feedback`, `pf:postmortem`, `pf:ask-cause`, `pf:metrics`, `cmd:Platform: Incidents`</sub>
 
 ---
 
@@ -1283,6 +1294,7 @@ Verifica tudo antes de mudar o que quer que seja: a versão (o commit em HEAD, s
 1. `deploy_plan` lê os manifestos de `deploy/k8s` (os `Secret` ficam de fora: o cluster lê-os do Vault), corre cada verificação e devolve os comandos exactos.
 2. O segredo vê-se só pelo nome no namespace e pelos metadados no Vault.
 3. Configuração opcional em `.dxtutor/deploy.json`: manifestos, pasta de IaC e caminho do Vault de cada ambiente, política do cosign, janelas de mudança.
+4. O SLO vem do Prometheus do projecto (`.dxtutor/metrics.json` e `.dxtutor/slo.json`): com o orçamento de erro gasto, produção falha (dispensável com motivo) e staging só avisa.
 
 **Limites**
 
@@ -1295,7 +1307,7 @@ Verifica tudo antes de mudar o que quer que seja: a versão (o commit em HEAD, s
 
 **Onde:** Deploy › Verificações › «Waive…»
 
-Em produção, uma verificação «não instalada» ou «não ligada» bloqueia, a não ser que lhe dês uma excepção com motivo. Uma verificação falhada nunca tem excepção, nem o segundo aprovador ou a saúde de staging.
+Em produção, uma verificação «não instalada» ou «não ligada» bloqueia, a não ser que lhe dês uma excepção com motivo. Uma verificação falhada nunca tem excepção — salvo o SLO, porque com o orçamento de erro gasto a correcção urgente é justamente o deploy que tem de sair —, nem o segundo aprovador ou a saúde de staging.
 
 **Como usar**
 
@@ -1311,7 +1323,7 @@ Em produção, uma verificação «não instalada» ou «não ligada» bloqueia,
 
 **Onde:** Deploy › Aprovar › «Deploy…»
 
-Aplica os manifestos (sem os `Secret`), anota a versão e espera pelo rollout de cada Deployment, com as linhas à vista; no fim fica o registo do deploy.
+Aplica os manifestos (sem os `Secret`), anota a versão nos Deployments desses manifestos (não nos outros do namespace) e espera pelo rollout de cada um, com as linhas à vista; no fim fica o registo do deploy.
 
 **Como usar**
 

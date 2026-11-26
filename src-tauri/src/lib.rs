@@ -99,6 +99,9 @@ use commands::git::{
 };
 use commands::hood::{hood_line_asm, hood_python_bytecode, measure_growth};
 use commands::iac::{iac_apply_command, iac_pipeline_run, iac_state};
+use commands::metrics::{
+    incident_metrics_check, metrics_status, metrics_token_clear, metrics_token_set,
+};
 use commands::missions::{compile_pipeline, run_drill, run_measured, trace_execution};
 use commands::ops::{
     ops_cloud_inventory, ops_cloud_status, ops_iac_dirs, ops_iac_plan, ops_kube_history,
@@ -1088,6 +1091,10 @@ pub fn run() {
             pty::pty_info,
             problems_scan,
             protect_learn,
+            metrics_status,
+            metrics_token_set,
+            metrics_token_clear,
+            incident_metrics_check,
             protect_hook_plan,
             protect_hook_install,
             secret_scan,
