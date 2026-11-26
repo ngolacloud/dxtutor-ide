@@ -12,6 +12,7 @@ interface Globals {
   runTask: (cmd: string) => unknown;
   openPath: (p: string, line?: number) => void;
   ROOT?: string;
+  FS?: Record<string, { content: string; orig?: string }>;
   palette: (pre: string, cfg: { ph?: string; verb?: string; text?: (q: string) => void }) => void;
   openTab: (t: { id: string; title: string; kind: string }) => void;
 }
@@ -27,6 +28,13 @@ export const kubeTarget = (): KubeTarget | null => {
 export const runInTerminal = (cmd: string): Promise<number> | void => {
   const r = G.runTask(cmd);
   return r && typeof (r as Promise<unknown>).then === "function" ? (r as Promise<unknown>).then((c) => (typeof c === "number" ? c : -1)) : undefined;
+};
+/** r23 F5a: um ficheiro que o backend acabou de escrever na pasta (as evidências) entra no editor tal como está no
+ *  disco (sem alterações por gravar) e abre-se. */
+export const showFile = (rel: string, content: string): void => {
+  const key = (G.ROOT ?? "") + rel;
+  if (G.FS) G.FS[key] = { content, orig: content };
+  G.openPath(key, 1);
 };
 /** Abre um ficheiro do projecto (relativo à pasta aberta) numa linha. */
 export const openFile = (rel: string, line: number): void => G.openPath((G.ROOT ?? "") + rel, line);

@@ -160,10 +160,47 @@ function cloudSection(t: T, st: OpsState): string {
   }).join("")}</div>`;
 }
 
+/* ── r23 F5a: runbooks as code, the data sources ── */
+const KIND_KEY: Record<string, OpsKey> = { check: "rbCheck", action: "rbAction", decision: "rbDecision" };
+
+function runbookSection(t: T, st: OpsState, canAsk: boolean): string {
+  const r = st.rb;
+  if (r.list === null) return `<div class="sec-empty">${t("loading")}</div>`;
+  if (!r.list.length) return `<div class="sec-empty">${t("rbNone")}</div>`;
+  const rb = r.list.find((x) => x.path === r.sel) ?? r.list[0];
+  const pick = `<select class="inp notr ops-dir" data-action="ops-rb">${r.list.map((x) => `<option value="${esc(x.path)}"${x.path === rb.path ? " selected" : ""}>${esc(x.title)}</option>`).join("")}</select>`;
+  const head = `<div class="ops-bar">${pick}${btn("ops-rb-new", t("rbNewRun"))}${btn("ops-rb-edit", t("rbEdit"))}${btn("ops-rb-reload", t("reload"))}<span class="ops-dim">${t("rbRule")}</span></div>`;
+  const about = rb.about.length ? `<div class="ops-dim notr">${esc(rb.about.join(" · "))}</div>` : "";
+  const problems = rb.problems.map((p) => `<div class="ops-why notr">${esc(p)}</div>`).join("");
+  const steps = rb.steps.map((s) => {
+    const res = r.results[s.n];
+    const tone = res ? (res.kind === "decision" ? "ok" : res.matched === true ? "ok" : res.matched === false || (res.exitCode ?? 0) !== 0 ? "failed" : "unjudged") : s.refused ? "refused" : "todo";
+    const verdict = !res ? "" : res.kind === "decision" ? `<div class="ops-dim notr">${esc(t("rbDecided", { w: res.note ?? "" }))}</div>`
+      : `<pre class="ops-out notr">${esc(res.output || t("rbNoOutput"))}</pre><div class="ops-bar"><span class="ops-res-v v-${tone}">${res.matched === true ? t("rbMatched") : res.matched === false ? t("rbNotMatched") : t("rbJudge")}</span><span class="ops-dim">${esc(t("rbExit", { c: res.exitCode ?? "-", ms: res.ms }))}</span>${res.matched === null ? mini("ops-rb-ok", t("rbAsExpected"), String(s.n)) + mini("ops-rb-no", t("rbNotExpected"), String(s.n)) : ""}${canAsk ? mini("ops-rb-ask", t("rbAskCodev"), String(s.n)) : ""}</div>`;
+    const label = s.kind === "action" ? t("rbRunAction") : s.kind === "decision" ? t("rbDecide") : t("rbRunCheck");
+    return `<div class="ops-step s-${tone}"><div class="ops-bar"><b class="notr">${s.n}. ${esc(s.title)}</b><span class="ops-chip k-${s.kind}">${t(KIND_KEY[s.kind])}</span><span class="ops-sp"></span>${s.refused ? "" : btn("ops-rb-run", r.busy === s.n ? t("running") : label, String(s.n), s.kind === "action" ? "btn" : "btn ghost", r.busy !== null)}</div>`
+      + (s.command ? `<pre class="ops-cmd notr">${esc(s.command)}</pre>` : "")
+      + (s.expect ? `<div class="ops-dim notr">${esc(t("rbExpect", { e: s.expect }))}</div>` : "")
+      + (s.refused ? `<div class="ops-why notr">${esc(s.refused)}</div>` : "") + verdict + `</div>`;
+  }).join("");
+  const runs = new Map<string, number>();
+  for (const h of r.history) runs.set(h.runId, (runs.get(h.runId) ?? 0) + 1);
+  const hist = runs.size ? `<div class="ops-dim">${esc(t("rbHistory", { n: runs.size, s: r.history.length }))}</div>` : "";
+  return head + about + problems + steps + hist;
+}
+
+const SRC_KEY: Record<string, OpsKey> = { cicd: "srcCicd", cost: "srcCost", obs: "srcObs", cloud: "srcCloud" };
+function sourcesSection(t: T, st: OpsState): string {
+  if (!st.sources) return `<div class="sec-empty">${t("loading")}</div>`;
+  return st.sources.map((s) => `<div class="ops-row"><b>${t(SRC_KEY[s.kind])}</b>${s.connected ? `<span class="ops-ok">${t("srcConnected")}</span><span class="ops-dim notr">${esc(s.via ?? "")}</span>` : `<span class="ops-why">${t("srcNotConnected")}</span><span class="ops-dim notr">${esc(s.notes === "not connected" ? "" : s.notes)}</span>`}${!s.connected && s.hint ? `<span class="ops-msg notr">${esc(s.hint)}</span>` : ""}</div>`).join("");
+}
+
 export function renderOps(t: T, st: OpsState, canAsk: boolean, desktop: boolean): string {
   if (!desktop) return `<div class="ops"><div class="sec-empty">${t("needDesktop")}</div></div>`;
-  return `<div class="ops"><div class="ops-top"><b>${t("title")}</b><span class="ops-dim">${t("sub")}</span></div>${st.ran ? `<div class="ops-ran notr">${esc(t("ran", { c: st.ran }))}</div>` : ""}
+  return `<div class="ops"><div class="ops-top"><b>${t("title")}</b><span class="ops-dim">${t("sub")}</span><span class="ops-sp"></span>${btn("ops-evidence", st.evidence.busy ? t("running") : t("evidence"), "", "btn ghost", st.evidence.busy)}</div>${st.ran ? `<div class="ops-ran notr">${esc(t("ran", { c: st.ran }))}</div>` : ""}
     <section class="ops-sec"><h3>${t("iac")}</h3>${iacSection(t, st, { canAsk, findings: securityFindings(st.iac.run), drifted: st.iac.drift.plan?.drift ?? st.iac.run?.plan?.drift ?? [] })}</section>
     <section class="ops-sec"><h3>${t("kube")}</h3>${kubeSection(t, st, canAsk)}</section>
-    <section class="ops-sec"><h3>${t("cloud")}</h3>${cloudSection(t, st)}</section></div>`;
+    <section class="ops-sec"><h3>${t("cloud")}</h3>${cloudSection(t, st)}</section>
+    <section class="ops-sec ops-rb"><h3>${t("runbooks")}</h3>${runbookSection(t, st, canAsk)}</section>
+    <section class="ops-sec"><h3>${t("sources")}</h3>${sourcesSection(t, st)}</section></div>`;
 }

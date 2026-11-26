@@ -65,6 +65,8 @@ export interface Services {
   protect: Pick<typeof Protect.protect, "guard">;
   /** r23 F4c2: o deploy guiado (features/deploy, que avalia depois da infra): o «Promote»/«Redeploy» abrem-no */
   deploy: { open: (env: string) => void; recent: () => DeployRecord[] };
+  /** r23 F4c/F5a: the Vault the IDE is signed in to (features/vault, que avalia depois do Ops), null otherwise */
+  vault: { signedIn: () => { addr: string; namespace: string | null } | null };
 }
 
 export const services: Partial<Services> = {};

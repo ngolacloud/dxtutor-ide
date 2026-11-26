@@ -8,6 +8,7 @@
 import { invoke, isDesktop, listen, type Invoker } from "../../../platform/tauri/core";
 import { auditClient } from "../../../platform/tauri/audit";
 import type { AuditPort, OpsPort } from "../application/ports";
+import type { DataSource, EvidenceFile, Runbook, StepRun } from "../domain/types";
 import type { AcceptedRisk, ApplyInfo, CloudCli, CloudInventory, IacPlan, IacState, KubeState, PipelineRun, Revision, Stage } from "../domain/types";
 
 type Listen = (event: string, f: (payload: unknown) => void) => unknown;
@@ -32,6 +33,14 @@ export const tauriOps = (inv: Invoker = invoke, on: Listen = (e, f) => (isDeskto
   risks: (root) => inv<AcceptedRisk[]>("iac_risks", { root }),
   acceptRisk: (root, r) => inv<AcceptedRisk>("iac_risk_accept", { root, key: r.key, kind: r.kind, label: r.label, reason: r.reason }),
   revokeRisk: (root, id) => inv<boolean>("iac_risk_revoke", { root, id }),
+  /* r23 F5a */
+  runbooks: (root) => inv<Runbook[]>("runbook_list", { root }),
+  runStep: (root, path, n, runId, approval, vault) => inv<StepRun>("runbook_step", { root, path, n, runId, approval, vault }),
+  decide: (root, path, n, runId, note) => inv<StepRun>("runbook_decide", { root, path, n, runId, note }),
+  judge: (root, id, matched, note) => inv<boolean>("runbook_judge", { root, id, matched, note }),
+  runs: (root, path) => inv<StepRun[]>("runbook_runs", { root, path }),
+  sources: (root) => inv<DataSource[]>("sources_status", { root }),
+  exportEvidence: (root) => inv<EvidenceFile>("audit_export_evidence", { root, from: null, to: null }),
 });
 
 /** O registo de auditoria das operações do Ops, na pasta aberta (sem pasta não há o que auditar nem o que correr). */

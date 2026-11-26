@@ -52,3 +52,9 @@
 .ops-sev{font-size:10.5px;text-transform:uppercase;min-width:48px}.ops-sev.error{color:var(--red)}.ops-sev.warning{color:var(--yellow)}
 .ops-loc{font-family:var(--font-mono);font-size:11.5px;color:var(--accent-hover);cursor:pointer}.ops-loc:hover{text-decoration:underline}
 .ops-drift-acts{margin:0 0 6px 20px}
+/* r23 F5a: runbooks como código e as fontes de dados */
+.ops-step{border-left:3px solid var(--border);padding:4px 8px;margin:6px 0;border-radius:4px}
+.ops-step.s-ok{border-left-color:var(--green)}.ops-step.s-failed,.ops-step.s-refused{border-left-color:var(--red)}.ops-step.s-unjudged{border-left-color:var(--yellow)}
+.ops-cmd,.ops-out{font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:4px 8px;margin:4px 0;max-height:220px;overflow:auto}
+.ops-chip.k-action{color:var(--yellow)}.ops-chip.k-decision{color:var(--accent-hover)}
+.ops-res-v{font-size:11.5px}.ops-res-v.v-ok{color:var(--green)}.ops-res-v.v-failed{color:var(--red)}.ops-res-v.v-unjudged{color:var(--yellow)}

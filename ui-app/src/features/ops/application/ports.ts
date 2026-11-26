@@ -1,5 +1,6 @@
 /* ═══════════ feature `ops` — application ports (A9) ═══════════ */
 
+import type { DataSource, EvidenceFile, Runbook, StepRun } from "../domain/types";
 import type { AcceptedRisk, ApplyInfo, CloudCli, CloudInventory, IacPlan, IacState, KubeState, KubeTarget, PipelineRun, Revision, Stage } from "../domain/types";
 
 export interface OpsPort {
@@ -17,6 +18,16 @@ export interface OpsPort {
   /** kept for 30 days and audited by the backend */
   acceptRisk(root: string, r: { key: string; kind: "finding" | "drift"; label: string; reason: string }): Promise<AcceptedRisk>;
   revokeRisk(root: string, id: number): Promise<boolean>;
+  /* r23 F5a */
+  runbooks(root: string): Promise<Runbook[]>;
+  /** a check runs only when read-only, an action only with an approval (audited in Rust) — the backend's rule */
+  runStep(root: string, path: string, n: number, runId: string, approval: { reason: string } | null, vault: { addr: string; namespace: string | null } | null): Promise<StepRun>;
+  decide(root: string, path: string, n: number, runId: string, note: string): Promise<StepRun>;
+  judge(root: string, id: number, matched: boolean, note: string): Promise<boolean>;
+  runs(root: string, path: string | null): Promise<StepRun[]>;
+  sources(root: string): Promise<DataSource[]>;
+  /** writes docs/audit/evidence-YYYY-MM.md inside the project (this month so far) */
+  exportEvidence(root: string): Promise<EvidenceFile>;
   kubeState(t: KubeTarget): Promise<KubeState>;
   kubeHistory(t: KubeTarget, deployment: string): Promise<Revision[]>;
   cloudStatus(): Promise<CloudCli[]>;
@@ -33,6 +44,10 @@ export interface OpsWorld {
   /** opens a project file (relative) at a line */
   openFile(rel: string, line: number): void;
   now(): number;
+  /** r23 F5a: the file the evidence export wrote, into the editor (relative path) */
+  showFile(rel: string, content: string): void;
+  /** the Vault the IDE is signed in to (an action's step gets its environment), null otherwise */
+  vault(): { addr: string; namespace: string | null } | null;
   /** calls `f` every `ms` (the scheduled drift check); returns how to stop */
   every(ms: number, f: () => void): () => void;
 }

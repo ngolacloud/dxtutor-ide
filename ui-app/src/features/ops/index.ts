@@ -9,6 +9,7 @@ import { translator } from "../../app/i18n";
 import { requestApproval } from "../../app/approval";
 import { isDesktop } from "../../platform/tauri/core";
 import { makeOps, type IacTab } from "./application/ops-service";
+import { services } from "../../app/services";
 import { tauriOps, tauriAudit } from "./infrastructure/tauri";
 import * as B from "./infrastructure/legacy-bridge";
 import { OPS_MESSAGES, type OpsKey } from "./ui/messages";
@@ -21,6 +22,8 @@ export const ops = makeOps({
   ops: tauriOps(),
   world: {
     root: () => B.root(), kubeTarget: () => B.kubeTarget(), runInTerminal: (c) => B.runInTerminal(c), openFile: (f, l) => B.openFile(f, l),
+    showFile: (rel, content) => B.showFile(rel, content),
+    vault: () => services.vault?.signedIn() ?? null,
     now: () => Date.now(),
     every: (ms, f) => { const h = setInterval(f, ms); return () => clearInterval(h); },
   },
@@ -86,5 +89,15 @@ const ACTIONS: ActionTable = {
   "ops-port": { on: "click", run: (e) => { void ops.portForward(e.on); } },
   "ops-ask-pod": { on: "click", run: (e) => ops.askPod(e.on) },
   "ops-inventory": { on: "click", run: (e) => { void ops.inventory(e.on); } },
+  /* r23 F5a */
+  "ops-rb": { on: "change", run: (e) => ops.selectRunbook(e.value) },
+  "ops-rb-run": { on: "click", run: (e) => { void ops.runStep(Number(e.on)); } },
+  "ops-rb-new": { on: "click", run: () => ops.newRun() },
+  "ops-rb-edit": { on: "click", run: () => ops.editRunbook() },
+  "ops-rb-ok": { on: "click", run: (e) => { void ops.judge(Number(e.on), true); } },
+  "ops-rb-no": { on: "click", run: (e) => { void ops.judge(Number(e.on), false); } },
+  "ops-rb-ask": { on: "click", run: (e) => ops.askStep(Number(e.on)) },
+  "ops-rb-reload": { on: "click", run: () => { void ops.loadRunbooks(); } },
+  "ops-evidence": { on: "click", run: () => { void ops.exportEvidence(); } },
 };
 bindActions(ACTIONS);

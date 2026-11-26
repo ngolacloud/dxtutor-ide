@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { driftDue, driftKey, eventsFor, findingLabel, forceUnlock, importDraft, isAddress, kubeCmd, movedDraft, planText, podTrouble, q, securityFindings, servicePort, DRIFT_EVERY_MS } from "../src/features/ops/domain/commands";
 import { makeOps } from "../src/features/ops/application/ops-service";
 import type { ApprovalRequest, OpsPort } from "../src/features/ops/application/ports";
-import type { AcceptedRisk, IacFinding, IacPlan, IacState, KubeTarget, PipelineRun, Stage } from "../src/features/ops/domain/types";
+import type { AcceptedRisk, IacFinding, IacPlan, IacState, KubeTarget, PipelineRun, Runbook, Stage } from "../src/features/ops/domain/types";
 import { renderOps } from "../src/features/ops/ui/ops-view";
 
 /* A9 (docs/v2/UI-AUDIT.md item 10): DevOps em só leitura — o plano de IaC como diff, o namespace do
@@ -49,6 +49,15 @@ describe("domínio: os comandos exactos", () => {
   });
 });
 
+const RUNBOOK: Runbook = {
+  path: "runbooks/latency.md", title: "orders-api latency", about: ["Owner: Orders"], schedule: null, problems: [],
+  steps: [
+    { n: 1, title: "List the pods", kind: "check", command: "kubectl get pods", expect: "`Running`", refused: null },
+    { n: 2, title: "Sync", kind: "action", command: "argocd app sync shop", expect: "Synced and Healthy", refused: null },
+    { n: 3, title: "Page the db team?", kind: "decision", command: "", expect: "decided", refused: null },
+    { n: 4, title: "Restart", kind: "check", command: "kubectl rollout restart deploy/web", expect: "", refused: "not_read_only: `kubectl rollout restart deploy/web` is not on the read-only allowlist" },
+  ],
+};
 const SECRET: IacFinding = { source: "built-in", rule: "secret-argument", file: "infra/main.tf", line: 7, severity: "error", message: "`password` takes a secret from `var.db`", resource: null, key: "built-in:secret-argument:infra/main.tf:abc", accepted: false };
 const stage = (id: string, status: Stage["status"], findings: IacFinding[] = [], extra: Partial<Stage> = {}): Stage => ({ id, status, summary: status, detail: "", hint: null, command: `${id} cmd`, findings, ms: 10, ...extra });
 const RUN_BLOCKED: PipelineRun = {
@@ -89,6 +98,10 @@ function fakes(target: KubeTarget | null = T) {
   let stageListener: ((e: { root: string; dir: string; stage: Stage }) => void) | null = null;
   let risks: AcceptedRisk[] = [];
   const accepted: Array<{ key: string; kind: string; label: string; reason: string }> = [];
+  const stepCalls: Array<{ n: number; runId: string; approval: { reason: string } | null; vault: unknown }> = [];
+  const judged: Array<{ id: number; matched: boolean; note: string }> = [];
+  const shown: string[] = [];
+  let evidenceFails = false;
   const port: OpsPort = {
     iacDirs: async () => [".", "infra"],
     iacPlan: async (_r, dir, refreshOnly) => ({ ...PLAN, dir, refreshOnly }),
@@ -111,6 +124,18 @@ function fakes(target: KubeTarget | null = T) {
     risks: async () => risks,
     acceptRisk: async (_r, a) => { accepted.push(a); const r = { id: risks.length + 1, key: a.key, kind: a.kind, label: a.label, reason: a.reason, actor: "ana", at: 1, expires: 30 * 864e5 }; risks = [r, ...risks]; return r; },
     revokeRisk: async (_r, id) => { risks = risks.filter((r) => r.id !== id); return true; },
+    runbooks: async () => [RUNBOOK],
+    runStep: async (_r, path, n, runId, approval, vault) => {
+      stepCalls.push({ n, runId, approval, vault });
+      const s = RUNBOOK.steps.find((x) => x.n === n)!;
+      if (s.refused) throw new Error(s.refused);
+      return { id: 100 + n, runId, path, runbook: RUNBOOK.title, n, title: s.title, kind: s.kind, command: s.command, exitCode: 0, output: n === 1 ? "web-1 Running" : "pool 41 %", expect: s.expect, matched: n === 1 ? true : null, note: approval?.reason ?? null, actor: "ana", at: 1, ms: 12 };
+    },
+    decide: async (_r, path, n, runId, note) => ({ id: 200 + n, runId, path, runbook: RUNBOOK.title, n, title: "page?", kind: "decision", command: "", exitCode: null, output: "", expect: "", matched: null, note, actor: "ana", at: 1, ms: 0 }),
+    judge: async (_r, id, matched, note) => { judged.push({ id, matched, note }); return true; },
+    runs: async () => [],
+    sources: async () => [{ kind: "cicd", connected: true, via: "gh as ana, read-only (runs, pull requests)", notes: "", hint: null }, { kind: "cost", connected: false, via: null, notes: "not connected", hint: "A read-only cost source…" }],
+    exportEvidence: async () => { if (evidenceFails) throw new Error("db locked"); return { path: "docs/audit/evidence-2026-11.md", content: "# Evidence export — proj\n" }; },
   };
   const o = makeOps({
     ops: port,
@@ -118,6 +143,7 @@ function fakes(target: KubeTarget | null = T) {
       root: () => "/proj", kubeTarget: () => target,
       runInTerminal: (c) => { ran.push(c); return exit === null ? undefined : Promise.resolve(exit); },
       openFile: (f, l) => opened.push(`${f}:${l}`), now: () => 7_000, every: (_ms, f) => { ticks.push(f); return () => { ticks.length = 0; }; },
+      showFile: (rel, content) => shown.push(`${rel}|${content}`), vault: () => ({ addr: "http://127.0.0.1:8200", namespace: null }),
     },
     human: { approve: async (r) => { confirms.push(r); return { approved: answer, reason: answer && r.reasonRequired ? "fixture bucket, not public" : "", decidedAt: 1 }; }, text: async () => texts.shift() ?? null, toast: (m) => toasts.push(m) },
     audit: { record: async (e) => { if (auditFails) throw new Error("db locked"); audited.push(e); } },
@@ -125,7 +151,7 @@ function fakes(target: KubeTarget | null = T) {
     say: (k, p) => (p ? `${k} ${JSON.stringify(p)}` : k),
   });
   return {
-    o, ran, confirms, texts, asked, toasts, port, audited, opened, ticks, pipelines, accepted,
+    o, ran, confirms, texts, asked, toasts, port, audited, opened, ticks, pipelines, accepted, stepCalls, judged, shown, breakEvidence: () => { evidenceFails = true; },
     refuse: () => { answer = false; }, breakAudit: () => { auditFails = true; }, exitWith: (c: number) => { exit = c; },
     runs: (f: (dir: string, target: string | null) => PipelineRun) => { nextRun = f; }, refuseApply: (m: string) => { applyRefusal = m; },
   };
@@ -375,4 +401,69 @@ describe("a vista", () => {
     expect(host.textContent).toContain("sensitiveIn:input");
     expect(host.textContent).not.toContain("id-1-secret");
   });
+
+  it("r23 F5a: os runbooks, as fontes «não ligadas» e o botão das evidências", async () => {
+    const f = fakes();
+    await f.o.refresh();
+    const t = (k: string, p?: Record<string, string | number>) => (p ? `${k}:${Object.values(p).join(",")}` : k);
+    const host = document.createElement("div");
+    host.innerHTML = renderOps(t as never, f.o.state(), true, true);
+    const steps = host.querySelectorAll(".ops-rb .ops-step");
+    expect(steps).toHaveLength(4);
+    expect(steps[3].classList.contains("s-refused")).toBe(true);
+    expect(steps[3].querySelector('[data-action="ops-rb-run"]')).toBeNull();
+    expect(steps[3].textContent).toContain("not_read_only");
+    expect(host.querySelector('[data-action="ops-evidence"]')).not.toBeNull();
+    expect(host.textContent).toContain("srcNotConnected");
+    expect(host.textContent).toContain("gh as ana, read-only");
+  });
 });
+
+describe("r23 F5a: runbooks como código", () => {
+  it("uma verificação corre sem perguntar; uma acção só com aprovação e motivo, com o Vault só nesse passo; uma decisão regista as palavras", async () => {
+    const f = fakes();
+    await f.o.refresh();
+    await f.o.runStep(1);
+    expect(f.confirms).toHaveLength(0);
+    expect(f.stepCalls[0]).toMatchObject({ n: 1, runId: "run-7000", approval: null, vault: null });
+    expect(f.o.state().rb.results[1].matched).toBe(true);
+    await f.o.runStep(2);
+    expect(f.confirms[0]).toMatchObject({ reasonRequired: true, command: expect.stringContaining("argocd app sync shop") });
+    expect(f.confirms[0].command).toContain("rbVaultEnv");
+    expect(f.stepCalls[1]).toMatchObject({ n: 2, runId: "run-7000", approval: { reason: "fixture bucket, not public" }, vault: { addr: "http://127.0.0.1:8200", namespace: null } });
+    f.texts.push("yes, the pool was full");
+    await f.o.judge(2, true);
+    expect(f.judged[0]).toEqual({ id: 102, matched: true, note: "yes, the pool was full" });
+    expect(f.o.state().rb.results[2].matched).toBe(true);
+    f.texts.push("no: the pool recovered");
+    await f.o.runStep(3);
+    expect(f.o.state().rb.results[3].note).toBe("no: the pool recovered");
+    await f.o.runStep(4);
+    expect(f.toasts.at(-1)).toContain("not_read_only");
+    f.o.askStep(1);
+    expect(f.asked.at(-1)?.context[0].text).toContain("web-1 Running");
+    expect(f.asked.at(-1)?.context[0].text).toContain("next: step 2 [action] Sync");
+    f.o.newRun();
+    expect(f.o.state().rb.results).toEqual({});
+  });
+
+  it("uma acção recusada no diálogo não corre", async () => {
+    const f = fakes({ approve: false } as never);
+    await f.o.refresh();
+    f.refuse();
+    await f.o.runStep(2);
+    expect(f.stepCalls).toHaveLength(0);
+  });
+
+  it("exportar evidências escreve o ficheiro dentro do projecto e abre-o; uma falha diz-se", async () => {
+    const f = fakes();
+    await f.o.refresh();
+    await f.o.exportEvidence();
+    expect(f.shown).toEqual(["docs/audit/evidence-2026-11.md|# Evidence export — proj\n"]);
+    expect(f.toasts.at(-1)).toContain("evidenceDone");
+    f.breakEvidence();
+    await f.o.exportEvidence();
+    expect(f.toasts.at(-1)).toContain("evidenceFailed");
+  });
+});
+

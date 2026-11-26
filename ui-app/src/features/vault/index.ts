@@ -7,6 +7,7 @@ import { translator } from "../../app/i18n";
 import { requestApproval } from "../../app/approval";
 import { auditClient } from "../../platform/tauri/audit";
 import { isDesktop } from "../../platform/tauri/core";
+import { services } from "../../app/services";
 import { makeVault } from "./application/vault-service";
 import { statusKind, ttlText } from "./domain/rules";
 import { tauriVault } from "./infrastructure/tauri";
@@ -47,6 +48,7 @@ export function openVault(): void {
 }
 
 bindActions(vault, openVault);
+services.vault = { signedIn: () => { const s = vault.state(); return s.status?.signedIn && s.target.addr ? { addr: s.target.addr, namespace: s.target.namespace || null } : null; } };
 if (isDesktop()) {
   /* o estado do token na barra, ao arrancar e de minuto a minuto (o TTL desce) */
   document.addEventListener("dx:workspace", () => { void vault.refresh(); });

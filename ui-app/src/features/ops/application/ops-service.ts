@@ -16,6 +16,7 @@
    No DOM, no window. */
 
 import { DRIFT_EVERY_MS, driftKey, eventsFor, findingLabel, forceUnlock, importDraft, isAddress, kubeCmd, movedDraft, planText, securityFindings, servicePort } from "../domain/commands";
+import type { DataSource, Runbook, StepRun } from "../domain/types";
 import type { AcceptedRisk, CloudCli, CloudInventory, IacFinding, IacPlan, IacState, KubeState, KubeTarget, PipelineRun, Revision, Stage } from "../domain/types";
 import type { ApprovalRequest, AuditPort, CodevPort, HumanPort, OpsPort, OpsWorld } from "./ports";
 
@@ -40,6 +41,10 @@ export interface OpsState {
   cloud: { status: CloudCli[] | null; inventory: Record<string, CloudInventory>; busy: string | null };
   /** the last command sent to a terminal */
   ran: string | null;
+  /** r23 F5a: runbooks as code (the selected one, the current run's results by step, its past runs) */
+  rb: { list: Runbook[] | null; sel: string | null; runId: string | null; results: Record<number, StepRun>; busy: number | null; history: StepRun[] };
+  sources: DataSource[] | null;
+  evidence: { busy: boolean; last: string | null };
 }
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? String((e as { message: unknown }).message) : String(e));
@@ -50,7 +55,10 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     dirs, dir, tab: "pipeline", open: null, run: null, live: null, busy: false, staleRisks: false, applied: null, risks: [],
     drift: { plan: null, at: null, busy: false }, state: { data: null, busy: false },
   });
-  const st: OpsState = { iac: freshIac(), kube: { target: null, state: null, busy: false, history: null }, cloud: { status: null, inventory: {}, busy: null }, ran: null };
+  const st: OpsState = {
+    iac: freshIac(), kube: { target: null, state: null, busy: false, history: null }, cloud: { status: null, inventory: {}, busy: null }, ran: null,
+    rb: { list: null, sel: null, runId: null, results: {}, busy: null, history: [] }, sources: null, evidence: { busy: false, last: null },
+  };
   const subs = new Set<() => void>();
   const emit = (): void => { subs.forEach((f) => f()); };
 
@@ -242,6 +250,89 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     if (tab === "state" && !st.iac.state.data) void loadState();
   }
 
+  /* ── r23 F5a: runbooks as code ── */
+  const selected = (): Runbook | null => st.rb.list?.find((r) => r.path === st.rb.sel) ?? null;
+  async function loadRunbooks(): Promise<void> {
+    const root = world.root();
+    if (!root) return;
+    st.rb.list = await ops.runbooks(root).catch(() => []);
+    if ((!st.rb.sel || !selected()) && st.rb.list.length) { st.rb.sel = st.rb.list[0].path; void loadHistory(); }
+    emit();
+  }
+  async function loadHistory(): Promise<void> {
+    const root = world.root(), p = st.rb.sel;
+    if (!root || !p) return;
+    st.rb.history = await ops.runs(root, p).catch(() => []);
+    emit();
+  }
+  function selectRunbook(path: string): void {
+    Object.assign(st.rb, { sel: path, runId: null, results: {}, history: [] });
+    emit();
+    void loadHistory();
+  }
+  function newRun(): void { st.rb.runId = null; st.rb.results = {}; emit(); }
+  /** Runs (or decides) step `n`: a check straight away (the backend refuses one that is not read-only); an action after
+   *  the approval with the exact command and a reason (audited in Rust), with Vault's environment for that step only. */
+  async function runStep(n: number): Promise<void> {
+    const root = world.root(), rb = selected(), step = rb?.steps.find((s) => s.n === n);
+    if (!root || !rb || !step || st.rb.busy !== null) return;
+    const runId = st.rb.runId ?? `run-${world.now()}`;
+    let approval: { reason: string } | null = null, note: string | null = null;
+    const vault = world.vault();
+    if (step.kind === "action") {
+      const d = await human.approve({ title: say("rbActionWhat", { n, t: step.title }), command: step.command + (vault ? `\n# ${say("rbVaultEnv")}` : ""), scope: say("rbScope", { p: rb.path }), reasonRequired: true });
+      if (!d.approved) return;
+      approval = { reason: d.reason };
+    } else if (step.kind === "decision") {
+      note = await human.text(say("rbDecidePh", { t: step.title }));
+      if (note === null || note.trim().length < 3) return;
+    }
+    st.rb.runId = runId; st.rb.busy = n; emit();
+    try {
+      const r = step.kind === "decision" ? await ops.decide(root, rb.path, n, runId, note!) : await ops.runStep(root, rb.path, n, runId, approval, step.kind === "action" ? vault : null);
+      st.rb.results = { ...st.rb.results, [n]: r };
+    } catch (e) { human.toast(say("rbRefused", { e: msg(e) })); }
+    st.rb.busy = null; emit();
+    void loadHistory();
+  }
+  /** The person judges a result against a prose expectation. */
+  async function judge(n: number, matched: boolean): Promise<void> {
+    const root = world.root(), r = st.rb.results[n];
+    if (!root || !r) return;
+    const note = await human.text(say("rbJudgePh"), "");
+    if (note === null) return;
+    try { await ops.judge(root, r.id, matched, note); st.rb.results = { ...st.rb.results, [n]: { ...r, matched, note } }; emit(); }
+    catch (e) { human.toast(msg(e)); }
+  }
+  /** Co-Dev comments an output and suggests the next step (a proposal; it runs nothing). */
+  function askStep(n: number): void {
+    const rb = selected(), r = st.rb.results[n];
+    if (!rb || !r || !canAsk()) return;
+    const next = rb.steps.find((s) => s.n === n + 1);
+    codev.ask({ intent: "explain", text: say("rbAsk"), context: [{ kind: "problem", label: `${rb.path} · step ${n}`, text: `step ${n} [${r.kind}] ${r.title}\n$ ${r.command}\nexit ${r.exitCode ?? "-"} · expect: ${r.expect}\n\n${r.output.slice(-4000)}${next ? `\n\nnext: step ${next.n} [${next.kind}] ${next.title}` : ""}`, path: rb.path }], send: true });
+  }
+  function editRunbook(): void { const p = st.rb.sel; if (p) world.openFile(p, 1); }
+
+  /* ── r23 F5a: data sources and the evidence ── */
+  async function loadSources(): Promise<void> {
+    const root = world.root();
+    if (!root) return;
+    st.sources = await ops.sources(root).catch(() => []);
+    emit();
+  }
+  async function exportEvidence(): Promise<void> {
+    const root = world.root();
+    if (!root || st.evidence.busy) return;
+    st.evidence.busy = true; emit();
+    try {
+      const f = await ops.exportEvidence(root);
+      st.evidence.last = f.path;
+      world.showFile(f.path, f.content);
+      human.toast(say("evidenceDone", { p: f.path }));
+    } catch (e) { human.toast(say("evidenceFailed", { e: msg(e) })); }
+    st.evidence.busy = false; emit();
+  }
+
   /* ── Kubernetes ── */
   async function loadKube(): Promise<void> {
     const t = world.kubeTarget();
@@ -312,7 +403,8 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     state: (): OpsState => st,
     subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; },
     /** Everything the tab reads when it opens. */
-    refresh: async (): Promise<void> => { await Promise.all([loadDirs(), loadKube(), loadCloud(), loadRisks()]); },
+    refresh: async (): Promise<void> => { await Promise.all([loadDirs(), loadKube(), loadCloud(), loadRisks(), loadRunbooks(), loadSources()]); },
+    loadRunbooks, selectRunbook, newRun, runStep, judge, askStep, editRunbook, loadSources, exportEvidence,
     selectDir, setTab,
     runPipeline, applyRun, askPlan,
     acceptFinding, revokeRisk, openFinding, fixFinding,
@@ -323,7 +415,11 @@ export function makeOps(deps: { ops: OpsPort; world: OpsWorld; human: HumanPort;
     drifted,
     toggleResource: (address: string) => { st.iac.open = st.iac.open === address ? null : address; emit(); },
     /** Another folder opened: what was read of the last one goes (and its drift schedule). */
-    workspaceChanged: (): void => { stopDrift?.(); stopDrift = null; st.iac = freshIac(); emit(); },
+    workspaceChanged: (): void => {
+      stopDrift?.(); stopDrift = null; st.iac = freshIac();
+      st.rb = { list: null, sel: null, runId: null, results: {}, busy: null, history: [] }; st.sources = null; st.evidence = { busy: false, last: null };
+      emit();
+    },
     loadKube, history, kubeAction, scale, portForward, askPod,
     inventory,
   };
