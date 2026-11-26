@@ -301,7 +301,7 @@ fn base_env(cmd: &mut CommandBuilder, env: Option<HashMap<String, String>>) {
 /// arrives in `pty://exit`. `cwd` defaults to HOME.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     app: AppHandle,
     state: State<'_, PtyState>,
     id: String,
@@ -378,7 +378,7 @@ pub fn pty_spawn(
 /// (`<engine> exec -it <session> sh`) on a PTY — a live terminal attached to the container.
 /// Errors when no session is running.
 #[tauri::command]
-pub fn pty_spawn_in_session(
+pub async fn pty_spawn_in_session(
     app: AppHandle,
     state: State<'_, PtyState>,
     id: String,
@@ -455,7 +455,7 @@ pub fn pty_kill(state: State<'_, PtyState>, id: String) -> bool {
 
 /// The shells this machine offers for a new terminal (the "+ ▾" profile menu).
 #[tauri::command]
-pub fn pty_shells() -> Vec<ShellProfile> {
+pub async fn pty_shells() -> Vec<ShellProfile> {
     #[cfg(windows)]
     {
         let mut out = Vec::new();

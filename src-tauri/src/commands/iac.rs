@@ -62,7 +62,7 @@ pub async fn iac_pipeline_run(
 /// The exact command that applies a reviewed plan — refused (here, not in the UI) when its run
 /// was blocked, the file is not the reviewed one, or the configuration changed since.
 #[tauri::command]
-pub fn iac_apply_command(
+pub async fn iac_apply_command(
     app: AppHandle,
     root: String,
     dir: String,

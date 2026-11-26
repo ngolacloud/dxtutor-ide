@@ -137,7 +137,7 @@ pub async fn queue_verify(
 
 /// Hands an item over to someone (recipient and reason required); it shows in Team and leaves my queue.
 #[tauri::command]
-pub fn queue_handover(
+pub async fn queue_handover(
     app: AppHandle,
     root: String,
     id: String,
@@ -269,7 +269,7 @@ pub async fn pr_review_submit(
 
 /// Opens a local incident (no pager source: a person opens it); I am its commander.
 #[tauri::command]
-pub fn incident_open(
+pub async fn incident_open(
     app: AppHandle,
     root: String,
     title: String,
@@ -293,7 +293,7 @@ pub fn incident_open(
 }
 
 #[tauri::command]
-pub fn incident_list(app: AppHandle, root: String) -> Result<Vec<Incident>, String> {
+pub async fn incident_list(app: AppHandle, root: String) -> Result<Vec<Incident>, String> {
     crate::board::with_store(&app, &root, |s, r| incidents::list(s.conn(), r)).map_err(err)
 }
 
@@ -336,7 +336,7 @@ pub async fn incident_get(app: AppHandle, root: String, id: i64) -> Result<Incid
 
 /// Adds evidence, a check run, a check not run (with why), or a note.
 #[tauri::command]
-pub fn incident_add(
+pub async fn incident_add(
     app: AppHandle,
     root: String,
     id: i64,
@@ -353,7 +353,7 @@ pub fn incident_add(
 
 /// Moves an incident on (mitigated, resolved with a summary), audited.
 #[tauri::command]
-pub fn incident_status(
+pub async fn incident_status(
     app: AppHandle,
     root: String,
     id: i64,
@@ -379,7 +379,12 @@ pub fn incident_status(
 
 /// «Was the top cause right?» — measures Co-Dev's precision.
 #[tauri::command]
-pub fn incident_feedback(app: AppHandle, root: String, id: i64, right: bool) -> Result<(), String> {
+pub async fn incident_feedback(
+    app: AppHandle,
+    root: String,
+    id: i64,
+    right: bool,
+) -> Result<(), String> {
     let (actor, at) = crate::board::who_and_when(&root);
     crate::board::with_store(&app, &root, |s, r| {
         incidents::feedback(s.conn(), r, id, right, &actor, at)

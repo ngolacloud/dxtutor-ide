@@ -174,6 +174,6 @@ pub async fn resolve_references(
 /// manifest (Cargo/Go/Python), else `null`. The Explorer's Run button uses this so it runs
 /// the PROJECT entry point (e.g. `cargo run`) rather than whichever file is focused.
 #[tauri::command]
-pub fn project_entrypoint(root: String) -> Option<String> {
+pub async fn project_entrypoint(root: String) -> Option<String> {
     crate::fsops::project_entrypoint(&root)
 }

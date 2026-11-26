@@ -32,12 +32,12 @@ use crate::debug::{self, DapSessions, DebugSessions};
 /// true only when a real DAP adapter is installed; otherwise the note points at the
 /// instrumentation tracer (Visualize) as the fallback. Detection only, starts nothing.
 #[tauri::command]
-pub fn debug_capabilities() -> debug::DebugCapability {
+pub async fn debug_capabilities() -> debug::DebugCapability {
     debug::capabilities()
 }
 
 #[tauri::command]
-pub fn debug_available() -> bool {
+pub async fn debug_available() -> bool {
     debug::available() || tutor_eval::dapc::find_adapter().is_some()
 }
 
@@ -527,7 +527,7 @@ pub async fn debug_pause(dap: tauri::State<'_, DapSessions>, id: String) -> Resu
 
 /// The gutter's breakpoints of the project (kept in the project database).
 #[tauri::command]
-pub fn breakpoints_load(
+pub async fn breakpoints_load(
     app: tauri::AppHandle,
     root: String,
 ) -> Result<Vec<tutor_board::project::breakpoints::Breakpoint>, String> {
@@ -551,7 +551,7 @@ pub fn breakpoints_save(
 /// Keeps a snapshot of the session (where it stopped, the stack, the variables, the output) as
 /// markdown, linked to an issue when one is given — it shows in the issue's panel.
 #[tauri::command]
-pub fn debug_snapshot(
+pub async fn debug_snapshot(
     app: tauri::AppHandle,
     root: String,
     id: String,
