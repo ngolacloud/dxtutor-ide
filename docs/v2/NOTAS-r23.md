@@ -296,6 +296,14 @@ rollout aplica os manifestos SEM o Secret (o do cluster fica intacto), anota a v
   ficavam com a versão deste deploy (medido no kind). Agora só os Deployments dos manifestos — também no deploy do pane
   Infra e na promoção de ambientes (`platform/desktop/infra.ts`).
 - A dica do infracost sem chave dizia para o instalar; agora diz para fazer `infracost auth login`.
+- No auto-teste (HOME temporário, sem chave) o infracost 2.21 abriu um login no browser do utilizador e ficou à espera
+  até ser morto (o `breakdown` passou a correr o `scan`, que pede login). Agora, sem credenciais, a etapa é «not
+  connected» sem correr o infracost; com elas, corre sem stdin nem ecrã, é parado num pedido de login e tem um prazo.
+  Testes: `iac::tests::infracost_*` (com um infracost falso pela fábrica de comandos).
+- O protect do auto-teste deixou passar o commit com `postgres://u:p@h` (`blockedCode: 0`): o binário era de um ramo
+  sem a correcção acima (o gitleaks a substituir as regras próprias). Teste de regressão sem depender do gitleaks
+  instalado: `scan::tests::the_self_test_commit_is_blocked_with_or_without_gitleaks` (gitleaks falso pela fábrica). O
+  relatório do gitleaks passou a ser um ficheiro por corrida (dois scans ao mesmo tempo partilhavam um nome por processo).
 
 ## A seguir
 

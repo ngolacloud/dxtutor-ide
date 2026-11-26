@@ -160,8 +160,22 @@ fn on_path(tool: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The scan of what a commit would take.
+/// The scan of what a commit would take (gitleaks joins in when it is on the PATH).
 pub fn scan(root: &Path, scope: &Scope) -> Result<ScanReport, String> {
+    let gitleaks = || Command::new("gitleaks");
+    scan_using(
+        root,
+        scope,
+        on_path("gitleaks").then_some(&gitleaks as &dyn Fn() -> Command),
+    )
+}
+
+/// [`scan`] with the gitleaks to use, if any (a test passes a fake one).
+fn scan_using(
+    root: &Path,
+    scope: &Scope,
+    gitleaks: Option<&dyn Fn() -> Command>,
+) -> Result<ScanReport, String> {
     let r = current();
     let has_head = git(root, &["rev-parse", "--verify", "-q", "HEAD"]).is_ok();
     let base = if has_head {
@@ -222,12 +236,12 @@ pub fn scan(root: &Path, scope: &Scope) -> Result<ScanReport, String> {
         }
     }
     let tool;
-    if on_path("gitleaks") && matches!(scope, Scope::Staged) {
+    if let (Some(gitleaks), Scope::Staged) = (gitleaks, scope) {
         // gitleaks adds its rules; it does not replace ours (measured: it has no rule for a URL with a
         // password, `postgres://u:p@h`, nor the values learned from `.env` files). A line both flag
         // is reported once, with gitleaks' rule.
         tool = "gitleaks + built-in".to_string();
-        let leaks = gitleaks_staged(root)?;
+        let leaks = gitleaks_staged(root, gitleaks)?;
         let seen: std::collections::HashSet<(String, u32)> =
             leaks.iter().map(|f| (f.file.clone(), f.line)).collect();
         findings.extend(leaks);
@@ -253,9 +267,17 @@ pub fn scan(root: &Path, scope: &Scope) -> Result<ScanReport, String> {
     })
 }
 
-fn gitleaks_staged(root: &Path) -> Result<Vec<Finding>, String> {
-    let report = std::env::temp_dir().join(format!("dxtutor-gitleaks-{}.json", std::process::id()));
-    let o = Command::new("gitleaks")
+fn gitleaks_staged(root: &Path, gitleaks: &dyn Fn() -> Command) -> Result<Vec<Finding>, String> {
+    // one report file per scan: two scans at once in the app (or the tests) must not read each
+    // other's report, nor lose theirs when the other one removes it
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let report = std::env::temp_dir().join(format!(
+        "dxtutor-gitleaks-{}-{}.json",
+        std::process::id(),
+        N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    ));
+    let _ = std::fs::remove_file(&report);
+    let o = gitleaks()
         .args([
             "protect",
             "--staged",
@@ -566,5 +588,70 @@ mod tests {
         assert!(at.iter().any(|(l, _)| *l == 2), "{at:?}");
         assert_eq!(at.iter().filter(|(l, _)| *l == 2).count(), 1, "{at:?}");
         assert!(r.findings.iter().all(|f| !f.preview.contains("s3cr3tP4ss")));
+    }
+
+    /// The desktop self-test's commit: `postgres://u:p@h` in `db.rs`, staged. gitleaks 8.30 has no
+    /// rule for a URL with a password; when the staged scan used only gitleaks (before cae6540), this
+    /// commit went through. With or without gitleaks, our rules block it; a line both flag counts
+    /// once; a gitleaks that fails blocks rather than lets the commit through.
+    #[test]
+    fn the_self_test_commit_is_blocked_with_or_without_gitleaks() {
+        let d = repo();
+        let root = d.path();
+        std::fs::write(
+            root.join("db.rs"),
+            "const URL: &str = \"postgres://u:p@h/app\";\n",
+        )
+        .unwrap();
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["add", "db.rs"])
+            .status()
+            .unwrap()
+            .success());
+        let at = |r: &ScanReport| -> Vec<String> {
+            r.findings
+                .iter()
+                .map(|f| format!("{}:{} {}", f.file, f.line, f.rule))
+                .collect()
+        };
+        // no gitleaks on the PATH
+        let r = scan_using(root, &Scope::Staged, None).unwrap();
+        assert_eq!(r.tool, "built-in");
+        assert_eq!(at(&r), vec!["db.rs:1 url-credentials"]);
+        // a fake gitleaks (run by `sh`): writes $REPORT where --report-path says, exits with $CODE
+        let tools = tempfile::tempdir().unwrap();
+        let script = tools.path().join("gitleaks.sh");
+        std::fs::write(
+            &script,
+            "while [ $# -gt 0 ]; do if [ \"$1\" = --report-path ]; then shift; [ -n \"$REPORT\" ] && printf '%s' \"$REPORT\" > \"$1\"; fi; shift; done\nexit ${CODE:-0}\n",
+        )
+        .unwrap();
+        let fake = |report: &'static str, code: &'static str| {
+            let script = script.clone();
+            move || {
+                let mut c = Command::new("sh");
+                c.arg(&script).env("REPORT", report).env("CODE", code);
+                c
+            }
+        };
+        // gitleaks finds nothing (it has no rule for this URL): our rules still block it
+        let none = fake("[]", "0");
+        let r = scan_using(root, &Scope::Staged, Some(&none)).unwrap();
+        assert_eq!(r.tool, "gitleaks + built-in");
+        assert_eq!(at(&r), vec!["db.rs:1 url-credentials"]);
+        assert!(guard_commit(root, &Scope::Staged).is_err());
+        // gitleaks flags the same line: one finding, gitleaks' rule
+        let same = fake(
+            r#"[{"File":"db.rs","StartLine":1,"RuleID":"generic-api-key"}]"#,
+            "0",
+        );
+        let r = scan_using(root, &Scope::Staged, Some(&same)).unwrap();
+        assert_eq!(at(&r), vec!["db.rs:1 generic-api-key"]);
+        // gitleaks fails without a report: an error (the commit is refused), never a clean scan
+        let broken = fake("", "2");
+        let e = scan_using(root, &Scope::Staged, Some(&broken)).unwrap_err();
+        assert!(e.starts_with("gitleaks failed"), "{e}");
     }
 }
