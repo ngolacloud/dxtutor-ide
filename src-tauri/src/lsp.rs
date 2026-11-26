@@ -1686,10 +1686,10 @@ pub async fn lsp_approve_server(
                 "the project's command changed since it was shown — review it again".to_string(),
             );
         }
-        crate::board::audit_record(
-            app.clone(),
-            project.clone(),
-            crate::board::IdeAudit {
+        crate::board::record_ide_audit(
+            &app,
+            &project,
+            &crate::board::IdeAudit {
                 feature: "lsp".into(),
                 action: "lsp.server.approve".into(),
                 command: req.audit_text(),

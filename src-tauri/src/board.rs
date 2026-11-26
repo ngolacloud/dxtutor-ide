@@ -85,7 +85,7 @@ pub fn actor(root: &str) -> String {
 
 /// O projecto da pasta `root` (criado vazio no primeiro uso).
 #[tauri::command]
-pub fn project_load(app: AppHandle, root: String) -> Result<Project, ProjectError> {
+pub async fn project_load(app: AppHandle, root: String) -> Result<Project, ProjectError> {
     let root = root_of(&root)?;
     open(&app)?.load(&root, now_ms())
 }
@@ -94,7 +94,7 @@ pub fn project_load(app: AppHandle, root: String) -> Result<Project, ProjectErro
 /// forma atómica e devolve o projecto depois dela. Uma regra violada devolve o erro com o
 /// `code` da regra e `overridable`.
 #[tauri::command]
-pub fn project_apply(
+pub async fn project_apply(
     app: AppHandle,
     root: String,
     op: serde_json::Value,
@@ -165,7 +165,7 @@ pub fn project_apply(
 /// do método e o que fica porque o utilizador o definiu. Não escreve nada — o «settings» com
 /// `method` aplica a mesma mudança. `lang`: a língua das sugestões de DoR/DoD (`pt`, senão inglês).
 #[tauri::command]
-pub fn project_method_preview(
+pub async fn project_method_preview(
     app: AppHandle,
     root: String,
     method: String,
@@ -189,7 +189,7 @@ fn git_config(dir: &Path, key: &str) -> String {
 /// As verificações obrigatórias do projecto (Multi Co-Dev: a porta de integração da fase 4 corre-as
 /// no commit actual). Vazio: não foram definidas — vale o comando de testes detectado.
 #[tauri::command]
-pub fn project_checks(
+pub async fn project_checks(
     app: AppHandle,
     root: String,
 ) -> Result<Vec<tutor_board::project::Check>, ProjectError> {
@@ -199,7 +199,7 @@ pub fn project_checks(
 
 /// A actividade e os change sets do Co-Dev de uma issue (o painel da issue).
 #[tauri::command]
-pub fn project_issue(
+pub async fn project_issue(
     app: AppHandle,
     root: String,
     key: String,
@@ -212,7 +212,7 @@ pub fn project_issue(
 /// do último commit do `HEAD` (sem `HEAD` — repositório novo ou sem git — todos). O painel
 /// Source Control cruza-os com os ficheiros alterados e oferece Stage/Discard por conjunto.
 #[tauri::command]
-pub fn project_change_sets(
+pub async fn project_change_sets(
     app: AppHandle,
     root: String,
 ) -> Result<Vec<ChangeSetGroup>, ProjectError> {
@@ -239,7 +239,7 @@ fn head_commit_ms(root: &Path) -> i64 {
 
 /// Os relatórios calculados do histórico (vazios sem histórico).
 #[tauri::command]
-pub fn project_reports(app: AppHandle, root: String) -> Result<Reports, ProjectError> {
+pub async fn project_reports(app: AppHandle, root: String) -> Result<Reports, ProjectError> {
     let root = root_of(&root)?;
     open(&app)?.reports(&root, now_ms())
 }
@@ -247,7 +247,7 @@ pub fn project_reports(app: AppHandle, root: String) -> Result<Reports, ProjectE
 /// O registo de auditoria do Co-Dev (RF-T01): de uma issue (`issue`) ou da pasta toda, por
 /// ordem, com os segredos já mascarados. É o que «Exportar registo» grava em JSON.
 #[tauri::command]
-pub fn project_audit(
+pub async fn project_audit(
     app: AppHandle,
     root: String,
     issue: Option<String>,
@@ -358,11 +358,21 @@ pub fn ide_audit_entry(
 /// something outside the editor goes there — who, when, command, approval, result). The same
 /// table and export as the Co-Dev's (`project_audit`), with origin `ide`.
 #[tauri::command]
-pub fn audit_record(app: AppHandle, root: String, entry: IdeAudit) -> Result<(), ProjectError> {
-    let root = root_of(&root)?;
+pub async fn audit_record(
+    app: AppHandle,
+    root: String,
+    entry: IdeAudit,
+) -> Result<(), ProjectError> {
+    record_ide_audit(&app, &root, &entry)
+}
+
+/// The body of `audit_record`, for the backend code that records an approval the UI decided (blocking:
+/// call it off the UI thread).
+pub fn record_ide_audit(app: &AppHandle, root: &str, entry: &IdeAudit) -> Result<(), ProjectError> {
+    let root = root_of(root)?;
     let redactor = tutor_agent::redact::Redactor::for_root(Path::new(&root));
-    let e = ide_audit_entry(&entry, &actor(&root), now_ms(), &redactor)?;
-    open(&app)?.record_audit(&root, &e)
+    let e = ide_audit_entry(entry, &actor(&root), now_ms(), &redactor)?;
+    open(app)?.record_audit(&root, &e)
 }
 
 /// A test run as the Testing pane reports it (r23 F3, UI-SCM-09); the commit is decided here.
@@ -380,7 +390,7 @@ pub struct NewTestRun {
 /// Records a test run on the folder's current commit (HEAD), and whether the working tree had
 /// uncommitted changes. Without a commit (not a repository, no commit yet) nothing is recorded.
 #[tauri::command]
-pub fn test_results_record(
+pub async fn test_results_record(
     app: AppHandle,
     root: String,
     run: NewTestRun,
@@ -419,7 +429,7 @@ pub fn test_results_record(
 
 /// The test runs on these commits (hashes or 7+ prefixes), newest first.
 #[tauri::command]
-pub fn test_results_for(
+pub async fn test_results_for(
     app: AppHandle,
     root: String,
     shas: Vec<String>,
@@ -433,7 +443,7 @@ pub fn test_results_for(
 /// arquitecto, o âmbito e o código com números de linha; a versão do template e uma estimativa
 /// de tokens. É o que «Ver prompt» mostra e o que «Work on it with Co-Dev» envia.
 #[tauri::command]
-pub fn project_issue_prompt(
+pub async fn project_issue_prompt(
     app: AppHandle,
     root: String,
     key: String,
@@ -786,7 +796,7 @@ fn tasks_key(root: Option<String>) -> Result<String, String> {
 
 /// Lê o backlog persistido de `root` (ou `null` se ainda não existe).
 #[tauri::command]
-pub fn board_load(app: AppHandle, root: Option<String>) -> Result<Option<Backlog>, String> {
+pub async fn board_load(app: AppHandle, root: Option<String>) -> Result<Option<Backlog>, String> {
     let key = tasks_key(root)?;
     let store = BoardStore::open(&tasks_db_path(&app)?).map_err(|e| e.to_string())?;
     store.load_board(&key).map_err(|e| e.to_string())
@@ -1293,7 +1303,7 @@ pub fn audit_backend(
 /// days; who and when are decided here, and the acceptance goes to the audit log first — one that
 /// cannot be audited is not kept.
 #[tauri::command]
-pub fn iac_risk_accept(
+pub async fn iac_risk_accept(
     app: AppHandle,
     root: String,
     key: String,
@@ -1331,7 +1341,7 @@ pub fn iac_risk_accept(
 
 /// The accepted IaC risks still in force.
 #[tauri::command]
-pub fn iac_risks(
+pub async fn iac_risks(
     app: AppHandle,
     root: String,
 ) -> Result<Vec<tutor_board::project::risks::AcceptedRisk>, ProjectError> {
@@ -1341,7 +1351,7 @@ pub fn iac_risks(
 
 /// Ends an accepted risk now (audited): the pipeline blocks on it again.
 #[tauri::command]
-pub fn iac_risk_revoke(app: AppHandle, root: String, id: i64) -> Result<bool, ProjectError> {
+pub async fn iac_risk_revoke(app: AppHandle, root: String, id: i64) -> Result<bool, ProjectError> {
     let root = root_of(&root)?;
     let gone = open(&app)?.revoke_risk(&root, id, now_ms())?;
     if let Some(r) = &gone {
@@ -1366,7 +1376,7 @@ pub fn record_deploy(
 
 /// The deploys of these commits (hashes or 7+ prefixes), or all of them, newest first.
 #[tauri::command]
-pub fn deploy_records(
+pub async fn deploy_records(
     app: AppHandle,
     root: String,
     shas: Option<Vec<String>>,
@@ -1392,7 +1402,7 @@ pub fn record_runbook_step(
 
 /// A person's judgement of a step's result (a prose expectation), with a note.
 #[tauri::command]
-pub fn runbook_judge(
+pub async fn runbook_judge(
     app: AppHandle,
     root: String,
     id: i64,
@@ -1405,7 +1415,7 @@ pub fn runbook_judge(
 
 /// The runbook steps run in the last 90 days (of one runbook, or all), oldest first.
 #[tauri::command]
-pub fn runbook_runs(
+pub async fn runbook_runs(
     app: AppHandle,
     root: String,
     path: Option<String>,
@@ -1427,7 +1437,7 @@ pub struct EvidenceFile {
 /// `docs/audit/evidence-YYYY-MM.md` INSIDE the project, grouped by ISO/IEC 27001:2022 control from the
 /// real audit rows, deploy records and runbook runs; the export itself goes to the audit log.
 #[tauri::command]
-pub fn audit_export_evidence(
+pub async fn audit_export_evidence(
     app: AppHandle,
     root: String,
     from: Option<i64>,

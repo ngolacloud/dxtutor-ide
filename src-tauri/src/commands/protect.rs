@@ -3,7 +3,7 @@
 
 /// The open folder's `.env` secret values join what every LLM request is filtered for (X02).
 #[tauri::command]
-pub fn protect_learn(root: String) -> Result<usize, String> {
+pub async fn protect_learn(root: String) -> Result<usize, String> {
     tutor_protect::redact::learn_root(std::path::Path::new(root.trim()));
     Ok(tutor_protect::redact::total())
 }
@@ -33,21 +33,21 @@ pub async fn secret_scan(
 /// Lets the next commit in `root` go ahead despite the scan (one commit, two minutes). The reason
 /// is required; the UI records it in the audit log before calling this.
 #[tauri::command]
-pub fn secret_scan_allow(root: String, reason: String) -> Result<(), String> {
+pub async fn secret_scan_allow(root: String, reason: String) -> Result<(), String> {
     tutor_protect::scan::allow_once(std::path::Path::new(root.trim()), &reason)
 }
 
 /// The pre-commit hook (r23 hardening): where it would go in the open repository and whether one is
 /// there (`missing`, `installed` — ours —, `foreign` — never overwritten), with the text it writes.
 #[tauri::command]
-pub fn protect_hook_plan(root: String) -> Result<tutor_protect::hook::HookPlan, String> {
+pub async fn protect_hook_plan(root: String) -> Result<tutor_protect::hook::HookPlan, String> {
     tutor_protect::hook::plan(std::path::Path::new(root.trim()))
 }
 
 /// Installs the pre-commit hook (`dxt secret-scan --staged`) after the human approved it in the UI.
 /// The install goes to the audit log first: one that cannot be audited is not done.
 #[tauri::command]
-pub fn protect_hook_install(
+pub async fn protect_hook_install(
     app: tauri::AppHandle,
     root: String,
 ) -> Result<tutor_protect::hook::HookPlan, String> {

@@ -194,7 +194,7 @@ pub async fn vault_reveal_local(
 
 /// The value of a reveal while it lasts (20 seconds), then an error.
 #[tauri::command]
-pub fn vault_reveal_read(id: String) -> Result<String, String> {
+pub async fn vault_reveal_read(id: String) -> Result<String, String> {
     vault::reveal_read(&id)
 }
 

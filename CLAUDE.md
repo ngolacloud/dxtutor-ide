@@ -40,6 +40,11 @@ dependências — só `bash`/`awk`/`grep`). Verifica:
   U7 do ADR-0004, medida corrigida na U7p). Código novo não publica: lê por import, pelo store de `app/store`
   ou pelo registo `app/services.ts`. A lista só encolhe — um ficheiro que deixa de publicar sai dela (o A9
   falha até sair). As métricas «globais publicadas» e «shims de estado» do `ui-metrics.sh` também só descem.
+- **A10** — só os comandos da lista `SYNC_ALLOW` são síncronos. No Tauri um `#[tauri::command]` sem `async` corre
+  na thread da UI: enquanto dura, a janela não responde (medido em 2026-11-26: o `fsync` do SQLite e as leituras do
+  keychain no arranque deram «not responding» com a máquina carregada). Comando novo nasce `async` (o trabalho bloqueante
+  vai num `spawn_blocking` quando é longo). Ficam síncronos só os que dependem da ORDEM de chegada (teclas e tamanho do
+  terminal, mensagens a um agente/par/assistente em curso, ditado, gravações com debounce) e os puros e baratos.
 - **A7–A8** — fronteiras da Clean Architecture das features extraídas (abaixo).
   A var `FEATURES` do `arch-check.sh` lista quais governam (hoje `codev`, `ext`,
   `codereview`, `scm`, `debug`, `board`, `visualizer`, `infra`, `panel`, `learn`, `arch`, `testing`, `lsp`, `project`, `hood` — o «Under the hood» e o traço reais da A8 — `ops` — o separador Ops da A9 —, `codebase` — Dependencies e Onboarding da A10 —, `comments`, `welcome` — a página de boas-vindas da r23 F6 — `protect` — a protecção de dados da r23 F4a — `vault` — o Vault da r23 F4c — e `deploy` — o deploy guiado da r23 F4c2); cada nova
@@ -1256,6 +1261,21 @@ tradução para inglês (`trNode`, `LOCALE='en'`, respeitando o `TR_SKIP`): os g
 utilizador vê em inglês, e um texto que passa a `t("chave")` deixa-os iguais. Um diff de golden = **o código mudou de comportamento visual**:
 corrige o código, não o snapshot. Só se regenera um golden com decisão deliberada e
 registada (mudança de UI aprovada), nunca para «fazer passar».
+
+## Desempenho: a thread da UI nunca espera (P1, 2026-11-26)
+
+O IDE tem de ser leve e nunca travar a máquina. Regras medidas (amostragem da thread principal de 50 em 50 ms):
+- **Comandos `async`** (A10 acima). Um comando síncrono que toque no disco, na base, no keychain, na rede ou num processo
+  congela a janela.
+- **SQLite** (`tutor_board::project::tune`): WAL, `synchronous=NORMAL` (um commit não faz `fsync`; um crash pode perder os
+  últimos commits, nunca corromper a base), `busy_timeout` de 5 s; cada comando abre a sua ligação (barato), as
+  migrações correm uma vez por processo e, depois, cada abertura só recusa uma base mais nova (`schema::refuse_newer`).
+- **Ambiente da shell de login** (`shellenv::get`, `bash -ilc env`: 0,4 s, segundos com carga) aquecido numa thread no
+  `setup`.
+- **Keychain**: o `keys_status` lê-o fora da thread da UI; a configuração antiga só é lida para os fornecedores que lá têm
+  campo.
+- Fica para a P2: o conteúdo dos ficheiros todos vai para a página ao abrir a pasta (até 4000 × 768 KB) e o JavaScript é
+  um só pacote; para a P3, o passo de desempenho no auto-teste.
 
 ## Regras ao mexer aqui
 

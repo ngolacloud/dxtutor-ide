@@ -17,7 +17,7 @@ fn store() -> Result<Store, String> {
 /// Os plugins instalados, com o manifesto de cada um (linguagem: nome, ícone, extensão,
 /// indentação). Um plugin estragado vem com `error` em vez de `manifest`.
 #[tauri::command]
-pub fn plugin_list() -> Result<Vec<Installed>, String> {
+pub async fn plugin_list() -> Result<Vec<Installed>, String> {
     Ok(store()?.list())
 }
 
@@ -35,6 +35,6 @@ pub async fn plugin_install(source: String) -> Result<Outcome, String> {
 
 /// Remove um plugin instalado pelo id. Devolve o id removido.
 #[tauri::command]
-pub fn plugin_remove(id: String) -> Result<String, String> {
+pub async fn plugin_remove(id: String) -> Result<String, String> {
     store()?.remove(&id).map(|e| e.id)
 }

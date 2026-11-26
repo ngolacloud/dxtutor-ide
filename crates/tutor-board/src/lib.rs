@@ -89,7 +89,15 @@ pub struct BoardStore {
 impl BoardStore {
     /// Abre (ou cria) a base num ficheiro e garante o esquema.
     pub fn open(path: &std::path::Path) -> rusqlite::Result<Self> {
-        Self::from_conn(Connection::open(path)?)
+        let conn = Connection::open(path)?;
+        // the same file as the Project base: WAL, no fsync per commit, wait for a busy writer
+        project::tune(&conn).map_err(|e| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+                Some(e),
+            )
+        })?;
+        Self::from_conn(conn)
     }
 
     /// Base em memória (testes / efémero).

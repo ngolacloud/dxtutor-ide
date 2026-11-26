@@ -886,6 +886,11 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(target_os = "linux")]
             enable_media(_app);
+            // the login shell's environment (`bash -ilc env`, nvm and all: 0.4 s on an idle machine, seconds under
+            // load) is resolved once, by whoever asks first — warm it here, off the UI thread
+            std::thread::spawn(|| {
+                let _ = shellenv::get();
+            });
             // LSP P2: where the user's override file and the approvals live; reload on change
             lsp::init(_app.handle());
             // r23 F4a (X02): each request that lost secrets is shown (and audited) by the UI
