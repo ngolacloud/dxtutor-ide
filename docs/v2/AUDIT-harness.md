@@ -163,7 +163,16 @@ Uma fase por PR na `develop`; cada uma mede-se na avaliação da H0.
 | **H5** Paridade | web search/fetch e browser com capturas na sandbox; imagens; compactação para todos os fornecedores; sub-agentes que escrevem em worktree; MCP HTTP; hooks completos | itens da secção 3 (P2) com testes |
 | **H6** Segundo plano e CI | `dxt agent -p`, agentes agendados, revisão de PR no GitHub com as regras do projecto | o CI do próprio dxtutor corre uma revisão do Co-Dev |
 
-## 7. Decisões pedidas ao dono
+## 7. Decisões do dono (2026-11-27)
+
+O dono aceitou as seis recomendações: **D1** todas as ferramentas do IDE; **D2** detecção por manifesto com o
+`.dxtutor/workspace.json` a mandar; **D3** o Project existente passa para o projecto da raiz; **D4** uma só ferramenta
+`ide` com acções decididas no Rust; **D5** rede desligada por omissão com lista de domínios por projecto; **D6** a
+ordem H0 → H6. Acrescentou uma feature: **«New Project»** — o mesmo princípio do `delonix init -t`, com os mesmos
+templates e a mesma estrutura, escolhidos num modal como o do Learning Track (linguagens e frameworks); o projecto
+criado abre-se logo como workspace. Vai à frente das fases (é o «cada projecto nasce num workspace» da H2).
+
+### As perguntas que foram feitas
 
 - **D1 — «painel de tasks»:** são todas as ferramentas do IDE (como está no plano) ou o painel `Tasks` do quadro antigo?
 - **D2 — o que define um projecto:** detecção por manifesto + `.dxtutor/workspace.json` a mandar (recomendado), só o ficheiro, ou só a detecção?
