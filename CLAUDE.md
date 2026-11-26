@@ -612,8 +612,26 @@ cpp, sql.
   (CourseGateway + catalog-service), `ui/actions.ts`, `infrastructure/legacy-bridge.ts`. O
   resíduo `features/learn.ts` é dono do DOM e do motor. Rust/Go embutidos continuam com
   avaliação simulada no browser; os cursos do backend usam `submit_step` real.
+- **Frameworks e ferramentas** (emenda de 2026-11-26 ao ADR-0005): categoria À PARTE das
+  linguagens (o tecto de 10 é só delas). `Course.category` (`language` omisso, `framework`, `tool`)
+  + `Course.subject` (`django`); o `language` continua a ser o que AVALIA (`python`) e a chave da
+  unicidade dos ids de passo. Manifesto: `category` + `subject {id,name,icon,docs}`, validados no
+  `tutor-plugins`. `study::course(language)` só devolve cursos de linguagem;
+  `get_course(language, subject?)` o do framework. Na UI, `FRAMEWORK_CATALOG` (8 oficiais) e a
+  secção «Frameworks & tools»; o percurso fica com a chave do subject (`LTS.lang = "django"`) e a
+  linguagem do curso dá extensão, indentação e avaliador. Sem curso: «Coming soon», como uma
+  linguagem sem plugin.
+- **Passos de projecto** (`tutor_core::ProjectFiles`, `crates/tutor-core/src/project.rs`): um
+  desafio com `project` (starter/tests/solution em ficheiros, `main`, `readonly`) no lugar de
+  `starter`/`tests`/`gabarito`. As regras (caminhos seguros, só editáveis na entrega, só de leitura
+  com a cópia do curso) vivem no modelo; o descritor escreve a árvore e corre o `project_test_cmd`
+  (só o Python o tem). `submit_step` ganhou `files` (o `code` continua). Na UI, a lista de
+  ficheiros por cima do editor (`lt-file`). Testes e solução nunca vão para o webview.
 - Testes: `cargo test -p tutor-plugins`, `ui-app/tests/learn.domain.test.ts`,
-  `learn.onboarding.test.ts`. Guia de autoria: `docs/plugins/README.md`.
+  `learn.onboarding.test.ts`, `learn.frameworks.test.ts`; o plugin-fixture só de testes
+  `crates/tutor-plugins/tests/fixtures/framework-project` passa por `dxt plugin test`
+  (`tutor-cli/tests/plugin_test_project.rs`), pelo `study` (`src-tauri/tests/learn_project_step.rs`)
+  e pela UI. Guia de autoria: `docs/plugins/README.md`.
 
 ## Extensões VS Code — contribuições declarativas (ADR-0005, Fase 4)
 
