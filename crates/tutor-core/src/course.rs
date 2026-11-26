@@ -1046,7 +1046,9 @@ explanation = "Why."
         let p = s.project.as_ref().expect("project");
         assert!(p.check().is_empty(), "{:?}", p.check());
         assert_eq!(p.main, "app/views.py");
-        let phase = s.as_phase(&c.language, Level::Basico).expect("projecto vira Phase");
+        let phase = s
+            .as_phase(&c.language, Level::Basico)
+            .expect("projecto vira Phase");
         assert_eq!(phase.gabarito.solution, "");
         assert_eq!(phase.gabarito.justification, "Why.");
         assert_eq!(phase.project.as_ref(), Some(p));
@@ -1059,7 +1061,9 @@ explanation = "Why."
           "level":"b","summary":"s","units":[]}"#;
         let t = Course::parse(json, CourseFormat::Json).unwrap();
         assert_eq!((t.category, t.track()), (CourseCategory::Tool, "docker"));
-        assert!(Course::parse(&json.replace("\"tool\"", "\"library\""), CourseFormat::Json).is_err());
+        assert!(
+            Course::parse(&json.replace("\"tool\"", "\"library\""), CourseFormat::Json).is_err()
+        );
     }
 
     #[test]

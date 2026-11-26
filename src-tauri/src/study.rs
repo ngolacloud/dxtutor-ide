@@ -219,9 +219,7 @@ fn find_course(
             .ok_or_else(|| StudyError::NoSubjectCourse(sub.to_string())),
         None => courses
             .iter()
-            .find(|c| {
-                !c.category.has_subject() && c.language.eq_ignore_ascii_case(language.trim())
-            })
+            .find(|c| !c.category.has_subject() && c.language.eq_ignore_ascii_case(language.trim()))
             .cloned()
             .ok_or_else(|| StudyError::NoCourse(language.to_string())),
     }
@@ -414,13 +412,20 @@ mod tests {
         let mut courses = vec![fixture_course()];
         // Nem com o curso de framework PRIMEIRO na lista o «curso de Python» passa a ser ele.
         courses.extend(tutor_core::builtin_courses());
-        assert_eq!(find_course(&courses, "python", None).unwrap().id, "python-basics");
         assert_eq!(
-            find_course(&courses, "python", Some("minishop")).unwrap().id,
+            find_course(&courses, "python", None).unwrap().id,
+            "python-basics"
+        );
+        assert_eq!(
+            find_course(&courses, "python", Some("minishop"))
+                .unwrap()
+                .id,
             "minishop-fixture"
         );
         assert_eq!(
-            find_course(&courses, "python", Some("django")).unwrap_err().to_string(),
+            find_course(&courses, "python", Some("django"))
+                .unwrap_err()
+                .to_string(),
             "no course for `django`"
         );
     }
@@ -429,7 +434,10 @@ mod tests {
     fn project_steps_grade_files_and_refuse_files_for_single_file_steps() {
         let courses = vec![fixture_course()];
         let files = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
-            pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
         };
         // Ficheiros para um passo que não é de projecto: erro tipado, sem correr nada.
         let mut single = fixture_course();
@@ -441,8 +449,13 @@ mod tests {
             justification: String::new(),
         });
         assert_eq!(
-            grade_in(&[single], "msf-p1-cart", Some("python"), Submission::Files(&files(&[])))
-                .unwrap_err(),
+            grade_in(
+                &[single],
+                "msf-p1-cart",
+                Some("python"),
+                Submission::Files(&files(&[]))
+            )
+            .unwrap_err(),
             StudyError::NotAProject("msf-p1-cart".into())
         );
         // Um ficheiro só de leitura é recusado antes de avaliar.
@@ -456,14 +469,24 @@ mod tests {
         assert!(err.to_string().contains("read-only"), "{err}");
         // A linguagem que filtra é a do runtime (python), não o subject.
         assert_eq!(
-            grade_in(&courses, "msf-p1-cart", Some("minishop"), Submission::Files(&files(&[])))
-                .unwrap_err(),
+            grade_in(
+                &courses,
+                "msf-p1-cart",
+                Some("minishop"),
+                Submission::Files(&files(&[]))
+            )
+            .unwrap_err(),
             StudyError::StepNotFound("msf-p1-cart".into())
         );
         if !tutor_eval::find_plugin("python").is_some_and(|p| p.host_available()) {
             return;
         }
-        let project = courses[0].step("msf-p1-cart").unwrap().project.clone().unwrap();
+        let project = courses[0]
+            .step("msf-p1-cart")
+            .unwrap()
+            .project
+            .clone()
+            .unwrap();
         let (good, phase) = grade_in(
             &courses,
             "msf-p1-cart",
@@ -473,9 +496,13 @@ mod tests {
         .unwrap();
         assert!(good.correctness.passed, "{}", good.correctness.raw);
         assert!(phase.project.is_some());
-        let (bad, _) =
-            grade_in(&courses, "msf-p1-cart", Some("python"), Submission::Files(&files(&[])))
-                .unwrap();
+        let (bad, _) = grade_in(
+            &courses,
+            "msf-p1-cart",
+            Some("python"),
+            Submission::Files(&files(&[])),
+        )
+        .unwrap();
         assert!(!bad.correctness.passed);
         // A forma antiga (`code`) num passo de projecto: é o ficheiro principal.
         let (main_only, _) = grade_in(

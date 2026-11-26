@@ -41,7 +41,10 @@ fn the_fixture_validates_strictly_and_every_step_passes() {
     }
     let (ok, out) = dxt(&["plugin", "test", dir.to_str().unwrap()]);
     assert!(ok, "{out}");
-    assert!(out.contains("framework `minishop`, graded as python"), "{out}");
+    assert!(
+        out.contains("framework `minishop`, graded as python"),
+        "{out}"
+    );
     assert!(out.contains("✓ challenge msf-p1-cart (4 files)"), "{out}");
     assert!(out.contains("3 ok, 0 failed"), "{out}");
 }
@@ -54,7 +57,11 @@ fn a_project_whose_starter_already_passes_is_rejected() {
     let tmp = std::env::temp_dir().join(format!("dxt-fixture-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("courses")).unwrap();
-    std::fs::copy(fixture().join("dxtutor-plugin.json"), tmp.join("dxtutor-plugin.json")).unwrap();
+    std::fs::copy(
+        fixture().join("dxtutor-plugin.json"),
+        tmp.join("dxtutor-plugin.json"),
+    )
+    .unwrap();
     let course = std::fs::read_to_string(fixture().join("courses/minishop.toml")).unwrap();
     // O teste do carrinho vazio passa a ser o único, e o starter de `total` já o cumpre: os
     // testes deixam de provar alguma coisa.
@@ -78,5 +85,8 @@ fn a_project_whose_starter_already_passes_is_rejected() {
     let (ok, out) = dxt(&["plugin", "test", tmp.to_str().unwrap()]);
     let _ = std::fs::remove_dir_all(&tmp);
     assert!(!ok, "{out}");
-    assert!(out.contains("the starter files already pass the tests"), "{out}");
+    assert!(
+        out.contains("the starter files already pass the tests"),
+        "{out}"
+    );
 }

@@ -186,7 +186,10 @@ impl ProjectFiles {
         if self.main.is_empty() {
             errs.push("project.main is empty: name the file the editor opens first".into());
         } else if !self.starter.contains_key(&self.main) {
-            errs.push(format!("project.main: `{}` is not a starter file", self.main));
+            errs.push(format!(
+                "project.main: `{}` is not a starter file",
+                self.main
+            ));
         } else if !self.is_editable(&self.main) {
             errs.push(format!("project.main: `{}` is read-only", self.main));
         }
@@ -271,7 +274,13 @@ mod tests {
 
     #[test]
     fn caminhos_seguros() {
-        for ok in ["a.py", "pkg/mod.py", ".env.example", "k8s/deploy-v1.yaml", "a+b@c.txt"] {
+        for ok in [
+            "a.py",
+            "pkg/mod.py",
+            ".env.example",
+            "k8s/deploy-v1.yaml",
+            "a+b@c.txt",
+        ] {
             assert!(safe_project_path(ok), "{ok}");
         }
         for bad in [
@@ -290,7 +299,9 @@ mod tests {
         ] {
             assert!(!safe_project_path(bad), "{bad:?}");
         }
-        assert!(!safe_project_path(&"a/".repeat(11).trim_end_matches('/').to_string()));
+        // 11 segmentos: acima da profundidade máxima.
+        assert!(!safe_project_path("a/".repeat(11).trim_end_matches('/')));
+        assert!(safe_project_path("a/".repeat(10).trim_end_matches('/')));
     }
 
     #[test]
@@ -320,7 +331,12 @@ mod tests {
             assert!(e.contains(frag), "falta `{frag}` em:\n{e}");
         }
         let vazio = ProjectFiles::default().check().join("\n");
-        for frag in ["starter is empty", "tests is empty", "solution is empty", "main is empty"] {
+        for frag in [
+            "starter is empty",
+            "tests is empty",
+            "solution is empty",
+            "main is empty",
+        ] {
             assert!(vazio.contains(frag), "{frag}");
         }
     }
@@ -330,9 +346,15 @@ mod tests {
         let p = sample();
         let t = p.learner_tree(&map(&[("app/service.py", "S2")])).unwrap();
         assert_eq!(t["app/service.py"], "S2");
-        assert_eq!(t["app/models.py"], "M0", "os que faltam ficam como no starter");
+        assert_eq!(
+            t["app/models.py"], "M0",
+            "os que faltam ficam como no starter"
+        );
         assert_eq!(t["app/__init__.py"], "");
-        assert!(!t.contains_key("test_app.py"), "os testes não fazem parte da árvore do aluno");
+        assert!(
+            !t.contains_key("test_app.py"),
+            "os testes não fazem parte da árvore do aluno"
+        );
         assert!(p
             .learner_tree(&map(&[("app/__init__.py", "hack")]))
             .unwrap_err()
@@ -351,6 +373,12 @@ mod tests {
             .unwrap_err()
             .contains("larger"));
         let sol = p.solution_tree().unwrap();
-        assert_eq!((sol["app/models.py"].as_str(), sol["app/service.py"].as_str()), ("M1", "S1"));
+        assert_eq!(
+            (
+                sol["app/models.py"].as_str(),
+                sol["app/service.py"].as_str()
+            ),
+            ("M1", "S1")
+        );
     }
 }

@@ -307,7 +307,10 @@ mod tests {
         // Um manifesto antigo (sem os campos) é de linguagem e serializa como antes.
         let m = sample();
         let json = serde_json::to_string(&m).unwrap();
-        assert!(!json.contains("category") && !json.contains("subject"), "{json}");
+        assert!(
+            !json.contains("category") && !json.contains("subject"),
+            "{json}"
+        );
         let back = Manifest::parse(&json).unwrap();
         assert_eq!(back.category, CourseCategory::Language);
 
@@ -330,10 +333,16 @@ mod tests {
         bad.subject.as_mut().unwrap().id = "python".into();
         bad.subject.as_mut().unwrap().docs = "http://x".into();
         let e = bad.check("0.7.0").join("\n");
-        assert!(e.contains("same as language.id") && e.contains("https://"), "{e}");
+        assert!(
+            e.contains("same as language.id") && e.contains("https://"),
+            "{e}"
+        );
         let mut lang_with_subject = sample();
         lang_with_subject.subject = fw.subject.clone();
-        assert!(lang_with_subject.check("0.7.0").join("\n").contains("only for framework"));
+        assert!(lang_with_subject
+            .check("0.7.0")
+            .join("\n")
+            .contains("only for framework"));
         assert!(Manifest::parse(&json.replace("framework", "library")).is_err());
     }
 

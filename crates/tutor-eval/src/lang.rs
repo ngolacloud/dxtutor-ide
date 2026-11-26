@@ -90,7 +90,11 @@ pub trait LanguageRunner {
     ///
     /// Por omissão, recusa: só os runners que sabem correr um projecto o implementam (hoje os
     /// descritores com `project_test_cmd`). Um erro claro, nunca um «passou» inventado.
-    fn check_project(&self, phase: &Phase, _tree: &BTreeMap<String, String>) -> Result<Correctness> {
+    fn check_project(
+        &self,
+        phase: &Phase,
+        _tree: &BTreeMap<String, String>,
+    ) -> Result<Correctness> {
         bail!(
             "project steps are not supported for `{}` yet (its evaluator has no project test command)",
             phase.language

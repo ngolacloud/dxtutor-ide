@@ -14,7 +14,10 @@ fn fixture() -> PathBuf {
 }
 
 /// Uma cópia do fixture com o curso transformado por `edit` e o manifesto por `edit_manifest`.
-fn variant(edit: impl Fn(String) -> String, edit_manifest: impl Fn(String) -> String) -> tempfile::TempDir {
+fn variant(
+    edit: impl Fn(String) -> String,
+    edit_manifest: impl Fn(String) -> String,
+) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("courses")).unwrap();
     let m = std::fs::read_to_string(fixture().join("dxtutor-plugin.json")).unwrap();
@@ -26,7 +29,9 @@ fn variant(edit: impl Fn(String) -> String, edit_manifest: impl Fn(String) -> St
 
 fn errors_of(dir: &Path) -> String {
     let builtin = tutor_core::builtin_courses();
-    validate_dir(dir, HOST, &Taken::builtin(&builtin)).errors.join("\n")
+    validate_dir(dir, HOST, &Taken::builtin(&builtin))
+        .errors
+        .join("\n")
 }
 
 #[test]
@@ -39,7 +44,10 @@ fn the_fixture_is_valid_without_warnings() {
     assert_eq!(m.category, CourseCategory::Framework);
     assert_eq!(m.subject.unwrap().id, "minishop");
     let c = &r.courses[0];
-    assert_eq!((c.category, c.track(), c.language.as_str()), (CourseCategory::Framework, "minishop", "python"));
+    assert_eq!(
+        (c.category, c.track(), c.language.as_str()),
+        (CourseCategory::Framework, "minishop", "python")
+    );
     let p = c.step("msf-p1-cart").unwrap().project.as_ref().unwrap();
     assert_eq!(p.main, "shop/cart.py");
     assert_eq!(p.editable(), vec!["shop/cart.py", "shop/prices.py"]);
@@ -63,13 +71,23 @@ fn it_installs_like_any_plugin_and_reports_its_subject() {
 
 #[test]
 fn category_and_subject_must_match_the_manifest() {
-    let d = variant(|c| c.replace("category = \"framework\"", "category = \"tool\""), |m| m);
-    assert!(errors_of(d.path()).contains("course category `tool` differs from the manifest's category `framework`"));
-    let d = variant(|c| c.replace("subject = \"minishop\"", "subject = \"other\""), |m| m);
+    let d = variant(
+        |c| c.replace("category = \"framework\"", "category = \"tool\""),
+        |m| m,
+    );
+    assert!(errors_of(d.path())
+        .contains("course category `tool` differs from the manifest's category `framework`"));
+    let d = variant(
+        |c| c.replace("subject = \"minishop\"", "subject = \"other\""),
+        |m| m,
+    );
     assert!(errors_of(d.path()).contains("course subject `other` differs"));
     let d = variant(|c| c, |m| m.replace("\"category\": \"framework\",", ""));
     let e = errors_of(d.path());
-    assert!(e.contains("subject is only for framework and tool plugins"), "{e}");
+    assert!(
+        e.contains("subject is only for framework and tool plugins"),
+        "{e}"
+    );
     // A course of a plain language plugin cannot carry a subject.
     let d = variant(
         |c| c.replace("category = \"framework\"\n", ""),
@@ -79,20 +97,50 @@ fn category_and_subject_must_match_the_manifest() {
             format!("{}{}", &m[..start], &m[end..])
         },
     );
-    assert!(errors_of(d.path()).contains("course subject `minishop` is only for framework and tool courses"));
+    assert!(errors_of(d.path())
+        .contains("course subject `minishop` is only for framework and tool courses"));
 }
 
 #[test]
 fn project_step_authoring_errors_are_caught() {
-    let d = variant(|c| c.replace("main = \"shop/cart.py\"", "main = \"shop/config.py\""), |m| m);
-    assert!(errors_of(d.path()).contains("step `msf-p1-cart`: project.main: `shop/config.py` is read-only"));
-    let d = variant(|c| c.replace("\"shop/cart.py\" = '''\nfrom shop.prices import with_vat\n\n\ndef total(items):\n    return", "\"../cart.py\" = '''\nfrom shop.prices import with_vat\n\n\ndef total(items):\n    return"), |m| m);
+    let d = variant(
+        |c| c.replace("main = \"shop/cart.py\"", "main = \"shop/config.py\""),
+        |m| m,
+    );
+    assert!(errors_of(d.path())
+        .contains("step `msf-p1-cart`: project.main: `shop/config.py` is read-only"));
+    let d = variant(
+        |c| {
+            c.replace("\"shop/cart.py\" = '''\nfrom shop.prices import with_vat\n\n\ndef total(items):\n    return", "\"../cart.py\" = '''\nfrom shop.prices import with_vat\n\n\ndef total(items):\n    return")
+        },
+        |m| m,
+    );
     let e = errors_of(d.path());
-    assert!(e.contains("`../cart.py` is not a safe relative path"), "{e}");
-    let d = variant(|c| c.replace("run_command = \"python3 -m unittest\"", "starter = \"x\"\nrun_command = \"python3 -m unittest\""), |m| m);
-    assert!(errors_of(d.path()).contains("a project step keeps its files in `project`; remove `starter`"));
-    let d = variant(|c| c.replace("[unit.step.project]\n", "[unit.step.gabarito]\nsolution = \"\"\ntime = \"\"\nspace = \"\"\njustification = \"\"\n\n[unit.step.project]\n"), |m| m);
+    assert!(
+        e.contains("`../cart.py` is not a safe relative path"),
+        "{e}"
+    );
+    let d = variant(
+        |c| {
+            c.replace(
+                "run_command = \"python3 -m unittest\"",
+                "starter = \"x\"\nrun_command = \"python3 -m unittest\"",
+            )
+        },
+        |m| m,
+    );
+    assert!(errors_of(d.path())
+        .contains("a project step keeps its files in `project`; remove `starter`"));
+    let d = variant(
+        |c| {
+            c.replace("[unit.step.project]\n", "[unit.step.gabarito]\nsolution = \"\"\ntime = \"\"\nspace = \"\"\njustification = \"\"\n\n[unit.step.project]\n")
+        },
+        |m| m,
+    );
     assert!(errors_of(d.path()).contains("remove `gabarito`"));
-    let d = variant(|c| c.replace("\"test_shop.py\" = '''", "\"shop/cart.py\" = '''"), |m| m);
+    let d = variant(
+        |c| c.replace("\"test_shop.py\" = '''", "\"shop/cart.py\" = '''"),
+        |m| m,
+    );
     assert!(errors_of(d.path()).contains("is also a starter file"));
 }

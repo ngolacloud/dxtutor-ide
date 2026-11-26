@@ -1297,7 +1297,10 @@ mod tests {
             json.contains("fn answer"),
             "passed payload should include the solution: {json}"
         );
-        assert!(!json.contains("\"files\""), "single-file payload unchanged: {json}");
+        assert!(
+            !json.contains("\"files\""),
+            "single-file payload unchanged: {json}"
+        );
     }
 
     /// A project step: the step DTO carries the starter files but never the hidden tests or
@@ -1311,12 +1314,20 @@ mod tests {
         .expect("fixture");
         let course = tutor_core::Course::parse(&raw, tutor_core::CourseFormat::Toml).unwrap();
         let dto = serde_json::to_string(&course_dto(&course)).unwrap();
-        assert!(dto.contains(r#""category":"framework""#) && dto.contains(r#""subject":"minishop""#));
+        assert!(
+            dto.contains(r#""category":"framework""#) && dto.contains(r#""subject":"minishop""#)
+        );
         assert!(dto.contains(r#""main":"shop/cart.py""#), "{dto}");
         assert!(dto.contains("shop/config.py") && dto.contains("readonly"));
         assert!(!dto.contains("test_shop.py"), "hidden test files leaked");
-        assert!(!dto.contains("sum(quantity * price"), "solution files leaked");
-        assert!(!dto.contains("\"project\":null"), "other steps keep their payload");
+        assert!(
+            !dto.contains("sum(quantity * price"),
+            "solution files leaked"
+        );
+        assert!(
+            !dto.contains("\"project\":null"),
+            "other steps keep their payload"
+        );
 
         let step = course.step("msf-p1-cart").unwrap();
         let phase = step.as_phase("python", tutor_core::Level::Basico).unwrap();
@@ -1332,7 +1343,13 @@ mod tests {
         let failed = serde_json::to_string(&assessment_dto(&outcome(false), &phase)).unwrap();
         assert!(failed.contains("\"gabarito\":null") && !failed.contains("sum(quantity"));
         let passed = serde_json::to_string(&assessment_dto(&outcome(true), &phase)).unwrap();
-        assert!(passed.contains("sum(quantity * price") && passed.contains("shop/prices.py"), "{passed}");
-        assert!(passed.contains("applies VAT once"), "the explanation travels as the justification");
+        assert!(
+            passed.contains("sum(quantity * price") && passed.contains("shop/prices.py"),
+            "{passed}"
+        );
+        assert!(
+            passed.contains("applies VAT once"),
+            "the explanation travels as the justification"
+        );
     }
 }

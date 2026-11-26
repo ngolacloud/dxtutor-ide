@@ -316,7 +316,10 @@ fn check_course(
                 w(r, format!("{at}: awards 0 points"));
             }
             if s.project.is_some() && s.kind != StepKind::Challenge {
-                e(r, format!("{at}: only challenge steps can have a `project`"));
+                e(
+                    r,
+                    format!("{at}: only challenge steps can have a `project`"),
+                );
             }
             match s.kind {
                 StepKind::Concept => {

@@ -182,7 +182,7 @@ function ltOpen(id:string){hydrateLT();const f=ltFind(id);if(!f)return;const{u,s
   LTS.cur=id;LTS.open[u.id]=true;saveLT();LT_HOOD=false;LT_SUB=null;LT_GRADE=null;
   /* Passo de projecto: cada ficheiro do passo entra no workspace com o seu conteúdo inicial
      (uma só vez: o que o aluno escreveu fica). */
-  if(s.project)for(const rel of projectPaths(s.project)){const fp=ltFilePath(s,rel);if(!FS[fp])FS[fp]={content:s.project.files[rel].replace(/^\n/,''),orig:null};}
+  if(s.project)for(const rel of projectPaths(s.project)){const fp=ltFilePath(s,rel);if(!FS[fp])FS[fp]={content:s.project.files[rel],orig:null};}
   const p=ltPath(s);
   if(!FS[p])FS[p]={content:s.kind==='concept'?`// ${s.title}\n//\n// Read the concept on the right, then press Continue.\n`:s.kind==='challenge'?s.starter.replace(/^\n/,''):'',orig:null};
   const old=tabOf('lt');if(old&&cur==='lt'){Object.assign(old,{title:ltTabTitle(s),path:p});show('lt');}else openTab({id:'lt',title:ltTabTitle(s),kind:'lt',path:p});if(PANE==='tutor')RP.tutor();}

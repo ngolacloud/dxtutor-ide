@@ -361,7 +361,8 @@ impl PluginRunner {
             }
             let path = root.join(rel);
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).with_context(|| format!("create folder for {rel}"))?;
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("create folder for {rel}"))?;
                 let real = parent
                     .canonicalize()
                     .with_context(|| format!("resolve folder for {rel}"))?;
@@ -1687,7 +1688,10 @@ mod tests {
     /// file in a submission is refused before anything runs.
     #[test]
     fn python_project_step_grades_the_whole_tree_on_the_host() {
-        let py = builtin_plugins().into_iter().find(|p| p.id == "python").unwrap();
+        let py = builtin_plugins()
+            .into_iter()
+            .find(|p| p.id == "python")
+            .unwrap();
         if !py.host_available() || current_engine() != SandboxEngine::Host {
             return;
         }
@@ -1699,10 +1703,22 @@ mod tests {
         assert!(good.correctness.passed, "{}", good.correctness.raw);
         let starter = crate::assess_project(&phase, &files(&[])).unwrap();
         assert!(!starter.correctness.passed);
-        assert!(starter.correctness.raw.contains("NotImplementedError"), "{}", starter.correctness.raw);
+        assert!(
+            starter.correctness.raw.contains("NotImplementedError"),
+            "{}",
+            starter.correctness.raw
+        );
         // Only one of the two modules done: still fails.
-        let half = files(&[("shop/prices.py", project.solution["shop/prices.py"].as_str())]);
-        assert!(!crate::assess_project(&phase, &half).unwrap().correctness.passed);
+        let half = files(&[(
+            "shop/prices.py",
+            project.solution["shop/prices.py"].as_str(),
+        )]);
+        assert!(
+            !crate::assess_project(&phase, &half)
+                .unwrap()
+                .correctness
+                .passed
+        );
         // The single-`code` form grades the main file over the starter (prices.py still a stub).
         let single = crate::assess(&phase, &project.solution["shop/cart.py"]).unwrap();
         assert!(!single.correctness.passed);
@@ -1720,9 +1736,16 @@ mod tests {
 
     #[test]
     fn project_scaffold_rejects_unsafe_paths_and_collisions() {
-        let runner = PluginRunner::new(builtin_plugins().into_iter().find(|p| p.id == "python").unwrap());
+        let runner = PluginRunner::new(
+            builtin_plugins()
+                .into_iter()
+                .find(|p| p.id == "python")
+                .unwrap(),
+        );
         for bad in ["../escape.py", "/abs.py", "a/../../b.py", "a\\b.py"] {
-            let err = runner.scaffold_tree(&files(&[(bad, "x")]), &files(&[])).unwrap_err();
+            let err = runner
+                .scaffold_tree(&files(&[(bad, "x")]), &files(&[]))
+                .unwrap_err();
             assert!(err.to_string().contains("unsafe"), "{bad}: {err}");
         }
         // A test file can never overwrite a learner file.
@@ -1734,8 +1757,14 @@ mod tests {
         let dir = runner
             .scaffold_tree(&files(&[("a/b/c.py", "x")]), &files(&[("test_a.py", "y")]))
             .unwrap();
-        assert_eq!(std::fs::read_to_string(dir.path().join("a/b/c.py")).unwrap(), "x");
-        assert_eq!(std::fs::read_to_string(dir.path().join("test_a.py")).unwrap(), "y");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a/b/c.py")).unwrap(),
+            "x"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("test_a.py")).unwrap(),
+            "y"
+        );
     }
 
     #[test]
