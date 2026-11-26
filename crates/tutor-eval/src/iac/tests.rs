@@ -451,3 +451,180 @@ fn an_unformatted_file_fails_fmt() {
     assert!(r.blocked);
     assert!(apply_command(d.path(), ".", &r.id, plans.path()).is_err());
 }
+
+/// A fake `infracost` (run by `sh`, so no exec of a file just written) under a HOME of its own,
+/// with a display and a key-less environment the pipeline must not pass on.
+fn fake_infracost(dir: &Path, body: &str) -> impl Fn(&str) -> Command {
+    let script = dir.join("infracost.sh");
+    std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    move |_tool: &str| {
+        let mut c = Command::new("sh");
+        c.arg(&script)
+            .env("HOME", &home)
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("INFRACOST_CLI_OAUTH_TOKEN_CACHE_PATH")
+            .env("DISPLAY", ":0")
+            .env("WAYLAND_DISPLAY", "wayland-0")
+            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nowhere");
+        for k in INFRACOST_KEY_VARS {
+            c.env_remove(k);
+        }
+        c
+    }
+}
+
+fn infracost_ctx<'a>(
+    root: &'a Path,
+    accepted: &'a HashSet<String>,
+    cmd: &'a dyn Fn(&str) -> Command,
+) -> Ctx<'a> {
+    Ctx {
+        root,
+        dir: ".",
+        target: None,
+        plans: root,
+        accepted,
+        cmd,
+        has: &|_| true,
+    }
+}
+
+#[test]
+fn infracost_credentials_are_found_without_running_it() {
+    let d = tempfile::tempdir().unwrap();
+    let home = d.path().to_string_lossy().to_string();
+    let env = |vars: Vec<(&'static str, String)>| {
+        move |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone())
+    };
+    assert!(!infracost_signed_in(&env(vec![("HOME", home.clone())])));
+    assert!(infracost_signed_in(&env(vec![
+        ("HOME", home.clone()),
+        ("INFRACOST_API_KEY", "ico-x".into())
+    ])));
+    assert!(!infracost_signed_in(&env(vec![
+        ("HOME", home.clone()),
+        ("INFRACOST_API_KEY", " ".into())
+    ])));
+    let cfg = d.path().join(".config/infracost");
+    std::fs::create_dir_all(&cfg).unwrap();
+    // 0.10: the api_key of credentials.yml; an empty one is not a key
+    std::fs::write(
+        cfg.join("credentials.yml"),
+        "version: \"0.1\"\napi_key: \"\"\n",
+    )
+    .unwrap();
+    assert!(!infracost_signed_in(&env(vec![("HOME", home.clone())])));
+    std::fs::write(
+        cfg.join("credentials.yml"),
+        "version: \"0.1\"\napi_key: ico-abc\n",
+    )
+    .unwrap();
+    assert!(infracost_signed_in(&env(vec![("HOME", home.clone())])));
+    std::fs::remove_file(cfg.join("credentials.yml")).unwrap();
+    // 2.x: the token `infracost auth login` caches
+    std::fs::write(cfg.join("token.json"), "{}").unwrap();
+    assert!(infracost_signed_in(&env(vec![("HOME", home.clone())])));
+    assert!(!infracost_signed_in(&env(vec![
+        ("HOME", home.clone()),
+        (
+            "INFRACOST_CLI_OAUTH_TOKEN_CACHE_PATH",
+            d.path().join("none.json").to_string_lossy().into()
+        )
+    ])));
+}
+
+/// Seen in the desktop self-test: infracost without a key opened a browser sign-in and waited. Now
+/// it is not even started without credentials.
+#[test]
+fn infracost_without_credentials_is_never_started() {
+    let d = tempfile::tempdir().unwrap();
+    let marker = d.path().join("started");
+    let cmd = fake_infracost(d.path(), &format!("touch '{}'\nsleep 30", marker.display()));
+    let none = HashSet::new();
+    let c = infracost_ctx(d.path(), &none, &cmd);
+    let t0 = Instant::now();
+    let (s, costs) = infracost_stage(&c, d.path(), &d.path().join("plan.json"), INFRACOST_TIMEOUT);
+    assert_eq!(s.status, Status::NotConnected, "{s:#?}");
+    assert_eq!(s.hint.as_deref(), Some(CONNECT_INFRACOST));
+    assert!(costs.is_empty());
+    assert!(!marker.exists(), "infracost was started");
+    assert!(t0.elapsed() < Duration::from_secs(5));
+}
+
+/// With credentials it runs with stdin on /dev/null, no display, no session bus, a browser that
+/// fails and the device flow — and its costs reach the stage.
+#[test]
+fn infracost_runs_without_a_terminal_or_a_display() {
+    let d = tempfile::tempdir().unwrap();
+    let seen = d.path().join("seen.txt");
+    let cmd = fake_infracost(
+        d.path(),
+        &format!(
+            "{{ echo \"stdin=$(readlink /proc/self/fd/0)\"; echo \"display=${{DISPLAY-unset}}\"; echo \"wayland=${{WAYLAND_DISPLAY-unset}}\"; echo \"dbus=${{DBUS_SESSION_BUS_ADDRESS-unset}}\"; echo \"browser=$BROWSER\"; echo \"device=$INFRACOST_CLI_OAUTH_USE_DEVICE_FLOW\"; echo \"args=$*\"; }} > '{}'\necho '{{\"currency\":\"USD\",\"totalMonthlyCost\":\"3.5\",\"projects\":[{{\"breakdown\":{{\"resources\":[{{\"name\":\"aws_instance.web\",\"monthlyCost\":\"3.5\"}}]}}}}]}}'",
+            seen.display()
+        ),
+    );
+    std::fs::create_dir_all(d.path().join("home/.config/infracost")).unwrap();
+    std::fs::write(d.path().join("home/.config/infracost/token.json"), "{}").unwrap();
+    let none = HashSet::new();
+    let c = infracost_ctx(d.path(), &none, &cmd);
+    let (s, costs) = infracost_stage(&c, d.path(), &d.path().join("plan.json"), INFRACOST_TIMEOUT);
+    assert_eq!(s.status, Status::Ok, "{s:#?}");
+    assert_eq!(s.summary, "3.50 USD/month");
+    assert_eq!(costs.get("aws_instance.web"), Some(&3.5));
+    let seen = std::fs::read_to_string(seen).unwrap();
+    for want in [
+        "stdin=/dev/null",
+        "display=unset",
+        "wayland=unset",
+        "dbus=unset",
+        "browser=false",
+        "device=true",
+    ] {
+        assert!(seen.lines().any(|l| l == want), "{want}: {seen}");
+    }
+    assert!(seen.contains("args=breakdown --path"), "{seen}");
+}
+
+/// A future infracost that still asks to sign in, or hangs, is stopped (its children too).
+#[test]
+fn infracost_is_stopped_at_a_sign_in_prompt_and_at_the_deadline() {
+    let none = HashSet::new();
+    let signed_in = |d: &Path| {
+        std::fs::create_dir_all(d.join("home/.config/infracost")).unwrap();
+        std::fs::write(d.join("home/.config/infracost/token.json"), "{}").unwrap();
+    };
+    let d = tempfile::tempdir().unwrap();
+    let cmd = fake_infracost(
+        d.path(),
+        "echo 'Please go to the following URL to log in:'\necho 'https://login.infracost.io/activate'\nsleep 30 &\nsleep 30",
+    );
+    signed_in(d.path());
+    let t0 = Instant::now();
+    let (s, _) = infracost_stage(
+        &infracost_ctx(d.path(), &none, &cmd),
+        d.path(),
+        &d.path().join("plan.json"),
+        INFRACOST_TIMEOUT,
+    );
+    assert_eq!(s.status, Status::NotConnected, "{s:#?}");
+    assert_eq!(s.hint.as_deref(), Some(CONNECT_INFRACOST));
+    assert!(!s.detail.contains("activate"), "{s:#?}");
+    assert!(t0.elapsed() < Duration::from_secs(10), "{:?}", t0.elapsed());
+
+    let d = tempfile::tempdir().unwrap();
+    let cmd = fake_infracost(d.path(), "sleep 30 &\nsleep 30");
+    signed_in(d.path());
+    let t0 = Instant::now();
+    let (s, _) = infracost_stage(
+        &infracost_ctx(d.path(), &none, &cmd),
+        d.path(),
+        &d.path().join("plan.json"),
+        Duration::from_secs(1),
+    );
+    assert_eq!(s.status, Status::Failed, "{s:#?}");
+    assert!(s.summary.contains("did not finish"), "{s:#?}");
+    assert!(t0.elapsed() < Duration::from_secs(10), "{:?}", t0.elapsed());
+}

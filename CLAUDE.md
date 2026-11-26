@@ -1015,6 +1015,12 @@ O separador IaC do Ops tem Pipeline · Plano · Segurança e política · Drift 
   salta-o, `read_text_file`/`write_text_file`/`write_file` recusam-no, o `openPath` avisa).
 - O plano ganhou módulo, motivo do replace, atributos que o forçam, raio de impacto (do `configuration` do `show -json`;
   um módulo conta como um todo), argumentos write-only e custo (infracost).
+- **O infracost nunca é interactivo** (o 2.x sem credenciais abre um login no browser, ou um código de dispositivo, e
+  espera): sem chave (`INFRACOST_API_KEY`/…, o `token.json` do `infracost auth login` ou o `api_key` do `credentials.yml`
+  do HOME que o comando recebe) a etapa é `not_connected` e o infracost NÃO corre (`infracost_signed_in`); com chave corre
+  sem stdin, sem `DISPLAY`/`WAYLAND_DISPLAY`/barramento D-Bus, `BROWSER=false`, fluxo de dispositivo, no seu grupo de
+  processos, morto a um pedido de login (→ `not_connected`) ou aos 180 s (→ `failed`). GOTCHA-auto-teste: correr o
+  infracost à mão só com `DISPLAY`/`WAYLAND_DISPLAY` desligados e `BROWSER=false` (ou no Xvfb).
 - GOTCHA: o ficheiro do plano guarda os valores (segredos incluídos) — por isso 0600 e apagado ao fim de um dia; o JSON
   do plano para conftest/infracost vive numa pasta temporária apagada no fim da corrida.
 - Testes: `cargo test -p tutor-eval iac::` (parsers dos scanners, raio de impacto, e um pipeline real com o `tofu`:
