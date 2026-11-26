@@ -197,9 +197,7 @@ impl Registry {
         }
         let dot = name.rfind('.').filter(|&d| d > 0)?;
         let ext = name[dot + 1..].to_ascii_lowercase();
-        self.languages
-            .iter()
-            .find(|l| l.extensions.contains(&ext))
+        self.languages.iter().find(|l| l.extensions.contains(&ext))
     }
 
     /// The language whose `firstLine` pattern matches `line` (only asked for files whose name
