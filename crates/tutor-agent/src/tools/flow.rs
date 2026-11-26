@@ -487,7 +487,9 @@ fn answer_rows(
         }
         let evidence = g["evidence"].as_str().unwrap_or("").trim();
         if evidence.is_empty() {
-            return Err(Unanswered::Bad(format!("o {what} {i} precisa de uma prova")));
+            return Err(Unanswered::Bad(format!(
+                "o {what} {i} precisa de uma prova"
+            )));
         }
         rows[i - 1] = Some(json!({
             "index": i,
@@ -708,32 +710,59 @@ mod finish_v10_tests {
             &json!({"criteria": [row(1, true), row(2, true)], "dod": [row(1, true)]}),
             &ctx(),
         );
-        assert!(out.is_error && out.content.contains("Definition of Done (`dod`): faltam 2"), "{}", out.content);
+        assert!(
+            out.is_error && out.content.contains("Definition of Done (`dod`): faltam 2"),
+            "{}",
+            out.content
+        );
         let out = t.run(
             &json!({"criteria": [row(1, true), row(2, true)], "dod": [row(3, true)]}),
             &ctx(),
         );
-        assert!(out.is_error && out.content.contains("item da DoD 3 não existe"), "{}", out.content);
+        assert!(
+            out.is_error && out.content.contains("item da DoD 3 não existe"),
+            "{}",
+            out.content
+        );
         let out = t.run(
             &json!({"criteria": [row(1, true)], "dod": [row(1, true), row(2, true)]}),
             &ctx(),
         );
-        assert!(out.is_error && out.content.contains("critérios: faltam 2"), "{}", out.content);
+        assert!(
+            out.is_error && out.content.contains("critérios: faltam 2"),
+            "{}",
+            out.content
+        );
         assert!(t.finished.lock().unwrap().is_none());
         let out = t.run(
             &json!({"criteria": [row(1, true), row(2, false)], "dod": [row(2, false), row(1, true)], "summary": "s"}),
             &ctx(),
         );
         assert!(!out.is_error, "{}", out.content);
-        assert!(out.content.contains("1/2 critérios cumpridos, 1/2 itens da DoD"), "{}", out.content);
+        assert!(
+            out.content
+                .contains("1/2 critérios cumpridos, 1/2 itens da DoD"),
+            "{}",
+            out.content
+        );
         let f = t.finished.lock().unwrap().clone().unwrap();
-        assert_eq!(f["dod"][0], json!({"index": 1, "item": "Docs updated", "met": true, "evidence": "proof 1"}));
+        assert_eq!(
+            f["dod"][0],
+            json!({"index": 1, "item": "Docs updated", "met": true, "evidence": "proof 1"})
+        );
         assert_eq!(f["criteria"][1]["criterion"], "b");
         // a project without a DoD: only the criteria
         let t = tool(&[]);
         let out = t.run(&json!({"criteria": [row(1, true), row(2, true)]}), &ctx());
-        assert!(!out.is_error && !out.content.contains("DoD"), "{}", out.content);
-        assert_eq!(t.finished.lock().unwrap().clone().unwrap()["dod"], json!([]));
+        assert!(
+            !out.is_error && !out.content.contains("DoD"),
+            "{}",
+            out.content
+        );
+        assert_eq!(
+            t.finished.lock().unwrap().clone().unwrap()["dod"],
+            json!([])
+        );
     }
 
     #[test]

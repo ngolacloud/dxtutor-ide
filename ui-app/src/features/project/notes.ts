@@ -48,7 +48,7 @@ export const PROJECT_NOTES: FeatureNotes = {
         "Os itens da Definition of Ready que o projecto escreveu nas definições aparecem em cada issue com uma caixa a marcar, como os da Definition of Done. Fazem parte do «Ready»: sem eles marcados a issue não fica Ready nem sai de To Do (Scrum e XP), e o Co-Dev não trabalha nela.",
       howTo: ["Abre a issue.", "Marca cada item da Definition of Ready que a issue já cumpre.", "Marca «Ready to start» quando a lista de «Missing for Ready» ficar vazia."],
       flow: [
-        "A caixa manda `update_issue` com `dor_done` (uma marca por item, coluna `issues.dor_done`, migração 15).",
+        "A caixa manda `update_issue` com `dor_done` (uma marca por item, coluna `issues.dor_done`, migração 16).",
         "A prontidão (`readiness`) junta às verificações fixas um «DoR: «item»» por cada item por marcar; o «Ready» só se aprova sem nada em falta.",
         "Um item acrescentado depois de a issue estar Ready faz a saída de To Do pedir um motivo (Scrum e XP).",
       ],

@@ -138,7 +138,10 @@ fn lists(method: &str, pt: bool) -> (Vec<&'static str>, Vec<&'static str>) {
             vec![],
             vec!["Critérios de aceitação verificados", "Testes a passar"],
         ),
-        (_, false) => (vec![], vec!["Acceptance criteria verified", "Tests passing"]),
+        (_, false) => (
+            vec![],
+            vec!["Acceptance criteria verified", "Tests passing"],
+        ),
     }
 }
 
@@ -192,7 +195,11 @@ pub struct MethodChange {
 }
 
 /// A list that is still the old method's: empty, or exactly its suggestion (in either language).
-fn untouched_list(cur: &[String], old_method: &str, pick: fn(&MethodDefaults) -> &Vec<String>) -> bool {
+fn untouched_list(
+    cur: &[String],
+    old_method: &str,
+    pick: fn(&MethodDefaults) -> &Vec<String>,
+) -> bool {
     cur.is_empty()
         || ["pt", "en"]
             .iter()
@@ -214,21 +221,22 @@ pub fn change(cur: &Current, to: &str, lang: &str) -> MethodChange {
     }
     let old = defaults(&cur.method, lang);
     let new = defaults(to, lang);
-    let mut push = |field: &str, from: serde_json::Value, to: serde_json::Value, untouched: bool| {
-        if from == to {
-            return;
-        }
-        let fc = FieldChange {
-            field: field.into(),
-            from,
-            to,
+    let mut push =
+        |field: &str, from: serde_json::Value, to: serde_json::Value, untouched: bool| {
+            if from == to {
+                return;
+            }
+            let fc = FieldChange {
+                field: field.into(),
+                from,
+                to,
+            };
+            if untouched {
+                out.changes.push(fc);
+            } else {
+                out.kept.push(fc);
+            }
         };
-        if untouched {
-            out.changes.push(fc);
-        } else {
-            out.kept.push(fc);
-        }
-    };
     push(
         "iter_days",
         cur.iter_days.into(),
@@ -293,10 +301,12 @@ pub fn is_test_path(path: &str) -> bool {
     let p = path.replace('\\', "/");
     let segs: Vec<&str> = p.split('/').collect();
     let (dirs, name) = segs.split_at(segs.len().saturating_sub(1));
-    if dirs
-        .iter()
-        .any(|d| matches!(*d, "tests" | "test" | "__tests__" | "spec" | "specs" | "e2e"))
-    {
+    if dirs.iter().any(|d| {
+        matches!(
+            *d,
+            "tests" | "test" | "__tests__" | "spec" | "specs" | "e2e"
+        )
+    }) {
         return true;
     }
     let name = name.first().copied().unwrap_or("");
@@ -361,7 +371,10 @@ mod tests {
         assert!(test_first("xp") && test_first("scrumxp") && !test_first("scrum"));
         assert!(!test_first("kanban"));
         assert_eq!(label("scrumxp"), "Scrum + XP");
-        assert!(cos_rank("expedite") < cos_rank("fixed") && cos_rank("standard") < cos_rank("intangible"));
+        assert!(
+            cos_rank("expedite") < cos_rank("fixed")
+                && cos_rank("standard") < cos_rank("intangible")
+        );
     }
 
     #[test]
@@ -409,7 +422,10 @@ mod tests {
         let mut c = cur("kanban");
         c.wip.remove("review");
         let ch = change(&c, "xp", "pt");
-        assert!(ch.kept.iter().any(|f| f.field == "wip.review" && f.from.is_null()));
+        assert!(ch
+            .kept
+            .iter()
+            .any(|f| f.field == "wip.review" && f.from.is_null()));
         assert_eq!(apply(&c, &ch).wip.get("review"), None);
     }
 
@@ -439,7 +455,10 @@ mod tests {
         ] {
             assert!(!is_test_path(p), "{p}");
         }
-        assert!(is_test_change("src/lib.rs", "    #[test]\n    fn pages() {}"));
+        assert!(is_test_change(
+            "src/lib.rs",
+            "    #[test]\n    fn pages() {}"
+        ));
         assert!(is_test_change("app/models.py", "def test_pages():"));
         assert!(!is_test_change("src/lib.rs", "pub fn pages() {}"));
     }

@@ -513,7 +513,11 @@ fn methodology(
         .sprint
         .as_ref()
         .filter(|_| methods::uses_capacity(&p.method))
-        .and_then(|id| p.sprints.iter().find(|s| &s.id == id && s.state == "active"))
+        .and_then(|id| {
+            p.sprints
+                .iter()
+                .find(|s| &s.id == id && s.state == "active")
+        })
         .map(|s| SprintRef {
             name: s.name.clone(),
             goal: s.goal.clone(),
@@ -1145,7 +1149,14 @@ mod tests {
             st.apply(&root, "ana", now, op(v)).unwrap();
         }
         let r = issue_prompt_from(&st, &root, &k, Some("en")).unwrap();
-        let block = r.text.split("# Method\n").nth(1).unwrap().split("\n\n# ").next().unwrap();
+        let block = r
+            .text
+            .split("# Method\n")
+            .nth(1)
+            .unwrap()
+            .split("\n\n# ")
+            .next()
+            .unwrap();
         assert_eq!(
             block,
             "Scrum + XP · Sprint 2 «Payments» · 4 days left\n\
@@ -1156,10 +1167,19 @@ mod tests {
              TDD (mandatory): write the test first and run run_tests — it must fail; only then the least code to pass; small steps. Without that red run the issue does not reach Review."
         );
         // Kanban: no sprint and no TDD line
-        st.apply(&root, "ana", now, op(serde_json::json!({"op": "settings", "method": "kanban", "wip": {}, "dod": []})))
-            .unwrap();
+        st.apply(
+            &root,
+            "ana",
+            now,
+            op(serde_json::json!({"op": "settings", "method": "kanban", "wip": {}, "dod": []})),
+        )
+        .unwrap();
         let r = issue_prompt_from(&st, &root, &k, Some("en")).unwrap();
-        assert!(r.text.contains("# Method\nKanban\nPair: rui\n\n# "), "{}", r.text);
+        assert!(
+            r.text.contains("# Method\nKanban\nPair: rui\n\n# "),
+            "{}",
+            r.text
+        );
     }
 
     #[test]

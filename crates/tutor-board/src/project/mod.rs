@@ -435,6 +435,8 @@ where
 /// One change to a project. Applied atomically, with the rules checked in Rust.
 #[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "op", rename_all = "snake_case")]
+// one `Op` is deserialized per command and applied at once: its size does not matter
+#[allow(clippy::large_enum_variant)]
 pub enum Op {
     Settings {
         #[serde(default)]
@@ -777,7 +779,11 @@ impl ProjectStore {
     ) -> Result<methods::MethodChange, ProjectError> {
         one_of(method, &METHODS, "método")?;
         Self::ensure(&self.conn, root, now)?;
-        Ok(methods::change(&current_settings(&self.conn, root)?, method, lang))
+        Ok(methods::change(
+            &current_settings(&self.conn, root)?,
+            method,
+            lang,
+        ))
     }
 
     /// The whole project of `root` (created empty on first use).
@@ -1964,7 +1970,9 @@ fn apply_op(c: &Connection, root: &str, actor: &str, now: i64, op: Op) -> Result
                         note.push_str("; ");
                         note.push_str(n);
                     }
-                    do_move(c, root, actor, now, &key, &row.state, "review", "moved", &note)?;
+                    do_move(
+                        c, root, actor, now, &key, &row.state, "review", "moved", &note,
+                    )?;
                 } else {
                     log(
                         c,
@@ -2531,8 +2539,7 @@ fn move_check(c: &Connection, root: &str, key: &str, to: &str) -> Result<MoveChe
             )?;
             if n >= *limit {
                 // Kanban: an expedite may pass the limit — at most one over it per column
-                if methods::expedite_passes_wip(&method) && row.cos == "expedite" && n == *limit
-                {
+                if methods::expedite_passes_wip(&method) && row.cos == "expedite" && n == *limit {
                     m.notes.push(format!(
                         "expedite acima do limite de WIP de «{to}» ({}/{limit})",
                         n + 1
@@ -2594,9 +2601,8 @@ fn move_check(c: &Connection, root: &str, key: &str, to: &str) -> Result<MoveChe
 /// `None`: proven, or not applicable; `Some(why)` otherwise.
 fn tdd_gap(c: &Connection, root: &str, key: &str) -> Result<Option<String>, ProjectError> {
     let paths: std::collections::BTreeSet<String> = {
-        let mut st = c.prepare(
-            "SELECT DISTINCT path FROM change_sets WHERE root = ?1 AND issue_key = ?2",
-        )?;
+        let mut st =
+            c.prepare("SELECT DISTINCT path FROM change_sets WHERE root = ?1 AND issue_key = ?2")?;
         let v = st
             .query_map(params![root, key], |r| r.get(0))?
             .collect::<Result<_, _>>()?;

@@ -502,7 +502,7 @@ Os itens da Definition of Ready que o projecto escreveu nas definições aparece
 
 **Fluxo (por dentro)**
 
-1. A caixa manda `update_issue` com `dor_done` (uma marca por item, coluna `issues.dor_done`, migração 15).
+1. A caixa manda `update_issue` com `dor_done` (uma marca por item, coluna `issues.dor_done`, migração 16).
 2. A prontidão (`readiness`) junta às verificações fixas um «DoR: «item»» por cada item por marcar; o «Ready» só se aprova sem nada em falta.
 3. Um item acrescentado depois de a issue estar Ready faz a saída de To Do pedir um motivo (Scrum e XP).
 

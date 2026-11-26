@@ -105,12 +105,20 @@ pub fn methodology_block(m: &Methodology, lang: &str) -> String {
         out.push(format!("WIP: {}", cols.join(" · ")));
     }
     if !m.pair.trim().is_empty() {
-        out.push(format!("{}: {}", if pt { "Par" } else { "Pair" }, m.pair.trim()));
+        out.push(format!(
+            "{}: {}",
+            if pt { "Par" } else { "Pair" },
+            m.pair.trim()
+        ));
     }
     if !m.cos.trim().is_empty() && m.cos != "standard" {
         out.push(format!(
             "{}: {}",
-            if pt { "Classe de serviço" } else { "Class of service" },
+            if pt {
+                "Classe de serviço"
+            } else {
+                "Class of service"
+            },
             m.cos.trim()
         ));
     }

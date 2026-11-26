@@ -1743,8 +1743,9 @@ fn start_work(s: &Session, key: &str, origin: Option<&Origin>) -> Result<(), Str
         .map(|o| o.by.clone())
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| crate::board::actor(&root));
-    let op = serde_json::from_value(serde_json::json!({"op": "move", "key": key, "to": "progress"}))
-        .map_err(|e| e.to_string())?;
+    let op =
+        serde_json::from_value(serde_json::json!({"op": "move", "key": key, "to": "progress"}))
+            .map_err(|e| e.to_string())?;
     tutor_board::project::ProjectStore::open(db)
         .and_then(|mut st| st.apply(&root, &actor, now_ms(), op).map_err(|e| e.message))
         .map(|_| ())
@@ -3906,8 +3907,13 @@ mod tests {
             op(serde_json::json!({"op": "update_issue", "key": "DX-1", "ready": true})),
         )
         .unwrap();
-        st.apply(&root, "ana", 2, op(serde_json::json!({"op": "settings", "dod": ["Docs updated"]})))
-            .unwrap();
+        st.apply(
+            &root,
+            "ana",
+            2,
+            op(serde_json::json!({"op": "settings", "dod": ["Docs updated"]})),
+        )
+        .unwrap();
         let _ = send(
             &id,
             Some("implementa".into()),
@@ -4013,7 +4019,10 @@ mod tests {
         // the human overrides on the board, with a reason; then the request goes
         st.apply(&root, "ana", 3, op(serde_json::json!({"op": "move", "key": "DX-1", "to": "progress", "reason": "urgente"})))
             .unwrap();
-        assert!(start_work(&s, "DX-1", None).is_ok(), "already in progress: nothing to do");
+        assert!(
+            start_work(&s, "DX-1", None).is_ok(),
+            "already in progress: nothing to do"
+        );
     }
 
     #[test]
@@ -4042,14 +4051,23 @@ mod tests {
             .unwrap();
         assert_eq!(finish.outcome.as_deref(), Some("held"));
         assert!(finish.reason.unwrap().contains("limite de WIP de «review»"));
-        assert!(evs.borrow().iter().any(|e| matches!(e, AgentEvent::Notice { text } if text.contains("não passou a Review"))));
+        assert!(evs.borrow().iter().any(
+            |e| matches!(e, AgentEvent::Notice { text } if text.contains("não passou a Review"))
+        ));
     }
 
     #[test]
     fn a_failing_test_run_with_only_tests_changed_is_the_red_step() {
-        assert!(is_red_run("run_tests", true, "$ cargo test\nexit 101\nfailed"));
+        assert!(is_red_run(
+            "run_tests",
+            true,
+            "$ cargo test\nexit 101\nfailed"
+        ));
         assert!(!is_red_run("run_tests", false, "$ cargo test\nexit 0\nok"));
-        assert!(!is_red_run("run_tests", true, "recusado pela política"), "a refusal did not run");
+        assert!(
+            !is_red_run("run_tests", true, "recusado pela política"),
+            "a refusal did not run"
+        );
         assert!(!is_red_run("lint", true, "$ clippy\nexit 1"));
         let (d, _id, s, root) = issue_session("true");
         *s.issue_key.lock().unwrap() = Some("DX-1".into());
@@ -4066,7 +4084,11 @@ mod tests {
         };
         // red before any test: nothing
         assert_eq!(tdd_observe(&s, &red, None), None);
-        tdd_observe(&s, &applied, Some(("src/lib.rs", "    #[test]\n    fn pages() {}")));
+        tdd_observe(
+            &s,
+            &applied,
+            Some(("src/lib.rs", "    #[test]\n    fn pages() {}")),
+        );
         tdd_observe(&s, &applied, Some(("tests/api.rs", "fn x() {}")));
         assert_eq!(
             tdd_observe(&s, &red, None).as_deref(),
