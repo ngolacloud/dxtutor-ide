@@ -1,4 +1,4 @@
-# DXTUTOR IDE — matriz IPC detalhada (268 comandos)
+# DXTUTOR IDE — matriz IPC detalhada (278 comandos)
 
 Entregável da **Etapa 1**. Estende o índice do `MIGRATION.md §2` com a matriz
 por comando: **args**, **retorno**, **erro**, **evento**, **consumidor na UI** e
@@ -50,7 +50,7 @@ Na `ui-app`, **toda** a invocação do backend passa por um único ponto:
 `pair.ts` (PairCode) e um par de usos em `features/codev.ts`. Não há wrapper
 tipado por comando — é o alvo da **Etapa 4** (`platform/tauri/` + `contracts/`).
 
-Dos 268 comandos, **186 são consumidos pela `ui-app`** e **82 não o são**: a UI
+Dos 278 comandos, **196 são consumidos pela `ui-app`** e **82 não o são**: a UI
 oficial é maioritariamente uma simulação de browser que `bridge.ts` substitui em
 runtime (E06) apenas para o subconjunto ligado. Caso notável: as operações de
 **git mutantes** (`git_stage/commit/checkout/…`) aparecem como *não-consumidas*
@@ -615,7 +615,7 @@ xterm.js). `pty://data` = `{ id, data }` (só caracteres UTF-8 completos); `pty:
 
 | Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
 |---|---|---|---|---|---|---|
-| `pty_spawn` | `id: String`, `rows: u16`, `cols: u16`, `cwd: Option<String>`, `shell: Option<String>`, `command: Option<String>`, `env: Option<HashMap<String,String>>` | `()` | String | `pty://data`, `pty://exit` | `features/panel` | **X** · S · E |
+| `pty_spawn` | `id: String`, `rows: u16`, `cols: u16`, `cwd: Option<String>`, `shell: Option<String>`, `command: Option<String>`, `env: Option<HashMap<String,String>>`, `vault: Option<PtyVault {addr, namespace?, lease?}>` (r23 F4c: o backend põe o token e as credenciais do lease no ambiente; revoga o lease no fim) | `()` | String | `pty://data`, `pty://exit`, `vault://lease-revoked` | `features/panel` | **X** · S · E |
 | `pty_spawn_in_session` | `id: String`, `rows: u16`, `cols: u16`, `root: String` | `()` | String | `pty://data`, `pty://exit` | — | **X** · S · E |
 | `pty_write` | `id: String`, `data: String` | `()` | String | — | `features/panel` | X · S |
 | `pty_resize` | `id: String`, `rows: u16`, `cols: u16` | `()` | String | — | `features/panel` | S |
@@ -632,6 +632,28 @@ ambiente da shell de login resolvido por `shellenv.rs`) e `ports.rs` (portas TCP
 |---|---|---|---|---|---|---|
 | `problems_scan` | `root: String` | `problems::ScanResult` | String | `problems://check` | `features/panel` | **X** · R |
 | `ports_list` | `root: Option<String>` | `Vec<ports::PortInfo>` | String | — | `features/panel` | R |
+
+## 16e. Vault — `commands/vault.rs` (10)
+
+r23 F4c (docs/v2/AUDIT-r23.md §4.4, K01–K05): adaptadores finos sobre `tutor_platform::vault` (crate sem Tauri),
+com o token no keychain do sistema (`tutor_platform::keychain`, crate `keyring`: Secret Service no Linux). **Nenhum
+comando devolve o token.** Um caminho KV diz o ambiente por um segmento (`…/local/…`, `…/staging/…`,
+`…/production/…`); os valores de staging/produção nunca saem do Vault (recusado no Rust). O `pty_spawn` ganhou
+`vault: {addr, namespace?, lease?}`: o backend põe `VAULT_ADDR`/`VAULT_NAMESPACE`/`VAULT_TOKEN` (e, com o lease,
+`VAULT_DYN_*`) no ambiente do terminal e revoga o lease quando ele acaba (evento `vault://lease-revoked`).
+
+| Comando | Args | Retorno | Erro | Evento | Consumidor UI | Política |
+|---|---|---|---|---|---|---|
+| `vault_status` | `addr`, `namespace?` | `Status {addr, namespace, reachable, initialized, sealed, version, signedIn, displayName, policies, ttl, renewable, notes, cli, keychain, keychainNote}` (`sys/health` + `auth/token/lookup-self` com o token do keychain) | String | — | `features/vault` | R |
+| `vault_login_token` | `addr`, `namespace?`, `token` | `Status` — o token colado é verificado no Vault e vai para o keychain; nunca volta | String | — | `features/vault` | **W** (keychain) |
+| `vault_login_oidc` | `addr`, `namespace?`, `mount?` (`oidc`), `role` | `Status` — `auth_url` → o browser abre (no Rust) → volta a `127.0.0.1:8250/oidc/callback` → `callback` → token no keychain (espera até 3 min) | String | — | `features/vault` | **W** (keychain) · X (browser) |
+| `vault_renew` | `addr`, `namespace?` | `Status` (`renew-self`) | String | — | `features/vault` | **W** |
+| `vault_revoke` | `addr`, `namespace?` | `Status` — `revoke-self` e o token sai do keychain (mesmo sem Vault) | String | — | `features/vault` | **W** |
+| `vault_kv_meta` | `addr`, `namespace?`, `mount`, `path` | `KvMeta {mount, path, env, exists, currentVersion, versions[], created, updated, customMetadata, keys (só local), children}` — nunca valores | String | — | `features/vault` | R |
+| `vault_reveal_local` | `root`, `addr`, `namespace?`, `mount`, `path`, `key`, `reason?` | `Reveal {id, path, key, ttlMs: 20000}` — só `local` (recusado no Rust), auditado ANTES (`vault` · `reveal-local`); o valor entra na redacção | String | — | `features/vault` | R · **W** (auditoria) |
+| `vault_reveal_read` | `id` | `String` (o valor, durante 20 s; depois Err) | String | — | `features/vault` | R |
+| `vault_dynamic` | `root`, `addr`, `namespace?`, `mount`, `role`, `reason?` | `Lease {leaseId, ttl, renewable, fields, env}` (`<mount>/creds/<role>`) — os valores ficam no backend até um terminal os levar; auditado antes | String | — | `features/vault` | **W** · S |
+| `vault_lease_revoke` | `root`, `addr`, `namespace?`, `lease` | `()` (`sys/leases/revoke`, auditado) | String | — | `features/vault` | **W** |
 
 ## 17. Project (SQLite) e quadro Tasks — `board.rs` (15)
 
@@ -684,9 +706,9 @@ ferramenta LLM** local, não o comando IPC).
 
 | Dimensão | Valor |
 |---|---|
-| Comandos registados | **268** |
+| Comandos registados | **278** |
 | Por ficheiro | `lib.rs` 0 · `commands/study.rs` 11 · `commands/missions.rs` 4 · `commands/review.rs` 3 · `commands/codeintel.rs` 10 · `commands/tests.rs` 8 · `commands/git.rs` 41 · `commands/codev.rs` 5 · `commands/codev_agent.rs` 17 · `commands/dictation.rs` 4 · `commands/search.rs` 4 · `commands/agent.rs` 16 · `commands/assistant.rs` 8 · `commands/debug_cmds.rs` 34 · `commands/hood.rs` 3 · `commands/ops.rs` 6 · `commands/codebase.rs` 2 · `commands/devcontainer.rs` 8 · `commands/sandbox.rs` 3 · `commands/pair.rs` 4 · `commands/plugins.rs` 3 · `bridge.rs` 16 · `fsops.rs` 10 · `lsp.rs` 18 · `pty.rs` 7 · `commands/panel.rs` 2 · `commands/protect.rs` 3 · `board.rs` 12 |
-| Consumidos pela `ui-app` | **186** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 18 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5) · `audit_record` (`platform/tauri/audit.ts`, r23 F1) · `git_clone`/`git_clone_plan` (`features/welcome`, r23 F6) · `git_refs` (`features/scm`, r23 F3) · `git_hunks`/`git_stage_hunks` (`features/scm`, r23 F3) · `git_undo_*` (4: `features/scm`, r23 F3) · `git_predict_conflicts` (`features/scm`, r23 F3) · `git_merge`/`git_conflict_stages` (`features/scm`, r23 F3) · `git_sync_plan`/`git_sync` (`features/scm`, r23 F3) · `gh_status`/`gh_prs`/`gh_runs_for`/`gh_prs_for` (`features/scm`, r23 F3) · `test_results_record` (`features/testing`) e `test_results_for` (`features/scm`), r23 F3 · `git_commit_paths`/`git_lane_commit` (`features/scm`, r23 F3) · `protect_learn`/`secret_scan`/`secret_scan_allow` (`features/protect`, r23 F4a) · `iac_pipeline_run`/`iac_apply_command`/`iac_state`/`iac_risks`/`iac_risk_accept`/`iac_risk_revoke` (`features/ops`, r23 F4b)) |
+| Consumidos pela `ui-app` | **196** (`bridge.ts` 24 e `pair.ts` 4 — desde a U2 do ADR-0004 por clientes tipados de `platform/tauri/` (`shell`, `fs`, `git`, `providers`, `agent-tasks`, `app`, `pair`), sem `invoke` cru · `features/codev.ts` 3, com sobreposição · `platform/tauri/codev-agent.ts` 16 · `platform/tauri/dictation.ts` 4 · `platform/tauri/assistant.ts` 1 · `platform/tauri/learn.ts` 6 · `platform/tauri/extensions.ts` 2 · `features/panel` 8 · `platform/tauri/arch.ts` 7 · `features/lsp` 18 · `platform/tauri/project.ts` 4 · `features/testing` 3 da A6: `test_runners`/`test_run`/`test_history` · `features/scm` 8 da A4: `git_blame`/`git_history`/`git_show_path`/`git_compare`/`git_stash`/`git_worktree`/`git_rebase`/`git_amend` · `features/debug` 9 da A7 · `features/hood` 6 da A8: `hood_line_asm`/`hood_python_bytecode`/`measure_growth` e os já existentes `trace_execution`/`compile_pipeline`/`run_measured` · `features/ops` 6 da A9 · 5 da A10: `deps_report`/`onboard_map` (`features/codebase`), `git_diff_range` (`features/scm`), `debug_attach_targets`/`debug_attach` (`features/debug`) · `project_change_sets` (`features/scm`, RF-E08) · 5 do bloco 3: `arch_rules_load`/`arch_rules_save`/`adr_list`/`adr_accept`/`arch_rules_commit` (`platform/tauri/arch.ts`, F5.2/F5.5) · `audit_record` (`platform/tauri/audit.ts`, r23 F1) · `git_clone`/`git_clone_plan` (`features/welcome`, r23 F6) · `git_refs` (`features/scm`, r23 F3) · `git_hunks`/`git_stage_hunks` (`features/scm`, r23 F3) · `git_undo_*` (4: `features/scm`, r23 F3) · `git_predict_conflicts` (`features/scm`, r23 F3) · `git_merge`/`git_conflict_stages` (`features/scm`, r23 F3) · `git_sync_plan`/`git_sync` (`features/scm`, r23 F3) · `gh_status`/`gh_prs`/`gh_runs_for`/`gh_prs_for` (`features/scm`, r23 F3) · `test_results_record` (`features/testing`) e `test_results_for` (`features/scm`), r23 F3 · `git_commit_paths`/`git_lane_commit` (`features/scm`, r23 F3) · `protect_learn`/`secret_scan`/`secret_scan_allow` (`features/protect`, r23 F4a) · `iac_pipeline_run`/`iac_apply_command`/`iac_state`/`iac_risks`/`iac_risk_accept`/`iac_risk_revoke` (`features/ops`, r23 F4b) · os 10 `vault_*` (`features/vault`, r23 F4c)) |
 | Não consumidos pela `ui-app` | **82** |
 | Eventos distintos | **17** — `arch://proposal` (a ferramenta `arch_propose` do agente → Studio de arquitectura), `llm://token`, `llm://done`, `llm://error`, `proc-line`, `proc-exit`, `pty://data`, `pty://exit`, `pair-status`, `pair-msg`, `codev-agent://event`, `codev-agent://approval`, `codev-agent://error`, `lsp://diagnostics`, `lsp://status`, `lsp://apply-edit`, `problems://check` |
 | Executam processo/shell (**X**) | 30+ (estudo-run, testes, debug, devcontainers, exec/run_shell/run_path, lsp_start, pty, dictation_start/stop) |

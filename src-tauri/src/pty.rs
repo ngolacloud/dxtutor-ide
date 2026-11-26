@@ -155,6 +155,10 @@ pub fn shells_from(
 
 /// Open a PTY, spawn `cmd` on its slave, stream its output, and store the session under
 /// `id` (replacing a previous one with the same id).
+/// What runs when a terminal ends (r23 F4c: revoke its Vault lease).
+type OnExit = Option<Box<dyn FnOnce(&AppHandle) + Send>>;
+
+#[allow(clippy::too_many_arguments)]
 fn spawn_with_command(
     app: AppHandle,
     state: State<'_, PtyState>,
@@ -163,6 +167,7 @@ fn spawn_with_command(
     cols: u16,
     cmd: CommandBuilder,
     shell: String,
+    on_exit: OnExit,
 ) -> Result<(), String> {
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -236,9 +241,25 @@ fn spawn_with_command(
                 map.remove(&id);
             }
         }
+        if let Some(f) = on_exit {
+            f(&app);
+        }
         let _ = app.emit("pty://exit", ExitEvent { id: &id, code });
     });
     Ok(())
+}
+
+/// What a terminal takes from Vault (r23 F4c): the Vault (its token, from the keychain, as
+/// `VAULT_TOKEN` — never through the UI) and, optionally, a lease of dynamic credentials, revoked
+/// when the terminal ends.
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyVault {
+    pub addr: String,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub lease: Option<String>,
 }
 
 /// Common environment of every terminal: a capable TERM, truecolor, a UTF-8 locale when
@@ -273,7 +294,28 @@ pub fn pty_spawn(
     shell: Option<String>,
     command: Option<String>,
     env: Option<HashMap<String, String>>,
+    vault: Option<PtyVault>,
 ) -> Result<(), String> {
+    // r23 F4c: the Vault environment is resolved here, in Rust (the token never crosses the IPC)
+    let mut on_exit: OnExit = None;
+    let mut env = env;
+    if let Some(v) = &vault {
+        let (t, venv) = crate::commands::vault::terminal_env(
+            &v.addr,
+            v.namespace.as_deref(),
+            v.lease.as_deref(),
+        )?;
+        env.get_or_insert_with(HashMap::new).extend(venv);
+        if let Some(lease) = v.lease.clone() {
+            on_exit = Some(Box::new(move |app: &AppHandle| {
+                let r = crate::commands::vault::revoke_after(&t, &lease);
+                let _ = app.emit(
+                    "vault://lease-revoked",
+                    serde_json::json!({"lease": lease, "ok": r.is_ok(), "error": r.err()}),
+                );
+            }));
+        }
+    }
     let (mut cmd, label) = match command.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
         Some(line) => {
             #[cfg(windows)]
@@ -308,7 +350,7 @@ pub fn pty_spawn(
     if let Some(d) = dir {
         cmd.cwd(d);
     }
-    spawn_with_command(app, state, id, rows, cols, cmd, label)
+    spawn_with_command(app, state, id, rows, cols, cmd, label, on_exit)
 }
 
 /// Spawn a terminal instance INSIDE the persistent devcontainer session for `root`
@@ -342,6 +384,7 @@ pub fn pty_spawn_in_session(
         cols,
         cmd,
         format!("{program} (container)"),
+        None,
     )
 }
 

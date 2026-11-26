@@ -117,6 +117,10 @@ use commands::study::{
 use commands::tests::{
     list_tests, run_all_tests, run_path, run_test, run_tests, test_history, test_run, test_runners,
 };
+use commands::vault::{
+    vault_dynamic, vault_kv_meta, vault_lease_revoke, vault_login_oidc, vault_login_token,
+    vault_renew, vault_reveal_local, vault_reveal_read, vault_revoke, vault_status,
+};
 
 use serde::Serialize;
 use tutor_core::{Level, Phase, StepKind};
@@ -1078,6 +1082,16 @@ pub fn run() {
             iac_pipeline_run,
             iac_apply_command,
             iac_state,
+            vault_status,
+            vault_login_token,
+            vault_login_oidc,
+            vault_renew,
+            vault_revoke,
+            vault_kv_meta,
+            vault_reveal_local,
+            vault_reveal_read,
+            vault_dynamic,
+            vault_lease_revoke,
             ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,

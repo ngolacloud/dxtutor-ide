@@ -15,6 +15,7 @@ members = [
     "crates/tutor-agent",
     "crates/tutor-plugins",
     "crates/tutor-protect",
+    "crates/tutor-platform",
     "src-tauri",
 ]
 

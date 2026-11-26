@@ -672,10 +672,26 @@ fn audit_iac(
     label: &str,
     reason: Option<&str>,
 ) -> Result<(), ProjectError> {
+    audit_backend(app, root, "iac", action, label, reason)
+}
+
+/// An operation the backend itself records in the audit log before it runs (r23 F4b/F4c: accepted
+/// risks, a Vault value revealed, dynamic credentials issued): who and when from here, secrets
+/// masked. An operation that cannot be recorded does not run.
+pub fn audit_backend(
+    app: &AppHandle,
+    root: &str,
+    feature: &str,
+    action: &str,
+    label: &str,
+    reason: Option<&str>,
+) -> Result<(), ProjectError> {
+    let root = root_of(root)?;
+    let root = root.as_str();
     let redactor = tutor_agent::redact::Redactor::for_root(Path::new(root));
     let e = ide_audit_entry(
         &IdeAudit {
-            feature: "iac".into(),
+            feature: feature.into(),
             action: action.into(),
             command: label.into(),
             scope: None,

@@ -30,3 +30,4 @@ pub mod sandbox;
 pub mod search;
 pub mod study;
 pub mod tests;
+pub mod vault;
