@@ -1,7 +1,8 @@
 /* ═══════════ feature `board` — domínio: persistência do backlog (ADR-0006, R3b) ═══════════
    O mapeamento PURO entre o quadro da UI (`Backlog`/`Issue`) e o modelo do backend
    (`tutor_board::Backlog` — sprints + user stories, `board_load`/`board_save`, um por pasta).
-   O título vai para `want`, o tipo para `kind`, os pontos/coluna/sprint/nota/ramo para os
+   O título vai para `want`, o tipo para `kind`, os pontos/coluna/sprint/nota/ramo — e a story
+   (`role`/`soThat`), os critérios (`acceptance`) e o `prompt`, quando a issue os tem — para os
    campos homónimos; o que o backend não tem coluna (agente, dono humano, merge, componente do
    Studio, revisão, explicação, custo, resultado dos testes…) vai em `meta`, tal-e-qual. Sem DOM,
    sem `window`, sem Tauri. */
@@ -42,8 +43,8 @@ export function toBacklogDto(b: Backlog): BacklogDto {
     const meta: Record<string, unknown> = {};
     for (const k of META_KEYS) { const v = (i as unknown as Record<string, unknown>)[k]; if (v !== undefined && v !== null && v !== false && v !== 0) meta[k] = v; } /* os defaults (0/false/null) não se guardam: a leitura repõe-nos */
     return {
-      id: i.id, sprint: i.sprint, role: "", want: i.title, soThat: "", acceptance: [], points: i.pts,
-      stage: i.stage, kind: i.type, prompt: "", note: i.note || "", branch: i.branch ?? null, meta,
+      id: i.id, sprint: i.sprint, role: i.role || "", want: i.title, soThat: i.soThat || "", acceptance: i.acceptance ? [...i.acceptance] : [], points: i.pts,
+      stage: i.stage, kind: i.type, prompt: i.prompt || "", note: i.note || "", branch: i.branch ?? null, meta,
     };
   });
   return { problem: "", seq: b.seq, sprints, stories };
@@ -62,6 +63,11 @@ export function fromBacklogDto(d: BacklogDto): { issues: Issue[]; seq: number } 
       model: (m.model as string) ?? null, branch: s.branch ?? null, agent: typeof m.agent === "string" ? m.agent : "lead", sprint: s.sprint,
     };
     for (const k of ["owner", "merged", "node", "infra", "custom", "reviewed", "explain", "cost"] as const) if (m[k] !== undefined) (it as unknown as Record<string, unknown>)[k] = m[k];
+    /* a story e os critérios só entram na issue quando existem (uma issue sem eles fica igual) */
+    if (s.role) it.role = s.role;
+    if (s.soThat) it.soThat = s.soThat;
+    if (s.acceptance && s.acceptance.length) it.acceptance = [...s.acceptance];
+    if (s.prompt) it.prompt = s.prompt;
     return it;
   });
   return { issues, seq: nextSeq(d.stories, d.seq) };

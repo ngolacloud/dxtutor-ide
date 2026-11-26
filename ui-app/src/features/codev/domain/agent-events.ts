@@ -69,7 +69,9 @@ export type HunkEvent =
   | { kind: "hunk_chunk"; hunk: string; text: string }
   | { kind: "hunk_end"; hunk: string; text: string; lines: { added: number; removed: number } }
   | { kind: "hunk_review"; call: string; hunks: string[]; reason: string; why?: string; violations?: RuleViolation[] }
-  | { kind: "hunk_applied"; hunk: string; provisional: boolean; fingerprint: string }
+  /** `before`: the file's text before the block, when the writer already has it (local proposals write
+   *  first); `null` = do not record it again for Ctrl+Z; absent = read it from the editor (the backend). */
+  | { kind: "hunk_applied"; hunk: string; provisional: boolean; fingerprint: string; before?: string | null }
   | { kind: "hunk_rejected"; hunk: string; by: "human" | "validation" | "cancel"; reason: string }
   | { kind: "hunk_stale"; hunk: string; path: string }
   | { kind: "validation"; status: "running" | "passed" | "failed" | "skipped"; checks: ValidationCheck[]; baseline: ValidationCheck[] }

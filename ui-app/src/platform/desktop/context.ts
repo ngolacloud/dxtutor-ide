@@ -58,6 +58,9 @@ function stream(line: string, o: { line?: (l: string, err?: boolean) => void; en
     shell.runShell({ id, line, cwd: o.cwd || R.cwd || R.root, env: o.env || ctx.envFor() }).then(() => { if (o.onId) o.onId(id); }).catch(e => { delete R.handlers[id]; no(e); });
   });
 }
+/* o streaming de uma linha, para as features (o runner de testes ao vivo do painel «Tests») */
+R.streamCmd = (line, o) => stream(line, { line: o.line, onId: o.onId, cwd: R.root });
+R.killCmd = (id) => shell.killShell(id);
 const missing = (n: string) => (): never => { throw new Error("desktop: o serviço " + n + " não foi instalado"); };
 const ctx = {
   T, shell, fsx, gitc, providers, tasks, app, R,

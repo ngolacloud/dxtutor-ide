@@ -224,7 +224,8 @@ describe("o painel (harness): aplicar uma sugestão do Explain", () => {
     await wait();
     expect(side().querySelector(".cr-diff")).not.toBe(null);
     expect(side().querySelectorAll(".cr-diff .cr-cl.add").length).toBeGreaterThan(0);
-    expect(side().querySelector('[data-action="cr:accept"]')!.textContent).toBe("Accept"); // no browser não há testes
+    expect(side().querySelector('[data-action="cr:accept"]')!.textContent).toBe("Accept all"); // no browser não há testes
+    expect(side().querySelector('[data-action="cr:review-editor"]')!.textContent).toBe("Review in editor"); // o principal: bloco a bloco no editor
     side().querySelector<HTMLElement>('[data-action="cr:deny"]')!.click();
     await wait();
     expect(side().querySelector(".cr-imp")).toBe(null);
@@ -233,5 +234,58 @@ describe("o painel (harness): aplicar uma sugestão do Explain", () => {
     side().querySelector<HTMLElement>('[data-action="cr:back"]')!.click();
     await wait();
     expect(side().querySelector('[data-action="cr:apply-block"]')).not.toBe(null);
+  });
+});
+
+describe("feito: aplicado e validado pelos testes não se aplica outra vez", () => {
+  it("testes verdes → done; a sugestão fica marcada e «Apply» outra vez não faz nada; Reverter desmarca", async () => {
+    const r = rig();
+    r.replies.push("## S\n```rust\nfn a() -> u8 { 1 }\n```", "```rust improved\nfn a() -> u8 { 1 }\n```");
+    r.s.explain({ path: "p/a.rs", selection: null, card });
+    await flush();
+    r.s.applySuggestion("fn a() -> u8 { 1 }", "rust");
+    await flush();
+    await r.s.accept();
+    expect(r.s.state()).toMatchObject({ done: true, test: { status: "passed" } });
+    expect(r.s.markOf("p/a.rs", "fn a() -> u8 {\n  1 }")).toBe("done"); // espaços não contam
+    r.s.goBack();
+    const before = r.prompts.length;
+    r.s.applySuggestion("fn a() -> u8 { 1 }", "rust");
+    expect(r.prompts.length).toBe(before); // não pediu outra vez
+    expect(r.s.state()!.kind).toBe("explain");
+  });
+
+  it("testes vermelhos não marcam feito; sem testes fica «aplicado»; Reverter tira a marca", async () => {
+    const r = rig();
+    r.replies.push("```rust improved\nfn b() {}\n```");
+    r.s.review("p/a.rs", []);
+    await flush();
+    r.runs.push({ ran: true, passed: false, output: "test x ... FAILED" });
+    await r.s.accept();
+    expect(r.s.state()!.done).toBe(false);
+    const n = rig("no folder");
+    n.replies.push("## S\n```rust\nfn c() {}\n```", "```rust improved\nfn c() {}\n```");
+    n.s.explain({ path: "p/a.rs", selection: null, card });
+    await flush();
+    n.s.applySuggestion("fn c() {}", "rust");
+    await flush();
+    await n.s.accept();
+    expect(n.s.markOf("p/a.rs", "fn c() {}")).toBe("applied");
+    n.s.revert();
+    expect(n.s.markOf("p/a.rs", "fn c() {}")).toBe(null);
+  });
+});
+
+describe("ficheiro grande demais para reescrever inteiro", () => {
+  it("o pedido não pede o ficheiro inteiro e um bloco «improved» cortado nunca vira proposta", async () => {
+    const big = "// x\n".repeat(6000); // 30 000 caracteres
+    expect(applySuggestionPrompt({ path: "a.rs", ext: "rs", content: big, snippet: "x", snippetLang: "rust", context: "", lang: "en" })).toContain("too large to rewrite");
+    const r = rig();
+    r.fs["p/a.rs"] = big;
+    r.replies.push("```rust improved\nfn cut() {}\n```");
+    r.s.review("p/a.rs", []);
+    await flush();
+    expect(r.prompts[0]).toContain("do NOT write the whole file");
+    expect(r.s.state()!.improved).toBe(null);
   });
 });

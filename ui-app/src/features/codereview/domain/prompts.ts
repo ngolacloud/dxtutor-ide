@@ -23,6 +23,10 @@ export function numbered(code: string, from = 1): string {
 
 const MAX = 24000;
 const clip = (s: string) => (s.length > MAX ? s.slice(0, MAX) + "\n… (truncated)" : s);
+/** O ficheiro cabe inteiro no pedido? Se não, o modelo só vê o princípio e NÃO pode devolvê-lo inteiro
+ *  (perderia o fim): os pedidos trocam o bloco `improved` por trechos citando as linhas. */
+export const fitsWhole = (content: string): boolean => content.length <= MAX;
+const PARTIAL = "The file is too large to rewrite here (you only see its beginning): do NOT write the whole file and do NOT use an `improved` block. Show each change as a short fenced snippet that cites the lines it replaces (L12-L20).";
 
 export interface ExplainRequest {
   path: string;
@@ -74,7 +78,7 @@ ${known}
 Write a markdown document for a side panel next to the code:
 ## Verdict — one paragraph and a score out of 100.
 ## Findings — one ### heading per finding: \`[bug|risk|perf|style] title (L12)\`, then why it matters and the fix.
-## Improved code — the WHOLE file with every fix applied, in ONE fenced block whose info string is exactly \`${lang} improved\` (\`\`\`${lang} improved). Complete file, never an excerpt; keep the behaviour that is correct and the existing style. Add a comment only where a change is not obvious.
+${fitsWhole(r.content) ? `## Improved code — the WHOLE file with every fix applied, in ONE fenced block whose info string is exactly \`${lang} improved\` (\`\`\`${lang} improved). Complete file, never an excerpt; keep the behaviour that is correct and the existing style. Add a comment only where a change is not obvious.` : `## Changes — ${PARTIAL}`}
 ## How to test — the tests (or manual checks) that prove the fixes; if a test should be added, show it.
 
 Cite lines as L12. ${LANG_RULE[r.lang]}
@@ -90,7 +94,7 @@ export function applySuggestionPrompt(r: { path: string; ext: string; content: s
   const lang = fenceLang(r.ext);
   return `Apply this suggestion to \`${r.path}\`. Integrate it where it belongs, keep everything else exactly as it is (same behaviour, style and comments), and do not make other changes.
 
-Start with a short "## What changes" section (two or three bullets, citing lines as L12), then give the WHOLE updated file in ONE fenced block whose info string is exactly \`${lang} improved\`. ${LANG_RULE[r.lang]}
+Start with a short "## What changes" section (two or three bullets, citing lines as L12), then ${fitsWhole(r.content) ? `give the WHOLE updated file in ONE fenced block whose info string is exactly \`${lang} improved\`` : PARTIAL}. ${LANG_RULE[r.lang]}
 
 The suggestion:
 \`\`\`${r.snippetLang || lang}
@@ -109,7 +113,7 @@ ${clip(numbered(r.content))}
 /** Pedido de correcção quando os testes falharam depois de aplicar o código melhorado. `spots`: onde
  *  quebrou, lido da saída (domain/test-report). */
 export function fixTestsPrompt(path: string, ext: string, content: string, output: string, lang: DocLang, spots = ""): string {
-  return `The improved \`${path}\` was applied and the project tests failed. Find the cause from the output and give the whole corrected file in ONE fenced block with the info string \`${fenceLang(ext)} improved\`. Start with a short "## Why it failed" section. ${LANG_RULE[lang]}
+  return `The improved \`${path}\` was applied and the project tests failed. Find the cause from the output and ${fitsWhole(content) ? `give the whole corrected file in ONE fenced block with the info string \`${fenceLang(ext)} improved\`` : PARTIAL}. Start with a short "## Why it failed" section. ${LANG_RULE[lang]}
 ${spots ? `\nWhere it broke:\n${spots}\n` : ""}
 Test output (last part):
 \`\`\`text

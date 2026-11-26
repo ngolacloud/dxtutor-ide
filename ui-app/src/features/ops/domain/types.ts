@@ -35,6 +35,16 @@ export interface IacState {
   ok: boolean; tool: string; dir: string; backend: string; serial: number | null; lineage: string | null;
   resources: StateResource[]; lock: LockInfo | null; lockReadable: boolean; backupSerial: number | null; notes: string;
 }
+/* ── r23 F5a: runbooks as code, the data sources, the evidence (tutor_platform::runbook/sources, board.rs) ── */
+export type StepKind = "check" | "action" | "decision";
+export interface RunbookStep { n: number; title: string; kind: StepKind; command: string; expect: string; refused: string | null }
+export interface Runbook { path: string; title: string; about: string[]; schedule: string | null; steps: RunbookStep[]; problems: string[] }
+export interface StepRun {
+  id: number; runId: string; path: string; runbook: string; n: number; title: string; kind: StepKind; command: string;
+  exitCode: number | null; output: string; expect: string; matched: boolean | null; note: string | null; actor: string; at: number; ms: number;
+}
+export interface DataSource { kind: "cicd" | "cost" | "obs" | "cloud"; connected: boolean; via: string | null; notes: string; hint: string | null }
+export interface EvidenceFile { path: string; content: string }
 export interface AcceptedRisk { id: number; key: string; kind: "finding" | "drift"; label: string; reason: string; actor: string; at: number; expires: number }
 
 export interface Pod { name: string; phase: string; ready: string; restarts: number; node: string; created: string; reason: string | null }

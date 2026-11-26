@@ -1089,6 +1089,43 @@ const desktopSample: DesktopContext["desktopSample"] = (i, o) => ctx.desktopSamp
         if (before) await git("reset", "--hard", before);
       }
     });
+    // r23 F5a: runbooks como código na app real — a verificação só de leitura corre sem pedir, a que não é só de
+    // leitura é recusada no Rust (`not_read_only`, aceitação do brief), a acção sem aprovação também, com aprovação corre
+    // e fica no registo; a decisão regista palavras; as fontes «not connected»; e as evidências ISO 27001 escritas em
+    // docs/audit a partir das linhas REAIS do registo (aceitação do brief).
+    await step("runbook", async () => {
+      const inv = window.__TAURI__!.core.invoke as (c: string, a?: Record<string, unknown>) => Promise<unknown>;
+      const root = R.root as string, rb = ROOT + "runbooks/selftest-restore.md";
+      writeFile(rb, "# selftest: restore test\n\nOwner: self-test\n\n## 1. List the project [check]\n```sh\nls -1 && echo ready\n```\nexpect: `ready`\n\n## 2. Write a marker [action]\n```sh\necho restored > selftest-marker.txt && cat selftest-marker.txt\n```\nexpect: `restored`\n\n## 3. Call it done? [decision]\nexpect: decided\n\n## 4. Sneak a write into a check [check]\n```sh\nls > listing.txt\n```\nexpect: nothing\n");
+      flushSave(); await idle();
+      const run = `run-selftest-${Date.now()}`;
+      try {
+        const list = await inv("runbook_list", { root }) as Array<{ path: string; steps: Array<{ n: number; refused: string | null }> }>;
+        const mine = list.find((r) => r.path === "runbooks/selftest-restore.md");
+        const s1 = await inv("runbook_step", { root, path: "runbooks/selftest-restore.md", n: 1, runId: run, approval: null, vault: null }) as { exitCode: number; matched: boolean | null; output: string };
+        const refused = await inv("runbook_step", { root, path: "runbooks/selftest-restore.md", n: 4, runId: run, approval: null, vault: null }).then(() => "ran", (e) => String(e));
+        const unapproved = await inv("runbook_step", { root, path: "runbooks/selftest-restore.md", n: 2, runId: run, approval: null, vault: null }).then(() => "ran", (e) => String(e));
+        const s2 = await inv("runbook_step", { root, path: "runbooks/selftest-restore.md", n: 2, runId: run, approval: { reason: "self-test restore" }, vault: null }) as { exitCode: number; matched: boolean | null; actor: string };
+        const s3 = await inv("runbook_decide", { root, path: "runbooks/selftest-restore.md", n: 3, runId: run, note: "done: the marker is there" }) as { note: string };
+        const sources = await inv("sources_status", { root }) as Array<{ kind: string; connected: boolean }>;
+        const ev = await inv("audit_export_evidence", { root, from: null, to: null }) as { path: string; content: string };
+        const rows = await projectClient().audit(root, null) as Array<{ origin: string; tool: string | null; call: string | null }>;
+        const actionAudited = rows.some((r) => r.origin === "ide" && r.tool === "runbook" && r.call === "action");
+        const onDisk = ((await sh("cat", [ev.path])) as { code: number; stdout: string });
+        const out = {
+          steps: mine?.steps.length, refusedAtParse: mine?.steps.find((x) => x.n === 4)?.refused?.slice(0, 60), s1: { code: s1.exitCode, matched: s1.matched }, refused: refused.slice(0, 80), unapproved: unapproved.slice(0, 60),
+          s2: { code: s2.exitCode, matched: s2.matched, actor: !!s2.actor }, s3: s3.note, sources: sources.map((x) => `${x.kind}:${x.connected}`).join(" "), actionAudited,
+          evidence: ev.path, sections: (ev.content.match(/^## .*/gm) || []).length, hasRunbook: /runbook «selftest: restore test»/.test(ev.content), hasAction: /runbook\.action/.test(ev.content),
+          backup: /## A\.8\.13[^#]*restore test/.test(ev.content), vaultRow: /vault\.reveal-local/.test(ev.content), onDisk: onDisk.code === 0 && onDisk.stdout.startsWith("# Evidence export"), noListing: !Object.keys(FS).some((k) => k.endsWith("listing.txt")),
+        };
+        if (!mine || s1.exitCode !== 0 || s1.matched !== true || !/not_read_only/.test(refused) || !/approval/.test(unapproved) || s2.exitCode !== 0 || s2.matched !== true || !actionAudited
+          || !out.refusedAtParse || sources.find((x) => x.kind === "cost")?.connected !== false || !/^docs\/audit\/evidence-\d{4}-\d{2}\.md$/.test(ev.path) || out.sections < 5 || !out.hasRunbook || !out.hasAction || !out.backup || !out.onDisk) throw new Error("runbook: " + JSON.stringify(out));
+        return out;
+      } finally {
+        delete FS[rb]; flushSave(); await idle();
+        await sh("rm", ["-rf", "runbooks", "selftest-marker.txt", "listing.txt", "docs/audit"]);
+      }
+    });
     // A8: «Under the hood» real com a toolchain desta máquina — as instruções de uma linha em debug e
     // em release, o bytecode Python, os estágios do compilador, uma execução medida, o crescimento com N
     // e o traço real (Rust e Python).

@@ -281,6 +281,28 @@ const MIGRATIONS: &[&str] = &[
         reason      TEXT
     );
     CREATE INDEX idx_deploys_version ON deploys(root, version, at);",
+    // 12 — runbook runs (r23 F5a, RF-BK-R02): each step run or decided — command, output (masked),
+    //      exit code, result against the expectation (or the person's judgement), who and when
+    "CREATE TABLE runbook_runs (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        root      TEXT NOT NULL,
+        run_id    TEXT NOT NULL,
+        path      TEXT NOT NULL,
+        runbook   TEXT NOT NULL,
+        n         INTEGER NOT NULL,
+        title     TEXT NOT NULL,
+        kind      TEXT NOT NULL,
+        command   TEXT NOT NULL DEFAULT '',
+        exit_code INTEGER,
+        output    TEXT NOT NULL DEFAULT '',
+        expect    TEXT NOT NULL DEFAULT '',
+        matched   INTEGER,
+        note      TEXT,
+        actor     TEXT NOT NULL,
+        at        INTEGER NOT NULL,
+        ms        INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_runbook_runs ON runbook_runs(root, path, at);",
 ];
 
 /// The schema version this code expects.

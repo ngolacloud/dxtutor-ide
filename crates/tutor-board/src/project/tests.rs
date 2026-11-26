@@ -1069,3 +1069,172 @@ fn deploy_records_per_commit() {
         .is_empty());
     assert_eq!(st.deploys("/p", None).unwrap().len(), 3);
 }
+
+/// r23 F5a: runbook runs are kept (and a person's judgement), and the evidence file groups real rows by
+/// ISO/IEC 27001 control — every control listed, «no records in this period» when empty.
+#[test]
+fn runbook_runs_and_the_evidence_file() {
+    let mut st = store();
+    let step = |run: &str, path: &str, rb: &str, n: u32, matched: Option<bool>, at: i64| {
+        runbooks::RunbookStepRun {
+            run_id: run.into(),
+            path: path.into(),
+            runbook: rb.into(),
+            n,
+            title: format!("step {n}"),
+            kind: "check".into(),
+            command: "kubectl get pods".into(),
+            exit_code: Some(0),
+            output: "web-1 Running".into(),
+            expect: "`Running`".into(),
+            matched,
+            note: None,
+            actor: "ana".into(),
+            at,
+            ms: 12,
+            ..Default::default()
+        }
+    };
+    st.record_runbook_step(
+        "/p",
+        &step(
+            "r1",
+            "runbooks/latency.md",
+            "orders-api latency",
+            1,
+            Some(true),
+            T0,
+        ),
+    )
+    .unwrap();
+    let id = st
+        .record_runbook_step(
+            "/p",
+            &step(
+                "r1",
+                "runbooks/latency.md",
+                "orders-api latency",
+                2,
+                None,
+                T0 + 1,
+            ),
+        )
+        .unwrap();
+    st.record_runbook_step(
+        "/p",
+        &step(
+            "r2",
+            "runbooks/restore.md",
+            "orders-db restore test",
+            1,
+            Some(false),
+            T0 + 2,
+        ),
+    )
+    .unwrap();
+    assert!(st
+        .judge_runbook_step("/p", id, true, "pool at 41 %")
+        .unwrap());
+    assert!(!st.judge_runbook_step("/q", id, true, "x").unwrap());
+    let runs = st.runbook_runs("/p", None, T0, T0 + H).unwrap();
+    assert_eq!(runs.len(), 3);
+    assert_eq!(
+        (runs[1].matched, runs[1].note.as_deref()),
+        (Some(true), Some("pool at 41 %"))
+    );
+    assert_eq!(
+        st.runbook_runs("/p", Some("runbooks/restore.md"), T0, T0 + H)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let a = |tool: &str, call: &str, cmd: &str, at: i64| AuditEntry {
+        at,
+        origin: "ide".into(),
+        actor: "ana".into(),
+        tool: Some(tool.into()),
+        call: Some(call.into()),
+        command: Some(cmd.into()),
+        outcome: Some("ok".into()),
+        reason: Some("rotating".into()),
+        ..AuditEntry::default()
+    };
+    let audit = vec![
+        a(
+            "vault",
+            "reveal-local",
+            "show secret/apps/shop/local/db DB_PASSWORD for 20 s",
+            T0,
+        ),
+        a(
+            "iac",
+            "risk.accept",
+            "checkov CKV_AWS_18 · main.tf:5 · 30 days",
+            T0 + 1,
+        ),
+        a(
+            "ops",
+            "iac.apply",
+            "cd infra && tofu apply -input=false /x.bin",
+            T0 + 2,
+        ),
+        a("board", "move", "SHOP-1 to done", T0 + 3),
+        a(
+            "vault",
+            "reveal-local",
+            "outside the period",
+            T0 + 40 * 24 * H,
+        ),
+        AuditEntry {
+            origin: "chat".into(),
+            at: T0,
+            tool: Some("bash".into()),
+            ..AuditEntry::default()
+        },
+    ];
+    let deploys = vec![deploys::DeployRecord {
+        env: "staging".into(),
+        context: "kind-dev".into(),
+        namespace: "shop".into(),
+        version: "0123456789abcdef".into(),
+        issue: Some("SHOP-7".into()),
+        actor: "ana".into(),
+        at: T0 + 4,
+        ok: true,
+        waivers: "[]".into(),
+        gates: "{}".into(),
+        ..Default::default()
+    }];
+    let md = evidence::markdown(
+        "shop",
+        T0 - H,
+        T0 + 30 * 24 * H,
+        T0 + 5,
+        &audit,
+        &deploys,
+        &runs,
+    );
+    assert!(md.starts_with("# Evidence export — shop\n"));
+    let section = |c: &str| {
+        let i = md.find(&format!("## {c}")).unwrap();
+        let rest = &md[i..];
+        rest[..rest[3..].find("\n## ").map(|j| j + 3).unwrap_or(rest.len())].to_string()
+    };
+    assert!(
+        section("A.8.32").contains("ops.iac.apply: cd infra && tofu apply")
+            && section("A.8.32")
+                .contains("deployed 0123456789ab to staging (kind-dev/shop) for SHOP-7 · ok")
+    );
+    assert!(section("A.8.32").contains("runbook «orders-api latency» (runbooks/latency.md): 2 step(s) with output — 2 as expected, 0 not, 0 not judged"));
+    assert!(section("A.8.9").contains("iac.risk.accept"));
+    assert!(section("A.5.17").contains("vault.reveal-local") && !md.contains("outside the period"));
+    assert!(
+        section("A.8.13").contains("orders-db restore test")
+            && section("A.8.13").contains("0 as expected, 1 not")
+    );
+    assert!(section("A.5.24").contains("no records in this period"));
+    assert!(section("Other IDE operations").contains("board.move: SHOP-1 to done"));
+    assert!(!md.contains("bash"), "Co-Dev rows are not IDE operations");
+    assert_eq!(evidence::day(T0), "2025-11-13");
+}

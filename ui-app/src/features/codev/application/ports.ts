@@ -242,6 +242,8 @@ export interface ToolDeps {
   clock: Clock;
   rules: import("../domain/policy").CommandRules;
   mode(): Mode;
+  /** Rever a edição no editor, bloco a bloco (as propostas locais); sem ela, o diálogo «Aprovar edição». */
+  proposals?: { propose(path: string, content: string, reason: string): Promise<{ applied: number; rejected: number; total: number }> };
 }
 
 /** O agente v2 em Rust (comandos `codev_agent_*` e os seus eventos). */

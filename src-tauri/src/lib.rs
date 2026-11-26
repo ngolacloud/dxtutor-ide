@@ -109,6 +109,9 @@ use commands::panel::{ports_list, problems_scan};
 use commands::plugins::{plugin_install, plugin_list, plugin_remove};
 use commands::protect::{protect_learn, secret_scan, secret_scan_allow};
 use commands::review::{list_review_analyzers, review_code, verify_review_fix};
+use commands::runbook::{
+    runbook_decide, runbook_list, runbook_parse, runbook_step, sources_status,
+};
 use commands::sandbox::{compose_ps, get_sandbox_engine, set_sandbox_engine};
 use commands::search::{detect_projects, list_files, read_folder_sources, search_project};
 use commands::study::{
@@ -1095,6 +1098,11 @@ pub fn run() {
             vault_lease_revoke,
             deploy_plan,
             deploy_rollout,
+            runbook_list,
+            runbook_parse,
+            runbook_step,
+            runbook_decide,
+            sources_status,
             ports_list,
             lsp::lsp_start,
             lsp::lsp_did_open,
@@ -1129,6 +1137,9 @@ pub fn run() {
             board::iac_risks,
             board::iac_risk_revoke,
             board::deploy_records,
+            board::runbook_judge,
+            board::runbook_runs,
+            board::audit_export_evidence,
             board::project_issue_prompt,
         ])
         .run(tauri::generate_context!())

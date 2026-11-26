@@ -48,6 +48,19 @@ export function makeDoTool(deps: ToolDeps) {
         del: s.del,
         onDiff: () => workspace.openDiff(t.p!, old || "", nw, "proposta do Co-Dev"),
       });
+      /* com o editor à mão, a edição escreve-se nele: só as linhas que mudam, no sítio, e o humano aceita ou
+         rejeita cada bloco (as mesmas hunks do agente v2); o que aceitou já ficou escrito */
+      if (approvalFor(mode, { kind: "edit" }, rules) === "ask" && deps.proposals) {
+        const r = await deps.proposals.propose(t.p!, nw, "proposta do Co-Dev");
+        if (!r.applied) {
+          notifier.log("humano", copy("rejectedEditLog", { path: workspace.shortPath(t.p!) }));
+          return false;
+        }
+        presenter.trackFile(t.p!);
+        providers.trackUsage(providers.provFor(role || "code"), 900 + s.add * 40);
+        notifier.log(providers.speakerLabel(role || "code"), (old == null ? "criou " : "editou ") + workspace.shortPath(t.p!) + ` (${r.applied}/${r.total} blocos aceites)`);
+        return true;
+      }
       if (approvalFor(mode, { kind: "edit" }, rules) === "ask") {
         const v = await gate.ask(d, [
           { l: "Aprovar edição", v: 1, pri: 1, done: "✓ aprovada por ti" },

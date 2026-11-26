@@ -36,6 +36,15 @@ describe("persist (domínio puro): quadro da UI ↔ tutor_board::Backlog", () =>
     expect(got.seq).toBe(41);
     expect(got.issues[0]).toMatchObject({ id: "DX-40", title: "pagar com cartão", agent: "lead", attempts: 0, res: null });
   });
+
+  it("a story, os critérios e o prompt que vêm do backend voltam ao gravar (não se perdem)", () => {
+    const d: BacklogDto = { problem: "", seq: 41, sprints: [{ index: 0, goal: "" }], stories: [{ id: "DX-40", sprint: 0, role: "comprador", want: "pagar com cartão", soThat: "não ter de ir ao banco", acceptance: ["Dado um cartão válido, quando pago, então a encomenda fica paga"], points: 3, stage: "todo", kind: "feature", prompt: "usa o gateway de testes", note: "", branch: null, meta: { agent: "be" } }] };
+    const got = fromBacklogDto(d);
+    expect(got.issues[0]).toMatchObject({ role: "comprador", soThat: "não ter de ir ao banco", acceptance: ["Dado um cartão válido, quando pago, então a encomenda fica paga"], prompt: "usa o gateway de testes" });
+    expect(toBacklogDto({ seq: got.seq, mig: 3, adr: 4, view: -1, issues: got.issues })).toEqual(d);
+    /* uma issue sem story nem critérios não ganha campos novos (fica igual à de antes) */
+    expect(fromBacklogDto(toBacklogDto(bl)).issues.every((i) => !("role" in i) && !("acceptance" in i))).toBe(true);
+  });
 });
 
 describe("o quadro na cadeia real, com IPC falso", () => {

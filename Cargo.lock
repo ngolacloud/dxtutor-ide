@@ -5485,10 +5485,12 @@ name = "tutor-platform"
 version = "0.7.0"
 dependencies = [
  "keyring",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "tutor-agent",
  "tutor-eval",
  "tutor-protect",
  "ureq",
